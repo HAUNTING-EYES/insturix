@@ -148,7 +148,10 @@ export async function POST(request: Request) {
     if (taskId) {
       try {
         const objectId = new Types.ObjectId(taskId);
-        task = await ClickatronTask.findById(objectId);
+        // Owner-scope the lookup: a user may only attach a sketch variation to their OWN
+        // session. findById (any owner) is an IDOR. If the id isn't owned, task stays null
+        // and the block below mints a fresh task for this caller instead of hijacking one.
+        task = await ClickatronTask.findOne({ _id: objectId, clerkUserId: userId });
       } catch (e) {
         task = null;
       }

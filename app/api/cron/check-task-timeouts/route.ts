@@ -9,9 +9,14 @@ import { getCreditCost } from '@/lib/config/creditCosts';
 import { Types } from 'mongoose';
 
 export async function GET(request: Request) {
-  // 1. Authenticate the request
+  // 1. Authenticate the request. Vercel Cron sends the vercel-cron user-agent;
+  // when CRON_SECRET is configured it may also send Authorization: Bearer <secret>.
   const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const userAgent = request.headers.get('user-agent') || '';
+  const cronSecret = process.env.CRON_SECRET;
+  const isVercelCron = userAgent.includes('vercel-cron');
+  const hasValidSecret = Boolean(cronSecret && authHeader === `Bearer ${cronSecret}`);
+  if (!isVercelCron && !hasValidSecret) {
     return new NextResponse('Unauthorized', { status: 401 });
   }
 

@@ -22,6 +22,7 @@ import { useRouter } from 'next/navigation';
 import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import { useAcceptedBrandVaultBrands } from '@/components/dashboard/BrandVault/useBrandVault';
 import { useFootageAutoEdit } from '@/hooks/editron/use-footage-auto-edit';
+import { collectFootageFiles } from '@/components/editron/project/footage-selection';
 
 type Screen = 'idle' | 'upload' | 'generate' | 'script' | 'saas' | 'onair';
 
@@ -269,18 +270,23 @@ export default function NewProjectFlow() {
 
   // UPLOAD → inline footage auto-edit. Reopen existing projects → the dashboard/upload route.
   const goProjects = useCallback(() => router.push('/dashboard/editron/projects'), [router]);
-  const onFootageFile = useCallback((file?: File | null) => {
-    if (!file || footage.running) return;
+  const onFootageFiles = useCallback((selection: FileList | File[] | null | undefined) => {
+    if (footage.running) return;
+    const { files, rejected } = collectFootageFiles(selection);
+    if (files.length === 0) {
+      setError(rejected.length > 0 ? 'Select video or image footage.' : null);
+      return;
+    }
     setError(null);
-    setProjName(file.name);
-    setProjType('Edit footage');
+    setProjName(files.length === 1 ? files[0].name : `${files.length} files`);
+    setProjType(files.length === 1 ? 'Edit footage' : 'Upload batch');
     setScreen('onair');
-    footage.start(file);
+    footage.startMany(files);
   }, [footage]);
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    onFootageFile(e.dataTransfer.files?.[0]);
-  }, [onFootageFile]);
+    onFootageFiles(e.dataTransfer.files);
+  }, [onFootageFiles]);
 
   const m = META[screen];
 
@@ -358,9 +364,10 @@ export default function NewProjectFlow() {
               <input
                 ref={fileRef}
                 type="file"
-                accept="video/*"
+                accept="video/*,image/*"
+                multiple
                 style={{ display: 'none' }}
-                onChange={(e) => { onFootageFile(e.target.files?.[0]); e.target.value = ''; }}
+                onChange={(e) => { onFootageFiles(e.target.files); e.target.value = ''; }}
               />
               <button
                 type="button"

@@ -9,6 +9,11 @@
  * these inferences for human review rather than auto-accepting them.
  */
 
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from '@/lib/financials/provider-cost-events';
+
 export interface CopyVoiceSignals {
   dials: {
     formality?: number;
@@ -28,6 +33,24 @@ export interface AnalyzeCopyVoiceOptions {
   env?: Record<string, string | undefined>;
   modelName?: string;
   maxChars?: number;
+}
+
+interface CopyVoiceGeminiUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
+interface CopyVoiceGeminiCostInput {
+  status: ProviderCostEventStatus;
+  modelName: string;
+  inputChars: number;
+  outputChars?: number;
+  functionMs: number;
+  usage?: CopyVoiceGeminiUsage;
+  parseableSignals?: boolean;
+  resultCount?: number;
+  error?: unknown;
 }
 
 const DEFAULT_MODEL_NAME = 'gemini-2.5-flash'; // ← mirrors the other Brand Vault Gemini callers
@@ -112,13 +135,29 @@ export async function analyzeCopyVoiceSignals(
 
   const modelName = options.modelName ?? env.BRAND_VAULT_COPY_VOICE_ANALYSIS_MODEL ?? DEFAULT_MODEL_NAME;
   const maxChars = options.maxChars ?? DEFAULT_MAX_CHARS;
+  const copyInput = `\n\nCOPY TO ANALYZE:\n${text.slice(0, maxChars)}`;
+  const inputChars = PROMPT.length + copyInput.length;
+  const startedAt = Date.now();
+  let providerCallStarted = false;
 
   try {
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: modelName });
     // Rule 35: instructions first, data (the copy) last.
-    const result = await model.generateContent([PROMPT, `\n\nCOPY TO ANALYZE:\n${text.slice(0, maxChars)}`]);
-    const signals = parseCopyVoiceSignals(result.response.text());
+    providerCallStarted = true;
+    const result = await model.generateContent([PROMPT, copyInput]);
+    const outputText = result.response.text();
+    const signals = parseCopyVoiceSignals(outputText);
+    await recordBrandVaultCopyVoiceGeminiCost({
+      status: signals ? 'success' : 'failed',
+      modelName,
+      inputChars,
+      outputChars: outputText.length,
+      functionMs: Date.now() - startedAt,
+      usage: readGeminiUsage(result),
+      parseableSignals: Boolean(signals),
+      resultCount: signals ? countCopyVoiceSignals(signals) : 0,
+    });
     if (!signals) {
       console.error(`[FAILLOUD]${TAG} model returned no parseable signals`); // FAILLOUD: remove after brand-vault verify (revert to console.warn)
       return null;
@@ -130,8 +169,85 @@ export async function analyzeCopyVoiceSignals(
     console.log(`${TAG} extracted ${dials || 'no dials'}; ${signals.recurringPhrases.length} phrase(s)`);
     return signals;
   } catch (err) {
+    if (providerCallStarted) {
+      await recordBrandVaultCopyVoiceGeminiCost({
+        status: 'failed',
+        modelName,
+        inputChars,
+        outputChars: 0,
+        functionMs: Date.now() - startedAt,
+        error: err,
+      });
+    }
     // FAILLOUD: remove after brand-vault verify (revert to console.warn message-only)
     console.error(`[FAILLOUD]${TAG} failed`, err);
     return null;
   }
+}
+
+async function recordBrandVaultCopyVoiceGeminiCost(input: CopyVoiceGeminiCostInput) {
+  const inputTokens = input.usage?.inputTokens ?? estimateTokensFromChars(input.inputChars);
+  const outputTokens = input.usage?.outputTokens ?? estimateTokensFromChars(input.outputChars);
+  await recordProviderCostEvent({
+    status: input.status,
+    service: 'brand_vault',
+    action: 'brand_scan',
+    route: 'lib/shared/brand-vault-copy-voice',
+    provider: 'gemini',
+    model: cleanGeminiModelName(input.modelName),
+    operation: 'llm_text_enrichment',
+    units: {
+      requestCount: 1,
+      inputTokens,
+      outputTokens,
+      totalTokens: input.usage?.totalTokens ?? sumOptional(inputTokens, outputTokens),
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      providerName: 'gemini',
+      sourceKind: 'approved_copy_voice',
+      inputChars: input.inputChars,
+      outputChars: input.outputChars,
+      parseableSignals: input.parseableSignals,
+      resultCount: input.resultCount,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
+}
+
+function readGeminiUsage(result: unknown): CopyVoiceGeminiUsage | undefined {
+  const resultRecord = asRecord(result);
+  const responseRecord = asRecord(resultRecord?.response);
+  const usage = asRecord(resultRecord?.usageMetadata) ?? asRecord(responseRecord?.usageMetadata);
+  if (!usage) return undefined;
+
+  const inputTokens = readNumber(usage.promptTokenCount ?? usage.inputTokenCount);
+  const outputTokens = readNumber(usage.candidatesTokenCount ?? usage.outputTokenCount);
+  const totalTokens = readNumber(usage.totalTokenCount);
+  return inputTokens || outputTokens || totalTokens ? { inputTokens, outputTokens, totalTokens } : undefined;
+}
+
+function countCopyVoiceSignals(signals: CopyVoiceSignals): number {
+  return Object.values(signals.dials).filter((value) => value !== undefined).length + signals.recurringPhrases.length;
+}
+
+function estimateTokensFromChars(chars?: number): number | undefined {
+  return typeof chars === 'number' && Number.isFinite(chars) && chars > 0 ? Math.max(1, Math.ceil(chars / 4)) : undefined;
+}
+
+function sumOptional(a?: number, b?: number): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
+}
+
+function cleanGeminiModelName(modelName: string): string {
+  return modelName.replace(/^models\//, '');
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }

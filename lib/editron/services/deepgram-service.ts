@@ -6,6 +6,7 @@
  */
 
 import { createClient, PrerecordedSchema, SyncPrerecordedResponse } from '@deepgram/sdk';
+import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
 import type { CaptionWord } from '@/components/editron/editor/version-7.0.0/types';
 
 // Initialize Deepgram client
@@ -17,6 +18,20 @@ const getDeepgramClient = () => {
   return createClient(apiKey);
 };
 
+export interface TranscriptionTelemetryContext {
+  userId?: string;
+  orgId?: string;
+  projectId?: string;
+  taskId?: string;
+  assetId?: string;
+  route?: string;
+  strategy?: string;
+  assetType?: string;
+  assetSource?: string;
+  hasGcsPath?: boolean;
+  preferWordLevel?: boolean;
+}
+
 export interface TranscriptionOptions {
   /** Language code (e.g., 'en', 'es', 'hi') - if not provided, auto-detect is used */
   language?: string;
@@ -26,6 +41,8 @@ export interface TranscriptionOptions {
   punctuate?: boolean;
   /** Enable smart formatting (numbers, dates, etc.) */
   smartFormat?: boolean;
+  /** Optional cost-ledger context; never include URLs, media text, or provider payloads. */
+  telemetry?: TranscriptionTelemetryContext;
 }
 
 export interface TranscriptionResult {
@@ -68,6 +85,66 @@ export const SUPPORTED_LANGUAGES = [
   { code: 'th', label: 'Thai' },
 ] as const;
 
+type DeepgramCostInput = {
+  status: ProviderCostEventStatus;
+  model: string;
+  sourceMode?: 'file_upload' | 'remote_url';
+  requestCount?: number;
+  bytesIn?: number;
+  mediaSeconds?: number;
+  functionMs?: number;
+  wordCount?: number;
+  detectedLanguage?: string;
+  confidence?: number;
+  error?: unknown;
+};
+
+function getDeepgramErrorClass(error: unknown): string | undefined {
+  if (!error) return undefined;
+  return error instanceof Error ? error.name : typeof error;
+}
+
+async function recordEditronDeepgramCost(
+  options: TranscriptionOptions,
+  input: DeepgramCostInput,
+): Promise<void> {
+  const telemetry = options.telemetry;
+
+  await recordProviderCostEvent({
+    status: input.status,
+    userId: telemetry?.userId,
+    orgId: telemetry?.orgId,
+    projectId: telemetry?.projectId,
+    taskId: telemetry?.taskId,
+    assetId: telemetry?.assetId,
+    service: 'editron',
+    action: 'media_transcription',
+    route: telemetry?.route ?? 'lib/editron/services/deepgram-service',
+    provider: 'deepgram',
+    model: input.model,
+    operation: 'transcription',
+    units: {
+      requestCount: input.requestCount,
+      bytesIn: input.bytesIn,
+      mediaSeconds: input.mediaSeconds,
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      strategy: telemetry?.strategy ?? 'deepgram_direct',
+      sourceMode: input.sourceMode,
+      assetType: telemetry?.assetType,
+      assetSource: telemetry?.assetSource,
+      hasGcsPath: telemetry?.hasGcsPath,
+      preferWordLevel: telemetry?.preferWordLevel,
+      languageProvided: Boolean(options.language),
+      wordCount: input.wordCount,
+      detectedLanguage: input.detectedLanguage,
+      confidence: input.confidence,
+      errorClass: getDeepgramErrorClass(input.error),
+    },
+  });
+}
+
 /**
  * Transcribe a video/audio file URL to get word-level timestamps
  * 
@@ -104,25 +181,35 @@ export async function transcribeMedia(
     transcriptionOptions.language = language;
   }
 
+  let providerAttempted = false;
+  let sourceMode: 'file_upload' | 'remote_url' = 'remote_url';
+  let bytesIn: number | undefined;
+  const startedAt = Date.now();
+
   try {
-    // Download file first, then transcribe — GCS signed URLs often expire
+    // Download file first, then transcribe - GCS signed URLs often expire
     // or are inaccessible from Deepgram's servers. Downloading ensures
     // the audio data is available regardless of URL type/expiry.
     let response: SyncPrerecordedResponse;
     const isGCSUrl = mediaUrl.includes('storage.googleapis.com') && mediaUrl.includes('X-Goog-Signature');
 
     if (isGCSUrl) {
+      sourceMode = 'file_upload';
       console.log('[Deepgram] Downloading GCS file before transcription...');
       const fileResponse = await fetch(mediaUrl);
       if (!fileResponse.ok) throw new Error(`Failed to download media for transcription (${fileResponse.status})`);
       const buffer = Buffer.from(await fileResponse.arrayBuffer());
+      bytesIn = buffer.byteLength;
       const mimeType = fileResponse.headers.get('content-type') || 'audio/wav';
 
+      providerAttempted = true;
       response = await deepgram.listen.prerecorded.transcribeFile(
         buffer,
         { ...transcriptionOptions, mimetype: mimeType },
       ) as unknown as SyncPrerecordedResponse;
     } else {
+      sourceMode = 'remote_url';
+      providerAttempted = true;
       response = await deepgram.listen.prerecorded.transcribeUrl(
         { url: mediaUrl },
         transcriptionOptions,
@@ -131,14 +218,14 @@ export async function transcribeMedia(
 
     // Extract word-level data from response
     const result = response.results ? response : (response as any).result;
-    
+
     if (!result?.results?.channels?.[0]?.alternatives?.[0]) {
       throw new Error('No transcription results returned from Deepgram');
     }
 
     const alternative = result.results.channels[0].alternatives[0];
     const deepgramWords = alternative.words || [];
-    
+
     // Convert Deepgram words to our CaptionWord format
     const words: CaptionWord[] = deepgramWords.map((w: any) => ({
       word: w.punctuated_word || w.word,
@@ -152,12 +239,25 @@ export async function transcribeMedia(
     const avgConfidence = words.length > 0 ? totalConfidence / words.length : 0;
 
     // Get duration
-    const durationMs = words.length > 0 
-      ? words[words.length - 1].endMs 
+    const durationMs = words.length > 0
+      ? words[words.length - 1].endMs
       : 0;
 
     // Detected language
     const detectedLanguage = result.results.channels[0].detected_language || language || 'en';
+
+    await recordEditronDeepgramCost(options, {
+      status: 'success',
+      model,
+      sourceMode,
+      requestCount: 1,
+      bytesIn,
+      mediaSeconds: durationMs > 0 ? durationMs / 1000 : undefined,
+      functionMs: Date.now() - startedAt,
+      wordCount: words.length,
+      detectedLanguage,
+      confidence: avgConfidence,
+    });
 
     return {
       words,
@@ -167,6 +267,18 @@ export async function transcribeMedia(
       transcript: alternative.transcript || '',
     };
   } catch (error: any) {
+    if (providerAttempted) {
+      await recordEditronDeepgramCost(options, {
+        status: 'failed',
+        model,
+        sourceMode,
+        requestCount: 1,
+        bytesIn,
+        functionMs: Date.now() - startedAt,
+        error,
+      });
+    }
+
     // Handle specific Deepgram errors
     if (error.message?.includes('401')) {
       throw new Error('Invalid Deepgram API key');
@@ -177,7 +289,7 @@ export async function transcribeMedia(
     if (error.message?.includes('429')) {
       throw new Error('Deepgram rate limit exceeded. Please try again later.');
     }
-    
+
     throw new Error(`Transcription failed: ${error.message}`);
   }
 }

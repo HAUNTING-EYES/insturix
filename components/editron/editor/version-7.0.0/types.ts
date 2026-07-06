@@ -31,7 +31,7 @@ export interface Keyframe {
   /** Value at this frame */
   value: number;
   /** Interpolation easing to the NEXT keyframe */
-  easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+  easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'snap-out';
 }
 
 export interface KeyframeTrack {
@@ -45,6 +45,13 @@ export interface KeyframeTrack {
    */
   property: 'x' | 'y' | 'scale' | 'opacity' | 'rotation' | 'speed';
   keyframes: Keyframe[];
+}
+
+/** A user-authored named marker on the timeline (frame + label). D4. */
+export interface NamedMarker {
+  id: string;
+  frame: number;
+  label: string;
 }
 
 // Base overlay properties
@@ -564,6 +571,7 @@ export type MotionGraphicOverlay = BaseOverlay & {
   structureType: string;
   content: Record<string, string>;
   resolvedTokens: Record<string, any>;
+  signalCurves?: Record<string, number[]>;
   contentSignals?: {
     formality: number;
     enthusiasm: number;

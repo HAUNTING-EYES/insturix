@@ -5327,6 +5327,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           assetId: bgm.audioAssetId,
           styles: {
             volume: 0.75, opacity: 1,
+            animation: { exit: 'fade', duration: 1 },
             duckingConfig: { enabled: true, duckLevel: 0.20, rampDownMs: 300, rampUpMs: 600, lookAheadMs: 200 },
           },
         };

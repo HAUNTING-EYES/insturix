@@ -188,6 +188,9 @@ export const useAutosave = (
             playerDimensions: data.project.playerDimensions,
             fps: data.project.fps,
             durationInFrames: data.project.durationInFrames,
+            // Must mirror editorState's keys or the snapshot compare always
+            // diffs → autosave storm. Default [] when the project has none.
+            markers: data.project.markers ?? [],
           };
 
           // Seed the last-saved snapshot so the very next autosave tick

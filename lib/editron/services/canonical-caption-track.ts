@@ -9,14 +9,18 @@ import {
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import type { AtomicCaptionPresentation } from './caption-form';
 import type { EditedTimelineContext } from './edited-timeline-context';
+import type { SegmentAnalysis, SegmentRecord } from '../types/segment-analysis';
+import type { VjepaTextBox } from './vjepa-service';
 import { createDisplayConfig, groupWordsIntoCaptions } from '../utils/caption-utils';
 import { selectCaptionPreset } from './caption-preset-registry';
 
 export const CANONICAL_CAPTION_TRACK_SOURCE = 'canonical-caption-track';
+const SOURCE_TEXT_PROTECTED_REGION_REASON = 'source-text-box';
 
 export interface InstallCanonicalCaptionTrackInput {
   overlays: any[];
   editedTimelineContext: EditedTimelineContext;
+  segmentAnalysis?: SegmentAnalysis | null;
   playerDimensions?: { width: number; height: number } | null;
   presentation: AtomicCaptionPresentation;
 }
@@ -103,9 +107,18 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
   const captionBoundaries = captionBoundaryPlanMs(input.editedTimelineContext, words, readability);
   const captions = groupWordsIntoBoundaryAwareCaptions(words, groupingConfig, captionBoundaries.allMs, readability);
   const dimensions = input.playerDimensions ?? { width: 1920, height: 1080 };
-  const protectedRegions = collectCaptionProtectedRegions(input.overlays, input.editedTimelineContext.durationFrames);
+  const protectedRegions = collectCaptionProtectedRegions(
+    input.overlays,
+    input.editedTimelineContext.durationFrames,
+    input.editedTimelineContext,
+    input.segmentAnalysis,
+  );
   const geometry = captionGeometry(dimensions, input.presentation, protectedRegions);
   const styles = stylesForPresentation(input.presentation);
+  const sourceTextProtectedRegionCount = protectedRegions
+    .filter((region) => region.reason === SOURCE_TEXT_PROTECTED_REGION_REASON)
+    .length;
+  const semanticVisualOcrSegmentCount = countSemanticVisualOcrSegments(input.segmentAnalysis);
 
   return {
     id: nextNumericOverlayId(input.overlays),
@@ -146,6 +159,8 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
         captionAesthetic: input.presentation.aesthetic,
         readability,
         protectedRegionCount: protectedRegions.length,
+        sourceTextProtectedRegionCount,
+        semanticVisualOcrSegmentCount,
         selectedRegion: geometry.region,
       },
       calibration: {
@@ -521,7 +536,12 @@ function captionGeometry(
   };
 }
 
-function collectCaptionProtectedRegions(overlays: any[], captionDurationFrames: number): CaptionProtectedRegion[] {
+function collectCaptionProtectedRegions(
+  overlays: any[],
+  captionDurationFrames: number,
+  editedTimelineContext?: EditedTimelineContext,
+  segmentAnalysis?: SegmentAnalysis | null,
+): CaptionProtectedRegion[] {
   const regions = new Map<string, CaptionProtectedRegion>();
   for (const overlay of overlays) {
     if (overlay?.type === OverlayType.CAPTION || overlay?.type === 'caption') continue;
@@ -534,17 +554,113 @@ function collectCaptionProtectedRegions(overlays: any[], captionDurationFrames: 
       for (const item of avoid) {
         const region = normalizeProtectedRegion(item, temporalCoverage);
         if (!region) continue;
-        const key = protectedRegionKey(region);
-        const existing = regions.get(key);
-        if (existing) {
-          existing.strength = Math.min(1, existing.strength + region.strength);
-        } else {
-          regions.set(key, region);
-        }
+        addProtectedRegion(regions, region);
       }
     }
   }
+  for (const region of collectSourceTextProtectedRegions(editedTimelineContext, segmentAnalysis, captionDurationFrames)) {
+    addProtectedRegion(regions, region);
+  }
   return [...regions.values()].filter((region) => region.strength >= 0.3);
+}
+
+function addProtectedRegion(regions: Map<string, CaptionProtectedRegion>, region: CaptionProtectedRegion): void {
+  const key = protectedRegionKey(region);
+  const existing = regions.get(key);
+  if (existing) {
+    existing.strength = Math.min(1, existing.strength + region.strength);
+  } else {
+    regions.set(key, region);
+  }
+}
+
+function collectSourceTextProtectedRegions(
+  context: EditedTimelineContext | undefined,
+  segmentAnalysis: SegmentAnalysis | null | undefined,
+  captionDurationFrames: number,
+): CaptionProtectedRegion[] {
+  if (!context || !Array.isArray(segmentAnalysis?.segments)) return [];
+  const regions: CaptionProtectedRegion[] = [];
+  for (const segment of segmentAnalysis.segments) {
+    const textBoxes = segment.visual?.textBoxes;
+    if (!Array.isArray(textBoxes) || textBoxes.length === 0) continue;
+    const temporalCoverage = sourceSegmentTemporalCoverage(segment, context, captionDurationFrames);
+    if (temporalCoverage <= 0) continue;
+    const hasSemanticOcr = Boolean(segment.semanticVisual?.ocrText?.some((text) => text.trim().length > 0));
+    const coverageBoost = Math.min(0.2, Math.max(0, segment.visual?.textCoverage ?? 0) * 0.5);
+    const ocrBoost = hasSemanticOcr ? 0.05 : 0;
+    for (const box of textBoxes) {
+      const region = sourceTextBoxProtectedRegion(box, temporalCoverage, coverageBoost + ocrBoost);
+      if (region) regions.push(region);
+    }
+  }
+  return regions;
+}
+
+function sourceTextBoxProtectedRegion(
+  box: VjepaTextBox,
+  temporalCoverage: number,
+  confidenceBoost: number,
+): CaptionProtectedRegion | null {
+  const rawX = numeric(box?.x);
+  const rawY = numeric(box?.y);
+  const rawWidth = numeric(box?.width);
+  const rawHeight = numeric(box?.height);
+  if (rawX == null || rawY == null || rawWidth == null || rawHeight == null || rawWidth <= 0 || rawHeight <= 0) return null;
+  const x = clamp01(rawX);
+  const y = clamp01(rawY);
+  const width = Math.min(clamp01(rawWidth), 1 - x);
+  const height = Math.min(clamp01(rawHeight), 1 - y);
+  if (width <= 0.01 || height <= 0.01) return null;
+  const baseStrength = Math.max(0.35, Math.min(1, (numeric(box?.confidence) ?? 0.65) + confidenceBoost));
+  const effectiveStrength = baseStrength * temporalCoverage;
+  if (effectiveStrength < 0.02) return null;
+  return {
+    reason: SOURCE_TEXT_PROTECTED_REGION_REASON,
+    x,
+    y,
+    width,
+    height,
+    strength: effectiveStrength,
+  };
+}
+
+function sourceSegmentTemporalCoverage(
+  segment: SegmentRecord,
+  context: EditedTimelineContext,
+  captionDurationFrames: number,
+): number {
+  if (!Number.isFinite(captionDurationFrames) || captionDurationFrames <= 0) return 1;
+  const sourceStartFrame = msToFrame(segment.startMs, context.fps);
+  const sourceEndFrame = Math.max(sourceStartFrame + 1, msToFrame(segment.endMs, context.fps));
+  if (!context.sourceClips.length) {
+    return Math.max(0, Math.min(1, (sourceEndFrame - sourceStartFrame) / captionDurationFrames));
+  }
+  let coveredFrames = 0;
+  for (const clip of context.sourceClips) {
+    const clipSourceStart = clip.sourceStartFrame;
+    const clipSourceEnd = clip.sourceStartFrame + clip.durationInFrames;
+    const overlapStart = Math.max(sourceStartFrame, clipSourceStart);
+    const overlapEnd = Math.min(sourceEndFrame, clipSourceEnd);
+    if (overlapEnd > overlapStart) coveredFrames += overlapEnd - overlapStart;
+  }
+  return Math.max(0, Math.min(1, coveredFrames / captionDurationFrames));
+}
+
+function countSemanticVisualOcrSegments(segmentAnalysis: SegmentAnalysis | null | undefined): number {
+  if (!Array.isArray(segmentAnalysis?.segments)) return 0;
+  return segmentAnalysis.segments.filter((segment) => (
+    segment.semanticVisual?.ocrText?.some((text) => text.trim().length > 0)
+  )).length;
+}
+
+function msToFrame(ms: number, fps: number): number {
+  if (!Number.isFinite(ms) || !Number.isFinite(fps) || fps <= 0) return 0;
+  return Math.round((ms / 1000) * fps);
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }
 
 function overlayReceipts(overlay: any): any[] {
@@ -637,7 +753,7 @@ function nextNumericOverlayId(overlays: any[]): number {
 }
 
 /**
- * Measure the REAL speaking rate (words/min) from the cut's word timings — the actual pace, not the
+ * Measure the REAL speaking rate (words/min) from the cut's word timings â€” the actual pace, not the
  * genre-derived estimate the presentation carries (caption-form.ts maps a video-level `pacing_tolerance`
  * to a guessed WPM). Long pauses (> 600ms, ~ the readability policy's speech-pause boundary) are excluded
  * so the figure reflects how fast the person actually talks. For VO-based edits these are the VO's word
@@ -662,7 +778,7 @@ function measureSpeakingRateWpm(words: CaptionWord[]): number {
 function stylesForPresentation(presentation: AtomicCaptionPresentation): CaptionStyles {
   // The registry row owns the style IDENTITY (font, palette, highlight mode/effect/animation). The
   // explicitly-chosen style (presentation.style) wins selection; signals only break ties. The aesthetic
-  // carries the SIGNAL-DRIVEN MAGNITUDE — size + emphasis scale move with energy/surface — so size and
+  // carries the SIGNAL-DRIVEN MAGNITUDE â€” size + emphasis scale move with energy/surface â€” so size and
   // pop stay on the signal rail while the picked style owns the look. A shadow floor guards readability
   // for any row that ships neither its own background nor its own text-shadow (e.g. karaoke).
   // (Per-MOMENT modulation of size/colour, and the per-word role/case/stroke atoms, are the next steps.)
@@ -680,7 +796,7 @@ function stylesForPresentation(presentation: AtomicCaptionPresentation): Caption
       ...preset.styles.highlight,
       scale: aesthetic.emphasisScale,
     },
-    // Carry the row's renderer atoms — caption-layer-content applies these per caption/word.
+    // Carry the row's renderer atoms â€” caption-layer-content applies these per caption/word.
     textTransform: preset.textCase === 'upper' ? 'uppercase' : preset.textCase === 'lower' ? 'lowercase' : undefined,
     stroke: preset.stroke,
     roles: preset.roles,

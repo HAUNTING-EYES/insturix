@@ -116,7 +116,11 @@ export function buildPhase0RenderedQualityGate(input: {
   return {
     version: 'editron-phase0-rendered-quality-gate-v1',
     status,
-    reason: status === 'warn' ? 'rendered_quality_warning' : decision.reason ?? null,
+    reason: status === 'missing_rendered_evidence'
+      ? 'missing_rendered_evidence'
+      : status === 'warn'
+        ? 'rendered_quality_warning'
+        : decision.reason ?? null,
     qualityEvidenceSource: evidence.qualityEvidenceSource,
     renderedQualityStatus: evidence.renderedQualityStatus,
     renderedAestheticStatus: evidence.renderedAestheticStatus,

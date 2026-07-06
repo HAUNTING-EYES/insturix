@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
             thumbnail: asset.thumbnail,
             duration: asset.duration,
             dimensions: asset.dimensions,
+            uploadBatchId: (asset as MediaAsset & { uploadBatchId?: string }).uploadBatchId,
             pinned: asset.pinned === true, // reference/protected from eviction
           };
         } catch (error) {
@@ -64,6 +65,7 @@ export async function GET(request: NextRequest) {
             thumbnail: asset.thumbnail,
             duration: asset.duration,
             dimensions: asset.dimensions,
+            uploadBatchId: (asset as MediaAsset & { uploadBatchId?: string }).uploadBatchId,
           };
         }
       })

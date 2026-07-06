@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import * as db from '@/lib/thinkforge/services/db';
 import {
   parseScriptWithLLM,
   isLLMParserAvailable,
@@ -20,6 +21,8 @@ import {
   EDITORIAL_HEADER_PATTERNS,
   richTextToPlain,
 } from '@/lib/pipeline/script-to-scenes';
+import { tiptapJSONToThinkForgeBlocks } from '@/lib/thinkforge/mappers/tiptap-to-thinkforge';
+import { extractPlainText, isTiptapJSON } from '@/lib/thinkforge/schemas/tiptap-validation';
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
 
 export const runtime = 'nodejs';
@@ -29,6 +32,17 @@ const SCRIPT_TRUNCATED_SENTINEL = 'SCRIPT_TRUNCATED';
 const MAX_TARGET_DURATION_SECONDS = 60 * 60;
 
 type TargetDurationSource = 'request' | 'script-explicit' | 'unknown';
+type ExportSourceKind = 'request' | 'stored-script';
+
+interface ExportSource {
+  source: ExportSourceKind;
+  blocks?: any[];
+  plainText?: string;
+  cir?: any;
+  rawContent: string;
+  title: string;
+  scenePreview: SceneDescriptor[];
+}
 
 function isParserSentinelScene(scene: Pick<SceneDescriptor, 'title'>): boolean {
   return scene.title?.trim().toUpperCase() === SCRIPT_TRUNCATED_SENTINEL;
@@ -74,6 +88,120 @@ function countExpectedVideoClips(scenes: SceneDescriptor[]): number {
   }, 0);
 }
 
+function isCirDocument(value: unknown): value is { sections: unknown[]; title?: string } {
+  return Boolean(value && typeof value === 'object' && Array.isArray((value as any).sections));
+}
+
+function blockText(blocks: any[]): string {
+  return blocks
+    .map((b: any) => richTextToPlain(b?.content || []))
+    .filter(Boolean)
+    .join('\n');
+}
+
+function chooseRawContent(blocks: any[] | undefined, plainText: unknown): string {
+  const plain = typeof plainText === 'string' ? plainText.trim() : '';
+  const fromBlocks = blocks && blocks.length > 0 ? blockText(blocks).trim() : '';
+  if (!plain) return fromBlocks;
+  if (!fromBlocks) return plain;
+  return fromBlocks.length > plain.length ? fromBlocks : plain;
+}
+
+function previewScenesForSource(source: Pick<ExportSource, 'blocks' | 'cir' | 'rawContent'>): SceneDescriptor[] {
+  if (source.blocks && source.blocks.length > 0) {
+    return hasTimestampedScenes(source.rawContent)
+      ? convertPlainTextToScenes(source.rawContent)
+      : convertThinkForgeBlocksToScenes(source.blocks);
+  }
+  if (isCirDocument(source.cir)) {
+    return convertCIRToScenes(source.cir as any);
+  }
+  return convertPlainTextToScenes(source.rawContent);
+}
+
+function buildExportSource(input: {
+  source: ExportSourceKind;
+  blocks?: unknown;
+  plainText?: unknown;
+  cir?: unknown;
+  titleFallback?: unknown;
+}): ExportSource | null {
+  const blocks = Array.isArray(input.blocks) ? input.blocks : undefined;
+  const plainText = typeof input.plainText === 'string' ? input.plainText : undefined;
+  const cir = isCirDocument(input.cir) ? input.cir : undefined;
+  let rawContent = '';
+  let title = typeof input.titleFallback === 'string' && input.titleFallback.trim()
+    ? input.titleFallback.trim()
+    : 'Untitled Script';
+
+  if (blocks && blocks.length > 0) {
+    rawContent = chooseRawContent(blocks, plainText);
+    const firstHeader = blocks.find((b: any) => b?.kind === 'header');
+    if (firstHeader) {
+      const text = richTextToPlain(firstHeader.content || []);
+      if (text) title = text;
+    }
+  } else if (cir) {
+    rawContent = JSON.stringify(cir);
+    title = typeof cir.title === 'string' && cir.title.trim() ? cir.title.trim() : title;
+  } else if (plainText) {
+    rawContent = plainText;
+    const headingTitle = plainText.split('\n')[0]?.match(/^#{1,3}\s+(.+)$/)?.[1]?.trim();
+    if (headingTitle) title = headingTitle.substring(0, 100);
+  }
+
+  if (!rawContent.trim()) return null;
+
+  const source: ExportSource = {
+    source: input.source,
+    blocks,
+    plainText,
+    cir,
+    rawContent,
+    title,
+    scenePreview: [],
+  };
+  source.scenePreview = previewScenesForSource(source);
+  return source;
+}
+
+async function loadStoredScriptSource(
+  sessionId: unknown,
+  scriptId: unknown,
+  userId: string,
+): Promise<ExportSource | null> {
+  if (typeof sessionId !== 'string' || !sessionId.trim()) return null;
+
+  try {
+    const session = await db.getSession(sessionId, userId);
+    if (!session) return null;
+
+    const script = await db.getScript(session._id, typeof scriptId === 'string' && scriptId.trim() ? scriptId : null);
+    if (!script) return null;
+
+    const blocks = Array.isArray(script.blocks) && script.blocks.length > 0
+      ? script.blocks
+      : script.richText && isTiptapJSON(script.richText)
+        ? tiptapJSONToThinkForgeBlocks(script.richText)
+        : [];
+    const richTextPlain = script.richText && isTiptapJSON(script.richText)
+      ? extractPlainText(script.richText)
+      : '';
+    const plainText = typeof script.content === 'string' && script.content.trim()
+      ? script.content
+      : richTextPlain;
+
+    return buildExportSource({
+      source: 'stored-script',
+      blocks,
+      plainText,
+      titleFallback: script.title,
+    });
+  } catch (error: any) {
+    console.warn('[export-for-editron] Stored script recovery failed:', error?.message || error);
+    return null;
+  }
+}
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();
@@ -85,9 +213,9 @@ export async function POST(request: NextRequest) {
     const {
       sessionId,
       scriptId,
-      blocks,
-      plainText,
-      cir,
+      blocks: requestBlocks,
+      plainText: requestPlainText,
+      cir: requestCir,
       aspectRatio,
       artStyle,
       brandId,
@@ -108,50 +236,14 @@ export async function POST(request: NextRequest) {
     let parserFallback = false;
     let parserFallbackReason = '';
 
-    // ─── Reconstruct script text from input ────────────────────
-    if (blocks && Array.isArray(blocks) && blocks.length > 0) {
-      // 2026-04-20: use the shared richTextToPlain helper — the old inline
-      // `n.text || ''` variant silently dropped link-node text (link nodes
-      // hold their displayed text in nested content[].text, not directly on
-      // .text) and produced empty rawContent → 422. One source of truth now.
-      rawContent = (plainText && typeof plainText === 'string')
-        ? plainText
-        : blocks
-            .map((b: any) => richTextToPlain(b.content || []))
-            .filter(Boolean)
-            .join('\n');
+    const requestSource = buildExportSource({
+      source: 'request',
+      blocks: requestBlocks,
+      plainText: requestPlainText,
+      cir: requestCir,
+    });
 
-      // Diagnostic: if blocks came in but extracted text is empty, dump the
-      // block structure to logs so we can see what node types we haven't
-      // handled. This is how future regressions of the same shape get caught
-      // loudly instead of as silent 422s.
-      if (rawContent.length === 0) {
-        const structurePreview = blocks.slice(0, 3).map((b: any) => ({
-          kind: b.kind,
-          contentLength: Array.isArray(b.content) ? b.content.length : 'not-array',
-          nodeTypes: Array.isArray(b.content) ? b.content.map((n: any) => n?.type ?? typeof n) : [],
-          firstNodeKeys: Array.isArray(b.content) && b.content[0] ? Object.keys(b.content[0]) : [],
-        }));
-        console.error(
-          `[export-for-editron] richTextToPlain returned 0 chars from ${blocks.length} block(s). ` +
-          `Block structure preview (up to 3):`,
-          JSON.stringify(structurePreview),
-        );
-      }
-
-      const firstHeader = blocks.find((b: any) => b.kind === 'header');
-      if (firstHeader) {
-        const text = richTextToPlain(firstHeader.content || []);
-        if (text) title = text;
-      }
-    } else if (cir && cir.sections) {
-      rawContent = JSON.stringify(cir);
-      title = cir.title || 'Untitled Script';
-    } else if (plainText && typeof plainText === 'string') {
-      rawContent = plainText;
-      const headingTitle = plainText.split('\n')[0]?.match(/^#{1,3}\s+(.+)$/)?.[1]?.trim();
-      if (headingTitle) title = headingTitle.substring(0, 100);
-    } else {
+    if (!requestSource) {
       return NextResponse.json(
         {
           success: false,
@@ -161,6 +253,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let activeSource = requestSource;
+    let storedScriptRecovered = false;
+    if (requestSource.scenePreview.length === 0) {
+      const storedSource = await loadStoredScriptSource(sessionId, scriptId, userId);
+      if (storedSource && storedSource.scenePreview.length > 0) {
+        activeSource = storedSource;
+        storedScriptRecovered = true;
+        console.warn('[export-for-editron] Recovered stored script source after request snapshot produced no scenes', JSON.stringify({
+          requestRawContentLength: requestSource.rawContent.length,
+          requestBlocksCount: requestSource.blocks?.length ?? 0,
+          storedRawContentLength: storedSource.rawContent.length,
+          storedBlocksCount: storedSource.blocks?.length ?? 0,
+          storedScenePreviewCount: storedSource.scenePreview.length,
+        }));
+      }
+    }
+
+    const blocks = activeSource.blocks;
+    const plainText = activeSource.plainText;
+    const cir = activeSource.cir;
+    rawContent = activeSource.rawContent;
+    title = activeSource.title;
+    const exportSource = activeSource.source;
     const requestTargetDurationSeconds =
       normalizeDurationSeconds(requestedTargetDurationSeconds) ?? normalizeDurationSeconds(targetDuration);
     const scriptTargetDuration = requestTargetDurationSeconds
@@ -176,6 +291,8 @@ export async function POST(request: NextRequest) {
         hasBlocks: Array.isArray(blocks) && blocks.length > 0,
         hasPlainText: !!plainText,
         hasCir: !!cir,
+        source: exportSource,
+        storedScriptRecovered,
       };
       console.error('[export-for-editron] 422: Script exceeds LLM parser input limit. Diagnostic:', JSON.stringify(diagnostic));
       return NextResponse.json(
@@ -286,6 +403,8 @@ export async function POST(request: NextRequest) {
         parserFallback,
         parserFallbackReason: parserFallbackReason || undefined,
         rawContentEmpty: rawContent.length === 0,
+        source: exportSource,
+        storedScriptRecovered,
       };
       console.error('[export-for-editron] 422: No scenes extracted. Diagnostic:', JSON.stringify(diagnostic));
       return NextResponse.json(
@@ -424,6 +543,8 @@ export async function POST(request: NextRequest) {
         fallbackReason: parserFallbackReason || undefined,
         inputLength: rawContentLength,
         maxInputChars: EXPORT_FOR_EDITRON_MAX_PARSER_INPUT_CHARS,
+        source: exportSource,
+        storedScriptRecovered,
       },
       warnings: targetDurationSeconds
         ? []

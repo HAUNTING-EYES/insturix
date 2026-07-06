@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CreateVariationRequest, ChatMessage } from '@/types/clickatron';
+import { ChatMessage } from '@/types/clickatron';
+
+const DEFAULT_VARIATION_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 
 // Polling utility for variation completion
 export const pollVariationCompletion = async (
@@ -9,9 +11,12 @@ export const pollVariationCompletion = async (
   getTask: () => any,
   refreshUsageLimits?: () => void,
   pollInterval: number = 2000,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  maxWaitMs: number = DEFAULT_VARIATION_POLL_TIMEOUT_MS,
 ): Promise<void> => {
   return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+
     // Helper function to check if variation is complete with image/thumbnail
     const isVariationComplete = (variation: any): boolean => {
       if (!variation) return false;
@@ -35,6 +40,11 @@ export const pollVariationCompletion = async (
       if (signal?.aborted) {
         clearInterval(poll);
         reject(new Error('Polling aborted'));
+        return;
+      }
+      if (Date.now() - startedAt > maxWaitMs) {
+        clearInterval(poll);
+        reject(new Error(`Image generation timed out after ${Math.round(maxWaitMs / 60000)} minutes`));
         return;
       }
       try {
@@ -72,9 +82,12 @@ export const pollVariationCompletion = async (
           if (refreshUsageLimits) {
             refreshUsageLimits();
           }
-          // Reject if the variation failed
+          // Reject if the variation failed — surface the worker's real error
+          // (deprecated model, 0-reference rejection, provider 4xx, brand-logo gating,
+          // watchdog timeout) instead of a generic string, so failures are diagnosable
+          // end-to-end. The worker persists this on variation.error; the UI was discarding it.
           if (variation.status === 'failed') {
-            reject(new Error('Image generation failed'));
+            reject(new Error(variation.error || 'Image generation failed'));
           } else {
             resolve();
           }
@@ -94,35 +107,9 @@ export const pollVariationCompletion = async (
   });
 };
 
-// React Query hooks for Clickatron API
-export const useCreateVariation = () => {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async ({ sessionId, ...data }: CreateVariationRequest & { sessionId: string }) => {
-      const idempotencyKey = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-      
-      const response = await fetch(`/api/services/clickatron/session/${sessionId}/variation`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': idempotencyKey,
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to create variation');
-      }
-
-      return response.json();
-    },
-    onSuccess: (data, variables) => {
-      // Invalidate session query to refetch latest state
-      queryClient.invalidateQueries({ queryKey: ['clickatron-session', variables.sessionId] });
-    },
-  });
-};
+// Note: the variation route reads request.formData(); creation is done directly in
+// CanvasStage via FormData. A dead JSON-body useCreateVariation hook was removed here
+// (zero importers) — it would have failed against the formData route if ever wired.
 
 export const useAddChatMessage = () => {
   const queryClient = useQueryClient();

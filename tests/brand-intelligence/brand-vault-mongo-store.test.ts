@@ -305,6 +305,32 @@ describe('Brand Vault Mongo refinery store', () => {
     expect(collections.jobs.values().find((doc) => doc._id === 'brand_refinery_job_org_new')?.orgId).toBe('org_mongo');
     expect(JSON.stringify(collections.jobs.indexes)).toContain('org_brand_user_updatedAt');
   });
+
+  it('deletes a scan snapshot only for its owner, never another user\'s or a missing one', async () => {
+    const collections = createMemoryCollections();
+    const store = createBrandVaultMongoRefineryStore({ collections });
+
+    await store.saveJobSnapshot({
+      job: { id: 'job_mine', userId: 'user_mongo', orgId: 'org_mongo', brandId: 'brand_mongo', status: 'needs_review', inputs: { websiteUrl: 'x', socialLinks: [] }, warnings: [], createdAt: '2026-06-10T05:00:00.000Z', updatedAt: '2026-06-10T05:00:00.000Z' },
+      recordId: 'rec_mine',
+      candidates: [],
+    });
+    await store.saveJobSnapshot({
+      job: { id: 'job_theirs', userId: 'other_user', orgId: 'org_mongo', brandId: 'brand_mongo', status: 'needs_review', inputs: { websiteUrl: 'y', socialLinks: [] }, warnings: [], createdAt: '2026-06-10T05:01:00.000Z', updatedAt: '2026-06-10T05:01:00.000Z' },
+      candidates: [],
+    });
+
+    // Not the owner -> no delete, snapshot remains.
+    expect(await store.deleteJobSnapshot('job_theirs', { userId: 'user_mongo', orgId: 'org_mongo' })).toBe(false);
+    expect(await store.getJobSnapshot('job_theirs')).not.toBeNull();
+
+    // Owner -> deleted.
+    expect(await store.deleteJobSnapshot('job_mine', { userId: 'user_mongo', orgId: 'org_mongo' })).toBe(true);
+    expect(await store.getJobSnapshot('job_mine')).toBeNull();
+
+    // Missing job -> false.
+    expect(await store.deleteJobSnapshot('job_nope', { userId: 'user_mongo', orgId: 'org_mongo' })).toBe(false);
+  });
 });
 
 function draftRecord(input: { id: string; orgId?: string; name: string; now: string }) {
@@ -382,6 +408,13 @@ class MemoryMongoCollection<TDocument extends { _id: string }> implements BrandV
     }
 
     this.docs.set(id, clone({ _id: id, ...update.$setOnInsert, ...update.$set } as TDocument));
+  }
+
+  async deleteOne(filter: Record<string, unknown>): Promise<{ deletedCount?: number }> {
+    const existing = this.values().find((doc) => matchesFilter(doc, filter));
+    if (!existing) return { deletedCount: 0 };
+    this.docs.delete(existing._id);
+    return { deletedCount: 1 };
   }
 
   values(): TDocument[] {

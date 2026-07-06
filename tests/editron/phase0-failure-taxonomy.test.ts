@@ -37,8 +37,12 @@ function crossOverlayChoreographyReport(overrides: Record<string, unknown> = {})
     laneLoad: { text: 1, motion: 0, audio: 0, timeline: 0, other: 0 },
     syncGroups: [],
     suppressed: [],
+    shapedDecisionCount: 0,
+    shaped: [],
     suppressedByReason: {},
+    shapedByReason: {},
     suppressedByFamily: {},
+    shapedByFamily: {},
     ...overrides,
   };
 }
@@ -463,6 +467,7 @@ describe('phase0 failure taxonomy', () => {
         inputDecisionCount: 4,
         outputDecisionCount: 2,
         suppressedDecisionCount: 2,
+        shapedDecisionCount: 1,
         laneLoad: { text: 2, motion: 1, audio: 1, timeline: 0, other: 0 },
         syncGroups: [{
           id: 'sync:120',
@@ -474,7 +479,23 @@ describe('phase0 failure taxonomy', () => {
           count: 2,
         }],
         suppressedByReason: { 'text-motion-stack': 1, 'unlinked-audio-on-crowded-moment': 1 },
+        shapedByReason: { 'text-lane-stack': 1 },
         suppressedByFamily: { transition: 1, audio: 1 },
+        shapedByFamily: { caption: 1 },
+        shaped: [{
+          reason: 'text-lane-stack',
+          family: 'caption',
+          originalFrame: 210,
+          frame: 226,
+          shiftFrames: 16,
+          conflictingWith: {
+            type: 'graphic',
+            frame: 180,
+            family: 'mg',
+            source: 'signal-driven',
+          },
+          calibrationStatus: 'invented-needs-calibration',
+        }],
         suppressed: [{
           reason: 'text-motion-stack',
           family: 'transition',
@@ -503,12 +524,15 @@ describe('phase0 failure taxonomy', () => {
       inputDecisionCount: 4,
       outputDecisionCount: 2,
       suppressedDecisionCount: 2,
+      shapedDecisionCount: 1,
       suppressionRate: 0.5,
+      shapeRate: 0.25,
       suppressedByReason: {
         'text-motion-stack': 1,
         'unlinked-audio-on-crowded-moment': 1,
       },
       syncGroups: [expect.objectContaining({ id: 'sync:120', lanes: ['text', 'motion'] })],
+      topShapes: [expect.objectContaining({ reason: 'text-lane-stack', originalFrame: 210, frame: 226, shiftFrames: 16 })],
     });
     expect(taxonomy.classes.find((item) => item.id === 'decision.cross_overlay_choreography_suppression')).toMatchObject({
       severity: 'info',
@@ -516,8 +540,12 @@ describe('phase0 failure taxonomy', () => {
         inputDecisionCount: 4,
         outputDecisionCount: 2,
         suppressedDecisionCount: 2,
+        shapedDecisionCount: 1,
         suppressionRate: 0.5,
+        shapeRate: 0.25,
         suppressedByFamily: { audio: 1, transition: 1 },
+        shapedByFamily: { caption: 1 },
+        topShapes: [expect.objectContaining({ reason: 'text-lane-stack', frame: 226 })],
         topSuppressions: [expect.objectContaining({
           reason: 'text-motion-stack',
           family: 'transition',
@@ -526,7 +554,80 @@ describe('phase0 failure taxonomy', () => {
         })],
       },
     });
+    expect(taxonomy.classes.find((item) => item.id === 'decision.cross_overlay_choreography_shaped')).toMatchObject({
+      severity: 'info',
+      evidence: {
+        shapedDecisionCount: 1,
+        shapedByReason: { 'text-lane-stack': 1 },
+        topShapes: [expect.objectContaining({ originalFrame: 210, frame: 226, shiftFrames: 16 })],
+      },
+    });
   });
+  it('surfaces final-overlay choreography bypasses as Phase 0 decision evidence', () => {
+    const project = cleanProject();
+    project.overlays = [
+      ...(project.overlays ?? []),
+      {
+        id: 'caption-track',
+        type: 'caption',
+        from: 0,
+        durationInFrames: 90,
+        metadata: { source: 'canonical-caption-track' },
+      },
+      {
+        id: 'bgm-async',
+        type: 'sound',
+        from: 0,
+        durationInFrames: 90,
+        _workerAdded: true,
+        metadata: { role: 'bgm' },
+      } as any,
+      {
+        id: 'post-edl-drift-zoom-image',
+        type: 'image',
+        from: 24,
+        durationInFrames: 30,
+        metadata: { crossOverlayProducer: 'post-edl-drift-zoom' },
+      },
+    ];
+
+    const manifest = buildPhase0FixtureManifest(project, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_final_choreography_bypass',
+    });
+    const artifactPack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_final_choreography_bypass',
+    });
+    const taxonomy = classifyPhase0Fixture(manifest, artifactPack);
+
+    expect(manifest.finalOverlayChoreography).toMatchObject({
+      status: 'present',
+      bypassOverlayCount: 3,
+      countsByProducer: {
+        'async-worker-audio': 1,
+        'canonical-caption-track': 1,
+        'post-edl-drift-zoom': 1,
+      },
+      countsByFamily: { audio: 1, camera: 1, caption: 1 },
+      topBypasses: [
+        expect.objectContaining({ overlayId: 'caption-track', producer: 'canonical-caption-track', movable: false }),
+        expect.objectContaining({ overlayId: 'bgm-async', producer: 'async-worker-audio', lane: 'audio' }),
+        expect.objectContaining({ overlayId: 'post-edl-drift-zoom-image', producer: 'post-edl-drift-zoom', family: 'camera' }),
+      ],
+    });
+    expect(taxonomy.classes.find((item) => item.id === 'decision.cross_overlay_final_bypasses')).toMatchObject({
+      severity: 'info',
+      evidence: {
+        bypassOverlayCount: 3,
+        countsByProducer: {
+          'async-worker-audio': 1,
+          'canonical-caption-track': 1,
+          'post-edl-drift-zoom': 1,
+        },
+        topBypasses: expect.arrayContaining([expect.objectContaining({ producer: 'canonical-caption-track' })]),
+      },
+    });
+  });
+
   it('classifies rendered aesthetic failures with stable ids and grouped evidence', () => {
     const project = cleanProject();
     const manifest = buildPhase0FixtureManifest(project, {

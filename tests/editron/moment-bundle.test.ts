@@ -36,6 +36,9 @@ function richSnapshot(): SignalSnapshot {
     'visual.perception.preferred_overlay_region': 'right',
     'visual.perception.placement_trust': 'trusted',
     'visual.perception.avg_viewer_value': 0.74,
+    'visual.perception.semantic_window_count': 1,
+    'visual.perception.ocr_text_count': 2,
+    'visual.perception.ocr_text_sample': 'Export complete | Status: ready',
     'visual.perception.negative_space.right': 0.66,
     'composite.cinematic_moment': 0.74,
     'composite.narrative_pressure': 0.68,
@@ -67,6 +70,8 @@ describe('atomic moment bundle', () => {
       expect.objectContaining({ level: 'primitive', key: 'visual.perception.primary_mode', value: 'screen-text' }),
       expect.objectContaining({ level: 'primitive', key: 'visual.perception.placement_trust', value: 'trusted' }),
       expect.objectContaining({ level: 'primitive', key: 'visual.perception.avg_viewer_value', value: 0.74 }),
+      expect.objectContaining({ level: 'primitive', key: 'visual.perception.ocr_text_count', value: 2 }),
+      expect.objectContaining({ level: 'primitive', key: 'visual.perception.ocr_text_sample', value: 'Export complete | Status: ready' }),
     ]));
     expect(bundle.derivedAtoms).toEqual(expect.arrayContaining([
       expect.objectContaining({ level: 'derived', key: 'moment.speech_peak' }),
@@ -103,6 +108,8 @@ describe('atomic moment bundle', () => {
     expect(MOMENT_PRIMITIVE_SIGNAL_KEYS.has('visual.negative_space.right')).toBe(true);
     expect(MOMENT_PRIMITIVE_SIGNAL_KEYS.has('visual.perception.primary_mode')).toBe(true);
     expect(MOMENT_PRIMITIVE_SIGNAL_KEYS.has('visual.perception.avg_viewer_value')).toBe(true);
+    expect(MOMENT_PRIMITIVE_SIGNAL_KEYS.has('visual.perception.ocr_text_count')).toBe(true);
+    expect(MOMENT_PRIMITIVE_SIGNAL_KEYS.has('visual.perception.ocr_text_sample')).toBe(true);
     expect(primitiveKeys).toEqual(expect.arrayContaining([
       'speech.energy',
       'speech.emotion_intensity',
@@ -111,6 +118,8 @@ describe('atomic moment bundle', () => {
       'visual.object_count',
       'visual.perception.primary_mode',
       'visual.perception.preferred_overlay_region',
+      'visual.perception.ocr_text_count',
+      'visual.perception.ocr_text_sample',
     ]));
   });
 

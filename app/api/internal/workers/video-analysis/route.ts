@@ -25,6 +25,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
+import { buildProjectAnalysisAssetSet, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
 import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
@@ -445,6 +446,30 @@ async function handler(request: NextRequest) {
       }
     }
 
+    if (rawFootageAnalysis) {
+      try {
+        const { deriveNativeAudioEvidence } = await import('@/lib/editron/services/native-audio-evidence');
+        const nativeAudioEvidence = deriveNativeAudioEvidence(rawFootageAnalysis, 30);
+        await db.collection('projects').updateOne(
+          { projectId },
+          {
+            $set: {
+              'overlays.$[vid].hasNativeAudio': nativeAudioEvidence.hasNativeAudio,
+              'overlays.$[vid].metadata.nativeAudioEvidence': nativeAudioEvidence,
+            },
+          },
+          { arrayFilters: [{ 'vid.type': 'video', 'vid.assetId': assetId }] },
+        );
+        console.log(
+          `[VideoAnalysisWorker] Native audio evidence: speech=${nativeAudioEvidence.hasSpeech}, ` +
+          `regions=${nativeAudioEvidence.regionCount}, words=${nativeAudioEvidence.wordCount}`
+        );
+      } catch (nativeAudioErr: unknown) {
+        const msg = nativeAudioErr instanceof Error ? nativeAudioErr.message : String(nativeAudioErr);
+        console.warn(`[VideoAnalysisWorker] Native audio evidence persistence failed (non-fatal): ${msg}`);
+      }
+    }
+
     // Step 1.58: Visual cut intelligence runs once for every raw-footage plan.
     // Speech-heavy footage remains transcript-led; visual evidence can only protect/refine it.
     // Low/no-speech footage is visual-led and may add visual removals/splits.
@@ -702,6 +727,12 @@ async function handler(request: NextRequest) {
       persistedRawFootageAnalysis = compactRawFootageAnalysisForProject(rawFootageAnalysis);
     }
 
+    const phase1UpdatedAt = new Date();
+    const phase1PerAssetSet = buildProjectAnalysisAssetSet(assetId, {
+      rawFootageAnalysis: persistedRawFootageAnalysis,
+      vjepaAnalysis: precutVjepaAnalysis,
+    }, phase1UpdatedAt);
+
     await db.collection('projects').updateOne(
       { projectId },
       {
@@ -713,13 +744,24 @@ async function handler(request: NextRequest) {
           ...(referenceVideoAnalysis && { referenceVideoAnalysis }),
           ...(persistedRawFootageAnalysis && { rawFootageAnalysis: persistedRawFootageAnalysis }),
           ...(precutVjepaAnalysis && { vjepaAnalysis: precutVjepaAnalysis }),
+          ...phase1PerAssetSet,
           ...(visualCutIntelligence && { 'intelligence.visualCutIntelligence': visualCutIntelligence }),
           ...(genreParameters && { genreParameters }),
           ...(genreParametersSignalComputed && { genreParametersSignalComputed }),
-          updatedAt: new Date(),
+          updatedAt: phase1UpdatedAt,
         },
       },
     );
+
+    try {
+      await persistProjectAssetAnalysis(db, projectId, assetId, {
+        rawFootageAnalysis: persistedRawFootageAnalysis,
+        vjepaAnalysis: precutVjepaAnalysis,
+      }, phase1UpdatedAt);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[VideoAnalysisWorker] Per-asset analysis document write failed (non-fatal): ${msg}`);
+    }
 
     // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1.7: Dispatch graph-sync with transcript data Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     if (rawFootageAnalysis) {
@@ -801,7 +843,7 @@ async function handler(request: NextRequest) {
         const { buildVjepaCoverageSegments } = await import('@/lib/editron/services/vjepa-service');
         const visualSegmentInputs = buildVjepaCoverageSegments(rawFootageAnalysis.originalDurationMs, segmentInputs);
         const tribePayload = {
-          projectId, userId, orgId, videoUrl,
+          projectId, userId, orgId, assetId, videoUrl,
           segmentInputs,
           visualSegmentInputs,
           directorPayload,
@@ -984,6 +1026,15 @@ async function handler(request: NextRequest) {
         } catch (err: unknown) { console.warn('[VideoAnalysisWorker] segment analysis build failed:', err instanceof Error ? err.message : err); }
 
         // Store Phase 2 data
+        const inlinePhase2UpdatedAt = new Date();
+        const inlinePhase2PerAssetSet = buildProjectAnalysisAssetSet(assetId, {
+          vjepaAnalysis,
+          wav2vecAnalysis,
+          musicAnalysis: musicResult.status === 'fulfilled' ? musicResult.value : null,
+          momentWeightMap,
+          segmentAnalysis,
+        }, inlinePhase2UpdatedAt);
+
         await db.collection('projects').updateOne(
           { projectId },
           {
@@ -992,9 +1043,24 @@ async function handler(request: NextRequest) {
               ...(wav2vecAnalysis && { wav2vecAnalysis }),
               ...(momentWeightMap && { momentWeightMap }),
               ...(segmentAnalysis && { segmentAnalysis }),
+              ...inlinePhase2PerAssetSet,
+              updatedAt: inlinePhase2UpdatedAt,
             },
           },
         );
+
+        try {
+          await persistProjectAssetAnalysis(db, projectId, assetId, {
+            vjepaAnalysis,
+            wav2vecAnalysis,
+            musicAnalysis: musicResult.status === 'fulfilled' ? musicResult.value : null,
+            momentWeightMap,
+            segmentAnalysis,
+          }, inlinePhase2UpdatedAt);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[VideoAnalysisWorker] Inline per-asset analysis document write failed (non-fatal): ${msg}`);
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[VideoAnalysisWorker] TRIBE inline failed (non-fatal): ${msg}`);
@@ -1048,12 +1114,18 @@ async function handler(request: NextRequest) {
     const totalMs = Date.now() - startMs;
     const projectAfterDirector = await db.collection('projects').findOne(
       { projectId },
-      { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
+      { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1, 'intelligence.renderedQualityEvidence': 1 } },
     );
+    const renderedQualityEvidence = projectAfterDirector?.intelligence?.renderedQualityEvidence;
     const learningDecision = resolveEditronLearningOutcome({
       hasQualityReview: !!projectAfterDirector?.qualityReview,
       qualityScore: projectAfterDirector?.qualityReview?.overallScore,
       criticalCount: projectAfterDirector?.qualityReview?.criticalCount,
+      qualityEvidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
+      renderedQualityStatus: renderedQualityEvidence?.renderedQualityStatus,
+      renderedAestheticStatus: renderedQualityEvidence?.renderedAestheticStatus,
+      artifactStatus: renderedQualityEvidence?.artifactStatus,
+      renderedAestheticFailFrameCount: renderedQualityEvidence?.renderedAestheticFailFrameCount,
     });
     const completionSet: Record<string, unknown> = {
       autoEditStatus: learningDecision.shouldRecord ? 'complete' : 'needs_review',
@@ -1081,7 +1153,16 @@ async function handler(request: NextRequest) {
     try {
       if (learningDecision.shouldRecord && learningDecision.qualityScore !== null) {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
-        await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false);
+        const outcome = await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false, {
+          evidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
+          renderedAestheticStatus:
+            renderedQualityEvidence?.renderedAestheticStatus ??
+            renderedQualityEvidence?.renderedQualityStatus ??
+            renderedQualityEvidence?.artifactStatus,
+        });
+        if (!outcome.recorded) {
+          console.log('[VideoAnalysisWorker] Bandit: skipped inline Director outcome (' + (outcome.reason ?? 'not_recorded') + ')');
+        }
       } else {
         console.log(`[VideoAnalysisWorker] Bandit: skipping inline Director outcome (${learningDecision.reason ?? 'not_recordable'})`);
       }

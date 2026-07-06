@@ -9,10 +9,13 @@ import {
   type ClickatronPlatform,
   type ClickatronTextLayer,
   type ClickatronTextPolicy,
+  type ClickatronVisualLanguage,
+  type ClickatronVisualMode,
   type ThinkForgeBlockExportMeta,
 } from '../schemas/clickatron-creative-contract';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import type { ThinkForgeContentSignalProfile } from '../signals';
+import { deriveCarouselVisualSpec } from '../visual-language/derive-carousel-visual-spec';
 
 export const THINKFORGE_CLICKATRON_EXPORT_START = 'THINKFORGE_CLICKATRON_EXPORT';
 export const THINKFORGE_CLICKATRON_EXPORT_END = 'END_THINKFORGE_CLICKATRON_EXPORT';
@@ -275,6 +278,38 @@ export function buildClickatronCreativeSidecarProfile(
   };
 }
 
+// Derive the visual language (vibe/style/mode/palette/confidence + slide roles) from the
+// ThinkForge atoms and shape it for the spec. Pure enrichment — the writer's explicit
+// visualMode still wins (passed as an override). [R6 / atomization P2]
+function deriveVisualLanguageForSpec(
+  profile: ThinkForgeContentSignalProfile,
+  clickatron: NonNullable<ThinkForgeBlockExportMeta['clickatron']>,
+): { visualLanguage: ClickatronVisualLanguage; visualMode: ClickatronVisualMode } {
+  const slides = Array.isArray(clickatron.renderPlan?.slides) ? clickatron.renderPlan.slides : [];
+  const writerMode = clickatron.userIntent?.visualMode;
+  const spec = deriveCarouselVisualSpec({
+    signals: profile.profile.signals ?? {},
+    goal: profile.intent.goal,
+    proofPoints: profile.intent.proofPoints,
+    platform: profile.intent.platform,
+    blocks: slides.map((slide) => ({ title: slide.title, text: slide.imagePrompt ?? '' })),
+    overrides: writerMode && writerMode !== 'auto' ? { visualMode: writerMode } : undefined,
+  });
+  return {
+    visualMode: spec.visualMode,
+    visualLanguage: {
+      vibe: spec.vibe,
+      imageStyle: spec.imageStyle,
+      paletteTemperature: spec.palette.temperatureBias,
+      confidence: spec.confidence,
+      lowConfidenceFields: spec.lowConfidenceFields,
+      ...(clickatron.kind === 'carousel' ? { slideRoles: spec.slides.map((slide) => slide.role) } : {}),
+      rationale: spec.rationale,
+      derived: true,
+    },
+  };
+}
+
 export function applyContentSignalProfileToClickatronExportMeta(
   exportMeta: ThinkForgeBlockExportMeta,
   input: SidecarProfileInput,
@@ -284,6 +319,7 @@ export function applyContentSignalProfileToClickatronExportMeta(
   const clickatron = exportMeta.clickatron;
   if (!sidecarProfile || !clickatron) return exportMeta;
   const calendar = mergeCalendarScopes(clickatron.calendar, sidecarProfile.calendar);
+  const derived = profile ? deriveVisualLanguageForSpec(profile, clickatron) : undefined;
 
   const normalized = normalizeThinkForgeBlockExportMeta({
     clickatron: {
@@ -297,6 +333,7 @@ export function applyContentSignalProfileToClickatronExportMeta(
         ...(sidecarProfile.userIntent.tone && !clickatron.userIntent.tone ? { tone: sidecarProfile.userIntent.tone } : {}),
         wantsCarousel: sidecarProfile.userIntent.wantsCarousel || clickatron.userIntent.wantsCarousel,
         ...(clickatron.userIntent.notes ? {} : { notes: sidecarProfile.userIntent.notes }),
+        ...(derived ? { visualMode: derived.visualMode } : {}),
       },
       creativeBrief: {
         ...clickatron.creativeBrief,
@@ -311,6 +348,7 @@ export function applyContentSignalProfileToClickatronExportMeta(
         ...clickatron.renderPlan,
         textPolicy: sidecarProfile.textPolicy,
       },
+      ...(derived ? { visualLanguage: derived.visualLanguage } : {}),
     },
   });
 

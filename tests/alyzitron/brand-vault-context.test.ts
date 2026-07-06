@@ -175,7 +175,7 @@ describe("Alyzitron Brand Vault context", () => {
     expect(processorRoute).toContain("...intentCompletionFields");
     expect(processorRoute).not.toContain("buildAlyzitronAnalysisContext(analysisContext");
     expect(processorRoute).not.toContain("...(analysisMetadata)");
-    expect(processorRoute).toContain("analyzeVideoWithGemini(task.videoUrl, analysisContext, analysisMetadata)");
+    expect(processorRoute).toContain("runGeminiAnalysis(task.videoUrl, analysisContext, analysisMetadata)");
     expect(vertexService).toContain("BRAND ALIGNMENT:");
     expect(vertexService).toContain("Separate observed media facts from brand-fit judgments");
     expect(vertexService).toContain("CONTENT INTENT LENS:");

@@ -13,6 +13,7 @@ import { StructuredAgent, type AgentConfig } from './base-agent';
 import { generateText } from 'ai';
 import type { AgentInput } from './types';
 import { z } from 'zod';
+import { readAiSdkUsage, recordThinkForgeDirectCost } from '../services/provider-cost-telemetry';
 
 const VoiceFlagSchema = z.object({
   blockId: z.string().optional(),
@@ -126,6 +127,7 @@ ${issueList}
 ${brandContext ? `<brand_context>\n${brandContext}\n</brand_context>\n\n` : ''}<draft_to_fix>
 ${content}
 </draft_to_fix>`;
+    const startedAt = Date.now();
 
     try {
       const result = await generateText({
@@ -138,6 +140,24 @@ ${content}
       });
 
       const rewritten = result.text.trim();
+      await recordThinkForgeDirectCost({
+        status: 'success',
+        action: 'stylist_rewrite',
+        route: 'lib/thinkforge/agents/stylist-agent.rewriteFlagged',
+        provider: 'gemini',
+        modelName: this.config.modelName,
+        operation: 'llm_text_direct',
+        promptChars: prompt.length,
+        outputChars: result.text?.length,
+        functionMs: Date.now() - startedAt,
+        usage: await readAiSdkUsage((result as { usage?: unknown }).usage),
+        routePurpose: 'creative_authoring',
+        privacyClass: 'business_confidential',
+        temperature: 0.3,
+        maxTokens: 2600,
+        sourceKind: 'stylist_targeted_rewrite',
+        resultCount: allIssues.length,
+      });
       if (rewritten.length < content.length * 0.5) {
         console.warn(`[ThinkForge:Stylist] Rewrite too short (${rewritten.length} vs ${content.length}), discarding`);
         return null;
@@ -146,6 +166,23 @@ ${content}
       console.log(`[ThinkForge:Stylist] Rewrite complete: ${allIssues.length} issues targeted, ${content.length} → ${rewritten.length} chars`);
       return rewritten;
     } catch (e) {
+      await recordThinkForgeDirectCost({
+        status: 'failed',
+        action: 'stylist_rewrite',
+        route: 'lib/thinkforge/agents/stylist-agent.rewriteFlagged',
+        provider: 'gemini',
+        modelName: this.config.modelName,
+        operation: 'llm_text_direct',
+        promptChars: prompt.length,
+        functionMs: Date.now() - startedAt,
+        routePurpose: 'creative_authoring',
+        privacyClass: 'business_confidential',
+        temperature: 0.3,
+        maxTokens: 2600,
+        sourceKind: 'stylist_targeted_rewrite',
+        resultCount: allIssues.length,
+        error: e,
+      });
       console.error('[ThinkForge:Stylist] Rewrite failed:', e);
       return null;
     }

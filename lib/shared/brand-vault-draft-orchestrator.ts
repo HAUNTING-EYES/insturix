@@ -24,7 +24,13 @@ import {
 } from './brand-website-refinery';
 import { createBrandVaultSocialEvidenceCandidates } from './brand-vault-social-evidence';
 import { resolveBrandSignalEditLearningWeight } from './brand-signal-edit-weighting';
-import { inferAudience, inferCategory, inferIndustry, parseWebsiteHtml } from './brand-website-refinery-utils';
+import {
+  extractSocialProfileLinks,
+  inferAudience,
+  inferCategory,
+  inferIndustry,
+  parseWebsiteHtml,
+} from './brand-website-refinery-utils';
 import {
   createBrandVaultGeminiSocialOcrProvider,
   type BrandVaultSocialOcrProvider,
@@ -38,6 +44,11 @@ import {
   mirrorBrandVaultVisualIdentityAssets,
   type BrandVaultVisualAssetStorageProvider,
 } from './brand-vault-visual-asset-storage';
+import {
+  applyWebsiteScreenshotToProfile,
+  buildWebsiteScreenshotCandidate,
+  type CaptureBrandVaultWebsiteScreenshot,
+} from './brand-vault-website-screenshot';
 import type {
   BrandEvidenceCandidate,
   BrandVaultCrawlOptions,
@@ -297,6 +308,12 @@ export interface BrandVaultWebsiteDraftJobDependencies {
   websiteOcrProvider?: BrandVaultSocialOcrProvider | null;
   textEvidenceCompiler?: BrandVaultTextEvidenceCompiler;
   visualAssetStorage?: BrandVaultVisualAssetStorageProvider | null;
+  /**
+   * Captures a live screenshot of the scanned site. When set (and visualAssetStorage is configured), the
+   * screenshot is mirrored to durable storage and attached as first-party assets.socialPreviewImages
+   * evidence so brand-owned storyboard subjects auto-resolve. Fail-soft — never blocks the scan.
+   */
+  captureWebsiteScreenshot?: CaptureBrandVaultWebsiteScreenshot | null;
   clock?: () => string;
 }
 
@@ -426,7 +443,8 @@ export async function createBrandVaultWebsiteDraftJob(
   dependencies: BrandVaultWebsiteDraftJobDependencies,
 ): Promise<BrandVaultWebsiteDraftJobResult> {
   const startedAt = resolveNow(input.now, dependencies.clock);
-  const socialLinks = input.socialLinks ?? [];
+  // Reassigned after the snapshot is fetched to fold in socials auto-discovered from the page HTML.
+  let socialLinks = input.socialLinks ?? [];
   const sourceEvidence = input.sourceEvidence ?? [];
   const jobId = input.jobId ?? createDefaultJobId(input, input.websiteUrl, startedAt);
 
@@ -488,6 +506,14 @@ export async function createBrandVaultWebsiteDraftJob(
       provider: resolveWebsiteOcrProvider(dependencies),
     });
     snapshot = websiteOcr.snapshot;
+    // Auto-discover the brand's own social profiles from the page (footer icons, rel=me, twitter:site) and
+    // fold them into the scan's social links, so a plain website scan produces social evidence without the
+    // user typing anything. Feeds the staged social-evidence path + persists into job.inputs.socialLinks
+    // (so rescans re-surface them). Connected-account pulls still key off typed links only.
+    const discoveredSocialLinks = extractSocialProfileLinks(snapshot.html, snapshot.normalizedUrl);
+    if (discoveredSocialLinks.length > 0) {
+      socialLinks = Array.from(new Set([...socialLinks, ...discoveredSocialLinks]));
+    }
     const crawl = await fetchCrawlSnapshots({
       root: snapshot,
       sourceEvidence,
@@ -541,6 +567,60 @@ export async function createBrandVaultWebsiteDraftJob(
         });
       }
     }
+    // Capture a live screenshot of the site and attach it as first-party "Website screenshot" evidence
+    // (assets.socialPreviewImages), so brand-owned storyboard subjects auto-resolve from Brand Vault
+    // instead of dead-ending on a manual upload. Persist to durable storage FIRST so the saved profile
+    // holds a permanent URL (a provider screenshot URL is temporary; bytes go straight to R2). Fail-soft:
+    // any capture/storage error leaves the draft untouched and never blocks the scan.
+    let screenshotTileCandidate: BrandEvidenceCandidate | null = null;
+    if (dependencies.captureWebsiteScreenshot && dependencies.visualAssetStorage) {
+      try {
+        const captured = await dependencies.captureWebsiteScreenshot(snapshot.normalizedUrl);
+        if (captured) {
+          const storageMeta = {
+            assetId: `${jobId}_website_screenshot`,
+            kind: 'website_preview' as const,
+            label: 'Website screenshot',
+            jobId,
+            userId: input.userId,
+            brandId: input.brandId,
+            sourceUrl: snapshot.normalizedUrl,
+            signalPath: 'assets.socialPreviewImages',
+          };
+          const stored =
+            captured.source === 'url'
+              ? await dependencies.visualAssetStorage.mirrorAsset({ ...storageMeta, url: captured.url })
+              : dependencies.visualAssetStorage.storeImageBytes
+                ? await dependencies.visualAssetStorage.storeImageBytes({
+                    ...storageMeta,
+                    base64: captured.base64,
+                    contentType: captured.contentType,
+                  })
+                : { ok: false as const, reason: 'storage provider cannot persist screenshot bytes' };
+          if (stored.ok) {
+            draft.record.profile = applyWebsiteScreenshotToProfile(draft.record.profile, {
+              screenshotUrl: stored.publicUrl,
+              observedAt: snapshot.fetchedAt,
+              sourceUrl: snapshot.normalizedUrl,
+            });
+            // Also emit it as a candidate so it renders as a "Website preview" tile in the review board
+            // (the board draws tiles from candidates; the profile signal alone is invisible there).
+            screenshotTileCandidate = buildWebsiteScreenshotCandidate({
+              screenshotUrl: stored.publicUrl,
+              jobId,
+              brandId: input.brandId,
+              observedAt: snapshot.fetchedAt,
+              sourceUrl: snapshot.normalizedUrl,
+            });
+          }
+        }
+      } catch (error) {
+        console.warn(
+          '[BrandVault:screenshot] website screenshot capture skipped:',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
     const assetProbe = await verifyWebsiteBrandAssetCandidates(draft.candidates, {
       ...dependencies.fetchOptions,
       allowDefaultFetch: !dependencies.fetchSnapshot,
@@ -578,7 +658,11 @@ export async function createBrandVaultWebsiteDraftJob(
       now: snapshot.fetchedAt,
       actorId: input.actorId,
     });
-    const candidates = withCandidateTrustLevels([...baseCandidates, ...compiled.candidates]);
+    const candidates = withCandidateTrustLevels([
+      ...baseCandidates,
+      ...compiled.candidates,
+      ...(screenshotTileCandidate ? [screenshotTileCandidate] : []),
+    ]);
     const baseWarnings = mergeWarnings(
       draft.warnings,
       stylesheetWarningsForSnapshots([snapshot, ...crawl.snapshots]),
@@ -1817,6 +1901,15 @@ async function fetchCrawlSnapshots(args: {
     if (seed.url) enqueueCrawlUrl(queue, seed.url, rootUrl, policy, 0, args.root.normalizedUrl, 'seed');
   }
   enqueueSitemapUrls(queue, args.root.html, rootUrl, policy, args.root.normalizedUrl);
+  await enqueueRobotsSitemaps({
+    queue,
+    rootUrl,
+    policy,
+    fetchSnapshot: args.fetchSnapshot,
+    fetchOptions: args.fetchOptions,
+    now: args.now,
+    discoveredFrom: args.root.normalizedUrl,
+  });
   if (policy.maxDepth > 0) enqueueCrawlLinks(queue, args.root.html, rootUrl, policy, 1, args.root.normalizedUrl);
 
   let attempts = 0;
@@ -1857,6 +1950,11 @@ async function fetchCrawlSnapshots(args: {
 
   if (snapshots.length > 0) {
     warnings.push(`Crawled ${snapshots.length} additional brand page${snapshots.length === 1 ? '' : 's'} for draft evidence.`);
+  } else {
+    warnings.push(
+      'Brand Vault crawler found no crawlable pages beyond the homepage — the site may be a single-page/JS app whose ' +
+        'nav links are not plain anchors, or it blocks crawling. Brand evidence for this scan is homepage-only.',
+    );
   }
   return { snapshots, warnings };
 }
@@ -1891,10 +1989,20 @@ function enqueueDefaultBrandPages(
     '/services',
     '/solutions',
     '/product',
+    '/products',
+    '/platform',
+    '/features',
+    '/how-it-works',
+    '/use-cases',
+    '/pricing',
+    '/pricing-plans',
+    '/plans',
     '/customers',
     '/case-studies',
     '/work',
     '/portfolio',
+    '/docs',
+    '/integrations',
     '/press',
     '/media-kit',
     '/resources',
@@ -1930,6 +2038,39 @@ function enqueueSitemapUrls(
     if (href) candidates.add(href);
   });
   for (const href of candidates) enqueueCrawlUrl(queue, href, baseUrl, policy, 1, discoveredFrom, 'seed');
+}
+
+/**
+ * Discover sitemaps declared in robots.txt. Many sites host their sitemap at a custom path and only
+ * announce it via a `Sitemap:` line in robots.txt (never at the predictable /sitemap.xml), so this is
+ * often the only way to find the authoritative page list. Fail-soft: a missing/blocked/empty robots.txt
+ * simply yields no extra seeds and never breaks the scan.
+ */
+async function enqueueRobotsSitemaps(args: {
+  queue: Map<string, CrawlQueueItem>;
+  rootUrl: URL;
+  policy: CrawlPolicy;
+  fetchSnapshot: (websiteUrl: string, options?: FetchWebsiteBrandSnapshotOptions) => Promise<BrandWebsiteSnapshot>;
+  fetchOptions?: FetchWebsiteBrandSnapshotOptions;
+  now: string;
+  discoveredFrom: string;
+}): Promise<void> {
+  try {
+    const snapshot = await args.fetchSnapshot(`${args.rootUrl.origin}/robots.txt`, {
+      ...args.fetchOptions,
+      now: args.now,
+    });
+    const text = typeof snapshot.html === 'string' ? snapshot.html : '';
+    if (!text) return;
+    for (const line of text.split(/\r?\n/)) {
+      const match = /^\s*sitemap:\s*(\S+)/i.exec(line);
+      if (match?.[1]) {
+        enqueueCrawlUrl(args.queue, match[1], args.rootUrl, args.policy, 1, args.discoveredFrom, 'seed');
+      }
+    }
+  } catch {
+    // robots.txt is optional; ignore fetch/parse failures.
+  }
 }
 
 function enqueueCrawlUrl(

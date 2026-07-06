@@ -9,6 +9,7 @@ import {
 } from './vjepa-coverage-audit';
 import type { PersistedQualityReviewIssue } from './quality-review-persistence';
 import type { Phase0RenderArtifactPack } from './phase0-render-artifact-pack';
+import { summarizeFinalOverlayChoreographyBypasses } from './cross-overlay-final-overlays';
 
 export const PHASE0_FIXTURE_VERSION = 'editron-phase0-fixture-v1' as const;
 
@@ -150,6 +151,7 @@ export interface Phase0FixtureManifest {
   sourceMapping: ReturnType<typeof summarizeSourceMapping>;
   canonicalTimeline: ReturnType<typeof summarizeCanonicalTimeline>;
   unifiedDecisionBundle: ReturnType<typeof summarizeUnifiedDecisionBundle>;
+  finalOverlayChoreography: ReturnType<typeof summarizeFinalOverlayChoreography>;
   oldProducerGating: ReturnType<typeof summarizeOldProducerGating>;
   qualityReview: ReturnType<typeof summarizeQualityReview>;
   vjepaCoverage: ReturnType<typeof summarizeVjepaCoverage>;
@@ -248,6 +250,7 @@ export function buildPhase0FixtureManifest(
     sourceMapping: summarizeSourceMapping(overlays),
     canonicalTimeline: summarizeCanonicalTimeline(project, overlays, fps, durationFrames),
     unifiedDecisionBundle: summarizeUnifiedDecisionBundle(project),
+    finalOverlayChoreography: summarizeFinalOverlayChoreography(overlays),
     oldProducerGating: summarizeOldProducerGating(project),
     qualityReview: summarizeQualityReview(project),
     vjepaCoverage: summarizeVjepaCoverage(project, overlays, fps),
@@ -602,6 +605,39 @@ function summarizeUnifiedDecisionBundle(project: Phase0FixtureProject) {
   };
 }
 
+function summarizeFinalOverlayChoreography(overlays: Phase0OverlayLike[]) {
+  const report = summarizeFinalOverlayChoreographyBypasses(overlays as any[]);
+  const overlayCount = readPositiveNumber(report.overlayCount, overlays.length);
+  const bypassOverlayCount = readPositiveNumber(report.bypassOverlayCount, 0);
+  return {
+    version: 'phase0-cross-overlay-final-overlays-v1' as const,
+    status: bypassOverlayCount > 0 ? 'present' as const : 'none' as const,
+    overlayCount,
+    bypassOverlayCount,
+    bypassRate: overlayCount > 0 ? round(bypassOverlayCount / overlayCount) : null,
+    countsByProducer: normalizeNumberRecord(report.countsByProducer),
+    countsByFamily: normalizeNumberRecord(report.countsByFamily),
+    topBypasses: report.bypasses.slice(0, 20).map(summarizeFinalOverlayBypass),
+    calibrationStatus: readString(report.calibrationStatus) || null,
+  };
+}
+
+function summarizeFinalOverlayBypass(value: unknown) {
+  const item = isRecord(value) ? value : {};
+  return {
+    overlayId: typeof item.overlayId === 'string' || typeof item.overlayId === 'number' ? item.overlayId : null,
+    type: readString(item.type) || 'unknown',
+    producer: readString(item.producer) || 'unknown',
+    family: readString(item.family) || 'unknown',
+    lane: readString(item.lane) || 'unknown',
+    from: readNullableNumber(item.from),
+    durationFrames: readNullableNumber(item.durationFrames),
+    reason: readString(item.reason) || 'unknown',
+    movable: item.movable === false ? false : null,
+    calibrationStatus: readString(item.calibrationStatus) || null,
+  };
+}
+
 function summarizeCrossOverlayChoreography(evidence: JsonRecord | null) {
   const report = isRecord(evidence?.crossOverlayChoreography) ? evidence.crossOverlayChoreography : null;
   if (!report) {
@@ -612,12 +648,17 @@ function summarizeCrossOverlayChoreography(evidence: JsonRecord | null) {
       inputDecisionCount: 0,
       outputDecisionCount: 0,
       suppressedDecisionCount: 0,
+      shapedDecisionCount: 0,
       suppressionRate: null,
+      shapeRate: null,
       syncGroupCount: 0,
       laneLoad: {} as Record<string, number>,
       suppressedByReason: {} as Record<string, number>,
+      shapedByReason: {} as Record<string, number>,
       suppressedByFamily: {} as Record<string, number>,
+      shapedByFamily: {} as Record<string, number>,
       topSuppressions: [] as Array<Record<string, unknown>>,
+      topShapes: [] as Array<Record<string, unknown>>,
       syncGroups: [] as Array<Record<string, unknown>>,
       calibrationStatus: null,
     };
@@ -625,6 +666,7 @@ function summarizeCrossOverlayChoreography(evidence: JsonRecord | null) {
 
   const inputDecisionCount = readPositiveNumber(report.inputDecisionCount, 0);
   const suppressedDecisionCount = readPositiveNumber(report.suppressedDecisionCount, 0);
+  const shapedDecisionCount = readPositiveNumber(report.shapedDecisionCount, 0);
   const syncGroups = Array.isArray(report.syncGroups)
     ? report.syncGroups.filter(isRecord).slice(0, 20).map(summarizeCrossOverlaySyncGroup)
     : [];
@@ -635,13 +677,20 @@ function summarizeCrossOverlayChoreography(evidence: JsonRecord | null) {
     inputDecisionCount,
     outputDecisionCount: readPositiveNumber(report.outputDecisionCount, 0),
     suppressedDecisionCount,
+    shapedDecisionCount,
     suppressionRate: inputDecisionCount > 0 ? round(suppressedDecisionCount / inputDecisionCount) : null,
+    shapeRate: inputDecisionCount > 0 ? round(shapedDecisionCount / inputDecisionCount) : null,
     syncGroupCount: syncGroups.length,
     laneLoad: normalizeNumberRecord(report.laneLoad),
     suppressedByReason: normalizeNumberRecord(report.suppressedByReason),
+    shapedByReason: normalizeNumberRecord(report.shapedByReason),
     suppressedByFamily: normalizeNumberRecord(report.suppressedByFamily),
+    shapedByFamily: normalizeNumberRecord(report.shapedByFamily),
     topSuppressions: Array.isArray(report.suppressed)
       ? report.suppressed.filter(isRecord).slice(0, 20).map(summarizeCrossOverlaySuppression)
+      : [],
+    topShapes: Array.isArray(report.shaped)
+      ? report.shaped.filter(isRecord).slice(0, 20).map(summarizeCrossOverlayShape)
       : [],
     syncGroups,
     calibrationStatus: readString(report.calibrationStatus) || null,
@@ -654,6 +703,24 @@ function summarizeCrossOverlaySuppression(item: JsonRecord) {
     reason: readString(item.reason) || 'unknown',
     family: readString(item.family) || 'unknown',
     frame: readNullableNumber(item.frame),
+    conflictingWith: {
+      type: readString(conflictingWith.type) || null,
+      frame: readNullableNumber(conflictingWith.frame),
+      family: readString(conflictingWith.family) || null,
+      source: preview(conflictingWith.source, 80) || null,
+    },
+    calibrationStatus: readString(item.calibrationStatus) || null,
+  };
+}
+
+function summarizeCrossOverlayShape(item: JsonRecord) {
+  const conflictingWith = isRecord(item.conflictingWith) ? item.conflictingWith : {};
+  return {
+    reason: readString(item.reason) || 'unknown',
+    family: readString(item.family) || 'unknown',
+    originalFrame: readNullableNumber(item.originalFrame),
+    frame: readNullableNumber(item.frame),
+    shiftFrames: readNullableNumber(item.shiftFrames),
     conflictingWith: {
       type: readString(conflictingWith.type) || null,
       frame: readNullableNumber(conflictingWith.frame),
@@ -898,7 +965,8 @@ function summarizeCandidateVisualSetupSignalKeys(candidate: JsonRecord): string[
 }
 
 function isVisualSetupSignalKey(key: string): boolean {
-  return key === 'visual_complexity'
+  return key.startsWith('visual.perception.')
+    || key === 'visual_complexity'
     || key === 'enrichment.visual_setup_source'
     || key === 'visual.environment'
     || key === 'visual.scene_type'

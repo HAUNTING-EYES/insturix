@@ -1,3 +1,4 @@
+import { recordProviderCostEvent } from "@/lib/financials/provider-cost-events";
 import type { PublishParams, PublishResult } from "./contract";
 
 /**
@@ -18,13 +19,14 @@ type FacebookPage = {
 type FacebookAuth =
   | { pageId: string; pageName?: string; pageAccessToken: string }
   | { error: string; retryable: boolean };
+type FacebookPublishResult = PublishResult & { responseStatus?: number };
 
 function graphVersion() {
   const raw = (process.env.FACEBOOK_GRAPH_API_VERSION || "v21.0").trim();
   return raw.startsWith("v") ? raw : `v${raw}`;
 }
 
-export async function publishToFacebook(params: PublishParams): Promise<PublishResult> {
+export async function publishToFacebook(params: PublishParams): Promise<FacebookPublishResult> {
   const text = (params.caption ?? params.title ?? "").trim();
   if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false };
   if (!params.brandId) return { ok: false, error: "Facebook publishing requires a brandId", retryable: false };
@@ -36,7 +38,9 @@ export async function publishToFacebook(params: PublishParams): Promise<PublishR
   const auth = await resolveBrandPageAuth(params.brandId, params.accountRef);
   if ("error" in auth) return { ok: false, error: auth.error, retryable: auth.retryable };
 
-  return createFacebookFeedPost(auth.pageId, auth.pageAccessToken, text);
+  const result = await createFacebookFeedPost(auth.pageId, auth.pageAccessToken, text);
+  await recordCalosFacebookPublishCost(params, result);
+  return result;
 }
 
 async function resolveBrandPageAuth(
@@ -99,7 +103,7 @@ async function createFacebookFeedPost(
   pageId: string,
   pageAccessToken: string,
   message: string,
-): Promise<PublishResult> {
+): Promise<FacebookPublishResult> {
   try {
     const res = await fetch(`https://graph.facebook.com/${graphVersion()}/${encodeURIComponent(pageId)}/feed`, {
       method: "POST",
@@ -126,12 +130,41 @@ async function createFacebookFeedPost(
         ok: false,
         error: `Facebook post failed (${res.status}): ${data.error?.message || data.message || bodyText || "unknown error"}`,
         retryable,
+        responseStatus: res.status,
       };
     }
 
-    if (!data.id) return { ok: false, error: "Facebook returned no post id", retryable: true };
-    return { ok: true, postId: data.id, postUrl: `https://www.facebook.com/${data.id}` };
+    if (!data.id) return { ok: false, error: "Facebook returned no post id", retryable: true, responseStatus: res.status };
+    return { ok: true, postId: data.id, postUrl: `https://www.facebook.com/${data.id}`, responseStatus: res.status };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Facebook post threw", retryable: true };
   }
+}
+
+async function recordCalosFacebookPublishCost(params: PublishParams, result: FacebookPublishResult) {
+  await recordProviderCostEvent({
+    idempotencyKey:
+      result.ok && result.postId
+        ? `calos:facebook:publish:${params.deliverableId}:${result.postId}`
+        : undefined,
+    status: result.ok ? "success" : "failed",
+    userId: params.ownerUserId,
+    projectId: params.brandId,
+    taskId: params.deliverableId,
+    service: "calos",
+    action: "platform_publish",
+    route: "lib/calos/publish/facebook",
+    provider: "meta-graph-api",
+    model: `facebook-${graphVersion()}`,
+    operation: "social_publish",
+    providerJobId: result.postId,
+    units: { requestCount: 1 },
+    metadata: {
+      platform: "facebook",
+      responseStatus: result.responseStatus,
+      retryable: result.retryable,
+      hasAccountRef: Boolean(params.accountRef),
+      hasBrandId: Boolean(params.brandId),
+    },
+  });
 }

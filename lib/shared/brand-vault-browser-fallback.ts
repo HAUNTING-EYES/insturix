@@ -1,3 +1,7 @@
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from '@/lib/financials/provider-cost-events';
 import type {
   BrandWebsiteBrowserFallbackInput,
   BrandWebsiteBrowserFallbackSnapshot,
@@ -25,6 +29,25 @@ export interface BrandVaultBrowserRenderEnvironment {
 
 export type BrandVaultBrowserRenderFetch = (url: string, init?: RequestInit) => Promise<Response>;
 export type BrandVaultBrowserRenderProvider = 'endpoint' | 'local_playwright' | 'firecrawl' | 'off';
+
+type BrandVaultBrowserCostProvider = 'brand-vault-render-endpoint' | 'modal' | 'local-playwright' | 'firecrawl';
+
+type BrandVaultBrowserRenderCostInput = {
+  status: ProviderCostEventStatus;
+  providerName: BrandVaultBrowserCostProvider;
+  reason?: BrandWebsiteBrowserFallbackInput['reason'];
+  requestBytes?: number;
+  responseBytes?: number;
+  responseStatus?: number;
+  htmlChars?: number;
+  stylesheetCount?: number;
+  hasRenderedPrimitives?: boolean;
+  timeoutMs?: number;
+  waitMs?: number;
+  waitUntil?: BrandVaultPlaywrightWaitUntil;
+  functionMs?: number;
+  error?: unknown;
+};
 
 export interface BrandVaultPlaywrightBrowser {
   close: () => Promise<void>;
@@ -85,7 +108,8 @@ export function createBrandVaultBrowserFallbackFetchFromEnvironment(
   if (endpoint) {
     const token = firstString(env.BRAND_VAULT_BROWSER_RENDER_TOKEN, env.BRAND_VAULT_MODAL_RENDER_TOKEN);
     const timeoutMs = parseTimeoutMs(firstString(env.BRAND_VAULT_BROWSER_RENDER_TIMEOUT_MS, env.BRAND_VAULT_MODAL_RENDER_TIMEOUT_MS));
-    return async (input) => fetchBrowserRenderedSnapshot({ endpoint, token, timeoutMs, input, fetchFn });
+    const providerName = endpointRenderProvider(env, endpoint);
+    return async (input) => fetchBrowserRenderedSnapshot({ endpoint, token, timeoutMs, input, fetchFn, providerName });
   }
 
   if (provider === 'local_playwright') {
@@ -129,22 +153,115 @@ async function fetchBrowserRenderedSnapshot(args: {
   timeoutMs: number;
   input: BrandWebsiteBrowserFallbackInput;
   fetchFn: BrandVaultBrowserRenderFetch;
+  providerName: BrandVaultBrowserCostProvider;
 }): Promise<BrandWebsiteBrowserFallbackSnapshot | undefined> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), args.timeoutMs);
+  const requestBody = JSON.stringify(renderRequestBody(args.input));
+  const requestBytes = byteLength(requestBody);
+  const startedAt = Date.now();
+  let responseStatus: number | undefined;
   try {
     const response = await args.fetchFn(args.endpoint, {
       method: 'POST',
       signal: controller.signal,
       headers: renderRequestHeaders(args.token),
-      body: JSON.stringify(renderRequestBody(args.input)),
+      body: requestBody,
     });
-    if (!response.ok) return undefined;
-    return responseToFallbackSnapshot(response, args.input.normalizedUrl);
-  } catch {
+    responseStatus = response.status;
+    if (!response.ok) {
+      await recordBrandVaultBrowserRenderCost({
+        status: 'failed',
+        providerName: args.providerName,
+        reason: args.input.reason,
+        requestBytes,
+        responseStatus,
+        timeoutMs: args.timeoutMs,
+        functionMs: Date.now() - startedAt,
+      });
+      return undefined;
+    }
+    const snapshot = await responseToFallbackSnapshot(response, args.input.normalizedUrl);
+    await recordBrandVaultBrowserRenderCost({
+      status: snapshot ? 'success' : 'failed',
+      providerName: args.providerName,
+      reason: args.input.reason,
+      requestBytes,
+      responseBytes: snapshot ? byteLength(snapshot.html) : undefined,
+      responseStatus,
+      htmlChars: snapshot?.html.length,
+      stylesheetCount: snapshot?.stylesheets?.length,
+      hasRenderedPrimitives: Boolean(snapshot?.renderedPrimitives),
+      timeoutMs: args.timeoutMs,
+      functionMs: Date.now() - startedAt,
+    });
+    return snapshot;
+  } catch (error) {
+    await recordBrandVaultBrowserRenderCost({
+      status: 'failed',
+      providerName: args.providerName,
+      reason: args.input.reason,
+      requestBytes,
+      responseStatus,
+      timeoutMs: args.timeoutMs,
+      functionMs: Date.now() - startedAt,
+      error,
+    });
     return undefined;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function recordBrandVaultBrowserRenderCost(input: BrandVaultBrowserRenderCostInput) {
+  await recordProviderCostEvent({
+    status: input.status,
+    service: 'brand_vault',
+    action: 'brand_scan',
+    route: 'lib/shared/brand-vault-browser-fallback',
+    provider: input.providerName,
+    model: input.providerName,
+    operation: 'browser_render',
+    units: {
+      requestCount: 1,
+      bytesIn: input.requestBytes,
+      bytesOut: input.responseBytes,
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      providerName: input.providerName,
+      reason: input.reason,
+      responseStatus: input.responseStatus,
+      htmlChars: input.htmlChars,
+      stylesheetCount: input.stylesheetCount,
+      hasRenderedPrimitives: input.hasRenderedPrimitives,
+      timeoutMs: input.timeoutMs,
+      waitMs: input.waitMs,
+      waitUntil: input.waitUntil,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
+}
+
+function endpointRenderProvider(
+  env: BrandVaultBrowserRenderEnvironment,
+  endpoint: string,
+): BrandVaultBrowserCostProvider {
+  const configuredProvider = env.BRAND_VAULT_BROWSER_RENDER_PROVIDER?.trim().toLowerCase().replace(/-/g, '_');
+  const modalEndpoint = firstString(env.BRAND_VAULT_MODAL_RENDER_ENDPOINT);
+  if (configuredProvider?.includes('modal') || (modalEndpoint && modalEndpoint === endpoint)) return 'modal';
+  return 'brand-vault-render-endpoint';
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
+function jsonByteLength(value: unknown): number | undefined {
+  try {
+    return byteLength(JSON.stringify(value ?? null));
+  } catch {
+    return undefined;
   }
 }
 
@@ -178,6 +295,8 @@ async function fetchLocalPlaywrightRenderedSnapshot(args: {
 }): Promise<BrandWebsiteBrowserFallbackSnapshot | undefined> {
   let browser: BrandVaultPlaywrightBrowser | undefined;
   let context: BrandVaultPlaywrightContext | undefined;
+  const startedAt = Date.now();
+  let responseStatus: number | undefined;
   try {
     const playwright = await args.loadPlaywright();
     browser = await playwright.chromium.launch({
@@ -192,12 +311,25 @@ async function fetchLocalPlaywrightRenderedSnapshot(args: {
       timeout: args.timeoutMs,
       waitUntil: args.waitUntil,
     });
+    responseStatus = response?.status();
     const html = await page.content();
-    if (!html.trim()) return undefined;
+    if (!html.trim()) {
+      await recordBrandVaultBrowserRenderCost({
+        status: 'failed',
+        providerName: 'local-playwright',
+        reason: args.input.reason,
+        responseStatus,
+        htmlChars: 0,
+        timeoutMs: args.timeoutMs,
+        waitUntil: args.waitUntil,
+        functionMs: Date.now() - startedAt,
+      });
+      return undefined;
+    }
     const stylesheets = await extractPlaywrightStylesheets(page);
     const renderedPrimitives = await extractPlaywrightRenderedPrimitives(page);
 
-    return {
+    const snapshot = {
       normalizedUrl: response?.url() ?? args.input.normalizedUrl,
       html,
       contentType: response?.headers()['content-type'] ?? 'text/html',
@@ -209,8 +341,34 @@ async function fetchLocalPlaywrightRenderedSnapshot(args: {
         stylesheets?.length ? 'Self-hosted Playwright renderer attached CSSOM stylesheet evidence for color and font extraction.' : undefined,
         renderedPrimitives ? 'Self-hosted Playwright renderer attached computed layout and motion primitives for visual signal extraction.' : undefined,
       ]),
-    };
-  } catch {
+    } satisfies BrandWebsiteBrowserFallbackSnapshot;
+
+    await recordBrandVaultBrowserRenderCost({
+      status: 'success',
+      providerName: 'local-playwright',
+      reason: args.input.reason,
+      responseBytes: byteLength(html),
+      responseStatus,
+      htmlChars: html.length,
+      stylesheetCount: stylesheets?.length,
+      hasRenderedPrimitives: Boolean(renderedPrimitives),
+      timeoutMs: args.timeoutMs,
+      waitUntil: args.waitUntil,
+      functionMs: Date.now() - startedAt,
+    });
+
+    return snapshot;
+  } catch (error) {
+    await recordBrandVaultBrowserRenderCost({
+      status: 'failed',
+      providerName: 'local-playwright',
+      reason: args.input.reason,
+      responseStatus,
+      timeoutMs: args.timeoutMs,
+      waitUntil: args.waitUntil,
+      functionMs: Date.now() - startedAt,
+      error,
+    });
     return undefined;
   } finally {
     await context?.close().catch(() => undefined);
@@ -399,6 +557,10 @@ async function fetchFirecrawlRenderedSnapshot(args: {
 }): Promise<BrandWebsiteBrowserFallbackSnapshot | undefined> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), args.timeoutMs);
+  const requestBody = JSON.stringify(firecrawlRequestBody(args.input, args.timeoutMs, args.waitMs));
+  const requestBytes = byteLength(requestBody);
+  const startedAt = Date.now();
+  let responseStatus: number | undefined;
   try {
     const response = await args.fetchFn(args.endpoint, {
       method: 'POST',
@@ -408,12 +570,51 @@ async function fetchFirecrawlRenderedSnapshot(args: {
         authorization: `Bearer ${args.apiKey}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify(firecrawlRequestBody(args.input, args.timeoutMs, args.waitMs)),
+      body: requestBody,
     });
-    if (!response.ok) return undefined;
+    responseStatus = response.status;
+    if (!response.ok) {
+      await recordBrandVaultBrowserRenderCost({
+        status: 'failed',
+        providerName: 'firecrawl',
+        reason: args.input.reason,
+        requestBytes,
+        responseStatus,
+        timeoutMs: args.timeoutMs,
+        waitMs: args.waitMs,
+        functionMs: Date.now() - startedAt,
+      });
+      return undefined;
+    }
     const payload = await response.json().catch(() => null);
-    return firecrawlPayloadToSnapshot(payload, args.input.normalizedUrl);
-  } catch {
+    const snapshot = firecrawlPayloadToSnapshot(payload, args.input.normalizedUrl);
+    await recordBrandVaultBrowserRenderCost({
+      status: snapshot ? 'success' : 'failed',
+      providerName: 'firecrawl',
+      reason: args.input.reason,
+      requestBytes,
+      responseBytes: jsonByteLength(payload),
+      responseStatus,
+      htmlChars: snapshot?.html.length,
+      stylesheetCount: snapshot?.stylesheets?.length,
+      hasRenderedPrimitives: Boolean(snapshot?.renderedPrimitives),
+      timeoutMs: args.timeoutMs,
+      waitMs: args.waitMs,
+      functionMs: Date.now() - startedAt,
+    });
+    return snapshot;
+  } catch (error) {
+    await recordBrandVaultBrowserRenderCost({
+      status: 'failed',
+      providerName: 'firecrawl',
+      reason: args.input.reason,
+      requestBytes,
+      responseStatus,
+      timeoutMs: args.timeoutMs,
+      waitMs: args.waitMs,
+      functionMs: Date.now() - startedAt,
+      error,
+    });
     return undefined;
   } finally {
     clearTimeout(timeout);

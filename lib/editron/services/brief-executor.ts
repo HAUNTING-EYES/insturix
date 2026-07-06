@@ -19,9 +19,17 @@ import { normalizeMotionGraphicContent } from './mg-content-atoms';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+interface BriefExecutorWord {
+  word: string;
+  startMs: number;
+  endMs: number;
+  assetId?: string;
+  originalWordIndex?: number;
+}
+
 export interface BriefExecutorInput {
   brief: CreativeBrief;
-  transcription: { word: string; startMs: number; endMs: number }[];
+  transcription: BriefExecutorWord[];
   fps: number;
   audioEnergyCurve?: number[];
   totalDurationMs: number;
@@ -46,7 +54,7 @@ export interface BriefExecutorOutput {
 
 const TYPE_MAP: Record<string, EditDecision['type']> = { ...TYPE_TO_EDL };
 
-type BriefCoordinateSource = 'timestamp' | 'beat' | 'word' | 'semantic-anchor';
+type BriefCoordinateSource = 'timestamp' | 'beat' | 'source-word-address' | 'word' | 'semantic-anchor';
 
 type BriefSemanticFamily = 'camera' | 'transition' | 'graphic' | 'caption' | 'audio' | 'pacing' | 'unknown';
 type BriefSemanticFactKind =
@@ -79,6 +87,10 @@ interface BriefDecisionParamContext {
   reason: string;
   coordinateSource: BriefCoordinateSource;
   targetWordIdx?: number;
+  targetSourceAssetId?: string;
+  targetSourceWordIdx?: number;
+  resolvedAssetId?: string;
+  originalWordIndex?: number;
   targetTimestampMs?: number;
   targetBeatIdx?: number;
 }
@@ -93,7 +105,11 @@ interface BriefSemanticCandidate {
   timing: {
     source: BriefCoordinateSource;
     targetWordIdx?: number;
+    targetSourceAssetId?: string;
+    targetSourceWordIdx?: number;
     resolvedWordIdx?: number;
+    resolvedAssetId?: string;
+    originalWordIndex?: number;
     targetTimestampMs?: number;
     targetBeatIdx?: number;
   };
@@ -201,7 +217,7 @@ interface ResolvedDecision {
 
 function resolveDecisionToFrame(
   decision: BriefDecision,
-  transcription: { word: string; startMs: number; endMs: number }[],
+  transcription: BriefExecutorWord[],
   fps: number,
   energyCurve: number[] | undefined,
   totalDurationMs: number,
@@ -249,7 +265,29 @@ function resolveDecisionToFrame(
     }
   }
 
-  // Priority 3: Word index (speech mode)
+  // Priority 3: Stable source-word address (multi-asset speech mode)
+  if (targetMs === null && decision.targetSourceAssetId && typeof decision.targetSourceWordIdx === 'number') {
+    const sourceWordIdx = findTranscriptWordBySourceAddress(
+      transcription,
+      decision.targetSourceAssetId,
+      decision.targetSourceWordIdx,
+    );
+    if (sourceWordIdx !== null) {
+      const word = transcription[sourceWordIdx];
+      targetWordIdxForContext = sourceWordIdx;
+      targetMs = word.startMs;
+      coordinateSource = 'source-word-address';
+
+      if (isTransitionType(type) && sourceWordIdx > 0) {
+        const prevWord = transcription[sourceWordIdx - 1];
+        targetMs = prevWord.endMs + (word.startMs - prevWord.endMs) / 2;
+      }
+    } else {
+      console.warn(`[BriefExecutor] Source word address ${decision.targetSourceAssetId}:${decision.targetSourceWordIdx} not found - falling back to edited word index/semantic anchor (decision: ${type})`);
+    }
+  }
+
+  // Priority 4: Word index (speech mode)
   if (targetMs === null) {
     const rawIdx = decision.targetWordIdx;
     if (transcription.length === 0) return null;
@@ -318,6 +356,10 @@ function resolveDecisionToFrame(
       reason,
       coordinateSource,
       targetWordIdx: decision.targetWordIdx,
+      targetSourceAssetId: decision.targetSourceAssetId,
+      targetSourceWordIdx: decision.targetSourceWordIdx,
+      resolvedAssetId: targetWordIdxForContext !== null ? transcription[targetWordIdxForContext]?.assetId : undefined,
+      originalWordIndex: targetWordIdxForContext !== null ? transcription[targetWordIdxForContext]?.originalWordIndex : undefined,
       targetTimestampMs: decision.targetTimestampMs,
       targetBeatIdx: decision.targetBeatIdx,
     }) as EditDecision['params'],
@@ -392,7 +434,7 @@ function stripBriefRenderAuthorityParams(params: Record<string, unknown>): void 
 function normalizeBriefDecisionParams(
   type: BriefDecisionType,
   params: Record<string, unknown>,
-  transcription: { word: string; startMs: number; endMs: number }[] = [],
+  transcription: BriefExecutorWord[] = [],
   targetWordIdx: number | null = null,
   context?: BriefDecisionParamContext,
 ): Record<string, unknown> {
@@ -436,7 +478,19 @@ function buildBriefSemanticCandidate(
   if (typeof context?.targetWordIdx === 'number' && Number.isFinite(context.targetWordIdx)) {
     timing.targetWordIdx = context.targetWordIdx;
   }
+  if (typeof context?.targetSourceAssetId === 'string' && context.targetSourceAssetId.trim().length > 0) {
+    timing.targetSourceAssetId = context.targetSourceAssetId;
+  }
+  if (typeof context?.targetSourceWordIdx === 'number' && Number.isFinite(context.targetSourceWordIdx)) {
+    timing.targetSourceWordIdx = context.targetSourceWordIdx;
+  }
   if (resolvedWordIdx !== null) timing.resolvedWordIdx = resolvedWordIdx;
+  if (typeof context?.resolvedAssetId === 'string' && context.resolvedAssetId.trim().length > 0) {
+    timing.resolvedAssetId = context.resolvedAssetId;
+  }
+  if (typeof context?.originalWordIndex === 'number' && Number.isFinite(context.originalWordIndex)) {
+    timing.originalWordIndex = context.originalWordIndex;
+  }
   if (typeof context?.targetTimestampMs === 'number' && Number.isFinite(context.targetTimestampMs)) {
     timing.targetTimestampMs = context.targetTimestampMs;
   }
@@ -883,6 +937,24 @@ function normalizeAnchorToken(value: unknown): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
+function findTranscriptWordBySourceAddress(
+  transcription: BriefExecutorWord[],
+  targetAssetId: string,
+  targetSourceWordIdx: number,
+): number | null {
+  const normalizedAssetId = targetAssetId.trim();
+  if (!normalizedAssetId || !Number.isFinite(targetSourceWordIdx)) return null;
+
+  for (let index = 0; index < transcription.length; index += 1) {
+    const word = transcription[index];
+    if (word.assetId === normalizedAssetId && word.originalWordIndex === targetSourceWordIdx) {
+      return index;
+    }
+  }
+
+  return null;
+}
+
 function nearestTranscriptWordIndex(
   transcription: { word: string; startMs: number; endMs: number }[],
   targetMs: number,

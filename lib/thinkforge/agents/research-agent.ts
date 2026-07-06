@@ -18,6 +18,7 @@ import { generateText } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { LanguageModel } from 'ai';
 import type { SessionState, ProjectMeta } from '../state/types';
+import { readAiSdkUsage, recordThinkForgeDirectCost } from '../services/provider-cost-telemetry';
 
 // ─────────────────────────────────────────────────────────────────────
 // Provider with Search Grounding
@@ -202,30 +203,74 @@ export async function runResearchAgent(
     const fullPrompt = `${RESEARCH_SYSTEM_PROMPT}${briefBlock}${projectContext}${chatHistory}\n\n## User Research Query\n${prompt}`;
 
     const model = createSearchGroundedModel();
+    const modelName = 'gemini-2.5-flash';
 
     console.log('[ResearchAgent] Starting search-grounded generation for:', prompt.substring(0, 80));
 
     const provider = getSearchProvider();
+    const startedAt = Date.now();
 
-    const result = await generateText({
-        model,
-        prompt: fullPrompt,
-        temperature: 0.4,
-        maxOutputTokens: 4096,
-        abortSignal,
-        tools: {
-            google_search: provider.tools.googleSearch({}),
-        },
-    });
+    try {
+        const result = await generateText({
+            model,
+            prompt: fullPrompt,
+            temperature: 0.4,
+            maxOutputTokens: 4096,
+            abortSignal,
+            tools: {
+                google_search: provider.tools.googleSearch({}),
+            },
+        });
 
-    // Extract verified sources from grounding metadata
-    const sources = extractGroundingSources(result);
+        // Extract verified sources from grounding metadata
+        const sources = extractGroundingSources(result);
 
-    // Append verified sources section to the response
-    const sourcesSection = formatSourcesSection(sources);
-    const finalText = result.text + sourcesSection;
+        // Append verified sources section to the response
+        const sourcesSection = formatSourcesSection(sources);
+        const finalText = result.text + sourcesSection;
 
-    console.log(`[ResearchAgent] Generation complete. Text length: ${result.text.length}, Sources: ${sources.length}`);
+        await recordThinkForgeDirectCost({
+            status: 'success',
+            action: 'research_grounded_search',
+            route: 'lib/thinkforge/agents/research-agent.runResearchAgent',
+            provider: 'gemini',
+            modelName,
+            operation: 'llm_search_grounded_direct',
+            projectId: options.project?.brandId,
+            promptChars: fullPrompt.length,
+            outputChars: result.text?.length,
+            functionMs: Date.now() - startedAt,
+            usage: await readAiSdkUsage((result as { usage?: unknown }).usage),
+            routePurpose: 'public_trend',
+            privacyClass: 'business_confidential',
+            temperature: 0.4,
+            maxTokens: 4096,
+            sourceKind: 'gemini_search_grounded_research',
+            resultCount: sources.length,
+            acceptedCount: Math.min(sources.length, 10),
+        });
 
-    return { text: finalText, sources };
+        console.log(`[ResearchAgent] Generation complete. Text length: ${result.text.length}, Sources: ${sources.length}`);
+
+        return { text: finalText, sources };
+    } catch (error) {
+        await recordThinkForgeDirectCost({
+            status: 'failed',
+            action: 'research_grounded_search',
+            route: 'lib/thinkforge/agents/research-agent.runResearchAgent',
+            provider: 'gemini',
+            modelName,
+            operation: 'llm_search_grounded_direct',
+            projectId: options.project?.brandId,
+            promptChars: fullPrompt.length,
+            functionMs: Date.now() - startedAt,
+            routePurpose: 'public_trend',
+            privacyClass: 'business_confidential',
+            temperature: 0.4,
+            maxTokens: 4096,
+            sourceKind: 'gemini_search_grounded_research',
+            error,
+        });
+        throw error;
+    }
 }

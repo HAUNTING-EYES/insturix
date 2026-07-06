@@ -140,9 +140,10 @@ async function handler(request: NextRequest) {
       { projectId },
       { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1, 'intelligence.renderedQualityEvidence': 1 } },
     );
+    const renderedQualityEvidence = projectAfterDirector?.intelligence?.renderedQualityEvidence;
     const completionHealth = resolveDirectorCompletionHealth(
       projectAfterDirector?.qualityReview,
-      projectAfterDirector?.intelligence?.renderedQualityEvidence,
+      renderedQualityEvidence,
     );
     const completionSet: Record<string, unknown> = {
       autoEditStatus: completionHealth.autoEditStatus,
@@ -185,7 +186,16 @@ async function handler(request: NextRequest) {
         console.log(`[DirectorWorker] Bandit: skipping — ${completionHealth.criticalCount} critical issues suggests system failure`);
       } else {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
-        await recordProjectOutcome(userId, projectId, completionHealth.qualityScore, false, false);
+        const outcome = await recordProjectOutcome(userId, projectId, completionHealth.qualityScore, false, false, {
+          evidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
+          renderedAestheticStatus:
+            renderedQualityEvidence?.renderedAestheticStatus ??
+            renderedQualityEvidence?.renderedQualityStatus ??
+            renderedQualityEvidence?.artifactStatus,
+        });
+        if (!outcome.recorded) {
+          console.log(`[DirectorWorker] Bandit: skipped (${outcome.reason ?? 'not_recorded'})`);
+        }
       }
     } catch (banditErr: unknown) {
       const msg = banditErr instanceof Error ? banditErr.message : String(banditErr);

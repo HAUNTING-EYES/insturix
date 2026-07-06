@@ -9,6 +9,10 @@
  * scan keeps its thin label list (no regression).
  */
 
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from '@/lib/financials/provider-cost-events';
 import { BRAND_CONFIDENCE } from './brand-confidence';
 import {
   sanitizeEvidenceExcerpt,
@@ -36,6 +40,24 @@ export interface ApplyAudiencePsychographicsOptions {
   observedAt?: string;
   sourceExcerpt?: string;
   sourceUrl?: string;
+}
+
+interface AudienceGeminiUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
+interface AudienceGeminiCostInput {
+  status: ProviderCostEventStatus;
+  modelName: string;
+  inputChars: number;
+  outputChars?: number;
+  functionMs: number;
+  usage?: AudienceGeminiUsage;
+  parseableSignals?: boolean;
+  resultCount?: number;
+  error?: unknown;
 }
 
 const DEFAULT_MODEL_NAME = 'gemini-2.5-flash';
@@ -107,22 +129,115 @@ export async function analyzeAudiencePsychographics(
 
   const modelName = options.modelName ?? env.BRAND_VAULT_AUDIENCE_ANALYSIS_MODEL ?? DEFAULT_MODEL_NAME;
   const maxChars = options.maxChars ?? DEFAULT_MAX_CHARS;
+  const copyInput = `\n\nBRAND COPY:\n${text.slice(0, maxChars)}`;
+  const inputChars = PROMPT.length + copyInput.length;
+  const startedAt = Date.now();
+  let providerCallStarted = false;
 
   try {
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: modelName });
     // Rule 35: instructions first, data last.
-    const result = await model.generateContent([PROMPT, `\n\nBRAND COPY:\n${text.slice(0, maxChars)}`]);
-    const signals = parseAudiencePsychographics(result.response.text());
+    providerCallStarted = true;
+    const result = await model.generateContent([PROMPT, copyInput]);
+    const outputText = result.response.text();
+    const signals = parseAudiencePsychographics(outputText);
+    await recordBrandVaultAudienceGeminiCost({
+      status: signals ? 'success' : 'failed',
+      modelName,
+      inputChars,
+      outputChars: outputText.length,
+      functionMs: Date.now() - startedAt,
+      usage: readGeminiUsage(result),
+      parseableSignals: Boolean(signals),
+      resultCount: signals ? countAudienceSignals(signals) : 0,
+    });
     if (!signals) {
       console.warn(`${TAG} skipped: model returned no parseable audience signals`);
       return null;
     }
     return signals;
   } catch (err) {
+    if (providerCallStarted) {
+      await recordBrandVaultAudienceGeminiCost({
+        status: 'failed',
+        modelName,
+        inputChars,
+        outputChars: 0,
+        functionMs: Date.now() - startedAt,
+        error: err,
+      });
+    }
     console.warn(`${TAG} failed`, err);
     return null;
   }
+}
+
+async function recordBrandVaultAudienceGeminiCost(input: AudienceGeminiCostInput) {
+  const inputTokens = input.usage?.inputTokens ?? estimateTokensFromChars(input.inputChars);
+  const outputTokens = input.usage?.outputTokens ?? estimateTokensFromChars(input.outputChars);
+  await recordProviderCostEvent({
+    status: input.status,
+    service: 'brand_vault',
+    action: 'brand_scan',
+    route: 'lib/shared/brand-vault-audience',
+    provider: 'gemini',
+    model: cleanGeminiModelName(input.modelName),
+    operation: 'llm_text_enrichment',
+    units: {
+      requestCount: 1,
+      inputTokens,
+      outputTokens,
+      totalTokens: input.usage?.totalTokens ?? sumOptional(inputTokens, outputTokens),
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      providerName: 'gemini',
+      sourceKind: 'audience_psychographics',
+      inputChars: input.inputChars,
+      outputChars: input.outputChars,
+      parseableSignals: input.parseableSignals,
+      resultCount: input.resultCount,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
+}
+
+function readGeminiUsage(result: unknown): AudienceGeminiUsage | undefined {
+  const resultRecord = asRecord(result);
+  const responseRecord = asRecord(resultRecord?.response);
+  const usage = asRecord(resultRecord?.usageMetadata) ?? asRecord(responseRecord?.usageMetadata);
+  if (!usage) return undefined;
+
+  const inputTokens = readNumber(usage.promptTokenCount ?? usage.inputTokenCount);
+  const outputTokens = readNumber(usage.candidatesTokenCount ?? usage.outputTokenCount);
+  const totalTokens = readNumber(usage.totalTokenCount);
+  return inputTokens || outputTokens || totalTokens ? { inputTokens, outputTokens, totalTokens } : undefined;
+}
+
+function countAudienceSignals(signals: AudiencePsychographics): number {
+  return signals.valueDrivers.length + signals.painPoints.length + signals.jobsToBeDone.length;
+}
+
+function estimateTokensFromChars(chars?: number): number | undefined {
+  return typeof chars === 'number' && Number.isFinite(chars) && chars > 0 ? Math.max(1, Math.ceil(chars / 4)) : undefined;
+}
+
+function sumOptional(a?: number, b?: number): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
+}
+
+function cleanGeminiModelName(modelName: string): string {
+  return modelName.replace(/^models\//, '');
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 function audienceSignal(path: string, value: string[], evidenceId: string | undefined): BrandSignal<string[]> {

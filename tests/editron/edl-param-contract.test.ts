@@ -92,6 +92,188 @@ describe('EDL param contract normalization', () => {
     expect(speedCurve.map((point: any) => point.value)).not.toContain(0.5);
   });
 
+  it('refuses speed-change decisions that do not carry an explicit speed value', async () => {
+    const overlays = [videoOverlay()];
+    const edl = decisionList([{
+      type: 'speed-change',
+      frame: 45,
+      durationFrames: 30,
+      confidence: 0.95,
+      params: {},
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-speed-missing-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(result.decisionsExecuted).toBe(0);
+    expect(result.decisionsSkipped).toBe(1);
+    expect((overlays[0] as any).speedCurve).toBeUndefined();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('no explicit speedTo/speedMultiplier/speed'));
+  });
+
+  it('refuses speed-change decisions during active speech', async () => {
+    const overlays = [videoOverlay()];
+    const edl = decisionList([{
+      type: 'speed-change',
+      frame: 45,
+      durationFrames: 30,
+      confidence: 0.95,
+      params: {
+        speedMultiplier: 0.6,
+        signals: {
+          speech_energy: 0.72,
+          speech_coverage: 0.86,
+          silence_duration_ms: 40,
+        },
+      },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-speed-speech-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(result.decisionsExecuted).toBe(0);
+    expect(result.decisionsSkipped).toBe(1);
+    expect((overlays[0] as any).speedCurve).toBeUndefined();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('active speech detected'));
+  });
+
+  it('keeps dissolve transition ownership in the transition tile without mutating clip timing', async () => {
+    const clipA = videoOverlay({ id: 'clip-a', from: 0, durationInFrames: 100, videoStartTime: 300 } as any);
+    const clipB = videoOverlay({ id: 'clip-b', from: 100, durationInFrames: 120, videoStartTime: 900 } as any);
+    const overlays = [clipA, clipB];
+    const edl = decisionList([{
+      type: 'transition',
+      frame: 100,
+      durationFrames: 36,
+      confidence: 0.95,
+      params: { transitionType: 'dissolve', topicShift: 0.82 },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-dissolve-owner-test', 'user-1', overlays, { width: 1920, height: 1080 });
+    const transition = overlays.find((overlay: any) => overlay.type === 'transition') as any;
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysCreated).toBe(1);
+    expect(transition).toEqual(expect.objectContaining({
+      transitionStyle: 'dissolve',
+      clipAId: 'clip-a',
+      clipBId: 'clip-b',
+      from: 82,
+      durationInFrames: 36,
+    }));
+    expect((clipA as any).from).toBe(0);
+    expect((clipA as any).durationInFrames).toBe(100);
+    expect((clipB as any).from).toBe(100);
+    expect((clipB as any).durationInFrames).toBe(120);
+    expect((clipB as any).videoStartTime).toBe(900);
+    expect(((clipA as any).keyframeTracks ?? []).some((track: any) => track.property === 'opacity')).toBe(false);
+    expect(((clipB as any).keyframeTracks ?? []).some((track: any) => track.property === 'opacity')).toBe(false);
+    expect(transition.metadata.atomicTransitionForm).toEqual(expect.objectContaining({
+      compatibilityType: 'dissolve',
+      keyframeBased: false,
+    }));
+  });
+
+  it('executes J-cut decisions as native-audio boundary overlays, not visual transition tiles', async () => {
+    const clipA = videoOverlay({ id: 'clip-a', from: 0, durationInFrames: 100, sourceStartFrame: 300, videoStartTime: 300, hasNativeAudio: true } as any);
+    const clipB = videoOverlay({ id: 'clip-b', from: 100, durationInFrames: 120, sourceStartFrame: 900, videoStartTime: 900, hasNativeAudio: true, styles: { opacity: 1, volume: 0.82 } } as any);
+    const overlays = [clipA, clipB];
+    const edl = decisionList([{
+      type: 'transition',
+      frame: 100,
+      durationFrames: 0,
+      confidence: 0.95,
+      params: { transitionRelation: 'audio-leads-picture', offsetMs: 500 },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-j-cut-test', 'user-1', overlays, { width: 1920, height: 1080 });
+    const sound = overlays.find((overlay: any) => overlay.type === 'sound') as any;
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysCreated).toBe(1);
+    expect(result.overlaysModified).toBe(1);
+    expect(overlays.some((overlay: any) => overlay.type === 'transition')).toBe(false);
+    expect(sound).toEqual(expect.objectContaining({
+      type: 'sound',
+      from: 85,
+      durationInFrames: 135,
+      startFromSound: 885,
+      audioStartFrame: 85,
+      audioEndFrame: 220,
+      row: 3,
+      content: 'https://example.com/source.mp4',
+      src: 'https://example.com/source.mp4',
+    }));
+    expect(sound.metadata).toEqual(expect.objectContaining({
+      source: 'edl-native-audio-boundary',
+      audioBoundaryKind: 'j-cut',
+      sourceClipId: 'clip-b',
+      clipAId: 'clip-a',
+      clipBId: 'clip-b',
+      boundaryFrame: 100,
+      sourceOffsetFrames: 885,
+      offsetFrames: 15,
+    }));
+    expect(sound.metadata.atomicOverlayReceipt.payload).toEqual(expect.objectContaining({
+      audioBoundaryKind: 'j-cut',
+      sourceClipId: 'clip-b',
+      sourceOffsetFrames: 885,
+      audioStartFrame: 85,
+      audioEndFrame: 220,
+    }));
+    expect((clipB as any).styles.volume).toBe(0);
+    expect((clipB as any).metadata).toEqual(expect.objectContaining({
+      nativeAudioBoundaryMutedBy: 'j-cut',
+      nativeAudioBoundaryCloneId: sound.id,
+    }));
+  });
+
+  it('executes L-cut decisions as native-audio boundary overlays, not visual transition tiles', async () => {
+    const clipA = videoOverlay({ id: 'clip-a', from: 0, durationInFrames: 100, sourceStartFrame: 300, videoStartTime: 300, hasNativeAudio: true, styles: { opacity: 1, volume: 0.7 } } as any);
+    const clipB = videoOverlay({ id: 'clip-b', from: 100, durationInFrames: 120, sourceStartFrame: 900, videoStartTime: 900, hasNativeAudio: true } as any);
+    const overlays = [clipA, clipB];
+    const edl = decisionList([{
+      type: 'transition',
+      frame: 100,
+      durationFrames: 0,
+      confidence: 0.95,
+      params: { creativeDecisionType: 'transition_l_cut', offsetMs: 500 },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-l-cut-test', 'user-1', overlays, { width: 1920, height: 1080 });
+    const sound = overlays.find((overlay: any) => overlay.type === 'sound') as any;
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysCreated).toBe(1);
+    expect(result.overlaysModified).toBe(1);
+    expect(overlays.some((overlay: any) => overlay.type === 'transition')).toBe(false);
+    expect(sound).toEqual(expect.objectContaining({
+      type: 'sound',
+      from: 0,
+      durationInFrames: 115,
+      startFromSound: 300,
+      audioStartFrame: 0,
+      audioEndFrame: 115,
+      row: 3,
+      content: 'https://example.com/source.mp4',
+      src: 'https://example.com/source.mp4',
+    }));
+    expect(sound.styles.volume).toBe(0.7);
+    expect(sound.metadata).toEqual(expect.objectContaining({
+      source: 'edl-native-audio-boundary',
+      audioBoundaryKind: 'l-cut',
+      sourceClipId: 'clip-a',
+      clipAId: 'clip-a',
+      clipBId: 'clip-b',
+      boundaryFrame: 100,
+      sourceOffsetFrames: 300,
+      offsetFrames: 15,
+    }));
+    expect((clipA as any).styles.volume).toBe(0);
+    expect((clipA as any).metadata).toEqual(expect.objectContaining({
+      nativeAudioBoundaryMutedBy: 'l-cut',
+      nativeAudioBoundaryCloneId: sound.id,
+    }));
+  });
+
   it('executes graph-produced camera shake through the producer and EDL path', async () => {
     const { executeSignalDrivenEdit } = await import('../../lib/editron/services/signal-executor');
     const { loadGraph } = await import('../../lib/editron/services/graph-query');
@@ -202,6 +384,39 @@ describe('EDL param contract normalization', () => {
       word: 'process',
       frame: 30,
     }));
+  });
+
+  it('keeps emphasis-word zoom punches even when visual motion peaks are elsewhere', async () => {
+    const overlays = [videoOverlay({ assetId: 'asset-zoom-emphasis' } as any)];
+    const edl = decisionList([{
+      type: 'zoom',
+      frame: 60,
+      durationFrames: 18,
+      confidence: 0.95,
+      params: {
+        targetWord: 'changed',
+        signals: {
+          word_importance: 0.93,
+          speech_energy: 0.82,
+          motion_intensity: 0.08,
+        },
+      },
+    }]);
+    const analyses = new Map<string, any>([[
+      'asset-zoom-emphasis',
+      { analysisQuality: 'high', motionPeaks: [10], naturalCutPoints: [20] },
+    ]]);
+
+    const result = await executeEDL(edl, 'edl-param-zoom-emphasis-test', 'user-1', overlays, { width: 1920, height: 1080 }, analyses);
+    const scaleTrack = ((overlays[0] as any).keyframeTracks ?? [])
+      .find((track: any) => track.property === 'scale');
+    const receipt = ((overlays[0] as any).metadata?.atomicOverlayReceipts ?? [])
+      .find((item: any) => item.family === 'zoom');
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysModified).toBe(1);
+    expect(receipt?.payload.zoomType).toBe('punch-in');
+    expect(scaleTrack?.keyframes[1]?.value).toBeGreaterThan(1.1);
   });
 
   it('maps sfx_whoosh type aliases into the SFX resolver cue contract', async () => {
@@ -351,6 +566,44 @@ describe('EDL param contract normalization', () => {
       toOpacity: 0.25,
     }));
   });
+
+  it('merges fade opacity into its own window without clobbering unrelated opacity keys', async () => {
+    const overlays = [videoOverlay({
+      durationInFrames: 160,
+      keyframeTracks: [{
+        property: 'opacity',
+        keyframes: [
+          { frame: 0, value: 0, easing: 'ease-out' },
+          { frame: 12, value: 1, easing: 'linear' },
+          { frame: 80, value: 0.7, easing: 'linear' },
+          { frame: 95, value: 0.9, easing: 'ease-in' },
+          { frame: 145, value: 1, easing: 'linear' },
+        ],
+      }],
+    } as any)];
+    const edl = decisionList([{
+      type: 'fade',
+      frame: 78,
+      durationFrames: 20,
+      confidence: 0.95,
+      params: { fromOpacity: 1, toOpacity: 0.2 },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-fade-merge-test', 'user-1', overlays, { width: 1920, height: 1080 });
+    const opacityTrack = ((overlays[0] as any).keyframeTracks ?? [])
+      .find((track: any) => track.property === 'opacity');
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.overlaysModified).toBe(1);
+    expect(opacityTrack?.keyframes).toEqual([
+      { frame: 0, value: 0, easing: 'ease-out' },
+      { frame: 12, value: 1, easing: 'linear' },
+      { frame: 78, value: 1, easing: 'ease-in-out' },
+      { frame: 98, value: 0.2, easing: 'linear' },
+      { frame: 145, value: 1, easing: 'linear' },
+    ]);
+  });
+
   it('applies audio-duck when a BGM overlay exists', async () => {
     const overlays = [
       videoOverlay(),

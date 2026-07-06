@@ -16,6 +16,7 @@ import {
 import { buildPhase0RenderedQualityGate } from './editron-learning-gate';
 import { buildPhase0LiveTruthSnapshot, type Phase0LiveTruthSnapshot } from './phase0-live-truth';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
+import { resolveRemotionSiteFreshness } from './remotion-site-version';
 
 export const PHASE0_RENDERED_STILL_EVIDENCE_VERSION = 'editron-phase0-rendered-still-evidence-v1' as const;
 const DEFAULT_PHASE0_RENDERED_EVIDENCE_LOCK_STALE_MS = 20 * 60 * 1000;
@@ -36,6 +37,16 @@ export interface Phase0RenderedEvidenceDispatchResult {
   messageId?: string;
 }
 
+export interface Phase0RenderedEvidenceDispatchRecord {
+  version: 'editron-phase0-rendered-evidence-dispatch-v1';
+  status: 'dispatched' | 'not_dispatched';
+  requestedAt: string;
+  updatedAt: string;
+  workerPath: '/api/internal/workers/phase0-rendered-evidence';
+  messageId: string | null;
+  reason: string | null;
+}
+
 export interface Phase0RenderedStillFrameEvidence {
   frame: number;
   url: string;
@@ -53,6 +64,7 @@ export interface Phase0RenderedStillFrameEvidence {
 export interface Phase0RenderedStillEvidence {
   version: typeof PHASE0_RENDERED_STILL_EVIDENCE_VERSION;
   status: Phase0RenderedStillEvidenceStatus;
+  statusReason: string | null;
   source: 'phase0-rendered-evidence-worker';
   projectId: string;
   capturedAt: string;
@@ -136,6 +148,10 @@ export function resolvePhase0RenderedEvidenceConfig(env: EnvLike = process.env) 
   const serveUrl = env.REMOTION_LAMBDA_SERVE_URL || '';
   const region = env.REMOTION_AWS_REGION || 'us-east-1';
   const sampleLimit = clampSampleLimit(env.EDITRON_PHASE0_RENDERED_EVIDENCE_MAX_SAMPLES);
+  const remotionSiteFreshness = serveUrl
+    ? resolveRemotionSiteFreshness({ serveUrl, env })
+    : null;
+  const remotionSiteReady = !serveUrl || remotionSiteFreshness?.ok === true;
 
   return {
     enabled,
@@ -143,17 +159,19 @@ export function resolvePhase0RenderedEvidenceConfig(env: EnvLike = process.env) 
     serveUrl,
     region,
     sampleLimit,
-    configured: enabled && Boolean(functionName && serveUrl),
+    remotionSiteFreshness,
+    configured: enabled && Boolean(functionName && serveUrl) && remotionSiteReady,
     reason: !enabled
       ? 'disabled'
       : !functionName
         ? 'missing_remotion_lambda_function_name'
         : !serveUrl
           ? 'missing_remotion_lambda_serve_url'
-          : null,
+          : !remotionSiteReady
+            ? `remotion_site_${remotionSiteFreshness?.reason ?? 'unverified'}`
+            : null,
   };
 }
-
 export async function dispatchPhase0RenderedEvidenceJob(
   payload: Phase0RenderedEvidenceDispatchPayload,
   env: EnvLike = process.env,
@@ -189,6 +207,34 @@ export async function dispatchPhase0RenderedEvidenceJob(
   };
 }
 
+export function buildPhase0RenderedEvidenceDispatchPersistSet(
+  result: Phase0RenderedEvidenceDispatchResult,
+  input: { requestedAt?: string; updatedAt?: string } = {},
+): Record<string, unknown> {
+  const updatedAt = input.updatedAt ?? new Date().toISOString();
+  const requestedAt = input.requestedAt ?? updatedAt;
+  const status: Phase0RenderedEvidenceDispatchRecord['status'] = result.dispatched
+    ? 'dispatched'
+    : 'not_dispatched';
+  const record: Phase0RenderedEvidenceDispatchRecord = {
+    version: 'editron-phase0-rendered-evidence-dispatch-v1',
+    status,
+    requestedAt,
+    updatedAt,
+    workerPath: '/api/internal/workers/phase0-rendered-evidence',
+    messageId: result.messageId ?? null,
+    reason: result.dispatched ? null : String(result.reason ?? 'unknown').slice(0, 240),
+  };
+
+  return {
+    'intelligence.phase0RenderedEvidenceDispatch': record,
+    'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchStatus': status,
+    'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchReason': record.reason,
+    'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchMessageId': record.messageId,
+    'intelligence.phase0FixtureArtifact.renderedEvidenceRequestedAt': requestedAt,
+  };
+}
+
 export async function buildPhase0RenderedStillEvidence(
   project: Phase0FixtureProject,
   options: {
@@ -220,6 +266,7 @@ export async function buildPhase0RenderedStillEvidence(
       artifactPackIssues: artifactPack.issues,
       requestedSampleFrames,
       status: 'skipped',
+      statusReason: config.reason ?? 'not_configured',
     });
   }
 
@@ -232,6 +279,7 @@ export async function buildPhase0RenderedStillEvidence(
       artifactPackIssues: artifactPack.issues,
       requestedSampleFrames,
       status: 'skipped',
+      statusReason: 'artifact_pack_not_renderable',
     });
   }
 
@@ -311,6 +359,11 @@ export async function buildPhase0RenderedStillEvidence(
     : renderedFrames.length > 0
       ? 'partial'
       : 'failed';
+  const statusReason = status === 'completed'
+    ? null
+    : status === 'partial'
+      ? 'rendered_still_partial'
+      : 'rendered_still_failed';
 
   let evidence: Phase0RenderedStillEvidence = {
     ...baseEvidence({
@@ -321,6 +374,7 @@ export async function buildPhase0RenderedStillEvidence(
       artifactPackIssues: artifactPack.issues,
       requestedSampleFrames,
       status,
+      statusReason,
     }),
     completedAt: new Date().toISOString(),
     renderedFrames,
@@ -400,22 +454,49 @@ export function buildPhase0RenderedStillEvidenceFailure(input: {
       artifactPackIssues: [`worker-error:${input.error}`],
       requestedSampleFrames: [],
       status: 'failed',
+      statusReason: 'worker_error',
     }),
     completedAt: new Date().toISOString(),
     failedFrames: [{ frame: -1, renderKind: 'worker', error: input.error }],
   };
 }
 
+function buildMissingPhase0RenderedQualityEvidence(
+  evidence: Phase0RenderedStillEvidence,
+): Phase0RenderedQualityEvidencePayload {
+  const firstFailure = evidence.failedFrames[0]?.error;
+  const firstIssue = evidence.artifactPackIssues[0];
+  const reason = evidence.statusReason ?? firstFailure ?? firstIssue ?? `phase0-worker-status:${evidence.status}`;
+  return {
+    qualityEvidenceSource: 'metadata-only',
+    renderedAestheticStatus: 'missing',
+    renderedQualityStatus: 'missing',
+    artifactStatus: 'missing',
+    qualityScore: null,
+    renderedAestheticScore: null,
+    renderedAestheticIssueCount: 0,
+    renderedAestheticFailFrameCount: 0,
+    renderedAestheticWarnFrameCount: 0,
+    renderedAestheticSampledFrames: 0,
+    renderedAestheticJson: null,
+    renderedAestheticHtml: null,
+    renderedAestheticArtifactAccess: 'missing',
+    renderedAestheticArtifactNote: `Rendered aesthetic report artifacts are missing; ${reason}`.slice(0, 240),
+    renderedAestheticIssueSamples: [],
+  };
+}
+
 export function buildPhase0RenderedStillEvidencePersistSet(
   evidence: Phase0RenderedStillEvidence,
 ): Record<string, unknown> {
-  const renderedQualityEvidence = evidence.renderedQualityEvidence;
+  const renderedQualityEvidence = evidence.renderedQualityEvidence ?? buildMissingPhase0RenderedQualityEvidence(evidence);
   const setPayload: Record<string, unknown> = {
     'intelligence.phase0RenderedStillEvidence': evidence,
     'intelligence.phase0FixtureArtifact.materialization': evidence.renderedFrames.length > 0
       ? 'lambda-stills-rendered'
       : 'lambda-stills-missing',
     'intelligence.phase0FixtureArtifact.renderedStillEvidenceStatus': evidence.status,
+    'intelligence.phase0FixtureArtifact.renderedStillEvidenceReason': evidence.statusReason,
     'intelligence.phase0FixtureArtifact.renderedStillFrameCount': evidence.renderedFrames.length,
     'intelligence.phase0FixtureArtifact.renderedStillFailedFrameCount': evidence.failedFrames.length,
     'intelligence.phase0FixtureArtifact.renderedStillCompletedAt': evidence.completedAt,
@@ -463,10 +544,12 @@ function baseEvidence(input: {
   artifactPackIssues: string[];
   requestedSampleFrames: number[];
   status: Phase0RenderedStillEvidenceStatus;
+  statusReason?: string | null;
 }): Phase0RenderedStillEvidence {
   return {
     version: PHASE0_RENDERED_STILL_EVIDENCE_VERSION,
     status: input.status,
+    statusReason: input.statusReason ?? null,
     source: 'phase0-rendered-evidence-worker',
     projectId: input.projectId,
     capturedAt: input.capturedAt,

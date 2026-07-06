@@ -11,6 +11,7 @@
 import { fal } from '@fal-ai/client';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { nanoid } from 'nanoid';
+import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
 
 // ─── Configuration ──────────────────────────────────────────────
 
@@ -38,6 +39,38 @@ export interface SFXSceneInput {
   videoUrl?: string;
 }
 
+async function recordPipelineSFXProviderCost(input: {
+  status: ProviderCostEventStatus;
+  userId: string;
+  providerBranch: 'mirelo_video_to_audio' | 'cassetteai_fallback';
+  model: string;
+  durationSec: number;
+  bytesOut?: number;
+  functionMs?: number;
+  error?: unknown;
+}): Promise<void> {
+  await recordProviderCostEvent({
+    eventId: `pce_pipeline_sfx_${input.userId}_${input.providerBranch}_${nanoid(10)}_${input.status}`,
+    status: input.status,
+    userId: input.userId,
+    service: 'pipeline',
+    action: 'sfx_generation',
+    provider: 'fal-ai',
+    model: input.model,
+    operation: 'sfx_generation',
+    units: {
+      mediaSeconds: input.durationSec,
+      bytesOut: input.bytesOut,
+      requestCount: 1,
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      providerBranch: input.providerBranch,
+      requestedDurationSeconds: input.durationSec,
+      errorClass: input.error instanceof Error ? input.error.name : undefined,
+    },
+  });
+}
 // ─── Core Generation ────────────────────────────────────────────
 
 /**
@@ -63,29 +96,27 @@ export async function generateSFX(
   const duration = Math.min(Math.max(durationSec, 1), 35);
   const assetId = `sfx_${nanoid(12)}`;
 
-  // Fix 20: Three-layer SFX prompt — ambient bed + spot effects in a single clip.
+  // Fix 20: Three-layer SFX prompt - ambient bed + spot effects in a single clip.
   // Feature SFX (whooshes, impacts) are handled separately by transition-sfx-placer.
   // The sfxDescription from the parser already categorizes into:
   //   "Ambient bed: X. Spot SFX: Y. Feature SFX: Z."
   // We include ambient + spot in the prompt so the AI generates a rich layered mix.
   const sfxPrompt = sfxCue || audioDescription;
-  const ambientContext = sfxCue ? audioDescription : '';
 
   console.log(
-    `[SFX] Generating: sfxCue="${(sfxCue || '').substring(0, 60)}", desc="${audioDescription.substring(0, 60)}", duration=${duration}s`,
+    `[SFX] Generating: hasExplicitCue=${Boolean(sfxCue)}, descChars=${audioDescription.length}, duration=${duration}s`,
   );
 
-  // ─── Priority 1: SFX Library (Pixabay/Freesound) ────────────────
-  // Instant, free, royalty-free. Best for deterministic SFX (whooshes,
-  // ambience, UI clicks, nature sounds). No API generation cost.
+  // Priority 1: SFX Library (Pixabay/Freesound).
+  // Instant, free, royalty-free. Best for deterministic SFX.
   try {
     const { searchAndDownloadSFX, audioDescriptionToSearchQuery, isSFXLibraryAvailable } = await import('./sfx-library-service');
     if (isSFXLibraryAvailable()) {
       const searchQuery = audioDescriptionToSearchQuery(sfxPrompt);
-      console.log(`[SFX] Searching library: "${searchQuery}"`);
+      console.log('[SFX] Searching free SFX library');
       const libResult = await searchAndDownloadSFX(searchQuery, userId, Math.round(duration));
       if (libResult) {
-        console.log(`[SFX] Library hit (${libResult.source}): "${libResult.originalTitle}"`);
+        console.log(`[SFX] Library hit (${libResult.source})`);
         return libResult;
       }
       console.log('[SFX] Library: no match, trying AI generation');
@@ -94,27 +125,27 @@ export async function generateSFX(
     console.warn(`[SFX] Library search failed: ${libErr.message}`);
   }
 
-  // ─── Priority 2: mirelo video-to-audio (if video URL available) ──
-  // AI-generated SFX synced to actual video content. More expensive
-  // but produces context-aware audio that matches visual events.
+  // Priority 2: mirelo video-to-audio (if video URL available).
+  // AI-generated SFX synced to actual video content.
   let result: any;
   if (videoUrl) {
+    const mireloModel = 'mirelo-ai/sfx-v1.5/video-to-audio';
+    const mireloStartMs = Date.now();
+    const mireloDuration = Math.min(Math.max(Math.round(duration), 1), 10);
     try {
-      console.log(`[SFX] Using mirelo video-to-audio for synced SFX, videoUrl=${videoUrl.substring(0, 80)}...`);
-      // Mirelo requires: video_url (accessible URL), duration (1-10 integer), num_samples (2-8)
+      console.log('[SFX] Using mirelo video-to-audio for synced SFX');
       const mireloInput: any = {
         video_url: videoUrl,
         text_prompt: `${sfxPrompt}. Clean recording, minimal reverb, suitable for mixing under dialogue. Primary sound source only.` || undefined,
-        duration: Math.min(Math.max(Math.round(duration), 1), 10),
+        duration: mireloDuration,
         num_samples: 2,
       };
-      console.log(`[SFX] mirelo input: duration=${mireloInput.duration}, prompt=${(mireloInput.text_prompt || '').substring(0, 60)}`);
-      result = await fal.subscribe('mirelo-ai/sfx-v1.5/video-to-audio', {
+      console.log(`[SFX] mirelo input: duration=${mireloInput.duration}, promptChars=${String(mireloInput.text_prompt || '').length}`);
+      result = await fal.subscribe(mireloModel, {
         input: mireloInput,
         logs: true,
         pollInterval: 2000,
       });
-      // mirelo returns { audio: [{url, file_name, content_type}] }
       const data = (result as any).data || result;
       const audioArr = data?.audio || data?.audio_files || data?.audios || [];
       if (audioArr.length > 0 && audioArr[0]?.url) {
@@ -122,18 +153,26 @@ export async function generateSFX(
         const response = await fetch(audioUrl);
         if (!response.ok) throw new Error('Failed to download mirelo SFX');
         const buffer = Buffer.from(await response.arrayBuffer());
-        // Validate audio before upload — prevent render crashes from corrupt files
         if (buffer.length < 12) throw new Error('mirelo audio too small, likely corrupted');
-        const isValidAudio = (buffer[0] === 0x52 && buffer[1] === 0x49) || // RIFF/WAV
-                             (buffer[0] === 0x49 && buffer[1] === 0x44) || // ID3/MP3
-                             (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) || // MPEG sync
-                             (buffer[0] === 0x4F && buffer[1] === 0x67);   // OGG
+        const isValidAudio = (buffer[0] === 0x52 && buffer[1] === 0x49) ||
+                             (buffer[0] === 0x49 && buffer[1] === 0x44) ||
+                             (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) ||
+                             (buffer[0] === 0x4F && buffer[1] === 0x67);
         if (!isValidAudio) {
           console.error(`[SFX] mirelo returned invalid audio. First bytes: ${buffer.slice(0, 8).toString('hex')}`);
           throw new Error('mirelo returned invalid audio format');
         }
         const filename = `${assetId}.wav`;
         const uploadResult = await uploadMedia(buffer, userId, filename, 'audio/wav', { customAssetId: assetId });
+        await recordPipelineSFXProviderCost({
+          status: 'success',
+          userId,
+          providerBranch: 'mirelo_video_to_audio',
+          model: mireloModel,
+          durationSec: mireloDuration,
+          bytesOut: buffer.length,
+          functionMs: Date.now() - mireloStartMs,
+        });
         return {
           audioUrl: uploadResult.signedUrl,
           gcsPath: uploadResult.gcsPath!,
@@ -141,25 +180,42 @@ export async function generateSFX(
           durationMs: duration * 1000,
         };
       }
+      const noAudioError = new Error('mirelo returned no audio');
+      await recordPipelineSFXProviderCost({
+        status: 'failed',
+        userId,
+        providerBranch: 'mirelo_video_to_audio',
+        model: mireloModel,
+        durationSec: mireloDuration,
+        functionMs: Date.now() - mireloStartMs,
+        error: noAudioError,
+      });
       console.warn('[SFX] mirelo returned no audio, trying SFX library');
     } catch (mireloErr: any) {
       console.warn(`[SFX] mirelo failed (${mireloErr.message}), trying SFX library`);
+      await recordPipelineSFXProviderCost({
+        status: 'failed',
+        userId,
+        providerBranch: 'mirelo_video_to_audio',
+        model: mireloModel,
+        durationSec: mireloDuration,
+        functionMs: Date.now() - mireloStartMs,
+        error: mireloErr,
+      });
     }
   }
 
-  // ─── Priority 3: CassetteAI (AI generation fallback) ────────────
-  // Only reached if library had no match AND mirelo failed/unavailable.
-  // $0.02/min, 10-180s, reliable (unlike beatoven which queues forever)
+  // Priority 3: CassetteAI (AI generation fallback).
+  const cassetteModel = 'cassetteai/music-generator';
+  const cassetteStartMs = Date.now();
   try {
-    // Fix 20: Request layered audio — ambient bed underneath + spot effects on top.
-    // CassetteAI handles this via prompt engineering (single generation call).
     const layeredPrompt = [
       audioDescription,
       'layered audio design: continuous ambient bed underneath',
       'with spot sound effects at natural moments on top',
       'atmospheric, immersive, clean recording, no vocals, no music',
     ].join(', ');
-    result = await fal.subscribe('cassetteai/music-generator', {
+    result = await fal.subscribe(cassetteModel, {
       input: {
         prompt: layeredPrompt,
         duration: Math.min(Math.max(Math.round(duration), 10), 180),
@@ -172,74 +228,92 @@ export async function generateSFX(
     });
   } catch (err: any) {
     console.error(`[SFX] CassetteAI failed: ${err.message}`);
+    await recordPipelineSFXProviderCost({
+      status: 'failed',
+      userId,
+      providerBranch: 'cassetteai_fallback',
+      model: cassetteModel,
+      durationSec: duration,
+      functionMs: Date.now() - cassetteStartMs,
+      error: err,
+    });
     throw err;
   }
 
-  // Extract audio URL
-  const data = (result as any).data || result;
-  console.log(
-    '[SFX] fal.ai response keys:',
-    Object.keys(data || {}),
-  );
+  try {
+    const data = (result as any).data || result;
+    console.log('[SFX] fal.ai response keys:', Object.keys(data || {}));
 
-  const audioUrl =
-    data?.audio_file?.url ||      // CassetteAI format
-    data?.audio?.url ||           // standard format
-    data?.audio?.[0]?.url ||      // array format
-    data?.output?.url ||
-    data?.url;
+    const audioUrl =
+      data?.audio_file?.url ||
+      data?.audio?.url ||
+      data?.audio?.[0]?.url ||
+      data?.output?.url ||
+      data?.url;
 
-  if (!audioUrl) {
-    throw new Error(
-      'SFX generation returned no audio URL. Response: ' +
-        JSON.stringify(data).substring(0, 300),
-    );
+    if (!audioUrl) {
+      throw new Error(
+        'SFX generation returned no audio URL. Response: ' +
+          JSON.stringify(data).substring(0, 300),
+      );
+    }
+
+    const response = await fetch(audioUrl);
+    if (!response.ok) throw new Error('Failed to download generated SFX');
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    if (buffer.length < 12) {
+      throw new Error(`SFX audio too small (${buffer.length} bytes), likely corrupted`);
+    }
+    const isMP3 = (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) ||
+                  (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0);
+    const isWAV = buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46;
+    const isOGG = buffer[0] === 0x4F && buffer[1] === 0x67 && buffer[2] === 0x67 && buffer[3] === 0x53;
+
+    if (!isMP3 && !isWAV && !isOGG) {
+      console.error(`[SFX] Invalid audio format. First 8 bytes: ${buffer.slice(0, 8).toString('hex')}. Skipping upload.`);
+      throw new Error('SFX generation returned invalid audio (not MP3/WAV/OGG)');
+    }
+
+    const ext = isWAV ? 'wav' : isOGG ? 'ogg' : 'mp3';
+    const mime = isWAV ? 'audio/wav' : isOGG ? 'audio/ogg' : 'audio/mpeg';
+    const filename = `${assetId}.${ext}`;
+    const uploadResult = await uploadMedia(buffer, userId, filename, mime, { customAssetId: assetId });
+    await recordPipelineSFXProviderCost({
+      status: 'success',
+      userId,
+      providerBranch: 'cassetteai_fallback',
+      model: cassetteModel,
+      durationSec: duration,
+      bytesOut: buffer.length,
+      functionMs: Date.now() - cassetteStartMs,
+    });
+
+    return {
+      audioUrl: uploadResult.signedUrl,
+      gcsPath: uploadResult.gcsPath!,
+      audioAssetId: uploadResult.assetId,
+      durationMs: duration * 1000,
+    };
+  } catch (err) {
+    await recordPipelineSFXProviderCost({
+      status: 'failed',
+      userId,
+      providerBranch: 'cassetteai_fallback',
+      model: cassetteModel,
+      durationSec: duration,
+      functionMs: Date.now() - cassetteStartMs,
+      error: err,
+    });
+    throw err;
   }
-
-  // Download the generated clip
-  const response = await fetch(audioUrl);
-  if (!response.ok) throw new Error('Failed to download generated SFX');
-  const buffer = Buffer.from(await response.arrayBuffer());
-
-  // Validate audio: check for valid MP3/WAV headers to prevent render crashes
-  // MP3 starts with ID3 tag (0x49 0x44 0x33) or MPEG sync word (0xFF 0xFB/0xFF 0xF3/0xFF 0xF2)
-  // WAV starts with RIFF header (0x52 0x49 0x46 0x46)
-  if (buffer.length < 12) {
-    throw new Error(`SFX audio too small (${buffer.length} bytes), likely corrupted`);
-  }
-  const isMP3 = (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) || // ID3 tag
-                (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0);                 // MPEG sync
-  const isWAV = buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46;
-  const isOGG = buffer[0] === 0x4F && buffer[1] === 0x67 && buffer[2] === 0x67 && buffer[3] === 0x53;
-
-  if (!isMP3 && !isWAV && !isOGG) {
-    console.error(`[SFX] Invalid audio format. First 8 bytes: ${buffer.slice(0, 8).toString('hex')}. Skipping upload.`);
-    throw new Error('SFX generation returned invalid audio (not MP3/WAV/OGG)');
-  }
-
-  // Determine correct extension from actual format
-  const ext = isWAV ? 'wav' : isOGG ? 'ogg' : 'mp3';
-  const mime = isWAV ? 'audio/wav' : isOGG ? 'audio/ogg' : 'audio/mpeg';
-
-  // Upload to GCS under the user's path
-  const filename = `${assetId}.${ext}`;
-  const uploadResult = await uploadMedia(buffer, userId, filename, mime, { customAssetId: assetId });
-
-  return {
-    audioUrl: uploadResult.signedUrl,
-    gcsPath: uploadResult.gcsPath!,
-    audioAssetId: uploadResult.assetId,
-    durationMs: duration * 1000,
-  };
 }
-
-// ─── Batch Generation ───────────────────────────────────────────
 
 /**
  * Generate SFX clips for every scene that has an audioDescription.
  *
  * Runs all generations in parallel (Promise.allSettled) so one failure
- * doesn't block the rest. Returns a map of sceneIndex → SFXResult.
+ * doesn't block the rest. Returns a map of sceneIndex -> SFXResult.
  */
 export async function generateSFXForScenes(
   scenes: SFXSceneInput[],

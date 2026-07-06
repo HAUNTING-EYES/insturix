@@ -144,12 +144,35 @@ export interface RecipeVisualIntent {
   };
 }
 
+export interface RecipeQualityLayerAudit {
+  layer: 'legibility' | 'correctness' | 'communication' | 'aesthetic';
+  score: number | null;
+  status: 'scored' | 'skipped' | 'degraded';
+  groundTruthSource?: 'human-label' | 'extraction' | 'none';
+  notes?: string;
+}
+
+export interface RecipeQualityEval {
+  source: 'mg-eval-v1';
+  composite: number | null;
+  status: 'scored' | 'degraded' | 'invalid';
+  failsLegibilityFloor: boolean;
+  layers: RecipeQualityLayerAudit[];
+  weightsUsed: Partial<Record<RecipeQualityLayerAudit['layer'], number>>;
+  correctnessGroundTruth?: {
+    value?: string;
+    formFamily?: string;
+    source?: 'human-label' | 'extraction' | 'none';
+  };
+}
+
 export interface Recipe {
   id: string;
   elements: RecipeElement[];
   layout: RecipeLayout;
   choreography?: RecipeChoreography;
   visualIntent?: RecipeVisualIntent;
+  qualityEval?: RecipeQualityEval;
   exitStyle: ExitStyle;
 }
 

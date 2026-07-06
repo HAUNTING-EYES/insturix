@@ -12,7 +12,8 @@
  * ids are shown; "Open" reloads a scan by its job id under the hood.
  */
 
-import { AlertTriangle, Check, ExternalLink, Loader2, Plus, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
+import { AlertTriangle, Check, ExternalLink, Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import type {
   BrandVaultAcceptedBrandSummary,
   BrandVaultBrandScanSummary,
@@ -36,6 +37,8 @@ interface BrandManagerPanelProps {
   onRescan: () => void;
   onScanNew: () => void;
   onOpenScan: (jobId: string) => void;
+  onDeleteScan: (jobId: string) => void;
+  deletingJobId: string | null;
 }
 
 type ScanTone = 'good' | 'gold' | 'muted' | 'risk';
@@ -53,7 +56,10 @@ export function BrandManagerPanel({
   onRescan,
   onScanNew,
   onOpenScan,
+  onDeleteScan,
+  deletingJobId,
 }: BrandManagerPanelProps) {
+  const [confirmingDeleteJobId, setConfirmingDeleteJobId] = useState<string | null>(null);
   if (brands.length === 0) return null;
 
   const acceptedByBrand = new Map(acceptedSummaries.map((summary) => [summary.brandId, summary]));
@@ -137,15 +143,51 @@ export function BrandManagerPanel({
                   )}
                 </span>
                 <span className="bv-c1-scan-time">{formatRelative(scan.updatedAt)}</span>
-                <button
-                  type="button"
-                  className="bv-c1-button"
-                  disabled={busy}
-                  onClick={() => onOpenScan(scan.jobId)}
-                  title="Reload this scan's draft for review"
-                >
-                  {scan.status === 'accepted' ? <Check size={13} /> : <ExternalLink size={13} />} Open
-                </button>
+                <span className="bv-c1-scan-actions">
+                  {confirmingDeleteJobId === scan.jobId ? (
+                    <>
+                      <button
+                        type="button"
+                        className="bv-c1-button danger"
+                        disabled={deletingJobId === scan.jobId}
+                        onClick={() => onDeleteScan(scan.jobId)}
+                        title="Permanently delete this scan from history"
+                      >
+                        {deletingJobId === scan.jobId ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />} Delete
+                      </button>
+                      <button
+                        type="button"
+                        className="bv-c1-icon-button"
+                        onClick={() => setConfirmingDeleteJobId(null)}
+                        aria-label="Cancel delete"
+                      >
+                        <X size={13} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="bv-c1-button"
+                        disabled={busy}
+                        onClick={() => onOpenScan(scan.jobId)}
+                        title="Reload this scan's draft for review"
+                      >
+                        {scan.status === 'accepted' ? <Check size={13} /> : <ExternalLink size={13} />} Open
+                      </button>
+                      <button
+                        type="button"
+                        className="bv-c1-icon-button"
+                        disabled={deletingJobId === scan.jobId}
+                        onClick={() => setConfirmingDeleteJobId(scan.jobId)}
+                        aria-label="Delete this scan from history"
+                        title="Delete this scan from history"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </>
+                  )}
+                </span>
               </div>
             );
           })}

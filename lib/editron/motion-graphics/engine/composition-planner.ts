@@ -28,7 +28,9 @@ import {
 } from './encoding-wires';
 import { scoreAesthetic } from './eval/aesthetic';
 import { combineLayers } from './eval/composite';
+import { scoreCorrectness, type CorrectnessGroundTruth } from './eval/correctness';
 import { scoreLegibility } from './eval/legibility';
+import { validateRecipeConstraints } from './crg-constraint-validator';
 
 export type MgOverlayScores = Record<string, { score: number; values: Record<string, number | string | boolean> }>;
 
@@ -294,12 +296,107 @@ export function planComposition(
     : 'vertical-stack' as const;
   layout = { ...layout, arrangement };
 
-  return {
+  const repairedRecipe = validateRecipeConstraints({
     id: compositionRecipeId(strategy, intent.content),
     elements,
     layout,
     exitStyle: strategy.suggestedExitStyle,
+  }).recipe;
+
+  return withRecipeQualityEval(repairedRecipe, intent.content, language, s);
+}
+
+function withRecipeQualityEval(
+  recipe: Recipe,
+  content: Record<string, unknown>,
+  language: MotionTokens,
+  signals: PlannerSignals,
+): Recipe {
+  const correctnessGroundTruth = deriveRecipeCorrectnessGroundTruth(recipe, content);
+  const legibility = scoreLegibility(recipe, language);
+  const correctness = scoreCorrectness(recipe, content, correctnessGroundTruth);
+  const aesthetic = scoreAesthetic(recipe, {
+    recentForms: recentRecipeAuditValues(signals, 'recent_mg_recipe_ids', 'recentMgRecipeIds', 'recent_mg_recipe_id', 'recentMgRecipeId'),
+    recentPositions: recentRecipeAuditValues(signals, 'recent_mg_positions', 'recentMgPositions', 'recent_mg_position', 'recentMgPosition'),
+    window: 4,
+  });
+  const composite = combineLayers([legibility, correctness, aesthetic], { ok: true });
+
+  return {
+    ...recipe,
+    qualityEval: {
+      source: 'mg-eval-v1',
+      composite: composite.composite,
+      status: composite.status,
+      failsLegibilityFloor: composite.failsLegibilityFloor,
+      layers: composite.layers,
+      weightsUsed: composite.weightsUsed,
+      ...(correctnessGroundTruth ? { correctnessGroundTruth } : {}),
+    },
   };
+}
+
+function recentRecipeAuditValues(signals: PlannerSignals, ...keys: string[]): string[] {
+  const source = signals as Record<string, unknown>;
+  for (const key of keys) {
+    const value = source[key];
+    if (Array.isArray(value)) {
+      return value.map(String).map(normalizeRecentRecipeAuditValue).filter(Boolean);
+    }
+    if (typeof value === 'string') {
+      return value.split(/[|,]/).map(normalizeRecentRecipeAuditValue).filter(Boolean);
+    }
+  }
+  return [];
+}
+
+function normalizeRecentRecipeAuditValue(value: string): string {
+  return value.trim().replace(/^composed-/, '');
+}
+
+function deriveRecipeCorrectnessGroundTruth(
+  recipe: Recipe,
+  content: Record<string, unknown>,
+): CorrectnessGroundTruth | undefined {
+  const formFamily = recipeCorrectnessFormFamily(recipe.id, content);
+  const value = recipeCorrectnessValue(recipe.id, content);
+  if (!formFamily && !value) return undefined;
+  return {
+    ...(value ? { value } : {}),
+    ...(formFamily ? { formFamily } : {}),
+    source: 'extraction',
+  };
+}
+
+function recipeCorrectnessFormFamily(recipeId: string, content: Record<string, unknown>): string | undefined {
+  const factKind = stringFromPath(content.semanticFactSource, 'factKind')?.toLowerCase() ?? '';
+  if (factKind.includes('bounded') || factKind.includes('proportion') || factKind.includes('share')) return 'proportion';
+  if (factKind.includes('trend')) return 'trend';
+  if (factKind.includes('comparison') || recipeId.includes('comparison')) return 'comparison';
+  if (factKind.includes('quote') || recipeId.includes('quotation')) return 'quote';
+  if (factKind.includes('identity') || recipeId.includes('identity')) return 'identity';
+  if (factKind.includes('negation') || factKind.includes('refutation')) return 'negation';
+  if (recipeId.includes('numeric')) return 'magnitude';
+  if (recipeId.includes('structured') || recipeId.includes('emphasis') || recipeId.includes('free-text')) return 'concept';
+  return undefined;
+}
+
+function recipeCorrectnessValue(recipeId: string, content: Record<string, unknown>): string | undefined {
+  const keys = recipeId.includes('quotation')
+    ? ['quote']
+    : recipeId.includes('identity')
+      ? ['name', 'title']
+      : recipeId.includes('numeric')
+        ? ['value']
+        : ['text', 'keyword', 'title', 'body', 'value'];
+  for (const key of keys) {
+    const value = content[key];
+    if (typeof value === 'string' || typeof value === 'number') {
+      const text = String(value).trim();
+      if (text) return text;
+    }
+  }
+  return undefined;
 }
 
 function compositionRecipeId(
@@ -795,16 +892,37 @@ function scoreNumericEncodingCandidateRecipes(
       elements: buildNumericEncodingCandidateElements(candidate, facts, shape, fontSize, lineHeight),
     };
     const legibility = scoreLegibility(recipe, language);
+    const correctness = scoreCorrectness(recipe, {
+      value: shape.value,
+      label: shape.label,
+      prefix: shape.prefix,
+      suffix: shape.suffix,
+    }, numericCandidateCorrectnessGroundTruth(facts));
     const aesthetic = scoreAesthetic(recipe, { recentForms: recentEncodingKeys, window: 4 });
-    const composite = combineLayers([legibility, aesthetic], { ok: true });
+    const composite = combineLayers([legibility, correctness, aesthetic], { ok: true });
     scores[candidate.encodingKey] = {
       legibility: legibility.score,
+      correctness: correctness.score,
       aesthetic: aesthetic.score,
       composite: composite.composite,
       failsLegibilityFloor: composite.failsLegibilityFloor,
     };
   }
   return scores;
+}
+
+function numericCandidateCorrectnessGroundTruth(facts: NumericEncodingFacts): CorrectnessGroundTruth {
+  return {
+    value: facts.exactText,
+    formFamily: facts.negated
+      ? 'negation'
+      : facts.boundedProportion
+        ? 'proportion'
+        : facts.hasMagnitude
+          ? 'magnitude'
+          : 'none',
+    source: 'extraction',
+  };
 }
 
 function buildNumericEncodingCandidateElements(

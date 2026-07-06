@@ -53,6 +53,10 @@ export type BrandVaultUploadedAssetRole =
   | 'logo'
   | 'font'
   | 'color_palette'
+  | 'product_ui'
+  | 'website_screenshot'
+  | 'team'
+  | 'abstract_reference'
   | 'creative_reference'
   | 'prior_work'
   | 'other';

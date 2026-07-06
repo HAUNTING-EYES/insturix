@@ -14,8 +14,15 @@
  */
 
 import type { AssetAnalysis } from './five-track-analysis';
+import { getNativeAudioDuckRegions } from './native-audio-evidence';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
+
+export interface ColorNormalizationOptions {
+  color_temperature?: number;
+  formality?: number;
+  energy_baseline?: number;
+}
 
 // ─── Transition SFX Map ──────────────────────────────────────────
 // 3 SFX options per transition type, contextually appropriate.
@@ -214,6 +221,20 @@ export function applyDriftZoom(
         { frame: overlay.durationInFrames, value: actualEndScale, easing: 'ease-in-out' },
       ],
     });
+    overlay.metadata = {
+      ...(overlay.metadata ?? {}),
+      crossOverlayProducer: 'post-edl-drift-zoom',
+      postProcessing: {
+        ...(overlay.metadata?.postProcessing ?? {}),
+        driftZoom: {
+          version: 'post-edl-drift-zoom-v1',
+          source: 'auto-post-processing',
+          startScale: actualStartScale,
+          endScale: actualEndScale,
+          calibrationStatus: 'invented-needs-calibration',
+        },
+      },
+    };
 
     modified++;
   }
@@ -377,6 +398,15 @@ export function applyFreezeFrameUnderGraphics(
     // Check if video already has a speed curve (don't override existing speed ramps)
     if (video.speedCurve && video.speedCurve.length > 0) continue;
 
+    if (overlapsNativeSpeech(video, graphic.from, graphic.durationInFrames || 1)) {
+      pipelineWarnings?.degraded(
+        'finalize',
+        `freeze-frame skipped for ${graphicType} at frame ${graphic.from}`,
+        'Graphic overlaps native speech audio; slowing the clip would distort spoken audio.',
+      );
+      continue;
+    }
+
     // Research-backed readTime: ~250ms/word (Murch/Dancyger), minimum 1s, maximum 4s.
     // OLD: Used graphic.durationInFrames (whatever EDL set, often too long).
     // NEW: Calculate freeze duration from text content length.
@@ -401,6 +431,171 @@ export function applyFreezeFrameUnderGraphics(
   return { modified, skippedTiny };
 }
 
+function overlapsNativeSpeech(video: any, startFrame: number, durationFrames: number): boolean {
+  const endFrame = startFrame + Math.max(1, durationFrames);
+  return getNativeAudioDuckRegions(video).some((region) => {
+    const regionEnd = region.from + region.durationInFrames;
+    return region.from < endFrame && regionEnd > startFrame;
+  });
+}
+
+/**
+ * Apply a conservative signal-derived color normalization pass.
+ *
+ * This is the color/finishing owner for upload-to-edit. It writes renderer-native
+ * `styles.filter` only when a clip has no manual filter, using observed visual
+ * temperature plus signal-computed target temperature. Profile/menu filter
+ * presets remain manual or legacy compatibility only.
+ */
+export function applyColorNormalization(
+  overlays: any[],
+  analyses?: Map<string, AssetAnalysis>,
+  options: ColorNormalizationOptions = {},
+): { modified: number; skippedExistingFilter: number; skippedNoAnalysis: number } {
+  let modified = 0;
+  let skippedExistingFilter = 0;
+  let skippedNoAnalysis = 0;
+  const targetTemperature = finiteNumber(options.color_temperature) ?? 5500;
+
+  for (const overlay of overlays) {
+    if (overlay.type !== 'video' && overlay.type !== 'image') continue;
+    const currentFilter = typeof overlay.styles?.filter === 'string' ? overlay.styles.filter.trim() : '';
+    const previousAuto = overlay.metadata?.autoColorNormalization?.version === 'auto-color-normalization-v1';
+    if (currentFilter && currentFilter !== 'none' && !previousAuto) {
+      skippedExistingFilter++;
+      continue;
+    }
+
+    const analysis = overlay.assetId && analyses ? analyses.get(overlay.assetId) : undefined;
+    const currentTemperature = estimateOverlayColorTemperature(analysis);
+    if (!currentTemperature) {
+      skippedNoAnalysis++;
+      continue;
+    }
+
+    const deltaK = clamp(targetTemperature - currentTemperature, -500, 500);
+    const hasPerson = analysis?.subjectTracks?.some((subject: any) => subject.category === 'person') === true;
+    const skinProtection = hasPerson ? 0.55 : 0.8;
+    const formalityDamping = lerp(1, 0.72, clamp(finiteNumber(options.formality) ?? 0.5, 0, 1));
+    const strength = clamp(Math.abs(deltaK) / 1200, 0, 1) * skinProtection * formalityDamping;
+    if (strength < 0.04) continue;
+
+    overlay.styles = {
+      ...overlay.styles,
+      filter: buildColorNormalizationFilter(deltaK, strength, options),
+    };
+    overlay.metadata = {
+      ...overlay.metadata,
+      autoColorNormalization: {
+        version: 'auto-color-normalization-v1',
+        source: 'auto-post-processing',
+        currentColorTemperature: Math.round(currentTemperature),
+        targetColorTemperature: Math.round(targetTemperature),
+        deltaK: Math.round(deltaK),
+        strength: Number(strength.toFixed(3)),
+        skinToneProtected: hasPerson,
+        crg: [
+          'technique:color.grade_change',
+          'technique:color-theory.skin_tone_protection',
+          'constraint:visual.color_grade_inconsistency',
+        ],
+      },
+    };
+    modified++;
+  }
+
+  return { modified, skippedExistingFilter, skippedNoAnalysis };
+}
+
+function estimateOverlayColorTemperature(analysis?: AssetAnalysis): number | null {
+  const keyframes = analysis?.keyframeAnalyses ?? [];
+  const explicit = keyframes
+    .map((frame: any) => finiteNumber(frame.colorTemperatureK))
+    .filter((value): value is number => value != null);
+  if (explicit.length > 0) return average(explicit);
+
+  const estimated = keyframes
+    .map((frame: any) => estimateColorTemperatureFromPalette(frame.dominantColors))
+    .filter((value): value is number => value != null);
+  if (estimated.length > 0) return average(estimated);
+
+  return null;
+}
+
+function estimateColorTemperatureFromPalette(colors: unknown): number | null {
+  if (!Array.isArray(colors) || colors.length === 0) return null;
+  let score = 0;
+  let count = 0;
+  for (const color of colors) {
+    const rgb = parseColorToRgb(color);
+    if (!rgb) continue;
+    const warm = (rgb.r * 0.62 + rgb.g * 0.18) - (rgb.b * 0.72);
+    score += warm / 255;
+    count++;
+  }
+  if (count === 0) return null;
+  const avg = clamp(score / count, -1, 1);
+  return Math.round(5500 - avg * 1700);
+}
+
+function parseColorToRgb(value: unknown): { r: number; g: number; b: number } | null {
+  if (typeof value !== 'string') return null;
+  const hex = value.trim().match(/^#?([a-f\d]{6})$/i)?.[1];
+  if (hex) {
+    const int = Number.parseInt(hex, 16);
+    return { r: (int >> 16) & 255, g: (int >> 8) & 255, b: int & 255 };
+  }
+  const lower = value.toLowerCase();
+  if (/\b(red|orange|yellow|gold|amber|brown|warm)\b/.test(lower)) return { r: 230, g: 150, b: 70 };
+  if (/\b(blue|cyan|teal|purple|cool)\b/.test(lower)) return { r: 70, g: 130, b: 220 };
+  return null;
+}
+
+function buildColorNormalizationFilter(
+  deltaK: number,
+  strength: number,
+  options: ColorNormalizationOptions,
+): string {
+  const energy = clamp(finiteNumber(options.energy_baseline) ?? 0.45, 0, 1);
+  const saturation = 1 + strength * lerp(0.04, 0.14, energy);
+  const contrast = 1 + strength * lerp(0.02, 0.07, energy);
+  const brightness = 1 + strength * 0.015;
+  if (deltaK < 0) {
+    return [
+      `sepia(${roundCss(strength * 0.1)})`,
+      `saturate(${roundCss(saturation)})`,
+      `hue-rotate(${roundCss(-5 * strength)}deg)`,
+      `brightness(${roundCss(brightness)})`,
+      `contrast(${roundCss(contrast)})`,
+    ].join(' ');
+  }
+  return [
+    `saturate(${roundCss(1 + strength * 0.05)})`,
+    `hue-rotate(${roundCss(6 * strength)}deg)`,
+    `brightness(${roundCss(brightness)})`,
+    `contrast(${roundCss(contrast)})`,
+  ].join(' ');
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function average(values: number[]): number {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * clamp(t, 0, 1);
+}
+
+function roundCss(value: number): number {
+  return Number(value.toFixed(3));
+}
 /**
  * P-010: Validate scene duration variety
  *
@@ -485,11 +680,13 @@ export function runPostProcessing(
    *  so low-confidence scenes can opt out of freeze aesthetics loudly
    *  (added 2026-04-20 during Prateek confidence-tracking cherry-pick). */
   pipelineWarnings?: any,
+  genreParams?: ColorNormalizationOptions,
 ): {
   driftZoomApplied: number;
   zoneViolationsFixed: number;
   freezeFramesApplied: number;
   durationAdjusted: number;
+  colorNormalized: number;
   totalModified: number;
 } {
   // Z-030 + Z-031: Drift zoom on static images (respects budget rejections)
@@ -505,10 +702,13 @@ export function runPostProcessing(
   // P-010: Duration variety (no 3 consecutive same-duration scenes, respects voiceover)
   const durationResult = validateDurationVariety(overlays);
 
-  const totalModified = driftResult.modified + zoneResult.fixed + freezeResult.modified + durationResult.adjusted;
+  // C-030: Conservative signal-derived color normalization (manual filters win).
+  const colorResult = applyColorNormalization(overlays, analyses, genreParams);
+
+  const totalModified = driftResult.modified + zoneResult.fixed + freezeResult.modified + durationResult.adjusted + colorResult.modified;
 
   if (totalModified > 0) {
-    console.log(`[PostProcess] Applied: ${driftResult.modified} drift-zooms (${driftResult.skippedBudget} budget-skipped), ${zoneResult.fixed} zone fixes, ${freezeResult.modified} freeze-frames (${freezeResult.skippedTiny} tiny-skipped), ${durationResult.adjusted} duration adjustments`);
+    console.log(`[PostProcess] Applied: ${driftResult.modified} drift-zooms (${driftResult.skippedBudget} budget-skipped), ${zoneResult.fixed} zone fixes, ${freezeResult.modified} freeze-frames (${freezeResult.skippedTiny} tiny-skipped), ${durationResult.adjusted} duration adjustments, ${colorResult.modified} color normalizations`);
     if (zoneResult.violations.length > 0) {
       console.log(`[PostProcess] Zone violations: ${zoneResult.violations.join('; ')}`);
     }
@@ -519,6 +719,7 @@ export function runPostProcessing(
     zoneViolationsFixed: zoneResult.fixed,
     freezeFramesApplied: freezeResult.modified,
     durationAdjusted: durationResult.adjusted,
+    colorNormalized: colorResult.modified,
     totalModified,
   };
 }

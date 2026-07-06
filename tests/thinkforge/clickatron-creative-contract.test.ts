@@ -245,4 +245,39 @@ describe('Clickatron creative contract', () => {
       }),
     ).toThrow(/sourceService/);
   });
+
+  it('preserves a derived visualLanguage through normalization [P2]', () => {
+    const spec = normalizeClickatronCreativeSpec({
+      ...singlePostSpec(),
+      visualLanguage: {
+        vibe: ['urgent', 'sober'],
+        imageStyle: ['editorial photo'],
+        paletteTemperature: 'cool',
+        confidence: 0.75,
+        lowConfidenceFields: ['visualMode'],
+        rationale: ['why'],
+        derived: true,
+      },
+    });
+    expect(spec.visualLanguage).toBeDefined();
+    expect(spec.visualLanguage?.vibe).toEqual(['urgent', 'sober']);
+    expect(spec.visualLanguage?.paletteTemperature).toBe('cool');
+    expect(spec.visualLanguage?.confidence).toBe(0.75);
+    expect(spec.visualLanguage?.derived).toBe(true);
+  });
+
+  it('fail-soft normalizes a malformed visualLanguage (clamps confidence, defaults palette)', () => {
+    const spec = normalizeClickatronCreativeSpec({
+      ...singlePostSpec(),
+      visualLanguage: { vibe: ['x', 42, ''], paletteTemperature: 'chartreuse', confidence: 9 },
+    });
+    expect(spec.visualLanguage?.vibe).toEqual(['x']); // non-strings/blank dropped
+    expect(spec.visualLanguage?.paletteTemperature).toBe('neutral'); // unknown → neutral
+    expect(spec.visualLanguage?.confidence).toBe(1); // clamped to [0,1]
+  });
+
+  it('a spec without visualLanguage stays valid (backward compatible)', () => {
+    const spec = normalizeClickatronCreativeSpec(singlePostSpec());
+    expect(spec.visualLanguage).toBeUndefined();
+  });
 });

@@ -8,7 +8,16 @@ import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { NextResponse } from 'next/server';
 import { Variation } from '@/types/clickatron';
 import { fal } from "@fal-ai/client";
-import { CLICKATRON_MODELS, generateModelPayload, processParentVariationImage, processReferenceImages, modelSupportsSeed } from '@/lib/config/clickatron-models';
+import {
+  CLICKATRON_MODELS,
+  fitClickatronPromptToModelLimit,
+  generateModelPayload,
+  modelSupportsAspectRatio,
+  modelSupportsSeed,
+  processParentVariationImage,
+  processReferenceImages,
+  resolveClickatronModelForGeneration,
+} from '@/lib/config/clickatron-models';
 import { getCreditCost } from '@/lib/config/creditCosts';
 import { CreditsService } from '@/lib/services/creditsService';
 import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
@@ -17,7 +26,7 @@ import {
   resolveClickatronBrandContextBlock,
   resolveClickatronPromptBrandId,
 } from '@/lib/clickatron/brand-prompt-context';
-import { resolveClickatronBrandReferenceImages } from '@/lib/clickatron/brand-reference-images';
+import { resolveClickatronBrandReferenceEvidence } from '@/lib/clickatron/brand-reference-images';
 import sharp from 'sharp';
 
 // Configure Fal AI client
@@ -116,6 +125,114 @@ function getClickatronVariationRefundAmount(modelId?: string): number {
 }
 
 type ClickatronCostJob = NonNullable<Awaited<ReturnType<typeof getJob>>>;
+
+/**
+ * Persist fields onto ONE variation atomically (positional $ + $elemMatch), never by
+ * saving the whole task document. [R7]
+ *
+ * WHY: carousel fan-out runs N workers concurrently against the SAME session document.
+ * Each used to load the doc at start, mutate its own variation, and task.save() the
+ * whole doc — a classic lost-update race: the last writer's stale copy overwrote every
+ * sibling's completion (verified in prod logs 2026-07-05: 6/6 slides generated and
+ * uploaded to R2, but only the LAST worker's save survived; 5 completed slides were
+ * reverted to 'generating' and later watchdog-failed). Single images never trip this
+ * (one writer). This mirrors the already-correct pattern in
+ * app/api/cron/check-task-timeouts (updateOne + $elemMatch + positional $).
+ *
+ * Returns false (and logs loud) when nothing matched — e.g. the variation was deleted
+ * mid-generation; callers decide whether that is fatal.
+ */
+async function persistVariationFieldsAtomic(
+  sessionId: string,
+  variationId: string,
+  fields: Record<string, unknown>,
+): Promise<boolean> {
+  if (!Types.ObjectId.isValid(sessionId)) {
+    console.error('Worker: atomic variation update skipped; invalid sessionId:', sessionId);
+    return false;
+  }
+  const $set: Record<string, unknown> = { updatedAt: new Date() };
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) $set[`details.canvas.variations.$.${key}`] = value;
+  }
+  const result = await ClickatronTask.updateOne(
+    {
+      _id: new Types.ObjectId(sessionId),
+      'details.canvas.variations': { $elemMatch: { id: variationId } },
+    },
+    { $set },
+  );
+  if (result.matchedCount === 0) {
+    console.error('Worker: atomic variation update matched nothing (variation deleted mid-run?):', { sessionId, variationId });
+    return false;
+  }
+  return true;
+}
+
+async function markVariationFailedForJob(job: ClickatronCostJob, errorMessage: string): Promise<void> {
+  try {
+    await getClickatronDb();
+    const persisted = await persistVariationFieldsAtomic(job.sessionId, job.variationId, {
+      status: 'failed',
+      error: errorMessage,
+      updatedAt: new Date(),
+    });
+    if (persisted) {
+      console.log('Worker: Marked Clickatron variation failed for job:', job.id);
+    }
+  } catch (error) {
+    console.error('Worker: Failed to mark Clickatron variation failed for job:', job.id, error);
+  }
+}
+
+/**
+ * Unified inline failure for an already-loaded worker task/variation.
+ * Every early-return rejection in the handler routes through this so a failure
+ * ALWAYS (a) fails the job, (b) persists variation.error (so the UI can show the
+ * real reason), and (c) refunds the model-aware credit cost. This closes the old
+ * gap [R3] where early returns marked the variation failed but set no error and
+ * issued no refund => silent credit loss + an undiagnosable "Image generation
+ * failed". The refund mirrors the deduction (same getCreditCost model multiplier)
+ * and is idempotent: it is skipped when the variation was already terminal, so a
+ * QStash redelivery re-entering the same deterministic reject cannot double-refund.
+ */
+async function failVariationInline(
+  activeJobId: string,
+  task: any,
+  variation: Variation,
+  job: ClickatronCostJob,
+  { code, message, refund = true }: { code: string; message: string; refund?: boolean },
+): Promise<void> {
+  const alreadyTerminal = variation.status === 'failed' || variation.status === 'completed';
+  await failJob(activeJobId, { code, message });
+  try {
+    // Keep the in-memory copy consistent for downstream reads, but persist atomically
+    // (positional $) — never task.save(), which loses sibling carousel slides. [R7]
+    variation.status = 'failed';
+    variation.error = message;
+    variation.updatedAt = new Date();
+    await persistVariationFieldsAtomic(job.sessionId, variation.id, {
+      status: 'failed',
+      error: message,
+      modelId: variation.modelId,
+    });
+  } catch (saveError) {
+    console.error('Worker: Failed to persist inline variation failure:', saveError);
+  }
+  if (refund && !alreadyTerminal) {
+    try {
+      await CreditsService.refundCredits(
+        job.userId,
+        getClickatronVariationRefundAmount(variation.modelId || job.modelId),
+        `Variation generation failed: ${message}`,
+        { service: 'clickatron', action: 'variation' },
+      );
+      console.log('Worker: Refund processed for inline failure, user:', job.userId);
+    } catch (refundError) {
+      console.error('Worker: Failed to refund after inline failure, user:', job.userId, refundError);
+    }
+  }
+}
 
 function getFalProviderJobId(result: any): string | undefined {
   return result?.request_id ?? result?.requestId ?? result?.data?.request_id ?? result?.data?.requestId;
@@ -220,18 +337,18 @@ async function handler(req: Request) {
     jobId = body.jobId;
 
     const { jobId: parsedJobId, sessionId, variationId } = workerRequestSchema.parse(body);
-    jobId = parsedJobId; // Update jobId with parsed value
-    jobId = parsedJobId; // Update jobId with parsed value
-    console.log('Worker: Parsed data - jobId:', jobId, 'sessionId:', sessionId, 'variationId:', variationId);
+    const activeJobId: string = parsedJobId;
+    jobId = activeJobId; // Preserve for outer error handling.
+    console.log('Worker: Parsed data - jobId:', activeJobId, 'sessionId:', sessionId, 'variationId:', variationId);
 
-    const job = await getJob(jobId);
+    const job = await getJob(activeJobId);
     if (!job) {
-      console.error('Worker: Job not found for jobId:', jobId);
+      console.error('Worker: Job not found for jobId:', activeJobId);
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
     // Mark job as running
-    await startJob(jobId, 'generating');
+    await startJob(activeJobId, 'generating');
     console.log('Worker: Marked job as running');
 
     await getClickatronDb();
@@ -241,14 +358,14 @@ async function handler(req: Request) {
 
     if (!task || !task.details.canvas) {
       console.error('Worker: Task or canvas not found for sessionId:', sessionId);
-      await failJob(jobId, { code: 'TASK_NOT_FOUND', message: 'Task or canvas not found' });
+      await failJob(activeJobId, { code: 'TASK_NOT_FOUND', message: 'Task or canvas not found' });
       return NextResponse.json({ error: 'Task or canvas not found' }, { status: 404 });
     }
 
     // Validate job ownership
     if (job.userId !== task.clerkUserId) {
       console.error('Worker: Job ownership validation failed', { jobUserId: job.userId, taskUserId: task.clerkUserId });
-      await failJob(jobId, { code: 'UNAUTHORIZED', message: 'Job ownership validation failed' });
+      await failJob(activeJobId, { code: 'UNAUTHORIZED', message: 'Job ownership validation failed' });
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -257,27 +374,17 @@ async function handler(req: Request) {
 
     if (!variation) {
       console.error('Worker: Variation not found - likely deleted');
-      await failJob(jobId, { code: 'VARIATION_DELETED', message: 'Variation was deleted before processing' });
+      await failJob(activeJobId, { code: 'VARIATION_DELETED', message: 'Variation was deleted before processing' });
       return NextResponse.json({ error: 'Variation not found' }, { status: 404 });
     }
 
     // Check if Fal AI is configured
     if (!process.env.FAL_AI_API_KEY) {
       console.error('Worker: Fal AI API key not configured');
-      await failJob(jobId, { code: 'FAL_AI_NOT_CONFIGURED', message: 'Fal AI API key not configured. Please set FAL_AI_API_KEY in environment variables.' });
-
-      // Ensure variation is updated with failed status even if Fal AI is not configured
-      try {
-        variation.status = 'failed';
-        variation.updatedAt = new Date();
-
-        task.markModified('details');
-        await task.save();
-        console.log('Worker: Updated variation status to failed due to missing API key');
-      } catch (saveError) {
-        console.error('Worker: Failed to save variation status:', saveError);
-      }
-
+      await failVariationInline(activeJobId, task, variation, job, {
+        code: 'FAL_AI_NOT_CONFIGURED',
+        message: 'Image generation is temporarily unavailable (provider not configured).',
+      });
       return NextResponse.json({ error: 'Fal AI not configured' }, { status: 500 });
     }
 
@@ -351,7 +458,8 @@ async function handler(req: Request) {
         ...asPromptMetadataRecord(variation.metadata),
       };
       const promptBrandId = resolveClickatronPromptBrandId(task.brandId, promptMetadata);
-      // Org-scope the brand resolution (Phase A.3) — task carries orgId on ClickatronTask.
+      const rawGenerationPrompt = job.prompt;
+      // Org-scope the brand resolution (Phase A.3) â€” task carries orgId on ClickatronTask.
       const brandContextBlock = await resolveClickatronBrandContextBlock(
         job.userId,
         promptBrandId,
@@ -359,7 +467,7 @@ async function handler(req: Request) {
         task.orgId ?? null,
       );
       const enrichedPrompt = buildClickatronGenerationPrompt({
-        prompt: job.prompt,
+        prompt: rawGenerationPrompt,
         metadata: promptMetadata,
         brandContextBlock,
         // C2: the picked model decides in-image text rendering on the default text policy.
@@ -395,28 +503,75 @@ async function handler(req: Request) {
         }
       }
 
-      // Combine parent image and reference images into generation parameters
-      // Always use image_urls internally for consistency
+      // Combine parent image and reference images into generation parameters.
+      // Always use image_urls internally for consistency.
       const imageUrls: string[] = [];
       if (parentImageUrl) {
         imageUrls.push(parentImageUrl);
         console.log('Worker: Added parent image URL:', parentImageUrl);
       }
       imageUrls.push(...referenceImageUrls);
-      // #4 (brand asset island): an explicit product mockup with NO parent/user image seeds the brand's
-      // own scanned product imagery as reference, so the output is brand-faithful. Intent-gated
-      // (product_mockup only — Rule 29) and never overrides a user's parent/reference images. Fail-soft.
-      if (!parentImageUrl && referenceImageUrls.length === 0) {
-        const brandReferenceImages = await resolveClickatronBrandReferenceImages({
-          userId: job.userId,
-          brandId: promptBrandId,
-          metadata: promptMetadata,
-          orgId: task.orgId ?? null,
-        });
-        if (brandReferenceImages.length > 0) {
-          imageUrls.push(...brandReferenceImages);
-          console.log('[Worker] Clickatron brand product reference images added:', brandReferenceImages.length);
+
+      const shouldSeedProductImages = !parentImageUrl && referenceImageUrls.length === 0;
+      const brandReferenceResolution = await resolveClickatronBrandReferenceEvidence({
+        userId: job.userId,
+        brandId: promptBrandId,
+        metadata: promptMetadata,
+        prompt: rawGenerationPrompt,
+        orgId: task.orgId ?? null,
+      });
+
+      if (brandReferenceResolution.needsUserInput) {
+        const message = brandReferenceResolution.needsUserInputReason
+          ?? 'needs_user_input: Brand Vault logo evidence is required before generation.';
+        variation.metadata = {
+          ...(variation.metadata ?? {}),
+          needsUserInput: {
+            code: 'missing_brand_logo_evidence',
+            assetRole: 'logo',
+            message,
+          },
+          brandReferenceEvidence: {
+            intent: brandReferenceResolution.intent,
+            evidence: [],
+          },
+        };
+        const needsInputError = new Error(message) as Error & { code?: string };
+        needsInputError.code = 'NEEDS_USER_INPUT';
+        throw needsInputError;
+      }
+
+      // A logo must NOT be seeded as a generation reference on a fresh text-to-image job.
+      // Doing so inflates the reference-image count, which forces the model resolver into
+      // image-to-image mode (models.ts: referenceImageCount > 0 => 'image-to-image') and makes
+      // the model "edit the logo" — or get rejected against a maxImages:0 text-to-image model.
+      // This is a top cause of branded "no image". The locked brand mark belongs on the
+      // editable overlay layer, so only pass the logo to the model when there is already an
+      // image context (parent or user reference images) that resolves to a reference-accepting
+      // edit/compose model. Product seeding on a blank canvas is intentional (product-mockup
+      // i2i) and is left unchanged.
+      // TODO(Phase 2): when the model roster/adapters land, route fresh brand-reference
+      // composition to a compose model (nano-banana-pro/edit, seedream edit) instead of
+      // dropping the logo to an overlay.
+      const canUseLogoAsGenerationReference = Boolean(parentImageUrl) || referenceImageUrls.length > 0;
+      const brandReferenceEvidence = brandReferenceResolution.evidence.filter(
+        (item) =>
+          (item.assetRole === 'logo' && canUseLogoAsGenerationReference) ||
+          (shouldSeedProductImages && item.assetRole === 'product'),
+      );
+
+      if (brandReferenceEvidence.length > 0) {
+        imageUrls.push(...brandReferenceEvidence.map((item) => item.url));
+        generationParams.brandReferenceEvidence = brandReferenceEvidence;
+        if (brandReferenceEvidence.some((item) => item.assetRole === 'logo')) {
+          job.prompt = `${job.prompt}\n\nUse the supplied Brand Vault logo reference as the only brand mark. Preserve its shape, colors, and proportions; do not invent, redesign, or spell a logo from text. Keep the logo placement overlay-safe for a locked Brand Vault mark.`;
+          generationParams.logoReferencePolicy = 'brand_vault_reference_required';
         }
+        console.log('[Worker] Clickatron Brand Vault reference evidence added:', {
+          total: brandReferenceEvidence.length,
+          logos: brandReferenceEvidence.filter((item) => item.assetRole === 'logo').length,
+          products: brandReferenceEvidence.filter((item) => item.assetRole === 'product').length,
+        });
       }
       console.log('Worker: Total image URLs:', imageUrls.length);
 
@@ -442,8 +597,7 @@ async function handler(req: Request) {
       console.log('Worker: Starting image generation with params:', generationParams);
 
       // Get the model configuration from the variation
-      let selectedModelId = variation.modelId;
-      const modelConfig = CLICKATRON_MODELS[selectedModelId];
+      let selectedModelId = variation.modelId || job.modelId || '';
 
       // Validate URLs before passing to Fal AI (especially for inpainting)
       if (generationParams.image_url) {
@@ -484,46 +638,61 @@ async function handler(req: Request) {
         referenceImageCount = generationParams.image_urls.length;
       }
 
+
+      const hasParentImageForGeneration = Boolean(parentImageUrl);
+      const resolverReferenceImageCount = hasParentImageForGeneration
+        ? Math.max(0, referenceImageCount - 1)
+        : referenceImageCount;
+      const resolutionContext = hasParentImageForGeneration ? 'edit' : 'newVariation';
+      const resolvedModel = !maskUrl
+        ? resolveClickatronModelForGeneration({
+            requestedModelId: selectedModelId,
+            context: resolutionContext,
+            referenceImageCount: resolverReferenceImageCount,
+            hasParentImage: hasParentImageForGeneration,
+            aspectRatio: ratio,
+          })
+        : undefined;
+
+      if (resolvedModel && resolvedModel.modelId !== selectedModelId) {
+        console.warn('Worker: Model switched for generation compatibility:', {
+          requestedModelId: selectedModelId,
+          selectedModelId: resolvedModel.modelId,
+          aspectRatio: ratio,
+          referenceImageCount,
+          reason: resolvedModel.reason,
+        });
+        selectedModelId = resolvedModel.modelId;
+        variation.modelId = selectedModelId;
+      }
+
+      const modelConfig = CLICKATRON_MODELS[selectedModelId];
+
+      if (!modelConfig) {
+        console.error('Worker: Model configuration not found for modelId:', selectedModelId);
+        await failVariationInline(activeJobId, task, variation, job, {
+          code: 'MODEL_NOT_FOUND',
+          message: `Selected image model is unavailable (${selectedModelId}).`,
+        });
+        return NextResponse.json({ error: 'Model configuration not found' }, { status: 400 });
+      }
+
+      if (!modelSupportsAspectRatio(modelConfig, ratio)) {
+        console.error('Worker: Selected model does not support aspect ratio:', { modelId: selectedModelId, ratio });
+        throw new Error(`${modelConfig.name} does not support aspect ratio ${ratio}`);
+      }
+
       // Validate that the selected model supports the number of reference images
       const minImages = modelConfig.constraints?.minImages ?? 0;
       const maxImages = modelConfig.constraints?.maxImages ?? 0;
 
       if (referenceImageCount < minImages || referenceImageCount > maxImages) {
         console.error('Worker: Selected model does not support the number of reference images:', referenceImageCount);
-        await failJob(jobId, { code: 'INVALID_MODEL', message: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference images` });
-
-        // Ensure variation is updated with failed status
-        try {
-          variation.status = 'failed';
-          variation.updatedAt = new Date();
-
-          task.markModified('details');
-          await task.save();
-          console.log('Worker: Updated variation status to failed due to invalid model');
-        } catch (saveError) {
-          console.error('Worker: Failed to save variation status:', saveError);
-        }
-
+        await failVariationInline(activeJobId, task, variation, job, {
+          code: 'INVALID_MODEL',
+          message: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference image(s).`,
+        });
         return NextResponse.json({ error: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference images` }, { status: 400 });
-      }
-
-      if (!modelConfig) {
-        console.error('Worker: Model configuration not found for modelId:', selectedModelId);
-        await failJob(jobId, { code: 'MODEL_NOT_FOUND', message: `Model configuration not found for modelId: ${selectedModelId}` });
-
-        // Ensure variation is updated with failed status
-        try {
-          variation.status = 'failed';
-          variation.updatedAt = new Date();
-
-          task.markModified('details');
-          await task.save();
-          console.log('Worker: Updated variation status to failed due to missing model config');
-        } catch (saveError) {
-          console.error('Worker: Failed to save variation status:', saveError);
-        }
-
-        return NextResponse.json({ error: 'Model configuration not found' }, { status: 400 });
       }
 
       // Use the model ID directly (already includes 'fal-ai/' prefix)
@@ -647,6 +816,20 @@ async function handler(req: Request) {
         }
       }
 
+      const originalPromptLength = job.prompt.length;
+      const fittedPrompt = fitClickatronPromptToModelLimit(modelConfig.id, job.prompt);
+      if (fittedPrompt.length !== originalPromptLength) {
+        console.warn('Worker: Prompt compacted for selected model provider limit:', {
+          modelId: modelConfig.id,
+          originalPromptLength,
+          fittedPromptLength: fittedPrompt.length,
+        });
+        job.prompt = fittedPrompt;
+        generationParams.promptCompactedForModel = true;
+        generationParams.originalPromptLength = originalPromptLength;
+        generationParams.finalPromptLength = fittedPrompt.length;
+      }
+
       // Construct the payload dynamically based on the model configuration
       const payload = generateModelPayload(modelConfig.id, generationParams, job, ratio, width, height);
 
@@ -718,7 +901,11 @@ async function handler(req: Request) {
         thumbnailBytes: thumbnailBuffer.length,
       });
 
-      // Update variation with generated image
+      // Update variation with generated image. In-memory mutation is kept for the
+      // downstream reads in this handler (cost recording, CalOS callback), but
+      // persistence is ATOMIC on this one variation — never task.save(). Six carousel
+      // workers saving the whole doc concurrently was the lost-update race that wiped
+      // 5 of 6 completed slides (prod logs 2026-07-05). [R7]
       variation.status = 'completed';
       variation.imageRef = rawR2Url;
       variation.thumbnailRef = thumbnailR2Url;
@@ -730,11 +917,21 @@ async function handler(req: Request) {
       }
       variation.generationParams = generationParams;
 
+      const completionPersisted = await persistVariationFieldsAtomic(job.sessionId, variation.id, {
+        status: 'completed',
+        imageRef: rawR2Url,
+        thumbnailRef: thumbnailR2Url,
+        modelId: selectedModelId,
+        seed: modelSupportsSeed(selectedModelId) ? generationParams.seed : undefined,
+        generationParams,
+      });
+      if (!completionPersisted) {
+        // Variation vanished mid-run (e.g. deleted by the user). The image exists in R2
+        // and was paid for — do NOT throw into the failure/refund path; just log loud.
+        console.error('Worker: generated image could not be attached — variation missing at completion:', { sessionId: job.sessionId, variationId: variation.id, rawR2Url });
+      }
 
-      task.markModified('details');
-      await task.save();
-
-      await completeJob(jobId, rawR2Url);
+      await completeJob(activeJobId, rawR2Url);
       await recordClickatronFalProviderCost({
         job,
         variation,
@@ -744,7 +941,7 @@ async function handler(req: Request) {
       });
       falCostRecorded = true;
 
-      // CalOS completion callback (isolated — can never fail the Clickatron job): if this image was
+      // CalOS completion callback (isolated â€” can never fail the Clickatron job): if this image was
       // generated for a CalOS deliverable (ThinkForge handoff today, or a CalOS kickoff later), land
       // the finished image on the card and advance it drafting -> generated.
       const calosSuccessMeta = { ...asPromptMetadataRecord(task.metadata), ...asPromptMetadataRecord(job.metadata) };
@@ -759,7 +956,7 @@ async function handler(req: Request) {
             ownerUserId: job.userId,
             brandId: task.brandId,
             assetUrl: rawR2Url,
-            serviceRef: { service: 'clickatron', jobId, sessionId: job.sessionId, variationId: job.variationId },
+            serviceRef: { service: 'clickatron', jobId: activeJobId, sessionId: job.sessionId, variationId: job.variationId },
           });
         } catch (e) {
           // TODO(CALOS_LOUD): revert to warn once stable. Image generated but never lands on the card.
@@ -785,7 +982,10 @@ async function handler(req: Request) {
       let errorCode = 'GENERATION_FAILED';
 
       // Handle different error types with specific messages
-      if (generationError.status === 422) {
+      if (generationError.code === 'NEEDS_USER_INPUT') {
+        errorCode = 'NEEDS_USER_INPUT';
+        errorMessage = generationError.message || 'needs_user_input: Brand Vault evidence is required before generation.';
+      } else if (generationError.status === 422) {
         errorCode = 'INVALID_PARAMETERS';
 
         // Check for specific 422 error patterns
@@ -825,14 +1025,21 @@ async function handler(req: Request) {
         });
       }
 
-      // Ensure variation is updated with failed status
+      // Ensure variation is updated with failed status — atomically on this ONE
+      // variation (never task.save(): sibling carousel slides must not be clobbered).
+      // metadata is included because the NEEDS_USER_INPUT path writes
+      // variation.metadata.needsUserInput in-memory before throwing into this catch;
+      // the old whole-doc save persisted it implicitly, so carry it explicitly now. [R7]
       try {
         variation.status = 'failed';
         variation.error = errorMessage; // Save the specific error message
         variation.updatedAt = new Date();
-
-        task.markModified('details');
-        await task.save();
+        await persistVariationFieldsAtomic(job.sessionId, variation.id, {
+          status: 'failed',
+          error: errorMessage,
+          modelId: variation.modelId,
+          metadata: variation.metadata,
+        });
         console.log('Worker: Updated variation status to failed with message:', errorMessage);
       } catch (saveError) {
         console.error('Worker: Failed to save variation status:', saveError);
@@ -853,7 +1060,7 @@ async function handler(req: Request) {
             ownerUserId: job.userId,
             brandId: task.brandId,
             errorMessage,
-            serviceRef: { service: 'clickatron', jobId, sessionId: job.sessionId, variationId: job.variationId },
+            serviceRef: { service: 'clickatron', jobId: activeJobId, sessionId: job.sessionId, variationId: job.variationId },
           });
         } catch (e) {
           // TODO(CALOS_LOUD): revert to warn once stable.
@@ -861,7 +1068,7 @@ async function handler(req: Request) {
         }
       }
 
-      await failJob(jobId, {
+      await failJob(activeJobId, {
         code: errorCode,
         message: errorMessage,
         details: generationError
@@ -911,11 +1118,11 @@ async function handler(req: Request) {
           if (task && task.details.canvas) {
             const variation = task.details.canvas.variations.find((v: Variation) => v.id === job.variationId);
             if (variation) {
-              variation.status = 'failed';
-              variation.updatedAt = new Date();
-
-              task.markModified('details');
-              await task.save();
+              // Atomic per-variation write — never task.save() (sibling-slide clobber). [R7]
+              await persistVariationFieldsAtomic(job.sessionId, variation.id, {
+                status: 'failed',
+                error: error instanceof Error ? error.message : 'Unknown error occurred in worker',
+              });
               console.log('Worker: Updated variation status to failed in outer catch block');
             }
 
@@ -961,32 +1168,41 @@ export const POST = async (req: Request) => {
       console.error('Worker: Failed to parse request body for error reporting:', bodyError);
     }
 
-    // If we have a jobId, try to fail the job
+    // If we have a jobId, fail the job and mirror that terminal state to Mongo.
     if (jobId) {
       try {
+        const job = await getJob(jobId);
+        const shouldRefund = Boolean(job && !['completed', 'failed', 'canceled'].includes(job.status));
+
         await failJob(jobId, {
           code: 'SIGNATURE_VERIFICATION_FAILED',
           message: 'Failed to verify QStash signature. Check your UPSTASH_QSTASH keys.',
-          details: error
+          details: error,
         });
         console.log('Worker: Marked job as failed due to signature verification failure');
 
-        // Try to get job info for refund
-        try {
-          const job = await getJob(jobId);
-          if (job) {
-            try {
-              await CreditsService.refundCredits(job.userId, getClickatronVariationRefundAmount(job.modelId), 'QStash signature verification failed in worker', {
+        if (job && shouldRefund) {
+          await markVariationFailedForJob(
+            job,
+            'Generation worker signature verification failed before image generation could start.',
+          );
+
+          try {
+            await CreditsService.refundCredits(
+              job.userId,
+              getClickatronVariationRefundAmount(job.modelId),
+              'QStash signature verification failed in worker',
+              {
                 service: 'clickatron',
                 action: 'variation',
-              });
-              console.log('Refund processed successfully for user:', job.userId);
-            } catch (refundError) {
-              console.error('Failed to process refund for user:', job.userId, refundError);
-            }
+              },
+            );
+            console.log('Refund processed successfully for user:', job.userId);
+          } catch (refundError) {
+            console.error('Failed to process refund for user:', job.userId, refundError);
           }
-        } catch (jobError) {
-          console.error('Worker: Failed to get job info for refund:', jobError);
+        } else if (job) {
+          console.log('Worker: Signature failure saw already-terminal job, skipping duplicate refund:', jobId);
         }
       } catch (failError) {
         console.error('Worker: Failed to mark job as failed after signature verification:', failError);

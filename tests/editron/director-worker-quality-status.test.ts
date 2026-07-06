@@ -121,11 +121,24 @@ describe('director worker completion health', () => {
 
       expect(source).toContain("import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate'");
       expect(source).toContain('const learningDecision = resolveEditronLearningOutcome({');
+      expect(source).toContain('intelligence.renderedQualityEvidence');
+      expect(source).toContain('qualityEvidenceSource: renderedQualityEvidence?.qualityEvidenceSource');
+      expect(source).toContain('renderedAestheticFailFrameCount: renderedQualityEvidence?.renderedAestheticFailFrameCount');
       expect(source).toContain("autoEditStatus: learningDecision.shouldRecord ? 'complete' : 'needs_review'");
       expect(source).toContain('learningDecision.shouldRecord && learningDecision.qualityScore !== null');
+      expect(source).toContain('evidenceSource: renderedQualityEvidence?.qualityEvidenceSource');
       expect(source).not.toContain('if (criticalCount <= 5)');
       expect(source).not.toContain('?? 50');
     }
+  });
+
+  it('passes rendered quality evidence into the Director worker bandit write', () => {
+    const directorSource = readFileSync(join(process.cwd(), 'app/api/internal/workers/director/route.ts'), 'utf8');
+
+    expect(directorSource).toContain('intelligence.renderedQualityEvidence');
+    expect(directorSource).toContain('const renderedQualityEvidence = projectAfterDirector?.intelligence?.renderedQualityEvidence');
+    expect(directorSource).toContain('evidenceSource: renderedQualityEvidence?.qualityEvidenceSource');
+    expect(directorSource).toContain('renderedQualityEvidence?.renderedAestheticStatus ??');
   });
 
   it('propagates fatal Director errors after lock cleanup instead of returning fake completion', () => {

@@ -11,8 +11,8 @@
  */
 
 import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
-import { DEFAULT_TRANSITION_FRAMES, createTrueDissolve } from '@/lib/editron/data/transition-templates';
-import type { Overlay, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
+import { DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
+import type { Overlay, Keyframe, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult, type SFXLibrarySearchReport } from '@/lib/pipeline/sfx-library-service';
@@ -58,6 +58,7 @@ import {
   type AtomicOverlayReceipt,
 } from '@/lib/editron/engine/atomic-overlay-core';
 import type { OverlayCategory, OverlayDefinition, ScoringResult } from '@/lib/editron/engine/utility-types';
+import type { SignalCurves } from '@/lib/editron/motion-graphics/engine/primitive-renderers';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -178,6 +179,189 @@ export function findClipAtFrame(
 
 // ─── Types ───────────────────────────────────────────────────────
 
+
+type AudioBoundaryTransitionKind = 'j-cut' | 'l-cut';
+
+const AUDIO_BOUNDARY_FPS = 30;
+const MIN_AUDIO_BOUNDARY_OFFSET_FRAMES = 10;
+const MAX_AUDIO_BOUNDARY_OFFSET_FRAMES = 90;
+
+function resolveAudioBoundaryTransitionKind(decision: EditDecision): AudioBoundaryTransitionKind | null {
+  const params = decision.params ?? {};
+  const candidates = [
+    params.transitionType,
+    params.transitionCompatibilityHint,
+    params.transitionStyle,
+    params.creativeDecisionType,
+    params.transitionRelation,
+    params.transitionIntent,
+    params.type,
+    decision.type,
+  ]
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.toLowerCase().replace(/_/g, '-'));
+
+  if (candidates.some((value) => value.includes('j-cut') || value === 'audio-leads-picture')) return 'j-cut';
+  if (candidates.some((value) => value.includes('l-cut') || value === 'audio-trails-picture')) return 'l-cut';
+  return null;
+}
+
+function resolveAudioBoundaryOffsetFrames(decision: EditDecision): number {
+  const params = decision.params ?? {};
+  const offsetMs = readAudioBoundaryNumber(
+    params.offsetMs,
+    params.audioOffsetMs,
+    params.audioLeadMs,
+    params.audioTailMs,
+    params.incomingAudioLeadMs,
+    params.outgoingAudioTailMs,
+  ) ?? 500;
+  const offsetFrames = Math.round((offsetMs / 1000) * AUDIO_BOUNDARY_FPS);
+  return Math.max(MIN_AUDIO_BOUNDARY_OFFSET_FRAMES, Math.min(MAX_AUDIO_BOUNDARY_OFFSET_FRAMES, offsetFrames));
+}
+
+function readAudioBoundaryNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) return numeric;
+    }
+  }
+  return undefined;
+}
+
+function sourceStartFrameForClip(clip: Record<string, any>): number {
+  return readAudioBoundaryNumber(clip.sourceStartFrame, clip.videoStartTime) ?? 0;
+}
+
+function applyAudioBoundaryTransition(
+  kind: AudioBoundaryTransitionKind,
+  decision: EditDecision,
+  overlays: Overlay[],
+  boundaryMatch: ClipBoundaryMatch,
+  idEpoch: number,
+  decisionIndex: number,
+): { created: number; modified: number } | null {
+  const offsetFrames = resolveAudioBoundaryOffsetFrames(decision);
+  const targetClip = kind === 'j-cut' ? boundaryMatch.clipB as any : boundaryMatch.clipA as any;
+  const sourceUrl = targetClip.src || targetClip.content;
+  if (!sourceUrl) {
+    console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - target clip has no audio source URL`);
+    return null;
+  }
+  if (targetClip.hasNativeAudio !== true) {
+    console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - target clip has no native-audio evidence`);
+    return null;
+  }
+
+  const existing = overlays.find((overlay: any) =>
+    overlay.type === 'sound'
+    && overlay.metadata?.source === 'edl-native-audio-boundary'
+    && overlay.metadata?.audioBoundaryKind === kind
+    && overlay.metadata?.sourceClipId === targetClip.id
+  );
+  if (existing) {
+    console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - native-audio boundary already exists for clip ${targetClip.id}`);
+    return null;
+  }
+
+  const originalVolume = typeof targetClip.styles?.volume === 'number' ? targetClip.styles.volume : 1;
+  const sourceStart = sourceStartFrameForClip(targetClip);
+  const visualStart = targetClip.from;
+  const visualEnd = targetClip.from + targetClip.durationInFrames;
+  const audioStartFrame = kind === 'j-cut'
+    ? Math.max(0, visualStart - offsetFrames)
+    : visualStart;
+  const audioLeadFrames = visualStart - audioStartFrame;
+  const audioEndFrame = kind === 'l-cut'
+    ? visualEnd + offsetFrames
+    : visualEnd;
+  const sourceOffsetFrames = kind === 'j-cut'
+    ? Math.max(0, sourceStart - audioLeadFrames)
+    : sourceStart;
+  const durationFrames = Math.max(1, audioEndFrame - audioStartFrame);
+  const soundId = deterministicOverlayId(idEpoch, `native-audio-${kind}`, decision.frame, decisionIndex);
+  const atomicOverlayReceipt = buildOverlayAtomicReceipt({
+    family: 'sound',
+    intent: kind === 'j-cut' ? 'audio-leads-picture' : 'audio-trails-picture',
+    frame: boundaryMatch.boundaryFrame,
+    durationFrames,
+    source: decision.source,
+    reason: decision.reason,
+    signals: decisionSignals(decision),
+    target: {
+      overlayId: soundId,
+      clipAId: (boundaryMatch.clipA as any).id,
+      clipBId: (boundaryMatch.clipB as any).id,
+      sourceClipId: targetClip.id,
+      boundaryFrame: boundaryMatch.boundaryFrame,
+    },
+    payload: {
+      audioBoundaryKind: kind,
+      sourceClipId: targetClip.id,
+      sourceOffsetFrames,
+      offsetFrames,
+      audioStartFrame,
+      audioEndFrame,
+    },
+    atoms: [
+      overlayAtom('temporal-anchor', 'timeline.boundary_frame', boundaryMatch.boundaryFrame, 1, 'edl'),
+      overlayAtom('transition-relation', 'audio.boundary_kind', kind, decision.confidence, 'edl'),
+      overlayAtom('start-frame', 'audio.start_frame', audioStartFrame, 1, 'derived-signal'),
+      overlayAtom('end-frame', 'audio.end_frame', audioEndFrame, 1, 'derived-signal'),
+      overlayAtom('duration', 'audio.duration_frames', durationFrames, decision.confidence, 'derived-signal'),
+    ],
+  });
+
+  targetClip.styles = { ...(targetClip.styles ?? {}), volume: 0 };
+  targetClip.metadata = {
+    ...(targetClip.metadata ?? {}),
+    nativeAudioBoundaryMutedBy: kind,
+    nativeAudioBoundaryCloneId: soundId,
+  };
+
+  overlays.push({
+    id: soundId,
+    type: 'sound',
+    from: audioStartFrame,
+    durationInFrames: durationFrames,
+    startFromSound: sourceOffsetFrames,
+    audioStartFrame,
+    audioEndFrame,
+    row: ROW.VOICEOVER,
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    isDragging: false,
+    rotation: 0,
+    content: sourceUrl,
+    src: sourceUrl,
+    assetId: `native-audio-${targetClip.id}-${kind}`,
+    styles: { volume: originalVolume, opacity: 1 },
+    metadata: {
+      source: 'edl-native-audio-boundary',
+      audioBoundaryKind: kind,
+      sourceClipId: targetClip.id,
+      clipAId: (boundaryMatch.clipA as any).id,
+      clipBId: (boundaryMatch.clipB as any).id,
+      boundaryFrame: boundaryMatch.boundaryFrame,
+      sourceOffsetFrames,
+      offsetFrames,
+      ...atomicMomentBundleMetadata(decision),
+      atomicOverlayReceipt,
+      atomicOverlayReceipts: [atomicOverlayReceipt],
+      atomicOverlayForm: atomicOverlayReceipt.form,
+      atomicOverlayForms: [atomicOverlayReceipt.form],
+      atomicPlanObserveMode: true,
+    },
+  } as any);
+
+  console.log(`[EDL-Exec] ${kind} APPLIED: native audio clone for clip ${targetClip.id} at boundary ${boundaryMatch.boundaryFrame}`);
+  return { created: 1, modified: 1 };
+}
+
 export interface RejectedDecision {
   type: string;
   frame: number;
@@ -226,6 +410,7 @@ export interface ExecutionResult {
 interface EDLSignalContext {
   vjepaSegments?: Array<Record<string, unknown>>;
   wav2vecSegments?: Array<Record<string, unknown>>;
+  musicAnalysis?: Record<string, unknown>;
   vjepaScreenContextPolicy?: VjepaScreenContextPolicy;
 }
 
@@ -585,6 +770,7 @@ export async function executeEDL(
     projectSignalContext = {
       vjepaSegments: arrayOrUndefined(projectDoc?.vjepaAnalysis?.segments),
       wav2vecSegments: arrayOrUndefined(projectDoc?.wav2vecAnalysis?.segments),
+      musicAnalysis: recordValue(projectDoc?.musicAnalysis) ?? recordValue(projectDoc?.essentiaAnalysis) ?? undefined,
       vjepaScreenContextPolicy: projectDoc?.intelligence?.vjepaCoverageAudit
         ? resolveVjepaScreenContextPolicy(projectDoc.intelligence.vjepaCoverageAudit)
         : undefined,
@@ -805,7 +991,7 @@ export async function executeEDL(
     }
 
     try {
-      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache, usedGraphicTemplateIds, graphicsDensity);
+      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache, usedGraphicTemplateIds, graphicsDensity, projectSignalContext);
       if (applied) {
         appendDecisionExecutionTrace(result, buildDecisionExecutionTraceEntry(
           decision,
@@ -2042,6 +2228,171 @@ function buildMotionGraphicSignalSnapshot(decision: EditDecision): Record<string
   return normalizePlannerSignals(decisionSignals(decision));
 }
 
+function buildMotionGraphicSignalCurves(
+  decision: EditDecision,
+  overlays: Overlay[],
+  overlayFrom: number,
+  durationInFrames: number,
+  signals: Record<string, number | string>,
+  analyses?: Map<string, any>,
+  projectSignalContext: EDLSignalContext = {},
+): { curves: SignalCurves; summary: Record<string, unknown> } | undefined {
+  if (durationInFrames <= 0) return undefined;
+  const curves: SignalCurves = {};
+  const ensureCurve = (key: string): number[] => {
+    if (!curves[key]) curves[key] = new Array(durationInFrames).fill(0);
+    return curves[key];
+  };
+
+  for (const [key, value] of Object.entries(signals)) {
+    if (typeof value === 'number' && isFinite(value)) {
+      curves[key] = new Array(durationInFrames).fill(value);
+    }
+  }
+
+  let beatSamples = 0;
+  let onsetSamples = 0;
+  let musicEnergySamples = 0;
+  let wav2vecSamples = 0;
+  let vjepaSamples = 0;
+
+  for (let localFrame = 0; localFrame < durationInFrames; localFrame++) {
+    const timelineFrame = overlayFrom + localFrame;
+    const frameRef = resolveSourceFrame(timelineFrame, overlays);
+    const sourceMs = (frameRef.sourceFrame / DEFAULT_CONFIG.timing.fps) * 1000;
+    const analysis = analysisForAsset(analyses, frameRef.assetId);
+
+    const wav2vecSegments = arrayOrUndefined(analysis?.wav2vecAnalysis?.segments)
+      ?? arrayOrUndefined(analysis?.wav2vec?.segments)
+      ?? projectSignalContext.wav2vecSegments;
+    const wav2vec = findTimeSegment(wav2vecSegments, sourceMs);
+    if (wav2vec) {
+      const energy = readNumber(wav2vec, 'energy', 'speech_energy');
+      const emotion = readNumber(wav2vec, 'emotionIntensity', 'emotion_intensity');
+      if (energy != null) {
+        ensureCurve('energy')[localFrame] = clamp01(energy);
+        ensureCurve('speech_energy')[localFrame] = clamp01(energy);
+      }
+      if (emotion != null) ensureCurve('emotion_intensity')[localFrame] = clamp01(emotion);
+      wav2vecSamples++;
+    }
+
+    const vjepaSegments = arrayOrUndefined(analysis?.vjepaAnalysis?.segments)
+      ?? arrayOrUndefined(analysis?.vjepa?.segments)
+      ?? projectSignalContext.vjepaSegments;
+    const vjepa = findTimeSegment(vjepaSegments, sourceMs);
+    if (vjepa) {
+      const motion = readNumber(vjepa, 'motionIntensity', 'motion_intensity');
+      const significance = readNumber(vjepa, 'visualSignificance', 'visual_significance');
+      if (motion != null) ensureCurve('motion_intensity')[localFrame] = clamp01(motion);
+      if (significance != null) ensureCurve('visual_significance')[localFrame] = clamp01(significance);
+      vjepaSamples++;
+    }
+
+    const music = resolveMotionGraphicMusicAnalysis(analysis, projectSignalContext);
+    if (music) {
+      const energy = sampleMotionGraphicEnergyCurve(music['energyCurve'], sourceMs, readNumber(music, 'durationMs', 'duration_ms'));
+      if (energy != null) {
+        ensureCurve('music_energy')[localFrame] = clamp01(energy);
+        musicEnergySamples++;
+      }
+
+      const beat = nearestMotionGraphicBeat(music['beats'], sourceMs);
+      if (beat) {
+        ensureCurve('beat_level')[localFrame] = beat.level;
+        ensureCurve('music_beat')[localFrame] = beat.level >= 0.25 ? 1 : 0;
+        ensureCurve('onset')[localFrame] = beat.strength;
+        beatSamples++;
+        if (beat.strength > 0.5) onsetSamples++;
+      }
+    }
+  }
+
+  const curveKeys = Object.keys(curves).sort();
+  if (curveKeys.length === 0) return undefined;
+  return {
+    curves,
+    summary: {
+      version: 'mg-signal-curves-v1',
+      source: beatSamples || musicEnergySamples || wav2vecSamples || vjepaSamples
+        ? 'edl-timeline-analysis'
+        : 'edl-signal-snapshot',
+      durationInFrames,
+      curveKeys,
+      beatSamples,
+      onsetSamples,
+      musicEnergySamples,
+      wav2vecSamples,
+      vjepaSamples,
+      varyingCurves: curveKeys.filter((key) => curveHasVariation(curves[key])).slice(0, 20),
+      decisionFrame: decision.frame,
+      overlayFrom,
+    },
+  };
+}
+
+function resolveMotionGraphicMusicAnalysis(
+  analysis: any,
+  projectSignalContext: EDLSignalContext,
+): Record<string, unknown> | undefined {
+  return recordValue(analysis?.musicAnalysis)
+    ?? recordValue(analysis?.essentiaAnalysis)
+    ?? recordValue(analysis?.beatAnalysis)
+    ?? projectSignalContext.musicAnalysis;
+}
+
+function nearestMotionGraphicBeat(
+  beats: unknown,
+  sourceMs: number,
+): { level: number; strength: number } | undefined {
+  if (!Array.isArray(beats) || beats.length === 0) return undefined;
+  let best: { index: number; beat: Record<string, unknown>; distance: number } | undefined;
+  beats.forEach((entry, index) => {
+    const beat = recordValue(entry);
+    if (!beat) return;
+    const timestampMs = readNumber(beat, 'timestampMs', 'timeMs', 'timestamp_ms', 'time_ms');
+    if (timestampMs == null) return;
+    const distance = Math.abs(timestampMs - sourceMs);
+    if (!best || distance < best.distance) best = { index, beat, distance };
+  });
+  if (!best || best.distance > 50) return undefined;
+  const strength = clamp01(readNumber(best.beat, 'strength', 'magnitude') ?? 0.5);
+  const metricLevel = best.index % 4 === 0 ? 0.6 : 0.25;
+  return { level: clamp01(metricLevel * Math.max(0.35, strength)), strength };
+}
+
+function sampleMotionGraphicEnergyCurve(
+  energyCurve: unknown,
+  sourceMs: number,
+  durationMs: number | undefined,
+): number | undefined {
+  if (!Array.isArray(energyCurve) || energyCurve.length === 0) return undefined;
+  if (typeof energyCurve[0] === 'number') {
+    if (!durationMs || durationMs <= 0) return undefined;
+    const index = Math.max(0, Math.min(energyCurve.length - 1, Math.round((sourceMs / durationMs) * (energyCurve.length - 1))));
+    const value = energyCurve[index];
+    return typeof value === 'number' && isFinite(value) ? value : undefined;
+  }
+
+  let best: { value: number; distance: number } | undefined;
+  for (const entry of energyCurve) {
+    const point = recordValue(entry);
+    if (!point) continue;
+    const timestampMs = readNumber(point, 'timestampMs', 'timeMs', 'timestamp_ms', 'time_ms');
+    const energy = readNumber(point, 'energy', 'value');
+    if (timestampMs == null || energy == null) continue;
+    const distance = Math.abs(timestampMs - sourceMs);
+    if (!best || distance < best.distance) best = { value: energy, distance };
+  }
+  return best && best.distance <= 500 ? best.value : undefined;
+}
+
+function curveHasVariation(values: number[] | undefined): boolean {
+  if (!values || values.length < 2) return false;
+  const first = values[0];
+  return values.some((value) => Math.abs(value - first) > 0.0001);
+}
+
 function contentSalienceFromDecisionSignals(decision: EditDecision): number | undefined {
   const signals = buildMotionGraphicSignalSnapshot(decision);
   const candidates = [
@@ -2070,6 +2421,7 @@ async function applyDecision(
   sfxCache?: SfxAssetCache | null,
   graphicTemplateIds?: Set<string>,
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
+  projectSignalContext: EDLSignalContext = {},
 ): Promise<{ created: number; modified: number } | null> {
 
   switch (decision.type) {
@@ -2086,7 +2438,7 @@ async function applyDecision(
       return applyFade(decision, overlays);
 
     case 'graphic':
-      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, graphicTemplateIds, graphicsDensity);
+      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, graphicTemplateIds, graphicsDensity, analyses, projectSignalContext);
 
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);
@@ -2115,7 +2467,7 @@ async function applyDecision(
         params: { ...decision.params, text: emphasisWord, graphicType: 'atomic-graphic' },
         durationFrames: 60, // 2s pop
       };
-      return await applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex, undefined, graphicsDensity);
+      return await applyGraphic(emphasisDecision as any, overlays, projectId, userId, canvas, idEpoch, decisionIndex, undefined, graphicsDensity, analyses, projectSignalContext);
     }
     case 'sfx':
     case 'sfx-trigger': {
@@ -2449,6 +2801,7 @@ function applyTransition(
 ): { created: number; modified: number } | null {
   decision.params = decision.params || {};
   const requestedTransType = (decision.params.transitionType || decision.params.transitionCompatibilityHint || 'soft-cut') as string;
+  const audioBoundaryKind = resolveAudioBoundaryTransitionKind(decision);
   // Dissolve needs minimum duration to feel like a real crossfade, not a flash.
   // Intelligence layer often sets 15 frames (0.5s) → too fast. Clamp to 30+ (1s).
   const transitionForm = resolveAtomicTransitionForm({
@@ -2464,7 +2817,7 @@ function applyTransition(
   // hard-cut and editorial cuts don't produce visual transitions. Use the
   // resolved atomic form, not the upstream hint, so strong motion/beat atoms can
   // promote a default hard-cut into a motivated visual transition.
-  if (['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType)) {
+  if (!audioBoundaryKind && ['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType)) {
     return null;
   }
 
@@ -2483,6 +2836,10 @@ function applyTransition(
   const clipA = boundaryMatch.clipA;
   const clipB = boundaryMatch.clipB;
   const anchorFrame = boundaryMatch.boundaryFrame;
+
+  if (audioBoundaryKind) {
+    return applyAudioBoundaryTransition(audioBoundaryKind, decision, overlays, boundaryMatch, idEpoch, decisionIndex);
+  }
 
   // Check if a transition already exists for this clip pair. Clip-pair match
   // is the authoritative dedup key — a pair of clips has exactly one boundary,
@@ -2592,21 +2949,6 @@ function applyTransition(
   (transitionOverlay.metadata as any).atomicOverlayForms = [(transitionOverlay.metadata as any).atomicOverlayReceipt.form];
 
   overlays.push(transitionOverlay as any);
-
-  // For dissolve: apply keyframe-based opacity crossfade to the two clips.
-  // The Remotion renderer (transition-layer-content.tsx:78-90) already returns
-  // { opacity: 0 } for dissolve — the visual comes from clip opacity keyframes,
-  // not an HTML overlay. The transition tile exists for timeline visualization only.
-  if (transType === 'dissolve') {
-    const { outgoing, incoming } = createTrueDissolve(clipA, clipB, durationFrames);
-    // Apply keyframe tracks back to the live overlays
-    clipA.keyframeTracks = outgoing.keyframeTracks;
-    clipB.keyframeTracks = incoming.keyframeTracks;
-    clipB.from = incoming.from;
-    clipB.durationInFrames = incoming.durationInFrames;
-    console.log(`[EDL-Exec] True dissolve applied: clipA opacity fade-out over ${durationFrames} frames, clipB overlap + fade-in`);
-    return { created: 1, modified: 2 };
-  }
 
   // Clean up clip-overlap opacity keyframes that edit-direction-applier may
   // have placed on the adjacent clips at this boundary. Without this, both
@@ -2782,6 +3124,33 @@ function resolveZoomMemoryPolicy(
   return { allowed: true };
 }
 
+function decisionHasZoomEmphasisAnchor(decision: EditDecision): boolean {
+  const signals = decisionSignals(decision);
+  const params = decision.params ?? {};
+  const wordImportance = zoomEvidenceNumber(signals, 'word_importance', 'word.importance', 'speech.word_importance');
+  const emphasisStrength = zoomEvidenceNumber(signals, 'speech_emphasis', 'speech.emphasis_word', 'emphasis_strength', 'word_emphasis');
+  const speechEnergy = zoomEvidenceNumber(signals, 'speech_energy', 'speech.energy');
+  const anchorKind = String(params.anchorKind ?? params.anchorRole ?? params.syncSource ?? '').trim();
+  const targetWord = String(params.targetWord ?? params.emphasisWord ?? params.word ?? '').trim();
+  const targetWordHasSignalSupport = targetWord.length > 0
+    && Math.max(wordImportance, emphasisStrength, speechEnergy) >= 0.5;
+
+  return wordImportance >= 0.72
+    || emphasisStrength >= 0.72
+    || anchorKind === 'emphasis-word'
+    || anchorKind === 'speaker-emphasis'
+    || targetWordHasSignalSupport;
+}
+
+function zoomEvidenceNumber(source: Record<string, unknown>, ...keys: string[]): number {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.min(1, value));
+    if (typeof value === 'boolean') return value ? 1 : 0;
+  }
+  return 0;
+}
+
 function applyZoom(
   decision: EditDecision,
   overlays: Overlay[],
@@ -2851,10 +3220,11 @@ function applyZoom(
         const nearSignificantFrame = allSignificantFrames.some(
           (f: number) => Math.abs(f - localDecisionFrame) <= 10,
         );
-        if (!nearSignificantFrame && allSignificantFrames.length > 0) {
+        const hasEmphasisAnchor = decisionHasZoomEmphasisAnchor(decision);
+        if (!nearSignificantFrame && !hasEmphasisAnchor && allSignificantFrames.length > 0) {
           decision.params.zoomType = 'slow-push';
           decision.params.scaleTo = Math.min(decision.params.scaleTo || 1.1, 1.05);
-          console.log(`[EDL-Exec] Zoom at frame ${decision.frame} not near motion peak — downgraded to slow-push (analysis quality: ${quality})`);
+          console.log(`[EDL-Exec] Zoom at frame ${decision.frame} not near motion peak or emphasis anchor — downgraded to slow-push (analysis quality: ${quality})`);
         }
       } else {
         // Low/fallback quality — trust Gemini's anchor-based placement, don't validate against fake peaks
@@ -2957,7 +3327,29 @@ function applySpeedChange(
   const localFrame = decision.frame - videoOverlay.from;
   const duration = decision.durationFrames || 30;
   const clipDuration = videoOverlay.durationInFrames;
-  const { speedFrom = 1.0, speedTo = 0.5, speedBack = 1.0 } = decision.params;
+  const params = decision.params ?? {};
+  const speedFrom = numberParam(params, 'speedFrom') ?? 1.0;
+  const speedTo = numberParam(params, 'speedTo')
+    ?? numberParam(params, 'speedMultiplier')
+    ?? numberParam(params, 'speed');
+  const speedBack = numberParam(params, 'speedBack') ?? 1.0;
+  if (speedTo == null) {
+    console.warn(`[EDL-Exec] Speed-change at frame ${decision.frame}: SKIPPED - no explicit speedTo/speedMultiplier/speed parameter`);
+    return null;
+  }
+
+  const signals = decisionSignals(decision);
+  const speechEnergy = readNumber(signals, 'speech_energy', 'speech.energy', 'speech_energy_ema', 'speech.energy_ema') ?? 0;
+  const speechCoverage = readNumber(signals, 'speech_coverage', 'speech.coverage') ?? 0;
+  const silenceDurationMs = readNumber(signals, 'silence_duration_ms', 'speech.silence_duration_ms', 'speechGapMs', 'speech_gap_ms') ?? 0;
+  const montageMode = (readBoolean(signals, 'montage_mode', 'composite.montage_mode') ?? 0) >= 1;
+  const activeSpeech = !montageMode
+    && silenceDurationMs < 200
+    && (speechEnergy > 0.3 || speechCoverage > 0.45);
+  if (activeSpeech) {
+    console.warn(`[EDL-Exec] Speed-change at frame ${decision.frame}: SKIPPED - active speech detected (speechEnergy=${speechEnergy.toFixed(2)}, speechCoverage=${speechCoverage.toFixed(2)})`);
+    return null;
+  }
 
   // Phase A3.5.6 fix: build keyframes then validate them — clamp frames to clip bounds,
   // dedupe same-frame entries (last wins), enforce monotonic order. Previous version
@@ -3018,18 +3410,10 @@ function applyFade(
   const duration = decision.durationFrames || 20;
   const { fromOpacity = 1, toOpacity = 0 } = decision.params;
 
-  if (!overlay.keyframeTracks) overlay.keyframeTracks = [];
-  overlay.keyframeTracks = overlay.keyframeTracks.filter(
-    (t: KeyframeTrack) => t.property !== 'opacity',
-  );
-
-  overlay.keyframeTracks.push({
-    property: 'opacity',
-    keyframes: [
-      { frame: localFrame, value: fromOpacity, easing: 'ease-in-out' },
-      { frame: localFrame + duration, value: toOpacity, easing: 'linear' },
-    ],
-  });
+  mergeOpacityKeyframes(overlay, [
+    { frame: localFrame, value: fromOpacity, easing: 'ease-in-out' },
+    { frame: localFrame + duration, value: toOpacity, easing: 'linear' },
+  ]);
   appendAtomicOverlayReceipt(overlay as any, buildOverlayAtomicReceipt({
     family: 'fade',
     intent: 'opacity-fade',
@@ -3050,6 +3434,53 @@ function applyFade(
   return { created: 0, modified: 1 };
 }
 
+function mergeOpacityKeyframes(overlay: Overlay, fadeKeyframes: Keyframe[]): void {
+  if (!overlay.keyframeTracks) overlay.keyframeTracks = [];
+
+  const clipDuration = Math.max(1, Number(overlay.durationInFrames) || 1);
+  const sanitizedFadeKeyframes = sanitizeOpacityKeyframes(fadeKeyframes, clipDuration);
+  if (sanitizedFadeKeyframes.length < 2) return;
+
+  const fadeStart = sanitizedFadeKeyframes[0]!.frame;
+  const fadeEnd = sanitizedFadeKeyframes[sanitizedFadeKeyframes.length - 1]!.frame;
+  const preservedTracks: KeyframeTrack[] = [];
+  const preservedOpacityKeyframes: Keyframe[] = [];
+
+  for (const track of overlay.keyframeTracks) {
+    if (track.property !== 'opacity') {
+      preservedTracks.push(track);
+      continue;
+    }
+
+    for (const keyframe of track.keyframes ?? []) {
+      if (keyframe.frame < fadeStart || keyframe.frame > fadeEnd) {
+        preservedOpacityKeyframes.push(keyframe);
+      }
+    }
+  }
+
+  const byFrame = new Map<number, Keyframe>();
+  for (const keyframe of [...preservedOpacityKeyframes, ...sanitizedFadeKeyframes]) {
+    byFrame.set(keyframe.frame, keyframe);
+  }
+
+  overlay.keyframeTracks = [
+    ...preservedTracks,
+    {
+      property: 'opacity',
+      keyframes: Array.from(byFrame.values()).sort((a, b) => a.frame - b.frame),
+    },
+  ];
+}
+
+function sanitizeOpacityKeyframes(keyframes: Keyframe[], clipDuration: number): Keyframe[] {
+  const byFrame = new Map<number, Keyframe>();
+  for (const keyframe of keyframes) {
+    const frame = Math.max(0, Math.min(clipDuration - 1, Math.round(Number(keyframe.frame) || 0)));
+    byFrame.set(frame, { ...keyframe, frame });
+  }
+  return Array.from(byFrame.values()).sort((a, b) => a.frame - b.frame);
+}
 // ── Template-based graphic rendering helpers ──
 // Maps creative brief decision params to template slot values per graphic type.
 // Rule-based, deterministic, no AI. Each graphic type knows its slot schema.
@@ -3470,6 +3901,8 @@ async function applyGraphic(
   decisionIndex: number = 0,
   usedTemplateIds?: Set<string>,
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
+  analyses?: Map<string, any>,
+  projectSignalContext: EDLSignalContext = {},
 ): Promise<{ created: number; modified: number } | null> {
   const { position } = decision.params;
   const requestedPlacementAdjustment = readPlacementAdjustment(decision.params.placementAdjustment);
@@ -3710,6 +4143,16 @@ async function applyGraphic(
       ),
     );
 
+    const signalCurves = buildMotionGraphicSignalCurves(
+      decision,
+      overlays,
+      snappedFrame,
+      compositionDuration,
+      rawSignals,
+      analyses,
+      projectSignalContext,
+    );
+
     const motionOverlay = {
       id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
       type: 'motion-graphic' as const,
@@ -3724,6 +4167,7 @@ async function applyGraphic(
       rotation: 0,
       recipe,
       resolvedTokens: tokens,
+      ...(signalCurves ? { signalCurves: signalCurves.curves } : {}),
       contentSignals: rawSignals,
       content: contentMap,
       styles: { opacity: 1, backgroundColor: 'transparent' },
@@ -3738,6 +4182,7 @@ async function applyGraphic(
         atomicOverlayDecision,
         atomicPlanObserveMode: true,
         mgExpressionAuthority,
+        ...(signalCurves ? { signalCurves: signalCurves.summary } : {}),
         visualExplanationContract: mgExpressionAuthority.visualExplanationContract,
         semanticMgCandidateLedger: normalizedGraphicContent.semanticMgCandidateLedger,
         semanticMgCandidateSelection,

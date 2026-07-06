@@ -3,10 +3,29 @@ import { useMemo } from "react";
 import { SoundOverlay } from "../../../types";
 import { toAbsoluteUrl } from "../../../utils/url-helper";
 import { useAllOverlays } from "../../../contexts/rendering-context";
-import { createDuckingVolume, type DuckingConfig } from "../../../utils/audio-ducking";
+import { createDuckingVolume, createTailFadeVolume, type DuckingConfig } from "../../../utils/audio-ducking";
+import { getNativeAudioDuckRegions } from "@/lib/editron/services/native-audio-evidence";
 
 const CANONICAL_VOICEOVER_ROW = 3;
 const LEGACY_VOICEOVER_ROW = 4;
+
+type DuckSourceRange = { from: number; durationInFrames: number };
+type VolumeValue = number | ((frame: number) => number);
+
+function resolveFadeOutFrames(styles: SoundOverlay["styles"] | undefined, durationInFrames: number, fps: number): number | null {
+  const animation = (styles as { animation?: { exit?: string; duration?: number } } | undefined)?.animation;
+  if (animation?.exit !== 'fade') return null;
+
+  const durationSeconds = typeof animation.duration === 'number' && Number.isFinite(animation.duration) && animation.duration > 0
+    ? animation.duration
+    : 1;
+  return Math.max(1, Math.min(durationInFrames, Math.round(durationSeconds * fps)));
+}
+
+function applyTailFade(volume: VolumeValue, styles: SoundOverlay["styles"] | undefined, durationInFrames: number, fps: number): VolumeValue {
+  const fadeOutFrames = resolveFadeOutFrames(styles, durationInFrames, fps);
+  return fadeOutFrames ? createTailFadeVolume(volume, durationInFrames, fadeOutFrames) : volume;
+}
 
 interface SoundLayerContentProps {
   overlay: SoundOverlay;
@@ -45,20 +64,29 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
     //   2. Video overlays with hasNativeAudio:true (Seedance 1.5/2.0 embedded audio)
     //      These play audio from the <Video> element directly, not as sound overlays.
     //      Without including them, BGM plays at full volume alongside Seedance audio.
-    const voiceoverOverlays = allOverlays.filter((o) => {
-      if (o.id === overlay.id) return false;
+    const voiceoverOverlays: DuckSourceRange[] = allOverlays.flatMap<DuckSourceRange>((o) => {
+      if (o.id === overlay.id) return [];
 
       // Source 1: separate voiceover sound overlays
       if (o.type === 'sound') {
         const aid = (o as any).assetId || '';
-        if (aid.startsWith('voiceover_') || aid.startsWith('vo_')) return true;
-        if (o.row === CANONICAL_VOICEOVER_ROW || o.row === LEGACY_VOICEOVER_ROW) return true;
+        if (aid.startsWith('voiceover_') || aid.startsWith('vo_')) return [{ from: o.from, durationInFrames: o.durationInFrames }];
+        if (o.row === CANONICAL_VOICEOVER_ROW || o.row === LEGACY_VOICEOVER_ROW) return [{ from: o.from, durationInFrames: o.durationInFrames }];
       }
 
-      // Source 2: video overlays with native audio (Seedance)
-      if (o.type === 'video' && (o as any).hasNativeAudio) return true;
+      // Source 2: video overlays with native speech/audio.
+      // New upload-to-edit clips carry source-frame speech regions so BGM ducks
+      // only under the spoken parts even after silence removal splits the clip.
+      // Legacy generated clips with hasNativeAudio but no evidence keep the old
+      // full-clip behavior.
+      if (o.type === 'video') {
+        return getNativeAudioDuckRegions(o).map((region) => ({
+          ...region,
+          id: `${o.id}:native-audio:${region.from}`,
+        }));
+      }
 
-      return false;
+      return [];
     });
 
     if (voiceoverOverlays.length === 0) return undefined;
@@ -95,7 +123,7 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
         <Audio
           src={audioSrc}
           startFrom={audioSourceOffset}
-          volume={resolvedVolume}
+          volume={applyTailFade(resolvedVolume, overlay.styles, audioDuration, fps)}
         />
       </Sequence>
     );
@@ -105,7 +133,7 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
     <Audio
       src={audioSrc}
       startFrom={audioSourceOffset}
-      volume={resolvedVolume}
+      volume={applyTailFade(resolvedVolume, overlay.styles, overlay.durationInFrames, fps)}
     />
   );
 };

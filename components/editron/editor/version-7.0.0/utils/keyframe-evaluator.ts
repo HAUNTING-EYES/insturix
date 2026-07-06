@@ -21,6 +21,7 @@ const EASING_MAP: Record<string, EasingFunction> = {
   'ease-in': Easing.in(Easing.ease),
   'ease-out': Easing.out(Easing.ease),
   'ease-in-out': Easing.inOut(Easing.ease),
+  'snap-out': (t: number) => 1 - ((1 - t) ** 4),
 };
 
 function getEasing(name: string): EasingFunction {
@@ -145,37 +146,49 @@ export function computeSpeedSegments(
   }
 
   const sorted = [...speedCurve].sort((a, b) => a.frame - b.frame);
-  const segments: SpeedSegment[] = [];
-  let sourceOffset = 0;
+  const intervals: Array<{ startFrame: number; endFrame: number; requestedRate: number }> = [];
 
   // Lead-in coverage: a speed curve whose first keyframe is after frame 0 leaves the span
   // [0, firstFrame) with NO segment. video-layer-content maps each segment to a <Sequence>/
-  // <OffthreadVideo>, so an uncovered span mounts NO video and the clip renders BLACK there —
+  // <OffthreadVideo>, so an uncovered span mounts NO video and the clip renders BLACK there -
   // in BOTH the live preview and the Lambda render. (Observed: clip with curve starting at
-  // frame 119 went black for local 0–118.) Cover the lead-in at normal speed so the clip plays
+  // frame 119 went black for local 0-118.) Cover the lead-in at normal speed so the clip plays
   // its footage up to the ramp; rate 1.0 consumes source frames 1:1, keeping the ramp segments
   // below source-continuous.
   if (sorted[0].frame > 0) {
-    segments.push({
-      compositionStartFrame: 0,
-      compositionEndFrame: sorted[0].frame,
-      playbackRate: 1,
-      sourceStartFrame: 0,
+    intervals.push({
+      startFrame: 0,
+      endFrame: sorted[0].frame,
+      requestedRate: 1,
     });
-    sourceOffset = sorted[0].frame;
   }
 
   for (let i = 0; i < sorted.length; i++) {
     const startFrame = sorted[i].frame;
     const endFrame = i < sorted.length - 1 ? sorted[i + 1].frame : totalDurationFrames;
-    const rate = Math.max(0.1, Math.min(sorted[i].value, 4.0)); // Clamp 0.1-4.0
+    if (endFrame <= startFrame) continue;
 
-    const compDuration = endFrame - startFrame;
-    const sourceFramesConsumed = Math.round(compDuration * rate);
+    intervals.push({
+      startFrame,
+      endFrame,
+      requestedRate: Math.max(0.1, Math.min(sorted[i].value, 4.0)),
+    });
+  }
+
+  const segments: SpeedSegment[] = [];
+  let sourceOffset = 0;
+
+  for (let i = 0; i < intervals.length; i++) {
+    const interval = intervals[i];
+    const compDuration = interval.endFrame - interval.startFrame;
+    const remainingSourceFrames = Math.max(0, totalDurationFrames - sourceOffset);
+    const maxSourceSafeRate = compDuration > 0 ? remainingSourceFrames / compDuration : 0;
+    const rate = Math.min(interval.requestedRate, maxSourceSafeRate);
+    const sourceFramesConsumed = compDuration * rate;
 
     segments.push({
-      compositionStartFrame: startFrame,
-      compositionEndFrame: endFrame,
+      compositionStartFrame: interval.startFrame,
+      compositionEndFrame: interval.endFrame,
       playbackRate: rate,
       sourceStartFrame: sourceOffset,
     });

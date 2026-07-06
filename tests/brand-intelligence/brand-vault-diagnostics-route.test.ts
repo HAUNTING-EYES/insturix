@@ -4,11 +4,15 @@ import { GET } from '@/app/api/brand-vault/diagnostics/route';
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   resolveEffectiveBrandWithProfile: vi.fn(),
+  getLatestAcceptedRecord: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
 vi.mock('@/lib/shared/brand-effective-resolver', () => ({
   resolveEffectiveBrandWithProfile: mocks.resolveEffectiveBrandWithProfile,
+}));
+vi.mock('@/lib/shared/brand-vault-refinery-api', () => ({
+  getDefaultBrandVaultRefineryStore: () => ({ getLatestAcceptedRecord: mocks.getLatestAcceptedRecord }),
 }));
 
 function req(brandId?: string): Request {
@@ -20,6 +24,8 @@ describe('Brand Vault diagnostics route', () => {
   beforeEach(() => {
     mocks.auth.mockReset();
     mocks.resolveEffectiveBrandWithProfile.mockReset();
+    mocks.getLatestAcceptedRecord.mockReset();
+    mocks.getLatestAcceptedRecord.mockResolvedValue(null);
     mocks.auth.mockResolvedValue({ userId: 'user_diag', orgId: 'org_diag' });
     mocks.resolveEffectiveBrandWithProfile.mockResolvedValue({
       brand: { name: 'Diag Brand' },
@@ -35,9 +41,13 @@ describe('Brand Vault diagnostics route', () => {
     expect(mocks.resolveEffectiveBrandWithProfile).not.toHaveBeenCalled();
   });
 
-  it('400 when brandId is missing', async () => {
+  it('dumps the latest-accepted-record ground truth when brandId is missing (no service resolution)', async () => {
     const res = await GET(req());
-    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.mode).toBe('latest-accepted-record');
+    expect(body.record).toBeNull();
+    expect(mocks.getLatestAcceptedRecord).toHaveBeenCalledWith({ userId: 'user_diag', orgId: 'org_diag' });
     expect(mocks.resolveEffectiveBrandWithProfile).not.toHaveBeenCalled();
   });
 

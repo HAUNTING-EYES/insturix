@@ -2,6 +2,8 @@ import { Redis } from '@upstash/redis';
 import { countActiveRenders, createJob } from './render-job-service';
 import { renderMediaOnLambda } from '@remotion/lambda/client';
 import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from './remotion-constants';
+import { assertRemotionSiteFresh } from './remotion-site-version';
+import { buildLambdaRenderInputProps } from '@/lib/editron/shared/render-request-payload';
 
 // Maximum concurrent renders (based on AWS Lambda account limits)
 export const MAX_CONCURRENT_RENDERS = 3; // Conservative limit for 10 concurrent Lambdas
@@ -37,23 +39,27 @@ export async function enqueueRender(job: Omit<QueuedJob, 'queuedAt'>): Promise<{
   renderId?: string;
   bucketName?: string;
 }> {
+  const renderJob = {
+    ...job,
+    inputProps: buildLambdaRenderInputProps(job.inputProps || {}),
+  };
   const activeCount = await countActiveRenders();
-  
+
   // If under limit, start immediately
   if (activeCount < MAX_CONCURRENT_RENDERS) {
-    const result = await startRender(job);
+    const result = await startRender(renderJob);
     return { status: 'started', ...result };
   }
-  
+
   // Otherwise queue the job
   const queuedJob: QueuedJob = {
-    ...job,
+    ...renderJob,
     queuedAt: Date.now(),
   };
-  
+
   await getRedis().rpush(QUEUE_KEY, JSON.stringify(queuedJob));
   const position = await getRedis().llen(QUEUE_KEY);
-  
+
   return { status: 'queued', position };
 }
 
@@ -64,21 +70,22 @@ export async function processQueue(): Promise<{
   processed: boolean;
   renderId?: string;
 }> {
+
   const activeCount = await countActiveRenders();
-  
+
   if (activeCount >= MAX_CONCURRENT_RENDERS) {
     return { processed: false };
   }
-  
+
   // Pop the first job from queue
   const jobJson = await getRedis().lpop<string>(QUEUE_KEY);
   if (!jobJson) {
     return { processed: false };
   }
-  
+
   const job: QueuedJob = JSON.parse(jobJson);
   const result = await startRender(job);
-  
+
   return { processed: true, renderId: result.renderId };
 }
 
@@ -98,18 +105,21 @@ async function startRender(job: Omit<QueuedJob, 'queuedAt'>): Promise<{
 }> {
   const functionName = process.env.REMOTION_LAMBDA_FUNCTION_NAME!;
   const serveUrl = process.env.REMOTION_LAMBDA_SERVE_URL!;
+  assertRemotionSiteFresh({ serveUrl, env: process.env });
   const region = (process.env.REMOTION_AWS_REGION || 'us-east-1') as any;
-  
+
   // Set AWS credentials
   process.env.AWS_ACCESS_KEY_ID = process.env.REMOTION_AWS_ACCESS_KEY_ID;
   process.env.AWS_SECRET_ACCESS_KEY = process.env.REMOTION_AWS_SECRET_ACCESS_KEY;
-  
+
+  const lambdaInputProps = buildLambdaRenderInputProps(job.inputProps || {});
+
   const { bucketName, renderId } = await renderMediaOnLambda({
     region,
     functionName,
     serveUrl,
     composition: job.compositionId || REMOTION_COMPOSITION_ID,
-    inputProps: job.inputProps || {},
+    inputProps: lambdaInputProps,
     codec: 'h264',
     audioCodec: 'mp3', // Faster audio processing than AAC
     privacy: 'public',
@@ -117,9 +127,9 @@ async function startRender(job: Omit<QueuedJob, 'queuedAt'>): Promise<{
     framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,
     timeoutInMilliseconds: 240000,
   });
-  
+
   // Save to database
   await createJob(renderId, job.userId, job.projectId, bucketName);
-  
+
   return { renderId, bucketName };
 }

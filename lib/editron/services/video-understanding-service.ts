@@ -39,6 +39,35 @@ export interface VisualSetup {
   notableVisualElements: string[];
 }
 
+export type VisualPerceptionMode =
+  | 'talking-head'
+  | 'b-roll'
+  | 'screen-share'
+  | 'product-demo'
+  | 'chart'
+  | 'text-card'
+  | 'visual-dead-air'
+  | 'mixed'
+  | 'other'
+  | 'unknown';
+
+export interface VisualPerceptionWindow {
+  startSec: number;
+  endSec: number;
+  visualMode: VisualPerceptionMode;
+  subjects: string[];
+  actions: string[];
+  visibleStateChanges: string[];
+  ocrText: string[];
+  visuallyExplains: boolean;
+  visualExplainability: 'high' | 'medium' | 'low' | 'unknown';
+  screenClutter: number;
+  salience: number;
+  confidence: number;
+  negativeSpacePreference: 'top' | 'right' | 'bottom' | 'left' | 'none' | 'unknown';
+  issues: string[];
+}
+
 export interface SyntheticScene {
   sceneIndex: number;
   startSec: number;
@@ -76,6 +105,8 @@ export interface SyntheticStoryboard {
   };
   /** Visual setup from Stage 3 — holistic observations stable across edits */
   visualSetup?: VisualSetup;
+  /** Bounded semantic visual facts. Facts only; planners own cuts/overlays. */
+  visualPerceptionWindows?: VisualPerceptionWindow[];
   scenes: SyntheticScene[];
   analyzedAt: string;
   /** Gemini file URI from VU upload — reusable by 5-Track to skip redundant CDN download */
@@ -88,6 +119,7 @@ export interface SyntheticStoryboard {
  * Analyze a video and produce a SyntheticStoryboard.
  * Uses Gemini Vision to extract holistic visual context:
  * - Visual setup (environment, lighting, production quality, camera movement)
+ * - Bounded semantic visual perception windows (facts only, no edit commands)
  * - Global edit directions (color grade, pacing, graphics density)
  * - Content type + platform detection
  *
@@ -141,7 +173,7 @@ export async function analyzeVideo(
 
     const prompt = `<role>You are a professional video editor watching ${segmentContext ? 'edited' : 'raw'} footage for the first time.</role>
 
-<task>Understand the VISUAL SETUP of this ${Math.round(durationSec)}s footage — what kind of space, who's in it, how it's shot, what the production quality is. You are NOT breaking it into scenes. Scene boundaries come from the transcript, not from you.</task>
+<task>Understand the VISUAL SETUP of this ${Math.round(durationSec)}s footage - what kind of space, who's in it, how it's shot, what the production quality is. Also emit a SMALL set of semantic visual perception windows that describe what is visually happening in important spans. These are perception facts only; native deterministic planners decide cuts and overlays.</task>
 ${contextBlocks}
 <rules>
 RULE 1 — Watch the ENTIRE video before answering.
@@ -150,8 +182,11 @@ RULE 3 — availableShotTypes: list ALL distinct shot framings you observe (clos
 RULE 4 — visualComplexity: 0.0 = static talking head with plain background, 1.0 = fast-moving multi-subject scene with complex background.
 RULE 5 — hasBRoll: true ONLY if there are non-primary shots (cutaways, product shots, B-roll inserts). NOT if the speaker just moves.
 RULE 6 — contentType and platform: infer from visual style, subjects, aspect ratio, length.
-RULE 7 — Do NOT list scenes or timestamps. Do NOT transcribe speech. Just describe the visual setup.
-RULE 8 — Return ONLY the JSON object. No markdown, no explanation.
+RULE 7 - Do NOT decompose into edit scenes. visualPerceptionWindows are not scene cuts; they are bounded visual fact windows for later deterministic planners.
+RULE 8 - visualPerceptionWindows: max 12 windows, only for visually meaningful spans or visually weak spans. Use kept ranges when provided. Do NOT invent exact frame precision; use approximate seconds.
+RULE 9 - Do NOT choose cuts, overlays, transitions, captions, SFX, zooms, or MG forms. No edit instructions. Facts only.
+RULE 10 - Do NOT transcribe speech. OCR/on-screen text only goes in ocrText.
+RULE 11 - Return ONLY the JSON object. No markdown, no explanation.
 </rules>
 
 <output_format>
@@ -182,6 +217,24 @@ RULE 8 — Return ONLY the JSON object. No markdown, no explanation.
     "backgroundDescription": "what is behind the subject — one sentence",
     "notableVisualElements": ["props or objects that could be referenced in graphics"]
   },
+  "visualPerceptionWindows": [
+    {
+      "startSec": 0,
+      "endSec": 8.5,
+      "visualMode": "talking-head|b-roll|screen-share|product-demo|chart|text-card|visual-dead-air|mixed|other|unknown",
+      "subjects": ["visible people or objects"],
+      "actions": ["visible actions, not narration"],
+      "visibleStateChanges": ["screen changes, product states, object changes"],
+      "ocrText": ["visible on-screen text only"],
+      "visuallyExplains": true,
+      "visualExplainability": "high|medium|low|unknown",
+      "screenClutter": 0.3,
+      "salience": 0.7,
+      "confidence": 0.8,
+      "negativeSpacePreference": "top|right|bottom|left|none|unknown",
+      "issues": ["blurred", "repetitive", "low-motion", "overcrowded"]
+    }
+  ],
   "briefSummary": "2-3 sentence summary of what this video is about and who the speaker/subject is"
 }
 </output_format>`;
@@ -219,6 +272,7 @@ RULE 8 — Return ONLY the JSON object. No markdown, no explanation.
       backgroundDescription: vs.backgroundDescription || '',
       notableVisualElements: Array.isArray(vs.notableVisualElements) ? vs.notableVisualElements : [],
     };
+    const visualPerceptionWindows = sanitizeVisualPerceptionWindows(parsed.visualPerceptionWindows, durationSec);
 
     const storyboard: SyntheticStoryboard = {
       sourceVideoUrl: videoUrl,
@@ -234,6 +288,7 @@ RULE 8 — Return ONLY the JSON object. No markdown, no explanation.
         narrativeArc: parsed.globalEditDirections?.narrativeArc || 'three-act',
       },
       visualSetup,
+      visualPerceptionWindows,
       scenes: [],
       analyzedAt: new Date().toISOString(),
       geminiFileUri: fileUri || undefined,
@@ -250,6 +305,79 @@ RULE 8 — Return ONLY the JSON object. No markdown, no explanation.
   }
 }
 
+function sanitizeVisualPerceptionWindows(value: unknown, durationSec: number): VisualPerceptionWindow[] {
+  if (!Array.isArray(value)) return [];
+  const duration = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : Number.POSITIVE_INFINITY;
+  const windows: VisualPerceptionWindow[] = [];
+  for (const raw of value.slice(0, 12)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const record = raw as Record<string, unknown>;
+    const startSec = clampNumber(record.startSec, 0, duration);
+    const endSec = clampNumber(record.endSec, 0, duration);
+    if (endSec <= startSec) continue;
+    windows.push({
+      startSec,
+      endSec,
+      visualMode: normalizeVisualMode(record.visualMode),
+      subjects: sanitizeStringArray(record.subjects, 8),
+      actions: sanitizeStringArray(record.actions, 8),
+      visibleStateChanges: sanitizeStringArray(record.visibleStateChanges, 8),
+      ocrText: sanitizeStringArray(record.ocrText, 8),
+      visuallyExplains: record.visuallyExplains === true,
+      visualExplainability: normalizeExplainability(record.visualExplainability),
+      screenClutter: clampNumber(record.screenClutter, 0, 1),
+      salience: clampNumber(record.salience, 0, 1),
+      confidence: clampNumber(record.confidence, 0, 1),
+      negativeSpacePreference: normalizeNegativeSpace(record.negativeSpacePreference),
+      issues: sanitizeStringArray(record.issues, 8),
+    });
+  }
+  return windows.sort((a, b) => a.startSec - b.startSec);
+}
+
+function sanitizeStringArray(value: unknown, limit: number): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(item => typeof item === 'string' ? item.trim() : '')
+    .filter(Boolean)
+    .slice(0, limit)
+    .map(item => item.slice(0, 120));
+}
+
+function clampNumber(value: unknown, min: number, max: number): number {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric)) return min;
+  return Math.max(min, Math.min(max, numeric));
+}
+
+function normalizeVisualMode(value: unknown): VisualPerceptionMode {
+  const mode = typeof value === 'string' ? value : 'unknown';
+  if (
+    mode === 'talking-head'
+    || mode === 'b-roll'
+    || mode === 'screen-share'
+    || mode === 'product-demo'
+    || mode === 'chart'
+    || mode === 'text-card'
+    || mode === 'visual-dead-air'
+    || mode === 'mixed'
+    || mode === 'other'
+    || mode === 'unknown'
+  ) {
+    return mode;
+  }
+  return 'unknown';
+}
+
+function normalizeExplainability(value: unknown): VisualPerceptionWindow['visualExplainability'] {
+  return value === 'high' || value === 'medium' || value === 'low' ? value : 'unknown';
+}
+
+function normalizeNegativeSpace(value: unknown): VisualPerceptionWindow['negativeSpacePreference'] {
+  return value === 'top' || value === 'right' || value === 'bottom' || value === 'left' || value === 'none'
+    ? value
+    : 'unknown';
+}
 // ─── Gemini Files Upload ────────────────────────────────────────
 
 async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {

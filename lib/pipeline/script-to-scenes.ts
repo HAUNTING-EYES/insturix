@@ -67,9 +67,15 @@ const META_HEADER_KEYWORDS =
  * than an actual scene. Uses keyword matching (not exact match) so
  * titles like "Project Overview" or "Music & Audio Direction" are caught.
  */
+function isExplicitSceneHeader(title: string): boolean {
+  const cleaned = title.trim().replace(/^#+\s*/, '');
+  return /^(?:scene|shot|beat)\s+\d+\b/i.test(cleaned);
+}
+
 function isMetaHeader(title: string): boolean {
   const cleaned = title.trim().replace(/^#+\s*/, '');
   if (!cleaned) return false;
+  if (isExplicitSceneHeader(cleaned)) return false;
   return META_HEADER_KEYWORDS.test(cleaned);
 }
 

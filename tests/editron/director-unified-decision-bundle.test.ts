@@ -75,6 +75,10 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain("'intelligence.renderedQualityEvidence': snapshot.qualityEvidence");
     expect(source).toContain("'intelligence.phase0FixtureArtifact': buildLivePhase0FixtureArtifact(snapshot, artifactPack)");
     expect(source).toContain("materialization: 'planned-not-rendered'");
+    expect(source).toContain('buildPhase0RenderedEvidenceDispatchPersistSet');
+    expect(source).toContain('persistPhase0RenderedEvidenceDispatchState');
+    expect(source).toContain('requestedAt: renderedEvidenceRequestedAt');
+    expect(source).toContain('dispatch_error:');
   });
 
   it('labels fallback reactive authority as signal-primary instead of ambiguous', () => {

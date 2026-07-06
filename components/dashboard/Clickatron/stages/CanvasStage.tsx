@@ -10,6 +10,7 @@ import { NewVariationConsole } from "../canvas/NewVariationConsole";
 import { Input } from "@/components/ui/input";
 import { Grid, Sliders, X, Loader2, Square, Pencil } from "lucide-react";
 import useClickatronStore from "@/stores/useCanvasStore";
+import { getActiveBrandIdFromStorage } from "@/components/dashboard/ActiveBrand/ActiveBrandProvider";
 import { ImageDisplay } from "../canvas/ImageDisplay";
 import { SaveStatusIndicator } from "../canvas/SaveStatusIndicator";
 import { useDebounce } from "use-debounce";
@@ -39,7 +40,7 @@ interface CanvasStageProps {
 }
 
 // OLD: local fadeIn (y:20, 0.4s, 'easeOut')
-// NEW: shared SPREAD.fadeUp (y:20, 0.5s, expo.out — brand easing)
+// NEW: shared SPREAD.fadeUp (y:20, 0.5s, expo.out â€” brand easing)
 const fadeIn = SPREAD.fadeUp;
 
 // Helper function to get aspect ratio dimensions
@@ -233,6 +234,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     useState(activeVariationId);
   const [referenceImageCount, setReferenceImageCount] = useState<number>(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const pollingVariationIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!imageContainerRef.current) return;
@@ -321,36 +323,56 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     canvasRef.current = canvas;
   }, [canvas]);
 
-  // Check for generating variations on component mount and start polling
+  const markVariationPollingFailed = useCallback(
+    (variationId: string, error: unknown, logLabel: string) => {
+      if (error instanceof Error && error.message === "Polling aborted") return;
+      console.error(logLabel, error);
+      updateVariation(variationId, {
+        status: "failed",
+        error: error instanceof Error ? error.message : "Image generation failed",
+        updatedAt: new Date(),
+      });
+    },
+    [updateVariation],
+  );
+
+  // Poll every generating variation until the backend writes a terminal state.
   useEffect(() => {
-    if (task?._id && variations.length > 0) {
-      const generatingVariations = variations.filter(
-        (v) => v.status === "generating",
-      );
-      if (generatingVariations.length > 0) {
-        console.log(
-          "Found generating variations on mount, starting polling:",
-          generatingVariations.map((v) => v.id),
-        );
-        abortControllerRef.current = new AbortController();
-        generatingVariations.forEach((variation) => {
-          pollVariationCompletion(
-            task._id!,
-            variation.id,
-            loadSession,
-            () => useClickatronStore.getState().task,
-            undefined,
-            2000,
-            abortControllerRef.current!.signal,
-          ).catch((err) => {
-            if (err.message !== "Polling aborted") {
-              console.error("Polling error:", err);
-            }
-          });
-        });
-      }
+    if (!task?._id || variations.length === 0) return;
+
+    const generatingVariations = variations.filter((v) => v.status === "generating");
+    if (generatingVariations.length === 0) return;
+
+    console.log(
+      "Found generating variations, starting polling:",
+      generatingVariations.map((v) => v.id),
+    );
+
+    if (!abortControllerRef.current || abortControllerRef.current.signal.aborted) {
+      abortControllerRef.current = new AbortController();
     }
-  }, []); // Empty dependency array to run only once on mount
+
+    generatingVariations.forEach((variation) => {
+      if (pollingVariationIdsRef.current.has(variation.id)) return;
+      pollingVariationIdsRef.current.add(variation.id);
+
+      pollVariationCompletion(
+        task._id!,
+        variation.id,
+        loadSession,
+        () => useClickatronStore.getState().task,
+        undefined,
+        2000,
+        abortControllerRef.current!.signal,
+      )
+        .catch((err) => {
+          markVariationPollingFailed(variation.id, err, "Polling error:");
+        })
+        .finally(() => {
+          pollingVariationIdsRef.current.delete(variation.id);
+        });
+    });
+  }, [task?._id, variations, loadSession, markVariationPollingFailed]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -358,6 +380,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       if (abortControllerRef.current) {
         console.log("Aborting polling on unmount");
         abortControllerRef.current.abort();
+        pollingVariationIdsRef.current.clear();
       }
     };
   }, []);
@@ -391,7 +414,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       currentCanvasString !== lastSyncedCanvasRef.current;
 
     if (isDifferentFromLastSync) {
-      console.log("🚀 TRIGGERING AUTOSAVE - Canvas has changed!", {
+      console.log("ðŸš€ TRIGGERING AUTOSAVE - Canvas has changed!", {
         taskId: task._id,
         variationsCount: debouncedCanvas.variations?.length,
       });
@@ -475,7 +498,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         "fineTuning",
         JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }),
       );
-      formData.append("metadata", JSON.stringify({ aspectRatio: aspectRatio }));
+      const generationBrandId = task.brandId || getActiveBrandIdFromStorage();
+      const generationMetadata = {
+        aspectRatio,
+        ...(generationBrandId ? { sourceContext: { brandId: generationBrandId } } : {}),
+      };
+      formData.append("metadata", JSON.stringify(generationMetadata));
       formData.append("aspectRatio", aspectRatio);
 
       // If the active variation is blank, indicate that we want to update it
@@ -524,10 +552,15 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         setActiveVariationId(data.variation.id);
       }
 
+      const generatedVariationId = data.variationId || data.variation?.id;
+      if (!generatedVariationId) {
+        throw new Error("Clickatron generation did not return a variation ID");
+      }
+
       // Poll for completion
       await pollVariationCompletion(
         task._id,
-        data.variationId,
+        generatedVariationId,
         loadSession,
         () => useClickatronStore.getState().task,
         () => {
@@ -538,9 +571,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         2000,
         abortControllerRef.current?.signal,
       ).catch((err) => {
-        if (err.message !== "Polling aborted") {
-          console.error("Polling error in handleAIGenerate:", err);
-        }
+        markVariationPollingFailed(generatedVariationId, err, "Polling error in handleAIGenerate:");
       });
     } catch (error) {
       console.error("Error generating variation:", error);
@@ -653,7 +684,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         });
       } catch (pollError) {
         if (!(pollError instanceof Error) || pollError.message !== "Polling aborted") {
-          console.error("Polling error in handleSketchToEditSubmit:", pollError);
+          markVariationPollingFailed(data.variationId, pollError, "Polling error in handleSketchToEditSubmit:");
           
           // Clear all overlay images after failed generation
           imageOverlayManagerRef.current?.clearOverlays();
@@ -677,7 +708,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     } finally {
       setNewVariationCreating(false);
     }
-  }, [task?._id, activeVariation, loadSession, toast]);
+  }, [task?._id, activeVariation, loadSession, markVariationPollingFailed, toast]);
 
   const handleGenerativeFillToggle = useCallback(
     (mode?: "rectangle" | "lasso") => {
@@ -760,7 +791,10 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           () => window.dispatchEvent(new CustomEvent("clickatron-usage-updated")),
           2000,
           abortControllerRef.current?.signal,
-        );
+        ).catch((pollError) => {
+          markVariationPollingFailed(data.variationId, pollError, "Polling error in handleGenerativeFillGenerate:");
+          throw pollError;
+        });
 
         setLocalActiveVariation(data.variationId);
         setActiveVariationId(data.variationId);
@@ -782,6 +816,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       selectionBounds,
       selectionMaskDataUrl,
       loadSession,
+      markVariationPollingFailed,
       toast,
     ],
   );
@@ -1260,8 +1295,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           <div className="text-[10px] font-medium text-[#7A776E] tracking-widest uppercase mb-2">Tools</div>
           <div className="flex gap-1.5 flex-wrap">
             {([
-              { tool: "pencil" as const, label: "Pencil", icon: "✏️" },
-              { tool: "eraser" as const, label: "Eraser", icon: "◯" },
+              { tool: "pencil" as const, label: "Pencil", icon: "âœï¸" },
+              { tool: "eraser" as const, label: "Eraser", icon: "â—¯" },
             ] as const).map(({ tool, label, icon }) => (
               <button
                 key={tool}

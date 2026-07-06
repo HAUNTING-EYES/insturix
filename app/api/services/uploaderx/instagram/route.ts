@@ -4,19 +4,55 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { resolveUploaderXVideo } from "@/lib/uploaderx-storage";
+import { getCreditCost } from "@/lib/config/creditCosts";
+import { recordProviderCostEvent, type ProviderCostEventStatus } from "@/lib/financials/provider-cost-events";
 import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 
 export const maxDuration = 300;
 
+type InstagramCostOperation = "social_media_upload" | "social_publish";
+type InstagramCostPhase = "container_create" | "chunk_transfer" | "status_poll" | "publish";
+type InstagramUploadMethod = "direct" | "resumable";
+
+interface InstagramProviderCostContext {
+  operation: InstagramCostOperation;
+  phase: InstagramCostPhase;
+  videoUuid?: string;
+  providerJobId?: string;
+  containerId?: string;
+  mediaType?: string;
+  uploadMethod?: InstagramUploadMethod;
+  httpStatus?: number;
+  requestCount?: number;
+  pollAttempts?: number;
+  chunkIndex?: number;
+  chunkBytes?: number;
+}
+
+const UPLOADERX_INSTAGRAM_PROVIDER = "instagram-graph-api";
+const UPLOADERX_INSTAGRAM_MODEL = "instagram-graph-v21";
+const UPLOADERX_INSTAGRAM_ROUTE = "/api/services/uploaderx/instagram";
+const UPLOADERX_INSTAGRAM_PUBLISH_CREDITS = getCreditCost("uploaderx", "platform_publish", {
+  requestType: "instagram",
+});
+
 export async function POST(req: Request) {
+  let currentUserId: string | undefined;
+  let telemetryVideoUuid: string | undefined;
+  let attemptedProviderCost: InstagramProviderCostContext | undefined;
+  let pendingCompletedProviderCost: InstagramProviderCostContext | undefined;
+  let recordedPendingProviderCost = false;
+
   try {
     const session = await auth();
     if (!session.userId) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
+    currentUserId = session.userId;
 
     const body = await req.json();
     const { gcsPath, videoUuid, title, description, accountId: requestedAccountId, postType } = body;
+    telemetryVideoUuid = typeof videoUuid === "string" ? videoUuid : undefined;
 
     if (!gcsPath) {
       return NextResponse.json({ success: false, error: "Missing gcsPath" }, { status: 400 });
@@ -133,12 +169,28 @@ export async function POST(req: Request) {
       containerParams.set("caption", fullCaption || "Uploaded via UploaderX");
       containerParams.set("access_token", igUserAccessToken);
 
+      attemptedProviderCost = {
+        operation: "social_media_upload",
+        phase: "container_create",
+        videoUuid: telemetryVideoUuid,
+        mediaType,
+        uploadMethod: "resumable",
+      };
       const containerRes = await fetch(`${createContainerUrl}?${containerParams.toString()}`, {
         method: "POST",
       });
       const containerData = await containerRes.json();
 
       if (containerData.error) {
+        await recordUploaderXInstagramCost({
+          status: "failed",
+          userId: session.userId,
+          ...attemptedProviderCost,
+          requestCount: 1,
+          httpStatus: containerRes.status,
+          error: containerData.error,
+        });
+        attemptedProviderCost = undefined;
         return NextResponse.json(
           {
             success: false,
@@ -149,6 +201,16 @@ export async function POST(req: Request) {
       }
 
       containerId = containerData.id;
+      await recordUploaderXInstagramCost({
+        status: "success",
+        userId: session.userId,
+        ...attemptedProviderCost,
+        providerJobId: containerId,
+        containerId,
+        requestCount: 1,
+        httpStatus: containerRes.status,
+      });
+      attemptedProviderCost = undefined;
 
       // Now transfer the video in chunks using direct binary upload
       const fileSize = Number(videoAsset.size || 0);
@@ -165,7 +227,19 @@ export async function POST(req: Request) {
           },
         }).then(res => res.arrayBuffer());
 
+        const chunkPayload = Buffer.from(chunkBuffer);
         const ruploadUrl = `https://rupload.facebook.com/ig-api-upload/v21.0/${containerId}`;
+        attemptedProviderCost = {
+          operation: "social_media_upload",
+          phase: "chunk_transfer",
+          videoUuid: telemetryVideoUuid,
+          providerJobId: containerId,
+          containerId,
+          mediaType,
+          uploadMethod: "resumable",
+          chunkIndex,
+          chunkBytes: chunkPayload.byteLength,
+        };
         const transferRes = await fetch(ruploadUrl, {
           method: "POST",
           headers: {
@@ -174,11 +248,20 @@ export async function POST(req: Request) {
             "file_size": String(fileSize),
             "Content-Type": "application/octet-stream",
           },
-          body: Buffer.from(chunkBuffer),
+          body: chunkPayload,
         });
 
         if (!transferRes.ok) {
           const errorData = await transferRes.json().catch(() => ({}));
+          await recordUploaderXInstagramCost({
+            status: "failed",
+            userId: session.userId,
+            ...attemptedProviderCost,
+            requestCount: 1,
+            httpStatus: transferRes.status,
+            error: errorData.error,
+          });
+          attemptedProviderCost = undefined;
           return NextResponse.json(
             {
               success: false,
@@ -187,6 +270,15 @@ export async function POST(req: Request) {
             { status: 500 }
           );
         }
+
+        await recordUploaderXInstagramCost({
+          status: "success",
+          userId: session.userId,
+          ...attemptedProviderCost,
+          requestCount: 1,
+          httpStatus: transferRes.status,
+        });
+        attemptedProviderCost = undefined;
       }
 
       // Finalize by publishing
@@ -195,10 +287,28 @@ export async function POST(req: Request) {
       publishParams.set("creation_id", containerId);
       publishParams.set("access_token", igUserAccessToken);
 
+      attemptedProviderCost = {
+        operation: "social_publish",
+        phase: "publish",
+        videoUuid: telemetryVideoUuid,
+        providerJobId: containerId,
+        containerId,
+        mediaType,
+        uploadMethod: "resumable",
+      };
       const publishRes = await fetch(`${publishUrl}?${publishParams.toString()}`, { method: "POST" });
       const publishData = await publishRes.json();
 
       if (publishData.error) {
+        await recordUploaderXInstagramCost({
+          status: "failed",
+          userId: session.userId,
+          ...attemptedProviderCost,
+          requestCount: 1,
+          httpStatus: publishRes.status,
+          error: publishData.error,
+        });
+        attemptedProviderCost = undefined;
         return NextResponse.json(
           {
             success: false,
@@ -209,6 +319,13 @@ export async function POST(req: Request) {
       }
 
       const mediaId = publishData.id;
+      const publishProviderCost: InstagramProviderCostContext = {
+        ...attemptedProviderCost,
+        providerJobId: mediaId,
+        httpStatus: publishRes.status,
+      };
+      attemptedProviderCost = undefined;
+      pendingCompletedProviderCost = publishProviderCost;
       const instagramUrl = `https://www.instagram.com/p/${mediaId}`;
 
       if (videoUuid) {
@@ -238,7 +355,16 @@ export async function POST(req: Request) {
         );
       }
 
-      await deductPublishCredits(publishCreditCheck);
+      const deductResult = await deductPublishCredits(publishCreditCheck);
+      await recordUploaderXInstagramCost({
+        status: "success",
+        userId: session.userId,
+        ...publishProviderCost,
+        chargedCredits: deductResult.transactionId ? UPLOADERX_INSTAGRAM_PUBLISH_CREDITS : undefined,
+        creditTransactionId: deductResult.transactionId,
+        requestCount: 1,
+      });
+      recordedPendingProviderCost = true;
 
       return NextResponse.json({
         success: true,
@@ -260,12 +386,28 @@ export async function POST(req: Request) {
     containerParams.set("caption", fullCaption || "Uploaded via UploaderX");
     containerParams.set("access_token", igUserAccessToken);
 
+    attemptedProviderCost = {
+      operation: "social_media_upload",
+      phase: "container_create",
+      videoUuid: telemetryVideoUuid,
+      mediaType,
+      uploadMethod: "direct",
+    };
     const containerRes = await fetch(`${createContainerUrl}?${containerParams.toString()}`, {
       method: "POST",
     });
     const containerData = await containerRes.json();
 
     if (containerData.error) {
+      await recordUploaderXInstagramCost({
+        status: "failed",
+        userId: session.userId,
+        ...attemptedProviderCost,
+        requestCount: 1,
+        httpStatus: containerRes.status,
+        error: containerData.error,
+      });
+      attemptedProviderCost = undefined;
       return NextResponse.json(
         {
           success: false,
@@ -276,10 +418,21 @@ export async function POST(req: Request) {
     }
 
     containerId = containerData.id;
+    await recordUploaderXInstagramCost({
+      status: "success",
+      userId: session.userId,
+      ...attemptedProviderCost,
+      providerJobId: containerId,
+      containerId,
+      requestCount: 1,
+      httpStatus: containerRes.status,
+    });
+    attemptedProviderCost = undefined;
 
     if (isVideo) {
       let containerStatus = "IN_PROGRESS";
       let attempts = 0;
+      let lastStatusHttpStatus: number | undefined;
       const maxAttempts = 60;
 
       while (containerStatus === "IN_PROGRESS" && attempts < maxAttempts) {
@@ -288,6 +441,7 @@ export async function POST(req: Request) {
 
         const statusUrl = `https://graph.instagram.com/v21.0/${containerId}?fields=status_code&access_token=${igUserAccessToken}`;
         const statusRes = await fetch(statusUrl);
+        lastStatusHttpStatus = statusRes.status;
         const statusData = await statusRes.json();
         if (process.env.UPLOADERX_DEBUG_LOGS === "true") {
           console.log("[IG] Poll status:", {
@@ -299,6 +453,21 @@ export async function POST(req: Request) {
         containerStatus = statusData.status_code;
 
         if (containerStatus === "ERROR") {
+          await recordUploaderXInstagramCost({
+            status: "failed",
+            userId: session.userId,
+            operation: "social_media_upload",
+            phase: "status_poll",
+            videoUuid: telemetryVideoUuid,
+            providerJobId: containerId,
+            containerId,
+            mediaType,
+            uploadMethod: "direct",
+            requestCount: attempts,
+            pollAttempts: attempts,
+            httpStatus: lastStatusHttpStatus,
+            error: statusData.error,
+          });
           return NextResponse.json(
             {
               success: false,
@@ -310,11 +479,41 @@ export async function POST(req: Request) {
       }
 
       if (containerStatus !== "FINISHED") {
+        await recordUploaderXInstagramCost({
+          status: "failed",
+          userId: session.userId,
+          operation: "social_media_upload",
+          phase: "status_poll",
+          videoUuid: telemetryVideoUuid,
+          providerJobId: containerId,
+          containerId,
+          mediaType,
+          uploadMethod: "direct",
+          requestCount: attempts,
+          pollAttempts: attempts,
+          httpStatus: lastStatusHttpStatus,
+          error: new Error("Instagram processing timed out"),
+        });
         return NextResponse.json(
           { success: false, error: "Instagram Reel processing timed out. Please try again later." },
           { status: 500 }
         );
       }
+
+      await recordUploaderXInstagramCost({
+        status: "success",
+        userId: session.userId,
+        operation: "social_media_upload",
+        phase: "status_poll",
+        videoUuid: telemetryVideoUuid,
+        providerJobId: containerId,
+        containerId,
+        mediaType,
+        uploadMethod: "direct",
+        requestCount: attempts,
+        pollAttempts: attempts,
+        httpStatus: lastStatusHttpStatus,
+      });
     }
 
     const publishUrl = `https://graph.instagram.com/v21.0/me/media_publish`;
@@ -322,10 +521,28 @@ export async function POST(req: Request) {
     publishParams.set("creation_id", containerId);
     publishParams.set("access_token", igUserAccessToken);
 
+    attemptedProviderCost = {
+      operation: "social_publish",
+      phase: "publish",
+      videoUuid: telemetryVideoUuid,
+      providerJobId: containerId,
+      containerId,
+      mediaType,
+      uploadMethod: "direct",
+    };
     const publishRes = await fetch(`${publishUrl}?${publishParams.toString()}`, { method: "POST" });
     const publishData = await publishRes.json();
 
     if (publishData.error) {
+      await recordUploaderXInstagramCost({
+        status: "failed",
+        userId: session.userId,
+        ...attemptedProviderCost,
+        requestCount: 1,
+        httpStatus: publishRes.status,
+        error: publishData.error,
+      });
+      attemptedProviderCost = undefined;
       return NextResponse.json(
         {
           success: false,
@@ -336,6 +553,13 @@ export async function POST(req: Request) {
     }
 
     const mediaId = publishData.id;
+    const publishProviderCost: InstagramProviderCostContext = {
+      ...attemptedProviderCost,
+      providerJobId: mediaId,
+      httpStatus: publishRes.status,
+    };
+    attemptedProviderCost = undefined;
+    pendingCompletedProviderCost = publishProviderCost;
     const instagramUrl = `https://www.instagram.com/p/${mediaId}`;
 
     if (videoUuid) {
@@ -365,7 +589,16 @@ export async function POST(req: Request) {
       );
     }
 
-    await deductPublishCredits(publishCreditCheck);
+    const deductResult = await deductPublishCredits(publishCreditCheck);
+    await recordUploaderXInstagramCost({
+      status: "success",
+      userId: session.userId,
+      ...publishProviderCost,
+      chargedCredits: deductResult.transactionId ? UPLOADERX_INSTAGRAM_PUBLISH_CREDITS : undefined,
+      creditTransactionId: deductResult.transactionId,
+      requestCount: 1,
+    });
+    recordedPendingProviderCost = true;
 
     return NextResponse.json({
       success: true,
@@ -376,6 +609,23 @@ export async function POST(req: Request) {
       postType: postType || "reel",
     });
   } catch (error: any) {
+    if (currentUserId && pendingCompletedProviderCost && !recordedPendingProviderCost) {
+      await recordUploaderXInstagramCost({
+        status: "success",
+        userId: currentUserId,
+        ...pendingCompletedProviderCost,
+        requestCount: 1,
+      });
+    } else if (currentUserId && attemptedProviderCost) {
+      await recordUploaderXInstagramCost({
+        status: "failed",
+        userId: currentUserId,
+        ...attemptedProviderCost,
+        requestCount: attemptedProviderCost.requestCount ?? 1,
+        error,
+      });
+    }
+
     console.error("Instagram operation failed:", error);
     return NextResponse.json(
       { success: false, error: error.message || "Instagram publish failed" },
@@ -384,10 +634,67 @@ export async function POST(req: Request) {
   }
 }
 
-async function deductPublishCredits(creditCheck: CreditCheckResult) {
+async function deductPublishCredits(creditCheck: CreditCheckResult): Promise<{ transactionId?: string }> {
   try {
-    await creditCheck.deduct();
+    return await creditCheck.deduct();
   } catch (error) {
     console.error("[UploaderX:Instagram] publish credit deduction failed:", error);
+    return {};
   }
+}
+
+async function recordUploaderXInstagramCost(input: {
+  status: ProviderCostEventStatus;
+  operation: InstagramCostOperation;
+  phase: InstagramCostPhase;
+  userId: string;
+  videoUuid?: string;
+  providerJobId?: string;
+  containerId?: string;
+  chargedCredits?: number;
+  creditTransactionId?: string;
+  requestCount?: number;
+  mediaType?: string;
+  uploadMethod?: InstagramUploadMethod;
+  httpStatus?: number;
+  pollAttempts?: number;
+  chunkIndex?: number;
+  chunkBytes?: number;
+  error?: unknown;
+}) {
+  await recordProviderCostEvent({
+    idempotencyKey:
+      input.status === "success" && input.creditTransactionId
+        ? `uploaderx:instagram:${input.phase}:${input.creditTransactionId}`
+        : undefined,
+    status: input.status,
+    userId: input.userId,
+    assetId: input.videoUuid,
+    taskId: input.videoUuid,
+    creditTransactionId: input.creditTransactionId,
+    service: "uploaderx",
+    action: "platform_publish",
+    route: UPLOADERX_INSTAGRAM_ROUTE,
+    provider: UPLOADERX_INSTAGRAM_PROVIDER,
+    model: UPLOADERX_INSTAGRAM_MODEL,
+    operation: input.operation,
+    chargedCredits: input.chargedCredits,
+    providerJobId: input.providerJobId,
+    units: {
+      requestCount: input.requestCount ?? 1,
+      bytesIn: input.chunkBytes,
+    },
+    metadata: {
+      platform: "instagram",
+      phase: input.phase,
+      mediaType: input.mediaType,
+      uploadMethod: input.uploadMethod,
+      hasProviderContainerId: Boolean(input.containerId),
+      hasProviderMediaId: input.phase === "publish" && Boolean(input.providerJobId),
+      httpStatus: input.httpStatus,
+      pollAttempts: input.pollAttempts,
+      chunkIndex: input.chunkIndex,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
 }

@@ -8,6 +8,7 @@
 import { fal } from '@fal-ai/client';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { nanoid } from 'nanoid';
+import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
 
 // Configure fal.ai on every call — env vars may change between deployments
 function ensureFalConfig() {
@@ -24,6 +25,36 @@ interface BGMResult {
   buffer?: Buffer;
 }
 
+async function recordPipelineBGMProviderCost(input: {
+  status: ProviderCostEventStatus;
+  userId: string;
+  model: string;
+  durationSec: number;
+  bytesOut?: number;
+  functionMs?: number;
+  error?: unknown;
+}): Promise<void> {
+  await recordProviderCostEvent({
+    eventId: `pce_pipeline_bgm_${input.userId}_${nanoid(10)}_${input.status}`,
+    status: input.status,
+    userId: input.userId,
+    service: 'pipeline',
+    action: 'bgm_generation',
+    provider: 'fal-ai',
+    model: input.model,
+    operation: 'music_generation',
+    units: {
+      mediaSeconds: input.durationSec,
+      bytesOut: input.bytesOut,
+      requestCount: 1,
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      requestedDurationSeconds: input.durationSec,
+      errorClass: input.error instanceof Error ? input.error.name : undefined,
+    },
+  });
+}
 /**
  * Generate background music for the entire video.
  *
@@ -38,20 +69,22 @@ export async function generateBackgroundMusic(
   userId: string,
   durationSec: number,
 ): Promise<BGMResult> {
+  const model = 'cassetteai/music-generator';
+  const costStartMs = Date.now();
   ensureFalConfig();
 
   const assetId = `bgm_${nanoid(12)}`;
 
   // Prompt already built by buildMusicPrompt w/ structure+key+tempo tags.
-  // 500 chars to accommodate song structure arc (was 300 → truncated structure).
+  // 500 chars to accommodate song structure arc (was 300 -> truncated structure).
   const musicPrompt = prompt.substring(0, 500);
 
-  console.log(`[BGM] Generating with MiniMax Music v2: prompt="${musicPrompt.substring(0, 100)}", targetDuration=${durationSec}s`);
+  console.log(`[BGM] Generating with CassetteAI: promptChars=${musicPrompt.length}, targetDuration=${durationSec}s`);
 
   let result: any;
-  // Primary: CassetteAI — simple prompt+duration, no lyrics needed, $0.02/min
+  // Primary: CassetteAI - simple prompt+duration, no lyrics needed, $0.02/min
   try {
-    result = await fal.subscribe('cassetteai/music-generator', {
+    result = await fal.subscribe(model, {
       input: {
         prompt: musicPrompt,
         duration: Math.round(Math.min(Math.max(durationSec, 10), 180)), // CassetteAI: integer 10-180s
@@ -64,44 +97,72 @@ export async function generateBackgroundMusic(
     });
   } catch (err: any) {
     console.error(`[BGM] CassetteAI failed: ${err.message}`);
+    await recordPipelineBGMProviderCost({
+      status: 'failed',
+      userId,
+      model,
+      durationSec,
+      functionMs: Date.now() - costStartMs,
+      error: err,
+    });
     throw new Error(`BGM generation failed: ${err.message}`);
   }
 
-  // Extract audio URL — handle multiple response formats
-  const data = (result as any).data || result;
-  console.log('[BGM] Response keys:', Object.keys(data || {}));
+  try {
+    // Extract audio URL - handle multiple response formats
+    const data = (result as any).data || result;
+    console.log('[BGM] Response keys:', Object.keys(data || {}));
 
-  const audioUrl =
-    data?.audio?.url              // standard format
-    || data?.audio_file?.url      // legacy
-    || data?.audio?.[0]?.url      // array format
-    || data?.output?.url          // generic
-    || data?.url                  // direct
-    || data?.audio_url;           // minimax format
+    const audioUrl =
+      data?.audio?.url              // standard format
+      || data?.audio_file?.url      // legacy
+      || data?.audio?.[0]?.url      // array format
+      || data?.output?.url          // generic
+      || data?.url                  // direct
+      || data?.audio_url;           // minimax format
 
-  if (!audioUrl) {
-    throw new Error('BGM generation returned no audio URL. Response: ' + JSON.stringify(data).substring(0, 500));
+    if (!audioUrl) {
+      throw new Error('BGM generation returned no audio URL. Response: ' + JSON.stringify(data).substring(0, 500));
+    }
+
+    console.log('[BGM] Got audio URL, downloading...');
+
+    // Download and upload to GCS
+    const response = await fetch(audioUrl);
+    if (!response.ok) throw new Error(`Failed to download generated music (${response.status})`);
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    const filename = `${assetId}.mp3`;
+    const uploadResult = await uploadMedia(buffer, userId, filename, 'audio/mpeg', { customAssetId: assetId });
+
+    console.log(`[BGM] Uploaded: ${uploadResult.assetId} (${buffer.length} bytes)`);
+    await recordPipelineBGMProviderCost({
+      status: 'success',
+      userId,
+      model,
+      durationSec,
+      bytesOut: buffer.length,
+      functionMs: Date.now() - costStartMs,
+    });
+
+    return {
+      audioUrl: uploadResult.signedUrl,
+      gcsPath: uploadResult.gcsPath!,
+      audioAssetId: uploadResult.assetId,
+      durationMs: durationSec * 1000, // Approximate - actual may differ
+      buffer,
+    };
+  } catch (err) {
+    await recordPipelineBGMProviderCost({
+      status: 'failed',
+      userId,
+      model,
+      durationSec,
+      functionMs: Date.now() - costStartMs,
+      error: err,
+    });
+    throw err;
   }
-
-  console.log(`[BGM] Got audio URL, downloading...`);
-
-  // Download and upload to GCS
-  const response = await fetch(audioUrl);
-  if (!response.ok) throw new Error(`Failed to download generated music (${response.status})`);
-  const buffer = Buffer.from(await response.arrayBuffer());
-
-  const filename = `${assetId}.mp3`;
-  const uploadResult = await uploadMedia(buffer, userId, filename, 'audio/mpeg', { customAssetId: assetId });
-
-  console.log(`[BGM] Uploaded: ${uploadResult.assetId} (${buffer.length} bytes)`);
-
-  return {
-    audioUrl: uploadResult.signedUrl,
-    gcsPath: uploadResult.gcsPath!,
-    audioAssetId: uploadResult.assetId,
-    durationMs: durationSec * 1000, // Approximate — actual may differ
-    buffer,
-  };
 }
 
 /**

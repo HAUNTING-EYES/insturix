@@ -3,6 +3,7 @@ import { normalizeWhitespace } from "../utils/text";
 import { suggestInsertionPoint, type PlacementProposal, type BlockNode } from "../block-graph";
 import { buildIntentClassifierPrompt } from "../prompts/intentClassifierPrompt";
 import { createModelByTier, ModelTier } from "../agents/model-factory";
+import { readAiSdkUsage, recordThinkForgeDirectCost } from "../services/provider-cost-telemetry";
 
 export type Intent = "chat" | "draft" | "edit" | "hybrid" | "research";
 export type IntentScope = "selection" | "section" | "document";
@@ -288,20 +289,23 @@ async function classifyIntentFallback(
   }
 
   const model = createModelByTier(ModelTier.Structural);
+  const modelName = "gemini-2.5-flash";
   const promptText = buildIntentClassifierPrompt({
     message: prompt,
     hasScript,
     hasSelection,
     context,
   });
+  const startedAt = Date.now();
 
   try {
-    const { text } = await generateText({
+    const aiResult = await generateText({
       model,
       prompt: promptText,
       maxOutputTokens: 120,
       temperature: 0,
     });
+    const { text } = aiResult;
     const raw = text.trim();
     let parsed: { intent?: string; confidence?: number; scope?: string } | null = null;
     try {
@@ -325,9 +329,43 @@ async function classifyIntentFallback(
       textSample,
       signals: ["llm_fallback"],
     };
+    await recordThinkForgeDirectCost({
+      status: "success",
+      action: "intent_gate_fallback",
+      route: "lib/thinkforge/intent/intent-gate",
+      provider: "gemini",
+      modelName,
+      operation: "llm_text_direct",
+      promptChars: promptText.length,
+      outputChars: text?.length,
+      functionMs: Date.now() - startedAt,
+      usage: await readAiSdkUsage((aiResult as { usage?: unknown }).usage),
+      routePurpose: "structural",
+      privacyClass: "business_confidential",
+      temperature: 0,
+      maxTokens: 120,
+      sourceKind: "intent_gate_llm_fallback",
+      resultCount: 1,
+    });
     setCachedIntent(cacheKey, result);
     return result;
-  } catch (_error) {
+  } catch (error) {
+    await recordThinkForgeDirectCost({
+      status: "failed",
+      action: "intent_gate_fallback",
+      route: "lib/thinkforge/intent/intent-gate",
+      provider: "gemini",
+      modelName,
+      operation: "llm_text_direct",
+      promptChars: promptText.length,
+      functionMs: Date.now() - startedAt,
+      routePurpose: "structural",
+      privacyClass: "business_confidential",
+      temperature: 0,
+      maxTokens: 120,
+      sourceKind: "intent_gate_llm_fallback",
+      error,
+    });
     const textSample = prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
     const result: IntentGateResult = {
       intent: "chat",

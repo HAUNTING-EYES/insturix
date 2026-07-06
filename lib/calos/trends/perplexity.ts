@@ -1,3 +1,7 @@
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from "@/lib/financials/provider-cost-events";
 import type { Trend, TrendQuery, TrendsProvider } from "./types";
 import { extractJsonArray } from "../llm-json";
 
@@ -18,6 +22,14 @@ interface ChatCompletionResponse {
       content?: unknown;
     };
   }>;
+  usage?: {
+    prompt_tokens?: unknown;
+    completion_tokens?: unknown;
+    total_tokens?: unknown;
+    promptTokens?: unknown;
+    completionTokens?: unknown;
+    totalTokens?: unknown;
+  };
 }
 
 const DEFAULT_BASE_URL = "https://api.perplexity.ai";
@@ -68,33 +80,37 @@ export class PerplexityTrendsProvider implements TrendsProvider {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const startedAt = Date.now();
+    let responseStatus: number | undefined;
 
     try {
+      const requestBody = JSON.stringify({
+        model: this.model,
+        temperature: 0,
+        max_tokens: maxTokens,
+        web_search_options: { search_context_size: this.searchContextSize },
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a social-media trend researcher. Use current web search and return only valid JSON.",
+          },
+          {
+            role: "user",
+            content: buildPrompt({ niche, platforms, limit, location }),
+          },
+        ],
+      });
       const response = await this.fetchImpl(chatCompletionsUrl(this.baseUrl), {
         method: "POST",
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify({
-          model: this.model,
-          temperature: 0,
-          max_tokens: maxTokens,
-          web_search_options: { search_context_size: this.searchContextSize },
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a social-media trend researcher. Use current web search and return only valid JSON.",
-            },
-            {
-              role: "user",
-              content: buildPrompt({ niche, platforms, limit, location }),
-            },
-          ],
-        }),
+        body: requestBody,
         signal: controller.signal,
       });
+      responseStatus = response.status;
 
       const raw = (await response.json().catch(() => ({}))) as ChatCompletionResponse;
       if (!response.ok) {
@@ -102,8 +118,32 @@ export class PerplexityTrendsProvider implements TrendsProvider {
       }
 
       const content = readMessageContent(raw);
-      return parsePerplexityTrends(content, limit);
+      const trends = parsePerplexityTrends(content, limit);
+      await recordPerplexityTrendsCost(query, {
+        status: "success",
+        model: this.model,
+        limit,
+        maxTokens,
+        searchContextSize: this.searchContextSize,
+        responseStatus,
+        resultCount: trends.length,
+        bytesIn: byteLength(requestBody),
+        functionMs: Date.now() - startedAt,
+        usage: raw.usage,
+      });
+
+      return trends;
     } catch (error) {
+      await recordPerplexityTrendsCost(query, {
+        status: "failed",
+        model: this.model,
+        limit,
+        maxTokens,
+        searchContextSize: this.searchContextSize,
+        responseStatus,
+        functionMs: Date.now() - startedAt,
+        error,
+      });
       if (error instanceof Error && error.name === "AbortError") {
         throw new Error("Perplexity trends request timed out.");
       }
@@ -112,6 +152,54 @@ export class PerplexityTrendsProvider implements TrendsProvider {
       clearTimeout(timer);
     }
   }
+}
+
+async function recordPerplexityTrendsCost(
+  query: TrendQuery,
+  input: {
+    status: ProviderCostEventStatus;
+    model: string;
+    limit: number;
+    maxTokens: number;
+    searchContextSize: "low" | "medium" | "high";
+    responseStatus?: number;
+    resultCount?: number;
+    bytesIn?: number;
+    functionMs?: number;
+    usage?: ChatCompletionResponse["usage"];
+    error?: unknown;
+  },
+) {
+  await recordProviderCostEvent({
+    status: input.status,
+    projectId: query.brandId,
+    service: "calos",
+    action: "trend_discovery",
+    route: "lib/calos/trends/perplexity",
+    provider: "perplexity",
+    model: input.model,
+    operation: "trend_search",
+    units: {
+      requestCount: 1,
+      inputTokens: readNumber(input.usage?.prompt_tokens ?? input.usage?.promptTokens),
+      outputTokens: readNumber(input.usage?.completion_tokens ?? input.usage?.completionTokens),
+      totalTokens: readNumber(input.usage?.total_tokens ?? input.usage?.totalTokens),
+      bytesIn: input.bytesIn,
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      providerName: "perplexity-sonar",
+      limit: input.limit,
+      maxTokens: input.maxTokens,
+      searchContextSize: input.searchContextSize,
+      platformCount: query.platforms?.length,
+      hasBrandId: Boolean(query.brandId),
+      hasLocation: Boolean(query.location),
+      responseStatus: input.responseStatus,
+      resultCount: input.resultCount,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
 }
 
 function buildPrompt(input: {
@@ -190,4 +278,12 @@ function readPositiveInt(value: string | undefined): number | undefined {
 
 function readSearchContextSize(value: string | undefined): "low" | "medium" | "high" {
   return value === "medium" || value === "high" ? value : "low";
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
 }

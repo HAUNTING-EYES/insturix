@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
   const oauthSetCredentials = vi.fn();
   const resolveUploaderXVideo = vi.fn();
   const userFindOne = vi.fn();
+  const userFindOneAndUpdate = vi.fn();
   const videoFindOne = vi.fn();
   const videoUpdateOne = vi.fn();
   const youtubeInsert = vi.fn();
@@ -44,6 +45,7 @@ const mocks = vi.hoisted(() => {
     OAuth2,
     resolveUploaderXVideo,
     userFindOne,
+    userFindOneAndUpdate,
     videoFindOne,
     videoUpdateOne,
     youtubeFactory,
@@ -65,6 +67,7 @@ vi.mock("@/schemas/ConnectToDatabase", () => ({
 vi.mock("@/schemas/user", () => ({
   User: {
     findOne: mocks.userFindOne,
+    findOneAndUpdate: mocks.userFindOneAndUpdate,
   },
 }));
 
@@ -132,8 +135,41 @@ function futureSchedule(minutesFromNow: number): { iso: string; seconds: number 
   };
 }
 
+function mockCreditUser() {
+  return {
+    clerkUserId: "user_1",
+    creditsBalance: {
+      subscriptionCredits: 1000,
+      topupCredits: 0,
+      totalCredits: 1000,
+      mediaCredits: 0,
+      mediaTopupCredits: 0,
+      totalMediaCredits: 0,
+      lastSubscriptionGrant: null,
+      subscriptionCreditsExpiry: null,
+      lastMediaGrant: null,
+      mediaCreditsExpiry: null,
+      creditHistory: [],
+    },
+    save: vi.fn(async () => undefined),
+  };
+}
+
+function mockUserQuery<T>(value: T) {
+  const promise = Promise.resolve(value);
+  return {
+    select: vi.fn(async () => value),
+    lean: vi.fn(async () => value),
+    then: promise.then.bind(promise),
+    catch: promise.catch.bind(promise),
+    finally: promise.finally.bind(promise),
+    [Symbol.toStringTag]: "Promise",
+  };
+}
+
 function mockFacebookUser() {
-  mocks.userFindOne.mockResolvedValue({
+  const facebookUser = {
+    ...mockCreditUser(),
     facebookTokens: {
       userAccessToken: "fb_user_token",
       pages: [{
@@ -142,6 +178,13 @@ function mockFacebookUser() {
         pageAccessToken: "page_token",
       }],
     },
+  };
+
+  mocks.userFindOne.mockImplementation((query?: Record<string, unknown>) => {
+    if (query && "facebookTokens" in query) {
+      return mockUserQuery(facebookUser);
+    }
+    return mockUserQuery(mockCreditUser());
   });
 }
 
@@ -168,6 +211,8 @@ describe("UploaderX platform API route contracts", () => {
       filename: "asset.mp4",
       size: 1024,
     });
+    mocks.userFindOne.mockImplementation(() => mockUserQuery(mockCreditUser()));
+    mocks.userFindOneAndUpdate.mockResolvedValue(mockCreditUser());
     mocks.videoFindOne.mockResolvedValue(null);
     mocks.videoUpdateOne.mockResolvedValue({ modifiedCount: 1 });
   });

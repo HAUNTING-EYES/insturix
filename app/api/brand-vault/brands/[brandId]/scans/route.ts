@@ -23,6 +23,8 @@ export interface BrandVaultBrandScanSummary {
   status: BrandVaultRefineryJobSnapshot['job']['status'];
   websiteUrl: string | null;
   companyName: string | null;
+  /** The social profile URLs the user supplied for this scan (their own inputs, not scraped evidence). */
+  socialLinks: string[];
   normalizedUrl: string | null;
   candidateCount: number;
   warningCount: number;
@@ -74,6 +76,61 @@ export async function GET(request: Request, { params }: Params) {
     brandId,
     scans: snapshots.map(toScanSummary),
   });
+}
+
+/**
+ * DELETE /api/brand-vault/brands/[brandId]/scans?jobId=...
+ *
+ * Remove a scan from the brand's history. Owner-scoped (only the user who ran the scan can delete it).
+ * Deletes the job snapshot only — the accepted brand profile is a separate record and is never touched.
+ */
+export async function DELETE(request: Request, { params }: Params) {
+  const { userId, orgId, has } = await auth();
+  if (!userId) return new NextResponse('Unauthorized', { status: 401 });
+
+  const { brandId: rawBrandId } = await params;
+  const brandId = rawBrandId.trim();
+  if (!brandId) {
+    return NextResponse.json(
+      { ok: false, error: { code: 'invalid_brand', message: 'Missing brand id.' } },
+      { status: 400 },
+    );
+  }
+
+  const jobId = new URL(request.url).searchParams.get('jobId')?.trim();
+  if (!jobId) {
+    return NextResponse.json(
+      { ok: false, error: { code: 'invalid_request', message: 'Missing jobId.' } },
+      { status: 400 },
+    );
+  }
+
+  const store = getDefaultBrandVaultRefineryStore();
+  if (!store.deleteJobSnapshot) {
+    return NextResponse.json(
+      { ok: false, error: { code: 'unsupported_store', message: 'Brand Vault store cannot delete scans.' } },
+      { status: 500 },
+    );
+  }
+
+  const isOrgAdmin = Boolean(orgId && has({ role: 'org:admin' }));
+  const access = await canReadBrandScanHistory(store, { orgId: orgId ?? null, userId, brandId, isOrgAdmin });
+  if (!access) {
+    return NextResponse.json(
+      { ok: false, error: { code: 'forbidden', message: 'You do not have access to this brand.' } },
+      { status: 403 },
+    );
+  }
+
+  const deleted = await store.deleteJobSnapshot(jobId, { userId, orgId: orgId ?? null });
+  if (!deleted) {
+    return NextResponse.json(
+      { ok: false, error: { code: 'not_found', message: 'Scan not found, or not yours to delete.' } },
+      { status: 404 },
+    );
+  }
+
+  return NextResponse.json({ ok: true, jobId, deleted: true });
 }
 
 async function canReadBrandScanHistory(
@@ -132,6 +189,7 @@ function toScanSummary(snapshot: BrandVaultRefineryJobSnapshot): BrandVaultBrand
     status: snapshot.job.status,
     websiteUrl: snapshot.job.inputs.websiteUrl ?? null,
     companyName: snapshot.job.inputs.companyName ?? null,
+    socialLinks: Array.isArray(snapshot.job.inputs.socialLinks) ? snapshot.job.inputs.socialLinks : [],
     normalizedUrl: snapshot.normalizedUrl ?? null,
     candidateCount: snapshot.candidates.length,
     warningCount: snapshot.job.warnings.length,

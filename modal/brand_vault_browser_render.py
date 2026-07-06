@@ -21,6 +21,7 @@ modal/test_browser_render.py (no Modal/Playwright needed to run that test).
 
 from __future__ import annotations
 
+import base64
 import hmac
 import ipaddress
 import os
@@ -60,6 +61,11 @@ MAX_HTML_BYTES = 5_000_000         # ~5 MB rendered HTML cap
 MAX_STYLESHEETS = 40
 MAX_CSS_BYTES_PER_SHEET = 512_000  # ~512 KB per stylesheet
 MAX_TOTAL_CSS_BYTES = 4_000_000    # ~4 MB total CSS
+# Screenshot capture (mode == "screenshot"): a clean desktop viewport shot, base64-encoded PNG.
+SCREENSHOT_VIEWPORT_WIDTH = 1280
+SCREENSHOT_VIEWPORT_HEIGHT = 800
+MAX_SCREENSHOT_BYTES = 8_000_000   # ~8 MB — matches the app's visual-asset store cap
+MAX_SCREENSHOT_WAIT_MS = 5_000     # extra post-load settle before the shot
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36 BrandVaultRenderer/1.0"
@@ -478,6 +484,46 @@ async def render_snapshot(
             await browser.close()
 
 
+async def screenshot_capture(
+    url: str,
+    user_agent: str,
+    goto_timeout_ms: int,
+    wait_until: str,
+    full_page: bool,
+    wait_after_ms: int,
+) -> Optional[dict]:
+    """Launch Chromium, render the URL, return a base64 PNG screenshot dict (or None on empty/oversized)."""
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True, args=LAUNCH_ARGS)
+        try:
+            context = await browser.new_context(
+                user_agent=user_agent,
+                viewport={"width": SCREENSHOT_VIEWPORT_WIDTH, "height": SCREENSHOT_VIEWPORT_HEIGHT},
+                device_scale_factor=1,
+            )
+            page = await context.new_page()
+            await page.goto(url, timeout=goto_timeout_ms, wait_until=wait_until)
+            # Best-effort SPA settle; never let a hung socket block the response.
+            try:
+                await page.wait_for_load_state("networkidle", timeout=SETTLE_TIMEOUT_MS)
+            except Exception:
+                pass
+            if wait_after_ms > 0:
+                await page.wait_for_timeout(min(wait_after_ms, MAX_SCREENSHOT_WAIT_MS))
+
+            png = await page.screenshot(full_page=full_page, type="png")
+            if not png or len(png) == 0 or len(png) > MAX_SCREENSHOT_BYTES:
+                return None
+            return {
+                "screenshotBase64": base64.b64encode(png).decode("ascii"),
+                "contentType": "image/png",
+            }
+        finally:
+            await browser.close()
+
+
 @app.function(
     image=image,
     secrets=[render_secret],
@@ -521,6 +567,24 @@ async def render(request: fastapi.Request):
     wait_until = (os.environ.get("BRAND_VAULT_MODAL_RENDER_WAIT_UNTIL") or DEFAULT_WAIT_UNTIL).strip().lower()
     if wait_until not in VALID_WAIT_UNTIL:
         wait_until = DEFAULT_WAIT_UNTIL
+
+    # Screenshot mode: the app's website-screenshot capture posts { mode: "screenshot", fullPage, waitFor }.
+    # Return a base64 PNG the app stores to R2 as first-party "Website screenshot" evidence. Any other mode
+    # (or none) falls through to the unchanged HTML-snapshot path below.
+    mode_value = body.get("mode") or body.get("format")
+    if isinstance(mode_value, str) and mode_value.strip().lower() == "screenshot":
+        raw_full_page = body.get("fullPage")
+        full_page = raw_full_page is True or (isinstance(raw_full_page, str) and _truthy(raw_full_page))
+        raw_wait = body.get("waitFor")
+        wait_after_ms = raw_wait if isinstance(raw_wait, int) and not isinstance(raw_wait, bool) else 0
+        wait_after_ms = min(MAX_SCREENSHOT_WAIT_MS, max(0, wait_after_ms))
+        try:
+            shot = await screenshot_capture(normalized, user_agent, goto_timeout_ms, wait_until, full_page, wait_after_ms)
+        except Exception as exc:  # noqa: BLE001 - surface a clean failure, never a stack trace
+            return error(502, "screenshot_failed", f"Brand Vault browser screenshot failed: {type(exc).__name__}.")
+        if not shot:
+            return error(502, "screenshot_failed", "Brand Vault browser render did not produce a screenshot.")
+        return JSONResponse(status_code=200, content={"ok": True, "normalizedUrl": normalized, **shot})
 
     try:
         snapshot = await render_snapshot(normalized, user_agent, goto_timeout_ms, wait_until, http_status)

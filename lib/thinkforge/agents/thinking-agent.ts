@@ -9,6 +9,7 @@
 
 import { generateText } from 'ai';
 import { createModelByTier, ModelTier } from './model-factory';
+import { readAiSdkUsage, recordThinkForgeDirectCost } from '../services/provider-cost-telemetry';
 
 export interface ThinkingInput {
   userPrompt: string;
@@ -36,6 +37,9 @@ ${contextBlock}
 ${docBlock}
 <input_data>Request: ${userPrompt}</input_data>`;
 
+  const modelName = 'gemini-2.5-flash';
+  const startedAt = Date.now();
+
   try {
     const model = createModelByTier(ModelTier.Structural);
     const result = await generateText({
@@ -44,6 +48,23 @@ ${docBlock}
       temperature: 0.3,
       // @ts-ignore
       maxTokens: 200,
+    });
+    await recordThinkForgeDirectCost({
+      status: 'success',
+      action: 'thinking_agent',
+      route: 'lib/thinkforge/agents/thinking-agent',
+      provider: 'gemini',
+      modelName,
+      operation: 'llm_text_direct',
+      promptChars: prompt.length,
+      outputChars: result.text?.length,
+      functionMs: Date.now() - startedAt,
+      usage: await readAiSdkUsage((result as { usage?: unknown }).usage),
+      routePurpose: 'structural',
+      privacyClass: 'business_confidential',
+      temperature: 0.3,
+      maxTokens: 200,
+      sourceKind: 'pre_generation_reasoning',
     });
 
     const text = (result.text || '').trim();
@@ -56,6 +77,22 @@ ${docBlock}
 
     return lines.join('\n');
   } catch (err) {
+    await recordThinkForgeDirectCost({
+      status: 'failed',
+      action: 'thinking_agent',
+      route: 'lib/thinkforge/agents/thinking-agent',
+      provider: 'gemini',
+      modelName,
+      operation: 'llm_text_direct',
+      promptChars: prompt.length,
+      functionMs: Date.now() - startedAt,
+      routePurpose: 'structural',
+      privacyClass: 'business_confidential',
+      temperature: 0.3,
+      maxTokens: 200,
+      sourceKind: 'pre_generation_reasoning',
+      error: err,
+    });
     console.warn('[ThinkingAgent] Failed (non-blocking):', err);
     return '';
   }

@@ -29,6 +29,7 @@ import type { SignalValues } from './graph-query';
 import type { VisualCutIntelligenceReport, VisualPerceptionSummary } from './visual-cut-intelligence';
 import type { VjepaAnalysisResult, VjepaSegmentResult } from './vjepa-service';
 import type { Wav2VecAnalysisResult, Wav2VecSegmentResult } from './wav2vec-service';
+import { deriveProsodyFormality } from './prosody-formality';
 
 // ─── Input Types (from existing services) ───────────────────────────────────
 
@@ -696,7 +697,19 @@ export function buildSignalTimeline(
   // ── GLOBAL signals (non-time-varying) ─────────────────────────────────
 
   timeline.globalSignals['content.speech_coverage'] = computeOverallSpeechCoverage(rawFootage);
-  timeline.globalSignals['content.formality'] = estimateFormality(rawFootage);
+  const formalityResult = deriveProsodyFormality({
+    segments: wav2vecSegments,
+    speakingRateWpm: computeOverallSpeakingRate(rawFootage),
+    speechEnergy: computeOverallSpeechEnergy(mergedAnalysis),
+    hasFace: mergedAnalysis.subjectTracks?.some((subject) => subject.category === 'person') === true,
+  });
+  timeline.globalSignals['content.formality'] = formalityResult.value;
+  timeline.globalSignals['content.formality_source'] = formalityResult.source;
+  setOptionalGlobalNumber(timeline.globalSignals, 'content.formality_pitch_variability', formalityResult.features.pitchVariability);
+  setOptionalGlobalNumber(timeline.globalSignals, 'content.formality_energy', formalityResult.features.energy);
+  setOptionalGlobalNumber(timeline.globalSignals, 'content.formality_emotion_intensity', formalityResult.features.emotionIntensity);
+  setOptionalGlobalNumber(timeline.globalSignals, 'content.formality_stress_rate', formalityResult.features.stressRate);
+  setOptionalGlobalNumber(timeline.globalSignals, 'content.formality_speaking_rate_wpm', formalityResult.features.speakingRateWpm);
   timeline.globalSignals['content.content_type'] = rawFootage?.contentTypeDetection?.contentType ?? 'unknown';
   timeline.globalSignals['audio.music_present'] = hasMusicPresent(mergedAnalysis);
   timeline.globalSignals['video.duration_s'] = totalDurationMs / 1000;
@@ -1166,18 +1179,24 @@ function computeOverallSpeechCoverage(rawFootage: RawFootageAnalysis | null): nu
   return Math.min(1, speechSpanMs / rawFootage.originalDurationMs);
 }
 
-function estimateFormality(rawFootage: RawFootageAnalysis | null): number {
-  if (!rawFootage?.segments?.length) return 0.5;
-  // Formality from filler rate + speaking pace
-  const totalFillers = rawFootage.segments.reduce((s, seg) => s + seg.fillerCount, 0);
-  const totalWords = rawFootage.transcription?.words?.length ?? 100;
-  const fillerRate = totalFillers / totalWords;
+function computeOverallSpeakingRate(rawFootage: RawFootageAnalysis | null): number | null {
+  const words = rawFootage?.transcription?.words;
+  if (!words?.length) return null;
+  const firstStartMs = Math.min(...words.map((word) => word.startMs));
+  const lastEndMs = Math.max(...words.map((word) => word.endMs));
+  const durationMinutes = (lastEndMs - firstStartMs) / 60000;
+  if (durationMinutes <= 0) return null;
+  return words.length / durationMinutes;
+}
 
-  // High filler rate = low formality
-  if (fillerRate > 0.05) return 0.2;  // Very casual
-  if (fillerRate > 0.02) return 0.4;  // Casual
-  if (fillerRate > 0.01) return 0.6;  // Moderate
-  return 0.8;  // Formal (almost no fillers)
+function computeOverallSpeechEnergy(analysis: AssetAnalysis): number | null {
+  const curve = analysis.audio?.energyCurve;
+  if (!curve?.length) return null;
+  const finite = curve
+    .map((point) => point.energy)
+    .filter((energy): energy is number => typeof energy === 'number' && Number.isFinite(energy));
+  if (finite.length === 0) return null;
+  return finite.reduce((sum, energy) => sum + energy, 0) / finite.length;
 }
 
 function hasMusicPresent(analysis: AssetAnalysis): boolean {
@@ -1253,7 +1272,7 @@ function computeVES(snapshot: SignalSnapshot): number {
 // and delegates to the existing buildSignalTimeline. Avoids duplicating
 // the 600+ lines of signal computation logic.
 
-import type { SegmentAnalysis } from '../types/segment-analysis';
+import type { SegmentAnalysis, SegmentRecord } from '../types/segment-analysis';
 
 export function buildSignalTimelineFromAnalysis(
   segmentAnalysis: SegmentAnalysis,
@@ -1337,7 +1356,51 @@ export function buildSignalTimelineFromAnalysis(
   );
 
   applyVisualSetupGlobalSignals(timeline, segmentAnalysis.globalContext.visualSetup);
+  applySemanticVisualPerceptionSignals(timeline, segmentAnalysis.segments);
   return timeline;
+}
+
+
+function applySemanticVisualPerceptionSignals(
+  timeline: SignalTimeline,
+  segments: SegmentRecord[],
+): void {
+  const semanticSegments = segments.filter(seg => seg.semanticVisual);
+  if (!semanticSegments.length) return;
+
+  timeline.globalSignals['enrichment.visual_semantic_perception_source'] = 'gemini-visual-understanding';
+  timeline.globalSignals['visual.semantic_perception.segment_count'] = semanticSegments.length;
+  timeline.globalSignals['visual.semantic_perception.window_count'] = semanticSegments.reduce(
+    (sum, seg) => sum + (seg.semanticVisual?.windows.length ?? 0),
+    0,
+  );
+
+  const snapshots = Array.from(timeline.gridSignals.values());
+  for (const seg of semanticSegments) {
+    const semantic = seg.semanticVisual;
+    if (!semantic) continue;
+    for (const snapshot of snapshots) {
+      if (snapshot.timestampMs < seg.startMs || snapshot.timestampMs >= seg.endMs) continue;
+      snapshot['enrichment.visual_semantic_perception_source'] = 'gemini-visual-understanding';
+      snapshot['visual.perception.status'] = 'available';
+      snapshot['visual.perception.primary_mode'] = semantic.primaryVisualMode ?? 'unknown';
+      snapshot['visual.perception.visual_explainability'] = semantic.visualExplainability ?? 'unknown';
+      snapshot['visual.perception.visible_explanation_ratio'] = semantic.visuallyExplains ? 1 : 0;
+      snapshot['visual.perception.state_change_count'] = semantic.visibleStateChangeCount;
+      snapshot['visual.perception.screen_clutter_ratio'] = semantic.screenClutter;
+      snapshot['visual.perception.avg_viewer_value'] = semantic.salience;
+      snapshot['visual.perception.avg_coverage_trust'] = semantic.confidence;
+      snapshot['visual.perception.semantic_window_count'] = semantic.windows.length;
+      snapshot['visual.perception.ocr_text_count'] = semantic.ocrText.length;
+      if (semantic.ocrText.length > 0) {
+        snapshot['visual.perception.ocr_text_sample'] = semantic.ocrText.join(' | ').slice(0, 180);
+      }
+      const region = semantic.negativeSpacePreference;
+      if (region && region !== 'none') {
+        snapshot['visual.perception.preferred_overlay_region'] = region;
+      }
+    }
+  }
 }
 
 function applyVisualSetupGlobalSignals(

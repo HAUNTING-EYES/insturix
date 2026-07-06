@@ -1,5 +1,9 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from '@/lib/financials/provider-cost-events';
 
 const CACHE_TTL_SECONDS = 1800;
 const REDIS_KEY = 'thinkforge:gemini:creative-content-cache';
@@ -27,6 +31,106 @@ export interface WritingContextGenerationResult {
 }
 
 let cachedDocText: string | null = null;
+
+type GeminiWritingContextOperation =
+  | 'context_cache_create'
+  | 'llm_completion_cached_context'
+  | 'llm_completion_inline_context';
+
+type GeminiWritingContextUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+};
+
+async function recordThinkForgeWritingContextCost(input: {
+  status: ProviderCostEventStatus;
+  modelName: string;
+  operation: GeminiWritingContextOperation;
+  cacheStatus?: WritingContextGenerationResult['cacheStatus'];
+  userInputChars?: number;
+  systemInstructionChars?: number;
+  outputChars?: number;
+  functionMs?: number;
+  usage?: GeminiWritingContextUsage;
+  error?: unknown;
+}) {
+  const estimatedInputTokens = estimateTokensFromChars(
+    sumOptional(input.userInputChars, input.systemInstructionChars),
+  );
+  const estimatedOutputTokens = estimateTokensFromChars(input.outputChars);
+
+  await recordProviderCostEvent({
+    status: input.status,
+    service: 'thinkforge',
+    action: 'writing_context_cache',
+    route: 'lib/thinkforge/services/gemini-writing-context-cache',
+    provider: 'gemini',
+    model: cleanGeminiModelName(input.modelName),
+    operation: input.operation,
+    units: {
+      requestCount: 1,
+      inputTokens: input.usage?.inputTokens ?? estimatedInputTokens,
+      outputTokens: input.usage?.outputTokens ?? estimatedOutputTokens,
+      totalTokens:
+        input.usage?.totalTokens ??
+        sumOptional(
+          input.usage?.inputTokens ?? estimatedInputTokens,
+          input.usage?.outputTokens ?? estimatedOutputTokens,
+        ),
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      cacheStatus: input.cacheStatus,
+      hasCachedContext: input.cacheStatus === 'hit' || input.cacheStatus === 'created',
+      userInputChars: input.userInputChars,
+      systemInstructionChars: input.systemInstructionChars,
+      outputChars: input.outputChars,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
+}
+
+function readGeminiUsage(result: unknown): GeminiWritingContextUsage | undefined {
+  const root = asRecord(result);
+  const response = asRecord(root?.response);
+  const usage = asRecord(response?.usageMetadata ?? root?.usageMetadata);
+  if (!usage) return undefined;
+
+  const inputTokens = readNumber(usage.promptTokenCount ?? usage.inputTokenCount ?? usage.inputTokens);
+  const outputTokens = readNumber(usage.candidatesTokenCount ?? usage.outputTokenCount ?? usage.outputTokens);
+  const totalTokens = readNumber(usage.totalTokenCount ?? usage.totalTokens);
+  return inputTokens || outputTokens || totalTokens ? { inputTokens, outputTokens, totalTokens } : undefined;
+}
+
+function cleanGeminiModelName(modelName: string): string {
+  return modelName.replace(/^models\//, '');
+}
+
+function estimateTokensFromChars(chars?: number): number | undefined {
+  return typeof chars === 'number' && Number.isFinite(chars) && chars > 0 ? Math.max(1, Math.ceil(chars / 4)) : undefined;
+}
+
+function sumOptional(...values: Array<number | undefined>): number | undefined {
+  let sawValue = false;
+  let total = 0;
+  for (const value of values) {
+    if (value === undefined) continue;
+    sawValue = true;
+    total += value;
+  }
+  return sawValue ? total : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
 
 function normalizeCacheModelName(modelName?: string): string {
   const selected = modelName || process.env.THINKFORGE_WRITING_CONTEXT_MODEL || DEFAULT_CACHE_MODEL;
@@ -118,7 +222,12 @@ export function buildWritingContextSystemInstruction(docText = getCreativeConten
 }
 
 async function createCache(modelName: string): Promise<string | null> {
+  const startedAt = Date.now();
+  let systemInstructionChars: number | undefined;
+
   try {
+    const systemInstruction = buildWritingContextSystemInstruction();
+    systemInstructionChars = systemInstruction.length;
     const { GoogleAICacheManager } = await import('@google/generative-ai/server');
     const cacheManager = new GoogleAICacheManager(getApiKey());
     const cache = await cacheManager.create({
@@ -127,7 +236,7 @@ async function createCache(modelName: string): Promise<string | null> {
       contents: [
         {
           role: 'user',
-          parts: [{ text: buildWritingContextSystemInstruction() }],
+          parts: [{ text: systemInstruction }],
         },
       ],
       ttlSeconds: CACHE_TTL_SECONDS,
@@ -135,8 +244,24 @@ async function createCache(modelName: string): Promise<string | null> {
 
     if (!cache?.name) throw new Error('Cache creation returned no name');
     await storeCacheEntry(cache.name, modelName);
+    await recordThinkForgeWritingContextCost({
+      status: 'success',
+      modelName,
+      operation: 'context_cache_create',
+      cacheStatus: 'created',
+      systemInstructionChars,
+      functionMs: Date.now() - startedAt,
+    });
     return cache.name;
   } catch (error: any) {
+    await recordThinkForgeWritingContextCost({
+      status: 'failed',
+      modelName,
+      operation: 'context_cache_create',
+      systemInstructionChars,
+      functionMs: Date.now() - startedAt,
+      error,
+    });
     console.warn(`[ThinkForgeWritingCache] Cache creation failed: ${error?.message || error}`);
     return null;
   }
@@ -168,6 +293,7 @@ export async function generateWithWritingContextCache(
   }
 
   if (cacheName) {
+    const startedAt = Date.now();
     try {
       const { GoogleAICacheManager } = await import('@google/generative-ai/server');
       const cacheManager = new GoogleAICacheManager(apiKey);
@@ -177,19 +303,67 @@ export async function generateWithWritingContextCache(
         contents: [{ role: 'user', parts: [{ text: input.prompt }] }],
         generationConfig,
       });
-      return { text: result.response.text(), cacheStatus, modelName };
+      const text = result.response.text();
+      await recordThinkForgeWritingContextCost({
+        status: 'success',
+        modelName,
+        operation: 'llm_completion_cached_context',
+        cacheStatus,
+        userInputChars: input.prompt.length,
+        outputChars: text.length,
+        functionMs: Date.now() - startedAt,
+        usage: readGeminiUsage(result),
+      });
+      return { text, cacheStatus, modelName };
     } catch (error: any) {
+      await recordThinkForgeWritingContextCost({
+        status: 'failed',
+        modelName,
+        operation: 'llm_completion_cached_context',
+        cacheStatus,
+        userInputChars: input.prompt.length,
+        functionMs: Date.now() - startedAt,
+        error,
+      });
       console.warn(`[ThinkForgeWritingCache] Cache bind/generate failed: ${error?.message || error}. Using inline context.`);
     }
   }
 
+  const systemInstruction = buildWritingContextSystemInstruction();
   const model = genAI.getGenerativeModel({
     model: toRuntimeModelName(modelName),
-    systemInstruction: buildWritingContextSystemInstruction(),
+    systemInstruction,
   });
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: input.prompt }] }],
-    generationConfig,
-  });
-  return { text: result.response.text(), cacheStatus: 'inline', modelName };
+  const startedAt = Date.now();
+  try {
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: input.prompt }] }],
+      generationConfig,
+    });
+    const text = result.response.text();
+    await recordThinkForgeWritingContextCost({
+      status: 'success',
+      modelName,
+      operation: 'llm_completion_inline_context',
+      cacheStatus: 'inline',
+      userInputChars: input.prompt.length,
+      systemInstructionChars: systemInstruction.length,
+      outputChars: text.length,
+      functionMs: Date.now() - startedAt,
+      usage: readGeminiUsage(result),
+    });
+    return { text, cacheStatus: 'inline', modelName };
+  } catch (error) {
+    await recordThinkForgeWritingContextCost({
+      status: 'failed',
+      modelName,
+      operation: 'llm_completion_inline_context',
+      cacheStatus: 'inline',
+      userInputChars: input.prompt.length,
+      systemInstructionChars: systemInstruction.length,
+      functionMs: Date.now() - startedAt,
+      error,
+    });
+    throw error;
+  }
 }

@@ -12,6 +12,7 @@ import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { auth } from '@clerk/nextjs/server';
 import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
+import { persistMediaUploadBatchAsset } from '@/lib/editron/services/media-upload-batch';
 
 export const runtime = 'nodejs';
 
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
       duration,
       dimensions,
       isProxy,
+      uploadBatchId,
     } = body;
 
     // Validate required fields — gcsPath is optional (R2 uploads don't have one)
@@ -208,6 +210,11 @@ export async function POST(request: NextRequest) {
           }
         : undefined;
 
+    const cleanUploadBatchId =
+      typeof uploadBatchId === 'string' && uploadBatchId.trim()
+        ? uploadBatchId.trim().slice(0, 128)
+        : undefined;
+
     const now = new Date();
     const mediaAsset: MediaAsset = {
       assetId,
@@ -226,11 +233,33 @@ export async function POST(request: NextRequest) {
       dimensions: parsedDimensions,
       uploadedAt: now,
       lastUsedAt: now, // seed the LRU signal at upload time
+      ...(cleanUploadBatchId && { uploadBatchId: cleanUploadBatchId }),
       ...(!gcsPath && { r2Key: assetId }),
       ...(isProxy && { isProxy: true }),
     };
 
     await db.collection(COLLECTIONS.MEDIA_ASSETS).insertOne(mediaAsset);
+    if (cleanUploadBatchId) {
+      try {
+        await persistMediaUploadBatchAsset(db, {
+          uploadBatchId: cleanUploadBatchId,
+          userId,
+          orgId: orgId || undefined,
+          projectId: projectId || undefined,
+          asset: {
+            assetId,
+            filename,
+            type: fileType,
+            size: storedSizeBytes,
+            duration: verifiedDuration,
+            dimensions: parsedDimensions,
+            thumbnail: thumbnail || undefined,
+          },
+        }, now);
+      } catch (batchErr: unknown) {
+        console.warn('[Upload] batch manifest update failed:', batchErr instanceof Error ? batchErr.message : batchErr);
+      }
+    }
     if (!storageAlreadyRecorded) {
       const { recordStorageUsage, resolveStorageOwner } = await import('@/lib/services/storage-quota-service');
       await recordStorageUsage(resolveStorageOwner(userId, orgId), storedSizeBytes);
@@ -273,6 +302,7 @@ export async function POST(request: NextRequest) {
               size: size || 0,
               analysisQueued: false,
               analysisSkippedReason: 'insufficient_credits',
+              uploadBatchId: cleanUploadBatchId,
             });
           }
 
@@ -306,6 +336,7 @@ export async function POST(request: NextRequest) {
             size: size || 0,
             analysisQueued: false,
             analysisSkippedReason: 'credit_deduction_failed',
+            uploadBatchId: cleanUploadBatchId,
           });
         }
 
@@ -391,6 +422,7 @@ export async function POST(request: NextRequest) {
       filename,
       size: size || 0,
       analysisQueued,
+      uploadBatchId: cleanUploadBatchId,
     });
   } catch (error: any) {
     console.error('Error registering media asset:', error);

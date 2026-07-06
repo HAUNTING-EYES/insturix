@@ -14,11 +14,22 @@ import {
   deleteMediaItem as deleteFromIndexDB,
   clearUserMedia,
 } from "../utils/indexdb";
-import { uploadMediaFile, deleteMediaFile } from "../utils/media-upload";
+import {
+  uploadMediaFile,
+  uploadMediaFiles,
+  type UploadedMedia,
+} from "../utils/media-upload";
+
+interface AddMediaFilesResult {
+  uploadBatchId: string;
+  uploaded: LocalMediaFile[];
+  failed: Array<{ filename: string; error: string }>;
+}
 
 interface LocalMediaContextType {
   localMediaFiles: LocalMediaFile[];
   addMediaFile: (file: File) => Promise<LocalMediaFile | void>;
+  addMediaFiles: (files: File[]) => Promise<AddMediaFilesResult>;
   removeMediaFile: (id: string) => Promise<void>;
   togglePinMediaFile: (id: string, pinned: boolean) => Promise<void>;
   clearMediaFiles: () => Promise<void>;
@@ -28,6 +39,34 @@ interface LocalMediaContextType {
 const LocalMediaContext = createContext<LocalMediaContextType | undefined>(
   undefined
 );
+
+function toLocalMediaFile(mediaItem: UploadedMedia): LocalMediaFile {
+  return {
+    id: mediaItem.assetId,
+    name: mediaItem.filename,
+    type: mediaItem.type,
+    path: mediaItem.url,
+    assetId: mediaItem.assetId,
+    size: mediaItem.size,
+    lastModified: Date.now(),
+    thumbnail: mediaItem.thumbnail || "",
+    duration: mediaItem.duration,
+    dimensions: mediaItem.dimensions,
+  };
+}
+
+function mergeLocalMediaFiles(prev: LocalMediaFile[], incoming: LocalMediaFile[]): LocalMediaFile[] {
+  const next = [...prev];
+  for (const mediaFile of incoming) {
+    const index = next.findIndex((item) => item.id === mediaFile.id);
+    if (index >= 0) {
+      next[index] = mediaFile;
+    } else {
+      next.push(mediaFile);
+    }
+  }
+  return next;
+}
 
 /**
  * LocalMediaProvider Component
@@ -88,33 +127,8 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
         // Upload file to GCS and get asset metadata
         const mediaItem = await uploadMediaFile(file);
 
-        // Convert to LocalMediaFile format
-        const newMediaFile: LocalMediaFile = {
-          id: mediaItem.assetId, // Use assetId as the unique identifier
-          name: mediaItem.filename,
-          type: mediaItem.type,
-          path: mediaItem.url, // Signed URL for display
-          assetId: mediaItem.assetId, // Store assetId for reference
-          size: mediaItem.size,
-          lastModified: Date.now(),
-          thumbnail: mediaItem.thumbnail || "",
-          duration: mediaItem.duration,
-          dimensions: mediaItem.dimensions, // Add dimensions for aspect ratio
-        };
-
-        // Update state with the new media file
-        setLocalMediaFiles((prev) => {
-          // Check if file with same ID already exists
-          const exists = prev.some((item) => item.id === newMediaFile.id);
-          if (exists) {
-            // Replace existing file
-            return prev.map((item) =>
-              item.id === newMediaFile.id ? newMediaFile : item
-            );
-          }
-          // Add new file
-          return [...prev, newMediaFile];
-        });
+        const newMediaFile = toLocalMediaFile(mediaItem);
+        setLocalMediaFiles((prev) => mergeLocalMediaFiles(prev, [newMediaFile]));
 
         return newMediaFile;
       } catch (error) {
@@ -126,6 +140,28 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
     },
     []
   );
+
+  const addMediaFiles = useCallback(async (files: File[]): Promise<AddMediaFilesResult> => {
+    const selectedFiles = Array.from(files);
+    if (selectedFiles.length === 0) {
+      return { uploadBatchId: "", uploaded: [], failed: [] };
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await uploadMediaFiles(selectedFiles);
+      const uploaded = result.uploaded.map(toLocalMediaFile);
+      if (uploaded.length > 0) {
+        setLocalMediaFiles((prev) => mergeLocalMediaFiles(prev, uploaded));
+      }
+      return { uploadBatchId: result.uploadBatchId, uploaded, failed: result.failed };
+    } catch (error) {
+      console.error("Error adding media files:", error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   /**
    * Remove a media file by ID
@@ -210,6 +246,7 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
   const value = {
     localMediaFiles,
     addMediaFile,
+    addMediaFiles,
     removeMediaFile,
     togglePinMediaFile,
     clearMediaFiles,

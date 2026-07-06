@@ -7,12 +7,35 @@ import FormData from "form-data";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXBuffer, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
 import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
+import { getCreditCost } from "@/lib/config/creditCosts";
+import { recordProviderCostEvent, type ProviderCostEventStatus } from "@/lib/financials/provider-cost-events";
 
 export const maxDuration = 300;
 
 const FACEBOOK_MIN_SCHEDULE_DELAY_MS = 10 * 60 * 1000;
 const FACEBOOK_PAGE_VIDEO_MAX_SCHEDULE_DELAY_MS = 75 * 24 * 60 * 60 * 1000;
 const FACEBOOK_REEL_MAX_SCHEDULE_DELAY_MS = 29 * 24 * 60 * 60 * 1000;
+
+type FacebookCostOperation = "social_publish" | "social_media_upload";
+type FacebookCostPhase = "update" | "simple_upload" | "start" | "transfer" | "finish";
+
+interface FacebookProviderCostContext {
+  operation: FacebookCostOperation;
+  phase: FacebookCostPhase;
+  videoUuid?: string;
+  providerJobId?: string;
+  uploadSessionId?: string;
+  postType?: string;
+  scheduled?: boolean;
+  httpStatus?: number;
+}
+
+const UPLOADERX_FACEBOOK_PROVIDER = "meta-graph-api";
+const UPLOADERX_FACEBOOK_MODEL = "facebook-graph-v21";
+const UPLOADERX_FACEBOOK_ROUTE = "/api/services/uploaderx/facebook";
+const UPLOADERX_FACEBOOK_PUBLISH_CREDITS = getCreditCost("uploaderx", "platform_publish", {
+  requestType: "facebook",
+});
 
 function parseOptionalPublishAt(value: unknown): Date | null | undefined {
   if (value === undefined || value === null || value === "") {
@@ -64,14 +87,21 @@ function facebookReelFinishFields(publishAt: Date | null): Record<string, number
 }
 
 export async function POST(req: Request) {
+  let currentUserId: string | undefined;
+  let telemetryVideoUuid: string | undefined;
+  let pendingCompletedProviderCost: FacebookProviderCostContext | undefined;
+  let recordedPendingProviderCost = false;
+
   try {
     const session = await auth();
     if (!session.userId) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
+    currentUserId = session.userId;
 
     const body = await req.json();
     const { gcsPath, videoUuid, title, description, pageId: requestedPageId, postType } = body;
+    telemetryVideoUuid = typeof videoUuid === "string" ? videoUuid : undefined;
 
     if (!gcsPath) {
       return NextResponse.json({ success: false, error: "Missing gcsPath" }, { status: 400 });
@@ -208,6 +238,19 @@ export async function POST(req: Request) {
 
       const updateData = await updateRes.json();
       if (updateData.error) {
+        await recordUploaderXFacebookCost({
+          status: "failed",
+          operation: "social_publish",
+          phase: "update",
+          userId: session.userId,
+          videoUuid: telemetryVideoUuid,
+          providerJobId: existingFbVideoId,
+          requestCount: 1,
+          httpStatus: updateRes.status,
+          postType: postType || "video",
+          scheduled: false,
+          error: updateData.error,
+        });
         return NextResponse.json(
           {
             success: false,
@@ -217,7 +260,26 @@ export async function POST(req: Request) {
         );
       }
 
-      await deductPublishCredits(publishCreditCheck);
+      const updateProviderCost: FacebookProviderCostContext = {
+        operation: "social_publish",
+        phase: "update",
+        videoUuid: telemetryVideoUuid,
+        providerJobId: existingFbVideoId,
+        postType: postType || "video",
+        scheduled: false,
+        httpStatus: updateRes.status,
+      };
+      pendingCompletedProviderCost = updateProviderCost;
+      const deductResult = await deductPublishCredits(publishCreditCheck);
+      await recordUploaderXFacebookCost({
+        status: "success",
+        userId: session.userId,
+        ...updateProviderCost,
+        chargedCredits: deductResult.transactionId ? UPLOADERX_FACEBOOK_PUBLISH_CREDITS : undefined,
+        creditTransactionId: deductResult.transactionId,
+        requestCount: 1,
+      });
+      recordedPendingProviderCost = true;
 
       return NextResponse.json({
         success: true,
@@ -272,6 +334,16 @@ export async function POST(req: Request) {
 
           const simpleData = simpleRes.data;
           if (!simpleData.error) {
+            const simpleProviderCost: FacebookProviderCostContext = {
+              operation: "social_media_upload",
+              phase: "simple_upload",
+              videoUuid: telemetryVideoUuid,
+              providerJobId: simpleData.id,
+              postType: postType || "video",
+              scheduled: Boolean(scheduledPublishAt),
+              httpStatus: simpleRes.status,
+            };
+            pendingCompletedProviderCost = simpleProviderCost;
             const facebookUrl = `https://www.facebook.com/${targetPage.pageId}/videos/${simpleData.id}`;
             if (videoUuid) {
               await UploaderXVideo.updateOne(
@@ -304,7 +376,16 @@ export async function POST(req: Request) {
               }
             }
 
-            await deductPublishCredits(publishCreditCheck);
+            const deductResult = await deductPublishCredits(publishCreditCheck);
+            await recordUploaderXFacebookCost({
+              status: "success",
+              userId: session.userId,
+              ...simpleProviderCost,
+              chargedCredits: deductResult.transactionId ? UPLOADERX_FACEBOOK_PUBLISH_CREDITS : undefined,
+              creditTransactionId: deductResult.transactionId,
+              requestCount: 1,
+            });
+            recordedPendingProviderCost = true;
 
             return NextResponse.json({
               success: true,
@@ -316,7 +397,30 @@ export async function POST(req: Request) {
               publishAt: scheduledPublishAt?.toISOString(),
             });
           }
+          await recordUploaderXFacebookCost({
+            status: "failed",
+            operation: "social_media_upload",
+            phase: "simple_upload",
+            userId: session.userId,
+            videoUuid: telemetryVideoUuid,
+            requestCount: 1,
+            httpStatus: simpleRes.status,
+            postType: postType || "video",
+            scheduled: Boolean(scheduledPublishAt),
+            error: simpleData.error,
+          });
         } catch (simpleError: any) {
+          await recordUploaderXFacebookCost({
+            status: "failed",
+            operation: "social_media_upload",
+            phase: "simple_upload",
+            userId: session.userId,
+            videoUuid: telemetryVideoUuid,
+            requestCount: 1,
+            postType: postType || "video",
+            scheduled: Boolean(scheduledPublishAt),
+            error: simpleError,
+          });
           console.warn("Facebook simple upload failed, falling back to resumable upload:", simpleError.message);
         }
       }
@@ -338,6 +442,17 @@ export async function POST(req: Request) {
 
       const initData = await initRes.json();
       if (initData.error) {
+        await recordUploaderXFacebookCost({
+          status: "failed",
+          operation: "social_media_upload",
+          phase: "start",
+          userId: session.userId,
+          videoUuid: telemetryVideoUuid,
+          requestCount: 1,
+          postType: "reel",
+          scheduled: Boolean(scheduledPublishAt),
+          error: initData.error,
+        });
         return NextResponse.json(
           {
             success: false,
@@ -350,6 +465,18 @@ export async function POST(req: Request) {
       videoId = initData.video_id;
       uploadUrl = initData.upload_url;
       uploadSessionId = videoId;
+      await recordUploaderXFacebookCost({
+        status: "success",
+        operation: "social_media_upload",
+        phase: "start",
+        userId: session.userId,
+        videoUuid: telemetryVideoUuid,
+        providerJobId: videoId,
+        uploadSessionId,
+        requestCount: 1,
+        postType: "reel",
+        scheduled: Boolean(scheduledPublishAt),
+      });
     } else {
       const initUrl = `https://graph.facebook.com/v21.0/${targetPage.pageId}/videos?access_token=${encodeURIComponent(targetPage.pageAccessToken)}`;
       const initRes = await fetch(initUrl, {
@@ -363,6 +490,17 @@ export async function POST(req: Request) {
 
       const initData = await initRes.json();
       if (initData.error) {
+        await recordUploaderXFacebookCost({
+          status: "failed",
+          operation: "social_media_upload",
+          phase: "start",
+          userId: session.userId,
+          videoUuid: telemetryVideoUuid,
+          requestCount: 1,
+          postType: postType || "video",
+          scheduled: Boolean(scheduledPublishAt),
+          error: initData.error,
+        });
         return NextResponse.json(
           {
             success: false,
@@ -374,6 +512,18 @@ export async function POST(req: Request) {
 
       uploadSessionId = initData.upload_session_id;
       videoId = initData.video_id;
+      await recordUploaderXFacebookCost({
+        status: "success",
+        operation: "social_media_upload",
+        phase: "start",
+        userId: session.userId,
+        videoUuid: telemetryVideoUuid,
+        providerJobId: videoId,
+        uploadSessionId,
+        requestCount: 1,
+        postType: postType || "video",
+        scheduled: Boolean(scheduledPublishAt),
+      });
     }
 
     const fileBuffer = await fetchUploaderXBuffer(videoAsset.publicUrl);
@@ -393,6 +543,20 @@ export async function POST(req: Request) {
         });
 
         if (transferRes.data?.error) {
+          await recordUploaderXFacebookCost({
+            status: "failed",
+            operation: "social_media_upload",
+            phase: "transfer",
+            userId: session.userId,
+            videoUuid: telemetryVideoUuid,
+            providerJobId: videoId,
+            uploadSessionId,
+            requestCount: 1,
+            httpStatus: transferRes.status,
+            postType: "reel",
+            scheduled: Boolean(scheduledPublishAt),
+            error: transferRes.data.error,
+          });
           return NextResponse.json(
             {
               success: false,
@@ -401,7 +565,33 @@ export async function POST(req: Request) {
             { status: 500 }
           );
         }
+        await recordUploaderXFacebookCost({
+          status: "success",
+          operation: "social_media_upload",
+          phase: "transfer",
+          userId: session.userId,
+          videoUuid: telemetryVideoUuid,
+          providerJobId: videoId,
+          uploadSessionId,
+          requestCount: 1,
+          httpStatus: transferRes.status,
+          postType: "reel",
+          scheduled: Boolean(scheduledPublishAt),
+        });
       } catch (transferError: any) {
+        await recordUploaderXFacebookCost({
+          status: "failed",
+          operation: "social_media_upload",
+          phase: "transfer",
+          userId: session.userId,
+          videoUuid: telemetryVideoUuid,
+          providerJobId: videoId,
+          uploadSessionId,
+          requestCount: 1,
+          postType: "reel",
+          scheduled: Boolean(scheduledPublishAt),
+          error: transferError,
+        });
         if (transferError.code === "ECONNABORTED") {
           return NextResponse.json(
             {
@@ -440,6 +630,20 @@ export async function POST(req: Request) {
         });
 
         if (transferRes.data?.error) {
+          await recordUploaderXFacebookCost({
+            status: "failed",
+            operation: "social_media_upload",
+            phase: "transfer",
+            userId: session.userId,
+            videoUuid: telemetryVideoUuid,
+            providerJobId: videoId,
+            uploadSessionId,
+            requestCount: 1,
+            httpStatus: transferRes.status,
+            postType: postType || "video",
+            scheduled: Boolean(scheduledPublishAt),
+            error: transferRes.data.error,
+          });
           return NextResponse.json(
             {
               success: false,
@@ -448,7 +652,33 @@ export async function POST(req: Request) {
             { status: 500 }
           );
         }
+        await recordUploaderXFacebookCost({
+          status: "success",
+          operation: "social_media_upload",
+          phase: "transfer",
+          userId: session.userId,
+          videoUuid: telemetryVideoUuid,
+          providerJobId: videoId,
+          uploadSessionId,
+          requestCount: 1,
+          httpStatus: transferRes.status,
+          postType: postType || "video",
+          scheduled: Boolean(scheduledPublishAt),
+        });
       } catch (transferError: any) {
+        await recordUploaderXFacebookCost({
+          status: "failed",
+          operation: "social_media_upload",
+          phase: "transfer",
+          userId: session.userId,
+          videoUuid: telemetryVideoUuid,
+          providerJobId: videoId,
+          uploadSessionId,
+          requestCount: 1,
+          postType: postType || "video",
+          scheduled: Boolean(scheduledPublishAt),
+          error: transferError,
+        });
         if (transferError.code === "ECONNABORTED") {
           return NextResponse.json(
             {
@@ -481,6 +711,20 @@ export async function POST(req: Request) {
         );
 
         if (finishRes.data?.error) {
+          await recordUploaderXFacebookCost({
+            status: "failed",
+            operation: "social_media_upload",
+            phase: "finish",
+            userId: session.userId,
+            videoUuid: telemetryVideoUuid,
+            providerJobId: videoId,
+            uploadSessionId,
+            requestCount: 1,
+            httpStatus: finishRes.status,
+            postType: "reel",
+            scheduled: Boolean(scheduledPublishAt),
+            error: finishRes.data.error,
+          });
           return NextResponse.json(
             {
               success: false,
@@ -507,6 +751,20 @@ export async function POST(req: Request) {
         );
 
         if (finishRes.data?.error) {
+          await recordUploaderXFacebookCost({
+            status: "failed",
+            operation: "social_media_upload",
+            phase: "finish",
+            userId: session.userId,
+            videoUuid: telemetryVideoUuid,
+            providerJobId: videoId,
+            uploadSessionId,
+            requestCount: 1,
+            httpStatus: finishRes.status,
+            postType: postType || "video",
+            scheduled: Boolean(scheduledPublishAt),
+            error: finishRes.data.error,
+          });
           return NextResponse.json(
             {
               success: false,
@@ -517,11 +775,35 @@ export async function POST(req: Request) {
         }
       }
     } catch (finishError: any) {
+      await recordUploaderXFacebookCost({
+        status: "failed",
+        operation: "social_media_upload",
+        phase: "finish",
+        userId: session.userId,
+        videoUuid: telemetryVideoUuid,
+        providerJobId: videoId,
+        uploadSessionId,
+        requestCount: 1,
+        postType: postType || (isReel ? "reel" : "video"),
+        scheduled: Boolean(scheduledPublishAt),
+        error: finishError,
+      });
       return NextResponse.json(
         { success: false, error: `Failed to finish Facebook upload: ${finishError.message}` },
         { status: 500 }
       );
     }
+
+    const finishProviderCost: FacebookProviderCostContext = {
+      operation: "social_media_upload",
+      phase: "finish",
+      videoUuid: telemetryVideoUuid,
+      providerJobId: videoId,
+      uploadSessionId,
+      postType: postType || (isReel ? "reel" : "video"),
+      scheduled: Boolean(scheduledPublishAt),
+    };
+    pendingCompletedProviderCost = finishProviderCost;
 
     const facebookUrl = `https://www.facebook.com/${targetPage.pageId}/videos/${videoId}`;
     if (videoUuid) {
@@ -555,7 +837,16 @@ export async function POST(req: Request) {
       }
     }
 
-    await deductPublishCredits(publishCreditCheck);
+    const deductResult = await deductPublishCredits(publishCreditCheck);
+    await recordUploaderXFacebookCost({
+      status: "success",
+      userId: session.userId,
+      ...finishProviderCost,
+      chargedCredits: deductResult.transactionId ? UPLOADERX_FACEBOOK_PUBLISH_CREDITS : undefined,
+      creditTransactionId: deductResult.transactionId,
+      requestCount: 1,
+    });
+    recordedPendingProviderCost = true;
 
     return NextResponse.json({
       success: true,
@@ -567,6 +858,15 @@ export async function POST(req: Request) {
       publishAt: scheduledPublishAt?.toISOString(),
     });
   } catch (error: any) {
+    if (currentUserId && pendingCompletedProviderCost && !recordedPendingProviderCost) {
+      await recordUploaderXFacebookCost({
+        status: "success",
+        userId: currentUserId,
+        ...pendingCompletedProviderCost,
+        requestCount: 1,
+      });
+    }
+
     console.error("Facebook operation failed:", error);
     return NextResponse.json(
       { success: false, error: error.message || "Facebook upload failed" },
@@ -575,10 +875,59 @@ export async function POST(req: Request) {
   }
 }
 
-async function deductPublishCredits(creditCheck: CreditCheckResult) {
+async function deductPublishCredits(creditCheck: CreditCheckResult): Promise<{ transactionId?: string }> {
   try {
-    await creditCheck.deduct();
+    return await creditCheck.deduct();
   } catch (error) {
     console.error("[UploaderX:Facebook] publish credit deduction failed:", error);
+    return {};
   }
+}
+
+async function recordUploaderXFacebookCost(input: {
+  status: ProviderCostEventStatus;
+  operation: FacebookCostOperation;
+  phase: FacebookCostPhase;
+  userId: string;
+  videoUuid?: string;
+  providerJobId?: string;
+  uploadSessionId?: string;
+  chargedCredits?: number;
+  creditTransactionId?: string;
+  requestCount: number;
+  postType?: string;
+  scheduled?: boolean;
+  httpStatus?: number;
+  error?: unknown;
+}) {
+  await recordProviderCostEvent({
+    idempotencyKey:
+      input.status === "success" && input.creditTransactionId
+        ? `uploaderx:facebook:${input.phase}:${input.creditTransactionId}`
+        : undefined,
+    status: input.status,
+    userId: input.userId,
+    assetId: input.videoUuid,
+    taskId: input.videoUuid,
+    creditTransactionId: input.creditTransactionId,
+    service: "uploaderx",
+    action: "platform_publish",
+    route: UPLOADERX_FACEBOOK_ROUTE,
+    provider: UPLOADERX_FACEBOOK_PROVIDER,
+    model: UPLOADERX_FACEBOOK_MODEL,
+    operation: input.operation,
+    chargedCredits: input.chargedCredits,
+    providerJobId: input.providerJobId,
+    units: { requestCount: input.requestCount },
+    metadata: {
+      platform: "facebook",
+      phase: input.phase,
+      postType: input.postType,
+      scheduled: input.scheduled,
+      hasProviderVideoId: Boolean(input.providerJobId),
+      hasUploadSession: Boolean(input.uploadSessionId),
+      httpStatus: input.httpStatus,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
 }

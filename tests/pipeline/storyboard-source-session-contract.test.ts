@@ -75,6 +75,8 @@ describe('storyboard source session lineage contract', () => {
   });
 
   it('keeps brand-owned product references evidence backed before storyboard handoff', () => {
+    const storyboardSchema = read('lib/pipeline/schemas/storyboard.ts');
+    const storyboardGenerateRoute = read('app/api/services/pipeline/storyboard/generate/route.ts');
     const refEvidence = read('lib/pipeline/reference-brand-evidence.ts');
     const refGenerateRoute = read('app/api/services/pipeline/reference-images/generate/route.ts');
     const addSubjectRoute = read('app/api/services/pipeline/reference-images/[refSetId]/add-subject/route.ts');
@@ -134,14 +136,37 @@ describe('storyboard source session lineage contract', () => {
     expect(exportHook).toContain('generatedBrandOwnedSubjects');
     expect(exportHook).toContain('referenceContinueBlocked');
     expect(exportHook).toContain('buildSubjectRefFromResponse');
+    expect(exportHook).toContain('imageAssetId: subject.imageAssetId || subject.assetId || undefined');
+    expect(exportHook).toContain('source: subject.source');
+    expect(exportHook).toContain('referenceProvenance: s.referenceProvenance');
+    expect(exportHook).toContain('brandEvidenceStatus: s.brandEvidenceStatus');
     expect(exportHook).toContain('applyBrandReferenceWarnings');
     expect(exportHook).toContain('Brand-owned references cannot use generated/fake or legacy-unverified imagery');
     expect(referencePanel).toContain('referenceActionDisabled');
     expect(referencePanel).toContain('referenceContinueMessage');
+    expect(referencePanel).toContain('Brand-owned');
+    expect(referencePanel).toContain('Brand Vault evidence');
+    expect(storyboardSchema).toContain('brandId?: string;');
+    expect(storyboardSchema).toContain('export interface ApprovedStoryboardReference');
+    expect(storyboardSchema).toContain('referenceProvenance?: ApprovedStoryboardReferenceProvenance;');
+    expect(storyboardSchema).toContain('approvedReferences?: ApprovedStoryboardReference[];');
+    expect(storyboardGenerateRoute).toContain('ApprovedStoryboardReference');
+    expect(storyboardGenerateRoute).toContain('const normalizedBrandId = normalizeString(brandId);');
+    expect(storyboardGenerateRoute).toContain('brandId: normalizedBrandId');
+    expect(storyboardGenerateRoute).toContain('let referenceImageMap: Record<number, ApprovedStoryboardReference[]> | undefined;');
+    expect(storyboardGenerateRoute).toContain('...ref,');
+    expect(storyboardGenerateRoute).toContain('weight: ref.weight ?? 0.6');
+    expect(subjectTypes).toContain('imageAssetId?: string;');
+    expect(subjectTypes).toContain('imageGcsPath?: string;');
+    expect(subjectTypes).toContain('source?: string;');
+    expect(subjectTypes).toContain('assetRole?: string;');
     expect(subjectTypes).toContain('referenceProvenance?: ReferenceImageProvenance;');
     expect(subjectCard).toContain('isBrandEvidenceLocked');
+    expect(subjectCard).toContain('canUseAiRegeneration');
     expect(subjectCard).toContain('Upload brand evidence');
+    expect(subjectCard).toContain('Upload evidence');
     expect(subjectCard).toContain('Brand-owned references need real evidence');
+    expect(subjectCard).toContain('AI regeneration is unavailable for brand-owned subjects.');
     expect(subjectCard).toContain('referenceProvenanceLabel');
     expect(subjectCard).toContain('Website screenshot');
     expect(subjectCard).toContain('Generated');

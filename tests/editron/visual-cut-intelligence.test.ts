@@ -340,4 +340,59 @@ describe('visual cut intelligence', () => {
       'visual-explainability:high',
     ]));
   });
+
+  it('protects visual-only explanatory footage instead of treating absent transcript as dead air', () => {
+    const result = refineCutPlanWithVisualIntelligence(
+      rawFootage({
+        originalDurationMs: 8_000,
+        estimatedCleanDurationMs: 8_000,
+        speechCoverage: 0,
+        needsVisualDrivenEditing: true,
+        transcription: {
+          words: [],
+          transcript: '',
+          language: 'en',
+          confidence: 0,
+          generatedAt: new Date('2026-07-05T00:00:00.000Z'),
+        },
+        segments: [],
+      }),
+      vjepa([
+        visualSegment({
+          startMs: 1_000,
+          endMs: 6_000,
+          visualSignificance: 0.74,
+          motionIntensity: 0.38,
+          actionType: 'demonstrating',
+          motionType: 'subject_moving',
+          textBoxCount: 3,
+          textCoverage: 0.24,
+          objectCount: 4,
+          mainSubject: { x: 0.12, y: 0.16, width: 0.32, height: 0.46, confidence: 0.82 },
+          mainSubjectX: 0.12,
+          mainSubjectY: 0.16,
+          mainSubjectWidth: 0.32,
+          mainSubjectHeight: 0.46,
+          negativeSpaceTop: 0.18,
+          negativeSpaceRight: 0.68,
+          negativeSpaceBottom: 0.12,
+          negativeSpaceLeft: 0.1,
+        }),
+      ]),
+    );
+
+    expect(result.report.mode).toBe('visual-led');
+    expect(result.plan).toEqual([]);
+    expect(result.report.addedRemovalCount).toBe(0);
+    expect(result.report.perception).toMatchObject({
+      status: 'available',
+      primaryVisualMode: 'screen-text',
+      visualExplainability: 'high',
+      visibleExplanationRatio: 1,
+      visualDeadAirRatio: 0,
+      screenAwarePlacementTrust: 'trusted',
+      preferredOverlayRegion: 'right',
+      missingEvidence: [],
+    });
+  });
 });

@@ -82,6 +82,52 @@ function acceptedProfileWithEvidence() {
   };
 }
 
+function acceptedReviewPayloadWithLogo() {
+  return {
+    visualIdentity: {
+      colors: [],
+      fonts: [],
+      images: [],
+      logos: [
+        {
+          kind: 'logo',
+          label: 'Insturix Logo',
+          url: 'https://brand.example/insturix-logo.svg',
+          confidence: 0.94,
+          signalPath: 'assets.logoCandidates',
+          sourceType: 'uploaded_asset',
+        },
+      ],
+    },
+  };
+}
+
+function acceptedReviewPayloadWithVisualImages() {
+  return {
+    visualIdentity: {
+      colors: [],
+      fonts: [],
+      logos: [],
+      images: [
+        {
+          kind: 'website_preview',
+          label: 'Insturix dashboard website screenshot',
+          url: 'https://brand.example/website-shot.png',
+          confidence: 0.9,
+          sourceType: 'website',
+        },
+        {
+          kind: 'uploaded_asset',
+          label: 'Uploaded Insturix platform screenshot',
+          url: 'https://brand.example/uploaded-platform.png',
+          confidence: 0.93,
+          sourceType: 'uploaded_asset',
+        },
+      ],
+    },
+  };
+}
+
 describe('reference image brand evidence route canary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -180,6 +226,88 @@ describe('reference image brand evidence route canary', () => {
       requiresBrandEvidence: true,
       brandEvidenceStatus: 'resolved',
     });
+    expect(mocks.getBalance).not.toHaveBeenCalled();
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+    expect(mocks.createReferenceImageBatch).not.toHaveBeenCalled();
+  });
+
+  it('uses Brand Vault logo evidence for logo subjects but not product subjects', async () => {
+    mocks.resolveEffectiveBrandWithProfile.mockResolvedValue({
+      brand: { name: 'Insturix' },
+      acceptedProfile: {
+        identity: {
+          brandName: stringSignal('Insturix'),
+        },
+        assets: {},
+      },
+      acceptedReviewPayload: acceptedReviewPayloadWithLogo(),
+    });
+
+    const response = await GENERATE_REFERENCES(request({
+      brandId: 'brand_refs',
+      subjects: [
+        { id: 'logo', name: 'Insturix Logo', category: 'object', visualDescription: 'Official Insturix brand logo mark', scenesAppearingIn: [5] },
+        { id: 'platform', name: 'Insturix Platform', category: 'product', visualDescription: 'Platform UI', scenesAppearingIn: [1] },
+      ],
+    }) as any);
+
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.status).toBe('partial');
+    expect(body.subjects[0]).toMatchObject({
+      subjectId: 'logo',
+      imageUrl: 'https://brand.example/insturix-logo.svg',
+      source: 'brand-vault-logo',
+      referenceProvenance: 'brand-vault',
+      requiresBrandEvidence: true,
+      brandEvidenceStatus: 'resolved',
+    });
+    expect(body.subjects[1]).toMatchObject({
+      subjectId: 'platform',
+      referenceProvenance: 'missing-brand-evidence',
+      brandEvidenceStatus: 'missing',
+    });
+    expect(body.subjects[1].imageUrl).toBeUndefined();
+    expect(body.brandReferenceWarnings).toEqual(['Brand evidence required for Insturix Platform']);
+    expect(mocks.getBalance).not.toHaveBeenCalled();
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+    expect(mocks.createReferenceImageBatch).not.toHaveBeenCalled();
+  });
+
+  it('uses accepted Brand Vault visual identity images for product references without credits', async () => {
+    mocks.resolveEffectiveBrandWithProfile.mockResolvedValue({
+      brand: { name: 'Insturix' },
+      acceptedProfile: {
+        identity: {
+          brandName: stringSignal('Insturix'),
+        },
+        assets: {},
+      },
+      acceptedReviewPayload: acceptedReviewPayloadWithVisualImages(),
+    });
+
+    const response = await GENERATE_REFERENCES(request({
+      brandId: 'brand_refs',
+      subjects: [
+        { id: 'platform', name: 'Insturix Platform', category: 'product', visualDescription: 'Platform UI screenshot', scenesAppearingIn: [1] },
+        { id: 'dashboard', name: 'Insturix Dashboard', category: 'product', visualDescription: 'Dashboard UI screenshot', scenesAppearingIn: [2] },
+      ],
+    }) as any);
+
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.status).toBe('ready');
+    expect(body.subjects.map((subject: any) => subject.imageUrl)).toEqual([
+      'https://brand.example/uploaded-platform.png',
+      'https://brand.example/website-shot.png',
+    ]);
+    expect(body.subjects.map((subject: any) => subject.referenceProvenance)).toEqual([
+      'brand-vault',
+      'website-screenshot',
+    ]);
+    expect(body.brandReferenceWarnings).toEqual([]);
     expect(mocks.getBalance).not.toHaveBeenCalled();
     expect(mocks.deductCredits).not.toHaveBeenCalled();
     expect(mocks.createReferenceImageBatch).not.toHaveBeenCalled();

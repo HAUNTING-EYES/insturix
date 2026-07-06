@@ -96,6 +96,7 @@ export interface NumericEncodingSelectionOptions {
 
 export interface NumericEncodingCandidateLayerScores {
   legibility?: number | null;
+  correctness?: number | null;
   aesthetic?: number | null;
   composite?: number | null;
   failsLegibilityFloor?: boolean;

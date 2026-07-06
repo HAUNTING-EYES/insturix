@@ -4,11 +4,15 @@ const mocks = vi.hoisted(() => ({
   connectToDatabase: vi.fn(),
   connectedAccountFindOne: vi.fn(),
   userFindOne: vi.fn(),
+  recordProviderCostEvent: vi.fn(),
 }));
 
 vi.mock("@/schemas/ConnectToDatabase", () => ({ default: mocks.connectToDatabase }));
 vi.mock("@/schemas/calos-connected-account", () => ({ default: { findOne: mocks.connectedAccountFindOne } }));
 vi.mock("@/schemas/user", () => ({ User: { findOne: mocks.userFindOne } }));
+vi.mock("@/lib/financials/provider-cost-events", () => ({
+  recordProviderCostEvent: mocks.recordProviderCostEvent,
+}));
 
 import { getPublisher } from "@/lib/calos/publish/contract";
 import { publishToInstagram } from "@/lib/calos/publish/instagram";
@@ -41,6 +45,7 @@ describe("publishToInstagram", () => {
     mocks.connectToDatabase.mockReset().mockResolvedValue(undefined);
     mocks.connectedAccountFindOne.mockReset();
     mocks.userFindOne.mockReset();
+    mocks.recordProviderCostEvent.mockReset().mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
@@ -67,6 +72,7 @@ describe("publishToInstagram", () => {
     });
     expect(mocks.userFindOne).toHaveBeenCalledWith({ clerkUserId: "owner_1" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mocks.recordProviderCostEvent).toHaveBeenCalledTimes(2);
 
     const [containerUrl] = fetchMock.mock.calls[0] as [string];
     expect(containerUrl).toContain("/me/media?");
@@ -86,6 +92,7 @@ describe("publishToInstagram", () => {
     expect(result.error).toContain("requires an image");
     expect(mocks.connectedAccountFindOne).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.recordProviderCostEvent).not.toHaveBeenCalled();
   });
 
   it("fails loud when the brand has no assigned Instagram account", async () => {
@@ -97,6 +104,7 @@ describe("publishToInstagram", () => {
       retryable: false,
     });
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.recordProviderCostEvent).not.toHaveBeenCalled();
   });
 
   it("fails loud when the assigned account's owner is no longer connected", async () => {
@@ -107,6 +115,7 @@ describe("publishToInstagram", () => {
     expect(result.retryable).toBe(false);
     expect(result.error).toContain("no longer connected");
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.recordProviderCostEvent).not.toHaveBeenCalled();
   });
 
   it("marks a Graph rate limit on the container step as retryable", async () => {
@@ -118,5 +127,6 @@ describe("publishToInstagram", () => {
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(true);
     expect(result.error).toContain("429");
+    expect(mocks.recordProviderCostEvent).toHaveBeenCalledTimes(1);
   });
 });

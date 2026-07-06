@@ -289,7 +289,7 @@ describe('canonical caption track', () => {
     expect(caption.height).toBeLessThanOrEqual(150);
     expect(caption.top).toBeGreaterThan(800);
     // Signal-resolved: formality 0.7 / energy 0.45 selects the registry `minimal` preset
-    // (clean dark pill + blue active-word box) — a signal-driven aesthetic, not a fixed band.
+    // (clean dark pill + blue active-word box) â€” a signal-driven aesthetic, not a fixed band.
     expect(caption.styles).toMatchObject({
       backgroundColor: 'rgba(0,0,0,0.6)',
       fontSize: '38px',
@@ -507,6 +507,103 @@ describe('canonical caption track', () => {
       selectedRegion: 'bottom-center',
     });
   });
+
+  it('moves global captions away from persistent source-video text boxes', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 90, sourceStartFrame: 300 },
+      { id: 11, type: 'video', from: 90, durationInFrames: 90, sourceStartFrame: 900 },
+    ];
+    const resolved = resolveAtomicCaptionPresentation({
+      requestedStyle: 'word_by_word',
+      genreParams: {
+        formality: 0.7,
+        energy_baseline: 0.45,
+        pacing_tolerance: 8,
+      },
+    });
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: context(['Hank', 'is', 'explaining', 'the', 'whole', 'thing']),
+      segmentAnalysis: {
+        version: 1,
+        segments: [{
+          index: 0,
+          startMs: 10_000,
+          endMs: 13_000,
+          visual: {
+            textBoxes: [{ x: 0.12, y: 0.62, width: 0.76, height: 0.28, confidence: 0.9, text: 'lower third' }],
+            textCoverage: 0.18,
+          },
+          semanticVisual: { ocrText: ['lower third'] },
+        }],
+      } as any,
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: resolved,
+    });
+
+    expect(result.created).toBe(1);
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.top).toBeGreaterThanOrEqual(129);
+    expect(caption.top).toBeLessThan(240);
+    expect(caption.metadata.evidence).toMatchObject({
+      protectedRegionCount: 1,
+      sourceTextProtectedRegionCount: 1,
+      semanticVisualOcrSegmentCount: 1,
+      selectedRegion: 'top-center',
+    });
+  });
+
+  it('does not move a full-video caption track because of a brief source-video text flash', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 1800, sourceStartFrame: 300 },
+    ];
+    const editedContext = context(['Hank', 'is', 'explaining', 'the', 'whole', 'thing']);
+    editedContext.durationFrames = 1800;
+    editedContext.durationMs = 60_000;
+    editedContext.sourceClips = [
+      { from: 0, durationInFrames: 1800, sourceStartFrame: 300 },
+    ];
+    const resolved = resolveAtomicCaptionPresentation({
+      requestedStyle: 'word_by_word',
+      genreParams: {
+        formality: 0.7,
+        energy_baseline: 0.45,
+        pacing_tolerance: 8,
+      },
+    });
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: editedContext,
+      segmentAnalysis: {
+        version: 1,
+        segments: [{
+          index: 0,
+          startMs: 10_000,
+          endMs: 11_000,
+          visual: {
+            textBoxes: [{ x: 0.12, y: 0.62, width: 0.76, height: 0.28, confidence: 0.95, text: 'flash' }],
+            textCoverage: 0.2,
+          },
+          semanticVisual: { ocrText: ['flash'] },
+        }],
+      } as any,
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: resolved,
+    });
+
+    expect(result.created).toBe(1);
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.top).toBeGreaterThan(800);
+    expect(caption.metadata.evidence).toMatchObject({
+      protectedRegionCount: 0,
+      sourceTextProtectedRegionCount: 0,
+      semanticVisualOcrSegmentCount: 1,
+      selectedRegion: 'bottom-center',
+    });
+  });
+
 
   it('moves global captions out of protected bottom regions from concrete overlays', () => {
     const overlays: any[] = [

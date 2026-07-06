@@ -7,9 +7,11 @@ const mocks = vi.hoisted(() => ({
   setAWSCredentials: vi.fn(async () => {}),
   findOne: vi.fn(),
   updateOne: vi.fn(async () => ({})),
+  insertOne: vi.fn(async (_job?: unknown) => ({})),
   collection: vi.fn(),
   isChapterConcatConfigured: vi.fn(() => false),
   enqueueChapterConcat: vi.fn(async () => {}),
+  assertRemotionSiteFresh: vi.fn(),
 }));
 
 vi.mock("@remotion/lambda/client", () => ({
@@ -30,7 +32,18 @@ vi.mock("@/lib/editron/services/chapter-concat-client", () => ({
   enqueueChapterConcat: mocks.enqueueChapterConcat,
 }));
 
-import { getChapterRenderProgress } from "@/lib/editron/services/chapter-renderer";
+vi.mock("@/lib/editron/services/remotion-site-version", () => ({
+  assertRemotionSiteFresh: mocks.assertRemotionSiteFresh,
+}));
+vi.mock("@/lib/services/planService", () => ({
+  getUserPlanWithServiceLimits: vi.fn(async () => ({ type: "base" })),
+}));
+
+vi.mock("@/lib/editron/services/render-chapter-retention", () => ({
+  renderChapterExpiresAt: vi.fn((createdAt: Date) => createdAt),
+}));
+
+import { getChapterRenderProgress, startChapterRender } from "@/lib/editron/services/chapter-renderer";
 
 describe("chapter renderer progress", () => {
   beforeEach(() => {
@@ -40,7 +53,9 @@ describe("chapter renderer progress", () => {
     mocks.collection.mockReturnValue({
       findOne: mocks.findOne,
       updateOne: mocks.updateOne,
+      insertOne: mocks.insertOne,
     });
+
     mocks.getDatabase.mockResolvedValue({
       collection: mocks.collection,
     });
@@ -48,7 +63,102 @@ describe("chapter renderer progress", () => {
     // Tests that exercise the concat path override these.
     mocks.isChapterConcatConfigured.mockReturnValue(false);
     mocks.enqueueChapterConcat.mockResolvedValue(undefined);
+    mocks.assertRemotionSiteFresh.mockReturnValue({ reason: "verified_env_commit" });
     mocks.updateOne.mockResolvedValue({});
+  });
+
+  it("starts chapter renders from absolute composition overlays using slim Lambda props", async () => {
+    let insertedJob: any = null;
+    mocks.insertOne.mockImplementation(async (job: any) => {
+      insertedJob = job;
+      mocks.findOne.mockResolvedValue(job);
+      return {};
+    });
+    mocks.updateOne.mockResolvedValue({ modifiedCount: 1 });
+    mocks.renderMediaOnLambda.mockResolvedValue({ renderId: "render_chapter", bucketName: "remotion-bucket" });
+    mocks.assertRemotionSiteFresh.mockReturnValue({ reason: "verified_env_commit" });
+
+    const overlays: any[] = [
+      { id: "clip-a", type: "video", row: 2, from: 0, durationInFrames: 15_000, videoStartTime: 300 },
+      { id: "clip-b", type: "video", row: 2, from: 15_000, durationInFrames: 15_000, videoStartTime: 900 },
+      {
+        id: "caption-track",
+        type: "caption",
+        row: 4,
+        from: 0,
+        durationInFrames: 30_000,
+        captions: [{ text: "chapter two words", startMs: 16_000, endMs: 17_000 }],
+        metadata: {
+          atomicOverlayReceipt: { version: "overlay-atomic-form-v1" },
+          unifiedDecisionBundle: { candidates: ["x".repeat(20_000)] },
+          semanticMgCandidateLedger: { candidates: ["x".repeat(20_000)] },
+        },
+      },
+      {
+        id: "bgm",
+        type: "sound",
+        row: 1,
+        from: 0,
+        durationInFrames: 30_000,
+        startFromSound: 1234,
+      },
+      {
+        id: "transition-at-seam",
+        type: "transition",
+        row: 5,
+        from: 14_985,
+        durationInFrames: 30,
+        clipAId: "clip-a",
+        clipBId: "clip-b",
+      },
+    ];
+
+    await startChapterRender(
+      "proj_long",
+      "user_1",
+      overlays,
+      30_000,
+      30,
+      1920,
+      1080,
+      "https://remotion.example/site",
+      "remotion-fn",
+    );
+
+    expect(insertedJob.overlays).not.toBe(overlays);
+    expect(JSON.stringify(insertedJob.overlays)).not.toContain("x".repeat(1000));
+    expect(insertedJob.overlays.find((overlay: any) => overlay.id === "caption-track").captions[0]).toEqual({
+      text: "chapter two words",
+      startMs: 16_000,
+      endMs: 17_000,
+    });
+    expect(insertedJob.overlays.find((overlay: any) => overlay.id === "caption-track").metadata).toEqual({
+      atomicOverlayReceipt: { version: "overlay-atomic-form-v1" },
+    });
+    expect(insertedJob.chapters).toEqual([
+      expect.objectContaining({ index: 0, startFrame: 0, endFrame: 15_000, durationFrames: 15_000 }),
+      expect.objectContaining({ index: 1, startFrame: 15_000, endFrame: 30_000, durationFrames: 15_000 }),
+    ]);
+    expect(insertedJob.chapters[0]).not.toHaveProperty("overlays");
+    expect(mocks.assertRemotionSiteFresh).toHaveBeenCalledWith({
+      serveUrl: "https://remotion.example/site",
+      env: process.env,
+    });
+    expect(mocks.renderMediaOnLambda).toHaveBeenCalledTimes(2);
+    expect(mocks.renderMediaOnLambda).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        frameRange: [0, 14_999],
+        inputProps: expect.objectContaining({ durationInFrames: 30_000, overlays: insertedJob.overlays }),
+      }),
+    );
+    expect(mocks.renderMediaOnLambda).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        frameRange: [15_000, 29_999],
+        inputProps: expect.objectContaining({ durationInFrames: 30_000, overlays: insertedJob.overlays }),
+      }),
+    );
   });
 
   it("polls chapter progress through S3 state instead of Lambda status invocation", async () => {

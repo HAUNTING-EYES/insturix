@@ -378,6 +378,21 @@ describe('rendered aesthetic harness helpers', () => {
       opacity: 1,
       textPixelHeight: 64,
     }));
+
+    const snapOverlay = textOverlay({
+      id: 8,
+      from: 20,
+      left: 100,
+      top: 200,
+      width: 300,
+      height: 100,
+      keyframeTracks: [
+        { property: 'scale', keyframes: [{ frame: 0, value: 1, easing: 'snap-out' }, { frame: 10, value: 1.2, easing: 'linear' }] },
+      ],
+    });
+
+    const snapBox = renderedOverlayBoxAtFrame(snapOverlay, 25);
+    expect(snapBox.width).toBeGreaterThan(350);
   });
 
   it('measures painted pixel bounds instead of trusting full-frame wrappers', () => {

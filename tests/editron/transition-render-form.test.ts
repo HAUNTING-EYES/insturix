@@ -6,6 +6,7 @@ import {
   resolveTransitionRenderStyle,
 } from '@/lib/editron/services/transition-render-form';
 import type { AtomicTransitionForm } from '@/lib/editron/services/transition-form';
+import { resolveTransitionClipStartFrom } from '../../components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content';
 
 const baseForm: AtomicTransitionForm = {
   version: 'atomic-transition-form-v1',
@@ -72,5 +73,12 @@ describe('transition render form adapter', () => {
   it('rejects malformed metadata before render use', () => {
     expect(isAtomicTransitionForm({ version: 'legacy', direction: {} })).toBe(false);
     expect(isAtomicTransitionForm(baseForm)).toBe(true);
+  });
+
+  it('conserves source offsets for transition tile pre-roll', () => {
+    expect(resolveTransitionClipStartFrom({ from: 0, videoStartTime: 300 } as any, 82)).toBe(382);
+    expect(resolveTransitionClipStartFrom({ from: 100, videoStartTime: 900 } as any, 82)).toBe(882);
+    expect(resolveTransitionClipStartFrom({ from: 100, sourceStartFrame: 900, videoStartTime: 500 } as any, 82)).toBe(882);
+    expect(resolveTransitionClipStartFrom({ from: 20, sourceStartFrame: 10 } as any, 5)).toBe(0);
   });
 });

@@ -22,6 +22,8 @@ import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 import { isChapterConcatConfigured, enqueueChapterConcat } from './chapter-concat-client';
+import { buildLambdaRenderInputProps } from '@/lib/editron/shared/render-request-payload';
+import { assertRemotionSiteFresh } from './remotion-site-version';
 
 // ─── Configuration ────────────────────────────────────────────────
 
@@ -61,8 +63,6 @@ interface Chapter {
   startFrame: number;
   endFrame: number;
   durationFrames: number;
-  /** Overlays that fall within this chapter's frame range */
-  overlays: Overlay[];
   /** Render ID from Lambda (set after render starts) */
   renderId?: string;
   /** Real Remotion bucket for this chapter render. */
@@ -82,6 +82,8 @@ interface ChapterRenderJob {
   chapters: Chapter[];
   status: 'splitting' | 'rendering' | 'concatenating' | 'completed' | 'failed';
   totalFrames: number;
+  /** Full absolute composition overlays. Chapters crop by frameRange instead of rebasing overlay time. */
+  overlays: Overlay[];
   fps: number;
   width: number;
   height: number;
@@ -167,32 +169,6 @@ export function detectChapterBoundaries(
   return chapters;
 }
 
-/**
- * Get overlays that fall within a chapter's frame range.
- * Adjusts overlay.from to be relative to chapter start (0-based).
- */
-function getChapterOverlays(
-  allOverlays: Overlay[],
-  chapterStart: number,
-  chapterEnd: number,
-): Overlay[] {
-  return allOverlays
-    .filter(o => {
-      const overlayEnd = o.from + o.durationInFrames;
-      // Include if overlay overlaps with chapter range
-      return overlayEnd > chapterStart && o.from < chapterEnd;
-    })
-    .map(o => {
-      const adjustedFrom = Math.max(0, o.from - chapterStart);
-      const adjustedEnd = Math.min(chapterEnd - chapterStart, o.from + o.durationInFrames - chapterStart);
-      return {
-        ...o,
-        from: adjustedFrom,
-        durationInFrames: Math.max(1, adjustedEnd - adjustedFrom),
-      };
-    });
-}
-
 // ─── Render Orchestration ─────────────────────────────────────────
 
 /**
@@ -224,7 +200,7 @@ async function startSingleChapterRender(
   db: Awaited<ReturnType<typeof getDatabase>>,
   jobId: string,
   chapter: Chapter,
-  ctx: { serveUrl: string; functionName: string; fps: number; width: number; height: number },
+  ctx: { serveUrl: string; functionName: string; fps: number; width: number; height: number; totalFrames: number; overlays: Overlay[] },
 ): Promise<void> {
   // Atomic claim: only proceed if this chapter is still pending (prevents a racing poll double-starting it).
   const claim = await db.collection(CHAPTERS_COLLECTION).updateOne(
@@ -235,27 +211,29 @@ async function startSingleChapterRender(
 
   try {
     await setAWSCredentials();
+    const inputProps = buildLambdaRenderInputProps({
+      overlays: ctx.overlays,
+      durationInFrames: ctx.totalFrames,
+      fps: ctx.fps,
+      width: ctx.width,
+      height: ctx.height,
+      // Use OffthreadVideo (ffmpeg, robust) not Html5Video for server render -- without this flag the
+      // composition defaults isRendering=false and a large/slow-proxied clip hangs delayRender -> timeout.
+      isRendering: true,
+    });
     const { renderId, bucketName } = await renderMediaOnLambda({
       region: (process.env.REMOTION_AWS_REGION || 'us-east-1') as any,
       functionName: ctx.functionName,
       serveUrl: ctx.serveUrl,
       composition: REMOTION_COMPOSITION_ID,
-      inputProps: {
-        overlays: chapter.overlays,
-        durationInFrames: chapter.durationFrames,
-        fps: ctx.fps,
-        width: ctx.width,
-        height: ctx.height,
-        // Use OffthreadVideo (ffmpeg, robust) not Html5Video for server render — without this flag the
-        // composition defaults isRendering=false and a large/slow-proxied clip hangs delayRender → timeout.
-        isRendering: true,
-      },
+      inputProps,
       codec: 'h264',
       maxRetries: 1,
       framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,
       privacy: 'public',
       timeoutInMilliseconds: 600000, // 10 min per chapter
       audioCodec: 'mp3',
+      frameRange: [chapter.startFrame, Math.max(chapter.startFrame, chapter.endFrame - 1)],
     });
     await db.collection(CHAPTERS_COLLECTION).updateOne(
       { _id: jobId, 'chapters.index': chapter.index } as any,
@@ -312,8 +290,20 @@ export async function startPendingChapters(
     console.warn('[ChapterRenderer] cannot start pending chapters: REMOTION_LAMBDA_SERVE_URL / FUNCTION_NAME unset');
     return;
   }
+  const freshness = assertRemotionSiteFresh({ serveUrl, env: process.env });
+  if (freshness.reason === 'unverified_no_app_commit') {
+    console.warn('[ChapterRenderer] Remotion site version could not be verified because app commit metadata is missing');
+  }
 
-  const ctx = { serveUrl, functionName, fps: job.fps, width: job.width, height: job.height };
+  const ctx = {
+    serveUrl,
+    functionName,
+    fps: job.fps,
+    width: job.width,
+    height: job.height,
+    totalFrames: job.totalFrames,
+    overlays: (job.overlays ?? []) as Overlay[],
+  };
   for (const chapter of pending) {
     await startSingleChapterRender(db, jobId, chapter, ctx);
   }
@@ -336,13 +326,23 @@ export async function startChapterRender(
   // Detect chapter boundaries
   const boundaries = detectChapterBoundaries(overlays, totalFrames, fps);
 
+  const compactRenderProps = buildLambdaRenderInputProps({
+    overlays,
+    durationInFrames: totalFrames,
+    fps,
+    width,
+    height,
+    isRendering: true,
+  });
+  const renderOverlays = Array.isArray(compactRenderProps.overlays)
+    ? compactRenderProps.overlays as Overlay[]
+    : [];
   // Create chapter records
   const chapters: Chapter[] = boundaries.map((b, i) => ({
     index: i,
     startFrame: b.startFrame,
     endFrame: b.endFrame,
     durationFrames: b.endFrame - b.startFrame,
-    overlays: getChapterOverlays(overlays, b.startFrame, b.endFrame),
     status: 'pending' as const,
   }));
 
@@ -366,6 +366,7 @@ export async function startChapterRender(
     chapters,
     status: 'rendering',
     totalFrames,
+    overlays: renderOverlays,
     fps,
     width,
     height,

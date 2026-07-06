@@ -75,6 +75,30 @@ describe('Avatar render recipe', () => {
     expect(readiness.errors.map((issue) => issue.code)).toEqual(['missing_speech_audio']);
   });
 
+  it('allows speech generation from a Chatterbox voice reference URL', () => {
+    const recipe = buildAvatarRenderRecipe({
+      profileRecord: acceptedRecord({
+        voice: {
+          sourceType: 'uploaded_voice_sample',
+          sampleAssetId: '',
+          ttsVoiceId: '',
+          voiceProfileId: '',
+        },
+      }),
+      useCase: 'speech_delivery',
+      prompt: 'Presenter delivers a concise explainer.',
+      script: 'This line should be spoken in the cloned voice.',
+      audio: {
+        mode: 'tts_voiceover',
+        voiceReferenceUrl: 'https://cdn.example.test/audio/rishi-sample.wav',
+      },
+    });
+
+    expect(recipe.readiness.ready).toBe(true);
+    expect(recipe.audio.mode).toBe('tts_voiceover');
+    expect(recipe.audio.sourceUrl).toBeUndefined();
+    expect(recipe.audio.voiceReferenceUrl).toBe('https://cdn.example.test/audio/rishi-sample.wav');
+  });
   it('blocks unauthorized copied audio and copied sound references', () => {
     const readiness = evaluateAvatarRenderReadiness({
       profileRecord: acceptedRecord(),

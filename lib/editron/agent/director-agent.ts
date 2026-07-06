@@ -54,7 +54,11 @@ import { buildPersistedQualityReview } from '@/lib/editron/services/quality-revi
 import { buildPhase0LiveTruthSnapshot } from '@/lib/editron/services/phase0-live-truth';
 import { buildPhase0FixtureManifest } from '@/lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '@/lib/editron/services/phase0-render-artifact-pack';
-import { dispatchPhase0RenderedEvidenceJob } from '@/lib/editron/services/phase0-rendered-evidence-worker';
+import {
+  buildPhase0RenderedEvidenceDispatchPersistSet,
+  dispatchPhase0RenderedEvidenceJob,
+  type Phase0RenderedEvidenceDispatchResult,
+} from '@/lib/editron/services/phase0-rendered-evidence-worker';
 
 // D-016: Convert genre-parameter-computer's numeric graphic_density (0-8) to EDL budget label.
 // ⚠️ thresholds 2 and 5 INVENTED — needs calibration via threshold bandit
@@ -358,6 +362,25 @@ async function persistFinalPhase0LiveTruth(options: {
 
   return snapshot;
 }
+
+async function persistPhase0RenderedEvidenceDispatchState(
+  projectId: string,
+  dispatchResult: Phase0RenderedEvidenceDispatchResult,
+  requestedAt: string,
+): Promise<void> {
+  try {
+    const dispatchDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+    await dispatchDb.collection('projects').updateOne(
+      { projectId },
+      {
+        $set: buildPhase0RenderedEvidenceDispatchPersistSet(dispatchResult, { requestedAt }),
+      },
+    );
+  } catch (err: unknown) {
+    console.warn('[Director] non-fatal Phase0 rendered evidence dispatch persistence:', err instanceof Error ? err.message : err);
+  }
+}
+
 function buildLivePhase0ArtifactDir(projectId: string, capturedAt: string): string {
   const safeProjectId = safePhase0PathSegment(projectId || 'unknown-project');
   const safeRunId = safePhase0PathSegment(capturedAt);
@@ -550,6 +573,7 @@ export async function executeDirectorPlan(
         const sb = await getStoryboardForProjectContext({
           projectId,
           sourceStoryboardId: projectDoc?.sourceStoryboardId,
+          sourceSessionId: projectDoc?.sourceSessionId,
         }, userId);
         if (sb) {
           // Path A: ThinkForge storyboard (Mode 1: script -> AI video)
@@ -875,6 +899,7 @@ export async function executeDirectorPlan(
             const genreResult = computeGenreParameters({
               rawFootage: decisionRawFootage,
               analyses,
+              wav2vecAnalysis: projectDoc.wav2vecAnalysis ?? null,
               musicAnalysis: projectDoc.musicAnalysis ?? null,
               videoDurationSec: cleanDurationSec,
             });
@@ -1225,6 +1250,7 @@ export async function executeDirectorPlan(
             const genreOutput = computeGenreParameters({
               rawFootage: pathDDecisionRawFootage,
               analyses,
+              wav2vecAnalysis: projectDoc.wav2vecAnalysis ?? null,
               musicAnalysis: projectDoc.musicAnalysis ?? null,
               videoDurationSec: (editedTimelineContext?.durationMs ?? ((project.durationInFrames || 900) / pathDFps * 1000)) / 1000,
               userPlatform: brief?.platform,
@@ -1625,6 +1651,7 @@ export async function executeDirectorPlan(
             const captionTrackResult = installCanonicalCaptionTrack({
               overlays,
               editedTimelineContext,
+              segmentAnalysis: projectDoc?.segmentAnalysis ?? null,
               playerDimensions: canvas,
               presentation: captionPresentation,
             });
@@ -1656,6 +1683,18 @@ export async function executeDirectorPlan(
           edlSummary.totalDecisions = unifiedDecisionBundle.edl.totalDecisions;
           edlSummary.executed = unifiedExecutionResult.decisionsExecuted;
           edlSummary.skipped = unifiedExecutionResult.decisionsSkipped;
+
+          try {
+            const { applyColorNormalization } = await import('@/lib/editron/services/auto-post-processing');
+            const colorResult = applyColorNormalization(overlays, analysesMap, pathDGenreParams ?? pathEGenreParams);
+            result.overlaysModified += colorResult.modified;
+            if (colorResult.modified > 0) {
+              console.log(`[Director] Post-process: ${colorResult.modified} color normalizations applied (C-030)`);
+            }
+          } catch (colorErr: any) {
+            console.warn(`[Director] Color normalization failed (non-fatal): ${colorErr?.message ?? colorErr}`);
+          }
+
           for (const d of unifiedDecisionBundle.edl.decisions) {
             edlSummary.byType[d.type] = (edlSummary.byType[d.type] || 0) + 1;
           }
@@ -1995,7 +2034,7 @@ export async function executeDirectorPlan(
               ...edlResult.budgetRejectedZoomAssetIds,
               ...edlResult.zoomedAssetIds,
             ]);
-            const ppResult = runPostProcessing(overlays, canvas, analysisMap, allSkipZoomIds);
+            const ppResult = runPostProcessing(overlays, canvas, analysisMap, allSkipZoomIds, undefined, pathDGenreParams ?? pathEGenreParams);
             result.overlaysModified += ppResult.totalModified;
             if (ppResult.driftZoomApplied > 0) {
               console.log(`[Director] Post-process: ${ppResult.driftZoomApplied} drift-zooms applied (Z-030)`);
@@ -2595,6 +2634,19 @@ export async function executeDirectorPlan(
       console.log(`[Director] Stripped ${strippedCount} overlay(s) before save (${markers} dedup markers, ${zeroDur} zero-duration)`);
     }
 
+    try {
+      const { annotateFinalOverlayChoreographyBypasses } = await import('@/lib/editron/services/cross-overlay-final-overlays');
+      const finalOverlayChoreography = annotateFinalOverlayChoreographyBypasses(persistableOverlays);
+      (result as any).finalOverlayChoreography = finalOverlayChoreography;
+      if (finalOverlayChoreography.bypassOverlayCount > 0) {
+        console.log(
+          `[Director] Final overlay choreography: ${finalOverlayChoreography.bypassOverlayCount} bypass overlay(s) ` +
+          `(${JSON.stringify(finalOverlayChoreography.countsByProducer)})`,
+        );
+      }
+    } catch (choreographyErr: unknown) {
+      console.warn('[Director] non-fatal final overlay choreography audit:', choreographyErr instanceof Error ? choreographyErr.message : choreographyErr);
+    }
     await projectService.saveProject(userId, projectId, {
       overlays: persistableOverlays,
       aspectRatio: project.aspectRatio,
@@ -2626,7 +2678,26 @@ export async function executeDirectorPlan(
         `fail=${phase0Truth.summary.fail}, warn=${phase0Truth.summary.warn}, ` +
         `qualityEvidence=${phase0Truth.qualityEvidence.qualityEvidenceSource}/${phase0Truth.qualityEvidence.renderedAestheticStatus}`,
       );
-      const renderedEvidenceDispatch = await dispatchPhase0RenderedEvidenceJob({ projectId, userId });
+      const renderedEvidenceRequestedAt = new Date().toISOString();
+      let renderedEvidenceDispatch: Phase0RenderedEvidenceDispatchResult;
+      try {
+        renderedEvidenceDispatch = await dispatchPhase0RenderedEvidenceJob({
+          projectId,
+          userId,
+          requestedAt: renderedEvidenceRequestedAt,
+        });
+      } catch (dispatchErr: unknown) {
+        const reason = dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr);
+        renderedEvidenceDispatch = {
+          dispatched: false,
+          reason: `dispatch_error:${reason}`,
+        };
+      }
+      await persistPhase0RenderedEvidenceDispatchState(
+        projectId,
+        renderedEvidenceDispatch,
+        renderedEvidenceRequestedAt,
+      );
       if (renderedEvidenceDispatch.dispatched) {
         console.log(
           `[Director] Phase0 rendered evidence dispatched` +

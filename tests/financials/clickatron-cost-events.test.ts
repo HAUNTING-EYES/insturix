@@ -39,7 +39,7 @@ describe('clickatron provider cost telemetry contract', () => {
 
     expect(worker).toContain('falCallAttempted = true');
     expect(worker).toContain('falResult = result');
-    expect(worker).toContain('await completeJob(jobId, rawR2Url);');
+    expect(worker).toContain('await completeJob(activeJobId, rawR2Url);');
     expect(worker).toContain('falCostRecorded = true');
     expect(worker).toContain('if (falCallAttempted && !falCostRecorded)');
   });

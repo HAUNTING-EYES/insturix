@@ -4,6 +4,7 @@
 import { SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "./components/sidebar/app-sidebar";
 import { Editor } from "./components/core/editor";
+import { V2Editor } from "./v2/v2-editor";
 import { VideoRegenBanner } from "./components/core/video-regen-banner";
 import { SidebarProvider as UISidebarProvider } from "@/components/ui/sidebar";
 import { SidebarProvider as EditorSidebarProvider } from "./contexts/sidebar-context";
@@ -20,7 +21,7 @@ import { useCompositionDuration } from "./hooks/use-composition-duration";
 import { useHistory } from "./hooks/use-history";
 
 // Types
-import { Overlay } from "./types";
+import { Overlay, NamedMarker } from "./types";
 import { useRendering } from "./hooks/use-rendering";
 import {
   AUTO_SAVE_INTERVAL,
@@ -40,7 +41,7 @@ import { LocalMediaProvider } from "./contexts/local-media-context";
 import { KeyframeProvider } from "./contexts/keyframe-context";
 import { AssetLoadingProvider } from "./contexts/asset-loading-context";
 
-export default function ReactVideoEditor({ projectId }: { projectId: string }) {
+export default function ReactVideoEditor({ projectId, variant = "v1" }: { projectId: string; variant?: "v1" | "v2" }) {
   // Autosave state
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
   const [autosaveTimestamp, setAutosaveTimestamp] = useState<number | null>(
@@ -51,6 +52,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isAIProcessing, setIsAIProcessing] = useState(false);
+  const [markers, setMarkers] = useState<NamedMarker[]>([]);
 
   // Overlay management hooks
   const {
@@ -123,6 +125,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
     playerDimensions: getAspectRatioDimensions(),
     fps: FPS,
     durationInFrames,
+    markers,
   };
 
   // Implment load state
@@ -144,6 +147,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
             loadedState.playerDimensions.width,
             loadedState.playerDimensions.height
           );
+        if (Array.isArray(loadedState.markers)) setMarkers(loadedState.markers);
       }
     },
     onAutosaveDetected: (timestamp) => {
@@ -271,12 +275,18 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
       playerDimensions,
       durationInFrames,
       fps: FPS,
+      markers,
     }),
 
     // AI Processing State
     isAIProcessing,
     setIsAIProcessing,
     aiActions: [],
+
+    // Named timeline markers (D4) + autosave load for the v2 recovery modal.
+    markers,
+    setMarkers,
+    loadState,
   };
 
   return (
@@ -287,7 +297,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
             <EditorProvider value={editorContextValue}>
               <LocalMediaProvider>
                 <AssetLoadingProvider>
-                  <AppSidebar />
+                  {variant !== "v2" && <AppSidebar />}
                   <SidebarInset className="relative">
                     <VideoRegenBanner
                       projectId={projectId}
@@ -301,7 +311,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
                         } catch {}
                       }}
                     />
-                    <Editor />
+                    {variant === "v2" ? <V2Editor /> : <Editor />}
                     {/* AI Processing Overlay */}
                     <div className={`absolute inset-0 z-50 flex flex-col items-center justify-center bg-background/50 backdrop-blur-sm transition-opacity duration-300 ${isAIProcessing ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
                       <div className="flex flex-col items-center gap-4 rounded-lg bg-card p-8 shadow-lg border border-border">

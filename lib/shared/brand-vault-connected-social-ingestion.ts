@@ -6,6 +6,10 @@ import {
   createBrandVaultGeminiSocialOcrProvider,
   type BrandVaultSocialOcrProvider,
 } from './brand-vault-social-ocr';
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from '@/lib/financials/provider-cost-events';
 import type {
   BrandVaultSocialConnectionEvidence,
   BrandVaultSocialMediaEvidence,
@@ -78,6 +82,22 @@ type ApifyRejectedItemDiagnostic = {
   textFields: string[];
   mediaFields: string[];
   metricFields: string[];
+};
+
+type BrandVaultApifyCostInput = {
+  status: ProviderCostEventStatus;
+  platform: BrandVaultSourcePlatform;
+  actorId: string;
+  requestBytes?: number;
+  responseBytes?: number;
+  responseStatus?: number;
+  rawItemCount?: number;
+  expandedItemCount?: number;
+  acceptedItemCount?: number;
+  rejectedItemCount?: number;
+  relatedReferenceCount?: number;
+  functionMs?: number;
+  error?: unknown;
 };
 
 type XUserIdentity = {
@@ -1078,14 +1098,34 @@ async function fetchApifySocialSources(args: {
   endpoint.searchParams.set('token', args.apiKey);
   endpoint.searchParams.set('clean', 'true');
   endpoint.searchParams.set('format', 'json');
+
+  const requestBody = JSON.stringify(apifyRunInput(args.parsed));
+  const requestBytes = byteLength(requestBody);
+  const startedAt = Date.now();
+  let responseStatus: number | undefined;
+
   try {
     const response = await args.fetchFn(endpoint.href, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(apifyRunInput(args.parsed)),
+      body: requestBody,
     });
+    responseStatus = response.status;
     const payload = await readJsonValue(response);
+    const responseBytes = jsonByteLength(payload);
+    const recordCost = (input: Omit<BrandVaultApifyCostInput, 'platform' | 'actorId' | 'requestBytes' | 'responseBytes' | 'responseStatus' | 'functionMs'>) =>
+      recordBrandVaultApifyCost({
+        ...input,
+        platform: args.parsed.platform,
+        actorId: args.actorId,
+        requestBytes,
+        responseBytes,
+        responseStatus,
+        functionMs: Date.now() - startedAt,
+      });
+
     if (!response.ok) {
+      await recordCost({ status: 'failed' });
       return {
         sources: [],
         warnings: [`Brand Vault skipped ${args.parsed.platform} Apify fallback: Apify returned ${response.status}.`],
@@ -1094,6 +1134,7 @@ async function fetchApifySocialSources(args: {
     const payloadRecord = asRecord(payload);
     const items: unknown[] = Array.isArray(payload) ? payload : Array.isArray(payloadRecord.items) ? payloadRecord.items : [];
     if (!Array.isArray(payload) && !Array.isArray(payloadRecord.items)) {
+      await recordCost({ status: 'success', rawItemCount: 0, acceptedItemCount: 0 });
       return {
         sources: [],
         warnings: [`Brand Vault ran ${args.parsed.platform} Apify fallback, but Apify returned an unsupported dataset payload shape: ${apifyPayloadShape(payload)}.`],
@@ -1111,6 +1152,14 @@ async function fetchApifySocialSources(args: {
     const diagnosticSummary = apifyDiagnosticsSummary(normalizedItems, args.actorId);
     const actorFailureWarning = apifyActorFailureWarning(normalizedItems, args.parsed.platform, args.actorId);
     if (sources.length === 0) {
+      await recordCost({
+        status: 'success',
+        rawItemCount: items.length,
+        expandedItemCount: expandedItems.length,
+        acceptedItemCount: 0,
+        rejectedItemCount: rejectedCount,
+        relatedReferenceCount,
+      });
       if (items.length === 0) {
         return {
           sources: [],
@@ -1127,6 +1176,14 @@ async function fetchApifySocialSources(args: {
         ],
       };
     }
+    await recordCost({
+      status: 'success',
+      rawItemCount: items.length,
+      expandedItemCount: expandedItems.length,
+      acceptedItemCount: sources.length,
+      rejectedItemCount: rejectedCount,
+      relatedReferenceCount,
+    });
     return {
       sources,
       warnings: [
@@ -1142,10 +1199,61 @@ async function fetchApifySocialSources(args: {
       ],
     };
   } catch (error) {
+    await recordBrandVaultApifyCost({
+      status: 'failed',
+      platform: args.parsed.platform,
+      actorId: args.actorId,
+      requestBytes,
+      responseStatus,
+      functionMs: Date.now() - startedAt,
+      error,
+    });
     return {
       sources: [],
       warnings: [`Brand Vault skipped ${args.parsed.platform} Apify fallback: ${errorMessage(error)}`],
     };
+  }
+}
+
+async function recordBrandVaultApifyCost(input: BrandVaultApifyCostInput) {
+  await recordProviderCostEvent({
+    status: input.status,
+    service: 'brand_vault',
+    action: 'brand_scan',
+    route: 'lib/shared/brand-vault-connected-social-ingestion',
+    provider: 'apify',
+    model: input.actorId,
+    operation: 'actor_run',
+    units: {
+      requestCount: 1,
+      bytesIn: input.requestBytes,
+      bytesOut: input.responseBytes,
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      providerName: 'apify',
+      stage: 'social_public_fallback',
+      platform: input.platform,
+      responseStatus: input.responseStatus,
+      rawItemCount: input.rawItemCount,
+      expandedItemCount: input.expandedItemCount,
+      acceptedItemCount: input.acceptedItemCount,
+      rejectedItemCount: input.rejectedItemCount,
+      relatedReferenceCount: input.relatedReferenceCount,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
+function jsonByteLength(value: unknown): number | undefined {
+  try {
+    return byteLength(JSON.stringify(value ?? null));
+  } catch {
+    return undefined;
   }
 }
 

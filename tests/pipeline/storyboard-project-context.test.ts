@@ -60,6 +60,29 @@ describe('getStoryboardForProjectContext', () => {
     });
   });
 
+  it('falls back to sourceSessionId lineage when project linkage is missing', async () => {
+    const storyboard = { storyboardId: 'sb_session', sourceSessionId: 'tf_session_1', userId: 'user_1', scenes: [] };
+    mocks.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(storyboard);
+
+    const result = await getStoryboardForProjectContext({
+      projectId: 'proj_1',
+      sourceStoryboardId: 'sb_stale',
+      sourceSessionId: 'tf_session_1',
+    }, 'user_1');
+
+    expect(result).toBe(storyboard);
+    expect(mocks.findOne).toHaveBeenNthCalledWith(3, {
+      userId: 'user_1',
+      $or: [
+        { sourceSessionId: 'tf_session_1' },
+        { projectId: 'tf_session_1' },
+      ],
+    });
+  });
+
   it('keeps every lookup user scoped and returns null without a direct match', async () => {
     mocks.findOne.mockResolvedValueOnce(null);
 

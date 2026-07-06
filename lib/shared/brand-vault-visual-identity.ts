@@ -79,6 +79,7 @@ export interface BrandVaultVisualAssetPreview {
   sourceField?: string;
   sourceUrl?: string;
   sourceType?: BrandEvidenceCandidate['sourceType'] | BrandVaultSourceInput['kind'];
+  assetRole?: BrandVaultSourceInput['assetRole'];
   evidenceOrigin?: BrandVaultSourceInput['evidenceOrigin'];
   availability?: {
     status: 'available' | 'unavailable' | 'unknown';
@@ -363,18 +364,20 @@ function createVisualAssetPreviews(
         sourceField,
         sourceUrl: source.url,
         sourceType: source.kind,
+        assetRole: source.assetRole,
         evidenceOrigin: source.evidenceOrigin,
       });
     }
     if (mode === 'image' && source.kind === 'uploaded_asset' && source.url && !isLogoUpload(source) && isImageLikeSource(source)) {
       add({
-        kind: 'uploaded_asset',
-        label: source.name ?? 'Uploaded brand asset',
+        kind: visualAssetKindForUploadedSource(source),
+        label: source.name ?? uploadedAssetLabelForRole(source.assetRole),
         url: source.url,
         confidence: confidenceForSource(source.kind),
         sourceField,
         sourceUrl: source.url,
         sourceType: source.kind,
+        assetRole: source.assetRole,
         evidenceOrigin: source.evidenceOrigin,
       });
     }
@@ -627,7 +630,26 @@ function isLogoUpload(source: BrandVaultSourceInput): boolean {
 
 function isImageLikeSource(source: BrandVaultSourceInput): boolean {
   if (source.mimeType?.startsWith('image/')) return true;
-  return source.assetRole === 'creative_reference' || source.assetRole === 'prior_work';
+  return source.assetRole === 'product_ui' ||
+    source.assetRole === 'website_screenshot' ||
+    source.assetRole === 'team' ||
+    source.assetRole === 'abstract_reference' ||
+    source.assetRole === 'creative_reference' ||
+    source.assetRole === 'prior_work';
+}
+
+function visualAssetKindForUploadedSource(source: BrandVaultSourceInput): BrandVaultVisualAssetKind {
+  if (source.assetRole === 'product_ui') return 'product';
+  if (source.assetRole === 'website_screenshot') return 'website_preview';
+  return 'uploaded_asset';
+}
+
+function uploadedAssetLabelForRole(role: BrandVaultSourceInput['assetRole']): string {
+  if (role === 'product_ui') return 'Uploaded product UI';
+  if (role === 'website_screenshot') return 'Uploaded website screenshot';
+  if (role === 'team') return 'Uploaded team image';
+  if (role === 'abstract_reference') return 'Uploaded abstract reference';
+  return 'Uploaded brand asset';
 }
 
 function confidenceForSource(kind: BrandVaultSourceInput['kind']): number {

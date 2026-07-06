@@ -76,7 +76,7 @@ export function ConflictCard({ conflict, resolved = false, onAccept, onEdit, onR
           We saw a few possibilities across your content. Pick the one that sounds like you.
         </p>
 
-        <div className="grid gap-2">
+        <div className="grid max-h-[360px] gap-2 overflow-y-auto pr-1">
           {options.map((option, index) => {
             const isSelected = index === selected;
             const isSuggested = index === 0;
@@ -85,7 +85,7 @@ export function ConflictCard({ conflict, resolved = false, onAccept, onEdit, onR
                 key={option.label}
                 type="button"
                 onClick={() => setSelected(index)}
-                className="flex items-center gap-3 text-left"
+                className="flex min-w-0 items-center gap-3 text-left"
                 style={{
                   padding: '11px 13px',
                   borderRadius: 9,
@@ -110,7 +110,7 @@ export function ConflictCard({ conflict, resolved = false, onAccept, onEdit, onR
                     style={{ width: 18, height: 18, flex: '0 0 auto', borderRadius: 5, border: '1px solid #282724', background: String(option.value) }}
                   />
                 )}
-                <span className="flex-1 truncate" style={{ fontSize: 13 }}>{option.label}</span>
+                <span className="min-w-0 flex-1 break-words line-clamp-2" style={{ fontSize: 13, lineHeight: 1.4 }}>{option.label}</span>
                 {isSuggested && (
                   <span
                     style={{

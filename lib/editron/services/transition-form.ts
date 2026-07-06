@@ -172,7 +172,7 @@ export function resolveAtomicTransitionForm(input: {
     maskFeather: clamp01(softness * 0.7 + visualPressure * 0.2),
     intensity,
     visualPressure,
-    keyframeBased: compatibilityType === 'dissolve',
+    keyframeBased: false,
     sfxRole: resolveSfxRole(compatibilityType, intensity, softness),
   };
 }

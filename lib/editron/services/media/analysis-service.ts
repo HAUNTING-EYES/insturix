@@ -27,6 +27,7 @@ import path from "path";
 import { nanoid } from "nanoid";
 
 import { assetResolver } from "../asset-resolver";
+import { assertRemotionSiteFresh } from "../remotion-site-version";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createRequire } from "module";
 
@@ -59,6 +60,26 @@ async function tempFile(ext: string): Promise<string> {
   return path.join(dir, `${nanoid()}.${ext}`);
 }
 
+function resolveTimelineRemotionRenderConfig() {
+  const functionName = process.env.REMOTION_LAMBDA_FUNCTION_NAME;
+  const serveUrl = process.env.REMOTION_LAMBDA_SERVE_URL;
+  if (!functionName) {
+    throw new Error("REMOTION_LAMBDA_FUNCTION_NAME is not defined");
+  }
+  if (!serveUrl) {
+    throw new Error("REMOTION_LAMBDA_SERVE_URL is not defined");
+  }
+  const freshness = assertRemotionSiteFresh({ serveUrl, env: process.env });
+  if (freshness.reason === 'unverified_no_app_commit') {
+    console.warn('[MediaAnalysis] Remotion site version could not be verified because app commit metadata is missing');
+  }
+  return {
+    region: process.env.REMOTION_AWS_REGION as any,
+    functionName,
+    serveUrl,
+  };
+}
+
 /* ====================================================== */
 /* AUDIO SAMPLING */
 /* ====================================================== */
@@ -86,10 +107,11 @@ export async function sampleAudioClip(params: {
      TIMELINE PATH (Remotion)
      =============================== */
   if (params.source === "timeline") {
+    const renderConfig = resolveTimelineRemotionRenderConfig();
     const { bucketName, renderId } = await renderMediaOnLambda({
-      region: process.env.REMOTION_AWS_REGION as any,
-      functionName: process.env.REMOTION_LAMBDA_FUNCTION_NAME!,
-      serveUrl: process.env.REMOTION_LAMBDA_SERVE_URL!,
+      region: renderConfig.region,
+      functionName: renderConfig.functionName,
+      serveUrl: renderConfig.serveUrl,
       composition: "AudioSampler",
       inputProps: {
         projectId: params.projectId,
@@ -211,10 +233,11 @@ export async function sampleVideoClip(params: {
      TIMELINE PATH (Remotion)
      =============================== */
   if (params.source === "timeline") {
+    const renderConfig = resolveTimelineRemotionRenderConfig();
     const { bucketName, renderId } = await renderMediaOnLambda({
-      region: process.env.REMOTION_AWS_REGION as any,
-      functionName: process.env.REMOTION_LAMBDA_FUNCTION_NAME!,
-      serveUrl: process.env.REMOTION_LAMBDA_SERVE_URL!,
+      region: renderConfig.region,
+      functionName: renderConfig.functionName,
+      serveUrl: renderConfig.serveUrl,
       composition: "VisualSampler",
       inputProps: {
         projectId: params.projectId,

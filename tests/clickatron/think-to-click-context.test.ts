@@ -469,7 +469,7 @@ describe("ThinkForge to Clickatron context", () => {
     ]);
     expect(context.sessionDraft?.readyToGenerate).toBe(false);
     expect(context.sessionDraft?.validation.needsUserInput).toEqual([
-      "Review and confirm the derived carousel slide plan before sending to Clickatron.",
+      "Review the auto-composed carousel slides before sending.",
     ]);
   });
 

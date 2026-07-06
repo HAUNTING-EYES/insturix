@@ -48,7 +48,9 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
   const isEditing = editingSubjectId === subject.subjectId;
   const isMissingRequiredEvidence = Boolean(subject.requiresBrandEvidence && !subject.imageUrl);
   const isBrandEvidenceLocked = Boolean(subject.requiresBrandEvidence);
+  const canUseAiRegeneration = !isBrandEvidenceLocked;
   const regenerateDisabled = isBrandEvidenceLocked || isRegenerating;
+  const showVisualDescription = Boolean(subject.visualDescription && !(isEditing && canUseAiRegeneration));
   const uploadTitle = isMissingRequiredEvidence ? "Upload brand evidence" : "Upload your own image";
   const regenerateTitle = isBrandEvidenceLocked
     ? "Brand-owned references need real evidence, not AI regeneration"
@@ -152,7 +154,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
           {isApproved ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
         </button>
 
-        {/* Top-left: Upload + Regenerate + Delete */}
+        {/* Top-left: Upload + AI regenerate + Delete */}
         <div className="absolute top-1.5 left-1.5 flex gap-1">
           <label
             className={`p-1 rounded-full transition-colors cursor-pointer ${
@@ -174,19 +176,16 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
               }}
             />
           </label>
-          <button
-            onClick={() => handleRegenerateSubject(subject.subjectId)}
-            disabled={regenerateDisabled}
-            className={`p-1 rounded-full transition-colors ${
-              isBrandEvidenceLocked
-                ? "bg-[#1B1A18]/80 text-[#454340] cursor-not-allowed"
-                : "bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1]"
-            }`}
-            title={regenerateTitle}
-          >
-            <RefreshCw className={`h-3 w-3 ${isRegenerating ? "animate-spin" : ""}`} />
-          </button>
-          <button
+          {canUseAiRegeneration && (
+            <button
+              onClick={() => handleRegenerateSubject(subject.subjectId)}
+              disabled={regenerateDisabled}
+              className="p-1 rounded-full bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1] transition-colors"
+              title={regenerateTitle}
+            >
+              <RefreshCw className={`h-3 w-3 ${isRegenerating ? "animate-spin" : ""}`} />
+            </button>
+          )}          <button
             onClick={() => handleDeleteSubject(subject.subjectId)}
             className="p-1 rounded-full bg-transparent border border-[#D46A5C]/30 text-[#D46A5C] hover:bg-[#D46A5C]/10 transition-colors"
             title="Remove this subject"
@@ -196,37 +195,34 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
         </div>
 
         {/* Bottom-right: Edit description + Feedback */}
-        <div className="absolute bottom-1.5 right-1.5 flex gap-1">
-          <button
-            onClick={() => handleStartEditDescription(subject.subjectId)}
-            disabled={regenerateDisabled}
-            className={`p-1 rounded-full transition-colors ${
-              isBrandEvidenceLocked
-                ? "bg-[#1B1A18]/80 text-[#454340] cursor-not-allowed"
-                : isEditing
+        {canUseAiRegeneration && (
+          <div className="absolute bottom-1.5 right-1.5 flex gap-1">
+            <button
+              onClick={() => handleStartEditDescription(subject.subjectId)}
+              disabled={regenerateDisabled}
+              className={`p-1 rounded-full transition-colors ${
+                isEditing
                   ? "bg-[#D4A652] text-[#0B0B0A]"
                   : "bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1]"
-            }`}
-            title={regenerateTitle}
-          >
-            <Pencil className="h-3 w-3" />
-          </button>
-          <button
-            onClick={() => toggleFeedbackPrompt(subject.subjectId)}
-            disabled={regenerateDisabled}
-            className={`p-1 rounded-full transition-colors ${
-              isBrandEvidenceLocked
-                ? "bg-[#1B1A18]/80 text-[#454340] cursor-not-allowed"
-                : showFeedback
+              }`}
+              title={regenerateTitle}
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+            <button
+              onClick={() => toggleFeedbackPrompt(subject.subjectId)}
+              disabled={regenerateDisabled}
+              className={`p-1 rounded-full transition-colors ${
+                showFeedback
                   ? "bg-[#D4A652] text-[#0B0B0A]"
                   : "bg-[#282724]/80 text-[#7A776E] hover:bg-[#454340] hover:text-[#ECE9E1]"
-            }`}
-            title={regenerateTitle}
-          >
-            <MessageSquare className="h-3 w-3" />
-          </button>
-        </div>
-      </div>
+              }`}
+              title={regenerateTitle}
+            >
+              <MessageSquare className="h-3 w-3" />
+            </button>
+          </div>
+        )}      </div>
 
       {/* Bottom sprockets */}
       {miniSprockets}
@@ -243,11 +239,34 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
           </p>
         )}
         {isMissingRequiredEvidence && (
-          <p className="text-[9px] text-[#D46A5C] mt-1 line-clamp-2">
-            {subject.evidenceRequiredReason || "Brand evidence required before storyboard generation."}
+          <div className="mt-1.5 flex items-center gap-2">
+            <p className="text-[9px] text-[#D46A5C] line-clamp-2 flex-1">
+              {subject.evidenceRequiredReason || "Brand evidence required before storyboard generation."}
+            </p>
+            <label
+              className="shrink-0 cursor-pointer rounded-[3px] border border-[#D46A5C]/35 bg-[#D46A5C]/15 px-2 py-1 text-[9px] font-semibold text-[#F0B3A9] hover:bg-[#D46A5C]/25"
+              title={uploadTitle}
+            >
+              Upload evidence
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleUploadSubjectImage(subject.subjectId, file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          </div>
+        )}
+        {isBrandEvidenceLocked && !isMissingRequiredEvidence && (
+          <p className="text-[9px] text-[#5EC97E] mt-1 line-clamp-2">
+            Evidence-backed reference. AI regeneration is unavailable for brand-owned subjects.
           </p>
         )}
-        {subject.visualDescription && !isEditing && (
+        {showVisualDescription && (
           <p className="text-[9px] text-[#454340] mt-0.5 line-clamp-2">
             {subject.visualDescription}
           </p>
@@ -255,7 +274,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
       </div>
 
       {/* Edit description UI */}
-      {isEditing && (
+      {isEditing && canUseAiRegeneration && (
         <div className="px-2 pb-2 space-y-1">
           <p className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#D4A652]">
             Edit description & regenerate
@@ -296,7 +315,7 @@ export function SubjectCard({ subject, pipeline }: SubjectCardProps) {
       )}
 
       {/* Quick feedback prompt input */}
-      {showFeedback && !isEditing && (
+      {showFeedback && !isEditing && canUseAiRegeneration && (
         <div className="px-2 pb-2">
           <div className="flex gap-1">
             <Input

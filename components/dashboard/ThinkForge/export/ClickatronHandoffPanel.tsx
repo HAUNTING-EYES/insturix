@@ -36,6 +36,19 @@ const TEXT_DENSITIES = [
   ["high", "High text"],
 ] as const;
 
+// Chips are a READ-OUT of what the deriver decided from the content signals — not a menu
+// the user picks from. The system reads the atoms and shows its answer; the user glances.
+const vibeChipStyle: CSSProperties = {
+  fontFamily: "'JetBrains Mono', monospace", fontSize: 10, letterSpacing: "0.03em",
+  padding: "3px 8px", borderRadius: 3, color: "#ECE9E1",
+  background: "rgba(92,184,204,0.12)", border: "1px solid rgba(92,184,204,0.28)",
+};
+const styleChipStyle: CSSProperties = {
+  fontFamily: "'JetBrains Mono', monospace", fontSize: 10, letterSpacing: "0.03em",
+  padding: "3px 8px", borderRadius: 3, color: "#9A968B",
+  background: "rgba(255,255,255,0.03)", border: "1px solid #26251F",
+};
+
 const STATUS_META = {
   ready: {
     color: "#5EC97E",
@@ -108,6 +121,8 @@ export function ClickatronHandoffPanel({
       }, null, 2)
     : "";
 
+  const visualLanguage = handoffState?.debug?.creativeSpec?.visualLanguage;
+
   return (
     <div style={{ padding: 14, borderRadius: 4, background: "#10100F", border: `1px solid ${statusMeta.border}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 12 }}>
@@ -177,17 +192,43 @@ export function ClickatronHandoffPanel({
         </FieldLabel>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))", gap: 7 }}>
-        <FieldLabel label="Vibe">
-          <input value={visualChoices.vibe || ""} onChange={(e) => setVisualChoice("vibe", e.target.value)} placeholder="urgent but sober" style={fieldStyle} />
-        </FieldLabel>
-        <FieldLabel label="Image Style">
-          <input value={visualChoices.imageStyle || ""} onChange={(e) => setVisualChoice("imageStyle", e.target.value)} placeholder="editorial collage" style={fieldStyle} />
-        </FieldLabel>
-        <FieldLabel label="Notes">
-          <input value={visualChoices.notes || ""} onChange={(e) => setVisualChoice("notes", e.target.value)} placeholder="avoid stock-photo look" style={fieldStyle} />
-        </FieldLabel>
-      </div>
+      {visualLanguage ? (
+        <div style={{ padding: "9px 10px", borderRadius: 4, background: "rgba(92,184,204,0.05)", border: "1px solid rgba(92,184,204,0.16)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <p style={sectionLabelStyle}>Visual language — auto-derived</p>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: "#7A776E" }}>
+              derived &middot; {Math.round(visualLanguage.confidence * 100)}%
+            </span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
+            {visualLanguage.vibe.map((v) => <span key={`vibe-${v}`} style={vibeChipStyle}>{v}</span>)}
+            {visualLanguage.imageStyle.map((s) => <span key={`style-${s}`} style={styleChipStyle}>{s}</span>)}
+            <span style={styleChipStyle}>{visualLanguage.paletteTemperature} palette</span>
+          </div>
+          {visualLanguage.lowConfidenceFields.length > 0 && (
+            <p style={{ marginTop: 6, fontSize: 10, color: "#D4A652", lineHeight: 1.45 }}>
+              Worth a glance: {visualLanguage.lowConfidenceFields.join(", ")} {visualLanguage.lowConfidenceFields.length === 1 ? "was a low-confidence guess" : "were low-confidence guesses"}.
+            </p>
+          )}
+          <div style={{ marginTop: 9 }}>
+            <FieldLabel label="Notes">
+              <input value={visualChoices.notes || ""} onChange={(e) => setVisualChoice("notes", e.target.value)} placeholder="avoid stock-photo look" style={fieldStyle} />
+            </FieldLabel>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))", gap: 7 }}>
+          <FieldLabel label="Vibe">
+            <input value={visualChoices.vibe || ""} onChange={(e) => setVisualChoice("vibe", e.target.value)} placeholder="urgent but sober" style={fieldStyle} />
+          </FieldLabel>
+          <FieldLabel label="Image Style">
+            <input value={visualChoices.imageStyle || ""} onChange={(e) => setVisualChoice("imageStyle", e.target.value)} placeholder="editorial collage" style={fieldStyle} />
+          </FieldLabel>
+          <FieldLabel label="Notes">
+            <input value={visualChoices.notes || ""} onChange={(e) => setVisualChoice("notes", e.target.value)} placeholder="avoid stock-photo look" style={fieldStyle} />
+          </FieldLabel>
+        </div>
+      )}
 
       {display?.objective && (
         <div style={{ marginTop: 12, display: "flex", alignItems: "flex-start", gap: 8 }}>

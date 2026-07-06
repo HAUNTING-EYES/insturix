@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EditDecision } from '../../lib/editron/services/reactive-edit-engine';
 import { applyCrossOverlayChoreography } from '../../lib/editron/services/cross-overlay-choreography';
+import { annotateFinalOverlayChoreographyBypasses } from '../../lib/editron/services/cross-overlay-final-overlays';
 
 describe('cross-overlay choreography scheduler', () => {
   it('keeps one text-lane owner when MG and caption emphasis compete on the same moment', () => {
@@ -49,6 +50,53 @@ describe('cross-overlay choreography scheduler', () => {
       syncGroupId: null,
       suppressedNearbyCount: 1,
       calibrationStatus: 'invented-needs-calibration',
+    }));
+  });
+
+  it('shapes a text-lane decision when a small timing nudge seats both overlays', () => {
+    const result = applyCrossOverlayChoreography([
+      decision({
+        type: 'graphic',
+        frame: 180,
+        durationFrames: 12,
+        confidence: 0.94,
+        source: 'signal-executor:mg',
+      }),
+      decision({
+        type: 'caption-emphasis',
+        frame: 210,
+        durationFrames: 12,
+        confidence: 0.78,
+        source: 'signal-executor:caption',
+        params: { text: 'small nudge' },
+      }),
+    ]);
+
+    expect(result.suppressed).toEqual([]);
+    expect(result.shaped).toEqual([expect.objectContaining({
+      reason: 'text-lane-stack',
+      family: 'caption',
+      originalFrame: 210,
+      frame: 226,
+      shiftFrames: 16,
+    })]);
+    expect(result.report).toEqual(expect.objectContaining({
+      outputDecisionCount: 2,
+      suppressedDecisionCount: 0,
+      shapedDecisionCount: 1,
+      shapedByReason: { 'text-lane-stack': 1 },
+      shapedByFamily: { caption: 1 },
+    }));
+    expect(result.decisions.map((item) => [item.type, item.frame])).toEqual([
+      ['graphic', 180],
+      ['caption-emphasis', 226],
+    ]);
+    expect(result.decisions[1].params.crossOverlayChoreography).toEqual(expect.objectContaining({
+      shaped: expect.objectContaining({ originalFrame: 210, frame: 226, shiftFrames: 16 }),
+    }));
+    expect(result.decisions[1].params.unifiedDecisionMerge.crossOverlayChoreography).toEqual(expect.objectContaining({
+      role: 'shaped',
+      shaped: expect.objectContaining({ reason: 'text-lane-stack' }),
     }));
   });
 
@@ -222,6 +270,67 @@ describe('cross-overlay choreography scheduler', () => {
       reason: 'unlinked-audio-on-crowded-moment',
       family: 'audio',
     }));
+  });
+  it('tags final overlays that bypass decision-level choreography', () => {
+    const overlays: any[] = [
+      {
+        id: 1,
+        type: 'caption',
+        from: 0,
+        durationInFrames: 300,
+        metadata: { source: 'canonical-caption-track' },
+      },
+      {
+        id: 'bgm-1',
+        type: 'sound',
+        from: 0,
+        durationInFrames: 300,
+        row: 1,
+        _workerAdded: true,
+        metadata: { role: 'bgm' },
+      },
+      {
+        id: 'clip-1',
+        type: 'video',
+        from: 90,
+        durationInFrames: 120,
+        metadata: { crossOverlayProducer: 'post-edl-drift-zoom' },
+      },
+      {
+        id: 'ordinary-mg',
+        type: 'html-scene',
+        from: 120,
+        durationInFrames: 30,
+        metadata: { sourceType: 'edl-motion-graphic' },
+      },
+    ];
+
+    const report = annotateFinalOverlayChoreographyBypasses(overlays);
+
+    expect(report).toEqual(expect.objectContaining({
+      version: 'cross-overlay-final-overlays-v1',
+      overlayCount: 4,
+      bypassOverlayCount: 3,
+      countsByProducer: {
+        'async-worker-audio': 1,
+        'canonical-caption-track': 1,
+        'post-edl-drift-zoom': 1,
+      },
+      countsByFamily: { audio: 1, camera: 1, caption: 1 },
+    }));
+    expect(overlays[0].metadata.crossOverlayFinalChoreography).toEqual(expect.objectContaining({
+      producer: 'canonical-caption-track',
+      movable: false,
+    }));
+    expect(overlays[1].metadata.crossOverlayFinalChoreography).toEqual(expect.objectContaining({
+      producer: 'async-worker-audio',
+      lane: 'audio',
+    }));
+    expect(overlays[2].metadata.crossOverlayFinalChoreography).toEqual(expect.objectContaining({
+      producer: 'post-edl-drift-zoom',
+      family: 'camera',
+    }));
+    expect(overlays[3].metadata.crossOverlayFinalChoreography).toBeUndefined();
   });
   it('keeps linked SFX when it lands inside the sync window of its visual beat', () => {
     const result = applyCrossOverlayChoreography([

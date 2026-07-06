@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
@@ -15,8 +15,41 @@ import {
   UploaderXUploadUrlError,
 } from "../../utils/platform-upload-url";
 import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
+import { getCreditCost } from "@/lib/config/creditCosts";
+import { recordProviderCostEvent, type ProviderCostEventStatus } from "@/lib/financials/provider-cost-events";
 
 const LINKEDIN_REST_API_VERSION = process.env.LINKEDIN_REST_API_VERSION || "202605";
+const UPLOADERX_LINKEDIN_CHUNK_PROVIDER = "linkedin-api";
+const UPLOADERX_LINKEDIN_CHUNK_MODEL = `linkedin-rest-${LINKEDIN_REST_API_VERSION}`;
+const UPLOADERX_LINKEDIN_CHUNK_ROUTE = "/api/services/uploaderx/linkedin/chunk";
+const UPLOADERX_LINKEDIN_CHUNK_PUBLISH_CREDITS = getCreditCost("uploaderx", "platform_publish", {
+  requestType: "linkedin",
+});
+
+type LinkedInChunkCostOperation = "social_media_upload" | "social_publish";
+type LinkedInChunkCostPhase = "start" | "transfer" | "finish" | "post_create";
+
+interface LinkedInChunkCostBaseContext {
+  userId: string;
+  videoUuid?: string;
+  postType: string;
+  publishPath: string;
+}
+
+interface LinkedInChunkProviderCostContext {
+  operation: LinkedInChunkCostOperation;
+  phase: LinkedInChunkCostPhase;
+  videoUuid?: string;
+  providerPostId?: string;
+  providerAssetId?: string;
+  postType?: string;
+  publishPath?: string;
+  requestCount?: number;
+  chunkStartOffset?: number;
+  chunkBytes?: number;
+  uploadPartCount?: number;
+  providerStatusCode?: number;
+}
 
 async function fetchUploaderXRange(publicUrl: string, start: number, end: number) {
   const response = await fetch(publicUrl, {
@@ -44,11 +77,13 @@ async function createLinkedInRestPost({
   authorUrn,
   postText,
   media,
+  costContext,
 }: {
   accessToken: string;
   authorUrn: string;
   postText: string;
   media?: { id: string; type: "video"; title: string };
+  costContext: LinkedInChunkCostBaseContext;
 }) {
   const body: Record<string, unknown> = {
     author: authorUrn,
@@ -72,11 +107,32 @@ async function createLinkedInRestPost({
     };
   }
 
-  const postResponse = await fetch("https://api.linkedin.com/rest/posts", {
-    method: "POST",
-    headers: linkedInRestHeaders(accessToken),
-    body: JSON.stringify(body),
-  });
+  const providerCost: LinkedInChunkProviderCostContext = {
+    operation: "social_publish",
+    phase: "post_create",
+    videoUuid: costContext.videoUuid,
+    providerAssetId: media?.id,
+    postType: costContext.postType,
+    publishPath: costContext.publishPath,
+    requestCount: 1,
+  };
+
+  let postResponse: Response;
+  try {
+    postResponse = await fetch("https://api.linkedin.com/rest/posts", {
+      method: "POST",
+      headers: linkedInRestHeaders(accessToken),
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    await recordUploaderXLinkedInChunkCost({
+      status: "failed",
+      userId: costContext.userId,
+      ...providerCost,
+      error,
+    });
+    throw error;
+  }
 
   const responseText = await postResponse.text();
   let postData: any = {};
@@ -89,6 +145,12 @@ async function createLinkedInRestPost({
   }
 
   if (!postResponse.ok || postData.error) {
+    await recordUploaderXLinkedInChunkCost({
+      status: "failed",
+      userId: costContext.userId,
+      ...providerCost,
+      providerStatusCode: postResponse.status,
+    });
     throw new Error("Failed to create LinkedIn post");
   }
 
@@ -96,11 +158,18 @@ async function createLinkedInRestPost({
 }
 
 export async function POST(req: Request) {
+  let currentUserId: string | undefined;
+  let telemetryVideoUuid: string | undefined;
+  let attemptedProviderCost: LinkedInChunkProviderCostContext | undefined;
+  let pendingCompletedProviderCost: LinkedInChunkProviderCostContext | undefined;
+  let recordedPendingProviderCost = false;
+
   try {
     const session = await auth();
     if (!session.userId) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
+    currentUserId = session.userId;
 
     const body = await req.json();
     const {
@@ -120,6 +189,14 @@ export async function POST(req: Request) {
     } = body;
 
     const normalizedPostType = normalizeLinkedInPostTarget(postType);
+    telemetryVideoUuid = typeof videoUuid === "string" ? videoUuid : undefined;
+    const publishPath = "linkedin-chunked-video";
+    const baseCostContext: LinkedInChunkCostBaseContext = {
+      userId: session.userId,
+      videoUuid: telemetryVideoUuid,
+      postType: normalizedPostType,
+      publishPath,
+    };
 
     if (!videoUuid) {
       return NextResponse.json({ success: false, error: "Missing videoUuid" }, { status: 400 });
@@ -210,6 +287,15 @@ export async function POST(req: Request) {
       }
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
       const fileSize = Number(videoAsset.size || 0);
+      const initProviderCost: LinkedInChunkProviderCostContext = {
+        operation: "social_media_upload",
+        phase: "start",
+        videoUuid: telemetryVideoUuid,
+        postType: normalizedPostType,
+        publishPath,
+        requestCount: 1,
+      };
+      attemptedProviderCost = initProviderCost;
 
       const initResponse = await fetch("https://api.linkedin.com/rest/videos?action=initializeUpload", {
         method: "POST",
@@ -226,6 +312,13 @@ export async function POST(req: Request) {
 
       const initData = await initResponse.json();
       if (!initResponse.ok || initData.error) {
+        await recordUploaderXLinkedInChunkCost({
+          status: "failed",
+          userId: session.userId,
+          ...initProviderCost,
+          providerStatusCode: initResponse.status,
+        });
+        attemptedProviderCost = undefined;
         const errorDetails = initData.error || initData.message || JSON.stringify(initData);
         console.error("LinkedIn init failed:", errorDetails);
         return NextResponse.json(
@@ -235,6 +328,15 @@ export async function POST(req: Request) {
       }
 
       const uploadInstructions = (initData.value?.uploadInstructions || []).map(normalizeLinkedInUploadInstruction);
+      await recordUploaderXLinkedInChunkCost({
+        status: "success",
+        userId: session.userId,
+        ...initProviderCost,
+        providerAssetId: initData.value?.video,
+        uploadPartCount: uploadInstructions.length,
+        providerStatusCode: initResponse.status,
+      });
+      attemptedProviderCost = undefined;
       await UploaderXVideo.updateOne(
         { userId: session.userId, videoUuid },
         {
@@ -289,6 +391,19 @@ export async function POST(req: Request) {
 
       const videoAsset = await resolveUploaderXVideo({ userId: session.userId, videoUuid });
       const chunkBuffer = await fetchUploaderXRange(videoAsset.publicUrl, requestedFirstByte, requestedLastByte);
+      const transferProviderCost: LinkedInChunkProviderCostContext = {
+        operation: "social_media_upload",
+        phase: "transfer",
+        videoUuid: telemetryVideoUuid,
+        providerAssetId: activeUpload?.videoUrn,
+        postType: normalizedPostType,
+        publishPath,
+        requestCount: 1,
+        chunkStartOffset: requestedFirstByte,
+        chunkBytes: chunkBuffer.length,
+        uploadPartCount: Array.isArray(activeUpload?.uploadInstructions) ? activeUpload.uploadInstructions.length : undefined,
+      };
+      attemptedProviderCost = transferProviderCost;
 
       const uploadResponse = await fetch(safeUploadUrl, {
         method: "PUT",
@@ -301,12 +416,27 @@ export async function POST(req: Request) {
       });
 
       if (!uploadResponse.ok) {
+        await recordUploaderXLinkedInChunkCost({
+          status: "failed",
+          userId: session.userId,
+          ...transferProviderCost,
+          providerStatusCode: uploadResponse.status,
+        });
+        attemptedProviderCost = undefined;
         console.error("LinkedIn transfer failed: status", uploadResponse.status);
         return NextResponse.json(
           { success: false, error: "Failed to upload chunk to LinkedIn" },
           { status: 500 }
         );
       }
+
+      await recordUploaderXLinkedInChunkCost({
+        status: "success",
+        userId: session.userId,
+        ...transferProviderCost,
+        providerStatusCode: uploadResponse.status,
+      });
+      attemptedProviderCost = undefined;
 
       const etag = uploadResponse.headers.get("etag");
       const cleanEtag = etag ? etag.replace(/^"|"$/g, "") : "";
@@ -333,6 +463,17 @@ export async function POST(req: Request) {
       if (!publishCreditCheck.allowed) {
         return publishCreditCheck.errorResponse!;
       }
+      const finalizeProviderCost: LinkedInChunkProviderCostContext = {
+        operation: "social_media_upload",
+        phase: "finish",
+        videoUuid: telemetryVideoUuid,
+        providerAssetId: videoUrn,
+        postType: normalizedPostType,
+        publishPath,
+        requestCount: 1,
+        uploadPartCount: Array.isArray(uploadedPartIds) ? uploadedPartIds.length : undefined,
+      };
+      attemptedProviderCost = finalizeProviderCost;
       const finalizeResponse = await fetch("https://api.linkedin.com/rest/videos?action=finalizeUpload", {
         method: "POST",
         headers: linkedInRestHeaders(accessToken),
@@ -357,6 +498,13 @@ export async function POST(req: Request) {
       }
 
       if (!finalizeResponse.ok || finalizeData.error) {
+        await recordUploaderXLinkedInChunkCost({
+          status: "failed",
+          userId: session.userId,
+          ...finalizeProviderCost,
+          providerStatusCode: finalizeResponse.status,
+        });
+        attemptedProviderCost = undefined;
         const errorDetails = finalizeData.error || finalizeData.message || JSON.stringify(finalizeData);
         console.error("LinkedIn finalize failed:", errorDetails);
         return NextResponse.json(
@@ -364,6 +512,14 @@ export async function POST(req: Request) {
           { status: 500 }
         );
       }
+
+      await recordUploaderXLinkedInChunkCost({
+        status: "success",
+        userId: session.userId,
+        ...finalizeProviderCost,
+        providerStatusCode: finalizeResponse.status,
+      });
+      attemptedProviderCost = undefined;
 
       // Share UGC Post
       const videoDoc = await UploaderXVideo.findOne({ userId: session.userId, videoUuid });
@@ -379,7 +535,37 @@ export async function POST(req: Request) {
           type: "video",
           title: title || fileName,
         },
+        costContext: baseCostContext,
       });
+
+      if (!postId) {
+        await recordUploaderXLinkedInChunkCost({
+          status: "failed",
+          userId: session.userId,
+          operation: "social_publish",
+          phase: "post_create",
+          videoUuid: telemetryVideoUuid,
+          providerAssetId: videoUrn,
+          postType: normalizedPostType,
+          publishPath,
+          requestCount: 1,
+        });
+        return NextResponse.json(
+          { success: false, error: "LinkedIn did not return a post id." },
+          { status: 500 }
+        );
+      }
+
+      pendingCompletedProviderCost = {
+        operation: "social_publish",
+        phase: "post_create",
+        videoUuid: telemetryVideoUuid,
+        providerPostId: postId,
+        providerAssetId: videoUrn,
+        postType: normalizedPostType,
+        publishPath,
+        requestCount: 1,
+      };
 
       const postUrl = `https://www.linkedin.com/feed/update/${postId}`;
 
@@ -427,7 +613,15 @@ export async function POST(req: Request) {
         console.warn("[UploaderX:LinkedIn] video_published event failed:", eventErr)
       );
 
-      await deductPublishCredits(publishCreditCheck);
+      const deductResult = await deductPublishCredits(publishCreditCheck);
+      await recordUploaderXLinkedInChunkCost({
+        status: "success",
+        userId: session.userId,
+        ...pendingCompletedProviderCost,
+        chargedCredits: deductResult.transactionId ? UPLOADERX_LINKEDIN_CHUNK_PUBLISH_CREDITS : undefined,
+        creditTransactionId: deductResult.transactionId,
+      });
+      recordedPendingProviderCost = true;
 
       return NextResponse.json({
         success: true,
@@ -447,6 +641,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Invalid LinkedIn upload URL" }, { status: 400 });
     }
 
+    if (currentUserId && pendingCompletedProviderCost && !recordedPendingProviderCost) {
+      await recordUploaderXLinkedInChunkCost({
+        status: "success",
+        userId: currentUserId,
+        ...pendingCompletedProviderCost,
+      });
+    } else if (currentUserId && attemptedProviderCost) {
+      await recordUploaderXLinkedInChunkCost({
+        status: "failed",
+        userId: currentUserId,
+        ...attemptedProviderCost,
+        error,
+      });
+    }
+
     console.error("LinkedIn chunked upload failed:", error);
     return NextResponse.json(
       { success: false, error: error.message || "LinkedIn upload failed" },
@@ -454,10 +663,68 @@ export async function POST(req: Request) {
     );
   }
 }
-async function deductPublishCredits(creditCheck: CreditCheckResult) {
+async function deductPublishCredits(creditCheck: CreditCheckResult): Promise<{ transactionId?: string }> {
   try {
-    await creditCheck.deduct();
+    return await creditCheck.deduct();
   } catch (error) {
     console.error("[UploaderX:LinkedIn] chunk publish credit deduction failed:", error);
+    return {};
   }
+}
+
+async function recordUploaderXLinkedInChunkCost(input: {
+  status: ProviderCostEventStatus;
+  operation: LinkedInChunkCostOperation;
+  phase: LinkedInChunkCostPhase;
+  userId: string;
+  videoUuid?: string;
+  providerPostId?: string;
+  providerAssetId?: string;
+  postType?: string;
+  publishPath?: string;
+  chargedCredits?: number;
+  creditTransactionId?: string;
+  requestCount?: number;
+  chunkStartOffset?: number;
+  chunkBytes?: number;
+  uploadPartCount?: number;
+  providerStatusCode?: number;
+  error?: unknown;
+}) {
+  await recordProviderCostEvent({
+    idempotencyKey:
+      input.status === "success" && input.creditTransactionId
+        ? `uploaderx:linkedin:chunk:${input.phase}:${input.creditTransactionId}`
+        : undefined,
+    status: input.status,
+    userId: input.userId,
+    assetId: input.videoUuid,
+    taskId: input.videoUuid,
+    creditTransactionId: input.creditTransactionId,
+    service: "uploaderx",
+    action: "platform_publish",
+    route: UPLOADERX_LINKEDIN_CHUNK_ROUTE,
+    provider: UPLOADERX_LINKEDIN_CHUNK_PROVIDER,
+    model: UPLOADERX_LINKEDIN_CHUNK_MODEL,
+    operation: input.operation,
+    chargedCredits: input.chargedCredits,
+    providerJobId: input.providerPostId ?? input.providerAssetId,
+    units: {
+      requestCount: input.requestCount ?? 1,
+      bytesIn: input.chunkBytes,
+    },
+    metadata: {
+      platform: "linkedin",
+      uploadMode: "chunk",
+      phase: input.phase,
+      postType: input.postType,
+      publishPath: input.publishPath,
+      hasProviderPostId: Boolean(input.providerPostId),
+      hasProviderAssetId: Boolean(input.providerAssetId),
+      uploadPartCount: input.uploadPartCount,
+      providerStatusCode: input.providerStatusCode,
+      chunkStartOffset: input.chunkStartOffset,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
 }

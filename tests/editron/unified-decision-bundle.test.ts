@@ -13,14 +13,45 @@ describe('unified decision bundle merge', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',
       edl: edl([
-        decision({ type: 'zoom', frame: 60, durationFrames: 18, source: 'creative-brief:test' }),
+        decision({
+          type: 'zoom',
+          frame: 60,
+          durationFrames: 18,
+          source: 'creative-brief:test',
+          params: {
+            mainSubjectX: 0.48,
+            mainSubjectY: 0.42,
+            mainSubjectWidth: 0.34,
+            mainSubjectHeight: 0.52,
+            facePresent: 1,
+            speechPeak: 0.78,
+            wordImportance: 0.72,
+            timeSinceLastZoomSec: 9,
+          },
+        }),
       ]),
       expectedExecuted: 1,
       expectedSkipped: 0,
     });
 
     const merged = mergeSignalDrivenBundle(pathE, edl([
-      decision({ type: 'zoom', frame: 66, durationFrames: 12, source: 'signal-executor:test', confidence: 0.83 }),
+      decision({
+        type: 'zoom',
+        frame: 66,
+        durationFrames: 12,
+        source: 'signal-executor:test',
+        confidence: 0.83,
+        params: {
+          mainSubjectX: 0.5,
+          mainSubjectY: 0.42,
+          mainSubjectWidth: 0.34,
+          mainSubjectHeight: 0.52,
+          facePresent: 1,
+          speechPeak: 0.82,
+          wordImportance: 0.76,
+          timeSinceLastZoomSec: 9,
+        },
+      }),
     ]));
 
     expect(merged.source).toBe('creative-brief+signal-driven');
@@ -534,8 +565,8 @@ describe('unified decision bundle merge', () => {
       signalDecisionRole: 'co-owner',
       signalDecisionsCanAddExecutable: true,
     });
-    expect(merged.edl.decisions.map((d) => d.type)).toEqual(['zoom', 'graphic']);
-    expect(merged.edl.decisions[1].params).toEqual(expect.objectContaining({
+    expect(merged.edl.decisions.map((d) => d.type)).toEqual(['graphic']);
+    expect(merged.edl.decisions[0].params).toEqual(expect.objectContaining({
       value: '42%',
       label: 'retention lift',
       unifiedDecisionMerge: expect.objectContaining({
@@ -546,7 +577,7 @@ describe('unified decision bundle merge', () => {
     expect(merged.evidence).toEqual(expect.objectContaining({
       signalDecisionCount: 1,
       addedSignalDecisionCount: 1,
-      evidenceOnlySignalDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 1,
     }));
     expect(merged.evidence.signalDecisionAudit.byFamily.graphic).toEqual(expect.objectContaining({
       count: 1,
@@ -554,6 +585,7 @@ describe('unified decision bundle merge', () => {
     }));
     expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
       'licensed-by-graphic-semantic-ledger': expect.objectContaining({ count: 1 }),
+      'primary-family-unlicensed:missing-camera-motion-atoms': expect.objectContaining({ count: 1 }),
     }));
   });
 
@@ -579,30 +611,38 @@ describe('unified decision bundle merge', () => {
       }),
     ]));
 
-    expect(merged.edl.decisions.map((d) => d.type)).toEqual(['zoom']);
+    expect(merged.edl.decisions.map((d) => d.type)).toEqual([]);
     expect(merged.evidence).toEqual(expect.objectContaining({
       signalDecisionCount: 1,
       addedSignalDecisionCount: 0,
-      evidenceOnlySignalDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 2,
     }));
-    expect(merged.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
-      type: 'graphic',
-      family: 'graphic',
-      outcome: 'evidence-only',
-      reason: 'missing-graphic-content-evidence',
-      params: {
-        keyword: 'important',
-        text: 'this sounds important',
-      },
-    }));
+    expect(merged.evidence.evidenceOnlySignalDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'zoom',
+        family: 'camera',
+        outcome: 'evidence-only',
+        reason: 'primary-family-unlicensed:missing-camera-motion-atoms',
+      }),
+      expect.objectContaining({
+        type: 'graphic',
+        family: 'graphic',
+        outcome: 'evidence-only',
+        reason: 'missing-graphic-content-evidence',
+        params: {
+          keyword: 'important',
+          text: 'this sounds important',
+        },
+      }),
+    ]));
     expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
       'missing-graphic-content-evidence': expect.objectContaining({ count: 1 }),
+      'primary-family-unlicensed:missing-camera-motion-atoms': expect.objectContaining({ count: 1 }),
     }));
-    expect(merged.evidence.signalDecisionAudit.samples[0].candidate.riskFlags).toEqual(expect.arrayContaining([
-      'missing-graphic-content-evidence',
-    ]));
+    expect(merged.evidence.signalDecisionAudit.samples.some((sample) => (
+      sample.candidate.riskFlags.includes('missing-graphic-content-evidence')
+    ))).toBe(true);
   });
-
   it('keeps Creative Knowledge Graph placeholder graphics as evidence before EDL rendering', () => {
     const pathE = createUnifiedDecisionBundle({
       source: 'creative-brief',
@@ -627,24 +667,33 @@ describe('unified decision bundle merge', () => {
       }),
     ]));
 
-    expect(merged.edl.decisions.map((d) => d.type)).toEqual(['zoom']);
+    expect(merged.edl.decisions.map((d) => d.type)).toEqual([]);
     expect(merged.evidence).toEqual(expect.objectContaining({
       signalDecisionCount: 1,
       addedSignalDecisionCount: 0,
-      evidenceOnlySignalDecisionCount: 1,
+      evidenceOnlySignalDecisionCount: 2,
     }));
-    expect(merged.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
-      type: 'graphic',
-      family: 'graphic',
-      outcome: 'evidence-only',
-      reason: 'missing-graphic-content-evidence',
-      params: {
-        name: 'person/brand name from transcript or brief',
-        title: 'role/description (optional)',
-      },
-    }));
+    expect(merged.evidence.evidenceOnlySignalDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'zoom',
+        family: 'camera',
+        outcome: 'evidence-only',
+        reason: 'primary-family-unlicensed:missing-camera-motion-atoms',
+      }),
+      expect.objectContaining({
+        type: 'graphic',
+        family: 'graphic',
+        outcome: 'evidence-only',
+        reason: 'missing-graphic-content-evidence',
+        params: {
+          name: 'person/brand name from transcript or brief',
+          title: 'role/description (optional)',
+        },
+      }),
+    ]));
     expect(merged.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
       'missing-graphic-content-evidence': expect.objectContaining({ count: 1 }),
+      'primary-family-unlicensed:missing-camera-motion-atoms': expect.objectContaining({ count: 1 }),
     }));
   });
   it('lets a weak creative primary supplement with bounded signal-driven decisions', () => {
@@ -689,9 +738,17 @@ describe('unified decision bundle merge', () => {
     expect(merged.evidence).toEqual(expect.objectContaining({
       addedSignalDecisionCount: 3,
       validatedDecisionCount: 0,
-      evidenceOnlySignalDecisionCount: 0,
+      evidenceOnlySignalDecisionCount: 1,
       signalDecisionCount: 3,
     }));
+    expect(merged.evidence.evidenceOnlySignalDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'zoom',
+        family: 'camera',
+        outcome: 'evidence-only',
+        reason: 'primary-family-unlicensed:missing-camera-motion-atoms',
+      }),
+    ]));
   });
 
   it('passes zoom camera atoms into the atomic zoom resolver instead of relying on scale labels', () => {
@@ -1262,14 +1319,44 @@ describe('unified decision bundle merge', () => {
     let bundle = planUnifiedDecisionBundle(null, {
       source: 'signal-driven',
       edl: edl([
-        decision({ type: 'zoom', frame: 54, source: 'signal-executor:test', confidence: 0.82 }),
+        decision({
+          type: 'zoom',
+          frame: 54,
+          source: 'signal-executor:test',
+          confidence: 0.82,
+          params: {
+            mainSubjectX: 0.5,
+            mainSubjectY: 0.42,
+            mainSubjectWidth: 0.34,
+            mainSubjectHeight: 0.52,
+            facePresent: 1,
+            speechPeak: 0.78,
+            wordImportance: 0.74,
+            timeSinceLastZoomSec: 8,
+          },
+        }),
       ]),
     });
 
     bundle = planUnifiedDecisionBundle(bundle, {
       source: 'creative-brief',
       edl: edl([
-        decision({ type: 'zoom', frame: 60, source: 'creative-brief:test', confidence: 0.9 }),
+        decision({
+          type: 'zoom',
+          frame: 60,
+          source: 'creative-brief:test',
+          confidence: 0.9,
+          params: {
+            mainSubjectX: 0.48,
+            mainSubjectY: 0.42,
+            mainSubjectWidth: 0.34,
+            mainSubjectHeight: 0.52,
+            facePresent: 1,
+            speechPeak: 0.82,
+            wordImportance: 0.78,
+            timeSinceLastZoomSec: 8,
+          },
+        }),
       ]),
       expectedExecuted: 1,
     });
@@ -1297,7 +1384,17 @@ describe('unified decision bundle merge', () => {
           frame: 60,
           source: 'creative-brief:weak-zoom',
           confidence: 0.32,
-          params: { scale: 1.04 },
+          params: {
+            scale: 1.04,
+            mainSubjectX: 0.48,
+            mainSubjectY: 0.42,
+            mainSubjectWidth: 0.34,
+            mainSubjectHeight: 0.52,
+            facePresent: 1,
+            speechPeak: 0.55,
+            wordImportance: 0.48,
+            timeSinceLastZoomSec: 8,
+          },
         }),
       ]),
     });
@@ -1370,7 +1467,23 @@ describe('unified decision bundle merge', () => {
     let bundle = planUnifiedDecisionBundle(null, {
       source: 'creative-brief',
       edl: edl([
-        decision({ type: 'zoom', frame: 60, source: 'creative-brief:zoom', confidence: 0.82, params: { scale: 1.04 } }),
+        decision({
+          type: 'zoom',
+          frame: 60,
+          source: 'creative-brief:zoom',
+          confidence: 0.82,
+          params: {
+            scale: 1.04,
+            mainSubjectX: 0.48,
+            mainSubjectY: 0.42,
+            mainSubjectWidth: 0.34,
+            mainSubjectHeight: 0.52,
+            facePresent: 1,
+            speechPeak: 0.76,
+            wordImportance: 0.7,
+            timeSinceLastZoomSec: 9,
+          },
+        }),
       ]),
     });
 
@@ -2599,6 +2712,34 @@ describe('unified decision bundle merge', () => {
       speedMultiplier: 0.3,
       legacyDecisionType: 'slow-motion',
     }));
+    expect(bundle.edl.stats.speedChangeCount).toBe(1);
+  });
+
+  it('does not invent a speed value for legacy slow-motion without explicit speed evidence', () => {
+    const bundle = createUnifiedDecisionBundle({
+      source: 'signal-driven',
+      edl: edl([
+        decision({
+          type: 'slow-motion' as any,
+          frame: 180,
+          durationFrames: 60,
+          source: 'signal-executor:legacy',
+          signal: 'legacy_slow_motion',
+          params: {},
+          confidence: 0.95,
+        }),
+      ] as any),
+    });
+
+    expect(bundle.edl.decisions).toHaveLength(1);
+    expect(bundle.edl.decisions[0]).toEqual(expect.objectContaining({
+      type: 'speed-change',
+      frame: 180,
+    }));
+    expect(bundle.edl.decisions[0].params).toEqual(expect.objectContaining({
+      legacyDecisionType: 'slow-motion',
+    }));
+    expect(bundle.edl.decisions[0].params).not.toHaveProperty('speedMultiplier');
     expect(bundle.edl.stats.speedChangeCount).toBe(1);
   });
 

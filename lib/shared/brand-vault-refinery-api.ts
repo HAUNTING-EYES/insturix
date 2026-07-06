@@ -31,6 +31,10 @@ import {
   createBrandVaultVisualAssetStorageFromEnvironment,
   type BrandVaultVisualAssetStorageProvider,
 } from './brand-vault-visual-asset-storage';
+import {
+  createBrandVaultWebsiteScreenshotCaptureFromEnvironment,
+  type CaptureBrandVaultWebsiteScreenshot,
+} from './brand-vault-website-screenshot';
 import type {
   BrandEvidenceCandidate,
   BrandVaultCrawlOptions,
@@ -140,6 +144,15 @@ export interface BrandVaultRefineryStore extends BrandVaultSignalProfileStore {
   getJobSnapshot(jobId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
   getJobSnapshotByRecordId(recordId: string): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot | null>;
   listJobSnapshots?(filter?: BrandVaultRefineryJobListFilter): BrandVaultStoreResult<BrandVaultRefineryJobSnapshot[]>;
+  /**
+   * Delete a scan's job snapshot (the Recent-scans history entry). Owner-scoped: only the user who ran the
+   * scan can delete it. NEVER touches the accepted brand profile (a separate record) — deleting a scan only
+   * removes it from history. Returns true if a snapshot was deleted. Optional — stores may omit it.
+   */
+  deleteJobSnapshot?(
+    jobId: string,
+    scope: { userId: string; orgId: string | null },
+  ): BrandVaultStoreResult<boolean>;
   updateJobStatusForRecord(
     recordId: string,
     status: BrandRefineryJob['status'],
@@ -224,6 +237,7 @@ type BrandVaultRefineryJobExecutionDependencies = {
   sourceEvidenceProvider?: BrandVaultSourceEvidenceProvider;
   textEvidenceCompiler?: BrandVaultTextEvidenceCompiler;
   visualAssetStorage?: BrandVaultVisualAssetStorageProvider | null;
+  captureWebsiteScreenshot?: CaptureBrandVaultWebsiteScreenshot | null;
 };
 
 export type ProcessQueuedBrandVaultRefineryJobResult = {
@@ -328,6 +342,14 @@ export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore 
   getJobSnapshotByRecordId(recordId: string): BrandVaultRefineryJobSnapshot | null {
     const jobId = this.recordToJob.get(recordId);
     return jobId ? this.getJobSnapshot(jobId) : null;
+  }
+
+  deleteJobSnapshot(jobId: string, scope: { userId: string; orgId: string | null }): boolean {
+    const snapshot = this.jobs.get(jobId);
+    if (!snapshot || snapshot.job.userId !== scope.userId) return false;
+    this.jobs.delete(jobId);
+    if (snapshot.recordId) this.recordToJob.delete(snapshot.recordId);
+    return true;
   }
 
   listJobSnapshots(filter: BrandVaultRefineryJobListFilter = {}): BrandVaultRefineryJobSnapshot[] {
@@ -442,6 +464,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
       clock: dependencies.clock,
       textEvidenceCompiler: dependencies.textEvidenceCompiler,
       visualAssetStorage: resolveVisualAssetStorageProvider(dependencies),
+      captureWebsiteScreenshot: resolveWebsiteScreenshotCapture(dependencies),
     },
   );
 
@@ -705,6 +728,13 @@ function resolveVisualAssetStorageProvider(
 ): BrandVaultVisualAssetStorageProvider | null {
   if (dependencies.visualAssetStorage !== undefined) return dependencies.visualAssetStorage;
   return createBrandVaultVisualAssetStorageFromEnvironment();
+}
+
+function resolveWebsiteScreenshotCapture(
+  dependencies: BrandVaultRefineryJobExecutionDependencies,
+): CaptureBrandVaultWebsiteScreenshot | null {
+  if (dependencies.captureWebsiteScreenshot !== undefined) return dependencies.captureWebsiteScreenshot;
+  return createBrandVaultWebsiteScreenshotCaptureFromEnvironment() ?? null;
 }
 
 function mergeWarnings(...groups: string[][]): string[] {
@@ -1124,6 +1154,10 @@ const UPLOADED_ASSET_ROLES = new Set<BrandVaultUploadedAssetRole>([
   'logo',
   'font',
   'color_palette',
+  'product_ui',
+  'website_screenshot',
+  'team',
+  'abstract_reference',
   'creative_reference',
   'prior_work',
   'other',

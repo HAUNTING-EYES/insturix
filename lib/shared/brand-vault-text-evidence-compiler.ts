@@ -9,6 +9,10 @@ import type {
   BrandWebsiteSnapshot,
 } from './brand-website-refinery-types';
 import { sanitizeEvidenceExcerpt } from './brand-signal-profile';
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from '@/lib/financials/provider-cost-events';
 
 type BrandVaultTextCompilerFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -48,6 +52,30 @@ interface TextEvidenceItem {
 interface CompilerCandidateNormalizationResult {
   candidates: BrandEvidenceCandidate[];
   rejectedCount: number;
+}
+
+interface TextCompilerGeminiUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
+interface TextCompilerCostInput {
+  status: ProviderCostEventStatus;
+  modelName: string;
+  operation: 'text_evidence_compile' | 'text_evidence_json_repair';
+  inputChars: number;
+  outputChars?: number;
+  requestBytes?: number;
+  responseBytes?: number;
+  responseStatus?: number;
+  functionMs: number;
+  usage?: TextCompilerGeminiUsage;
+  parseableJson?: boolean;
+  acceptedCandidateCount?: number;
+  rejectedCandidateCount?: number;
+  repairUsed?: boolean;
+  error?: unknown;
 }
 
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite';
@@ -94,23 +122,51 @@ export function createBrandVaultGeminiTextEvidenceCompiler(options: CompilerOpti
 
     const endpoint = new URL(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`);
     endpoint.searchParams.set('key', options.apiKey);
-
-    const response = await fetchFn(endpoint.href, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: COMPILER_SYSTEM_INSTRUCTION }] },
-        contents: [{ role: 'user', parts: [{ text: buildCompilerUserContent(input) }] }],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 1600,
-          responseMimeType: 'application/json',
-          seed,
-        },
-      }),
+    const userContent = buildCompilerUserContent(input);
+    const requestJson = JSON.stringify({
+      systemInstruction: { parts: [{ text: COMPILER_SYSTEM_INSTRUCTION }] },
+      contents: [{ role: 'user', parts: [{ text: userContent }] }],
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: 1600,
+        responseMimeType: 'application/json',
+        seed,
+      },
     });
+    const requestBytes = byteLength(requestJson);
+    const inputChars = COMPILER_SYSTEM_INSTRUCTION.length + userContent.length;
+    const startedAt = Date.now();
+
+    let response: Response;
+    try {
+      response = await fetchFn(endpoint.href, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: requestJson,
+      });
+    } catch (error) {
+      await recordBrandVaultTextCompilerCost({
+        status: 'failed',
+        modelName: model,
+        operation: 'text_evidence_compile',
+        inputChars,
+        requestBytes,
+        functionMs: Date.now() - startedAt,
+        error,
+      });
+      throw error;
+    }
 
     if (!response.ok) {
+      await recordBrandVaultTextCompilerCost({
+        status: 'failed',
+        modelName: model,
+        operation: 'text_evidence_compile',
+        inputChars,
+        requestBytes,
+        responseStatus: response.status,
+        functionMs: Date.now() - startedAt,
+      });
       return {
         candidates: [],
         warnings: [`Brand Vault text evidence compiler skipped: Gemini returned HTTP ${response.status}.`],
@@ -118,7 +174,18 @@ export function createBrandVaultGeminiTextEvidenceCompiler(options: CompilerOpti
     }
 
     const payload = await readGeminiPayload(response);
+    const responseBytes = jsonByteLength(payload);
+    const usage = readGeminiRestUsage(payload);
     if (!payload) {
+      await recordBrandVaultTextCompilerCost({
+        status: 'failed',
+        modelName: model,
+        operation: 'text_evidence_compile',
+        inputChars,
+        requestBytes,
+        responseStatus: response.status,
+        functionMs: Date.now() - startedAt,
+      });
       return {
         candidates: [],
         warnings: ['Brand Vault text evidence compiler skipped: Gemini returned a malformed API response.'],
@@ -126,15 +193,46 @@ export function createBrandVaultGeminiTextEvidenceCompiler(options: CompilerOpti
     }
 
     const text = extractGeminiText(payload);
-    if (!text) return { candidates: [], warnings: ['Brand Vault text evidence compiler skipped: Gemini returned no JSON text.'] };
+    if (!text) {
+      await recordBrandVaultTextCompilerCost({
+        status: 'failed',
+        modelName: model,
+        operation: 'text_evidence_compile',
+        inputChars,
+        outputChars: 0,
+        requestBytes,
+        responseBytes,
+        responseStatus: response.status,
+        functionMs: Date.now() - startedAt,
+        usage,
+        parseableJson: false,
+      });
+      return { candidates: [], warnings: ['Brand Vault text evidence compiler skipped: Gemini returned no JSON text.'] };
+    }
 
     const parsedResult = await parseCompilerJsonWithRepair({
       text,
       endpointHref: endpoint.href,
       fetchFn,
+      model,
       seed,
     });
+    const repairUsed = parsedResult.warnings.some((warning) => warning.includes('repaired malformed Gemini JSON'));
     if (!parsedResult.parsed) {
+      await recordBrandVaultTextCompilerCost({
+        status: 'failed',
+        modelName: model,
+        operation: 'text_evidence_compile',
+        inputChars,
+        outputChars: text.length,
+        requestBytes,
+        responseBytes,
+        responseStatus: response.status,
+        functionMs: Date.now() - startedAt,
+        usage,
+        parseableJson: false,
+        repairUsed,
+      });
       return {
         candidates: [],
         warnings: [
@@ -145,6 +243,22 @@ export function createBrandVaultGeminiTextEvidenceCompiler(options: CompilerOpti
     }
 
     const normalized = compilerOutputToCandidates(parsedResult.parsed, input);
+    await recordBrandVaultTextCompilerCost({
+      status: 'success',
+      modelName: model,
+      operation: 'text_evidence_compile',
+      inputChars,
+      outputChars: text.length,
+      requestBytes,
+      responseBytes,
+      responseStatus: response.status,
+      functionMs: Date.now() - startedAt,
+      usage,
+      parseableJson: true,
+      repairUsed,
+      acceptedCandidateCount: normalized.candidates.length,
+      rejectedCandidateCount: normalized.rejectedCount,
+    });
     if (normalized.candidates.length === 0) {
       return {
         candidates: [],
@@ -457,6 +571,7 @@ async function parseCompilerJsonWithRepair(args: {
   text: string;
   endpointHref: string;
   fetchFn: BrandVaultTextCompilerFetch;
+  model: string;
   seed: number;
 }): Promise<{ parsed: unknown | null; warnings: string[] }> {
   const parsed = parseCompilerJson(args.text);
@@ -475,24 +590,38 @@ async function repairCompilerJsonWithGemini(args: {
   text: string;
   endpointHref: string;
   fetchFn: BrandVaultTextCompilerFetch;
+  model: string;
   seed: number;
 }): Promise<{ parsed: unknown | null; warnings: string[] }> {
+  const repairInput = buildCompilerJsonRepairPrompt(args.text);
+  const requestJson = JSON.stringify({
+    contents: [{ role: 'user', parts: [{ text: repairInput }] }],
+    generationConfig: {
+      temperature: 0,
+      maxOutputTokens: 1200,
+      responseMimeType: 'application/json',
+      seed: args.seed,
+    },
+  });
+  const requestBytes = byteLength(requestJson);
+  const startedAt = Date.now();
   let response: Response;
   try {
     response = await args.fetchFn(args.endpointHref, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: buildCompilerJsonRepairPrompt(args.text) }] }],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 1200,
-          responseMimeType: 'application/json',
-          seed: args.seed,
-        },
-      }),
+      body: requestJson,
     });
-  } catch {
+  } catch (error) {
+    await recordBrandVaultTextCompilerCost({
+      status: 'failed',
+      modelName: args.model,
+      operation: 'text_evidence_json_repair',
+      inputChars: repairInput.length,
+      requestBytes,
+      functionMs: Date.now() - startedAt,
+      error,
+    });
     return {
       parsed: null,
       warnings: ['Brand Vault text evidence compiler JSON repair skipped: Gemini repair request failed.'],
@@ -500,6 +629,15 @@ async function repairCompilerJsonWithGemini(args: {
   }
 
   if (!response.ok) {
+    await recordBrandVaultTextCompilerCost({
+      status: 'failed',
+      modelName: args.model,
+      operation: 'text_evidence_json_repair',
+      inputChars: repairInput.length,
+      requestBytes,
+      responseStatus: response.status,
+      functionMs: Date.now() - startedAt,
+    });
     return {
       parsed: null,
       warnings: [`Brand Vault text evidence compiler JSON repair skipped: Gemini returned HTTP ${response.status}.`],
@@ -507,7 +645,18 @@ async function repairCompilerJsonWithGemini(args: {
   }
 
   const payload = await readGeminiPayload(response);
+  const responseBytes = jsonByteLength(payload);
+  const usage = readGeminiRestUsage(payload);
   if (!payload) {
+    await recordBrandVaultTextCompilerCost({
+      status: 'failed',
+      modelName: args.model,
+      operation: 'text_evidence_json_repair',
+      inputChars: repairInput.length,
+      requestBytes,
+      responseStatus: response.status,
+      functionMs: Date.now() - startedAt,
+    });
     return {
       parsed: null,
       warnings: ['Brand Vault text evidence compiler JSON repair skipped: Gemini returned a malformed API response.'],
@@ -516,13 +665,114 @@ async function repairCompilerJsonWithGemini(args: {
 
   const text = extractGeminiText(payload);
   if (!text) {
+    await recordBrandVaultTextCompilerCost({
+      status: 'failed',
+      modelName: args.model,
+      operation: 'text_evidence_json_repair',
+      inputChars: repairInput.length,
+      outputChars: 0,
+      requestBytes,
+      responseBytes,
+      responseStatus: response.status,
+      functionMs: Date.now() - startedAt,
+      usage,
+      parseableJson: false,
+    });
     return {
       parsed: null,
       warnings: ['Brand Vault text evidence compiler JSON repair skipped: Gemini returned no JSON text.'],
     };
   }
 
-  return { parsed: parseCompilerJson(text), warnings: [] };
+  const parsed = parseCompilerJson(text);
+  await recordBrandVaultTextCompilerCost({
+    status: parsed ? 'success' : 'failed',
+    modelName: args.model,
+    operation: 'text_evidence_json_repair',
+    inputChars: repairInput.length,
+    outputChars: text.length,
+    requestBytes,
+    responseBytes,
+    responseStatus: response.status,
+    functionMs: Date.now() - startedAt,
+    usage,
+    parseableJson: Boolean(parsed),
+  });
+
+  return { parsed, warnings: [] };
+}
+
+async function recordBrandVaultTextCompilerCost(input: TextCompilerCostInput) {
+  const inputTokens = input.usage?.inputTokens ?? estimateTokensFromChars(input.inputChars);
+  const outputTokens = input.usage?.outputTokens ?? estimateTokensFromChars(input.outputChars);
+  await recordProviderCostEvent({
+    status: input.status,
+    service: 'brand_vault',
+    action: 'brand_scan',
+    route: 'lib/shared/brand-vault-text-evidence-compiler',
+    provider: 'gemini',
+    model: cleanGeminiModelName(input.modelName),
+    operation: input.operation,
+    units: {
+      requestCount: 1,
+      bytesIn: input.requestBytes,
+      bytesOut: input.responseBytes,
+      inputTokens,
+      outputTokens,
+      totalTokens: input.usage?.totalTokens ?? sumOptional(inputTokens, outputTokens),
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      providerName: 'gemini',
+      sourceKind: input.operation,
+      inputChars: input.inputChars,
+      outputChars: input.outputChars,
+      responseStatus: input.responseStatus,
+      parseableJson: input.parseableJson,
+      repairUsed: input.repairUsed,
+      acceptedCandidateCount: input.acceptedCandidateCount,
+      rejectedCandidateCount: input.rejectedCandidateCount,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
+}
+
+function readGeminiRestUsage(payload: unknown): TextCompilerGeminiUsage | undefined {
+  const usage = asRecord(asRecord(payload).usageMetadata);
+  const inputTokens = readNumber(usage.promptTokenCount ?? usage.inputTokenCount);
+  const outputTokens = readNumber(usage.candidatesTokenCount ?? usage.outputTokenCount);
+  const totalTokens = readNumber(usage.totalTokenCount);
+  return inputTokens || outputTokens || totalTokens ? { inputTokens, outputTokens, totalTokens } : undefined;
+}
+
+function jsonByteLength(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  try {
+    return byteLength(JSON.stringify(value));
+  } catch {
+    return undefined;
+  }
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
+function estimateTokensFromChars(chars?: number): number | undefined {
+  return typeof chars === 'number' && Number.isFinite(chars) && chars > 0 ? Math.max(1, Math.ceil(chars / 4)) : undefined;
+}
+
+function sumOptional(a?: number, b?: number): number | undefined {
+  if (a === undefined && b === undefined) return undefined;
+  return (a ?? 0) + (b ?? 0);
+}
+
+function cleanGeminiModelName(modelName: string): string {
+  return modelName.replace(/^models\//, '');
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 function buildCompilerJsonRepairPrompt(rawText: string): string {

@@ -27,7 +27,9 @@ import type { ReferenceImageSet, SubjectReference } from '@/lib/pipeline/schemas
 import type { ExtractedSubject } from '@/lib/pipeline/llm-scene-parser';
 import {
   BRAND_EVIDENCE_REQUIRED_REASON,
+  brandReferenceEvidenceForSubject,
   cleanOptionalString,
+  isBrandLogoReferenceSubject,
   resolveBrandReferenceContext,
   requiresBrandReferenceEvidence,
   type BrandEvidenceStatus,
@@ -86,11 +88,18 @@ export async function POST(req: NextRequest) {
     });
     const brandEvidence = brandContext.evidence;
     let nextBrandEvidenceIndex = 0;
+    let nextBrandLogoEvidenceIndex = 0;
 
     const refSubjects: ProvenancedSubjectReference[] = subjects.map((s) => {
       const requiresBrandEvidence = requiresBrandReferenceEvidence(s, brandContext);
-      const evidence = requiresBrandEvidence && brandEvidence.length > 0
-        ? brandEvidence[nextBrandEvidenceIndex++ % brandEvidence.length]
+      // Replaces legacy flat rotation: brandEvidence[nextBrandEvidenceIndex++ % brandEvidence.length]
+      const eligibleEvidence = requiresBrandEvidence
+        ? brandReferenceEvidenceForSubject(s, brandEvidence)
+        : [];
+      const isLogoSubject = isBrandLogoReferenceSubject(s);
+      const evidenceCursor = isLogoSubject ? nextBrandLogoEvidenceIndex++ : nextBrandEvidenceIndex++;
+      const evidence = requiresBrandEvidence && eligibleEvidence.length > 0
+        ? eligibleEvidence[evidenceCursor % eligibleEvidence.length]
         : undefined;
 
       if (requiresBrandEvidence && evidence) {

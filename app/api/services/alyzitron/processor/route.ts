@@ -3,6 +3,10 @@ import { NextResponse, NextRequest } from "next/server";
 import { getCollections } from "../utils/mongodb";
 import { CreditsService } from "@/lib/services/creditsService";
 import { getCreditCost } from "@/lib/config/creditCosts";
+import {
+  recordProviderCostEvent,
+  type ProviderCostEventStatus,
+} from "@/lib/financials/provider-cost-events";
 import { ObjectId } from "mongodb";
 import { analyzeVideoWithGemini } from "@/lib/services/vertexAiService";
 import { logger } from "../utils/logger";
@@ -20,6 +24,10 @@ import {
 } from "@/lib/alyzitron/analysis-intent";
 import type { AlyzitronIntentResolution, AlyzitronMediaSourceKind } from "../types";
 
+const ALYZITRON_ANALYSIS_PROVIDER = "gemini";
+const ALYZITRON_ANALYSIS_OPERATION = "video_analysis";
+const ALYZITRON_ANALYSIS_ROUTE = "/api/services/alyzitron/processor";
+
 function cleanString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim();
@@ -30,6 +38,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function cleanNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
 }
 
 
@@ -72,6 +86,85 @@ function buildIntentCompletionFields(
     "metadata.intentResolution": intentResolution,
   };
 }
+
+type AlyzitronGeminiAnalysisCostDraft = {
+  model?: string;
+  mediaSeconds?: number;
+  mediaMinutes?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  functionMs?: number;
+  responseChars?: number;
+  mimeType?: string;
+  mediaSourceKind?: AlyzitronMediaSourceKind;
+  usedAudioTrack?: boolean;
+  filePartCount?: number;
+  resultMode?: string;
+};
+
+function estimateTokensFromUnknown(value: unknown): number | undefined {
+  try {
+    const serialized = JSON.stringify(value ?? {});
+    return Math.max(1, Math.ceil(serialized.length / 4));
+  } catch {
+    return undefined;
+  }
+}
+
+function getAnalysisResultMode(result: any): string {
+  if (result?.parseError) return "parse_error";
+  if (result?.truncated) return "truncated";
+  if (result?.extractedFromText) return "extracted_from_text";
+  return "structured_json";
+}
+
+async function recordAlyzitronGeminiAnalysisCost(input: AlyzitronGeminiAnalysisCostDraft & {
+  status: ProviderCostEventStatus;
+  userId: string;
+  orgId?: string;
+  taskId: string;
+  creditTransactionId?: string;
+  chargedCredits?: number;
+  error?: unknown;
+}) {
+  await recordProviderCostEvent({
+    idempotencyKey:
+      input.status === "success" && input.creditTransactionId
+        ? `alyzitron:analysis:${input.taskId}:${input.creditTransactionId}`
+        : undefined,
+    status: input.status,
+    userId: input.userId,
+    orgId: input.orgId,
+    taskId: input.taskId,
+    assetId: input.taskId,
+    creditTransactionId: input.creditTransactionId,
+    service: "alyzitron",
+    action: "video_analysis",
+    route: ALYZITRON_ANALYSIS_ROUTE,
+    provider: ALYZITRON_ANALYSIS_PROVIDER,
+    model: input.model,
+    operation: ALYZITRON_ANALYSIS_OPERATION,
+    chargedCredits: input.chargedCredits,
+    units: {
+      requestCount: 1,
+      mediaSeconds: input.mediaSeconds,
+      mediaMinutes: input.mediaMinutes,
+      outputTokens: input.outputTokens,
+      totalTokens: input.totalTokens,
+      functionMs: input.functionMs,
+    },
+    metadata: {
+      mediaSourceKind: input.mediaSourceKind,
+      mimeType: input.mimeType,
+      usedAudioTrack: input.usedAudioTrack,
+      filePartCount: input.filePartCount,
+      resultMode: input.resultMode,
+      responseChars: input.responseChars,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
+}
+
 async function handler(request: NextRequest) {
   let currentTaskId: string | null = null;
   let currentUserId: string | null = null;
@@ -143,6 +236,25 @@ async function handler(request: NextRequest) {
         ? { brandContextSource: brandContext.source, "metadata.brandContextSource": brandContext.source }
         : {}),
     };
+    let analysisCreditTransactionId: string | undefined;
+    let analysisChargedCredits: number | undefined;
+    let geminiAnalysisCostDraft: AlyzitronGeminiAnalysisCostDraft | null = null;
+    let geminiAnalysisCostRecorded = false;
+
+    const recordPendingGeminiAnalysisCost = async (status: ProviderCostEventStatus, error?: unknown) => {
+      if (!geminiAnalysisCostDraft || geminiAnalysisCostRecorded) return;
+      await recordAlyzitronGeminiAnalysisCost({
+        ...geminiAnalysisCostDraft,
+        status,
+        userId,
+        orgId: cleanString(task.orgId),
+        taskId,
+        creditTransactionId: analysisCreditTransactionId,
+        chargedCredits: status === "success" ? analysisChargedCredits : undefined,
+        error,
+      });
+      geminiAnalysisCostRecorded = true;
+    };
     // Initial Status Update
     await analyses.updateOne({ _id: task._id }, { $set: { status: "processing", processingStartTime: new Date(), updatedAt: new Date() } });
 
@@ -171,13 +283,68 @@ async function handler(request: NextRequest) {
       let updatedVideoUrl = task.videoUrl;
       let updatedMimeType = task.metadata?.mimeType || 'video/mp4';
       const originalSourceUrl = task.videoUrl;
+      const taskBilling = asRecord(task.billing);
+      analysisCreditTransactionId = cleanString(taskBilling?.creditTransactionId);
+      analysisChargedCredits = cleanNumber(taskBilling?.chargedCredits);
+      const analysisUsageMinutes = cleanNumber(taskBilling?.usageMinutes) ?? cleanNumber(task.usageMinutes) ?? 1;
+      const analysisMediaSeconds = isDirectImageUpload
+        ? 0
+        : (cleanNumber(task.videoDuration) ?? analysisUsageMinutes * 60);
+      const geminiFileCostContext = {
+        userId,
+        orgId: cleanString(task.orgId),
+        taskId,
+        mediaSourceKind,
+        route: ALYZITRON_ANALYSIS_ROUTE,
+      };
+      const runGeminiAnalysis = async (
+        mediaUri: string,
+        context: any,
+        metadata: any,
+        modelOverride?: string,
+        audioUri?: string,
+      ) => {
+        const startedAt = Date.now();
+        const draftBase: AlyzitronGeminiAnalysisCostDraft = {
+          model: modelOverride || "gemini-2.5-flash",
+          mediaSeconds: analysisMediaSeconds,
+          mediaMinutes: analysisUsageMinutes,
+          mimeType: updatedMimeType,
+          mediaSourceKind,
+          usedAudioTrack: Boolean(audioUri),
+          filePartCount: audioUri ? 2 : 1,
+        };
+
+        try {
+          const result = await analyzeVideoWithGemini(mediaUri, context, metadata, modelOverride, audioUri);
+          const outputTokens = estimateTokensFromUnknown(result);
+          geminiAnalysisCostDraft = {
+            ...draftBase,
+            model: cleanString(result?.modelUsed) ?? draftBase.model,
+            outputTokens,
+            totalTokens: outputTokens,
+            functionMs: Date.now() - startedAt,
+            responseChars: JSON.stringify(result ?? {}).length,
+            resultMode: getAnalysisResultMode(result),
+          };
+          return result;
+        } catch (err) {
+          geminiAnalysisCostDraft = {
+            ...draftBase,
+            functionMs: Date.now() - startedAt,
+            resultMode: "provider_error",
+          };
+          await recordPendingGeminiAnalysisCost("failed", err);
+          throw err;
+        }
+      };
 
       // ROUTE 1: IMAGE UPLOAD
       if (isDirectImageUpload) {
         logger.info("Route 1: Direct Image");
         updatedMimeType = 'image/jpeg';
         await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image Analysis]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
-        analysisResults = await analyzeVideoWithGemini(task.videoUrl, analysisContext, analysisMetadata);
+        analysisResults = await runGeminiAnalysis(task.videoUrl, analysisContext, analysisMetadata);
       }
       // ROUTE 2.5: R2 PATH
       else if (isR2Path) {
@@ -191,10 +358,10 @@ async function handler(request: NextRequest) {
         }
 
         logger.info("Uploading R2 media to Gemini File API");
-        const { fileUri } = await uploadUrlToGeminiFileAPI(downloadUrl, updatedMimeType, `task-${taskId}`);
+        const { fileUri } = await uploadUrlToGeminiFileAPI(downloadUrl, updatedMimeType, `task-${taskId}`, geminiFileCostContext);
 
         logger.info("Starting Gemini Analysis for R2 Path");
-        const gem = await analyzeVideoWithGemini(fileUri, { ...analysisContext, transcript: "Native audio." }, analysisMetadata);
+        const gem = await runGeminiAnalysis(fileUri, { ...analysisContext, transcript: "Native audio." }, analysisMetadata);
         analysisResults = gem;
         transcriptResult = {
           id: "gemini-" + Date.now().toString(),
@@ -219,7 +386,7 @@ async function handler(request: NextRequest) {
           updatedVideoUrl = task.videoUrl;
           updatedMimeType = "video/mp4";
 
-          const gem = await analyzeVideoWithGemini(task.videoUrl, { ...analysisContext, transcript: "Native audio." }, analysisMetadata);
+          const gem = await runGeminiAnalysis(task.videoUrl, { ...analysisContext, transcript: "Native audio." }, analysisMetadata);
           analysisResults = gem;
 
           transcriptResult = {
@@ -238,22 +405,22 @@ async function handler(request: NextRequest) {
           if (extracted.mediaType === "image") {
             updatedMimeType = "image/jpeg";
 
-            const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, "image/jpeg", `task-${taskId}`);
+            const { fileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, "image/jpeg", `task-${taskId}`, geminiFileCostContext);
             updatedVideoUrl = extracted.downloadUrl;
             await upsertTranscriptionCompleted(taskId, { deepgramRequestId: "image-bypass", text: "[Image]", formattedTranscript: "", wordCount: 0 } as any).catch(() => { });
-            analysisResults = await analyzeVideoWithGemini(fileUri, analysisContext, analysisMetadata);
+            analysisResults = await runGeminiAnalysis(fileUri, analysisContext, analysisMetadata);
 
           } else {
             // VIDEO/AUDIO LOGIC
             updatedMimeType = extracted.mediaType === "audio" ? "audio/mpeg" : "video/mp4";
 
             logger.info("Uploading extracted media to Gemini File API");
-            const { fileUri: videoFileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, updatedMimeType, `task-${taskId}-video`);
+            const { fileUri: videoFileUri } = await uploadUrlToGeminiFileAPI(extracted.downloadUrl, updatedMimeType, `task-${taskId}-video`, geminiFileCostContext);
 
             let audioFileUri: string | undefined;
             if (extracted.audioUrl) {
               logger.info("Separate audio track detected, uploading audio to Gemini File API");
-              const { fileUri: uploadedAudioUri } = await uploadUrlToGeminiFileAPI(extracted.audioUrl, 'audio/mpeg', `task-${taskId}-audio`);
+              const { fileUri: uploadedAudioUri } = await uploadUrlToGeminiFileAPI(extracted.audioUrl, 'audio/mpeg', `task-${taskId}-audio`, geminiFileCostContext);
               audioFileUri = uploadedAudioUri;
               logger.info("Audio upload complete", { data: { audioFileUri } });
             }
@@ -261,7 +428,7 @@ async function handler(request: NextRequest) {
             updatedVideoUrl = task.videoUrl; // Ensure we keep original external URL for embed
 
             logger.info("Starting Gemini Analysis" + (audioFileUri ? " (dual-file: video + audio)" : ""));
-            const gem = await analyzeVideoWithGemini(videoFileUri, { ...analysisContext, transcript: "Native audio." }, analysisMetadata, undefined, audioFileUri);
+            const gem = await runGeminiAnalysis(videoFileUri, { ...analysisContext, transcript: "Native audio." }, analysisMetadata, undefined, audioFileUri);
             analysisResults = gem;
 
             transcriptResult = {
@@ -293,12 +460,16 @@ async function handler(request: NextRequest) {
       }
 
       if (analysisResults?.parseError) {
-        throw new Error("Alyzitron analysis returned invalid JSON. Please retry the analysis.");
+        const parseError = new Error("Alyzitron analysis returned invalid JSON. Please retry the analysis.");
+        await recordPendingGeminiAnalysisCost("failed", parseError);
+        throw parseError;
       }
 
       const normalizedResults = normalizeAlyzitronAnalysisResults(analysisResults);
       if (!normalizedResults) {
-        throw new Error("Alyzitron analysis returned no usable results.");
+        const emptyResultError = new Error("Alyzitron analysis returned no usable results.");
+        await recordPendingGeminiAnalysisCost("failed", emptyResultError);
+        throw emptyResultError;
       }
       analysisResults = normalizedResults;
 
@@ -319,6 +490,8 @@ async function handler(request: NextRequest) {
           }
         }
       );
+
+      await recordPendingGeminiAnalysisCost("success");
 
       // Write analysis results back to Editron project (fail-open)
       if (editronProjectId && analysisResults) {
@@ -376,7 +549,19 @@ async function handler(request: NextRequest) {
         { _id: ObjectId.createFromHexString(taskId) },
         { $set: { status: "failed", error: { message: err.message, code: err.code || "PIPELINE_ERROR" }, refunded: true } }
       );
-      try { await CreditsService.refundCredits(userId, getCreditCost("alyzitron", "video_analysis", { durationMinutes: task.usageMinutes || 1 }), `Failed: ${err.message}`, { service: "alyzitron", action: "video_analysis" }); } catch (e) { }
+      await recordPendingGeminiAnalysisCost("failed", err).catch(() => { });
+      try {
+        await CreditsService.refundCredits(
+          userId,
+          analysisChargedCredits ?? getCreditCost("alyzitron", "video_analysis", { durationMinutes: task.usageMinutes || 1 }),
+          `Failed: ${err.message}`,
+          {
+            service: "alyzitron",
+            action: "video_analysis",
+            originalTransactionId: analysisCreditTransactionId,
+          }
+        );
+      } catch (e) { }
       return NextResponse.json({ success: false, error: err.message }, { status: 500 });
     }
   } catch (globalErr: any) {

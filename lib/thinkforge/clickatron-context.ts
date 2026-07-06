@@ -514,10 +514,10 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
               status: "needs_user_input",
               issues: [{
                 code: "carousel_slides_derived_from_single_prompt",
-                message: "The writer produced only a single-image Clickatron prompt, so ThinkForge derived carousel slides from visible source blocks. Review the slide plan before sending.",
+                message: "Slides were auto-composed from your content — give the plan a quick look before sending.",
                 severity: "warning",
               }],
-              needsUserInput: ["Review and confirm the derived carousel slide plan before sending to Clickatron."],
+              needsUserInput: ["Review the auto-composed carousel slides before sending."],
             }
         : {
             status: "needs_user_input",

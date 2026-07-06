@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const projectServiceMock = vi.hoisted(() => ({
@@ -217,5 +220,22 @@ describe('visual cut intelligence end-to-end timeline execution', () => {
         }),
       }),
     ]);
+  });
+  it('keeps visual cut refinement wired before silence removal in the video-analysis worker', () => {
+    const source = readFileSync(join(process.cwd(), 'app/api/internal/workers/video-analysis/route.ts'), 'utf8');
+    const visualStep = source.indexOf('Step 1.58: Visual cut intelligence');
+    const silenceStep = source.indexOf('Step 1.6: Execute Silence Removal');
+    const refineCall = source.indexOf('const visualCutResult = refineCutPlanWithVisualIntelligence(rawFootageAnalysis, precutVjepaAnalysis)');
+    const planAssignment = source.indexOf('rawFootageAnalysis.silenceRemovalPlan = visualCutResult.plan');
+    const executeCall = source.indexOf('await executeSilenceRemoval(projectId, userId, rawFootageAnalysis.silenceRemovalPlan)');
+
+    expect(visualStep).toBeGreaterThan(-1);
+    expect(silenceStep).toBeGreaterThan(visualStep);
+    expect(source).toContain("await import('@/lib/editron/services/visual-cut-intelligence')");
+    expect(refineCall).toBeGreaterThan(visualStep);
+    expect(planAssignment).toBeGreaterThan(refineCall);
+    expect(executeCall).toBeGreaterThan(planAssignment);
+    expect(source).toContain("...(visualCutIntelligence && { 'intelligence.visualCutIntelligence': visualCutIntelligence })");
+    expect(source).toContain('rawFootageAnalysis.visualCutIntelligence = visualCutResult.report');
   });
 });

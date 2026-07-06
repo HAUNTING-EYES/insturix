@@ -37,6 +37,7 @@ import {
   type StoryboardImageWorkerPayload,
 } from '@/lib/pipeline/storyboard-image-queue';
 import type {
+  ApprovedStoryboardReference,
   EditronProductionManifest,
   SceneDescriptor,
   StyleGuide,
@@ -164,14 +165,7 @@ export async function POST(request: NextRequest) {
       aspectRatio?: string;
       overallMusicPrompt?: string;
       refSetId?: string;
-      approvedReferences?: Array<{
-        subjectId: string;
-        name: string;
-        category?: string;
-        visualDescription?: string;
-        imageUrl: string;
-        scenesAppearingIn: number[];
-      }>;
+      approvedReferences?: ApprovedStoryboardReference[];
       checkConsistency?: boolean;
       consistencyThreshold?: number;
       globalEditDirections?: any;
@@ -189,6 +183,7 @@ export async function POST(request: NextRequest) {
     const legacySessionId = normalizeString(projectId);
     const normalizedSourceSessionId =
       normalizeString(sourceSessionId) || (legacySessionId && !legacySessionId.startsWith('proj_') ? legacySessionId : undefined);
+    const normalizedBrandId = normalizeString(brandId);
 
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
       return NextResponse.json(
@@ -276,29 +271,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Build referenceImageMap from approved references
-    let referenceImageMap:
-      | Record<
-          number,
-          Array<{
-            subjectId: string;
-            imageUrl: string;
-            weight?: number;
-            name?: string;
-            visualDescription?: string;
-          }>
-        >
-      | undefined;
+    let referenceImageMap: Record<number, ApprovedStoryboardReference[]> | undefined;
     if (approvedReferences && approvedReferences.length > 0) {
       referenceImageMap = {};
       for (const ref of approvedReferences) {
         for (const sceneIdx of ref.scenesAppearingIn) {
           if (!referenceImageMap[sceneIdx]) referenceImageMap[sceneIdx] = [];
           referenceImageMap[sceneIdx].push({
-            subjectId: ref.subjectId,
-            imageUrl: ref.imageUrl,
-            weight: 0.6,
-            name: ref.name,
-            visualDescription: ref.visualDescription,
+            ...ref,
+            weight: ref.weight ?? 0.6,
           });
         }
       }
@@ -315,6 +296,7 @@ export async function POST(request: NextRequest) {
       sourceSessionId: normalizedSourceSessionId,
       userId,
       sourceScriptId,
+      brandId: normalizedBrandId,
       title,
       styleGuide,
       overallMusicPrompt,
@@ -349,7 +331,7 @@ export async function POST(request: NextRequest) {
           sessionId: normalizedSourceSessionId,
           sourceScriptId,
           storyboardId,
-          brandId,
+          brandId: normalizedBrandId,
         });
         console.log(`[storyboard/generate] Project link created for storyboard ${storyboardId}`);
       }

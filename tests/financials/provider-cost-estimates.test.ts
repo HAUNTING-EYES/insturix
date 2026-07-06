@@ -87,6 +87,39 @@ describe('provider cost estimates', () => {
     expect(estimate.unit).toBe('token');
   });
 
+  it('prices Gemini 2.5 Flash input and output token rates separately', () => {
+    const estimate = estimateProviderCost({
+      provider: 'google-gemini',
+      operation: 'video_analysis',
+      model: 'gemini-2.5-flash',
+      units: { inputTokens: 1_000_000, outputTokens: 1_000_000 },
+    });
+
+    expect(estimate.provider).toBe('gemini');
+    expect(estimate.costBasis).toBe('estimated_table');
+    expect(estimate.estimatedCostUsd).toBe(2.8);
+    expect(estimate.quantity).toBe(2_000_000);
+    expect(estimate.unit).toBe('token');
+    expect(estimate.usdPerUnit).toBeNull();
+    expect(estimate.missingPricing).toBe(false);
+  });
+
+  it('does not fake Gemini video-analysis cost when token usage is absent', () => {
+    const estimate = estimateProviderCost({
+      provider: 'google-gemini',
+      operation: 'video_analysis',
+      model: 'gemini-2.5-flash',
+      units: { mediaSeconds: 12, requestCount: 1 },
+    });
+
+    expect(estimate.provider).toBe('gemini');
+    expect(estimate.estimatedCostUsd).toBeNull();
+    expect(estimate.costBasis).toBe('pricing_to_be_seen');
+    expect(estimate.missingPricing).toBe(true);
+    expect(estimate.quantity).toBeNull();
+    expect(estimate.unit).toBe('token');
+  });
+
   it('does not estimate token rates when token usage is absent', () => {
     const testRates: ProviderCostRate[] = [
       {

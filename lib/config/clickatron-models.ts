@@ -50,6 +50,7 @@ export interface ModelConfig {
   name: string;
   types: ModelType[];
   isDefault?: boolean;
+  isDeprecated?: boolean;
   isInpaintingCapable?: boolean;
   /** Marks this model as suitable for sketch-to-edit (annotation-guided editing) */
   isSketchToEdit?: boolean;
@@ -66,9 +67,37 @@ export type ClickatronModelContext =
 
 export type ClickatronDefaultGenerationType = Extract<ModelType, 'text-to-image' | 'image-to-image'>;
 
-export const DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID = 'fal-ai/imagen4/preview';
+export const DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID = 'fal-ai/bytedance/seedream/v4.5/text-to-image';
 export const DEFAULT_CLICKATRON_IMAGE_TO_IMAGE_MODEL_ID = 'fal-ai/flux-kontext/dev';
 export const IMAGEN4_PREVIEW_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const;
+const CLICKATRON_PROMPT_TRUNCATION_NOTICE = '\n\n[Prompt compacted to fit the selected image model provider limit. Preserve the core visual request, brand constraints, and generation rules.]\n\n';
+
+function compactTextToLength(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  if (maxLength <= CLICKATRON_PROMPT_TRUNCATION_NOTICE.length + 40) {
+    return text.slice(0, maxLength);
+  }
+
+  const available = maxLength - CLICKATRON_PROMPT_TRUNCATION_NOTICE.length;
+  const headLength = Math.ceil(available * 0.65);
+  const tailLength = available - headLength;
+  return `${text.slice(0, headLength)}${CLICKATRON_PROMPT_TRUNCATION_NOTICE}${text.slice(-tailLength)}`;
+}
+
+export function getClickatronModelPromptMaxLength(modelId: string | undefined | null): number | undefined {
+  if (!modelId) return undefined;
+  return CLICKATRON_MODELS[modelId]?.constraints.promptMaxLength;
+}
+
+export function fitClickatronPromptToModelLimit(
+  modelId: string | undefined | null,
+  prompt: string,
+  fallbackMaxLength = 5000,
+): string {
+  const normalizedPrompt = prompt.trim();
+  const maxLength = getClickatronModelPromptMaxLength(modelId) ?? fallbackMaxLength;
+  return compactTextToLength(normalizedPrompt, maxLength);
+}
 
 /**
  * A map of all available models, keyed by their unique ID.
@@ -79,7 +108,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
     id: 'fal-ai/imagen4/preview',
     name: 'Google Imagen4',
     types: ['text-to-image'],
-    isDefault: true,
+    isDeprecated: true,
     parameterMapping: {
       prompt: 'prompt',
       aspect_ratio: 'aspect_ratio',
@@ -87,7 +116,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       resolution: 'resolution'
     },
     constraints: {
-      promptMaxLength: 2048,
+      promptMaxLength: 5000,
       allowedAspectRatios: [...IMAGEN4_PREVIEW_ASPECT_RATIOS],
       minImages: 0,
       maxImages: 0,
@@ -141,7 +170,6 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
     id: 'fal-ai/bytedance/seedream/v4/text-to-image',
     name: 'Seedream V4',
     types: ['text-to-image'],
-    isDefault: true,
     parameterMapping: {
       prompt: 'prompt',
       image_size: 'image_size',
@@ -236,7 +264,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       seed: 'seed'
     },
     constraints: {
-      promptMaxLength: 2048,
+      promptMaxLength: 5000,
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
       minImages: 0,
       maxImages: 0,
@@ -329,6 +357,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
     id: 'fal-ai/bytedance/seedream/v4.5/text-to-image',
     name: 'Seedream 4.5',
     types: ['text-to-image'],
+    isDefault: true,
     parameterMapping: {
       prompt: 'prompt',
       image_size: 'image_size',
@@ -487,13 +516,13 @@ export function getDefaultClickatronModelId(type: ClickatronDefaultGenerationTyp
       : DEFAULT_CLICKATRON_IMAGE_TO_IMAGE_MODEL_ID;
   const preferredModel = CLICKATRON_MODELS[preferredModelId];
 
-  if (preferredModel?.types.includes(type)) {
+  if (preferredModel && !preferredModel.isDeprecated && preferredModel.types.includes(type)) {
     return preferredModelId;
   }
 
   return (
-    Object.values(CLICKATRON_MODELS).find((model) => model.isDefault && model.types.includes(type))?.id ||
-    Object.values(CLICKATRON_MODELS).find((model) => model.types.includes(type))?.id ||
+    Object.values(CLICKATRON_MODELS).find((model) => !model.isDeprecated && model.isDefault && model.types.includes(type))?.id ||
+    Object.values(CLICKATRON_MODELS).find((model) => !model.isDeprecated && model.types.includes(type))?.id ||
     preferredModelId
   );
 }
@@ -525,6 +554,100 @@ export function getDefaultClickatronModelIdForInput({
   );
 }
 
+export interface ClickatronModelResolution {
+  modelId: string;
+  model: ModelConfig;
+  requestedModelId?: string;
+  reason: 'requested' | 'default' | 'aspect-ratio-fallback' | 'missing-model-fallback';
+}
+
+export function modelSupportsAspectRatio(model: ModelConfig | undefined, aspectRatio?: string | null): boolean {
+  if (!model || !aspectRatio) return Boolean(model);
+  const allowedAspectRatios = model.constraints.allowedAspectRatios;
+  return !allowedAspectRatios || allowedAspectRatios.includes(aspectRatio);
+}
+
+export function resolveClickatronModelForGeneration({
+  requestedModelId,
+  context = 'newVariation',
+  referenceImageCount = 0,
+  hasParentImage = false,
+  aspectRatio,
+}: {
+  requestedModelId?: string | null;
+  context?: ClickatronModelContext;
+  referenceImageCount?: number;
+  hasParentImage?: boolean;
+  aspectRatio?: string | null;
+} = {}): ClickatronModelResolution {
+  const generationType: ClickatronDefaultGenerationType =
+    referenceImageCount > 0 || hasParentImage ? 'image-to-image' : 'text-to-image';
+  const availableModels = getAvailableModels(context, referenceImageCount);
+  const modelCanHandleRequest = (model: ModelConfig | undefined): model is ModelConfig =>
+    Boolean(
+      model &&
+      !model.isDeprecated &&
+      model.types.includes(generationType) &&
+      availableModels.some((availableModel) => availableModel.id === model.id) &&
+      modelSupportsAspectRatio(model, aspectRatio)
+    );
+
+  const requestedModel: ModelConfig | undefined = requestedModelId ? CLICKATRON_MODELS[requestedModelId] : undefined;
+  if (modelCanHandleRequest(requestedModel)) {
+    return {
+      modelId: requestedModel.id,
+      model: requestedModel,
+      requestedModelId: requestedModelId ?? undefined,
+      reason: 'requested',
+    };
+  }
+
+  const defaultModelId = getDefaultClickatronModelIdForInput({
+    context,
+    referenceImageCount,
+    hasParentImage,
+  });
+  const defaultModel: ModelConfig | undefined = CLICKATRON_MODELS[defaultModelId];
+  if (modelCanHandleRequest(defaultModel)) {
+    return {
+      modelId: defaultModel.id,
+      model: defaultModel,
+      requestedModelId: requestedModelId ?? undefined,
+      reason: requestedModel ? 'aspect-ratio-fallback' : 'default',
+    };
+  }
+
+  const compatibleModel = availableModels.find((model) =>
+    model.types.includes(generationType) && modelSupportsAspectRatio(model, aspectRatio)
+  );
+  if (compatibleModel) {
+    return {
+      modelId: compatibleModel.id,
+      model: compatibleModel,
+      requestedModelId: requestedModelId ?? undefined,
+      reason: requestedModel ? 'aspect-ratio-fallback' : 'default',
+    };
+  }
+
+  const fallbackCandidates: Array<ModelConfig | undefined> = [
+    defaultModel,
+    availableModels.find((model) => model.types.includes(generationType)),
+    CLICKATRON_MODELS[getDefaultClickatronModelId(generationType)],
+    Object.values(CLICKATRON_MODELS).find((model) => !model.isDeprecated),
+  ];
+  const fallbackModel = fallbackCandidates.find((model): model is ModelConfig => Boolean(model));
+
+  if (!fallbackModel) {
+    throw new Error('No Clickatron generation models are configured');
+  }
+
+  return {
+    modelId: fallbackModel.id,
+    model: fallbackModel,
+    requestedModelId: requestedModelId ?? undefined,
+    reason: requestedModel ? 'aspect-ratio-fallback' : 'missing-model-fallback',
+  };
+}
 /**
  * Get available models for a specific context
  * @param context - The context ('ideation' | 'newVariation' | 'edit' | 'generativeFill' | 'sketchToEdit')
@@ -535,19 +658,25 @@ export function getAvailableModels(
   context: ClickatronModelContext,
   userAttachedImages: number = 0
 ): ModelConfig[] {
-  const allModels = Object.values(CLICKATRON_MODELS);
+  const allModels = Object.values(CLICKATRON_MODELS).filter(model => !model.isDeprecated);
 
   // For sketch-to-edit, return only models flagged for sketch-to-edit
   if (context === 'sketchToEdit') {
     return allModels.filter(model => model.isSketchToEdit === true);
   }
 
-  // For generative fill, return specific approved models
+  // For generative fill (mask-based inpainting), return ONLY models whose live Fal
+  // endpoint actually accepts a mask_url. The previous list (seedream v5 lite/edit,
+  // nano-banana-pro/edit, gemini-3-pro-image) are natural-language EDIT endpoints that
+  // accept NO mask — so the mask was silently dropped and "fill" regenerated the whole
+  // image instead of the masked region. [R2] These inpainting models take
+  // image_url + mask_url and honor the masked region (verified against Fal API docs +
+  // the generateFluxDevInpaintingPayload/FluxProFill/FluxKontextInpainting builders).
   if (context === 'generativeFill') {
     const allowedModels = [
-      'fal-ai/bytedance/seedream/v5/lite/edit',
-      'fal-ai/nano-banana-pro/edit',
-      'fal-ai/gemini-3-pro-image-preview'
+      'fal-ai/flux-pro/v1/fill',
+      'fal-ai/flux/dev/inpainting',
+      'fal-ai/flux-kontext/dev/inpainting',
     ];
     return allModels.filter(model => allowedModels.includes(model.id));
   }
@@ -590,7 +719,7 @@ export function generateImagen4PreviewPayload(
   }
 
   return {
-    prompt: job.prompt,
+    prompt: fitClickatronPromptToModelLimit('fal-ai/imagen4/preview', job.prompt),
     aspect_ratio: ratio,
     num_images: numImages,
     resolution: "1K"

@@ -55,6 +55,47 @@ describe('X social provider cost telemetry contract', () => {
     expect(helper).not.toContain('text');
   });
 
+  it('records CalOS Facebook, LinkedIn, and YouTube publish provider events without publisher-level credits', () => {
+    const facebook = readRepoFile('lib/calos/publish/facebook.ts');
+    const linkedin = readRepoFile('lib/calos/publish/linkedin.ts');
+    const youtube = readRepoFile('lib/calos/publish/youtube.ts');
+
+    expect(facebook).toContain('await recordCalosFacebookPublishCost(params, result);');
+    expect(facebook).toContain('route: "lib/calos/publish/facebook"');
+    expect(facebook).toContain('provider: "meta-graph-api"');
+    expect(facebook).toContain('model: `facebook-${graphVersion()}`');
+    expect(facebook).toContain('operation: "social_publish"');
+
+    expect(linkedin).toContain('await recordCalosLinkedInPublishCost(params, result);');
+    expect(linkedin).toContain('route: "lib/calos/publish/linkedin"');
+    expect(linkedin).toContain('provider: "linkedin-api"');
+    expect(linkedin).toContain('model: `linkedin-rest-${LINKEDIN_REST_API_VERSION}`');
+    expect(linkedin).toContain('operation: "social_publish"');
+
+    expect(youtube).toContain('if (result.providerAttempted) await recordCalosYouTubePublishCost(params, result);');
+    expect(youtube).toContain('route: "lib/calos/publish/youtube"');
+    expect(youtube).toContain('provider: "youtube-data-api"');
+    expect(youtube).toContain('model: "youtube-v3"');
+    expect(youtube).toContain('operation: "social_publish"');
+
+    const helpers = [
+      facebook.slice(facebook.indexOf('async function recordCalosFacebookPublishCost')),
+      linkedin.slice(linkedin.indexOf('async function recordCalosLinkedInPublishCost')),
+      youtube.slice(youtube.indexOf('async function recordCalosYouTubePublishCost')),
+    ].join('\n');
+    expect(helpers).not.toContain('chargedCredits');
+    expect(helpers).not.toContain('accessToken');
+    expect(helpers).not.toContain('refreshToken');
+    expect(helpers).not.toContain('pageAccessToken');
+    expect(helpers).not.toContain('caption');
+    expect(helpers).not.toContain('message');
+    expect(helpers).not.toContain('text');
+    expect(helpers).not.toContain('title');
+    expect(helpers).not.toContain('description');
+    expect(helpers).not.toContain('videoUrl');
+    expect(helpers).not.toContain('postUrl');
+  });
+
   it('keeps UploaderX provider-cost metadata free of post bodies, OAuth tokens, and URLs', () => {
     const normalRoute = readRepoFile('app/api/services/uploaderx/twitter/route.ts');
     const chunkRoute = readRepoFile('app/api/services/uploaderx/twitter/chunk/route.ts');
@@ -80,6 +121,7 @@ describe('X social provider cost telemetry contract', () => {
     const plan = readRepoFile('docs/financials/provider-cost-telemetry-final-plan-2026-07-01.md');
 
     expect(plan).toContain('Partial 2026-07-03: UploaderX and CalOS X social provider events are wired');
+    expect(plan).toContain('CalOS Facebook, Instagram, LinkedIn, and YouTube publisher events are wired');
     expect(plan).toContain('X API pricing remains `pricing_to_be_seen`');
   });
 });

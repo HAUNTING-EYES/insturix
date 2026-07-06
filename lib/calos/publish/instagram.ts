@@ -1,3 +1,4 @@
+import { recordProviderCostEvent, type ProviderCostEventStatus } from "@/lib/financials/provider-cost-events";
 import type { PublishParams, PublishResult } from "./contract";
 
 /**
@@ -14,7 +15,15 @@ import type { PublishParams, PublishResult } from "./contract";
  * The image URL MUST be publicly fetchable (Instagram fetches it server-side).
  */
 
-const IG_API = `https://graph.instagram.com/${process.env.INSTAGRAM_GRAPH_API_VERSION || "v21.0"}`;
+type CalosInstagramCostOperation = "social_media_upload" | "social_publish";
+type CalosInstagramCostPhase = "container_create" | "publish";
+
+function graphVersion() {
+  const raw = (process.env.INSTAGRAM_GRAPH_API_VERSION || "v21.0").trim();
+  return raw.startsWith("v") ? raw : `v${raw}`;
+}
+
+const IG_API = `https://graph.instagram.com/${graphVersion()}`;
 
 type IgAuth = { userAccessToken: string } | { error: string; retryable: boolean };
 type GraphResponse = { id?: string; error?: { message?: string } };
@@ -38,7 +47,7 @@ export async function publishToInstagram(params: PublishParams): Promise<Publish
   const auth = await resolveBrandIgAuth(params.brandId, params.accountRef);
   if ("error" in auth) return { ok: false, error: auth.error, retryable: auth.retryable };
 
-  return createInstagramImagePost(auth.userAccessToken, imageUrl, caption);
+  return createInstagramImagePost(params, auth.userAccessToken, imageUrl, caption);
 }
 
 /**
@@ -71,18 +80,38 @@ async function resolveBrandIgAuth(brandId: string, accountRef?: string | null): 
 
 /** Create the image media container, then publish it (mirrors the uploaderx IG direct-image path). */
 async function createInstagramImagePost(
+  params: PublishParams,
   userAccessToken: string,
   imageUrl: string,
   caption: string,
 ): Promise<PublishResult> {
+  let phase: CalosInstagramCostPhase = "container_create";
+  let operation: CalosInstagramCostOperation = "social_media_upload";
+  let responseStatus: number | undefined;
+  let providerJobId: string | undefined;
+  const hasImageSource = Boolean(imageUrl);
+  const hasCaptionText = Boolean(caption);
+
   try {
     // 1) Create the media container.
     const containerParams = new URLSearchParams({ image_url: imageUrl, access_token: userAccessToken });
     if (caption) containerParams.set("caption", caption);
     const cRes = await fetch(`${IG_API}/me/media?${containerParams.toString()}`, { method: "POST" });
+    responseStatus = cRes.status;
     const cData: GraphResponse = await cRes.json().catch(() => ({}));
+    providerJobId = cData.id;
     if (!cRes.ok || cData.error || !cData.id) {
       const retryable = cRes.status >= 500 || cRes.status === 429;
+      await recordCalosInstagramPublishCost(params, {
+        status: "failed",
+        operation,
+        phase,
+        responseStatus,
+        providerJobId,
+        retryable,
+        hasImageSource,
+        hasCaptionText,
+      });
       return {
         ok: false,
         error: `Instagram container failed (${cRes.status}): ${cData.error?.message || "unknown error"}`,
@@ -90,12 +119,38 @@ async function createInstagramImagePost(
       };
     }
 
+    await recordCalosInstagramPublishCost(params, {
+      status: "success",
+      operation,
+      phase,
+      responseStatus,
+      providerJobId,
+      hasImageSource,
+      hasCaptionText,
+    });
+
     // 2) Publish the container.
+    phase = "publish";
+    operation = "social_publish";
+    responseStatus = undefined;
+    providerJobId = undefined;
     const pubParams = new URLSearchParams({ creation_id: cData.id, access_token: userAccessToken });
     const pRes = await fetch(`${IG_API}/me/media_publish?${pubParams.toString()}`, { method: "POST" });
+    responseStatus = pRes.status;
     const pData: GraphResponse = await pRes.json().catch(() => ({}));
+    providerJobId = pData.id;
     if (!pRes.ok || pData.error || !pData.id) {
       const retryable = pRes.status >= 500 || pRes.status === 429;
+      await recordCalosInstagramPublishCost(params, {
+        status: "failed",
+        operation,
+        phase,
+        responseStatus,
+        providerJobId,
+        retryable,
+        hasImageSource,
+        hasCaptionText,
+      });
       return {
         ok: false,
         error: `Instagram publish failed (${pRes.status}): ${pData.error?.message || "unknown error"}`,
@@ -103,8 +158,72 @@ async function createInstagramImagePost(
       };
     }
 
+    await recordCalosInstagramPublishCost(params, {
+      status: "success",
+      operation,
+      phase,
+      responseStatus,
+      providerJobId,
+      hasImageSource,
+      hasCaptionText,
+    });
+
     return { ok: true, postId: pData.id, postUrl: `https://www.instagram.com/p/${pData.id}` };
   } catch (e) {
+    await recordCalosInstagramPublishCost(params, {
+      status: "failed",
+      operation,
+      phase,
+      responseStatus,
+      providerJobId,
+      retryable: true,
+      hasImageSource,
+      hasCaptionText,
+      error: e,
+    });
     return { ok: false, error: e instanceof Error ? e.message : "Instagram post threw", retryable: true };
   }
+}
+
+async function recordCalosInstagramPublishCost(params: PublishParams, input: {
+  status: ProviderCostEventStatus;
+  operation: CalosInstagramCostOperation;
+  phase: CalosInstagramCostPhase;
+  responseStatus?: number;
+  providerJobId?: string;
+  retryable?: boolean;
+  hasImageSource: boolean;
+  hasCaptionText: boolean;
+  error?: unknown;
+}) {
+  await recordProviderCostEvent({
+    idempotencyKey:
+      input.status === "success" && input.providerJobId
+        ? `calos:instagram:${input.phase}:${params.deliverableId}:${input.providerJobId}`
+        : undefined,
+    status: input.status,
+    userId: params.ownerUserId,
+    projectId: params.brandId,
+    taskId: params.deliverableId,
+    service: "calos",
+    action: "platform_publish",
+    route: "lib/calos/publish/instagram",
+    provider: "instagram-graph-api",
+    model: `instagram-${graphVersion()}`,
+    operation: input.operation,
+    providerJobId: input.providerJobId,
+    units: { requestCount: 1 },
+    metadata: {
+      platform: "instagram",
+      phase: input.phase,
+      responseStatus: input.responseStatus,
+      retryable: input.retryable,
+      hasProviderJobId: Boolean(input.providerJobId),
+      hasAccountRef: Boolean(params.accountRef),
+      hasBrandId: Boolean(params.brandId),
+      hasImageSource: input.hasImageSource,
+      hasCaptionText: input.hasCaptionText,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
 }

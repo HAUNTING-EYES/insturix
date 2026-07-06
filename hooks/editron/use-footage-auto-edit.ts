@@ -19,12 +19,34 @@ import { getUserFriendlyErrorMessage } from '@/lib/editron/utils/error-handling'
 import { shouldCompress, compressToProxy, getVideoDuration } from '@/lib/editron/client/video-compressor';
 import { MultipartUploader } from '@/lib/editron/client/multipart-uploader';
 import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
+import {
+  getMediaUploadBatchStatus,
+  uploadMediaFiles,
+  type MediaUploadBatchStatus,
+} from '@/components/editron/editor/version-7.0.0/utils/media-upload';
+
+/** Auto-edit config from the dialog. Forwarded verbatim to /auto-edit/from-asset,
+    which already reads these fields (they were previously dropped here). */
+export interface FootageAutoEditOptions {
+  aspectRatio?: string;
+  platform?: string;
+  userIntent?: string;
+  script?: string;
+  captionStyle?: string;
+  transitionPreference?: string;
+  zoomBehavior?: string;
+  motionGraphics?: string;
+  pacingFeel?: string;
+  musicPreference?: string;
+}
 
 export interface FootageAutoEditState {
   running: boolean;
   progress: string;
   error: string | null;
-  start: (file: File) => void;
+  batchStatus: MediaUploadBatchStatus | null;
+  start: (file: File, options?: FootageAutoEditOptions) => void;
+  startMany: (files: File[], options?: FootageAutoEditOptions) => void;
 }
 
 const POLL_STATUS_LABELS: Record<string, string> = {
@@ -47,8 +69,9 @@ export function useFootageAutoEdit(): FootageAutoEditState {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [batchStatus, setBatchStatus] = useState<MediaUploadBatchStatus | null>(null);
 
-  const run = useCallback(async (file: File) => {
+  const run = useCallback(async (file: File, options: FootageAutoEditOptions = {}) => {
     setRunning(true);
     setError(null);
     try {
@@ -114,6 +137,7 @@ export function useFootageAutoEdit(): FootageAutoEditState {
           assetId,
           title: file.name.replace(/\.[^.]+$/, ''),
           brandId: getActiveBrandIdFromStorage(),
+          ...options, // aspectRatio/platform/captions/pacing/… from the dialog
         }),
       });
       if (!editRes.ok) {
@@ -188,7 +212,62 @@ export function useFootageAutoEdit(): FootageAutoEditState {
     }
   }, [router, toast]);
 
-  const start = useCallback((file: File) => { void run(file); }, [run]);
+  const runMany = useCallback(async (files: File[], options: FootageAutoEditOptions = {}) => {
+    const selectedFiles = files.filter((file) => file.type.startsWith('video/') || file.type.startsWith('image/'));
+    if (selectedFiles.length === 0) {
+      const msg = 'Select at least one video or image file.';
+      setError(msg);
+      toast({ variant: 'destructive', title: 'No footage selected', description: msg });
+      return;
+    }
 
-  return { running, progress, error, start };
+    const videoFiles = selectedFiles.filter((file) => file.type.startsWith('video/'));
+    if (selectedFiles.length === 1 && videoFiles.length === 1) {
+      await run(selectedFiles[0], options);
+      return;
+    }
+
+    setRunning(true);
+    setError(null);
+    setBatchStatus(null);
+    setProgress(`Uploading ${selectedFiles.length} files...`);
+
+    try {
+      const result = await uploadMediaFiles(selectedFiles);
+      const uploadedCount = result.uploaded.length;
+      if (uploadedCount === 0) {
+        const firstError = result.failed[0]?.error || 'No files uploaded.';
+        throw new Error(firstError);
+      }
+
+      let status: MediaUploadBatchStatus | null = null;
+      try {
+        status = await getMediaUploadBatchStatus(result.uploadBatchId);
+        setBatchStatus(status);
+      } catch (statusError) {
+        console.warn('[NewProjectFlow] Batch status lookup failed:', statusError);
+      }
+
+      const failedSuffix = result.failed.length > 0 ? ` ${result.failed.length} failed.` : '';
+      const readySuffix = status?.canCreateProject
+        ? ' Batch is ready for multi-source project assembly.'
+        : ' Batch is analyzing; refresh the media library for readiness.';
+      setProgress(`Uploaded ${uploadedCount}/${selectedFiles.length} files.${failedSuffix}${readySuffix}`);
+      toast({
+        title: 'Footage batch uploaded',
+        description: `Saved ${uploadedCount} file${uploadedCount === 1 ? '' : 's'} to your Editron media library.`,
+      });
+    } catch (e) {
+      const msg = getUserFriendlyErrorMessage(e);
+      setError(msg);
+      setProgress('');
+      toast({ variant: 'destructive', title: 'Batch upload failed', description: msg });
+    } finally {
+      setRunning(false);
+    }
+  }, [run, toast]);
+  const start = useCallback((file: File, options?: FootageAutoEditOptions) => { void run(file, options); }, [run]);
+  const startMany = useCallback((files: File[], options?: FootageAutoEditOptions) => { void runMany(files, options); }, [runMany]);
+
+  return { running, progress, error, batchStatus, start, startMany };
 }

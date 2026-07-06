@@ -7,7 +7,7 @@ import { CreateVariationRequestSchema } from '@/types/clickatron';
 import { createJob, setIdempotencyKey, getIdempotencyKey } from '@/lib/clickatron-jobs';
 import { z } from 'zod';
 import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
-import { getDefaultClickatronModelIdForInput } from '@/lib/config/clickatron-models';
+import { resolveClickatronModelForGeneration } from '@/lib/config/clickatron-models';
 import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 
@@ -45,39 +45,70 @@ export async function POST(
       }
     }
 
-    // Parse the request body once (form-data) so the credit check can be model-aware.
+    // Parse the request body once (form-data) so validation, model selection, and
+    // credit checks use the same generation contract.
     const formData = await request.formData();
     const modelId = formData.get('modelId') as string || undefined;
-
-    // Check credits (base 3 for a variation; the model multiplier is applied when known).
-    const creditCheck = await checkCredits(userId, 'clickatron', 'variation', { model: modelId });
-    if (!creditCheck.allowed) {
-      return creditCheck.errorResponse;
-    }
-
-    // Deduct credits before enqueuing (only reached when no cached job exists)
-    await creditCheck.deduct();
-
-    await getClickatronDb();
-    const objectId = new Types.ObjectId(id);
-
-    // Find the task
-    const task = await ClickatronTask.findOne({ _id: objectId, clerkUserId: userId });
-
-    if (!task) {
-      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
-    }
-
-    // Extract fields from formData (already parsed above for the model-aware credit check)
     const prompt = formData.get('prompt') as string;
     const aspectRatio = formData.get('aspectRatio') as string || undefined;
     const parentVariationId = formData.get('parentVariationId') as string || undefined;
     const updateExistingBlank = formData.get('updateExistingBlank') === 'true';
     const fineTuning = JSON.parse(formData.get('fineTuning') as string || '{}');
     const metadata = JSON.parse(formData.get('metadata') as string || '{}');
-
-    // Extract reference images
     const referenceImages = formData.getAll('referenceImages') as File[];
+
+    await getClickatronDb();
+    const objectId = new Types.ObjectId(id);
+
+    // Find the task before charging so a missing session never deducts credits.
+    const task = await ClickatronTask.findOne({ _id: objectId, clerkUserId: userId });
+
+    if (!task) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    const parentVariation = parentVariationId
+      ? task.details.canvas?.variations?.find((v: any) => v.id === parentVariationId)
+      : undefined;
+    const parentVariationForGenerationId = parentVariation?.imageRef
+      ? parentVariationId
+      : undefined;
+
+    const effectiveAspectRatio = aspectRatio || task.details.aspectRatio;
+    const resolvedModel = resolveClickatronModelForGeneration({
+      requestedModelId: modelId,
+      context: parentVariationForGenerationId ? 'edit' : 'newVariation',
+      referenceImageCount: referenceImages.length,
+      hasParentImage: Boolean(parentVariationForGenerationId),
+      aspectRatio: effectiveAspectRatio,
+    });
+    if (resolvedModel.reason === 'aspect-ratio-fallback') {
+      console.warn('[Clickatron] Variation model switched for aspect-ratio compatibility:', {
+        requestedModelId: resolvedModel.requestedModelId,
+        selectedModelId: resolvedModel.modelId,
+        aspectRatio: effectiveAspectRatio,
+      });
+    }
+
+    const validatedData = CreateVariationRequestSchema.parse({
+      prompt,
+      modelId: resolvedModel.modelId,
+      aspectRatio,
+      parentVariationId,
+      updateExistingBlank,
+      fineTuning,
+      metadata,
+      sessionId: id,
+    });
+
+    // Check credits after model resolution so provider multipliers match the
+    // actual model that will be enqueued.
+    const creditCheck = await checkCredits(userId, 'clickatron', 'variation', { model: resolvedModel.modelId });
+    if (!creditCheck.allowed) {
+      return creditCheck.errorResponse;
+    }
+
+    await creditCheck.deduct();
 
     // Upload reference images to R2 and get their URLs
     const referenceImageRefs: string[] = [];
@@ -101,17 +132,6 @@ export async function POST(
       }
     }
 
-    // Validate request data (excluding referenceImages as they are now in referenceImageRefs)
-    const validatedData = CreateVariationRequestSchema.parse({
-      prompt,
-      modelId,
-      aspectRatio,
-      parentVariationId,
-      updateExistingBlank,
-      fineTuning,
-      metadata,
-      sessionId: id,
-    });
 
     // Initialize canvas if it doesn't exist
     if (!task.details?.canvas) {
@@ -125,25 +145,14 @@ export async function POST(
         : `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     const now = new Date();
 
-    // Determine the appropriate model based on reference images
-    let selectedModelId = validatedData.modelId;
-    
-    // If no model is provided, select based on whether we have reference images
-    if (!selectedModelId) {
-      selectedModelId = getDefaultClickatronModelIdForInput({
-        context: validatedData.parentVariationId ? 'edit' : 'newVariation',
-        referenceImageCount: referenceImageRefs.length,
-        hasParentImage: Boolean(validatedData.parentVariationId),
-      });
-    }
-
+    const selectedModelId = resolvedModel.modelId;
     // Inherit image + thumbnail from parent (important)
     let imageRef = '';
     let thumbnailRef = '';
 
-    if (validatedData.parentVariationId) {
+    if (parentVariationForGenerationId) {
       const parent = task.details.canvas.variations.find(
-        (v: any) => v.id === validatedData.parentVariationId
+        (v: any) => v.id === parentVariationForGenerationId
       );
       if (parent) {
         imageRef = parent.imageRef || '';
@@ -157,7 +166,7 @@ export async function POST(
       status: 'generating' as const,
       imageRef: imageRef,
       thumbnailRef: thumbnailRef,
-      aspectRatio: validatedData.aspectRatio || task.details.aspectRatio,
+      aspectRatio: effectiveAspectRatio,
       fineTuning: validatedData.fineTuning || {
         brightness: 100,
         contrast: 100,
@@ -165,7 +174,7 @@ export async function POST(
       },
       createdAt: now,
       updatedAt: now,
-      parentVariationId: validatedData.parentVariationId,
+      parentVariationId: parentVariationForGenerationId,
       referenceImageRefs: referenceImageRefs || [], // Use referenceImageRefs instead of referenceImages
       metadata: validatedData.metadata || {},
       modelId: selectedModelId, // Add modelId to variation
@@ -202,7 +211,7 @@ export async function POST(
       variationId: variationId,
       prompt: validatedData.prompt,
       userId,
-      parentVariationId: validatedData.parentVariationId,
+      parentVariationId: parentVariationForGenerationId,
       fineTuning: validatedData.fineTuning || {
         brightness: 100,
         contrast: 100,
@@ -211,20 +220,21 @@ export async function POST(
       metadata: validatedData.metadata,
       modelId: selectedModelId, // Use the selected modelId
       referenceImageRefs: referenceImageRefs || [], // Pass referenceImageRefs to the job
-      aspectRatio: validatedData.aspectRatio || task.details.aspectRatio, // Use per-variation aspect ratio or fall back to global
+      aspectRatio: effectiveAspectRatio, // Use per-variation aspect ratio or fall back to global
     });
 
-    // Set idempotency key if provided
+    // Set idempotency key if provided. Best-effort dedup optimization only: it runs AFTER
+    // deduct() and AFTER the job/variation were created, and real duplicate submissions were
+    // already short-circuited by getIdempotencyKey at the top of this handler. A failure here
+    // must NOT fail the request — throwing would strand a paid, in-flight generation (the old
+    // MONEY-LOSS bug: charged, no image, no refund). We log and continue to enqueue so the user
+    // keeps the generation they paid for; the only cost of a missed key is that a later client
+    // retry wouldn't be deduped, which is rare since this request still returns 200. [R5]
     if (idempotencyKey) {
       try {
         await setIdempotencyKey(idempotencyKey, jobId);
       } catch (idemError) {
-        // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md).
-        // Runs AFTER deduct() but BEFORE enqueue — a throw here 500s the request with credits
-        // already deducted, no job, and NO refund. Logged loud + re-thrown (behavior preserved);
-        // the real fix (guard/refund) is in the audit doc's "Design fixes for later".
-        console.error('[LOUDFAIL][Clickatron][VARIATION][IDEMPOTENCY-AFTER-DEDUCT][MONEY-LOSS] setIdempotencyKey threw after charge, before enqueue — user charged, no job, no refund:', { userId, sessionId: id, jobId, idempotencyKey, idemError });
-        throw idemError;
+        console.error('[Clickatron][VARIATION][IDEMPOTENCY-AFTER-DEDUCT] setIdempotencyKey failed after charge — continuing to enqueue so the paid generation is not stranded:', { userId, sessionId: id, jobId, idempotencyKey, idemError });
       }
     }
 
@@ -236,7 +246,7 @@ export async function POST(
         variationId: variationId,
         prompt: validatedData.prompt,
         userId,
-        parentVariationId: validatedData.parentVariationId,
+        parentVariationId: parentVariationForGenerationId,
         fineTuning: validatedData.fineTuning || {
           brightness: 100,
           contrast: 100,
@@ -245,7 +255,7 @@ export async function POST(
         metadata: validatedData.metadata,
         modelId: selectedModelId, // Use the selected modelId
         referenceImageRefs: referenceImageRefs || [], // Pass referenceImageRefs to the job
-        aspectRatio: validatedData.aspectRatio || task.details.aspectRatio, // Use per-variation aspect ratio or fall back to global
+        aspectRatio: effectiveAspectRatio, // Use per-variation aspect ratio or fall back to global
       });
       console.log('QStash job enqueued successfully:', qstashResult);
     } catch (qstashError) {

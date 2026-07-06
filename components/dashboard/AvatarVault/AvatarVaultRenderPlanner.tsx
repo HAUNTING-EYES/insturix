@@ -7,6 +7,7 @@ import type { AvatarRenderJobStatus } from '@/lib/avatar/avatar-render-job';
 import type { AvatarProviderId, AvatarProviderReadinessIssue, AvatarProviderSelection } from '@/lib/avatar/avatar-provider-adapter';
 import type { AvatarRenderAudioMode, AvatarRenderIssue, AvatarRenderUseCase } from '@/lib/avatar/avatar-render-recipe';
 import { type PlanAvatarRenderInput, useAvatarRenderJobMutation, useAvatarRenderPlanMutation } from './useAvatarVault';
+import { VoiceRecorder } from './VoiceRecorder';
 
 type PlannerProviderChoice = 'auto' | AvatarProviderId;
 
@@ -16,6 +17,7 @@ interface PlannerState {
   script: string;
   audioMode: AvatarRenderAudioMode;
   audioSourceUrl: string;
+  voiceReferenceUrl: string;
   audioRightsConfirmed: boolean;
   productImageUrls: string;
   providerMode: 'single' | 'benchmark';
@@ -177,7 +179,23 @@ export function AvatarVaultRenderPlanner({ record }: { record: AvatarProfileReco
           </label>
         </div>
 
-        {isSpeechUseCase(state.useCase) && !hasSavedSpeechVoice(record) && (
+        <div className="block xl:col-span-2">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-[#9EA7A4]">Voice to clone</span>
+          <VoiceRecorder
+            onUploaded={(url) => {
+              updateState('voiceReferenceUrl', url);
+              updateState('audioMode', 'tts_voiceover');
+            }}
+          />
+          <input
+            className="avatar-vault-input mt-2"
+            placeholder="…or paste a voice-sample URL to clone"
+            value={state.voiceReferenceUrl}
+            onChange={(event) => updateState('voiceReferenceUrl', event.target.value)}
+          />
+        </div>
+
+        {isSpeechUseCase(state.useCase) && !hasSavedSpeechVoice(record) && !state.voiceReferenceUrl.trim() && (
           <div className="rounded-lg border border-[#7C6735] bg-[#211B0F] px-3 py-2 text-xs text-[#EDD494] xl:col-span-2">
             This avatar has no saved voice yet. Paste a voiceover URL for speech, or add a TTS voice / voice sample to the avatar profile.
           </div>
@@ -309,6 +327,7 @@ function initialPlannerState(record: AvatarProfileRecord): PlannerState {
     script: '',
     audioMode: defaultAudioMode(record),
     audioSourceUrl: '',
+    voiceReferenceUrl: '',
     audioRightsConfirmed: false,
     productImageUrls: '',
     providerMode: 'single',
@@ -321,6 +340,7 @@ function initialPlannerState(record: AvatarProfileRecord): PlannerState {
 
 function buildPlanInput(recordId: string, state: PlannerState, prompt: string): PlanAvatarRenderInput {
   const audioSourceUrl = state.audioSourceUrl.trim();
+  const voiceReferenceUrl = state.voiceReferenceUrl.trim();
   const script = state.script.trim();
   const durationSeconds = Number(state.durationSeconds);
   const includeProviderIds = providerIdsForRequest(state);
@@ -332,6 +352,7 @@ function buildPlanInput(recordId: string, state: PlannerState, prompt: string): 
     audio: {
       mode: state.audioMode,
       ...(audioSourceUrl ? { sourceUrl: audioSourceUrl } : {}),
+      ...(voiceReferenceUrl ? { voiceReferenceUrl } : {}),
       ...(script ? { voiceoverText: script } : {}),
       copyAllowed: state.audioMode === 'copied_reference_audio' && state.audioRightsConfirmed,
       consentConfirmed: state.audioMode !== 'copied_reference_audio' || state.audioRightsConfirmed,
@@ -400,6 +421,8 @@ function defaultAudioMode(record: AvatarProfileRecord): AvatarRenderAudioMode {
 
 function speechInputProblem(record: AvatarProfileRecord, state: PlannerState): string | null {
   if (!isSpeechUseCase(state.useCase)) return null;
+  // A recorded/pasted voice reference is cloneable by Chatterbox, so it satisfies speech.
+  if (state.voiceReferenceUrl.trim() && state.audioMode !== 'copied_reference_audio') return null;
   const hasAudioUrl = Boolean(state.audioSourceUrl.trim());
   if (state.audioMode === 'tts_voiceover' && !hasTtsVoice(record)) {
     return 'This avatar has no TTS voice ID. Paste a voiceover URL, or add a TTS voice to the avatar profile.';

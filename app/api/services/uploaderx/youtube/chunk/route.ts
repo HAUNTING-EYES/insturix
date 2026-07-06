@@ -5,7 +5,33 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderXVideo from "@/schemas/uploaderx-video";
 import { emitUploaderXVideoPublished } from "@/lib/uploaderx/video-publish-events";
 import { fetchUploaderXStream, resolveUploaderXVideo } from "@/lib/uploaderx-storage";
+import { getCreditCost } from "@/lib/config/creditCosts";
+import { recordProviderCostEvent, type ProviderCostEventStatus } from "@/lib/financials/provider-cost-events";
 import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
+
+type YouTubeChunkCostOperation = "social_media_upload" | "social_publish" | "social_thumbnail_upload";
+type YouTubeChunkCostPhase = "start" | "transfer" | "finish" | "thumbnail";
+
+interface YouTubeChunkProviderCostContext {
+  operation: YouTubeChunkCostOperation;
+  phase: YouTubeChunkCostPhase;
+  videoUuid?: string;
+  videoId?: string;
+  scheduled?: boolean;
+  httpStatus?: number;
+  requestCount?: number;
+  chunkStartOffset?: number;
+  chunkBytes?: number;
+  uploadFinished?: boolean;
+  hasThumbnail?: boolean;
+}
+
+const UPLOADERX_YOUTUBE_CHUNK_PROVIDER = "youtube-data-api";
+const UPLOADERX_YOUTUBE_CHUNK_MODEL = "youtube-v3";
+const UPLOADERX_YOUTUBE_CHUNK_ROUTE = "/api/services/uploaderx/youtube/chunk";
+const UPLOADERX_YOUTUBE_CHUNK_PUBLISH_CREDITS = getCreditCost("uploaderx", "platform_publish", {
+  requestType: "youtube",
+});
 
 async function fetchUploaderXRange(publicUrl: string, start: number, end: number) {
   const response = await fetch(publicUrl, {
@@ -20,11 +46,18 @@ async function fetchUploaderXRange(publicUrl: string, start: number, end: number
 }
 
 export async function POST(req: Request) {
+  let currentUserId: string | undefined;
+  let telemetryVideoUuid: string | undefined;
+  let attemptedProviderCost: YouTubeChunkProviderCostContext | undefined;
+  let pendingCompletedProviderCost: YouTubeChunkProviderCostContext | undefined;
+  let recordedPendingProviderCost = false;
+
   try {
     const session = await auth();
     if (!session.userId) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
+    currentUserId = session.userId;
 
     const client = await clerkClient();
     const user = await client.users.getUser(session.userId);
@@ -66,6 +99,7 @@ export async function POST(req: Request) {
       thumbnailPublicUrl,
       postType,
     } = body;
+    telemetryVideoUuid = typeof videoUuid === "string" ? videoUuid : undefined;
 
     if (!videoUuid) {
       return NextResponse.json({ success: false, error: "Missing videoUuid" }, { status: 400 });
@@ -120,6 +154,13 @@ export async function POST(req: Request) {
         : { privacyStatus: finalPrivacyStatus };
 
       const googleInitUrl = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status";
+      attemptedProviderCost = {
+        operation: "social_media_upload",
+        phase: "start",
+        videoUuid: telemetryVideoUuid,
+        scheduled: Boolean(scheduledPublishAt),
+        requestCount: 1,
+      };
       const initResponse = await fetch(googleInitUrl, {
         method: "POST",
         headers: {
@@ -141,6 +182,14 @@ export async function POST(req: Request) {
 
       if (!initResponse.ok) {
         const errorText = await initResponse.text();
+        await recordUploaderXYouTubeChunkCost({
+          status: "failed",
+          userId: session.userId,
+          ...attemptedProviderCost,
+          httpStatus: initResponse.status,
+          error: new Error("YouTube resumable upload initialization failed"),
+        });
+        attemptedProviderCost = undefined;
         return NextResponse.json(
           { success: false, error: "Failed to initialize YouTube resumable upload", details: errorText },
           { status: 500 }
@@ -149,8 +198,24 @@ export async function POST(req: Request) {
 
       const locationUrl = initResponse.headers.get("Location");
       if (!locationUrl) {
+        await recordUploaderXYouTubeChunkCost({
+          status: "failed",
+          userId: session.userId,
+          ...attemptedProviderCost,
+          httpStatus: initResponse.status,
+          error: new Error("YouTube resumable upload location missing"),
+        });
+        attemptedProviderCost = undefined;
         return NextResponse.json({ success: false, error: "Failed to get upload location from Google API" }, { status: 500 });
       }
+
+      await recordUploaderXYouTubeChunkCost({
+        status: "success",
+        userId: session.userId,
+        ...attemptedProviderCost,
+        httpStatus: initResponse.status,
+      });
+      attemptedProviderCost = undefined;
 
       return NextResponse.json({
         success: true,
@@ -178,6 +243,14 @@ export async function POST(req: Request) {
 
       const chunkBuffer = await fetchUploaderXRange(videoAsset.publicUrl, startOffset, endByte);
 
+      attemptedProviderCost = {
+        operation: "social_media_upload",
+        phase: "transfer",
+        videoUuid: telemetryVideoUuid,
+        chunkStartOffset: Number(startOffset),
+        chunkBytes: chunkBuffer.length,
+        requestCount: 1,
+      };
       const response = await fetch(uploadUrl, {
         method: "PUT",
         headers: {
@@ -188,6 +261,14 @@ export async function POST(req: Request) {
       });
 
       if (response.status === 308) {
+        await recordUploaderXYouTubeChunkCost({
+          status: "success",
+          userId: session.userId,
+          ...attemptedProviderCost,
+          httpStatus: response.status,
+          uploadFinished: false,
+        });
+        attemptedProviderCost = undefined;
         return NextResponse.json({
           success: true,
           finished: false,
@@ -197,6 +278,15 @@ export async function POST(req: Request) {
 
       if (response.status === 200 || response.status === 201) {
         const data = await response.json();
+        await recordUploaderXYouTubeChunkCost({
+          status: "success",
+          userId: session.userId,
+          ...attemptedProviderCost,
+          videoId: data.id,
+          httpStatus: response.status,
+          uploadFinished: true,
+        });
+        attemptedProviderCost = undefined;
         return NextResponse.json({
           success: true,
           finished: true,
@@ -205,6 +295,14 @@ export async function POST(req: Request) {
       }
 
       const errorText = await response.text();
+      await recordUploaderXYouTubeChunkCost({
+        status: "failed",
+        userId: session.userId,
+        ...attemptedProviderCost,
+        httpStatus: response.status,
+        error: new Error("YouTube chunk upload failed"),
+      });
+      attemptedProviderCost = undefined;
       return NextResponse.json(
         { success: false, error: "Google upload failed with status " + response.status, details: errorText },
         { status: 500 }
@@ -230,6 +328,16 @@ export async function POST(req: Request) {
         return publishCreditCheck.errorResponse!;
       }
 
+      pendingCompletedProviderCost = {
+        operation: "social_publish",
+        phase: "finish",
+        videoUuid: telemetryVideoUuid,
+        videoId,
+        scheduled: Boolean(scheduledPublishAt),
+        requestCount: 0,
+        hasThumbnail: Boolean(thumbnailPublicUrl),
+      };
+
       // Update DB
       await UploaderXVideo.updateOne(
         { userId: session.userId, videoUuid },
@@ -246,6 +354,7 @@ export async function POST(req: Request) {
 
       // Handle Thumbnail if provided
       if (thumbnailPublicUrl) {
+        let thumbnailProviderCost: YouTubeChunkProviderCostContext | undefined;
         try {
           const { stream: thumbnailStream, contentType, contentLength } = await fetchUploaderXStream(thumbnailPublicUrl);
           if (["image/jpeg", "image/png"].includes(contentType) && contentLength <= 2 * 1024 * 1024) {
@@ -253,12 +362,36 @@ export async function POST(req: Request) {
             oauth2Client.setCredentials({ access_token: accessToken });
             const youtube = google.youtube({ version: "v3", auth: oauth2Client });
 
+            thumbnailProviderCost = {
+              operation: "social_thumbnail_upload",
+              phase: "thumbnail",
+              videoUuid: telemetryVideoUuid,
+              videoId,
+              requestCount: 1,
+              hasThumbnail: true,
+            };
+            attemptedProviderCost = thumbnailProviderCost;
             await youtube.thumbnails.set({
               videoId,
               media: { body: thumbnailStream },
             });
+            await recordUploaderXYouTubeChunkCost({
+              status: "success",
+              userId: session.userId,
+              ...thumbnailProviderCost,
+            });
+            attemptedProviderCost = undefined;
           }
         } catch (thumbError) {
+          if (thumbnailProviderCost) {
+            await recordUploaderXYouTubeChunkCost({
+              status: "failed",
+              userId: session.userId,
+              ...thumbnailProviderCost,
+              error: thumbError,
+            });
+            attemptedProviderCost = undefined;
+          }
           console.warn("YouTube thumbnail set failed:", thumbError);
         }
       }
@@ -277,7 +410,15 @@ export async function POST(req: Request) {
         );
       }
 
-      await deductPublishCredits(publishCreditCheck);
+      const deductResult = await deductPublishCredits(publishCreditCheck);
+      await recordUploaderXYouTubeChunkCost({
+        status: "success",
+        userId: session.userId,
+        ...pendingCompletedProviderCost,
+        chargedCredits: deductResult.transactionId ? UPLOADERX_YOUTUBE_CHUNK_PUBLISH_CREDITS : undefined,
+        creditTransactionId: deductResult.transactionId,
+      });
+      recordedPendingProviderCost = true;
 
       return NextResponse.json({
         success: true,
@@ -288,6 +429,21 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: false, error: "Invalid phase" }, { status: 400 });
   } catch (error: any) {
+    if (currentUserId && pendingCompletedProviderCost && !recordedPendingProviderCost) {
+      await recordUploaderXYouTubeChunkCost({
+        status: "success",
+        userId: currentUserId,
+        ...pendingCompletedProviderCost,
+      });
+    } else if (currentUserId && attemptedProviderCost) {
+      await recordUploaderXYouTubeChunkCost({
+        status: "failed",
+        userId: currentUserId,
+        ...attemptedProviderCost,
+        error,
+      });
+    }
+
     console.error("YouTube chunked upload failed:", error);
     return NextResponse.json(
       { success: false, error: error.message || "YouTube upload failed" },
@@ -296,10 +452,66 @@ export async function POST(req: Request) {
   }
 }
 
-async function deductPublishCredits(creditCheck: CreditCheckResult) {
+async function deductPublishCredits(creditCheck: CreditCheckResult): Promise<{ transactionId?: string }> {
   try {
-    await creditCheck.deduct();
+    return await creditCheck.deduct();
   } catch (error) {
     console.error("[UploaderX:YouTube] chunk publish credit deduction failed:", error);
+    return {};
   }
+}
+
+async function recordUploaderXYouTubeChunkCost(input: {
+  status: ProviderCostEventStatus;
+  operation: YouTubeChunkCostOperation;
+  phase: YouTubeChunkCostPhase;
+  userId: string;
+  videoUuid?: string;
+  videoId?: string;
+  chargedCredits?: number;
+  creditTransactionId?: string;
+  requestCount?: number;
+  scheduled?: boolean;
+  httpStatus?: number;
+  chunkStartOffset?: number;
+  chunkBytes?: number;
+  uploadFinished?: boolean;
+  hasThumbnail?: boolean;
+  error?: unknown;
+}) {
+  await recordProviderCostEvent({
+    idempotencyKey:
+      input.status === "success" && input.creditTransactionId
+        ? `uploaderx:youtube:chunk:${input.phase}:${input.creditTransactionId}`
+        : undefined,
+    status: input.status,
+    userId: input.userId,
+    assetId: input.videoUuid,
+    taskId: input.videoUuid,
+    creditTransactionId: input.creditTransactionId,
+    service: "uploaderx",
+    action: "platform_publish",
+    route: UPLOADERX_YOUTUBE_CHUNK_ROUTE,
+    provider: UPLOADERX_YOUTUBE_CHUNK_PROVIDER,
+    model: UPLOADERX_YOUTUBE_CHUNK_MODEL,
+    operation: input.operation,
+    chargedCredits: input.chargedCredits,
+    providerJobId: input.videoId,
+    units: {
+      requestCount: input.requestCount ?? 1,
+      bytesIn: input.chunkBytes,
+    },
+    metadata: {
+      platform: "youtube",
+      uploadMode: "chunk",
+      phase: input.phase,
+      scheduled: input.scheduled,
+      hasProviderVideoId: Boolean(input.videoId),
+      uploadFinished: input.uploadFinished,
+      hasThumbnail: input.hasThumbnail,
+      httpStatus: input.httpStatus,
+      chunkStartOffset: input.chunkStartOffset,
+      errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
+    },
+  });
 }

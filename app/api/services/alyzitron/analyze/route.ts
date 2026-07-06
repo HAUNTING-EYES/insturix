@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { logger } from "../utils/logger";
 import { validateYouTubeVideo } from "../utils/youtube";
 import { checkCredits } from "@/lib/services/creditsMiddleware";
+import { getCreditCost } from "@/lib/config/creditCosts";
 import { getCollections } from "../utils/mongodb";
 import { ObjectId } from "mongodb";
 import { Client } from "@upstash/qstash";
@@ -257,10 +258,11 @@ export async function POST(request: Request) {
     }
 
     const usageMinutes = isImageFile ? 1 : Math.ceil(videoDuration / 60);
+    const analysisChargedCredits = getCreditCost('alyzitron', 'video_analysis', { durationMinutes: usageMinutes });
     const creditCheck = await checkCredits(userId, 'alyzitron', 'video_analysis', { durationMinutes: usageMinutes });
 
     if (!creditCheck.allowed) return creditCheck.errorResponse;
-    await creditCheck.deduct();
+    const analysisDeduct = await creditCheck.deduct();
 
     let analyses: any;
     const taskId = new ObjectId();
@@ -307,6 +309,13 @@ export async function POST(request: Request) {
         updatedAt: new Date(),
         videoDuration: isImageFile ? 0 : videoDuration,
         usageMinutes,
+        billing: {
+          service: 'alyzitron',
+          action: 'video_analysis',
+          creditTransactionId: analysisDeduct.transactionId,
+          chargedCredits: analysisChargedCredits,
+          usageMinutes,
+        },
         ...(editronProjectId ? { editronProjectId } : {}),
       });
 

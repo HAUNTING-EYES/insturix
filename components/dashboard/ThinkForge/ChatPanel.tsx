@@ -148,7 +148,6 @@ function modelToScript(m: ScriptModel | null): Script | null {
 export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: string) => void }> = ({
   selectedIdea,
   script,
-  isScriptLoading,
   onApplyEdit,
   sessionId,
   scriptId,
@@ -253,87 +252,6 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     const hasContent = !!script?.content;
     setSuggestions(getContextualSuggestions(hasContent, chat.messages.length, 3, selectedIdea?.idea || ''));
   }, [!!script?.content, chat.messages.length, selectedIdea]);
-
-  // Auto-starter: generate a draft ONLY for genuinely new projects (no saved script).
-  // Ref tracks the latest script across re-renders so the timer reads fresh state.
-  const autoStartFired = React.useRef(false);
-  const scriptRef = React.useRef(script);
-  scriptRef.current = script;
-
-  useEffect(() => {
-    if (autoStartFired.current) return;
-    if (!sessionId) return;
-    if (isScriptLoading) return;
-    if (!selectedIdea?.idea) return;
-    if (chat.messages.length > 0) return;
-    if (chat.isStreaming) return;
-
-    const checkHasData = (s: typeof script) => {
-      if (!s) return false;
-      if (s.content?.trim()) return true;
-      if (Array.isArray(s.blocks)) {
-        return s.blocks.some((b: any) => {
-          if (b.text?.trim()) return true;
-          if (Array.isArray(b.content)) {
-            return b.content.some((c: any) => c.text?.trim());
-          }
-          return false;
-        });
-      }
-      return false;
-    };
-
-    const hasData = checkHasData(script);
-    if (hasData) return;
-
-    // Wait long enough for the saved script to load from the server.
-    // Vercel cold starts can take 2-3s, so 800ms was too short and caused
-    // false auto-drafts on every project open. At fire time, re-read the
-    // latest script from the ref (the closure captures the stale value).
-    const timer = setTimeout(() => {
-      if (autoStartFired.current) return;
-      const latestHasData = checkHasData(scriptRef.current);
-      if (latestHasData) return;
-
-      autoStartFired.current = true;
-      const format = selectedIdea.format || 'post';
-      const platform = selectedIdea.platform || '';
-      const formatIncludesPlatform = platform && format.toLowerCase().includes(platform.toLowerCase());
-      const prefix = formatIncludesPlatform ? format : `${platform} ${format}`;
-      const sourceBrief = toNonEmptyString((selectedIdea as any).originalPrompt);
-      const sourceBriefLine = sourceBrief ? `\nOriginal user brief: ${sourceBrief}` : '';
-      const purposeLine = selectedIdea.purpose ? `\nPurpose: ${selectedIdea.purpose}` : '';
-      const styleLine = selectedIdea.style ? `\nStyle: ${selectedIdea.style}` : '';
-      const brandBriefLine = toNonEmptyString((selectedIdea as any).brandBrief)
-        ? `\nBrand/source context: ${(selectedIdea as any).brandBrief}`
-        : '';
-      const autoPrompt = [
-        `Write a ${prefix} from the original user brief.`,
-        sourceBriefLine || `\nSelected angle: ${selectedIdea.idea}`,
-        sourceBriefLine ? `\nSelected angle: ${selectedIdea.idea}` : '',
-        purposeLine,
-        styleLine,
-        brandBriefLine,
-        '\nRules: Treat the original user brief as the factual source of truth. The selected angle is only the creative framing. Preserve exact dates, times, locations, brand names, event names, offer details, logo/text-overlay requirements, product/service details, and handout/asset details in both the final copy and visual prompts.'
-      ].filter(Boolean).join('');
-      const currentScriptId = scriptIdRef.current || undefined;
-      chat.sendMessage(autoPrompt, {
-        script: scriptPayload,
-        project: sessionPayload,
-        onTokenStream: onTokenStream,
-        onScriptCreated: onScriptCreated,
-        scriptId: currentScriptId,
-        intentContext: {
-          editorFocused: false,
-          hasSelection: false,
-          workspaceMode,
-          lastUserAction: 'auto_start',
-        },
-      });
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [sessionId, selectedIdea?.idea, isScriptLoading]);
 
   // Build project payload from selected idea
   const sessionPayload = useMemo(

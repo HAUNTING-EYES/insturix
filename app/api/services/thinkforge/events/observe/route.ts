@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import { createModelByTier, ModelTier } from '@/lib/thinkforge/agents/model-factory';
+import { createThinkForgeModelForRoute, resolveThinkForgeProviderRoute } from '@/lib/thinkforge/agents/model-factory';
 import { addDataBankEntry, getSession, type DataBankScope } from '@/lib/thinkforge/services/db';
 import { embedDataBankEntry, checkDuplicateBeforeSave, processPendingEmbeddings } from '@/lib/thinkforge/services/embedding-service';
+import { readAiSdkUsage, recordThinkForgeDirectCost, safeJsonLength } from '@/lib/thinkforge/services/provider-cost-telemetry';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,17 @@ const extractionSchema = z.object({
     scope: z.enum(['project', 'global']).describe('project = relevant only to current work; global = evergreen user preference'),
   })),
 });
+
+type ObservedFact = {
+  type: 'preference' | 'rule' | 'structural_habit' | 'technical_fact' | 'audience_insight' | 'personal_info';
+  content: string;
+  confidence: number;
+  scope: 'project' | 'global';
+};
+
+type ExtractionResult = {
+  facts?: ObservedFact[];
+};
 
 /**
  * Observer API — Zero-latency background fact extraction
@@ -72,18 +84,20 @@ async function processObservation(
   sessionId: string,
   source?: string,
 ) {
-  let model;
-  try {
-    model = createModelByTier(ModelTier.Structural);
-  } catch {
-    const { createThinkForgeModel } = await import('@/lib/thinkforge/agents/model-factory');
-    model = createThinkForgeModel('gemini-2.5-flash');
-  }
-
-  const { object } = await generateObject({
-    model,
-    schema: extractionSchema,
-    prompt: `<role>You are a silent observer extracting actionable facts from a user's writing or chat session.</role>
+  const routePurpose = 'structural';
+  const privacyClass = 'business_confidential';
+  const modelRoute = resolveThinkForgeProviderRoute({
+    routePurpose,
+    privacyClass,
+    modelName: 'gemini-2.5-flash',
+  });
+  const model = createThinkForgeModelForRoute({
+    routePurpose,
+    privacyClass,
+    preferredProvider: modelRoute.provider,
+    modelName: modelRoute.model,
+  });
+  const prompt = `<role>You are a silent observer extracting actionable facts from a user's writing or chat session.</role>
 
 <task>Analyze the provided text and extract ALL clear facts: user preferences, rules, personal info, structural habits, technical claims, or audience insights.</task>
 
@@ -100,22 +114,73 @@ Text from ${source || 'editor'}:
 """
 ${text.slice(0, 1500)}
 """
-</input_data>`,
+</input_data>`;
+  const startedAt = Date.now();
+
+  let object: ExtractionResult;
+  let usage: Awaited<ReturnType<typeof readAiSdkUsage>> | undefined;
+  try {
+    const result = await generateObject({
+      model,
+      schema: extractionSchema,
+      prompt,
+      temperature: 0.1,
+    });
+    object = result.object as ExtractionResult;
+    usage = await readAiSdkUsage((result as { usage?: unknown }).usage);
+  } catch (error) {
+    await recordThinkForgeDirectCost({
+      status: 'failed',
+      action: 'observer_extraction',
+      route: 'app/api/services/thinkforge/events/observe',
+      provider: modelRoute.provider,
+      modelName: modelRoute.model,
+      operation: 'llm_structured_direct',
+      userId,
+      taskId: sessionId,
+      promptChars: prompt.length,
+      functionMs: Date.now() - startedAt,
+      routePurpose,
+      privacyClass,
+      temperature: 0.1,
+      sourceKind: typeof source === 'string' && source.trim() ? 'observer_named_source' : 'observer_editor',
+      error,
+    });
+    throw error;
+  }
+  console.log('[Observer] Raw extraction result:', JSON.stringify(object.facts?.map((f: ObservedFact) => ({ type: f.type, content: f.content.slice(0, 60), confidence: f.confidence, scope: f.scope }))));
+
+  const facts: ObservedFact[] = object.facts ?? [];
+  const highConfidence = facts.filter((f) =>
+    f.scope === 'global' ? f.confidence >= 0.65 : f.confidence >= 0.5,
+  );
+  await recordThinkForgeDirectCost({
+    status: 'success',
+    action: 'observer_extraction',
+    route: 'app/api/services/thinkforge/events/observe',
+    provider: modelRoute.provider,
+    modelName: modelRoute.model,
+    operation: 'llm_structured_direct',
+    userId,
+    taskId: sessionId,
+    promptChars: prompt.length,
+    outputChars: safeJsonLength(object),
+    functionMs: Date.now() - startedAt,
+    usage,
+    routePurpose,
+    privacyClass,
     temperature: 0.1,
+    sourceKind: typeof source === 'string' && source.trim() ? 'observer_named_source' : 'observer_editor',
+    resultCount: facts.length,
+    acceptedCount: highConfidence.length,
   });
 
-  console.log('[Observer] Raw extraction result:', JSON.stringify(object.facts?.map(f => ({ type: f.type, content: f.content.slice(0, 60), confidence: f.confidence, scope: f.scope }))));
-
-  if (!object.facts || object.facts.length === 0) {
+  if (facts.length === 0) {
     console.log('[Observer] No facts extracted from text:', text.slice(0, 80));
     return;
   }
 
-  const highConfidence = object.facts.filter((f) =>
-    f.scope === 'global' ? f.confidence >= 0.65 : f.confidence >= 0.5,
-  );
-  console.log(`[Observer] ${highConfidence.length}/${object.facts.length} facts passed confidence filter`);
-
+  console.log(`[Observer] ${highConfidence.length}/${facts.length} facts passed confidence filter`);
   for (const fact of highConfidence) {
     const entryType = fact.type === 'preference' || fact.type === 'rule' || fact.type === 'personal_info'
       ? 'brand_insight' as const

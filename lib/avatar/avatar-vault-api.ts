@@ -365,6 +365,8 @@ function parseRenderAudio(value: unknown): AvatarRenderAudioInput | undefined {
     ...(parseAudioMode(record.mode) ? { mode: parseAudioMode(record.mode) } : {}),
     ...(optionalStringValue(record.sourceAssetId) ? { sourceAssetId: optionalStringValue(record.sourceAssetId) } : {}),
     ...(optionalStringValue(record.sourceUrl) ? { sourceUrl: optionalStringValue(record.sourceUrl) } : {}),
+    ...(optionalStringValue(record.voiceReferenceAssetId) ? { voiceReferenceAssetId: optionalStringValue(record.voiceReferenceAssetId) } : {}),
+    ...(optionalStringValue(record.voiceReferenceUrl) ? { voiceReferenceUrl: optionalStringValue(record.voiceReferenceUrl) } : {}),
     ...(optionalStringValue(record.voiceoverText) ? { voiceoverText: optionalStringValue(record.voiceoverText) } : {}),
     ...(optionalStringValue(record.description) ? { description: optionalStringValue(record.description) } : {}),
     copyAllowed: record.copyAllowed === true,

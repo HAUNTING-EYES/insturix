@@ -175,10 +175,10 @@ export async function getStoryboardByProjectId(
 /**
  * Resolve storyboard context for an Editron project.
  * New projects store sourceStoryboardId directly; older/reused projects may only
- * have the reverse storyboards.projectId link.
+ * have the reverse storyboards.projectId link or sourceSessionId lineage.
  */
 export async function getStoryboardForProjectContext(
-  project: { projectId?: string; sourceStoryboardId?: string },
+  project: { projectId?: string; sourceStoryboardId?: string; sourceSessionId?: string },
   userId: string,
 ): Promise<Storyboard | null> {
   const db = await getDatabase();
@@ -192,13 +192,25 @@ export async function getStoryboardForProjectContext(
   }
 
   const projectId = cleanString(project.projectId);
-  if (!projectId) return null;
+  if (projectId) {
+    const byProjectId = await db.collection(COLLECTION).findOne({
+      projectId,
+      userId,
+    });
+    if (byProjectId) return byProjectId as unknown as Storyboard;
+  }
 
-  const byProjectId = await db.collection(COLLECTION).findOne({
-    projectId,
+  const sourceSessionId = cleanString(project.sourceSessionId);
+  if (!sourceSessionId) return null;
+
+  const bySourceSessionId = await db.collection(COLLECTION).findOne({
     userId,
+    $or: [
+      { sourceSessionId },
+      { projectId: sourceSessionId },
+    ],
   });
-  return byProjectId as unknown as Storyboard | null;
+  return bySourceSessionId as unknown as Storyboard | null;
 }
 
 /**

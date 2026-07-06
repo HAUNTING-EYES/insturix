@@ -1,4 +1,4 @@
-﻿import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
+import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
 
 export interface DocumentRoleProfile {
   role: string;
@@ -11,6 +11,19 @@ export interface DocumentRoleProfile {
 
 const POST_CONTENT_REQUEST_PATTERN = /\b(linkedin\s+(?:post|carousel|article)|twitter\s+(?:post|thread)|x\s+(?:post|thread)|instagram\s+(?:post|caption|carousel)|ig\s+(?:post|caption|carousel)|facebook\s+(?:post|caption)|social\s+media\s+(?:post|caption|copy)|blog\s+post|article|newsletter|email\s+(?:campaign|copy)|carousel\s+post)\b/i;
 const SCRIPT_DOCUMENT_TYPE_PATTERN = /\b(screenplay|script|video\s+script|reel|short|youtube|tiktok|commercial|brand\s+film|product\s+ad|ugc)\b/i;
+const GENERIC_POST_REQUEST_PATTERN = /\b(?:post(?!\s*production)|caption|carousel|article|newsletter)\b/i;
+
+export type ThinkForgeContentPath = 'post' | 'script';
+
+export interface ThinkForgeDocumentIntent {
+  contentPath: ThinkForgeContentPath;
+  documentType: 'post' | 'screenplay';
+  documentLabel: 'post' | 'script';
+  source: 'user_prompt' | 'document_type' | 'default';
+  promptHasPostSignal: boolean;
+  promptHasScriptSignal: boolean;
+}
+
 
 function normalizeContentRequest(value?: string): string {
   return (value || '').toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -27,13 +40,57 @@ function isPostContentRequest(value?: string): boolean {
     || POST_CONTENT_REQUEST_PATTERN.test(normalized);
 }
 
+function hasPostContentSignal(value?: string): boolean {
+  const normalized = normalizeContentRequest(value);
+  return isPostContentRequest(normalized) || GENERIC_POST_REQUEST_PATTERN.test(normalized);
+}
+
+function hasScriptContentSignal(value?: string): boolean {
+  return SCRIPT_DOCUMENT_TYPE_PATTERN.test(normalizeContentRequest(value));
+}
+
+export function resolveThinkForgeDocumentIntent(userPrompt: string, docType?: string): ThinkForgeDocumentIntent {
+  const promptHasPostSignal = hasPostContentSignal(userPrompt);
+  const promptHasScriptSignal = hasScriptContentSignal(userPrompt);
+  const docHasPostSignal = hasPostContentSignal(docType);
+  const docHasScriptSignal = hasScriptContentSignal(docType);
+
+  let contentPath: ThinkForgeContentPath;
+  let source: ThinkForgeDocumentIntent['source'];
+
+  if (promptHasPostSignal) {
+    contentPath = 'post';
+    source = 'user_prompt';
+  } else if (promptHasScriptSignal) {
+    contentPath = 'script';
+    source = 'user_prompt';
+  } else if (docHasPostSignal) {
+    contentPath = 'post';
+    source = 'document_type';
+  } else if (docHasScriptSignal) {
+    contentPath = 'script';
+    source = 'document_type';
+  } else {
+    contentPath = 'script';
+    source = 'default';
+  }
+
+  return {
+    contentPath,
+    documentType: contentPath === 'post' ? 'post' : 'screenplay',
+    documentLabel: contentPath === 'post' ? 'post' : 'script',
+    source,
+    promptHasPostSignal,
+    promptHasScriptSignal,
+  };
+}
 export function inferRoleFromContext(projectSummary: string, userPrompt: string, explicitDocType?: string): DocumentRoleProfile {
   const docType = normalizeContentRequest(explicitDocType);
   const userLower = userPrompt.toLowerCase();
   const combined = `${projectSummary} ${userPrompt}`.toLowerCase();
 
   // Post/article/text content - check normalized document type and user prompt first.
-  if (!SCRIPT_DOCUMENT_TYPE_PATTERN.test(docType) && (isPostContentRequest(docType) || isPostContentRequest(userLower))) {
+  if (!SCRIPT_DOCUMENT_TYPE_PATTERN.test(docType) && (hasPostContentSignal(docType) || hasPostContentSignal(userLower))) {
     return {
       role: 'a Senior Content Strategist and Copywriter',
       executionTest: 'A social media manager should be able to say: "I can publish this immediately - it fits the platform, hooks the audience, and drives the action I need."',
@@ -223,13 +280,5 @@ export function detectPlatform(userPrompt: string, docType?: string, projectSumm
 }
 
 export function detectContentPath(userPrompt: string, docType?: string): 'post' | 'script' {
-  const dt = normalizeContentRequest(docType);
-  const lower = normalizeContentRequest(userPrompt);
-  if (SCRIPT_DOCUMENT_TYPE_PATTERN.test(dt)) {
-    return 'script';
-  }
-  if (isPostContentRequest(dt) || isPostContentRequest(lower)) {
-    return 'post';
-  }
-  return 'script';
+  return resolveThinkForgeDocumentIntent(userPrompt, docType).contentPath;
 }

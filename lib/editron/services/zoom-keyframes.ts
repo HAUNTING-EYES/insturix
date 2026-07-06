@@ -2,7 +2,7 @@
 // logic can be unit-tested WITHOUT pulling edl-executor's heavy module graph (gcs/upload services
 // throw at import time when GOOGLE_CLOUD_CREDENTIALS is unset). No imports, no side effects.
 
-export type ZoomEasing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+export type ZoomEasing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'snap-out';
 export interface ZoomKeyframe { frame: number; value: number; easing: ZoomEasing }
 
 /**
@@ -22,7 +22,7 @@ export function buildZoomKeyframes(
     case 'punch-in':
       // Quick zoom to target at decision frame, then HOLD at that scale (Z-010)
       return [
-        { frame: Math.max(0, localFrame - 5), value: scaleFrom, easing: 'ease-in' },
+        { frame: Math.max(0, localFrame - 5), value: scaleFrom, easing: 'snap-out' },
         { frame: localFrame + Math.min(duration, 15), value: scaleTo, easing: 'ease-out' },
         { frame: sceneEnd, value: scaleTo, easing: 'linear' }, // HOLD — don't bounce back
       ];

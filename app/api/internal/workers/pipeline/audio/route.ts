@@ -130,6 +130,7 @@ async function handler(request: NextRequest) {
         styles: {
           volume: 0.75,
           opacity: 1,
+          animation: { exit: 'fade', duration: 1 },
           duckingConfig: {
             enabled: true,
             duckLevel: 0.20,

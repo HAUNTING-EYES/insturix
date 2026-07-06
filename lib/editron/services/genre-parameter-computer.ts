@@ -16,6 +16,7 @@
 
 import type { GenreParameters } from './graph-query';
 import type { MusicAnalysisResult } from './music-analysis-service';
+import { deriveProsodyFormality, type ProsodyFormalitySegment } from './prosody-formality';
 import type { AssetAnalysis, RawFootageAnalysis } from './signal-registry';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -23,6 +24,7 @@ import type { AssetAnalysis, RawFootageAnalysis } from './signal-registry';
 export interface GenreParameterInput {
   rawFootage: RawFootageAnalysis | null;
   analyses: AssetAnalysis[];
+  wav2vecAnalysis?: { segments?: ProsodyFormalitySegment[] | null } | null;
   musicAnalysis?: Pick<MusicAnalysisResult, 'bpm' | 'beats' | 'sections' | 'energyCurve' | 'musicPresence'> | null;
   videoDurationSec: number;
   userPlatform?: string;
@@ -95,7 +97,6 @@ export function computeGenreParameters(input: GenreParameterInput): GenreParamet
   const entityNumberCount = countEntities(rawFootage, 'number');
   const entityCtaCount = countEntities(rawFootage, 'cta');
   const topicBoundaryCount = rawFootage?.segments?.length ?? 0;
-  const avgFillerRate = computeFillerRate(rawFootage);
   computedFrom.push('transcript_content');
 
   // ── Stage 3: Visual setup ─────────────────────────────────────────────
@@ -111,7 +112,15 @@ export function computeGenreParameters(input: GenreParameterInput): GenreParamet
 
   const speechEnergyAvg = computeAvgSpeechEnergy(analyses);
   const speakingRateAvg = computeAvgSpeakingRate(rawFootage);
+  const formalityResult = deriveProsodyFormality({
+    segments: input.wav2vecAnalysis?.segments,
+    speakingRateWpm: speakingRateAvg,
+    speechEnergy: speechEnergyAvg,
+    hasFace: hasFacePresent,
+  });
+  const formality = formalityResult.value;
   computedFrom.push('speech_signals');
+  computedFrom.push(formalityResult.source);
 
   // ── Compute each dial ─────────────────────────────────────────────────
 
@@ -139,7 +148,6 @@ export function computeGenreParameters(input: GenreParameterInput): GenreParamet
   // graphic_density: f(entity_count, formality)
   const entityRate = (entityNumberCount + entityCtaCount) / Math.max(1, videoDurationSec / 60);
   let graphic_density = Math.min(entityRate * 0.5, 8);
-  const formality = computeFormality(avgFillerRate, speakingRateAvg, hasFacePresent);
   if (formality > 0.7) graphic_density *= 0.6; // formal = fewer graphics
   graphic_density = clamp(graphic_density, 0, 8);
 
@@ -428,11 +436,6 @@ function countEntities(rawFootage: RawFootageAnalysis | null, type: 'number' | '
   return rawFootage.transcription.words.filter(w => pattern.test(w.word)).length;
 }
 
-function computeFillerRate(rawFootage: RawFootageAnalysis | null): number {
-  if (!rawFootage?.fillerWords || !rawFootage.transcription?.words?.length) return 0;
-  return rawFootage.fillerWords.length / rawFootage.transcription.words.length;
-}
-
 function computeVisualComplexity(analyses: AssetAnalysis[]): number {
   if (!analyses.length || !analyses[0].subjectTracks?.length) return 0.5;
   // More subjects + more motion = higher complexity
@@ -458,22 +461,6 @@ function computeAvgSpeakingRate(rawFootage: RawFootageAnalysis | null): number {
   const wordCount = rawFootage.transcription.words.length;
   const durationMin = rawFootage.originalDurationMs / 60000;
   return wordCount / durationMin;
-}
-
-function computeFormality(fillerRate: number, speakingRate: number, hasFace: boolean): number {
-  // High filler = low formality, fast speech = low formality
-  let f = 0.5;
-  if (fillerRate > 0.05) f -= 0.3;
-  else if (fillerRate > 0.02) f -= 0.1;
-  else if (fillerRate < 0.01) f += 0.2;
-
-  if (speakingRate > 180) f -= 0.1;
-  else if (speakingRate < 120) f += 0.15;
-
-  // Studio setup (inferred from face tracking quality) suggests formality
-  if (hasFace) f += 0.05;
-
-  return clamp(f, 0, 1);
 }
 
 function estimateColorTemp(analyses: AssetAnalysis[]): number {

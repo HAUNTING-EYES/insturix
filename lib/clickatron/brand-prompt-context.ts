@@ -2,6 +2,7 @@ import type { EffectiveBrandResolution } from "@/lib/shared/brand-effective-reso
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
 import { isBrandSignalActionable, type BrandSignal, type BrandSignalProfile } from "@/lib/shared/brand-signal-profile";
 import { modelSupportsTextRendering } from "@/lib/config/clickatron-models";
+import { sanitizeVisualPrompt } from "@/lib/clickatron/sanitize-visual-prompt";
 
 type MetadataRecord = Record<string, unknown>;
 
@@ -39,48 +40,6 @@ const PROJECT_META_FIELDS = [
   ["calendarItemId", "Calendar item"],
   ["contentCardId", "Content card"],
 ] as const;
-const PROMPT_CONTEXT_KEYWORD_STOPWORDS = new Set([
-  "about",
-  "after",
-  "again",
-  "against",
-  "all",
-  "and",
-  "are",
-  "because",
-  "been",
-  "but",
-  "can",
-  "current",
-  "every",
-  "for",
-  "from",
-  "has",
-  "have",
-  "how",
-  "into",
-  "just",
-  "more",
-  "not",
-  "now",
-  "one",
-  "our",
-  "out",
-  "that",
-  "the",
-  "their",
-  "this",
-  "was",
-  "what",
-  "when",
-  "where",
-  "which",
-  "while",
-  "with",
-  "without",
-  "you",
-  "your",
-]);
 
 function asRecord(value: unknown): MetadataRecord | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -109,32 +68,6 @@ function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
 
-function conceptKeywords(value: unknown, limit = 12): string | undefined {
-  const text = cleanText(value);
-  if (!text) return undefined;
-
-  const counts = new Map<string, number>();
-  for (const match of text.toLowerCase().matchAll(/\b[a-z][a-z0-9-]{2,}\b/g)) {
-    const word = match[0];
-    if (PROMPT_CONTEXT_KEYWORD_STOPWORDS.has(word)) continue;
-    counts.set(word, (counts.get(word) || 0) + 1);
-  }
-
-  const keywords = [...counts.entries()]
-    .sort(([leftWord, leftCount], [rightWord, rightCount]) =>
-      rightCount - leftCount || leftWord.localeCompare(rightWord),
-    )
-    .slice(0, limit)
-    .map(([word]) => word);
-
-  return keywords.length > 0 ? keywords.join(", ") : undefined;
-}
-
-function pushConceptField(lines: string[], label: string, value: unknown): void {
-  const keywords = conceptKeywords(value);
-  if (keywords) lines.push(`${label}: ${keywords}`);
-}
-
 function summarizeTextLayers(value: unknown, textPolicy: unknown): string | undefined {
   if (!Array.isArray(value)) return undefined;
   const exposeExactCopy = cleanText(textPolicy) === "minimal_generated_text";
@@ -160,7 +93,8 @@ function summarizeSlides(value: unknown): string | undefined {
     .map((entry) => {
       const slide = asRecord(entry);
       const index = typeof slide?.index === "number" ? slide.index + 1 : undefined;
-      const prompt = cleanText(slide?.imagePrompt);
+      const rawPrompt = cleanText(slide?.imagePrompt);
+      const prompt = rawPrompt ? sanitizeVisualPrompt(rawPrompt).clean : undefined;
       if (!prompt) return undefined;
       const title = cleanText(slide?.title);
       return `Slide ${index ?? "?"}${title ? ` (${title})` : ""}: ${prompt}`;
@@ -358,11 +292,14 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   pushField(lines, "Platform", creativeSpec?.platform);
   pushField(lines, "Validation status", validation?.status);
   pushField(lines, "Creative objective", creativeBrief?.objective);
-  pushConceptField(lines, "Core message concepts", creativeBrief?.coreMessage);
-  pushConceptField(lines, "Hook concepts", creativeBrief?.hook);
   pushField(lines, "Audience", creativeBrief?.audience);
-  pushConceptField(lines, "CTA concepts", creativeBrief?.cta);
   pushField(lines, "Visual metaphor", creativeBrief?.visualMetaphor);
+  // NOTE: coreMessage / hook / cta are COPY (words), not scene direction. They used to be
+  // pushed as frequency-sorted keyword bags ("Core message concepts: businesses, campaigns,
+  // …"), which a text-capable model then baked into the image as literal word-salad (prod
+  // 2026-07-05). Copy belongs on the editable overlay layer / real text-layers, never as a
+  // keyword bag in the raster prompt. The scene is driven by Image prompt + Visual metaphor +
+  // Key claims (evoke, do not render). [R6]
   // Grounding fields the contract carries but the prompt builder used to drop:
   // keyClaims = proof points the image should EVOKE as concept (image stays text-free);
   // brand.hardConstraints/softPreferences = brand rules. See clickatron-creative-contract.ts:193-202.
@@ -372,7 +309,7 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   pushGroundingList(lines, "Brand style preferences", brand?.softPreferences);
   pushField(lines, "Visual mode", userIntent?.visualMode);
   pushField(lines, "Text density", userIntent?.textDensity);
-  pushField(lines, "Image prompt", renderPlan?.imagePrompt);
+  pushField(lines, "Image prompt", typeof renderPlan?.imagePrompt === "string" ? sanitizeVisualPrompt(renderPlan.imagePrompt).clean : renderPlan?.imagePrompt);
   pushField(lines, "Layout intent", renderPlan?.layoutIntent);
   pushField(lines, "Text policy", renderPlan?.textPolicy);
   const textLayerSummary = summarizeTextLayers(renderPlan?.textLayers, renderPlan?.textPolicy);
@@ -418,7 +355,10 @@ function shouldRenderTextInImage(textPolicy: unknown, modelId?: string | null): 
 }
 
 export function buildClickatronGenerationPrompt(input: ClickatronPromptContextInput): string {
-  const prompt = input.prompt.trim();
+  // Enforce the visual-only contract: strip any brief metadata the writer leaked into the
+  // scene prompt (Brand:/Overlay text:/CTA:/…) so the model never bakes brand text or
+  // invents a logo from it. [R6]
+  const prompt = sanitizeVisualPrompt(input.prompt).clean.trim();
   const sourceContextBlock = buildClickatronSourceContextBlock(input.metadata, input.modelId);
   const brandContextBlock = input.brandContextBlock?.trim() || "";
   const contextBlocks = [sourceContextBlock, brandContextBlock].filter(Boolean);

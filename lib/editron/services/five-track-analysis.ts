@@ -19,6 +19,8 @@
  */
 
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { ANALYSIS_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
+import { TokenTracker, type TokenUsageMetadata } from '@/lib/editron/utils/token-tracker';
 import type { PipelineWarningCollector } from './pipeline-warnings';
 
 // ─── Gemini 429 Retry ───────────────────────────────────────────
@@ -42,6 +44,74 @@ async function withRetry<T>(
     }
   }
   throw new Error('unreachable');
+}
+
+export interface GeminiUsageCapture {
+  tracker: TokenTracker;
+  requestCount: number;
+  missingUsageCount: number;
+}
+
+function createGeminiUsageCapture(): GeminiUsageCapture {
+  return {
+    tracker: new TokenTracker(ANALYSIS_MODEL_NAME),
+    requestCount: 0,
+    missingUsageCount: 0,
+  };
+}
+
+function recordGeminiUsage(result: unknown, usageCapture?: GeminiUsageCapture): void {
+  if (!usageCapture) return;
+  usageCapture.requestCount += 1;
+
+  const metadata = extractGeminiUsageMetadata(result);
+  if (!metadata) {
+    usageCapture.missingUsageCount += 1;
+    return;
+  }
+
+  usageCapture.tracker.addUsage(metadata);
+}
+
+function extractGeminiUsageMetadata(result: unknown): TokenUsageMetadata | null {
+  const root = asRecord(result);
+  const response = asRecord(root?.response);
+  const usage = asRecord(root?.usageMetadata) ?? asRecord(response?.usageMetadata);
+  if (!usage) return null;
+
+  const promptTokenCount = readNumber(usage.promptTokenCount ?? usage.inputTokenCount ?? usage.inputTokens);
+  const candidatesTokenCount = readNumber(usage.candidatesTokenCount ?? usage.outputTokenCount ?? usage.outputTokens);
+  const totalTokenCount = readNumber(usage.totalTokenCount ?? usage.totalTokens);
+  return promptTokenCount || candidatesTokenCount || totalTokenCount
+    ? { promptTokenCount, candidatesTokenCount, totalTokenCount }
+    : null;
+}
+
+function buildGeminiProviderUsage(usageCapture: GeminiUsageCapture): FiveTrackProviderUsage | undefined {
+  if (usageCapture.requestCount === 0) return undefined;
+  const breakdown = usageCapture.tracker.getBreakdown();
+  return {
+    provider: 'google-gemini',
+    model: ANALYSIS_MODEL_NAME,
+    operation: 'video_analysis',
+    inputTokens: positiveNumberOrUndefined(breakdown.input),
+    outputTokens: positiveNumberOrUndefined(breakdown.output),
+    totalTokens: positiveNumberOrUndefined(breakdown.total),
+    requestCount: usageCapture.requestCount,
+    missingUsageCount: usageCapture.missingUsageCount,
+  };
+}
+
+function asRecord(value: unknown): Record<string, any> | null {
+  return value && typeof value === 'object' ? value as Record<string, any> : null;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function positiveNumberOrUndefined(value: number): number | undefined {
+  return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -178,6 +248,17 @@ export interface MusicSection {
   prescribedEffects: string[];
 }
 
+export interface FiveTrackProviderUsage {
+  provider: 'google-gemini';
+  model: string;
+  operation: 'video_analysis';
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  requestCount: number;
+  missingUsageCount: number;
+}
+
 /** Full analysis result */
 export interface AssetAnalysis {
   assetId: string;
@@ -185,6 +266,7 @@ export interface AssetAnalysis {
   status: 'pending' | 'processing' | 'complete' | 'failed';
   durationMs: number;
   analyzedAt: Date;
+  providerUsage?: FiveTrackProviderUsage;
 
   // Layer 1: Shot boundaries
   shots: Shot[];
@@ -394,7 +476,7 @@ async function uploadToGeminiFiles(
 
 // ─── Layer 1: Shot Detection ─────────────────────────────────────
 
-async function _detectShots(videoUrl: string, durationMs: number, fps: number): Promise<Shot[]> {
+async function _detectShots(videoUrl: string, durationMs: number, fps: number, usageCapture?: GeminiUsageCapture): Promise<Shot[]> {
   // Use Gemini Vision to detect scene changes (server-side PySceneDetect not available on Vercel)
   // This gives ~90% accuracy vs pixel-diff algorithms
   try {
@@ -422,6 +504,7 @@ RULE 3 — Return ONLY a JSON array of objects, no markdown, no explanation.
       { fileData: { mimeType: 'video/mp4', fileUri: videoUrl } },
     ]);
 
+    recordGeminiUsage(result, usageCapture);
     const text = result.response.text();
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return [{ startFrame: 0, endFrame: Math.round(durationMs / 1000 * fps), durationMs }];
@@ -451,6 +534,7 @@ async function analyzeVideoComprehensive(
   fileUri: string,
   shots: Shot[],
   durationMs: number,
+  usageCapture?: GeminiUsageCapture,
 ): Promise<{
   motion: { segments: MotionSegment[]; peaks: number[] };
   keyframes: FrameAnalysis[];
@@ -527,6 +611,7 @@ RULE 5 — Return ONLY valid JSON, no markdown.
       'merged_vision',
     );
 
+    recordGeminiUsage(result, usageCapture);
     const text = result.response.text();
     // Extract JSON from response (may be wrapped in ```json ... ```)
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -582,7 +667,7 @@ RULE 5 — Return ONLY valid JSON, no markdown.
 
 // ─── Layer 2: Motion Analysis ────────────────────────────────────
 
-async function analyzeMotion(videoUrl: string, shots: Shot[], durationMs: number): Promise<{
+async function analyzeMotion(videoUrl: string, shots: Shot[], durationMs: number, usageCapture?: GeminiUsageCapture): Promise<{
   segments: MotionSegment[];
   peaks: number[];
 }> {
@@ -616,6 +701,7 @@ RULE 3 — Return ONLY valid JSON, no markdown, no explanation.
       { fileData: { mimeType: 'video/mp4', fileUri: videoUrl } },
     ]);
 
+    recordGeminiUsage(result, usageCapture);
     const text = result.response.text();
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return { segments: [], peaks: [] };
@@ -689,6 +775,7 @@ async function analyzeKeyframes(
   videoUrl: string,
   shots: Shot[],
   durationMs: number,
+  usageCapture?: GeminiUsageCapture,
 ): Promise<FrameAnalysis[]> {
   try {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -729,6 +816,7 @@ Return ONLY a JSON array: [...]`,
       { fileData: { mimeType: 'video/mp4', fileUri: videoUrl } },
     ]);
 
+    recordGeminiUsage(result, usageCapture);
     const text = result.response.text();
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return [];
@@ -748,6 +836,7 @@ async function trackSubjects(
   videoUrl: string,
   keyframeAnalyses: FrameAnalysis[],
   durationMs: number,
+  usageCapture?: GeminiUsageCapture,
 ): Promise<SubjectTrackEntry[]> {
   try {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -787,6 +876,7 @@ Return JSON:
       { fileData: { mimeType: 'video/mp4', fileUri: videoUrl } },
     ]);
 
+    recordGeminiUsage(result, usageCapture);
     const text = result.response.text();
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return [];
@@ -805,6 +895,7 @@ Return JSON:
 export async function classifySpeech(
   transcript: string,
   words: Array<{ word: string; startMs: number; endMs: number }>,
+  usageCapture?: GeminiUsageCapture,
 ): Promise<SpeechSegment[]> {
   try {
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -838,6 +929,7 @@ Word timestamps for reference:
 ${words.slice(0, 50).map(w => `"${w.word}" ${w.startMs}ms`).join(', ')}${words.length > 50 ? '...' : ''}
 </input_data>`);
 
+    recordGeminiUsage(result, usageCapture);
     const text = result.response.text();
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return [];
@@ -1063,10 +1155,13 @@ export async function runFullAnalysis(
     if (cachedVersion >= ANALYSIS_VERSION) {
       const quality = (cached as any).analysisQuality || 'unknown';
       console.log(`[Analysis] Using cached analysis v${cachedVersion} for ${assetId} (quality=${quality})`);
+      (cached as AssetAnalysis & { _analysisCacheHit?: boolean })._analysisCacheHit = true;
       return cached;
     }
     console.log(`[Analysis] Cache STALE for ${assetId}: v${cachedVersion} < v${ANALYSIS_VERSION}, re-analyzing with updated logic`);
   }
+
+  const geminiUsageCapture = createGeminiUsageCapture();
 
   // Layer 1: Shot detection
   // AI videos: each clip IS one shot (skip detection)
@@ -1128,7 +1223,7 @@ export async function runFullAnalysis(
           // Merged Gemini Vision call for Layers 2+4+5
           const t2 = traceStep('merged_vision_analysis');
           try {
-            const merged = await analyzeVideoComprehensive(geminiFileUri, shots, durationMs);
+            const merged = await analyzeVideoComprehensive(geminiFileUri, shots, durationMs, geminiUsageCapture);
             if (merged) {
               motion = merged.motion;
               keyframeData = merged.keyframes;
@@ -1146,9 +1241,9 @@ export async function runFullAnalysis(
             const t3 = traceStep('fallback_individual_calls');
             try {
               const [motionResult, kfResult, subjectResult] = await Promise.allSettled([
-                analyzeMotion(geminiFileUri, shots, durationMs),
-                analyzeKeyframes(geminiFileUri, shots, durationMs),
-                trackSubjects(geminiFileUri, [], durationMs),
+                analyzeMotion(geminiFileUri, shots, durationMs, geminiUsageCapture),
+                analyzeKeyframes(geminiFileUri, shots, durationMs, geminiUsageCapture),
+                trackSubjects(geminiFileUri, [], durationMs, geminiUsageCapture),
               ]);
               const motionOk = motionResult.status === 'fulfilled';
               const kfOk = kfResult.status === 'fulfilled';
@@ -1281,7 +1376,7 @@ export async function runFullAnalysis(
             startMs: w.startMs,
             endMs: w.endMs,
           }));
-          speechSegments = await classifySpeech(transcriptText, wordsForSpeech);
+          speechSegments = await classifySpeech(transcriptText, wordsForSpeech, geminiUsageCapture);
           console.warn(
             `[TrackA] HALLUCINATED SPEECH detected in AI-gen clip ${assetId}: ` +
             `script intent was silent but audio transcribed to "${transcriptText.substring(0, 100)}...". ` +
@@ -1317,11 +1412,11 @@ export async function runFullAnalysis(
   if (speechSegments.length === 0) {
     if (storyboardScene?.narration && words) {
       // AI video path — classify the known narration (fastest, most accurate)
-      speechSegments = await classifySpeech(storyboardScene.narration, words);
+      speechSegments = await classifySpeech(storyboardScene.narration, words, geminiUsageCapture);
       console.log(`[TrackA] AI video: classified ${speechSegments.length} segments from storyboard narration`);
     } else if (transcript && words) {
       // Real footage path — classify from transcription supplied by caller
-      speechSegments = await classifySpeech(transcript, words);
+      speechSegments = await classifySpeech(transcript, words, geminiUsageCapture);
       console.log(`[TrackA] Real footage: classified ${speechSegments.length} segments from transcription`);
     }
   }
@@ -1398,6 +1493,8 @@ export async function runFullAnalysis(
 
   console.log(`[Analysis] Quality for ${assetId}: ${analysisQuality} (avg=${avgConfidence.toFixed(2)}, vision=${visionConfidence}, motion=${motionConfidence}, audio=${audioConfidence}, speech=${speechConfidence}, music=${musicConfidence})`);
 
+  const providerUsage = buildGeminiProviderUsage(geminiUsageCapture);
+
   const analysis: AssetAnalysis = {
     assetId,
     userId,
@@ -1424,6 +1521,10 @@ export async function runFullAnalysis(
       music: musicConfidence,
     },
   };
+
+  if (providerUsage) {
+    analysis.providerUsage = providerUsage;
+  }
 
   // Store version + diagnostic trace
   (analysis as any).analysisVersion = ANALYSIS_VERSION;

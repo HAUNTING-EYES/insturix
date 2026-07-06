@@ -158,6 +158,7 @@ export async function assembleUnifiedContext(
   const sb = await getStoryboardForProjectContext({
     projectId,
     sourceStoryboardId: project.sourceStoryboardId,
+    sourceSessionId: project.sourceSessionId,
   }, userId);
   if (sb) {
     storyboardScenes = sb.scenes || [];

@@ -12,7 +12,13 @@ import { buildStoryboardPrompt, buildNegativePrompt } from './storyboard-prompt-
 import { saveStoryboard, updateStoryboardScene, updateSubShot, getStoryboard } from './storyboard-db';
 import { scoreStoryboardConsistency } from './consistency-scoring-service';
 import { falRetry } from './fal-retry';
+import {
+  hasStrictLogoReferenceForScene,
+  prioritizeStoryboardReferencesForScene,
+  selectBrandEvidenceReferencesForScene,
+} from './storyboard-reference-priority';
 import type {
+  ApprovedStoryboardReference,
   SceneDescriptor,
   StyleGuide,
   Storyboard,
@@ -134,15 +140,10 @@ async function falSubscribeWithTimeout(
   );
 }
 
-interface ReferenceImageInput {
+type ReferenceImageInput = Partial<ApprovedStoryboardReference> & {
   subjectId: string;
   imageUrl: string;
-  weight?: number;
-  /** Subject name for prompt enrichment */
-  name?: string;
-  /** Visual description of the subject for prompt enrichment when IP-adapter is unavailable */
-  visualDescription?: string;
-}
+};
 
 /**
  * Scene-type-aware cap on reference image count (Rule 19N domain-expert check).
@@ -219,6 +220,9 @@ export async function generateStoryboardImage(
   }
 
   const hasReferences = options.referenceImages && options.referenceImages.length > 0;
+  const prioritizedReferenceImages = hasReferences
+    ? prioritizeStoryboardReferencesForScene(scene, options.referenceImages!)
+    : [];
   const fallbackModelId = options.modelId || DEFAULT_MODEL;
 
   // Build reference subject descriptions for prompt enrichment.
@@ -226,7 +230,7 @@ export async function generateStoryboardImage(
   // when IP-adapter fails. Without this, fallback images have zero reference guidance.
   let refDescriptionSuffix = '';
   if (hasReferences) {
-    const refDescs = options.referenceImages!
+    const refDescs = prioritizedReferenceImages
       .filter((r) => r.visualDescription || r.name)
       .map((r) => {
         if (r.visualDescription) return `${r.name || r.subjectId}: ${r.visualDescription}`;
@@ -253,6 +257,7 @@ export async function generateStoryboardImage(
 
   // Rule 19N scene-type-aware ref cap — see getMaxRefsForSceneType above.
   const sceneTypeRefCap = getMaxRefsForSceneType((scene as any).sceneType);
+  const forceIpAdapterForLogo = hasStrictLogoReferenceForScene(scene, prioritizedReferenceImages);
   if (hasReferences && sceneTypeRefCap === 0) {
     console.log(
       `[Storyboard] Scene ${options.sceneIndex} (sceneType=${(scene as any).sceneType}): ` +
@@ -261,12 +266,15 @@ export async function generateStoryboardImage(
     );
   }
 
-  if (hasReferences && sceneTypeRefCap > 0 && modelConfig.referenceCapability !== 'text-only') {
-    const rawRefs = options.referenceImages!;
+  if (hasReferences && sceneTypeRefCap > 0 && (modelConfig.referenceCapability !== 'text-only' || forceIpAdapterForLogo)) {
+    const rawRefs = prioritizedReferenceImages;
     const refs = rawRefs.slice(0, sceneTypeRefCap);
+    const referenceCapability = forceIpAdapterForLogo && modelConfig.referenceCapability === 'text-only'
+      ? 'ip-adapter'
+      : modelConfig.referenceCapability;
     console.log(
       `[Storyboard] Scene ${options.sceneIndex} (sceneType=${(scene as any).sceneType || 'default'}): ` +
-      `Using ${modelConfig.referenceCapability} with ${refs.length}/${rawRefs.length} ref(s) on ${modelConfig.key}`,
+      `Using ${referenceCapability} with ${refs.length}/${rawRefs.length} ref(s) on ${modelConfig.key}`,
     );
 
     try {
@@ -288,7 +296,7 @@ export async function generateStoryboardImage(
       }
 
       // ── fal.ai IP-adapter: Flux General only ──
-      if (modelConfig.referenceCapability === 'ip-adapter' && _ipAdapterConsecutiveFailures < IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD) {
+      if (referenceCapability === 'ip-adapter' && _ipAdapterConsecutiveFailures < IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD) {
         const ipAdapterModelId = 'fal-ai/flux-general';
         const ipAdapters = refs.slice(0, 3).map((ref, idx) => ({
           path: 'XLabs-AI/flux-ip-adapter',
@@ -328,7 +336,7 @@ export async function generateStoryboardImage(
       // `'inline-image-urls'` below. This branch is kept for any future model
       // that DOES host /image-to-image properly (Flux Kontext Dev routes
       // differently via its own 'image_url' single-ref param, not here).
-      if (modelConfig.referenceCapability === 'image-to-image' && modelConfig.referenceConfig) {
+      if (referenceCapability === 'image-to-image' && modelConfig.referenceConfig) {
         const editEndpoint = modelConfig.endpoint.replace(/\/?$/, '/image-to-image');
         const result = await falSubscribeWithTimeout(editEndpoint, {
           input: {
@@ -363,7 +371,7 @@ export async function generateStoryboardImage(
       // This branch uses the standard endpoint + passes refs through the
       // configured paramName (image_urls). staticParams (e.g., resolution)
       // from the model config are merged so tier-specific knobs still apply.
-      if (modelConfig.referenceCapability === 'inline-image-urls' && modelConfig.referenceConfig) {
+      if (referenceCapability === 'inline-image-urls' && modelConfig.referenceConfig) {
         const result = await falSubscribeWithTimeout(modelConfig.endpoint, {
           input: {
             prompt: `${prompt}. Maintain visual consistency with reference subjects.`,
@@ -386,8 +394,8 @@ export async function generateStoryboardImage(
         console.warn(`[Storyboard] Scene ${options.sceneIndex}: inline-image-urls call to ${modelConfig.endpoint} returned no imageUrl, falling through to text-only generation`);
       }
     } catch (refErr: any) {
-      if (modelConfig.referenceCapability === 'ip-adapter') _ipAdapterConsecutiveFailures++;
-      console.warn(`[Storyboard] Scene ${options.sceneIndex}: ${modelConfig.referenceCapability} FAILED (${refErr.message}), falling through to standard generation`);
+      if (referenceCapability === 'ip-adapter') _ipAdapterConsecutiveFailures++;
+      console.warn(`[Storyboard] Scene ${options.sceneIndex}: ${referenceCapability} FAILED (${refErr.message}), falling through to standard generation`);
     }
   } else if (hasReferences) {
     console.log(`[Storyboard] Scene ${options.sceneIndex}: Model ${modelConfig.key} uses text-only references — descriptions in prompt`);
@@ -479,14 +487,7 @@ export async function generateFullStoryboard(
     /** Map of sceneIndex → reference images for IP-adapter consistency */
     referenceImageMap?: Record<number, ReferenceImageInput[]>;
     /** Approved reference subjects to persist on the storyboard for later regeneration */
-    approvedReferences?: Array<{
-      subjectId: string;
-      name: string;
-      category?: string;
-      visualDescription?: string;
-      imageUrl: string;
-      scenesAppearingIn: number[];
-    }>;
+    approvedReferences?: ApprovedStoryboardReference[];
     refSetId?: string;
     /** Run Gemini Vision consistency check after generation (default: true) */
     checkConsistency?: boolean;
@@ -620,6 +621,8 @@ export async function generateFullStoryboard(
                 videoMotionPrompt: sub.videoMotionPrompt || sbScene.descriptor.videoMotionPrompt,
               };
 
+              const subShotReferenceImages = selectBrandEvidenceReferencesForScene(subDescriptor, sceneRefs);
+
               const subResult = await generateStoryboardImage(
                 subDescriptor,
                 options.userId,
@@ -631,7 +634,7 @@ export async function generateFullStoryboard(
                   aspectRatio: options.aspectRatio,
                   sceneIndex: sbScene.sceneIndex,
                   totalScenes,
-                  referenceImages: undefined, // No IP-adapter — sub-shots must look DIFFERENT
+                  referenceImages: subShotReferenceImages,
                 },
               );
 
@@ -805,6 +808,8 @@ export async function generateFullStoryboard(
                   videoMotionPrompt: sub.videoMotionPrompt || sbScene.descriptor.videoMotionPrompt,
                 };
 
+                const subShotReferenceImages = selectBrandEvidenceReferencesForScene(subDescriptor, sceneRefs);
+
                 const subResult = await generateStoryboardImage(
                   subDescriptor,
                   options.userId,
@@ -816,9 +821,8 @@ export async function generateFullStoryboard(
                     aspectRatio: options.aspectRatio,
                     sceneIndex: sbScene.sceneIndex,
                     totalScenes,
-                    // Intentionally NO referenceImages — sub-shots must look DIFFERENT
-                    // from each other (that's the point of the montage).
-                    referenceImages: undefined,
+                    // Generic sub-shots stay text-only for variety; owned logo/product sub-shots keep real brand evidence.
+                    referenceImages: subShotReferenceImages,
                   },
                 );
 

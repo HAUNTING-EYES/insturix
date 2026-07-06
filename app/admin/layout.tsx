@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { requireAdmin } from "@/lib/auth/adminAuth";
 import Link from "next/link";
-import { Mail, BarChart3, LayoutDashboard, Award, Gift, UserCheck } from "lucide-react";
+import { Mail, BarChart3, LayoutDashboard, Award, Gift, UserCheck, DollarSign } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const metadata = {
@@ -40,6 +40,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
             <NavItem href="/admin/dashboard" icon={<LayoutDashboard className="w-4 h-4" />}>Dashboard</NavItem>
             <NavItem href="/admin/dashboard/analytics" icon={<BarChart3 className="w-4 h-4" />}>Analytics</NavItem>
+            <NavItem href="/admin/financials" icon={<DollarSign className="w-4 h-4" />}>Financials</NavItem>
             <NavItem href="/admin/mailing" icon={<Mail className="w-4 h-4" />}>Mailing</NavItem>
             <NavItem href="/admin/bronze-promotions" icon={<Award className="w-4 h-4" />}>Bronze Promotions</NavItem>
             <NavItem href="/admin/cashback-tasks" icon={<Gift className="w-4 h-4" />}>Cashback Tasks</NavItem>

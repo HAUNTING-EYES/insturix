@@ -1,3 +1,4 @@
+import { recordProviderCostEvent } from "@/lib/financials/provider-cost-events";
 import type { PublishParams, PublishResult } from "./contract";
 
 /**
@@ -21,6 +22,7 @@ const LINKEDIN_REST_API_VERSION = process.env.LINKEDIN_REST_API_VERSION || "2026
 
 type LinkedInAuth = { accessToken: string; authorUrn: string };
 type AuthError = { error: string; retryable: boolean };
+type LinkedInPublishResult = PublishResult & { responseStatus?: number };
 
 function linkedInRestHeaders(accessToken: string): Record<string, string> {
   return {
@@ -31,7 +33,7 @@ function linkedInRestHeaders(accessToken: string): Record<string, string> {
   };
 }
 
-export async function publishToLinkedIn(params: PublishParams): Promise<PublishResult> {
+export async function publishToLinkedIn(params: PublishParams): Promise<LinkedInPublishResult> {
   const text = (params.caption ?? params.title ?? "").trim();
   if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false };
   if (!text) return { ok: false, error: "LinkedIn post text is empty", retryable: false };
@@ -44,12 +46,18 @@ export async function publishToLinkedIn(params: PublishParams): Promise<PublishR
     ? await resolveBrandAccountAuth(params.brandId, params.accountRef)
     : null;
   if (brandAuth && "error" in brandAuth) return { ok: false, error: brandAuth.error, retryable: brandAuth.retryable };
-  if (brandAuth) return createLinkedInTextPost(brandAuth.accessToken, brandAuth.authorUrn, text);
+  if (brandAuth) {
+    const result = await createLinkedInTextPost(brandAuth.accessToken, brandAuth.authorUrn, text);
+    await recordCalosLinkedInPublishCost(params, result);
+    return result;
+  }
 
   // Per-user fallback (the brand has no connected account of its own).
   const userAuth = await resolveUserAuth(params);
   if ("error" in userAuth) return { ok: false, error: userAuth.error, retryable: userAuth.retryable };
-  return createLinkedInTextPost(userAuth.accessToken, userAuth.authorUrn, text);
+  const result = await createLinkedInTextPost(userAuth.accessToken, userAuth.authorUrn, text);
+  await recordCalosLinkedInPublishCost(params, result);
+  return result;
 }
 
 /**
@@ -207,7 +215,7 @@ async function createLinkedInTextPost(
   accessToken: string,
   authorUrn: string,
   text: string,
-): Promise<PublishResult> {
+): Promise<LinkedInPublishResult> {
   try {
     const res = await fetch("https://api.linkedin.com/rest/posts", {
       method: "POST",
@@ -236,12 +244,41 @@ async function createLinkedInTextPost(
         ok: false,
         error: `LinkedIn post failed (${res.status}): ${data.error?.message || data.message || bodyText || "unknown error"}`,
         retryable,
+        responseStatus: res.status,
       };
     }
     const postId = res.headers.get("x-restli-id") || data.id;
-    if (!postId) return { ok: false, error: "LinkedIn returned no post id", retryable: true };
-    return { ok: true, postId, postUrl: `https://www.linkedin.com/feed/update/${postId}` };
+    if (!postId) return { ok: false, error: "LinkedIn returned no post id", retryable: true, responseStatus: res.status };
+    return { ok: true, postId, postUrl: `https://www.linkedin.com/feed/update/${postId}`, responseStatus: res.status };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "LinkedIn post threw", retryable: true };
   }
+}
+
+async function recordCalosLinkedInPublishCost(params: PublishParams, result: LinkedInPublishResult) {
+  await recordProviderCostEvent({
+    idempotencyKey:
+      result.ok && result.postId
+        ? `calos:linkedin:publish:${params.deliverableId}:${result.postId}`
+        : undefined,
+    status: result.ok ? "success" : "failed",
+    userId: params.ownerUserId,
+    projectId: params.brandId,
+    taskId: params.deliverableId,
+    service: "calos",
+    action: "platform_publish",
+    route: "lib/calos/publish/linkedin",
+    provider: "linkedin-api",
+    model: `linkedin-rest-${LINKEDIN_REST_API_VERSION}`,
+    operation: "social_publish",
+    providerJobId: result.postId,
+    units: { requestCount: 1 },
+    metadata: {
+      platform: "linkedin",
+      responseStatus: result.responseStatus,
+      retryable: result.retryable,
+      hasAccountRef: Boolean(params.accountRef),
+      hasBrandId: Boolean(params.brandId),
+    },
+  });
 }

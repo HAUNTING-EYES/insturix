@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
+import { buildProjectAnalysisAssetSet, encodeProjectAnalysisAssetKey, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
 import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
@@ -34,6 +35,7 @@ interface TribeAnalysisPayload {
   projectId: string;
   userId: string;
   orgId?: string;
+  assetId?: string;
   videoUrl: string;
   segmentInputs: { startMs: number; endMs: number }[];
   visualSegmentInputs?: { startMs: number; endMs: number }[];
@@ -50,7 +52,8 @@ async function handler(request: NextRequest) {
 
   try {
     const payload: TribeAnalysisPayload = await request.json();
-    const { projectId, userId, videoUrl, segmentInputs, visualSegmentInputs, directorPayload } = payload;
+    const { projectId, userId, assetId, videoUrl, segmentInputs, visualSegmentInputs, directorPayload } = payload;
+    const sourceAssetId = typeof assetId === 'string' && assetId.trim().length > 0 ? assetId.trim() : null;
     trackedProjectId = projectId;
 
     if (!projectId || !userId || !videoUrl) {
@@ -281,10 +284,25 @@ async function handler(request: NextRequest) {
         // Store music analysis on project for Director to read
         if (musicAnalysis) {
           try {
+            const musicUpdatedAt = new Date();
             await db.collection('projects').updateOne(
               { projectId },
-              { $set: { musicAnalysis } },
+              {
+                $set: {
+                  musicAnalysis,
+                  ...(sourceAssetId ? buildProjectAnalysisAssetSet(sourceAssetId, { musicAnalysis }, musicUpdatedAt) : {}),
+                },
+              },
             );
+
+            if (sourceAssetId) {
+              try {
+                await persistProjectAssetAnalysis(db, projectId, sourceAssetId, { musicAnalysis }, musicUpdatedAt);
+              } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn(`[TribeWorker] Music per-asset analysis document write failed (non-fatal): ${msg}`);
+              }
+            }
           } catch (e) { console.warn(`[TribeWorker] Non-fatal error:`, e instanceof Error ? e.message : e); }
         }
       } catch (err: unknown) {
@@ -300,9 +318,12 @@ async function handler(request: NextRequest) {
     // Reads rawFootageAnalysis from project doc (stored by video-analysis worker).
     const projectDoc = await db.collection('projects').findOne(
       { projectId },
-      { projection: { rawFootageAnalysis: 1, syntheticStoryboard: 1, referenceEditDNA: 1, referenceVideoAnalysis: 1 } },
+      { projection: { rawFootageAnalysis: 1, rawFootageAnalysisByAsset: 1, syntheticStoryboard: 1, referenceEditDNA: 1, referenceVideoAnalysis: 1 } },
     );
-    const rawFootageAnalysis = projectDoc?.rawFootageAnalysis;
+    const keyedRawFootageAnalysis = sourceAssetId
+      ? projectDoc?.rawFootageAnalysisByAsset?.[encodeProjectAnalysisAssetKey(sourceAssetId)]
+      : null;
+    const rawFootageAnalysis = keyedRawFootageAnalysis ?? projectDoc?.rawFootageAnalysis;
     const syntheticStoryboard = projectDoc?.syntheticStoryboard;
 
     let momentWeightMap: any = null;
@@ -356,6 +377,19 @@ async function handler(request: NextRequest) {
     }
 
     // ─── Step 4b: Store Phase 2 results on project doc ────────────
+    const phase2UpdatedAt = new Date();
+    const phase2PerAssetSet = sourceAssetId
+      ? buildProjectAnalysisAssetSet(sourceAssetId, {
+        vjepaAnalysis,
+        wav2vecAnalysis,
+        momentWeightMap,
+        segmentAnalysis,
+      }, phase2UpdatedAt)
+      : {};
+    if (!sourceAssetId) {
+      console.warn(`[TribeWorker] Missing assetId for per-asset analysis storage on ${projectId}; writing compatibility project fields only.`);
+    }
+
     await db.collection('projects').updateOne(
       { projectId },
       {
@@ -365,10 +399,25 @@ async function handler(request: NextRequest) {
           ...(wav2vecAnalysis && { wav2vecAnalysis }),
           ...(momentWeightMap && { momentWeightMap }),
           ...(segmentAnalysis && { segmentAnalysis }),
-          updatedAt: new Date(),
+          ...phase2PerAssetSet,
+          updatedAt: phase2UpdatedAt,
         },
       },
     );
+
+    if (sourceAssetId) {
+      try {
+        await persistProjectAssetAnalysis(db, projectId, sourceAssetId, {
+          vjepaAnalysis,
+          wav2vecAnalysis,
+          momentWeightMap,
+          segmentAnalysis,
+        }, phase2UpdatedAt);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[TribeWorker] Phase 2 per-asset analysis document write failed (non-fatal): ${msg}`);
+      }
+    }
 
     // ─── Step 5: Dispatch Director to separate worker ─────────────
     if (process.env.QSTASH_TOKEN) {
@@ -475,12 +524,18 @@ async function handler(request: NextRequest) {
     const totalMs = Date.now() - startMs;
     const projectAfterDirector = await db.collection('projects').findOne(
       { projectId },
-      { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1 } },
+      { projection: { 'qualityReview.overallScore': 1, 'qualityReview.criticalCount': 1, 'intelligence.renderedQualityEvidence': 1 } },
     );
+    const renderedQualityEvidence = projectAfterDirector?.intelligence?.renderedQualityEvidence;
     const learningDecision = resolveEditronLearningOutcome({
       hasQualityReview: !!projectAfterDirector?.qualityReview,
       qualityScore: projectAfterDirector?.qualityReview?.overallScore,
       criticalCount: projectAfterDirector?.qualityReview?.criticalCount,
+      qualityEvidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
+      renderedQualityStatus: renderedQualityEvidence?.renderedQualityStatus,
+      renderedAestheticStatus: renderedQualityEvidence?.renderedAestheticStatus,
+      artifactStatus: renderedQualityEvidence?.artifactStatus,
+      renderedAestheticFailFrameCount: renderedQualityEvidence?.renderedAestheticFailFrameCount,
     });
     const completionSet: Record<string, unknown> = {
       autoEditStatus: learningDecision.shouldRecord ? 'complete' : 'needs_review',
@@ -508,7 +563,16 @@ async function handler(request: NextRequest) {
     try {
       if (learningDecision.shouldRecord && learningDecision.qualityScore !== null) {
         const { recordProjectOutcome } = await import('@/lib/editron/services/genre-parameter-bandit');
-        await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false);
+        const outcome = await recordProjectOutcome(userId, projectId, learningDecision.qualityScore, false, false, {
+          evidenceSource: renderedQualityEvidence?.qualityEvidenceSource,
+          renderedAestheticStatus:
+            renderedQualityEvidence?.renderedAestheticStatus ??
+            renderedQualityEvidence?.renderedQualityStatus ??
+            renderedQualityEvidence?.artifactStatus,
+        });
+        if (!outcome.recorded) {
+          console.log('[TribeWorker] Bandit: skipped inline Director outcome (' + (outcome.reason ?? 'not_recorded') + ')');
+        }
       } else {
         console.log(`[TribeWorker] Bandit: skipping inline Director outcome (${learningDecision.reason ?? 'not_recordable'})`);
       }

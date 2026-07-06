@@ -5,6 +5,10 @@ export type BrandVaultUploadedAssetRole =
   | "logo"
   | "font"
   | "color_palette"
+  | "product_ui"
+  | "website_screenshot"
+  | "team"
+  | "abstract_reference"
   | "creative_reference"
   | "prior_work"
   | "other";
@@ -140,7 +144,11 @@ export function inferBrandVaultUploadedAssetRole(name: string, mimeType?: string
   if (/\b(?:font|typeface|otf|ttf|woff2?)\b/.test(label)) return "font";
   if (/\b(?:palette|colors?|colours?|swatches)\b/.test(label)) return "color_palette";
   if (/\b(?:brand[-_\s]?book|guidelines?|manual|style[-_\s]?guide)\b/.test(label)) return "brand_book";
-  if (/\b(?:case[-_\s]?study|portfolio|reference|inspiration|moodboard)\b/.test(label)) return "creative_reference";
+  if (/\b(?:website|homepage|home[-_\s]?page|landing[-_\s]?page|web[-_\s]?page|site)\b/.test(label)) return "website_screenshot";
+  if (/\b(?:product|platform|dashboard|app|application|software|interface|ui|editor|workspace|console|portal|screenshot|screen[-_\s]?grab|screencap|mockup)\b/.test(label)) return "product_ui";
+  if (/\b(?:team|people|founders?|co[-_\s]?founders?|crew|staff|employees?|leadership|headshot|portrait|group)\b/.test(label)) return "team";
+  if (/\b(?:abstract|background|texture|pattern|workflow|environment|problem|chaos|fragmented|concept|metaphor|moodboard)\b/.test(label)) return "abstract_reference";
+  if (/\b(?:case[-_\s]?study|portfolio|reference|inspiration)\b/.test(label)) return "creative_reference";
   if (/\b(?:prior|previous|old|archive|best[-_\s]?performing)\b/.test(label)) return "prior_work";
   return "other";
 }
