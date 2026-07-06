@@ -25,12 +25,35 @@ describe("Editron asset-analysis provider cost events", () => {
     expect(source).toContain("provider: 'google-gemini'");
     expect(source).toContain('model: ANALYSIS_MODEL_NAME');
     expect(source).toContain("analysisPipeline: 'five-track-analysis'");
+    expect(source).toContain('const analysisCacheHit = Boolean(analysis?._analysisCacheHit);');
+    expect(source).toContain('const fiveTrackProviderUsage = analysisCacheHit ? null : readFiveTrackProviderUsage(analysis);');
+    expect(source).toContain('analysisCacheHit,');
+    expect(source).toContain('units: buildFiveTrackProviderCostUnits(duration, fiveTrackProviderUsage)');
+    expect(source).toContain('inputTokens: usage?.inputTokens');
+    expect(source).toContain('outputTokens: usage?.outputTokens');
+    expect(source).toContain('totalTokens: usage?.totalTokens');
+    expect(source).toContain('geminiUsageRequestCount: fiveTrackProviderUsage?.requestCount ?? null');
     expect(source).not.toContain("provider: 'editron-five-track'");
     expect(source).not.toContain("model: 'five-track-analysis'");
     expect(source).toContain("stage: 'image_gemini_vision'");
     expect(source).toContain("stage: 'gemini_embedding'");
     expect(source).toContain("stage: 'audio_metadata'");
     expect(source).toContain("stage: 'graph_sync_qstash'");
+  });
+
+
+  it("captures Gemini usage metadata inside five-track analysis", () => {
+    const source = readSource("lib/editron/services/five-track-analysis.ts");
+
+    expect(source).toContain("TokenTracker");
+    expect(source).toContain("interface FiveTrackProviderUsage");
+    expect(source).toContain("function recordGeminiUsage(result: unknown, usageCapture?: GeminiUsageCapture)");
+    expect(source).toContain("usage.promptTokenCount ?? usage.inputTokenCount ?? usage.inputTokens");
+    expect(source).toContain("recordGeminiUsage(result, usageCapture);");
+    expect(source).toContain("const geminiUsageCapture = createGeminiUsageCapture();");
+    expect(source).toContain("analyzeVideoComprehensive(geminiFileUri, shots, durationMs, geminiUsageCapture)");
+    expect(source).toContain("classifySpeech(transcript, words, geminiUsageCapture)");
+    expect(source).toContain("analysis.providerUsage = providerUsage");
   });
 
   it("removes the unused extra Gemini image call and keeps ledger metadata sanitized", () => {

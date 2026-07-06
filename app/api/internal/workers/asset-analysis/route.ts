@@ -144,6 +144,9 @@ async function handler(request: NextRequest) {
           console.log(`[AssetAnalysis] ${assetId}: 5-Track complete, ${tags.length} tags extracted`);
         }
 
+        const analysisCacheHit = Boolean(analysis?._analysisCacheHit);
+        const fiveTrackProviderUsage = analysisCacheHit ? null : readFiveTrackProviderUsage(analysis);
+
         await recordAssetAnalysisCostEvent(payload, {
           stage: 'video_5_track',
           status: videoPolicy.shouldRunFullAnalysis ? 'success' : 'skipped',
@@ -151,13 +154,17 @@ async function handler(request: NextRequest) {
           model: ANALYSIS_MODEL_NAME,
           operation: 'video_analysis',
           includeRevenue: true,
-          units: { mediaSeconds: duration || undefined, requestCount: 1 },
+          units: buildFiveTrackProviderCostUnits(duration, fiveTrackProviderUsage),
           metadata: {
             durationSeconds: duration || null,
             analysisReturned: !!analysis,
             tagsCount: tags.length,
             fullVideoAnalysisPolicy: videoPolicy,
             analysisPipeline: 'five-track-analysis',
+            analysisCacheHit,
+            geminiUsageRequestCount: fiveTrackProviderUsage?.requestCount ?? null,
+            geminiUsageMissingResponses: fiveTrackProviderUsage?.missingUsageCount ?? null,
+            geminiUsageCaptured: Boolean(fiveTrackProviderUsage?.inputTokens || fiveTrackProviderUsage?.outputTokens),
           },
         });
       } catch (analysisErr: any) {
@@ -170,7 +177,7 @@ async function handler(request: NextRequest) {
           model: ANALYSIS_MODEL_NAME,
           operation: 'video_analysis',
           includeRevenue: true,
-          units: { mediaSeconds: duration || undefined, requestCount: 1 },
+          units: buildFiveTrackProviderCostUnits(duration, null),
           metadata: {
             durationSeconds: duration || null,
             errorClass: analysisErr?.name || 'Error',
@@ -454,6 +461,43 @@ Return JSON only:
 
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
+}
+
+interface FiveTrackProviderUsageForCost {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  requestCount?: number;
+  missingUsageCount?: number;
+}
+
+function readFiveTrackProviderUsage(analysis: any): FiveTrackProviderUsageForCost | null {
+  const usage = analysis?.providerUsage;
+  if (!usage || typeof usage !== 'object') return null;
+  return {
+    inputTokens: cleanProviderUsageNumber(usage.inputTokens),
+    outputTokens: cleanProviderUsageNumber(usage.outputTokens),
+    totalTokens: cleanProviderUsageNumber(usage.totalTokens),
+    requestCount: cleanProviderUsageNumber(usage.requestCount),
+    missingUsageCount: cleanProviderUsageNumber(usage.missingUsageCount),
+  };
+}
+
+function buildFiveTrackProviderCostUnits(
+  durationSeconds: number | undefined,
+  usage: FiveTrackProviderUsageForCost | null,
+): ProviderCostUnits {
+  return {
+    mediaSeconds: durationSeconds || undefined,
+    requestCount: usage?.requestCount ?? 1,
+    inputTokens: usage?.inputTokens,
+    outputTokens: usage?.outputTokens,
+    totalTokens: usage?.totalTokens,
+  };
+}
+
+function cleanProviderUsageNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 async function recordAssetAnalysisCostEvent(
