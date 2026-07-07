@@ -354,24 +354,6 @@ function shouldRenderTextInImage(textPolicy: unknown, modelId?: string | null): 
   return modelSupportsTextRendering(modelId ?? undefined);
 }
 
-
-function isEventPosterRequest(prompt: string, metadata?: MetadataRecord | null): boolean {
-  const promptLower = prompt.toLowerCase();
-  const keywords = ["poster", "flyer", "camp", "drive", "event", "banner"];
-  if (keywords.some(k => promptLower.includes(k))) return true;
-  
-  const safeMetadata = asRecord(metadata);
-  if (!safeMetadata) return false;
-  const clickatron = asRecord(safeMetadata.clickatron);
-  const creativeSpec = asRecord(clickatron?.creativeSpec);
-  const kind = typeof creativeSpec?.kind === "string" ? creativeSpec.kind.toLowerCase() : "";
-  const intent = typeof creativeSpec?.assetIntent === "string" ? creativeSpec.assetIntent.toLowerCase() : "";
-  const renderPlan = asRecord(creativeSpec?.renderPlan);
-  const layoutIntent = typeof renderPlan?.layoutIntent === "string" ? renderPlan.layoutIntent.toLowerCase() : "";
-  
-  return keywords.some(k => kind.includes(k) || intent.includes(k) || layoutIntent.includes(k));
-}
-
 function parseTextHierarchy(metadata?: MetadataRecord | null): string {
   const creativeSpec = asRecord(asRecord(asRecord(metadata)?.clickatron)?.creativeSpec);
   const renderPlan = asRecord(creativeSpec?.renderPlan);
@@ -404,7 +386,7 @@ function parseTextHierarchy(metadata?: MetadataRecord | null): string {
   
   const lines: string[] = [];
   if (orgName) lines.push(`LEVEL 1 (organization/presenter line — small, top): ${orgName}`);
-  if (eventName) lines.push(`LEVEL 2 (event title — largest, dominant): ${eventName}`);
+  if (eventName) lines.push(`LEVEL 2 (event title/headline — largest, dominant): ${eventName}`);
   if (tagline) lines.push(`LEVEL 3 (optional tagline): ${tagline}`);
   if (dateTime) lines.push(`LEVEL 4 (date + time — medium, high contrast): ${dateTime}`);
   if (venue) lines.push(`LEVEL 5 (venue — medium): ${venue}`);
@@ -413,56 +395,7 @@ function parseTextHierarchy(metadata?: MetadataRecord | null): string {
   return lines.join("\n");
 }
 
-function buildClickatronEventPosterPrompt(input: ClickatronPromptContextInput, prompt: string, brandContextBlock: string): string {
-  const textHierarchyContent = parseTextHierarchy(input.metadata);
-  
-  const styleLock = `<style_lock>
-This is a graphic-design poster, not a photograph. Regardless of how the user describes the scene, render it as:
-- Flat/vector-style illustration or bold graphic design, NOT photorealistic photography
-- Icon-based visual metaphors instead of literal photographic scenes (e.g. represent "blood donation" with a stylized blood drop, donation bag icon, medical cross, heartbeat/EKG line — NOT a photo-style rendering of people mid-procedure)
-- Bold gradient or solid-color typography as the dominant visual element, occupying 40-60% of visual weight
-- A textured or simple background (paper texture, subtle pattern, or solid color field) rather than a literal environment/location
-- If the user's prompt explicitly describes literal photographic people/scenes, treat this as a description of the MOOD and SUBJECT MATTER to evoke through icons and composition, not as a literal photo brief
-</style_lock>`;
-
-  const textHierarchyBlock = `<text_hierarchy>
-${textHierarchyContent || "No specific text fields provided. Use whitespace or decorative icons, do not invent text."}
-</text_hierarchy>`;
-
-  const languageGuard = `<language_guard>
-Render text in English only, exactly as provided in <text_hierarchy>, regardless of what script the user's original request used or implied. If the user's request included non-English text, do not attempt to render it as image text — flag it for the editable text-overlay layer instead, and use English-language visual/iconographic elements only.
-Do not alter spelling, dates, numbers, or capitalization from what was supplied.
-</language_guard>`;
-
-  const layoutRules = `<layout_rules>
-- Reserve top ~15% for Level 1 text, middle ~50% for the icon/illustration composition and Level 2 title, bottom ~30% for Level 4-6 text
-- Maintain high contrast between text and background at every text zone
-- Keep a consistent color palette across icons, typography, and background (2-3 colors max, as specified in brand/user context)
-- Do not add stock-photo-style people, watermarks, or unrelated decorative elements not implied by the event category
-</layout_rules>`;
-
-  const enriched = [
-    `<role>You are a graphic design generator creating a bold, modern event poster.</role>`,
-    styleLock,
-    textHierarchyBlock,
-    languageGuard,
-    brandContextBlock ? brandContextBlock : "",
-    layoutRules,
-    `<clickatron_thumbnail_request>
-${prompt}
-</clickatron_thumbnail_request>`,
-    `<output_format>A single flat-design poster image, portrait orientation, with all specified text rendered exactly and legibly, in the described graphic-design style.</output_format>`
-  ].filter(Boolean).join("\n\n");
-
-  return enriched.length > MAX_PROMPT_LENGTH
-    ? `${enriched.slice(0, MAX_PROMPT_LENGTH - 3)}...`
-    : enriched;
-}
-
 export function buildClickatronGenerationPrompt(input: ClickatronPromptContextInput): string {
-  // Enforce the visual-only contract: strip any brief metadata the writer leaked into the
-  // scene prompt (Brand:/Overlay text:/CTA:/…) so the model never bakes brand text or
-  // invents a logo from it. [R6]
   const prompt = sanitizeVisualPrompt(input.prompt).clean.trim();
   const sourceContextBlock = buildClickatronSourceContextBlock(input.metadata, input.modelId);
   const brandContextBlock = input.brandContextBlock?.trim() || "";
@@ -470,13 +403,6 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
 
   if (contextBlocks.length === 0) return prompt;
 
-
-  if (isEventPosterRequest(prompt, input.metadata)) {
-    return buildClickatronEventPosterPrompt(input, prompt, brandContextBlock);
-  }
-  // C2: explicit 'no_generated_text'/'minimal_generated_text' policies win; otherwise the user's
-  // model pick decides — a text-capable model (Nano Banana / Seedream / Gemini 3 Image) renders
-  // the copy, weaker models (Imagen4 / Flux) stay suppressed (they render text as gibberish).
   const renderTextInImage = shouldRenderTextInImage(readClickatronTextPolicy(input.metadata), input.modelId);
   const textRules = renderTextInImage
     ? [
@@ -491,12 +417,40 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
         "If the request contains long post, caption, or script copy, treat it as meaning and layout intent, not as words to draw.",
       ];
 
+  const textHierarchyContent = parseTextHierarchy(input.metadata);
+  const textHierarchyBlock = `<text_hierarchy>
+${textHierarchyContent || "No specific text fields provided. Use whitespace, decorative icons, or artistic elements, do not invent text."}
+</text_hierarchy>`;
+
+  const styleLock = `<style_lock>
+This is a premium, highly artistic graphic-design composition, not a boring or generic photograph. Regardless of how the user describes the scene, render it as:
+- A visually pleasing, highly artistic flat/vector-style illustration or bold graphic design, NOT photorealistic photography.
+- Incorporate engaging character elements, expressive colors, and rich thematic details that align with the brand and context.
+- Use bold gradients, dynamic layouts, and solid-color typography to create an engaging visual weight.
+- A textured or stylistic background (paper texture, subtle pattern, or solid color field) rather than a literal environment/location.
+- If the user's prompt explicitly describes literal photographic people/scenes, treat this as a description of the MOOD and SUBJECT MATTER to evoke through artistic iconography, character elements, and composition, not as a literal photo brief.
+- Strictly adhere to the provided brand colors and contrast cautions to ensure absolute visual harmony.
+</style_lock>`;
+
+  const languageGuard = `<language_guard>
+Render text in English only, exactly as provided in <text_hierarchy>, regardless of what script the user's original request used or implied. If the user's request included non-English text, do not attempt to render it as image text — flag it for the editable text-overlay layer instead, and use English-language visual/iconographic elements only.
+Do not alter spelling, dates, numbers, or capitalization from what was supplied.
+</language_guard>`;
+
+  const layoutRules = `<layout_rules>
+- Maintain high contrast between text and background at every text zone
+- Keep a consistent color palette across illustrations, typography, and background (strictly adhering to the specified brand context)
+- Ensure character elements and visual metaphors are central to the composition, making it visually striking and far from boring
+- Do not add generic stock-photo-style people, watermarks, or unrelated decorative elements
+</layout_rules>`;
+
   const enriched = [
+    `<role>You are an expert graphic design generator creating a bold, modern, and highly artistic composition.</role>`,
+    styleLock,
+    textHierarchyBlock,
+    languageGuard,
     ...contextBlocks,
-    "<clickatron_thumbnail_request>",
-    prompt,
-    "</clickatron_thumbnail_request>",
-    "<clickatron_generation_rules>",
+    `<clickatron_generation_rules>`,
     "Use source and brand context for concept, composition, color, tone, audience fit, and overlay-safe negative space.",
     "Honor every brand hard constraint from the source context, and treat key claims as visual concepts to evoke through scene and composition, never as text to render.",
     "If a creative direction in the source context conflicts with a brand hard constraint, the brand hard constraint always takes priority. Adjust the creative concept to satisfy the constraint rather than ignoring it.",
@@ -504,7 +458,10 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
     "Do not invent logos, trademarks, mascots, product packs, or brand assets unless the prompt or reference images explicitly provide them.",
     "Do not render source IDs or internal metadata text in the thumbnail.",
     "If a brand context field (colors, typography, visual direction, etc.) is empty or not provided, do not invent a plausible default for it — proceed using only the fields that were actually supplied.",
-    "</clickatron_generation_rules>",
+    `</clickatron_generation_rules>`,
+    layoutRules,
+    `<clickatron_thumbnail_request>\n${prompt}\n</clickatron_thumbnail_request>`,
+    `<output_format>A single flat-design artistic image, portrait orientation, with all specified text rendered exactly and legibly, in the described graphic-design style.</output_format>`
   ].join("\n\n");
 
   return enriched.length > MAX_PROMPT_LENGTH
