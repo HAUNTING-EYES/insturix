@@ -173,3 +173,53 @@ Built from the `BrandSignalProfile` resolver:
 *   `Typography: [Typography Config]`
 *   `Visual direction: [e.g. "minimal, sparse composition; high information density allowed; bold expressive visual energy..."]`
 *   `Preferred hook styles / Recurring phrases / Never use words`
+
+---
+
+## 4. Event Poster / Flyer Override (v3)
+**Location:** `lib/clickatron/brand-prompt-context.ts` (triggered dynamically if \`isEventPosterRequest\` matches)
+
+### What We Fixed in V3 (Poster Override)
+- **Generic photo output:** The user's literal event descriptions (e.g. "students donating blood") were treated as photography briefs. Added a **Style Lock** to force icon-based graphic design.
+- **Missing Date/Venue text:** The model ignored dates/times because they weren't structured. Added **Auto Text-Hierarchy Extraction** to explicitly force Level 1 - 6 text fields in a rigid layout.
+- **Garbled Non-Latin Text:** Added a **Language Guard** to reject non-English text from being rasterized in the image, redirecting it to overlay layers instead.
+
+### Assembled Output Structure
+```xml
+<role>You are a graphic design generator creating a bold, modern event poster.</role>
+
+<style_lock>
+This is a graphic-design poster, not a photograph. Regardless of how the user describes the scene, render it as:
+- Flat/vector-style illustration or bold graphic design, NOT photorealistic photography
+- Icon-based visual metaphors instead of literal photographic scenes (e.g. represent "blood donation" with a stylized blood drop, donation bag icon, medical cross, heartbeat/EKG line — NOT a photo-style rendering of people mid-procedure)
+- Bold gradient or solid-color typography as the dominant visual element, occupying 40-60% of visual weight
+- A textured or simple background (paper texture, subtle pattern, or solid color field) rather than a literal environment/location
+- If the user's prompt explicitly describes literal photographic people/scenes, treat this as a description of the MOOD and SUBJECT MATTER to evoke through icons and composition, not as a literal photo brief
+</style_lock>
+
+<text_hierarchy>
+[Parsed fields injected here: LEVEL 1 (org), LEVEL 2 (title), LEVEL 4 (date), etc. If empty, instruct not to invent.]
+</text_hierarchy>
+
+<language_guard>
+Render text in English only, exactly as provided in <text_hierarchy>, regardless of what script the user's original request used or implied. If the user's request included non-English text, do not attempt to render it as image text — flag it for the editable text-overlay layer instead, and use English-language visual/iconographic elements only.
+Do not alter spelling, dates, numbers, or capitalization from what was supplied.
+</language_guard>
+
+<brand_context>
+[... brand identity, typography, visual directives, color cautions ...]
+</brand_context>
+
+<layout_rules>
+- Reserve top ~15% for Level 1 text, middle ~50% for the icon/illustration composition and Level 2 title, bottom ~30% for Level 4-6 text
+- Maintain high contrast between text and background at every text zone
+- Keep a consistent color palette across icons, typography, and background (2-3 colors max, as specified in brand/user context)
+- Do not add stock-photo-style people, watermarks, or unrelated decorative elements not implied by the event category
+</layout_rules>
+
+<clickatron_thumbnail_request>
+[User's core visual prompt]
+</clickatron_thumbnail_request>
+
+<output_format>A single flat-design poster image, portrait orientation, with all specified text rendered exactly and legibly, in the described graphic-design style.</output_format>
+```
