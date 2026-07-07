@@ -1,8 +1,18 @@
 # Clickatron Prompts Audit (2026)
 
-This file contains all the raw system prompts and prompt-construction logic used by Clickatron. It is intended for auditing and optimizing the instructions sent to models (like Flux, Seedream, Nanobanana, Ideogram).
+This file contains all the raw system prompts and prompt-construction logic used by Clickatron. It serves as a historical record of all prompt engineering iterations and optimizations for models like Flux, Seedream, Nanobanana, Ideogram.
 
 ---
+
+## What We Fixed in V4 (Generalizing the Poster Override)
+- **Removed Poster Restriction:** We removed the `isEventPosterRequest` flag so that *every* Clickatron generation benefits from the artistic structuring. Generic, boring photorealistic outputs have been entirely banned.
+- **Universal Style Lock:** The style lock now universally enforces a "premium, highly artistic composition" with character elements, expressive colors, and thematic details, moving away from literal photo briefs.
+- **Universal Text Hierarchy & Language Guard:** The rigid `Level 1 - 6` extraction and the non-English Language Guard are now standard for all requests, ensuring dates and titles are never dropped and text rendering stays safe.
+
+## What We Fixed in V3 (Event Poster Override)
+- **Generic photo output:** The user's literal event descriptions (e.g. "students donating blood") were treated as photography briefs. Added a **Style Lock** to force icon-based graphic design.
+- **Missing Date/Venue text:** The model ignored dates/times because they weren't structured. Added **Auto Text-Hierarchy Extraction** to explicitly force Level 1 - 6 text fields in a rigid layout.
+- **Garbled Non-Latin Text:** Added a **Language Guard** to reject non-English text from being rasterized in the image, redirecting it to overlay layers instead.
 
 ## What We Fixed in V2 (Recent Audit)
 - **Generative Fill**: Added explicit aspect-ratio and canvas-size locks. Added fallback behaviors for masks with no formal alpha-channel support. Added conflict-resolution guidance for content that doesn't fit the masked region to prevent expanding outside the mask.
@@ -110,28 +120,8 @@ This file contains all the raw system prompts and prompt-construction logic used
 ## 3. Text-to-Image Dynamic Context & Rules
 **Location:** `lib/clickatron/brand-prompt-context.ts`
 
-Clickatron dynamically constructs Text-to-Image prompts by assembling three blocks: Source Context, Brand Context, and Rules. The final prompt takes this shape:
-
-```xml
-<clickatron_source_context>
-[... project metadata, visual metaphor, claims, layout intent ...]
-</clickatron_source_context>
-
-<brand_context>
-[... brand identity, typography, visual directives, color cautions ...]
-</brand_context>
-
-<clickatron_thumbnail_request>
-[User's core visual prompt]
-</clickatron_thumbnail_request>
-
-<clickatron_generation_rules>
-[... baseline rules + text handling rules ...]
-</clickatron_generation_rules>
-```
-
-### A. The Generation Rules Block (V2)
-This is dynamically appended based on whether the selected model supports in-image text rendering (e.g. Nanobanana/Ideogram) vs text-suppression models (Flux base).
+### V2 (Current)
+Clickatron dynamically constructs Text-to-Image prompts by assembling three blocks: Source Context, Brand Context, and Rules. 
 
 **Baseline Rules (Always Present):**
 > Use source and brand context for concept, composition, color, tone, audience fit, and overlay-safe negative space.
@@ -152,39 +142,31 @@ This is dynamically appended based on whether the selected model supports in-ima
 > Render ONLY the supplied text-layer copy. Do not render key claims, brand taglines, or any other context field as image text unless it is explicitly present in the text-layer copy field.
 > If no text-layer copy is supplied, keep the image text-free — never invent extra words, captions, UI chrome, watermarks, or logo text.
 
----
+<details>
+<summary>V1 (Deprecated)</summary>
 
-### B. The Source Context Fields
-If provided by upstream (e.g. ThinkForge), Clickatron injects:
-*   **Visual Direction:** `Creative objective`, `Visual metaphor`, `Visual mode`, `Text density`, `Layout intent`
-*   **Key Claims:** `Key claims to evoke visually (do not render as text)`
-*   **Brand Rules:** `Brand hard constraints (must respect)`, `Brand style preferences`
-*   **Text Layers:** `Text layers` (Summary of copy for layout reserving)
-*   **Text Policy Override:** `Text-layer copy handling: [render exact copy accurately... OR exact copy is metadata only...]`
+**Baseline Rules (Always Present):**
+> Use source and brand context for concept, composition, color, tone, audience fit, and overlay-safe negative space.
+> Honor every brand hard constraint from the source context, and treat key claims as visual concepts to evoke through scene and composition, never as text to render.
+> Do not invent logos, trademarks, mascots, product packs, or brand assets unless the prompt or reference images explicitly provide them.
+> Do not render source IDs or internal metadata text in the thumbnail.
 
-### C. The Brand Context Fields
-Built from the `BrandSignalProfile` resolver:
-*   `Brand: [Name]`
-*   `Brand source: accepted Brand Vault profile`
-*   `Industry/category: [Category]`
-*   `Audience: [Audience]`
-*   `Brand colors: primary [X]; accent [Y]; supporting [Z]`
-*   `Contrast cautions: avoid [X] on dark surfaces...`
-*   `Typography: [Typography Config]`
-*   `Visual direction: [e.g. "minimal, sparse composition; high information density allowed; bold expressive visual energy..."]`
-*   `Preferred hook styles / Recurring phrases / Never use words`
+**When Text Rendering is OFF:** (Same as V2)
+
+**When Text Rendering is ON:**
+> If the source context supplies text-layer copy, render exactly that copy in the image — accurate spelling, brand-appropriate type, high contrast, balanced placement, overlay-safe margins.
+> Render ONLY the supplied text-layer copy. If no copy is supplied, keep the image text-free — never invent extra words, captions, UI chrome, watermarks, or logo text.
+
+</details>
 
 ---
 
-## 4. General Artistic Pipeline (v4)
+## 4. General Artistic Pipeline (v4) / Event Poster (v3)
 **Location:** `lib/clickatron/brand-prompt-context.ts` (applied to all T2I generations)
 
-### What We Fixed in V4 (Generalizing the Poster Override)
-- **Removed Poster Restriction:** We removed the `isEventPosterRequest` flag so that *every* Clickatron generation benefits from the artistic structuring. Generic, boring photorealistic outputs have been entirely banned.
-- **Universal Style Lock:** The style lock now universally enforces a "premium, highly artistic composition" with character elements, expressive colors, and thematic details, moving away from literal photo briefs.
-- **Universal Text Hierarchy & Language Guard:** The rigid `Level 1 - 6` extraction and the non-English Language Guard are now standard for all requests, ensuring dates and titles are never dropped and text rendering stays safe.
+### V4 (Current: Universal Artistic Restructuring)
+The `isEventPosterRequest` restriction was lifted. The system now parses text hierarchy and enforces artistic style locks on ALL generations to prevent generic photorealistic outputs.
 
-### Assembled Output Structure (V4)
 ```xml
 <role>You are an expert graphic design generator creating a bold, modern, and highly artistic composition.</role>
 
@@ -212,7 +194,7 @@ Do not alter spelling, dates, numbers, or capitalization from what was supplied.
 </brand_context>
 
 <clickatron_generation_rules>
-[... baseline rules + text handling rules ...]
+[... baseline rules + text handling rules from V2 ...]
 </clickatron_generation_rules>
 
 <layout_rules>
@@ -228,3 +210,49 @@ Do not alter spelling, dates, numbers, or capitalization from what was supplied.
 
 <output_format>A single flat-design artistic image, portrait orientation, with all specified text rendered exactly and legibly, in the described graphic-design style.</output_format>
 ```
+
+<details>
+<summary>V3 (Deprecated: Event Poster Specific)</summary>
+
+Triggered dynamically ONLY if `isEventPosterRequest` matched.
+
+```xml
+<role>You are a graphic design generator creating a bold, modern event poster.</role>
+
+<style_lock>
+This is a graphic-design poster, not a photograph. Regardless of how the user describes the scene, render it as:
+- Flat/vector-style illustration or bold graphic design, NOT photorealistic photography
+- Icon-based visual metaphors instead of literal photographic scenes (e.g. represent "blood donation" with a stylized blood drop, donation bag icon, medical cross, heartbeat/EKG line — NOT a photo-style rendering of people mid-procedure)
+- Bold gradient or solid-color typography as the dominant visual element, occupying 40-60% of visual weight
+- A textured or simple background (paper texture, subtle pattern, or solid color field) rather than a literal environment/location
+- If the user's prompt explicitly describes literal photographic people/scenes, treat this as a description of the MOOD and SUBJECT MATTER to evoke through icons and composition, not as a literal photo brief
+</style_lock>
+
+<text_hierarchy>
+[Parsed fields injected here: LEVEL 1 (org), LEVEL 2 (title), LEVEL 4 (date), etc. If empty, instruct not to invent.]
+</text_hierarchy>
+
+<language_guard>
+Render text in English only, exactly as provided in <text_hierarchy>, regardless of what script the user's original request used or implied. If the user's request included non-English text, do not attempt to render it as image text — flag it for the editable text-overlay layer instead, and use English-language visual/iconographic elements only.
+Do not alter spelling, dates, numbers, or capitalization from what was supplied.
+</language_guard>
+
+<brand_context>
+[... brand identity, typography, visual directives, color cautions ...]
+</brand_context>
+
+<layout_rules>
+- Reserve top ~15% for Level 1 text, middle ~50% for the icon/illustration composition and Level 2 title, bottom ~30% for Level 4-6 text
+- Maintain high contrast between text and background at every text zone
+- Keep a consistent color palette across icons, typography, and background (2-3 colors max, as specified in brand/user context)
+- Do not add stock-photo-style people, watermarks, or unrelated decorative elements not implied by the event category
+</layout_rules>
+
+<clickatron_thumbnail_request>
+[User's core visual prompt]
+</clickatron_thumbnail_request>
+
+<output_format>A single flat-design poster image, portrait orientation, with all specified text rendered exactly and legibly, in the described graphic-design style.</output_format>
+```
+
+</details>
