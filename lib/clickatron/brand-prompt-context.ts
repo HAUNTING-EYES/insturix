@@ -372,7 +372,8 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
   const textRules = renderTextInImage
     ? [
         "If the source context supplies text-layer copy, render exactly that copy in the image — accurate spelling, brand-appropriate type, high contrast, balanced placement, overlay-safe margins.",
-        "Render ONLY the supplied text-layer copy. If no copy is supplied, keep the image text-free — never invent extra words, captions, UI chrome, watermarks, or logo text.",
+        "Render ONLY the supplied text-layer copy. Do not render key claims, brand taglines, or any other context field as image text unless it is explicitly present in the text-layer copy field.",
+        "If no text-layer copy is supplied, keep the image text-free — never invent extra words, captions, UI chrome, watermarks, or logo text.",
       ]
     : [
         "Generate the raster image as a text-free visual/background, not a finished poster with baked-in copy.",
@@ -389,9 +390,11 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
     "<clickatron_generation_rules>",
     "Use source and brand context for concept, composition, color, tone, audience fit, and overlay-safe negative space.",
     "Honor every brand hard constraint from the source context, and treat key claims as visual concepts to evoke through scene and composition, never as text to render.",
+    "If a creative direction in the source context conflicts with a brand hard constraint, the brand hard constraint always takes priority. Adjust the creative concept to satisfy the constraint rather than ignoring it.",
     ...textRules,
     "Do not invent logos, trademarks, mascots, product packs, or brand assets unless the prompt or reference images explicitly provide them.",
     "Do not render source IDs or internal metadata text in the thumbnail.",
+    "If a brand context field (colors, typography, visual direction, etc.) is empty or not provided, do not invent a plausible default for it — proceed using only the fields that were actually supplied.",
     "</clickatron_generation_rules>",
   ].join("\n\n");
 

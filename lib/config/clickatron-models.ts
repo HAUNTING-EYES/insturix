@@ -67,7 +67,7 @@ export type ClickatronModelContext =
 
 export type ClickatronDefaultGenerationType = Extract<ModelType, 'text-to-image' | 'image-to-image'>;
 
-export const DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID = 'fal-ai/bytedance/seedream/v4.5/text-to-image';
+export const DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID = 'fal-ai/bytedance/seedream/v5/lite/text-to-image';
 export const DEFAULT_CLICKATRON_IMAGE_TO_IMAGE_MODEL_ID = 'fal-ai/flux-kontext/dev';
 export const IMAGEN4_PREVIEW_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const;
 const CLICKATRON_PROMPT_TRUNCATION_NOTICE = '\n\n[Prompt compacted to fit the selected image model provider limit. Preserve the core visual request, brand constraints, and generation rules.]\n\n';
@@ -104,45 +104,97 @@ export function fitClickatronPromptToModelLimit(
  * Simplified configuration with clear parameter mappings.
  */
 export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
-  'fal-ai/imagen4/preview': {
-    id: 'fal-ai/imagen4/preview',
-    name: 'Google Imagen4',
+  /* 
+   * NEW LEAN ROSTER (2026) 
+   */
+  'fal-ai/flux-2/flash': {
+    id: 'fal-ai/flux-2/flash',
+    name: 'FLUX 2 Flash',
     types: ['text-to-image'],
-    isDeprecated: true,
+    isDefault: false,
     parameterMapping: {
       prompt: 'prompt',
-      aspect_ratio: 'aspect_ratio',
+      image_size: 'image_size',
       num_images: 'num_images',
-      resolution: 'resolution'
+      enable_safety_checker: 'enable_safety_checker'
     },
     constraints: {
-      promptMaxLength: 5000,
-      allowedAspectRatios: [...IMAGEN4_PREVIEW_ASPECT_RATIOS],
+      promptMaxLength: 1024,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
       minImages: 0,
       maxImages: 0,
-    },
+    }
   },
-  'fal-ai/bytedance/seedream/v4/edit': {
-    id: 'fal-ai/bytedance/seedream/v4/edit',
-    name: 'Seedream V4 Edit',
-    types: ['inpainting', 'image-to-image'],
-    isDefault: true, // Primary inpainting model (proven working on Fal AI)
-    isInpaintingCapable: true,
+  'fal-ai/bytedance/seedream/v5/lite/text-to-image': {
+    id: 'fal-ai/bytedance/seedream/v5/lite/text-to-image',
+    name: 'Seedream 5.0 Lite',
+    types: ['text-to-image'],
+    isDefault: true,
     parameterMapping: {
       prompt: 'prompt',
       image_size: 'image_size',
       num_images: 'num_images',
       max_images: 'max_images',
-      enable_safety_checker: 'enable_safety_checker',
-      image_urls: 'image_urls',
-      mask_url: 'mask_url'
+      enable_safety_checker: 'enable_safety_checker'
     },
     constraints: {
-      promptMaxLength: 512,
-      minImages: 1,
-      maxImages: 4,
+      promptMaxLength: 1024,
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      minImages: 0,
+      maxImages: 0,
+    }
+  },
+  'fal-ai/nano-banana-pro': {
+    id: 'fal-ai/nano-banana-pro',
+    name: 'Nanobanana Pro',
+    types: ['text-to-image'],
+    parameterMapping: {
+      prompt: 'prompt',
+      image_size: 'image_size',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker',
+      seed: 'seed'
     },
+    constraints: {
+      promptMaxLength: 1024,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      minImages: 0,
+      maxImages: 0,
+    },
+  },
+  'fal-ai/ideogram/v3': {
+    id: 'fal-ai/ideogram/v3',
+    name: 'Ideogram v3',
+    types: ['text-to-image'],
+    parameterMapping: {
+      prompt: 'prompt',
+      aspect_ratio: 'aspect_ratio',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker'
+    },
+    constraints: {
+      promptMaxLength: 1024,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      minImages: 0,
+      maxImages: 0,
+    }
+  },
+  'fal-ai/recraft-v3': {
+    id: 'fal-ai/recraft-v3',
+    name: 'Recraft v3',
+    types: ['text-to-image'],
+    parameterMapping: {
+      prompt: 'prompt',
+      image_size: 'image_size',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker'
+    },
+    constraints: {
+      promptMaxLength: 1024,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      minImages: 0,
+      maxImages: 0,
+    }
   },
   'fal-ai/flux-kontext/dev': {
     id: 'fal-ai/flux-kontext/dev',
@@ -166,48 +218,50 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       maxImages: 1,
     },
   },
-  'fal-ai/bytedance/seedream/v4/text-to-image': {
-    id: 'fal-ai/bytedance/seedream/v4/text-to-image',
-    name: 'Seedream V4',
-    types: ['text-to-image'],
+  'fal-ai/bytedance/seedream/v5/lite/edit': {
+    id: 'fal-ai/bytedance/seedream/v5/lite/edit',
+    name: 'Seedream 5.0 Lite Edit',
+    types: ['image-to-image', 'inpainting'],
+    isInpaintingCapable: true,
+    isSketchToEdit: true,
     parameterMapping: {
       prompt: 'prompt',
-      image_size: 'image_size',
+      image_urls: 'image_urls',
+      mask_url: 'mask_url',
       num_images: 'num_images',
       max_images: 'max_images',
-      enable_safety_checker: 'enable_safety_checker'
+      enable_safety_checker: 'enable_safety_checker',
+      output_format: 'output_format'
     },
     constraints: {
       promptMaxLength: 512,
+      minImages: 1,
+      maxImages: 4,
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
-      minImages: 0,
-      maxImages: 0,
     },
   },
-  // FLUX Dev Inpainting (High Priority)
-  'fal-ai/flux/dev/inpainting': {
-    id: 'fal-ai/flux/dev/inpainting',
-    name: 'FLUX Dev Inpainting',
-    types: ['inpainting'],
+  'fal-ai/nano-banana-pro/edit': {
+    id: 'fal-ai/nano-banana-pro/edit',
+    name: 'Nanobanana Pro Edit',
+    types: ['image-to-image', 'inpainting'],
+    isSketchToEdit: true,
+    isDefault: true,
+    isInpaintingCapable: true,
     parameterMapping: {
       prompt: 'prompt',
-      image_url: 'image_url',
-      mask_url: 'mask_url',
+      image_urls: 'image_urls',
       num_images: 'num_images',
       enable_safety_checker: 'enable_safety_checker',
-      output_format: 'output_format',
-      guidance_scale: 'guidance_scale',
-      num_inference_steps: 'num_inference_steps',
-      strength: 'strength'
+      seed: 'seed',
+      mask_url: 'mask_url'
     },
     constraints: {
       promptMaxLength: 1024,
-      minImages: 1,
-      maxImages: 1,
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      minImages: 1,
+      maxImages: 10,
     },
   },
-  // FLUX Pro Fill (High Priority)
   'fal-ai/flux-pro/v1/fill': {
     id: 'fal-ai/flux-pro/v1/fill',
     name: 'FLUX Pro Fill',
@@ -229,10 +283,9 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
     },
   },
-  // FLUX Kontext Inpainting with LoRA (Medium Priority)
-  'fal-ai/flux-kontext/dev/inpainting': {
-    id: 'fal-ai/flux-kontext/dev/inpainting',
-    name: 'Kontext Inpainting with LoRA',
+  'fal-ai/flux-lora/inpainting': {
+    id: 'fal-ai/flux-lora/inpainting',
+    name: 'FLUX LoRA Inpainting',
     types: ['inpainting'],
     parameterMapping: {
       prompt: 'prompt',
@@ -249,243 +302,43 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       minImages: 1,
       maxImages: 1,
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
-    },
+    }
   },
-  // Nanobanana (Text-to-Image)
-  'fal-ai/nano-banana': {
-    id: 'fal-ai/nano-banana',
-    name: 'Nanobanana',
+  'fal-ai/flux-2-pro': {
+    id: 'fal-ai/flux-2-pro',
+    name: 'FLUX.2 Pro',
     types: ['text-to-image'],
     parameterMapping: {
       prompt: 'prompt',
       image_size: 'image_size',
       num_images: 'num_images',
-      enable_safety_checker: 'enable_safety_checker',
-      seed: 'seed'
-    },
-    constraints: {
-      promptMaxLength: 5000,
-      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
-      minImages: 0,
-      maxImages: 0,
-    },
-  },
-  // Nanobanana (Edit)
-  'fal-ai/nano-banana/edit': {
-    id: 'fal-ai/nano-banana/edit',
-    name: 'Nanobanana Edit',
-    types: ['image-to-image'],
-    parameterMapping: {
-      prompt: 'prompt',
-      image_urls: 'image_urls',
-      num_images: 'num_images',
-      enable_safety_checker: 'enable_safety_checker',
-      seed: 'seed'
-    },
-    constraints: {
-      promptMaxLength: 1024,
-      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
-      minImages: 1,
-      maxImages: 1,
-    },
-  },
-  // Nanobanana Pro (Text-to-Image)
-  'fal-ai/nano-banana-pro': {
-    id: 'fal-ai/nano-banana-pro',
-    name: 'Nanobanana Pro',
-    types: ['text-to-image'],
-    parameterMapping: {
-      prompt: 'prompt',
-      image_size: 'image_size',
-      num_images: 'num_images',
-      enable_safety_checker: 'enable_safety_checker',
-      seed: 'seed'
-    },
-    constraints: {
-      promptMaxLength: 1024,
-      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
-      minImages: 0,
-      maxImages: 0,
-    },
-  },
-  // Nanobanana Pro (Edit) — also used for sketch-to-edit
-  'fal-ai/nano-banana-pro/edit': {
-    id: 'fal-ai/nano-banana-pro/edit',
-    name: 'Nanobanana Pro Edit',
-    types: ['image-to-image', 'inpainting'],
-    isSketchToEdit: true,
-    isDefault: true, // default for sketch-to-edit
-    isInpaintingCapable: true,
-    parameterMapping: {
-      prompt: 'prompt',
-      image_urls: 'image_urls',
-      num_images: 'num_images',
-      enable_safety_checker: 'enable_safety_checker',
-      seed: 'seed',
-      mask_url: 'mask_url'
-    },
-    constraints: {
-      promptMaxLength: 1024,
-      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
-      minImages: 1,
-      maxImages: 10,
-    },
-  },
-  // Gemini 3 Pro Image Preview (Generative Fill)
-  'fal-ai/gemini-3-pro-image-preview': {
-    id: 'fal-ai/gemini-3-pro-image-preview',
-    name: 'Gemini 3 Pro Image Preview',
-    types: ['inpainting'],
-    isInpaintingCapable: true,
-    parameterMapping: {
-      prompt: 'prompt',
-      image_urls: 'image_urls',
-      mask_url: 'mask_url',
-      num_images: 'num_images',
-      enable_safety_checker: 'enable_safety_checker',
-      output_format: 'output_format'
-    },
-    constraints: {
-      promptMaxLength: 1024,
-      minImages: 1,
-      maxImages: 1,
-      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
-    },
-  },
-  // Seedream 4.5 (Text-to-Image)
-  'fal-ai/bytedance/seedream/v4.5/text-to-image': {
-    id: 'fal-ai/bytedance/seedream/v4.5/text-to-image',
-    name: 'Seedream 4.5',
-    types: ['text-to-image'],
-    isDefault: true,
-    parameterMapping: {
-      prompt: 'prompt',
-      image_size: 'image_size',
-      num_images: 'num_images',
-      max_images: 'max_images',
       enable_safety_checker: 'enable_safety_checker'
     },
     constraints: {
-      promptMaxLength: 1024, 
+      promptMaxLength: 1024,
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
       minImages: 0,
       maxImages: 0,
-    },
-  },
-  // Seedream 4.5 (Edit)
-  'fal-ai/bytedance/seedream/v4.5/edit': {
-    id: 'fal-ai/bytedance/seedream/v4.5/edit',
-    name: 'Seedream 4.5 Edit',
-    types: ['image-to-image', 'inpainting'],
-    isInpaintingCapable: true,
-    isSketchToEdit: true, // also shown in sketch-to-edit
-    parameterMapping: {
-      prompt: 'prompt',
-      image_size: 'image_size',
-      num_images: 'num_images',
-      max_images: 'max_images',
-      enable_safety_checker: 'enable_safety_checker',
-      image_urls: 'image_urls',
-      mask_url: 'mask_url'
-    },
-    constraints: {
-       promptMaxLength: 1024,
-       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
-       minImages: 1,
-       maxImages: 4,
-    },
-  },
-  // ── Sketch-to-Edit Models ──────────────────────────────────────────────────
- 
-  // Flux 2 Pro (Edit) - High quality instruction-based editing
-  'fal-ai/flux-2-pro/edit': {
-    id: 'fal-ai/flux-2-pro/edit',
-    name: 'Flux 2 Pro Edit',
-    types: ['image-to-image'],
-    isSketchToEdit: true,
-    parameterMapping: {
-      prompt: 'prompt',
-      image_urls: 'image_urls',
-      num_images: 'num_images',
-      enable_safety_checker: 'enable_safety_checker',
-    },
-    constraints: {
-      promptMaxLength: 1024,
-      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
-      minImages: 1,
-      maxImages: 5,
-    },
+    }
   },
 
-  // Wan 2.6 Image  (array-based, up to 10+)
-  'wan/v2.6/image-to-image': {
-    id: 'wan/v2.6/image-to-image',
-    name: 'Wan 2.6',
-    types: ['image-to-image'],
-    isSketchToEdit: true,
-    parameterMapping: {
-      prompt: 'prompt',
-      image_urls: 'image_urls',
-      num_images: 'num_images',
-      enable_safety_checker: 'enable_safety_checker',
-    },
-    constraints: {
-      promptMaxLength: 1024,
-      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
-      minImages: 1,
-      maxImages: 10,
-    },
-  },
-
-  // DEPRECATED: Mapped to FLUX Pro Fill for backward compatibility
-  'fal-ai/stable-diffusion-inpainting': {
-    id: 'fal-ai/stable-diffusion-inpainting', // Keep origin ID to avoid duplicate key errors
-    name: 'Stable Diffusion Inpainting (Deprecated)',
-    types: ['inpainting'],
-    parameterMapping: {
-      prompt: 'prompt',
-      image_url: 'image_url',
-      mask_url: 'mask_url',
-      num_images: 'num_images',
-      enable_safety_checker: 'enable_safety_checker',
-      output_format: 'output_format',
-      guidance_scale: 'guidance_scale',
-      num_inference_steps: 'num_inference_steps',
-      strength: 'strength'
-    },
-    constraints: {
-      promptMaxLength: 1024,
-      minImages: 1,
-      maxImages: 1,
-      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
-    },
-  },
-
-  // NEW: Seedream 5.0 Lite (Inpainting/Generative Fill)
-  'fal-ai/bytedance/seedream/v5/lite/edit': {
-    id: 'fal-ai/bytedance/seedream/v5/lite/edit',
-    name: 'Seedream 5.0 Lite',
-    types: ['inpainting'],
-    isInpaintingCapable: true,
-    parameterMapping: {
-      prompt: 'prompt',
-      image_urls: 'image_urls',
-      mask_url: 'mask_url',
-      num_images: 'num_images',
-      max_images: 'max_images',
-      enable_safety_checker: 'enable_safety_checker',
-      output_format: 'output_format'
-    },
-    constraints: {
-      promptMaxLength: 512,
-      minImages: 1,
-      maxImages: 1,
-      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
-    },
-  },
-
-
-
+  /*
+   * OLD/EXTRA MODELS COMMENTED OUT (per lean roster requirement)
+   *
+  'fal-ai/imagen4/preview': { ... },
+  'fal-ai/bytedance/seedream/v4/edit': { ... },
+  'fal-ai/bytedance/seedream/v4/text-to-image': { ... },
+  'fal-ai/flux/dev/inpainting': { ... },
+  'fal-ai/flux-kontext/dev/inpainting': { ... },
+  'fal-ai/nano-banana': { ... },
+  'fal-ai/nano-banana/edit': { ... },
+  'fal-ai/gemini-3-pro-image-preview': { ... },
+  'fal-ai/bytedance/seedream/v4.5/text-to-image': { ... },
+  'fal-ai/bytedance/seedream/v4.5/edit': { ... },
+  'fal-ai/flux-2-pro/edit': { ... },
+  'wan/v2.6/image-to-image': { ... },
+  'fal-ai/stable-diffusion-inpainting': { ... },
+   */
 };
 
 /**
@@ -848,9 +701,12 @@ export const GENERATIVE_FILL_SYSTEM_PROMPT = `<role>You are an inpainting model.
 4. Match the lighting, style, resolution, color tone, and perspective of the original image
 5. Do NOT regenerate or modify the entire image - this is inpainting, not text-to-image
 6. Preserve all objects, people, and details outside the masked region
+7. CRITICAL: Maintain the EXACT canvas size, resolution, and aspect ratio of the original image - do NOT crop, resize, or reframe
+8. If the requested content cannot naturally fit within the masked region's shape or size, scale or adapt the content to fit within the mask rather than expanding into non-masked areas
+9. If no explicit mask channel is available, treat the brightest/marked region of the reference mask image as the edit boundary and apply the same non-mask preservation rules
 </rules>
 
-<output_format>Modified image with ONLY the masked area changed, seamlessly blended with surroundings.</output_format>`;
+<output_format>Modified image with ONLY the masked area changed, seamlessly blended with surroundings, at the original canvas size and aspect ratio.</output_format>`;
 
 /**
  * System prompt prepended to user prompts for image-to-image editing (variations)
@@ -860,13 +716,14 @@ export const IMAGE_TO_IMAGE_SYSTEM_PROMPT = `<role>You are an image editing mode
 <task>Apply the user's requested changes to the original image while preserving its core composition, structure, and main subjects. The original image is the foundation - build upon it, don't replace it.</task>
 
 <rules>
-1. Preserve the core composition, structure, and main subjects of the original image
+1. Preserve subject pose, camera angle, framing, and spatial layout of the original image unless the user's request explicitly implies a change to one of these
 2. Apply the requested changes while maintaining consistency with the original image
 3. Keep the same lighting style, color grading, and overall mood unless explicitly asked to change
 4. Do NOT completely regenerate or reinterpret the entire image
 5. Maintain the same level of detail, quality, and artistic style
 6. Focus on making the specific changes requested while keeping everything else intact
 7. CRITICAL: Maintain the EXACT aspect ratio and dimensions of the original image - do NOT change the image size or crop
+8. If a requested change and a preservation rule conflict (e.g. "make it winter" implies a lighting/mood change), the explicit user request takes priority for that specific attribute only — all other attributes remain preserved
 </rules>
 
 <output_format>Modified image variation with requested changes applied, preserving exact aspect ratio and dimensions.</output_format>`;
@@ -1126,39 +983,23 @@ export function generateModelPayload(
   height: number
 ): Record<string, any> {
   switch (modelId) {
-    case 'fal-ai/imagen4/preview':
-      return generateImagen4PreviewPayload(job, ratio, generationParams.num_images || 1);
-    case 'fal-ai/flux-kontext/dev':
-      return generateFluxKontextDevPayload(
-        job,
-        generationParams.num_inference_steps || 28,
-        generationParams.guidance_scale || 3.5,
-        generationParams.num_images || 1,
-        generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-        generationParams.output_format || "jpeg",
-        generationParams.acceleration || "none",
-        generationParams.image_urls
-      );
-    case 'fal-ai/bytedance/seedream/v4/edit':
-      return generateSeedreamV4EditPayload(
-        job,
-        width,
-        height,
-        generationParams.num_images || 1,
-        generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-        generationParams.image_urls,
-        generationParams.mask_url // Pass mask_url for inpainting
-      );
-    case 'fal-ai/bytedance/seedream/v4/text-to-image':
-    case 'fal-ai/bytedance/seedream/v4.5/text-to-image':
-      return generateSeedreamV4TextToImagePayload(
-        job,
-        width,
-        height,
-        generationParams.num_images || 1,
-        generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false
-      );
-    case 'fal-ai/nano-banana':
+    case 'fal-ai/flux-2/flash':
+    case 'fal-ai/flux-2-pro':
+    case 'fal-ai/bytedance/seedream/v5/lite/text-to-image':
+    case 'fal-ai/recraft-v3':
+      return {
+        prompt: job.prompt,
+        image_size: { width, height },
+        num_images: generationParams.num_images || 1,
+        enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false
+      };
+    case 'fal-ai/ideogram/v3':
+      return {
+        prompt: job.prompt,
+        aspect_ratio: ratio,
+        num_images: generationParams.num_images || 1,
+        enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false
+      };
     case 'fal-ai/nano-banana-pro':
        return {
           prompt: job.prompt,
@@ -1168,148 +1009,75 @@ export function generateModelPayload(
           seed: generationParams.seed
        };
     case 'fal-ai/nano-banana-pro/edit':
-    case 'fal-ai/nano-banana/edit':
-        // Add system prompt for image-to-image editing to preserve consistency
         const hasImageNano = generationParams.image_urls || (generationParams.image_url ? [generationParams.image_url] : []);
-        const nanoFullPrompt = hasImageNano.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}` : job.prompt;
-        return {
+        const nanoFullPrompt = hasImageNano.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}
+
+User Request: ${job.prompt}` : job.prompt;
+        const payload: any = {
             prompt: nanoFullPrompt,
             image_urls: hasImageNano,
-            image_size: { width, height }, // Preserve aspect ratio
+            image_size: { width, height },
             num_images: generationParams.num_images || 1,
             enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
             seed: generationParams.seed,
-            // strength parameter is not supported by Nanobanana models (instruction-based editing)
         };
-    case 'fal-ai/bytedance/seedream/v4/edit':
-    case 'fal-ai/bytedance/seedream/v4.5/edit':
-      return generateSeedreamV4EditPayload(
-        job,
-        width,
-        height,
-        generationParams.num_images || 1,
-        generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-        generationParams.image_urls,
-        generationParams.mask_url // Pass mask_url for inpainting
-      );
-    case 'fal-ai/flux-2-pro/edit':
-      // Add system prompt for image-to-image editing to preserve consistency
-      const hasImageFlux2 = generationParams.image_urls || [];
-      const flux2FullPrompt = hasImageFlux2.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}` : job.prompt;
-      // Flux 2 Pro expects image_urls array
-      return {
-        prompt: flux2FullPrompt,
-        image_urls: hasImageFlux2,
-        image_size: { width, height }, // Preserve aspect ratio
-        num_images: generationParams.num_images || 1,
-        enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-      };
-    case 'wan/v2.6/image-to-image':
-      // Add system prompt for image-to-image editing to preserve consistency
-      const hasImageWan = generationParams.image_urls || [];
-      const wanFullPrompt = hasImageWan.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}` : job.prompt;
-      // Wan 2.6 expects image_urls array and supports multiple images
-      return {
-        prompt: wanFullPrompt,
-        image_urls: hasImageWan,
-        image_size: { width, height }, // Preserve aspect ratio
-        num_images: generationParams.num_images || 1,
-        enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-      };
-    case 'fal-ai/flux/dev/inpainting':
-    case 'fal-ai/flux-pro/v1/fill':
-    case 'fal-ai/flux-kontext/dev/inpainting':
-    case 'fal-ai/flux-pro/v1.1-ultra-inpainting':
-    case 'fal-ai/stable-diffusion-inpainting': // Legacy support
+        if (generationParams.mask_url) payload.mask_url = generationParams.mask_url;
+        return payload;
     case 'fal-ai/bytedance/seedream/v5/lite/edit':
-    case 'fal-ai/nano-banana-pro/edit':
-    case 'fal-ai/gemini-3-pro-image-preview':
-      // Robust parameter normalization for inpainting
+        const hasImageSd = generationParams.image_urls || (generationParams.image_url ? [generationParams.image_url] : []);
+        const sdFullPrompt = hasImageSd.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}
+
+User Request: ${job.prompt}` : job.prompt;
+        const sdPayload: any = {
+            prompt: sdFullPrompt,
+            image_urls: hasImageSd,
+            image_size: { width, height },
+            num_images: generationParams.num_images || 1,
+            enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+        };
+        if (generationParams.mask_url) sdPayload.mask_url = generationParams.mask_url;
+        return sdPayload;
+    case 'fal-ai/flux-kontext/dev':
+      const hasImage = generationParams.image_urls && generationParams.image_urls.length > 0;
+      const fullPrompt = hasImage ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}
+
+User Request: ${job.prompt}` : job.prompt;
+      const kPayload: Record<string, any> = {
+        prompt: fullPrompt,
+        num_inference_steps: generationParams.num_inference_steps || 28,
+        guidance_scale: generationParams.guidance_scale || 3.5,
+        num_images: generationParams.num_images || 1,
+        enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+        output_format: generationParams.output_format || "jpeg",
+        acceleration: generationParams.acceleration || "none",
+        resolution_mode: "match_input"
+      };
+      if (hasImage) {
+        kPayload.image_url = generationParams.image_urls[0];
+      }
+      return kPayload;
+    case 'fal-ai/flux-pro/v1/fill':
+    case 'fal-ai/flux-lora/inpainting':
       let imageUrl = generationParams.image_url;
       if (!imageUrl && generationParams.image_urls && generationParams.image_urls.length > 0) {
         imageUrl = generationParams.image_urls[0];
       }
-
       if (!imageUrl || !generationParams.mask_url) {
-        // Log error but don't throw to avoid crashing the entire worker before it can log
-        console.error(`[generateModelPayload] Missing required parameters for ${modelId}: image_url=${!!imageUrl}, mask_url=${!!generationParams.mask_url}`);
         throw new Error(`Inpainting requires both image_url and mask_url. Got params: ${JSON.stringify(generationParams)}`);
       }
+      const fillPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}
 
-      // Select the correct generator based on model ID
-      if (modelId === 'fal-ai/flux/dev/inpainting' || modelId === 'fal-ai/stable-diffusion-inpainting') {
-        return generateFluxDevInpaintingPayload(
-          job,
-          imageUrl,
-          generationParams.mask_url,
-          generationParams.num_images || 1,
-          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-          generationParams.output_format || "jpeg",
-          generationParams.guidance_scale || 3.5,
-          generationParams.num_inference_steps || 28
-        );
-      } else if (modelId === 'fal-ai/flux-pro/v1/fill') {
-        return generateFluxProFillPayload(
-          job,
-          imageUrl,
-          generationParams.mask_url,
-          generationParams.num_images || 1,
-          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-          generationParams.output_format || "jpeg",
-          generationParams.guidance_scale || 3.5,
-          generationParams.num_inference_steps || 28
-        );
-      } else if (modelId === 'fal-ai/flux-kontext/dev/inpainting') {
-        return generateFluxKontextInpaintingPayload(
-          job,
-          imageUrl,
-          generationParams.mask_url,
-          generationParams.num_images || 1,
-          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-          generationParams.output_format || "jpeg",
-          generationParams.guidance_scale || 3.5,
-          generationParams.num_inference_steps || 28
-        );
-      } else if (modelId === 'fal-ai/bytedance/seedream/v5/lite/edit') {
-        return generateSeedream5LitePayload(
-          job,
-          imageUrl,
-          generationParams.mask_url,
-          generationParams.num_images || 1,
-          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-          generationParams.output_format || "jpeg"
-        );
-      } else if (modelId === 'fal-ai/nano-banana-pro/edit') {
-        return generateNanoBananaProEditPayload(
-          job,
-          imageUrl,
-          generationParams.mask_url,
-          generationParams.num_images || 1,
-          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-          generationParams.output_format || "jpeg",
-          generationParams.seed
-        );
-      } else if (modelId === 'fal-ai/gemini-3-pro-image-preview') {
-        return generateGemini3ProImagePreviewPayload(
-          job,
-          imageUrl,
-          generationParams.mask_url,
-          generationParams.num_images || 1,
-          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-          generationParams.output_format || "jpeg"
-        );
-      } else {
-        return generateFluxProUltraInpaintingPayload(
-          job,
-          imageUrl,
-          generationParams.mask_url,
-          generationParams.num_images || 1,
-          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-          generationParams.output_format || "jpeg"
-        );
-      }
-    // Legacy support for Stable Diffusion Inpainting -> Flux
-
+User Request: ${job.prompt}`;
+      return {
+        prompt: fillPrompt,
+        image_url: imageUrl,
+        mask_url: generationParams.mask_url,
+        num_images: generationParams.num_images || 1,
+        enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+        output_format: generationParams.output_format || "jpeg",
+        guidance_scale: generationParams.guidance_scale || 3.5,
+        num_inference_steps: generationParams.num_inference_steps || 28
+      };
     default:
       throw new Error(`Unsupported model ID: ${modelId}`);
   }
