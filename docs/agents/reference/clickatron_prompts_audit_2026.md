@@ -4,6 +4,10 @@ This file contains all the raw system prompts and prompt-construction logic used
 
 ---
 
+## What We Fixed in V5 (User-Override Precedence)
+- **Field-Level Precedence:** Replaced the unconditional V4 `style_lock` overrides with a `<field_resolution>` block. 
+- **Preserved User Intent:** The system now checks if the user explicitly provided a style, palette, headline, scene, or footer, and uses their verbatim input if so. Fallback defaults are only injected for unspecified fields.
+
 ## What We Fixed in V4 (Generalizing the Poster Override)
 - **Removed Poster Restriction:** We removed the `isEventPosterRequest` flag so that *every* Clickatron generation benefits from the artistic structuring. Generic, boring photorealistic outputs have been entirely banned.
 - **Universal Style Lock:** The style lock now universally enforces a "premium, highly artistic composition" with character elements, expressive colors, and thematic details, moving away from literal photo briefs.
@@ -145,6 +149,8 @@ Clickatron dynamically constructs Text-to-Image prompts by assembling three bloc
 <details>
 <summary>V1 (Deprecated)</summary>
 
+**Why Deprecated:** This baseline lacked strict enforcement of brand constraints over creative intents, and didn't prevent the model from inventing missing context fields. Replaced by V2.
+
 **Baseline Rules (Always Present):**
 > Use source and brand context for concept, composition, color, tone, audience fit, and overlay-safe negative space.
 > Honor every brand hard constraint from the source context, and treat key claims as visual concepts to evoke through scene and composition, never as text to render.
@@ -161,10 +167,19 @@ Clickatron dynamically constructs Text-to-Image prompts by assembling three bloc
 
 ---
 
-## 4. General Artistic Pipeline (v4) / Event Poster (v3)
+## 4. Text-to-Image Generation (V5 Precedence Architecture)
 **Location:** `lib/clickatron/brand-prompt-context.ts` (applied to all T2I generations)
 
-### V4 (Current: Universal Artistic Restructuring)
+### V5 (Current: Field-Level Precedence)
+Because V4 was actively destructive to explicit user instructions (e.g. overriding "cinematic editorial" with generic flat illustrations), V5 introduces a field-level check to ensure explicit user inputs are strictly preserved, while fallbacks apply only to unspecified fields.
+
+**See the complete V5 architecture:** [`clickatron_v5_precedence_architecture.md`](./clickatron_v5_precedence_architecture.md)
+
+<details>
+<summary>V4 (Deprecated: Universal Artistic Restructuring)</summary>
+
+**Why Deprecated:** The `style_lock` and layout templates were applied *unconditionally*, meaning if a user explicitly asked for a specific non-illustration style (like "realistic photography"), the system forcefully overrode them with a flat design. Replaced by V5.
+
 The `isEventPosterRequest` restriction was lifted. The system now parses text hierarchy and enforces artistic style locks on ALL generations to prevent generic photorealistic outputs.
 
 ```xml
@@ -210,9 +225,12 @@ Do not alter spelling, dates, numbers, or capitalization from what was supplied.
 
 <output_format>A single flat-design artistic image, portrait orientation, with all specified text rendered exactly and legibly, in the described graphic-design style.</output_format>
 ```
+</details>
 
 <details>
 <summary>V3 (Deprecated: Event Poster Specific)</summary>
+
+**Why Deprecated:** Hardcoded style override was applied only to "poster" keywords, missing many general requests that also suffered from generic outputs. Eventually generalized to V4 (and then fixed in V5).
 
 Triggered dynamically ONLY if `isEventPosterRequest` matched.
 

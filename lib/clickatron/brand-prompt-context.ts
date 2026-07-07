@@ -418,50 +418,67 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
       ];
 
   const textHierarchyContent = parseTextHierarchy(input.metadata);
-  const textHierarchyBlock = `<text_hierarchy>
-${textHierarchyContent || "No specific text fields provided. Use whitespace, decorative icons, or artistic elements, do not invent text."}
-</text_hierarchy>`;
 
-  const styleLock = `<style_lock>
-This is a premium, highly artistic graphic-design composition, not a boring or generic photograph. Regardless of how the user describes the scene, render it as:
-- A visually pleasing, highly artistic flat/vector-style illustration or bold graphic design, NOT photorealistic photography.
-- Incorporate engaging character elements, expressive colors, and rich thematic details that align with the brand and context.
-- Use bold gradients, dynamic layouts, and solid-color typography to create an engaging visual weight.
-- A textured or stylistic background (paper texture, subtle pattern, or solid color field) rather than a literal environment/location.
-- If the user's prompt explicitly describes literal photographic people/scenes, treat this as a description of the MOOD and SUBJECT MATTER to evoke through artistic iconography, character elements, and composition, not as a literal photo brief.
-- Strictly adhere to the provided brand colors and contrast cautions to ensure absolute visual harmony.
-</style_lock>`;
+  const fieldResolution = `<field_resolution>
+Before generating, determine for EACH of the following whether the user's request explicitly specified it:
+- Visual style (e.g. "editorial", "realistic", "cinematic", "illustration", "flat design")
+- Color palette
+- Headline text
+- Scene/subject description
+- Footer details (date, time, venue, organiser)
+- Typography direction
+- Explicit negative constraints (e.g. "avoid AI faces", "avoid stock-photo look", "avoid overcrowded layouts")
+
+For any field the user explicitly specified: use their value as the authoritative source. Do not substitute it with a default, template, or "safer" alternative under any circumstance.
+For any field the user left unspecified or vague: apply the fallback defaults below.
+</field_resolution>`;
+
+  const fallbackDefaults = `<fallback_defaults use_only_if_field_unspecified="true">
+- Style fallback: flat/vector graphic-design illustration with icon-based visual metaphors
+- Palette fallback: derive from brand_context; if brand_context also empty, use 2-3 high-contrast colors appropriate to the event category
+- Headline fallback: "[Org Name] presents: [Event Name]"
+- Scene fallback: icon-based composition representing the event category
+- Footer fallback: omit any sub-field not supplied — do not invent date/time/venue placeholders
+</fallback_defaults>`;
+
+  const userExplicitContent = `<user_explicit_content>
+User's visual prompt:
+${prompt}
+
+Extracted text fields from metadata:
+${textHierarchyContent || "None"}
+</user_explicit_content>`;
+
+  const negativeConstraints = `<negative_constraints>
+Always carry forward any explicit "avoid" list from the user verbatim — these are hard constraints, never optional style suggestions.
+</negative_constraints>`;
+
+  const canvasAndLayout = `<canvas_and_layout>
+Maintain clear hierarchy and legible text placement, but do not impose the flat-illustration layout template if the user's specified style is photographic/editorial/cinematic — layout conventions should match the chosen style, not override it.
+</canvas_and_layout>`;
 
   const languageGuard = `<language_guard>
-Render text in English only, exactly as provided in <text_hierarchy>, regardless of what script the user's original request used or implied. If the user's request included non-English text, do not attempt to render it as image text — flag it for the editable text-overlay layer instead, and use English-language visual/iconographic elements only.
-Do not alter spelling, dates, numbers, or capitalization from what was supplied.
+Render text in English only, exactly as the user specified — no spelling/date/number changes. If non-English script was requested, redirect to overlay layer instead of attempting to render it as image text.
 </language_guard>`;
 
-  const layoutRules = `<layout_rules>
-- Maintain high contrast between text and background at every text zone
-- Keep a consistent color palette across illustrations, typography, and background (strictly adhering to the specified brand context)
-- Ensure character elements and visual metaphors are central to the composition, making it visually striking and far from boring
-- Do not add generic stock-photo-style people, watermarks, or unrelated decorative elements
-</layout_rules>`;
-
   const enriched = [
-    `<role>You are an expert graphic design generator creating a bold, modern, and highly artistic composition.</role>`,
-    styleLock,
-    textHierarchyBlock,
-    languageGuard,
+    `<role>You are a graphic design generator creating a bold, modern event poster.</role>`,
+    fieldResolution,
+    fallbackDefaults,
+    userExplicitContent,
+    negativeConstraints,
     ...contextBlocks,
     `<clickatron_generation_rules>`,
     "Use source and brand context for concept, composition, color, tone, audience fit, and overlay-safe negative space.",
     "Honor every brand hard constraint from the source context, and treat key claims as visual concepts to evoke through scene and composition, never as text to render.",
-    "If a creative direction in the source context conflicts with a brand hard constraint, the brand hard constraint always takes priority. Adjust the creative concept to satisfy the constraint rather than ignoring it.",
+    "If a creative direction in the source context conflicts with a brand hard constraint, the brand hard constraint always takes priority.",
     ...textRules,
-    "Do not invent logos, trademarks, mascots, product packs, or brand assets unless the prompt or reference images explicitly provide them.",
-    "Do not render source IDs or internal metadata text in the thumbnail.",
-    "If a brand context field (colors, typography, visual direction, etc.) is empty or not provided, do not invent a plausible default for it — proceed using only the fields that were actually supplied.",
+    "Do not invent logos, trademarks, mascots, product packs, or brand assets unless explicitly provided.",
+    "Do not render source IDs or internal metadata text.",
     `</clickatron_generation_rules>`,
-    layoutRules,
-    `<clickatron_thumbnail_request>\n${prompt}\n</clickatron_thumbnail_request>`,
-    `<output_format>A single flat-design artistic image, portrait orientation, with all specified text rendered exactly and legibly, in the described graphic-design style.</output_format>`
+    canvasAndLayout,
+    languageGuard,
+    `<output_format>A single image matching the resolved style, palette, and text exactly as specified above.</output_format>`
   ].join("\n\n");
 
   return enriched.length > MAX_PROMPT_LENGTH
