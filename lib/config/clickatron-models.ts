@@ -690,43 +690,30 @@ export function generateSeedreamV4TextToImagePayload(
 /**
  * System prompt prepended to user prompts for generative fill
  */
-export const GENERATIVE_FILL_SYSTEM_PROMPT = `<role>You are an inpainting model. Your job is to fill ONLY the masked area while preserving everything else.</role>
+export const GENERATIVE_FILL_SYSTEM_PROMPT = `Inpainting instructions: You are performing a precise generative fill. Modify ONLY the masked area according to the user request. Keep 100% of the non-masked areas EXACTLY unchanged. 
 
-<task>Modify ONLY the white masked area shown in the mask image according to the user prompt. The mask indicates WHERE to edit, the user prompt indicates WHAT to add/fill.</task>
-
-<rules>
-1. ONLY modify the white masked area shown in the mask image
-2. Keep 100% of the non-masked areas EXACTLY unchanged - do not alter them at all
-3. Blend the generated content seamlessly with the surrounding pixels
-4. Match the lighting, style, resolution, color tone, and perspective of the original image
-5. Do NOT regenerate or modify the entire image - this is inpainting, not text-to-image
-6. Preserve all objects, people, and details outside the masked region
-7. CRITICAL: Maintain the EXACT canvas size, resolution, and aspect ratio of the original image - do NOT crop, resize, or reframe
-8. If the requested content cannot naturally fit within the masked region's shape or size, scale or adapt the content to fit within the mask rather than expanding into non-masked areas
-9. If no explicit mask channel is available, treat the brightest/marked region of the reference mask image as the edit boundary and apply the same non-mask preservation rules
-</rules>
-
-<output_format>Modified image with ONLY the masked area changed, seamlessly blended with surroundings, at the original canvas size and aspect ratio.</output_format>`;
+CRITICAL RULES:
+- Blend the new content seamlessly with the surrounding pixels.
+- Match the lighting, style, color tone, and perspective of the original image perfectly.
+- Do NOT regenerate or modify the entire image. This is localized inpainting.
+- Preserve all original objects, people, and details outside the masked region.
+- Maintain the EXACT original canvas size, resolution, and aspect ratio. Do not crop or reframe.
+- Scale or adapt the new content to fit naturally within the mask boundaries without bleeding into unmasked areas.
+- Do not render these instructions as text in the image.`;
 
 /**
  * System prompt prepended to user prompts for image-to-image editing (variations)
  */
-export const IMAGE_TO_IMAGE_SYSTEM_PROMPT = `<role>You are an image editing model. Your job is to create a variation that stays true to the original while applying the requested changes.</role>
+export const IMAGE_TO_IMAGE_SYSTEM_PROMPT = `Image-to-image editing instructions: Create a variation that applies the requested changes while staying true to the original foundation. Do not replace the original image entirely.
 
-<task>Apply the user's requested changes to the original image while preserving its core composition, structure, and main subjects. The original image is the foundation - build upon it, don't replace it.</task>
-
-<rules>
-1. Preserve subject pose, camera angle, framing, and spatial layout of the original image unless the user's request explicitly implies a change to one of these
-2. Apply the requested changes while maintaining consistency with the original image
-3. Keep the same lighting style, color grading, and overall mood unless explicitly asked to change
-4. Do NOT completely regenerate or reinterpret the entire image
-5. Maintain the same level of detail, quality, and artistic style
-6. Focus on making the specific changes requested while keeping everything else intact
-7. CRITICAL: Maintain the EXACT aspect ratio and dimensions of the original image - do NOT change the image size or crop
-8. If a requested change and a preservation rule conflict (e.g. "make it winter" implies a lighting/mood change), the explicit user request takes priority for that specific attribute only — all other attributes remain preserved
-</rules>
-
-<output_format>Modified image variation with requested changes applied, preserving exact aspect ratio and dimensions.</output_format>`;
+CRITICAL RULES:
+- Preserve the subject pose, camera angle, framing, and spatial layout unless the request explicitly changes them.
+- Keep the same lighting style, color grading, and overall mood unless explicitly asked to alter them.
+- Do NOT completely regenerate or reinterpret the entire image.
+- Maintain the original level of detail, quality, and artistic style.
+- Maintain the EXACT aspect ratio and dimensions of the original image. Do not change the image size or crop.
+- If a requested change conflicts with preservation (e.g. "make it winter" implies lighting changes), the explicit request takes priority for that attribute only. Everything else must remain preserved.
+- Do not render these instructions as text in the image.`;
 
 
 
