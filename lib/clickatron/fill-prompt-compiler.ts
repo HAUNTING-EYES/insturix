@@ -21,7 +21,7 @@
  * follow-up so it can't collide with in-flight edits to clickatron-models.ts.
  */
 
-import { GENERATIVE_FILL_SYSTEM_PROMPT, IMAGE_TO_IMAGE_SYSTEM_PROMPT } from '@/lib/config/clickatron-models';
+import { GENERATIVE_FILL_SYSTEM_PROMPT, IMAGE_TO_IMAGE_SYSTEM_PROMPT } from '@/lib/clickatron/fill-prompts';
 
 export type FillDialect = 'inpaint' | 'instruction' | 'scene';
 
