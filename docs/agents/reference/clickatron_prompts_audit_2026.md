@@ -4,6 +4,10 @@ This file contains all the raw system prompts and prompt-construction logic used
 
 ---
 
+## What We Fixed in V10 (Hybrid Diffusion-Native Prompter)
+- **Restored Brand Directives:** V9 stripped out the Brand Context and Creativity influence to stop hallucinations, but we realized those are critical for business use-cases. 
+- **Natural Language Formatting:** Instead of using structural rules (like `Priority order:` or bullet points) which confused diffusion models, V10 uses continuous natural language captions ("Design instructions: Incorporate the following brand guidelines..."). This perfectly balances the V9 high-quality artistic enhancers with the necessary Brand and Text layout directives.
+
 ## What We Fixed in V9 (Diffusion-Native Style Enhancers)
 - **Stripped Meta-Instructions:** Instructions like "Priority order 1, 2, 3" and "Think like a director" were being processed by Flux/Ideogram as literal subjects to draw, which triggered generic "UI/Presentation template" training data (leading to the blue Canva-style results).
 - **Direct Keyword Steering:** Image models only understand *what* to draw and *how* it should look. Replaced abstract rules with comma-separated style tags (`award-winning professional graphic design, premium editorial aesthetics...`) that actually push the generation latent space away from generic templates.
@@ -185,22 +189,35 @@ Clickatron dynamically constructs Text-to-Image prompts by assembling three bloc
 
 ---
 
-## 4. Text-to-Image Generation (V9 Diffusion-Native Enhancers)
+## 4. Text-to-Image Generation (V10 Hybrid Diffusion-Native)
 **Location:** `lib/clickatron/brand-prompt-context.ts` (applied to all T2I generations)
 
-### V9 (Current: Keyword-Driven)
-Image diffusion models (Flux, Midjourney, SD3) do not understand LLM meta-instructions (like "Priority order:" or "Think like a director"). They parse these as literal visual subjects, causing severe hallucinations and generic outputs. 
-V9 directly appends strong comma-separated artistic keywords to the user's prompt to force a high-end visual result.
+### V10 (Current: The Golden Hybrid Prompt)
+V10 perfectly balances the high-quality diffusion keywords of V9 with the necessary business context (Brand, Text Hierarchy) of V7, completely avoiding the XML and bulleted-list formatting that causes image model hallucinations. It uses natural language prose to guide the model.
 
 ```text
 [User's Raw Prompt], award-winning professional graphic design, premium editorial aesthetics, masterpiece, striking visual hierarchy, high-end commercial quality, clean composition, deliberate negative space, highly detailed, non-generic, unique artistic layout
 
-Text elements to incorporate:
+Text elements to incorporate seamlessly into the design:
 [Parsed fields injected here]
+
+Design instructions: Incorporate the following brand guidelines and contextual details naturally. The brand colors, tone, and visual identity should influence the final design without overriding the primary visual prompt. Maintain premium creativity and professional spacing.
 
 [Source Context Block]
 [Brand Context Block]
 ```
+
+<details>
+<summary>V9 (FAILED: Diffusion-Native Style Enhancers Only)</summary>
+
+**STATUS: FAILED ATTEMPT.** While V9 successfully stopped the Canva-template hallucinations and produced beautiful images, it completely stripped away the directives to follow the Brand Context and maintain professional creativity, leading to disjointed brand identities.
+
+```text
+[User's Raw Prompt], [enhancers]
+[Text Hierarchy]
+[Context Blocks]
+```
+</details>
 
 <details>
 <summary>V8 (FAILED: Condensed Plain-Text Precedence)</summary>

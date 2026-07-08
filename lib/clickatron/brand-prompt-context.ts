@@ -386,20 +386,24 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
 
   const textHierarchyContent = parseTextHierarchy(input.metadata);
   
-  // V9: Diffusion-Native Enhancers
-  // Image models (Flux, Ideogram, SD3) do not understand LLM meta-instructions 
-  // like "Priority order:", "Think like a director", or "Avoid templates".
-  // They parse these as literal visual subjects, causing severe hallucinations and generic outputs.
-  // Instead, we inject strong comma-separated artistic keywords to steer the latent space.
+  // V10: Hybrid Diffusion-Native Prompter
+  // Balances strong V9 diffusion keywords with natural language directives for Brand and Creativity.
+  // We avoid bullet points and "Priority 1, 2, 3" formatting that triggers template hallucinations,
+  // instead phrasing instructions as continuous natural language captions.
   const diffusionEnhancers = "award-winning professional graphic design, premium editorial aesthetics, masterpiece, striking visual hierarchy, high-end commercial quality, clean composition, deliberate negative space, highly detailed, non-generic, unique artistic layout";
 
   const coreVisualPrompt = prompt ? `${prompt}, ${diffusionEnhancers}` : diffusionEnhancers;
   
-  const textHierarchyBlock = textHierarchyContent ? `Text elements to incorporate:\n${textHierarchyContent}` : "";
+  const textHierarchyBlock = textHierarchyContent ? `Text elements to incorporate seamlessly into the design:\n${textHierarchyContent}` : "";
+
+  const brandDirective = contextBlocks.length > 0 
+    ? "Design instructions: Incorporate the following brand guidelines and contextual details naturally. The brand colors, tone, and visual identity should influence the final design without overriding the primary visual prompt. Maintain premium creativity and professional spacing."
+    : "";
 
   const enriched = [
     coreVisualPrompt,
     textHierarchyBlock,
+    brandDirective,
     ...contextBlocks
   ].filter(Boolean).join("\n\n");
 
