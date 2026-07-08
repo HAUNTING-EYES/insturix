@@ -176,23 +176,14 @@ const V2TimelineItem: React.FC<V2TimelineItemProps> = ({
         touchTimeoutRef.current = null;
       }
       if (touchStartTime && Date.now() - touchStartTime < LONG_PRESS_DURATION) {
+        // Select only — the right props panel handles editing (no left hijack).
         setSelectedItem({ id: item.id });
-        if (
-          item.type === OverlayType.VIDEO ||
-          item.type === OverlayType.TEXT ||
-          item.type === OverlayType.SOUND ||
-          item.type === OverlayType.CAPTION ||
-          item.type === OverlayType.IMAGE
-        ) {
-          setActivePanel(item.type);
-          setIsOpen(true);
-        }
       }
       setTouchStartTime(null);
       setTouchStartPosition(null);
       setIsTouching(false);
     },
-    [touchStartTime, item.id, item.type, setSelectedItem, setActivePanel, setIsOpen],
+    [touchStartTime, item.id, setSelectedItem],
   );
 
   useEffect(() => {
@@ -218,16 +209,11 @@ const V2TimelineItem: React.FC<V2TimelineItemProps> = ({
   const handleSelect = (e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedItem({ id: item.id });
-    if (
-      item.type === OverlayType.VIDEO ||
-      item.type === OverlayType.TEXT ||
-      item.type === OverlayType.SOUND ||
-      item.type === OverlayType.CAPTION ||
-      item.type === OverlayType.IMAGE ||
-      item.type === OverlayType.HTML_SCENE ||
-      item.type === OverlayType.HTML_STICKER
-    ) {
-      setActivePanel(item.type === OverlayType.HTML_STICKER ? OverlayType.HTML_SCENE : item.type);
+    // Text/video/image/sound/caption are edited in the RIGHT props panel, so
+    // selecting them must NOT hijack the left tool panel (that caused a double
+    // editor). Only types edited via their LEFT panel force it open.
+    if (item.type === OverlayType.HTML_SCENE || item.type === OverlayType.HTML_STICKER) {
+      setActivePanel(OverlayType.HTML_SCENE);
       setIsOpen(true);
     }
     if (item.type === OverlayType.TRANSITION) {

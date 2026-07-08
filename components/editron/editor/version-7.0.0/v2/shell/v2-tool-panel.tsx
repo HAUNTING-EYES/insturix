@@ -4,7 +4,7 @@ import * as React from 'react';
 import { Mono } from '@/components/primitives';
 import { useSidebar } from '../../contexts/sidebar-context';
 import { OverlayType } from '../../types';
-import { TextOverlaysPanel } from '../../components/overlays/text/text-overlays-panel';
+import { SelectTextOverlay } from '../../components/overlays/text/select-text-overlay';
 import SoundsPanel from '../../components/overlays/sounds/sounds-panel';
 import { VideoOverlayPanel } from '../../components/overlays/video/video-overlay-panel';
 import { CaptionsPanel } from '../../components/overlays/captions/captions-panel';
@@ -34,7 +34,7 @@ import { LottiePanel } from '../../components/lottie/lottie-panel';
 
 const PANELS: Array<{ type: OverlayType; el: React.ReactNode }> = [
   { type: OverlayType.LOCAL_DIR, el: <V2AssetsPanel /> },
-  { type: OverlayType.TEXT, el: <TextOverlaysPanel /> },
+  { type: OverlayType.TEXT, el: <SelectTextOverlay setLocalOverlay={() => {}} /> },
   { type: OverlayType.IMAGE, el: <ImageOverlayPanel /> },
   { type: OverlayType.VIDEO, el: <VideoOverlayPanel /> },
   { type: OverlayType.CAPTION, el: <CaptionsPanel /> },
