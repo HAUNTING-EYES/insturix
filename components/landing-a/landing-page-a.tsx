@@ -1210,6 +1210,22 @@ function Marketing() {
             Talk to sales
           </a>
         </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, flexWrap: "wrap", marginTop: 28, pointerEvents: "auto", opacity: v(4) ? 1 : 0, transition: `opacity .35s ${EASE} 0.8s` }}>
+          <a
+            href="https://startupbase.io/products/insturix?utm_source=startupbase&utm_medium=badge&utm_campaign=featured-badge-dark"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Insturix featured on StartupBase"
+            style={{ display: "inline-flex", lineHeight: 0 }}
+          >
+            <img
+              src="https://statics.startupbase.io/site/badges/featured-on-sb-dark.svg"
+              alt="Featured on StartupBase"
+              height={55}
+              style={{ height: 55, width: "auto" }}
+            />
+          </a>
+        </div>
       </section>
     </div>
   );

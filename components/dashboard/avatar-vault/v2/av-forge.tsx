@@ -12,6 +12,7 @@ import {
   type AvatarVaultDraftFormState,
 } from '@/components/dashboard/AvatarVault/avatar-vault-form';
 import { useAvatarVaultMutations } from '@/components/dashboard/AvatarVault/useAvatarVault';
+import { VoiceRecorder } from '@/components/dashboard/AvatarVault/VoiceRecorder';
 import { C, MONO, USAGE_PRESETS } from './av-tokens';
 import { Mono, Btn, Field, inp, Portrait, Toggle, Seg, Drop } from './av-atoms';
 import { recordToForm } from './av-record-map';
@@ -97,7 +98,7 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
     identity: Boolean(f.portraitImageUrl && f.displayName.trim()),
     style: f.usagePresets.length > 0,
     performance: Boolean(f.gestureStyle.trim()),
-    voice: f.voiceMode === 'selected_tts_voice' ? Boolean(f.ttsVoiceId.trim()) : f.voiceMode === 'imported_voice_profile' ? Boolean(f.voiceProfileId.trim()) : Boolean(f.voiceSampleAssetId.trim()),
+    voice: f.voiceMode === 'selected_tts_voice' ? Boolean(f.ttsVoiceId.trim()) : f.voiceMode === 'imported_voice_profile' ? Boolean(f.voiceProfileId.trim()) : Boolean(f.voiceSampleAssetId.trim() || f.voiceSampleUrl.trim()),
     persona: Boolean(f.defaultRole.trim()),
     rights: f.consentConfirmed,
   };
@@ -203,7 +204,19 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 8 }}>Voice source</Mono><Seg opts={VOICE_MODES} val={f.voiceMode} on={(v) => set('voiceMode', v)} /></div>
               {f.voiceMode === 'uploaded_voice_sample' && (
-                <Field label="Voice sample asset id" hint="uploaded audio asset id"><input value={f.voiceSampleAssetId} onChange={(e) => set('voiceSampleAssetId', e.target.value)} placeholder="asset_…" style={inp} /></Field>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <Field label="Record voice sample" hint="10-30s clean speech">
+                    <VoiceRecorder
+                      subjectName={f.displayName}
+                      onUploaded={(url) => {
+                        set('voiceMode', 'uploaded_voice_sample');
+                        set('voiceSampleUrl', url);
+                      }}
+                    />
+                  </Field>
+                  <Field label="Voice sample URL" hint="saved voice reference"><input value={f.voiceSampleUrl} onChange={(e) => set('voiceSampleUrl', e.target.value)} placeholder="https://" style={inp} /></Field>
+                  <Field label="Voice sample asset ID" hint="optional storage id"><input value={f.voiceSampleAssetId} onChange={(e) => set('voiceSampleAssetId', e.target.value)} placeholder="asset_..." style={inp} /></Field>
+                </div>
               )}
               {f.voiceMode === 'selected_tts_voice' && (
                 <Field label="TTS voice id"><input value={f.ttsVoiceId} onChange={(e) => set('ttsVoiceId', e.target.value)} placeholder="voice_…" style={inp} /></Field>

@@ -75,6 +75,9 @@ const CSS = `
 .ikin .hero .sub{margin-top:38px;max-width:46ch;color:var(--soft);font-size:clamp(15px,1.7vw,18px);line-height:1.6}
 .ikin .hero .sub b{color:var(--text);font-weight:600}
 .ikin .acts{display:flex;gap:13px;margin-top:34px;flex-wrap:wrap}
+.ikin .sb-badges{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px}
+.ikin .sb-badges a{display:inline-flex;line-height:0;cursor:pointer}
+.ikin .sb-badges img{display:block;height:55px;width:auto;max-width:min(44vw,240px)}
 .ikin .btn{font-weight:800;font-size:14px;padding:14px 26px;border-radius:8px;cursor:pointer;border:1px solid transparent;display:inline-flex;gap:9px;align-items:center;transition:.22s var(--ease)}
 .ikin .go{background:var(--gold);color:var(--bg)}.ikin .go:hover{background:#E0B868}
 .ikin .ghost{color:var(--soft);border-color:var(--borderL)}.ikin .ghost:hover{color:var(--text);border-color:rgba(212,166,82,.4)}
@@ -85,7 +88,8 @@ const CSS = `
 .ikin .kline.l2{animation:ikFade .9s var(--ease) .18s both}
 .ikin .hero .sub{animation:ikRise .8s var(--ease) .30s both}
 .ikin .hero .acts{animation:ikRise .8s var(--ease) .42s both}
-.ikin .btn:focus-visible,.ikin nav a:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+.ikin .hero .sb-badges{animation:ikRise .8s var(--ease) .54s both}
+.ikin .btn:focus-visible,.ikin nav a:focus-visible,.ikin .sb-badges a:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
 
 .ikin .verbs{border-block:1px solid var(--border);padding:28px 0;overflow:hidden;white-space:nowrap}
 .ikin .verbs .track{display:inline-flex;align-items:baseline;will-change:transform}
@@ -123,6 +127,7 @@ const CSS = `
 .ikin .cta h2 span{color:var(--gold)}
 .ikin .cta p{color:var(--soft);max-width:38ch;margin:24px auto 36px;font-size:17px;line-height:1.6}
 .ikin .cta .acts{justify-content:center}
+.ikin .cta .sb-badges{justify-content:center}
 .ikin footer{border-top:1px solid var(--border);padding:30px 0;text-align:center}.ikin footer .m{font-size:11px;color:var(--dim);letter-spacing:.06em}
 
 /* cursor/lens: keep the OS cursor visible; JS reveals the lens only over text targets. */
@@ -137,7 +142,7 @@ const CSS = `
 .ikin .kinv *{color:var(--gold)!important;animation:none!important}
 .ikin .kinv .l2,.ikin .kinv .v.g,.ikin .kinv .wl b,.ikin .kinv .cta h2 span{color:var(--text)!important}
 .ikin .kinv .markwrap,.ikin .kinv .cta .mark{display:none!important}
-.ikin .kinv .acts{visibility:hidden!important}
+.ikin .kinv .acts,.ikin .kinv .sb-badges{visibility:hidden!important}
 @media(prefers-reduced-motion:reduce){.ikin .kline,.ikin .markwrap{transform:none!important}.ikin .kinv{display:none}.ikin .hero .kick,.ikin .hero .sub,.ikin .hero .acts,.ikin .kline{animation:none!important;opacity:1!important}}
 `;
 
@@ -158,6 +163,27 @@ const TEXT_LENS_TARGET_SELECTOR = [
   ".cta p",
 ].join(",");
 
+function StartupBaseBadges() {
+  return (
+    <div className="sb-badges" aria-label="StartupBase badges">
+      <a
+        href="https://startupbase.io/products/insturix?utm_source=startupbase&utm_medium=badge&utm_campaign=featured-badge-dark"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Insturix featured on StartupBase"
+      >
+        <img
+          src="https://statics.startupbase.io/site/badges/featured-on-sb-dark.svg"
+          alt="Featured on StartupBase"
+          height={55}
+          loading="lazy"
+          fetchPriority="low"
+        />
+      </a>
+    </div>
+  );
+}
+
 const Content: React.FC<{ ids?: boolean }> = ({ ids }) => (
   <>
     <header className="hero">
@@ -171,6 +197,7 @@ const Content: React.FC<{ ids?: boolean }> = ({ ids }) => (
         <div className="kline l2">STUDIO.</div>
         <p className="sub">Hand it a brief. Every cut comes back <b>shaped for its channel — and on brand.</b> The whole studio runs in one browser tab. Nothing to install.</p>
         <div className="acts"><Link className="btn go" href="/signup">Start free →</Link><Link className="btn ghost" href="/contactus">Talk to sales</Link></div>
+        <StartupBaseBadges />
       </div>
     </header>
 

@@ -153,6 +153,7 @@ const SPEECH_USE_CASES = new Set<AvatarRenderUseCase>([
 export function buildAvatarRenderRecipe(input: BuildAvatarRenderRecipeInput): AvatarRenderRecipe {
   const profile = input.profileRecord.profile;
   const audioMode = resolveAudioMode(input.audio, profile);
+  const profileVoiceReferenceUrl = resolveProfileVoiceReferenceUrl(profile);
   const referenceImages = buildReferenceImages(profile, input.productImageUrls);
   const soundCues = buildSoundCues(input.soundCues);
   const target = { ...DEFAULT_TARGET, ...(input.target ?? {}) };
@@ -194,7 +195,7 @@ export function buildAvatarRenderRecipe(input: BuildAvatarRenderRecipeInput): Av
       sourceAssetId: optionalTrim(input.audio?.sourceAssetId),
       sourceUrl: optionalTrim(input.audio?.sourceUrl),
       voiceReferenceAssetId: optionalTrim(input.audio?.voiceReferenceAssetId),
-      voiceReferenceUrl: optionalTrim(input.audio?.voiceReferenceUrl),
+      voiceReferenceUrl: optionalTrim(input.audio?.voiceReferenceUrl) ?? profileVoiceReferenceUrl,
       description: optionalTrim(input.audio?.description),
       copiedReference: audioMode === 'copied_reference_audio',
       soundCues,
@@ -307,7 +308,7 @@ function buildSoundCues(soundCues: AvatarRenderSoundCueInput[] | undefined): Ava
 function resolveAudioMode(audio: AvatarRenderAudioInput | undefined, profile: AvatarProfile): AvatarRenderAudioMode {
   if (audio?.mode) return audio.mode;
   if (isNonEmptyString(audio?.sourceAssetId) || isNonEmptyString(audio?.sourceUrl)) return 'uploaded_voiceover';
-  if (hasVoiceReferenceInput(audio)) return 'tts_voiceover';
+  if (hasVoiceReferenceInput(audio) || resolveProfileVoiceReferenceUrl(profile)) return 'tts_voiceover';
   if (isNonEmptyString(profile.voice.ttsVoiceId)) return 'tts_voiceover';
   if (isNonEmptyString(profile.voice.sampleAssetId) || isNonEmptyString(profile.voice.voiceProfileId)) return 'uploaded_voiceover';
   return 'silent';
@@ -332,6 +333,7 @@ function hasSpeechAudio(profile: AvatarProfile, audio: AvatarRenderAudioInput | 
   if (isNonEmptyString(audio?.voiceoverText) && profile.voice.sourceType === 'selected_tts_voice' && isNonEmptyString(profile.voice.ttsVoiceId)) return true;
   if (isNonEmptyString(audio?.sourceAssetId) || isNonEmptyString(audio?.sourceUrl)) return true;
   if ((audio?.mode === undefined || audio.mode === 'tts_voiceover') && hasVoiceReferenceInput(audio)) return true;
+  if (resolveProfileVoiceReferenceUrl(profile)) return true;
   if (isNonEmptyString(profile.voice.ttsVoiceId)) return true;
   if (isNonEmptyString(profile.voice.sampleAssetId)) return true;
   return isNonEmptyString(profile.voice.voiceProfileId);
@@ -339,6 +341,11 @@ function hasSpeechAudio(profile: AvatarProfile, audio: AvatarRenderAudioInput | 
 
 function hasVoiceReferenceInput(audio: AvatarRenderAudioInput | undefined): boolean {
   return isNonEmptyString(audio?.voiceReferenceAssetId) || isNonEmptyString(audio?.voiceReferenceUrl);
+}
+
+function resolveProfileVoiceReferenceUrl(profile: AvatarProfile): string | undefined {
+  const voiceEvidence = profile.evidence.find((item) => item.sourceType === 'uploaded_voice_sample' && isNonEmptyString(item.sourceUrl));
+  return optionalTrim(voiceEvidence?.sourceUrl);
 }
 
 function hasIdentityReference(profile: AvatarProfile): boolean {

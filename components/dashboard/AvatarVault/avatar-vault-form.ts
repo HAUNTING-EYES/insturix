@@ -31,6 +31,7 @@ export interface AvatarVaultDraftFormState {
   movementConstraints: string;
   voiceMode: AvatarVoiceSourceType;
   voiceSampleAssetId: string;
+  voiceSampleUrl: string;
   ttsVoiceId: string;
   voiceProfileId: string;
   language: string;
@@ -99,6 +100,7 @@ export const DEFAULT_AVATAR_DRAFT_FORM: AvatarVaultDraftFormState = {
   movementConstraints: '',
   voiceMode: 'uploaded_voice_sample',
   voiceSampleAssetId: '',
+  voiceSampleUrl: '',
   ttsVoiceId: '',
   voiceProfileId: '',
   language: 'en',
@@ -256,12 +258,31 @@ function buildVoice(form: AvatarVaultDraftFormState): AvatarProfile['voice'] {
 function buildEvidence(form: AvatarVaultDraftFormState, now: string): AvatarEvidence[] {
   return [
     ...(form.consentConfirmed ? [buildConsentEvidence(now)] : []),
+    ...buildVoiceEvidence(form, now),
     {
       id: `avatar_full_body_${Date.parse(now) || 0}`,
       signalPath: 'identityPack.referenceAssets.full_body_front',
       sourceType: 'uploaded_body_reference',
       ...(optional(form.fullBodyAssetId) ? { sourceAssetId: form.fullBodyAssetId.trim() } : {}),
       ...(optional(form.fullBodyImageUrl) ? { sourceUrl: form.fullBodyImageUrl.trim() } : {}),
+      confidence: 1,
+      observedAt: now,
+      extractor: 'avatar-vault-ui.v1',
+      consentRequired: true,
+    },
+  ];
+}
+
+function buildVoiceEvidence(form: AvatarVaultDraftFormState, now: string): AvatarEvidence[] {
+  if (form.voiceMode !== 'uploaded_voice_sample') return [];
+  if (!optional(form.voiceSampleAssetId) && !optional(form.voiceSampleUrl)) return [];
+  return [
+    {
+      id: `avatar_voice_${Date.parse(now) || 0}`,
+      signalPath: 'voice.uploadedSample',
+      sourceType: 'uploaded_voice_sample',
+      ...(optional(form.voiceSampleAssetId) ? { sourceAssetId: form.voiceSampleAssetId.trim() } : {}),
+      ...(optional(form.voiceSampleUrl) ? { sourceUrl: form.voiceSampleUrl.trim() } : {}),
       confidence: 1,
       observedAt: now,
       extractor: 'avatar-vault-ui.v1',
