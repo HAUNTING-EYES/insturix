@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  applyUiScreenshotsToProfile,
   applyWebsiteScreenshotToProfile,
   buildWebsiteScreenshotCandidate,
+  createBrandVaultSectionScreenshotCaptureFromEnvironment,
   createBrandVaultWebsiteScreenshotCaptureFromEnvironment,
   extractScreenshotUrl,
   parseCapturedScreenshot,
+  parseCapturedScreenshots,
+  resolveBrandCaptureUrls,
 } from '@/lib/shared/brand-vault-website-screenshot';
 import { isBrandSignalActionable, type BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
 
@@ -224,6 +228,78 @@ describe('brand-vault website screenshot capture', () => {
       expect(candidate.jobId).toBe('job_1');
       expect(candidate.brandId).toBe('brand_x');
       expect(candidate.confidence).toBeGreaterThan(0.55);
+    });
+  });
+
+  describe('section screenshot capture (mode: screenshots)', () => {
+    it('posts mode:screenshots to the render endpoint and returns an ordered set (bytes + url)', async () => {
+      const b64 = 'A'.repeat(48);
+      const fetchFn = vi.fn().mockResolvedValue(
+        jsonResponse({ ok: true, screenshots: [{ screenshotBase64: b64, contentType: 'image/png' }, 'https://cdn.insturix.com/section-1.png'] }),
+      );
+      const capture = createBrandVaultSectionScreenshotCaptureFromEnvironment(
+        { BRAND_VAULT_MODAL_RENDER_ENDPOINT: 'https://modal.example/render', BRAND_VAULT_MODAL_RENDER_TOKEN: 'tok' },
+        fetchFn,
+      );
+      expect(capture).toBeDefined();
+      const shots = await capture!('https://insturix.com');
+      expect(shots).toEqual([
+        { source: 'bytes', base64: b64, contentType: 'image/png' },
+        { source: 'url', url: 'https://cdn.insturix.com/section-1.png' },
+      ]);
+      const body = JSON.parse(String(fetchFn.mock.calls[0][1].body));
+      expect(body.mode).toBe('screenshots');
+      expect(body.sections).toBeGreaterThanOrEqual(1);
+    });
+
+    it('fails soft to [] on a non-ok response', async () => {
+      const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ error: 'x' }, false));
+      const capture = createBrandVaultSectionScreenshotCaptureFromEnvironment({ BRAND_VAULT_SCREENSHOT_ENDPOINT: 'https://modal.example/render' }, fetchFn);
+      expect(await capture!('https://insturix.com')).toEqual([]);
+    });
+
+    it('parseCapturedScreenshots reads screenshots nested under data', () => {
+      expect(parseCapturedScreenshots({ data: { screenshots: [{ screenshotUrl: 'https://x.dev/a.png' }] } })).toEqual([
+        { source: 'url', url: 'https://x.dev/a.png' },
+      ]);
+      expect(parseCapturedScreenshots({})).toEqual([]);
+    });
+  });
+
+  describe('resolveBrandCaptureUrls', () => {
+    it('expands an app subdomain to root + www + /examples', () => {
+      const urls = resolveBrandCaptureUrls('https://app.insturix.com', 4);
+      expect(urls).toContain('https://app.insturix.com/');
+      expect(urls).toContain('https://insturix.com/');
+      expect(urls).toContain('https://www.insturix.com/');
+      expect(urls).toContain('https://insturix.com/examples');
+    });
+    it('adds /examples for a non-app site and caps the count', () => {
+      const urls = resolveBrandCaptureUrls('https://insturix.com', 2);
+      expect(urls).toHaveLength(2);
+      expect(urls[0]).toBe('https://insturix.com/');
+    });
+    it('returns [] for a non-http url', () => {
+      expect(resolveBrandCaptureUrls('not-a-url')).toEqual([]);
+    });
+  });
+
+  describe('applyUiScreenshotsToProfile', () => {
+    it('sets an actionable assets.uiScreenshots signal from durable urls, deduped', () => {
+      const next = applyUiScreenshotsToProfile(profileStub(), {
+        screenshotUrls: ['https://cdn.insturix.com/s0.png', 'https://cdn.insturix.com/s1.png', 'https://cdn.insturix.com/s0.png'],
+        observedAt: '2026-07-08T00:00:00.000Z',
+        sourceUrl: 'https://insturix.com',
+      });
+      const signal = next.assets?.uiScreenshots;
+      expect(signal?.value).toEqual(['https://cdn.insturix.com/s0.png', 'https://cdn.insturix.com/s1.png']);
+      expect(signal && isBrandSignalActionable(signal)).toBe(true);
+      // Seeds a non-actionable empty productImages (Clickatron-safe), never fakes product evidence.
+      expect(next.assets?.productImages && isBrandSignalActionable(next.assets.productImages)).toBe(false);
+    });
+    it('is a no-op when there are no valid urls', () => {
+      const input = profileStub();
+      expect(applyUiScreenshotsToProfile(input, { screenshotUrls: ['nope'], observedAt: 'x' })).toBe(input);
     });
   });
 });

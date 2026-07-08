@@ -86,6 +86,9 @@ export interface BrandSignalProfile {
   assets?: {
     productImages: BrandSignal<string[]>;
     socialPreviewImages?: BrandSignal<string[]>;
+    /** Ordered rendered-UI section screenshots (hero + sections + product pages) — actionable scan evidence
+     *  the vision-decode stage reads into a Product UI Model. Durable R2 URLs. */
+    uiScreenshots?: BrandSignal<string[]>;
   };
   palette: {
     primary?: BrandSignal<string>;
