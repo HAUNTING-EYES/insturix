@@ -32,7 +32,9 @@ import {
   type BrandVaultVisualAssetStorageProvider,
 } from './brand-vault-visual-asset-storage';
 import {
+  createBrandVaultSectionScreenshotCaptureFromEnvironment,
   createBrandVaultWebsiteScreenshotCaptureFromEnvironment,
+  type CaptureBrandVaultSectionScreenshots,
   type CaptureBrandVaultWebsiteScreenshot,
 } from './brand-vault-website-screenshot';
 import type {
@@ -238,6 +240,7 @@ type BrandVaultRefineryJobExecutionDependencies = {
   textEvidenceCompiler?: BrandVaultTextEvidenceCompiler;
   visualAssetStorage?: BrandVaultVisualAssetStorageProvider | null;
   captureWebsiteScreenshot?: CaptureBrandVaultWebsiteScreenshot | null;
+  captureSectionScreenshots?: CaptureBrandVaultSectionScreenshots | null;
 };
 
 export type ProcessQueuedBrandVaultRefineryJobResult = {
@@ -465,6 +468,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
       textEvidenceCompiler: dependencies.textEvidenceCompiler,
       visualAssetStorage: resolveVisualAssetStorageProvider(dependencies),
       captureWebsiteScreenshot: resolveWebsiteScreenshotCapture(dependencies),
+      captureSectionScreenshots: resolveSectionScreenshotCapture(dependencies),
     },
   );
 
@@ -735,6 +739,13 @@ function resolveWebsiteScreenshotCapture(
 ): CaptureBrandVaultWebsiteScreenshot | null {
   if (dependencies.captureWebsiteScreenshot !== undefined) return dependencies.captureWebsiteScreenshot;
   return createBrandVaultWebsiteScreenshotCaptureFromEnvironment() ?? null;
+}
+
+function resolveSectionScreenshotCapture(
+  dependencies: BrandVaultRefineryJobExecutionDependencies,
+): CaptureBrandVaultSectionScreenshots | null {
+  if (dependencies.captureSectionScreenshots !== undefined) return dependencies.captureSectionScreenshots;
+  return createBrandVaultSectionScreenshotCaptureFromEnvironment() ?? null;
 }
 
 function mergeWarnings(...groups: string[][]): string[] {

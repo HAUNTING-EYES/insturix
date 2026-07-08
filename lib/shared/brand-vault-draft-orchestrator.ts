@@ -45,8 +45,11 @@ import {
   type BrandVaultVisualAssetStorageProvider,
 } from './brand-vault-visual-asset-storage';
 import {
+  applyUiScreenshotsToProfile,
   applyWebsiteScreenshotToProfile,
   buildWebsiteScreenshotCandidate,
+  resolveBrandCaptureUrls,
+  type CaptureBrandVaultSectionScreenshots,
   type CaptureBrandVaultWebsiteScreenshot,
 } from './brand-vault-website-screenshot';
 import type {
@@ -314,6 +317,12 @@ export interface BrandVaultWebsiteDraftJobDependencies {
    * evidence so brand-owned storyboard subjects auto-resolve. Fail-soft — never blocks the scan.
    */
   captureWebsiteScreenshot?: CaptureBrandVaultWebsiteScreenshot | null;
+  /**
+   * Captures an ordered set of rendered-UI section screenshots (hero + sections + product pages). When set
+   * (and visualAssetStorage is configured), each is mirrored to durable storage and attached as actionable
+   * assets.uiScreenshots evidence — the input the vision-decode stage reads. Fail-soft — never blocks the scan.
+   */
+  captureSectionScreenshots?: CaptureBrandVaultSectionScreenshots | null;
   clock?: () => string;
 }
 
@@ -617,6 +626,52 @@ export async function createBrandVaultWebsiteDraftJob(
       } catch (error) {
         console.warn(
           '[BrandVault:screenshot] website screenshot capture skipped:',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+    // Capture rendered-UI SECTION screenshots (hero + scrolled sections + product/examples pages) so the scan
+    // SEES the product UI a SPA hides from an HTML parser. Mirror each to R2, attach as actionable
+    // assets.uiScreenshots — the input the vision-decode stage reads into a Product UI Model. Fail-soft.
+    if (dependencies.captureSectionScreenshots && dependencies.visualAssetStorage) {
+      try {
+        const MAX_UI_SHOTS = 12;
+        const storedUiUrls: string[] = [];
+        let shotIndex = 0;
+        for (const captureUrl of resolveBrandCaptureUrls(snapshot.normalizedUrl)) {
+          if (storedUiUrls.length >= MAX_UI_SHOTS) break;
+          const sections = await dependencies.captureSectionScreenshots(captureUrl);
+          for (const section of sections) {
+            if (storedUiUrls.length >= MAX_UI_SHOTS) break;
+            const meta = {
+              assetId: `${jobId}_ui_screenshot_${shotIndex++}`,
+              kind: 'website_preview' as const,
+              label: 'UI screenshot',
+              jobId,
+              userId: input.userId,
+              brandId: input.brandId,
+              sourceUrl: captureUrl,
+              signalPath: 'assets.uiScreenshots',
+            };
+            const stored =
+              section.source === 'url'
+                ? await dependencies.visualAssetStorage.mirrorAsset({ ...meta, url: section.url })
+                : dependencies.visualAssetStorage.storeImageBytes
+                  ? await dependencies.visualAssetStorage.storeImageBytes({ ...meta, base64: section.base64, contentType: section.contentType })
+                  : { ok: false as const, reason: 'storage provider cannot persist screenshot bytes' };
+            if (stored.ok) storedUiUrls.push(stored.publicUrl);
+          }
+        }
+        if (storedUiUrls.length > 0) {
+          draft.record.profile = applyUiScreenshotsToProfile(draft.record.profile, {
+            screenshotUrls: storedUiUrls,
+            observedAt: snapshot.fetchedAt,
+            sourceUrl: snapshot.normalizedUrl,
+          });
+        }
+      } catch (error) {
+        console.warn(
+          '[BrandVault:uiScreenshots] section screenshot capture skipped:',
           error instanceof Error ? error.message : String(error),
         );
       }

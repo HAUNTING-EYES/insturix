@@ -292,6 +292,49 @@ describe('Brand Vault draft orchestrator', () => {
     );
   });
 
+  it('captures section screenshots, mirrors them to storage, and attaches assets.uiScreenshots', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    const capturedFor: string[] = [];
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_ui',
+        brandId: 'brand_ui',
+        websiteUrl: 'signal.example',
+        jobId: 'job_ui_shots',
+        profileRecordId: 'draft_ui_shots',
+        now: NOW,
+      },
+      {
+        repository,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        captureSectionScreenshots: async (url) => {
+          capturedFor.push(url);
+          return [
+            { source: 'bytes', base64: 'AAAA', contentType: 'image/png' },
+            { source: 'url', url: 'https://raw.example/section-1.png' },
+          ];
+        },
+        visualAssetStorage: {
+          async mirrorAsset(input) {
+            return { ok: true, provider: 'test_r2', storageKey: input.assetId, publicUrl: `https://cdn.ui.example/${input.assetId}`, contentType: 'image/png', sizeBytes: 100, storedAt: NOW };
+          },
+          async storeImageBytes(input) {
+            return { ok: true, provider: 'test_r2', storageKey: input.assetId, publicUrl: `https://cdn.ui.example/${input.assetId}`, contentType: input.contentType, sizeBytes: 100, storedAt: NOW };
+          },
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    // Captured for the main page (+ /examples per the URL rule).
+    expect(capturedFor).toContain('https://signal.example/');
+    const uiShots = result.profile.assets?.uiScreenshots;
+    expect(uiShots?.value.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect((uiShots?.value ?? []).every((url) => url.startsWith('https://cdn.ui.example/'))).toBe(true);
+  });
+
   it('surfaces weak, missing, and fallback signal diagnostics for review UI', async () => {
     const repository = createInMemoryBrandSignalProfileRepository();
     const sparseHtml = `
