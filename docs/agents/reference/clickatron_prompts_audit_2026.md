@@ -4,6 +4,11 @@ This file contains all the raw system prompts and prompt-construction logic used
 
 ---
 
+## What We Fixed in V11 (Dual-Engine Architecture)
+- **Model-Aware Prompting:** Realized that we shouldn't force one architecture on both families of image models. V11 introduces a router (`isLlmImageModel`).
+- **LLM Generators (Gemini, Nano Banana):** Get the highly structured XML `Creative Director` prompt (V7). These models parse XML perfectly and need the explicit structural rules.
+- **Diffusion Generators (Flux, Ideogram):** Get the Natural Language Hybrid prompt (V10). These models hallucinate on XML and need caption-style keywords and plain text.
+
 ## What We Fixed in V10 (Hybrid Diffusion-Native Prompter)
 - **Restored Brand Directives:** V9 stripped out the Brand Context and Creativity influence to stop hallucinations, but we realized those are critical for business use-cases. 
 - **Natural Language Formatting:** Instead of using structural rules (like `Priority order:` or bullet points) which confused diffusion models, V10 uses continuous natural language captions ("Design instructions: Incorporate the following brand guidelines..."). This perfectly balances the V9 high-quality artistic enhancers with the necessary Brand and Text layout directives.
@@ -189,11 +194,19 @@ Clickatron dynamically constructs Text-to-Image prompts by assembling three bloc
 
 ---
 
-## 4. Text-to-Image Generation (V10 Hybrid Diffusion-Native)
+## 4. Text-to-Image Generation (V11 Dual-Engine Architecture)
 **Location:** `lib/clickatron/brand-prompt-context.ts` (applied to all T2I generations)
 
-### V10 (Current: The Golden Hybrid Prompt)
-V10 perfectly balances the high-quality diffusion keywords of V9 with the necessary business context (Brand, Text Hierarchy) of V7, completely avoiding the XML and bulleted-list formatting that causes image model hallucinations. It uses natural language prose to guide the model.
+### V11 (Current: The Dual-Engine Router)
+V11 introduces conditional routing based on the selected `modelId`. We no longer try to use a "one-size-fits-all" prompt. 
+
+- If the model is an **LLM-based generator** (like Gemini or Nano Banana), it uses the **V7 XML Creative Director** prompt, which they parse perfectly.
+- If the model is a **Diffusion generator** (like Flux, Ideogram, Midjourney), it uses the **V10 Hybrid Natural Language** prompt, preventing the XML-induced Canva hallucinations.
+
+<details>
+<summary>V10 (FAILED: Universal Hybrid Prompter)</summary>
+
+**STATUS: FAILED ATTEMPT.** While V10 was perfect for Diffusion models (producing stunning photorealism without hallucinating Canva templates), it was sub-optimal for the LLM-based generators (Gemini/Nano Banana), which performed better with the strict XML hierarchy of V7.
 
 ```text
 [User's Raw Prompt], award-winning professional graphic design, premium editorial aesthetics, masterpiece, striking visual hierarchy, high-end commercial quality, clean composition, deliberate negative space, highly detailed, non-generic, unique artistic layout
@@ -206,6 +219,7 @@ Design instructions: Incorporate the following brand guidelines and contextual d
 [Source Context Block]
 [Brand Context Block]
 ```
+</details>
 
 <details>
 <summary>V9 (FAILED: Diffusion-Native Style Enhancers Only)</summary>
