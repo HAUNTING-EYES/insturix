@@ -389,3 +389,46 @@ Do not alter spelling, dates, numbers, or capitalization from what was supplied.
 ```
 
 </details>
+
+---
+
+## 5. Image-to-Image & Generative Fill (Diffusion-Native Refactor)
+**Location:** `lib/config/clickatron-models.ts` 
+
+Prior to V11, the `GENERATIVE_FILL_SYSTEM_PROMPT` and `IMAGE_TO_IMAGE_SYSTEM_PROMPT` used XML tags (e.g., `<role>`, `<rules>`, `<task>`). Because these operations rely entirely on Diffusion models (Flux Inpainting, Ideogram, Seedream Edit), the models hallucinated the XML tags as literal text, attempting to render Canva-like templates into the user's images. 
+
+### Current Diffusion-Native Prompts (V11 Standard)
+These have been rewritten as pure natural language prose with comma-separated keywords and plain-text lists.
+
+**Generative Fill (Inpainting):**
+```text
+Inpainting instructions: You are performing a precise generative fill. Modify ONLY the masked area according to the user request. Keep 100% of the non-masked areas EXACTLY unchanged. 
+
+CRITICAL RULES:
+- Blend the new content seamlessly with the surrounding pixels.
+- Match the lighting, style, color tone, and perspective of the original image perfectly.
+- Do NOT regenerate or modify the entire image. This is localized inpainting.
+- Preserve all original objects, people, and details outside the masked region.
+- Maintain the EXACT original canvas size, resolution, and aspect ratio. Do not crop or reframe.
+- Scale or adapt the new content to fit naturally within the mask boundaries without bleeding into unmasked areas.
+- Do not render these instructions as text in the image.
+```
+
+**Image-to-Image (Edit):**
+```text
+Image-to-image editing instructions: Create a variation that applies the requested changes while staying true to the original foundation. Do not replace the original image entirely.
+
+CRITICAL RULES:
+- Preserve the subject pose, camera angle, framing, and spatial layout unless the request explicitly changes them.
+- Keep the same lighting style, color grading, and overall mood unless explicitly asked to alter them.
+- Do NOT completely regenerate or reinterpret the entire image.
+- Maintain the original level of detail, quality, and artistic style.
+- Maintain the EXACT aspect ratio and dimensions of the original image. Do not change the image size or crop.
+- If a requested change conflicts with preservation (e.g. "make it winter" implies lighting changes), the explicit request takes priority for that attribute only. Everything else must remain preserved.
+- Do not render these instructions as text in the image.
+```
+
+### Aspect Ratio Physical & Compositional Fix (2026-07-08)
+1. **Physical Fix**: Standard Flux models (`fal-ai/flux-kontext/dev` & `fal-ai/flux-pro/v1/fill`) were ignoring the UI-selected Aspect Ratio and defaulting to Fal AI's default (e.g., 1024x1024). Fixed by ensuring `image_size: { width, height }` is explicitly passed in `generateModelPayload`.
+2. **Compositional Fix**: Even when physical canvas sizes were correct, Diffusion/LLM models often composed subjects blindly (e.g., centering a square subject in a 16:9 canvas). A hard constraint is now dynamically injected into V7/V10 prompts via `buildClickatronGenerationPrompt`:
+   > *CRITICAL LAYOUT RULE: The final image will be generated at a [ratio] aspect ratio. You MUST compose the layout, typography, and focal point specifically to fit a [ratio] canvas.*
