@@ -247,9 +247,15 @@ const V2TimelineItem: React.FC<V2TimelineItemProps> = ({
     return () => ro.disconnect();
   }, []);
   const showName = clipW >= 56; // enough room for the glyph + a few chars
+  const name = clipName(item);
+  // Hover reveals the name even on tiles too narrow to show it inline.
+  const hoverTitle =
+    name ||
+    (item.type === OverlayType.TRANSITION
+      ? (item as { transitionStyle?: string }).transitionStyle || 'Transition'
+      : String(item.type).replace(/-/g, ' '));
 
   const renderContent = () => {
-    const name = clipName(item);
     return (
       <>
         {/* Background visuals (real, bounded to the clip). */}
@@ -314,6 +320,7 @@ const V2TimelineItem: React.FC<V2TimelineItemProps> = ({
     >
       <div
         ref={itemRef}
+        title={hoverTitle}
         className={`group absolute inset-y-[0.9px] cursor-grab select-none overflow-visible rounded-md pointer-events-auto ${fillClasses} ${
           isDragging && draggedItem?.id === item.id ? 'opacity-50' : ''
         } ${isTouching ? 'scale-[0.98] opacity-80' : ''} ${isSelected ? 'border-2 border-gold' : 'border border-ds-subtle'}`}
