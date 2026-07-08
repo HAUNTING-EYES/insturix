@@ -121,7 +121,6 @@ const V2TimelineItem: React.FC<V2TimelineItemProps> = ({
   const [touchStartTime, setTouchStartTime] = useState<number | null>(null);
   const [touchStartPosition, setTouchStartPosition] = useState<{ x: number; y: number } | null>(null);
   const [isTouching, setIsTouching] = useState(false);
-  const [clipW, setClipW] = useState(0);
   const touchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const LONG_PRESS_DURATION = 500;
@@ -222,17 +221,9 @@ const V2TimelineItem: React.FC<V2TimelineItemProps> = ({
     }
   };
 
-  // Measure the clip's rendered width so the name only shows when it fits.
-  useEffect(() => {
-    const el = itemRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver((entries) => {
-      for (const e of entries) setClipW(e.contentRect.width);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const showName = clipW >= 56; // enough room for the glyph + a few chars
+  // Show the name inline ONLY for the selected clip — keeps a dense timeline
+  // clean (glyph only). Hovering any clip still reveals its name via `title`.
+  const showName = isSelected;
   const name = clipName(item);
   // Hover reveals the name even on tiles too narrow to show it inline.
   const hoverTitle =
