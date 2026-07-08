@@ -1,7 +1,6 @@
 import type { EffectiveBrandResolution } from "@/lib/shared/brand-effective-resolver";
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
 import { isBrandSignalActionable, type BrandSignal, type BrandSignalProfile } from "@/lib/shared/brand-signal-profile";
-import { modelSupportsTextRendering } from "@/lib/config/clickatron-models";
 import { sanitizeVisualPrompt } from "@/lib/clickatron/sanitize-visual-prompt";
 
 type MetadataRecord = Record<string, unknown>;
@@ -334,25 +333,7 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   return lines.join("\n");
 }
 
-// C2: read renderPlan.textPolicy off the handoff metadata.
-function readClickatronTextPolicy(metadata?: MetadataRecord | null): string | undefined {
-  const creativeSpec = asRecord(asRecord(asRecord(metadata)?.clickatron)?.creativeSpec);
-  return cleanText(asRecord(creativeSpec?.renderPlan)?.textPolicy);
-}
-
-// C2: decide whether generation bakes the supplied copy INTO the image, or keeps the image
-// text-free so copy is layered as editable overlays (the historical default). Reality of the
-// upstream contract: the only policies anything actually sets are 'no_generated_text' and
-// 'editable_text_layers' — 'minimal_generated_text' is contract-valid but currently never
-// produced. So the live trigger is the MODEL the user picked: on the default policy a
-// text-capable model renders the copy, everything else stays text-free. Explicit policies win.
-function shouldRenderTextInImage(textPolicy: unknown, modelId?: string | null): boolean {
-  const policy = cleanText(textPolicy);
-  if (policy === "no_generated_text") return false; // explicit: never bake text
-  if (policy === "minimal_generated_text") return true; // explicit: always bake text
-  // editable_text_layers / unset (the default): the user's model pick decides.
-  return modelSupportsTextRendering(modelId ?? undefined);
-}
+// C2 functions for text rendering stripped (V6 Zero Prompt architecture does not inject text rules).
 
 function parseTextHierarchy(metadata?: MetadataRecord | null): string {
   const creativeSpec = asRecord(asRecord(asRecord(metadata)?.clickatron)?.creativeSpec);
@@ -403,83 +384,15 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
 
   if (contextBlocks.length === 0) return prompt;
 
-  const renderTextInImage = shouldRenderTextInImage(readClickatronTextPolicy(input.metadata), input.modelId);
-  const textRules = renderTextInImage
-    ? [
-        "If the source context supplies text-layer copy, render exactly that copy in the image — accurate spelling, brand-appropriate type, high contrast, balanced placement, overlay-safe margins.",
-        "Render ONLY the supplied text-layer copy. Do not render key claims, brand taglines, or any other context field as image text unless it is explicitly present in the text-layer copy field.",
-        "If no text-layer copy is supplied, keep the image text-free — never invent extra words, captions, UI chrome, watermarks, or logo text.",
-      ]
-    : [
-        "Generate the raster image as a text-free visual/background, not a finished poster with baked-in copy.",
-        "Do not render readable words, letters, numbers, headings, body copy, CTA text, labels, UI text, watermarks, signatures, or logo text.",
-        "Use Clickatron text-layer summaries only to reserve safe zones; exact copy is added later as editable overlays.",
-        "If the request contains long post, caption, or script copy, treat it as meaning and layout intent, not as words to draw.",
-      ];
-
+  // V6 (Zero Prompt): Stripped out the V5 Precedence Engine (marked as a failed attempt).
+  // We only pass the user's raw prompt and the core contextual data blocks (Brand + Source).
   const textHierarchyContent = parseTextHierarchy(input.metadata);
-
-  const fieldResolution = `<field_resolution>
-Before generating, determine for EACH of the following whether the user's request explicitly specified it:
-- Visual style (e.g. "editorial", "realistic", "cinematic", "illustration", "flat design")
-- Color palette
-- Headline text
-- Scene/subject description
-- Footer details (date, time, venue, organiser)
-- Typography direction
-- Explicit negative constraints (e.g. "avoid AI faces", "avoid stock-photo look", "avoid overcrowded layouts")
-
-For any field the user explicitly specified: use their value as the authoritative source. Do not substitute it with a default, template, or "safer" alternative under any circumstance.
-For any field the user left unspecified or vague: apply the fallback defaults below.
-</field_resolution>`;
-
-  const fallbackDefaults = `<fallback_defaults use_only_if_field_unspecified="true">
-- Style fallback: flat/vector graphic-design illustration with icon-based visual metaphors
-- Palette fallback: derive from brand_context; if brand_context also empty, use 2-3 high-contrast colors appropriate to the event category
-- Headline fallback: "[Org Name] presents: [Event Name]"
-- Scene fallback: icon-based composition representing the event category
-- Footer fallback: omit any sub-field not supplied — do not invent date/time/venue placeholders
-</fallback_defaults>`;
-
-  const userExplicitContent = `<user_explicit_content>
-User's visual prompt:
-${prompt}
-
-Extracted text fields from metadata:
-${textHierarchyContent || "None"}
-</user_explicit_content>`;
-
-  const negativeConstraints = `<negative_constraints>
-Always carry forward any explicit "avoid" list from the user verbatim — these are hard constraints, never optional style suggestions.
-</negative_constraints>`;
-
-  const canvasAndLayout = `<canvas_and_layout>
-Maintain clear hierarchy and legible text placement, but do not impose the flat-illustration layout template if the user's specified style is photographic/editorial/cinematic — layout conventions should match the chosen style, not override it.
-</canvas_and_layout>`;
-
-  const languageGuard = `<language_guard>
-Render text in English only, exactly as the user specified — no spelling/date/number changes. If non-English script was requested, redirect to overlay layer instead of attempting to render it as image text.
-</language_guard>`;
-
+  
   const enriched = [
-    `<role>You are a graphic design generator creating a bold, modern event poster.</role>`,
-    fieldResolution,
-    fallbackDefaults,
-    userExplicitContent,
-    negativeConstraints,
-    ...contextBlocks,
-    `<clickatron_generation_rules>`,
-    "Use source and brand context for concept, composition, color, tone, audience fit, and overlay-safe negative space.",
-    "Honor every brand hard constraint from the source context, and treat key claims as visual concepts to evoke through scene and composition, never as text to render.",
-    "If a creative direction in the source context conflicts with a brand hard constraint, the brand hard constraint always takes priority.",
-    ...textRules,
-    "Do not invent logos, trademarks, mascots, product packs, or brand assets unless explicitly provided.",
-    "Do not render source IDs or internal metadata text.",
-    `</clickatron_generation_rules>`,
-    canvasAndLayout,
-    languageGuard,
-    `<output_format>A single image matching the resolved style, palette, and text exactly as specified above.</output_format>`
-  ].join("\n\n");
+    prompt,
+    textHierarchyContent ? `<extracted_text_hierarchy>\n${textHierarchyContent}\n</extracted_text_hierarchy>` : "",
+    ...contextBlocks
+  ].filter(Boolean).join("\n\n");
 
   return enriched.length > MAX_PROMPT_LENGTH
     ? `${enriched.slice(0, MAX_PROMPT_LENGTH - 3)}...`

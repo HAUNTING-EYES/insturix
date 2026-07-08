@@ -4,6 +4,10 @@ This file contains all the raw system prompts and prompt-construction logic used
 
 ---
 
+## What We Fixed in V6 (Zero Prompt / Context Only)
+- **Stripped Precedence Architecture:** The V5 precedence engine proved too rigid/complex for image models, causing generation failures. 
+- **Raw Context Engine:** We stripped all instructions, field-resolution logic, and text-rules. The system now only forwards the raw User Prompt, extracted Text Hierarchy, and Brand/Source Context directly to the model.
+
 ## What We Fixed in V5 (User-Override Precedence)
 - **Field-Level Precedence:** Replaced the unconditional V4 `style_lock` overrides with a `<field_resolution>` block. 
 - **Preserved User Intent:** The system now checks if the user explicitly provided a style, palette, headline, scene, or footer, and uses their verbatim input if so. Fallback defaults are only injected for unspecified fields.
@@ -167,13 +171,30 @@ Clickatron dynamically constructs Text-to-Image prompts by assembling three bloc
 
 ---
 
-## 4. Text-to-Image Generation (V5 Precedence Architecture)
+## 4. Text-to-Image Generation (V6 Zero Prompt Architecture)
 **Location:** `lib/clickatron/brand-prompt-context.ts` (applied to all T2I generations)
 
-### V5 (Current: Field-Level Precedence)
-Because V4 was actively destructive to explicit user instructions (e.g. overriding "cinematic editorial" with generic flat illustrations), V5 introduces a field-level check to ensure explicit user inputs are strictly preserved, while fallbacks apply only to unspecified fields.
+### V6 (Current: Context Only)
+All generative rules, style locks, and field precedence checks have been removed. The prompt now only consists of the user's raw input appended with the project's Text Hierarchy and Brand/Source context.
 
-**See the complete V5 architecture:** [`clickatron_v5_precedence_architecture.md`](./clickatron_v5_precedence_architecture.md)
+```xml
+[User's Raw Prompt]
+
+<extracted_text_hierarchy>
+[Parsed fields injected here: LEVEL 1 (org), LEVEL 2 (title), etc.]
+</extracted_text_hierarchy>
+
+[Source Context Block]
+[Brand Context Block]
+```
+
+<details>
+<summary>V5 (FAILED: Field-Level Precedence)</summary>
+
+**STATUS: FAILED ATTEMPT.** The structured `<field_resolution>` rules were too restrictive and confused the image models during actual generations. 
+
+**See the complete failed V5 architecture:** [`clickatron_v5_failed_precedence_architecture.md`](./clickatron_v5_failed_precedence_architecture.md)
+</details>
 
 <details>
 <summary>V4 (Deprecated: Universal Artistic Restructuring)</summary>

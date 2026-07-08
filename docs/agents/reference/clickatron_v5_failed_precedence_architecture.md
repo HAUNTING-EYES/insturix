@@ -1,4 +1,8 @@
-# Clickatron — V5: User-Override Precedence Architecture
+# Clickatron — V5: FAILED User-Override Precedence Architecture
+
+**STATUS: FAILED ATTEMPT**
+This prompt architecture was too restrictive and caused generation issues during testing. It has been replaced by the V6 Zero-Prompt strategy (which strips all instructions and relies solely on raw context).
+
 
 ## Problem (Why V3/V4 was Deprecated)
 V3/V4 (the "hardened" event poster prompt / general artistic prompt) was built on the assumption that user input is *always* weak, so it injected `style_lock`, generic `text_hierarchy` fallbacks, and icon-vocabulary defaults **unconditionally** — with language like "regardless of what the user says." 
