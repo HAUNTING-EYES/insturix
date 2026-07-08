@@ -4,6 +4,10 @@ This file contains all the raw system prompts and prompt-construction logic used
 
 ---
 
+## What We Fixed in V8 (Condensed Plain-Text Precedence)
+- **Stripped XML Overhead:** Text-to-Image diffusion models (Flux, Ideogram) struggled to parse the heavy XML `<role>` and `<priority_order>` tags of V7, resulting in generic flat outputs.
+- **Concise Directives:** Replaced the heavy XML structure with a highly condensed, plain-text priority list. It retains the same agency-grade instructions but formatted in a way diffusion models natively understand.
+
 ## What We Fixed in V7 (Professional Creative Director Architecture)
 - **Agency-Grade Precedence:** Replaced the V6 Zero-Prompt with a highly structured Creative Director persona.
 - **Explicit Hierarchy:** Enforced an absolute priority list: 1. User Prompt, 2. Brand Context, 3. Default Design Knowledge.
@@ -177,11 +181,28 @@ Clickatron dynamically constructs Text-to-Image prompts by assembling three bloc
 
 ---
 
-## 4. Text-to-Image Generation (V7 Professional Creative Director)
+## 4. Text-to-Image Generation (V8 Condensed Plain-Text)
 **Location:** `lib/clickatron/brand-prompt-context.ts` (applied to all T2I generations)
 
-### V7 (Current: Master Prompt)
-The V7 architecture brings back instructions but structures them as an agency-grade "Creative Director" persona. It explicitly forces the model to respect the user's prompt as the highest priority while enforcing premium, editorial design standards over generic Canva templates.
+### V8 (Current: Compact Master Prompt)
+Diffusion models struggled to parse the heavy XML structure of V7. V8 condenses the agency-grade instructions into a concise, plain-text directive that image generators naturally understand.
+
+```text
+You are Clickatron.
+Generate premium marketing visuals.
+
+Priority order:
+1. User Prompt
+2. Brand Context
+3. Design Knowledge
+...
+[User's Request: ...]
+```
+
+<details>
+<summary>V7 (FAILED: XML-Structured Creative Director)</summary>
+
+**STATUS: FAILED ATTEMPT.** While the logic was perfect for an LLM, the heavy XML tags (`<role>`, `<priority_order>`) confused the diffusion T2I models (like Flux and Ideogram), causing them to fallback to generic, low-quality Canva-style templates.
 
 ```xml
 <role>You are Clickatron, an expert AI creative director...</role>
@@ -200,14 +221,8 @@ The V7 architecture brings back instructions but structures them as an agency-gr
 <user_explicit_content>
 [User's Raw Prompt]
 </user_explicit_content>
-
-<extracted_text_hierarchy>
-[Parsed fields injected here: LEVEL 1 (org), LEVEL 2 (title), etc.]
-</extracted_text_hierarchy>
-
-[Source Context Block]
-[Brand Context Block]
 ```
+</details>
 
 <details>
 <summary>V6 (Deprecated: Zero Prompt)</summary>
