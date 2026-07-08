@@ -722,12 +722,7 @@ Never:
 - Introduce unrelated objects or stylistic changes.
 - Render any instruction text into the image.
 `;
-/**
- * System prompt prepended to user prompts for image-to-image editing (variations)
- */
-/**
- * System prompt prepended to user prompts for image-to-image editing
- */
+
 export const IMAGE_TO_IMAGE_SYSTEM_PROMPT = `
 You are performing controlled image-to-image editing.
 
