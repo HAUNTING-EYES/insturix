@@ -4,6 +4,7 @@ import {
   getModelFillProfile,
   MODEL_FILL_PROFILES,
 } from '@/lib/clickatron/fill-prompt-compiler';
+import { getAvailableModels } from '@/lib/config/clickatron-models';
 
 describe('fill-prompt-compiler — dialect routing', () => {
   it('mask model + mask → inpaint dialect, uses the mask, no warning', () => {
@@ -70,6 +71,18 @@ describe('fill-prompt-compiler — defaults, determinism, drift guard', () => {
   it('is deterministic (same input → identical output)', () => {
     const intent = { instruction: 'add a hat', hasMask: true };
     expect(compileFillPrompt('fal-ai/flux-pro/v1/fill', intent)).toEqual(compileFillPrompt('fal-ai/flux-pro/v1/fill', intent));
+  });
+
+  it('DRIFT GUARD: the generative-fill list offers ONLY mask-capable inpaint models', () => {
+    // Decision A: fill = masked edit. Every model the UI offers for fill must accept a mask
+    // and speak the inpaint dialect — otherwise the mask is silently dropped (the fill bug).
+    const fillModels = getAvailableModels('generativeFill');
+    expect(fillModels.length).toBeGreaterThan(0);
+    for (const model of fillModels) {
+      const profile = getModelFillProfile(model.id);
+      expect(profile.acceptsMask, `${model.id} offered for fill but cannot accept a mask`).toBe(true);
+      expect(profile.dialect, `${model.id} offered for fill but is not inpaint dialect`).toBe('inpaint');
+    }
   });
 
   it('every model in the fill profile map has a valid dialect', () => {

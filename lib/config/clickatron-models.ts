@@ -526,10 +526,14 @@ export function getAvailableModels(
   // image_url + mask_url and honor the masked region (verified against Fal API docs +
   // the generateFluxDevInpaintingPayload/FluxProFill/FluxKontextInpainting builders).
   if (context === 'generativeFill') {
+    // Fill = masked region edit (decision A). ONLY models whose live Fal endpoint accepts a
+    // mask_url — the seedream/nano "edit" models are natural-language edits that ignore the
+    // mask and regenerate the whole image, which is why fill "wasn't working". Those belong
+    // under a separate whole-image "AI edit" action, not mask-fill. This list is the
+    // inpaint-dialect set in fill-prompt-compiler.ts MODEL_FILL_PROFILES (kept in sync there;
+    // a drift test asserts it). Not derived by import to avoid a circular dependency.
     const allowedModels = [
       'fal-ai/flux-pro/v1/fill',
-      'fal-ai/bytedance/seedream/v5/lite/edit',
-      'fal-ai/nano-banana-pro/edit',
       'fal-ai/flux/dev/inpainting',
       'fal-ai/flux-kontext/dev/inpainting',
     ];
