@@ -10,7 +10,7 @@ import { VideoOverlayPanel } from '../../components/overlays/video/video-overlay
 import { CaptionsPanel } from '../../components/overlays/captions/captions-panel';
 import { ImageOverlayPanel } from '../../components/overlays/images/image-overlay-panel';
 import { StickersPanel } from '../../components/overlays/stickers/stickers-panel';
-import { LocalMediaPanel } from '../../components/overlays/local-media/local-media-panel';
+import { V2AssetsPanel } from './v2-assets-panel';
 import { TemplateOverlayPanel } from '../../components/overlays/templates/template-overlay-panel';
 import { HtmlScenePanel } from '../../components/overlays/html/html-scene-panel';
 import { TransitionBrowserPanel } from '../../components/transitions/transition-browser-panel';
@@ -33,7 +33,7 @@ import { LottiePanel } from '../../components/lottie/lottie-panel';
    when v2 replaces v1 and app-sidebar is retired. */
 
 const PANELS: Array<{ type: OverlayType; el: React.ReactNode }> = [
-  { type: OverlayType.LOCAL_DIR, el: <LocalMediaPanel /> },
+  { type: OverlayType.LOCAL_DIR, el: <V2AssetsPanel /> },
   { type: OverlayType.TEXT, el: <TextOverlaysPanel /> },
   { type: OverlayType.IMAGE, el: <ImageOverlayPanel /> },
   { type: OverlayType.VIDEO, el: <VideoOverlayPanel /> },
