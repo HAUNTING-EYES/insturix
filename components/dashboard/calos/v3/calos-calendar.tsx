@@ -229,7 +229,7 @@ export default function CalosCalendarV3() {
         .calos-fr:focus-visible{outline:2px solid ${C.gold};outline-offset:2px}
         .calos-chip:hover{border-color:${C.bs};background:#181614}
         .calos-ns::-webkit-scrollbar{height:7px;width:7px}.calos-ns::-webkit-scrollbar-thumb{background:${C.bs};border-radius:4px}
-        .calos-grid{display:grid;grid-template-columns:repeat(7,1fr)}
+        .calos-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
         .calos-tw{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
         .calos-wrap{display:grid;grid-template-columns:minmax(190px,18%) minmax(0,1fr);gap:16px;align-items:start}
         .calos-trend-select{height:34px;max-width:180px;background:${C.surface};color:${C.soft};border:1px solid ${C.border};border-radius:7px;padding:0 10px;font-family:${MONO};font-size:11px;letter-spacing:0.03em;outline:none;cursor:pointer}

@@ -203,7 +203,7 @@ export default function CalosCampaignBar({
       const market = typeof data?.trendLocation === 'string' && data.trendLocation ? data.trendLocation : 'global';
       onAfterGenerate();
       if (created > 0) {
-        await reviewNew(beforeIds, 'AI plan · review', `${created} idea${created === 1 ? '' : 's'} · ${trendsUsed} trend${trendsUsed === 1 ? '' : 's'} in ${market} via ${data?.provider ?? 'none'}`, { campaignId: campaignId || undefined, expectedCount: created });
+        await reviewNew(beforeIds, 'AI plan · review', `${created} idea${created === 1 ? '' : 's'} · ${trendsUsed} trend${trendsUsed === 1 ? '' : 's'} in ${market}`, { campaignId: campaignId || undefined, expectedCount: created });
       } else {
         toast({ title: 'No ideas drafted', description: data?.note || 'Try a wider window or a different market.' });
       }
