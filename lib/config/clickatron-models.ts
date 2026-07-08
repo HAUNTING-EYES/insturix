@@ -528,6 +528,8 @@ export function getAvailableModels(
   if (context === 'generativeFill') {
     const allowedModels = [
       'fal-ai/flux-pro/v1/fill',
+      'fal-ai/bytedance/seedream/v5/lite/edit',
+      'fal-ai/nano-banana-pro/edit',
       'fal-ai/flux/dev/inpainting',
       'fal-ai/flux-kontext/dev/inpainting',
     ];
@@ -1045,7 +1047,9 @@ export function generateModelPayload(
       };
     case 'fal-ai/nano-banana-pro/edit':
       const hasImageNano = generationParams.image_urls || (generationParams.image_url ? [generationParams.image_url] : []);
-      const nanoFullPrompt = hasImageNano.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}
+      const isNanoGenFill = !!generationParams.mask_url;
+      const nanoSystemPrompt = isNanoGenFill ? GENERATIVE_FILL_SYSTEM_PROMPT : IMAGE_TO_IMAGE_SYSTEM_PROMPT;
+      const nanoFullPrompt = hasImageNano.length > 0 ? `${nanoSystemPrompt}
 
 User Request: ${job.prompt}` : job.prompt;
       const payload: any = {
@@ -1060,7 +1064,9 @@ User Request: ${job.prompt}` : job.prompt;
       return payload;
     case 'fal-ai/bytedance/seedream/v5/lite/edit':
       const hasImageSd = generationParams.image_urls || (generationParams.image_url ? [generationParams.image_url] : []);
-      const sdFullPrompt = hasImageSd.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}
+      const isSdGenFill = !!generationParams.mask_url;
+      const sdSystemPrompt = isSdGenFill ? GENERATIVE_FILL_SYSTEM_PROMPT : IMAGE_TO_IMAGE_SYSTEM_PROMPT;
+      const sdFullPrompt = hasImageSd.length > 0 ? `${sdSystemPrompt}
 
 User Request: ${job.prompt}` : job.prompt;
       const sdPayload: any = {
