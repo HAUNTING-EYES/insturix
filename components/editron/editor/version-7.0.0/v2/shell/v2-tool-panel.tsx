@@ -5,7 +5,7 @@ import { Mono } from '@/components/primitives';
 import { useSidebar } from '../../contexts/sidebar-context';
 import { OverlayType } from '../../types';
 import { SelectTextOverlay } from '../../components/overlays/text/select-text-overlay';
-import SoundsPanel from '../../components/overlays/sounds/sounds-panel';
+import { V2SoundBrowse } from './v2-sound-browse';
 import { CaptionsPanel } from '../../components/overlays/captions/captions-panel';
 import { V2VideoBrowse } from './v2-video-browse';
 import { V2ImageBrowse } from './v2-image-browse';
@@ -38,7 +38,7 @@ const PANELS: Array<{ type: OverlayType; el: React.ReactNode }> = [
   { type: OverlayType.IMAGE, el: <V2ImageBrowse /> },
   { type: OverlayType.VIDEO, el: <V2VideoBrowse /> },
   { type: OverlayType.CAPTION, el: <CaptionsPanel /> },
-  { type: OverlayType.SOUND, el: <SoundsPanel /> },
+  { type: OverlayType.SOUND, el: <V2SoundBrowse /> },
   { type: OverlayType.SFX_LIBRARY, el: <SFXLibraryPanel /> },
   { type: OverlayType.STICKER, el: <StickersPanel /> },
   { type: OverlayType.TRANSITIONS, el: <TransitionBrowserPanel /> },
