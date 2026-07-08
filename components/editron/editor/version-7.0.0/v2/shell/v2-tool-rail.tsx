@@ -41,7 +41,7 @@ const TOOLS: Tool[] = [
 const railBtn =
   'relative flex flex-col items-center gap-1.5 py-2.5 transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-gold/50';
 
-export function V2ToolRail({ aiOpen, onToggleAi }: { aiOpen: boolean; onToggleAi: () => void }) {
+export function V2ToolRail({ aiOpen, onToggleAi, onOpenTool }: { aiOpen: boolean; onToggleAi: () => void; onOpenTool: () => void }) {
   const { activePanel, setActivePanel } = useSidebar();
 
   return (
@@ -53,7 +53,7 @@ export function V2ToolRail({ aiOpen, onToggleAi }: { aiOpen: boolean; onToggleAi
           <button
             key={t.id}
             type="button"
-            onClick={() => setActivePanel(t.panel)}
+            onClick={() => { setActivePanel(t.panel); onOpenTool(); }}
             title={t.label}
             className={cn(railBtn, active ? 'text-gold' : 'text-ds-muted hover:text-ds-secondary')}
           >

@@ -1,6 +1,6 @@
 'use client';
 
-import { Trash2, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
+import { Trash2, AlignLeft, AlignCenter, AlignRight, X } from 'lucide-react';
 import { Mono, Glyph } from '@/components/primitives';
 import { cn } from '@/lib/utils';
 import { useEditorContext } from '../../contexts/editor-context';
@@ -71,13 +71,20 @@ function AnimationPills({ current, onPick }: { current?: string; onPick: (key: s
   );
 }
 
-export function V2PropsPanel() {
+const closeBtn = 'flex h-6 w-6 shrink-0 items-center justify-center rounded text-ds-muted transition-colors hover:bg-surface-well hover:text-ds-secondary focus-visible:outline-hidden';
+
+export function V2PropsPanel({ onClose }: { onClose?: () => void }) {
   const { overlays, selectedOverlayId, changeOverlay, deleteOverlay, setSelectedOverlayId } = useEditorContext();
   const sel = overlays.find((o) => o.id === selectedOverlayId) ?? null;
 
   if (!sel) {
     return (
-      <div className="flex w-[264px] shrink-0 items-center justify-center border-l border-ds-subtle bg-surface-canvas p-4">
+      <div className="relative flex w-[264px] shrink-0 items-center justify-center border-l border-ds-subtle bg-surface-canvas p-4">
+        {onClose && (
+          <button type="button" onClick={onClose} title="Close panel (Esc)" className={`absolute right-2 top-2 ${closeBtn}`}>
+            <X size={14} />
+          </button>
+        )}
         <Mono size="10" className="text-ds-dim">Select an overlay</Mono>
       </div>
     );
@@ -96,9 +103,16 @@ export function V2PropsPanel() {
   return (
     <div className="flex w-[264px] shrink-0 flex-col overflow-y-auto border-l border-ds-subtle bg-surface-canvas p-4">
       {/* Type header */}
-      <div className="mb-3.5 flex items-center gap-2">
-        <span className="rounded border border-gold/40 px-1.5 py-0.5"><Glyph active>{GLYPH[sel.type] ?? '••'}</Glyph></span>
-        <Mono size="10" className="text-gold">{sel.type.replace(/-/g, ' ')} overlay</Mono>
+      <div className="mb-3.5 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="rounded border border-gold/40 px-1.5 py-0.5"><Glyph active>{GLYPH[sel.type] ?? '••'}</Glyph></span>
+          <Mono size="10" className="text-gold">{sel.type.replace(/-/g, ' ')} overlay</Mono>
+        </div>
+        {onClose && (
+          <button type="button" onClick={onClose} title="Close panel (Esc)" className={closeBtn}>
+            <X size={14} />
+          </button>
+        )}
       </div>
 
       {/* Transform */}

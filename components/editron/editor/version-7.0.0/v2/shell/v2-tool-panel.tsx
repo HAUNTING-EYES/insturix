@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { X } from 'lucide-react';
 import { Mono } from '@/components/primitives';
 import { useSidebar } from '../../contexts/sidebar-context';
 import { OverlayType } from '../../types';
@@ -67,7 +68,7 @@ const TITLES: Partial<Record<OverlayType, string>> = {
   [OverlayType.HTML_SCENE]: 'Custom Scene',
 };
 
-export function V2ToolPanel() {
+export function V2ToolPanel({ onClose }: { onClose?: () => void }) {
   const { activePanel } = useSidebar();
   const [mounted, setMounted] = React.useState<Set<OverlayType>>(new Set());
 
@@ -81,8 +82,13 @@ export function V2ToolPanel() {
 
   return (
     <div className="flex w-[244px] shrink-0 flex-col border-r border-ds-subtle bg-surface-canvas">
-      <div className="flex h-[38px] shrink-0 items-center border-b border-ds-subtle px-3.5">
+      <div className="flex h-[38px] shrink-0 items-center justify-between border-b border-ds-subtle px-3.5">
         <Mono size="9" className="text-ds-secondary">{title}</Mono>
+        {onClose && (
+          <button type="button" onClick={onClose} title="Close panel (Esc)" className="flex h-6 w-6 items-center justify-center rounded text-ds-muted transition-colors hover:bg-surface-well hover:text-ds-secondary focus-visible:outline-hidden">
+            <X size={14} />
+          </button>
+        )}
       </div>
       <div className="relative min-h-0 flex-1 overflow-y-auto">
         {PANELS.map(({ type, el }) => {

@@ -26,6 +26,8 @@ export function V2Editor() {
   const [isMobile, setIsMobile] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [modal, setModal] = useState<V2ModalKind>(null);
+  const [toolOpen, setToolOpen] = useState(true);
+  const [propsOpen, setPropsOpen] = useState(true);
 
   // Mobile detect (mirrors Editor).
   useEffect(() => {
@@ -79,6 +81,20 @@ export function V2Editor() {
     setSelectedOverlayId(null);
   }, { keydown: true, preventDefault: true });
 
+  // Esc: close an open modal first, else collapse the side panels to focus
+  // on the video. Panels reopen from the tool rail / on selecting a clip / AI.
+  useHotkeys('escape', () => {
+    if (modal) { setModal(null); return; }
+    setToolOpen(false);
+    setPropsOpen(false);
+    setAiOpen(false);
+  }, { enableOnFormTags: false }, [modal]);
+
+  // Re-open the properties panel whenever a clip is selected.
+  useEffect(() => {
+    if (selectedOverlayId !== null) setPropsOpen(true);
+  }, [selectedOverlayId]);
+
   if (isMobile && DISABLE_MOBILE_LAYOUT) {
     return (
       <div className="flex h-screen items-center justify-center bg-surface-canvas p-6 text-center">
@@ -105,16 +121,16 @@ export function V2Editor() {
       />
 
       <div className="flex min-h-0 flex-1">
-        <V2ToolRail aiOpen={aiOpen} onToggleAi={() => setAiOpen((o) => !o)} />
-        <V2ToolPanel />
+        <V2ToolRail aiOpen={aiOpen} onToggleAi={() => setAiOpen((o) => !o)} onOpenTool={() => setToolOpen(true)} />
+        {toolOpen && <V2ToolPanel onClose={() => setToolOpen(false)} />}
 
         <div className="flex min-w-0 flex-1 flex-col">
           <V2Canvas />
           <V2Transport />
         </div>
 
-        <V2PropsPanel />
-        {aiOpen && <V2AiPanel />}
+        {propsOpen && <V2PropsPanel onClose={() => setPropsOpen(false)} />}
+        {aiOpen && <V2AiPanel onClose={() => setAiOpen(false)} />}
       </div>
 
       {/* Phase 4: v2-skinned timeline (re-skins the real Timeline's chrome;
