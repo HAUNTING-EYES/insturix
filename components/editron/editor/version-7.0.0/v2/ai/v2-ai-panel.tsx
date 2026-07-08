@@ -77,7 +77,7 @@ export function V2AiPanel({ onClose }: { onClose?: () => void }) {
         <div className="mb-2.5 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <Sparkles size={14} className="text-gold" />
-            <Mono size="10" className="text-gold">Editron AI</Mono>
+            <Mono size="10" className="text-gold">AI Assistant</Mono>
           </div>
           {onClose && (
             <button type="button" onClick={onClose} title="Close panel (Esc)" className="flex h-6 w-6 items-center justify-center rounded text-ds-muted transition-colors hover:bg-surface-well hover:text-ds-secondary focus-visible:outline-hidden">

@@ -95,16 +95,18 @@ export function V2CaptionsBrowse() {
   };
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto p-2.5">
+    <div className="flex h-full flex-col gap-3 overflow-y-auto p-2.5">
+      <Mono size="8" className="text-ds-secondary">Auto-caption from video</Mono>
       <AutoCaptionButton />
 
+      <div className="my-1 h-px bg-ds-subtle" />
+
+      <Mono size="8" className="text-ds-secondary">From a script</Mono>
       <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-button border border-dashed border-ds-emphasis bg-surface-deeper py-2.5 text-[11.5px] font-bold text-ds-secondary transition-colors hover:bg-surface-well">
         <Upload size={14} /> Upload script / words file
         <input type="file" accept=".txt,.srt,.vtt,.json" className="hidden" onChange={handleFileUpload} />
       </label>
-
       <div className="flex flex-col gap-2">
-        <Mono size="8" className="text-ds-secondary">Or type a script</Mono>
         <textarea
           value={script}
           onChange={(e) => setScript(e.target.value)}
@@ -113,7 +115,7 @@ export function V2CaptionsBrowse() {
           className={textareaClass}
         />
         <Btn variant="primary" size="sm" onClick={generateCaptions} disabled={!script.trim()} className="self-end">
-          Generate captions
+          Create captions
         </Btn>
       </div>
     </div>

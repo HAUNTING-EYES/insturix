@@ -52,10 +52,9 @@ export function V2Header({
 
   return (
     <div className="flex h-[52px] shrink-0 items-center justify-between border-b border-ds-subtle bg-surface-raised px-3.5">
-      <div className="flex items-center gap-3.5">
-        <Mono size="12" className="font-bold tracking-[0.18em] text-gold">EDITRON</Mono>
-        <span className="h-4 w-px bg-ds-subtle" />
-        <span className="max-w-[220px] truncate text-[13.5px] font-bold" title={displayName}>{displayName}</span>
+      <div className="flex items-center gap-3">
+        <span className="h-2 w-2 shrink-0 rounded-full bg-gold" />
+        <span className="max-w-[260px] truncate text-[13.5px] font-bold" title={displayName}>{displayName}</span>
         <span className="relative">
           <button type="button" onClick={() => setSaveMenu((m) => !m)} className="inline-flex items-center gap-1.5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold/60">
             <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
@@ -80,7 +79,7 @@ export function V2Header({
         </div>
         <button type="button" onClick={undo} disabled={!canUndo} title="Undo" className={iconBtn}><Undo2 size={15} /></button>
         <button type="button" onClick={redo} disabled={!canRedo} title="Redo" className={iconBtn}><Redo2 size={15} /></button>
-        <button type="button" onClick={onToggleAi} className={cn('inline-flex h-8 items-center gap-1.5 rounded-button border px-3 text-[12.5px] font-bold transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold/60', aiOpen ? 'border-gold/40 bg-gold/10 text-gold' : 'border-ds-subtle bg-surface-deeper text-ds-secondary hover:bg-surface-well')}><Sparkles size={14} />Ask Editron</button>
+        <button type="button" onClick={onToggleAi} className={cn('inline-flex h-8 items-center gap-1.5 rounded-button border px-3 text-[12.5px] font-bold transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold/60', aiOpen ? 'border-gold/40 bg-gold/10 text-gold' : 'border-ds-subtle bg-surface-deeper text-ds-secondary hover:bg-surface-well')}><Sparkles size={14} />Ask AI</button>
         <button type="button" onClick={onOpenQuality} title="Quality review" className={iconBtn}><span className="font-mono text-[10px] font-bold">QA</span></button>
         <button type="button" onClick={onOpenMobilePreview} title="Mobile preview" className={iconBtn}><Smartphone size={15} /></button>
         <button type="button" onClick={() => renderMedia()} disabled={rendering} className="inline-flex h-8 items-center gap-1.5 rounded-button border border-gold bg-gold px-4 text-[12.5px] font-extrabold text-[#241B08] hover:bg-[#E0B86A] disabled:opacity-60 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold/60"><span className="h-2 w-2 rounded-full bg-[#241B08]" />{rendering ? 'Rendering…' : 'Render'}</button>

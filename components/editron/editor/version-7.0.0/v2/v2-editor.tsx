@@ -99,8 +99,8 @@ export function V2Editor() {
     return (
       <div className="flex h-screen items-center justify-center bg-surface-canvas p-6 text-center">
         <div>
-          <h2 className="mb-3 text-[18px] font-bold text-ds-primary">Editron</h2>
-          <p className="text-sm text-ds-muted">Editron is a full-screen desktop experience. Mobile is coming. 👀</p>
+          <h2 className="mb-3 text-[18px] font-bold text-ds-primary">Editor</h2>
+          <p className="text-sm text-ds-muted">The editor is a full-screen desktop experience. Mobile is coming. 👀</p>
         </div>
       </div>
     );
@@ -108,9 +108,13 @@ export function V2Editor() {
 
   return (
     <div
-      className="flex flex-col overflow-hidden bg-surface-canvas font-sans text-ds-primary"
+      className="v2-warm flex flex-col overflow-hidden bg-surface-canvas font-sans text-ds-primary"
       style={{ height: 'calc(var(--vh, 1vh) * 100)', maxHeight: '-webkit-fill-available' }}
     >
+      {/* Warmth + depth, gold-only: re-tint the surface/border tokens warmer
+          with bigger steps between layers (panels read as raised) — scoped to
+          the editor via .v2-warm, so the global design tokens are untouched. */}
+      <style>{`.v2-warm{--bg-canvas:#0A0908;--bg-raised:#14110D;--bg-deeper:#1B1712;--bg-well:#241E17;--border-subtle:#2A241C;--border-emphasis:#3A3227;}`}</style>
       <V2Header
         projectName={projectId ?? 'Project'}
         aiOpen={aiOpen}

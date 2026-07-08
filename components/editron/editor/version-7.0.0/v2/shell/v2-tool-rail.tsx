@@ -69,7 +69,7 @@ export function V2ToolRail({ aiOpen, onToggleAi, onOpenTool }: { aiOpen: boolean
       <button
         type="button"
         onClick={onToggleAi}
-        title="Ask Editron"
+        title="Ask AI"
         className={cn(railBtn, 'border-t border-ds-subtle', aiOpen ? 'text-gold' : 'text-ds-muted hover:text-ds-secondary')}
       >
         {aiOpen && <span className="absolute bottom-2 left-0 top-2 w-0.5 rounded bg-gold" />}
