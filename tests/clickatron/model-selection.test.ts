@@ -17,7 +17,7 @@ describe('Clickatron model selection', () => {
     });
 
     expect(modelId).toBe(DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID);
-    expect(modelId).toBe('fal-ai/bytedance/seedream/v4.5/text-to-image');
+    expect(modelId).toBe('fal-ai/bytedance/seedream/v5/lite/text-to-image');
     expect(CLICKATRON_MODELS[modelId].isDeprecated).not.toBe(true);
     expect(CLICKATRON_MODELS[modelId].types).toContain('text-to-image');
     expect(CLICKATRON_MODELS[modelId].constraints.minImages ?? 0).toBe(0);
