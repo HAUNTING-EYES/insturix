@@ -6,7 +6,7 @@ import { useSidebar } from '../../contexts/sidebar-context';
 import { OverlayType } from '../../types';
 import { SelectTextOverlay } from '../../components/overlays/text/select-text-overlay';
 import { V2SoundBrowse } from './v2-sound-browse';
-import { CaptionsPanel } from '../../components/overlays/captions/captions-panel';
+import { V2CaptionsBrowse } from './v2-captions-browse';
 import { V2VideoBrowse } from './v2-video-browse';
 import { V2ImageBrowse } from './v2-image-browse';
 import { StickersPanel } from '../../components/overlays/stickers/stickers-panel';
@@ -37,7 +37,7 @@ const PANELS: Array<{ type: OverlayType; el: React.ReactNode }> = [
   { type: OverlayType.TEXT, el: <SelectTextOverlay setLocalOverlay={() => {}} /> },
   { type: OverlayType.IMAGE, el: <V2ImageBrowse /> },
   { type: OverlayType.VIDEO, el: <V2VideoBrowse /> },
-  { type: OverlayType.CAPTION, el: <CaptionsPanel /> },
+  { type: OverlayType.CAPTION, el: <V2CaptionsBrowse /> },
   { type: OverlayType.SOUND, el: <V2SoundBrowse /> },
   { type: OverlayType.SFX_LIBRARY, el: <SFXLibraryPanel /> },
   { type: OverlayType.STICKER, el: <StickersPanel /> },
