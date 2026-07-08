@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Undo2, Redo2, Sparkles, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Mono } from '@/components/primitives';
@@ -37,12 +37,25 @@ export function V2Header({
   const [saveMenu, setSaveMenu] = useState(false);
   const rendering = state?.status === 'rendering';
 
+  // The header receives the project id; fetch the friendly project name
+  // (falls back to the id if the project has no name / the fetch fails).
+  const [fetchedName, setFetchedName] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/services/editron/projects/${projectName}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d?.project?.name) setFetchedName(d.project.name); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [projectName]);
+  const displayName = fetchedName ?? projectName;
+
   return (
     <div className="flex h-[52px] shrink-0 items-center justify-between border-b border-ds-subtle bg-surface-raised px-3.5">
       <div className="flex items-center gap-3.5">
         <Mono size="12" className="font-bold tracking-[0.18em] text-gold">EDITRON</Mono>
         <span className="h-4 w-px bg-ds-subtle" />
-        <span className="text-[13.5px] font-bold">{projectName}</span>
+        <span className="max-w-[220px] truncate text-[13.5px] font-bold" title={displayName}>{displayName}</span>
         <span className="relative">
           <button type="button" onClick={() => setSaveMenu((m) => !m)} className="inline-flex items-center gap-1.5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold/60">
             <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
