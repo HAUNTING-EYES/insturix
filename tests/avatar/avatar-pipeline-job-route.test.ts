@@ -66,7 +66,7 @@ describe('Avatar pipeline-job API', () => {
     );
     expect(result.body.job.stages[1]).toEqual(
       expect.objectContaining({
-        providerId: 'fal_omnihuman_v1_5',
+        providerId: 'fal_kling_avatar',
         status: 'blocked',
         dispatchCode: 'missing_fal_key',
         requiredEnvKeys: ['FAL_AI_API_KEY', 'FAL_KEY'],
@@ -75,7 +75,7 @@ describe('Avatar pipeline-job API', () => {
     expect(pipelineJobStore.getPipelineJobSnapshot('avatar_pipeline_job_1')).toEqual(result.body.job);
   });
 
-  it('queues OmniHuman on fal when env and uploaded voiceover audio exist', async () => {
+  it('queues the default face model (Kling) on fal when env and uploaded voiceover audio exist', async () => {
     const profileStore = createInMemoryAvatarProfileRepository({
       records: [acceptedRecord('avatar_pipeline_ready', { userId: 'user_avatar' })],
     });
@@ -153,7 +153,7 @@ describe('Avatar pipeline-job API', () => {
         dispatchCode: 'omnihuman_queued',
         providerRequestId: 'fal_request_123',
         input: expect.objectContaining({
-          model: 'fal-ai/bytedance/omnihuman/v1.5',
+          model: 'fal-ai/kling-video/v1/standard/ai-avatar',
           audio: { sourceUrl: 'https://cdn.example.test/audio/rishi-voiceover.wav' },
           fal: expect.objectContaining({
             modelId: 'fal-ai/bytedance/omnihuman/v1.5',
@@ -161,15 +161,20 @@ describe('Avatar pipeline-job API', () => {
         }),
       }),
     );
-    expect(submittedInputs).toEqual([
-      {
+    expect(submittedInputs).toHaveLength(1);
+    expect(submittedInputs[0]).toEqual(
+      expect.objectContaining({
         imageUrl: 'https://cdn.example.test/avatar/face.png',
         audioUrl: 'https://cdn.example.test/audio/rishi-voiceover.wav',
-        prompt: 'Rishi appears as a presenter in a clean room background.',
         resolution: '720p',
         turboMode: false,
-      },
-    ]);
+      }),
+    );
+    // Motion Director composes real performance direction (gesture/camera/mood) and
+    // preserves the scene prompt at the end — not the bare scene text we used to send.
+    expect(submittedInputs[0].prompt).toContain('Rishi appears as a presenter in a clean room background.');
+    expect(submittedInputs[0].prompt).toContain('Speaking directly to the camera');
+    expect(submittedInputs[0].prompt).not.toBe('Rishi appears as a presenter in a clean room background.');
     expect(pipelineJobStore.getPipelineJobSnapshot('avatar_pipeline_job_2')).toEqual(result.body.job);
   });
 
@@ -495,7 +500,7 @@ describe('Avatar pipeline-job API', () => {
     expect(refreshed.body.job.stages[2].input).toEqual(
       expect.objectContaining({
         faceVideo: {
-          providerId: 'fal_omnihuman_v1_5',
+          providerId: 'fal_kling_avatar',
           requestId: 'fal_request_done',
           videoUrl: 'https://fal.example.test/omnihuman/rishi.mp4',
           durationSeconds: 8,

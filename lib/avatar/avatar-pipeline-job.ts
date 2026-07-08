@@ -6,6 +6,7 @@ import {
   type AvatarVaultApiResult,
 } from './avatar-vault-api';
 import type {
+  AvatarFaceProvider,
   AvatarRenderAudioMode,
   AvatarRenderRecipe,
   AvatarRenderReferenceImage,
@@ -24,6 +25,8 @@ import {
 } from './avatar-chatterbox-client';
 import {
   createDefaultOmniHumanFalClient,
+  createKlingAvatarFalClient,
+  KLING_AVATAR_MODEL_IDS,
   OMNIHUMAN_FAL_MODEL_ID,
   type OmniHumanFalClient,
   type OmniHumanFalRefreshResult,
@@ -32,9 +35,11 @@ import {
 import {
   dispatchAvatarComposition,
   pollAvatarComposition,
+  type AvatarCameraMove,
   type AvatarCompositionDeps,
   type AvatarCompositionRenderRef,
 } from './avatar-composition';
+import { composeOmniHumanPrompt } from './avatar-motion-director';
 
 export type AvatarPipelineJobStatus = 'blocked' | 'queued' | 'running' | 'succeeded' | 'failed';
 
@@ -90,7 +95,7 @@ export type AvatarPipelineStageDispatchCode =
 export interface AvatarPipelineStageSnapshot {
   id: AvatarPipelineStageId;
   label: string;
-  providerId: 'chatterbox_tts' | 'fal_omnihuman_v1_5' | 'remotion';
+  providerId: 'chatterbox_tts' | 'fal_omnihuman_v1_5' | 'fal_kling_avatar' | 'remotion';
   providerDisplayName: string;
   status: AvatarPipelineStageStatus;
   dispatchCode: AvatarPipelineStageDispatchCode;
@@ -360,6 +365,14 @@ export async function refreshAvatarPipelineJobFromRequest(
     },
   };
 }
+// Camera moves are applied deterministically in the composition (Remotion), not by the
+// face model — a subtle push-in for close-framed speech, static otherwise. Doing camera
+// in composition (vs prompting the model) avoids the identity drift a moving model camera
+// causes, and gives repeatable control.
+function resolveCameraMove(recipe: AvatarRenderRecipe): AvatarCameraMove {
+  return CLOSE_FRAME_USE_CASES.has(recipe.useCase) ? 'push_in' : 'static';
+}
+
 // After OmniHuman produces the raw face video, render it into a finished
 // Editron-owned MP4 via the existing Remotion Lambda path, then poll to completion.
 async function advanceCompositionStage(
@@ -385,6 +398,7 @@ async function advanceCompositionStage(
           resolution: job.recipe.target.resolution,
           displayName: job.recipe.visual.displayName,
           script: job.recipe.creative?.script,
+          cameraMove: resolveCameraMove(job.recipe),
         },
         compositionDeps,
       );
@@ -551,16 +565,72 @@ function buildChatterboxStage(
   });
 }
 
+interface FaceProviderDescriptor {
+  provider: AvatarFaceProvider;
+  modelId: string;
+  providerId: 'fal_omnihuman_v1_5' | 'fal_kling_avatar';
+  displayName: string;
+  createClient: (env: Record<string, string | undefined>) => OmniHumanFalClient;
+}
+
+/**
+ * Kling AI Avatar is the default face model — it holds identity far better and is
+ * ~3x cheaper than OmniHuman (bake-off 2026-07-06). Pro is the premium tier;
+ * OmniHuman stays available as a fallback. All three share the fal queue contract.
+ */
+function resolveFaceProvider(provider: AvatarFaceProvider | undefined): FaceProviderDescriptor {
+  switch (provider) {
+    case 'omnihuman':
+      return {
+        provider: 'omnihuman',
+        modelId: OMNIHUMAN_FAL_MODEL_ID,
+        providerId: 'fal_omnihuman_v1_5',
+        displayName: 'fal OmniHuman v1.5',
+        createClient: (env) => createDefaultOmniHumanFalClient(env),
+      };
+    case 'kling_pro':
+      return {
+        provider: 'kling_pro',
+        modelId: KLING_AVATAR_MODEL_IDS.pro,
+        providerId: 'fal_kling_avatar',
+        displayName: 'Kling AI Avatar v2 Pro',
+        createClient: (env) => createKlingAvatarFalClient(env, 'pro'),
+      };
+    case 'kling_standard':
+    default:
+      return {
+        provider: 'kling_standard',
+        modelId: KLING_AVATAR_MODEL_IDS.standard,
+        providerId: 'fal_kling_avatar',
+        displayName: 'Kling AI Avatar',
+        createClient: (env) => createKlingAvatarFalClient(env, 'standard'),
+      };
+  }
+}
+
+/** Pick the talking-head client for a face stage: test override wins, else the stage's provider. */
+function faceClientForStage(
+  faceStage: AvatarPipelineStageSnapshot,
+  override: OmniHumanFalClient | undefined,
+  env: Record<string, string | undefined>,
+): OmniHumanFalClient {
+  if (override) return override;
+  const provider = stringValue(faceStage.input.provider) as AvatarFaceProvider | undefined;
+  return resolveFaceProvider(provider).createClient(env);
+}
+
 function buildOmniHumanStage(
   recipe: AvatarRenderRecipe,
   env: Record<string, string | undefined>,
   voiceStage: AvatarPipelineStageSnapshot,
 ): AvatarPipelineStageSnapshot {
+  const faceProvider = resolveFaceProvider(recipe.faceProvider);
   const image = selectHumanImage(recipe.visual.referenceImages, recipe.useCase);
   const audio = resolveOmniHumanAudio(recipe, voiceStage);
   const input = {
-    model: OMNIHUMAN_FAL_MODEL_ID,
-    prompt: recipe.creative.prompt,
+    model: faceProvider.modelId,
+    provider: faceProvider.provider,
+    prompt: composeOmniHumanPrompt(recipe),
     image,
     audio,
     resolution: recipe.target.resolution,
@@ -569,26 +639,26 @@ function buildOmniHumanStage(
   };
 
   if (!image?.imageUrl) {
-    return blockedOmniHumanStage('missing_human_image', 'OmniHuman needs a usable human reference image URL.', input);
+    return blockedOmniHumanStage(faceProvider, 'missing_human_image', 'The avatar model needs a usable human reference image URL.', input);
   }
   if (!audio.sourceUrl && !audio.sourceAssetId && !audio.dependsOnStageId) {
-    return blockedOmniHumanStage('missing_omnihuman_audio', 'OmniHuman needs uploaded audio or the Chatterbox voice stage output.', input);
+    return blockedOmniHumanStage(faceProvider, 'missing_omnihuman_audio', 'The avatar model needs uploaded audio or the Chatterbox voice stage output.', input);
   }
   if (exceedsOmniHumanDurationLimit(recipe.target.resolution, recipe.target.durationSeconds)) {
-    return blockedOmniHumanStage('omnihuman_duration_limit', 'OmniHuman v1.5 limits 1080p jobs to 30s and 720p jobs to 60s.', input);
+    return blockedOmniHumanStage(faceProvider, 'omnihuman_duration_limit', 'Avatar renders are limited to 30s at 1080p and 60s at 720p.', input);
   }
   if (!hasAnyEnv(env, FAL_ENDPOINT_KEYS)) {
-    return blockedOmniHumanStage('missing_fal_key', 'FAL_AI_API_KEY or FAL_KEY is not configured, so OmniHuman cannot be dispatched.', input);
+    return blockedOmniHumanStage(faceProvider, 'missing_fal_key', 'FAL_AI_API_KEY or FAL_KEY is not configured, so the avatar model cannot be dispatched.', input);
   }
 
   return stage({
     id: 'face_omnihuman_fal',
     label: 'Animate avatar',
-    providerId: 'fal_omnihuman_v1_5',
-    providerDisplayName: 'fal OmniHuman v1.5',
+    providerId: faceProvider.providerId,
+    providerDisplayName: faceProvider.displayName,
     status: 'ready',
     dispatchCode: 'stage_ready',
-    statusReason: 'OmniHuman is configured and ready for the execution adapter.',
+    statusReason: `${faceProvider.displayName} is configured and ready for the execution adapter.`,
     requiredEnvKeys: FAL_ENDPOINT_KEYS,
     input,
   });
@@ -763,7 +833,7 @@ async function dispatchReadyOmniHumanJob(
 
   const now = dependencies.now?.() ?? new Date().toISOString();
   try {
-    const client = dependencies.omniHumanClient ?? createDefaultOmniHumanFalClient(dependencies.env ?? process.env);
+    const client = faceClientForStage(omniHumanStage, dependencies.omniHumanClient, dependencies.env ?? process.env);
     const submitted = await client.submit(submitInput);
     return {
       ...job,
@@ -809,7 +879,7 @@ async function refreshQueuedOmniHumanJob(
 
   const now = dependencies.now?.() ?? new Date().toISOString();
   try {
-    const client = dependencies.omniHumanClient ?? createDefaultOmniHumanFalClient(dependencies.env ?? process.env);
+    const client = faceClientForStage(omniHumanStage, dependencies.omniHumanClient, dependencies.env ?? process.env);
     const refresh = await client.refresh(requestId);
     return applyOmniHumanRefresh(job, omniHumanStage, refresh, now);
   } catch (error) {
@@ -894,7 +964,7 @@ function applyOmniHumanRefresh(
           input: {
             ...pipelineStage.input,
             faceVideo: {
-              providerId: 'fal_omnihuman_v1_5',
+              providerId: omniHumanStage.providerId,
               requestId: refresh.requestId,
               videoUrl: refresh.videoUrl,
               durationSeconds: refresh.durationSeconds,
@@ -1008,6 +1078,7 @@ function blockedChatterboxStage(
 }
 
 function blockedOmniHumanStage(
+  faceProvider: FaceProviderDescriptor,
   dispatchCode: AvatarPipelineStageDispatchCode,
   statusReason: string,
   input: Record<string, unknown>,
@@ -1015,8 +1086,8 @@ function blockedOmniHumanStage(
   return stage({
     id: 'face_omnihuman_fal',
     label: 'Animate avatar',
-    providerId: 'fal_omnihuman_v1_5',
-    providerDisplayName: 'fal OmniHuman v1.5',
+    providerId: faceProvider.providerId,
+    providerDisplayName: faceProvider.displayName,
     status: 'blocked',
     dispatchCode,
     statusReason,
