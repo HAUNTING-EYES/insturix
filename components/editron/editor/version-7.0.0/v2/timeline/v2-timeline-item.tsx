@@ -10,8 +10,8 @@ import { useSidebar } from '../../contexts/sidebar-context';
 import { useEditorContext } from '../../contexts/editor-context';
 import { TimelineItemHandle } from '../../components/timeline/timeline-item-handle';
 import { TimelineItemContextMenu } from '../../components/timeline/timeline-item-context-menu';
-import { TimelineItemLabel } from '../../components/timeline/timeline-item-label';
 import TimelineCaptionBlocks from '../../components/timeline/timeline-caption-blocks';
+import { cn } from '@/lib/utils';
 import { useKeyframeContext } from '../../contexts/keyframe-context';
 
 /* ═══ Editron editor v2 · timeline clip ══════════════════════════════
@@ -64,6 +64,29 @@ function v2Fill(type: OverlayType): string {
   }
 }
 
+/** Tiny 2-char type glyph (v6 shows this, not the full type name). */
+const GLYPH: Partial<Record<OverlayType, string>> = {
+  [OverlayType.TEXT]: 'Tx', [OverlayType.VIDEO]: 'Vd', [OverlayType.IMAGE]: 'Im',
+  [OverlayType.CAPTION]: 'Cc', [OverlayType.SOUND]: 'Au', [OverlayType.SFX_LIBRARY]: 'Fx',
+  [OverlayType.STICKER]: 'St', [OverlayType.SHAPE]: 'Sh', [OverlayType.HTML_SCENE]: 'Ht',
+  [OverlayType.MOTION_GRAPHIC]: 'Mg', [OverlayType.GENERATED_SCENE]: 'Gn',
+  [OverlayType.TRANSITION]: 'Tr', [OverlayType.LOTTIE]: 'Lt', [OverlayType.TEMPLATE]: 'Tm',
+};
+
+/** A MEANINGFUL clip name only — never the redundant type text. Text shows
+    its content, media shows its filename; type-only clips (motion-graphic,
+    generated-scene, transition, shape…) show nothing but the glyph. */
+function clipName(item: Overlay): string {
+  if (item.type === OverlayType.TEXT) {
+    const c = (item as { content?: unknown }).content;
+    return typeof c === 'string' ? c : '';
+  }
+  if (item.type === OverlayType.CAPTION) return '';
+  const src = (item as { src?: string }).src;
+  if (src) return (src.split('/').pop() || '').split('?')[0];
+  return '';
+}
+
 const V2TimelineItem: React.FC<V2TimelineItemProps> = ({
   item,
   isDragging,
@@ -98,6 +121,7 @@ const V2TimelineItem: React.FC<V2TimelineItemProps> = ({
   const [touchStartTime, setTouchStartTime] = useState<number | null>(null);
   const [touchStartPosition, setTouchStartPosition] = useState<{ x: number; y: number } | null>(null);
   const [isTouching, setIsTouching] = useState(false);
+  const [clipW, setClipW] = useState(0);
   const touchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const LONG_PRESS_DURATION = 500;
@@ -212,52 +236,70 @@ const V2TimelineItem: React.FC<V2TimelineItemProps> = ({
     }
   };
 
-  const renderContent = () => (
-    <>
-      {item.type === OverlayType.IMAGE ? (
-        <div className="flex h-full w-full items-center">
-          <img
-            src={item.src}
-            alt=""
-            draggable="false"
-            onDragStart={(e) => e.preventDefault()}
-            className="ml-6 h-7 w-auto rounded-[1px] object-cover"
-          />
-        </div>
-      ) : (
-        <div className="flex flex-1 items-center px-2">
-          <TimelineItemLabel item={item} isSelected={isSelected} />
-        </div>
-      )}
-      {item.type === OverlayType.CAPTION && (
-        <div className="relative h-full">
-          <TimelineCaptionBlocks
-            captions={(item as CaptionOverlay).captions}
-            durationInFrames={item.durationInFrames}
-            currentFrame={currentFrame ?? 0}
-            startFrame={item.from}
-            totalDuration={totalDuration}
-          />
-        </div>
-      )}
-      {item.type === OverlayType.SOUND && waveformData && (
-        <div className="absolute inset-0">
-          <WaveformVisualizer waveformData={waveformData} totalDuration={totalDuration} durationInFrames={item.durationInFrames} />
-        </div>
-      )}
-      {item.type === OverlayType.VIDEO && (
-        <TimelineKeyframes
-          overlay={item}
-          currentFrame={currentFrame ?? 0}
-          zoomScale={zoomScale}
-          onLoadingChange={(isLoading) => onAssetLoadingChange?.(item.id, isLoading)}
-        />
-      )}
-      {item.keyframeTracks && item.keyframeTracks.length > 0 && (
-        <TimelineKeyframeDiamonds overlay={item} itemWidth={100} />
-      )}
-    </>
-  );
+  // Measure the clip's rendered width so the name only shows when it fits.
+  useEffect(() => {
+    const el = itemRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) setClipW(e.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const showName = clipW >= 56; // enough room for the glyph + a few chars
+
+  const renderContent = () => {
+    const name = clipName(item);
+    return (
+      <>
+        {/* Background visuals (real, bounded to the clip). */}
+        {item.type === OverlayType.SOUND && waveformData && (
+          <div className="absolute inset-0 overflow-hidden opacity-70">
+            <WaveformVisualizer waveformData={waveformData} totalDuration={totalDuration} durationInFrames={item.durationInFrames} />
+          </div>
+        )}
+        {item.type === OverlayType.VIDEO && (
+          <div className="absolute inset-0 overflow-hidden rounded-md">
+            <TimelineKeyframes
+              overlay={item}
+              currentFrame={currentFrame ?? 0}
+              zoomScale={zoomScale}
+              onLoadingChange={(isLoading) => onAssetLoadingChange?.(item.id, isLoading)}
+            />
+          </div>
+        )}
+        {item.type === OverlayType.CAPTION && (
+          <div className="absolute inset-0 overflow-hidden">
+            <TimelineCaptionBlocks
+              captions={(item as CaptionOverlay).captions}
+              durationInFrames={item.durationInFrames}
+              currentFrame={currentFrame ?? 0}
+              startFrame={item.from}
+              totalDuration={totalDuration}
+            />
+          </div>
+        )}
+
+        {/* Label row: a tiny glyph (always) + the real name (only when it fits),
+            clipped to the tile so nothing ever spills out. Captions render word
+            chips above instead of a name. */}
+        {item.type !== OverlayType.CAPTION && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center gap-1 overflow-hidden px-1.5">
+            <span className={cn('shrink-0 rounded-[3px] px-[3px] py-px font-mono text-[7.5px] font-bold leading-none', isSelected ? 'bg-gold/[0.14] text-gold' : 'bg-surface-deeper/80 text-ds-muted')}>
+              {GLYPH[item.type] ?? '••'}
+            </span>
+            {showName && name && item.type !== OverlayType.SOUND && (
+              <span className={cn('min-w-0 flex-1 truncate font-mono text-[9px]', isSelected ? 'text-gold' : 'text-ds-secondary')}>{name}</span>
+            )}
+          </div>
+        )}
+
+        {item.keyframeTracks && item.keyframeTracks.length > 0 && (
+          <TimelineKeyframeDiamonds overlay={item} itemWidth={100} />
+        )}
+      </>
+    );
+  };
 
   return (
     <TimelineItemContextMenu
