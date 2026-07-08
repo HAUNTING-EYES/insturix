@@ -339,22 +339,22 @@ function parseTextHierarchy(metadata?: MetadataRecord | null): string {
   const creativeSpec = asRecord(asRecord(asRecord(metadata)?.clickatron)?.creativeSpec);
   const renderPlan = asRecord(creativeSpec?.renderPlan);
   const textLayers = renderPlan?.textLayers;
-  
+
   if (!Array.isArray(textLayers)) return "";
-  
+
   let orgName = "";
   let eventName = "";
   let tagline = "";
   let dateTime = "";
   let venue = "";
   let footer = "";
-  
+
   for (const entry of textLayers) {
     const layer = asRecord(entry);
     const role = (cleanText(layer?.role) || "").toLowerCase();
     const text = cleanText(layer?.text) || "";
     if (!text) continue;
-    
+
     if (role.includes("org") || role.includes("presenter") || role.includes("brand")) orgName = text;
     else if (role.includes("title") || role.includes("event") || role.includes("headline")) eventName = text;
     else if (role.includes("tagline") || role.includes("subtitle")) tagline = text;
@@ -364,7 +364,7 @@ function parseTextHierarchy(metadata?: MetadataRecord | null): string {
     else if (!eventName) eventName = text; // fallback
     else if (!tagline) tagline = text;
   }
-  
+
   const lines: string[] = [];
   if (orgName) lines.push(`LEVEL 1 (organization/presenter line — small, top): ${orgName}`);
   if (eventName) lines.push(`LEVEL 2 (event title/headline — largest, dominant): ${eventName}`);
@@ -372,7 +372,7 @@ function parseTextHierarchy(metadata?: MetadataRecord | null): string {
   if (dateTime) lines.push(`LEVEL 4 (date + time — medium, high contrast): ${dateTime}`);
   if (venue) lines.push(`LEVEL 5 (venue — medium): ${venue}`);
   if (footer) lines.push(`LEVEL 6 (optional footer): ${footer}`);
-  
+
   return lines.join("\n");
 }
 
@@ -386,34 +386,19 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
 
   const textHierarchyContent = parseTextHierarchy(input.metadata);
   
-  const v8SystemInstructions = `You are Clickatron.
-Generate premium marketing visuals.
+  // V9: Diffusion-Native Enhancers
+  // Image models (Flux, Ideogram, SD3) do not understand LLM meta-instructions 
+  // like "Priority order:", "Think like a director", or "Avoid templates".
+  // They parse these as literal visual subjects, causing severe hallucinations and generic outputs.
+  // Instead, we inject strong comma-separated artistic keywords to steer the latent space.
+  const diffusionEnhancers = "award-winning professional graphic design, premium editorial aesthetics, masterpiece, striking visual hierarchy, high-end commercial quality, clean composition, deliberate negative space, highly detailed, non-generic, unique artistic layout";
 
-Priority order:
-1. User Prompt
-2. Brand Context
-3. Design Knowledge
-
-The user prompt is the primary source of truth.
-Brand context should influence the design, never override it.
-If information is missing, fill the gaps using professional design principles.
-
-Create one clear focal point.
-Use strong visual hierarchy.
-Maintain generous whitespace.
-Think like an experienced creative director.
-Avoid generic templates.
-Avoid stock-photo layouts.
-Avoid music festival aesthetics unless explicitly requested.
-
-Output a single high-quality image.`;
-
-  const userExplicitContent = `User's Request:\n${prompt}`;
-  const textHierarchyBlock = textHierarchyContent ? `Extracted Text Hierarchy:\n${textHierarchyContent}` : "";
+  const coreVisualPrompt = prompt ? `${prompt}, ${diffusionEnhancers}` : diffusionEnhancers;
+  
+  const textHierarchyBlock = textHierarchyContent ? `Text elements to incorporate:\n${textHierarchyContent}` : "";
 
   const enriched = [
-    v8SystemInstructions,
-    userExplicitContent,
+    coreVisualPrompt,
     textHierarchyBlock,
     ...contextBlocks
   ].filter(Boolean).join("\n\n");

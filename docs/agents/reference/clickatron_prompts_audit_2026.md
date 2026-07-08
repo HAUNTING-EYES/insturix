@@ -4,6 +4,10 @@ This file contains all the raw system prompts and prompt-construction logic used
 
 ---
 
+## What We Fixed in V9 (Diffusion-Native Style Enhancers)
+- **Stripped Meta-Instructions:** Instructions like "Priority order 1, 2, 3" and "Think like a director" were being processed by Flux/Ideogram as literal subjects to draw, which triggered generic "UI/Presentation template" training data (leading to the blue Canva-style results).
+- **Direct Keyword Steering:** Image models only understand *what* to draw and *how* it should look. Replaced abstract rules with comma-separated style tags (`award-winning professional graphic design, premium editorial aesthetics...`) that actually push the generation latent space away from generic templates.
+
 ## What We Fixed in V8 (Condensed Plain-Text Precedence)
 - **Stripped XML Overhead:** Text-to-Image diffusion models (Flux, Ideogram) struggled to parse the heavy XML `<role>` and `<priority_order>` tags of V7, resulting in generic flat outputs.
 - **Concise Directives:** Replaced the heavy XML structure with a highly condensed, plain-text priority list. It retains the same agency-grade instructions but formatted in a way diffusion models natively understand.
@@ -181,23 +185,34 @@ Clickatron dynamically constructs Text-to-Image prompts by assembling three bloc
 
 ---
 
-## 4. Text-to-Image Generation (V8 Condensed Plain-Text)
+## 4. Text-to-Image Generation (V9 Diffusion-Native Enhancers)
 **Location:** `lib/clickatron/brand-prompt-context.ts` (applied to all T2I generations)
 
-### V8 (Current: Compact Master Prompt)
-Diffusion models struggled to parse the heavy XML structure of V7. V8 condenses the agency-grade instructions into a concise, plain-text directive that image generators naturally understand.
+### V9 (Current: Keyword-Driven)
+Image diffusion models (Flux, Midjourney, SD3) do not understand LLM meta-instructions (like "Priority order:" or "Think like a director"). They parse these as literal visual subjects, causing severe hallucinations and generic outputs. 
+V9 directly appends strong comma-separated artistic keywords to the user's prompt to force a high-end visual result.
+
+```text
+[User's Raw Prompt], award-winning professional graphic design, premium editorial aesthetics, masterpiece, striking visual hierarchy, high-end commercial quality, clean composition, deliberate negative space, highly detailed, non-generic, unique artistic layout
+
+Text elements to incorporate:
+[Parsed fields injected here]
+
+[Source Context Block]
+[Brand Context Block]
+```
+
+<details>
+<summary>V8 (FAILED: Condensed Plain-Text Precedence)</summary>
+
+**STATUS: FAILED ATTEMPT.** The plain-text rules (e.g. "Priority order: 1. User Prompt") were parsed by the diffusion models as literal presentation slides, resulting in generic blue corporate templates instead of artistic designs.
 
 ```text
 You are Clickatron.
 Generate premium marketing visuals.
-
-Priority order:
-1. User Prompt
-2. Brand Context
-3. Design Knowledge
 ...
-[User's Request: ...]
 ```
+</details>
 
 <details>
 <summary>V7 (FAILED: XML-Structured Creative Director)</summary>
