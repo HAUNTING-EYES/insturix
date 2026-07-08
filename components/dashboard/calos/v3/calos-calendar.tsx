@@ -48,6 +48,8 @@ export default function CalosCalendarV3() {
   const [wsCampaign, setWsCampaign] = useState<WorkspaceCampaign | null>(null);
   const [wsEditOpen, setWsEditOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [pubStatus, setPubStatus] = useState<Record<string, { platform: string; status: string; postUrl: string | null; error: string | null }>>({});
+  const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [filterStage, setFilterStage] = useState<string | null>(null);
 
@@ -93,6 +95,21 @@ export default function CalosCalendarV3() {
     setBrandOpen(false);
   };
 
+  // Delivery visibility: per-card publish state + which platforms are connected, so an approved
+  // card isn't a black box and we can prompt "connect X to publish" instead of failing silently.
+  const loadPubStatus = React.useCallback(async () => {
+    if (!brandId) return;
+    try {
+      const res = await fetch(`/api/services/calos/publish-status?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      setPubStatus(data?.statuses && typeof data.statuses === 'object' ? data.statuses : {});
+      setConnectedPlatforms(Array.isArray(data?.connectedPlatforms) ? data.connectedPlatforms : []);
+    } catch {
+      /* best-effort — visibility only, never blocks the calendar */
+    }
+  }, [brandId]);
+  useEffect(() => { void loadPubStatus(); }, [loadPubStatus]);
+
   /* ── mutations ── */
   const handleDecision = async (id: string, decision: 'approved' | 'changes_requested') => {
     if (!brandId) return;
@@ -103,7 +120,17 @@ export default function CalosCalendarV3() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { toast({ title: data?.error || `Decision failed (${res.status})`, variant: 'destructive' }); return; }
-      toast({ title: decision === 'approved' ? 'Approved' : 'Sent back for changes' });
+      if (decision === 'approved') {
+        const plat = items.find((d) => d.id === id)?.platform;
+        if (plat && !connectedPlatforms.includes(plat)) {
+          toast({ title: `Approved — ${platLabel(plat)} isn't connected`, description: 'Open Publishing to connect it, or it won’t post.' });
+        } else {
+          toast({ title: 'Approved — queued to publish' });
+        }
+        void loadPubStatus();
+      } else {
+        toast({ title: 'Sent back for changes' });
+      }
       refresh();
     } catch (err) {
       toast({ title: 'Decision failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
@@ -453,6 +480,9 @@ export default function CalosCalendarV3() {
           onGenerate={handleGenerate}
           onDelete={handleDelete}
           onOpenScript={handleOpenScript}
+          pubState={pubStatus[openItem.id]}
+          connected={connectedPlatforms.includes(openItem.platform)}
+          onOpenPublishing={() => { setOpenId(null); setConnectionsOpen(true); }}
         />
       )}
       {confirm?.kind === 'clearall' && (

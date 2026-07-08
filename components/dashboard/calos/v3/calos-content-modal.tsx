@@ -18,7 +18,7 @@ const toLocalInput = (d: Date): string => {
 };
 
 export function ContentModal({
-  item, onClose, onSaveTitle, onSaveDates, onSaveDetails, onSaveTags, onDecision, onGenerate, onDelete, onOpenScript, onPublish,
+  item, onClose, onSaveTitle, onSaveDates, onSaveDetails, onSaveTags, onDecision, onGenerate, onDelete, onOpenScript, onPublish, pubState, connected, onOpenPublishing,
 }: {
   item: CalItem;
   onClose: () => void;
@@ -32,6 +32,11 @@ export function ContentModal({
   onOpenScript: (item: CalItem) => void;
   /** Optional — publishing lands in Phase 3. When absent, no Publish action shows. */
   onPublish?: (item: CalItem) => void;
+  /** Delivery visibility: the card's publish-queue row, whether its platform is connected, and a
+   *  jump to the Publishing (connect socials) screen. */
+  pubState?: { platform: string; status: string; postUrl: string | null; error: string | null };
+  connected?: boolean;
+  onOpenPublishing?: () => void;
 }) {
   const d = item;
   const [title, setTitle] = useState(d.title);
@@ -198,6 +203,30 @@ export function ContentModal({
           {d.hasScript ? d.raw.scriptPreview : 'Generate to write the script.'}
         </div>
       </div>
+
+      {(d.stage === 'approved' || pubState) && (
+        <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 18 }}>
+          <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Delivery</Mono>
+          {connected === false ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <Mono s={11} c={C.coral}>{platLabel(d.platform)} isn’t connected — it won’t post.</Mono>
+              {onOpenPublishing && <Btn size="sm" onClick={onOpenPublishing}>Connect</Btn>}
+            </div>
+          ) : pubState?.status === 'published' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Mono s={11} c={C.gold}>✓ Posted to {platLabel(d.platform)}</Mono>
+              {pubState.postUrl && <a href={pubState.postUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.gold, textDecoration: 'underline' }}>View post</a>}
+            </div>
+          ) : pubState?.status === 'failed' ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <Mono s={11} c={C.coral}>Didn’t post{pubState.error ? `: ${pubState.error}` : '.'}</Mono>
+              {onOpenPublishing && <Btn size="sm" onClick={onOpenPublishing}>Publishing</Btn>}
+            </div>
+          ) : (
+            <Mono s={11} c={C.soft}>Queued — auto-posts on the scheduled date.</Mono>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Btn size="sm" onClick={() => onOpenScript(d)}>Open script</Btn>
