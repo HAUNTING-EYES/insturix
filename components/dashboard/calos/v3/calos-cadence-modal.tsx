@@ -47,23 +47,37 @@ export function CalosCadenceModal({
   const [objective, setObjective] = useState<CalosObjective>(campaign?.objective ?? DEFAULT_OBJECTIVE);
   const [theme, setTheme] = useState(campaign?.theme ?? '');
   const [rows, setRows] = useState<CadenceRule[]>(
-    (campaign?.cadenceRules?.length ? campaign.cadenceRules : initialRules?.length ? initialRules : (DEFAULT_CADENCE as CadenceRule[])).map((r) => ({
-      platform: typeof r.platform === 'string' && r.platform.trim() ? r.platform.trim().toLowerCase() : 'instagram',
-      perWeek: clampPerWeek(r.perWeek),
-      preferredDays: normalizePreferredDays(r.preferredDays),
-    })),
+    (campaign?.cadenceRules?.length ? campaign.cadenceRules : initialRules?.length ? initialRules : (DEFAULT_CADENCE as CadenceRule[])).map((r) => {
+      const preferredDays = normalizePreferredDays(r.preferredDays);
+      return {
+        platform: typeof r.platform === 'string' && r.platform.trim() ? r.platform.trim().toLowerCase() : 'instagram',
+        // Days ARE the schedule: posts/week = number of selected days (one post per day). Falls back
+        // to the stored perWeek only when no days are selected.
+        perWeek: preferredDays.length > 0 ? clampPerWeek(preferredDays.length) : clampPerWeek(r.perWeek),
+        preferredDays,
+      };
+    }),
   );
   const [saving, setSaving] = useState(false);
 
   const toggleDay = (ri: number, di: number) =>
-    setRows((rs) => rs.map((r, i) => (i === ri ? { ...r, preferredDays: r.preferredDays.includes(di) ? r.preferredDays.filter((x) => x !== di) : normalizePreferredDays([...r.preferredDays, di]) } : r)));
+    setRows((rs) =>
+      rs.map((r, i) => {
+        if (i !== ri) return r;
+        const preferredDays = r.preferredDays.includes(di)
+          ? r.preferredDays.filter((x) => x !== di)
+          : normalizePreferredDays([...r.preferredDays, di]);
+        // Selecting/deselecting a day changes how many times/week you post → keep the counter in sync.
+        return { ...r, preferredDays, perWeek: clampPerWeek(preferredDays.length) };
+      }),
+    );
   const setPW = (ri: number, v: number) =>
     setRows((rs) => rs.map((r, i) => (i === ri ? { ...r, perWeek: clampPerWeek(v) } : r)));
   const removeRow = (ri: number) => setRows((rs) => rs.filter((_, i) => i !== ri));
   const addPlat = () => {
     const used = new Set(rows.map((r) => r.platform));
     const next = CALOS_CAMPAIGN_PLATFORMS.find((p) => !used.has(p));
-    if (next) setRows((rs) => [...rs, { platform: next, perWeek: 1, preferredDays: [2, 4] }]);
+    if (next) setRows((rs) => [...rs, { platform: next, perWeek: 2, preferredDays: [2, 4] }]);
   };
 
   const save = async () => {
