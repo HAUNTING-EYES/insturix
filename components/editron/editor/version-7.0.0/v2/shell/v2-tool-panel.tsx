@@ -6,9 +6,9 @@ import { useSidebar } from '../../contexts/sidebar-context';
 import { OverlayType } from '../../types';
 import { SelectTextOverlay } from '../../components/overlays/text/select-text-overlay';
 import SoundsPanel from '../../components/overlays/sounds/sounds-panel';
-import { VideoOverlayPanel } from '../../components/overlays/video/video-overlay-panel';
 import { CaptionsPanel } from '../../components/overlays/captions/captions-panel';
-import { ImageOverlayPanel } from '../../components/overlays/images/image-overlay-panel';
+import { V2VideoBrowse } from './v2-video-browse';
+import { V2ImageBrowse } from './v2-image-browse';
 import { StickersPanel } from '../../components/overlays/stickers/stickers-panel';
 import { V2AssetsPanel } from './v2-assets-panel';
 import { TemplateOverlayPanel } from '../../components/overlays/templates/template-overlay-panel';
@@ -35,8 +35,8 @@ import { LottiePanel } from '../../components/lottie/lottie-panel';
 const PANELS: Array<{ type: OverlayType; el: React.ReactNode }> = [
   { type: OverlayType.LOCAL_DIR, el: <V2AssetsPanel /> },
   { type: OverlayType.TEXT, el: <SelectTextOverlay setLocalOverlay={() => {}} /> },
-  { type: OverlayType.IMAGE, el: <ImageOverlayPanel /> },
-  { type: OverlayType.VIDEO, el: <VideoOverlayPanel /> },
+  { type: OverlayType.IMAGE, el: <V2ImageBrowse /> },
+  { type: OverlayType.VIDEO, el: <V2VideoBrowse /> },
   { type: OverlayType.CAPTION, el: <CaptionsPanel /> },
   { type: OverlayType.SOUND, el: <SoundsPanel /> },
   { type: OverlayType.SFX_LIBRARY, el: <SFXLibraryPanel /> },
