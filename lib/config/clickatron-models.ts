@@ -595,7 +595,7 @@ export function generateFluxKontextDevPayload(
   // Add system prompt for image-to-image editing to preserve consistency
   const hasImage = imageUrls && imageUrls.length > 0;
   const fullPrompt = hasImage ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}` : job.prompt;
-  
+
   const payload: Record<string, any> = {
     prompt: fullPrompt,
     num_inference_steps: numInferenceSteps,
@@ -638,20 +638,20 @@ export function generateSeedreamV4EditPayload(
       max_images: 1,
       enable_safety_checker: enableSafetyChecker
     };
-    
+
     // Handle image URLs - Seedream V4 Edit model expects image_urls as an array
     if (imageUrls && imageUrls.length > 0) {
       payload.image_urls = imageUrls;
     }
-    
+
     payload.mask_url = maskUrl;
     return payload;
   }
-  
+
   // For image-to-image editing (no mask), use consistency system prompt
   const hasImage = imageUrls && imageUrls.length > 0;
   const fullPrompt = hasImage ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}` : job.prompt;
-  
+
   const payload: Record<string, any> = {
     prompt: fullPrompt,
     image_size: { width, height },
@@ -690,33 +690,86 @@ export function generateSeedreamV4TextToImagePayload(
 /**
  * System prompt prepended to user prompts for generative fill
  */
-export const GENERATIVE_FILL_SYSTEM_PROMPT = `Inpainting instructions: You are performing a precise generative fill. Modify ONLY the masked area according to the user request. Keep 100% of the non-masked areas EXACTLY unchanged. 
+/**
+ * System prompt prepended to user prompts for generative fill
+ */
+export const GENERATIVE_FILL_SYSTEM_PROMPT = `
+You are performing localized generative inpainting.
 
-CRITICAL RULES:
-- Blend the new content seamlessly with the surrounding pixels.
-- Match the lighting, style, color tone, and perspective of the original image perfectly.
-- Do NOT regenerate or modify the entire image. This is localized inpainting.
-- Preserve all original objects, people, and details outside the masked region.
-- Maintain the EXACT original canvas size, resolution, and aspect ratio. Do not crop or reframe.
-- Scale or adapt the new content to fit naturally within the mask boundaries without bleeding into unmasked areas.
-- Do not render these instructions as text in the image.`;
+Your task is to edit ONLY the masked region while making the final image appear completely natural.
 
+Priority Order:
+
+1. Modify only the masked pixels.
+2. Leave every unmasked pixel completely unchanged.
+3. Blend the new content seamlessly into the surrounding image.
+4. Match the existing lighting, perspective, shadows, depth, texture, colors, and camera characteristics.
+5. Scale and position the generated content naturally inside the masked area.
+
+Requirements:
+
+- Preserve the original composition.
+- Preserve framing and camera angle.
+- Preserve image resolution and aspect ratio.
+- Preserve artistic style and rendering quality.
+- Generate content that appears as if it always belonged in the original image.
+- Avoid visible seams, hard edges, repeated textures, or abrupt transitions.
+
+Never:
+- Modify areas outside the mask.
+- Regenerate the entire image.
+- Crop, rotate, resize, or reframe the canvas.
+- Introduce unrelated objects or stylistic changes.
+- Render any instruction text into the image.
+`;
 /**
  * System prompt prepended to user prompts for image-to-image editing (variations)
  */
-export const IMAGE_TO_IMAGE_SYSTEM_PROMPT = `Image-to-image editing instructions: Create a variation that applies the requested changes while staying true to the original foundation. Do not replace the original image entirely.
+/**
+ * System prompt prepended to user prompts for image-to-image editing
+ */
+export const IMAGE_TO_IMAGE_SYSTEM_PROMPT = `
+You are performing controlled image-to-image editing.
 
-CRITICAL RULES:
-- Preserve the subject pose, camera angle, framing, and spatial layout unless the request explicitly changes them.
-- Keep the same lighting style, color grading, and overall mood unless explicitly asked to alter them.
-- Do NOT completely regenerate or reinterpret the entire image.
-- Maintain the original level of detail, quality, and artistic style.
-- Maintain the EXACT aspect ratio and dimensions of the original image. Do not change the image size or crop.
-- If a requested change conflicts with preservation (e.g. "make it winter" implies lighting changes), the explicit request takes priority for that attribute only. Everything else must remain preserved.
-- Do not render these instructions as text in the image.`;
+Your goal is to apply only the user's requested modifications while preserving the identity and structure of the original image.
 
+Priority Order:
 
+1. Apply the user's requested edits.
+2. Preserve everything else.
+3. Maintain visual consistency.
 
+Preserve whenever possible:
+
+- Subject identity
+- Pose
+- Camera angle
+- Composition
+- Framing
+- Lighting
+- Color grading
+- Environment
+- Perspective
+- Artistic style
+- Image quality
+
+If the user's request explicitly requires changing one of these attributes, modify only that attribute while preserving all others.
+
+Requirements:
+
+- Keep the original aspect ratio.
+- Keep the original resolution.
+- Maintain high visual fidelity.
+- Produce edits that look professionally retouched rather than regenerated.
+- Ensure all changes feel naturally integrated into the original image.
+
+Never:
+- Replace the entire scene unless explicitly requested.
+- Invent unrelated subjects or objects.
+- Change composition without instruction.
+- Crop or resize the image.
+- Render any instruction text into the output.
+`;
 /**
  * Generate payload for Seedream V4 Inpainting (used for generative fill)
  */
@@ -988,42 +1041,42 @@ export function generateModelPayload(
         enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false
       };
     case 'fal-ai/nano-banana-pro':
-       return {
-          prompt: job.prompt,
-          image_size: { width, height },
-          num_images: generationParams.num_images || 1,
-          enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-          seed: generationParams.seed
-       };
+      return {
+        prompt: job.prompt,
+        image_size: { width, height },
+        num_images: generationParams.num_images || 1,
+        enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+        seed: generationParams.seed
+      };
     case 'fal-ai/nano-banana-pro/edit':
-        const hasImageNano = generationParams.image_urls || (generationParams.image_url ? [generationParams.image_url] : []);
-        const nanoFullPrompt = hasImageNano.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}
+      const hasImageNano = generationParams.image_urls || (generationParams.image_url ? [generationParams.image_url] : []);
+      const nanoFullPrompt = hasImageNano.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}
 
 User Request: ${job.prompt}` : job.prompt;
-        const payload: any = {
-            prompt: nanoFullPrompt,
-            image_urls: hasImageNano,
-            image_size: { width, height },
-            num_images: generationParams.num_images || 1,
-            enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-            seed: generationParams.seed,
-        };
-        if (generationParams.mask_url) payload.mask_url = generationParams.mask_url;
-        return payload;
+      const payload: any = {
+        prompt: nanoFullPrompt,
+        image_urls: hasImageNano,
+        image_size: { width, height },
+        num_images: generationParams.num_images || 1,
+        enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+        seed: generationParams.seed,
+      };
+      if (generationParams.mask_url) payload.mask_url = generationParams.mask_url;
+      return payload;
     case 'fal-ai/bytedance/seedream/v5/lite/edit':
-        const hasImageSd = generationParams.image_urls || (generationParams.image_url ? [generationParams.image_url] : []);
-        const sdFullPrompt = hasImageSd.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}
+      const hasImageSd = generationParams.image_urls || (generationParams.image_url ? [generationParams.image_url] : []);
+      const sdFullPrompt = hasImageSd.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}
 
 User Request: ${job.prompt}` : job.prompt;
-        const sdPayload: any = {
-            prompt: sdFullPrompt,
-            image_urls: hasImageSd,
-            image_size: { width, height },
-            num_images: generationParams.num_images || 1,
-            enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-        };
-        if (generationParams.mask_url) sdPayload.mask_url = generationParams.mask_url;
-        return sdPayload;
+      const sdPayload: any = {
+        prompt: sdFullPrompt,
+        image_urls: hasImageSd,
+        image_size: { width, height },
+        num_images: generationParams.num_images || 1,
+        enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+      };
+      if (generationParams.mask_url) sdPayload.mask_url = generationParams.mask_url;
+      return sdPayload;
     case 'fal-ai/flux-kontext/dev':
       const hasImage = generationParams.image_urls && generationParams.image_urls.length > 0;
       const fullPrompt = hasImage ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}
