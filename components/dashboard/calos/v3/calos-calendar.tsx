@@ -17,6 +17,7 @@ import { CalosWorkspace, type WorkspaceCampaign } from './calos-workspace';
 import { CalosShareScreen } from './calos-share-screen';
 import { CalosCadenceModal } from './calos-cadence-modal';
 import BrandConnections from '@/app/dashboard/calos/BrandConnections';
+import { useActiveBrand } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 
 /* ═══ CalOS v3 · calendar (Phase 1 spine) ═════════════════════════════
    The founder's calos-v3.jsx design, wired to the real deliverables service.
@@ -25,17 +26,17 @@ import BrandConnections from '@/app/dashboard/calos/BrandConnections';
    and /client-view endpoints. Campaign bar, generation modals, publishing,
    workspace, and the read-only Share screen land in Phases 2–3. */
 
-interface BrandOption { brandId: string; name: string }
-const LS_SELECTED_BRAND = 'calos_selected_brand';
 const DEFAULT_BRAND = 'default'; // personal space when the user has no explicit brand
 
 type View = 'month' | 'week' | 'day';
 
 export default function CalosCalendarV3() {
   const router = useRouter();
-  const [brands, setBrands] = useState<BrandOption[]>([]);
-  const [brandId, setBrandId] = useState<string | null>(null);
-  const [brandLoading, setBrandLoading] = useState(true);
+  // Brand list + selection come from the GLOBAL ActiveBrandProvider (union of editron + scanned
+  // Brand Vault brands, shared across the whole dashboard). CalOS used to fetch only the editron
+  // registry, so a scanned brand was invisible here → the "shows Personal despite a scan" bug.
+  const { brands, activeBrandId, setActiveBrandId, isLoading: brandLoading } = useActiveBrand();
+  const brandId = activeBrandId ?? DEFAULT_BRAND;
   const [brandOpen, setBrandOpen] = useState(false);
 
   const [view, setView] = useState<View>('month');
@@ -65,35 +66,6 @@ export default function CalosCalendarV3() {
     return () => clearInterval(id);
   }, []);
 
-  // Brand loading — mirrors the live CalOS page: 0 brands → personal default,
-  // exactly 1 → that brand, many → last-selected or first. No forced picker.
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const res = await fetch('/api/services/editron/brands', { cache: 'no-store' });
-        const data = await res.json();
-        const list: BrandOption[] = Array.isArray(data?.brands)
-          ? data.brands.map((b: { brandId: string; name: string }) => ({ brandId: b.brandId, name: b.name }))
-          : [];
-        if (!active) return;
-        setBrands(list);
-        let effective = DEFAULT_BRAND;
-        if (list.length === 1) effective = list[0].brandId;
-        else if (list.length > 1) {
-          const saved = typeof window !== 'undefined' ? localStorage.getItem(LS_SELECTED_BRAND) : null;
-          effective = saved && list.some((b) => b.brandId === saved) ? saved : list[0].brandId;
-        }
-        setBrandId(effective);
-      } catch {
-        if (active) { setBrands([]); setBrandId(DEFAULT_BRAND); }
-      } finally {
-        if (active) setBrandLoading(false);
-      }
-    })();
-    return () => { active = false; };
-  }, []);
-
   const { cards, loading, createCard, updateCard, deleteCard, deleteCardsForDate, clearAll, refresh } =
     useCalosDeliverables(brandId);
 
@@ -117,9 +89,8 @@ export default function CalosCalendarV3() {
   const brandInitials = brandName.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
   const selectBrand = (id: string) => {
-    setBrandId(id);
+    setActiveBrandId(id); // writes the shared context + localStorage (brand_vault_selected_brand_id)
     setBrandOpen(false);
-    try { localStorage.setItem(LS_SELECTED_BRAND, id); } catch { /* in-memory only */ }
   };
 
   /* ── mutations ── */
