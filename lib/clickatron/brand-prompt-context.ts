@@ -11,6 +11,8 @@ export interface ClickatronPromptContextInput {
   brandContextBlock?: string | null;
   /** Model the user picked. Decides in-image text rendering on the default text policy (C2). */
   modelId?: string | null;
+  /** Aspect ratio of the canvas to explicitly steer compositional framing */
+  aspectRatio?: string | null;
 }
 
 export interface BrandContextResolverDeps {
@@ -333,7 +335,14 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   return lines.join("\n");
 }
 
-// C2 functions for text rendering stripped (V6 Zero Prompt architecture does not inject text rules).
+// C2 functions for text rendering.
+function shouldRenderTextInImage(textPolicy: unknown, modelId?: string | null): boolean {
+  if (textPolicy === 'suppress_text') return false;
+  if (textPolicy === 'force_render_text') return true;
+  if (!modelId) return false;
+  // Default text policy: only text-capable models render text by default.
+  return modelId.includes('nano-banana') || modelId.includes('seedream') || modelId.includes('gemini');
+}
 
 function parseTextHierarchy(metadata?: MetadataRecord | null): string {
   const creativeSpec = asRecord(asRecord(asRecord(metadata)?.clickatron)?.creativeSpec);
@@ -391,6 +400,11 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
 
   const textHierarchyContent = parseTextHierarchy(input.metadata);
   
+  // Aspect ratio compositional steering
+  const layoutRatioBlock = input.aspectRatio 
+    ? `\nCRITICAL LAYOUT RULE: The final image will be generated at a ${input.aspectRatio} aspect ratio. You MUST compose the layout, typography, and focal point specifically to fit a ${input.aspectRatio} canvas. Do not compose a square image for a rectangular canvas, and ensure text/subjects are not cut off.`
+    : "";
+
   // V11: Dual-Engine Prompter
   // Uses V7 (XML/Creative Director) for LLM-based models (Gemini, Nano Banana) which parse XML well.
   // Uses V10 (Hybrid Natural Language + Keywords) for Diffusion models (Flux, Ideogram) which hallucinate on XML.
@@ -453,7 +467,7 @@ Before generating the image, internally decide:
 • What information is secondary?
 • What should remain visually quiet?
 
-The design should naturally guide the viewer's eyes.
+The design should naturally guide the viewer's eyes.${layoutRatioBlock}
 </composition>
 
 <typography>
@@ -564,11 +578,14 @@ Use it only to improve the final design.
   const brandDirective = contextBlocks.length > 0 
     ? "Design instructions: Incorporate the following brand guidelines and contextual details naturally. The brand colors, tone, and visual identity should influence the final design without overriding the primary visual prompt. Maintain premium creativity and professional spacing."
     : "";
+    
+  const layoutDirective = layoutRatioBlock ? `Layout Instructions: ${layoutRatioBlock}` : "";
 
   const enriched = [
     coreVisualPrompt,
     textHierarchyBlock,
     brandDirective,
+    layoutDirective,
     ...contextBlocks
   ].filter(Boolean).join("\n\n");
 

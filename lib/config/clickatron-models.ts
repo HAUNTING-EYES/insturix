@@ -1044,6 +1044,7 @@ User Request: ${job.prompt}` : job.prompt;
 User Request: ${job.prompt}` : job.prompt;
       const kPayload: Record<string, any> = {
         prompt: fullPrompt,
+        image_size: { width, height },
         num_inference_steps: generationParams.num_inference_steps || 28,
         guidance_scale: generationParams.guidance_scale || 3.5,
         num_images: generationParams.num_images || 1,
@@ -1072,6 +1073,7 @@ User Request: ${job.prompt}`;
         prompt: fillPrompt,
         image_url: imageUrl,
         mask_url: generationParams.mask_url,
+        image_size: { width, height },
         num_images: generationParams.num_images || 1,
         enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
         output_format: generationParams.output_format || "jpeg",

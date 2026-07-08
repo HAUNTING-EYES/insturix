@@ -472,6 +472,7 @@ async function handler(req: Request) {
         brandContextBlock,
         // C2: the picked model decides in-image text rendering on the default text policy.
         modelId: variation.modelId,
+        aspectRatio: ratio,
       });
 
       if (enrichedPrompt !== job.prompt) {
