@@ -4,6 +4,12 @@ This file contains all the raw system prompts and prompt-construction logic used
 
 ---
 
+## What We Fixed in V7 (Professional Creative Director Architecture)
+- **Agency-Grade Precedence:** Replaced the V6 Zero-Prompt with a highly structured Creative Director persona.
+- **Explicit Hierarchy:** Enforced an absolute priority list: 1. User Prompt, 2. Brand Context, 3. Default Design Knowledge.
+- **Design Principles:** Added explicit sections dictating visual quality, layout composition, text rendering, and typography hierarchy.
+- **Internal Design Process:** Forced the model to internally plan its lighting, typography, and hierarchy before generating.
+
 ## What We Fixed in V6 (Zero Prompt / Context Only)
 - **Stripped Precedence Architecture:** The V5 precedence engine proved too rigid/complex for image models, causing generation failures. 
 - **Raw Context Engine:** We stripped all instructions, field-resolution logic, and text-rules. The system now only forwards the raw User Prompt, extracted Text Hierarchy, and Brand/Source Context directly to the model.
@@ -171,14 +177,29 @@ Clickatron dynamically constructs Text-to-Image prompts by assembling three bloc
 
 ---
 
-## 4. Text-to-Image Generation (V6 Zero Prompt Architecture)
+## 4. Text-to-Image Generation (V7 Professional Creative Director)
 **Location:** `lib/clickatron/brand-prompt-context.ts` (applied to all T2I generations)
 
-### V6 (Current: Context Only)
-All generative rules, style locks, and field precedence checks have been removed. The prompt now only consists of the user's raw input appended with the project's Text Hierarchy and Brand/Source context.
+### V7 (Current: Master Prompt)
+The V7 architecture brings back instructions but structures them as an agency-grade "Creative Director" persona. It explicitly forces the model to respect the user's prompt as the highest priority while enforcing premium, editorial design standards over generic Canva templates.
 
 ```xml
+<role>You are Clickatron, an expert AI creative director...</role>
+<priority_order>1. USER PROMPT... 2. BRAND CONTEXT... 3. DEFAULT DESIGN KNOWLEDGE</priority_order>
+<creative_principles>...</creative_principles>
+<visual_quality>Aim for Behance, Pentagram, Apple Keynote...</visual_quality>
+<composition>...</composition>
+<typography>...</typography>
+<text_rendering>...</text_rendering>
+<brand>...</brand>
+<creativity>...</creativity>
+<negative_bias>...</negative_bias>
+<final_goal>...</final_goal>
+<internal_design_process>...</internal_design_process>
+
+<user_explicit_content>
 [User's Raw Prompt]
+</user_explicit_content>
 
 <extracted_text_hierarchy>
 [Parsed fields injected here: LEVEL 1 (org), LEVEL 2 (title), etc.]
@@ -187,6 +208,18 @@ All generative rules, style locks, and field precedence checks have been removed
 [Source Context Block]
 [Brand Context Block]
 ```
+
+<details>
+<summary>V6 (Deprecated: Zero Prompt)</summary>
+
+**STATUS: ABANDONED.** Stripping all instructions successfully proved that the V5 logic was the root cause of the hallucination bugs, but relying entirely on zero-prompt context left the model with no baseline for premium design quality.
+
+```xml
+[User's Raw Prompt]
+<extracted_text_hierarchy>...</extracted_text_hierarchy>
+[Context Blocks]
+```
+</details>
 
 <details>
 <summary>V5 (FAILED: Field-Level Precedence)</summary>
