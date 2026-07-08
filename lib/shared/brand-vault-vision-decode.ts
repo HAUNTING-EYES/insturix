@@ -5,17 +5,30 @@
  * has text today. Report-only-what's-visible is enforced by the prompt (never fabricate a colour, metric,
  * feature, or logo); coordinates are normalized 0..1 to where things actually sit in the shot.
  *
- * Env-gated on GLM_KEY (inert without it). Fail-soft by contract: any misconfiguration, timeout, or model
- * error resolves to `null` — decode is enrichment and must never block the scan.
- * Reference implementation: insturix-explainers/scripts/glm-region-map.mjs.
+ * Transport is the app's existing hardened z.ai vision client (`createGlmVisionClient`) — same key resolution
+ * (ZAI_API_KEY / GLM_VISION_API_KEY), timeout, and JSON-mode handling the reference-video analyzer uses — so
+ * this module owns only what's decode-specific: the founder's prompt, image inlining, and the Product-UI-Model
+ * normalization. Env-gated on a configured z.ai key (inert without one). Fail-soft by contract: any
+ * misconfiguration, timeout, or model error resolves to `null` — decode is enrichment and must never block
+ * the scan. Reference implementation: insturix-explainers/scripts/glm-region-map.mjs.
  */
+
+import {
+  createGlmVisionClient,
+  type GlmVisionContentPart,
+  type GlmVisionJsonClient,
+} from '../editron/reference-video/glm-vision-client';
 
 export interface BrandVaultVisionDecodeEnvironment {
   [key: string]: string | undefined;
+  /** Primary z.ai key name in the deployed app (matches GlmVisionClient). */
+  ZAI_API_KEY?: string;
+  /** Secondary z.ai key name (matches GlmVisionClient). */
+  GLM_VISION_API_KEY?: string;
+  /** Local-dev convenience name used by the standalone insturix-explainers scripts. */
   GLM_KEY?: string;
-  GLM_API_URL?: string;
-  GLM_VISION_MODEL?: string;
   BRAND_VAULT_VISION_DECODE_PROVIDER?: string;
+  BRAND_VAULT_VISION_MODEL?: string;
   BRAND_VAULT_VISION_MAX_IMAGES?: string;
 }
 
@@ -110,8 +123,6 @@ Return ONLY this JSON:
 Coordinates are where the thing ACTUALLY sits in that screenshot. Never fabricate.`;
 }
 
-const DEFAULT_GLM_API_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
-const DEFAULT_GLM_VISION_MODEL = 'glm-4.6v';
 const DEFAULT_MAX_IMAGES = 6;
 const MAX_IMAGES_CAP = 12;
 const DECODE_TIMEOUT_MS = 120_000;
@@ -119,8 +130,16 @@ const IMAGE_FETCH_TIMEOUT_MS = 15_000;
 const MAX_IMAGE_BYTES = 8_000_000;
 
 /**
+ * Resolve a configured z.ai key from the environment, mirroring GlmVisionClient's own order and adding GLM_KEY
+ * (the standalone scripts' local-dev name) as a final fallback. Returns undefined when none is set.
+ */
+function resolveVisionApiKey(env: BrandVaultVisionDecodeEnvironment): string | undefined {
+  return env.ZAI_API_KEY?.trim() || env.GLM_VISION_API_KEY?.trim() || env.GLM_KEY?.trim() || undefined;
+}
+
+/**
  * Build a Product-UI-Model decoder from the environment, or `undefined` when no vision provider is
- * configured (so the caller skips decode). GLM-4.6v is selected when GLM_KEY is present, unless
+ * configured (so the caller skips decode). Enabled when a z.ai key is present, unless
  * BRAND_VAULT_VISION_DECODE_PROVIDER is 'off'.
  */
 export function createBrandVaultVisionDecoderFromEnvironment(
@@ -128,20 +147,19 @@ export function createBrandVaultVisionDecoderFromEnvironment(
   fetchFn: BrandVaultVisionFetch = fetch,
 ): DecodeBrandVaultProductUiModel | undefined {
   if (env.BRAND_VAULT_VISION_DECODE_PROVIDER?.trim().toLowerCase() === 'off') return undefined;
-  const apiKey = env.GLM_KEY?.trim();
+  const apiKey = resolveVisionApiKey(env);
   if (!apiKey) return undefined;
 
-  const endpoint = env.GLM_API_URL?.trim() || DEFAULT_GLM_API_URL;
-  const model = env.GLM_VISION_MODEL?.trim() || DEFAULT_GLM_VISION_MODEL;
+  const model = env.BRAND_VAULT_VISION_MODEL?.trim() || undefined;
   const maxImages = parseBoundedInteger(env.BRAND_VAULT_VISION_MAX_IMAGES, 1, MAX_IMAGES_CAP, DEFAULT_MAX_IMAGES);
+  const client = createGlmVisionClient({ apiKey, fetchImpl: fetchFn as typeof fetch });
 
-  return async (input) => decodeViaGlm({ apiKey, endpoint, model, maxImages, input, fetchFn });
+  return async (input) => decodeViaClient({ client, model, maxImages, input, fetchFn });
 }
 
-async function decodeViaGlm(args: {
-  apiKey: string;
-  endpoint: string;
-  model: string;
+async function decodeViaClient(args: {
+  client: GlmVisionJsonClient;
+  model?: string;
   maxImages: number;
   input: { url: string; screenshotUrls: string[] };
   fetchFn: BrandVaultVisionFetch;
@@ -151,46 +169,30 @@ async function decodeViaGlm(args: {
     .slice(0, args.maxImages);
   if (urls.length === 0) return null;
 
-  // Inline the shots as data URIs (proven-robust: the model never has to fetch our storage).
-  const dataUris: string[] = [];
+  // Inline the shots as data URIs (proven-robust: the model never has to fetch our storage, which also
+  // survives z.ai being unable to reach R2 — a decode from no image input would be worse than no decode).
+  const imageParts: GlmVisionContentPart[] = [];
   for (const url of urls) {
     const dataUri = await fetchImageAsDataUri(url, args.fetchFn);
-    if (dataUri) dataUris.push(dataUri);
+    if (dataUri) imageParts.push({ type: 'image_url', image_url: { url: dataUri } });
   }
-  if (dataUris.length === 0) return null;
+  if (imageParts.length === 0) return null;
 
-  const content: unknown[] = [
-    { type: 'text', text: userPrompt(args.input.url) },
-    ...dataUris.map((dataUri) => ({ type: 'image_url', image_url: { url: dataUri } })),
-  ];
+  const result = await args.client.analyzeJson({
+    model: args.model,
+    timeoutMs: DECODE_TIMEOUT_MS,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: [{ type: 'text', text: userPrompt(args.input.url) }, ...imageParts] },
+    ],
+  });
+  if (!result.ok) return null;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DECODE_TIMEOUT_MS);
-  try {
-    const response = await args.fetchFn(args.endpoint, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { accept: 'application/json', authorization: `Bearer ${args.apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: args.model,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content },
-        ],
-      }),
-    });
-    if (!response.ok) return null;
-    const payload = await response.json().catch(() => null);
-    return parseProductUiModel(extractModelText(payload), {
-      sourceUrl: args.input.url,
-      screenshotUrls: urls,
-      model: args.model,
-    });
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
+  return normalizeProductUiModel(result.json, {
+    sourceUrl: args.input.url,
+    screenshotUrls: urls,
+    model: result.model,
+  });
 }
 
 async function fetchImageAsDataUri(url: string, fetchFn: BrandVaultVisionFetch): Promise<string | undefined> {
@@ -211,18 +213,9 @@ async function fetchImageAsDataUri(url: string, fetchFn: BrandVaultVisionFetch):
   }
 }
 
-/** Pull the assistant text out of an OpenAI-compatible chat completion response. */
-export function extractModelText(payload: unknown): string {
-  const root = objectRecord(payload);
-  const choices = root && Array.isArray(root.choices) ? root.choices : [];
-  const message = objectRecord(objectRecord(choices[0])?.message);
-  const content = message?.content;
-  return typeof content === 'string' ? content : '';
-}
-
 /**
  * Parse the model's JSON reply into a validated Product UI Model. Tolerant of prose around the JSON (extracts
- * the first `{...}` block). Clamps region coordinates to 0..1 and drops anything malformed. Returns null if no
+ * the first `{...}` block) so it works whether or not the transport enforced JSON mode. Returns null if no
  * usable model was produced. `meta` is caller-stamped provenance (never trusts the model for these).
  */
 export function parseProductUiModel(
@@ -237,6 +230,17 @@ export function parseProductUiModel(
   } catch {
     return null;
   }
+  return normalizeProductUiModel(raw, meta);
+}
+
+/**
+ * Normalize an already-parsed model object into a validated Product UI Model. Clamps region coordinates to
+ * 0..1 and drops anything malformed. Returns null unless the vision pass produced content beyond provenance.
+ */
+export function normalizeProductUiModel(
+  raw: unknown,
+  meta: { sourceUrl: string; screenshotUrls: string[]; model: string; decodedAt?: string },
+): BrandProductUiModel | null {
   const root = objectRecord(raw);
   if (!root) return null;
 

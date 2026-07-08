@@ -327,8 +327,8 @@ export interface BrandVaultWebsiteDraftJobDependencies {
   /**
    * Decodes the captured assets.uiScreenshots into a structured Product UI Model (brand tokens, positioning,
    * features, screens/regions) via a vision model. When set and section screenshots were stored, the model is
-   * attached to the draft profile as `productUiModel`. Env-gated (inert without GLM_KEY). Fail-soft — a decode
-   * miss never blocks the scan or discards the screenshots.
+   * attached to the draft profile as `productUiModel`. Env-gated on a z.ai key (inert without one). Fail-soft —
+   * a decode miss never blocks the scan or discards the screenshots.
    */
   decodeProductUiModel?: DecodeBrandVaultProductUiModel | null;
   clock?: () => string;
@@ -678,7 +678,7 @@ export async function createBrandVaultWebsiteDraftJob(
           });
           // DECODE: read the just-stored shots into a structured Product UI Model (the contract the explainer
           // agent consumes). Its own try/catch so a vision miss never discards the screenshots we already
-          // attached. Skipped entirely when no decoder is configured (no GLM_KEY).
+          // attached. Skipped entirely when no decoder is configured (no z.ai key).
           if (dependencies.decodeProductUiModel) {
             try {
               const productUiModel = await dependencies.decodeProductUiModel({
