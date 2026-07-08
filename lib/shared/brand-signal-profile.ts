@@ -1,6 +1,7 @@
 import { BRAND_CONFIDENCE } from './brand-confidence';
 import type { BrandSignalLearningWeight } from './brand-signal-edit-weighting';
 import type { UnifiedBrand } from './brand-registry';
+import type { BrandProductUiModel } from './brand-vault-vision-decode';
 
 export type BrandSignalTrustLevel =
   | 'manual_user_entry'
@@ -146,6 +147,9 @@ export interface BrandSignalProfile {
     hookArchetypes: BrandSignal<string[]>;
   };
   evidence: BrandSignalEvidence[];
+  /** Vision-decoded Product UI Model (brand tokens + screens + aha flow) from the scan's UI screenshots.
+   *  The contract the explainer agent consumes; present only when vision-decode ran. */
+  productUiModel?: BrandProductUiModel;
 }
 
 export interface DeriveBrandSignalProfileOptions {

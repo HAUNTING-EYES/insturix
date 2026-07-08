@@ -52,6 +52,7 @@ import {
   type CaptureBrandVaultSectionScreenshots,
   type CaptureBrandVaultWebsiteScreenshot,
 } from './brand-vault-website-screenshot';
+import type { DecodeBrandVaultProductUiModel } from './brand-vault-vision-decode';
 import type {
   BrandEvidenceCandidate,
   BrandVaultCrawlOptions,
@@ -323,6 +324,13 @@ export interface BrandVaultWebsiteDraftJobDependencies {
    * assets.uiScreenshots evidence — the input the vision-decode stage reads. Fail-soft — never blocks the scan.
    */
   captureSectionScreenshots?: CaptureBrandVaultSectionScreenshots | null;
+  /**
+   * Decodes the captured assets.uiScreenshots into a structured Product UI Model (brand tokens, positioning,
+   * features, screens/regions) via a vision model. When set and section screenshots were stored, the model is
+   * attached to the draft profile as `productUiModel`. Env-gated (inert without GLM_KEY). Fail-soft — a decode
+   * miss never blocks the scan or discards the screenshots.
+   */
+  decodeProductUiModel?: DecodeBrandVaultProductUiModel | null;
   clock?: () => string;
 }
 
@@ -668,6 +676,23 @@ export async function createBrandVaultWebsiteDraftJob(
             observedAt: snapshot.fetchedAt,
             sourceUrl: snapshot.normalizedUrl,
           });
+          // DECODE: read the just-stored shots into a structured Product UI Model (the contract the explainer
+          // agent consumes). Its own try/catch so a vision miss never discards the screenshots we already
+          // attached. Skipped entirely when no decoder is configured (no GLM_KEY).
+          if (dependencies.decodeProductUiModel) {
+            try {
+              const productUiModel = await dependencies.decodeProductUiModel({
+                url: snapshot.normalizedUrl,
+                screenshotUrls: storedUiUrls,
+              });
+              if (productUiModel) draft.record.profile.productUiModel = productUiModel;
+            } catch (error) {
+              console.warn(
+                '[BrandVault:visionDecode] product UI decode skipped:',
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          }
         }
       } catch (error) {
         console.warn(

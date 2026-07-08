@@ -335,6 +335,81 @@ describe('Brand Vault draft orchestrator', () => {
     expect((uiShots?.value ?? []).every((url) => url.startsWith('https://cdn.ui.example/'))).toBe(true);
   });
 
+  it('decodes the stored UI screenshots into productUiModel when a decoder is configured', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+    let decodedWith: { url: string; screenshotUrls: string[] } | null = null;
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_decode',
+        brandId: 'brand_decode',
+        websiteUrl: 'signal.example',
+        jobId: 'job_decode',
+        profileRecordId: 'draft_decode',
+        now: NOW,
+      },
+      {
+        repository,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        captureSectionScreenshots: async () => [{ source: 'url', url: 'https://raw.example/section-1.png' }],
+        visualAssetStorage: {
+          async mirrorAsset(input) {
+            return { ok: true, provider: 'test_r2', storageKey: input.assetId, publicUrl: `https://cdn.ui.example/${input.assetId}`, contentType: 'image/png', sizeBytes: 100, storedAt: NOW };
+          },
+        },
+        decodeProductUiModel: async (input) => {
+          decodedWith = input;
+          return { brand: { accent: '#D4A652', theme: 'dark' }, features: ['Script', 'Edit'] };
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    // Decoder was fed the mirrored R2 URLs (not the raw capture URLs) for the scanned page.
+    expect(decodedWith).not.toBeNull();
+    expect(decodedWith!.url).toBe('https://signal.example/');
+    expect(decodedWith!.screenshotUrls.every((url) => url.startsWith('https://cdn.ui.example/'))).toBe(true);
+    expect(result.profile.productUiModel).toMatchObject({
+      brand: { accent: '#D4A652', theme: 'dark' },
+      features: ['Script', 'Edit'],
+    });
+  });
+
+  it('never blocks the scan when the decoder throws (productUiModel stays undefined, screenshots survive)', async () => {
+    const repository = createInMemoryBrandSignalProfileRepository();
+
+    const result = await createBrandVaultWebsiteDraftJob(
+      {
+        userId: 'user_decode_fail',
+        brandId: 'brand_decode_fail',
+        websiteUrl: 'signal.example',
+        jobId: 'job_decode_fail',
+        profileRecordId: 'draft_decode_fail',
+        now: NOW,
+      },
+      {
+        repository,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        captureSectionScreenshots: async () => [{ source: 'url', url: 'https://raw.example/section-1.png' }],
+        visualAssetStorage: {
+          async mirrorAsset(input) {
+            return { ok: true, provider: 'test_r2', storageKey: input.assetId, publicUrl: `https://cdn.ui.example/${input.assetId}`, contentType: 'image/png', sizeBytes: 100, storedAt: NOW };
+          },
+        },
+        decodeProductUiModel: async () => {
+          throw new Error('vision provider exploded');
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.profile.productUiModel).toBeUndefined();
+    // The screenshots we already attached must not be lost by a decode failure.
+    expect((result.profile.assets?.uiScreenshots?.value ?? []).length).toBeGreaterThanOrEqual(1);
+  });
+
   it('surfaces weak, missing, and fallback signal diagnostics for review UI', async () => {
     const repository = createInMemoryBrandSignalProfileRepository();
     const sparseHtml = `
