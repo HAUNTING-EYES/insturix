@@ -54,6 +54,41 @@ describe('selectScenes', () => {
   });
 });
 
+describe('defaultSceneScorer - ranks on real fused importance when present', () => {
+  it('importance is the spine: a higher-importance scene outranks a lower one', () => {
+    const b = brief();
+    expect(defaultSceneScorer(scene({ importance: 0.9 }), b))
+      .toBeGreaterThan(defaultSceneScorer(scene({ importance: 0.2 }), b));
+  });
+
+  it('★ does NOT double-count speech: a SILENT high-importance scene beats a SPEAKING trivial one', () => {
+    const silentImportant = scene({ importance: 0.9, transcription: '' });
+    const speakingTrivial = scene({ importance: 0.15, transcription: 'blah blah words' });
+    expect(defaultSceneScorer(silentImportant, brief()))
+      .toBeGreaterThan(defaultSceneScorer(speakingTrivial, brief()));
+  });
+
+  it('with no intent tokens, the score IS the importance (no invented base added)', () => {
+    expect(defaultSceneScorer(scene({ importance: 0.73 }), brief({ intent: undefined }))).toBe(0.73);
+  });
+
+  it('blends a small intent-relevance lift on top of importance (0.8*imp + 0.2*rel)', () => {
+    const s = scene({ importance: 0.5, transcription: 'pricing tiers explained' });
+    const matched = defaultSceneScorer(s, brief({ intent: 'pricing' }));
+    const unmatched = defaultSceneScorer(s, brief({ intent: 'gardening' }));
+    expect(matched).toBeCloseTo(0.6); // 0.8*0.5 + 0.2*1.0
+    expect(unmatched).toBeCloseTo(0.4); // 0.8*0.5 + 0.2*0.0
+    expect(matched).toBeGreaterThan(unmatched);
+  });
+
+  it('falls back to the heuristic (speech reward) ONLY when importance is absent', () => {
+    const withSpeech = scene({ transcription: 'launch the product today' });
+    const silent = scene({ transcription: '' });
+    const b = brief({ intent: 'product launch' });
+    expect(defaultSceneScorer(withSpeech, b)).toBeGreaterThan(defaultSceneScorer(silent, b));
+  });
+});
+
 describe('fitToDuration', () => {
   it('null target keeps everything', () => {
     const scored = selectScenes([scene({ endTime: 2 }), scene({ source: 'b', endTime: 3 })], brief());

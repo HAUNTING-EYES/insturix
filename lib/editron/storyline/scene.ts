@@ -93,6 +93,39 @@ export interface Scene {
   /** When the asset was shot/created (epoch ms) - used for chronological ordering. */
   createdAt?: number;
   location?: string;
+
+  // --- analysis signals: the per-segment "report card" from Editron's own pipeline.
+  //     All optional (V-JEPA / wav2vec / moment-weight coverage is not guaranteed);
+  //     absent means "no signal", never fabricated. 0..1 unless noted. These are what
+  //     the composer ranks on when present, replacing invented proxies. ---
+  /**
+   * Fused per-segment importance = moment-weight `finalWeight`: transcript intent +
+   * V-JEPA visual significance + wav2vec vocal emotion + learned (Thompson) correction.
+   * The spine signal the composer ranks on. This is the pipeline's own number that
+   * already modulates every downstream technique - using it here is the opposite of
+   * inventing a weight.
+   */
+  importance?: number;
+  /** Confidence of `importance`, from the moment-weight map. */
+  importanceConfidence?: 'high' | 'medium' | 'low';
+  /** Coarse visual mode: talking-head | b-roll | screen-share | product-demo | chart |
+   *  text-card | ... (semanticVisual.primaryVisualMode). A real enum, not an NL caption. */
+  visualMode?: string;
+  /** Visual importance of the segment (semanticVisual.salience). */
+  salience?: number;
+  /** Whether the segment's visuals explain the narration (semanticVisual.visuallyExplains). */
+  visuallyExplains?: boolean;
+  /** Semantic action: talking | walking | gesturing | demonstrating | ... (V-JEPA
+   *  actionType). Used for diversity - avoid stacking near-identical shots. */
+  actionType?: string;
+  /** Learned motion magnitude (V-JEPA motionIntensity). */
+  motionIntensity?: number;
+  /** Vocal energy (wav2vec energy). */
+  vocalEnergy?: number;
+  /** Vocal arousal / emotion intensity (wav2vec emotionIntensity). */
+  vocalArousal?: number;
+  /** Vocal valence label, from wav2vec (voice, not text). */
+  vocalValence?: 'positive' | 'negative' | 'neutral' | 'mixed';
 }
 
 /**

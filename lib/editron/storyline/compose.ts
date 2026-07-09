@@ -5,13 +5,20 @@
  * matching scenes, it SEQUENCES them into a narrative and FITS them to a duration.
  *
  * Pipeline: select (hard filter + soft score) -> fit (duration budget) -> order
- * (narrative per format) -> build. The soft scorer is pluggable (`SceneScorer`); the
- * default is rules-first. An embedding/vector scorer plugs in later (P3) behind the same
- * interface, with ZERO change here.
+ * (narrative per format) -> build. The soft scorer is pluggable (`SceneScorer`).
+ *
+ * Ranking spine: the default scorer ranks on the segment's OWN fused importance
+ * (`Scene.importance` = moment-weight `finalWeight`: transcript intent + V-JEPA visual
+ * significance + wav2vec vocal emotion + learned correction) when it is present - the
+ * same number that drives every downstream technique. It blends in a small keyword-overlap
+ * relevance term for the user's specific ask (an embedding scorer replaces that overlap
+ * later, behind this same interface, with ZERO change here). Only when NO analysis is
+ * present (an un-analyzed asset, e.g. a still image before the image lane) does it fall
+ * back to a transparent heuristic proxy (base + speech + shot-fit + intent). The heuristic
+ * blend ratios are the only INVENTED-PLACEHOLDER numbers left; the spine is real signal.
  *
  * Determinism (R18N): every sort uses the shared byScoreDesc / chronological comparator
- * with an explicit source-index tiebreak; no Date/random. Weights + thresholds are
- * INVENTED-PLACEHOLDER (calibrate from real edits).
+ * with an explicit source-index tiebreak; no Date/random.
  */
 
 import type { AspectRatio, OutputFormat, ProductionBrief } from '../production-brief/production-brief';
@@ -42,11 +49,22 @@ export interface ComposeOptions {
   fps?: number;
 }
 
-// --- scorer weights: INVENTED-PLACEHOLDER (calibrate) ---
-const W_BASE = 0.4;
-const W_SPEECH = 0.2;
-const W_SHOT = 0.2;
-const W_INTENT = 0.2;
+// --- ranking spine (real signal): how much the segment's own fused importance vs the
+//     user's specific keyword ask drives the score, when importance is PRESENT. The blend
+//     is importance-dominant by design; the ratio is calibratable, not the score itself. ---
+const IMPORTANCE_WEIGHT = 0.8; // fused finalWeight (intrinsic importance)
+const INTENT_WEIGHT = 0.2; // relevance to the user's specific ask (keyword overlap now)
+
+// --- heuristic fallback weights: INVENTED-PLACEHOLDER. Used ONLY when a scene carries no
+//     analysis (no `importance`) - a transparent proxy, never the path for real footage. ---
+const H_BASE = 0.4;
+const H_SPEECH = 0.2;
+const H_SHOT = 0.2;
+const H_INTENT = 0.2;
+
+function clamp01(n: number): number {
+  return n < 0 ? 0 : n > 1 ? 1 : n;
+}
 
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'of', 'to', 'for', 'and', 'or', 'with', 'in', 'on', 'my', 'me',
@@ -81,31 +99,53 @@ function shotTypeFit(shotType: Scene['shotType'], format: OutputFormat): number 
 }
 
 /**
- * Rules-first, deterministic scene scorer. Base + speech + shot-fit + intent-keyword
- * overlap, clamped to 0..1. Weights are placeholders to calibrate; the point is a
- * transparent, testable ranking, not a black box.
+ * Keyword-overlap relevance of a scene to the brief's intent (0..1), or `null` when the
+ * brief carries no intent tokens (then intrinsic importance stands alone). The haystack is
+ * the scene's real text content: spoken words, on-screen text (OCR), and the coarse visual
+ * mode. Object/face LABELS are not carried by the analysis (the adapter leaves them empty),
+ * so they are not part of the haystack. An embedding scorer replaces this overlap later.
+ */
+function intentRelevance(scene: Scene, brief: ProductionBrief): number | null {
+  const intentTokens = tokenize(brief.output.intent);
+  if (intentTokens.length === 0) return null;
+  const haystack = [scene.transcription, scene.visualMode ?? '', ...scene.detectedText]
+    .join(' ')
+    .toLowerCase();
+  const hits = intentTokens.filter((t) => haystack.includes(t)).length;
+  return hits / intentTokens.length;
+}
+
+/**
+ * Fallback proxy scorer for scenes with NO analysis (`importance` absent): base + speech +
+ * shot-fit + intent overlap, clamped. Transparent and testable, but a proxy - real footage
+ * ranks on `importance`, not this. Weights are INVENTED-PLACEHOLDER.
+ */
+function heuristicSceneScorer(scene: Scene, brief: ProductionBrief): number {
+  let score = H_BASE;
+  if (scene.hasSpeech) score += H_SPEECH;
+  score += H_SHOT * shotTypeFit(scene.shotType, brief.output.format);
+  const rel = intentRelevance(scene, brief);
+  if (rel !== null) score += H_INTENT * rel;
+  return clamp01(score);
+}
+
+/**
+ * Default scene scorer. When the scene carries the pipeline's fused `importance`
+ * (moment-weight finalWeight), THAT is the ranking spine - it already fuses transcript
+ * intent, visual significance, and vocal emotion, so we do NOT re-add speech/shot bonuses
+ * (that would double-count). We blend in a small keyword relevance term for the user's
+ * specific ask. When importance is absent (un-analyzed asset), fall back to the heuristic
+ * proxy. Deterministic; clamped to 0..1.
  */
 export function defaultSceneScorer(scene: Scene, brief: ProductionBrief): number {
-  const format = brief.output.format;
-  let score = W_BASE;
-  if (scene.hasSpeech) score += W_SPEECH;
-  score += W_SHOT * shotTypeFit(scene.shotType, format);
-
-  const intentTokens = tokenize(brief.output.intent);
-  if (intentTokens.length > 0) {
-    const haystack = [
-      scene.transcription,
-      scene.description ?? '',
-      ...scene.objects,
-      ...scene.faces,
-      ...scene.detectedText,
-    ]
-      .join(' ')
-      .toLowerCase();
-    const hits = intentTokens.filter((t) => haystack.includes(t)).length;
-    score += W_INTENT * (hits / intentTokens.length);
+  const importance = scene.importance;
+  if (typeof importance === 'number' && Number.isFinite(importance)) {
+    const imp = clamp01(importance);
+    const rel = intentRelevance(scene, brief);
+    if (rel === null) return imp;
+    return clamp01(IMPORTANCE_WEIGHT * imp + INTENT_WEIGHT * rel);
   }
-  return Math.max(0, Math.min(1, score));
+  return heuristicSceneScorer(scene, brief);
 }
 
 /** Effective end/duration of a scored scene, honoring a fit-trim. */
