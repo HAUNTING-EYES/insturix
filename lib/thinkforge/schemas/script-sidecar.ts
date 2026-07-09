@@ -3,6 +3,7 @@ import type { ProductionBrief } from '@/lib/editron/production-brief/production-
 import type { LLMParseResult, ParsedScene } from '@/lib/pipeline/llm-scene-parser';
 import { ThinkForgeBlockZodSchema } from './route-validation';
 import type { ThinkForgeBlock } from './thinkforge-block';
+import { SourceLedgerSchema, type SourceLedger } from '../provenance/source-ledger';
 
 export const SCRIPT_SIDECAR_VERSION = 1 as const;
 export type ScriptSidecarVersion = typeof SCRIPT_SIDECAR_VERSION;
@@ -58,6 +59,7 @@ export interface ScriptGenerationResult {
   scriptBlocks: ThinkForgeBlock[];
   sidecar: ScriptSidecar;
   briefSnapshot: ProductionBrief;
+  sourceLedger: SourceLedger;
   sidecarVersion: ScriptSidecarVersion;
 }
 
@@ -259,6 +261,7 @@ export const ScriptGenerationResultSchema: z.ZodType<ScriptGenerationResult> = z
   scriptBlocks: z.array(ThinkForgeBlockZodSchema),
   sidecar: ScriptSidecarSchema,
   briefSnapshot: ProductionBriefSnapshotSchema,
+  sourceLedger: SourceLedgerSchema,
   sidecarVersion: z.literal(SCRIPT_SIDECAR_VERSION),
 }).superRefine((result, ctx) => {
   if (result.sidecarVersion !== result.sidecar.sidecarVersion) {

@@ -4,6 +4,7 @@ import {
   parseScriptSidecar,
   SCRIPT_SIDECAR_VERSION,
 } from '@/lib/thinkforge/schemas/script-sidecar';
+import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
 
 function sidecar(overrides: Record<string, unknown> = {}) {
   return {
@@ -128,9 +129,36 @@ describe('Script Sidecar v1 contract', () => {
         },
         entryPoint: 'thinkforge',
       },
+      sourceLedger: buildThinkForgeSourceLedger({ userPrompt: 'Adobe just raised prices again.' }),
       sidecarVersion: SCRIPT_SIDECAR_VERSION,
     });
 
     expect(parsed.sidecar.briefId).toBe('brief_1');
+    expect(parsed.sourceLedger.entries[0]?.referenceId).toBe('brief_user');
+  });
+
+  it('rejects generation result envelopes without a source ledger', () => {
+    expect(() =>
+      parseScriptGenerationResult({
+        scriptBlocks: [],
+        sidecar: sidecar(),
+        briefSnapshot: {
+          output: {
+            platform: 'instagram-reels',
+            targetDurationSec: 15,
+            aspectRatio: '9:16',
+            count: 1,
+            format: 'reel',
+          },
+          resolution: {
+            fieldConfidence: {},
+            confirmed: [],
+            inferred: [],
+          },
+          entryPoint: 'thinkforge',
+        },
+        sidecarVersion: SCRIPT_SIDECAR_VERSION,
+      }),
+    ).toThrow(/sourceLedger/);
   });
 });
