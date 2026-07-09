@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fitLineToShotBudget, measureWavDurationSec } from '../../lib/avatar/avatar-audio-fit';
+import { fitLineToShotBudget, measureWavDurationSec, padWavToSec } from '../../lib/avatar/avatar-audio-fit';
 import { assertRelipEligible, relipWithKling, type RelipInput } from '../../lib/avatar/avatar-relip';
 
 function makeWav(durationSec: number, sampleRate = 24000, channels = 1, bits = 16): Buffer {
@@ -58,6 +58,20 @@ describe('measureWavDurationSec (measure, never estimate)', () => {
 
   it('returns null for non-WAV bytes (never guesses)', () => {
     expect(measureWavDurationSec(Buffer.from('this is definitely not a wav file at all!!'))).toBeNull();
+  });
+});
+
+describe('padWavToSec (align voice to shot duration)', () => {
+  it('pads a short VO with silence up to the target duration', () => {
+    expect(measureWavDurationSec(padWavToSec(makeWav(7.3), 8))).toBe(8);
+  });
+
+  it('preserves format (44.1k stereo) when padding', () => {
+    expect(measureWavDurationSec(padWavToSec(makeWav(3.2, 44100, 2, 16), 4))).toBe(4);
+  });
+
+  it('does not trim when already at the target', () => {
+    expect(measureWavDurationSec(padWavToSec(makeWav(8), 8))).toBe(8);
   });
 });
 

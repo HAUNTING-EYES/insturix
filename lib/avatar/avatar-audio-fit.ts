@@ -65,7 +65,16 @@ export function fitLineToShotBudget(measuredSec: number, budgetSec: number = REL
  * channels, bit depth, data size) rather than assuming a fixed format — Chatterbox
  * output rate is not guaranteed. Returns null if the buffer is not a parseable WAV.
  */
-export function measureWavDurationSec(buffer: Buffer): number | null {
+interface WavFormat {
+  sampleRate: number;
+  channels: number;
+  bitsPerSample: number;
+  /** Byte offset where PCM data begins. */
+  dataOffset: number;
+  dataSize: number;
+}
+
+function parseWavFormat(buffer: Buffer): WavFormat | null {
   if (buffer.length < 44) return null;
   if (buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WAVE') return null;
 
@@ -73,6 +82,7 @@ export function measureWavDurationSec(buffer: Buffer): number | null {
   let sampleRate = 0;
   let channels = 0;
   let bitsPerSample = 0;
+  let dataOffset = 0;
   let dataSize = 0;
 
   while (offset + 8 <= buffer.length) {
@@ -85,15 +95,64 @@ export function measureWavDurationSec(buffer: Buffer): number | null {
     } else if (chunkId === 'data') {
       // Streaming WAVs sometimes write 0 / 0xFFFFFFFF — fall back to the real remaining bytes.
       const remaining = buffer.length - (offset + 8);
+      dataOffset = offset + 8;
       dataSize = chunkSize > 0 && chunkSize <= remaining ? chunkSize : remaining;
       break;
     }
     offset += 8 + chunkSize + (chunkSize % 2); // chunks are word-aligned
   }
 
-  const bytesPerSec = sampleRate * channels * (bitsPerSample / 8);
-  if (bytesPerSec <= 0 || dataSize <= 0) return null;
-  return round2(dataSize / bytesPerSec);
+  if (sampleRate <= 0 || channels <= 0 || bitsPerSample <= 0 || dataSize <= 0) return null;
+  return { sampleRate, channels, bitsPerSample, dataOffset, dataSize };
+}
+
+export function measureWavDurationSec(buffer: Buffer): number | null {
+  const fmt = parseWavFormat(buffer);
+  if (!fmt) return null;
+  const bytesPerSec = fmt.sampleRate * fmt.channels * (fmt.bitsPerSample / 8);
+  if (bytesPerSec <= 0) return null;
+  return round2(fmt.dataSize / bytesPerSec);
+}
+
+/**
+ * Pad a WAV with trailing silence to an exact target duration (pure Node — no
+ * ffmpeg). Used to align the cloned-voice audio to Seedance's whole-second output
+ * so Kling LipSync stays in sync. Never trims (callers pick a target >= measured).
+ */
+export function padWavToSec(buffer: Buffer, targetSec: number): Buffer {
+  const fmt = parseWavFormat(buffer);
+  if (!fmt) throw new Error('padWavToSec: input is not a parseable WAV.');
+  const blockAlign = fmt.channels * (fmt.bitsPerSample / 8);
+  const bytesPerSec = fmt.sampleRate * blockAlign;
+  const existing = buffer.subarray(fmt.dataOffset, fmt.dataOffset + fmt.dataSize);
+
+  let targetBytes = Math.round(bytesPerSec * targetSec);
+  targetBytes -= targetBytes % blockAlign; // align to a whole sample frame
+  if (targetBytes <= existing.length) {
+    return canonicalWav(existing, fmt); // already at/over target — re-emit clean, don't trim speech
+  }
+  const silence = Buffer.alloc(targetBytes - existing.length); // zero-filled PCM = silence
+  return canonicalWav(Buffer.concat([existing, silence]), fmt);
+}
+
+function canonicalWav(data: Buffer, fmt: WavFormat): Buffer {
+  const blockAlign = fmt.channels * (fmt.bitsPerSample / 8);
+  const bytesPerSec = fmt.sampleRate * blockAlign;
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(fmt.channels, 22);
+  header.writeUInt32LE(fmt.sampleRate, 24);
+  header.writeUInt32LE(bytesPerSec, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(fmt.bitsPerSample, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(data.length, 40);
+  return Buffer.concat([header, data]);
 }
 
 /** Fetch a synthesized-audio URL and measure its real duration (WAV). */
