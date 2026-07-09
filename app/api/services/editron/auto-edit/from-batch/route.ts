@@ -265,13 +265,14 @@ async function materializeStoryline(
 
   for (const clip of clips) {
     const asset = findAssetForStorylineClip(clip, assets);
-    if (!asset || asset.type !== 'video') continue;
+    if (!asset || (asset.type !== 'video' && asset.type !== 'image')) continue;
 
     const durationFrames = Math.max(1, Math.round(clip.durationSec * FPS));
     const sourceStartFrame = Math.max(0, Math.round(clip.in * FPS));
+    const src = await resolveOverlayUrl(asset, userId);
     overlays.push({
       id: overlayId++,
-      type: 'video',
+      type: asset.type,
       from: cursor,
       durationInFrames: durationFrames,
       row: ROW.VIDEO,
@@ -281,11 +282,9 @@ async function materializeStoryline(
       height: dims.height,
       isDragging: false,
       rotation: 0,
-      content: asset.thumbnail || '',
-      src: await resolveOverlayUrl(asset, userId),
+      content: asset.type === 'image' ? src : (asset.thumbnail || ''),
+      src,
       assetId: asset.assetId,
-      videoStartTime: sourceStartFrame,
-      sourceStartFrame,
       styles: { opacity: 1, objectFit: clip.fit === 'contain' || clip.fit === 'pad' ? 'contain' : 'cover' },
       storyline: {
         uploadBatchId,
@@ -299,6 +298,7 @@ async function materializeStoryline(
         inSec: clip.in,
         outSec: clip.out,
       },
+      ...(asset.type === 'video' ? { videoStartTime: sourceStartFrame, sourceStartFrame } : {}),
     });
     cursor += durationFrames;
   }
