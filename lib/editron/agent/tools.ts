@@ -4666,7 +4666,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
     },
   );
 
-  // ── ADD MOTION GRAPHIC (composition engine + template fallback) ──
+  // ── ADD MOTION GRAPHIC (composition engine owned) ──
   const addMotionGraphicSchema = z.object({
     start: z.coerce.number().describe("Start frame number (integer, 0-based). At 30fps: 1 second = 30 frames."),
     duration: z.coerce.number().optional().describe("Duration in frames. If omitted, uses type-specific defaults."),
@@ -4717,8 +4717,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         }
 
         // ── COMPOSITION ENGINE PATH ──
-        const useCompositionEngine = DEFAULT_CONFIG.features?.useCompositionEngine === true;
-        if (useCompositionEngine) {
+        {
           // ── Option C: Prefer structured schema fields, fall back to regex ──
           let graphicType: string;
           let kind: ContentShapeKind;
@@ -4845,160 +4844,6 @@ NEVER ask the user which clips — default to applyToAll: true.`,
             message: `Added composed ${graphicType} for "${input.description}". Duration: ${duration} frames.`,
           });
         }
-
-        // ── OLD TEMPLATE PATH (feature flag OFF) ──
-        // Search templates (Tier 1: MongoDB curated library)
-        const match = await findBestTemplate(input.description);
-
-        let filledHtml: string;
-
-        if (match && match.score >= 0.15) {
-          // Template found — fill slots with AI
-          console.log(`[MOTION-GRAPHIC] Matched template: "${match.template.name}" (score: ${match.score.toFixed(2)})`);
-          filledHtml = await fillTemplateSlots(match.template, input.description);
-        } else {
-          // No template match — search LottieFiles for an animated graphic
-          console.log(`[MOTION-GRAPHIC] No template match for "${input.description.substring(0, 60)}", searching LottieFiles...`);
-
-          // Extract search keywords from description
-          // Map the description to CATEGORY-based search terms for LottieFiles.
-          // Raw description text ("Product name: Nova Speaker") won't find animations.
-          // We need to search for the TYPE of graphic (logo reveal, text animation, etc.)
-          const desc = (input.description || '').toLowerCase();
-          const categoryKeywords: Record<string, string> = {
-            'logo': 'logo reveal animation',
-            'brand': 'brand reveal animation',
-            'stat': 'number counter animation',
-            'counter': 'number counter',
-            'price': 'price tag animation',
-            'feature': 'feature highlight animation',
-            'title': 'title text animation',
-            'name': 'text reveal animation',
-            'callout': 'callout bubble animation',
-            'check': 'checkmark animation',
-            'star': 'star rating animation',
-            'subscribe': 'subscribe button animation',
-            'like': 'like heart animation',
-            'arrow': 'arrow pointer animation',
-            'graph': 'graph chart animation',
-            'growth': 'growth chart animation',
-            'step': 'step number animation',
-            'timer': 'timer countdown animation',
-            'location': 'location pin animation',
-            'phone': 'phone notification animation',
-            'social': 'social media animation',
-          };
-
-          let searchQuery = (input as any).category || 'text animation';
-          for (const [keyword, query] of Object.entries(categoryKeywords)) {
-            if (desc.includes(keyword)) {
-              searchQuery = query;
-              break;
-            }
-          }
-
-          let lottieUrl: string | null = null;
-          let lottieTitle: string = '';
-          try {
-            const baseUrl = process.env.VERCEL_URL
-              ? `https://${process.env.VERCEL_URL}`
-              : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-            const searchRes = await fetch(`${baseUrl}/api/services/editron/lottie/search?q=${encodeURIComponent(searchQuery)}&limit=5`);
-            const searchData = await searchRes.json().catch(() => ({}));
-            if (searchData.results?.length > 0) {
-              lottieUrl = searchData.results[0].lottieUrl;
-              lottieTitle = searchData.results[0].title;
-              console.log(`[MOTION-GRAPHIC] Found Lottie: "${lottieTitle}" for query "${searchQuery}"`);
-            } else {
-              console.log(`[MOTION-GRAPHIC] No Lottie results for "${searchQuery}", trying generic`);
-              // Try generic search
-              const genericRes = await fetch(`${baseUrl}/api/services/editron/lottie/search?q=text+animation&limit=3`);
-              const genericData = await genericRes.json().catch(() => ({}));
-              if (genericData.results?.length > 0) {
-                lottieUrl = genericData.results[0].lottieUrl;
-                lottieTitle = genericData.results[0].title;
-              }
-            }
-          } catch (e: any) {
-            console.warn(`[MOTION-GRAPHIC] LottieFiles search failed: ${e.message}`);
-          }
-
-          if (lottieUrl) {
-            // Embed Lottie animation as HTML overlay
-            filledHtml = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:transparent;">
-  <dotlottie-player src="${lottieUrl}" background="transparent" speed="1" style="width:80%;height:80%;" loop autoplay></dotlottie-player>
-  <script src="https://unpkg.com/@dotlottie/player-component@2/dist/dotlottie-player.mjs" type="module"></script>
-</div>`;
-          } else {
-            // Professional CSS motion graphic — glass morphism lower-third style.
-            // NOT a black box. Transparent background with subtle blur and accent line.
-            console.log(`[MOTION-GRAPHIC] No Lottie found, creating professional CSS overlay`);
-            const text = input.description.substring(0, 60);
-            filledHtml = `<div style="position:absolute;bottom:12%;left:5%;right:5%;display:flex;align-items:center;gap:12px;padding:16px 24px;background:rgba(255,255,255,0.08);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.12);border-radius:12px;animation:slideUp 0.5s ease-out;">
-  <div style="width:4px;height:36px;background:linear-gradient(180deg,#60a5fa,#3b82f6);border-radius:2px;flex-shrink:0;"></div>
-  <p style="color:white;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-weight:600;margin:0;line-height:1.3;text-shadow:0 1px 4px rgba(0,0,0,0.3);">${text}</p>
-</div>
-<style>@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}</style>`;
-          }
-        }
-
-        const id = Date.now() + Math.floor(Math.random() * 10000);
-        const overlayWidth = input.width ?? canvas.width;
-        const overlayHeight = input.height ?? canvas.height;
-        const duration = input.duration || match?.template?.defaultDuration || 90; // 3s at 30fps
-
-        const cleanHtml = sanitizeHtml(filledHtml);
-        const wrappedHtml = createSandboxedWrapper({
-          html: cleanHtml,
-          width: overlayWidth,
-          height: overlayHeight,
-          backgroundColor: 'transparent',
-          autoFit: true,
-        });
-
-        const styleMetadata = extractStyleMetadata(cleanHtml);
-        const metadata: HtmlGenerationMetadata = {
-          ...styleMetadata,
-          generatedAt: new Date(),
-          sourceType: 'scene',
-        };
-
-        const existingOverlays = toExistingOverlays(project.overlays || []);
-        const assignedRow = input.row ?? findBestRow('html-scene' as any, { from: input.start, duration }, existingOverlays);
-
-        const newOverlay = {
-          id,
-          type: 'html-scene',
-          from: input.start,
-          durationInFrames: duration,
-          content: wrappedHtml,
-          prompt: input.description,
-          metadata,
-          row: assignedRow,
-          left: input.x !== undefined ? (input.x - overlayWidth / 2) : 0,
-          top: input.y !== undefined ? (input.y - overlayHeight / 2) : 0,
-          width: overlayWidth,
-          height: overlayHeight,
-          rotation: 0,
-          isDragging: false,
-          styles: { animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 } },
-        };
-
-        await projectService.addOverlay(userId, projectId, newOverlay as any);
-
-        // OLD: match!.template crashed when match was null (Lottie 404 → CSS fallback path).
-        // Overlay was already saved at line 4527 but response envelope crashed the Director step.
-        const templateId = match?.template?.templateId ?? 'css-fallback';
-        const templateName = match?.template?.name ?? 'CSS Overlay';
-        const templateScore = match ? Math.round(match.score * 100) / 100 : 0;
-        return successEnvelope({
-          id,
-          templateUsed: templateId,
-          templateName,
-          score: templateScore,
-          metadata: { fonts: metadata.fonts, colors: metadata.colors.slice(0, 3) },
-          message: `Added motion graphic "${templateName}" for "${input.description}". Duration: ${duration} frames.`,
-        });
       } catch (e: any) {
         console.error('[MOTION-GRAPHIC] Error:', e);
         return JSON.stringify({ status: 'error', message: e.message });
@@ -5006,7 +4851,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
     },
     {
       name: 'add_motion_graphic',
-      description: 'Add a motion graphic from the curated template library. FAST (~200ms). Use for: lower thirds, callouts, stat counters, title cards, progress bars, subscribe buttons, checklists, comparisons, quotes, notifications, step lists, timelines, social proof. Falls back to error if no template matches — use generate_html_scene for custom/unique animations.',
+      description: 'Add a composed motion graphic using the signal/atom composition engine. Use for: lower thirds, callouts, stat counters, title cards, progress bars, subscribe buttons, checklists, comparisons, quotes, notifications, step lists, timelines, social proof.',
       schema: addMotionGraphicSchema,
     },
   );

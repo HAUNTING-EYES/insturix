@@ -18,6 +18,7 @@ vi.mock('@/lib/editron/data/transition-templates', () => ({
 }));
 
 import { executeEDL } from '../../lib/editron/services/edl-executor';
+import { findBestTemplate } from '../../lib/editron/services/motion-graphics-service';
 import { DEFAULT_CONFIG } from '../../lib/editron/config/editron-config';
 import {
   applyAtomicMotionTracks,
@@ -616,7 +617,7 @@ describe('EDL executor atomic overlay observe mode', () => {
     expect(atomicDecision.multipliers.motionAmplitude).toBeGreaterThan(1);
   });
 
-  it('applies placement-adjusted regions to legacy html graphic geometry', async () => {
+  it('keeps EDL graphics composition-engine-owned even if the retired flag is false', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     if (DEFAULT_CONFIG.features) {
@@ -631,8 +632,8 @@ describe('EDL executor atomic overlay observe mode', () => {
       row: 0,
       left: 0,
       top: 0,
-      width: 1000,
-      height: 500,
+      width: 1920,
+      height: 1080,
       isDragging: false,
       rotation: 0,
       content: 'https://example.com/source.mp4',
@@ -650,15 +651,50 @@ describe('EDL executor atomic overlay observe mode', () => {
         durationFrames: 60,
         priority: 3,
         source: 'utility-bridge:test',
-        signal: 'keyword_emphasis',
+        signal: 'statistic_detected',
         reason: 'negative-space placement',
         confidence: 0.92,
         params: {
-          graphicType: 'keyword-highlight',
-          text: 'traction',
-          keyword: 'traction',
-          body: 'is the only metric that matters',
-          contextPhrase: 'traction is the only metric that matters',
+          graphicType: 'stat-counter',
+          value: '82%',
+          label: 'watch time lift',
+          sourceSpan: { text: 'watch time lift of 82 percent', startMs: 1000, endMs: 2000 },
+          brand: {
+            accentColor: '#00ff00',
+            primaryColor: '#f8f8f8',
+            headingFont: 'Inter',
+            bodyFont: 'Inter',
+            monoFont: 'JetBrains Mono',
+          },
+          signals: {
+            formality: 0.2,
+            enthusiasm: 0.95,
+            warmth: 0.35,
+            emotional_arousal: 0.85,
+            pacing_velocity: 0.8,
+            humor: 0.15,
+            visceral_impact: 0.75,
+            visual_dependency: 0.85,
+            cinematic_moment: 0.8,
+          },
+          mgOverlayScores: {
+            'mg.animation.entrance_slide': { score: 0.9, values: {} },
+            'mg.animation.hold_pulse': { score: 0.9, values: {} },
+            'mg.typography.font_size': { score: 0.8, values: { fontSize: 96 } },
+            'mg.typography.line_height': { score: 0.6, values: { lineHeight: 1.08 } },
+            'mg.emphasis.scale_contrast': { score: 0.7, values: { scaleContrast: 2.1 } },
+          },
+          semanticAtoms: {
+            quantity: {
+              value: 82,
+              displayText: '82%',
+              kind: 'percent',
+              bounded: true,
+              denominator: 100,
+            },
+            evidencePhrase: 'watch time lift of 82 percent',
+          },
+          contextPhrase: 'watch time lift of 82 percent',
           contextStartMs: 1000,
           contextEndMs: 2500,
           placementAdjustment: {
@@ -687,24 +723,25 @@ describe('EDL executor atomic overlay observe mode', () => {
       'placement-geometry-project',
       'user-1',
       overlays,
-      { width: 1000, height: 500 },
+      { width: 1920, height: 1080 },
       undefined,
       'moderate',
     );
 
-    const htmlGraphic = overlays.find((overlay) => overlay.type === OverlayType.HTML_SCENE) as any;
+    const motionGraphic = overlays.find((overlay) => overlay.type === OverlayType.MOTION_GRAPHIC) as any;
 
     expect(result.overlaysCreated).toBe(1);
-    expect(htmlGraphic).toBeDefined();
-    expect(htmlGraphic.left).toBe(750);
-    expect(htmlGraphic.top).toBe(419);
-    expect(htmlGraphic.metadata.placementRegion).toBe('bottom-right');
-    expect(htmlGraphic.metadata.placementAdjustment).toEqual(expect.objectContaining({
+    expect(motionGraphic).toBeDefined();
+    expect(overlays.some((overlay) => overlay.type === OverlayType.HTML_SCENE)).toBe(false);
+    expect(vi.mocked(findBestTemplate)).not.toHaveBeenCalled();
+    expect(motionGraphic.metadata.placementRegion).toBe('bottom-right');
+    expect(motionGraphic.metadata.placementAdjustment).toEqual(expect.objectContaining({
       candidateRegion: 'bottom-right',
       constraints: ['protect-existing-text'],
     }));
+    expect(motionGraphic.metadata.compositionEngine).toBe(true);
+    expect(motionGraphic.recipe.layout.position).toBe('bottom-right');
   });
-
   it('enriches sparse graphic signals from source-timeline visual analysis', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);

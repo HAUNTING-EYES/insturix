@@ -16,8 +16,6 @@ import type { Overlay, Keyframe, KeyframeTrack } from '@/components/editron/edit
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult, type SFXLibrarySearchReport } from '@/lib/pipeline/sfx-library-service';
-import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
-import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
 import { resolveMotionTokens, type BrandInputs, type DeepPartial, type MotionTokens } from '@/lib/editron/data/motion-theme-resolver';
 import { brandInputsFromUnifiedBrandAtomic } from '@/lib/editron/motion-graphics/engine/brand-composition-rules';
 import { brandInputsFromBrandSignalProfile, brandVaultToMotionOverrides } from '@/lib/editron/motion-graphics/engine/brand-vault-to-motion';
@@ -3482,78 +3480,6 @@ function sanitizeOpacityKeyframes(keyframes: Keyframe[], clipDuration: number): 
   return Array.from(byFrame.values()).sort((a, b) => a.frame - b.frame);
 }
 // ── Template-based graphic rendering helpers ──
-// Maps creative brief decision params to template slot values per graphic type.
-// Rule-based, deterministic, no AI. Each graphic type knows its slot schema.
-function mapDecisionParamsToSlots(
-  graphicType: string,
-  params: Record<string, any>,
-  template: MotionGraphicTemplate,
-): Record<string, string> {
-  const text = params.text || '';
-  const slots: Record<string, string> = {};
-
-  switch (graphicType) {
-    case 'stat-counter': {
-      slots.value = params.value ? String(params.value) : params.endValue ? String(params.endValue) : text;
-      slots.label = params.label || '';
-      slots.prefix = params.prefix || '';
-      slots.suffix = params.suffix || '';
-      break;
-    }
-    case 'lower-third': {
-      const parts = text.split(/[,\-–—]\s*/);
-      slots.name = parts[0]?.trim() || text;
-      slots.title = parts[1]?.trim() || params.title || '';
-      break;
-    }
-    case 'callout': {
-      slots.title = text;
-      slots.body = params.body || '';
-      break;
-    }
-    case 'quote-card': {
-      slots.quote = text;
-      slots.author = params.author || '';
-      break;
-    }
-    case 'logo-reveal': {
-      slots.text = text;
-      break;
-    }
-    case 'keyword-highlight':
-    default: {
-      const primaryTextSlot = template.slots.find(s => s.type === 'text');
-      if (primaryTextSlot) {
-        slots[primaryTextSlot.name] = text;
-      }
-      for (const s of template.slots) {
-        if (s.type === 'text' && !slots[s.name]) slots[s.name] = '';
-      }
-      break;
-    }
-  }
-
-  return slots;
-}
-
-function fillTemplateWithSlotValues(
-  template: MotionGraphicTemplate,
-  slotValues: Record<string, string>,
-): string {
-  let html = template.htmlTemplate;
-  for (const slot of template.slots) {
-    const value = slotValues[slot.name] ?? slot.default;
-    const safeValue = String(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#x27;');
-    html = html.replace(new RegExp(`\\{\\{${slot.name}\\}\\}`, 'g'), safeValue);
-  }
-  return html;
-}
-
 type OverlayPlacementRegion =
   | 'top-left'
   | 'top-center'
@@ -3899,7 +3825,7 @@ async function applyGraphic(
   canvas: { width: number; height: number },
   idEpoch: number = 0,
   decisionIndex: number = 0,
-  usedTemplateIds?: Set<string>,
+  _usedTemplateIds?: Set<string>,
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
   analyses?: Map<string, any>,
   projectSignalContext: EDLSignalContext = {},
@@ -3944,10 +3870,9 @@ async function applyGraphic(
       ?? contentMap.value
       ?? '',
   ).trim();
-  const useCompositionEngine = DEFAULT_CONFIG.features?.useCompositionEngine === true;
 
   if (!hasRenderableGraphicContent(contentMap)) return null;
-  if (useCompositionEngine && isKeywordGraphicIntent(decision, graphicType) && !hasStandaloneGraphicStructure(contentMap)) {
+  if (isKeywordGraphicIntent(decision, graphicType) && !hasStandaloneGraphicStructure(contentMap)) {
     console.log(`[EDL-Exec] KEYWORD FILTER: skipped standalone keyword MG "${text}" - captions should carry naked word emphasis`);
     return null;
   }
@@ -4031,10 +3956,10 @@ async function applyGraphic(
     || (durationGraphicType ? GRAPHIC_DURATIONS[durationGraphicType] : undefined)
     || 90;
 
-  // ── COMPOSITION ENGINE PATH (feature flag) ──
-  // When enabled, ALL graphic types route through planComposition → MOTION_GRAPHIC (Remotion).
-  // When disabled, stat-counter uses MOTION_GRAPHIC, everything else uses html-scene (old path).
-  if (useCompositionEngine) {
+  // ── COMPOSITION ENGINE PATH ──
+  // All EDL graphics route through planComposition → MOTION_GRAPHIC (Remotion).
+  // The old inline/template branch was removed so there is a single visual owner.
+  {
     const rawSignals = buildMotionGraphicSignalSnapshot(decision);
     const tokens = resolveMotionTokens(
       rawSignals,
@@ -4200,299 +4125,7 @@ async function applyGraphic(
       `${recipe.elements.length} elements, layout=${recipe.layout.position}`,
     );
     return { created: 1, modified: 0 };
-  }
-  // Full HTML entity escaping — prevents XSS if Gemini outputs malicious text
-  const safeText = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;');
-
-  // Aspect-ratio-aware positioning
-  const isPortrait = canvas.height > canvas.width;
-  const _isSquare = Math.abs(canvas.width - canvas.height) < 100;
-  const safeMargin = canvas.width * 0.05;
-
-  // Position + dimensions per graphic type (responsive)
-  let left = safeMargin;
-  let top = canvas.height * 0.8;
-  let width = canvas.width * 0.4;
-  let height = 80;
-
-  // ── Build HTML per graphic type (5 distinct templates) ──
-  let html = '';
-
-  switch (graphicType) {
-    case 'stat-counter': {
-      // Big number center-screen with accent bar — for statistics, percentages
-      left = isPortrait ? canvas.width * 0.08 : canvas.width * 0.2;
-      top = isPortrait ? canvas.height * 0.35 : canvas.height * 0.3;
-      width = isPortrait ? canvas.width * 0.84 : canvas.width * 0.6;
-      height = isPortrait ? canvas.height * 0.2 : canvas.height * 0.35;
-      html = `
-<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;padding:24px;">
-  <div style="background:linear-gradient(135deg,rgba(0,0,0,0.85),rgba(20,20,40,0.9));backdrop-filter:blur(16px);border-radius:16px;padding:32px 48px;border:1px solid rgba(255,255,255,0.08);box-shadow:0 20px 60px rgba(0,0,0,0.5);animation:statIn 0.5s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
-    <div style="width:40px;height:3px;background:linear-gradient(90deg,#6366f1,#8b5cf6);border-radius:2px;margin-bottom:16px;"></div>
-    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:48px;font-weight:900;text-align:center;letter-spacing:-0.02em;line-height:1.1;">
-      ${safeText}
-    </div>
-    <div style="width:40px;height:3px;background:linear-gradient(90deg,#8b5cf6,#6366f1);border-radius:2px;margin-top:16px;"></div>
-  </div>
-</div>
-<style>
-@keyframes statIn { 0% { opacity:0; transform:scale(0.8) translateY(20px); } 100% { opacity:1; transform:scale(1) translateY(0); } }
-</style>`;
-      break;
-    }
-
-    case 'callout': {
-      // Positioned near subject with arrow indicator — for product/feature callouts
-      if (isPointPosition(position)) {
-        left = Math.min(Math.max((position.x || 0.5) * canvas.width - 150, 20), canvas.width - 340);
-        top = Math.max(20, ((position.y || 0.5) * canvas.height) - 60);
-      }
-      width = Math.round(canvas.width * 0.18); // 18% of canvas, not fixed 320px
-      height = 70;
-      html = `
-<div style="display:flex;align-items:center;gap:10px;width:100%;height:100%;padding:8px;">
-  <div style="width:4px;height:36px;background:#f59e0b;border-radius:2px;flex-shrink:0;animation:barIn 0.3s ease-out forwards;"></div>
-  <div style="background:rgba(0,0,0,0.8);backdrop-filter:blur(12px);border-radius:10px;padding:10px 18px;border:1px solid rgba(245,158,11,0.3);animation:callIn 0.35s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
-    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:17px;font-weight:600;letter-spacing:0.01em;">
-      ${safeText}
-    </div>
-  </div>
-</div>
-<style>
-@keyframes callIn { 0% { opacity:0; transform:translateX(-12px); } 100% { opacity:1; transform:translateX(0); } }
-@keyframes barIn { 0% { height:0; } 100% { height:36px; } }
-</style>`;
-      break;
-    }
-
-    case 'lower-third': {
-      // Bottom-left name/title bar — for person introductions
-      left = isPortrait ? canvas.width * 0.05 : canvas.width * 0.04;
-      top = canvas.height * 0.78;
-      width = isPortrait ? canvas.width * 0.9 : canvas.width * 0.45;
-      height = 80;
-      html = `
-<div style="display:flex;align-items:flex-end;width:100%;height:100%;padding:8px 0;">
-  <div style="position:relative;animation:ltIn 0.4s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
-    <div style="background:rgba(255,255,255,0.95);padding:8px 24px 8px 16px;border-radius:0 8px 8px 0;">
-      <div style="color:#111;font-family:system-ui,-apple-system,sans-serif;font-size:18px;font-weight:700;letter-spacing:0.01em;">
-        ${safeText}
-      </div>
-    </div>
-    <div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:#ef4444;border-radius:2px 0 0 2px;"></div>
-  </div>
-</div>
-<style>
-@keyframes ltIn { 0% { opacity:0; transform:translateX(-30px); } 100% { opacity:1; transform:translateX(0); } }
-</style>`;
-      break;
-    }
-
-    case 'quote-card': {
-      // Centered quote with quotation marks — for direct quotes, testimonials
-      left = canvas.width * 0.15;
-      top = canvas.height * 0.3;
-      width = canvas.width * 0.7;
-      height = canvas.height * 0.35;
-      html = `
-<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:24px;">
-  <div style="background:rgba(0,0,0,0.8);backdrop-filter:blur(20px);border-radius:16px;padding:28px 36px;border:1px solid rgba(255,255,255,0.06);max-width:600px;animation:quoteIn 0.5s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
-    <div style="color:rgba(255,255,255,0.3);font-size:40px;font-family:Georgia,serif;line-height:1;margin-bottom:-8px;">\u201C</div>
-    <div style="color:#fff;font-family:Georgia,serif;font-size:22px;font-weight:400;font-style:italic;text-align:center;line-height:1.5;letter-spacing:0.01em;">
-      ${safeText}
-    </div>
-    <div style="color:rgba(255,255,255,0.3);font-size:40px;font-family:Georgia,serif;line-height:1;text-align:right;margin-top:-8px;">\u201D</div>
-  </div>
-</div>
-<style>
-@keyframes quoteIn { 0% { opacity:0; transform:scale(0.95); } 100% { opacity:1; transform:scale(1); } }
-</style>`;
-      break;
-    }
-
-    case 'logo-reveal': {
-      // Centered brand logo text with cinematic reveal — for final scenes
-      left = canvas.width * 0.15;
-      top = canvas.height * 0.35;
-      width = canvas.width * 0.7;
-      height = canvas.height * 0.3;
-      html = `
-<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;padding:24px;">
-  <div style="animation:logoReveal 1.2s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
-    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:64px;font-weight:900;text-align:center;letter-spacing:-0.03em;text-shadow:0 4px 20px rgba(0,0,0,0.5);">
-      ${safeText}
-    </div>
-    <div style="width:80px;height:4px;background:linear-gradient(90deg,#FFD700,#FFA500);border-radius:2px;margin:16px auto 0;animation:barExpand 0.6s ease-out 0.4s both;"></div>
-  </div>
-</div>
-<style>
-@keyframes logoReveal { 0% { opacity:0; transform:scale(0.8) translateY(20px); } 50% { opacity:1; } 100% { opacity:1; transform:scale(1) translateY(0); } }
-@keyframes barExpand { 0% { width:0; } 100% { width:80px; } }
-</style>`;
-      break;
-    }
-
-    case 'keyword-highlight':
-    default: {
-      // Compact pop-up keyword — positioned in top third to avoid caption zone
-      // CRG constraint:overlay.graphic_in_caption_zone — bottom 15-25% is reserved for captions
-      left = isPortrait ? canvas.width * 0.08 : canvas.width * 0.05;
-      top = isPortrait ? canvas.height * 0.12 : canvas.height * 0.10;
-      width = Math.min(canvas.width * 0.5, Math.max(200, safeText.length * 14 + 60));
-      height = 56;
-      html = `
-<div style="display:flex;align-items:center;width:100%;height:100%;padding:6px;">
-  <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(0,0,0,0.85);backdrop-filter:blur(12px);border-radius:8px;padding:8px 18px;border:1px solid rgba(255,255,255,0.1);animation:kwIn 0.3s cubic-bezier(0.34,1.56,0.64,1) forwards;opacity:0;transform-origin:left center;">
-    <div style="width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0;"></div>
-    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:16px;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;">
-      ${safeText}
-    </div>
-  </div>
-</div>
-<style>
-@keyframes kwIn { 0% { opacity:0; transform:scale(0.7); } 100% { opacity:1; transform:scale(1); } }
-</style>`;
-      break;
-    }
-  }
-
-  const placedGeometry = applyPlacementRegionGeometry(placementRegion, { left, top, width, height }, canvas, safeMargin);
-  left = placedGeometry.left;
-  top = placedGeometry.top;
-  width = placedGeometry.width;
-  height = placedGeometry.height;
-
-  // ── Template upgrade: replace inline CSS with curated template if available ──
-  // Runs at pipeline time (Director phase) so async MongoDB access is safe.
-  // Falls back to the inline CSS html from the switch above if no template matches.
-  try {
-    const templateSearchQuery = graphicType.replace(/-/g, ' ');
-    const templateMatch = await findBestTemplate(templateSearchQuery, usedTemplateIds);
-    if (templateMatch && templateMatch.score >= 0.15) {
-      usedTemplateIds?.add(templateMatch.template.templateId);
-      const slotValues = mapDecisionParamsToSlots(graphicType, decision.params, templateMatch.template);
-      html = fillTemplateWithSlotValues(templateMatch.template, slotValues);
-      if (templateMatch.template.defaultDuration && !decision.durationFrames) {
-        duration = templateMatch.template.defaultDuration;
-      }
-      console.log(`[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: template '${templateMatch.template.templateId}' (score: ${templateMatch.score.toFixed(2)})`);
-    }
-  } catch (err) {
-    console.warn(`[EDL-Exec] Template lookup failed for '${graphicType}', using inline CSS:`, (err as Error).message);
-  }
-
-  // Snap graphic to nearest containing clip (handles pacing drift).
-  // If decision.frame falls in a gap between clips, snap to nearest clip start.
-  const graphicClipMatch = findClipAtFrame(decision.frame, overlays, 20);
-  const snappedGraphicFrame = graphicClipMatch ? graphicClipMatch.snappedFrame : decision.frame;
-  if (graphicClipMatch && graphicClipMatch.drift > 0) {
-    console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: snapped to ${snappedGraphicFrame} (drift: ${graphicClipMatch.drift} frames)`);
-  }
-
-  // Stat-counter uses the React-rendered MOTION_GRAPHIC path (Structure × Theme).
-  // All other types use html-scene (Shadow DOM) until their structure components exist.
-  if (graphicType === 'stat-counter') {
-    const tokens = resolveMotionTokens(
-      decision.params.signals || {},
-      decision.params.brand || {},
-      decision.params.brandMotionOverrides as DeepPartial<MotionTokens> | undefined,
-    );
-    const contentMap: Record<string, string> = {
-      value: decision.params.value ? String(decision.params.value) : decision.params.endValue ? String(decision.params.endValue) : text,
-      prefix: decision.params.prefix || '',
-      suffix: decision.params.suffix || '',
-      label: decision.params.label || '',
-    };
-
-    const rawSignals = decision.params.signals || {};
-    const motionOverlay = {
-      id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
-      type: 'motion-graphic' as const,
-      from: snappedGraphicFrame,
-      durationInFrames: duration,
-      row: ROW.BGM, // z-idx 90, same as html-scene graphics (see E3 z-index comment)
-      left,
-      top,
-      width,
-      height,
-      isDragging: false,
-      rotation: 0,
-      structureType: 'stat-counter',
-      content: contentMap,
-      resolvedTokens: tokens,
-      contentSignals: {
-        formality: rawSignals.formality ?? 0,
-        enthusiasm: rawSignals.enthusiasm ?? 0.5,
-        warmth: rawSignals.warmth ?? 0.5,
-        emotional_arousal: rawSignals.emotional_arousal ?? 0.4,
-        pacing_velocity: rawSignals.pacing_velocity ?? 0.5,
-        humor: rawSignals.humor ?? 0.1,
-        visceral_impact: rawSignals.visceral_impact ?? 0.3,
-        visual_dependency: rawSignals.visual_dependency ?? 0.5,
-      },
-      styles: {
-        opacity: 1,
-        backgroundColor: 'transparent',
-      },
-      metadata: {
-        sourceType: 'edl-graphic',
-        graphicType,
-        placementRegion,
-        placementAdjustment,
-        atomicPlacement,
-        ...atomicMomentBundleMetadata(decision),
-        edlSource: decision.source,
-        edlReason: decision.reason,
-      },
-    };
-
-    overlays.push(motionOverlay as any);
-    console.log(`[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: MOTION_GRAPHIC overlay (React-rendered)`);
-    return { created: 1, modified: 0 };
-  }
-
-  // All other graphic types: html-scene overlay (Shadow DOM, template or inline CSS)
-  const graphicOverlay = {
-    id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
-    type: 'html-scene' as const,
-    from: snappedGraphicFrame,
-    durationInFrames: duration,
-    // Row 1 (above video on row 2, below captions-exception at z-index 95).
-    // Graphics need z-index above video (row 2 = z-idx 80) and z-idx formula is 100-row*10,
-    // so row 1 = z-idx 90. Moving to canonical ROW.MOTION_GRAPHICS (6) would yield z-idx 40
-    // which is BELOW video — graphics would be invisible. This is an intentional exception.
-    row: ROW.BGM, // = 1, see comment above
-    left,
-    top,
-    width,
-    height,
-    isDragging: false,
-    rotation: 0,
-    content: html,
-    styles: {
-      opacity: 1,
-      backgroundColor: 'transparent',
-    },
-    metadata: {
-      sourceType: 'edl-graphic',
-      graphicType,
-      placementRegion,
-      placementAdjustment,
-      atomicPlacement,
-      ...atomicMomentBundleMetadata(decision),
-      edlSource: decision.source,
-      edlReason: decision.reason,
-    },
-  };
-
-  overlays.push(graphicOverlay as any);
-  return { created: 1, modified: 0 };
-}
+  }}
 
 function applyAudioDuck(
   decision: EditDecision,
