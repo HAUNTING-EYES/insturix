@@ -8,7 +8,7 @@ import { VoiceRecorder } from '@/components/dashboard/AvatarVault/VoiceRecorder'
 import { C } from './av-tokens';
 import { Mono, Btn, Field, inp, Portrait, Toggle, Seg } from './av-atoms';
 import {
-  AUDIO_MODE_OPTIONS, buildPlanInput, initialPlannerState, isProductUseCase, isSpeechUseCase,
+  AUDIO_MODE_OPTIONS, MODALITY_OPTIONS, buildPlanInput, initialPlannerState, isProductUseCase, isSpeechUseCase,
   speechInputProblem, useCaseOptionsForRecord as renderUseCaseOptions, type PlannerState,
 } from './av-planner-logic';
 import {
@@ -153,7 +153,16 @@ export function AvatarRenderPlanner({ record }: { record: AvatarProfileRecord })
           {/* use case + prompt */}
           <div style={{ background: C.raised, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
             <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 10 }}>Use case</Mono>
-            <Seg opts={useCaseOpts} val={s.useCase} on={(v) => set('useCase', v)} />
+            <Seg opts={useCaseOpts} val={s.useCase} on={(v) => { set('useCase', v); if (!isSpeechUseCase(v)) set('renderModality', 'talking_head'); }} />
+            {isSpeechUseCase(s.useCase) && (
+              <div style={{ marginTop: 16 }}>
+                <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 10 }}>Motion</Mono>
+                <Seg opts={MODALITY_OPTIONS} val={s.renderModality} on={(v) => set('renderModality', v)} />
+                {s.renderModality === 'body_motion' && (
+                  <Mono s={8} c={C.muted} st={{ display: 'block', marginTop: 8 }}>Full-body shots are capped at 10s per shot — keep the script short, or use talking head for longer takes.</Mono>
+                )}
+              </div>
+            )}
             <div style={{ marginTop: 16 }}><Field label="Scene prompt" hint="required"><textarea value={s.prompt} onChange={(e) => set('prompt', e.target.value)} rows={2} placeholder="Describe the scene, framing, mood…" style={{ ...inp, resize: 'vertical' }} /></Field></div>
             <div style={{ marginTop: 14 }}><Field label="Negative prompt" hint="optional"><input value={s.negativePrompt} onChange={(e) => set('negativePrompt', e.target.value)} placeholder="What to avoid…" style={inp} /></Field></div>
             {isSpeechUseCase(s.useCase) && (
