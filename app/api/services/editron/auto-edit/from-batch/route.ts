@@ -19,6 +19,7 @@ import type { AspectRatio, Platform, ProductionBrief } from '@/lib/editron/produ
 import { readProjectAssetAnalyses } from '@/lib/editron/storyline/asset-analysis-reader';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
+import { hydrateStorylineAnalysesForBatch } from '@/lib/editron/services/batch-storyline-analysis-bridge';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -510,6 +511,11 @@ export async function POST(request: NextRequest) {
     const project = await projectService.createProject(userId, projectName, { brandId, orgId: orgId ?? batch.orgId ?? null });
     const projectId = project.projectId;
 
+    const analysisBridge = await hydrateStorylineAnalysesForBatch(db as any, {
+      projectId,
+      userId,
+      assets: visualAssets,
+    });
     const analyses = await readProjectAssetAnalyses(db as any, projectId);
     const brief = buildBrief(analyses, visualAssets, intake, body);
     const dims = dimensionsForAspect(brief.output.aspectRatio ?? '16:9');
@@ -560,6 +566,7 @@ export async function POST(request: NextRequest) {
             rationale: ordering.rationale,
             clipCount: timeline.clipCount,
             composerClipCount: ordering.storyline.clips.length,
+            analysisBridge,
           },
           updatedAt: new Date(),
         },
@@ -594,6 +601,7 @@ export async function POST(request: NextRequest) {
         fallbackReason: ordering.fallbackReason ?? (storylineTimeline ? undefined : 'no_materialized_storyline_clips'),
         rationale: ordering.rationale,
         clipCount: timeline.clipCount,
+        analysisBridge,
       },
       messageId: dispatch.messageId,
     });
