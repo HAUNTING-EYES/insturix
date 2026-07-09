@@ -59,6 +59,26 @@ describe('gemini file activation polling', () => {
     });
   });
 
+  it('stops polling when Gemini reports a terminal failed file state', async () => {
+    const getFile = vi.fn(async () => ({ state: 'FAILED' }));
+
+    const result = await waitForGeminiFileActive({
+      fileManager: { getFile },
+      fileName: 'files/failed-video',
+      initialState: 'PROCESSING',
+      label: 'test',
+      sleep: async () => {},
+    });
+
+    expect(result).toMatchObject({
+      active: false,
+      state: 'FAILED',
+      reason: 'terminal-state',
+      attempts: 1,
+      waitedMs: 3_000,
+    });
+  });
+
   it('fails deterministically when Gemini omits the file name needed for polling', async () => {
     const result = await waitForGeminiFileActive({
       fileManager: { getFile: vi.fn() },

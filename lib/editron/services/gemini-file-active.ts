@@ -18,7 +18,7 @@ export interface GeminiFileActivationResult {
   state: string | null;
   attempts: number;
   waitedMs: number;
-  reason?: 'missing-file-name' | 'timeout';
+  reason?: 'missing-file-name' | 'terminal-state' | 'timeout';
 }
 
 const MB = 1024 * 1024;
@@ -51,7 +51,7 @@ export async function waitForGeminiFileActive(input: GeminiFileActivationInput):
   let attempts = 0;
   let waitedMs = 0;
 
-  while (state !== 'ACTIVE' && waitedMs < maxWaitMs) {
+  while (state !== 'ACTIVE' && !isTerminalFailureState(state) && waitedMs < maxWaitMs) {
     const delayMs = Math.min(pollIntervalMs, maxWaitMs - waitedMs);
     await sleep(delayMs);
     waitedMs += delayMs;
@@ -70,7 +70,9 @@ export async function waitForGeminiFileActive(input: GeminiFileActivationInput):
     state,
     attempts,
     waitedMs,
-    ...(state === 'ACTIVE' ? {} : { reason: 'timeout' as const }),
+    ...(state === 'ACTIVE'
+      ? {}
+      : { reason: isTerminalFailureState(state) ? 'terminal-state' as const : 'timeout' as const }),
   };
 }
 
@@ -100,6 +102,10 @@ function resolvePollIntervalMs(value?: number): number {
 
 function normalizeState(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim().toUpperCase() : null;
+}
+
+function isTerminalFailureState(state: string | null): boolean {
+  return state === 'FAILED';
 }
 
 function normalizeMs(value: unknown): number | null {
