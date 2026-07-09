@@ -62,9 +62,12 @@ export function CalosCadenceModal({
     }),
   );
   const [saving, setSaving] = useState(false);
+  // In create mode, holds the id once the campaign is saved so references can be added inline (without
+  // closing + reopening). Null until then.
+  const [createdId, setCreatedId] = useState<string | null>(null);
 
-  // Campaign id — present in edit mode; references attach to it (create mode shows a "save first" hint).
-  const cid = campaign?._id ?? null;
+  // Campaign id — the edited campaign, or the just-created one. References attach to it.
+  const cid = campaign?._id ?? createdId;
 
   const toggleDay = (ri: number, di: number) =>
     setRows((rs) =>
@@ -102,9 +105,21 @@ export function CalosCadenceModal({
           });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof data?.error === 'string' ? data.error : `Failed (${res.status})`);
-      toast({ title: isCreate ? 'Campaign created' : 'Cadence saved' });
-      onSaved(isCreate ? data?.campaign?._id : undefined);
-      onClose();
+      if (isCreate) {
+        const newId = data?.campaign?._id as string | undefined;
+        onSaved(newId); // refresh the parent list + select it
+        if (newId) {
+          setCreatedId(newId); // stay open so references can be added inline
+          toast({ title: 'Campaign created', description: 'Add references below, or hit Done.' });
+        } else {
+          toast({ title: 'Campaign created' });
+          onClose();
+        }
+      } else {
+        toast({ title: 'Cadence saved' });
+        onSaved(undefined);
+        onClose();
+      }
     } catch (err) {
       toast({ title: isCreate ? 'Failed to create campaign' : 'Failed to save cadence', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
@@ -156,13 +171,13 @@ export function CalosCadenceModal({
         <Mono s={10} c={C.gold}>+ ADD PLATFORM</Mono>
       </button>
 
-      {/* References — the source material generation writes FROM (Phase A). Edit mode only; a new
-          campaign has no id yet to attach them to. */}
+      {/* References — the source material generation writes FROM (Phase A). Needs a campaign id, so in
+          create mode it appears right after "Create campaign" (the modal stays open). */}
       <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${C.border}` }}>
         <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 10 }}>References — what generation writes from (PDFs, links, docs, notes)</Mono>
-        {isCreate || !cid ? (
+        {!cid ? (
           <div style={{ padding: 10, background: C.surface, border: `1px dashed ${C.bs}`, borderRadius: 8 }}>
-            <Mono s={9} c={C.muted}>Add campaign-specific references after saving. For references that apply to everything, use the brand-level “References” button on the calendar — no campaign needed.</Mono>
+            <Mono s={9} c={C.muted}>Hit “Create campaign” below, then add campaign-specific references here. For references that apply to everything, use the brand-level “References” button on the calendar — no campaign needed.</Mono>
           </div>
         ) : (
           <CalosReferencesPanel
@@ -174,8 +189,10 @@ export function CalosCadenceModal({
       </div>
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
-        <Btn size="sm" onClick={onClose}>Cancel</Btn>
-        <Btn size="sm" variant="primary" onClick={save} disabled={saving}>{saving ? (isCreate ? 'Creating…' : 'Saving…') : isCreate ? 'Create campaign' : 'Save cadence'}</Btn>
+        {!createdId && <Btn size="sm" onClick={onClose}>Cancel</Btn>}
+        <Btn size="sm" variant="primary" onClick={() => { if (createdId) onClose(); else void save(); }} disabled={saving}>
+          {saving ? (isCreate ? 'Creating…' : 'Saving…') : createdId ? 'Done' : isCreate ? 'Create campaign' : 'Save cadence'}
+        </Btn>
       </div>
     </Sheet>
   );
