@@ -358,6 +358,60 @@ describe('rendered frame aesthetic scoring', () => {
     ]));
   });
 
+  it('warns caption and graphic reading-task overlap even below generic overlap threshold', () => {
+    const caption = captionReceipt({
+      words: ['read', 'one', 'thing'],
+      maxWordsPerLine: 3,
+      durationFrames: 60,
+    });
+    const graphic = motionGraphicReceipt('the other thing');
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 15, alphaMean: 1 },
+      overlays: [
+        {
+          id: 'caption-zone-caption',
+          receipt: caption,
+          box: {
+            x: 220,
+            y: 1280,
+            width: 640,
+            height: 180,
+            opacity: 1,
+            visiblePixelRatio: 0.08,
+            contrastRatio: 5.8,
+            textPixelHeight: 68,
+          },
+        },
+        {
+          id: 'caption-zone-mg',
+          receipt: graphic,
+          box: {
+            x: 712,
+            y: 1430,
+            width: 260,
+            height: 160,
+            opacity: 1,
+            visiblePixelRatio: 0.032,
+            contrastRatio: 5.2,
+            textPixelHeight: 74,
+          },
+        },
+      ],
+    });
+
+    expect(result.status).toBe('warn');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'overlap',
+        severity: 'warn',
+        message: expect.stringContaining('graphic_in_caption_zone'),
+        evidence: expect.stringContaining('constraint=overlay.graphic_in_caption_zone'),
+      }),
+    ]));
+  });
+
   it('warns clean overlay pairs above the CRG spatial-overlap threshold', () => {
     const overlays = [
       visualOverlay('shape-a', 'shape', { x: 240, y: 620, width: 300, height: 200 }),

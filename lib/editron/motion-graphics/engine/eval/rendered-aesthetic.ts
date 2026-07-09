@@ -294,7 +294,14 @@ function scoreOverlayOverlap(normalized: NormalizedOverlay[], addIssue: AddIssue
       const b = visual[j];
       if (!a?.box || !b?.box) continue;
       const ratio = intersectionRatio(a.box, b.box);
-      if (ratio > OVERLAY_SPATIAL_OVERLAP_RATIO) {
+      if (ratio > 0 && isGraphicCaptionPair(a, b)) {
+        addIssue('overlap', 0.12, 'caption and graphic violate constraint:overlay.graphic_in_caption_zone', {
+          overlay: a.family === 'caption' ? b.item : a.item,
+          relatedOverlay: a.family === 'caption' ? a.item : b.item,
+          evidence: `ratio=${ratio.toFixed(2)}; constraint=overlay.graphic_in_caption_zone`,
+          severity: 'warn',
+        });
+      } else if (ratio > OVERLAY_SPATIAL_OVERLAP_RATIO) {
         addIssue('overlap', 0.12, 'visual overlays violate constraint:overlay.overlay_spatial_overlap', {
           overlay: a.item,
           relatedOverlay: b.item,
@@ -700,6 +707,11 @@ function isTextFamily(family: AtomicOverlayFamily | undefined): boolean {
 
 function isGraphicTextFamily(family: AtomicOverlayFamily | undefined): boolean {
   return family !== undefined && GRAPHIC_TEXT_FAMILIES.has(family);
+}
+
+function isGraphicCaptionPair(a: NormalizedOverlay, b: NormalizedOverlay): boolean {
+  return (a.family === 'caption' && isGraphicTextFamily(b.family))
+    || (b.family === 'caption' && isGraphicTextFamily(a.family));
 }
 
 function minimumReadableTextPx(
