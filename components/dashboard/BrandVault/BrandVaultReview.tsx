@@ -29,6 +29,7 @@ import { BrandVaultStats } from './BrandVaultStats';
 import { ConflictCard } from './ConflictCard';
 import { SignalTable } from './SignalTable';
 import { BrandVisualBoard } from './BrandVisualBoard';
+import { ProductUiPanel } from './ProductUiPanel';
 import { BrandScanReveal } from './BrandScanReveal';
 import { BrandManagerPanel } from './BrandManagerPanel';
 import {
@@ -773,6 +774,7 @@ export function BrandVaultReview() {
           {snapshot.reviewPayload && (
             <BrandVisualBoard visualIdentity={snapshot.reviewPayload.visualIdentity ?? null} />
           )}
+          <ProductUiPanel model={snapshot.record?.profile?.productUiModel ?? null} />
           <SourceStrip lanes={sourceLanes} />
           <IntakeGuidancePanel
             guidance={intakeGuidance}
