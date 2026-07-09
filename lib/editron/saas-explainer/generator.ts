@@ -601,14 +601,14 @@ function formatReferenceStyleEvidence(styleBrief?: SaasExplainerReferenceStyleBr
   return lines.filter((line): line is string => Boolean(line)).join("\n");
 }
 
-function normalizeScenes(scenes: Array<Record<string, unknown>>): SceneDescriptor[] {
+export function normalizeScenes(scenes: Array<Record<string, unknown>>): SceneDescriptor[] {
   return scenes.map((scene, index) => ({
     ...(scene as Omit<SceneDescriptor, "sceneIndex">),
     sceneIndex: typeof scene.sceneIndex === "number" ? scene.sceneIndex : index,
   }));
 }
 
-function ensureMinimumSaasExplainerScenes(
+export function ensureMinimumSaasExplainerScenes(
   scenes: SceneDescriptor[],
   input: NormalizedSaasExplainerIntake,
 ): SceneDescriptor[] {
