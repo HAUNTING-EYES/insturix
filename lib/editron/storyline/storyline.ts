@@ -13,7 +13,7 @@
  *  - one pinned render target (Edit Mind proves you must normalize into a single canvas).
  */
 
-import type { AspectRatio, OutputFormat } from '../production-brief/production-brief';
+import type { AspectRatio } from '../production-brief/production-brief';
 
 export type ClipRole = 'hook' | 'a-roll' | 'b-roll' | 'body' | 'outro';
 
@@ -59,7 +59,10 @@ export interface Storyline {
   renderTarget: RenderTarget;
   /** Sum of clip durations, seconds. */
   totalDurationSec: number;
-  format: OutputFormat;
+  /** How condensed this cut is: kept output / available source, 0..1. 1 = faithful (nothing
+   *  cut); ->0 = heavily condensed. Replaces the old reel/auto-edit binary; drives ordering
+   *  and is carried for provenance/telemetry. */
+  condensationRatio: number;
   /** The brief's target length (null = "follow the content"). Carried for provenance. */
   targetDurationSec: number | null;
 }

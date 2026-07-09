@@ -113,18 +113,32 @@ describe('fitToDuration', () => {
 });
 
 describe('orderScenes', () => {
-  it('orders auto-edit chronologically (createdAt, then startTime)', () => {
+  it('faithful (ratio 1) orders chronologically by createdAt, blocks intact', () => {
     const a = scene({ source: 'x', startTime: 10, endTime: 12, createdAt: 200 });
     const b = scene({ source: 'y', startTime: 0, endTime: 2, createdAt: 100 });
-    const ordered = orderScenes(selectScenes([a, b], brief()), 'auto-edit');
+    const ordered = orderScenes(selectScenes([a, b], brief()), 1);
     expect(ordered.map((s) => s.scene.source)).toEqual(['y', 'x']);
   });
 
-  it('orders reel by score descending (hook first)', () => {
-    const dull = scene({ source: 'x', startTime: 0, endTime: 2 });
-    const punchy = scene({ source: 'y', startTime: 0, endTime: 2, transcription: 'wow' });
-    const ordered = orderScenes(selectScenes([dull, punchy], brief({ format: 'reel' })), 'reel');
-    expect(ordered[0].scene.source).toBe('y');
+  it('★ condensed (low ratio) leads with the highest-importance block, against source time', () => {
+    const early = scene({ source: 'x', startTime: 0, endTime: 2, importance: 0.2, createdAt: 100 });
+    const late = scene({ source: 'y', startTime: 0, endTime: 2, importance: 0.9, createdAt: 200 });
+    const ordered = orderScenes(selectScenes([early, late], brief()), 0.2);
+    expect(ordered[0].scene.source).toBe('y'); // importance wins when condensing
+  });
+
+  it('faithful keeps chronology even when a later block is more important', () => {
+    const early = scene({ source: 'x', startTime: 0, endTime: 2, importance: 0.2, createdAt: 100 });
+    const late = scene({ source: 'y', startTime: 0, endTime: 2, importance: 0.9, createdAt: 200 });
+    const ordered = orderScenes(selectScenes([early, late], brief()), 1);
+    expect(ordered.map((s) => s.scene.source)).toEqual(['x', 'y']); // chronology wins when faithful
+  });
+
+  it('★ never reorders WITHIN a source, even heavily condensed (no split thoughts)', () => {
+    const s1 = scene({ source: 'pod', startTime: 0, endTime: 2, importance: 0.1, createdAt: 100 });
+    const s2 = scene({ source: 'pod', startTime: 2, endTime: 4, importance: 0.9, createdAt: 100 });
+    const ordered = orderScenes(selectScenes([s1, s2], brief()), 0.1);
+    expect(ordered.map((s) => s.scene.startTime)).toEqual([0, 2]); // source order preserved
   });
 });
 
@@ -135,8 +149,9 @@ describe('composeStoryline', () => {
       scene({ source: 'b', startTime: 0, endTime: 4 }),
       scene({ source: 'c', startTime: 0, endTime: 4, transcription: 'the point' }),
     ];
-    const story = composeStoryline(scenes, brief({ format: 'reel', aspectRatio: '9:16', targetDurationSec: 8 }));
-    expect(story.format).toBe('reel');
+    const story = composeStoryline(scenes, brief({ aspectRatio: '9:16', targetDurationSec: 8 }));
+    expect(story.condensationRatio).toBeCloseTo(8 / 12); // kept 8s of 12s available
+    expect(story.condensationRatio).toBeLessThan(1); // condensed, not faithful
     expect(story.renderTarget).toMatchObject({ width: 1080, height: 1920 });
     expect(story.totalDurationSec).toBeLessThanOrEqual(8);
     expect(story.clips[0].role).toBe('hook');

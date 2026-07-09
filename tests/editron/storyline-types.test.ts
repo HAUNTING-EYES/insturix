@@ -58,7 +58,7 @@ describe('validateStoryline', () => {
   }
   function story(clips: StorylineClip[], over: Partial<Storyline> = {}): Storyline {
     const totalDurationSec = clips.reduce((a, c) => a + c.durationSec, 0);
-    return { clips, renderTarget: renderTargetForAspect('16:9'), totalDurationSec, format: 'auto-edit', targetDurationSec: null, ...over };
+    return { clips, renderTarget: renderTargetForAspect('16:9'), totalDurationSec, condensationRatio: 1, targetDurationSec: null, ...over };
   }
 
   it('accepts a well-formed storyline', () => {

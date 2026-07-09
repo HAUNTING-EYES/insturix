@@ -21,7 +21,7 @@
  * with an explicit source-index tiebreak; no Date/random.
  */
 
-import type { AspectRatio, OutputFormat, ProductionBrief } from '../production-brief/production-brief';
+import type { AspectRatio, ProductionBrief } from '../production-brief/production-brief';
 import type { Scene } from './scene';
 import {
   type ClipRole,
@@ -80,22 +80,22 @@ function tokenize(text: string | undefined): string[] {
 }
 
 /**
- * A highlight cut (condensed, hook-first) vs a faithful full edit. Single source of truth
- * for the format's traits - used by ordering, role assignment, and shot scoring so they
- * can never disagree.
+ * How condensed the output is: kept output seconds / available source seconds, clamped
+ * 0..1. 1 = faithful (nothing cut); ->0 = heavily condensed. This CONTINUUM replaces the
+ * old reel/auto-edit binary as the ordering driver - it smoothly blends chronological
+ * ordering (faithful) into importance-first ordering (condensed), every value in between
+ * behaving proportionally. Nobody picks it; it falls out of target vs source.
  */
-function isHighlightFormat(format: OutputFormat): boolean {
-  return format === 'reel';
+function computeCondensationRatio(outputSec: number, sourceSec: number): number {
+  if (!(sourceSec > 0) || !(outputSec > 0)) return 1;
+  return clamp01(outputSec / sourceSec);
 }
 
-/** How well a shot type fits a format (0..1). Heuristic, INVENTED-PLACEHOLDER. */
-function shotTypeFit(shotType: Scene['shotType'], format: OutputFormat): number {
+/** Mild tightness preference used ONLY by the heuristic fallback scorer (un-analyzed
+ *  scenes). Format-free: tighter shots read as more deliberate. INVENTED-PLACEHOLDER. */
+function shotTypeFit(shotType: Scene['shotType']): number {
   if (!shotType || shotType === 'unknown') return 0.5;
-  if (isHighlightFormat(format)) {
-    // a highlight wants punchy, tighter shots; wide/long read as filler
-    return shotType === 'long' || shotType === 'wide' ? 0.6 : 1;
-  }
-  return 0.6; // faithful edit: neutral, keep the timeline's own shots
+  return shotType === 'long' || shotType === 'wide' ? 0.7 : 1;
 }
 
 /**
@@ -123,7 +123,7 @@ function intentRelevance(scene: Scene, brief: ProductionBrief): number | null {
 function heuristicSceneScorer(scene: Scene, brief: ProductionBrief): number {
   let score = H_BASE;
   if (scene.hasSpeech) score += H_SPEECH;
-  score += H_SHOT * shotTypeFit(scene.shotType, brief.output.format);
+  score += H_SHOT * shotTypeFit(scene.shotType);
   const rel = intentRelevance(scene, brief);
   if (rel !== null) score += H_INTENT * rel;
   return clamp01(score);
@@ -215,53 +215,129 @@ export function fitToDuration(
 }
 
 /**
- * 3. ORDER - sequence the picked scenes into a narrative for the format. Deterministic.
- * Highlight = best moment first (score-desc). Faithful = by asset createdAt, then source,
- * then startTime, then endTime (the fix for Edit Mind's recency-sort / store-order bug).
+ * A coherence block: all picked scenes from ONE source, kept in that source's own
+ * chronological order. The hard contract Edit Mind never had - a continuous recording is
+ * never reordered against itself, so reshuffling can never chop a sentence or a thought.
+ * Ordering happens BETWEEN blocks, never inside one.
  */
-export function orderScenes(picked: SceneScore[], format: OutputFormat): SceneScore[] {
-  const arr = picked.slice();
-  if (isHighlightFormat(format)) {
-    arr.sort(byScoreDesc);
-    return arr;
-  }
-  arr.sort((a, b) => {
-    const ca = a.scene.createdAt ?? 0;
-    const cb = b.scene.createdAt ?? 0;
-    if (ca !== cb) return ca - cb;
-    if (a.scene.source !== b.scene.source) return a.scene.source < b.scene.source ? -1 : 1;
-    if (a.scene.startTime !== b.scene.startTime) return a.scene.startTime - b.scene.startTime;
-    if (a.scene.endTime !== b.scene.endTime) return a.scene.endTime - b.scene.endTime;
-    return a.srcIndex - b.srcIndex;
-  });
-  return arr;
+interface OrderBlock {
+  scenes: SceneScore[];
+  createdAt: number; // asset creation time (shared by a source's scenes)
+  startTime: number; // earliest source start in the block
+  peakImportance: number; // strongest fused importance in the block (0 when no signal)
+  srcIndex: number; // smallest input index in the block (stable tiebreak)
 }
 
-/** Assign a clip role: hook-first for highlight formats, a/b-roll by speech otherwise. */
-function assignRole(index: number, scene: Scene, format: OutputFormat): ClipRole {
-  if (isHighlightFormat(format) && index === 0) return 'hook';
+/** Group picked scenes into per-source blocks, each internally chronological. Pure. */
+function buildOrderBlocks(picked: SceneScore[]): OrderBlock[] {
+  const bySource = new Map<string, SceneScore[]>();
+  picked.forEach((s) => {
+    const arr = bySource.get(s.scene.source);
+    if (arr) arr.push(s);
+    else bySource.set(s.scene.source, [s]);
+  });
+  const blocks: OrderBlock[] = [];
+  for (const group of bySource.values()) {
+    group.sort(
+      (a, b) =>
+        a.scene.startTime - b.scene.startTime ||
+        a.scene.endTime - b.scene.endTime ||
+        a.srcIndex - b.srcIndex,
+    );
+    blocks.push({
+      scenes: group,
+      createdAt: group[0].scene.createdAt ?? 0,
+      startTime: group[0].scene.startTime,
+      peakImportance: group.reduce((m, s) => Math.max(m, s.scene.importance ?? 0), 0),
+      srcIndex: group.reduce((m, s) => Math.min(m, s.srcIndex), Infinity),
+    });
+  }
+  return blocks;
+}
+
+/**
+ * 3. ORDER - sequence the picked scenes. Deterministic. Intra-source order is ALWAYS
+ * preserved (blocks); only the order BETWEEN blocks is decided, by the condensation
+ * continuum:
+ *   ratio = 1 (faithful)   -> chronological (createdAt, then source start)
+ *   ratio -> 0 (condensed) -> importance-first (strongest moment leads = a real hook)
+ *   in between             -> a linear blend of the two RANK orders (stable, scale-free)
+ * One code path for every degree of condensation - the reel/auto-edit branch is gone.
+ * (An LLM narrative plan will later override this default via the same signature.)
+ */
+export function orderScenes(picked: SceneScore[], condensationRatio: number): SceneScore[] {
+  const ratio = clamp01(condensationRatio);
+  const blocks = buildOrderBlocks(picked);
+  if (blocks.length <= 1) return blocks.flatMap((b) => b.scenes);
+
+  const chronoOrder = blocks
+    .slice()
+    .sort((a, b) => a.createdAt - b.createdAt || a.startTime - b.startTime || a.srcIndex - b.srcIndex);
+  const chronoRank = new Map<OrderBlock, number>();
+  chronoOrder.forEach((b, i) => chronoRank.set(b, i));
+
+  const importanceOrder = blocks
+    .slice()
+    .sort((a, b) => b.peakImportance - a.peakImportance || chronoRank.get(a)! - chronoRank.get(b)!);
+  const importanceRank = new Map<OrderBlock, number>();
+  importanceOrder.forEach((b, i) => importanceRank.set(b, i));
+
+  const blended = blocks.slice().sort((a, b) => {
+    const ka = ratio * chronoRank.get(a)! + (1 - ratio) * importanceRank.get(a)!;
+    const kb = ratio * chronoRank.get(b)! + (1 - ratio) * importanceRank.get(b)!;
+    return ka - kb || chronoRank.get(a)! - chronoRank.get(b)! || a.srcIndex - b.srcIndex;
+  });
+  return blended.flatMap((b) => b.scenes);
+}
+
+// --- hook detection: an opener earns the 'hook' role only if it is a genuinely strong
+//     moment (real importance or vocal arousal). When there is NO importance signal, a
+//     CONDENSED cut has curated its opener (so the first clip is the hook); a faithful full
+//     edit just starts, no hook role. Thresholds INVENTED-PLACEHOLDER. ---
+const HOOK_IMPORTANCE = 0.6;
+const HOOK_AROUSAL = 0.6;
+
+function isStrongOpener(scene: Scene, condensed: boolean): boolean {
+  const imp = scene.importance;
+  if (typeof imp === 'number') {
+    return (
+      imp >= HOOK_IMPORTANCE ||
+      (typeof scene.vocalArousal === 'number' && scene.vocalArousal >= HOOK_AROUSAL)
+    );
+  }
+  return condensed;
+}
+
+/** Assign a clip role from signals (no format): a strong opener is the hook, else a/b-roll
+ *  by speech. */
+function assignRole(index: number, scene: Scene, condensed: boolean): ClipRole {
+  if (index === 0 && isStrongOpener(scene, condensed)) return 'hook';
   return scene.hasSpeech ? 'a-roll' : 'b-roll';
 }
 
 /**
  * Compose an ordered Storyline from scenes + a resolved ProductionBrief.
  * select -> fit -> order -> build. Pure, deterministic, never throws. Empty input yields
- * an empty (but valid) storyline rather than an error.
+ * an empty (but valid) storyline rather than an error. The reel/auto-edit binary is gone:
+ * ordering is driven by the condensation ratio (kept output / available source).
  */
 export function composeStoryline(
   scenes: Scene[],
   brief: ProductionBrief,
   opts?: ComposeOptions,
 ): Storyline {
-  const format = brief.output.format;
   const rawTarget = brief.output.targetDurationSec;
   const target = typeof rawTarget === 'number' && rawTarget > 0 ? rawTarget : null;
   const aspectRatio: AspectRatio = brief.output.aspectRatio ?? '16:9';
   const renderTarget = renderTargetForAspect(aspectRatio, opts?.fps);
 
   const scored = selectScenes(scenes, brief, opts);
+  const sourceSec = scored.reduce((acc, s) => acc + (s.scene.endTime - s.scene.startTime), 0);
   const picked = fitToDuration(scored, target, opts);
-  const ordered = orderScenes(picked, format);
+  const outputSec = picked.reduce((acc, s) => acc + effDuration(s), 0);
+  const ratio = computeCondensationRatio(outputSec, sourceSec);
+  const condensed = ratio < 1 - 1e-6;
+  const ordered = orderScenes(picked, ratio);
 
   const defaultFit: FitPolicy = 'contain';
   const clips: StorylineClip[] = ordered.map((s, index) => {
@@ -274,11 +350,11 @@ export function composeStoryline(
       in: inSec,
       out: outSec,
       durationSec: outSec - inSec,
-      role: assignRole(index, s.scene, format),
+      role: assignRole(index, s.scene, condensed),
       fit: defaultFit,
     };
   });
 
   const totalDurationSec = clips.reduce((acc, c) => acc + c.durationSec, 0);
-  return { clips, renderTarget, totalDurationSec, format, targetDurationSec: target };
+  return { clips, renderTarget, totalDurationSec, condensationRatio: ratio, targetDurationSec: target };
 }
