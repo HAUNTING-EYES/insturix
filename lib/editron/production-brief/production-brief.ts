@@ -37,7 +37,16 @@ export type OutputFormat = 'reel' | 'auto-edit';
 export type IntakeEntryPoint = 'upload' | 'script' | 'thinkforge' | 'generate' | 'idea';
 
 /** The user-editable knobs we track confidence for (the spec-card fields). */
-export type BriefField = 'platform' | 'targetDurationSec' | 'aspectRatio' | 'count' | 'intent' | 'style';
+export type BriefField =
+  | 'platform'
+  | 'targetDurationSec'
+  | 'aspectRatio'
+  | 'count'
+  | 'intent'
+  | 'style'
+  | 'voiceLanguages'
+  | 'captionLanguages'
+  | 'deliverables';
 
 export interface BriefOutputSpec {
   /** Where it's going. Master knob - drives aspect + default duration. */
@@ -51,6 +60,12 @@ export interface BriefOutputSpec {
   intent?: string;
   /** Style params (never a mode name). Vibe mainly comes from the brand, not here. */
   style?: Record<string, number | string>;
+  /** Spoken voice languages requested for production. Explicit user/session intake only. */
+  voiceLanguages?: string[];
+  /** Caption/subtitle languages requested for production. Explicit user/session intake only. */
+  captionLanguages?: string[];
+  /** Concrete requested output deliverables. Explicit user/session intake only. */
+  deliverables?: string[];
   /** DERIVED internal ordering hint (condensed vs faithful). Never asked/shown. */
   format: OutputFormat;
 }
@@ -139,6 +154,9 @@ const OUTPUT_FIELD_KEYS: readonly BriefField[] = [
   'count',
   'intent',
   'style',
+  'voiceLanguages',
+  'captionLanguages',
+  'deliverables',
 ];
 
 /** Shape knobs a platform change re-defaults (unless the same edit sets them explicitly). */

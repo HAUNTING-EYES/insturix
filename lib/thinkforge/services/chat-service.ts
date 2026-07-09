@@ -31,6 +31,7 @@ import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
 import { resolveThinkForgeDocumentIntent } from '../agents/prompt-utils';
 import { resolveThinkForgeTrendContext } from './trend-context';
+import { resolveThinkForgeProductionBrief } from '../brief/resolve-production-brief';
 import {
   resolveContentSignalProfile,
   formatContentSignalProfileForPrompt,
@@ -875,6 +876,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         let finalBlocks: ThinkForgeBlock[] = [];
         let finalRichText: TiptapJSON = { type: 'doc', content: [] } as any;
         let signalTrace: any = undefined;
+        let briefSnapshot: ReturnType<typeof resolveThinkForgeProductionBrief> | undefined;
         let writerOutputMetadata: Record<string, any> | undefined;
 
         // Phase 4: resolve the content signal profile and fold it into systemBrief so the writers
@@ -921,6 +923,18 @@ CRITICAL: You are editing a SELECTION from a larger document.
           }
         } catch (trendErr) {
           console.warn('[chat-service] public trend context failed; generating without it:', trendErr);
+        }
+
+        try {
+          briefSnapshot = resolveThinkForgeProductionBrief({
+            userPrompt: effectivePrompt,
+            project: sessionState.metadata,
+            documentType: generatedDocumentType,
+            contentPath,
+            brandId: sessionState.metadata.brandId,
+          });
+        } catch (briefErr) {
+          console.warn('[chat-service] production brief resolution failed; generating without briefSnapshot:', briefErr);
         }
 
         try {
@@ -1052,6 +1066,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
                 source: 'ai',
                 documentType: generatedDocumentType,
                 ...(signalTrace ? { signalTrace } : {}),
+                ...(briefSnapshot ? { briefSnapshot } : {}),
                 ...(writerOutputMetadata ? { writerOutput: writerOutputMetadata } : {}),
               },
             }
@@ -1077,9 +1092,9 @@ CRITICAL: You are editing a SELECTION from a larger document.
             content: finalContent,
             version: savedVersion,
             documentType: generatedDocumentType,
-            // signalTrace/writerOutput intentionally NOT emitted to the client: internal
-            // reasoning the browser never reads. Still persisted server-side (ReplaceDocument
-            // above) and fed to the Clickatron handoff from the DB, not over the wire.
+            // signalTrace/briefSnapshot/writerOutput intentionally NOT emitted to the client:
+            // internal reasoning the browser never reads. Still persisted server-side
+            // (ReplaceDocument above) and fed to handoffs from the DB, not over the wire.
           },
           metadata: {
             workflow: 'create',

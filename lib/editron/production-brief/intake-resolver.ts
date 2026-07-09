@@ -64,6 +64,9 @@ export interface IntakeSignals {
     aspectRatio: AspectRatio;
     count: number;
     style: Record<string, number | string>;
+    voiceLanguages: string[];
+    captionLanguages: string[];
+    deliverables: string[];
   }>;
 }
 
@@ -116,6 +119,18 @@ function inferPlatform(signals: IntakeSignals): PlatformInference {
 function normalizeCount(requested: number | undefined): number {
   if (requested === undefined || !Number.isFinite(requested)) return 1;
   return Math.max(1, Math.floor(requested));
+}
+
+function normalizeStringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = Array.from(
+    new Set(
+      value
+        .map((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter((item) => item.length > 0),
+    ),
+  );
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 /**
@@ -225,10 +240,32 @@ export function resolveProductionBrief(signals: IntakeSignals): ProductionBrief 
     inferred.push('style');
   }
 
+  const voiceLanguages = normalizeStringList(requested.voiceLanguages);
+  if (voiceLanguages) {
+    fieldConfidence.voiceLanguages = 1;
+    confirmed.push('voiceLanguages');
+  }
+
+  const captionLanguages = normalizeStringList(requested.captionLanguages);
+  if (captionLanguages) {
+    fieldConfidence.captionLanguages = 1;
+    confirmed.push('captionLanguages');
+  }
+
+  const deliverables = normalizeStringList(requested.deliverables);
+  if (deliverables) {
+    fieldConfidence.deliverables = 1;
+    confirmed.push('deliverables');
+  }
+
   const format = deriveFormat({ targetDurationSec }, sourceDurationSec);
+  const output: ProductionBrief['output'] = { platform, targetDurationSec, aspectRatio, count, intent, style, format };
+  if (voiceLanguages) output.voiceLanguages = voiceLanguages;
+  if (captionLanguages) output.captionLanguages = captionLanguages;
+  if (deliverables) output.deliverables = deliverables;
 
   return {
-    output: { platform, targetDurationSec, aspectRatio, count, intent, style, format },
+    output,
     brand: signals.hasBrand ? {} : null,
     entryPoint: signals.entryPoint,
     sourceDurationSec,
