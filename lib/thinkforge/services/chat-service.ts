@@ -995,6 +995,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
               writerType: 'script',
               contentAnalysis: result.contentAnalysis,
               visualPrompts: result.visualMetadata,
+              scriptSidecar: result.sidecar,
+              sidecarVersion: result.sidecar.sidecarVersion,
               writerMetadata: result.metadata,
               ...(trendContextMetadata ? { trendContext: trendContextMetadata } : {}),
             };

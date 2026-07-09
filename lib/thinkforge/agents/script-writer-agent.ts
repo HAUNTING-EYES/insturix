@@ -6,6 +6,11 @@ import { generateWithWritingContextCache } from '../services/gemini-writing-cont
 import { parseAgentJson } from '../protocol/parse-agent-json';
 import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
 import { repairAiFillerContent } from '../services/ai-filler-repair';
+import {
+  parseScriptSidecar,
+  SCRIPT_SIDECAR_VERSION,
+  ScriptSidecarSchema,
+} from '../schemas/script-sidecar';
 
 // Flat ScriptWriter Output Contract
 export const ScriptWriterResultSchema = z.object({
@@ -24,6 +29,7 @@ export const ScriptWriterResultSchema = z.object({
     estimatedTimeSeconds: z.number().describe('Estimated duration of the script in seconds'),
     platform: z.string().describe('The targeted platform (e.g., youtube, tiktok)'),
   }),
+  sidecar: ScriptSidecarSchema.describe('Script Sidecar v1 emitted in the same pass as the script prose'),
 });
 
 export type ScriptWriterResult = z.infer<typeof ScriptWriterResultSchema>;
@@ -75,6 +81,7 @@ export function assertUsableScriptWriterResult(result: ScriptWriterResult): void
   const scenePrompts = result.visualMetadata?.scenePrompts ?? [];
   const sceneCount = countMatches(content, MARKDOWN_SCENE_HEADER_PATTERN);
   const failures: string[] = [];
+  let sidecarSceneCount = 0;
 
   if (content.length < 150) failures.push('content_under_150_chars');
   if (SCHEMA_ARTIFACT_PATTERNS.some((pattern) => pattern.test(content))) failures.push('schema_artifact_content');
@@ -84,6 +91,17 @@ export function assertUsableScriptWriterResult(result: ScriptWriterResult): void
   if (scenePrompts.length === 0) failures.push('missing_scene_prompts');
   if (sceneCount > 0 && scenePrompts.length > 0 && scenePrompts.length !== sceneCount) {
     failures.push(`scene_prompt_count_mismatch:${scenePrompts.length}/${sceneCount}`);
+  }
+
+  try {
+    const sidecar = parseScriptSidecar(result.sidecar);
+    sidecarSceneCount = sidecar.scenes.length;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'unknown';
+    failures.push(`invalid_sidecar:${message}`);
+  }
+  if (sceneCount > 0 && sidecarSceneCount > 0 && sidecarSceneCount !== sceneCount) {
+    failures.push(`sidecar_scene_count_mismatch:${sidecarSceneCount}/${sceneCount}`);
   }
 
   const filler = CACHED_SCRIPT_AI_FILLER.find((pattern) => pattern.regex.test(content));
@@ -171,6 +189,13 @@ Your task is to write a high-retention, engaging video script.
    - **Include Text Overlays:** Explicitly define exact text overlays from the brief, including heading, brand name, date, location, CTA, and short tagline when available. If a logo is requested, say "Place [Brand Name] logo at [position]" rather than omitting it.
    - **No Generic Scene Prompts:** Never return prompts like "cinematic scene", "modern visual", or "professional graphic" without the concrete factual details above.
    - Include \`motionInfo\` to guide pacing and graphic overlays.
+6. **Script Sidecar v1:** In the SAME JSON response, include a \`sidecar\` object with \`sidecarVersion: ${SCRIPT_SIDECAR_VERSION}\`. It must describe the same scenes as \`content\` without re-parsing later:
+   - Include \`characters\`. Always include \`{ "id": "narrator", "name": "Narrator", "role": "narrator" }\`. Add one \`host\` character only if someone speaks on camera.
+   - Each \`sidecar.scenes[N]\` maps to \`## Scene N\` in \`content\`.
+   - Each scene includes required parser fields: \`title\`, \`narration\`, \`visualDescription\`, \`videoMotionPrompt\`, \`audioDescription\`, \`musicDescription\`, \`sfxDescription\`, \`durationSeconds\`, \`mood\`, \`imageQualityTokens\`, \`videoQualityTokens\`, \`generationUnitId\`, \`primaryVisualForUnit\`, \`sceneType\`, and \`assetRecommendation\`.
+   - Each scene includes \`lines\` with \`text\`, \`speakerId\`, \`onCamera\`, and \`delivery\`. Use \`delivery: "voiceover"\` for narrator voiceover and \`delivery: "sync-dialogue"\` only for visible on-camera speech.
+   - If any line has \`onCamera: true\` and \`delivery: "sync-dialogue"\`, set that scene's \`relipSafe: true\`; otherwise set \`relipSafe: false\`.
+   - \`sourceRefs\` are provenance IDs only. If using retrieved sources, use \`source_1\`, \`source_2\`, etc. A line or scene \`sourceRefs\` value must also appear in top-level \`sidecar.sourceRefs\`. If no external facts are used, use empty arrays.
 
 Return your response strictly adhering to the JSON schema.`;
 
@@ -198,12 +223,30 @@ Return your response strictly adhering to the JSON schema.`;
         '  "content": "the full script as markdown with ## Scene headers; no JSON inside",',
         '  "contentAnalysis": { "hooks": ["string"], "theme": "string", "emphasisPoints": ["string"], "qualityScore": 0 },',
         '  "visualMetadata": { "motionInfo": "string", "scenePrompts": ["string"] },',
-        '  "metadata": { "estimatedTimeSeconds": 0, "platform": "string" }',
+        '  "metadata": { "estimatedTimeSeconds": 0, "platform": "string" },',
+        '  "sidecar": {',
+        `    "sidecarVersion": ${SCRIPT_SIDECAR_VERSION},`,
+        '    "characters": [{ "id": "narrator", "name": "Narrator", "role": "narrator" }],',
+        '    "scenes": [{',
+        '      "title": "Scene title", "narration": "spoken text", "visualDescription": "what is seen",',
+        '      "videoMotionPrompt": "camera or motion direction", "audioDescription": "",',
+        '      "musicDescription": "music cue", "sfxDescription": "", "durationSeconds": 5,',
+        '      "mood": "neutral", "imageQualityTokens": "visual quality tokens",',
+        '      "videoQualityTokens": "video quality tokens", "generationUnitId": "scene_1",',
+        '      "primaryVisualForUnit": true, "sceneType": "talking-head", "assetRecommendation": "ai-video",',
+        '      "lines": [{ "text": "spoken text", "speakerId": "narrator", "onCamera": false, "delivery": "voiceover", "sourceRefs": [] }],',
+        '      "charactersPresent": ["narrator"], "relipSafe": false, "sourceRefs": []',
+        '    }],',
+        '    "overallMusicPrompt": "overall music direction", "characterDescriptions": {},',
+        '    "colorPalette": [], "environmentNotes": "environment notes",',
+        '    "suggestedProfileCategory": "production-mode", "sourceRefs": []',
+        '  }',
         '}',
         'hooks, emphasisPoints, and scenePrompts must be arrays of strings only.',
         'content must be markdown scene script text, not JSON, not an array, and not ThinkForge block objects.',
         'Every scene in content must begin with ## Scene N: ... and include **Narration:** plus **Visual:** labels.',
         'scenePrompts must map 1:1 with the scenes in content.',
+        'sidecar.scenes must map 1:1 with the scenes in content, and sidecar sourceRefs must be internally consistent.',
         'Do not add keys outside the required JSON shape.',
       ].join('\n');
       const { text, cacheStatus, modelName } = await generateWithWritingContextCache({

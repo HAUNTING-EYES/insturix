@@ -3,6 +3,7 @@ import {
   assertUsableScriptWriterResult,
   type ScriptWriterResult,
 } from '@/lib/thinkforge/agents/script-writer-agent';
+import { SCRIPT_SIDECAR_VERSION, type ScriptSidecar } from '@/lib/thinkforge/schemas/script-sidecar';
 
 const canonicalScript = `## Scene 1: The stalled launch
 **Narration:** Ops teams do not lose a launch in one dramatic failure. They lose it in tiny approval loops that never get owned.
@@ -11,6 +12,80 @@ const canonicalScript = `## Scene 1: The stalled launch
 ## Scene 2: The cleaner lane
 **Narration:** Put one person in charge of final feedback, and the team stops rewriting the same decision five times.
 **Visual:** Clean production board with one highlighted approval owner and a finished asset moving to publish.`;
+
+function makeSidecar(overrides: Partial<ScriptSidecar> = {}): ScriptSidecar {
+  return {
+    sidecarVersion: SCRIPT_SIDECAR_VERSION,
+    characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }],
+    overallMusicPrompt: 'restrained documentary bed with light pulse',
+    characterDescriptions: {},
+    colorPalette: ['charcoal', 'warm white', 'muted yellow'],
+    environmentNotes: 'Operations workspace with launch board and calendar.',
+    suggestedProfileCategory: 'production-mode',
+    sourceRefs: [],
+    scenes: [
+      {
+        title: 'The stalled launch',
+        narration: 'Ops teams do not lose a launch in one dramatic failure.',
+        visualDescription: 'Scattered comments, calendar slips, and an ownerless approval board.',
+        videoMotionPrompt: 'slow push across the stalled board',
+        audioDescription: '',
+        musicDescription: 'subtle tension',
+        sfxDescription: '',
+        durationSeconds: 21,
+        mood: 'serious',
+        imageQualityTokens: 'clean product-documentary lighting',
+        videoQualityTokens: 'steady camera, readable interface details',
+        generationUnitId: 'scene_1',
+        primaryVisualForUnit: true,
+        sceneType: 'montage',
+        assetRecommendation: 'ai-video',
+        lines: [
+          {
+            text: 'Ops teams do not lose a launch in one dramatic failure.',
+            speakerId: 'narrator',
+            onCamera: false,
+            delivery: 'voiceover',
+            sourceRefs: [],
+          },
+        ],
+        charactersPresent: ['narrator'],
+        relipSafe: false,
+        sourceRefs: [],
+      },
+      {
+        title: 'The cleaner lane',
+        narration: 'Put one person in charge of final feedback.',
+        visualDescription: 'A clean production board with one highlighted approval owner.',
+        videoMotionPrompt: 'gentle pan to the highlighted approval owner',
+        audioDescription: '',
+        musicDescription: 'quiet lift',
+        sfxDescription: '',
+        durationSeconds: 21,
+        mood: 'calm',
+        imageQualityTokens: 'polished interface closeup',
+        videoQualityTokens: 'smooth motion, crisp UI',
+        generationUnitId: 'scene_2',
+        primaryVisualForUnit: true,
+        sceneType: 'montage',
+        assetRecommendation: 'ai-video',
+        lines: [
+          {
+            text: 'Put one person in charge of final feedback.',
+            speakerId: 'narrator',
+            onCamera: false,
+            delivery: 'voiceover',
+            sourceRefs: [],
+          },
+        ],
+        charactersPresent: ['narrator'],
+        relipSafe: false,
+        sourceRefs: [],
+      },
+    ],
+    ...overrides,
+  };
+}
 
 function makeResult(overrides: Partial<ScriptWriterResult> = {}): ScriptWriterResult {
   return {
@@ -32,6 +107,7 @@ function makeResult(overrides: Partial<ScriptWriterResult> = {}): ScriptWriterRe
       estimatedTimeSeconds: 42,
       platform: 'instagram',
     },
+    sidecar: makeSidecar(),
     ...overrides,
   };
 }
@@ -77,5 +153,24 @@ describe('assertUsableScriptWriterResult', () => {
         }),
       ),
     ).toThrow(/scene_prompt_count_mismatch:1\/2/);
+  });
+
+  it('rejects scripts without a valid same-pass sidecar', () => {
+    expect(() =>
+      assertUsableScriptWriterResult({
+        ...makeResult(),
+        sidecar: undefined as unknown as ScriptWriterResult['sidecar'],
+      }),
+    ).toThrow(/invalid_sidecar/);
+  });
+
+  it('rejects sidecars whose scene count does not match the visible script', () => {
+    expect(() =>
+      assertUsableScriptWriterResult(
+        makeResult({
+          sidecar: makeSidecar({ scenes: [makeSidecar().scenes[0]!] }),
+        }),
+      ),
+    ).toThrow(/sidecar_scene_count_mismatch:1\/2/);
   });
 });
