@@ -20,6 +20,7 @@
  */
 
 import type { PipelineWarningCollector } from './pipeline-warnings';
+import { waitForGeminiFileActive } from './gemini-file-active';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -469,23 +470,18 @@ async function uploadVideoToGemini(videoUrl: string): Promise<string | null> {
       const fileUri = uploadResult?.file?.uri;
       if (!fileUri) return null;
 
-      let state = uploadResult?.file?.state;
-      const fileName = uploadResult?.file?.name;
-      let retries = 0;
-      while (state !== 'ACTIVE' && retries < 30) {
-        await new Promise(r => setTimeout(r, 3000));
-        try {
-          const check = await fileManager.getFile(fileName!);
-          state = check?.state;
-        } catch (err: unknown) { console.warn('[VideoUnderstanding] getFile poll failed:', err instanceof Error ? err.message : err); }
-        retries++;
-      }
+      const activation = await waitForGeminiFileActive({
+        fileManager,
+        fileName: uploadResult?.file?.name,
+        initialState: uploadResult?.file?.state,
+        label: 'VideoUnderstanding',
+        fileSizeBytes: fileSize,
+      });
 
-      if (state !== 'ACTIVE') {
-        console.error(`[VideoUnderstanding] File not ACTIVE after ${retries * 3}s (state=${state})`);
+      if (!activation.active) {
+        console.error(`[VideoUnderstanding] File not ACTIVE after ${Math.round(activation.waitedMs / 1000)}s (state=${activation.state ?? 'unknown'}, attempts=${activation.attempts}, reason=${activation.reason})`);
         return null;
       }
-
       return fileUri;
     } finally {
       try { fs.unlinkSync(tmpPath); } catch (err: unknown) { console.warn('[VideoUnderstanding] tmp cleanup failed:', err instanceof Error ? err.message : err); }

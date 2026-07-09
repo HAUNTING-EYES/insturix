@@ -22,6 +22,7 @@ import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { ANALYSIS_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
 import { TokenTracker, type TokenUsageMetadata } from '@/lib/editron/utils/token-tracker';
 import type { PipelineWarningCollector } from './pipeline-warnings';
+import { waitForGeminiFileActive } from './gemini-file-active';
 
 // ─── Gemini 429 Retry ───────────────────────────────────────────
 // Gemini rate limits are transient. Exponential backoff (2s, 4s, 8s) recovers
@@ -447,23 +448,18 @@ async function uploadToGeminiFiles(
 
       console.log(`[GeminiFiles] Uploaded: ${fileUri.substring(0, 80)}...`);
 
-      // Wait for ACTIVE state — large files need more time
-      let fileState = uploadResult?.file?.state;
-      let retries = 0;
-      while (fileState !== 'ACTIVE' && retries < 30) {
-        await new Promise(r => setTimeout(r, 3000));
-        try {
-          const checkResult = await fileManager.getFile(fileName!);
-          fileState = checkResult?.state;
-        } catch (err: unknown) { console.warn('[5Track] file state check failed:', err instanceof Error ? err.message : err); }
-        retries++;
-      }
+      const activation = await waitForGeminiFileActive({
+        fileManager,
+        fileName,
+        initialState: uploadResult?.file?.state,
+        label: 'GeminiFiles',
+        fileSizeBytes: fileSize,
+      });
 
-      if (fileState !== 'ACTIVE') {
-        console.error(`[GeminiFiles] Not ACTIVE after ${retries * 3}s (state: ${fileState})`);
+      if (!activation.active) {
+        console.error(`[GeminiFiles] Not ACTIVE after ${Math.round(activation.waitedMs / 1000)}s (state: ${activation.state ?? 'unknown'}, attempts=${activation.attempts}, reason=${activation.reason})`);
         return null;
       }
-
       return fileUri;
     } finally {
       try { fs.unlinkSync(tmpPath); } catch (err: unknown) { console.warn('[5Track] tmp file cleanup failed:', err instanceof Error ? err.message : err); }

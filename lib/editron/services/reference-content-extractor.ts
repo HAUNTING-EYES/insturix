@@ -11,6 +11,7 @@
  */
 
 import type { EditDNA } from './style-transfer-service';
+import { waitForGeminiFileActive } from './gemini-file-active';
 
 // ─── Types (per Plan Phase 1) ───────────────────────────────────
 
@@ -186,15 +187,18 @@ async function importUploader() {
           const fileUri = uploadResult?.file?.uri;
           if (!fileUri) return null;
 
-          let state = uploadResult?.file?.state;
-          const fileName = uploadResult?.file?.name;
-          let retries = 0;
-          while (state !== 'ACTIVE' && retries < 20) {
-            await new Promise(r => setTimeout(r, 2000));
-            try { const c = await fileManager.getFile(fileName!); state = c?.state; } catch (err: unknown) { console.warn('[RefExtractor] getFile poll failed:', err instanceof Error ? err.message : err); }
-            retries++;
+          const activation = await waitForGeminiFileActive({
+            fileManager,
+            fileName: uploadResult?.file?.name,
+            initialState: uploadResult?.file?.state,
+            label: 'RefExtractor',
+            fileSizeBytes: buffer.length,
+          });
+          if (!activation.active) {
+            console.warn(`[RefExtractor] Gemini file not ACTIVE after ${Math.round(activation.waitedMs / 1000)}s (state=${activation.state ?? 'unknown'}, attempts=${activation.attempts}, reason=${activation.reason})`);
+            return null;
           }
-          return state === 'ACTIVE' ? fileUri : null;
+          return fileUri;
         } finally {
           try { fs.unlinkSync(tmpPath); } catch (err: unknown) { console.warn('[RefExtractor] tmp cleanup failed:', err instanceof Error ? err.message : err); }
         }
