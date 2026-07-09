@@ -199,9 +199,13 @@ function resolveAudioBoundaryTransitionKind(decision: EditDecision): AudioBounda
     .filter((value): value is string => typeof value === 'string')
     .map((value) => value.toLowerCase().replace(/_/g, '-'));
 
-  if (candidates.some((value) => value.includes('j-cut') || value === 'audio-leads-picture')) return 'j-cut';
-  if (candidates.some((value) => value.includes('l-cut') || value === 'audio-trails-picture')) return 'l-cut';
+  if (candidates.some((value) => isAudioBoundaryKindToken(value, 'j-cut') || value === 'audio-leads-picture')) return 'j-cut';
+  if (candidates.some((value) => isAudioBoundaryKindToken(value, 'l-cut') || value === 'audio-trails-picture')) return 'l-cut';
   return null;
+}
+
+function isAudioBoundaryKindToken(value: string, kind: AudioBoundaryTransitionKind): boolean {
+  return value === kind || value.endsWith(`-${kind}`) || value.endsWith(`.${kind}`) || value.endsWith(`:${kind}`);
 }
 
 function resolveAudioBoundaryOffsetFrames(decision: EditDecision): number {
@@ -2811,13 +2815,7 @@ function applyTransition(
   });
   const transType = transitionForm.compatibilityType;
   const durationFrames = transitionForm.durationFrames;
-
-  // hard-cut and editorial cuts don't produce visual transitions. Use the
-  // resolved atomic form, not the upstream hint, so strong motion/beat atoms can
-  // promote a default hard-cut into a motivated visual transition.
-  if (!audioBoundaryKind && ['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType)) {
-    return null;
-  }
+  const isEditorialCut = ['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType);
 
   // Snap decision frame to nearest actual clip boundary FIRST so the dedup
   // below can use clipA/clipB identity (authoritative) instead of frame
@@ -2837,6 +2835,25 @@ function applyTransition(
 
   if (audioBoundaryKind) {
     return applyAudioBoundaryTransition(audioBoundaryKind, decision, overlays, boundaryMatch, idEpoch, decisionIndex);
+  }
+
+  // Editorial cuts are already represented by the adjacent video clip boundary.
+  // They intentionally render no visual transition tile, but they are still a
+  // valid executed decision when anchored to a real boundary. Returning a
+  // zero-change result keeps Phase-0/quality audit from misclassifying a
+  // deliberate match-cut or hard-cut as a dropped executor path.
+  if (isEditorialCut) {
+    decision.params.transitionType = transType;
+    decision.params.transitionStyle = transType;
+    decision.params.atomicTransitionForm = transitionForm;
+    decision.params.editorialCutExecution = {
+      version: 'editorial-cut-execution-v1',
+      boundaryFrame: boundaryMatch.boundaryFrame,
+      clipAId: (boundaryMatch.clipA as any).id,
+      clipBId: (boundaryMatch.clipB as any).id,
+      compatibilityType: transType,
+    };
+    return { created: 0, modified: 0 };
   }
 
   // Check if a transition already exists for this clip pair. Clip-pair match

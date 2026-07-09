@@ -274,6 +274,35 @@ describe('EDL param contract normalization', () => {
     }));
   });
 
+  it('counts anchored match-cut decisions as executed editorial cuts without visual tiles', async () => {
+    const clipA = videoOverlay({ id: 'clip-a', from: 0, durationInFrames: 100 } as any);
+    const clipB = videoOverlay({ id: 'clip-b', from: 100, durationInFrames: 120 } as any);
+    const overlays = [clipA, clipB];
+    const edl = decisionList([{
+      type: 'transition',
+      frame: 100,
+      durationFrames: 0,
+      confidence: 0.95,
+      params: { transitionType: 'match-cut', transitionIntent: 'editorial-cut' },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-match-cut-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(result.decisionsExecuted).toBe(1);
+    expect(result.decisionsSkipped).toBe(0);
+    expect(result.overlaysCreated).toBe(0);
+    expect(result.overlaysModified).toBe(0);
+    expect(result.rejectedDecisions).toHaveLength(0);
+    expect(overlays.some((overlay: any) => overlay.type === 'transition')).toBe(false);
+    expect(overlays.some((overlay: any) => overlay.type === 'sound')).toBe(false);
+    expect(result.decisionExecutionTrace[0]).toEqual(expect.objectContaining({
+      type: 'transition',
+      outcome: 'executed',
+      reason: 'handler-applied',
+      createdOverlayIds: [],
+      modifiedOverlayIds: [],
+    }));
+  });
   it('executes graph-produced camera shake through the producer and EDL path', async () => {
     const { executeSignalDrivenEdit } = await import('../../lib/editron/services/signal-executor');
     const { loadGraph } = await import('../../lib/editron/services/graph-query');
