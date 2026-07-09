@@ -58,9 +58,25 @@ export function statusToStageIndex(status: string | null | undefined): number {
   return STATUS_TO_STAGE[status] ?? 0;
 }
 
-/** Coarse percent from stage progress. Real percent should replace this once
-    the backend emits it (// TODO(backend)). Terminal = 100. */
+/** Coarse percent from stage progress. Used only when the backend hasn't
+    emitted a real `autoEditStagePercent`. Terminal = 100. */
 export function stagePercent(stageIndex: number, done: boolean): number {
   if (done) return 100;
   return Math.min(99, Math.round(((stageIndex + 0.5) / TOTAL_STAGES) * 100));
+}
+
+/** During `directing`, the director emits a live `autoEditStageDesc` (the
+    current action). Map its keywords onto the fine stage so the screen shows
+    the true stage (cut/punch/caption/music/transition/graphics) instead of the
+    collapsed `directing`. Falls back to 'cut' (index 1). */
+export function directingDescToStageIndex(desc: string | null | undefined): number {
+  if (!desc) return 1;
+  const d = desc.toLowerCase();
+  if (/caption|subtitle|transcri/.test(d)) return 3;
+  if (/music|score|\bbgm\b|duck|audio|sound/.test(d)) return 4;
+  if (/transition|dissolve|\bfade\b|wipe/.test(d)) return 5;
+  if (/graphic|lower.?third|\btitle\b|sticker|motion|\bstat\b|overlay/.test(d)) return 6;
+  if (/zoom|punch|beat|emphas/.test(d)) return 2;
+  if (/cut|trim|silence|dead.?air|clip/.test(d)) return 1;
+  return 1;
 }

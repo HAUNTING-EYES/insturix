@@ -7,6 +7,8 @@ import {
   statusToStageIndex,
   stagePercent,
   isTerminalStatus,
+  directingDescToStageIndex,
+  TOTAL_STAGES,
 } from '@/components/editron/project/auto-edit/auto-edit-stages';
 
 /* Full-screen auto-edit processing route. Polls the project's coarse
@@ -25,6 +27,8 @@ export default function AutoEditProcessingPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [filename, setFilename] = useState('your video');
   const [done, setDone] = useState(false);
+  const [stageDesc, setStageDesc] = useState<string | null>(null);
+  const [stagePct, setStagePct] = useState<number | null>(null);
   const stopped = useRef(false);
 
   useEffect(() => {
@@ -42,6 +46,8 @@ export default function AutoEditProcessingPage() {
           if (proj?.title) setFilename(proj.title);
           const s: string | null = proj?.autoEditStatus ?? null;
           if (s) setStatus(s);
+          setStageDesc(typeof proj?.autoEditStageDesc === 'string' ? proj.autoEditStageDesc : null);
+          setStagePct(typeof proj?.autoEditStagePercent === 'number' ? proj.autoEditStagePercent : null);
           if (s && isTerminalStatus(s)) {
             setDone(true);
             stopped.current = true;
@@ -62,8 +68,16 @@ export default function AutoEditProcessingPage() {
     };
   }, [projectId, router]);
 
-  const stageIndex = statusToStageIndex(status);
-  const percent = stagePercent(stageIndex, done);
+  // During `directing`, use the director's live per-step signal (real % + the
+  // current action mapped to a fine stage). Otherwise the coarse status map.
+  const directing = status === 'directing';
+  const stageIndex = done
+    ? TOTAL_STAGES - 1
+    : directing && stageDesc
+      ? directingDescToStageIndex(stageDesc)
+      : statusToStageIndex(status);
+  const percent = done ? 100 : directing && stagePct !== null ? stagePct : stagePercent(stageIndex, false);
+  const logLines = directing && stageDesc ? [stageDesc] : [];
   const openEditor = () => projectId && router.push(`/dashboard/editron/project/${projectId}`);
 
   return (
@@ -72,7 +86,7 @@ export default function AutoEditProcessingPage() {
       stageIndex={stageIndex}
       percent={percent}
       done={done}
-      logLines={[]}
+      logLines={logLines}
       onSkip={openEditor}
       onOpenEditor={openEditor}
     />

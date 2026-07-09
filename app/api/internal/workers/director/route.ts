@@ -124,9 +124,28 @@ async function handler(request: NextRequest) {
 
     // ─── Execute Director ─────────────────────────────────────────
     const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
+    // Persist live per-step progress so the auto-edit screen can show the REAL
+    // stage during `directing` (which otherwise collapses cut/punch/caption/
+    // music/transition/graphics into one status). Fire-and-forget + throttled
+    // to percent/description changes — progress writes must NEVER break the edit.
+    // Read on the client via GET /api/services/editron/projects/[id].
+    let lastStagePct = -1;
+    let lastStageDesc = '';
+    const emitProgress = (step: number, total: number, desc: string) => {
+      console.log(`[DirectorWorker] Director ${step}/${total}: ${desc}`);
+      const pct = total > 0 ? Math.min(99, Math.round((step / total) * 100)) : 3;
+      if (pct === lastStagePct && desc === lastStageDesc) return;
+      lastStagePct = pct;
+      lastStageDesc = desc;
+      void db.collection('projects')
+        .updateOne(
+          { projectId },
+          { $set: { autoEditStagePercent: pct, autoEditStageDesc: desc, updatedAt: new Date() } },
+        )
+        .catch(() => {});
+    };
     const directorResult = await executeDirectorPlan(
-      projectId, userId, profileId, brief,
-      (step, total, desc) => console.log(`[DirectorWorker] Director ${step}/${total}: ${desc}`),
+      projectId, userId, profileId, brief, emitProgress,
     );
 
     // ─── Mark complete ────────────────────────────────────────────
