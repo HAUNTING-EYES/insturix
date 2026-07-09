@@ -46,7 +46,7 @@ interface Review {
   items: CalItem[];
 }
 
-type Pending = '' | 'create' | 'auto' | 'ai';
+type Pending = '' | 'create' | 'auto' | 'ai' | 'dist';
 type GenPeriod = 'Week' | 'Month' | 'Quarter';
 
 const GEN_PERIODS: GenPeriod[] = ['Week', 'Month', 'Quarter'];
@@ -240,6 +240,66 @@ export default function CalosCampaignBar({
     });
   };
 
+  // Auto-distribute: spread the campaign's schedulable (not-yet-approved) cards across its cadence's
+  // preferred days, one card per slot per platform, starting tomorrow. Re-dates cards, so it's guarded
+  // by a two-click confirm on the button. (auto-fill/ai-plan already place cards at creation — this is
+  // for re-spreading a pile, e.g. manually-made or clustered cards.)
+  const [distArmed, setDistArmed] = useState(false);
+  const distributeAcrossCadence = async () => {
+    if (!selected) { toast({ title: 'Pick a campaign first', variant: 'destructive' }); return; }
+    if (!selected.cadenceRules.length) { toast({ title: 'This campaign has no cadence to distribute across', variant: 'destructive' }); return; }
+    setPending('dist');
+    try {
+      const SCHEDULABLE = new Set(['idea', 'drafting', 'generated', 'changes_requested']);
+      const cards = (await fetchCards()).filter(
+        (c) => c.campaignId === selected._id && SCHEDULABLE.has(c.editorialStatus ?? 'idea'),
+      );
+      if (!cards.length) { toast({ title: 'No schedulable cards', description: 'Generate or accept some ideas first.' }); return; }
+
+      const ruleByPlatform = new Map(selected.cadenceRules.map((r) => [r.platform, r]));
+      const byPlatform = new Map<string, ContentCard[]>();
+      for (const c of cards) {
+        const p = c.platform ?? 'generic';
+        const bucket = byPlatform.get(p);
+        if (bucket) bucket.push(c); else byPlatform.set(p, [c]);
+      }
+
+      const start = new Date();
+      start.setHours(10, 0, 0, 0);
+      start.setDate(start.getDate() + 1); // begin tomorrow
+
+      const updates: { id: string; iso: string }[] = [];
+      for (const [platform, pcards] of byPlatform) {
+        const rule = ruleByPlatform.get(platform);
+        if (!rule?.preferredDays?.length) continue; // no cadence for this platform → leave as-is
+        const days = new Set(rule.preferredDays);
+        const cursor = new Date(start);
+        let placed = 0, guard = 0;
+        while (placed < pcards.length && guard < 730) { // 2-year guard against an empty day set
+          if (days.has(cursor.getDay())) { updates.push({ id: pcards[placed].id, iso: new Date(cursor).toISOString() }); placed++; }
+          cursor.setDate(cursor.getDate() + 1);
+          guard++;
+        }
+      }
+      if (!updates.length) { toast({ title: 'Nothing distributed', description: 'No cards match the cadence platforms.' }); return; }
+
+      let ok = 0;
+      for (const u of updates) {
+        try {
+          const res = await fetch(`/api/services/calos/deliverables/${encodeURIComponent(u.id)}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ brandId, updates: { plannedDates: [u.iso], date: u.iso } }),
+          });
+          if (res.ok) ok++;
+        } catch { /* continue — one failure must not abort the batch */ }
+      }
+      onAfterGenerate();
+      toast({ title: `Distributed ${ok}/${updates.length} across the cadence` });
+    } finally {
+      setPending('');
+    }
+  };
+
   return (
     <div className="calos-tw" style={{ padding: 10, background: C.raised, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -262,6 +322,14 @@ export default function CalosCampaignBar({
         <TrendMarketSelector value={trendMarket} onChange={setTrendMarket} disabled={busy} className="calos-fr calos-trend-select" />
         <Btn size="sm" onClick={autoFill} disabled={busy || !campaignId}>{pending === 'auto' ? 'Working…' : '⤢ Auto-fill'}</Btn>
         <Btn size="sm" variant="primary" onClick={aiPlan} disabled={busy || waitingForTrendLocation}>{pending === 'ai' ? 'Working…' : '✨ AI plan'}</Btn>
+        <Btn
+          size="sm"
+          onClick={() => { if (distArmed) { setDistArmed(false); void distributeAcrossCadence(); } else { setDistArmed(true); } }}
+          disabled={busy || !campaignId}
+          title="Spread this campaign's un-approved cards across its cadence days"
+        >
+          {pending === 'dist' ? 'Distributing…' : distArmed ? 'Confirm · re-dates cards' : '📆 Distribute'}
+        </Btn>
       </div>
 
       {editorOpen && selected && (
