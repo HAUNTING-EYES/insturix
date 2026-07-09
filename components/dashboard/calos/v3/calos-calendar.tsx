@@ -7,7 +7,7 @@ import { toast } from '@/hooks/use-toast';
 import {
   C, MONO, SANS, DOW, PLAT, STAGES,
   toItem, toPlacements, groupPlacementsByDay, monthCells, weekDays, dateKey, sameDay,
-  monthTitle, dayTitle, addMonths, addDays, platGlyph, platLabel, stageLabel, stageTick,
+  monthTitle, dayTitle, addMonths, addDays, platGlyph, platLabel, stageLabel, stageTick, platformDefaultAspect,
 } from './calos-view-model';
 import type { CalItem, Placement } from './calos-view-model';
 import { Mono, Glyph, StatusMark, Btn, Chip, Confirm } from './calos-atoms';
@@ -218,6 +218,33 @@ export default function CalosCalendarV3() {
     }
   };
 
+  // Cards whose caption is written + image prompt stashed but no image made yet — the batch target.
+  const pendingImageItems = useMemo(
+    () => items.filter((it) => it.raw.imageStatus === 'promptReady'),
+    [items],
+  );
+  // Batch: make an image for every promptReady card, one by one (never spikes credits), each at its
+  // platform's default aspect. The in-flight poll then surfaces them as they finish.
+  const handleMakeAllImages = async () => {
+    if (!brandId || !pendingImageItems.length) return;
+    let ok = 0;
+    for (const it of pendingImageItems) {
+      try {
+        const res = await fetch('/api/services/calos/make-image', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ brandId, deliverableId: it.id, aspectRatio: platformDefaultAspect(it.platform) }),
+        });
+        if (res.ok) ok++;
+      } catch { /* continue — one card failing must not abort the batch */ }
+    }
+    refresh();
+    toast({
+      title: `Started ${ok}/${pendingImageItems.length} image${pendingImageItems.length === 1 ? '' : 's'}`,
+      description: ok < pendingImageItems.length ? 'Some couldn’t start — open them to retry.' : 'They’ll appear as they finish.',
+      ...(ok === 0 ? { variant: 'destructive' as const } : {}),
+    });
+  };
+
   const handleDelete = async (id: string) => { await deleteCard(id); };
 
   const handleNew = async () => {
@@ -353,6 +380,9 @@ export default function CalosCalendarV3() {
                 <button key={v} className="calos-fr" onClick={() => setView(v)} style={{ cursor: 'pointer', border: 'none', borderRadius: 5, padding: '6px 12px', fontFamily: MONO, fontSize: 10, textTransform: 'uppercase', background: view === v ? C.gold : 'transparent', color: view === v ? '#241B08' : C.muted, fontWeight: view === v ? 700 : 400 }}>{v}</button>
               ))}
             </div>
+            {pendingImageItems.length > 0 && (
+              <Btn size="sm" onClick={handleMakeAllImages} title="Make images for every card whose prompt is ready">🎨 All images ({pendingImageItems.length})</Btn>
+            )}
             <Btn size="sm" variant="primary" onClick={handleNew}>+ New</Btn>
           </div>
         </div>

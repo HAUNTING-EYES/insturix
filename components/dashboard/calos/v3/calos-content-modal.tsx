@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { C, SANS, MONO, STAGES, stageLabel, platLabel, dayTitle } from './calos-view-model';
+import { C, SANS, MONO, STAGES, stageLabel, platLabel, dayTitle, platformDefaultAspect } from './calos-view-model';
 import type { CalItem } from './calos-view-model';
 import { Sheet, Btn, Glyph, StatusMark, Mono } from './calos-atoms';
 
@@ -25,18 +25,6 @@ const ASPECTS = [
   { v: '9:16', label: 'Story / vertical' },
   { v: '16:9', label: 'Landscape' },
 ] as const;
-
-/** The natural still ratio for a platform — the picker's initial selection (override-able). */
-const platformDefaultAspect = (platform: string): string => {
-  switch (platform) {
-    case 'instagram': return '4:5';
-    case 'tiktok': return '9:16';
-    case 'youtube':
-    case 'x':
-    case 'twitter': return '16:9';
-    default: return '1:1'; // linkedin, facebook, generic
-  }
-};
 
 export function ContentModal({
   item, onClose, onSaveTitle, onSaveDates, onSaveDetails, onSaveTags, onDecision, onGenerate, onDelete, onOpenScript, onPublish, onMakeImage, pubState, connected, onOpenPublishing,
