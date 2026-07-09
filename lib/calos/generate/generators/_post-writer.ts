@@ -1,6 +1,6 @@
 import type { GenerateParams } from "../contract";
 import { resolveSystemBrief } from "./_brand-brief";
-import { resolveCampaignReferenceBlock } from "./_campaign-references";
+import { resolveReferenceBlock } from "./_campaign-references";
 
 export interface PostWriterOutput {
   /** On-brand post copy / caption, ready for the platform (markdown emphasis stripped). */
@@ -20,7 +20,7 @@ export interface PostWriterOutput {
 export async function runPostWriter(params: GenerateParams): Promise<PostWriterOutput> {
   const [systemBrief, referenceBlock] = await Promise.all([
     resolveSystemBrief(params.ownerUserId, params.brandId, params.orgId),
-    resolveCampaignReferenceBlock(params.campaignId, params.brandId),
+    resolveReferenceBlock(params.campaignId, params.brandId),
   ]);
 
   const userPrompt =

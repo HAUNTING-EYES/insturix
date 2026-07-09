@@ -80,7 +80,7 @@ const IngestedFactsSchema = new Schema<CalosIngestedFacts>(
   { _id: false }
 );
 
-const CampaignReferenceSchema = new Schema<CalosCampaignReference>(
+export const CampaignReferenceSchema = new Schema<CalosCampaignReference>(
   {
     id: { type: String, required: true },
     type: { type: String, required: true, enum: ["link", "pdf", "doc", "image", "text"] },

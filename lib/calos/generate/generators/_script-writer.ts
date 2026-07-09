@@ -1,6 +1,6 @@
 import type { GenerateParams } from "../contract";
 import { resolveSystemBrief } from "./_brand-brief";
-import { resolveCampaignReferenceBlock } from "./_campaign-references";
+import { resolveReferenceBlock } from "./_campaign-references";
 
 /**
  * ScriptWriter call for CalOS video deliverables.
@@ -13,7 +13,7 @@ import { resolveCampaignReferenceBlock } from "./_campaign-references";
 export async function runScriptWriter(params: GenerateParams): Promise<string> {
   const [systemBrief, referenceBlock] = await Promise.all([
     resolveSystemBrief(params.ownerUserId, params.brandId, params.orgId),
-    resolveCampaignReferenceBlock(params.campaignId, params.brandId),
+    resolveReferenceBlock(params.campaignId, params.brandId),
   ]);
 
   const userPrompt =
