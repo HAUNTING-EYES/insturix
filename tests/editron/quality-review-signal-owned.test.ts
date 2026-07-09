@@ -104,7 +104,7 @@ describe('quality review signal-owned pacing', () => {
     const issue = report.issues.find((candidate) => candidate.type === 'narration_sync_drift');
 
     expect(issue).toMatchObject({
-      severity: 'warning',
+      severity: 'critical',
       overlayId: 2,
     });
     expect(issue?.description).toContain('tierA');
@@ -124,6 +124,26 @@ describe('quality review signal-owned pacing', () => {
     const report = runQualityReview(overlays, fps, 180);
 
     expect(report.issues.some((issue) => issue.type === 'narration_sync_drift')).toBe(false);
+  });
+  it('executes graph G9 tier B sync tolerance for word-anchored MG reveals', () => {
+    const overlays = [
+      videoOverlay(1, 0, 180),
+      motionGraphicOverlay(2, 5, {
+        graphicType: 'quote-card',
+        signalCurves: { decisionFrame: 0, overlayFrom: 5 },
+        semanticAtoms: { text: { role: 'quote' } },
+      }, { quote: 'This changes everything' }),
+    ];
+
+    const report = runQualityReview(overlays, fps, 180);
+    const issue = report.issues.find((candidate) => candidate.type === 'narration_sync_drift');
+
+    expect(issue).toMatchObject({
+      severity: 'critical',
+      overlayId: 2,
+    });
+    expect(issue?.description).toContain('tierB');
+    expect(issue?.description).toContain('+/-120ms');
   });
 
   it('keeps full-video caption transition speech checks advisory', () => {

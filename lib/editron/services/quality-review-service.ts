@@ -907,8 +907,8 @@ function checkGraphNarrationSync(overlays: AnalyzableOverlay[], fps: number): Qu
 
     issues.push({
       type: 'narration_sync_drift',
-      severity: 'warning',
-      description: `Graph G9 narration_desync ${evidence.tier} violation: overlay ${overlay.id} actual frame ${evidence.actualFrame} is ${Math.round(driftMs)}ms from anchor frame ${evidence.anchorFrame} (tolerance +/-${toleranceMs}ms)`,
+      severity: 'critical',
+      description: `Graph G9 narration_desync ${evidence.tier} code-enforced violation: overlay ${overlay.id} actual frame ${evidence.actualFrame} is ${Math.round(driftMs)}ms from anchor frame ${evidence.anchorFrame} (tolerance +/-${toleranceMs}ms)`,
       overlayId: overlay.id,
       frameRange: { start: overlay.from, end: overlay.from + Math.max(1, overlay.durationInFrames) },
       autoFixable: false,
