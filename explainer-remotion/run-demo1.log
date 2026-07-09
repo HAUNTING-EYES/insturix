@@ -1,0 +1,53 @@
+
+=== [1/3] VO + music prep (synth Ava + fit scene durations) ===
+Fitted scene durations to VO:
+  1. TYPE_ONLY/hook 207f (3.45s)  vo=2.54s
+  2. UI_FULL_BLEED/workflow_demo 476f (7.93s)  vo=7.03s
+  3. UI_FULL_BLEED/ui_proof 402f (6.70s)  vo=5.78s
+  4. LOGO_FIELD/logo_outro 278f (4.63s)  vo=3.72s
+film total = 21.6s
+prep-audio: 4 VO clip(s) + music=music.mp3 → src/bricks/gen/audio-config.ts
+
+=== [2/3] CRAFT scenes for demo1 ===
+agent-craft: claude-opus-4-8, 4 scenes, 2 rounds each
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+Downloading Chrome Headless Shell https://www.remotion.dev/chrome-headless-shell
+Customize this behavior by adding a onBrowserDownload function to selectComposition().
+Downloading Chrome Headless Shell - 9.5 Mb/102.3 Mb
+Downloading Chrome Headless Shell - 19.1 Mb/102.3 Mb
+Downloading Chrome Headless Shell - 28.6 Mb/102.3 Mb
+Downloading Chrome Headless Shell - 38.2 Mb/102.3 Mb
+Downloading Chrome Headless Shell - 47.7 Mb/102.3 Mb
+Downloading Chrome Headless Shell - 57.3 Mb/102.3 Mb
+Downloading Chrome Headless Shell - 66.8 Mb/102.3 Mb
+Downloading Chrome Headless Shell - 76.4 Mb/102.3 Mb
+Downloading Chrome Headless Shell - 85.9 Mb/102.3 Mb
+Downloading Chrome Headless Shell - 95.5 Mb/102.3 Mb
+Downloading Chrome Headless Shell - 102.3 Mb/102.3 Mb
+  scene 1 r1: 7/10 → The weekly calendar blocks are all very dark low-contrast muted brown/olive tone
+  scene 1 r2: 3/10 → Headline text collides directly with the body paragraph — 'Scan your brand once'
+  scene 1: accepted best 7/10
+  scene 2 r1: 7/10 → Frame 1 (Scan brand) has a large empty content card with only an empty gold plac
+  scene 2 r2: 8/10 ✓
+  scene 2: accepted best 8/10
+  scene 3 r1: 8/10 ✓
+  scene 3: accepted best 8/10
+  scene 4 r1: 3/10 → VO line is 'Insturix. Your content team, in one place.' but headline reads 'Scan
+  scene 4 r2: 5/10 → Headline 'in one place.' collides with and is overlapped by the top edge of the 
+  scene 4: accepted best 5/10
+
+✓ crafted 4/4 scenes → src/bricks/gen/manifest.ts
+  preview:  npm run dev   (open the Gen-Film composition)
+
+=== [3/3] RENDER on Lambda ===
+[lambda] region=us-east-1 function=remotion-render-4-0-398-mem3008mb-disk4096mb-900sec
+[lambda] bucket=remotionlambda-useast1-vqv91tlyik
+[lambda] deploying per-video site explainer-demo1 …
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+[lambda] serveUrl=https://remotionlambda-useast1-vqv91tlyik.s3.us-east-1.amazonaws.com/sites/explainer-demo1/index.html
+[lambda] renderId=hk551vzkic — rendering…
+[lambda] 7%   [lambda] 10%   [lambda] 20%   [lambda] 29%   [lambda] 48%   [lambda] 68%   [lambda] 79%   [lambda] 86%   [lambda] 89%   [lambda] 89%   [lambda] 89%   [lambda] 90%   [lambda] 90%   [lambda] 90%   [lambda] 90%   
+✓ done → https://s3.us-east-1.amazonaws.com/remotionlambda-useast1-vqv91tlyik/renders/hk551vzkic/out.mp4
+  cost ≈ $0.0275 · 65 chunks
+
+EXPLAINER_MP4=https://s3.us-east-1.amazonaws.com/remotionlambda-useast1-vqv91tlyik/renders/hk551vzkic/out.mp4

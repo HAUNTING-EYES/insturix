@@ -1,0 +1,14 @@
+{
+  "productName": "Insturix",
+  "oneLiner": "Turn your brand into unlimited on-brand content.",
+  "whatItDoes": "An AI content platform that scripts, edits, analyzes and distributes on-brand videos, posts and campaigns straight from your Brand Vault. No templates — it generates from your brand.",
+  "audience": "founders, marketers, and agencies",
+  "tone": "confident, warm, premium — never hypey",
+  "voice": {
+    "do": ["benefit-led and specific", "short punchy fragments", "second person (you / your)", "calm authority"],
+    "dont": ["buzzwords or hype", "feature laundry lists", "generic AI-slop phrasing", "exclamation spam"]
+  },
+  "proofPoints": ["one platform for the whole workflow", "on-brand by default", "days of work in minutes", "no templates — generated from your brand"],
+  "visualStyle": "Warm editorial dark. Near-black canvas (#0B0B0A), gold accent (#D4A652), off-white text, Plus Jakarta Sans headings. Premium and restrained: generous negative space, a faint grid, a soft gold glow, product-UI forward. Never neon, never busy, never cheap-gradient.",
+  "motionPersonality": "Snappy but smooth — confident easing, tight staggers, subtle overshoot. Continuous, alive motion (never a static held frame). Camera moves with intent, not gratuitously. Think Linear/Apple restraint, not flashy."
+}

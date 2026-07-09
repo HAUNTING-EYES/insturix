@@ -1,0 +1,9 @@
+[lambda] region=us-east-1 function=remotion-render-4-0-398-mem3008mb-disk4096mb-900sec
+[lambda] bucket=remotionlambda-useast1-vqv91tlyik
+[lambda] deploying per-video site explainer-proof1 …
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+[lambda] serveUrl=https://remotionlambda-useast1-vqv91tlyik.s3.us-east-1.amazonaws.com/sites/explainer-proof1/index.html
+[lambda] renderId=bjf79c4udb — rendering…
+[lambda] 0%   [lambda] 11%   [lambda] 20%   [lambda] 24%   [lambda] 37%   [lambda] 53%   [lambda] 69%   [lambda] 79%   [lambda] 84%   [lambda] 86%   [lambda] 87%   [lambda] 87%   [lambda] 88%   [lambda] 88%   [lambda] 89%   [lambda] 89%   [lambda] 89%   [lambda] 90%   [lambda] 90%   [lambda] 90%   [lambda] 90%   
+✓ done → https://s3.us-east-1.amazonaws.com/remotionlambda-useast1-vqv91tlyik/renders/bjf79c4udb/out.mp4
+  cost ≈ $0.0439 · 78 chunks
