@@ -37,6 +37,11 @@ export async function extractMP4Duration(url: string): Promise<number | null> {
     const largeTail = await tryParseFromRange(url, 'tail', MAX_FETCH_SIZE);
     if (largeTail !== null) return largeTail;
 
+    // Fast-start files can have a large moov box at the beginning. If mvhd sits
+    // after a large child box, the small head read is not enough.
+    const largeHead = await tryParseFromRange(url, 'head', MAX_FETCH_SIZE);
+    if (largeHead !== null) return largeHead;
+
     console.warn('[MP4Duration] Could not find moov/mvhd in file');
     return null;
   } catch (err: any) {
@@ -54,15 +59,20 @@ async function tryParseFromRange(
     ? `bytes=-${size}`
     : `bytes=0-${size - 1}`;
 
-  const response = await fetch(url, {
-    headers: { Range: rangeHeader },
-    signal: AbortSignal.timeout(10_000),
-  });
+  try {
+    const response = await fetch(url, {
+      headers: { Range: rangeHeader },
+      signal: AbortSignal.timeout(10_000),
+    });
 
-  if (!response.ok && response.status !== 206) return null;
+    if (!response.ok && response.status !== 206) return null;
 
-  const buffer = new Uint8Array(await response.arrayBuffer());
-  return parseMoovDuration(buffer);
+    const buffer = new Uint8Array(await response.arrayBuffer());
+    return parseMoovDuration(buffer);
+  } catch (err: any) {
+    console.warn(`[MP4Duration] ${position} range (${size} bytes) failed: ${err.message}`);
+    return null;
+  }
 }
 
 function parseMoovDuration(data: Uint8Array): number | null {
@@ -108,12 +118,12 @@ function parseMvhdDuration(view: DataView, len: number, mvhdOffset: number): num
 
   if (version === 0) {
     // v0: creation(4) + modification(4) + timeScale(4) + duration(4)
-    if (headerStart + 4 + 12 >= len) return null;
+    if (headerStart + 20 > len) return null;
     timeScale = view.getUint32(headerStart + 4 + 8, false);
     duration = view.getUint32(headerStart + 4 + 12, false);
   } else {
     // v1: creation(8) + modification(8) + timeScale(4) + duration(8)
-    if (headerStart + 4 + 24 >= len) return null;
+    if (headerStart + 32 > len) return null;
     timeScale = view.getUint32(headerStart + 4 + 16, false);
     const hi = view.getUint32(headerStart + 4 + 20, false);
     const lo = view.getUint32(headerStart + 4 + 24, false);
