@@ -17,6 +17,7 @@ import { CalosWorkspace, type WorkspaceCampaign } from './calos-workspace';
 import { CalosShareScreen } from './calos-share-screen';
 import { CalosCadenceModal } from './calos-cadence-modal';
 import BrandConnections from '@/app/dashboard/calos/BrandConnections';
+import { CalosBrandReferencesModal } from './calos-brand-references-modal';
 import { useActiveBrand } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 
 /* ═══ CalOS v3 · calendar (Phase 1 spine) ═════════════════════════════
@@ -48,6 +49,7 @@ export default function CalosCalendarV3() {
   const [wsCampaign, setWsCampaign] = useState<WorkspaceCampaign | null>(null);
   const [wsEditOpen, setWsEditOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [brandRefsOpen, setBrandRefsOpen] = useState(false);
   const [pubStatus, setPubStatus] = useState<Record<string, { platform: string; status: string; postUrl: string | null; error: string | null }>>({});
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
   const [search, setSearch] = useState('');
@@ -352,6 +354,7 @@ export default function CalosCalendarV3() {
               {reviews.length > 0 && <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: C.gold, color: '#241B08', fontFamily: MONO, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{reviews.length}</span>}
             </button>
             <Btn size="sm" onClick={() => setScreen('share')}>Share</Btn>
+            <Btn size="sm" onClick={() => setBrandRefsOpen(true)}>References</Btn>
             <Btn size="sm" onClick={() => setConnectionsOpen(true)}>Publishing</Btn>
             <Btn size="sm" variant="danger" onClick={() => setConfirm({ kind: 'clearall' })}>Clear all</Btn>
           </div>
@@ -558,6 +561,9 @@ export default function CalosCalendarV3() {
       )}
       {brandId && (
         <BrandConnections brandId={brandId} brandName={brandName} open={connectionsOpen} onClose={() => setConnectionsOpen(false)} />
+      )}
+      {brandId && brandRefsOpen && (
+        <CalosBrandReferencesModal brandId={brandId} brandName={brandName} onClose={() => setBrandRefsOpen(false)} />
       )}
     </div>
   );

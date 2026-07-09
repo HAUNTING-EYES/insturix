@@ -10,6 +10,7 @@ import type { CadenceRule } from '@/app/dashboard/calos/CadenceEditor';
 import type { CalosCampaignReference } from '@/schemas/calos-campaign';
 import { C, DOW, platLabel } from './calos-view-model';
 import { Sheet, Btn, Glyph, Mono, inpS } from './calos-atoms';
+import { CalosReferencesPanel } from './calos-references-panel';
 
 /* ═══ CalOS v3 · cadence modal ════════════════════════════════════════
    The founder's calos-v3.jsx CadenceModal (create / edit campaign), in the
@@ -62,48 +63,8 @@ export function CalosCadenceModal({
   );
   const [saving, setSaving] = useState(false);
 
-  // References — source materials (links/PDFs/docs/notes) the writers generate FROM. Managed on an
-  // existing campaign (needs its _id); create mode shows a "save first" hint instead.
+  // Campaign id — present in edit mode; references attach to it (create mode shows a "save first" hint).
   const cid = campaign?._id ?? null;
-  const [refs, setRefs] = useState<CalosCampaignReference[]>(campaign?.references ?? []);
-  const [linkInput, setLinkInput] = useState('');
-  const [noteInput, setNoteInput] = useState('');
-  const [refBusy, setRefBusy] = useState(false);
-
-  const addReference = async (body: FormData | Record<string, unknown>, isForm: boolean) => {
-    if (!cid || refBusy) return;
-    setRefBusy(true);
-    try {
-      const res = await fetch(`/api/services/calos/campaigns/${cid}/references`, {
-        method: 'POST',
-        ...(isForm
-          ? { body: body as FormData }
-          : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(typeof data?.error === 'string' ? data.error : `Failed (${res.status})`);
-      setRefs((r) => [...r, data.reference as CalosCampaignReference]);
-      toast(
-        data?.reference?.status === 'failed'
-          ? { title: 'Added, but not readable', description: data.reference.error, variant: 'destructive' }
-          : { title: 'Reference added' },
-      );
-    } catch (err) {
-      toast({ title: "Couldn't add reference", description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
-    } finally {
-      setRefBusy(false);
-    }
-  };
-  const addLink = () => { const u = linkInput.trim(); if (!u) return; setLinkInput(''); void addReference({ type: 'link', url: u }, false); };
-  const addNote = () => { const t = noteInput.trim(); if (!t) return; setNoteInput(''); void addReference({ type: 'text', text: t }, false); };
-  const addFile = (file: File) => { const fd = new FormData(); fd.append('file', file); void addReference(fd, true); };
-  const removeReference = async (refId: string) => {
-    if (!cid) return;
-    setRefs((r) => r.filter((x) => x.id !== refId)); // optimistic
-    try {
-      await fetch(`/api/services/calos/campaigns/${cid}/references?refId=${encodeURIComponent(refId)}`, { method: 'DELETE' });
-    } catch { /* best-effort — the list already reflects the removal */ }
-  };
 
   const toggleDay = (ri: number, di: number) =>
     setRows((rs) =>
@@ -199,37 +160,16 @@ export function CalosCadenceModal({
           campaign has no id yet to attach them to. */}
       <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${C.border}` }}>
         <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 10 }}>References — what generation writes from (PDFs, links, docs, notes)</Mono>
-        {isCreate ? (
+        {isCreate || !cid ? (
           <div style={{ padding: 10, background: C.surface, border: `1px dashed ${C.bs}`, borderRadius: 8 }}>
-            <Mono s={9} c={C.muted}>Create the campaign, then reopen it (Edit cadence) to add references the writers draw from.</Mono>
+            <Mono s={9} c={C.muted}>Add campaign-specific references after saving. For references that apply to everything, use the brand-level “References” button on the calendar — no campaign needed.</Mono>
           </div>
         ) : (
-          <>
-            {refs.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
-                {refs.map((r) => (
-                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7 }}>
-                    <Mono s={8} c={C.dim}>{r.type.toUpperCase()}</Mono>
-                    <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: C.soft, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
-                    <Mono s={8.5} c={r.status === 'ready' ? C.gold : r.status === 'failed' ? C.coral : C.muted}>{r.status === 'ready' ? '● ready' : r.status === 'failed' ? 'failed' : 'pending'}</Mono>
-                    <span onClick={() => removeReference(r.id)} title="Remove" style={{ color: C.coral, cursor: 'pointer', fontSize: 11 }}>✕</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-              <input value={linkInput} onChange={(e) => setLinkInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addLink(); } }} placeholder="Paste a link…" style={{ ...inpS, flex: 1 }} />
-              <Btn size="sm" onClick={addLink} disabled={refBusy || !linkInput.trim()}>Add</Btn>
-            </div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-              <input value={noteInput} onChange={(e) => setNoteInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addNote(); } }} placeholder="Paste notes / a brief…" style={{ ...inpS, flex: 1 }} />
-              <Btn size="sm" onClick={addNote} disabled={refBusy || !noteInput.trim()}>Add</Btn>
-            </div>
-            <label className="calos-fr" style={{ display: 'inline-block', cursor: refBusy ? 'default' : 'pointer', padding: '8px 12px', background: 'transparent', border: `1px dashed ${C.bs}`, borderRadius: 7 }}>
-              <Mono s={9} c={C.gold}>{refBusy ? 'Working…' : '+ Upload PDF / doc / image'}</Mono>
-              <input type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.csv,image/*" style={{ display: 'none' }} disabled={refBusy} onChange={(e) => { const f = e.target.files?.[0]; if (f) addFile(f); e.target.value = ''; }} />
-            </label>
-          </>
+          <CalosReferencesPanel
+            addUrl={`/api/services/calos/campaigns/${cid}/references`}
+            delUrl={(id) => `/api/services/calos/campaigns/${cid}/references?refId=${encodeURIComponent(id)}`}
+            initialRefs={campaign?.references ?? []}
+          />
         )}
       </div>
 
