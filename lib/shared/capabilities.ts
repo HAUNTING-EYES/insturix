@@ -195,10 +195,51 @@ export const AVATAR_RIG = {
 } as const;
 
 /**
- * editronExecutables — placeholder. Owned by the shared/Editron session; the avatar
- * session does not populate this. Kept here so the file's shape matches §1.4.
+ * editronExecutables — the decision-family vocabulary the Editron executor can run.
+ * CODE-VERIFIED against `lib/editron/services/creative-brief.ts` BriefDecisionType (~:216-228),
+ * 2026-07-09. This is a capability INVENTORY of what the executor does TODAY — NOT a template
+ * menu. The named `graphic_*` families mirror the current executor vocabulary and will be
+ * superseded when Rule-11 generative MG lands (a separate Codex frontier). Keep in sync with
+ * BriefDecisionType — it is the contract the ThinkForge writer + GenerationRouter check eligibility against.
  */
-export const EDITRON_EXECUTABLES: Record<string, never> = {};
+export const EDITRON_EXECUTABLES = [
+  'zoom_push', 'zoom_punch', 'zoom_pull_back', 'zoom_drift',
+  'transition_dissolve', 'transition_hard_cut', 'transition_whip_pan',
+  'transition_fade_to_black', 'transition_flash', 'transition_j_cut',
+  'transition_l_cut', 'transition_soft_cut', 'transition_wipe',
+  'caption_emphasis',
+  'sfx_whoosh', 'sfx_impact', 'sfx_shimmer', 'sfx_ambient',
+  'speed_slow_motion', 'speed_ramp',
+  'graphic_stat_counter', 'graphic_lower_third', 'graphic_callout',
+  'graphic_keyword_highlight', 'graphic_quote_card', 'graphic_logo_reveal',
+  'camera_shake',
+  'audio_duck', 'audio_bed_select',
+  'hold_longer', 'cut_shorter',
+] as const;
+
+export type EditronExecutable = (typeof EDITRON_EXECUTABLES)[number];
+
+/** Family grouping — partitions EDITRON_EXECUTABLES; used by eligibility / routing checks. */
+export const EDITRON_EXECUTABLE_FAMILIES = {
+  zoom: ['zoom_push', 'zoom_punch', 'zoom_pull_back', 'zoom_drift'],
+  transition: [
+    'transition_dissolve', 'transition_hard_cut', 'transition_whip_pan',
+    'transition_fade_to_black', 'transition_flash', 'transition_j_cut',
+    'transition_l_cut', 'transition_soft_cut', 'transition_wipe',
+  ],
+  caption: ['caption_emphasis'],
+  sfx: ['sfx_whoosh', 'sfx_impact', 'sfx_shimmer', 'sfx_ambient'],
+  speed: ['speed_slow_motion', 'speed_ramp'],
+  graphic: [
+    'graphic_stat_counter', 'graphic_lower_third', 'graphic_callout',
+    'graphic_keyword_highlight', 'graphic_quote_card', 'graphic_logo_reveal',
+  ],
+  camera: ['camera_shake'],
+  audio: ['audio_duck', 'audio_bed_select'],
+  pacing: ['hold_longer', 'cut_shorter'],
+} as const satisfies Record<string, readonly EditronExecutable[]>;
+
+export type EditronExecutableFamily = keyof typeof EDITRON_EXECUTABLE_FAMILIES;
 
 export function getModelCapability(name: string): ModelCapability | undefined {
   return MODEL_CAPABILITIES[name];
