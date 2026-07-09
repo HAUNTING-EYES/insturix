@@ -953,6 +953,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
             sessionId: sessionState.sessionId,
             brandId: sessionState.metadata.brandId,
             contentSignalProfile: resolvedSignalProfile,
+            productionBrief: briefSnapshot,
           };
 
           if (contentPath === 'post') {

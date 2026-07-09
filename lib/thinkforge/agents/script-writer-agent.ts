@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
 import type { ThinkForgeContentSignalProfile } from '../signals';
@@ -6,6 +7,12 @@ import { generateWithWritingContextCache } from '../services/gemini-writing-cont
 import { parseAgentJson } from '../protocol/parse-agent-json';
 import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
 import { repairAiFillerContent } from '../services/ai-filler-repair';
+import {
+  DEFAULT_ON_CAMERA_RATIO,
+  WRITER_CAPABILITIES,
+  canSpeakLanguage,
+  speakingBeatNeedsSplit,
+} from '../writer-capabilities';
 import {
   parseScriptSidecar,
   SCRIPT_SIDECAR_VERSION,
@@ -28,6 +35,7 @@ export const ScriptWriterResultSchema = z.object({
   metadata: z.object({
     estimatedTimeSeconds: z.number().describe('Estimated duration of the script in seconds'),
     platform: z.string().describe('The targeted platform (e.g., youtube, tiktok)'),
+    voiceLanguage: z.string().default(WRITER_CAPABILITIES.voiceLanguages[0] ?? 'en'),
   }),
   sidecar: ScriptSidecarSchema.describe('Script Sidecar v1 emitted in the same pass as the script prose'),
 });
@@ -53,6 +61,7 @@ export interface ScriptWriterEditContext {
 
 export interface ScriptWriterInput extends AgentInput {
   contentSignalProfile?: ThinkForgeContentSignalProfile;
+  productionBrief?: ProductionBrief | null;
   /** When set, switches the writer into edit/revise mode (see ScriptWriterEditContext). */
   editContext?: ScriptWriterEditContext;
 }
@@ -71,6 +80,63 @@ const SCHEMA_ARTIFACT_PATTERNS = [
   /"content"\s*:\s*\[\s*\{/i,
   /^\s*(?:header|paragraph|blockquote|list)\s*[:{]/im,
 ];
+
+const RELIP_FACE_VISIBLE_PATTERN = /\b(face visible|visible face|front[- ]facing|frontal|head[- ]and[- ]shoulders|medium close[- ]up|close[- ]up|talking head|speaking to camera|direct(?:ly)? to camera|looking into camera|host speaking|presenter speaking|on-camera)\b/i;
+const RELIP_UNSAFE_OCCLUSION_PATTERN = /\b(masked|mask covering|face covered|covered face|hidden face|occluded face|heavy occlusion|silhouette|back turned|turned away|profile only)\b/i;
+const RELIP_UNSAFE_MOTION_PATTERN = /\b(rapid|chaotic|whip pan|spinning|running|shaky|handheld chase|fast motion)\b/i;
+
+function validateWriterCapabilityCompliance(
+  result: ScriptWriterResult,
+  sidecar: ReturnType<typeof parseScriptSidecar>,
+  failures: string[],
+): void {
+  const voiceLanguage = result.metadata.voiceLanguage || WRITER_CAPABILITIES.voiceLanguages[0] || 'en';
+  if (!canSpeakLanguage(voiceLanguage)) {
+    failures.push(`unsupported_voice_language:${voiceLanguage}`);
+  }
+
+  const spokenLines = sidecar.scenes.flatMap((scene, sceneIndex) =>
+    scene.lines
+      .map((line) => ({ sceneIndex, line }))
+      .filter(({ line }) => line.delivery !== 'on-screen-text'),
+  );
+  const onCameraSpeakingLines = spokenLines.filter(
+    ({ line }) => line.onCamera && line.delivery === 'sync-dialogue',
+  );
+  if (spokenLines.length > 0) {
+    const maxOnCameraLines = Math.ceil(spokenLines.length * DEFAULT_ON_CAMERA_RATIO);
+    if (onCameraSpeakingLines.length > maxOnCameraLines) {
+      failures.push(`on_camera_ratio_exceeded:${onCameraSpeakingLines.length}/${spokenLines.length},max_${maxOnCameraLines}`);
+    }
+  }
+
+  const scenesWithOnCameraSpeech = new Set(onCameraSpeakingLines.map(({ sceneIndex }) => sceneIndex));
+  for (const sceneIndex of scenesWithOnCameraSpeech) {
+    const scene = sidecar.scenes[sceneIndex];
+    if (!scene) continue;
+    const sceneLabel = `scene_${sceneIndex + 1}`;
+    const visualText = `${scene.visualDescription} ${scene.videoMotionPrompt}`;
+
+    if (scene.relipSafe !== true) failures.push(`relip_safe_not_true:${sceneLabel}`);
+    if (!RELIP_FACE_VISIBLE_PATTERN.test(scene.visualDescription)) {
+      failures.push(`relip_face_not_visible:${sceneLabel}`);
+    }
+    if (RELIP_UNSAFE_OCCLUSION_PATTERN.test(visualText)) {
+      failures.push(`relip_unsafe_occlusion:${sceneLabel}`);
+    }
+    if (RELIP_UNSAFE_MOTION_PATTERN.test(visualText)) {
+      failures.push(`relip_unsafe_motion:${sceneLabel}`);
+    }
+
+    if (speakingBeatNeedsSplit(scene.durationSeconds)) {
+      const subShots = scene.subShots ?? [];
+      const hasValidSplit = subShots.length >= 2 && subShots.every(
+        (subShot) => !speakingBeatNeedsSplit(subShot.targetDurationSeconds),
+      );
+      if (!hasValidSplit) failures.push(`speaking_beat_needs_split:${sceneLabel}:${scene.durationSeconds}s`);
+    }
+  }
+}
 
 function countMatches(text: string, pattern: RegExp): number {
   return Array.from(text.matchAll(pattern)).length;
@@ -96,6 +162,7 @@ export function assertUsableScriptWriterResult(result: ScriptWriterResult): void
   try {
     const sidecar = parseScriptSidecar(result.sidecar);
     sidecarSceneCount = sidecar.scenes.length;
+    validateWriterCapabilityCompliance(result, sidecar, failures);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'unknown';
     failures.push(`invalid_sidecar:${message}`);
@@ -127,7 +194,11 @@ export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
   }
 
   buildPrompt(input: ScriptWriterInput): string {
-    const { context, userPrompt, retrievedContext, editContext } = input;
+    const { context, userPrompt, retrievedContext, editContext, productionBrief } = input;
+    const requestedVoiceLanguages = productionBrief?.output.voiceLanguages ?? [];
+    const unsupportedVoiceLanguages = requestedVoiceLanguages.filter((language) => !canSpeakLanguage(language));
+    const defaultVoiceLanguage = WRITER_CAPABILITIES.voiceLanguages[0] ?? 'en';
+
 
     // NOTE: the writing knowledge graph block is deliberately NOT injected here. A 10-seed A/B
     // (graph ON vs OFF) showed it regresses the script writer — min 92% -> 75% and variance
@@ -196,6 +267,12 @@ Your task is to write a high-retention, engaging video script.
    - Each scene includes \`lines\` with \`text\`, \`speakerId\`, \`onCamera\`, and \`delivery\`. Use \`delivery: "voiceover"\` for narrator voiceover and \`delivery: "sync-dialogue"\` only for visible on-camera speech.
    - If any line has \`onCamera: true\` and \`delivery: "sync-dialogue"\`, set that scene's \`relipSafe: true\`; otherwise set \`relipSafe: false\`.
    - \`sourceRefs\` are provenance IDs only. If using retrieved sources, use \`source_1\`, \`source_2\`, etc. A line or scene \`sourceRefs\` value must also appear in top-level \`sidecar.sourceRefs\`. If no external facts are used, use empty arrays.
+7. **Writer Capability Limits:** Author only what the downstream avatar/video rig can produce:
+   - Supported spoken voice languages: ${WRITER_CAPABILITIES.voiceLanguages.join(', ') || 'none'}. Requested spoken languages: ${requestedVoiceLanguages.length ? requestedVoiceLanguages.join(', ') : 'none supplied'}. Unsupported requested spoken languages: ${unsupportedVoiceLanguages.length ? unsupportedVoiceLanguages.join(', ') : 'none'}. If any requested spoken language is unsupported, keep spoken narration/dialogue in ${defaultVoiceLanguage}; unsupported languages may be captions/on-screen text only.
+   - Set \`metadata.voiceLanguage\` to the supported spoken language actually used.
+   - On-camera sync dialogue is expensive. Keep on-camera sync dialogue to about ${Math.round(DEFAULT_ON_CAMERA_RATIO * 100)}% of spoken lines; use voiceover over visuals for the rest.
+   - For every on-camera sync-dialogue scene, make \`visualDescription\` relip-safe: face visible, front/on-camera framing, no more than light occlusion, still/moderate motion.
+   - Any on-camera sync-dialogue scene longer than ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s must include \`subShots\` split into chunks of ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or less.
 
 Return your response strictly adhering to the JSON schema.`;
 
@@ -223,7 +300,7 @@ Return your response strictly adhering to the JSON schema.`;
         '  "content": "the full script as markdown with ## Scene headers; no JSON inside",',
         '  "contentAnalysis": { "hooks": ["string"], "theme": "string", "emphasisPoints": ["string"], "qualityScore": 0 },',
         '  "visualMetadata": { "motionInfo": "string", "scenePrompts": ["string"] },',
-        '  "metadata": { "estimatedTimeSeconds": 0, "platform": "string" },',
+        '  "metadata": { "estimatedTimeSeconds": 0, "platform": "string", "voiceLanguage": "en" },',
         '  "sidecar": {',
         `    "sidecarVersion": ${SCRIPT_SIDECAR_VERSION},`,
         '    "characters": [{ "id": "narrator", "name": "Narrator", "role": "narrator" }],',

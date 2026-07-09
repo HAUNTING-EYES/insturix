@@ -5,6 +5,8 @@ import {
 } from '@/lib/thinkforge/agents/script-writer-agent';
 import { SCRIPT_SIDECAR_VERSION, type ScriptSidecar } from '@/lib/thinkforge/schemas/script-sidecar';
 
+type SidecarScene = ScriptSidecar['scenes'][number];
+
 const canonicalScript = `## Scene 1: The stalled launch
 **Narration:** Ops teams do not lose a launch in one dramatic failure. They lose it in tiny approval loops that never get owned.
 **Visual:** Split screen of scattered comments, calendar slips, and one owner moving cards into a single approval lane.
@@ -12,6 +14,41 @@ const canonicalScript = `## Scene 1: The stalled launch
 ## Scene 2: The cleaner lane
 **Narration:** Put one person in charge of final feedback, and the team stops rewriting the same decision five times.
 **Visual:** Clean production board with one highlighted approval owner and a finished asset moving to publish.`;
+
+const hostCharacter = { id: 'host', name: 'Host', role: 'host' as const };
+
+function makeOnCameraScene(overrides: Partial<SidecarScene> = {}): SidecarScene {
+  return {
+    title: 'Host explains the fix',
+    narration: 'Put one accountable owner between draft and publish.',
+    visualDescription: 'Host speaking to camera, face visible, medium close-up, light occlusion, moderate motion.',
+    videoMotionPrompt: 'static tripod framing with one measured hand gesture',
+    audioDescription: '',
+    musicDescription: 'quiet pulse under the host line',
+    sfxDescription: '',
+    durationSeconds: 8,
+    mood: 'serious',
+    imageQualityTokens: 'clean studio lighting, clear face framing',
+    videoQualityTokens: 'steady talking-head frame, lip-sync safe',
+    generationUnitId: 'scene_1',
+    primaryVisualForUnit: true,
+    sceneType: 'talking-head',
+    assetRecommendation: 'ai-video',
+    lines: [
+      {
+        text: 'Put one accountable owner between draft and publish.',
+        speakerId: 'host',
+        onCamera: true,
+        delivery: 'sync-dialogue',
+        sourceRefs: [],
+      },
+    ],
+    charactersPresent: ['host'],
+    relipSafe: true,
+    sourceRefs: [],
+    ...overrides,
+  };
+}
 
 function makeSidecar(overrides: Partial<ScriptSidecar> = {}): ScriptSidecar {
   return {
@@ -106,6 +143,7 @@ function makeResult(overrides: Partial<ScriptWriterResult> = {}): ScriptWriterRe
     metadata: {
       estimatedTimeSeconds: 42,
       platform: 'instagram',
+      voiceLanguage: 'en',
     },
     sidecar: makeSidecar(),
     ...overrides,
@@ -172,5 +210,66 @@ describe('assertUsableScriptWriterResult', () => {
         }),
       ),
     ).toThrow(/sidecar_scene_count_mismatch:1\/2/);
+  });
+
+  it('rejects spoken languages unsupported by the writer capability surface', () => {
+    expect(() =>
+      assertUsableScriptWriterResult(
+        makeResult({
+          metadata: {
+            estimatedTimeSeconds: 42,
+            platform: 'instagram',
+            voiceLanguage: 'hi',
+          },
+        }),
+      ),
+    ).toThrow(/unsupported_voice_language:hi/);
+  });
+
+  it('rejects on-camera sync dialogue when the visual is not relip-safe', () => {
+    expect(() =>
+      assertUsableScriptWriterResult(
+        makeResult({
+          sidecar: makeSidecar({
+            characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
+            scenes: [
+              makeOnCameraScene({
+                visualDescription: 'A masked host in silhouette with the face covered and turned away.',
+              }),
+              makeSidecar().scenes[1]!,
+            ],
+          }),
+        }),
+      ),
+    ).toThrow(/relip_face_not_visible|relip_unsafe_occlusion/);
+  });
+
+  it('rejects overlong on-camera speaking scenes without bounded sub-shots', () => {
+    expect(() =>
+      assertUsableScriptWriterResult(
+        makeResult({
+          sidecar: makeSidecar({
+            characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
+            scenes: [makeOnCameraScene({ durationSeconds: 12 }), makeSidecar().scenes[1]!],
+          }),
+        }),
+      ),
+    ).toThrow(/speaking_beat_needs_split:scene_1:12s/);
+  });
+
+  it('rejects scripts that exceed the on-camera speaking ratio budget', () => {
+    expect(() =>
+      assertUsableScriptWriterResult(
+        makeResult({
+          sidecar: makeSidecar({
+            characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
+            scenes: [
+              makeOnCameraScene({ generationUnitId: 'scene_1' }),
+              makeOnCameraScene({ title: 'Host closes the loop', generationUnitId: 'scene_2' }),
+            ],
+          }),
+        }),
+      ),
+    ).toThrow(/on_camera_ratio_exceeded:2\/2,max_1/);
   });
 });
