@@ -109,14 +109,15 @@ export default function SaasExplainerStudio() {
     setScenes((prev) => prev.map((s) => (s.index === index ? { ...s, narration } : s)));
   };
 
-  const renderVideo = () => {
+  const renderVideo = (overrideScenes?: ScriptPlanScene[], overrideVoice?: string) => {
     if (!plan) return;
-    if (!scenes.some((s) => s.narration.trim())) {
+    const scriptScenes = overrideScenes ?? scenes;
+    if (!scriptScenes.some((s) => s.narration.trim())) {
       toast({ variant: 'destructive', title: 'Empty script', description: 'At least one scene needs narration.' });
       return;
     }
     finalizeMutation.mutate(
-      { scriptScenes: scenes, productModel: plan.productModel, message: plan.message, voice, brandId: activeBrandId || undefined },
+      { scriptScenes, productModel: plan.productModel, message: plan.message, voice: overrideVoice ?? voice, brandId: activeBrandId || undefined },
       {
         onSuccess: (res) => {
           setJobId(res.jobId);
@@ -127,7 +128,7 @@ export default function SaasExplainerStudio() {
     );
   };
 
-  const sendChatEdit = () => {
+  const sendChatEdit = (fromResult = false) => {
     const message = chatInput.trim();
     if (!message || !plan) return;
     chatEdit.mutate(
@@ -135,8 +136,12 @@ export default function SaasExplainerStudio() {
       {
         onSuccess: (res) => {
           setScenes(res.scenes);
+          const nextVoice = res.voice ?? voice;
+          if (res.voice) setVoice(res.voice);
           setChatReply(res.reply);
           setChatInput('');
+          // From the result screen, a visual/voice/pacing edit needs a fresh render to be seen.
+          if (fromResult && res.needsRerender) renderVideo(res.scenes, nextVoice);
         },
         onError: (err) => toast({ variant: 'destructive', title: 'Edit failed', description: err.message }),
       },
@@ -265,7 +270,7 @@ export default function SaasExplainerStudio() {
 
           <div className="rounded-xl border border-ds-subtle bg-surface-raised p-4">
             <Mono size="8" className="text-gold">EDIT WITH CHAT</Mono>
-            <p className="mt-1 mb-3 text-xs text-ds-muted">Tell me how to change the script — e.g. “make the hook punchier”, “shorten scene 2”, “less salesy”.</p>
+            <p className="mt-1 mb-3 text-xs text-ds-muted">Change the script, the look, the voice, or pacing — e.g. “punchier hook”, “make scene 2 bolder”, “use a British voice”. Look/voice changes apply when you render.</p>
             {chatReply && <p className="mb-3 rounded-md border border-ds-subtle bg-surface-well px-3 py-2 text-sm text-ds-secondary">{chatReply}</p>}
             <div className="flex gap-2">
               <input
@@ -276,7 +281,7 @@ export default function SaasExplainerStudio() {
                 placeholder="Describe the change…"
                 disabled={chatEdit.isPending}
               />
-              <Btn variant="ghost" onClick={sendChatEdit} disabled={chatEdit.isPending || !chatInput.trim()}>
+              <Btn variant="ghost" onClick={() => sendChatEdit()} disabled={chatEdit.isPending || !chatInput.trim()}>
                 {chatEdit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
               </Btn>
             </div>
@@ -286,7 +291,7 @@ export default function SaasExplainerStudio() {
             <Btn variant="ghost" onClick={generateScript} disabled={planMutation.isPending}>
               {planMutation.isPending ? 'Regenerating…' : '↻ Regenerate script'}
             </Btn>
-            <Btn variant="primary" size="lg" onClick={renderVideo} disabled={finalizeMutation.isPending}>
+            <Btn variant="primary" size="lg" onClick={() => renderVideo()} disabled={finalizeMutation.isPending}>
               {finalizeMutation.isPending ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Starting…</span> : 'Render video →'}
             </Btn>
           </div>
@@ -330,7 +335,25 @@ export default function SaasExplainerStudio() {
               <Btn variant="primary" onClick={startOver}>Make another</Btn>
             </div>
           </div>
-          <p className="text-center text-xs text-ds-faint">Chat-to-edit for this video is coming to this screen next.</p>
+
+          <div className="rounded-xl border border-ds-subtle bg-surface-raised p-4">
+            <Mono size="8" className="text-gold">EDIT THIS VIDEO WITH CHAT</Mono>
+            <p className="mt-1 mb-3 text-xs text-ds-muted">Change the words, the look, the voice, or the pacing — e.g. “make scene 2 bolder”, “punchier hook”, “use a British voice”. Visual and voice changes re-render the video.</p>
+            {chatReply && <p className="mb-3 rounded-md border border-ds-subtle bg-surface-well px-3 py-2 text-sm text-ds-secondary">{chatReply}</p>}
+            <div className="flex gap-2">
+              <input
+                className="flex-1 rounded-md border border-ds-emphasis bg-surface-well px-3 py-2 text-ds-primary"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !chatEdit.isPending && !finalizeMutation.isPending) sendChatEdit(true); }}
+                placeholder="Describe the change…"
+                disabled={chatEdit.isPending || finalizeMutation.isPending}
+              />
+              <Btn variant="ghost" onClick={() => sendChatEdit(true)} disabled={chatEdit.isPending || finalizeMutation.isPending || !chatInput.trim()}>
+                {chatEdit.isPending || finalizeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
+              </Btn>
+            </div>
+          </div>
         </section>
       )}
     </div>

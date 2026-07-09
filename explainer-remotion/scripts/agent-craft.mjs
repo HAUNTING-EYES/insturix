@@ -213,9 +213,14 @@ async function refine(best, stuck) {
 // ---------------------------------------------------------------------------------------------------
 // per-scene craft: write → refine-from-best × ROUNDS → restart-if-stuck → accept best.
 async function craftScene(scene, idx) {
+  // A user chat-edit directive for THIS scene (from the "edit the video with chat" flow) — honor it strongly.
+  const editDirective = scene.props && typeof scene.props.editDirective === 'string' ? scene.props.editDirective.trim() : '';
   const brief =
     `Design and write ONE scene (scene ${idx + 1} of ${SCENES.length}) of this premium explainer.\n` +
     `The voiceover line this beat must land visually: ${JSON.stringify(scene.vo ?? '')}\n` +
+    (editDirective
+      ? `★ USER EDIT — the viewer explicitly asked for this change to THIS scene; honor it directly while keeping the scene premium and on-brand: "${editDirective}"\n`
+      : '') +
     `Director notes (LOOSE guidance — improve on them, do NOT treat as a template): ${JSON.stringify(scene.props ?? {})}` +
     `${scene.form ? ` (suggested vibe only: "${scene.form}")` : ''}\n` +
     (SHOTS.length

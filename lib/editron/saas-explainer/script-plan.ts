@@ -61,6 +61,8 @@ export interface ScriptPlanScene {
   durationSec: number;
   /** Loose vibe hint (archetype/family) from the aligned director beat. */
   form: string;
+  /** Optional user visual-edit directive ("make it bolder", "redo the layout") — the Claude craft agent honors it. */
+  editDirective?: string;
 }
 
 export interface SaasExplainerScriptPlan {
@@ -213,7 +215,12 @@ export function scriptScenesToPlan(scenes: ScriptPlanScene[], message: string): 
     form: s.form,
     durationInFrames: Math.max(1, Math.round(s.durationSec * PLAN_FPS)),
     vo: s.narration,
-    props: { index: s.index, copyRole: s.form },
+    props: {
+      index: s.index,
+      copyRole: s.form,
+      // user visual-edit directive flows into the craft brief so Claude re-designs this scene honoring it.
+      ...(s.editDirective && s.editDirective.trim() ? { editDirective: s.editDirective.trim() } : {}),
+    },
   }));
   return {
     fps: PLAN_FPS,

@@ -104,10 +104,17 @@ export interface SaasExplainerChatEditPayload {
   sceneIndex?: number;
 }
 
+export type SaasExplainerEditOp = 'script' | 'visual' | 'voice' | 'pacing' | 'music' | 'refuse' | 'unknown';
+
 export interface SaasExplainerChatEditResult {
   success: true;
+  op: SaasExplainerEditOp;
   reply: string;
   scenes: ScriptPlanScene[];
+  /** Set when op === 'voice' — the new voice id to apply. */
+  voice?: string;
+  /** true when the change only shows after a re-render (visual/voice/pacing). */
+  needsRerender: boolean;
 }
 
 /** Natural-language edit of the script beats (POST /chat-edit). */
