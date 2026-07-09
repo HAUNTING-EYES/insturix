@@ -17,6 +17,27 @@ const toLocalInput = (d: Date): string => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
+/** Image sizes offered at "Make image" time. All are Clickatron-model-supported (see
+ *  clickatron-models allowedAspectRatios). The user picks; the platform sets the default. */
+const ASPECTS = [
+  { v: '1:1', label: 'Square' },
+  { v: '4:5', label: 'Portrait' },
+  { v: '9:16', label: 'Story / vertical' },
+  { v: '16:9', label: 'Landscape' },
+] as const;
+
+/** The natural still ratio for a platform — the picker's initial selection (override-able). */
+const platformDefaultAspect = (platform: string): string => {
+  switch (platform) {
+    case 'instagram': return '4:5';
+    case 'tiktok': return '9:16';
+    case 'youtube':
+    case 'x':
+    case 'twitter': return '16:9';
+    default: return '1:1'; // linkedin, facebook, generic
+  }
+};
+
 export function ContentModal({
   item, onClose, onSaveTitle, onSaveDates, onSaveDetails, onSaveTags, onDecision, onGenerate, onDelete, onOpenScript, onPublish, onMakeImage, pubState, connected, onOpenPublishing,
 }: {
@@ -30,9 +51,9 @@ export function ContentModal({
   onGenerate: (id: string) => void;
   onDelete: (id: string) => void;
   onOpenScript: (item: CalItem) => void;
-  /** Kick off the still image for a graphics card (explicit, spends an image credit). Absent = the
-   *  Make-image affordance is hidden. */
-  onMakeImage?: (id: string) => void;
+  /** Kick off the still image for a graphics card at the chosen aspect ratio (explicit, spends an
+   *  image credit). Absent = the Make-image affordance is hidden. */
+  onMakeImage?: (id: string, aspectRatio: string) => void;
   /** Optional — publishing lands in Phase 3. When absent, no Publish action shows. */
   onPublish?: (item: CalItem) => void;
   /** Delivery visibility: the card's publish-queue row, whether its platform is connected, and a
@@ -49,6 +70,7 @@ export function ContentModal({
   const [adding, setAdding] = useState(false);
   const [newDate, setNewDate] = useState('');
   const [making, setMaking] = useState(false); // optimistic: kicked off "Make image", awaiting refetch
+  const [aspect, setAspect] = useState<string>(() => platformDefaultAspect(d.platform)); // user-chosen image size
 
   const removeDate = (iso: string) => {
     if (dates.length <= 1) return; // a deliverable always keeps at least one date
@@ -220,15 +242,35 @@ export function ContentModal({
             </div>
           ) : making || d.raw.imageStatus === 'generating' ? (
             <Mono s={11} c={C.soft}>● Generating image… it lands on the card when it’s ready.</Mono>
-          ) : d.raw.imageStatus === 'failed' ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <Mono s={11} c={C.coral}>Image didn’t generate{d.raw.imageError ? `: ${d.raw.imageError}` : '.'}</Mono>
-              {onMakeImage && <Btn size="sm" onClick={() => { setMaking(true); onMakeImage(d.id); }}>Retry image</Btn>}
-            </div>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <Mono s={11} c={C.soft}>Image prompt ready — generate the still (uses an image credit).</Mono>
-              {onMakeImage && <Btn size="sm" variant="primary" onClick={() => { setMaking(true); onMakeImage(d.id); }}>🎨 Make image</Btn>}
+            // promptReady OR failed — both offer the make/retry action with a user-chosen size.
+            <div>
+              {d.raw.imageStatus === 'failed' ? (
+                <Mono s={11} c={C.coral} st={{ display: 'block', marginBottom: 8 }}>Image didn’t generate{d.raw.imageError ? `: ${d.raw.imageError}` : '.'} Pick a size and try again:</Mono>
+              ) : (
+                <Mono s={11} c={C.soft} st={{ display: 'block', marginBottom: 8 }}>Image prompt ready — pick a size, then generate (uses an image credit).</Mono>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ display: 'inline-flex', gap: 4 }}>
+                  {ASPECTS.map((a) => (
+                    <button
+                      key={a.v}
+                      type="button"
+                      className="calos-fr"
+                      onClick={() => setAspect(a.v)}
+                      title={a.label}
+                      style={{ cursor: 'pointer', padding: '5px 9px', borderRadius: 6, fontFamily: MONO, fontSize: 9, background: aspect === a.v ? 'rgba(212,166,82,.12)' : 'transparent', border: `1px solid ${aspect === a.v ? 'rgba(212,166,82,.5)' : C.bs}`, color: aspect === a.v ? C.gold : C.soft }}
+                    >
+                      {a.v}
+                    </button>
+                  ))}
+                </div>
+                {onMakeImage && (
+                  <Btn size="sm" variant="primary" onClick={() => { setMaking(true); onMakeImage(d.id, aspect); }}>
+                    {d.raw.imageStatus === 'failed' ? 'Retry' : '🎨 Make image'}
+                  </Btn>
+                )}
+              </div>
             </div>
           )}
         </div>

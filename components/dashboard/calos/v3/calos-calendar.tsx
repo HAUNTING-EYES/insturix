@@ -187,12 +187,12 @@ export default function CalosCalendarV3() {
     }
   };
 
-  const handleMakeImage = async (id: string) => {
+  const handleMakeImage = async (id: string, aspectRatio: string) => {
     if (!brandId) return;
     try {
       const res = await fetch('/api/services/calos/make-image', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brandId, deliverableId: id }),
+        body: JSON.stringify({ brandId, deliverableId: id, aspectRatio }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { toast({ title: data?.error || `Couldn't start image (${res.status})`, variant: 'destructive' }); return; }

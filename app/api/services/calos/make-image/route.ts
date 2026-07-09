@@ -39,9 +39,15 @@ export async function POST(req: NextRequest) {
     const { userId, orgId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { brandId, deliverableId } = await req.json();
+    const { brandId, deliverableId, aspectRatio } = await req.json();
     if (!brandId || !deliverableId) {
       return NextResponse.json({ error: "brandId and deliverableId are required" }, { status: 400 });
+    }
+    // Aspect ratio is user-chosen at Make-image time. Validate against the ratios Clickatron's models
+    // support (lib/config/clickatron-models allowedAspectRatios); absent -> the helper defaults 1:1.
+    const ALLOWED_ASPECTS = ["1:1", "16:9", "9:16", "4:3", "3:4", "4:5", "21:9", "3:2"];
+    if (aspectRatio != null && !ALLOWED_ASPECTS.includes(aspectRatio)) {
+      return NextResponse.json({ error: `Unsupported aspect ratio: ${aspectRatio}` }, { status: 422 });
     }
 
     await connectToDatabase();
@@ -86,6 +92,7 @@ export async function POST(req: NextRequest) {
       orgId: orgId ?? null,
       brandId,
       prompt,
+      ...(aspectRatio ? { aspectRatio } : {}),
       // The completion worker gates on brandId and resolves the card via calosDeliverableId.
       sourceContext: { calosDeliverableId: deliverableId, brandId },
     });
