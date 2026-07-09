@@ -10,13 +10,13 @@
  * durationInFrames, executor tries to remove more than exists).
  *
  * MP4 box format: [4 bytes size][4 bytes type][size-8 bytes data]
- * moov → mvhd: version, timeScale, duration → seconds = duration/timeScale
+ * moov -> mvhd: version, timeScale, duration -> seconds = duration/timeScale
  */
 
 const MOOV = 0x6D6F6F76; // 'moov'
 const MVHD = 0x6D766864; // 'mvhd'
-const INITIAL_FETCH_SIZE = 128 * 1024; // 128KB — covers most moov atoms
-const MAX_FETCH_SIZE = 2 * 1024 * 1024; // 2MB — give up beyond this
+const INITIAL_FETCH_SIZE = 128 * 1024; // 128KB - covers most moov atoms
+const MAX_FETCH_SIZE = 2 * 1024 * 1024; // 2MB - give up beyond this
 
 /**
  * Extract video duration from an MP4 file via HTTP Range request.
@@ -33,7 +33,7 @@ export async function extractMP4Duration(url: string): Promise<number | null> {
     const headDuration = await tryParseFromRange(url, 'head', INITIAL_FETCH_SIZE);
     if (headDuration !== null) return headDuration;
 
-    // Large moov — try bigger fetch from tail
+    // Large moov - try bigger fetch from tail
     const largeTail = await tryParseFromRange(url, 'tail', MAX_FETCH_SIZE);
     if (largeTail !== null) return largeTail;
 
@@ -69,20 +69,36 @@ function parseMoovDuration(data: Uint8Array): number | null {
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const len = data.length;
 
-  // Scan for moov box
-  const moovOffset = findBox(view, len, MOOV);
-  if (moovOffset === -1) return null;
+  // Range reads can start in the middle of a preceding box (usually mdat), so
+  // top-level boxes in the returned slice are not guaranteed to be aligned at 0.
+  for (const moovOffset of findBoxCandidates(view, len, MOOV)) {
+    const moovBox = readBox(view, moovOffset, len);
+    if (!moovBox) continue;
 
-  // Read moov box size to bound the search for mvhd
-  const moovSize = view.getUint32(moovOffset, false);
-  const moovEnd = Math.min(moovOffset + moovSize, len);
+    const moovEnd = Math.min(moovOffset + moovBox.size, len);
+    const mvhdOffset = findAlignedBox(view, moovEnd, MVHD, moovOffset + moovBox.headerSize);
+    if (mvhdOffset === -1) continue;
 
-  // Scan for mvhd inside moov
-  const mvhdOffset = findBox(view, moovEnd, MVHD, moovOffset + 8);
-  if (mvhdOffset === -1) return null;
+    const seconds = parseMvhdDuration(view, len, mvhdOffset);
+    if (seconds !== null) return seconds;
+  }
 
-  // Parse mvhd: [size:4][type:4][version:1][flags:3][...fields...]
-  const headerStart = mvhdOffset + 8; // skip size + type
+  // If a huge moov started before the fetched range, mvhd itself may still be
+  // present. Parse plausible mvhd candidates directly instead of failing closed.
+  for (const mvhdOffset of findBoxCandidates(view, len, MVHD)) {
+    const seconds = parseMvhdDuration(view, len, mvhdOffset);
+    if (seconds !== null) return seconds;
+  }
+
+  return null;
+}
+
+function parseMvhdDuration(view: DataView, len: number, mvhdOffset: number): number | null {
+  const mvhdBox = readBox(view, mvhdOffset, len);
+  if (!mvhdBox) return null;
+
+  // Parse mvhd: [size:4/16][type:4][version:1][flags:3][...fields...]
+  const headerStart = mvhdOffset + mvhdBox.headerSize;
   if (headerStart + 4 >= len) return null;
 
   const version = view.getUint8(headerStart);
@@ -99,7 +115,6 @@ function parseMoovDuration(data: Uint8Array): number | null {
     // v1: creation(8) + modification(8) + timeScale(4) + duration(8)
     if (headerStart + 4 + 24 >= len) return null;
     timeScale = view.getUint32(headerStart + 4 + 16, false);
-    // Read 64-bit duration (use upper 32 bits only if needed)
     const hi = view.getUint32(headerStart + 4 + 20, false);
     const lo = view.getUint32(headerStart + 4 + 24, false);
     duration = hi * 0x100000000 + lo;
@@ -118,25 +133,46 @@ function parseMoovDuration(data: Uint8Array): number | null {
   return Math.round(seconds * 10) / 10; // 1 decimal precision
 }
 
-function findBox(view: DataView, limit: number, boxType: number, startOffset = 0): number {
+function findBoxCandidates(view: DataView, limit: number, boxType: number): number[] {
+  const offsets: number[] = [];
+  for (let offset = 0; offset + 8 <= limit; offset++) {
+    if (view.getUint32(offset + 4, false) !== boxType) continue;
+    if (!readBox(view, offset, limit)) continue;
+    offsets.push(offset);
+  }
+  return offsets;
+}
+
+function findAlignedBox(view: DataView, limit: number, boxType: number, startOffset = 0): number {
   let offset = startOffset;
   while (offset + 8 <= limit) {
-    const size = view.getUint32(offset, false);
     const type = view.getUint32(offset + 4, false);
+    const box = readBox(view, offset, limit);
+    if (!box) break;
 
     if (type === boxType) return offset;
 
-    // size=0 means "box extends to end of file" — skip
-    // size=1 means "extended size" in next 8 bytes
-    if (size === 0) break;
-    if (size === 1) {
-      if (offset + 16 > limit) break;
-      offset += 16; // skip extended size header, continue scanning
-      continue;
-    }
-    if (size < 8) break; // invalid box
-
-    offset += size;
+    offset += box.size;
   }
   return -1;
+}
+
+function readBox(view: DataView, offset: number, limit: number): { size: number; headerSize: number } | null {
+  if (offset + 8 > limit) return null;
+
+  const size32 = view.getUint32(offset, false);
+  if (size32 === 0) {
+    return { size: limit - offset, headerSize: 8 };
+  }
+  if (size32 === 1) {
+    if (offset + 16 > limit) return null;
+    const hi = view.getUint32(offset + 8, false);
+    const lo = view.getUint32(offset + 12, false);
+    const size = hi * 0x100000000 + lo;
+    if (!Number.isSafeInteger(size) || size < 16) return null;
+    return { size, headerSize: 16 };
+  }
+  if (size32 < 8) return null;
+
+  return { size: size32, headerSize: 8 };
 }
