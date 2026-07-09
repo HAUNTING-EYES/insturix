@@ -127,6 +127,8 @@ const MIN_CAPTION_TEXT_PX_AT_1080 = 34;
 const MIN_GRAPHIC_TEXT_PX_AT_1080 = 72;
 const OVERLAY_SPATIAL_OVERLAP_RATIO = 0.2;
 const OVERLAY_PARTIAL_OVERLAP_RATIO = 0.1;
+const CAPTION_TOP_UNSAFE_RATIO = 0.1;
+const CAPTION_BOTTOM_UNSAFE_RATIO = 0.8;
 
 export function scoreRenderedFrameAesthetic(input: RenderedFrameAestheticInput): RenderedFrameAestheticReport {
   const penalties = emptyPenaltyMap();
@@ -234,6 +236,10 @@ function scoreSafeArea(overlay: NormalizedOverlay, input: RenderedFrameAesthetic
     });
   }
   if (isIntentionalFullFrameMotionGraphic(overlay)) return;
+
+  if (overlay.family === 'caption') {
+    scoreCaptionPlatformSafeZone(overlay, input, addIssue);
+  }
 
   const margin = isTextFamily(overlay.family) ? 0.1 : 0.05;
   const safe = safeBox(input.width, input.height, margin);
@@ -580,6 +586,22 @@ function placementBoxToPixels(box: AtomicPlacementBox, input: RenderedFrameAesth
     width: box.width * input.width,
     height: box.height * input.height,
   };
+}
+
+function scoreCaptionPlatformSafeZone(
+  overlay: NormalizedOverlay,
+  input: RenderedFrameAestheticInput,
+  addIssue: AddIssue,
+): void {
+  if (!overlay.box || input.height <= 0) return;
+  const centerYRatio = (overlay.box.y + overlay.box.height / 2) / input.height;
+  if (centerYRatio >= CAPTION_TOP_UNSAFE_RATIO && centerYRatio <= CAPTION_BOTTOM_UNSAFE_RATIO) return;
+
+  addIssue('safe-area', 0.12, 'caption violates constraint:overlay.caption_unsafe_zone', {
+    overlay: overlay.item,
+    evidence: `centerYRatio=${centerYRatio.toFixed(2)}; safeRange=${CAPTION_TOP_UNSAFE_RATIO.toFixed(2)}-${CAPTION_BOTTOM_UNSAFE_RATIO.toFixed(2)}; constraint=overlay.caption_unsafe_zone`,
+    severity: 'warn',
+  });
 }
 
 function safeBox(width: number, height: number, margin: number): PixelBox {

@@ -53,6 +53,79 @@ describe('rendered frame aesthetic scoring', () => {
     expect(result.issues).toHaveLength(0);
   });
 
+  it('warns captions centered inside platform unsafe zones', () => {
+    const receipt = captionReceipt({
+      words: ['this', 'is', 'covered'],
+      maxWordsPerLine: 3,
+      durationFrames: 66,
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 10.5, alphaMean: 1 },
+      overlays: [{
+        id: 'caption-bottom-ui-zone',
+        receipt,
+        box: {
+          x: 220,
+          y: 1580,
+          width: 640,
+          height: 180,
+          opacity: 1,
+          visiblePixelRatio: 0.08,
+          contrastRatio: 5.8,
+          textPixelHeight: 68,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('warn');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'safe-area',
+        severity: 'warn',
+        message: expect.stringContaining('caption_unsafe_zone'),
+        evidence: expect.stringContaining('constraint=overlay.caption_unsafe_zone'),
+      }),
+    ]));
+  });
+
+  it('warns captions centered in the top platform unsafe zone', () => {
+    const receipt = captionReceipt({
+      words: ['too', 'high'],
+      maxWordsPerLine: 2,
+      durationFrames: 66,
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 10.5, alphaMean: 1 },
+      overlays: [{
+        id: 'caption-top-ui-zone',
+        receipt,
+        box: {
+          x: 220,
+          y: 40,
+          width: 640,
+          height: 180,
+          opacity: 1,
+          visiblePixelRatio: 0.08,
+          contrastRatio: 5.8,
+          textPixelHeight: 68,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('warn');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'safe-area',
+        severity: 'warn',
+        message: expect.stringContaining('caption_unsafe_zone'),
+      }),
+    ]));
+  });
+
   it('does not fail captions against their own text-occupancy placement hint', () => {
     const receipt = captionReceipt({
       words: ['one', 'clear', 'idea', 'wins'],
