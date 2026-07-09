@@ -6,6 +6,7 @@ import {
   type ThinkForgeBlock,
   type ThinkForgeBlockKind,
 } from "@/lib/thinkforge/schemas/thinkforge-block";
+import type { ProjectMeta } from "@/lib/thinkforge/state/types";
 
 /**
  * Make a CalOS-generated post/script a first-class ThinkForge session.
@@ -50,13 +51,21 @@ export interface CreateLinkedSessionParams {
 export async function createLinkedThinkForgeSession(
   params: CreateLinkedSessionParams,
 ): Promise<string | null> {
-  const { userId, orgId, title, content } = params;
+  const { userId, orgId, brandId, deliverableId, campaignId, title, content } = params;
   if (!content.trim()) return null;
 
   try {
-    // undefined sessionId => create a new one. (Direct db call, not the /session route, so we skip the
-    // route's Editron script-stage project side-effect — a still post/caption doesn't need one.)
-    const session = await db.getOrCreateSession(userId, undefined, undefined, orgId ?? undefined);
+    // undefined sessionId => create a new one, TAGGED with the calendar linkage (brand + campaign +
+    // the CalOS card id) so ThinkForge shows which campaign/card this session belongs to, and
+    // contentCardId is the two-way key for the write-back (1c). (Direct db call, not the /session
+    // route, so we skip the route's Editron script-stage project side-effect — a caption needs none.)
+    const projectMeta: ProjectMeta = {
+      title: title.trim() || "Untitled",
+      brandId,
+      contentCardId: deliverableId,
+      ...(campaignId ? { campaignId } : {}),
+    };
+    const session = await db.getOrCreateSession(userId, undefined, projectMeta, orgId ?? undefined);
     const sessionId = session?._id;
     if (!sessionId) return null;
 
