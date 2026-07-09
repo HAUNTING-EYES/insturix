@@ -720,6 +720,113 @@ describe('Avatar pipeline-job API', () => {
     // Never fall back to animating the un-staged portrait.
     expect(submittedInputs).toHaveLength(0);
   });
+
+  it('builds the lane B (body_motion) stages: voice → body i2v → relip → composition', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [acceptedRecord('avatar_body_motion', { userId: 'user_avatar' })],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+
+    const result = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_body_motion',
+        body: {
+          useCase: 'speech_delivery',
+          renderModality: 'body_motion',
+          prompt: 'Rishi walks and gestures while presenting from a clean room.',
+          script: 'Here is the launch update.',
+          audio: { mode: 'uploaded_voiceover', sourceUrl: 'https://cdn.example.test/audio/vo.wav' },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'avatar_body_motion_job',
+        env: { FAL_AI_API_KEY: 'fal_test_key' },
+      },
+    );
+
+    expect(result.status).toBe(201);
+    expect(result.body.ok).toBe(true);
+    if (!result.body.ok) throw new Error('Expected pipeline job.');
+    expect(result.body.recipe.renderModality).toBe('body_motion');
+    // Lane B swaps the single talking-head stage for two async stages.
+    expect(result.body.job.stages.map((stage) => stage.id)).toEqual([
+      'voice_chatterbox',
+      'body_i2v_fal',
+      'relip_kling_fal',
+      'composition_remotion',
+    ]);
+    const body = result.body.job.stages.find((stage) => stage.id === 'body_i2v_fal');
+    expect(body).toEqual(
+      expect.objectContaining({
+        status: 'ready',
+        dispatchCode: 'stage_ready',
+        providerId: 'fal_kling_i2v',
+        input: expect.objectContaining({
+          model: 'fal-ai/kling-video/v2.6/pro/image-to-video',
+          durationSeconds: 8,
+          // The reference is staged before the body model animates it (fixture has a look).
+          staging: expect.objectContaining({ enabled: true }),
+        }),
+      }),
+    );
+    // Body i2v is image-only motion — the voice arrives at the relip stage, not here.
+    expect(body?.input).not.toHaveProperty('audio');
+    const relip = result.body.job.stages.find((stage) => stage.id === 'relip_kling_fal');
+    expect(relip).toEqual(
+      expect.objectContaining({
+        status: 'waiting',
+        dispatchCode: 'waiting_for_body_video',
+        providerId: 'fal_kling_lipsync',
+        input: expect.objectContaining({
+          model: 'fal-ai/kling-video/lipsync/audio-to-video',
+          dependsOnBodyStageId: 'body_i2v_fal',
+          dependsOnVoiceStageId: 'voice_chatterbox',
+        }),
+      }),
+    );
+  });
+
+  it('blocks the body_motion stage when the shot exceeds the 10s relip cap', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [acceptedRecord('avatar_body_too_long', { userId: 'user_avatar' })],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+
+    const result = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_body_too_long',
+        body: {
+          useCase: 'speech_delivery',
+          renderModality: 'body_motion',
+          prompt: 'Rishi presents for a long stretch.',
+          script: 'A very long launch update that would overrun a single shot.',
+          audio: { mode: 'uploaded_voiceover', sourceUrl: 'https://cdn.example.test/audio/vo.wav' },
+          target: { durationSeconds: 15 },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'avatar_body_too_long_job',
+        env: { FAL_AI_API_KEY: 'fal_test_key' },
+      },
+    );
+
+    expect(result.status).toBe(201);
+    expect(result.body.ok).toBe(true);
+    if (!result.body.ok) throw new Error('Expected pipeline job.');
+    const body = result.body.job.stages.find((stage) => stage.id === 'body_i2v_fal');
+    expect(body?.status).toBe('blocked');
+    expect(body?.dispatchCode).toBe('body_duration_limit');
+  });
 });
 
 function acceptedRecord(id: string, overrides: Partial<AvatarProfile> = {}): AvatarProfileRecord {

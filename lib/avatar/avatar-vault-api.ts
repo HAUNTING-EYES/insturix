@@ -15,6 +15,7 @@ import {
   buildAvatarRenderRecipe,
   type AvatarRenderAudioInput,
   type AvatarRenderAudioMode,
+  type AvatarRenderModality,
   type AvatarRenderRecipe,
   type AvatarRenderSoundCueInput,
   type AvatarRenderTarget,
@@ -270,6 +271,7 @@ async function resolveAcceptedAvatarRenderRecipe(
   const recipe = buildAvatarRenderRecipe({
     profileRecord: record,
     useCase,
+    renderModality: parseRenderModality(body.renderModality),
     prompt: stringValue(body.prompt),
     script: optionalStringValue(body.script),
     negativePrompt: optionalStringValue(body.negativePrompt),
@@ -280,6 +282,12 @@ async function resolveAcceptedAvatarRenderRecipe(
   });
 
   return { ok: true, body, recipe };
+}
+
+// 'body_motion' opts into lane B (Kling i2v body + relip); anything else → talking_head
+// default. Unknown values are ignored (default), not errors — modality is a soft hint.
+function parseRenderModality(value: unknown): AvatarRenderModality | undefined {
+  return value === 'talking_head' || value === 'body_motion' ? value : undefined;
 }
 
 function parseProviderSelectionOptions(value: unknown):

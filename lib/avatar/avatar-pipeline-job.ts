@@ -45,6 +45,12 @@ import {
   type ReferenceStagingInput,
   type ReferenceStagingResult,
 } from './avatar-reference-staging';
+import { KLING_LIPSYNC_MODEL_ID } from './avatar-relip';
+import { RELIP_MAX_SHOT_SEC } from './avatar-audio-fit';
+import { MODEL_CAPABILITIES } from '../shared/capabilities';
+
+// Body-motion (lane B) fal model. Single-sourced from the capability registry.
+const KLING_I2V_MODEL_ID = MODEL_CAPABILITIES['kling-2.6-i2v'].falModelId;
 
 export type AvatarPipelineJobStatus = 'blocked' | 'queued' | 'running' | 'succeeded' | 'failed';
 
@@ -58,6 +64,15 @@ export type AvatarPipelineJobDispatchCode =
   | 'omnihuman_running'
   | 'omnihuman_succeeded'
   | 'omnihuman_failed'
+  | 'body_queued'
+  | 'body_running'
+  | 'body_succeeded'
+  | 'body_failed'
+  | 'body_motion_needs_fit'
+  | 'relip_queued'
+  | 'relip_running'
+  | 'relip_succeeded'
+  | 'relip_failed'
   | 'remotion_composition_queued'
   | 'remotion_composition_succeeded'
   | 'remotion_composition_failed';
@@ -65,6 +80,8 @@ export type AvatarPipelineJobDispatchCode =
 export type AvatarPipelineStageId =
   | 'voice_chatterbox'
   | 'face_omnihuman_fal'
+  | 'body_i2v_fal'
+  | 'relip_kling_fal'
   | 'composition_remotion';
 
 export type AvatarPipelineStageStatus =
@@ -91,6 +108,18 @@ export type AvatarPipelineStageDispatchCode =
   | 'omnihuman_running'
   | 'omnihuman_succeeded'
   | 'omnihuman_failed'
+  | 'missing_body_image'
+  | 'body_duration_limit'
+  | 'body_motion_needs_fit'
+  | 'body_queued'
+  | 'body_running'
+  | 'body_succeeded'
+  | 'body_failed'
+  | 'waiting_for_body_video'
+  | 'relip_queued'
+  | 'relip_running'
+  | 'relip_succeeded'
+  | 'relip_failed'
   | 'stage_ready'
   | 'waiting_for_face_video'
   | 'remotion_composition_queued'
@@ -100,7 +129,7 @@ export type AvatarPipelineStageDispatchCode =
 export interface AvatarPipelineStageSnapshot {
   id: AvatarPipelineStageId;
   label: string;
-  providerId: 'chatterbox_tts' | 'fal_omnihuman_v1_5' | 'fal_kling_avatar' | 'remotion';
+  providerId: 'chatterbox_tts' | 'fal_omnihuman_v1_5' | 'fal_kling_avatar' | 'fal_kling_i2v' | 'fal_kling_lipsync' | 'remotion';
   providerDisplayName: string;
   status: AvatarPipelineStageStatus;
   dispatchCode: AvatarPipelineStageDispatchCode;
@@ -516,6 +545,17 @@ export function buildAvatarPipelineStages(
   env: Record<string, string | undefined> = process.env,
 ): AvatarPipelineStageSnapshot[] {
   const voiceStage = buildChatterboxStage(recipe, env);
+  // Lane B ("more than talking"): Kling i2v animates the body/scene from the reference,
+  // then Kling LipSync relips the mouth onto the cloned voice — two async stages in place
+  // of the single talking-head stage. Lane A (default) stays exactly as before.
+  if (recipe.renderModality === 'body_motion') {
+    return [
+      voiceStage,
+      buildBodyMotionStage(recipe, env),
+      buildRelipStage(recipe),
+      buildRemotionStage(recipe),
+    ];
+  }
   return [
     voiceStage,
     buildOmniHumanStage(recipe, env, voiceStage),
@@ -721,6 +761,95 @@ function buildRemotionStage(recipe: AvatarRenderRecipe): AvatarPipelineStageSnap
       productImages: recipe.visual.referenceImages.filter((ref) => ref.role === 'product'),
       soundCues: recipe.audio.soundCues,
       editronContract: recipe.editronContract,
+    },
+  });
+}
+
+// Lane B stage 1: Kling 2.6 i2v animates the body/scene from the (staged) reference
+// still — no audio, the voice arrives at the relip stage. Capped at the 10s relip budget.
+function buildBodyMotionStage(
+  recipe: AvatarRenderRecipe,
+  env: Record<string, string | undefined>,
+): AvatarPipelineStageSnapshot {
+  const image = selectHumanImage(recipe.visual.referenceImages, recipe.useCase);
+  const durationSeconds = Math.min(recipe.target.durationSeconds, RELIP_MAX_SHOT_SEC);
+  const input = {
+    model: KLING_I2V_MODEL_ID,
+    provider: 'kling_i2v',
+    prompt: composeOmniHumanPrompt(recipe),
+    image,
+    staging: buildAvatarStagingConfig(recipe),
+    resolution: recipe.target.resolution,
+    durationSeconds,
+    aspectRatio: recipe.target.aspectRatio,
+  };
+
+  if (!image?.imageUrl) {
+    return blockedBodyMotionStage('missing_body_image', 'Kling i2v needs a usable human reference image URL to animate.', input);
+  }
+  if (recipe.target.durationSeconds > RELIP_MAX_SHOT_SEC) {
+    return blockedBodyMotionStage(
+      'body_duration_limit',
+      `Body-motion shots are capped at ${RELIP_MAX_SHOT_SEC}s (the Kling LipSync relip cap). Longer speech is many shots, stitched in Editron.`,
+      input,
+    );
+  }
+  if (!hasAnyEnv(env, FAL_ENDPOINT_KEYS)) {
+    return blockedBodyMotionStage('missing_fal_key', 'FAL_AI_API_KEY or FAL_KEY is not configured, so the body model cannot be dispatched.', input);
+  }
+
+  return stage({
+    id: 'body_i2v_fal',
+    label: 'Animate body',
+    providerId: 'fal_kling_i2v',
+    providerDisplayName: 'Kling 2.6 i2v',
+    status: 'ready',
+    dispatchCode: 'stage_ready',
+    statusReason: 'Kling 2.6 i2v is configured and ready to animate the body from the reference.',
+    requiredEnvKeys: FAL_ENDPOINT_KEYS,
+    input,
+  });
+}
+
+function blockedBodyMotionStage(
+  dispatchCode: AvatarPipelineStageDispatchCode,
+  statusReason: string,
+  input: Record<string, unknown>,
+): AvatarPipelineStageSnapshot {
+  return stage({
+    id: 'body_i2v_fal',
+    label: 'Animate body',
+    providerId: 'fal_kling_i2v',
+    providerDisplayName: 'Kling 2.6 i2v',
+    status: 'blocked',
+    dispatchCode,
+    statusReason,
+    requiredEnvKeys: dispatchCode === 'missing_fal_key' ? FAL_ENDPOINT_KEYS : [],
+    input,
+  });
+}
+
+// Lane B stage 2: Kling LipSync relips the mouth of the i2v body video onto the aligned
+// cloned voice. Waits for BOTH the body video and the padded voice — dispatched from the
+// body-stage poll once they exist (see Phase 2). Bound to the 10s input-video cap.
+function buildRelipStage(recipe: AvatarRenderRecipe): AvatarPipelineStageSnapshot {
+  return stage({
+    id: 'relip_kling_fal',
+    label: 'Sync mouth',
+    providerId: 'fal_kling_lipsync',
+    providerDisplayName: 'Kling LipSync',
+    status: 'waiting',
+    dispatchCode: 'waiting_for_body_video',
+    statusReason: 'Kling LipSync waits for the Kling i2v body video and the aligned cloned voice before relipping the mouth.',
+    requiredEnvKeys: FAL_ENDPOINT_KEYS,
+    input: {
+      model: KLING_LIPSYNC_MODEL_ID,
+      provider: 'kling_lipsync',
+      dependsOnBodyStageId: 'body_i2v_fal',
+      dependsOnVoiceStageId: 'voice_chatterbox',
+      maxShotSeconds: RELIP_MAX_SHOT_SEC,
+      resolution: recipe.target.resolution,
+      aspectRatio: recipe.target.aspectRatio,
     },
   });
 }
