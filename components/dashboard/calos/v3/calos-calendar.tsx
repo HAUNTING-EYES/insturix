@@ -110,6 +110,21 @@ export default function CalosCalendarV3() {
   }, [brandId]);
   useEffect(() => { void loadPubStatus(); }, [loadPubStatus]);
 
+  // Auto-refresh while an image job is in flight, so the finished still lands on the card without a
+  // manual reload. Polls (every 12s) only while at least one card is 'generating'; stops as soon as
+  // none are, so an idle calendar makes no requests.
+  const anyImageGenerating = useMemo(
+    () => items.some((it) => it.raw.imageStatus === 'generating'),
+    [items],
+  );
+  const refreshRef = React.useRef(refresh);
+  useEffect(() => { refreshRef.current = refresh; }, [refresh]);
+  useEffect(() => {
+    if (!anyImageGenerating) return;
+    const id = setInterval(() => { void refreshRef.current(); }, 12_000);
+    return () => clearInterval(id);
+  }, [anyImageGenerating]);
+
   /* ── mutations ── */
   const handleDecision = async (id: string, decision: 'approved' | 'changes_requested') => {
     if (!brandId) return;
