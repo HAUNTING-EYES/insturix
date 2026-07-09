@@ -18,9 +18,16 @@ import {
 } from './avatar-audio-fit';
 import { generateAvatarShot } from './generate-avatar-shot';
 import { relipWithKling } from './avatar-relip';
+import { stageAvatarReference } from './avatar-reference-staging';
 
 export interface LaneBShotInput {
   avatarImageRefs: string[];
+  /**
+   * Optional: regenerate a top-tier, scene/wardrobe-staged, identity-locked reference
+   * from `avatarImageRefs` before animating (Nano Banana). The biggest quality lever —
+   * `scenePrompt` is the wardrobe/scene description.
+   */
+  stageReference?: { scenePrompt: string };
   /** Hosted voice sample for Chatterbox to clone. */
   voiceSampleUrl: string;
   lineText: string;
@@ -54,6 +61,8 @@ export interface LaneBDeps {
   relip?: typeof relipWithKling;
   /** Measure the generated body video's real duration (moov atom). */
   measureVideoDurationSec?: (url: string) => Promise<number | null>;
+  /** Stage a scene/wardrobe reference from the user's photos (Nano Banana). */
+  stageReference?: typeof stageAvatarReference;
 }
 
 export async function buildLaneBSpeakingShot(input: LaneBShotInput, deps: LaneBDeps = {}): Promise<LaneBShotResult> {
@@ -68,6 +77,7 @@ export async function buildLaneBSpeakingShot(input: LaneBShotInput, deps: LaneBD
   const generateShot = deps.generateShot ?? generateAvatarShot;
   const relip = deps.relip ?? relipWithKling;
   const measureVideoDurationSec = deps.measureVideoDurationSec ?? defaultMeasureVideoDurationSec;
+  const stageReference = deps.stageReference ?? stageAvatarReference;
 
   // 1. Clone voice + read the line.
   const { audioUrl: rawAudioUrl } = await synthesizeVoice({ text: input.lineText, voiceSampleUrl: input.voiceSampleUrl, userId });
@@ -89,9 +99,16 @@ export async function buildLaneBSpeakingShot(input: LaneBShotInput, deps: LaneBD
   //    to its own options (Kling i2v = 5s or 10s), so we align the voice to what it
   //    ACTUALLY produced (step 5), not to the request. Native audio (if any) is
   //    discarded — the voice arrives at the relip step.
+  // Optionally regenerate a top-tier scene/wardrobe reference from the user's photos
+  // before animating — a cleaner reference is the biggest quality lever (less drift on
+  // camera moves, cleaner mouth for relip).
+  const bodyRefs = input.stageReference
+    ? [(await stageReference({ sourceImageUrls: input.avatarImageRefs, scenePrompt: input.stageReference.scenePrompt })).imageUrl]
+    : input.avatarImageRefs;
+
   const requestSec = Math.min(Math.max(Math.ceil(measuredSec), 4), budget);
   const body = await generateShot({
-    avatarImageRefs: input.avatarImageRefs,
+    avatarImageRefs: bodyRefs,
     motionPrompt: input.motionPrompt,
     durationSec: requestSec,
     resolution: input.resolution ?? '1080p',

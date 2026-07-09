@@ -103,6 +103,32 @@ describe('buildLaneBSpeakingShot', () => {
     expect(relipCalled).toBe(false);
   });
 
+  it('stages a scene/wardrobe reference from the user photos and animates that', async () => {
+    let stagedFrom: string[] | undefined;
+    let shotRefs: string[] | undefined;
+    const result = await buildLaneBSpeakingShot(
+      { ...input, stageReference: { scenePrompt: 'in a modern office, black blazer' } },
+      {
+        synthesizeVoice: async () => ({ audioUrl: 'https://cdn/raw.wav' }),
+        fetchAudioBytes: async () => makeWav(6),
+        stageReference: async (s) => {
+          stagedFrom = s.sourceImageUrls;
+          return { imageUrl: 'https://cdn/staged.png' };
+        },
+        generateShot: async (spec) => {
+          shotRefs = spec.avatarImageRefs;
+          return { videoUrl: 'https://cdn/body.mp4', modelUsed: 'kling-2.6-i2v', durationSec: 10, hasNativeAudio: false };
+        },
+        measureVideoDurationSec: async () => 10,
+        uploadAudio: async () => ({ audioUrl: 'https://cdn/aligned.wav' }),
+        relip: async () => ({ videoUrl: 'https://cdn/final.mp4' }),
+      },
+    );
+    expect(result.status).toBe('done');
+    expect(stagedFrom).toEqual(input.avatarImageRefs); // staged from the user's photos
+    expect(shotRefs).toEqual(['https://cdn/staged.png']); // animated the staged reference, not the raw photos
+  });
+
   it('rejects empty inputs loudly', async () => {
     await expect(buildLaneBSpeakingShot({ ...input, lineText: '   ' })).rejects.toThrow(/non-empty line/);
     await expect(buildLaneBSpeakingShot({ ...input, avatarImageRefs: [] })).rejects.toThrow(/reference image/);
