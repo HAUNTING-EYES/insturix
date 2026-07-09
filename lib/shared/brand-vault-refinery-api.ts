@@ -564,6 +564,73 @@ async function runProductUiDecodeFollowUp(args: {
   }
 }
 
+// Cron backfill: re-decode drafts whose inline decode never landed (function killed mid-decode, or a
+// transient GLM/network error). Retry no more than once per cooldown per record so a permanently
+// un-decodable draft (e.g. its screenshots were pruned) can't starve the others.
+const PRODUCT_UI_DECODE_RETRY_COOLDOWN_MS = 30 * 60 * 1000; // 30 min ← retry backoff; cron fires every minute
+const PRODUCT_UI_DECODE_SCAN_LIMIT = 25; // ← matches listJobSnapshots default page size
+
+export type ProcessPendingProductUiDecodeResult = {
+  processed: boolean;
+  recordId?: string;
+  /** True when this pass produced a productUiModel; false when the attempt ran but decode returned nothing. */
+  decoded?: boolean;
+  reason?: 'decode_disabled' | 'store_does_not_support_listing' | 'nothing_pending';
+};
+
+/**
+ * Find the oldest needs-review draft that captured UI screenshots but still has no productUiModel (its inline
+ * decode never completed) and decode it. Best-effort + cooldown-gated: stamps the attempt BEFORE decoding and
+ * persists it, so even a mid-decode function kill applies the cooldown instead of hot-looping on one record.
+ */
+export async function processNextPendingProductUiDecode(
+  dependencies: BrandVaultRefineryJobExecutionDependencies,
+): Promise<ProcessPendingProductUiDecodeResult> {
+  const decoder = resolveVisionDecoder(dependencies);
+  if (!decoder) return { processed: false, reason: 'decode_disabled' };
+  if (!dependencies.store.listJobSnapshots) return { processed: false, reason: 'store_does_not_support_listing' };
+
+  const now = dependencies.clock?.() ?? new Date().toISOString();
+  const cooldownCutoffMs = Date.parse(now) - PRODUCT_UI_DECODE_RETRY_COOLDOWN_MS;
+  const snapshots = await dependencies.store.listJobSnapshots({
+    statuses: ['needs_review'],
+    limit: PRODUCT_UI_DECODE_SCAN_LIMIT,
+    sort: 'updatedAtAsc',
+  });
+
+  for (const snapshot of snapshots) {
+    if (!snapshot.recordId) continue;
+    const record = await dependencies.store.getRecord(snapshot.recordId);
+    if (!record || !recordNeedsProductUiDecode(record, cooldownCutoffMs)) continue;
+
+    // Stamp + persist the attempt BEFORE decoding: a kill mid-decode still applies the cooldown.
+    const options: BrandSignalLifecycleOptions = { actorId: record.profile.userId ?? 'system', now };
+    record.profile.productUiModelDecodeAttemptedAt = now;
+    await dependencies.store.saveRecord(record, options);
+
+    await runProductUiDecodeFollowUp({
+      decoder,
+      store: dependencies.store,
+      record,
+      sourceUrl: snapshot.normalizedUrl ?? snapshot.job.inputs.websiteUrl ?? '',
+      options,
+    });
+    return { processed: true, recordId: snapshot.recordId, decoded: Boolean(record.profile.productUiModel) };
+  }
+  return { processed: false, reason: 'nothing_pending' };
+}
+
+function recordNeedsProductUiDecode(record: BrandSignalProfileRecord, cooldownCutoffMs: number): boolean {
+  const urls = record.profile.assets?.uiScreenshots?.value;
+  if (!Array.isArray(urls) || urls.length === 0) return false; // nothing to decode
+  if (record.profile.productUiModel) return false; // already decoded
+  const attemptedAt = record.profile.productUiModelDecodeAttemptedAt;
+  if (!attemptedAt) return true; // never attempted by the backfill
+  const attemptedMs = Date.parse(attemptedAt);
+  if (!Number.isFinite(attemptedMs)) return true; // unparseable marker -> allow a retry
+  return !Number.isFinite(cooldownCutoffMs) || attemptedMs < cooldownCutoffMs; // cooldown elapsed
+}
+
 export async function startQueuedBrandVaultRefineryJobFromWebsite(
   args: {
     userId: string;
