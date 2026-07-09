@@ -91,6 +91,23 @@ export interface MediaUploadBatchStatus {
   assets: MediaUploadBatchAssetStatus[];
 }
 
+export interface CreateProjectFromMediaUploadBatchOptions extends UploadMediaBatchIntake {
+  title?: string;
+  brandId?: string;
+  targetDurationSec?: number | string | null;
+}
+
+export interface CreateProjectFromMediaUploadBatchResult {
+  projectId: string;
+  status: 'processing' | 'complete' | 'existing';
+  storylinePlan?: {
+    source?: string;
+    planApplied?: boolean;
+    fallbackReason?: string;
+    rationale?: string;
+    clipCount?: number;
+  };
+}
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -232,6 +249,35 @@ export async function getMediaUploadBatchStatus(
   return data.batch;
 }
 
+export async function createProjectFromMediaUploadBatch(
+  uploadBatchId: string,
+  options: CreateProjectFromMediaUploadBatchOptions = {}
+): Promise<CreateProjectFromMediaUploadBatchResult> {
+  const trimmed = uploadBatchId.trim();
+  if (!trimmed) throw new Error('uploadBatchId is required');
+
+  const response = await fetch('/api/services/editron/auto-edit/from-batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uploadBatchId: trimmed, ...options }),
+  });
+
+  if (!response.ok) {
+    const msg = await extractResponseError(response, 'Failed to create project from upload batch');
+    throw new Error(msg);
+  }
+
+  const data = await response.json();
+  if (!data?.success || !data.projectId) {
+    throw new Error(data?.error || 'Failed to create project from upload batch');
+  }
+
+  return {
+    projectId: data.projectId,
+    status: data.status || 'processing',
+    storylinePlan: data.storylinePlan,
+  };
+}
 function createUploadBatchId(): string {
   const random =
     typeof crypto !== 'undefined' && 'randomUUID' in crypto

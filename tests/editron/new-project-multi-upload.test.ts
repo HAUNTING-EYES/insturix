@@ -49,7 +49,9 @@ describe('new project multi-upload intake', () => {
     );
 
     expect(hookSource).toContain('uploadMediaFiles(selectedFiles, { uploadBatchIntake: options })');
-    expect(hookSource).toContain('Batch is ready for multi-source project assembly');
+    expect(hookSource).toContain('createProjectFromMediaUploadBatch(result.uploadBatchId');
+    expect(hookSource).toContain('Assembling multi-source edit');
+    expect(hookSource).toContain('/dashboard/editron/auto-edit/');
     expect(hookSource).toContain('startMany');
     expect(flowSource).toContain('setPendingFootageFiles(files)');
     expect(flowSource).toContain('AutoEditDialog');

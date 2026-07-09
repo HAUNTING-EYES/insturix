@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getMediaUploadBatchStatus } from '../../components/editron/editor/version-7.0.0/utils/media-upload';
+import {
+  createProjectFromMediaUploadBatch,
+  getMediaUploadBatchStatus,
+} from '../../components/editron/editor/version-7.0.0/utils/media-upload';
 
 function batchResponse(overrides: Record<string, unknown> = {}) {
   return {
@@ -51,6 +54,57 @@ describe('media upload batch client', () => {
     expect(status.assets[0]?.readiness).toBe('ready');
   });
 
+
+  it('creates a project from a ready upload batch through the server route', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        success: true,
+        projectId: 'proj_batch_1',
+        status: 'processing',
+        storylinePlan: { source: 'storyline', planApplied: true, clipCount: 3 },
+      }), { status: 200 })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await createProjectFromMediaUploadBatch(' batch_1 ', {
+      userIntent: 'make a launch reel',
+      platform: 'instagram_reels',
+      brandId: 'brand_1',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/services/editron/auto-edit/from-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        uploadBatchId: 'batch_1',
+        userIntent: 'make a launch reel',
+        platform: 'instagram_reels',
+        brandId: 'brand_1',
+      }),
+    });
+    expect(result).toEqual({
+      projectId: 'proj_batch_1',
+      status: 'processing',
+      storylinePlan: { source: 'storyline', planApplied: true, clipCount: 3 },
+    });
+  });
+
+  it('surfaces batch project creation errors', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ success: false, error: 'Batch is still analyzing' }), { status: 409 })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(createProjectFromMediaUploadBatch('batch_1')).rejects.toThrow('Batch is still analyzing');
+  });
+
+  it('rejects empty batch ids before creating a project', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(createProjectFromMediaUploadBatch('   ')).rejects.toThrow('uploadBatchId is required');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it('surfaces API errors instead of treating missing status as ready', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ success: false, error: 'Batch lookup failed' }), { status: 500 })

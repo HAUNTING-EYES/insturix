@@ -20,6 +20,7 @@ import { shouldCompress, compressToProxy, getVideoDuration } from '@/lib/editron
 import { MultipartUploader } from '@/lib/editron/client/multipart-uploader';
 import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import {
+  createProjectFromMediaUploadBatch,
   getMediaUploadBatchStatus,
   uploadMediaFiles,
   type MediaUploadBatchStatus,
@@ -211,14 +212,26 @@ export function useFootageAutoEdit(): FootageAutoEditState {
       }
 
       const failedSuffix = result.failed.length > 0 ? ` ${result.failed.length} failed.` : '';
-      const readySuffix = status?.canCreateProject
-        ? ' Batch is ready for multi-source project assembly.'
-        : ' Batch is analyzing; refresh the media library for readiness.';
-      setProgress(`Uploaded ${uploadedCount}/${selectedFiles.length} files.${failedSuffix}${readySuffix}`);
-      toast({
-        title: 'Footage batch uploaded',
-        description: `Saved ${uploadedCount} file${uploadedCount === 1 ? '' : 's'} to your Editron media library.`,
+      if (!status?.canCreateProject) {
+        setProgress(`Uploaded ${uploadedCount}/${selectedFiles.length} files.${failedSuffix} Batch is analyzing; refresh the media library for readiness.`);
+        toast({
+          title: 'Footage batch uploaded',
+          description: `Saved ${uploadedCount} file${uploadedCount === 1 ? '' : 's'} to your Editron media library.`,
+        });
+        return;
+      }
+
+      setProgress('Assembling multi-source edit...');
+      const batchProject = await createProjectFromMediaUploadBatch(result.uploadBatchId, {
+        ...options,
+        title: options.userIntent || result.uploaded[0]?.filename?.replace(/\.[^.]+$/, ''),
+        brandId: getActiveBrandIdFromStorage(),
       });
+      toast({
+        title: batchProject.status === 'existing' ? 'Opening existing edit' : 'Multi-source edit started',
+        description: `Assembling ${uploadedCount} file${uploadedCount === 1 ? '' : 's'} into one Editron project.`,
+      });
+      router.push(`/dashboard/editron/auto-edit/${batchProject.projectId}`);
     } catch (e) {
       const msg = getUserFriendlyErrorMessage(e);
       setError(msg);
@@ -227,7 +240,7 @@ export function useFootageAutoEdit(): FootageAutoEditState {
     } finally {
       setRunning(false);
     }
-  }, [run, toast]);
+  }, [router, run, toast]);
   const start = useCallback((file: File, options?: FootageAutoEditOptions) => { void run(file, options); }, [run]);
   const startMany = useCallback((files: File[], options?: FootageAutoEditOptions) => { void runMany(files, options); }, [runMany]);
 
