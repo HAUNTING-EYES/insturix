@@ -1,5 +1,6 @@
 import type { GenerateParams } from "../contract";
 import { resolveSystemBrief } from "./_brand-brief";
+import { resolveCampaignReferenceBlock } from "./_campaign-references";
 
 export interface PostWriterOutput {
   /** On-brand post copy / caption, ready for the platform (markdown emphasis stripped). */
@@ -17,15 +18,19 @@ export interface PostWriterOutput {
  * generation for graphics cards; the caption path simply ignores `imagePrompt`).
  */
 export async function runPostWriter(params: GenerateParams): Promise<PostWriterOutput> {
-  const systemBrief = await resolveSystemBrief(params.ownerUserId, params.brandId, params.orgId);
+  const [systemBrief, referenceBlock] = await Promise.all([
+    resolveSystemBrief(params.ownerUserId, params.brandId, params.orgId),
+    resolveCampaignReferenceBlock(params.campaignId, params.brandId),
+  ]);
 
-  const userPrompt = [
-    params.title,
-    params.angle ? `Angle: ${params.angle}` : "",
-    `Platform: ${params.platform}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const userPrompt =
+    [
+      params.title,
+      params.angle ? `Angle: ${params.angle}` : "",
+      `Platform: ${params.platform}`,
+    ]
+      .filter(Boolean)
+      .join("\n") + referenceBlock;
 
   const { PostWriterAgent } = await import("@/lib/thinkforge/agents/post-writer-agent");
   const writer = new PostWriterAgent();

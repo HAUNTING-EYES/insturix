@@ -1,5 +1,6 @@
 import type { GenerateParams } from "../contract";
 import { resolveSystemBrief } from "./_brand-brief";
+import { resolveCampaignReferenceBlock } from "./_campaign-references";
 
 /**
  * ScriptWriter call for CalOS video deliverables.
@@ -10,16 +11,20 @@ import { resolveSystemBrief } from "./_brand-brief";
  * never renders the video (Editron has no headless render entry point). Returns the script markdown.
  */
 export async function runScriptWriter(params: GenerateParams): Promise<string> {
-  const systemBrief = await resolveSystemBrief(params.ownerUserId, params.brandId, params.orgId);
+  const [systemBrief, referenceBlock] = await Promise.all([
+    resolveSystemBrief(params.ownerUserId, params.brandId, params.orgId),
+    resolveCampaignReferenceBlock(params.campaignId, params.brandId),
+  ]);
 
-  const userPrompt = [
-    params.title, // the idea
-    params.angle ? `Brief: ${params.angle}` : "", // the small brief (card.details)
-    params.format ? `Format: ${params.format}` : "",
-    `Platform: ${params.platform}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const userPrompt =
+    [
+      params.title, // the idea
+      params.angle ? `Brief: ${params.angle}` : "", // the small brief (card.details)
+      params.format ? `Format: ${params.format}` : "",
+      `Platform: ${params.platform}`,
+    ]
+      .filter(Boolean)
+      .join("\n") + referenceBlock;
 
   const { ScriptWriterAgent } = await import("@/lib/thinkforge/agents/script-writer-agent");
   const writer = new ScriptWriterAgent();
