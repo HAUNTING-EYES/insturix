@@ -10,6 +10,7 @@ import TrendMarketSelector, {
   useResolvedTrendLocation,
 } from '@/app/dashboard/calos/TrendMarketSelector';
 import type { ContentCard } from '@/app/dashboard/thinkforge/types';
+import type { CalosCampaignReference } from '@/schemas/calos-campaign';
 import { C, MONO, SANS, toItem } from './calos-view-model';
 import type { CalItem } from './calos-view-model';
 import { Btn } from './calos-atoms';
@@ -36,6 +37,7 @@ interface Campaign {
   cadenceRules: CadenceRule[];
   objective?: CalosObjective;
   theme?: string;
+  references?: CalosCampaignReference[];
 }
 
 interface Review {
@@ -83,10 +85,11 @@ export default function CalosCampaignBar({
       const res = await fetch(`/api/services/calos/campaigns?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' });
       const data = await res.json();
       const list: Campaign[] = Array.isArray(data?.campaigns)
-        ? data.campaigns.map((c: { _id: string; name: string; cadenceRules?: CadenceRule[]; objective?: CalosObjective; theme?: string }) => ({
+        ? data.campaigns.map((c: { _id: string; name: string; cadenceRules?: CadenceRule[]; objective?: CalosObjective; theme?: string; references?: CalosCampaignReference[] }) => ({
             _id: c._id, name: c.name,
             cadenceRules: Array.isArray(c.cadenceRules) ? c.cadenceRules : [],
             objective: c.objective, theme: c.theme,
+            references: Array.isArray(c.references) ? c.references : [],
           }))
         : [];
       setCampaigns(list);
