@@ -21,8 +21,9 @@ import type { Recipe } from '@/lib/editron/motion-graphics/engine/recipe-types';
 import type { AtomicOverlayPlan } from '@/lib/editron/motion-graphics/engine/atomic-overlay-plan';
 import type { AtomicOverlayDecision } from '@/lib/editron/motion-graphics/engine/atomic-overlay-decision';
 import type { SignalCurves } from '@/lib/editron/motion-graphics/engine/primitive-renderers';
+import type { SyncData } from '@/lib/editron/motion-graphics/engine/choreography-computer';
 // Phase 0.1: load the MG default font families at module-eval (side-effect import). Without this,
-// the render path loaded ZERO fonts and every graphic fell back to Chromium default — corrupting
+// the render path loaded ZERO fonts and every graphic fell back to Chromium default ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â corrupting
 // both the visible type AND G-1b's canvas measureText fit (composition-renderer.tsx:297). This is
 // the single shared entry for the harness (scripts/mg-still/root.tsx) and production
 // (core/layer-content.tsx), so importing here loads fonts on both paths. See mg-fonts.ts.
@@ -51,6 +52,7 @@ export const MotionGraphicLayerContent: React.FC<MotionGraphicLayerContentProps>
     // Fallback exists only for old overlays that predate serialized curves.
     const signalCurves = sanitizeSignalCurves((overlay as Record<string, unknown>).signalCurves, overlay.durationInFrames)
       ?? synthesizeSignalCurves(signals, overlay.durationInFrames);
+    const syncData = buildSyncDataFromSignalCurves(signalCurves, overlay.durationInFrames);
 
     return (
       <MotionThemeProvider tokens={tokens}>
@@ -60,6 +62,7 @@ export const MotionGraphicLayerContent: React.FC<MotionGraphicLayerContentProps>
           content={content}
           durationInFrames={overlay.durationInFrames}
           signalCurves={signalCurves}
+          syncData={syncData}
           atomicPlan={atomicPlan}
           atomicDecision={atomicDecision}
         />
@@ -122,7 +125,7 @@ function synthesizeSignalCurves(
       const distToTatum = Math.abs(f - tatumIndex * framesPerTatum);
 
       if (distToBeat < 1) {
-        // On a beat — check if downbeat (every 4 beats) or regular
+        // On a beat ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â check if downbeat (every 4 beats) or regular
         beatLevel[f] = beatIndex % 4 === 0 ? 0.6 : 0.25;
       } else if (distToTatum < 1) {
         beatLevel[f] = 0.1; // tatum subdivision
@@ -155,6 +158,74 @@ function sanitizeSignalCurves(value: unknown, durationInFrames: number): SignalC
   return Object.keys(curves).length > 0 ? curves : undefined;
 }
 
+export function buildSyncDataFromSignalCurves(
+  curves: SignalCurves | undefined,
+  durationInFrames: number,
+  fps = 30,
+): SyncData | undefined {
+  if (!curves || durationInFrames <= 0 || fps <= 0) return undefined;
+
+  const beatTimesMs = extractBeatTimesMs(curves, durationInFrames, fps);
+  if (beatTimesMs.length === 0) return undefined;
+
+  return { beatTimesMs };
+}
+
+function extractBeatTimesMs(
+  curves: SignalCurves,
+  durationInFrames: number,
+  fps: number,
+): number[] {
+  const beatFrames: number[] = [];
+  const beatLevel = curves.beat_level;
+  const musicBeat = curves.music_beat;
+  const onset = curves.onset;
+  const maxFrames = Math.max(
+    beatLevel?.length ?? 0,
+    musicBeat?.length ?? 0,
+    onset?.length ?? 0,
+    durationInFrames,
+  );
+
+  let activeFrameCount = 0;
+  let currentRun: { bestFrame: number; bestScore: number } | undefined;
+
+  const finishRun = () => {
+    if (!currentRun) return;
+    beatFrames.push(currentRun.bestFrame);
+    currentRun = undefined;
+  };
+
+  for (let frame = 0; frame < Math.min(durationInFrames, maxFrames); frame++) {
+    const score = Math.max(
+      curveValue(beatLevel, frame),
+      curveValue(musicBeat, frame) > 0.5 ? 0.25 : 0,
+      curveValue(onset, frame) > 0.5 ? 0.4 : 0,
+    );
+    const active = score >= 0.15;
+
+    if (!active) {
+      finishRun();
+      continue;
+    }
+
+    activeFrameCount++;
+    if (!currentRun || score > currentRun.bestScore) {
+      currentRun = { bestFrame: frame, bestScore: score };
+    }
+  }
+  finishRun();
+
+  // Constant snapshot curves are evidence of "there is a beat" but not a timestamped beat grid.
+  if (activeFrameCount > Math.max(8, durationInFrames * 0.25)) return [];
+
+  return beatFrames.slice(0, 64).map((frame) => Math.round(frame * (1000 / fps)));
+}
+
+function curveValue(curve: number[] | undefined, frame: number): number {
+  const value = curve?.[frame];
+  return typeof value === 'number' && isFinite(value) ? value : 0;
+}
 function sanitizeSignals(signals: unknown): Record<string, number | string> | undefined {
   if (!signals || typeof signals !== 'object') return undefined;
   const safe: Record<string, number | string> = {};
