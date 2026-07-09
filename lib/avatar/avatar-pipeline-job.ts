@@ -45,12 +45,31 @@ import {
   type ReferenceStagingInput,
   type ReferenceStagingResult,
 } from './avatar-reference-staging';
-import { KLING_LIPSYNC_MODEL_ID } from './avatar-relip';
-import { RELIP_MAX_SHOT_SEC } from './avatar-audio-fit';
+import { KLING_LIPSYNC_MODEL_ID, RELIP_ALIGNMENT_TOLERANCE_SEC } from './avatar-relip';
+import {
+  RELIP_MAX_SHOT_SEC,
+  measureWavDurationSec,
+  fitLineToShotBudget,
+  padWavToSec,
+  type FitDecision,
+} from './avatar-audio-fit';
+import { buildKlingI2vInput } from './generate-avatar-shot';
+import {
+  createFalVideoJobClient,
+  defaultFetchAudioBytes,
+  defaultUploadAudio,
+  defaultMeasureVideoDurationSec,
+  type FalVideoJobClient,
+} from './avatar-fal-video-job';
 import { MODEL_CAPABILITIES } from '../shared/capabilities';
 
 // Body-motion (lane B) fal model. Single-sourced from the capability registry.
 const KLING_I2V_MODEL_ID = MODEL_CAPABILITIES['kling-2.6-i2v'].falModelId;
+
+function requireKlingI2vModelId(): string {
+  if (!KLING_I2V_MODEL_ID) throw new Error('kling-2.6-i2v has no fal model id in the capability registry.');
+  return KLING_I2V_MODEL_ID;
+}
 
 export type AvatarPipelineJobStatus = 'blocked' | 'queued' | 'running' | 'succeeded' | 'failed';
 
@@ -184,6 +203,10 @@ export interface CreateAvatarPipelineJobDependencies {
    * talking-head model animates the reference — see dispatchReadyOmniHumanJob.
    */
   stageReference?: (input: ReferenceStagingInput) => Promise<ReferenceStagingResult>;
+  /** Lane B (body_motion): Kling i2v body client. Injected in tests; default = real fal. */
+  klingI2vClient?: FalVideoJobClient;
+  /** Lane B: fetch synthesized-voice bytes to measure the real WAV duration (fit gate). */
+  fetchAudioBytes?: (url: string) => Promise<Buffer>;
 }
 
 export interface RefreshAvatarPipelineJobDependencies {
@@ -193,6 +216,12 @@ export interface RefreshAvatarPipelineJobDependencies {
   chatterboxClient?: ChatterboxClient;
   omniHumanClient?: OmniHumanFalClient;
   compositionDeps?: AvatarCompositionDeps;
+  /** Lane B (body_motion) adapters — all injected in tests; defaults call the real services. */
+  klingI2vClient?: FalVideoJobClient;
+  klingLipsyncClient?: FalVideoJobClient;
+  fetchAudioBytes?: (url: string) => Promise<Buffer>;
+  uploadAudio?: (wav: Buffer, userId: string) => Promise<{ audioUrl: string }>;
+  measureVideoDurationSec?: (url: string) => Promise<number | null>;
 }
 
 export interface CreateAvatarPipelineJobSuccessBody {
@@ -389,13 +418,16 @@ export async function refreshAvatarPipelineJobFromRequest(
     return fail(404, 'pipeline_job_not_found', 'Avatar pipeline job was not found.');
   }
 
-  const afterOmniHuman = await refreshQueuedOmniHumanJob(job, dependencies);
-  // Advance composition only when OmniHuman did NOT transition this cycle (it already
-  // succeeded on a prior refresh). refreshQueuedOmniHumanJob returns the same job ref
-  // when OmniHuman is already terminal — keeps this to one stage-transition per poll.
-  const refreshedJob = afterOmniHuman === job
-    ? await advanceCompositionStage(afterOmniHuman, dependencies)
-    : afterOmniHuman;
+  // Lane B polls the body → relip chain; lane A polls the single talking-head stage.
+  const afterSource = job.recipe.renderModality === 'body_motion'
+    ? await refreshBodyMotionJob(job, dependencies)
+    : await refreshQueuedOmniHumanJob(job, dependencies);
+  // Advance composition only when the source lane did NOT transition this cycle (it
+  // already reached its terminal video on a prior refresh) — the refresh returns the
+  // same job ref when nothing changed, keeping this to one stage-transition per poll.
+  const refreshedJob = afterSource === job
+    ? await advanceCompositionStage(afterSource, dependencies)
+    : afterSource;
   await store.savePipelineJobSnapshot(refreshedJob);
   return {
     status: 200,
@@ -424,11 +456,16 @@ async function advanceCompositionStage(
   const now = dependencies.now?.() ?? new Date().toISOString();
   const compositionDeps = dependencies.compositionDeps ?? {};
 
-  const omniHuman = findPipelineStage(job, 'face_omnihuman_fal');
+  // The terminal video comes from the face stage (lane A) or the relip stage (lane B);
+  // either writes it to composition.input.faceVideo, so composition stays lane-agnostic.
+  const sourceStageId: AvatarPipelineStageId = job.recipe.renderModality === 'body_motion'
+    ? 'relip_kling_fal'
+    : 'face_omnihuman_fal';
+  const sourceStage = findPipelineStage(job, sourceStageId);
   const faceVideoUrl = stringValue(asRecord(composition.input.faceVideo)?.videoUrl);
 
-  // 1) Dispatch once the face video exists and composition has not started.
-  if (composition.status === 'waiting' && omniHuman?.status === 'succeeded' && faceVideoUrl) {
+  // 1) Dispatch once the source video exists and composition has not started.
+  if (composition.status === 'waiting' && sourceStage?.status === 'succeeded' && faceVideoUrl) {
     try {
       const ref = await dispatchAvatarComposition(
         {
@@ -880,8 +917,16 @@ function resolvePipelineDispatch(stages: AvatarPipelineStageSnapshot[]): {
 
 async function dispatchReadyAvatarPipelineJob(
   job: AvatarPipelineJobSnapshot,
-  dependencies: Pick<CreateAvatarPipelineJobDependencies, 'env' | 'now' | 'chatterboxClient' | 'omniHumanClient' | 'stageReference'>,
+  dependencies: Pick<
+    CreateAvatarPipelineJobDependencies,
+    'env' | 'now' | 'chatterboxClient' | 'omniHumanClient' | 'stageReference' | 'klingI2vClient' | 'fetchAudioBytes'
+  >,
 ): Promise<AvatarPipelineJobSnapshot> {
+  // Lane B: synth+measure+fit-gate the voice, then submit the body i2v. Voice is not
+  // routed to a talking-head model — it arrives at the relip stage (see refresh).
+  if (job.recipe.renderModality === 'body_motion') {
+    return dispatchReadyBodyMotionJob(job, dependencies);
+  }
   const voicePreparedJob = await dispatchReadyChatterboxJob(job, dependencies);
   if (voicePreparedJob.status === 'failed') return voicePreparedJob;
   return dispatchReadyOmniHumanJob(voicePreparedJob, dependencies);
@@ -1192,6 +1237,441 @@ function failOmniHumanJob(job: AvatarPipelineJobSnapshot, now: string, reason: s
       : pipelineStage),
     updatedAt: now,
   };
+}
+
+// ─── Lane B (body_motion): async body i2v → relip pipeline ──────────────────────
+//
+// CREATE: synth the cloned voice (or take supplied audio), MEASURE the real WAV, fit it
+// to the ≤10s relip budget BEFORE spending on the body render. Overrun ⇒ stop at
+// body_motion_needs_fit. Else stage the reference and submit the Kling i2v body render.
+
+interface BodyMotionVoice {
+  audioUrl: string;
+  audioAssetId?: string;
+}
+
+async function dispatchReadyBodyMotionJob(
+  job: AvatarPipelineJobSnapshot,
+  dependencies: Pick<
+    CreateAvatarPipelineJobDependencies,
+    'env' | 'now' | 'chatterboxClient' | 'stageReference' | 'klingI2vClient' | 'fetchAudioBytes'
+  >,
+): Promise<AvatarPipelineJobSnapshot> {
+  if (job.dispatchCode !== 'pipeline_adapter_not_implemented') return job;
+  const bodyStage = findPipelineStage(job, 'body_i2v_fal');
+  const voiceStage = findPipelineStage(job, 'voice_chatterbox');
+  if (!bodyStage || bodyStage.status !== 'ready' || !voiceStage) return job;
+
+  const now = dependencies.now?.() ?? new Date().toISOString();
+  try {
+    // 1. Cloned voice (synth) or supplied audio.
+    const voice = await resolveBodyMotionVoice(job, voiceStage, dependencies);
+
+    // 2. Measure the real VO and fit to the shot budget — audio-first, never estimate.
+    const fetchAudioBytes = dependencies.fetchAudioBytes ?? defaultFetchAudioBytes;
+    const bytes = await fetchAudioBytes(voice.audioUrl);
+    const measuredSec = measureWavDurationSec(bytes);
+    if (measuredSec === null) {
+      throw new Error('Could not measure the voice duration (not a parseable WAV). Fix the synth output; do not estimate.');
+    }
+    const budget = Math.min(numberValue(bodyStage.input.durationSeconds) ?? RELIP_MAX_SHOT_SEC, RELIP_MAX_SHOT_SEC);
+    const fit = fitLineToShotBudget(measuredSec, budget);
+    if (fit.action !== 'ok') {
+      return applyBodyMotionNeedsFit(job, voiceStage, voice, measuredSec, fit, now);
+    }
+
+    // 3. Stage the reference (wardrobe/scene) before animating — same lever as the face lane.
+    const staging = readAvatarStagingConfig(bodyStage);
+    let imageUrl = stringValue(asRecord(bodyStage.input.image)?.imageUrl);
+    let stagedImageUrl: string | undefined;
+    if (staging) {
+      const stageReference = dependencies.stageReference ?? ((i: ReferenceStagingInput) => stageAvatarReference(i));
+      const staged = await stageReference({ sourceImageUrls: staging.sourceImageUrls, scenePrompt: staging.scenePrompt });
+      stagedImageUrl = staged.imageUrl;
+      imageUrl = stagedImageUrl;
+    }
+    if (!imageUrl) throw new Error('Body motion has no reference image to animate.');
+
+    // 4. Submit the Kling i2v body render (to the measured VO; the adapter snaps 5/10s).
+    const { input: i2vInput, durationSec } = buildKlingI2vInput({
+      avatarImageRefs: [imageUrl],
+      motionPrompt: stringValue(bodyStage.input.prompt),
+      durationSec: Math.min(Math.max(Math.ceil(measuredSec), 4), budget),
+      resolution: stringValue(bodyStage.input.resolution) ?? '1080p',
+    });
+    const client = dependencies.klingI2vClient
+      ?? createFalVideoJobClient(requireKlingI2vModelId(), dependencies.env ?? process.env);
+    const submitted = await client.submit(i2vInput);
+    return applyBodyMotionSubmitted(job, voiceStage, voice, measuredSec, bodyStage, submitted, durationSec, stagedImageUrl, now);
+  } catch (error) {
+    return failBodyStage(job, now, `Body-motion dispatch failed: ${errorMessage(error)}`);
+  }
+}
+
+async function resolveBodyMotionVoice(
+  job: AvatarPipelineJobSnapshot,
+  voiceStage: AvatarPipelineStageSnapshot,
+  dependencies: Pick<CreateAvatarPipelineJobDependencies, 'env' | 'chatterboxClient'>,
+): Promise<BodyMotionVoice> {
+  // Supplied voiceover (external audio) — the voice stage was skipped at build.
+  if (voiceStage.status === 'skipped') {
+    const audioUrl = stringValue(asRecord(voiceStage.output)?.audioUrl);
+    if (!audioUrl) throw new Error('Body motion: the supplied voiceover has no audio URL.');
+    return { audioUrl, audioAssetId: stringValue(asRecord(voiceStage.output)?.audioAssetId) };
+  }
+  // Cloned voice — synthesize with Chatterbox.
+  if (voiceStage.status === 'ready') {
+    const synthesizeInput = toChatterboxSynthesizeInput(voiceStage, job.userId);
+    if (!synthesizeInput) throw new Error('Body motion: the voice stage is not synthesizable (missing text or voice reference).');
+    const client = dependencies.chatterboxClient ?? createDefaultChatterboxClient(dependencies.env ?? process.env);
+    const synthesized = await client.synthesize(synthesizeInput);
+    return { audioUrl: synthesized.audioUrl, audioAssetId: synthesized.audioAssetId };
+  }
+  throw new Error(`Body motion needs speech, but the voice stage is "${voiceStage.status}".`);
+}
+
+function applyBodyMotionNeedsFit(
+  job: AvatarPipelineJobSnapshot,
+  voiceStage: AvatarPipelineStageSnapshot,
+  voice: BodyMotionVoice,
+  measuredSec: number,
+  fit: FitDecision,
+  now: string,
+): AvatarPipelineJobSnapshot {
+  const reason = `The line's measured voiceover is ${measuredSec}s — ${Math.round(fit.overshootPct * 100)}% over the `
+    + `${RELIP_MAX_SHOT_SEC}s shot budget. Shorten the line (or split it into multiple shots stitched in Editron) before rendering.`;
+  return {
+    ...job,
+    status: 'blocked',
+    dispatchCode: 'body_motion_needs_fit',
+    statusReason: reason,
+    stages: job.stages.map((pipelineStage) => {
+      if (pipelineStage.id === voiceStage.id) {
+        return {
+          ...pipelineStage,
+          status: 'succeeded',
+          dispatchCode: 'chatterbox_succeeded',
+          statusReason: 'Cloned voice generated; measured over the shot budget.',
+          output: {
+            ...(pipelineStage.output ?? {}),
+            audioUrl: voice.audioUrl,
+            audioAssetId: voice.audioAssetId,
+            measuredDurationSec: measuredSec,
+          },
+        };
+      }
+      if (pipelineStage.id === 'body_i2v_fal') {
+        return { ...pipelineStage, status: 'blocked' as const, dispatchCode: 'body_motion_needs_fit' as const, statusReason: reason };
+      }
+      return pipelineStage;
+    }),
+    updatedAt: now,
+  };
+}
+
+function applyBodyMotionSubmitted(
+  job: AvatarPipelineJobSnapshot,
+  voiceStage: AvatarPipelineStageSnapshot,
+  voice: BodyMotionVoice,
+  measuredSec: number,
+  bodyStage: AvatarPipelineStageSnapshot,
+  submitted: { requestId: string; modelId: string },
+  requestedDurationSec: number,
+  stagedImageUrl: string | undefined,
+  now: string,
+): AvatarPipelineJobSnapshot {
+  return {
+    ...job,
+    status: 'queued',
+    dispatchCode: 'body_queued',
+    statusReason: `Kling i2v body render queued (${submitted.requestId}). Poll until the body video is ready, then relip.`,
+    stages: job.stages.map((pipelineStage) => {
+      if (pipelineStage.id === voiceStage.id) {
+        return {
+          ...pipelineStage,
+          status: 'succeeded',
+          dispatchCode: 'chatterbox_succeeded',
+          statusReason: 'Cloned voice generated and measured; arrives at the relip stage.',
+          output: {
+            ...(pipelineStage.output ?? {}),
+            audioUrl: voice.audioUrl,
+            audioAssetId: voice.audioAssetId,
+            measuredDurationSec: measuredSec,
+          },
+        };
+      }
+      if (pipelineStage.id === bodyStage.id) {
+        return {
+          ...pipelineStage,
+          status: 'running',
+          dispatchCode: 'body_queued',
+          statusReason: `Kling i2v body render ${submitted.requestId} is queued.`,
+          providerRequestId: submitted.requestId,
+          input: {
+            ...pipelineStage.input,
+            ...(stagedImageUrl ? { stagedImageUrl } : {}),
+            requestedDurationSec,
+          },
+          output: { requestId: submitted.requestId, modelId: submitted.modelId },
+        };
+      }
+      return pipelineStage;
+    }),
+    updatedAt: now,
+  };
+}
+
+function failBodyStage(job: AvatarPipelineJobSnapshot, now: string, reason: string): AvatarPipelineJobSnapshot {
+  return {
+    ...job,
+    status: 'failed',
+    dispatchCode: 'body_failed',
+    statusReason: reason,
+    stages: job.stages.map((pipelineStage) => pipelineStage.id === 'body_i2v_fal'
+      ? { ...pipelineStage, status: 'failed', dispatchCode: 'body_failed', statusReason: reason, output: { ...(pipelineStage.output ?? {}), errorMessage: reason } }
+      : pipelineStage),
+    updatedAt: now,
+  };
+}
+
+// REFRESH: poll the body render; when it lands, measure its real length, pad the voice to
+// match, and submit the relip. On the next poll, advance the relip; when it lands, feed the
+// relipped video to composition (via composition.input.faceVideo, same as the face lane).
+async function refreshBodyMotionJob(
+  job: AvatarPipelineJobSnapshot,
+  dependencies: RefreshAvatarPipelineJobDependencies,
+): Promise<AvatarPipelineJobSnapshot> {
+  const bodyStage = findPipelineStage(job, 'body_i2v_fal');
+  const relipStage = findPipelineStage(job, 'relip_kling_fal');
+  const bodyRequestId = bodyStage?.providerRequestId ?? stringValue(asRecord(bodyStage?.output)?.requestId);
+  const relipRequestId = relipStage?.providerRequestId ?? stringValue(asRecord(relipStage?.output)?.requestId);
+
+  if (bodyStage && bodyStage.status === 'running' && bodyRequestId) {
+    return refreshBodyStage(job, bodyStage, bodyRequestId, dependencies);
+  }
+  if (relipStage && relipStage.status === 'running' && relipRequestId) {
+    return refreshRelipStage(job, relipStage, relipRequestId, dependencies);
+  }
+  return job;
+}
+
+async function refreshBodyStage(
+  job: AvatarPipelineJobSnapshot,
+  bodyStage: AvatarPipelineStageSnapshot,
+  requestId: string,
+  dependencies: RefreshAvatarPipelineJobDependencies,
+): Promise<AvatarPipelineJobSnapshot> {
+  const now = dependencies.now?.() ?? new Date().toISOString();
+  const env = dependencies.env ?? process.env;
+  try {
+    const client = dependencies.klingI2vClient ?? createFalVideoJobClient(requireKlingI2vModelId(), env);
+    const refresh = await client.refresh(requestId);
+    if (refresh.status === 'failed') {
+      return failBodyStage(job, now, refresh.errorMessage ? `Kling i2v failed: ${refresh.errorMessage}` : `Kling i2v request ${requestId} failed.`);
+    }
+    if (refresh.status !== 'succeeded') {
+      return applyBodyRunning(job, bodyStage, refresh.status, now);
+    }
+    if (!refresh.videoUrl) {
+      return failBodyStage(job, now, `Kling i2v request ${requestId} completed without a video URL.`);
+    }
+
+    // Body landed. Align the voice to its ACTUAL length, then submit the relip.
+    const voiceStage = findPipelineStage(job, 'voice_chatterbox');
+    const voiceAudioUrl = stringValue(asRecord(voiceStage?.output)?.audioUrl);
+    const measuredVoiceSec = numberValue(asRecord(voiceStage?.output)?.measuredDurationSec) ?? 0;
+    if (!voiceAudioUrl) return failBodyStage(job, now, 'Body-motion align step lost the voice audio URL.');
+
+    const measureVideo = dependencies.measureVideoDurationSec ?? defaultMeasureVideoDurationSec;
+    const reported = refresh.durationSeconds ?? numberValue(asRecord(bodyStage.input)?.requestedDurationSec);
+    const bodySec = (await measureVideo(refresh.videoUrl)) ?? reported;
+    if (bodySec === undefined || bodySec === null) {
+      return failBodyStage(job, now, 'Could not determine the body video duration to align the voice.');
+    }
+    if (bodySec + 0.05 < measuredVoiceSec) {
+      return failBodyStage(job, now, `Body shot (${bodySec}s) is shorter than the voice (${measuredVoiceSec}s) — would cut words. Shorten the line.`);
+    }
+    if (bodySec > RELIP_MAX_SHOT_SEC + 0.1) {
+      return failBodyStage(job, now, `Body shot (${bodySec}s) exceeds the ${RELIP_MAX_SHOT_SEC}s relip cap.`);
+    }
+
+    const fetchAudioBytes = dependencies.fetchAudioBytes ?? defaultFetchAudioBytes;
+    const uploadAudio = dependencies.uploadAudio ?? defaultUploadAudio;
+    const rawWav = await fetchAudioBytes(voiceAudioUrl);
+    const alignedWav = padWavToSec(rawWav, bodySec);
+    const { audioUrl: alignedAudioUrl } = await uploadAudio(alignedWav, job.userId);
+
+    const relipClient = dependencies.klingLipsyncClient ?? createFalVideoJobClient(KLING_LIPSYNC_MODEL_ID, env);
+    const submitted = await relipClient.submit({ video_url: refresh.videoUrl, audio_url: alignedAudioUrl });
+    return applyBodySucceededSubmitRelip(job, bodyStage, refresh.videoUrl, bodySec, alignedAudioUrl, submitted, now);
+  } catch (error) {
+    return failBodyStage(job, now, `Kling i2v status/align failed: ${errorMessage(error)}`);
+  }
+}
+
+function applyBodyRunning(
+  job: AvatarPipelineJobSnapshot,
+  bodyStage: AvatarPipelineStageSnapshot,
+  status: 'queued' | 'running',
+  now: string,
+): AvatarPipelineJobSnapshot {
+  const dispatchCode: AvatarPipelineStageDispatchCode = status === 'queued' ? 'body_queued' : 'body_running';
+  return {
+    ...job,
+    status: status === 'queued' ? 'queued' : 'running',
+    dispatchCode,
+    statusReason: `Kling i2v body render is ${status}.`,
+    stages: job.stages.map((pipelineStage) => pipelineStage.id === bodyStage.id
+      ? { ...pipelineStage, status: 'running', dispatchCode, statusReason: `Kling i2v body render is ${status}.` }
+      : pipelineStage),
+    updatedAt: now,
+  };
+}
+
+function applyBodySucceededSubmitRelip(
+  job: AvatarPipelineJobSnapshot,
+  bodyStage: AvatarPipelineStageSnapshot,
+  bodyVideoUrl: string,
+  bodySec: number,
+  alignedAudioUrl: string,
+  submitted: { requestId: string; modelId: string },
+  now: string,
+): AvatarPipelineJobSnapshot {
+  return {
+    ...job,
+    status: 'queued',
+    dispatchCode: 'relip_queued',
+    statusReason: `Body video ready; Kling LipSync relip queued (${submitted.requestId}).`,
+    stages: job.stages.map((pipelineStage) => {
+      if (pipelineStage.id === bodyStage.id) {
+        return {
+          ...pipelineStage,
+          status: 'succeeded',
+          dispatchCode: 'body_succeeded',
+          statusReason: 'Kling i2v returned the body video.',
+          output: { ...(pipelineStage.output ?? {}), videoUrl: bodyVideoUrl, durationSeconds: bodySec },
+        };
+      }
+      if (pipelineStage.id === 'relip_kling_fal') {
+        return {
+          ...pipelineStage,
+          status: 'running',
+          dispatchCode: 'relip_queued',
+          statusReason: `Kling LipSync relip ${submitted.requestId} is queued.`,
+          providerRequestId: submitted.requestId,
+          input: {
+            ...pipelineStage.input,
+            videoUrl: bodyVideoUrl,
+            audioUrl: alignedAudioUrl,
+            videoDurationSec: bodySec,
+            audioDurationSec: bodySec,
+          },
+          output: { requestId: submitted.requestId, modelId: submitted.modelId },
+        };
+      }
+      return pipelineStage;
+    }),
+    updatedAt: now,
+  };
+}
+
+async function refreshRelipStage(
+  job: AvatarPipelineJobSnapshot,
+  relipStage: AvatarPipelineStageSnapshot,
+  requestId: string,
+  dependencies: RefreshAvatarPipelineJobDependencies,
+): Promise<AvatarPipelineJobSnapshot> {
+  const now = dependencies.now?.() ?? new Date().toISOString();
+  const env = dependencies.env ?? process.env;
+  try {
+    const client = dependencies.klingLipsyncClient ?? createFalVideoJobClient(KLING_LIPSYNC_MODEL_ID, env);
+    const refresh = await client.refresh(requestId);
+    if (refresh.status === 'failed') {
+      return failRelipStage(job, now, refresh.errorMessage ? `Kling LipSync failed: ${refresh.errorMessage}` : `Kling LipSync request ${requestId} failed.`);
+    }
+    if (refresh.status !== 'succeeded') {
+      return applyRelipRunning(job, relipStage, refresh.status, now);
+    }
+    if (!refresh.videoUrl) {
+      return failRelipStage(job, now, `Kling LipSync request ${requestId} completed without a video URL.`);
+    }
+    return applyRelipSucceeded(job, relipStage, refresh.videoUrl, now);
+  } catch (error) {
+    return failRelipStage(job, now, `Kling LipSync status refresh failed: ${errorMessage(error)}`);
+  }
+}
+
+function applyRelipRunning(
+  job: AvatarPipelineJobSnapshot,
+  relipStage: AvatarPipelineStageSnapshot,
+  status: 'queued' | 'running',
+  now: string,
+): AvatarPipelineJobSnapshot {
+  const dispatchCode: AvatarPipelineStageDispatchCode = status === 'queued' ? 'relip_queued' : 'relip_running';
+  return {
+    ...job,
+    status: status === 'queued' ? 'queued' : 'running',
+    dispatchCode,
+    statusReason: `Kling LipSync relip is ${status}.`,
+    stages: job.stages.map((pipelineStage) => pipelineStage.id === relipStage.id
+      ? { ...pipelineStage, status: 'running', dispatchCode, statusReason: `Kling LipSync relip is ${status}.` }
+      : pipelineStage),
+    updatedAt: now,
+  };
+}
+
+function applyRelipSucceeded(
+  job: AvatarPipelineJobSnapshot,
+  relipStage: AvatarPipelineStageSnapshot,
+  videoUrl: string,
+  now: string,
+): AvatarPipelineJobSnapshot {
+  const durationSeconds = numberValue(asRecord(relipStage.input)?.videoDurationSec);
+  return {
+    ...job,
+    status: 'running',
+    dispatchCode: 'relip_succeeded',
+    statusReason: 'Kling LipSync returned the speaking body video. Remotion composition is still pending.',
+    stages: job.stages.map((pipelineStage) => {
+      if (pipelineStage.id === relipStage.id) {
+        return {
+          ...pipelineStage,
+          status: 'succeeded',
+          dispatchCode: 'relip_succeeded',
+          statusReason: 'Kling LipSync returned the speaking body video.',
+          output: { ...(pipelineStage.output ?? {}), videoUrl, durationSeconds },
+        };
+      }
+      if (pipelineStage.id === 'composition_remotion') {
+        return {
+          ...pipelineStage,
+          input: {
+            ...pipelineStage.input,
+            faceVideo: { providerId: relipStage.providerId, requestId: relipStage.providerRequestId, videoUrl, durationSeconds },
+          },
+        };
+      }
+      return pipelineStage;
+    }),
+    updatedAt: now,
+  };
+}
+
+function failRelipStage(job: AvatarPipelineJobSnapshot, now: string, reason: string): AvatarPipelineJobSnapshot {
+  return {
+    ...job,
+    status: 'failed',
+    dispatchCode: 'relip_failed',
+    statusReason: reason,
+    stages: job.stages.map((pipelineStage) => pipelineStage.id === 'relip_kling_fal'
+      ? { ...pipelineStage, status: 'failed', dispatchCode: 'relip_failed', statusReason: reason, output: { ...(pipelineStage.output ?? {}), errorMessage: reason } }
+      : pipelineStage),
+    updatedAt: now,
+  };
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function toChatterboxSynthesizeInput(
