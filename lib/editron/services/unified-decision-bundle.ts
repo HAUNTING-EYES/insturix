@@ -423,6 +423,18 @@ export interface UnifiedSignalDecisionAuditReport {
   samples: UnifiedSignalDecisionEvidence[];
 }
 
+export interface UnifiedOverlayTimelineContextDecision {
+  type: ReactiveEditDecision['type'];
+  frame: number;
+  durationFrames?: number;
+  priority: number;
+  source: string;
+  signal: string;
+  reason: string;
+  confidence: number;
+  params?: Record<string, unknown>;
+}
+
 export interface UnifiedDecisionBundleEvidence {
   primaryDecisionCount: number;
   signalDecisionCount: number;
@@ -433,6 +445,7 @@ export interface UnifiedDecisionBundleEvidence {
   evidenceOnlySignalDecisions: UnifiedSignalDecisionEvidence[];
   signalDecisionAudit: UnifiedSignalDecisionAuditReport;
   crossOverlayChoreography?: CrossOverlayChoreographyReport;
+  overlayTimelineContextDecisions?: UnifiedOverlayTimelineContextDecision[];
 }
 
 export interface UnifiedDecisionBundle {
@@ -465,6 +478,7 @@ export function createUnifiedDecisionBundle(options: CreateUnifiedDecisionBundle
   const rawEdl = normalizeEdl(options.edl);
   const isSignalSource = options.source === 'signal-driven';
   const primaryLicensing = licensePrimaryProducerDecisions(options.source, rawEdl.decisions);
+  const overlayTimelineContextDecisions = buildOverlayTimelineContext(rawEdl.decisions);
   const edl = primaryLicensing.rejectedCount > 0
     ? normalizeEdl({ ...rawEdl, decisions: primaryLicensing.decisions })
     : rawEdl;
@@ -487,6 +501,7 @@ export function createUnifiedDecisionBundle(options: CreateUnifiedDecisionBundle
       evidenceOnlySignalDecisionCount: primaryLicensing.rejectedCount,
       evidenceOnlySignalDecisions: primaryLicensing.evidenceOnlyDecisions,
       signalDecisionAudit: primaryLicensing.signalDecisionAudit,
+      overlayTimelineContextDecisions,
     },
   };
 }
@@ -722,6 +737,7 @@ function planUnifiedDecisionBundleFromRankedCandidates(
     .filter((candidate) => candidate.source === 'signal-driven')
     .flatMap((candidate) => normalizeEdl(candidate.edl).decisions);
   const signalDecisions = enrichDecisionsWithOverlayTimelineMemory(rawSignalDecisions, creativeDecisions);
+  const overlayTimelineContextDecisions = buildOverlayTimelineContext([...creativeDecisions, ...signalDecisions]);
   const signalExecutionBudgets = buildSignalExecutionBudgets(signalDecisions);
   const signalDecisionAudit = createSignalDecisionAuditBuilder(createEmptySignalDecisionAudit());
   const evidenceOnlySignalDecisions: UnifiedSignalDecisionEvidence[] = [];
@@ -858,6 +874,11 @@ function planUnifiedDecisionBundleFromRankedCandidates(
       evidenceOnlySignalDecisions,
       signalDecisionAudit: finalizeSignalDecisionAudit(signalDecisionAudit),
       crossOverlayChoreography: choreographyResult.report,
+      overlayTimelineContextDecisions: buildOverlayTimelineContext([
+        ...overlayTimelineContextDecisions,
+        ...choreographyResult.decisions,
+        ...choreographyResult.suppressed.map((suppression) => suppression.decision),
+      ]),
     },
   };
 }
@@ -879,9 +900,10 @@ export function mergeSignalDrivenBundle(
   }
 
   const maxNearFrameWindow = options.maxNearFrameWindow ?? DEFAULT_MAX_NEAR_FRAME_WINDOW;
+  const overlayTimelineContext = overlayTimelineContextDecisionsForBundle(primaryBundle);
   const signalDecisions = enrichDecisionsWithOverlayTimelineMemory(
     cloneDecisions(signalEdl.decisions),
-    primaryBundle.edl.decisions,
+    overlayTimelineContext,
   );
   const resolvedIncomingProducer = incomingProducer
     ?? inferIncomingProducer(signalDecisions, primaryBundle.source);
@@ -1003,6 +1025,14 @@ export function mergeSignalDrivenBundle(
         ...evidenceOnlySignalDecisions,
       ].slice(0, SIGNAL_EVIDENCE_DETAIL_LIMIT),
       signalDecisionAudit: finalizeSignalDecisionAudit(signalDecisionAudit),
+      ...(primaryBundle.evidence.crossOverlayChoreography
+        ? { crossOverlayChoreography: primaryBundle.evidence.crossOverlayChoreography }
+        : {}),
+      overlayTimelineContextDecisions: buildOverlayTimelineContext([
+        ...overlayTimelineContext,
+        ...signalDecisions,
+        ...mergedEdl.decisions,
+      ]),
     },
   };
 }
@@ -1094,6 +1124,7 @@ const SIGNAL_EVIDENCE_DETAIL_LIMIT = 64;
 const SIGNAL_AUDIT_SAMPLE_LIMIT = 128;
 const SIGNAL_AUDIT_FRAME_SAMPLE_LIMIT = 12;
 const SIGNAL_AUDIT_CANDIDATE_LIMIT = 256;
+const OVERLAY_TIMELINE_CONTEXT_LIMIT = 256;
 const FPS = 30;
 const MIN_BUDGET_WINDOW_MINUTES = 0.25;
 const SIGNAL_EXECUTION_MIN_CONFIDENCE: Partial<Record<ReactiveEditDecision['type'], number>> = {
@@ -1163,6 +1194,79 @@ const SIGNAL_EVIDENCE_PARAM_KEYS = new Set([
   'transType',
   'type',
 ]);
+const OVERLAY_TIMELINE_CONTEXT_PARAM_KEYS = new Set([
+  'anchorFrame',
+  'beatFrame',
+  'boundaryFrame',
+  'motionVectorX',
+  'motionVectorY',
+  'semanticRole',
+  'sfxType',
+  'transitionType',
+  'type',
+  'visual_motion_x',
+  'visual_motion_y',
+]);
+
+function overlayTimelineContextDecisionsForBundle(bundle: UnifiedDecisionBundle): ReactiveEditDecision[] {
+  const context = bundle.evidence.overlayTimelineContextDecisions;
+  if (context?.length) return cloneDecisions(context);
+  return cloneDecisions(bundle.edl.decisions);
+}
+
+function buildOverlayTimelineContext(
+  decisions: Array<ReactiveEditDecision | UnifiedOverlayTimelineContextDecision>,
+): UnifiedOverlayTimelineContextDecision[] {
+  const seen = new Set<string>();
+  const context: UnifiedOverlayTimelineContextDecision[] = [];
+  for (const decision of [...decisions].sort((a, b) => a.frame - b.frame || a.type.localeCompare(b.type))) {
+    const summary = summarizeOverlayTimelineContextDecision(decision);
+    const key = [summary.type, summary.frame, summary.durationFrames ?? 1, summary.source, summary.signal].join(':');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    context.push(summary);
+    if (context.length >= OVERLAY_TIMELINE_CONTEXT_LIMIT) break;
+  }
+  return context;
+}
+
+function summarizeOverlayTimelineContextDecision(
+  decision: ReactiveEditDecision | UnifiedOverlayTimelineContextDecision,
+): UnifiedOverlayTimelineContextDecision {
+  const params = compactOverlayTimelineContextParams(decision.params ?? {});
+  return {
+    type: decision.type,
+    frame: decision.frame,
+    durationFrames: Math.max(1, decision.durationFrames ?? 1),
+    priority: decision.priority,
+    source: decision.source,
+    signal: decision.signal,
+    reason: decision.reason,
+    confidence: decision.confidence,
+    ...(params ? { params } : {}),
+  };
+}
+
+function compactOverlayTimelineContextParams(params: Record<string, unknown>): Record<string, unknown> | undefined {
+  const compact: Record<string, unknown> = {};
+  copyOverlayTimelineContextParams(compact, params);
+  const signals = recordParam(params.signals);
+  if (signals) {
+    const compactSignals: Record<string, unknown> = {};
+    copyOverlayTimelineContextParams(compactSignals, signals);
+    if (Object.keys(compactSignals).length > 0) {
+      compact.signals = compactSignals;
+    }
+  }
+  return Object.keys(compact).length > 0 ? compact : undefined;
+}
+
+function copyOverlayTimelineContextParams(target: Record<string, unknown>, source: Record<string, unknown>): void {
+  for (const key of OVERLAY_TIMELINE_CONTEXT_PARAM_KEYS) {
+    const value = primitiveSignalValue(source[key]);
+    if (value !== undefined) target[key] = value;
+  }
+}
 
 type MutableSignalDecisionAuditBucket = UnifiedSignalDecisionAuditBucket & {
   confidenceSum: number;
