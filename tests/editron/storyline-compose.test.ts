@@ -89,6 +89,22 @@ describe('defaultSceneScorer - ranks on real fused importance when present', () 
   });
 });
 
+describe('defaultSceneScorer - intent matching is multilingual (Unicode-aware)', () => {
+  it('★ matches a Devanagari (Hindi) intent that the old [a-z0-9] regex erased to nothing', () => {
+    const b = brief({ intent: 'कैमरा' }); // "camera"
+    const match = scene({ transcription: 'मेरे पास सबसे अच्छा कैमरा है' }); // "...the best camera..."
+    const noMatch = scene({ transcription: 'यह एक कुर्सी है' }); // "this is a chair"
+    expect(defaultSceneScorer(match, b)).toBeGreaterThan(defaultSceneScorer(noMatch, b));
+  });
+
+  it('matches code-mixed Hinglish intent against a code-mixed transcript', () => {
+    const b = brief({ intent: 'कैमरा quality' }); // Hindi + English in one intent
+    const match = scene({ transcription: 'yaar is phone ka कैमरा quality best hai' });
+    const noMatch = scene({ transcription: 'aaj main ghar par hoon' });
+    expect(defaultSceneScorer(match, b)).toBeGreaterThan(defaultSceneScorer(noMatch, b));
+  });
+});
+
 describe('fitToDuration', () => {
   it('null target keeps everything', () => {
     const scored = selectScenes([scene({ endTime: 2 }), scene({ source: 'b', endTime: 3 })], brief());

@@ -73,10 +73,24 @@ const STOPWORDS = new Set([
 
 function tokenize(text: string | undefined): string[] {
   if (!text) return [];
+  // Unicode-aware split (letters \p{L}, numbers \p{N}, AND combining marks \p{M} with the u
+  // flag) - keeps Devanagari / CJK / Cyrillic word characters instead of the old [a-z0-9]
+  // that erased them. \p{M} is essential: Devanagari vowel signs (matras like ा ै) are
+  // combining MARKS, not letters, so without it a word like कैमरा shatters at every matra.
+  // Both the intent and the transcript pass through THIS function, so overlap stays consistent
+  // in any language. Known limits: space-less scripts (CJK) still want a segmenter; STOPWORDS
+  // is English (harmless elsewhere). Full language-aware matching is the embedding step.
   return text
+    .normalize('NFC')
     .toLowerCase()
-    .split(/[^a-z0-9]+/)
+    .split(/[^\p{L}\p{N}\p{M}]+/u)
     .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+}
+
+/** NFC-normalized, lowercased text for substring matching - so composed vs decomposed forms
+ *  of the same character (common in Devanagari) compare equal. */
+function normalizeForMatch(text: string): string {
+  return text.normalize('NFC').toLowerCase();
 }
 
 /**
@@ -108,9 +122,9 @@ function shotTypeFit(shotType: Scene['shotType']): number {
 function intentRelevance(scene: Scene, brief: ProductionBrief): number | null {
   const intentTokens = tokenize(brief.output.intent);
   if (intentTokens.length === 0) return null;
-  const haystack = [scene.transcription, scene.visualMode ?? '', ...scene.detectedText]
-    .join(' ')
-    .toLowerCase();
+  const haystack = normalizeForMatch(
+    [scene.transcription, scene.visualMode ?? '', ...scene.detectedText].join(' '),
+  );
   const hits = intentTokens.filter((t) => haystack.includes(t)).length;
   return hits / intentTokens.length;
 }
