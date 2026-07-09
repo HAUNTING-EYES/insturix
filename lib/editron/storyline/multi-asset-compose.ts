@@ -87,22 +87,34 @@ export interface ComposeFromAnalysesOptions {
 }
 
 /**
- * Compose ONE ordered Storyline from many assets' analysis docs + the brief. Pure; never
- * throws. Docs without composable segments (Phase-1-only) are skipped; empty input yields an
- * empty (valid) storyline. Scenes from different assets are composed into one timeline by the
- * existing composer - this is the multi-media -> one-project step.
+ * Build the combined Scene[] from many assets' analysis docs (the scene half of the pipeline,
+ * split out so the LLM ordering pass can sit between scenes and compose). Docs without
+ * composable segments (Phase-1-only) are skipped; missing asset context falls back to a
+ * minimal `{assetId}`. Pure; never throws.
  */
-export function composeStorylineFromAssetAnalyses(
+export function scenesFromAssetAnalyses(
   docs: readonly ProjectAssetAnalysisDoc[],
-  brief: ProductionBrief,
   opts?: ComposeFromAnalysesOptions,
-): Storyline {
+): Scene[] {
   const inputs: AssetAnalysisInput[] = [];
   for (const doc of docs) {
     if (!hasComposableSegments(doc)) continue;
     const asset = opts?.assetContexts?.get(doc.assetId) ?? { assetId: doc.assetId };
     inputs.push({ segments: extractSegments(doc), asset, words: extractWords(doc) });
   }
-  const scenes: Scene[] = scenesFromAssets(inputs);
-  return composeStoryline(scenes, brief, opts?.compose);
+  return scenesFromAssets(inputs);
+}
+
+/**
+ * Compose ONE ordered Storyline from many assets' analysis docs + the brief. Pure; never
+ * throws. Docs without composable segments (Phase-1-only) are skipped; empty input yields an
+ * empty (valid) storyline. This is the DETERMINISTIC path; the LLM-ordered path is
+ * orderStorylineForProject (order-storyline-service.ts), which orders these same scenes.
+ */
+export function composeStorylineFromAssetAnalyses(
+  docs: readonly ProjectAssetAnalysisDoc[],
+  brief: ProductionBrief,
+  opts?: ComposeFromAnalysesOptions,
+): Storyline {
+  return composeStoryline(scenesFromAssetAnalyses(docs, opts), brief, opts?.compose);
 }

@@ -234,6 +234,19 @@ export function fitToDuration(
 }
 
 /**
+ * The scenes that survive select + fit for this brief, in pre-order form - i.e. the clips that
+ * will actually be in the cut, which is exactly the set the LLM ordering pass should reason
+ * over. Deterministic; composeStoryline re-runs the same select+fit, so a plan built from these
+ * scenes' ids applies cleanly. (A fit-trim's shortened `out` lives on the SceneScore, not the
+ * Scene, so the digest sees the untrimmed window - fine for ordering; the final cut is exact.)
+ */
+export function selectAndFitScenes(scenes: Scene[], brief: ProductionBrief, opts?: ComposeOptions): Scene[] {
+  const rawTarget = brief.output.targetDurationSec;
+  const target = typeof rawTarget === 'number' && rawTarget > 0 ? rawTarget : null;
+  return fitToDuration(selectScenes(scenes, brief, opts), target, opts).map((s) => s.scene);
+}
+
+/**
  * A coherence block: all picked scenes from ONE source, kept in that source's own
  * chronological order. The hard contract Edit Mind never had - a continuous recording is
  * never reordered against itself, so reshuffling can never chop a sentence or a thought.
