@@ -22,6 +22,7 @@
  */
 
 import type { AspectRatio, ProductionBrief } from '../production-brief/production-brief';
+import { type OrderingPlan, validateOrderingPlan } from './ordering-plan';
 import type { Scene } from './scene';
 import {
   type ClipRole,
@@ -47,6 +48,10 @@ export interface ComposeOptions {
   scorer?: SceneScorer;
   minClipDurationSec?: number;
   fps?: number;
+  /** A narrative ordering proposed by the LLM pass. Applied ONLY if it validates against
+   *  the hard contracts (known refs, source-order coherence, hook-first, budget); an invalid
+   *  plan silently falls back to the deterministic continuum order. Absent = deterministic. */
+  orderingPlan?: OrderingPlan;
 }
 
 // --- ranking spine (real signal): how much the segment's own fused importance vs the
@@ -330,10 +335,55 @@ function assignRole(index: number, scene: Scene, condensed: boolean): ClipRole {
 }
 
 /**
+ * Reorder picked scenes by an LLM OrderingPlan: place the scenes it names in its order, then
+ * append any picked scenes it left out in deterministic order (ordering is not cutting - we
+ * never drop footage the fit step kept). Refs not in the picked set are ignored.
+ */
+function applyOrderingPlan(picked: SceneScore[], plan: OrderingPlan, ratio: number): SceneScore[] {
+  const byId = new Map(picked.map((s) => [s.scene.id, s] as const));
+  const placed: SceneScore[] = [];
+  const used = new Set<string>();
+  for (const item of plan.order) {
+    const s = byId.get(item.sourceRef);
+    if (s && !used.has(item.sourceRef)) {
+      placed.push(s);
+      used.add(item.sourceRef);
+    }
+  }
+  const remaining = picked.filter((s) => !used.has(s.scene.id));
+  if (remaining.length > 0) placed.push(...orderScenes(remaining, ratio));
+  return placed;
+}
+
+/**
+ * Order the picked scenes: honor a VALID LLM ordering plan (narrative), else the deterministic
+ * continuum order. A malformed/contract-breaking plan never crashes the composer - it falls
+ * back. This is the "code disposes" gate around the LLM's "propose".
+ */
+function orderPicked(
+  picked: SceneScore[],
+  ratio: number,
+  brief: ProductionBrief,
+  opts?: ComposeOptions,
+): SceneScore[] {
+  const plan = opts?.orderingPlan;
+  if (plan) {
+    const validation = validateOrderingPlan(
+      plan,
+      picked.map((s) => s.scene),
+      { targetDurationSec: brief.output.targetDurationSec, minClipDurationSec: opts?.minClipDurationSec },
+    );
+    if (validation.valid) return applyOrderingPlan(picked, plan, ratio);
+  }
+  return orderScenes(picked, ratio);
+}
+
+/**
  * Compose an ordered Storyline from scenes + a resolved ProductionBrief.
  * select -> fit -> order -> build. Pure, deterministic, never throws. Empty input yields
  * an empty (but valid) storyline rather than an error. The reel/auto-edit binary is gone:
- * ordering is driven by the condensation ratio (kept output / available source).
+ * ordering is driven by the condensation ratio (kept output / available source), and an LLM
+ * narrative plan (opts.orderingPlan) overrides the default order when it passes the contract.
  */
 export function composeStoryline(
   scenes: Scene[],
@@ -351,7 +401,7 @@ export function composeStoryline(
   const outputSec = picked.reduce((acc, s) => acc + effDuration(s), 0);
   const ratio = computeCondensationRatio(outputSec, sourceSec);
   const condensed = ratio < 1 - 1e-6;
-  const ordered = orderScenes(picked, ratio);
+  const ordered = orderPicked(picked, ratio, brief, opts);
 
   const defaultFit: FitPolicy = 'contain';
   const clips: StorylineClip[] = ordered.map((s, index) => {
