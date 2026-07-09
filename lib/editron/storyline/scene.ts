@@ -126,6 +126,13 @@ export interface Scene {
   vocalArousal?: number;
   /** Vocal valence label, from wav2vec (voice, not text). */
   vocalValence?: 'positive' | 'negative' | 'neutral' | 'mixed';
+  /**
+   * Precomputed MULTIMODAL semantic embedding - the clip's meaning as a vector, fused from
+   * what is SAID (transcript) AND what is SHOWN (visual mode, on-screen text, action). Set at
+   * the impure edge (embedScenes); the sync embedding scorer reads it for semantic selection,
+   * so a silent b-roll clip still matches intent on its visuals, not just its words.
+   */
+  embedding?: number[];
 }
 
 /**

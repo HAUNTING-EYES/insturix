@@ -57,8 +57,8 @@ export interface ComposeOptions {
 // --- ranking spine (real signal): how much the segment's own fused importance vs the
 //     user's specific keyword ask drives the score, when importance is PRESENT. The blend
 //     is importance-dominant by design; the ratio is calibratable, not the score itself. ---
-const IMPORTANCE_WEIGHT = 0.8; // fused finalWeight (intrinsic importance)
-const INTENT_WEIGHT = 0.2; // relevance to the user's specific ask (keyword overlap now)
+export const IMPORTANCE_WEIGHT = 0.8; // fused finalWeight (intrinsic importance)
+export const INTENT_WEIGHT = 0.2; // relevance to the user's specific ask (keyword now; embeddings in the embedding scorer)
 
 // --- heuristic fallback weights: INVENTED-PLACEHOLDER. Used ONLY when a scene carries no
 //     analysis (no `importance`) - a transparent proxy, never the path for real footage. ---
