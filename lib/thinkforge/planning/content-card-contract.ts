@@ -57,6 +57,13 @@ export interface ContentCard {
   status: ContentCardStatus;
   /** CalOS editorial stage (display-only; set by toContentCard from the deliverable column). */
   editorialStatus?: string;
+  /** CalOS image fields (display-only; projected by toContentCard from deliverable columns). The
+   *  finished still, the pending image prompt, and the derived lifecycle that drives the modal's
+   *  "Make image" action. Never written back into the stored card. */
+  assetUrl?: string | null;
+  imagePrompt?: string | null;
+  imageStatus?: 'none' | 'promptReady' | 'generating' | 'ready' | 'failed';
+  imageError?: string | null;
   tags: string[];
   aiScore?: number;
   ideaId?: string;

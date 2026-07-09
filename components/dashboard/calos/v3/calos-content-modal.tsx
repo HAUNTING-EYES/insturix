@@ -18,7 +18,7 @@ const toLocalInput = (d: Date): string => {
 };
 
 export function ContentModal({
-  item, onClose, onSaveTitle, onSaveDates, onSaveDetails, onSaveTags, onDecision, onGenerate, onDelete, onOpenScript, onPublish, pubState, connected, onOpenPublishing,
+  item, onClose, onSaveTitle, onSaveDates, onSaveDetails, onSaveTags, onDecision, onGenerate, onDelete, onOpenScript, onPublish, onMakeImage, pubState, connected, onOpenPublishing,
 }: {
   item: CalItem;
   onClose: () => void;
@@ -30,6 +30,9 @@ export function ContentModal({
   onGenerate: (id: string) => void;
   onDelete: (id: string) => void;
   onOpenScript: (item: CalItem) => void;
+  /** Kick off the still image for a graphics card (explicit, spends an image credit). Absent = the
+   *  Make-image affordance is hidden. */
+  onMakeImage?: (id: string) => void;
   /** Optional — publishing lands in Phase 3. When absent, no Publish action shows. */
   onPublish?: (item: CalItem) => void;
   /** Delivery visibility: the card's publish-queue row, whether its platform is connected, and a
@@ -45,6 +48,7 @@ export function ContentModal({
   );
   const [adding, setAdding] = useState(false);
   const [newDate, setNewDate] = useState('');
+  const [making, setMaking] = useState(false); // optimistic: kicked off "Make image", awaiting refetch
 
   const removeDate = (iso: string) => {
     if (dates.length <= 1) return; // a deliverable always keeps at least one date
@@ -203,6 +207,32 @@ export function ContentModal({
           {d.hasScript ? d.raw.scriptPreview : 'Generate to write the script.'}
         </div>
       </div>
+
+      {d.raw.imageStatus && d.raw.imageStatus !== 'none' && (
+        <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 18 }}>
+          <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 8 }}>Image</Mono>
+          {d.raw.imageStatus === 'ready' && d.raw.assetUrl ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={d.raw.assetUrl} alt="Generated still" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 6, border: `1px solid ${C.border}` }} />
+              <Mono s={11} c={C.gold}>✓ Image ready</Mono>
+              <a href={d.raw.assetUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.gold, textDecoration: 'underline' }}>Open</a>
+            </div>
+          ) : making || d.raw.imageStatus === 'generating' ? (
+            <Mono s={11} c={C.soft}>● Generating image… it lands on the card when it’s ready.</Mono>
+          ) : d.raw.imageStatus === 'failed' ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <Mono s={11} c={C.coral}>Image didn’t generate{d.raw.imageError ? `: ${d.raw.imageError}` : '.'}</Mono>
+              {onMakeImage && <Btn size="sm" onClick={() => { setMaking(true); onMakeImage(d.id); }}>Retry image</Btn>}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <Mono s={11} c={C.soft}>Image prompt ready — generate the still (uses an image credit).</Mono>
+              {onMakeImage && <Btn size="sm" variant="primary" onClick={() => { setMaking(true); onMakeImage(d.id); }}>🎨 Make image</Btn>}
+            </div>
+          )}
+        </div>
+      )}
 
       {(d.stage === 'approved' || pubState) && (
         <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 18 }}>

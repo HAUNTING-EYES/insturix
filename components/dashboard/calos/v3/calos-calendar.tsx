@@ -187,6 +187,22 @@ export default function CalosCalendarV3() {
     }
   };
 
+  const handleMakeImage = async (id: string) => {
+    if (!brandId) return;
+    try {
+      const res = await fetch('/api/services/calos/make-image', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandId, deliverableId: id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast({ title: data?.error || `Couldn't start image (${res.status})`, variant: 'destructive' }); return; }
+      toast({ title: 'Image generating', description: 'It lands on the card when it’s ready.' });
+      refresh();
+    } catch (err) {
+      toast({ title: 'Image kickoff failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+    }
+  };
+
   const handleDelete = async (id: string) => { await deleteCard(id); };
 
   const handleNew = async () => {
@@ -478,6 +494,7 @@ export default function CalosCalendarV3() {
           onSaveTags={handleSaveTags}
           onDecision={handleDecision}
           onGenerate={handleGenerate}
+          onMakeImage={handleMakeImage}
           onDelete={handleDelete}
           onOpenScript={handleOpenScript}
           pubState={pubStatus[openItem.id]}
