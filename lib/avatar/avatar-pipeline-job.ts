@@ -40,6 +40,11 @@ import {
   type AvatarCompositionRenderRef,
 } from './avatar-composition';
 import { composeOmniHumanPrompt } from './avatar-motion-director';
+import {
+  stageAvatarReference,
+  type ReferenceStagingInput,
+  type ReferenceStagingResult,
+} from './avatar-reference-staging';
 
 export type AvatarPipelineJobStatus = 'blocked' | 'queued' | 'running' | 'succeeded' | 'failed';
 
@@ -144,6 +149,12 @@ export interface CreateAvatarPipelineJobDependencies {
   env?: Record<string, string | undefined>;
   chatterboxClient?: ChatterboxClient;
   omniHumanClient?: OmniHumanFalClient;
+  /**
+   * Reference-staging adapter (Nano Banana wardrobe/scene). Injected in tests; the
+   * default calls the real fal client. Runs once, in the face dispatch, before the
+   * talking-head model animates the reference — see dispatchReadyOmniHumanJob.
+   */
+  stageReference?: (input: ReferenceStagingInput) => Promise<ReferenceStagingResult>;
 }
 
 export interface RefreshAvatarPipelineJobDependencies {
@@ -633,6 +644,7 @@ function buildOmniHumanStage(
     prompt: composeOmniHumanPrompt(recipe),
     image,
     audio,
+    staging: buildAvatarStagingConfig(recipe),
     resolution: recipe.target.resolution,
     durationSeconds: recipe.target.durationSeconds,
     aspectRatio: recipe.target.aspectRatio,
@@ -662,6 +674,34 @@ function buildOmniHumanStage(
     requiredEnvKeys: FAL_ENDPOINT_KEYS,
     input,
   });
+}
+
+/**
+ * Reference-staging config carried on the face stage. Staging turns the user's raw
+ * photos into a top-tier, scene/wardrobe-staged, identity-locked still (Nano Banana)
+ * BEFORE the talking-head model animates it. The reference image is the quality
+ * ceiling: a clean staged still cuts the identity drift and weird-mouth artifacts the
+ * founder hit on camera moves, and realizes "wardrobe" — the look already on the recipe
+ * IS the staging prompt.
+ *
+ * Enabled only when the profile carries a wardrobe/look (recipe.visual.wardrobe). Its
+ * presence is the signal the user wants a staged look; absence ⇒ no staging ⇒ the raw
+ * portrait is animated exactly as before (behavior-preserving, no surprise fal cost).
+ */
+function buildAvatarStagingConfig(recipe: AvatarRenderRecipe): {
+  enabled: boolean;
+  scenePrompt: string;
+  sourceImageUrls: string[];
+} {
+  const scenePrompt = recipe.visual.wardrobe?.trim() ?? '';
+  const sourceImageUrls = recipe.visual.referenceImages
+    .filter((ref) => ref.role !== 'product' && typeof ref.imageUrl === 'string' && ref.imageUrl.trim())
+    .map((ref) => ref.imageUrl as string);
+  return {
+    enabled: Boolean(scenePrompt) && sourceImageUrls.length > 0,
+    scenePrompt,
+    sourceImageUrls,
+  };
 }
 
 function buildRemotionStage(recipe: AvatarRenderRecipe): AvatarPipelineStageSnapshot {
@@ -711,7 +751,7 @@ function resolvePipelineDispatch(stages: AvatarPipelineStageSnapshot[]): {
 
 async function dispatchReadyAvatarPipelineJob(
   job: AvatarPipelineJobSnapshot,
-  dependencies: Pick<CreateAvatarPipelineJobDependencies, 'env' | 'now' | 'chatterboxClient' | 'omniHumanClient'>,
+  dependencies: Pick<CreateAvatarPipelineJobDependencies, 'env' | 'now' | 'chatterboxClient' | 'omniHumanClient' | 'stageReference'>,
 ): Promise<AvatarPipelineJobSnapshot> {
   const voicePreparedJob = await dispatchReadyChatterboxJob(job, dependencies);
   if (voicePreparedJob.status === 'failed') return voicePreparedJob;
@@ -819,7 +859,7 @@ function failChatterboxJob(job: AvatarPipelineJobSnapshot, now: string, reason: 
 
 async function dispatchReadyOmniHumanJob(
   job: AvatarPipelineJobSnapshot,
-  dependencies: Pick<CreateAvatarPipelineJobDependencies, 'env' | 'now' | 'omniHumanClient'>,
+  dependencies: Pick<CreateAvatarPipelineJobDependencies, 'env' | 'now' | 'omniHumanClient' | 'stageReference'>,
 ): Promise<AvatarPipelineJobSnapshot> {
   if (
     job.dispatchCode !== 'pipeline_adapter_not_implemented'
@@ -832,6 +872,29 @@ async function dispatchReadyOmniHumanJob(
   if (!submitInput) return job;
 
   const now = dependencies.now?.() ?? new Date().toISOString();
+
+  // Reference staging (Nano Banana wardrobe/scene) runs once, here, before the
+  // talking-head model sees the image: stage the raw photos into a top-tier,
+  // identity-locked still, then animate THAT. Fail loud on error — never silently
+  // animate the un-staged portrait, which would ship a different (worse) product than
+  // the user asked for (R18N). Skipped entirely when no wardrobe/look is configured.
+  const staging = readAvatarStagingConfig(omniHumanStage);
+  let stagedImageUrl: string | undefined;
+  if (staging) {
+    try {
+      const stageReference = dependencies.stageReference
+        ?? ((input: ReferenceStagingInput) => stageAvatarReference(input));
+      const staged = await stageReference({
+        sourceImageUrls: staging.sourceImageUrls,
+        scenePrompt: staging.scenePrompt,
+      });
+      stagedImageUrl = staged.imageUrl;
+      submitInput.imageUrl = stagedImageUrl;
+    } catch (error) {
+      return failOmniHumanJob(job, now, `Reference staging failed: ${errorMessage(error)}`);
+    }
+  }
+
   try {
     const client = faceClientForStage(omniHumanStage, dependencies.omniHumanClient, dependencies.env ?? process.env);
     const submitted = await client.submit(submitInput);
@@ -849,6 +912,7 @@ async function dispatchReadyOmniHumanJob(
             providerRequestId: submitted.requestId,
             input: {
               ...pipelineStage.input,
+              ...(stagedImageUrl ? { stagedImageUrl } : {}),
               fal: {
                 modelId: submitted.modelId,
                 input: submitted.input,
@@ -857,6 +921,7 @@ async function dispatchReadyOmniHumanJob(
             output: {
               requestId: submitted.requestId,
               modelId: submitted.modelId,
+              ...(stagedImageUrl ? { stagedImageUrl } : {}),
             },
           }
         : pipelineStage),
@@ -1038,6 +1103,25 @@ function toOmniHumanSubmitInput(stageSnapshot: AvatarPipelineStageSnapshot): Omn
     resolution: stringValue(stageSnapshot.input.resolution),
     turboMode: false,
   };
+}
+
+/**
+ * Read the persisted staging config off the face stage. Returns null (skip staging)
+ * unless it is explicitly enabled AND has a scene prompt AND at least one source photo —
+ * defensive so a malformed snapshot skips the paid fal call rather than crashing.
+ */
+function readAvatarStagingConfig(stageSnapshot: AvatarPipelineStageSnapshot): {
+  scenePrompt: string;
+  sourceImageUrls: string[];
+} | null {
+  const staging = asRecord(stageSnapshot.input.staging);
+  if (!staging || staging.enabled !== true) return null;
+  const scenePrompt = stringValue(staging.scenePrompt);
+  const sourceImageUrls = Array.isArray(staging.sourceImageUrls)
+    ? staging.sourceImageUrls.filter((url): url is string => typeof url === 'string' && Boolean(url.trim()))
+    : [];
+  if (!scenePrompt || sourceImageUrls.length === 0) return null;
+  return { scenePrompt, sourceImageUrls };
 }
 
 function findPipelineStage(

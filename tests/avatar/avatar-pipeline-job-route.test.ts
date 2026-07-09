@@ -122,6 +122,7 @@ describe('Avatar pipeline-job API', () => {
         now: () => NOW,
         idGenerator: () => 'avatar_pipeline_job_2',
         omniHumanClient,
+        stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
         env: {
           CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
           FAL_AI_API_KEY: 'fal_test_key',
@@ -162,9 +163,11 @@ describe('Avatar pipeline-job API', () => {
       }),
     );
     expect(submittedInputs).toHaveLength(1);
+    // Staging is enabled (the profile has a speechLook wardrobe), so the face model
+    // animates the Nano Banana-staged still, not the raw portrait.
     expect(submittedInputs[0]).toEqual(
       expect.objectContaining({
-        imageUrl: 'https://cdn.example.test/avatar/face.png',
+        imageUrl: 'https://cdn.example.test/avatar/staged.png',
         audioUrl: 'https://cdn.example.test/audio/rishi-voiceover.wav',
         resolution: '720p',
         turboMode: false,
@@ -232,6 +235,7 @@ describe('Avatar pipeline-job API', () => {
         idGenerator: () => 'avatar_pipeline_job_voice_clone',
         chatterboxClient,
         omniHumanClient,
+        stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
         env: {
           CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
           FAL_AI_API_KEY: 'fal_test_key',
@@ -262,7 +266,7 @@ describe('Avatar pipeline-job API', () => {
     ]);
     expect(omniHumanInputs).toEqual([
       expect.objectContaining({
-        imageUrl: 'https://cdn.example.test/avatar/face.png',
+        imageUrl: 'https://cdn.example.test/avatar/staged.png',
         audioUrl: 'https://cdn.example.test/audio/generated-rishi-chatterbox.wav',
       }),
     ]);
@@ -362,6 +366,7 @@ describe('Avatar pipeline-job API', () => {
         idGenerator: () => 'avatar_pipeline_job_reference_url',
         chatterboxClient,
         omniHumanClient,
+        stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
         env: {
           CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
           FAL_AI_API_KEY: 'fal_test_key',
@@ -388,7 +393,7 @@ describe('Avatar pipeline-job API', () => {
     ]);
     expect(omniHumanInputs).toEqual([
       expect.objectContaining({
-        imageUrl: 'https://cdn.example.test/avatar/face.png',
+        imageUrl: 'https://cdn.example.test/avatar/staged.png',
         audioUrl: 'https://cdn.example.test/audio/generated-from-request-reference.wav',
       }),
     ]);
@@ -461,6 +466,7 @@ describe('Avatar pipeline-job API', () => {
         now: () => NOW,
         idGenerator: () => 'avatar_pipeline_job_3',
         omniHumanClient,
+        stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
         env: { FAL_AI_API_KEY: 'fal_test_key' },
       },
     );
@@ -538,6 +544,181 @@ describe('Avatar pipeline-job API', () => {
     if (result.body.ok) throw new Error('Expected pipeline job failure.');
     expect(result.body.error.code).toBe('recipe_not_ready');
     expect(pipelineJobStore.listPipelineJobSnapshots()).toEqual([]);
+  });
+
+  it('stages the reference (wardrobe/scene) before animating, then animates the staged still', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [acceptedRecord('avatar_staging_on', { userId: 'user_avatar' })],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+    const stagingCalls: Array<{ sourceImageUrls: string[]; scenePrompt: string }> = [];
+    const submittedInputs: OmniHumanFalSubmitInput[] = [];
+    const omniHumanClient: OmniHumanFalClient = {
+      async submit(input) {
+        submittedInputs.push(input);
+        return { modelId: 'fal-ai/kling-video/v1/standard/ai-avatar', requestId: 'fal_req_staged', input: {} };
+      },
+      async refresh() {
+        throw new Error('refresh should not run during creation');
+      },
+    };
+
+    const result = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_staging_on',
+        body: {
+          useCase: 'speech_delivery',
+          prompt: 'Rishi presents the launch update from a clean room.',
+          script: 'Here is the launch update.',
+          audio: { mode: 'uploaded_voiceover', sourceUrl: 'https://cdn.example.test/audio/vo.wav' },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'avatar_staging_job',
+        omniHumanClient,
+        stageReference: async (input) => {
+          stagingCalls.push(input);
+          return { imageUrl: 'https://cdn.example.test/avatar/staged.png' };
+        },
+        env: { FAL_AI_API_KEY: 'fal_test_key' },
+      },
+    );
+
+    expect(result.status).toBe(201);
+    expect(result.body.ok).toBe(true);
+    if (!result.body.ok) throw new Error('Expected pipeline job.');
+    // Staging ran once, with the wardrobe/look as the scene prompt and the person's photos.
+    expect(stagingCalls).toHaveLength(1);
+    expect(stagingCalls[0].scenePrompt).toContain('clean founder-presenter outfit');
+    expect(stagingCalls[0].sourceImageUrls.length).toBeGreaterThan(0);
+    expect(stagingCalls[0].sourceImageUrls.every((url) => url.includes('/avatar/'))).toBe(true);
+    // The face model animates the STAGED still, not the raw portrait.
+    expect(submittedInputs).toHaveLength(1);
+    expect(submittedInputs[0].imageUrl).toBe('https://cdn.example.test/avatar/staged.png');
+    // The staged URL is recorded on the face stage (input + output) for provenance.
+    const faceStage = result.body.job.stages.find((stage) => stage.id === 'face_omnihuman_fal');
+    expect(faceStage?.output).toEqual(
+      expect.objectContaining({ stagedImageUrl: 'https://cdn.example.test/avatar/staged.png' }),
+    );
+    expect(faceStage?.input).toEqual(
+      expect.objectContaining({ stagedImageUrl: 'https://cdn.example.test/avatar/staged.png' }),
+    );
+  });
+
+  it('skips staging and animates the raw reference when no wardrobe/look is configured', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [
+        acceptedRecord('avatar_staging_off', {
+          userId: 'user_avatar',
+          stylePack: { wardrobePresets: [] },
+        }),
+      ],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+    let stagingCalled = false;
+    const submittedInputs: OmniHumanFalSubmitInput[] = [];
+    const omniHumanClient: OmniHumanFalClient = {
+      async submit(input) {
+        submittedInputs.push(input);
+        return { modelId: 'fal-ai/kling-video/v1/standard/ai-avatar', requestId: 'fal_req_raw', input: {} };
+      },
+      async refresh() {
+        throw new Error('refresh should not run during creation');
+      },
+    };
+
+    const result = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_staging_off',
+        body: {
+          useCase: 'speech_delivery',
+          prompt: 'Rishi presents the launch update from a clean room.',
+          script: 'Here is the launch update.',
+          audio: { mode: 'uploaded_voiceover', sourceUrl: 'https://cdn.example.test/audio/vo.wav' },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'avatar_staging_off_job',
+        omniHumanClient,
+        stageReference: async () => {
+          stagingCalled = true;
+          return { imageUrl: 'https://cdn.example.test/avatar/should-not-be-used.png' };
+        },
+        env: { FAL_AI_API_KEY: 'fal_test_key' },
+      },
+    );
+
+    expect(result.status).toBe(201);
+    expect(result.body.ok).toBe(true);
+    if (!result.body.ok) throw new Error('Expected pipeline job.');
+    expect(stagingCalled).toBe(false);
+    // No wardrobe ⇒ the raw reference (close-frame face) is animated, exactly as before.
+    expect(submittedInputs).toHaveLength(1);
+    expect(submittedInputs[0].imageUrl).toBe('https://cdn.example.test/avatar/face.png');
+    const faceStage = result.body.job.stages.find((stage) => stage.id === 'face_omnihuman_fal');
+    expect(faceStage?.output).not.toHaveProperty('stagedImageUrl');
+  });
+
+  it('fails the job loud when reference staging fails, never animating the un-staged portrait', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [acceptedRecord('avatar_staging_fail', { userId: 'user_avatar' })],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+    const submittedInputs: OmniHumanFalSubmitInput[] = [];
+    const omniHumanClient: OmniHumanFalClient = {
+      async submit(input) {
+        submittedInputs.push(input);
+        return { modelId: 'fal-ai/kling-video/v1/standard/ai-avatar', requestId: 'fal_req_never', input: {} };
+      },
+      async refresh() {
+        throw new Error('refresh should not run during creation');
+      },
+    };
+
+    const result = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_staging_fail',
+        body: {
+          useCase: 'speech_delivery',
+          prompt: 'Rishi presents the launch update from a clean room.',
+          script: 'Here is the launch update.',
+          audio: { mode: 'uploaded_voiceover', sourceUrl: 'https://cdn.example.test/audio/vo.wav' },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'avatar_staging_fail_job',
+        omniHumanClient,
+        stageReference: async () => {
+          throw new Error('nano banana exploded');
+        },
+        env: { FAL_AI_API_KEY: 'fal_test_key' },
+      },
+    );
+
+    expect(result.status).toBe(201);
+    expect(result.body.ok).toBe(true);
+    if (!result.body.ok) throw new Error('Expected pipeline job.');
+    expect(result.body.job.status).toBe('failed');
+    expect(result.body.job.dispatchCode).toBe('omnihuman_failed');
+    expect(result.body.job.statusReason).toContain('Reference staging failed');
+    expect(result.body.job.statusReason).toContain('nano banana exploded');
+    // Never fall back to animating the un-staged portrait.
+    expect(submittedInputs).toHaveLength(0);
   });
 });
 
