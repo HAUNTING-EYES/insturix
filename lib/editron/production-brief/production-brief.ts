@@ -79,6 +79,44 @@ export interface BriefResolution {
   inferred: BriefField[];
 }
 
+export interface BriefTrendCopyField {
+  id: string;
+  role: string;
+  template: string;
+  maxChars?: number;
+}
+
+export interface BriefTrendConstraint {
+  id: string;
+  layer: string;
+  feature: string;
+  value?: string | number;
+  dist?: { mean: number; sd: number };
+  support: number;
+  anchor?: { beat?: number; sectionId?: string };
+}
+
+export interface BriefTrendChoice {
+  id: string;
+  layer: string;
+  feature: string;
+  freedomRange?: { min?: number; max?: number } | string[];
+}
+
+export interface BriefTrendContext {
+  trendId: string;
+  alignmentFrame: 'beat-space' | 'slot-space';
+  naturalDurationSec: number;
+  selectedDurationSec: number;
+  durationBoundariesSec: number[];
+  copyFields: BriefTrendCopyField[];
+  constraints: BriefTrendConstraint[];
+  choices: BriefTrendChoice[];
+  performanceScript: string;
+  hashtags?: string[];
+  warnings?: string[];
+}
+
 export interface ProductionBrief {
   output: BriefOutputSpec;
   /** Optional brand context ref (brand drives vibe). Brand-optional, user-primary. */
@@ -87,6 +125,8 @@ export interface ProductionBrief {
   entryPoint: IntakeEntryPoint;
   /** Total source seconds available - caps output length + drives the format derivation. */
   sourceDurationSec?: number | null;
+  /** Optional TrendSpec consumption metadata; final edit/render form stays owned downstream. */
+  trend?: BriefTrendContext;
 }
 
 /**

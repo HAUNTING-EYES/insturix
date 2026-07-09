@@ -9,6 +9,7 @@ import type {
   ProductionBrief,
 } from '@/lib/editron/production-brief/production-brief';
 import type { ProjectMeta } from '@/lib/thinkforge/state/types';
+import { applyTrendSpecToBrief } from './apply-trend-spec';
 
 type ProjectRecord = Record<string, unknown>;
 
@@ -18,6 +19,7 @@ export interface ThinkForgeProductionBriefInput {
   documentType?: string | null;
   contentPath?: string | null;
   brandId?: string | null;
+  trendSpec?: unknown | null;
 }
 
 const PLATFORM_VALUES = new Set<Platform>([
@@ -186,8 +188,13 @@ export function resolveThinkForgeProductionBrief(input: ThinkForgeProductionBrie
     requested: buildRequested(project),
   });
 
-  return {
+  const resolvedBrief = {
     ...brief,
     brand: brandId ? { brandId } : brief.brand,
   };
+  const trendSpec = input.trendSpec ?? firstPresent(project, ['trendSpec']);
+
+  return trendSpec
+    ? applyTrendSpecToBrief({ brief: resolvedBrief, trendSpec })
+    : resolvedBrief;
 }

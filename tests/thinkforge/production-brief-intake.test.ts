@@ -1,8 +1,50 @@
 import { describe, expect, it } from 'vitest';
 
 import { resolveThinkForgeProductionBrief } from '@/lib/thinkforge/brief/resolve-production-brief';
+import { TREND_SPEC_VERSION } from '@/lib/thinkforge/schemas/trend-spec';
 import type { ProjectMeta } from '@/lib/thinkforge/state/types';
 
+function trendSpec(overrides: Record<string, unknown> = {}) {
+  return {
+    trendId: 'trend_pov_drop_reveal',
+    version: TREND_SPEC_VERSION,
+    alignmentFrame: 'beat-space',
+    beatGrid: {
+      bpm: 128,
+      beatsMs: [0, 469, 938, 1406, 1875, 2344, 2813, 3281],
+      dropsMs: [3281],
+      totalMs: 7500,
+      sections: [
+        { id: 's_hook', role: 'hook', start: 0, end: 3281, beats: [0, 1, 2, 3, 4, 5, 6] },
+        { id: 's_reveal', role: 'payoff', start: 3281, end: 7500, beats: [7] },
+      ],
+    },
+    invariants: [
+      {
+        layer: 'decisionStream',
+        feature: 'cut_on_drop',
+        support: 0.9,
+        anchor: { beat: 7, sectionId: 's_reveal' },
+      },
+    ],
+    variables: [
+      {
+        layer: 'blocking',
+        feature: 'subject',
+        freedomRange: ['creator', 'product', 'screen'],
+      },
+    ],
+    copyFormula: {
+      slots: [
+        { id: 'hook', role: 'hook', template: 'POV: you just found {thing}', maxChars: 40 },
+        { id: 'cta', role: 'cta', template: '{action} - link in bio', maxChars: 30 },
+      ],
+      hashtags: ['#fyp', '#{brand}'],
+    },
+    performanceScript: 'Beat 0-6: build anticipation. Beat 7: reveal and react.',
+    ...overrides,
+  };
+}
 describe('resolveThinkForgeProductionBrief', () => {
   it('maps explicit ThinkForge session fields into the shared ProductionBrief', () => {
     const project: ProjectMeta = {
@@ -91,5 +133,55 @@ describe('resolveThinkForgeProductionBrief', () => {
     expect(brief.output.targetDurationSec).toBe(20);
     expect(brief.output.style).toEqual({ tone: 'warm but direct' });
     expect(brief.resolution.inferred).toEqual(expect.arrayContaining(['platform', 'aspectRatio', 'targetDurationSec', 'style']));
+  });
+
+  it('consumes a TrendSpec into the shared brief without treating platform defaults as extensions', () => {
+    const brief = resolveThinkForgeProductionBrief({
+      userPrompt: 'Turn this trend into a brand reel',
+      project: {
+        platform: 'linkedin',
+      },
+      trendSpec: trendSpec(),
+    });
+
+    expect(brief.output.platform).toBe('linkedin');
+    expect(brief.output.targetDurationSec).toBe(7.5);
+    expect(brief.resolution.inferred).toContain('targetDurationSec');
+    expect(brief.trend).toMatchObject({
+      trendId: 'trend_pov_drop_reveal',
+      naturalDurationSec: 7.5,
+      selectedDurationSec: 7.5,
+      durationBoundariesSec: [3.281, 7.5],
+      performanceScript: 'Beat 0-6: build anticipation. Beat 7: reveal and react.',
+      hashtags: ['#fyp', '#{brand}'],
+    });
+    expect(brief.trend?.copyFields.map((field) => field.id)).toEqual(['hook', 'cta']);
+    expect(brief.trend?.constraints[0]).toMatchObject({
+      layer: 'decisionStream',
+      feature: 'cut_on_drop',
+      anchor: { beat: 7, sectionId: 's_reveal' },
+    });
+    expect(brief.trend?.choices[0]).toMatchObject({
+      layer: 'blocking',
+      feature: 'subject',
+      freedomRange: ['creator', 'product', 'screen'],
+    });
+    expect(brief.trend?.warnings).toBeUndefined();
+  });
+
+  it('snaps explicit TrendSpec duration requests to whole section boundaries', () => {
+    const brief = resolveThinkForgeProductionBrief({
+      userPrompt: 'Make the trend edit a little longer',
+      project: {
+        preferences: {
+          targetDurationSec: 4,
+          trendSpec: trendSpec(),
+        },
+      },
+    });
+
+    expect(brief.output.targetDurationSec).toBe(7.5);
+    expect(brief.resolution.confirmed).toContain('targetDurationSec');
+    expect(brief.trend?.warnings).toEqual(['requested_duration_snapped_to_section_boundary']);
   });
 });
