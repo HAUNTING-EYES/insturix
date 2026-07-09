@@ -31,6 +31,12 @@ export interface AvatarShotSpec {
   durationSec: number;
   resolution: string; // '480p' | '720p' | '1080p' | '4K'
   aspectRatio?: string;
+  /**
+   * The shot depicts a real person's likeness (an avatar). Defaults to true, which
+   * excludes models that reject real faces (e.g. Seedance). Set false only for
+   * object/invented-character shots.
+   */
+  requiresRealPerson?: boolean;
 }
 
 export interface AvatarShotResult {
@@ -75,13 +81,15 @@ export function selectAvatarShotModel(
   spec: AvatarShotSpec,
   capabilities: Record<string, ModelCapability> = MODEL_CAPABILITIES,
 ): ModelCapability | null {
-  const refCount = spec.avatarImageRefs.length;
+  const requiresRealPerson = spec.requiresRealPerson ?? true;
   const candidates = Object.values(capabilities)
     .filter((m) => m.role === 'body_scene' && m.available)
     .filter((m) => spec.durationSec <= m.maxDurationSec)
-    .filter((m) => refCount <= m.maxRefImages)
-    .filter((m) => resolutionRank(spec.resolution) <= maxResolutionRank(m.resolutions));
+    .filter((m) => resolutionRank(spec.resolution) <= maxResolutionRank(m.resolutions))
+    // Avatar shots need a real likeness — exclude models that reject real faces.
+    .filter((m) => !requiresRealPerson || m.acceptsRealFaces !== false);
 
+  // A model uses up to its maxRefImages; more capacity = better identity anchoring.
   candidates.sort((a, b) => b.maxRefImages - a.maxRefImages || b.maxDurationSec - a.maxDurationSec);
   return candidates[0] ?? null;
 }
@@ -147,12 +155,53 @@ const seedance20Adapter: AvatarShotAdapter = {
   },
 };
 
+/** Pure: map a shot spec to Kling 2.6 i2v input. Duration snaps to Kling's 5s or 10s. */
+export function buildKlingI2vInput(spec: AvatarShotSpec): { input: Record<string, unknown>; durationSec: number } {
+  const durationSec = spec.durationSec <= 5 ? 5 : 10;
+  const input = {
+    start_image_url: spec.avatarImageRefs[0],
+    prompt:
+      spec.motionPrompt?.trim() ||
+      'The person speaks to the camera with natural gestures and subtle body movement, warm expression. Keep the facial identity consistent, no face morphing.',
+    duration: String(durationSec),
+    negative_prompt: 'face morphing, identity drift between frames, distortion',
+  };
+  return { input, durationSec };
+}
+
+// Kling 2.6 image-to-video — the real-person body engine (accepts real faces; adds
+// gesture/camera motion but NOT lip-sync, so a relip pass follows).
+const klingI2vAdapter: AvatarShotAdapter = {
+  model: 'kling-2.6-i2v',
+  async generate(spec, deps = {}) {
+    const modelId = MODEL_CAPABILITIES['kling-2.6-i2v'].falModelId;
+    if (!modelId) throw new Error('kling-2.6-i2v has no fal model id.');
+    if (!spec.avatarImageRefs.length) throw new Error('kling-2.6-i2v needs a start image.');
+    const { input, durationSec } = buildKlingI2vInput(spec);
+    const submit = deps.submit ?? defaultFalSubmit;
+    const poll = deps.poll ?? defaultFalPoll;
+
+    const { requestId } = await submit(modelId, input);
+    for (let i = 0; i < 180; i++) {
+      const status = await poll(modelId, requestId);
+      if (status.failed) throw new Error(`Kling 2.6 i2v failed: ${status.error ?? 'unknown error'}`);
+      if (status.done) {
+        if (!status.videoUrl) throw new Error('Kling 2.6 i2v completed without a video URL.');
+        return { videoUrl: status.videoUrl, modelUsed: 'kling-2.6-i2v', durationSec, hasNativeAudio: false };
+      }
+      await sleep(5000);
+    }
+    throw new Error('Kling 2.6 i2v timed out.');
+  },
+};
+
 /**
  * Adapter registry. Adding a model = adding ONE entry here + a capabilities row.
  * Seedance 2.5 (when it lands): import its adapter and add `'seedance-2.5': seedance25Adapter`.
  */
 const ADAPTERS: Record<string, AvatarShotAdapter> = {
-  'seedance-2.0-r2v': seedance20Adapter,
+  'kling-2.6-i2v': klingI2vAdapter, // real-person default
+  'seedance-2.0-r2v': seedance20Adapter, // objects / invented characters only
 };
 
 export async function generateAvatarShot(spec: AvatarShotSpec, deps?: AvatarShotDeps): Promise<AvatarShotResult> {

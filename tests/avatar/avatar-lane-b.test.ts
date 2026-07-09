@@ -29,9 +29,9 @@ const input = {
 };
 
 describe('buildLaneBSpeakingShot', () => {
-  it('runs the full chain and aligns audio to the locked shot duration', async () => {
+  it('generates the body first, then pads the voice to the body’s actual length', async () => {
     let uploadedWav: Buffer | undefined;
-    let shotSpec: { durationSec: number; audioRef?: string } | undefined;
+    let shotSpec: { durationSec: number } | undefined;
     let relipInput: { videoDurationSec: number; audioDurationSec: number } | undefined;
 
     const deps: LaneBDeps = {
@@ -43,27 +43,40 @@ describe('buildLaneBSpeakingShot', () => {
       },
       generateShot: async (spec) => {
         shotSpec = spec;
-        return { videoUrl: 'https://cdn/body.mp4', modelUsed: 'seedance-2.0-r2v', durationSec: spec.durationSec, hasNativeAudio: true };
+        // Kling i2v snaps 8s → 10s; the adapter reports the actual length.
+        return { videoUrl: 'https://cdn/body.mp4', modelUsed: 'kling-2.6-i2v', durationSec: 10, hasNativeAudio: false };
       },
       relip: async (r) => {
         relipInput = r;
         return { videoUrl: 'https://cdn/final.mp4' };
       },
-      measureVideoDurationSec: async () => 8,
+      measureVideoDurationSec: async () => 10, // body's real length
     };
 
     const result = await buildLaneBSpeakingShot(input, deps);
 
     expect(result.status).toBe('done');
     expect(result.videoUrl).toBe('https://cdn/final.mp4');
-    expect(result.durationSec).toBe(8); // ceil(7.3) locked to a whole second
-    // Body generated to the locked duration, conditioned on the aligned voice.
+    // Requested ceil(7.3)=8; body actually came out 10 (Kling snap) → shot locks to 10.
     expect(shotSpec?.durationSec).toBe(8);
-    expect(shotSpec?.audioRef).toBe('https://cdn/aligned.wav');
-    // Audio padded to exactly match the video → relip stays in sync.
-    expect(measureWavDurationSec(uploadedWav!)).toBe(8);
-    expect(relipInput?.audioDurationSec).toBe(8);
-    expect(relipInput?.videoDurationSec).toBe(8);
+    expect(result.durationSec).toBe(10);
+    // Voice padded to the body's real length → relip stays in sync, no words cut.
+    expect(measureWavDurationSec(uploadedWav!)).toBe(10);
+    expect(relipInput?.audioDurationSec).toBe(10);
+    expect(relipInput?.videoDurationSec).toBe(10);
+  });
+
+  it('fails loud if the body comes out shorter than the voice (would cut words)', async () => {
+    await expect(
+      buildLaneBSpeakingShot(input, {
+        synthesizeVoice: async () => ({ audioUrl: 'https://cdn/raw.wav' }),
+        fetchAudioBytes: async () => makeWav(9), // 9s VO
+        generateShot: async () => ({ videoUrl: 'https://cdn/body.mp4', modelUsed: 'kling-2.6-i2v', durationSec: 5, hasNativeAudio: false }),
+        measureVideoDurationSec: async () => 5, // body only 5s < 9s VO
+        uploadAudio: async () => ({ audioUrl: 'x' }),
+        relip: async () => ({ videoUrl: 'x' }),
+      }),
+    ).rejects.toThrow(/shorter than the voice/);
   });
 
   it('stops at needs_fit without spending on body/relip when the line overruns', async () => {

@@ -16,7 +16,7 @@ import {
   RELIP_MAX_SHOT_SEC,
   type FitDecision,
 } from './avatar-audio-fit';
-import { generateAvatarShot, type AvatarShotSpec } from './generate-avatar-shot';
+import { generateAvatarShot } from './generate-avatar-shot';
 import { relipWithKling } from './avatar-relip';
 
 export interface LaneBShotInput {
@@ -85,37 +85,42 @@ export async function buildLaneBSpeakingShot(input: LaneBShotInput, deps: LaneBD
     return { status: 'needs_fit', fit, audioUrl: rawAudioUrl };
   }
 
-  // 4. Lock the shot to a whole-second duration Seedance can emit (min 4s), pad the
-  //    voice to match so audio == video (Kling LipSync drifts otherwise).
-  const targetSec = Math.min(Math.max(Math.ceil(measuredSec), 4), budget);
-  const alignedWav = padWavToSec(rawWav, targetSec);
-  const { audioUrl: alignedAudioUrl } = await uploadAudio(alignedWav, userId);
-
-  // 5. Generate the body/scene to the locked duration (native audio discarded — voice comes from relip).
-  const shotSpec: AvatarShotSpec = {
+  // 4. Generate the body to a duration >= the measured voice. The body model may snap
+  //    to its own options (Kling i2v = 5s or 10s), so we align the voice to what it
+  //    ACTUALLY produced (step 5), not to the request. Native audio (if any) is
+  //    discarded — the voice arrives at the relip step.
+  const requestSec = Math.min(Math.max(Math.ceil(measuredSec), 4), budget);
+  const body = await generateShot({
     avatarImageRefs: input.avatarImageRefs,
-    audioRef: alignedAudioUrl,
     motionPrompt: input.motionPrompt,
-    durationSec: targetSec,
+    durationSec: requestSec,
     resolution: input.resolution ?? '1080p',
-  };
-  const body = await generateShot(shotSpec);
+  });
 
-  // 6. Relip: sync the mouth to the cloned voice. Measure the body's real length so
-  //    the eligibility guard sees the truth (fall back to the locked target if unmeasurable).
-  const bodySec = (await measureVideoDurationSec(body.videoUrl)) ?? targetSec;
+  // 5. The body's ACTUAL length — measure the file, fall back to the adapter's report.
+  const bodySec = (await measureVideoDurationSec(body.videoUrl)) ?? body.durationSec;
+  if (bodySec + 0.05 < measuredSec) {
+    // Body came out shorter than the voice — padding can't fix it without cutting
+    // words. Fail loud rather than clip the line.
+    throw new Error(`Body shot (${bodySec}s) is shorter than the voice (${measuredSec}s) — would cut words. Shorten the line.`);
+  }
+
+  // 6. Pad the voice with silence to EXACTLY the body length (audio-first alignment),
+  //    then relip the mouth onto the cloned voice.
+  const alignedWav = padWavToSec(rawWav, bodySec);
+  const { audioUrl: alignedAudioUrl } = await uploadAudio(alignedWav, userId);
   const relipped = await relip({
     videoUrl: body.videoUrl,
     audioUrl: alignedAudioUrl,
     videoDurationSec: bodySec,
-    audioDurationSec: targetSec,
+    audioDurationSec: bodySec,
   });
 
   return {
     status: 'done',
     fit,
     videoUrl: relipped.videoUrl,
-    durationSec: targetSec,
+    durationSec: bodySec,
     audioUrl: alignedAudioUrl,
     bodyVideoUrl: body.videoUrl,
   };

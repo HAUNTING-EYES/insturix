@@ -38,6 +38,8 @@ export interface ModelCapability {
   nativeAudio: boolean;
   /** Clones a voice from a sample. */
   voiceClone: boolean;
+  /** Accepts real human likenesses as input. Some models (ByteDance Seedance) reject them. Omit = accepts. */
+  acceptsRealFaces?: boolean;
   geoRestricted: boolean;
   license: string;
   notes: string;
@@ -116,6 +118,24 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
   },
 
   // ─── Body / scene (lane B visual) ────────────────────────────────────────
+  'kling-2.6-i2v': {
+    name: 'kling-2.6-i2v',
+    role: 'body_scene',
+    falModelId: 'fal-ai/kling-video/v2.6/pro/image-to-video',
+    available: true,
+    costPerSec: null, // fal pricing UNVERIFIED — fill when confirmed (router selects on ceilings, not cost)
+    maxDurationSec: 10, // duration is "5" or "10" only
+    maxRefImages: 1, // start_image_url (single); subject_reference_image_urls (≤4) not used here
+    resolutions: ['1080p'], // Kling 2.6 Pro; exact set UNVERIFIED
+    lipSync: false, // adds MOTION, not lip-sync → relip after for the mouth
+    nativeAudio: false,
+    voiceClone: false,
+    // accepts real faces (implicit true) — the real-person body engine
+    geoRestricted: false,
+    license: 'commercial (fal)',
+    notes:
+      'Real-person BODY engine for lane B — accepts real faces (live-verified 2026-07-10: identity held + gesture/camera motion, in-scene), where Seedance rejects them. Animates a single start photo with prompted motion; duration 5 or 10s (relip-eligible). Chain: Kling i2v (body) → Kling LipSync relip (mouth to cloned voice).',
+  },
   'seedance-2.0-r2v': {
     name: 'seedance-2.0-r2v',
     role: 'body_scene',
@@ -128,6 +148,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     lipSync: false,
     nativeAudio: true, // native audio is NOT the user's voice — voice comes from Chatterbox + relip
     voiceClone: false,
+    acceptsRealFaces: false, // ★ ByteDance rejects real human likenesses (live probe 2026-07-10)
     geoRestricted: true, // B2B customers outside US only; passes end_user_id
     license: 'commercial (fal)',
     notes: "★ REJECTS REAL-PERSON LIKENESSES (live probe 2026-07-10: content_policy_violation / partner_validation_failed — ByteDance blocks real human faces as refs). Usable for objects/invented characters ONLY, NOT a real user's avatar. For real-person avatars the body engine must be Kling-based (Kling AI Avatar, or a real-person-friendly i2v). Schema (image_urls @Image1.., end_user_id) + geo-access confirmed working.",
@@ -144,6 +165,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     lipSync: false,
     nativeAudio: true,
     voiceClone: false,
+    acceptsRealFaces: false, // ByteDance policy — assume the same real-person block as 2.0
     geoRestricted: false, // unknown at announce
     license: 'commercial (announced)',
     notes:
