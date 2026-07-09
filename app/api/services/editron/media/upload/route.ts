@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
       dimensions,
       isProxy,
       uploadBatchId,
+      uploadBatchIntake,
     } = body;
 
     // Validate required fields — gcsPath is optional (R2 uploads don't have one)
@@ -246,6 +247,7 @@ export async function POST(request: NextRequest) {
           userId,
           orgId: orgId || undefined,
           projectId: projectId || undefined,
+          intake: uploadBatchIntake,
           asset: {
             assetId,
             filename,

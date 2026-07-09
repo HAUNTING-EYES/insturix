@@ -195,7 +195,7 @@ export function useFootageAutoEdit(): FootageAutoEditState {
     setProgress(`Uploading ${selectedFiles.length} files...`);
 
     try {
-      const result = await uploadMediaFiles(selectedFiles);
+      const result = await uploadMediaFiles(selectedFiles, { uploadBatchIntake: options });
       const uploadedCount = result.uploaded.length;
       if (uploadedCount === 0) {
         const firstError = result.failed[0]?.error || 'No files uploaded.';

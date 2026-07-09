@@ -22,9 +22,23 @@ export interface UploadedMedia {
   dimensions?: { width: number; height: number };
 }
 
+export interface UploadMediaBatchIntake {
+  aspectRatio?: string;
+  platform?: string;
+  userIntent?: string;
+  script?: string;
+  captionStyle?: string;
+  transitionPreference?: string;
+  zoomBehavior?: string;
+  motionGraphics?: string;
+  pacingFeel?: string;
+  musicPreference?: string;
+}
+
 export interface UploadMediaFileOptions {
   projectId?: string;
   uploadBatchId?: string;
+  uploadBatchIntake?: UploadMediaBatchIntake;
 }
 
 export interface UploadMediaBatchResult {
@@ -153,6 +167,7 @@ export const uploadMediaFile = async (
     type: fileType,
     projectId: options.projectId,
     uploadBatchId: options.uploadBatchId,
+    uploadBatchIntake: options.uploadBatchIntake,
     thumbnail: thumbnail || undefined,
     duration,
     dimensions,
@@ -267,6 +282,7 @@ async function registerAssetMetadata(meta: {
   type: 'video' | 'audio' | 'image';
   projectId?: string;
   uploadBatchId?: string;
+  uploadBatchIntake?: UploadMediaBatchIntake;
   thumbnail?: string;
   duration?: number;
   dimensions?: { width: number; height: number };

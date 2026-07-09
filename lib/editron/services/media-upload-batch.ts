@@ -14,6 +14,19 @@ export interface MediaUploadBatchAssetManifestInput {
   thumbnail?: string;
 }
 
+export interface MediaUploadBatchIntake {
+  aspectRatio?: string;
+  platform?: string;
+  userIntent?: string;
+  script?: string;
+  captionStyle?: string;
+  transitionPreference?: string;
+  zoomBehavior?: string;
+  motionGraphics?: string;
+  pacingFeel?: string;
+  musicPreference?: string;
+}
+
 export interface MediaUploadBatchAssetStatusInput extends MediaUploadBatchAssetManifestInput {
   analysisStatus?: string | null;
   analysisError?: string | null;
@@ -59,12 +72,42 @@ export function encodeUploadBatchAssetKey(assetId: string): string {
   return Buffer.from(trimmed, 'utf8').toString('base64url');
 }
 
+const INTAKE_TEXT_LIMITS: Record<keyof MediaUploadBatchIntake, number> = {
+  aspectRatio: 64,
+  platform: 64,
+  userIntent: 4000,
+  script: 12000,
+  captionStyle: 128,
+  transitionPreference: 128,
+  zoomBehavior: 128,
+  motionGraphics: 128,
+  pacingFeel: 128,
+  musicPreference: 512,
+};
+
+export function normalizeMediaUploadBatchIntake(raw: unknown): MediaUploadBatchIntake | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+
+  const source = raw as Partial<Record<keyof MediaUploadBatchIntake, unknown>>;
+  const normalized: MediaUploadBatchIntake = {};
+  for (const [key, limit] of Object.entries(INTAKE_TEXT_LIMITS) as Array<[keyof MediaUploadBatchIntake, number]>) {
+    const value = source[key];
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    normalized[key] = trimmed.slice(0, limit);
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
 export function buildMediaUploadBatchAssetUpsert(
   params: {
     uploadBatchId: string;
     userId: string;
     orgId?: string | null;
     projectId?: string | null;
+    intake?: unknown;
     asset: MediaUploadBatchAssetManifestInput;
   },
   now: Date,
@@ -105,6 +148,9 @@ export function buildMediaUploadBatchAssetUpsert(
 
   if (params.orgId) set.orgId = params.orgId;
   if (params.projectId) set.projectId = params.projectId;
+
+  const intake = normalizeMediaUploadBatchIntake(params.intake);
+  if (intake) set.productionBriefIntake = intake;
 
   return {
     filter: { uploadBatchId, userId },
