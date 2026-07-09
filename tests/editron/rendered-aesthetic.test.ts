@@ -348,8 +348,36 @@ describe('rendered frame aesthetic scoring', () => {
 
     expect(result.status).toBe('fail');
     expect(result.issues).toEqual(expect.arrayContaining([
-      expect.objectContaining({ dimension: 'overlap', severity: 'fail' }),
+      expect.objectContaining({
+        dimension: 'overlap',
+        severity: 'warn',
+        message: expect.stringContaining('overlay_spatial_overlap'),
+        evidence: expect.stringContaining('constraint=overlay.overlay_spatial_overlap'),
+      }),
       expect.objectContaining({ dimension: 'clutter', severity: 'fail' }),
+    ]));
+  });
+
+  it('warns clean overlay pairs above the CRG spatial-overlap threshold', () => {
+    const overlays = [
+      visualOverlay('shape-a', 'shape', { x: 240, y: 620, width: 300, height: 200 }),
+      visualOverlay('shape-b', 'shape', { x: 477, y: 620, width: 300, height: 200 }),
+    ];
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 15, alphaMean: 1 },
+      overlays,
+    });
+
+    expect(result.status).toBe('warn');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'overlap',
+        severity: 'warn',
+        message: expect.stringContaining('overlay_spatial_overlap'),
+        evidence: expect.stringContaining('ratio=0.21'),
+      }),
     ]));
   });
 

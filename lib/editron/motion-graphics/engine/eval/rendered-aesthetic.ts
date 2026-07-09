@@ -125,6 +125,8 @@ const BASELINE_OUTPUT_SHORT_EDGE_PX = 1080;
 const MIN_BODY_TEXT_PX_AT_1080 = 24;
 const MIN_CAPTION_TEXT_PX_AT_1080 = 34;
 const MIN_GRAPHIC_TEXT_PX_AT_1080 = 72;
+const OVERLAY_SPATIAL_OVERLAP_RATIO = 0.2;
+const OVERLAY_PARTIAL_OVERLAP_RATIO = 0.1;
 
 export function scoreRenderedFrameAesthetic(input: RenderedFrameAestheticInput): RenderedFrameAestheticReport {
   const penalties = emptyPenaltyMap();
@@ -292,14 +294,14 @@ function scoreOverlayOverlap(normalized: NormalizedOverlay[], addIssue: AddIssue
       const b = visual[j];
       if (!a?.box || !b?.box) continue;
       const ratio = intersectionRatio(a.box, b.box);
-      if (ratio >= 0.24) {
-        addIssue('overlap', 0.2, 'visual overlays substantially overlap', {
+      if (ratio > OVERLAY_SPATIAL_OVERLAP_RATIO) {
+        addIssue('overlap', 0.12, 'visual overlays violate constraint:overlay.overlay_spatial_overlap', {
           overlay: a.item,
           relatedOverlay: b.item,
-          evidence: `ratio=${ratio.toFixed(2)}`,
-          severity: 'fail',
+          evidence: `ratio=${ratio.toFixed(2)}; threshold>${OVERLAY_SPATIAL_OVERLAP_RATIO.toFixed(2)}; constraint=overlay.overlay_spatial_overlap`,
+          severity: 'warn',
         });
-      } else if (ratio >= 0.1) {
+      } else if (ratio >= OVERLAY_PARTIAL_OVERLAP_RATIO) {
         addIssue('overlap', 0.1, 'visual overlays partially overlap', {
           overlay: a.item,
           relatedOverlay: b.item,
