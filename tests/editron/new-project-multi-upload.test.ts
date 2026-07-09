@@ -48,7 +48,7 @@ describe('new project multi-upload intake', () => {
       'utf8',
     );
 
-    expect(hookSource).toContain('uploadMediaFiles(selectedFiles)');
+    expect(hookSource).toContain('uploadMediaFiles(selectedFiles, { uploadBatchIntake: options })');
     expect(hookSource).toContain('Batch is ready for multi-source project assembly');
     expect(hookSource).toContain('startMany');
     expect(flowSource).toContain('setPendingFootageFiles(files)');
