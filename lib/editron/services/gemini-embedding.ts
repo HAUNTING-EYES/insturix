@@ -1,4 +1,4 @@
-const DEFAULT_EMBEDDING_MODEL = 'text-embedding-005';
+const DEFAULT_EMBEDDING_MODEL = 'gemini-embedding-001';
 
 export const EDITRON_EMBEDDING_DIMENSIONS = 768;
 export const EDITRON_EMBEDDING_MODEL =
