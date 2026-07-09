@@ -76,7 +76,7 @@ function getPublishableLines(content: string): string[] {
     .filter((line) => !/^#\w/.test(line));
 }
 
-function assertUsableCachedPostResult(result: PostWriterResult, input: PostWriterInput): void {
+export function assertUsablePostWriterResult(result: PostWriterResult, input: PostWriterInput): void {
   const platform = detectPlatform(input.userPrompt, undefined, input.context.projectSummary);
   const content = result.content.trim();
   const lines = getPublishableLines(content);
@@ -84,8 +84,10 @@ function assertUsableCachedPostResult(result: PostWriterResult, input: PostWrite
   const failures: string[] = [];
   const minChars = MIN_COMPLETE_POST_CHARS[platform] ?? MIN_COMPLETE_POST_CHARS.generic;
 
+  const minBodyLines = platform === 'twitter' ? 1 : 3;
+
   if (content.length < minChars) failures.push(`content_under_${minChars}_chars`);
-  if (lines.length < 3) failures.push('missing_body_or_cta_lines');
+  if (lines.length < minBodyLines) failures.push('missing_body_or_cta_lines');
   if (!(/[?]/.test(ctaTail) || POST_CTA_PATTERN.test(ctaTail))) failures.push('missing_action_cta');
   if (platform !== 'twitter' && !/#\w+/.test(content)) failures.push('missing_hashtags');
   if (!(result.clickatron?.singleImagePrompt || result.clickatron?.carouselPrompts?.length)) {
@@ -96,7 +98,7 @@ function assertUsableCachedPostResult(result: PostWriterResult, input: PostWrite
   if (filler) failures.push(`banned_phrase:${filler.label}`);
 
   if (failures.length > 0) {
-    throw new Error(`Cached post failed publishable quality gate: ${failures.join(', ')}`);
+    throw new Error(`Post writer output failed publishable quality gate: ${failures.join(', ')}`);
   }
 }
 
@@ -227,7 +229,7 @@ Return your response strictly adhering to the JSON schema.`;
       });
       const parsed = parseAgentJson(text);
       const result = this.schema.parse(parsed);
-      assertUsableCachedPostResult(result, input);
+      assertUsablePostWriterResult(result, input);
 
       output = {
         result,
@@ -244,6 +246,7 @@ Return your response strictly adhering to the JSON schema.`;
     // Filler self-repair: one in-context rewrite if a banned phrase slipped through either path.
     // Fail-soft — keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
     output.result.content = await repairAiFillerContent(output.result.content, this.config.modelName, abortSignal);
+    assertUsablePostWriterResult(output.result, input);
     return output;
   }
 }
