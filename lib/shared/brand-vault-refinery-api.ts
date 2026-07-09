@@ -474,7 +474,6 @@ export async function createBrandVaultRefineryJobFromWebsite(
       visualAssetStorage: resolveVisualAssetStorageProvider(dependencies),
       captureWebsiteScreenshot: resolveWebsiteScreenshotCapture(dependencies),
       captureSectionScreenshots: resolveSectionScreenshotCapture(dependencies),
-      decodeProductUiModel: resolveVisionDecoder(dependencies),
     },
   );
 
@@ -514,6 +513,17 @@ export async function createBrandVaultRefineryJobFromWebsite(
     reviewPayload,
   });
 
+  // Vision DECODE runs HERE — after the draft record + snapshot are persisted and the scan is already
+  // reviewable — because it is slow (~45-100s, GLM vision) and pure enrichment. Keeping it off the scan's
+  // critical path means a decode timeout can never lose the whole draft (it did, before). Fail-soft.
+  await runProductUiDecodeFollowUp({
+    decoder: resolveVisionDecoder(dependencies),
+    store: dependencies.store,
+    record: result.record,
+    sourceUrl: result.normalizedUrl,
+    options: { actorId: args.actorId ?? args.userId, now: dependencies.clock?.() },
+  });
+
   return {
     status: 201,
     body: {
@@ -524,6 +534,34 @@ export async function createBrandVaultRefineryJobFromWebsite(
       candidates: result.candidates,
     },
   };
+}
+
+/**
+ * Decode the draft's stored UI screenshots into a Product UI Model and attach it to the persisted record.
+ * Runs AFTER the draft is saved (so it never blocks review) and is best-effort: no decoder, no screenshots,
+ * a null model, or any error all leave the already-saved draft untouched.
+ */
+async function runProductUiDecodeFollowUp(args: {
+  decoder: DecodeBrandVaultProductUiModel | null;
+  store: BrandVaultRefineryStore;
+  record: BrandSignalProfileRecord;
+  sourceUrl: string;
+  options?: BrandSignalLifecycleOptions;
+}): Promise<void> {
+  if (!args.decoder) return;
+  const screenshotUrls = args.record.profile.assets?.uiScreenshots?.value;
+  if (!Array.isArray(screenshotUrls) || screenshotUrls.length === 0) return;
+  try {
+    const productUiModel = await args.decoder({ url: args.sourceUrl, screenshotUrls });
+    if (!productUiModel) return;
+    args.record.profile.productUiModel = productUiModel;
+    await args.store.saveRecord(args.record, args.options);
+  } catch (error) {
+    console.warn(
+      '[BrandVault:visionDecode] product UI decode follow-up skipped:',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 export async function startQueuedBrandVaultRefineryJobFromWebsite(

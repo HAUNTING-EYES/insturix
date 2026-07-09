@@ -2477,4 +2477,67 @@ describe('Brand Vault refinery API boundary', () => {
     expect(badAction.status).toBe(400);
     expect(badAction.body.ok).toBe(false);
   });
+
+  it('runs vision decode as a post-save follow-up (draft persisted BEFORE decode) and attaches productUiModel', async () => {
+    const store = createPromiseBackedStore();
+    let recordIdAtDecode: string | undefined;
+    let screenshotUrlsAtDecode: string[] = [];
+
+    const result = await createBrandVaultRefineryJobFromWebsite(
+      { userId: 'user_decode', body: { websiteUrl: 'vaultline.example' }, jobId: 'job_decode_followup' },
+      {
+        store,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        captureSectionScreenshots: async () => [{ source: 'url', url: 'https://raw.example/s1.png' }],
+        visualAssetStorage: {
+          mirrorAsset: async (input) => ({ ok: true, provider: 'test_r2', storageKey: input.assetId, publicUrl: `https://cdn.ui.example/${input.assetId}`, contentType: 'image/png', sizeBytes: 100, storedAt: NOW }),
+        },
+        decodeProductUiModel: async ({ screenshotUrls }) => {
+          // Proof the draft is already persisted when decode runs: its snapshot (with recordId) exists now.
+          const snap = await store.getJobSnapshot('job_decode_followup');
+          recordIdAtDecode = snap?.recordId;
+          screenshotUrlsAtDecode = screenshotUrls;
+          return { brand: { accent: '#ffcc33', theme: 'light' }, screens: [{ name: 'hero' }] };
+        },
+        clock: () => NOW,
+      },
+    );
+
+    expect(result.status).toBe(201);
+    if (!result.body.ok) throw new Error(result.body.error.message);
+    // Decode ran AFTER the draft snapshot was saved (off the critical path) and was fed the mirrored R2 urls.
+    expect(recordIdAtDecode).toBe(result.body.record.id);
+    expect(screenshotUrlsAtDecode.length).toBeGreaterThanOrEqual(1);
+    expect(screenshotUrlsAtDecode.every((u) => u.startsWith('https://cdn.ui.example/'))).toBe(true);
+    // productUiModel is attached to the persisted record.
+    expect(result.body.record.profile.productUiModel?.brand).toMatchObject({ accent: '#ffcc33', theme: 'light' });
+    const stored = await store.getRecord(result.body.record.id);
+    expect(stored?.profile.productUiModel?.screens?.[0]?.name).toBe('hero');
+  });
+
+  it('leaves the saved draft fully intact when the vision decode follow-up throws', async () => {
+    const store = createPromiseBackedStore();
+
+    const result = await createBrandVaultRefineryJobFromWebsite(
+      { userId: 'user_decode_fail', body: { websiteUrl: 'vaultline.example' }, jobId: 'job_decode_fail' },
+      {
+        store,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        captureSectionScreenshots: async () => [{ source: 'url', url: 'https://raw.example/s1.png' }],
+        visualAssetStorage: {
+          mirrorAsset: async (input) => ({ ok: true, provider: 'test_r2', storageKey: input.assetId, publicUrl: `https://cdn.ui.example/${input.assetId}`, contentType: 'image/png', sizeBytes: 100, storedAt: NOW }),
+        },
+        decodeProductUiModel: async () => { throw new Error('vision exploded'); },
+        clock: () => NOW,
+      },
+    );
+
+    expect(result.status).toBe(201);
+    if (!result.body.ok) throw new Error(result.body.error.message);
+    // The draft is saved + reviewable; only the enrichment is missing — a decode failure never loses it.
+    const stored = await store.getRecord(result.body.record.id);
+    expect(stored).not.toBeNull();
+    expect((stored?.profile.assets?.uiScreenshots?.value ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(stored?.profile.productUiModel).toBeUndefined();
+  });
 });
