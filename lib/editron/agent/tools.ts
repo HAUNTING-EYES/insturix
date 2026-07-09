@@ -34,13 +34,6 @@ import {
 import { assetResolver } from "../services/asset-resolver";
 import { sampleVideoClip, sendVideoToGemini } from "../services/media/analysis-service";
 import { formatSecondsToHHMMSS, framesToSeconds, parsePromptTimeRange } from "../utils/analysis";
-import {
-  findBestTemplate,
-  fillTemplateSlots,
-  fillTemplateWithDefaults,
-  searchTemplates,
-  computeRelevanceScore,
-} from "../services/motion-graphics-service";
 import { extractEditDNA, applyEditDNA, loadProfile } from "../services/style-transfer-service";
 import { DEFAULT_CONFIG } from '../config/editron-config';
 import { CHAT_MODEL_NAME, getGenAI } from '../utils/gemini-model-factory';
@@ -1600,53 +1593,6 @@ TYPE-SPECIFIC FIELDS:
 
 
         const id = Date.now() + Math.floor(Math.random() * 10000);
-
-        // ── TEMPLATE-FIRST: Check motion graphic templates before AI generation ──
-        try {
-          const match = await findBestTemplate(input.description);
-          if (match && match.score >= 0.7) {
-            console.log(`[HTML-SCENE] Template match: "${match.template.name}" (score: ${match.score.toFixed(2)}). Using template instead of Gemini.`);
-            const filledHtml = await fillTemplateSlots(match.template, input.description);
-            const { sanitizeHtml: sanitize, createSandboxedWrapper: sandbox, extractStyleMetadata: extractMeta } = await import('../utils/html-generator-utils');
-            const cleanHtml = sanitize(filledHtml);
-            const overlayWidth = input.width ?? safeWidth;
-            const overlayHeight = input.height ?? safeHeight;
-            const wrappedHtml = sandbox({ html: cleanHtml, width: overlayWidth, height: overlayHeight, backgroundColor: 'transparent', autoFit: true });
-            const styleMetadata = extractMeta(cleanHtml);
-            const metadata: HtmlGenerationMetadata = { ...styleMetadata, generatedAt: new Date(), sourceType: 'scene' };
-            const existingOverlays = toExistingOverlays(project.overlays || []);
-            const assignedRow = input.row ?? findBestRow('html-scene' as any, { from: input.start, duration: input.duration }, existingOverlays);
-            const newOverlay = {
-              id,
-              type: 'html-scene',
-              from: input.start,
-              durationInFrames: match.template.defaultDuration || input.duration,
-              content: wrappedHtml,
-              prompt: input.description,
-              metadata,
-              row: assignedRow,
-              left: input.x !== undefined ? (input.x - overlayWidth / 2) : 0,
-              top: input.y !== undefined ? (input.y - overlayHeight / 2) : 0,
-              width: overlayWidth,
-              height: overlayHeight,
-              rotation: input.rotation ?? 0,
-              isDragging: false,
-              styles: { animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 } },
-            };
-            await projectService.addOverlay(userId, projectId, newOverlay as any);
-            return JSON.stringify({
-              status: 'success',
-              id,
-              templateUsed: match.template.templateId,
-              metadata: { fonts: metadata.fonts, colors: metadata.colors.slice(0, 3) },
-              message: `Used template "${match.template.name}" for "${input.description}". Resolution: ${overlayWidth}x${overlayHeight}. (Code hidden from chat log)`,
-            });
-          }
-        } catch (templateErr: any) {
-          console.warn('[HTML-SCENE] Template search failed, falling back to Gemini:', templateErr.message);
-        }
-        // ── END TEMPLATE-FIRST ──
-
         // PERF FIX: Reuse cached model instance (Priyank's optimization)
         const model = getLLMModel(0.7);
 

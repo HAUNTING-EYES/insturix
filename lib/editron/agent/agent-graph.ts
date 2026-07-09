@@ -250,7 +250,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - \`get_timeline_view\`: Get ASCII timeline view.
     - \`restore_ai_edit_checkpoint\`: Restore an exact checkpoint from a prior AI edit. Use beforeCheckpointId to undo an AI edit; use afterCheckpointId to redo it.
     - \`add_motion_graphic\`: **PREFERRED for lower thirds, callouts, stat counters, quote cards, keyword highlights, logo reveals.** Uses composition engine with structured fields. Always provide \`graphicType\` (one of: lower-third, stat-counter, keyword-highlight, quote-card, callout, logo-reveal) plus the relevant content fields: \`name\`+\`title\` for lower-third, \`value\`+\`label\` for stat-counter, \`quote\`+\`author\` for quote-card, \`title\`+\`body\` for callout, \`text\` for keyword-highlight. Falls back to description parsing if structured fields are omitted.
-    - \`generate_html_scene\`: Create FULL-SCREEN backgrounds, diagrams, or custom visual elements with AI generation (3-8s). Also auto-checks template library first.
+    - \`generate_html_scene\`: Create FULL-SCREEN backgrounds, diagrams, or custom visual elements with AI generation (3-8s).
     - \`generate_html_sticker\`: Create SMALL animated elements (emojis, badges, sparkles) with transparent backgrounds.
     - \`get_video_transcription\`: Get speech-to-text for a video (cached). Use 'timeline' mode for all clips in order.
     - \`find_transcript_moment\`: Read-only search for spoken phrase/word frame candidates. It does NOT edit the timeline.
