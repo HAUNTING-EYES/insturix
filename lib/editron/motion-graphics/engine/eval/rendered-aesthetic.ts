@@ -120,6 +120,11 @@ const VISUAL_FAMILIES = new Set<AtomicOverlayFamily>([
 ]);
 
 const TEXT_FAMILIES = new Set<AtomicOverlayFamily>(['motion-graphic', 'text', 'caption', 'html-scene']);
+const GRAPHIC_TEXT_FAMILIES = new Set<AtomicOverlayFamily>(['motion-graphic', 'html-scene']);
+const BASELINE_OUTPUT_SHORT_EDGE_PX = 1080;
+const MIN_BODY_TEXT_PX_AT_1080 = 24;
+const MIN_CAPTION_TEXT_PX_AT_1080 = 34;
+const MIN_GRAPHIC_TEXT_PX_AT_1080 = 72;
 
 export function scoreRenderedFrameAesthetic(input: RenderedFrameAestheticInput): RenderedFrameAestheticReport {
   const penalties = emptyPenaltyMap();
@@ -315,11 +320,18 @@ function scoreText(overlay: NormalizedOverlay, input: RenderedFrameAestheticInpu
   const rowCapacity = text.composition.rowCapacity ?? text.display?.maxWordsPerLine ?? wordCount;
   const targetRows = text.composition.targetRowCount;
 
-  if (fontSize !== undefined && fontSize < (isCaption ? 34 : 24)) {
-    addIssue('text', 0.16, 'rendered text is too small to read', {
-      overlay: overlay.item,
-      evidence: `fontPx=${fontSize.toFixed(1)}`,
-    });
+  if (fontSize !== undefined) {
+    const minimumFontSize = minimumReadableTextPx(overlay.family, text, input);
+    if (fontSize < minimumFontSize) {
+      const isGraphicText = isGraphicTextFamily(overlay.family);
+      addIssue('text', isGraphicText ? 0.12 : 0.16, isGraphicText
+        ? 'graphic text violates constraint:overlay.graphic_too_small'
+        : 'rendered text is too small to read', {
+        overlay: overlay.item,
+        evidence: `fontPx=${fontSize.toFixed(1)}; requiredPx=${minimumFontSize.toFixed(1)}${isGraphicText ? '; constraint=overlay.graphic_too_small' : ''}`,
+        severity: isGraphicText ? 'warn' : undefined,
+      });
+    }
   }
 
   if (isCaption && rowCapacity > 6) {
@@ -682,6 +694,27 @@ function isVisualFamily(family: AtomicOverlayFamily | undefined): boolean {
 
 function isTextFamily(family: AtomicOverlayFamily | undefined): boolean {
   return family !== undefined && TEXT_FAMILIES.has(family);
+}
+
+function isGraphicTextFamily(family: AtomicOverlayFamily | undefined): boolean {
+  return family !== undefined && GRAPHIC_TEXT_FAMILIES.has(family);
+}
+
+function minimumReadableTextPx(
+  family: AtomicOverlayFamily | undefined,
+  text: AtomicTextForm,
+  input: RenderedFrameAestheticInput,
+): number {
+  const scale = outputShortEdgeScale(input);
+  if (text.channel === 'caption') return MIN_CAPTION_TEXT_PX_AT_1080 * scale;
+  if (isGraphicTextFamily(family)) return MIN_GRAPHIC_TEXT_PX_AT_1080 * scale;
+  return MIN_BODY_TEXT_PX_AT_1080 * scale;
+}
+
+function outputShortEdgeScale(input: RenderedFrameAestheticInput): number {
+  const shortEdge = Math.min(input.width, input.height);
+  if (!Number.isFinite(shortEdge) || shortEdge <= 0) return 1;
+  return shortEdge / BASELINE_OUTPUT_SHORT_EDGE_PX;
 }
 
 function severityForPenalty(penalty: number): RenderedAestheticSeverity {

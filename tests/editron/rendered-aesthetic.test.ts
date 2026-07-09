@@ -488,6 +488,39 @@ describe('rendered frame aesthetic scoring', () => {
     expect(result.subscores['motion-graphic']).toBe(1);
   });
 
+  it('warns rendered MG text below the CRG graphic-too-small floor', () => {
+    const receipt = motionGraphicReceipt('clear but tiny claim');
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 11, alphaMean: 1 },
+      overlays: [{
+        id: 'undersized-mg-text',
+        receipt,
+        box: {
+          x: 220,
+          y: 760,
+          width: 640,
+          height: 240,
+          opacity: 1,
+          visiblePixelRatio: 0.032,
+          contrastRatio: 5.2,
+          textPixelHeight: 54,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('warn');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'text',
+        severity: 'warn',
+        message: expect.stringContaining('graphic_too_small'),
+        evidence: expect.stringContaining('requiredPx=72.0'),
+      }),
+    ]));
+  });
+
   it('fails tiny concept MGs even when the renderer technically paints pixels', () => {
     const receipt = motionGraphicReceipt('selection bias');
 
