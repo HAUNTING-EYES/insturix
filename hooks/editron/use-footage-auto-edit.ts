@@ -49,20 +49,6 @@ export interface FootageAutoEditState {
   startMany: (files: File[], options?: FootageAutoEditOptions) => void;
 }
 
-const POLL_STATUS_LABELS: Record<string, string> = {
-  queued: 'Queued for processing…',
-  analyzing: 'AI is analyzing your video…',
-  transcribing: 'Transcribing speech…',
-  cleaning: 'Removing silence and fillers…',
-  computing_params: 'Computing editing parameters…',
-  analyzing_deep: 'Deep visual + audio analysis…',
-  analysis_complete: 'Analysis complete, preparing edit…',
-  directing_queued: 'Queued for editing…',
-  directing: 'Applying edits, transitions, captions…',
-  editing: 'Applying edits, transitions, captions…',
-  needs_review: 'Edit complete, review needed…',
-};
-
 export function useFootageAutoEdit(): FootageAutoEditState {
   const router = useRouter();
   const { toast } = useToast();
@@ -175,34 +161,10 @@ export function useFootageAutoEdit(): FootageAutoEditState {
         uploader.start();
       }
 
-      setProgress('AI is analyzing your video…');
-      const maxPolls = 60;
-      for (let i = 0; i < maxPolls; i++) {
-        await new Promise((r) => setTimeout(r, 5000));
-        try {
-          const statusRes = await fetch(`/api/services/editron/projects/${projectId}`);
-          if (statusRes.ok) {
-            const proj = await statusRes.json();
-            const status = proj.project?.autoEditStatus || proj.autoEditStatus;
-            if (status === 'complete') {
-              toast({ title: 'Video edited!', description: 'Opening in editor…' });
-              router.push(`/dashboard/editron/project/${projectId}`);
-              return;
-            }
-            if (status === 'needs_review') {
-              toast({ title: 'Edit needs review', description: proj.project?.autoEditWarning || proj.autoEditWarning || 'AI edit completed, but the quality check needs review.' });
-              router.push(`/dashboard/editron/project/${projectId}`);
-              return;
-            }
-            if (status === 'failed') throw new Error(proj.project?.autoEditError || 'AI editing failed');
-            setProgress(POLL_STATUS_LABELS[status] || `Processing (${status})…`);
-          }
-        } catch (pollErr) {
-          if ((pollErr as Error).message?.includes('failed')) throw pollErr;
-        }
-      }
-      toast({ title: 'Processing taking longer than expected', description: 'Opening project — editing may still be in progress.' });
-      router.push(`/dashboard/editron/project/${projectId}`);
+      // Hand off to the full-screen auto-edit processing route, which polls
+      // the coarse autoEditStatus, shows the assembling screen, and opens the
+      // editor when the edit is ready.
+      router.push(`/dashboard/editron/auto-edit/${projectId}`);
     } catch (e) {
       const msg = getUserFriendlyErrorMessage(e);
       setError(msg);
