@@ -46,6 +46,10 @@ export interface ICalosDeliverable extends Document {
   serviceRef?: CalosServiceRef;
   assetUrl?: string | null;
   assetText?: string | null;
+  /** Pending image-generation prompt for a graphics card (PostWriter's singleImagePrompt), stashed at
+   *  generate time so the explicit "Make image" action can kick off Clickatron later. Null once no
+   *  image is pending (never generated, or already produced -> see assetUrl). */
+  imagePrompt?: string | null;
   errorMessage?: string | null;
   approvals: CalosApproval[];
   // Hoisted for calendar window queries + indexing:
@@ -100,6 +104,7 @@ const CalosDeliverableSchema = new Schema<ICalosDeliverable>(
     serviceRef: { type: ServiceRefSchema, default: undefined },
     assetUrl: { type: String, default: null },
     assetText: { type: String, default: null },
+    imagePrompt: { type: String, default: null },
     errorMessage: { type: String, default: null },
     approvals: { type: [ApprovalSchema], default: [] },
     plannedDates: { type: [String], default: [] },

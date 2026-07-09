@@ -105,6 +105,9 @@ export async function POST(req: NextRequest) {
     deliverable.serviceRef = { service, ...result.serviceRef };
     deliverable.assetUrl = result.assetUrl ?? null;
     deliverable.assetText = result.assetText ?? null;
+    // Stash the writer's image prompt (graphics cards) so the explicit "Make image" action can kick
+    // off Clickatron later. Not auto-fired here — the user chooses which cards spend an image credit.
+    deliverable.imagePrompt = result.imagePrompt ?? null;
     if (result.assetText) {
       // Make the day's post/script a first-class ThinkForge session (visible + refinable there), then
       // mirror the draft + link onto the card. Best-effort — a session-linkage failure must never fail
