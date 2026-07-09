@@ -8,7 +8,7 @@ import { useTimelinePositioning } from '../../hooks/use-timeline-positioning';
 import { CaptionOverlay, OverlayType, Caption, CaptionWord } from '../../types';
 import { defaultCaptionStyles, defaultDisplayConfig } from '../../components/overlays/captions/default-caption-styles';
 import { groupWordsIntoCaptions } from '@/lib/editron/utils/caption-utils';
-import { AutoCaptionButton } from '../../components/overlays/captions/auto-caption-button';
+import { V2AutoCaption } from './v2-auto-caption';
 
 /* ═══ Editron editor v2 · Captions (browse-only) ═════════════════════
    v2-native re-skin of the real CaptionsPanel's BROWSE half — auto-caption,
@@ -97,7 +97,7 @@ export function V2CaptionsBrowse() {
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-2.5">
       <Mono size="8" className="text-ds-secondary">Auto-caption from video</Mono>
-      <AutoCaptionButton />
+      <V2AutoCaption />
 
       <div className="my-1 h-px bg-ds-subtle" />
 
