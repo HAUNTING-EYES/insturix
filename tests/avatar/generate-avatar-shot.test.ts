@@ -51,7 +51,7 @@ describe('selectAvatarShotModel (router)', () => {
 describe('buildSeedanceR2vInput', () => {
   it('caps refs at 9, locks identity, forbids generated speech, and clamps duration', () => {
     const input = buildSeedanceR2vInput(baseSpec({ avatarImageRefs: Array(20).fill('r.jpg'), durationSec: 40 }));
-    expect((input.reference_images as string[]).length).toBe(9);
+    expect((input.image_urls as string[]).length).toBe(9);
     expect(String(input.prompt)).toContain('@Image9');
     expect(String(input.prompt).toLowerCase()).toContain('no vocals, no speech');
     expect(input.duration).toBe('15'); // clamped to Seedance 2.0 max

@@ -123,14 +123,14 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     available: true,
     costPerSec: 0.3024, // 720p, no video inputs (0.1814/s with video inputs), fal page 2026-07-09
     maxDurationSec: 15,
-    maxRefImages: 9, // reference-to-video: 9 images + 3 videos + 3 audio, ≤12 files total
-    resolutions: ['480p', '720p', '1080p'],
+    maxRefImages: 9, // reference-to-video: up to 9 images, referenced @Image1.. in the prompt
+    resolutions: ['480p', '720p', '1080p', '4k'], // fal r2v page 2026-07-10 (4k available)
     lipSync: false,
     nativeAudio: true, // native audio is NOT the user's voice — voice comes from Chatterbox + relip
     voiceClone: false,
     geoRestricted: true, // B2B customers outside US only; passes end_user_id
     license: 'commercial (fal)',
-    notes: "Today's implementation of generateAvatarShot (body/scene). Refs held in @Image1..@Image9. Not the plain i2v endpoint (that takes 1 image).",
+    notes: "★ REJECTS REAL-PERSON LIKENESSES (live probe 2026-07-10: content_policy_violation / partner_validation_failed — ByteDance blocks real human faces as refs). Usable for objects/invented characters ONLY, NOT a real user's avatar. For real-person avatars the body engine must be Kling-based (Kling AI Avatar, or a real-person-friendly i2v). Schema (image_urls @Image1.., end_user_id) + geo-access confirmed working.",
   },
   'seedance-2.5': {
     name: 'seedance-2.5',

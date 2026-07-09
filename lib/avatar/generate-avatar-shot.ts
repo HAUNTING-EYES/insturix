@@ -101,7 +101,7 @@ export function buildSeedanceR2vInput(spec: AvatarShotSpec, endUserId?: string):
 
   return {
     prompt,
-    reference_images: refs, // UNVERIFIED param name against live r2v schema — confirm when wiring live
+    image_urls: refs, // verified param name (fal r2v page 2026-07-10); referenced as @Image1.. in the prompt
     duration: String(Math.min(Math.max(Math.round(spec.durationSec), 4), 15)),
     resolution: normalizeSeedanceResolution(spec.resolution),
     aspect_ratio: spec.aspectRatio || 'auto',
@@ -111,7 +111,8 @@ export function buildSeedanceR2vInput(spec: AvatarShotSpec, endUserId?: string):
 
 function normalizeSeedanceResolution(res: string): string {
   const rank = resolutionRank(res);
-  if (rank >= 3) return '1080p'; // Seedance 2.0 tops out at 1080p
+  if (rank >= 4) return '4k'; // r2v accepts up to 4k (fal page 2026-07-10)
+  if (rank === 3) return '1080p';
   if (rank === 1) return '480p';
   return '720p';
 }
