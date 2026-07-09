@@ -32,6 +32,7 @@ import { ServiceUsageService } from '@/lib/services/serviceUsageService';
 import { resolveThinkForgeDocumentIntent } from '../agents/prompt-utils';
 import { resolveThinkForgeTrendContext } from './trend-context';
 import { resolveThinkForgeProductionBrief } from '../brief/resolve-production-brief';
+import { buildThinkForgeSourceLedger } from '../provenance/source-ledger';
 import {
   resolveContentSignalProfile,
   formatContentSignalProfileForPrompt,
@@ -938,6 +939,13 @@ CRITICAL: You are editing a SELECTION from a larger document.
         }
 
         try {
+          const sourceLedger = buildThinkForgeSourceLedger({
+            userPrompt: effectivePrompt,
+            retrievedContext: retrievedCtx || undefined,
+            brandId: sessionState.metadata.brandId,
+            sessionId: sessionState.sessionId,
+          });
+
           const baseInput = {
             context: quickAssembleContext(
               'script_draft',
@@ -954,6 +962,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
             brandId: sessionState.metadata.brandId,
             contentSignalProfile: resolvedSignalProfile,
             productionBrief: briefSnapshot,
+            sourceLedger,
           };
 
           if (contentPath === 'post') {
@@ -998,6 +1007,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
               visualPrompts: result.visualMetadata,
               scriptSidecar: result.sidecar,
               sidecarVersion: result.sidecar.sidecarVersion,
+              sourceLedger,
               writerMetadata: result.metadata,
               ...(trendContextMetadata ? { trendContext: trendContextMetadata } : {}),
             };

@@ -4,6 +4,7 @@ import {
   type ScriptWriterResult,
 } from '@/lib/thinkforge/agents/script-writer-agent';
 import { SCRIPT_SIDECAR_VERSION, type ScriptSidecar } from '@/lib/thinkforge/schemas/script-sidecar';
+import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
 
 type SidecarScene = ScriptSidecar['scenes'][number];
 
@@ -210,6 +211,53 @@ describe('assertUsableScriptWriterResult', () => {
         }),
       ),
     ).toThrow(/sidecar_scene_count_mismatch:1\/2/);
+  });
+
+  it('rejects sidecar source refs that are not in the source ledger', () => {
+    const scene = {
+      ...makeSidecar().scenes[0]!,
+      sourceRefs: ['missing_ref'],
+      lines: [
+        {
+          ...makeSidecar().scenes[0]!.lines[0]!,
+          sourceRefs: ['missing_ref'],
+        },
+      ],
+    };
+
+    expect(() =>
+      assertUsableScriptWriterResult(
+        makeResult({
+          sidecar: makeSidecar({ sourceRefs: ['missing_ref'], scenes: [scene, makeSidecar().scenes[1]!] }),
+        }),
+        { sourceLedger: buildThinkForgeSourceLedger({ userPrompt: 'Adobe raised prices by 12 percent.' }) },
+      ),
+    ).toThrow(/invalid_source_ref:sidecar:missing_ref/);
+  });
+
+  it('rejects numeric factual claims without source refs when a ledger is present', () => {
+    const scene = {
+      ...makeSidecar().scenes[0]!,
+      title: 'The price jump',
+      narration: 'Adobe raised prices by 12 percent.',
+      lines: [
+        {
+          ...makeSidecar().scenes[0]!.lines[0]!,
+          text: 'Adobe raised prices by 12 percent.',
+          sourceRefs: [],
+        },
+      ],
+      sourceRefs: [],
+    };
+
+    expect(() =>
+      assertUsableScriptWriterResult(
+        makeResult({
+          sidecar: makeSidecar({ scenes: [scene, makeSidecar().scenes[1]!] }),
+        }),
+        { sourceLedger: buildThinkForgeSourceLedger({ userPrompt: 'Adobe raised prices by 12 percent.' }) },
+      ),
+    ).toThrow(/missing_source_ref:scene_1/);
   });
 
   it('rejects spoken languages unsupported by the writer capability surface', () => {

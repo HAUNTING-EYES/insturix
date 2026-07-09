@@ -18,6 +18,11 @@ import {
   SCRIPT_SIDECAR_VERSION,
   ScriptSidecarSchema,
 } from '../schemas/script-sidecar';
+import {
+  findSourceLedgerIssuesForSidecar,
+  formatSourceLedgerForPrompt,
+  type SourceLedger,
+} from '../provenance/source-ledger';
 
 // Flat ScriptWriter Output Contract
 export const ScriptWriterResultSchema = z.object({
@@ -62,8 +67,13 @@ export interface ScriptWriterEditContext {
 export interface ScriptWriterInput extends AgentInput {
   contentSignalProfile?: ThinkForgeContentSignalProfile;
   productionBrief?: ProductionBrief | null;
+  sourceLedger?: SourceLedger | null;
   /** When set, switches the writer into edit/revise mode (see ScriptWriterEditContext). */
   editContext?: ScriptWriterEditContext;
+}
+
+export interface ScriptWriterValidationOptions {
+  sourceLedger?: SourceLedger | null;
 }
 
 const CACHED_SCRIPT_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((pattern) => ({
@@ -142,7 +152,10 @@ function countMatches(text: string, pattern: RegExp): number {
   return Array.from(text.matchAll(pattern)).length;
 }
 
-export function assertUsableScriptWriterResult(result: ScriptWriterResult): void {
+export function assertUsableScriptWriterResult(
+  result: ScriptWriterResult,
+  options: ScriptWriterValidationOptions = {},
+): void {
   const content = result.content?.trim() ?? '';
   const scenePrompts = result.visualMetadata?.scenePrompts ?? [];
   const sceneCount = countMatches(content, MARKDOWN_SCENE_HEADER_PATTERN);
@@ -163,6 +176,7 @@ export function assertUsableScriptWriterResult(result: ScriptWriterResult): void
     const sidecar = parseScriptSidecar(result.sidecar);
     sidecarSceneCount = sidecar.scenes.length;
     validateWriterCapabilityCompliance(result, sidecar, failures);
+    failures.push(...findSourceLedgerIssuesForSidecar(sidecar, options.sourceLedger));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'unknown';
     failures.push(`invalid_sidecar:${message}`);
@@ -194,10 +208,11 @@ export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
   }
 
   buildPrompt(input: ScriptWriterInput): string {
-    const { context, userPrompt, retrievedContext, editContext, productionBrief } = input;
+    const { context, userPrompt, retrievedContext, editContext, productionBrief, sourceLedger } = input;
     const requestedVoiceLanguages = productionBrief?.output.voiceLanguages ?? [];
     const unsupportedVoiceLanguages = requestedVoiceLanguages.filter((language) => !canSpeakLanguage(language));
     const defaultVoiceLanguage = WRITER_CAPABILITIES.voiceLanguages[0] ?? 'en';
+    const sourceLedgerBlock = sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : '';
 
 
     // NOTE: the writing knowledge graph block is deliberately NOT injected here. A 10-seed A/B
@@ -248,6 +263,10 @@ Your task is to write a high-retention, engaging video script.
       prompt += '\n';
     }
 
+    if (sourceLedgerBlock) {
+      prompt += `${sourceLedgerBlock}\n\n`;
+    }
+
     // 3. Script Writing Rules
     prompt += `## Generation Requirements
 1. **Content Formatting:** Write the FINAL script in markdown. Every scene must start exactly like \`## Scene 1: The Hook\`, \`## Scene 2: The Problem\`, etc. Each scene must include bold \`**Narration:**\` and \`**Visual:**\` labels. Do NOT include JSON, block arrays, rich-text objects, \`header\`/\`paragraph\`/\`list\`/\`blockquote\` labels, or meta-commentary inside the content string.
@@ -266,7 +285,7 @@ Your task is to write a high-retention, engaging video script.
    - Each scene includes required parser fields: \`title\`, \`narration\`, \`visualDescription\`, \`videoMotionPrompt\`, \`audioDescription\`, \`musicDescription\`, \`sfxDescription\`, \`durationSeconds\`, \`mood\`, \`imageQualityTokens\`, \`videoQualityTokens\`, \`generationUnitId\`, \`primaryVisualForUnit\`, \`sceneType\`, and \`assetRecommendation\`.
    - Each scene includes \`lines\` with \`text\`, \`speakerId\`, \`onCamera\`, and \`delivery\`. Use \`delivery: "voiceover"\` for narrator voiceover and \`delivery: "sync-dialogue"\` only for visible on-camera speech.
    - If any line has \`onCamera: true\` and \`delivery: "sync-dialogue"\`, set that scene's \`relipSafe: true\`; otherwise set \`relipSafe: false\`.
-   - \`sourceRefs\` are provenance IDs only. If using retrieved sources, use \`source_1\`, \`source_2\`, etc. A line or scene \`sourceRefs\` value must also appear in top-level \`sidecar.sourceRefs\`. If no external facts are used, use empty arrays.
+   - \`sourceRefs\` are provenance IDs only. If a Source Ledger is present, use ONLY referenceId values listed there (\`brief_user\`, \`source_1\`, etc.). Every numeric/date/price/URL/proof/testimonial claim must carry sourceRefs on the line and scene. A line or scene \`sourceRefs\` value must also appear in top-level \`sidecar.sourceRefs\`. If no factual sources are used, use empty arrays.
 7. **Writer Capability Limits:** Author only what the downstream avatar/video rig can produce:
    - Supported spoken voice languages: ${WRITER_CAPABILITIES.voiceLanguages.join(', ') || 'none'}. Requested spoken languages: ${requestedVoiceLanguages.length ? requestedVoiceLanguages.join(', ') : 'none supplied'}. Unsupported requested spoken languages: ${unsupportedVoiceLanguages.length ? unsupportedVoiceLanguages.join(', ') : 'none'}. If any requested spoken language is unsupported, keep spoken narration/dialogue in ${defaultVoiceLanguage}; unsupported languages may be captions/on-screen text only.
    - Set \`metadata.voiceLanguage\` to the supported spoken language actually used.
@@ -336,7 +355,7 @@ Return your response strictly adhering to the JSON schema.`;
       const parsed = parseAgentJson(text);
       const result = this.schema.parse(parsed);
       // Reject unusable cache-path output before it can persist.
-      assertUsableScriptWriterResult(result);
+      assertUsableScriptWriterResult(result, { sourceLedger: input.sourceLedger });
 
       output = {
         result,
@@ -353,13 +372,13 @@ Return your response strictly adhering to the JSON schema.`;
       const isGateReject = error instanceof Error && error.message.startsWith('Script writer output failed document contract');
       console.error(`[LOUDFAIL][ScriptWriter][CACHE-PATH-FAILED] reason=${isGateReject ? 'QUALITY-GATE-REJECTED' : 'infra/parse/model error'} — falling back to base path (no writing-knowledge doc):`, error);
       output = await super.runStructured(input, overrides, abortSignal);
-      assertUsableScriptWriterResult(output.result);
+      assertUsableScriptWriterResult(output.result, { sourceLedger: input.sourceLedger });
     }
 
     // Filler self-repair: one in-context rewrite if a banned phrase slipped through either path.
     // Fail-soft — keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
     output.result.content = await repairAiFillerContent(output.result.content, this.config.modelName, abortSignal);
-    assertUsableScriptWriterResult(output.result);
+    assertUsableScriptWriterResult(output.result, { sourceLedger: input.sourceLedger });
     return output;
   }
 }
