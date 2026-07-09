@@ -46,6 +46,9 @@ export interface ClickatronSourceContext {
   universalId?: string;
   brandId?: string;
   projectId?: string;
+  /** CalOS content-card id (== calos_deliverables.card.id). Set when a CalOS deliverable kicks off
+   *  this image; the completion worker reads it to land the finished image back on the card. */
+  calosDeliverableId?: string;
 }
 
 // Main Task Interface (matches the new MongoDB schema)
