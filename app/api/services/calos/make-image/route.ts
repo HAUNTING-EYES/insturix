@@ -6,6 +6,7 @@ import { calosScope } from "@/lib/calos/scope";
 import { serviceForFormat } from "@/lib/calos/generate/route-map";
 import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
 import { createClickatronImageJob } from "@/lib/clickatron/create-image-job";
+import { collectImageReferenceUrls } from "@/lib/calos/references/collect-image-references";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -87,12 +88,17 @@ export async function POST(req: NextRequest) {
     await creditCheck.deduct();
     deducted = true;
 
+    // Visual guides: the brand's + this card's campaign's uploaded IMAGE references (best-effort). When
+    // present, the model resolver picks a reference-capable model automatically.
+    const referenceImageRefs = await collectImageReferenceUrls(brandId, deliverable.campaignId);
+
     const kickoff = await createClickatronImageJob({
       userId,
       orgId: orgId ?? null,
       brandId,
       prompt,
       ...(aspectRatio ? { aspectRatio } : {}),
+      ...(referenceImageRefs.length ? { referenceImageRefs } : {}),
       // The completion worker gates on brandId and resolves the card via calosDeliverableId.
       sourceContext: { calosDeliverableId: deliverableId, brandId },
     });
