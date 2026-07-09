@@ -97,6 +97,7 @@ export interface RecipeElement {
   bind: Record<string, BindingExpr>;
   anchor?: ElementAnchor;
   children?: RecipeElement[]; // for 'group' primitive — sub-primitives positioned relative to the group
+  enterOrder?: number;
   entranceOverride?: EntrancePattern;
   exitOverride?: ExitPattern;
   holdAnimation?: HoldPattern;
