@@ -217,6 +217,29 @@ export default function CalosCampaignBar({
     }
   };
 
+  /** Accept-and-generate: sequentially generate a script/post for each kept idea (one by one so we
+      never spike credits or the writer's rate limit). Best-effort per card — one failure doesn't abort
+      the batch; the calendar refreshes after each so drafts appear as they land. */
+  const generateAll = async (ids: string[]) => {
+    if (!ids.length) return;
+    let ok = 0;
+    for (const id of ids) {
+      try {
+        const res = await fetch('/api/services/calos/generate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ brandId, deliverableId: id }),
+        });
+        if (res.ok) ok++;
+      } catch { /* continue — a single failure must not abort the whole batch */ }
+      onAfterGenerate();
+    }
+    toast({
+      title: `Generated ${ok}/${ids.length}`,
+      description: ok < ids.length ? 'Some failed — open them to retry.' : 'Scripts are ready.',
+      ...(ok === 0 ? { variant: 'destructive' as const } : {}),
+    });
+  };
+
   return (
     <div className="calos-tw" style={{ padding: 10, background: C.raised, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -248,7 +271,7 @@ export default function CalosCampaignBar({
         <CalosCadenceModal campaign={null} brandId={brandId} initialRules={suggestedRules} onClose={() => setCreateOpen(false)} onSaved={(newId) => { void loadCampaigns(); if (newId) setCampaignId(newId); }} />
       )}
       {review && (
-        <GenerationReview title={review.title} sub={review.sub} items={review.items} onRemove={removeDraft} onClose={() => setReview(null)} />
+        <GenerationReview title={review.title} sub={review.sub} items={review.items} onRemove={removeDraft} onClose={() => setReview(null)} onGenerateAll={generateAll} />
       )}
     </div>
   );
