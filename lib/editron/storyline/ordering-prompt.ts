@@ -14,28 +14,19 @@
  * builder does not change. Pure; never throws.
  */
 
+import { SEQUENCING_MOVES } from '../data/creative-doc-rules';
 import type { ClipDigest } from './ordering-digest';
 import { refToSceneIdMap } from './ordering-digest';
 import type { OrderedItem, OrderingPlan, SeamLink } from './ordering-plan';
 import { SEAM_LINKS } from './ordering-plan';
 
-export interface SequencingMove {
-  name: string;
-  effect: string;
-}
-
 /**
- * PROVISIONAL ordering moves (placeholder for ThinkForge's creative-doc SEQUENCING_MOVES).
- * Priors the model may lean on - not a forced template, never surfaced to the user.
+ * The menu shape the prompt renders from. Structurally a SUBSET of the creative doc's
+ * SEQUENCING_MOVES (Record<move, {effect, whenNotTo?, ...}>) - ThinkForge owns the menu
+ * content in `creative-doc-rules.ts`; we consume it. Extra fields (signalsFor) are ignored
+ * here. Any object with this shape can be injected (the eval/tests pass a small stub).
  */
-export const SEQUENCING_MOVES: readonly SequencingMove[] = [
-  { name: 'hook-first', effect: 'Open on the strongest moment (a claim, a question, a peak), not the earliest clip.' },
-  { name: 'therefore/but joins', effect: 'Each clip should follow the last by consequence (therefore) or reversal (but), not mere sequence (and then).' },
-  { name: 'setup-before-payoff', effect: "A payoff comes after its setup; a question is answered later; never show a conclusion whose premise the viewer hasn't seen." },
-  { name: 'group-by-topic', effect: 'Keep clips about one idea adjacent so the argument builds instead of scattering it.' },
-  { name: 'pacing-variation', effect: "Build toward a peak, then resolve; don't stack all high-energy or all low-energy clips." },
-  { name: 'end-on-resolution', effect: 'Close on the payoff/CTA the sequence built toward, not a filler shot.' },
-];
+export type SequencingMovesMenu = Readonly<Record<string, { readonly effect: string; readonly whenNotTo?: string }>>;
 
 export interface OrderingPromptContext {
   platform?: string | null;
@@ -63,15 +54,17 @@ function renderClip(d: ClipDigest, srcTag: string): string {
   return lines.join('\n');
 }
 
-/** Build the ordering prompt. `moves` defaults to the provisional set; pass ThinkForge's when ready. */
+/** Build the ordering prompt. `moves` defaults to the creative doc's SEQUENCING_MOVES. */
 export function buildOrderingPrompt(
   digests: readonly ClipDigest[],
   ctx: OrderingPromptContext = {},
-  moves: readonly SequencingMove[] = SEQUENCING_MOVES,
+  moves: SequencingMovesMenu = SEQUENCING_MOVES,
 ): string {
   const tags = sourceTags(digests);
   const clips = digests.map((d) => renderClip(d, tags.get(d.source)!)).join('\n\n');
-  const movesBlock = moves.map((m) => `- ${m.name}: ${m.effect}`).join('\n');
+  const movesBlock = Object.entries(moves)
+    .map(([name, m]) => `- ${name}: ${m.effect}${m.whenNotTo ? ` (avoid when: ${m.whenNotTo})` : ''}`)
+    .join('\n');
   const lang = ctx.language ?? 'the clips\' own language';
   const target =
     typeof ctx.targetDurationSec === 'number' && ctx.targetDurationSec > 0

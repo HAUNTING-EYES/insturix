@@ -39,10 +39,18 @@ describe('buildOrderingPrompt', () => {
     expect(buildOrderingPrompt(digests)).toMatch(/keep that natural mix|do not clean it up/i);
   });
 
-  it('accepts an injected moves menu (ThinkForge SEQUENCING_MOVES swaps in here)', () => {
-    const p = buildOrderingPrompt(digests, {}, [{ name: 'my-move', effect: 'do the thing' }]);
+  it('accepts an injected moves menu (Record shape, renders effect + whenNotTo)', () => {
+    const p = buildOrderingPrompt(digests, {}, { 'my-move': { effect: 'do the thing', whenNotTo: 'never on tuesdays' } });
     expect(p).toContain('my-move: do the thing');
+    expect(p).toContain('avoid when: never on tuesdays');
     expect(p).not.toContain('hook-first');
+  });
+
+  it('defaults to the real creative-doc SEQUENCING_MOVES (all six moves render)', () => {
+    const p = buildOrderingPrompt(digests);
+    for (const move of ['hook-first', 'therefore-but-join', 'setup-before-payoff', 'group-by-topic', 'pacing-variation', 'end-on-resolution']) {
+      expect(p).toContain(move);
+    }
   });
 });
 
