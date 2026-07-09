@@ -23,6 +23,8 @@ import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/
 import { useAcceptedBrandVaultBrands } from '@/components/dashboard/BrandVault/useBrandVault';
 import { useFootageAutoEdit } from '@/hooks/editron/use-footage-auto-edit';
 import { collectFootageFiles } from '@/components/editron/project/footage-selection';
+import { AutoEditDialog, type AutoEditOptions } from '@/components/editron/project/auto-edit-dialog';
+import { FootageBatchIntakeDialog } from '@/components/editron/project/footage-batch-intake-dialog';
 
 type Screen = 'idle' | 'upload' | 'generate' | 'script' | 'saas' | 'onair';
 
@@ -215,6 +217,7 @@ export default function NewProjectFlow() {
 
   const [projName, setProjName] = useState('untitled');
   const [projType, setProjType] = useState('—');
+  const [pendingFootageFiles, setPendingFootageFiles] = useState<File[]>([]);
 
   const go = useCallback((s: Screen) => { setError(null); setScreen(s); }, []);
 
@@ -270,6 +273,25 @@ export default function NewProjectFlow() {
 
   // UPLOAD → inline footage auto-edit. Reopen existing projects → the dashboard/upload route.
   const goProjects = useCallback(() => router.push('/dashboard/editron/projects'), [router]);
+  const startFootageFiles = useCallback((files: File[], options: AutoEditOptions = {}) => {
+    if (footage.running || files.length === 0) return;
+    setPendingFootageFiles([]);
+    setError(null);
+    setProjName(files.length === 1 ? files[0].name : `${files.length} files`);
+    setProjType(files.length === 1 ? 'Edit footage' : 'Upload batch');
+    setScreen('onair');
+    footage.startMany(files, options);
+  }, [footage]);
+  const cancelPendingFootage = useCallback(() => {
+    setPendingFootageFiles([]);
+    setScreen('upload');
+  }, []);
+  const onSingleFootageConfirm = useCallback((file: File, options: AutoEditOptions) => {
+    startFootageFiles([file], options);
+  }, [startFootageFiles]);
+  const onBatchFootageConfirm = useCallback((options: AutoEditOptions) => {
+    startFootageFiles(pendingFootageFiles, options);
+  }, [pendingFootageFiles, startFootageFiles]);
   const onFootageFiles = useCallback((selection: FileList | File[] | null | undefined) => {
     if (footage.running) return;
     const { files, rejected } = collectFootageFiles(selection);
@@ -278,17 +300,20 @@ export default function NewProjectFlow() {
       return;
     }
     setError(null);
-    setProjName(files.length === 1 ? files[0].name : `${files.length} files`);
-    setProjType(files.length === 1 ? 'Edit footage' : 'Upload batch');
-    setScreen('onair');
-    footage.startMany(files);
-  }, [footage]);
+    setPendingFootageFiles(files);
+    setScreen('upload');
+  }, [footage.running]);
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     onFootageFiles(e.dataTransfer.files);
   }, [onFootageFiles]);
 
   const m = META[screen];
+  const pendingSingleVideo =
+    pendingFootageFiles.length === 1 && pendingFootageFiles[0]?.type.startsWith('video/')
+      ? pendingFootageFiles[0]
+      : null;
+  const pendingBatchFiles = pendingSingleVideo ? [] : pendingFootageFiles;
 
   return (
     <div className="enp">
@@ -487,6 +512,17 @@ export default function NewProjectFlow() {
           <button type="button" className="back" onClick={() => go(BACK[screen])}>&#9666; Back</button>
         ) : null}
       </div>
+      <AutoEditDialog
+        file={pendingSingleVideo}
+        onConfirm={onSingleFootageConfirm}
+        onCancel={cancelPendingFootage}
+      />
+      <FootageBatchIntakeDialog
+        files={pendingBatchFiles}
+        open={pendingBatchFiles.length > 0}
+        onConfirm={onBatchFootageConfirm}
+        onCancel={cancelPendingFootage}
+      />
     </div>
   );
 }

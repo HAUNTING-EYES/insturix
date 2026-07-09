@@ -35,13 +35,27 @@ describe('new project multi-upload intake', () => {
   });
 
   it('does not silently auto-edit the first file when multiple files are selected', () => {
-    const source = readFileSync(
+    const hookSource = readFileSync(
       join(process.cwd(), 'hooks/editron/use-footage-auto-edit.ts'),
       'utf8',
     );
+    const flowSource = readFileSync(
+      join(process.cwd(), 'components/editron/project/new-project-flow.tsx'),
+      'utf8',
+    );
+    const batchDialogSource = readFileSync(
+      join(process.cwd(), 'components/editron/project/footage-batch-intake-dialog.tsx'),
+      'utf8',
+    );
 
-    expect(source).toContain('uploadMediaFiles(selectedFiles)');
-    expect(source).toContain('Batch is ready for multi-source project assembly');
-    expect(source).toContain('startMany');
+    expect(hookSource).toContain('uploadMediaFiles(selectedFiles)');
+    expect(hookSource).toContain('Batch is ready for multi-source project assembly');
+    expect(hookSource).toContain('startMany');
+    expect(flowSource).toContain('setPendingFootageFiles(files)');
+    expect(flowSource).toContain('AutoEditDialog');
+    expect(flowSource).toContain('FootageBatchIntakeDialog');
+    expect(flowSource).not.toContain('footage.startMany(files);');
+    expect(batchDialogSource).toContain('What should this become?');
+    expect(batchDialogSource).toContain('Optional script / outline');
   });
 });
