@@ -24,10 +24,9 @@ import { V2Modals, type V2ModalKind } from './modals/v2-modals';
 
 export function V2Editor() {
   const [isMobile, setIsMobile] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(true);
   const [modal, setModal] = useState<V2ModalKind>(null);
-  const [toolOpen, setToolOpen] = useState(true);
-  const [propsOpen, setPropsOpen] = useState(true);
+  const [leftOpen, setLeftOpen] = useState(true);
 
   // Mobile detect (mirrors Editor).
   useEffect(() => {
@@ -85,14 +84,13 @@ export function V2Editor() {
   // on the video. Panels reopen from the tool rail / on selecting a clip / AI.
   useHotkeys('escape', () => {
     if (modal) { setModal(null); return; }
-    setToolOpen(false);
-    setPropsOpen(false);
+    setLeftOpen(false);
     setAiOpen(false);
   }, { enableOnFormTags: false }, [modal]);
 
-  // Re-open the properties panel whenever a clip is selected.
+  // Selecting a clip opens the left panel (which then shows its settings).
   useEffect(() => {
-    if (selectedOverlayId !== null) setPropsOpen(true);
+    if (selectedOverlayId !== null) setLeftOpen(true);
   }, [selectedOverlayId]);
 
   if (isMobile && DISABLE_MOBILE_LAYOUT) {
@@ -125,15 +123,23 @@ export function V2Editor() {
       />
 
       <div className="flex min-h-0 flex-1">
-        <V2ToolRail aiOpen={aiOpen} onToggleAi={() => setAiOpen((o) => !o)} onOpenTool={() => setToolOpen(true)} />
-        {toolOpen && <V2ToolPanel onClose={() => setToolOpen(false)} />}
+        <V2ToolRail
+          aiOpen={aiOpen}
+          onToggleAi={() => setAiOpen((o) => !o)}
+          onOpenTool={() => { setSelectedOverlayId(null); setLeftOpen(true); }}
+        />
+        {/* Left panel is contextual: overlay settings when a clip is selected,
+            otherwise the active tool's browse. (Editing lives on the LEFT.) */}
+        {leftOpen && (selectedOverlayId !== null
+          ? <V2PropsPanel onClose={() => setLeftOpen(false)} />
+          : <V2ToolPanel onClose={() => setLeftOpen(false)} />)}
 
         <div className="flex min-w-0 flex-1 flex-col">
           <V2Canvas />
           <V2Transport />
         </div>
 
-        {propsOpen && <V2PropsPanel onClose={() => setPropsOpen(false)} />}
+        {/* AI chat lives on the RIGHT, open by default (collapsible). */}
         {aiOpen && <V2AiPanel onClose={() => setAiOpen(false)} />}
       </div>
 

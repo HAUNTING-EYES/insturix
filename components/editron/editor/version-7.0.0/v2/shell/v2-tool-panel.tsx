@@ -10,12 +10,10 @@ import { V2SoundBrowse } from './v2-sound-browse';
 import { V2CaptionsBrowse } from './v2-captions-browse';
 import { V2VideoBrowse } from './v2-video-browse';
 import { V2ImageBrowse } from './v2-image-browse';
-import { StickersPanel } from '../../components/overlays/stickers/stickers-panel';
 import { V2AssetsPanel } from './v2-assets-panel';
-import { TemplateOverlayPanel } from '../../components/overlays/templates/template-overlay-panel';
+import { V2SfxBrowse } from './v2-sfx-browse';
 import { HtmlScenePanel } from '../../components/overlays/html/html-scene-panel';
 import { TransitionBrowserPanel } from '../../components/transitions/transition-browser-panel';
-import { SFXLibraryPanel } from '../../components/sfx-library/sfx-library-panel';
 import { LottiePanel } from '../../components/lottie/lottie-panel';
 
 /* ═══ Editron editor v2 · tool panel (244px) ═════════════════════════
@@ -40,14 +38,12 @@ const PANELS: Array<{ type: OverlayType; el: React.ReactNode }> = [
   { type: OverlayType.VIDEO, el: <V2VideoBrowse /> },
   { type: OverlayType.CAPTION, el: <V2CaptionsBrowse /> },
   { type: OverlayType.SOUND, el: <V2SoundBrowse /> },
-  { type: OverlayType.SFX_LIBRARY, el: <SFXLibraryPanel /> },
-  { type: OverlayType.STICKER, el: <StickersPanel /> },
+  { type: OverlayType.SFX_LIBRARY, el: <V2SfxBrowse /> },
   { type: OverlayType.TRANSITIONS, el: <TransitionBrowserPanel /> },
   // Selecting a transition tile on the timeline sets activePanel to the
   // singular TRANSITION — map it to the same browser panel (as v1 does).
   { type: OverlayType.TRANSITION, el: <TransitionBrowserPanel /> },
   { type: OverlayType.LOTTIE, el: <LottiePanel /> },
-  { type: OverlayType.TEMPLATE, el: <TemplateOverlayPanel /> },
   // No rail entry — reached only by selecting an html-scene overlay.
   { type: OverlayType.HTML_SCENE, el: <HtmlScenePanel /> },
 ];
@@ -60,11 +56,9 @@ const TITLES: Partial<Record<OverlayType, string>> = {
   [OverlayType.CAPTION]: 'Captions',
   [OverlayType.SOUND]: 'Audio',
   [OverlayType.SFX_LIBRARY]: 'Sound FX',
-  [OverlayType.STICKER]: 'Stickers',
   [OverlayType.TRANSITIONS]: 'Transitions',
   [OverlayType.TRANSITION]: 'Transitions',
   [OverlayType.LOTTIE]: 'Graphics',
-  [OverlayType.TEMPLATE]: 'Templates',
   [OverlayType.HTML_SCENE]: 'Custom Scene',
 };
 

@@ -79,7 +79,7 @@ export function V2PropsPanel({ onClose }: { onClose?: () => void }) {
 
   if (!sel) {
     return (
-      <div className="relative flex w-[264px] shrink-0 items-center justify-center border-l border-ds-subtle bg-surface-canvas p-4">
+      <div className="relative flex w-[264px] shrink-0 items-center justify-center border-r border-ds-subtle bg-surface-canvas p-4">
         {onClose && (
           <button type="button" onClick={onClose} title="Close panel (Esc)" className={`absolute right-2 top-2 ${closeBtn}`}>
             <X size={14} />
@@ -101,7 +101,7 @@ export function V2PropsPanel({ onClose }: { onClose?: () => void }) {
     setStyle({ animation: { ...(sel as { styles?: { animation?: object } }).styles?.animation, enter } });
 
   return (
-    <div className="flex w-[264px] shrink-0 flex-col overflow-y-auto border-l border-ds-subtle bg-surface-canvas p-4">
+    <div className="flex w-[264px] shrink-0 flex-col overflow-y-auto border-r border-ds-subtle bg-surface-canvas p-4">
       {/* Type header */}
       <div className="mb-3.5 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
