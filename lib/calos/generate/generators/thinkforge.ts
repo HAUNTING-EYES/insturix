@@ -12,7 +12,7 @@ export async function thinkforgeGenerator(params: GenerateParams): Promise<Gener
   try {
     const content = isVideoFormat(params.format ?? "")
       ? await runScriptWriter(params)
-      : await runPostWriter(params);
+      : (await runPostWriter(params)).content;
     if (!content) return { ok: false, error: "Writer returned empty content" };
     return { ok: true, assetText: content };
   } catch (err) {

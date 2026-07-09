@@ -1,13 +1,22 @@
 import type { GenerateParams } from "../contract";
 import { resolveSystemBrief } from "./_brand-brief";
 
+export interface PostWriterOutput {
+  /** On-brand post copy / caption, ready for the platform (markdown emphasis stripped). */
+  content: string;
+  /** The tailored single-image prompt PostWriter emits alongside the copy (props + text overlays).
+   *  The graphics generator uses this to kick off Clickatron image generation; undefined when the
+   *  writer didn't propose an image. */
+  imagePrompt?: string;
+}
+
 /**
  * Shared PostWriter call for the text + graphics generators. Resolves brand context (best-effort)
- * and runs ThinkForge's PostWriterAgent, returning the on-brand post copy / caption. (The image
- * prompt PostWriter can emit is internal plumbing — it's generated and HIDDEN inside ThinkForge's
- * export-to-Clickatron flow at image-gen time, never surfaced to the user.)
+ * and runs ThinkForge's PostWriterAgent, returning the on-brand post copy / caption AND the tailored
+ * single-image prompt PostWriter emits (previously discarded — now carried so CalOS can drive image
+ * generation for graphics cards; the caption path simply ignores `imagePrompt`).
  */
-export async function runPostWriter(params: GenerateParams): Promise<string> {
+export async function runPostWriter(params: GenerateParams): Promise<PostWriterOutput> {
   const systemBrief = await resolveSystemBrief(params.ownerUserId, params.brandId, params.orgId);
 
   const userPrompt = [
@@ -26,7 +35,11 @@ export async function runPostWriter(params: GenerateParams): Promise<string> {
     brandId: params.brandId,
   });
 
-  return stripMarkdownEmphasis(result?.content?.trim() ?? "");
+  const imagePrompt = result?.clickatron?.singleImagePrompt?.trim();
+  return {
+    content: stripMarkdownEmphasis(result?.content?.trim() ?? ""),
+    ...(imagePrompt ? { imagePrompt } : {}),
+  };
 }
 
 /** Social platforms render copy as plain text — strip markdown bold markers so posts don't show
