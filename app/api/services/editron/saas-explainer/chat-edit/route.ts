@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { getGeneralModel } from '@/lib/editron/utils/gemini-model-factory';
+import { getChatModel } from '@/lib/editron/utils/gemini-model-factory';
 import type { ScriptPlanScene } from '@/lib/editron/saas-explainer/script-plan';
 
 /**
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
   if (scenes.length === 0) return NextResponse.json({ success: false, error: 'No scenes to edit' }, { status: 400 });
 
   try {
-    const model = await getGeneralModel();
+    const model = await getChatModel();
     const result = await model.generateContent(buildPrompt(scenes, instruction, body.videoMessage ?? '', body.sceneIndex));
     const text: string = result?.response?.text?.() ?? '';
     const parsed = parseModelJson(text);
