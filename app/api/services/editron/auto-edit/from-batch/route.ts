@@ -23,6 +23,9 @@ import { hydrateStorylineAnalysesForBatch } from '@/lib/editron/services/batch-s
 import { embedScenes, makeEmbeddingScorer } from '@/lib/editron/storyline/scene-embedding';
 import { synthesizeImageScenes, type ImageAssetInput, type ImageFacts } from '@/lib/editron/storyline/image-scene';
 import { generateEditronEmbedding } from '@/lib/editron/services/gemini-embedding';
+import { narrativeSourceFromTimeline, type NarrativeSignalSource } from '@/lib/editron/storyline/signal-enricher';
+import { buildSignalTimeline, buildSignalTimelineFromAnalysis, type RawFootageAnalysis } from '@/lib/editron/services/signal-registry';
+import type { SegmentAnalysis } from '@/lib/editron/types/segment-analysis';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -303,6 +306,38 @@ function imageSceneInputs(assets: readonly BatchMediaAsset[]): ImageAssetInput[]
       source: asset.assetId,
       createdAt: assetCreatedAtMs(asset),
     }));
+}
+
+function hasFullSegmentAnalysis(value: unknown): value is SegmentAnalysis {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    Array.isArray((value as { segments?: unknown }).segments) &&
+    (value as { globalContext?: unknown }).globalContext,
+  );
+}
+
+function rawFootageAnalysis(value: unknown): RawFootageAnalysis | null {
+  return value && typeof value === 'object' ? value as RawFootageAnalysis : null;
+}
+
+function narrativeSourcesFromAnalyses(
+  analyses: Awaited<ReturnType<typeof readProjectAssetAnalyses>>,
+  assetContexts: ReadonlyMap<string, { source?: string | null }>,
+): ReadonlyMap<string, NarrativeSignalSource> | undefined {
+  const sources = new Map<string, NarrativeSignalSource>();
+  for (const analysis of analyses) {
+    const raw = rawFootageAnalysis(analysis.rawFootageAnalysis);
+    const timeline = hasFullSegmentAnalysis(analysis.segmentAnalysis)
+      ? buildSignalTimelineFromAnalysis(analysis.segmentAnalysis, [], raw, [], FPS, analysis.musicAnalysis as never)
+      : buildSignalTimeline([], raw, [], FPS, undefined, undefined, analysis.musicAnalysis as never);
+    const source = narrativeSourceFromTimeline(timeline);
+    if (source.events.length === 0 && !source.pressureAt && !source.durationMs) continue;
+    sources.set(analysis.assetId, source);
+    const resolvedSource = assetContexts.get(analysis.assetId)?.source;
+    if (resolvedSource) sources.set(resolvedSource, source);
+  }
+  return sources.size > 0 ? sources : undefined;
 }
 
 async function analyzeImageFacts(assetInput: ImageAssetInput, assetsById: ReadonlyMap<string, BatchMediaAsset>, userId: string): Promise<ImageFacts> {
@@ -663,6 +698,7 @@ export async function POST(request: NextRequest) {
         language: sourceLanguageFromAssets(visualAssets),
       },
       compose: { scorer: makeEmbeddingScorer(intentEmbedding) },
+      narrativeSources: narrativeSourcesFromAnalyses(analyses, assetContexts),
     });
     const storylineTimeline = await materializeStoryline(ordering, visualAssets, userId, uploadBatchId, dims);
     const timeline = storylineTimeline ?? await materializeChronologicalFallback(visualAssets, userId, uploadBatchId, dims);

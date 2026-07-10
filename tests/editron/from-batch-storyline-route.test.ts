@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
   isR2Available: vi.fn(),
   embedScenes: vi.fn(),
   generateEditronEmbedding: vi.fn(),
+  buildSignalTimeline: vi.fn(),
+  buildSignalTimelineFromAnalysis: vi.fn(),
+  narrativeSourceFromTimeline: vi.fn(),
   makeEmbeddingScorer: vi.fn(),
   orderStorylineWithLLM: vi.fn(),
   scenesFromAssetAnalyses: vi.fn(),
@@ -63,6 +66,13 @@ vi.mock('@/lib/editron/storyline/scene-embedding', () => ({
 }));
 vi.mock('@/lib/editron/services/gemini-embedding', () => ({
   generateEditronEmbedding: mocks.generateEditronEmbedding,
+}));
+vi.mock('@/lib/editron/services/signal-registry', () => ({
+  buildSignalTimeline: mocks.buildSignalTimeline,
+  buildSignalTimelineFromAnalysis: mocks.buildSignalTimelineFromAnalysis,
+}));
+vi.mock('@/lib/editron/storyline/signal-enricher', () => ({
+  narrativeSourceFromTimeline: mocks.narrativeSourceFromTimeline,
 }));
 vi.mock('@/lib/editron/production-brief/intake-adapter', () => ({
   intakeSignalsFromProject: vi.fn(() => ({ requested: {} })),
@@ -171,12 +181,18 @@ describe('from-batch storyline route handoff', () => {
       segmentCount: 2,
       skipped: [],
     });
-    mocks.readProjectAssetAnalyses.mockResolvedValue([{ assetId: 'video_1' }, { assetId: 'image_1' }]);
+    mocks.readProjectAssetAnalyses.mockResolvedValue([{
+      assetId: 'video_1',
+      rawFootageAnalysis: { transcription: { words: [{ word: 'Proof', startMs: 1000, endMs: 1300 }] }, originalDurationMs: 8000 },
+    }, { assetId: 'image_1' }]);
     mocks.scenesFromAssetAnalyses.mockReturnValue([{ id: 'scene_video', source: 'video_1', startTime: 1, endTime: 3, durationSec: 2 }]);
     mocks.synthesizeImageScenes.mockResolvedValue([{ id: 'scene_image', source: 'image_1', startTime: 0, endTime: 4, durationSec: 4 }]);
     mocks.embedScenes.mockImplementation(async (scenes: unknown) => scenes);
     mocks.makeEmbeddingScorer.mockReturnValue('semantic-scorer');
     mocks.generateEditronEmbedding.mockResolvedValue([1, 0, 0]);
+    mocks.buildSignalTimeline.mockReturnValue({ eventSignals: [{ timestampMs: 1000, signal: 'entity.name', value: 'Proof', context: 'Proof' }], gridSignals: new Map(), globalSignals: {}, fps: 30, totalFrames: 240, gridInterval: 15 });
+    mocks.buildSignalTimelineFromAnalysis.mockReturnValue({ eventSignals: [], gridSignals: new Map(), globalSignals: {}, fps: 30, totalFrames: 240, gridInterval: 15 });
+    mocks.narrativeSourceFromTimeline.mockReturnValue({ events: [{ timestampMs: 1000, kind: 'name', context: 'Proof' }], durationMs: 8000 });
     mocks.resolveProductionBrief.mockReturnValue({
       output: { aspectRatio: '16:9', platform: 'youtube', targetDurationSec: null },
     });
@@ -264,8 +280,12 @@ describe('from-batch storyline route handoff', () => {
       expect.objectContaining({
         ctx: expect.objectContaining({ language: 'hi-en', platform: 'youtube', targetDurationSec: null }),
         compose: { scorer: 'semantic-scorer' },
+        narrativeSources: expect.any(Map),
       }),
     );
+
+    const orderOptions = mocks.orderStorylineWithLLM.mock.calls[0][3];
+    expect(orderOptions.narrativeSources.get('video_1')).toEqual(expect.objectContaining({ durationMs: 8000 }));
 
     expect(mocks.updateProject).toHaveBeenCalledWith(
       { projectId: 'proj_batch_1' },
