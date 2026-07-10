@@ -26,17 +26,16 @@ import { collectFootageFiles } from '@/components/editron/project/footage-select
 import { AutoEditDialog, type AutoEditOptions } from '@/components/editron/project/auto-edit-dialog';
 import { FootageBatchIntakeDialog } from '@/components/editron/project/footage-batch-intake-dialog';
 
-type Screen = 'idle' | 'upload' | 'generate' | 'script' | 'saas' | 'onair';
+type Screen = 'idle' | 'upload' | 'generate' | 'script' | 'onair';
 
 const META: Record<Screen, { h: string; sub: string; bc: string; wm: string; st: string; air: boolean }> = {
   idle: { h: 'What are we<br/><span>making?</span>', sub: '', bc: 'Editron / New project', wm: 'MAKE', st: 'STANDBY', air: false },
   upload: { h: 'Drop your<br/><span>footage.</span>', sub: 'Editron auto-edits your raw clips into a first cut.', bc: 'New project / <b>Upload</b>', wm: 'REEL', st: 'STANDBY', air: false },
   generate: { h: 'What are we<br/><span>generating?</span>', sub: '', bc: 'New project / <b>Generate</b>', wm: 'GEN', st: 'STANDBY', air: false },
   script: { h: 'Paste your<br/><span>script.</span>', sub: 'Bring the words — Editron cuts the video to them.', bc: 'New project / Generate / <b>Script &#8594; video</b>', wm: 'SCRIPT', st: 'STANDBY', air: false },
-  saas: { h: 'Brief the<br/><span>explainer.</span>', sub: 'Give Editron the brand and the goal — it writes, edits and scores it.', bc: 'New project / Generate / <b>SaaS explainer</b>', wm: 'SAAS', st: 'STANDBY', air: false },
   onair: { h: '', sub: '', bc: 'Editron / <b>On air</b>', wm: '', st: 'ON AIR', air: true },
 };
-const BACK: Record<Screen, Screen> = { idle: 'idle', upload: 'idle', generate: 'idle', script: 'generate', saas: 'generate', onair: 'idle' };
+const BACK: Record<Screen, Screen> = { idle: 'idle', upload: 'idle', generate: 'idle', script: 'generate', onair: 'idle' };
 
 const CSS = `
 .enp{--bg:#0B0B0A;--surface:#0F0F0E;--raised:#131312;--well:#1B1A18;--border:#1C1B19;--bs:#282724;
@@ -69,7 +68,7 @@ const CSS = `
 .enp .hero .h{font-weight:800;font-size:clamp(38px,6.4vw,76px);letter-spacing:-.045em;line-height:.94;transition:opacity .4s var(--film)}
 .enp .hero .h span{color:var(--gold)}
 .enp .hero .sub{color:var(--soft);font-size:15px;margin-top:14px;max-width:52ch;opacity:0;height:0;transition:opacity .4s var(--film)}
-.enp .screen[data-s="upload"] .hero .sub,.enp .screen[data-s="script"] .hero .sub,.enp .screen[data-s="saas"] .hero .sub{opacity:1;height:auto}
+.enp .screen[data-s="upload"] .hero .sub,.enp .screen[data-s="script"] .hero .sub{opacity:1;height:auto}
 .enp .panels{flex:1;position:relative;margin-top:26px;min-height:0}
 .enp .panel{position:absolute;inset:0;opacity:0;pointer-events:none;transform:translateY(14px);transition:opacity .35s var(--film),transform .4s var(--film)}
 .enp .panel.on{opacity:1;pointer-events:auto;transform:none}
@@ -210,10 +209,6 @@ export default function NewProjectFlow() {
   const [scriptName, setScriptName] = useState('');
   const [scriptAspect, setScriptAspect] = useState('16:9');
   const [brandId, setBrandId] = useState('');
-  const [saasProduct, setSaasProduct] = useState('');
-  const [saasOutcome, setSaasOutcome] = useState('');
-  const [saasDuration, setSaasDuration] = useState('30s');
-  const [saasAspect, setSaasAspect] = useState('16:9');
 
   const [projName, setProjName] = useState('untitled');
   const [projType, setProjType] = useState('—');
@@ -242,34 +237,6 @@ export default function NewProjectFlow() {
     }
   }, [busy, scriptName, router]);
 
-  // SAAS → real saas-explainer generate (inline), then navigate to the returned project.
-  const commitSaas = useCallback(async () => {
-    if (busy) return;
-    setBusy(true); setError(null);
-    setProjName(saasProduct.trim() || 'explainer'); setProjType('SaaS explainer'); setScreen('onair');
-    try {
-      const res = await fetch('/api/services/editron/saas-explainer/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          productName: saasProduct,
-          outcome: saasOutcome,
-          durationSec: DUR_SEC[saasDuration] ?? 30,
-          aspectRatio: saasAspect,
-          brandId: brandId || getActiveBrandIdFromStorage() || undefined,
-        }),
-      });
-      const data = (await res.json()) as { success?: boolean; projectUrl?: string; error?: string };
-      if (!res.ok || !data.success || !data.projectUrl) {
-        throw new Error(data.error || 'Could not create this explainer.');
-      }
-      router.push(data.projectUrl);
-    } catch (e) {
-      setBusy(false); setScreen('saas');
-      setError(e instanceof Error ? e.message : 'Could not create this explainer.');
-    }
-  }, [busy, saasProduct, saasOutcome, saasDuration, saasAspect, brandId, router]);
 
   // UPLOAD → inline footage auto-edit. Reopen existing projects → the dashboard/upload route.
   const goProjects = useCallback(() => router.push('/dashboard/editron/projects'), [router]);
@@ -440,43 +407,6 @@ export default function NewProjectFlow() {
                 {screen === 'script' && error ? <div className="err">{error}</div> : null}
                 <div className="row-act">
                   <button type="button" className="gen-btn" onClick={commitScript} disabled={busy}>Create</button>
-                </div>
-              </div>
-            </div>
-
-            {/* saas intake */}
-            <div className={screen === 'saas' ? 'panel on' : 'panel'}>
-              <div className="form">
-                <div className="grid2">
-                  <label className="fld"><span className="l">Brand vault</span>
-                    <select className="in" value={brandId} onChange={(e) => setBrandId(e.target.value)}>
-                      <option value="">{brands.length ? 'Select a brand…' : 'No accepted brands yet'}</option>
-                      {brands.map((b) => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}
-                    </select>
-                  </label>
-                  <label className="fld"><span className="l">Product</span>
-                    <input className="in" placeholder="e.g. Insturix" value={saasProduct} onChange={(e) => setSaasProduct(e.target.value)} />
-                  </label>
-                </div>
-                <label className="fld"><span className="l">Outcome / goal</span>
-                  <input className="in" placeholder="What should the viewer do or feel?" value={saasOutcome} onChange={(e) => setSaasOutcome(e.target.value)} />
-                </label>
-                <div className="grid2">
-                  <label className="fld"><span className="l">Duration</span>
-                    <Seg options={['15s', '30s', '60s']} value={saasDuration} onChange={setSaasDuration} />
-                  </label>
-                  <label className="fld"><span className="l">Aspect</span>
-                    <Seg options={['16:9', '9:16', '1:1']} value={saasAspect} onChange={setSaasAspect} />
-                  </label>
-                </div>
-                <div className="ctx">
-                  <span className="m" style={{ fontSize: 9, letterSpacing: '.1em', color: 'var(--gold)' }}>BRAND CONTEXT</span>
-                  <div className="sw"><i style={{ background: '#B5532A' }} /><i style={{ background: '#E8C07A' }} /><i style={{ background: '#2E2A24' }} /></div>
-                  <span className="m" style={{ fontSize: 9, color: 'var(--muted)' }}>{brandId ? 'BRAND LINKED' : 'PICK A BRAND'}</span>
-                </div>
-                {screen === 'saas' && error ? <div className="err">{error}</div> : null}
-                <div className="row-act">
-                  <button type="button" className="gen-btn" onClick={commitSaas} disabled={busy}><span className="d" />Generate</button>
                 </div>
               </div>
             </div>

@@ -41,7 +41,7 @@ import {
   ensureMinimumSaasExplainerScenes,
   normalizeScenes,
   SaasExplainerGenerationError,
-} from "@/lib/editron/saas-explainer/generator";
+} from "@/lib/editron/saas-explainer/scene-helpers";
 import {
   evidencePackToProductModel,
   type ExplainerPlan,

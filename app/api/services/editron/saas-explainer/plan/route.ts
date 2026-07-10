@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 
 import { validateSaasExplainerIntakePayload } from '@/lib/editron/saas-explainer/intake';
 import { buildSaasExplainerScriptPlan } from '@/lib/editron/saas-explainer/script-plan';
-import { SaasExplainerGenerationError } from '@/lib/editron/saas-explainer/generator';
+import { SaasExplainerGenerationError } from '@/lib/editron/saas-explainer/scene-helpers';
 import { CreditsService } from '@/lib/services/creditsService';
 
 /**
