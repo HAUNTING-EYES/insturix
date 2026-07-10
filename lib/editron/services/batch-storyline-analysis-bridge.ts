@@ -61,6 +61,40 @@ type FrameAnalysis = {
   subjects?: Array<{ category?: string; label?: string; boundingBox?: { h?: number } }>;
 };
 
+type Wav2VecSegment = {
+  startMs?: number;
+  endMs?: number;
+  emotionIntensity?: number;
+  emotionalValence?: string | null;
+  energy?: number;
+};
+
+type VjepaSegment = {
+  startMs?: number;
+  endMs?: number;
+  visualSignificance?: number;
+  significance?: number;
+  motionIntensity?: number;
+  actionType?: string | null;
+  faceEmotion?: string | null;
+  faceCount?: number;
+  objectCount?: number;
+  mainSubjectHeight?: number;
+  mainSubject?: { height?: number };
+};
+
+type MomentWeightEntry = {
+  segment_start_ms?: number;
+  segment_end_ms?: number;
+  segmentStartMs?: number;
+  segmentEndMs?: number;
+  startMs?: number;
+  endMs?: number;
+  final_weight?: number;
+  finalWeight?: number;
+  confidence?: 'high' | 'medium' | 'low' | null;
+};
+
 type SubjectTrack = {
   category?: string;
   frames?: Array<{ frame?: number; box?: { h?: number } }>;
@@ -88,6 +122,9 @@ type AssetAnalysisDoc = {
   subjectTracks?: SubjectTrack[];
   analysisQuality?: 'high' | 'medium' | 'low' | 'fallback';
   confidenceBreakdown?: Record<string, number>;
+  vjepaAnalysis?: { segments?: VjepaSegment[] } | null;
+  wav2vecAnalysis?: { segments?: Wav2VecSegment[] } | null;
+  momentWeightMap?: { weights?: MomentWeightEntry[] } | null;
   musicStructure?: unknown;
   audio?: unknown;
 };
@@ -105,6 +142,11 @@ function positiveNumber(value: unknown): number | undefined {
   return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
+function nonNegativeNumber(value: unknown): number | undefined {
+  const n = typeof value === 'string' ? Number(value) : value;
+  return typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 function frameToMs(frame: unknown): number | undefined {
   const n = positiveNumber(frame);
   return n == null ? undefined : Math.round((n / FPS) * 1000);
@@ -114,6 +156,21 @@ function clamp01(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.max(0, Math.min(1, value))
     : undefined;
+}
+
+function cleanStringList(values: unknown[], limit = 12): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const text = value.trim();
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 function confidenceLabel(analysis: AssetAnalysisDoc): 'high' | 'medium' | 'low' {
@@ -138,6 +195,22 @@ function overlappingMotion(analysis: AssetAnalysisDoc, startMs: number, endMs: n
   });
 }
 
+function overlapByMidpoint<T>(
+  items: readonly T[] | undefined,
+  startMs: number,
+  endMs: number,
+  readStartMs: (item: T) => number | undefined,
+  readEndMs: (item: T) => number | undefined,
+): T | undefined {
+  if (!items?.length) return undefined;
+  const midpoint = (startMs + endMs) / 2;
+  return items.find((item) => {
+    const itemStart = readStartMs(item);
+    const itemEnd = readEndMs(item);
+    return itemStart != null && itemEnd != null && midpoint >= itemStart && midpoint < itemEnd;
+  });
+}
+
 function mainSubjectHeight(analysis: AssetAnalysisDoc, frame?: number): number | undefined {
   const fromTrack = analysis.subjectTracks
     ?.flatMap((track) => track.frames ?? [])
@@ -147,6 +220,25 @@ function mainSubjectHeight(analysis: AssetAnalysisDoc, frame?: number): number |
 }
 
 function segmentVisual(analysis: AssetAnalysisDoc, startMs: number, endMs: number): EditronSegment['visual'] {
+  const vjepa = overlapByMidpoint(
+    analysis.vjepaAnalysis?.segments,
+    startMs,
+    endMs,
+    (segment) => nonNegativeNumber(segment.startMs),
+    (segment) => nonNegativeNumber(segment.endMs),
+  );
+  if (vjepa) {
+    return {
+      significance: clamp01(vjepa.visualSignificance ?? vjepa.significance) ?? null,
+      motionIntensity: clamp01(vjepa.motionIntensity) ?? null,
+      actionType: typeof vjepa.actionType === 'string' && vjepa.actionType.trim() ? vjepa.actionType.trim() : null,
+      faceEmotion: typeof vjepa.faceEmotion === 'string' && vjepa.faceEmotion.trim() ? vjepa.faceEmotion.trim() : null,
+      faceCount: positiveNumber(vjepa.faceCount) ?? null,
+      objectCount: positiveNumber(vjepa.objectCount) ?? null,
+      mainSubjectHeight: clamp01(vjepa.mainSubjectHeight ?? vjepa.mainSubject?.height) ?? null,
+    };
+  }
+
   const keyframe = nearestKeyframe(analysis, startMs);
   const motion = overlappingMotion(analysis, startMs, endMs);
   const personCount = analysis.subjectTracks?.filter((track) => track.category === 'person').length ?? 0;
@@ -161,44 +253,84 @@ function segmentVisual(analysis: AssetAnalysisDoc, startMs: number, endMs: numbe
   };
 }
 
+function keyframeOcrText(keyframe: FrameAnalysis | undefined): string[] {
+  return cleanStringList((keyframe?.subjects ?? [])
+    .filter((subject) => {
+      const category = subject.category?.toLowerCase();
+      return category === 'text' || category === 'logo';
+    })
+    .map((subject) => subject.label));
+}
+
 function segmentSemanticVisual(analysis: AssetAnalysisDoc, startMs: number): EditronSegment['semanticVisual'] {
   const keyframe = nearestKeyframe(analysis, startMs);
   const hasPerson = (analysis.subjectTracks ?? []).some((track) => track.category === 'person');
-  const hasText = (keyframe?.subjects ?? []).some((subject) => subject.category === 'text' || subject.category === 'logo');
+  const hasText = (keyframe?.subjects ?? []).some((subject) => subject.category === 'text');
+  const ocrText = keyframeOcrText(keyframe);
   const mode = hasText ? 'screen-share' : hasPerson ? 'talking-head' : undefined;
 
   return {
     primaryVisualMode: mode ?? null,
     salience: clamp01(keyframe?.energyLevel ?? analysis.confidenceBreakdown?.vision) ?? null,
-    visuallyExplains: hasText ? true : null,
+    visuallyExplains: null,
+    ...(ocrText.length > 0 ? { ocrText } : {}),
   };
 }
 
-function segmentWeight(analysis: AssetAnalysisDoc, speechConfidence?: number, visualScore?: number): EditronSegment['weight'] {
+function momentWeightForWindow(analysis: AssetAnalysisDoc, startMs: number, endMs: number): MomentWeightEntry | undefined {
+  return overlapByMidpoint(
+    analysis.momentWeightMap?.weights,
+    startMs,
+    endMs,
+    (weight) => nonNegativeNumber(weight.segment_start_ms ?? weight.segmentStartMs ?? weight.startMs),
+    (weight) => nonNegativeNumber(weight.segment_end_ms ?? weight.segmentEndMs ?? weight.endMs),
+  );
+}
+
+function segmentWeight(analysis: AssetAnalysisDoc, startMs: number, endMs: number): EditronSegment['weight'] {
   const confidence = confidenceLabel(analysis);
-  const score = clamp01(Math.max(
-    speechConfidence ?? 0,
-    visualScore ?? 0,
-    analysis.confidenceBreakdown?.speech ?? 0,
-    analysis.confidenceBreakdown?.vision ?? 0,
-  ));
-  return { finalWeight: score ?? 0.35, confidence };
+  const weight = momentWeightForWindow(analysis, startMs, endMs);
+  return {
+    finalWeight: clamp01(weight?.final_weight ?? weight?.finalWeight) ?? null,
+    confidence: weight?.confidence ?? confidence,
+  };
+}
+
+function segmentVocal(analysis: AssetAnalysisDoc, startMs: number, endMs: number): EditronSegment['vocal'] {
+  const wav2vec = overlapByMidpoint(
+    analysis.wav2vecAnalysis?.segments,
+    startMs,
+    endMs,
+    (segment) => nonNegativeNumber(segment.startMs),
+    (segment) => nonNegativeNumber(segment.endMs),
+  );
+  if (!wav2vec) return null;
+  const valence = wav2vec.emotionalValence;
+  const emotionalValence =
+    valence === 'positive' || valence === 'negative' || valence === 'neutral' || valence === 'mixed'
+      ? valence
+      : undefined;
+  return {
+    emotionIntensity: clamp01(wav2vec.emotionIntensity) ?? null,
+    energy: clamp01(wav2vec.energy) ?? null,
+    emotionalValence: emotionalValence ?? null,
+  };
 }
 
 function speechToSegment(analysis: AssetAnalysisDoc, speech: SpeechSegment): EditronSegment | null {
-  const startMs = positiveNumber(speech.startMs);
+  const startMs = nonNegativeNumber(speech.startMs);
   const endMs = positiveNumber(speech.endMs);
   if (startMs == null || endMs == null || endMs <= startMs) return null;
   const text = typeof speech.text === 'string' ? speech.text.trim() : '';
-  const keyframe = nearestKeyframe(analysis, startMs);
 
   return {
     startMs,
     endMs,
     transcript: { text, wordCount: text ? text.split(/\s+/).length : 0 },
     visual: segmentVisual(analysis, startMs, endMs),
+    vocal: segmentVocal(analysis, startMs, endMs),
     semanticVisual: segmentSemanticVisual(analysis, startMs),
-    weight: segmentWeight(analysis, clamp01(speech.confidence), clamp01(keyframe?.energyLevel)),
+    weight: segmentWeight(analysis, startMs, endMs),
   };
 }
 
@@ -264,14 +396,14 @@ function sourceLanguage(analysis: AssetAnalysisDoc): string | undefined {
 }
 function visualWindowToSegment(analysis: AssetAnalysisDoc, startMs: number, endMs: number): EditronSegment | null {
   if (!(endMs > startMs)) return null;
-  const keyframe = nearestKeyframe(analysis, startMs);
   return {
     startMs,
     endMs,
     transcript: { text: '', wordCount: 0 },
     visual: segmentVisual(analysis, startMs, endMs),
+    vocal: segmentVocal(analysis, startMs, endMs),
     semanticVisual: segmentSemanticVisual(analysis, startMs),
-    weight: segmentWeight(analysis, undefined, clamp01(keyframe?.energyLevel)),
+    weight: segmentWeight(analysis, startMs, endMs),
   };
 }
 
@@ -370,6 +502,9 @@ export async function hydrateStorylineAnalysesForBatch(
           analysisQuality: analysis.analysisQuality ?? null,
         },
       },
+      vjepaAnalysis: analysis.vjepaAnalysis ?? undefined,
+      wav2vecAnalysis: analysis.wav2vecAnalysis ?? undefined,
+      momentWeightMap: analysis.momentWeightMap ?? undefined,
       musicAnalysis: analysis.musicStructure ?? analysis.audio ?? undefined,
     }, now);
 
