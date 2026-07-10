@@ -11,8 +11,8 @@ import {
   type MediaUploadBatchIntake,
 } from '@/lib/editron/services/media-upload-batch';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
-import { orderStorylineForProject, type OrderStorylineResult } from '@/lib/editron/storyline/order-storyline-service';
-import { buildAssetContextMap } from '@/lib/editron/storyline/multi-asset-compose';
+import { orderStorylineWithLLM, type OrderStorylineResult } from '@/lib/editron/storyline/order-storyline-service';
+import { buildAssetContextMap, scenesFromAssetAnalyses } from '@/lib/editron/storyline/multi-asset-compose';
 import { intakeSignalsFromProject } from '@/lib/editron/production-brief/intake-adapter';
 import { resolveProductionBrief } from '@/lib/editron/production-brief/intake-resolver';
 import type { AspectRatio, Platform, ProductionBrief } from '@/lib/editron/production-brief/production-brief';
@@ -20,6 +20,9 @@ import { readProjectAssetAnalyses } from '@/lib/editron/storyline/asset-analysis
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
 import { hydrateStorylineAnalysesForBatch } from '@/lib/editron/services/batch-storyline-analysis-bridge';
+import { embedScenes, makeEmbeddingScorer } from '@/lib/editron/storyline/scene-embedding';
+import { synthesizeImageScenes, type ImageAssetInput, type ImageFacts } from '@/lib/editron/storyline/image-scene';
+import { generateEditronEmbedding } from '@/lib/editron/services/gemini-embedding';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -51,6 +54,8 @@ type BatchMediaAsset = {
   publicUrl?: string | null;
   thumbnailUrl?: string | null;
   dominantColors?: string[] | null;
+  tags?: string[] | null;
+  transcription?: { language?: string | null } | null;
   uploadedAt?: Date | string | null;
   analysisStatus?: string | null;
   analysisError?: string | null;
@@ -212,6 +217,118 @@ async function resolveOverlayUrl(asset: BatchMediaAsset, userId: string): Promis
   return resolved || asset.publicUrl || asset.cachedUrl || '';
 }
 
+function parseJsonObject(text: string): Record<string, any> | null {
+  const cleaned = text.replace(/```json|```/g, '').trim();
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]);
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, any> : null;
+  } catch {
+    return null;
+  }
+}
+
+function cleanStringArray(value: unknown, limit = 12): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter((item) => item.length > 0)
+    .slice(0, limit);
+}
+
+function clamp01Number(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.min(1, value))
+    : undefined;
+}
+
+function firstDominantColor(asset?: BatchMediaAsset, parsed?: Record<string, any>): ImageFacts['dominantColor'] {
+  const direct = parsed?.dominantColor;
+  if (direct && typeof direct === 'object') {
+    const hex = cleanString((direct as { hex?: unknown }).hex, 32);
+    const name = cleanString((direct as { name?: unknown }).name, 64) ?? hex;
+    if (hex && name) return { hex, name };
+  }
+  const color = cleanStringArray(parsed?.dominantColors ?? parsed?.colors, 1)[0]
+    ?? asset?.dominantColors?.find((item) => typeof item === 'string' && item.trim().length > 0);
+  return color ? { hex: color, name: color } : null;
+}
+
+function imageMimeType(source: string): string {
+  const lower = source.toLowerCase();
+  if (lower.includes('.webp')) return 'image/webp';
+  if (lower.includes('.jpg') || lower.includes('.jpeg')) return 'image/jpeg';
+  return 'image/png';
+}
+
+function assetCreatedAtMs(asset: BatchMediaAsset): number | undefined {
+  if (asset.uploadedAt instanceof Date) return asset.uploadedAt.getTime();
+  if (asset.uploadedAt) {
+    const ms = new Date(asset.uploadedAt).getTime();
+    return Number.isFinite(ms) ? ms : undefined;
+  }
+  return undefined;
+}
+
+function sourceLanguageFromAssets(assets: readonly BatchMediaAsset[]): string | null {
+  for (const asset of assets) {
+    const language = asset.transcription?.language;
+    if (typeof language === 'string' && language.trim()) return language.trim();
+  }
+  return null;
+}
+
+function storylineIntentText(intake: MediaUploadBatchIntake, body: FromBatchRequest): string | null {
+  return cleanString(intake.userIntent, 2000)
+    ?? cleanString(body.title, 500)
+    ?? cleanString(intake.script, 4000)
+    ?? null;
+}
+
+async function embedStorylineDocument(text: string): Promise<number[]> {
+  return await generateEditronEmbedding(text, { taskType: 'RETRIEVAL_DOCUMENT' }) ?? [];
+}
+
+async function embedStorylineIntent(text: string | null): Promise<number[] | null> {
+  if (!text) return null;
+  return await generateEditronEmbedding(text, { taskType: 'RETRIEVAL_QUERY', title: 'Edit intent' });
+}
+
+function imageSceneInputs(assets: readonly BatchMediaAsset[]): ImageAssetInput[] {
+  return assets
+    .filter((asset) => asset.type === 'image')
+    .map((asset) => ({
+      assetId: asset.assetId,
+      source: asset.assetId,
+      createdAt: assetCreatedAtMs(asset),
+    }));
+}
+
+async function analyzeImageFacts(assetInput: ImageAssetInput, assetsById: ReadonlyMap<string, BatchMediaAsset>, userId: string): Promise<ImageFacts> {
+  const asset = assetsById.get(assetInput.assetId);
+  if (!asset) throw new Error(`Image asset not found: ${assetInput.assetId}`);
+  const source = await resolveOverlayUrl(asset, userId);
+  if (!/^https?:\/\//i.test(source)) throw new Error(`Image asset has no public URL: ${asset.assetId}`);
+
+  const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
+  const model = await getAnalysisModel();
+  const result = await model.generateContent([
+    { fileData: { fileUri: source, mimeType: imageMimeType(source) } },
+    { text: `Analyze this still image for a video editor. Return JSON only: {"visualMode":"photo|product-shot|screenshot|text-card|chart|document|other","detectedText":["ocr text"],"description":"one concise visual description","dominantColor":{"hex":"#RRGGBB","name":"color name"},"salience":0.0,"importance":0.0}. Do not invent text that is not visible.` },
+  ]);
+  const parsed = parseJsonObject(result.response.text()) ?? {};
+  const detectedText = cleanStringArray(parsed.detectedText ?? parsed.ocrText ?? parsed.text);
+  const tags = asset.tags?.filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0) ?? [];
+  return {
+    visualMode: cleanString(parsed.visualMode, 64) ?? cleanString(parsed.shotType, 64) ?? tags[0] ?? null,
+    detectedText,
+    description: cleanString(parsed.description, 500) ?? cleanString(parsed.summary, 500) ?? (tags.length > 0 ? tags.slice(0, 5).join(', ') : null),
+    dominantColor: firstDominantColor(asset, parsed),
+    salience: clamp01Number(parsed.salience ?? parsed.energy ?? parsed.importance) ?? null,
+    importance: clamp01Number(parsed.importance ?? parsed.salience) ?? null,
+  };
+}
 function buildStatusInput(asset: BatchMediaAsset): MediaUploadBatchAssetStatusInput {
   return {
     assetId: asset.assetId,
@@ -462,6 +579,8 @@ export async function POST(request: NextRequest) {
           publicUrl: 1,
           thumbnailUrl: 1,
           dominantColors: 1,
+          tags: 1,
+          transcription: 1,
           uploadedAt: 1,
           analysisStatus: 1,
           analysisError: 1,
@@ -528,12 +647,22 @@ export async function POST(request: NextRequest) {
       dominantColors: asset.dominantColors,
     })));
 
-    const ordering = await orderStorylineForProject(projectId, brief, { db: db as any, llm: completeStorylinePrompt }, {
-      assetContexts,
+    const videoScenes = scenesFromAssetAnalyses(analyses, { assetContexts });
+    const imageAssetsById = new Map(visualAssets.filter((asset) => asset.type === 'image').map((asset) => [asset.assetId, asset]));
+    const imageScenes = await synthesizeImageScenes(
+      imageSceneInputs(visualAssets),
+      (image) => analyzeImageFacts(image, imageAssetsById, userId),
+    );
+    const scenes = [...videoScenes, ...imageScenes];
+    const embeddedScenes = await embedScenes(scenes, embedStorylineDocument);
+    const intentEmbedding = await embedStorylineIntent(storylineIntentText(intake, body));
+    const ordering = await orderStorylineWithLLM(embeddedScenes, brief, completeStorylinePrompt, {
       ctx: {
         platform: brief.output.platform,
         targetDurationSec: brief.output.targetDurationSec,
+        language: sourceLanguageFromAssets(visualAssets),
       },
+      compose: { scorer: makeEmbeddingScorer(intentEmbedding) },
     });
     const storylineTimeline = await materializeStoryline(ordering, visualAssets, userId, uploadBatchId, dims);
     const timeline = storylineTimeline ?? await materializeChronologicalFallback(visualAssets, userId, uploadBatchId, dims);

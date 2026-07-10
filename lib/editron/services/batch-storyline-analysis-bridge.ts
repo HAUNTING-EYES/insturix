@@ -29,6 +29,17 @@ type SpeechSegment = {
   confidence?: number;
 };
 
+type SourceWord = {
+  word?: string;
+  text?: string;
+  startMs?: number;
+  endMs?: number;
+  start?: number;
+  end?: number;
+  confidence?: number | null;
+};
+
+
 type MotionSegment = {
   startFrame?: number;
   endFrame?: number;
@@ -60,6 +71,16 @@ type AssetAnalysisDoc = {
   userId?: string;
   status?: string;
   durationMs?: number;
+  transcription?: {
+    words?: SourceWord[];
+    language?: string | null;
+  };
+  rawFootageAnalysis?: {
+    transcription?: {
+      words?: SourceWord[];
+      language?: string | null;
+    };
+  };
   speechSegments?: SpeechSegment[];
   motionSegments?: MotionSegment[];
   shots?: Shot[];
@@ -181,6 +202,66 @@ function speechToSegment(analysis: AssetAnalysisDoc, speech: SpeechSegment): Edi
   };
 }
 
+function wordMs(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.round(value)
+    : undefined;
+}
+
+function secToMs(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.round(value * 1000)
+    : undefined;
+}
+
+function cleanWords(words: unknown): SourceWord[] {
+  if (!Array.isArray(words)) return [];
+  const out: SourceWord[] = [];
+  for (const item of words) {
+    if (!item || typeof item !== 'object') continue;
+    const raw = item as SourceWord;
+    const word = typeof raw.word === 'string' && raw.word.trim()
+      ? raw.word.trim()
+      : typeof raw.text === 'string' && raw.text.trim()
+        ? raw.text.trim()
+        : '';
+    const startMs = wordMs(raw.startMs) ?? secToMs(raw.start);
+    const endMs = wordMs(raw.endMs) ?? secToMs(raw.end);
+    if (!word || startMs == null || endMs == null || endMs <= startMs) continue;
+    out.push({
+      word,
+      startMs,
+      endMs,
+      ...(typeof raw.confidence === 'number' && Number.isFinite(raw.confidence)
+        ? { confidence: Math.max(0, Math.min(1, raw.confidence)) }
+        : {}),
+    });
+  }
+  return out;
+}
+
+function sourceWords(analysis: AssetAnalysisDoc): SourceWord[] {
+  const direct = cleanWords(analysis.transcription?.words);
+  if (direct.length > 0) return direct;
+  const raw = cleanWords(analysis.rawFootageAnalysis?.transcription?.words);
+  if (raw.length > 0) return raw;
+  if (analysis.audio && typeof analysis.audio === 'object') {
+    const audio = analysis.audio as { transcription?: { words?: unknown }; words?: unknown };
+    const audioTranscription = cleanWords(audio.transcription?.words);
+    if (audioTranscription.length > 0) return audioTranscription;
+    const audioWords = cleanWords(audio.words);
+    if (audioWords.length > 0) return audioWords;
+  }
+  return [];
+}
+
+function sourceLanguage(analysis: AssetAnalysisDoc): string | undefined {
+  const direct = analysis.transcription?.language;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  const raw = analysis.rawFootageAnalysis?.transcription?.language;
+  if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  return undefined;
+}
 function visualWindowToSegment(analysis: AssetAnalysisDoc, startMs: number, endMs: number): EditronSegment | null {
   if (!(endMs > startMs)) return null;
   const keyframe = nearestKeyframe(analysis, startMs);
@@ -269,11 +350,14 @@ export async function hydrateStorylineAnalysesForBatch(
       continue;
     }
 
+    const language = sourceLanguage(analysis);
+
     await persistProjectAssetAnalysis(db, params.projectId, asset.assetId, {
       rawFootageAnalysis: {
         transcription: {
           transcript: segments.map((segment) => segment.transcript?.text).filter(Boolean).join(' '),
-          words: [],
+          words: sourceWords(analysis),
+          ...(language ? { language } : {}),
         },
       },
       segmentAnalysis: {

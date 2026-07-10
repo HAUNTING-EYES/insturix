@@ -9,7 +9,12 @@ const mocks = vi.hoisted(() => ({
   getDatabase: vi.fn(),
   hydrateStorylineAnalysesForBatch: vi.fn(),
   isR2Available: vi.fn(),
-  orderStorylineForProject: vi.fn(),
+  embedScenes: vi.fn(),
+  generateEditronEmbedding: vi.fn(),
+  makeEmbeddingScorer: vi.fn(),
+  orderStorylineWithLLM: vi.fn(),
+  scenesFromAssetAnalyses: vi.fn(),
+  synthesizeImageScenes: vi.fn(),
   readProjectAssetAnalyses: vi.fn(),
   refundCredits: vi.fn(),
   resolveAssetUrl: vi.fn(),
@@ -43,7 +48,21 @@ vi.mock('@/lib/editron/storyline/asset-analysis-reader', () => ({
   readProjectAssetAnalyses: mocks.readProjectAssetAnalyses,
 }));
 vi.mock('@/lib/editron/storyline/order-storyline-service', () => ({
-  orderStorylineForProject: mocks.orderStorylineForProject,
+  orderStorylineWithLLM: mocks.orderStorylineWithLLM,
+}));
+vi.mock('@/lib/editron/storyline/multi-asset-compose', () => ({
+  buildAssetContextMap: vi.fn(() => new Map()),
+  scenesFromAssetAnalyses: mocks.scenesFromAssetAnalyses,
+}));
+vi.mock('@/lib/editron/storyline/image-scene', () => ({
+  synthesizeImageScenes: mocks.synthesizeImageScenes,
+}));
+vi.mock('@/lib/editron/storyline/scene-embedding', () => ({
+  embedScenes: mocks.embedScenes,
+  makeEmbeddingScorer: mocks.makeEmbeddingScorer,
+}));
+vi.mock('@/lib/editron/services/gemini-embedding', () => ({
+  generateEditronEmbedding: mocks.generateEditronEmbedding,
 }));
 vi.mock('@/lib/editron/production-brief/intake-adapter', () => ({
   intakeSignalsFromProject: vi.fn(() => ({ requested: {} })),
@@ -88,6 +107,7 @@ function mockDb() {
       cachedUrl: 'cached-video.mp4',
       uploadedAt: new Date('2026-07-10T00:00:00.000Z'),
       analysisStatus: 'complete',
+      transcription: { language: 'hi-en' },
     },
     {
       assetId: 'image_1',
@@ -100,6 +120,7 @@ function mockDb() {
       cachedUrl: 'cached-image.png',
       uploadedAt: new Date('2026-07-10T00:00:01.000Z'),
       analysisStatus: 'complete',
+      transcription: { language: 'hi-en' },
     },
   ];
 
@@ -151,10 +172,15 @@ describe('from-batch storyline route handoff', () => {
       skipped: [],
     });
     mocks.readProjectAssetAnalyses.mockResolvedValue([{ assetId: 'video_1' }, { assetId: 'image_1' }]);
+    mocks.scenesFromAssetAnalyses.mockReturnValue([{ id: 'scene_video', source: 'video_1', startTime: 1, endTime: 3, durationSec: 2 }]);
+    mocks.synthesizeImageScenes.mockResolvedValue([{ id: 'scene_image', source: 'image_1', startTime: 0, endTime: 4, durationSec: 4 }]);
+    mocks.embedScenes.mockImplementation(async (scenes: unknown) => scenes);
+    mocks.makeEmbeddingScorer.mockReturnValue('semantic-scorer');
+    mocks.generateEditronEmbedding.mockResolvedValue([1, 0, 0]);
     mocks.resolveProductionBrief.mockReturnValue({
       output: { aspectRatio: '16:9', platform: 'youtube', targetDurationSec: null },
     });
-    mocks.orderStorylineForProject.mockResolvedValue({
+    mocks.orderStorylineWithLLM.mockResolvedValue({
       planApplied: true,
       rationale: 'hook then proof image',
       storyline: {
@@ -222,6 +248,24 @@ describe('from-batch storyline route handoff', () => {
     }));
     expect(savedState.overlays[1]).not.toHaveProperty('videoStartTime');
     expect(savedState.overlays[1]).not.toHaveProperty('sourceStartFrame');
+
+    expect(mocks.synthesizeImageScenes).toHaveBeenCalledOnce();
+    expect(mocks.embedScenes).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'scene_video' }),
+      expect.objectContaining({ id: 'scene_image' }),
+    ], expect.any(Function));
+    expect(mocks.orderStorylineWithLLM).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({ id: 'scene_video' }),
+        expect.objectContaining({ id: 'scene_image' }),
+      ],
+      expect.any(Object),
+      expect.any(Function),
+      expect.objectContaining({
+        ctx: expect.objectContaining({ language: 'hi-en', platform: 'youtube', targetDurationSec: null }),
+        compose: { scorer: 'semantic-scorer' },
+      }),
+    );
 
     expect(mocks.updateProject).toHaveBeenCalledWith(
       { projectId: 'proj_batch_1' },
