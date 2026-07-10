@@ -1,4 +1,5 @@
-ï»¿import { z } from 'zod';
+import { z } from 'zod';
+import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
 import {
@@ -11,6 +12,7 @@ import { generateWithWritingContextCache } from '../services/gemini-writing-cont
 import { getAntiAiConstraintBundle, buildWritingKnowledgeBlock } from '../data/writing-graph-query';
 import { extractSignalsFromContext } from '../data/extract-signals';
 import { repairAiFillerContent } from '../services/ai-filler-repair';
+import { formatTrendBriefForPrompt } from './trend-brief-context';
 
 // Flat PostWriter Output Contract
 export const PostWriterResultSchema = z.object({
@@ -48,12 +50,13 @@ export interface PostWriterEditContext {
 
 export interface PostWriterInput extends AgentInput {
   contentSignalProfile?: ThinkForgeContentSignalProfile;
+  productionBrief?: ProductionBrief | null;
   /** When set, switches the writer into edit/revise mode (see PostWriterEditContext). */
   editContext?: PostWriterEditContext;
 }
 
 const POST_CTA_PATTERN =
-  /(?:\b(ask|apply|book|buy|call|claim|comment|contact|dm|donate|discover|download|get|join|learn more|message|register|reply|repost|reserve|save|schedule|send|share|shop|sign ?up|tag|try|visit|watch)\b|inscr[iÃ­]bete|registrate|reg[iÃ­]strate|[uÃº]nete|reserva|compra|visita|env[iÃ­]a|manda|escr[iÃ­]benos|comenta|comparte)/i;
+  /(?:\b(ask|apply|book|buy|call|claim|comment|contact|dm|donate|discover|download|get|join|learn more|message|register|reply|repost|reserve|save|schedule|send|share|shop|sign ?up|tag|try|visit|watch)\b|inscr[ií]bete|registrate|reg[ií]strate|[uú]nete|reserva|compra|visita|env[ií]a|manda|escr[ií]benos|comenta|comparte)/i;
 
 const MIN_COMPLETE_POST_CHARS: Record<string, number> = {
   twitter: 50,
@@ -117,7 +120,7 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
   }
 
   buildPrompt(input: PostWriterInput): string {
-    const { context, userPrompt, retrievedContext, editContext } = input;
+    const { context, userPrompt, retrievedContext, editContext, productionBrief } = input;
     const platform = detectPlatform(userPrompt, undefined, context.projectSummary);
     const outputFormat = buildPostOutputFormat(platform);
     const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
@@ -138,6 +141,7 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
         userPrompt,
       }),
     );
+    const trendBriefBlock = formatTrendBriefForPrompt(productionBrief);
 
     return `<role>You are an elite ${platform} copywriter and content strategist.</role>
 <task>${editContext
@@ -178,7 +182,7 @@ Requested change: ${editContext.instruction}${editContext.selection ? `\nTargete
 Return the ENTIRE revised post in the content field (not a diff). Keep everything the change does not touch, preserve all supplied facts verbatim, and keep the platform format, hook, CTA, and hashtags.
 </edit_task>
 
-` : ''}${writingBlock ? `${writingBlock}\n\n` : ''}${outputFormat}
+` : ''}${writingBlock ? `${writingBlock}\n\n` : ''}${trendBriefBlock ? `${trendBriefBlock}\n\n` : ''}${outputFormat}
 
 <input_data>
 Project Summary:
@@ -244,7 +248,7 @@ Return your response strictly adhering to the JSON schema.`;
     }
 
     // Filler self-repair: one in-context rewrite if a banned phrase slipped through either path.
-    // Fail-soft â€” keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
+    // Fail-soft — keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
     output.result.content = await repairAiFillerContent(output.result.content, this.config.modelName, abortSignal);
     assertUsablePostWriterResult(output.result, input);
     return output;

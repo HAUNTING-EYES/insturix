@@ -23,6 +23,7 @@ import {
   formatSourceLedgerForPrompt,
   type SourceLedger,
 } from '../provenance/source-ledger';
+import { formatTrendBriefForPrompt } from './trend-brief-context';
 
 // Flat ScriptWriter Output Contract
 export const ScriptWriterResultSchema = z.object({
@@ -213,6 +214,7 @@ export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
     const unsupportedVoiceLanguages = requestedVoiceLanguages.filter((language) => !canSpeakLanguage(language));
     const defaultVoiceLanguage = WRITER_CAPABILITIES.voiceLanguages[0] ?? 'en';
     const sourceLedgerBlock = sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : '';
+    const trendBriefBlock = formatTrendBriefForPrompt(productionBrief);
 
 
     // NOTE: the writing knowledge graph block is deliberately NOT injected here. A 10-seed A/B
@@ -261,6 +263,10 @@ Your task is to write a high-retention, engaging video script.
         prompt += `[Source ${i + 1} - ${fact.title}]: ${fact.summary}\n`;
       });
       prompt += '\n';
+    }
+
+    if (trendBriefBlock) {
+      prompt += `${trendBriefBlock}\n\n`;
     }
 
     if (sourceLedgerBlock) {
