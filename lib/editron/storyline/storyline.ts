@@ -20,6 +20,15 @@ export type ClipRole = 'hook' | 'a-roll' | 'b-roll' | 'body' | 'outro';
 /** How a clip fills the render canvas when its aspect differs from the target. */
 export type FitPolicy = 'contain' | 'cover' | 'pad';
 
+/**
+ * The rhetorical RELATION into a clip from the previous one - WHY they are adjacent. 'therefore'
+ * (consequence) and 'but' (reversal) are strong narrative glue; 'and-then' is mere sequence;
+ * 'meanwhile' is parallelism. Defined here (a clip-level concept) so ordering-plan can re-export
+ * it without a cycle. The Director maps this to a styled transition (TRANSITIONS_BY_INTENT); the
+ * composer only states the relation, it does not pick the transition.
+ */
+export type SeamLink = 'therefore' | 'but' | 'and-then' | 'meanwhile';
+
 export interface Transition {
   type: string; // e.g. 'cut' | 'crossfade' - renderer-interpreted
   durationSec: number;
@@ -39,8 +48,12 @@ export interface StorylineClip {
   durationSec: number;
   role: ClipRole;
   fit: FitPolicy;
-  /** Transition INTO this clip (absent on the first clip). */
+  /** Transition INTO this clip (absent on the first clip). The DIRECTOR styles this from the
+   *  relation below; the composer leaves it for the Director to fill. */
   transitionIn?: Transition;
+  /** WHY this clip follows the previous one (from the narrative plan; absent on the first clip
+   *  and when no LLM plan was applied). The Director maps it to a transition. */
+  linkFromPrev?: SeamLink;
 }
 
 export interface RenderTarget {

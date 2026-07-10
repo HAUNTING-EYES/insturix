@@ -29,6 +29,7 @@ import {
   type FitPolicy,
   MIN_CLIP_DURATION_SEC,
   renderTargetForAspect,
+  type SeamLink,
   type Storyline,
   type StorylineClip,
 } from './storyline';
@@ -375,12 +376,13 @@ function applyOrderingPlan(picked: SceneScore[], plan: OrderingPlan, ratio: numb
  * continuum order. A malformed/contract-breaking plan never crashes the composer - it falls
  * back. This is the "code disposes" gate around the LLM's "propose".
  */
-function orderPicked(
+function resolveOrder(
   picked: SceneScore[],
   ratio: number,
   brief: ProductionBrief,
   opts?: ComposeOptions,
-): SceneScore[] {
+): { ordered: SceneScore[]; linkByRef: Map<string, SeamLink> } {
+  const linkByRef = new Map<string, SeamLink>();
   const plan = opts?.orderingPlan;
   if (plan) {
     const validation = validateOrderingPlan(
@@ -388,9 +390,12 @@ function orderPicked(
       picked.map((s) => s.scene),
       { targetDurationSec: brief.output.targetDurationSec, minClipDurationSec: opts?.minClipDurationSec },
     );
-    if (validation.valid) return applyOrderingPlan(picked, plan, ratio);
+    if (validation.valid) {
+      for (const item of plan.order) if (item.linkFromPrev) linkByRef.set(item.sourceRef, item.linkFromPrev);
+      return { ordered: applyOrderingPlan(picked, plan, ratio), linkByRef };
+    }
   }
-  return orderScenes(picked, ratio);
+  return { ordered: orderScenes(picked, ratio), linkByRef };
 }
 
 /**
@@ -416,13 +421,13 @@ export function composeStoryline(
   const outputSec = picked.reduce((acc, s) => acc + effDuration(s), 0);
   const ratio = computeCondensationRatio(outputSec, sourceSec);
   const condensed = ratio < 1 - 1e-6;
-  const ordered = orderPicked(picked, ratio, brief, opts);
+  const { ordered, linkByRef } = resolveOrder(picked, ratio, brief, opts);
 
   const defaultFit: FitPolicy = 'contain';
   const clips: StorylineClip[] = ordered.map((s, index) => {
     const inSec = s.scene.startTime;
     const outSec = effOut(s);
-    return {
+    const clip: StorylineClip = {
       order: index,
       sourceRef: s.scene.id,
       source: s.scene.source,
@@ -432,6 +437,10 @@ export function composeStoryline(
       role: assignRole(index, s.scene, condensed),
       fit: defaultFit,
     };
+    // the rhetorical relation into this clip (from a valid LLM plan); absent on the first clip.
+    const link = index > 0 ? linkByRef.get(s.scene.id) : undefined;
+    if (link) clip.linkFromPrev = link;
+    return clip;
   });
 
   const totalDurationSec = clips.reduce((acc, c) => acc + c.durationSec, 0);

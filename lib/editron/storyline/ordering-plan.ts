@@ -24,14 +24,14 @@
  */
 
 import type { Scene } from './scene';
-import { DURATION_TOLERANCE_SEC, MIN_CLIP_DURATION_SEC } from './storyline';
+import { DURATION_TOLERANCE_SEC, MIN_CLIP_DURATION_SEC, type SeamLink } from './storyline';
 
 /**
  * The rhetorical link INTO a clip from the previous one. 'therefore' (consequence) and 'but'
  * (reversal) are strong narrative glue; 'and-then' is mere sequence (the weak link the
  * and-but-therefore rule flags); 'meanwhile' is deliberate parallelism.
  */
-export type SeamLink = 'therefore' | 'but' | 'and-then' | 'meanwhile';
+export type { SeamLink }; // owned by storyline.ts (clip-level relation); re-exported for existing importers
 
 export const SEAM_LINKS: readonly SeamLink[] = ['therefore', 'but', 'and-then', 'meanwhile'];
 /** Links that count as strong narrative glue (the and-but-therefore rule). */
