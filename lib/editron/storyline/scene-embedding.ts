@@ -25,7 +25,7 @@ import type { Scene } from './scene';
 export type SceneEmbed = (text: string) => Promise<number[]>;
 
 function clamp01(n: number): number {
-  return n < 0 ? 0 : n > 1 ? 1 : n;
+  return Number.isFinite(n) ? (n < 0 ? 0 : n > 1 ? 1 : n) : 0;
 }
 
 /**
@@ -48,13 +48,16 @@ export function cosineSimilarity(a: readonly number[], b: readonly number[]): nu
   let na = 0;
   let nb = 0;
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
+    const x = a[i];
+    const y = b[i];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return 0; // a non-finite component = unrelated
+    dot += x * y;
+    na += x * x;
+    nb += y * y;
   }
-  if (na === 0 || nb === 0) return 0;
+  if (!(na > 0) || !(nb > 0) || !Number.isFinite(na) || !Number.isFinite(nb) || !Number.isFinite(dot)) return 0;
   const c = dot / (Math.sqrt(na) * Math.sqrt(nb));
-  return clamp01(c);
+  return Number.isFinite(c) ? clamp01(c) : 0;
 }
 
 /**

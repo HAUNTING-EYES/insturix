@@ -193,6 +193,8 @@ export function selectScenes(
   const scorer = opts?.scorer ?? defaultSceneScorer;
   const out: SceneScore[] = [];
   scenes.forEach((scene, srcIndex) => {
+    // reject non-finite or negative windows before they poison durations/ordering downstream
+    if (!Number.isFinite(scene.startTime) || !Number.isFinite(scene.endTime) || scene.startTime < 0) return;
     if (!(scene.endTime > scene.startTime)) return; // invalid window
     if (scene.endTime - scene.startTime < minClip) return; // micro-clip
     out.push({ scene, score: scorer(scene, brief), srcIndex });

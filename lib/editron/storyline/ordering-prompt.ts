@@ -137,6 +137,7 @@ export function parseOrderingResponse(
   } catch (e) {
     return { error: `invalid JSON: ${(e as Error).message}` };
   }
+  if (parsed === null || typeof parsed !== 'object') return { error: 'response is not a JSON object' };
   const obj = parsed as { order?: unknown; hookRef?: unknown; rationale?: unknown };
   if (!Array.isArray(obj.order)) return { error: 'response.order is not an array' };
 
