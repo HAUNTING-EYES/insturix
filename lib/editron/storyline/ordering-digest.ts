@@ -13,7 +13,7 @@
  * carries are emitted (no fabrication); absent signals are simply omitted from the line.
  */
 
-import type { Scene } from './scene';
+import type { ClaimStrength, NarrativePhase, Scene } from './scene';
 
 /** Max transcript characters per clip in the digest (token budget). INVENTED-PLACEHOLDER. */
 export const MAX_TRANSCRIPT_CHARS = 320;
@@ -32,6 +32,15 @@ export interface ClipDigest {
   vocalArousal?: number;
   vocalValence?: string;
   onScreenText?: string[];
+  // --- narrative structure (from the signal-enricher; drives the SEQUENCING_MOVES) ---
+  phase?: NarrativePhase;
+  pressure?: number;
+  cta?: boolean;
+  topicBoundary?: boolean;
+  rhetoricalQuestion?: boolean;
+  claimStrength?: ClaimStrength;
+  statistic?: boolean;
+  entities?: string[];
 }
 
 function trimTranscript(text: string): string {
@@ -59,6 +68,18 @@ export function buildClipDigest(scene: Scene, ref: string): ClipDigest {
   if (typeof scene.vocalArousal === 'number') d.vocalArousal = round2(scene.vocalArousal);
   if (scene.vocalValence) d.vocalValence = scene.vocalValence;
   if (scene.detectedText.length > 0) d.onScreenText = scene.detectedText.slice();
+
+  const n = scene.narrative;
+  if (n) {
+    if (n.phase) d.phase = n.phase;
+    if (typeof n.pressure === 'number') d.pressure = round2(n.pressure);
+    if (n.cta) d.cta = true;
+    if (n.topicBoundary) d.topicBoundary = true;
+    if (n.rhetoricalQuestion) d.rhetoricalQuestion = true;
+    if (n.claimStrength) d.claimStrength = n.claimStrength;
+    if (n.statistic) d.statistic = true;
+    if (n.entities && n.entities.length > 0) d.entities = n.entities.slice();
+  }
   return d;
 }
 
@@ -83,6 +104,28 @@ export function refToSceneIdMap(digests: readonly ClipDigest[]): Map<string, str
 }
 
 /**
+ * Compact one-line summary of a clip's narrative signals (phase, tension, cta, ...), or null when
+ * the clip carries none. Shared by the eval formatter and the runtime ordering prompt so the model
+ * sees the SAME narrative evidence the SEQUENCING_MOVES reference. Only present signals are shown.
+ */
+export function narrativeLine(d: ClipDigest): string | null {
+  const parts: string[] = [];
+  if (d.phase) parts.push(`phase:${d.phase}`);
+  if (d.pressure !== undefined) parts.push(`tension ${d.pressure}`);
+  if (d.cta) parts.push('cta');
+  if (d.topicBoundary) parts.push('topic-start');
+  if (d.rhetoricalQuestion) parts.push('question');
+  if (d.claimStrength) parts.push(`${d.claimStrength}-claim`);
+  if (d.statistic) parts.push('stat');
+  const line = parts.length > 0 ? `narrative: ${parts.join(' | ')}` : null;
+  if (d.entities && d.entities.length > 0) {
+    const ents = `entities: ${d.entities.join(', ')}`;
+    return line ? `${line}\n${ents}` : ents;
+  }
+  return line;
+}
+
+/**
  * Render the digest as the compact text block the prompt puts LAST (data-last, Rule 35).
  * One clip per stanza; a signal line (only the signals that exist) then the transcript.
  * Language-neutral: the transcript is emitted verbatim in its source language (incl. Hinglish).
@@ -98,6 +141,8 @@ export function formatDigestForPrompt(digests: readonly ClipDigest[]): string {
         sig.push(`vocal:${d.vocalArousal ?? '?'}/${d.vocalValence ?? '?'}`);
       }
       const lines = [`[${d.ref}] ${sig.join(' | ')}`];
+      const narrative = narrativeLine(d);
+      if (narrative) lines.push(narrative);
       if (d.onScreenText && d.onScreenText.length > 0) lines.push(`on-screen: ${d.onScreenText.join(', ')}`);
       lines.push(`transcript: ${d.transcript || '(no speech)'}`);
       return lines.join('\n');

@@ -54,6 +54,51 @@ export interface TranscriptionWord {
   confidence?: number;
 }
 
+/**
+ * Where a scene sits in the story arc (creative-knowledge-graph `signal:entity.narrative_phase`,
+ * Vonnegut's story shapes). A PRIOR computed from position + energy shape + cta, NOT gospel:
+ * the ordering LLM refines it semantically from the transcript (see creative-doc-rules.ts:172).
+ */
+export type NarrativePhase = 'opening' | 'build' | 'climax' | 'resolve' | 'closing';
+
+/** Whether a numeric/factual claim is asserted or softened (`signal:entity.claim_strength`). */
+export type ClaimStrength = 'hedged' | 'assertive';
+
+/**
+ * The narrative "report card" for a scene - the story-structure signals the ordering pass reasons
+ * over. Every field maps to a creative-knowledge-graph signal the SEQUENCING_MOVES already ask for
+ * (entity.narrative_phase / composite.narrative_pressure / entity.cta / entity.topic_boundary /
+ * entity.rhetorical_question / entity.claim_strength / entity.number / entity.name). Set by the
+ * signal-enricher; every field is OPTIONAL and absent means "no signal", never fabricated (R2N).
+ */
+export interface SceneNarrative {
+  /** Story-arc phase (prior; the LLM may override semantically). */
+  phase?: NarrativePhase;
+  /** Fractional position of the scene's midpoint within its SOURCE recording, 0..1. */
+  position?: number;
+  /** A call-to-action was spoken in this scene (subscribe / buy / link in bio / ...). */
+  cta?: boolean;
+  /** This scene opens a new topic (a topic-boundary event at/near its start). */
+  topicBoundary?: boolean;
+  /** A rhetorical question is posed in this scene. */
+  rhetoricalQuestion?: boolean;
+  /** Strength of a factual/numeric claim, when one is made. */
+  claimStrength?: ClaimStrength;
+  /** A number/statistic is cited in this scene. */
+  statistic?: boolean;
+  /**
+   * Narrative pressure / "tension" of the scene, 0..1 (composite.narrative_pressure averaged over
+   * the window). High = a charged moment the edit should hold on, not cut through.
+   */
+  pressure?: number;
+  /**
+   * Salient named entities spoken in this scene (people, brands, products). The SUBSTRATE for
+   * callbacks (setup->payoff): the ordering LLM spots a payoff when a later clip reprises an
+   * entity a earlier clip introduced. Surfaced as evidence, not paired into a fragile boolean here.
+   */
+  entities?: string[];
+}
+
 export interface Scene {
   /** Content-addressed, stable across re-analysis. See sceneId(). */
   id: string;
@@ -133,6 +178,13 @@ export interface Scene {
    * so a silent b-roll clip still matches intent on its visuals, not just its words.
    */
   embedding?: number[];
+
+  /**
+   * Narrative-structure signals (story phase, tension, cta, topic boundary, entities). Set by the
+   * signal-enricher from the SignalTimeline; absent until enriched. The ordering pass reads these
+   * to apply the SEQUENCING_MOVES (hook-first, therefore-but, setup-before-payoff).
+   */
+  narrative?: SceneNarrative;
 }
 
 /**

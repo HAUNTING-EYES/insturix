@@ -16,7 +16,7 @@
 
 import { SEQUENCING_MOVES } from '../data/creative-doc-rules';
 import type { ClipDigest } from './ordering-digest';
-import { refToSceneIdMap } from './ordering-digest';
+import { narrativeLine, refToSceneIdMap } from './ordering-digest';
 import type { OrderedItem, OrderingPlan, SeamLink } from './ordering-plan';
 import { SEAM_LINKS } from './ordering-plan';
 
@@ -49,6 +49,8 @@ function renderClip(d: ClipDigest, srcTag: string): string {
   if (d.actionType) sig.push(`action:${d.actionType}`);
   if (d.vocalArousal !== undefined || d.vocalValence) sig.push(`vocal:${d.vocalArousal ?? '?'}/${d.vocalValence ?? '?'}`);
   const lines = [`[${d.ref} · ${srcTag}] ${sig.join(' | ')}`];
+  const narrative = narrativeLine(d);
+  if (narrative) lines.push(narrative);
   if (d.onScreenText && d.onScreenText.length > 0) lines.push(`on-screen: ${d.onScreenText.join(', ')}`);
   lines.push(`transcript: ${d.transcript || '(no speech)'}`);
   return lines.join('\n');
