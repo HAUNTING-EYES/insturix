@@ -264,9 +264,9 @@ export default function SaasExplainerStudio() {
 
           <div className="rounded-xl border border-ds-subtle bg-surface-raised/40 p-4">
             <Mono size="8" className="text-gold">REFERENCES · OPTIONAL</Mono>
-            <p className="mt-1 mb-4 text-xs text-ds-muted">Guide the video with a reference you already have. A video steers the <span className="text-ds-secondary">look</span>; a document steers <span className="text-ds-secondary">what it's about</span>. (To make a video for another brand, scan that brand in Brand Vault first.)</p>
+            <p className="mt-1 mb-4 text-xs text-ds-muted">A video sets the <span className="text-ds-secondary">look</span>, a doc sets the <span className="text-ds-secondary">topic</span>.</p>
 
-            <FieldRow label="Reference video" hint="A video whose style you want to match — paste a link or upload one. The craft agent studies its frames and designs the video to look like it.">
+            <FieldRow label="Reference video" hint="Match a video's style — link or upload.">
               {referenceLabel ? (
                 <div className="flex items-center justify-between rounded-md border border-ds-emphasis bg-surface-well px-3 py-2">
                   <span className="truncate text-sm text-ds-secondary">🎬 {referenceLabel} · {referenceImageUrls.length} frame(s)</span>
@@ -297,7 +297,7 @@ export default function SaasExplainerStudio() {
             </FieldRow>
 
             <div className="mt-4">
-              <FieldRow label="Source document" hint="A PDF/DOCX/PPTX about the product or topic (e.g. a new product spec). The video will be about this, in your brand's voice.">
+              <FieldRow label="Source document" hint="What it's about — PDF, deck, or doc.">
                 {sourceDocName ? (
                   <div className="flex items-center justify-between rounded-md border border-ds-emphasis bg-surface-well px-3 py-2">
                     <span className="text-sm text-ds-secondary">📄 {sourceDocName} · {sourceMaterial.length.toLocaleString()} chars</span>
