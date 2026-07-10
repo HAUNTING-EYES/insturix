@@ -447,6 +447,8 @@ async function materializeStoryline(
         order: clip.order,
         role: clip.role,
         fit: clip.fit,
+        linkFromPrev: clip.linkFromPrev,
+        transitionIn: clip.transitionIn,
         inSec: clip.in,
         outSec: clip.out,
       },

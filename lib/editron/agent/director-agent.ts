@@ -54,6 +54,7 @@ import { buildPersistedQualityReview } from '@/lib/editron/services/quality-revi
 import { buildPhase0LiveTruthSnapshot } from '@/lib/editron/services/phase0-live-truth';
 import { buildPhase0FixtureManifest } from '@/lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '@/lib/editron/services/phase0-render-artifact-pack';
+import { buildStorylineSeamTransitionEdl } from '@/lib/editron/services/storyline-seam-transitions';
 import {
   buildPhase0RenderedEvidenceDispatchPersistSet,
   dispatchPhase0RenderedEvidenceJob,
@@ -1607,6 +1608,18 @@ export async function executeDirectorPlan(
           console.warn(`[Director] Path D failed (${pathDErr.message}), falling through to legacy intelligence fallback gate`);
           // Fall through to existing paths below
         }
+      }
+
+      const storylineSeamEdl = buildStorylineSeamTransitionEdl(projectId, overlays, project.fps || 30);
+      if (storylineSeamEdl) {
+        unifiedDecisionCandidates.push({
+          source: 'signal-driven',
+          edl: storylineSeamEdl,
+          graphicsDensity: densityFromSignalsOrNeutral(pathDGenreParams ?? pathEGenreParams),
+          expectedExecuted: storylineSeamEdl.totalDecisions,
+          expectedSkipped: 0,
+        });
+        console.log(`[Director] Storyline seam hints: ${storylineSeamEdl.totalDecisions} transition candidates`);
       }
 
       unifiedDecisionBundle = planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates);

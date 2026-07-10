@@ -202,7 +202,7 @@ describe('from-batch storyline route handoff', () => {
       storyline: {
         clips: [
           { order: 0, sourceRef: 'scene_video', source: 'video_1', in: 1, out: 3, durationSec: 2, role: 'hook', fit: 'cover' },
-          { order: 1, sourceRef: 'scene_image', source: 'image_1', in: 0, out: 4, durationSec: 4, role: 'b-roll', fit: 'contain' },
+          { order: 1, sourceRef: 'scene_image', source: 'image_1', in: 0, out: 4, durationSec: 4, role: 'b-roll', fit: 'contain', linkFromPrev: 'therefore' },
         ],
         renderTarget: { aspectRatio: '16:9', fps: 30, width: 1920, height: 1080, container: 'mp4', videoCodec: 'h264', audioCodec: 'aac' },
         totalDurationSec: 6,
@@ -260,7 +260,7 @@ describe('from-batch storyline route handoff', () => {
       src: 'https://cdn.test/image_1',
       content: 'https://cdn.test/image_1',
       styles: expect.objectContaining({ objectFit: 'contain' }),
-      storyline: expect.objectContaining({ source: 'storyline', order: 1, role: 'b-roll', sourceRef: 'scene_image' }),
+      storyline: expect.objectContaining({ source: 'storyline', order: 1, role: 'b-roll', sourceRef: 'scene_image', linkFromPrev: 'therefore' }),
     }));
     expect(savedState.overlays[1]).not.toHaveProperty('videoStartTime');
     expect(savedState.overlays[1]).not.toHaveProperty('sourceStartFrame');
