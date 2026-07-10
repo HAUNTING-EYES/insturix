@@ -141,7 +141,11 @@ export const SidecarSceneSchema: z.ZodType<SidecarScene> = z.object({
 const GlobalEditDirectionsSchema = z.record(z.string(), z.unknown()).optional();
 
 export const ScriptSidecarSchema: z.ZodType<ScriptSidecar> = z.object({
-  sidecarVersion: z.literal(SCRIPT_SIDECAR_VERSION),
+  // Gemini structured-output response schemas only support STRING enums; a numeric
+  // z.literal(1) becomes a numeric enum [1] and Gemini rejects the whole request with
+  // 400 "enum[0] (TYPE_STRING), 1". The version is a server-owned constant the model
+  // should not author anyway — accept a number, default to the constant when omitted.
+  sidecarVersion: z.number().int().default(SCRIPT_SIDECAR_VERSION),
   characters: z.array(SidecarCharacterSchema),
   scenes: z.array(SidecarSceneSchema).min(1).max(60),
   overallMusicPrompt: z.string(),
@@ -262,7 +266,8 @@ export const ScriptGenerationResultSchema: z.ZodType<ScriptGenerationResult> = z
   sidecar: ScriptSidecarSchema,
   briefSnapshot: ProductionBriefSnapshotSchema,
   sourceLedger: SourceLedgerSchema,
-  sidecarVersion: z.literal(SCRIPT_SIDECAR_VERSION),
+  // Same Gemini numeric-enum constraint as ScriptSidecarSchema.sidecarVersion above.
+  sidecarVersion: z.number().int().default(SCRIPT_SIDECAR_VERSION),
 }).superRefine((result, ctx) => {
   if (result.sidecarVersion !== result.sidecar.sidecarVersion) {
     ctx.addIssue({
