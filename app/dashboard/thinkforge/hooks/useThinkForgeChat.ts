@@ -231,6 +231,8 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         lastUserAction?: string;
       };
       blueprintArtifacts?: Array<{ type: string; label: string; description?: string; priority?: string }>;
+      /** Silent auto-starter draft: trigger generation without showing/persisting a user bubble. */
+      silent?: boolean;
     }
   ) => {
     console.log('[useThinkForgeChat.sendMessage] called', { sessionId, prompt: prompt.trim(), isStreaming });
@@ -260,15 +262,17 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       generationPollRef.current = null;
     }
 
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: prompt,
-      timestamp: new Date(),
-      selectionText: options?.selection || null,
-    };
-
-    setMessages(prev => [...prev, userMsg]);
+    // Silent auto-starter: no visible user bubble (the server also skips persisting it).
+    if (!options?.silent) {
+      const userMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: prompt,
+        timestamp: new Date(),
+        selectionText: options?.selection || null,
+      };
+      setMessages(prev => [...prev, userMsg]);
+    }
     setIsStreaming(true);
     setCurrentIntent(null);
     intentRef.current = null;
@@ -312,6 +316,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
           threadId,
           intentContext: options?.intentContext,
           blueprintArtifacts: options?.blueprintArtifacts,
+          silent: options?.silent,
         }),
         signal: controller.signal,
       });

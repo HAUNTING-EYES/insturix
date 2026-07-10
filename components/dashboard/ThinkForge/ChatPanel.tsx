@@ -272,6 +272,57 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   // Build script payload
   const scriptPayload = useMemo(() => scriptToModel(script), [script]);
 
+  // Auto-starter (SILENT): generate the first draft on its own for a genuinely NEW idea with an
+  // empty canvas — no visible "write a starter draft" user bubble (silent flag; the server skips
+  // persisting it too). Never fires on a saved project reopen (B1 guard: bail if the canvas already
+  // has content/blocks, if the chat has messages, or if a saved script loads during the debounce).
+  // Restores the auto-draft that commit 11bf42ae removed as collateral; the silent flag drops the
+  // clunky fake message the old version showed.
+  const autoStartFired = React.useRef(false);
+  const autoStartScriptRef = React.useRef(script);
+  autoStartScriptRef.current = script;
+
+  useEffect(() => {
+    if (autoStartFired.current) return;
+    if (!sessionId) return;
+    if (!selectedIdea?.idea) return;
+    if (chat.messages.length > 0) return;
+    if (chat.isStreaming) return;
+    const hasData = !!(script?.content || (Array.isArray(script?.blocks) && script.blocks.length > 0));
+    if (hasData) return;
+
+    // Wait long enough for a saved script to load from the server (Vercel cold starts 2-3s) before
+    // concluding this is a fresh canvas. Re-read the latest script via ref at fire time.
+    const timer = setTimeout(() => {
+      if (autoStartFired.current) return;
+      const latest = autoStartScriptRef.current;
+      const latestHasData = !!(latest?.content || (Array.isArray(latest?.blocks) && latest.blocks.length > 0));
+      if (latestHasData) return;
+      if (chat.messages.length > 0 || chat.isStreaming) return;
+
+      autoStartFired.current = true;
+      const autoPrompt = `Write a short starter draft for this idea: "${selectedIdea.idea}". Keep it concise — just enough to give me something to work with. Include a hook, a brief body, and a closing.`;
+      chat.sendMessage(autoPrompt, {
+        silent: true,
+        script: scriptPayload,
+        project: sessionPayload,
+        onTokenStream,
+        onScriptCreated,
+        scriptId: scriptIdRef.current || undefined,
+        intentContext: {
+          editorFocused: false,
+          hasSelection: false,
+          workspaceMode,
+          lastUserAction: 'auto_start',
+        },
+      });
+    }, 3000);
+
+    return () => clearTimeout(timer);
+    // Fire once per new idea; intentionally not reacting to chat/script churn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, selectedIdea?.idea]);
+
   const handleSend = useCallback(() => {
     console.log('[ChatPanel.handleSend] called', { inputValue: inputValue.trim(), sessionId, isStreaming: chat.isStreaming });
     if (!inputValue.trim()) {

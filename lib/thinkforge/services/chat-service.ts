@@ -179,6 +179,9 @@ export interface ChatRequest {
   threadId?: string | null;
   intentContext?: IntentContextSignals;
   blueprintArtifacts?: Array<{ type: string; label: string; description?: string; priority?: string }>;
+  /** Silent generation (auto-starter draft): run the draft but do NOT persist the triggering
+   *  prompt as a visible user chat message. The assistant progress + script still stream. */
+  silent?: boolean;
 }
 
 function formatBlocksForPrompt(blocks: { blockId: string; text: string; type?: string }[]): string {
@@ -219,6 +222,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     threadId: providedThreadId,
     intentContext: providedIntentContext,
     blueprintArtifacts: providedBlueprintArtifacts,
+    silent: isSilent = false,
   } = request;
   const threadId = providedThreadId || 'default';
 
@@ -358,9 +362,12 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         return;
       }
 
-      // Persist user message
+      // Persist user message (skipped for silent auto-starter drafts so the triggering prompt
+      // never shows as a user bubble — on first render or on reload. Usage is still recorded.)
       if (session) {
-        await db.appendChatMessage(sessionId || session._id, 'user', prompt, threadId);
+        if (!isSilent) {
+          await db.appendChatMessage(sessionId || session._id, 'user', prompt, threadId);
+        }
         await db.recordChatUsage(userId, sessionId || session._id, chatLimit.planName);
       }
 
