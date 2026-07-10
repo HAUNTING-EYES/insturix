@@ -262,55 +262,62 @@ export default function SaasExplainerStudio() {
             />
           </FieldRow>
 
-          <FieldRow label="Source document" hint="Optional — upload a PDF/DOCX/PPTX about a product or topic (e.g. a new product spec). The video will be about this, in your brand's voice.">
-            {sourceDocName ? (
-              <div className="flex items-center justify-between rounded-md border border-ds-emphasis bg-surface-well px-3 py-2">
-                <span className="text-sm text-ds-secondary">📄 {sourceDocName} · {sourceMaterial.length.toLocaleString()} chars</span>
-                <Btn variant="ghost" size="sm" onClick={clearDoc}>Remove</Btn>
-              </div>
-            ) : (
-              <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-ds-emphasis bg-surface-well px-3 py-3 text-sm text-ds-muted hover:text-ds-primary ${ingestDoc.isPending ? 'opacity-60' : ''}`}>
-                {ingestDoc.isPending ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Reading…</span> : '⬆ Upload a PDF, DOCX, PPTX, or TXT'}
-                <input
-                  type="file"
-                  accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md"
-                  className="hidden"
-                  disabled={ingestDoc.isPending}
-                  onChange={(e) => { uploadDoc(e.target.files?.[0]); e.target.value = ''; }}
-                />
-              </label>
-            )}
-          </FieldRow>
+          <div className="rounded-xl border border-ds-subtle bg-surface-raised/40 p-4">
+            <Mono size="8" className="text-gold">REFERENCES · OPTIONAL</Mono>
+            <p className="mt-1 mb-4 text-xs text-ds-muted">Guide the video with a reference you already have. A video steers the <span className="text-ds-secondary">look</span>; a document steers <span className="text-ds-secondary">what it's about</span>. (To make a video for another brand, scan that brand in Brand Vault first.)</p>
 
-          <FieldRow label="Style reference video" hint="Optional — a video whose look & feel you want. The craft agent studies its frames and designs to match.">
-            {referenceLabel ? (
-              <div className="flex items-center justify-between rounded-md border border-ds-emphasis bg-surface-well px-3 py-2">
-                <span className="truncate text-sm text-ds-secondary">🎬 {referenceLabel} · {referenceImageUrls.length} frame(s)</span>
-                <Btn variant="ghost" size="sm" onClick={clearReference}>Remove</Btn>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <div className="flex gap-2">
-                  <input
-                    className="flex-1 rounded-md border border-ds-emphasis bg-surface-well px-3 py-2 text-ds-primary"
-                    value={referenceUrlInput}
-                    onChange={(e) => setReferenceUrlInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !ingestReference.isPending) fetchReferenceUrl(); }}
-                    placeholder="Paste a video URL…"
-                    disabled={ingestReference.isPending}
-                  />
-                  <Btn variant="ghost" onClick={fetchReferenceUrl} disabled={ingestReference.isPending || !referenceUrlInput.trim()}>
-                    {ingestReference.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Fetch'}
-                  </Btn>
+            <FieldRow label="Reference video" hint="A video whose style you want to match — paste a link or upload one. The craft agent studies its frames and designs the video to look like it.">
+              {referenceLabel ? (
+                <div className="flex items-center justify-between rounded-md border border-ds-emphasis bg-surface-well px-3 py-2">
+                  <span className="truncate text-sm text-ds-secondary">🎬 {referenceLabel} · {referenceImageUrls.length} frame(s)</span>
+                  <Btn variant="ghost" size="sm" onClick={clearReference}>Remove</Btn>
                 </div>
-                <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-ds-emphasis bg-surface-well px-3 py-2 text-sm text-ds-muted hover:text-ds-primary ${ingestReference.isPending ? 'opacity-60' : ''}`}>
-                  {ingestReference.isPending ? 'Reading…' : '⬆ or upload an mp4 / mov / webm'}
-                  <input type="file" accept=".mp4,.mov,.webm,.m4v" className="hidden" disabled={ingestReference.isPending}
-                    onChange={(e) => { uploadReferenceVideo(e.target.files?.[0]); e.target.value = ''; }} />
-                </label>
-              </div>
-            )}
-          </FieldRow>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 rounded-md border border-ds-emphasis bg-surface-well px-3 py-2 text-ds-primary"
+                      value={referenceUrlInput}
+                      onChange={(e) => setReferenceUrlInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !ingestReference.isPending) fetchReferenceUrl(); }}
+                      placeholder="Paste a video link…"
+                      disabled={ingestReference.isPending}
+                    />
+                    <Btn variant="ghost" onClick={fetchReferenceUrl} disabled={ingestReference.isPending || !referenceUrlInput.trim()}>
+                      {ingestReference.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add'}
+                    </Btn>
+                  </div>
+                  <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-ds-emphasis bg-surface-well px-3 py-2 text-sm text-ds-muted hover:text-ds-primary ${ingestReference.isPending ? 'opacity-60' : ''}`}>
+                    {ingestReference.isPending ? 'Reading…' : '⬆ or upload an mp4 / mov / webm'}
+                    <input type="file" accept=".mp4,.mov,.webm,.m4v" className="hidden" disabled={ingestReference.isPending}
+                      onChange={(e) => { uploadReferenceVideo(e.target.files?.[0]); e.target.value = ''; }} />
+                  </label>
+                </div>
+              )}
+            </FieldRow>
+
+            <div className="mt-4">
+              <FieldRow label="Source document" hint="A PDF/DOCX/PPTX about the product or topic (e.g. a new product spec). The video will be about this, in your brand's voice.">
+                {sourceDocName ? (
+                  <div className="flex items-center justify-between rounded-md border border-ds-emphasis bg-surface-well px-3 py-2">
+                    <span className="text-sm text-ds-secondary">📄 {sourceDocName} · {sourceMaterial.length.toLocaleString()} chars</span>
+                    <Btn variant="ghost" size="sm" onClick={clearDoc}>Remove</Btn>
+                  </div>
+                ) : (
+                  <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-ds-emphasis bg-surface-well px-3 py-3 text-sm text-ds-muted hover:text-ds-primary ${ingestDoc.isPending ? 'opacity-60' : ''}`}>
+                    {ingestDoc.isPending ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Reading…</span> : '⬆ Upload a PDF, DOCX, PPTX, or TXT'}
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md"
+                      className="hidden"
+                      disabled={ingestDoc.isPending}
+                      onChange={(e) => { uploadDoc(e.target.files?.[0]); e.target.value = ''; }}
+                    />
+                  </label>
+                )}
+              </FieldRow>
+            </div>
+          </div>
 
           <FieldRow label="Audience" hint="Optional.">
             <TextInput value={audience} onChange={setAudience} placeholder="SaaS founders, marketing agencies" />
