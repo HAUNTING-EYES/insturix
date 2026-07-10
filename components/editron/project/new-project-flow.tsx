@@ -140,6 +140,14 @@ const CSS = `
 .enp .monitor .clips i{height:38px;border-radius:3px;background:var(--well);border:1px solid var(--border)}
 .enp .monitor .rec{position:absolute;top:14px;left:16px;display:inline-flex;gap:6px;align-items:center}
 .enp .monitor .ph{position:relative;height:2px;background:var(--border)}.enp .monitor .ph i{position:absolute;left:36%;top:-6px;width:2px;height:14px;background:var(--gold)}
+.enp .monitor .core{position:absolute;left:20px;right:20px;top:44px;bottom:74px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center}
+.enp .monitor .core .ring{width:38px;height:38px;border-radius:50%;border:2px solid var(--bs);border-top-color:var(--gold);animation:enpSpin .9s linear infinite}
+.enp .monitor .core .pt{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.03em;color:var(--text);max-width:88%;line-height:1.4}
+.enp .monitor .core .sub{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.enp .monitor .clips i{position:relative;overflow:hidden}
+.enp .monitor .clips.live i::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(212,166,82,.16),transparent);transform:translateX(-100%);animation:enpSweep 1.5s ease-in-out infinite}
+@keyframes enpSpin{to{transform:rotate(360deg)}}
+@keyframes enpSweep{100%{transform:translateX(100%)}}
 @media(max-width:640px){.enp .body{padding:70px 22px 30px}.enp .grid2{grid-template-columns:1fr}.enp .doors{flex-direction:column;height:auto}.enp .door{padding:18px 22px}.enp .door.g{border-left:none;border-top:1.5px solid var(--gold)}}
 `;
 
@@ -154,6 +162,9 @@ function Seg({ options, value, onChange }: { options: string[]; value: string; o
 }
 
 const DUR_SEC: Record<string, number> = { '15s': 15, '30s': 30, '60s': 60 };
+
+// Varied clip widths for the working filmstrip (a real, if approximate, timeline — not 5 dummy boxes).
+const CLIP_FLEX = [3, 1.4, 2.6, 1, 1.8, 2.2, 1.3];
 
 export default function NewProjectFlow() {
   const router = useRouter();
@@ -213,6 +224,7 @@ export default function NewProjectFlow() {
   const [projName, setProjName] = useState('untitled');
   const [projType, setProjType] = useState('—');
   const [pendingFootageFiles, setPendingFootageFiles] = useState<File[]>([]);
+  const [batchCount, setBatchCount] = useState(0);
 
   const go = useCallback((s: Screen) => { setError(null); setScreen(s); }, []);
 
@@ -246,6 +258,7 @@ export default function NewProjectFlow() {
     setError(null);
     setProjName(files.length === 1 ? files[0].name : `${files.length} files`);
     setProjType(files.length === 1 ? 'Edit footage' : 'Upload batch');
+    setBatchCount(files.length);
     setScreen('onair');
     footage.startMany(files, options);
   }, [footage]);
@@ -424,11 +437,18 @@ export default function NewProjectFlow() {
                 <div className="monitor">
                   <div className="rec">
                     <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', display: 'inline-block', animation: 'enpPl 1.4s infinite' }} />
-                    <span className="m" style={{ fontSize: 9, color: 'var(--red)' }}>{footage.running && footage.progress ? footage.progress : working ? `WORKING · ${elapsed}s` : 'REC 00:12'}</span>
+                    <span className="m" style={{ fontSize: 9, color: 'var(--red)' }}>{working ? `WORKING · ${elapsed}s` : 'READY'}</span>
+                  </div>
+                  <div className="core">
+                    {working ? <span className="ring" /> : null}
+                    <span className="pt">{footage.progress || (working ? 'Starting up…' : 'Ready to edit.')}</span>
+                    {batchCount > 1 ? <span className="sub">{batchCount} files</span> : null}
                   </div>
                   <div className="tl">
-                    <div className="clips">
-                      <i style={{ flex: 3 }} /><i style={{ flex: 1.4, borderColor: 'var(--gold)' }} /><i style={{ flex: 2.6 }} /><i style={{ flex: 1 }} /><i style={{ flex: 1.8 }} />
+                    <div className={working ? 'clips live' : 'clips'}>
+                      {Array.from({ length: Math.max(3, Math.min(batchCount || 5, 12)) }, (_, i) => (
+                        <i key={i} style={{ flex: CLIP_FLEX[i % CLIP_FLEX.length], ...(i === 1 ? { borderColor: 'var(--gold)' } : {}) }} />
+                      ))}
                     </div>
                     <div className="ph"><i /></div>
                   </div>
