@@ -7,6 +7,7 @@ import {
   orderStorylineWithLLM,
 } from '@/lib/editron/storyline/order-storyline-service';
 import { makeScene, type Scene, type SceneInput } from '@/lib/editron/storyline/scene';
+import type { NarrativeSignalSource } from '@/lib/editron/storyline/signal-enricher';
 
 function scene(over: Partial<SceneInput> = {}): Scene {
   return makeScene({
@@ -108,5 +109,49 @@ describe('orderStorylineForProject - reads analyses then orders', () => {
     expect(called).toBe(false);
     expect(r.storyline.clips).toHaveLength(0);
     expect(r.fallbackReason).toBe('too_few_clips');
+  });
+});
+
+// ─── B1: scenes are enriched so the ordering LLM sees narrative signals ───
+
+describe('orderStorylineWithLLM - narrative enrichment reaches the LLM prompt', () => {
+  const okPlan = async () =>
+    JSON.stringify({ order: [{ ref: 'c0', linkFromPrev: null }, { ref: 'c1', linkFromPrev: 'therefore' }] });
+
+  it('★ phase + position are live with ZERO dependencies (computed from the scenes themselves)', async () => {
+    let captured = '';
+    const capture: typeof okPlan = async () => okPlan();
+    const llm = async (prompt: string) => { captured = prompt; return capture(); };
+    // one source, an energy arc: s0 early/low -> opening, s1 late/peak -> closing.
+    const s0 = scene({ source: 'v.mp4', startTime: 0, endTime: 3, importance: 0.2 });
+    const s1 = scene({ source: 'v.mp4', startTime: 20, endTime: 23, importance: 0.9 });
+    const r = await orderStorylineWithLLM([s0, s1], brief(), llm);
+    expect(r.planApplied).toBe(true);
+    expect(captured).toContain('phase:opening');
+    expect(captured).toContain('phase:closing');
+  });
+
+  it('narrativeSources light up the full event tags (cta, entities) in the prompt', async () => {
+    let captured = '';
+    const llm = async (prompt: string) => { captured = prompt; return okPlan(); };
+    const s0 = scene({ source: 'v', startTime: 0, endTime: 5 });
+    const s1 = scene({ source: 'v', startTime: 5, endTime: 10 });
+    const sources: ReadonlyMap<string, NarrativeSignalSource> = new Map([
+      ['v', { events: [
+        { timestampMs: 2000, kind: 'cta' },
+        { timestampMs: 3000, kind: 'name', context: 'Acme' },
+      ], durationMs: 10_000 }],
+    ]);
+    await orderStorylineWithLLM([s0, s1], brief(), llm, { narrativeSources: sources });
+    expect(captured).toContain('cta');
+    expect(captured).toContain('entities: Acme');
+  });
+
+  it('ordering behaviour is unchanged by enrichment (deterministic fallback identical)', async () => {
+    const s0 = scene({ source: 'a', startTime: 0, endTime: 3, importance: 0.9 });
+    const s1 = scene({ source: 'b', startTime: 0, endTime: 3, importance: 0.1, createdAt: 50 });
+    const r = await orderStorylineWithLLM([s0, s1], brief(), async () => { throw new Error('boom'); });
+    expect(r.planApplied).toBe(false);
+    expect(r.storyline.clips).toHaveLength(2); // still composes, enrichment did not drop/scramble clips
   });
 });

@@ -26,6 +26,7 @@ import { type OrderingValidation, validateOrderingPlan } from './ordering-plan';
 import { buildOrderingPrompt, type OrderingPromptContext, parseOrderingResponse, type SequencingMovesMenu } from './ordering-prompt';
 import type { EditronAssetContext } from './scene-adapter';
 import type { Scene } from './scene';
+import { enrichScenes, type NarrativeSignalSource } from './signal-enricher';
 import type { Storyline } from './storyline';
 
 /** Complete a prompt with an LLM. Inject the app's Gemini client in prod; grok in the eval. */
@@ -38,6 +39,13 @@ export interface OrderStorylineOptions {
   /** Override the ordering-move menu (defaults to the creative doc's SEQUENCING_MOVES). */
   moves?: SequencingMovesMenu;
   compose?: ComposeOptions;
+  /**
+   * Per-source narrative signals (from `narrativeSourceFromTimeline`), keyed by Scene.source.
+   * When present, scenes get the full narrative report card (cta/topic-boundary/pressure/entities);
+   * when absent, phase + position are still computed from the scenes themselves. Either way the
+   * digest surfaces what exists, so the ordering LLM's SEQUENCING_MOVES have real signals to lean on.
+   */
+  narrativeSources?: ReadonlyMap<string, NarrativeSignalSource>;
 }
 
 export interface OrderStorylineResult {
@@ -74,8 +82,13 @@ export async function orderStorylineWithLLM(
   llm: LLMComplete,
   opts?: OrderStorylineOptions,
 ): Promise<OrderStorylineResult> {
-  const picked = selectAndFitScenes(scenes, brief, opts?.compose);
-  if (picked.length < MIN_CLIPS_FOR_LLM) return deterministic(scenes, brief, opts, 'too_few_clips');
+  // Enrich BEFORE select+fit so phase/position use each source's TRUE arc (not the picked subset).
+  // The narrative field rides along through select and into the digest the LLM reads. Ordering
+  // behaviour is unchanged - composeStoryline ignores narrative; this only feeds the LLM.
+  const enriched = enrichScenes(scenes, opts?.narrativeSources ? { sources: opts.narrativeSources } : undefined);
+
+  const picked = selectAndFitScenes(enriched, brief, opts?.compose);
+  if (picked.length < MIN_CLIPS_FOR_LLM) return deterministic(enriched, brief, opts, 'too_few_clips');
 
   const digests = buildOrderingDigest(picked);
   const prompt = buildOrderingPrompt(digests, opts?.ctx, opts?.moves);
@@ -84,19 +97,19 @@ export async function orderStorylineWithLLM(
   try {
     raw = await llm(prompt);
   } catch {
-    return deterministic(scenes, brief, opts, 'llm_error');
+    return deterministic(enriched, brief, opts, 'llm_error');
   }
 
   const { plan } = parseOrderingResponse(raw, digests);
-  if (!plan) return deterministic(scenes, brief, opts, 'parse_error');
+  if (!plan) return deterministic(enriched, brief, opts, 'parse_error');
 
   const validation = validateOrderingPlan(plan, picked, {
     targetDurationSec: brief.output.targetDurationSec,
     minClipDurationSec: opts?.compose?.minClipDurationSec,
   });
-  if (!validation.valid) return deterministic(scenes, brief, opts, 'invalid_plan', validation);
+  if (!validation.valid) return deterministic(enriched, brief, opts, 'invalid_plan', validation);
 
-  const storyline = composeStoryline(scenes, brief, { ...opts?.compose, orderingPlan: plan });
+  const storyline = composeStoryline(enriched, brief, { ...opts?.compose, orderingPlan: plan });
   return { storyline, planApplied: true, validation, rationale: plan.rationale };
 }
 
