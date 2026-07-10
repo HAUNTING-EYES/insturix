@@ -3,6 +3,7 @@
  * Uses SSE format like Editron for consistent streaming
  */
 
+import { generateText } from 'ai';
 import { chatAgent } from '../agents/chat-agent';
 import { runResearchAgent } from '../agents/research-agent';
 import { generateScriptDraft } from '../agents/script-draft-agent';
@@ -29,10 +30,12 @@ import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
 import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
+import { createThinkForgeModelForRoute } from '../agents/model-factory';
 import { resolveThinkForgeDocumentIntent } from '../agents/prompt-utils';
 import { resolveThinkForgeTrendContext } from './trend-context';
 import { resolveThinkForgeProductionBrief } from '../brief/resolve-production-brief';
 import { resolveThinkForgeAvatarCasting, type ThinkForgeCastingMetadata } from '../casting/resolve-casting';
+import { parsePromptUnderstanding } from '../intake/prompt-knob-parser';
 import { buildThinkForgeSourceLedger } from '../provenance/source-ledger';
 import {
   resolveContentSignalProfile,
@@ -44,6 +47,23 @@ import {
 } from '../signals';
 import { buildThinkForgeSignalTrace } from '../signals/signal-trace';
 import crypto from 'crypto';
+
+const PROMPT_UNDERSTANDING_SEED = 7;
+
+async function resolveScriptPromptUnderstanding(userPrompt: string) {
+  return parsePromptUnderstanding(userPrompt, async (intakePrompt) => {
+    const { text } = await generateText({
+      model: createThinkForgeModelForRoute({
+        routePurpose: 'structural',
+        privacyClass: 'business_confidential',
+      }),
+      prompt: intakePrompt,
+      temperature: 0,
+      seed: PROMPT_UNDERSTANDING_SEED,
+    });
+    return text;
+  });
+}
 
 // Generator may be imperfect. Renderer must never fail.
 
@@ -892,6 +912,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         let resolvedSignalProfile: ThinkForgeContentSignalProfile | undefined;
         let trendContextMetadata: Record<string, any> | undefined;
         let castingContextMetadata: ThinkForgeCastingMetadata | undefined;
+        let promptUnderstanding: Awaited<ReturnType<typeof resolveScriptPromptUnderstanding>> | undefined;
         try {
           const contentSignalProfile = resolveContentSignalProfile({
             userPrompt: effectivePrompt,
@@ -928,6 +949,10 @@ CRITICAL: You are editing a SELECTION from a larger document.
           console.warn('[chat-service] public trend context failed; generating without it:', trendErr);
         }
 
+        if (contentPath !== 'post') {
+          promptUnderstanding = await resolveScriptPromptUnderstanding(effectivePrompt);
+        }
+
         try {
           briefSnapshot = resolveThinkForgeProductionBrief({
             userPrompt: effectivePrompt,
@@ -943,6 +968,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
               userId,
               orgId: session.orgId ?? null,
               brandId: sessionState.metadata.brandId,
+              castingIntent: promptUnderstanding?.castingIntent,
             });
             briefSnapshot = castingResolution.brief;
             if (castingResolution.metadata.status !== 'not_requested') {

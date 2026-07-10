@@ -6,6 +6,8 @@ import {
   buildKnobParserPrompt,
   parseKnobResponse,
   parsePromptKnobs,
+  parsePromptUnderstanding,
+  parsePromptUnderstandingResponse,
   type RequestedKnobs,
 } from '@/lib/thinkforge/intake/prompt-knob-parser';
 
@@ -30,12 +32,24 @@ describe('buildKnobParserPrompt', () => {
     expect(p).toContain('youtube-shorts');
     expect(p).not.toContain('unspecified');
   });
+
+  it('documents semantic self/avatar casting without forcing generic presenter requests', () => {
+    const p = buildKnobParserPrompt('make me the on-camera host');
+    expect(p).toContain('castingIntent');
+    expect(p).toContain('their own avatar');
+    expect(p).toContain('founder style');
+  });
 });
 
 describe('parseKnobResponse - happy path', () => {
   it('extracts a fully-specified object', () => {
     const r = parseKnobResponse('{"platform":"tiktok","targetDurationSec":30,"aspectRatio":"9:16","count":2}');
     expect(r).toEqual({ platform: 'tiktok', targetDurationSec: 30, aspectRatio: '9:16', count: 2 });
+  });
+
+  it('extracts nested requested output for the prompt-understanding shape', () => {
+    const r = parseKnobResponse('{"requested":{"platform":"tiktok","targetDurationSec":30}}');
+    expect(r).toEqual({ platform: 'tiktok', targetDurationSec: 30 });
   });
 
   it('strips a ```json fence', () => {
@@ -101,6 +115,31 @@ describe('parseKnobResponse - conservative / never-throws (the safety net)', () 
   });
 });
 
+
+describe('parsePromptUnderstandingResponse - casting intent', () => {
+  it('keeps output knobs and accepted self-casting intent', () => {
+    const r = parsePromptUnderstandingResponse('{"requested":{"platform":"youtube"},"castingIntent":{"requested":true,"target":"self","characterId":"founder","characterName":"Founder"}}');
+    expect(r.requested).toEqual({ platform: 'youtube' });
+    expect(r.castingIntent).toEqual({
+      requested: true,
+      target: 'self',
+      characterId: 'founder',
+      characterName: 'Founder',
+    });
+  });
+
+  it('defaults a valid self-casting intent to the host character', () => {
+    const r = parsePromptUnderstandingResponse('{"castingIntent":{"requested":true,"target":"self"}}');
+    expect(r.castingIntent?.characterId).toBe('host');
+    expect(r.castingIntent?.characterName).toBe('Host');
+  });
+
+  it('drops unrequested or non-self casting payloads', () => {
+    expect(parsePromptUnderstandingResponse('{"castingIntent":{"requested":false,"target":"self"}}').castingIntent).toBeUndefined();
+    expect(parsePromptUnderstandingResponse('{"castingIntent":{"requested":true,"target":"actor"}}').castingIntent).toBeUndefined();
+  });
+});
+
 describe('parsePromptKnobs - impure edge with injected llm', () => {
   const echo = (payload: string) => async () => payload;
 
@@ -124,6 +163,11 @@ describe('parsePromptKnobs - impure edge with injected llm', () => {
       throw new Error('model down');
     };
     expect(await parsePromptKnobs('a 20s tiktok', boom)).toEqual({});
+  });
+
+  it('returns parsed prompt understanding from the llm response', async () => {
+    const r = await parsePromptUnderstanding('make me the host', echo('{"castingIntent":{"requested":true,"target":"self"}}'));
+    expect(r).toEqual({ requested: {}, castingIntent: { requested: true, target: 'self', characterId: 'host', characterName: 'Host' } });
   });
 });
 

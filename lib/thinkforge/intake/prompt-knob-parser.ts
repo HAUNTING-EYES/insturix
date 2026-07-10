@@ -3,11 +3,11 @@
  * logic native). Turns a user's free-text request about the OUTPUT ("punchy 30s vertical cut for
  * TikTok, make two versions") into the CONCRETE knobs they EXPLICITLY stated - nothing more.
  *
- * The output is `RequestedKnobs`: a strict SUBSET of the resolver's `IntakeSignals['requested']`
- * (derived, never forked). The composer sets it as `IntakeUserContext.requested`; the resolver
- * (resolveProductionBrief) already treats those as user-confirmed, highest precedence
- * (USER > BRAND > INFERRED). So once this emits `requested`, the spec is honored end-to-end -
- * no composer change (intake-resolver.ts:52-58 was built anticipating exactly this parser).
+ * The legacy output is `RequestedKnobs`: a strict SUBSET of the resolver's
+ * `IntakeSignals['requested']` (derived, never forked). The richer prompt-understanding output
+ * also carries optional self/avatar `castingIntent` for the ThinkForge-owned casting bridge.
+ * The composer sets `requested` as `IntakeUserContext.requested`; the resolver treats those as
+ * user-confirmed, highest precedence (USER > BRAND > INFERRED).
  *
  * THE failure mode is HALLUCINATING a knob (inventing "30s" when no length was said, or "TikTok"
  * from "make it snappy"). A wrong knob is worse than a missing one - the resolver infers missing
@@ -20,12 +20,14 @@
  * or infers. Follows the project prompt methodology (Rule 35): XML-delimited, rules-over-examples
  * (no few-shot anchoring), data LAST. Seed/temperature live in the caller's generation config.
  *
- * Structure mirrors ordering-prompt.ts: a pure `build...Prompt` + a pure `parse...Response` that
- * never throws, plus one impure edge (`parsePromptKnobs`) that takes an injected LLM.
+ * Structure mirrors ordering-prompt.ts: a pure `build...Prompt` + pure `parse...Response`
+ * functions that never throw, plus injected-LLM impure edges for old knob-only callers and the
+ * richer prompt-understanding caller.
  */
 
 import type { IntakeSignals } from '@/lib/editron/production-brief/intake-resolver';
 import { type AspectRatio, type Platform, PLATFORM_SHAPE } from '@/lib/editron/production-brief/production-brief';
+import type { ThinkForgeCastingIntent } from '../casting/resolve-casting';
 
 /**
  * The knobs this pass may emit - the resolver's `requested` shape MINUS `intent` and `style`
@@ -35,6 +37,11 @@ import { type AspectRatio, type Platform, PLATFORM_SHAPE } from '@/lib/editron/p
  */
 export type RequestedKnobs = Omit<NonNullable<IntakeSignals['requested']>, 'intent' | 'style'>;
 
+export interface PromptUnderstanding {
+  requested: RequestedKnobs;
+  castingIntent?: ThinkForgeCastingIntent;
+}
+
 /** Complete a prompt with an LLM (raw text in, raw text out). Inject Gemini in prod, Grok in eval. */
 export type LLMComplete = (prompt: string) => Promise<string>;
 
@@ -43,6 +50,8 @@ const VALID_PLATFORMS: ReadonlySet<string> = new Set(
   Object.keys(PLATFORM_SHAPE).filter((p) => p !== 'unspecified'),
 );
 const VALID_ASPECTS: ReadonlySet<string> = new Set<AspectRatio>(['16:9', '9:16', '1:1', '4:5']);
+const DEFAULT_CASTING_CHARACTER_ID = 'host';
+const DEFAULT_CASTING_CHARACTER_NAME = 'Host';
 
 // ─── prompt builder (pure) ──────────────────────────────────────
 
@@ -61,21 +70,33 @@ You read a user's free-text request about a video they want made, and extract ON
 - count = how many distinct cuts/versions they ask for ("two versions", "a couple" = 2, "three" = 3). Not stated = omit (do NOT default to 1).
 - Languages are ISO-639-1 codes (Hindi = "hi", English = "en", Spanish = "es"). voiceLanguages = spoken/voiceover language; captionLanguages = subtitle/caption language.
 - deliverables = explicitly requested named outputs beyond the cut(s) (e.g. "thumbnail", "captions file", "square version").
+- castingIntent = emit ONLY when the user explicitly wants their own likeness/avatar/self to appear, speak, host, present, or be featured on camera. This is semantic: "I'm the one speaking", "use my avatar", "make me the presenter", and equivalent wording all count.
+- Do NOT emit castingIntent for a generic "founder style", "talking head", "UGC", "hosted video", or "presenter" request unless the user clearly says the presenter is them/their own avatar/their likeness.
+- If the user names the self-cast role, use that as characterId/characterName (e.g. "founder", "teacher", "host"). Otherwise use "host" / "Host".
 - When in doubt, LEAVE IT OUT.
 </rules>
 
 <output_format>
-Return ONLY valid JSON, no prose, no code fence. Include ONLY the keys the user explicitly stated; omit all others:
+Return ONLY valid JSON, no prose, no code fence. Include ONLY the sections the user explicitly stated; omit all others:
 {
-  "platform"?: ${platforms},
-  "targetDurationSec"?: number,
-  "aspectRatio"?: "16:9" | "9:16" | "1:1" | "4:5",
-  "count"?: number,
-  "voiceLanguages"?: string[],
-  "captionLanguages"?: string[],
-  "deliverables"?: string[]
+  "requested"?: {
+    "platform"?: ${platforms},
+    "targetDurationSec"?: number,
+    "aspectRatio"?: "16:9" | "9:16" | "1:1" | "4:5",
+    "count"?: number,
+    "voiceLanguages"?: string[],
+    "captionLanguages"?: string[],
+    "deliverables"?: string[]
+  },
+  "castingIntent"?: {
+    "requested": true,
+    "target": "self",
+    "characterId"?: string,
+    "characterName"?: string,
+    "avatarProfileId"?: string
+  }
 }
-An empty object {} is the correct answer when the user stated no concrete settings.
+An empty object {} is the correct answer when the user stated no concrete settings and no self/avatar casting.
 </output_format>
 
 <user_request>
@@ -90,6 +111,29 @@ function stripFence(text: string): string {
   const t = text.trim();
   const fence = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
   return fence ? fence[1].trim() : t;
+}
+
+function parseRawObject(raw: string): Record<string, unknown> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripFence(raw));
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 /** Normalize a string list: trim, drop empties, dedupe, lowercase (ISO codes). Undefined if none. */
@@ -114,21 +158,7 @@ function positiveIntOrUndefined(value: unknown): number | undefined {
   return n >= 1 ? n : undefined;
 }
 
-/**
- * Parse a raw LLM response into validated `RequestedKnobs`. Pure; NEVER throws. Every field is
- * validated/coerced and DROPPED if invalid (conservative - a dropped knob just means the resolver
- * infers it). Malformed JSON -> {} (emit nothing rather than guess). This is the safety net that
- * makes the whole pass trustworthy regardless of what the model returns.
- */
-export function parseKnobResponse(raw: string): RequestedKnobs {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stripFence(raw));
-  } catch {
-    return {};
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
-  const obj = parsed as Record<string, unknown>;
+function parseRequestedKnobsObject(obj: Record<string, unknown>): RequestedKnobs {
   const out: RequestedKnobs = {};
 
   if (typeof obj.platform === 'string' && VALID_PLATFORMS.has(obj.platform)) {
@@ -153,6 +183,49 @@ export function parseKnobResponse(raw: string): RequestedKnobs {
   return out;
 }
 
+function parseCastingIntent(value: unknown): ThinkForgeCastingIntent | undefined {
+  const obj = toRecord(value);
+  if (!obj || obj.requested !== true) return undefined;
+  const target = nonEmptyString(obj.target);
+  if (target && target !== 'self' && target !== 'user') return undefined;
+
+  const characterId = nonEmptyString(obj.characterId) ?? DEFAULT_CASTING_CHARACTER_ID;
+  const characterName = nonEmptyString(obj.characterName) ?? DEFAULT_CASTING_CHARACTER_NAME;
+  const avatarProfileId = nonEmptyString(obj.avatarProfileId);
+
+  return {
+    requested: true,
+    target: 'self',
+    characterId,
+    characterName,
+    ...(avatarProfileId ? { avatarProfileId } : {}),
+  };
+}
+
+/**
+ * Parse a raw LLM response into validated `RequestedKnobs`. Pure; NEVER throws. Every field is
+ * validated/coerced and DROPPED if invalid (conservative - a dropped knob just means the resolver
+ * infers it). Malformed JSON -> {} (emit nothing rather than guess). This is the safety net that
+ * makes the whole pass trustworthy regardless of what the model returns.
+ */
+export function parseKnobResponse(raw: string): RequestedKnobs {
+  const obj = parseRawObject(raw);
+  if (!obj) return {};
+  return parseRequestedKnobsObject(toRecord(obj.requested) ?? obj);
+}
+
+export function parsePromptUnderstandingResponse(raw: string): PromptUnderstanding {
+  const obj = parseRawObject(raw);
+  if (!obj) return { requested: {} };
+
+  const requested = parseRequestedKnobsObject(toRecord(obj.requested) ?? obj);
+  const castingIntent = parseCastingIntent(obj.castingIntent);
+  return {
+    requested,
+    ...(castingIntent ? { castingIntent } : {}),
+  };
+}
+
 // ─── impure edge (injected LLM) ─────────────────────────────────
 
 /**
@@ -170,4 +243,18 @@ export async function parsePromptKnobs(userPrompt: string, llm: LLMComplete): Pr
     return {};
   }
   return parseKnobResponse(raw);
+}
+
+export async function parsePromptUnderstanding(
+  userPrompt: string,
+  llm: LLMComplete,
+): Promise<PromptUnderstanding> {
+  if (typeof userPrompt !== 'string' || userPrompt.trim().length === 0) return { requested: {} };
+  let raw: string;
+  try {
+    raw = await llm(buildKnobParserPrompt(userPrompt));
+  } catch {
+    return { requested: {} };
+  }
+  return parsePromptUnderstandingResponse(raw);
 }
