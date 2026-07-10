@@ -117,6 +117,21 @@ export interface BriefTrendContext {
   warnings?: string[];
 }
 
+export interface BriefCasting {
+  /** sidecar character.id -> avatar/voice binding. */
+  map: Record<string, CharacterCasting>;
+}
+
+export interface CharacterCasting {
+  /** Accepted Avatar Vault profile this character is. Absent = not avatar-cast. */
+  avatarProfileId?: string;
+  /** Voice for this character's spoken lines. */
+  voice:
+    | { mode: 'cloned'; voiceReferenceUrl: string }
+    | { mode: 'preset'; ttsVoiceId: string }
+    | { mode: 'none' };
+}
+
 export interface ProductionBrief {
   output: BriefOutputSpec;
   /** Optional brand context ref (brand drives vibe). Brand-optional, user-primary. */
@@ -127,6 +142,8 @@ export interface ProductionBrief {
   sourceDurationSec?: number | null;
   /** Optional TrendSpec consumption metadata; final edit/render form stays owned downstream. */
   trend?: BriefTrendContext;
+  /** Optional character -> avatar/voice binding resolved by ThinkForge intake. */
+  casting?: BriefCasting;
 }
 
 /**

@@ -32,6 +32,7 @@ import { ServiceUsageService } from '@/lib/services/serviceUsageService';
 import { resolveThinkForgeDocumentIntent } from '../agents/prompt-utils';
 import { resolveThinkForgeTrendContext } from './trend-context';
 import { resolveThinkForgeProductionBrief } from '../brief/resolve-production-brief';
+import { resolveThinkForgeAvatarCasting, type ThinkForgeCastingMetadata } from '../casting/resolve-casting';
 import { buildThinkForgeSourceLedger } from '../provenance/source-ledger';
 import {
   resolveContentSignalProfile,
@@ -890,6 +891,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         // signals, not just the folded brief. Fails soft to the un-grounded brief.
         let resolvedSignalProfile: ThinkForgeContentSignalProfile | undefined;
         let trendContextMetadata: Record<string, any> | undefined;
+        let castingContextMetadata: ThinkForgeCastingMetadata | undefined;
         try {
           const contentSignalProfile = resolveContentSignalProfile({
             userPrompt: effectivePrompt,
@@ -934,6 +936,19 @@ CRITICAL: You are editing a SELECTION from a larger document.
             contentPath,
             brandId: sessionState.metadata.brandId,
           });
+          if (contentPath !== 'post') {
+            const castingResolution = await resolveThinkForgeAvatarCasting({
+              brief: briefSnapshot,
+              project: sessionState.metadata,
+              userId,
+              orgId: session.orgId ?? null,
+              brandId: sessionState.metadata.brandId,
+            });
+            briefSnapshot = castingResolution.brief;
+            if (castingResolution.metadata.status !== 'not_requested') {
+              castingContextMetadata = castingResolution.metadata;
+            }
+          }
         } catch (briefErr) {
           console.warn('[chat-service] production brief resolution failed; generating without briefSnapshot:', briefErr);
         }
@@ -1010,6 +1025,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
               sourceLedger,
               writerMetadata: result.metadata,
               ...(trendContextMetadata ? { trendContext: trendContextMetadata } : {}),
+              ...(castingContextMetadata ? { castingContext: castingContextMetadata } : {}),
             };
 
             // Build structural blocks for script
