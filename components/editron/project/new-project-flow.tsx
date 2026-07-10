@@ -414,7 +414,7 @@ export default function NewProjectFlow() {
                 <button type="button" className="type" onClick={() => go('script')}>
                   <span className="ix">01</span><span className="nm">Script &#8594; video</span><span className="ds">you have a script</span>
                 </button>
-                <button type="button" className="type" onClick={() => go('saas')}>
+                <button type="button" className="type" onClick={() => router.push('/dashboard/editron/saas-explainer/studio')}>
                   <span className="ix">02</span><span className="nm">SaaS explainer</span><span className="ds">brand-driven explainer</span>
                 </button>
                 <div className="type soon"><span className="ix">03</span><span className="nm">Ad</span><span className="ds">soon</span></div>
