@@ -12,6 +12,7 @@ import {
 } from '@/lib/editron/services/media-upload-batch';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { orderStorylineWithLLM, type OrderStorylineResult } from '@/lib/editron/storyline/order-storyline-service';
+import { deliverableBriefs, type DeliverableSpec } from '@/lib/editron/storyline/deliverables';
 import { buildAssetContextMap, scenesFromAssetAnalyses } from '@/lib/editron/storyline/multi-asset-compose';
 import { intakeSignalsFromProject } from '@/lib/editron/production-brief/intake-adapter';
 import { resolveProductionBrief } from '@/lib/editron/production-brief/intake-resolver';
@@ -38,8 +39,10 @@ type BatchDocument = {
   userId: string;
   orgId?: string | null;
   projectId?: string;
+  projectIds?: string[];
+  deliverableProjects?: Array<{ label: string; projectId: string; platform?: string; aspectRatio?: string; targetDurationSec?: number | null }>;
   assetIds?: string[];
-  productionBriefIntake?: MediaUploadBatchIntake;
+  productionBriefIntake?: MediaUploadBatchIntake & Record<string, unknown>;
 };
 
 type BatchMediaAsset = {
@@ -73,6 +76,10 @@ type FromBatchRequest = MediaUploadBatchIntake & {
   title?: string;
   brandId?: string;
   targetDurationSec?: number | string | null;
+  deliverableSpecs?: unknown;
+  requestedOutputs?: unknown;
+  outputs?: unknown;
+  deliverables?: unknown;
 };
 
 type MaterializedTimeline = {
@@ -116,6 +123,91 @@ function normalizePlatform(value: unknown): Platform | undefined {
 function normalizeDirectorEnum<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
   const v = cleanString(value, 128);
   return v && allowed.includes(v as T) ? v as T : undefined;
+}
+
+function durationFromSpecValue(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  const direct = positiveNumber(value);
+  if (direct !== undefined) return direct;
+  if (typeof value !== 'string') return undefined;
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds)?$/i);
+  if (!match) return undefined;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function normalizeDeliverableSpec(value: unknown, options: { allowLabelOnly?: boolean } = {}): DeliverableSpec | null {
+  if (typeof value === 'string') {
+    const label = cleanString(value, 160);
+    return options.allowLabelOnly && label ? { label } : null;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+  const source = value as Record<string, unknown>;
+  const label = cleanString(source.label ?? source.name ?? source.title, 160);
+  const platform = normalizePlatform(source.platform ?? source.destination);
+  const aspectRatio = normalizeAspectRatio(source.aspectRatio ?? source.ratio);
+  const targetDurationSec = durationFromSpecValue(source.targetDurationSec ?? source.durationSec ?? source.durationSeconds ?? source.duration);
+  const hasShape = Boolean(platform || aspectRatio || targetDurationSec !== undefined);
+
+  const spec: DeliverableSpec = {};
+  if (label && (options.allowLabelOnly || hasShape)) spec.label = label;
+  if (platform) spec.platform = platform;
+  if (aspectRatio) spec.aspectRatio = aspectRatio;
+  if (targetDurationSec !== undefined) spec.targetDurationSec = targetDurationSec;
+  return Object.keys(spec).length > 0 ? spec : null;
+}
+
+function deliverableSpecInputs(value: unknown): unknown[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'object') {
+    const source = value as Record<string, unknown>;
+    if (Array.isArray(source.deliverableSpecs)) return source.deliverableSpecs;
+    if (Array.isArray(source.requestedOutputs)) return source.requestedOutputs;
+    if (Array.isArray(source.outputs)) return source.outputs;
+    if (Array.isArray(source.deliverables)) return source.deliverables;
+  }
+  return [value];
+}
+
+function pushDeliverableSpec(target: DeliverableSpec[], seen: Set<string>, item: unknown, allowLabelOnly: boolean): void {
+  const spec = normalizeDeliverableSpec(item, { allowLabelOnly });
+  if (!spec) return;
+  const key = JSON.stringify({
+    label: spec.label ?? '',
+    platform: spec.platform ?? '',
+    aspectRatio: spec.aspectRatio ?? '',
+    targetDurationSec: spec.targetDurationSec ?? null,
+  });
+  if (seen.has(key)) return;
+  seen.add(key);
+  target.push(spec);
+}
+
+function resolveDeliverableSpecs(body: FromBatchRequest, intake: MediaUploadBatchIntake & Record<string, unknown>): DeliverableSpec[] {
+  const explicitSpecs = [
+    ...deliverableSpecInputs(intake.deliverableSpecs),
+    ...deliverableSpecInputs(intake.requestedOutputs),
+    ...deliverableSpecInputs(intake.outputs),
+    ...deliverableSpecInputs(body.deliverableSpecs),
+    ...deliverableSpecInputs(body.requestedOutputs),
+    ...deliverableSpecInputs(body.outputs),
+  ];
+  const genericDeliverables = [
+    ...deliverableSpecInputs(intake.deliverables),
+    ...deliverableSpecInputs(body.deliverables),
+  ];
+  const specs: DeliverableSpec[] = [];
+  const seen = new Set<string>();
+  for (const item of explicitSpecs) pushDeliverableSpec(specs, seen, item, true);
+  for (const item of genericDeliverables) pushDeliverableSpec(specs, seen, item, false);
+  return specs.slice(0, 6);
+}
+function deliverableProjectName(baseName: string, label: string, index: number, count: number): string {
+  if (count <= 1) return baseName;
+  const cleanLabel = cleanString(label, 80) ?? `cut ${index + 1}`;
+  return `${baseName} - ${cleanLabel}`.slice(0, 160);
 }
 
 function buildDirectorBrief(intake: MediaUploadBatchIntake): ProjectBrief {
@@ -591,7 +683,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Upload batch not found' }, { status: 404 });
     }
     if (batch.projectId) {
-      return NextResponse.json({ success: true, projectId: batch.projectId, status: 'existing' });
+      return NextResponse.json({
+        success: true,
+        projectId: batch.projectId,
+        projectIds: batch.projectIds ?? [batch.projectId],
+        deliverables: batch.deliverableProjects,
+        status: 'existing',
+      });
     }
 
     const assetIds = Array.isArray(batch.assetIds) ? batch.assetIds.filter(Boolean) : [];
@@ -664,17 +762,18 @@ export async function POST(request: NextRequest) {
     const projectName = cleanString(body.title, 160)
       || cleanString(intake.userIntent, 80)
       || `Auto-Edit Batch: ${uploadBatchId}`;
-    const project = await projectService.createProject(userId, projectName, { brandId, orgId: orgId ?? batch.orgId ?? null });
-    const projectId = project.projectId;
+    const primaryProject = await projectService.createProject(userId, projectName, { brandId, orgId: orgId ?? batch.orgId ?? null });
+    const primaryProjectId = primaryProject.projectId;
 
-    const analysisBridge = await hydrateStorylineAnalysesForBatch(db as any, {
-      projectId,
+    const primaryAnalysisBridge = await hydrateStorylineAnalysesForBatch(db as any, {
+      projectId: primaryProjectId,
       userId,
       assets: visualAssets,
     });
-    const analyses = await readProjectAssetAnalyses(db as any, projectId);
+    const analyses = await readProjectAssetAnalyses(db as any, primaryProjectId);
     const brief = buildBrief(analyses, visualAssets, intake, body);
-    const dims = dimensionsForAspect(brief.output.aspectRatio ?? '16:9');
+    const deliverableSpecs = resolveDeliverableSpecs(body, intake as MediaUploadBatchIntake & Record<string, unknown>);
+    const deliverablePlans = deliverableBriefs(brief, deliverableSpecs);
     const assetContexts = buildAssetContextMap(visualAssets.map((asset) => ({
       assetId: asset.assetId,
       cachedUrl: asset.cachedUrl,
@@ -693,84 +792,179 @@ export async function POST(request: NextRequest) {
     const scenes = [...videoScenes, ...imageScenes];
     const embeddedScenes = await embedScenes(scenes, embedStorylineDocument);
     const intentEmbedding = await embedStorylineIntent(storylineIntentText(intake, body));
-    const ordering = await orderStorylineWithLLM(embeddedScenes, brief, completeStorylinePrompt, {
-      ctx: {
-        platform: brief.output.platform,
-        targetDurationSec: brief.output.targetDurationSec,
-        language: sourceLanguageFromAssets(visualAssets),
-      },
-      compose: { scorer: makeEmbeddingScorer(intentEmbedding) },
-      narrativeSources: narrativeSourcesFromAnalyses(analyses, assetContexts),
-    });
-    const storylineTimeline = await materializeStoryline(ordering, visualAssets, userId, uploadBatchId, dims);
-    const timeline = storylineTimeline ?? await materializeChronologicalFallback(visualAssets, userId, uploadBatchId, dims);
+    const narrativeSources = narrativeSourcesFromAnalyses(analyses, assetContexts);
+    const language = sourceLanguageFromAssets(visualAssets);
 
-    if (timeline.overlays.length === 0) {
-      return NextResponse.json({ success: false, error: 'No usable clips could be materialized from this batch.' }, { status: 400 });
+    const builtDeliverables: Array<{
+      label: string;
+      projectId: string;
+      projectName: string;
+      brief: ProductionBrief;
+      ordering: OrderStorylineResult;
+      timeline: MaterializedTimeline;
+      analysisBridge: typeof primaryAnalysisBridge;
+    }> = [];
+
+    for (const [index, deliverable] of deliverablePlans.entries()) {
+      const projectForCut = index === 0
+        ? primaryProject
+        : await projectService.createProject(
+          userId,
+          deliverableProjectName(projectName, deliverable.label, index, deliverablePlans.length),
+          { brandId, orgId: orgId ?? batch.orgId ?? null },
+        );
+      const cutProjectId = projectForCut.projectId;
+      const analysisBridgeForCut = index === 0
+        ? primaryAnalysisBridge
+        : await hydrateStorylineAnalysesForBatch(db as any, {
+          projectId: cutProjectId,
+          userId,
+          assets: visualAssets,
+        });
+      const dims = dimensionsForAspect(deliverable.brief.output.aspectRatio ?? '16:9');
+      const ordering = await orderStorylineWithLLM(embeddedScenes, deliverable.brief, completeStorylinePrompt, {
+        ctx: {
+          platform: deliverable.brief.output.platform,
+          targetDurationSec: deliverable.brief.output.targetDurationSec,
+          language,
+        },
+        compose: { scorer: makeEmbeddingScorer(intentEmbedding) },
+        narrativeSources,
+      });
+      const storylineTimeline = await materializeStoryline(ordering, visualAssets, userId, uploadBatchId, dims);
+      const timeline = storylineTimeline ?? await materializeChronologicalFallback(visualAssets, userId, uploadBatchId, dims);
+
+      if (timeline.overlays.length === 0) {
+        throw new Error(`No usable clips could be materialized for deliverable "${deliverable.label}".`);
+      }
+
+      await projectService.saveProject(userId, cutProjectId, {
+        overlays: timeline.overlays as any,
+        aspectRatio: deliverable.brief.output.aspectRatio ?? '16:9',
+        playerDimensions: dims,
+        fps: FPS,
+        durationInFrames: timeline.durationInFrames,
+      });
+
+      await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        { projectId: cutProjectId },
+        {
+          $set: {
+            autoEditMode: 'batch',
+            autoEditStatus: 'directing_queued',
+            sourceUploadBatchId: uploadBatchId,
+            sourceAssetIds: visualAssets.map((asset) => asset.assetId),
+            productionBrief: deliverable.brief,
+            batchDeliverable: {
+              label: deliverable.label,
+              index,
+              count: deliverablePlans.length,
+              primaryProjectId,
+              platform: deliverable.brief.output.platform,
+              aspectRatio: deliverable.brief.output.aspectRatio,
+              targetDurationSec: deliverable.brief.output.targetDurationSec ?? null,
+            },
+            storylinePlan: {
+              source: timeline.source,
+              planApplied: ordering.planApplied,
+              fallbackReason: ordering.fallbackReason ?? (storylineTimeline ? undefined : 'no_materialized_storyline_clips'),
+              rationale: ordering.rationale,
+              clipCount: timeline.clipCount,
+              composerClipCount: ordering.storyline.clips.length,
+              analysisBridge: analysisBridgeForCut,
+              deliverable: {
+                label: deliverable.label,
+                index,
+                count: deliverablePlans.length,
+              },
+            },
+            updatedAt: new Date(),
+          },
+        },
+      );
+
+      builtDeliverables.push({
+        label: deliverable.label,
+        projectId: cutProjectId,
+        projectName: deliverableProjectName(projectName, deliverable.label, index, deliverablePlans.length),
+        brief: deliverable.brief,
+        ordering,
+        timeline,
+        analysisBridge: analysisBridgeForCut,
+      });
     }
 
-    await projectService.saveProject(userId, projectId, {
-      overlays: timeline.overlays as any,
-      aspectRatio: brief.output.aspectRatio ?? '16:9',
-      playerDimensions: dims,
-      fps: FPS,
-      durationInFrames: timeline.durationInFrames,
-    });
+    if (builtDeliverables.length === 0) {
+      return NextResponse.json({ success: false, error: 'No deliverable timelines could be materialized from this batch.' }, { status: 400 });
+    }
 
-    await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId },
+    const deliverableProjects = builtDeliverables.map((deliverable, index) => ({
+      label: deliverable.label,
+      projectId: deliverable.projectId,
+      index,
+      platform: deliverable.brief.output.platform,
+      aspectRatio: deliverable.brief.output.aspectRatio,
+      targetDurationSec: deliverable.brief.output.targetDurationSec ?? null,
+      source: deliverable.timeline.source,
+      clipCount: deliverable.timeline.clipCount,
+    }));
+
+    await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+      { uploadBatchId, userId },
       {
         $set: {
-          autoEditMode: 'batch',
-          autoEditStatus: 'directing_queued',
-          sourceUploadBatchId: uploadBatchId,
-          sourceAssetIds: visualAssets.map((asset) => asset.assetId),
-          productionBrief: brief,
-          storylinePlan: {
-            source: timeline.source,
-            planApplied: ordering.planApplied,
-            fallbackReason: ordering.fallbackReason ?? (storylineTimeline ? undefined : 'no_materialized_storyline_clips'),
-            rationale: ordering.rationale,
-            clipCount: timeline.clipCount,
-            composerClipCount: ordering.storyline.clips.length,
-            analysisBridge,
-          },
+          projectId: primaryProjectId,
+          projectIds: builtDeliverables.map((deliverable) => deliverable.projectId),
+          deliverableProjects,
           updatedAt: new Date(),
         },
       },
     );
 
-    await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-      { uploadBatchId, userId },
-      { $set: { projectId, updatedAt: new Date() } },
-    );
-
     const baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-    const dispatch = await dispatchDirector({
-      baseUrl,
-      projectId,
-      userId,
-      orgId: orgId || batch.orgId || undefined,
-      title: projectName,
-      intake,
-    });
-    queuedOrRanDirector = true;
+    const dispatches: Array<{ projectId: string; queued: boolean; messageId?: string }> = [];
+    for (const deliverable of builtDeliverables) {
+      const dispatch = await dispatchDirector({
+        baseUrl,
+        projectId: deliverable.projectId,
+        userId,
+        orgId: orgId || batch.orgId || undefined,
+        title: deliverable.projectName,
+        intake: {
+          ...intake,
+          platform: deliverable.brief.output.platform,
+          aspectRatio: deliverable.brief.output.aspectRatio,
+        },
+      });
+      queuedOrRanDirector = true;
+      dispatches.push({ projectId: deliverable.projectId, ...dispatch });
+    }
+
+    const primary = builtDeliverables[0];
+    const primaryDispatch = dispatches[0];
+    const anyQueued = dispatches.some((dispatch) => dispatch.queued);
 
     return NextResponse.json({
       success: true,
-      projectId,
-      status: dispatch.queued ? 'processing' : 'complete',
+      projectId: primary.projectId,
+      projectIds: builtDeliverables.map((deliverable) => deliverable.projectId),
+      deliverables: deliverableProjects.map((deliverable) => ({
+        ...deliverable,
+        messageId: dispatches.find((dispatch) => dispatch.projectId === deliverable.projectId)?.messageId,
+      })),
+      status: anyQueued ? 'processing' : 'complete',
       storylinePlan: {
-        source: timeline.source,
-        planApplied: ordering.planApplied,
-        fallbackReason: ordering.fallbackReason ?? (storylineTimeline ? undefined : 'no_materialized_storyline_clips'),
-        rationale: ordering.rationale,
-        clipCount: timeline.clipCount,
-        analysisBridge,
+        source: primary.timeline.source,
+        planApplied: primary.ordering.planApplied,
+        fallbackReason: primary.ordering.fallbackReason ?? (primary.timeline.source === 'storyline' ? undefined : 'no_materialized_storyline_clips'),
+        rationale: primary.ordering.rationale,
+        clipCount: primary.timeline.clipCount,
+        analysisBridge: primary.analysisBridge,
       },
-      messageId: dispatch.messageId,
+      messageId: primaryDispatch?.messageId,
+      messageIds: dispatches.map((dispatch) => dispatch.messageId).filter((messageId): messageId is string => !!messageId),
     });
   } catch (error) {
     if (creditCheck && !queuedOrRanDirector) {
