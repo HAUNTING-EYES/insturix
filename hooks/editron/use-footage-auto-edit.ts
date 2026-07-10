@@ -203,22 +203,23 @@ export function useFootageAutoEdit(): FootageAutoEditState {
         throw new Error(firstError);
       }
 
+      // Wait for the batch to analyze enough to compose a storyline, THEN start
+      // the multi-source auto-edit. (Previously this bailed to "saved to library"
+      // if analysis wasn't instantly ready — which it never is right after
+      // upload — so the multi-source auto-edit essentially never fired.)
+      // from-batch has a chronological fallback, so we proceed after a timeout
+      // even if analysis is still catching up.
       let status: MediaUploadBatchStatus | null = null;
-      try {
-        status = await getMediaUploadBatchStatus(result.uploadBatchId);
-        setBatchStatus(status);
-      } catch (statusError) {
-        console.warn('[NewProjectFlow] Batch status lookup failed:', statusError);
-      }
-
-      const failedSuffix = result.failed.length > 0 ? ` ${result.failed.length} failed.` : '';
-      if (!status?.canCreateProject) {
-        setProgress(`Uploaded ${uploadedCount}/${selectedFiles.length} files.${failedSuffix} Batch is analyzing; refresh the media library for readiness.`);
-        toast({
-          title: 'Footage batch uploaded',
-          description: `Saved ${uploadedCount} file${uploadedCount === 1 ? '' : 's'} to your Editron media library.`,
-        });
-        return;
+      for (let i = 0; i < 24; i++) {
+        try {
+          status = await getMediaUploadBatchStatus(result.uploadBatchId);
+          setBatchStatus(status);
+          if (status?.canCreateProject) break;
+        } catch (statusError) {
+          console.warn('[NewProjectFlow] Batch status lookup failed:', statusError);
+        }
+        setProgress(`Analyzing your footage… (${uploadedCount} clip${uploadedCount === 1 ? '' : 's'})`);
+        await new Promise((r) => setTimeout(r, 4000));
       }
 
       setProgress('Assembling multi-source edit...');

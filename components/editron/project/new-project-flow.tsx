@@ -463,11 +463,10 @@ export default function NewProjectFlow() {
           <button type="button" className="back" onClick={() => go(BACK[screen])}>&#9666; Back</button>
         ) : null}
       </div>
-      {/* Single-video auto-edit shows the full processing screen (upload =
-          analyze; the hook then navigates to /auto-edit/[id] for the real
-          director stages). Batch (multi-file) is a library upload — not an
-          auto-edit — so it keeps the console above. */}
-      {screen === 'onair' && batchCount <= 1 && (
+      {/* Auto-edit processing screen (single OR multi-source). Upload/analyze
+          maps to the analyze stage; the hook then navigates to /auto-edit/[id]
+          for the real director stages. */}
+      {screen === 'onair' && (
         <div className="fixed inset-0 z-[70]">
           <AutoEditProcessing
             filename={projName}
