@@ -47,10 +47,11 @@ interface AssetAnalysisPayload {
 
 async function handler(request: NextRequest) {
   console.log('[AssetAnalysis] Worker started');
+  let payload: AssetAnalysisPayload | null = null;
 
   try {
-    const payload: AssetAnalysisPayload = await request.json();
-    const { assetId, userId, type, url, duration, filename } = payload;
+    payload = await request.json() as AssetAnalysisPayload;
+    const { assetId, userId, type, url, duration, filename } = payload as AssetAnalysisPayload;
 
     if (!assetId || !userId || !url) {
       console.error('[AssetAnalysis] Missing required fields');
@@ -312,9 +313,20 @@ Return JSON only:
     }
 
     // ─── Update MediaAsset with tags + embedding + status ───────
+    const qstashToken = process.env.QSTASH_TOKEN;
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+    const shouldQueueDeepAnalysis = type === 'video' && Boolean(qstashToken);
+
     const updateDoc: any = {
-      analysisStatus: 'complete',
-      analysisCompletedAt: new Date(),
+      analysisStatus: shouldQueueDeepAnalysis ? 'analyzing' : 'complete',
+      ...(shouldQueueDeepAnalysis
+        ? { deepAnalysisStatus: 'queued', deepAnalysisQueuedAt: new Date() }
+        : type === 'video'
+          ? { deepAnalysisStatus: 'skipped_no_qstash' }
+          : {}),
+      ...(!shouldQueueDeepAnalysis && { analysisCompletedAt: new Date() }),
       tags: [...new Set(tags)].slice(0, 30), // Dedupe, cap at 30 tags
     };
     if (embedding) {
@@ -328,16 +340,34 @@ Return JSON only:
       { $set: updateDoc },
     );
 
-    console.log(`[AssetAnalysis] ${assetId}: complete. ${tags.length} tags, embedding: ${!!embedding}`);
+    let deepAnalysisQueued = false;
+    if (shouldQueueDeepAnalysis && qstashToken) {
+      const deepAnalysisRes = await fetch(
+        `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/asset-deep-analysis`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${qstashToken}`,
+            'Content-Type': 'application/json',
+            'Upstash-Retries': '2',
+            'Upstash-Timeout': '300s',
+          },
+          body: JSON.stringify({ assetId, userId, url, duration }),
+        },
+      );
+      if (!deepAnalysisRes.ok) {
+        const body = await deepAnalysisRes.text().catch(() => 'no body');
+        throw new Error(`Deep asset analysis dispatch failed: HTTP ${deepAnalysisRes.status} - ${body}`);
+      }
+      deepAnalysisQueued = true;
+      console.log(`[AssetAnalysis] ${assetId}: base analysis complete; deep multimodal analysis queued`);
+    } else {
+      console.log(`[AssetAnalysis] ${assetId}: complete. ${tags.length} tags, embedding: ${!!embedding}`);
+    }
 
     // ─── Enrich Neo4j Asset node via graph-sync worker ─────────
     if (embedding) {
       try {
-        const qstashToken = process.env.QSTASH_TOKEN;
-        const baseUrl = process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}`
-          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-
         if (qstashToken) {
           const { compressAnalysisToBriefing } = await import('@/lib/editron/services/asset-briefing');
           const analysisDoc = await db.collection('asset_analyses').findOne({ assetId });
@@ -443,18 +473,27 @@ Return JSON only:
       assetId,
       tags: updateDoc.tags,
       hasEmbedding: !!embedding,
+      deepAnalysisQueued,
     });
   } catch (error: any) {
     console.error('[AssetAnalysis] Worker error:', error);
 
     // Try to mark as failed
     try {
-      const body = await request.clone().json().catch(() => null);
-      if (body?.assetId && body?.userId) {
+      if (payload?.assetId && payload.userId) {
         const db = await getDatabase();
         await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-          { assetId: body.assetId, userId: body.userId },
-          { $set: { analysisStatus: 'failed', analysisError: error.message } },
+          { assetId: payload.assetId, userId: payload.userId },
+          {
+            $set: {
+              analysisStatus: 'failed',
+              analysisError: error.message,
+              ...(payload.type === 'video' && {
+                deepAnalysisStatus: 'failed',
+                deepAnalysisError: error.message,
+              }),
+            },
+          },
         );
       }
     } catch (err: unknown) { console.warn('[AssetAnalysis] best-effort failure mark failed:', err instanceof Error ? err.message : err); }

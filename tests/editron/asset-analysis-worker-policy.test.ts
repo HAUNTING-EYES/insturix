@@ -103,8 +103,31 @@ describe("asset-analysis worker policy", () => {
 
     expect(workerSource).toContain("buildAssetAnalysisClaimFilter");
     expect(workerSource).toContain("duplicate-delivery");
+    expect(workerSource).not.toContain("request.clone().json");
     expect(workerSource).toContain("resolveAssetVideoAnalysisPolicy");
     expect(workerSource.indexOf("resolveAssetVideoAnalysisPolicy")).toBeLessThan(workerSource.indexOf("runFullAnalysis"));
     expect(workerSource).toContain("'full-analysis-deferred'");
+  });
+
+  it("keeps video assets unready until the deep multimodal worker finishes", () => {
+    const baseWorkerSource = readFileSync(
+      resolve(repoRoot, "app/api/internal/workers/asset-analysis/route.ts"),
+      "utf8",
+    );
+    const deepWorkerSource = readFileSync(
+      resolve(repoRoot, "app/api/internal/workers/asset-deep-analysis/route.ts"),
+      "utf8",
+    );
+    const queuedIndex = baseWorkerSource.indexOf("deepAnalysisStatus: 'queued'");
+    const dispatchIndex = baseWorkerSource.indexOf("/api/internal/workers/asset-deep-analysis");
+    const analysisIndex = deepWorkerSource.indexOf("runAssetDeepAnalysis({");
+    const readyIndex = deepWorkerSource.indexOf("analysisStatus: 'complete'");
+
+    expect(baseWorkerSource).toContain("analysisStatus: shouldQueueDeepAnalysis ? 'analyzing' : 'complete'");
+    expect(queuedIndex).toBeGreaterThan(0);
+    expect(dispatchIndex).toBeGreaterThan(queuedIndex);
+    expect(deepWorkerSource).toContain("deepAnalysisStatus: result.diagnostics.status");
+    expect(analysisIndex).toBeGreaterThan(0);
+    expect(readyIndex).toBeGreaterThan(analysisIndex);
   });
 });
