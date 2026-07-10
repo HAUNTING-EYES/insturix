@@ -25,6 +25,7 @@ import { useFootageAutoEdit } from '@/hooks/editron/use-footage-auto-edit';
 import { collectFootageFiles } from '@/components/editron/project/footage-selection';
 import { AutoEditDialog, type AutoEditOptions } from '@/components/editron/project/auto-edit-dialog';
 import { FootageBatchIntakeDialog } from '@/components/editron/project/footage-batch-intake-dialog';
+import { AutoEditProcessing } from '@/components/editron/project/auto-edit/auto-edit-processing';
 
 type Screen = 'idle' | 'upload' | 'generate' | 'script' | 'onair';
 
@@ -462,6 +463,22 @@ export default function NewProjectFlow() {
           <button type="button" className="back" onClick={() => go(BACK[screen])}>&#9666; Back</button>
         ) : null}
       </div>
+      {/* Single-video auto-edit shows the full processing screen (upload =
+          analyze; the hook then navigates to /auto-edit/[id] for the real
+          director stages). Batch (multi-file) is a library upload — not an
+          auto-edit — so it keeps the console above. */}
+      {screen === 'onair' && batchCount <= 1 && (
+        <div className="fixed inset-0 z-[70]">
+          <AutoEditProcessing
+            filename={projName}
+            stageIndex={0}
+            percent={/(analy|edit)/i.test(footage.progress) ? 20 : /regist/i.test(footage.progress) ? 14 : /upload/i.test(footage.progress) ? 8 : 4}
+            done={false}
+            logLines={footage.progress ? [footage.progress] : []}
+            onSkip={goProjects}
+          />
+        </div>
+      )}
       <AutoEditDialog
         file={pendingSingleVideo}
         onConfirm={onSingleFootageConfirm}
