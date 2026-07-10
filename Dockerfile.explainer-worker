@@ -22,16 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# --- deps first (better layer caching) ---
-# editron (root) deps
-COPY package.json package-lock.json* ./
-RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
-# explainer-remotion (render sub-project) deps
-COPY explainer-remotion/package.json explainer-remotion/package-lock.json* ./explainer-remotion/
-RUN cd explainer-remotion && (npm ci --legacy-peer-deps || npm install --legacy-peer-deps)
-
-# --- app code (node_modules excluded via .dockerignore) ---
+# The editron root uses PNPM (see "packageManager" in package.json); explainer-remotion is a standalone npm
+# sub-project with its own package-lock.json. Install each with its own package manager.
+RUN corepack enable
 COPY . .
+RUN pnpm install --no-frozen-lockfile
+RUN cd explainer-remotion && (npm ci --legacy-peer-deps || npm install --legacy-peer-deps)
 
 # Pre-fetch the Remotion browser so the first render doesn't pay the download (best-effort).
 RUN cd explainer-remotion && (npx remotion browser ensure || true)
