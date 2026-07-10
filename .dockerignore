@@ -1,0 +1,14 @@
+# Keep the build context small — deps are reinstalled inside the image, build/cache dirs aren't needed.
+node_modules
+**/node_modules
+.next
+.git
+explainer-remotion/out
+explainer-remotion/public/audio
+explainer-remotion/public/reference
+explainer-remotion/src/bricks/gen
+reference-repos
+tmp
+outputs
+.codex-digest
+*.log

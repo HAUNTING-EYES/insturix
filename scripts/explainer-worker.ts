@@ -109,16 +109,27 @@ async function processJob(job: ExplainerJob): Promise<void> {
   });
 }
 
+// Two run modes:
+//   daemon (default): poll forever — for an always-on box (Railway) or local dev.
+//   batch  (EXPLAINER_WORKER_ONCE=1 or --once): drain the queue, then EXIT — for a Cloud Run Job
+//     triggered by Cloud Scheduler (run-to-completion, scales to zero, no client-disconnect gotchas).
+const RUN_ONCE = process.env.EXPLAINER_WORKER_ONCE === '1' || process.argv.includes('--once');
+
 async function main(): Promise<void> {
-  console.log(`[explainer-worker] polling every ${POLL_MS}ms · dir=${DIR}`);
+  console.log(`[explainer-worker] ${RUN_ONCE ? 'batch (drain + exit)' : `daemon (poll ${POLL_MS}ms)`} · dir=${DIR}`);
   for (;;) {
     let job: ExplainerJob | null = null;
     try {
       job = await claimNextQueuedExplainerJob();
     } catch (e) {
       console.error('[explainer-worker] claim error:', e);
+      if (RUN_ONCE) return; // a scheduled run retries on the next tick; don't spin on a broken DB.
     }
     if (!job) {
+      if (RUN_ONCE) {
+        console.log('[explainer-worker] queue empty — exiting');
+        return;
+      }
       await new Promise((r) => setTimeout(r, POLL_MS));
       continue;
     }
@@ -133,4 +144,7 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+main().then(
+  () => { if (RUN_ONCE) process.exit(0); },
+  (e) => { console.error('[explainer-worker] fatal:', e); process.exit(1); },
+);
