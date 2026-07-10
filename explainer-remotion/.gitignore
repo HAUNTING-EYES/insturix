@@ -8,3 +8,5 @@ src/bricks/generated-plan.ts
 # per-run VO + downloaded brand screenshots (real committed product stills like app-*.png stay tracked)
 public/audio/
 public/product/scan-*.png
+# per-run style-reference images (video frames / link screenshot the craft agent matches)
+public/reference/

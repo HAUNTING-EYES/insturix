@@ -62,6 +62,14 @@ const only = process.env.CRAFT_SCENES ? new Set(process.env.CRAFT_SCENES.split('
 // locally they may be absent, in which case the agent recreates the product UI as bespoke code).
 const SHOTS = existsSync('public/product') ? readdirSync('public/product').filter((f) => /\.(png|jpe?g|webp)$/i.test(f)).map((f) => `product/${f}`) : [];
 
+// STYLE REFERENCE images the user gave ("make it look like THIS"): frames sampled from a reference video, or a
+// screenshot of a reference link. The craft agent SEES them (Claude vision) and designs each scene to match —
+// no GLM, no lossy style-brief; the same intelligence that builds looks at the reference. (public/reference/;
+// absent = none.) fs paths (for the img() base64 helper), capped so the vision prompt stays lean.
+const REFERENCE_IMAGES = existsSync('public/reference')
+  ? readdirSync('public/reference').filter((f) => /\.(png|jpe?g|webp)$/i.test(f)).sort().map((f) => `public/reference/${f}`).slice(0, 5)
+  : [];
+
 // STORED USER PREFERENCES for this customer's explainers — persisted taste so repeat videos are consistent
 // with what they liked/changed last time. Schema (out/preferences.json, all optional):
 //   { vibe, tone, pacing, doList[], dontList[], preferredForms[], avoidForms[], voiceTone, notes }
@@ -215,11 +223,16 @@ async function refine(best, stuck) {
 async function craftScene(scene, idx) {
   // A user chat-edit directive for THIS scene (from the "edit the video with chat" flow) — honor it strongly.
   const editDirective = scene.props && typeof scene.props.editDirective === 'string' ? scene.props.editDirective.trim() : '';
+  // Reference images as Claude vision blocks — attached to every write so the agent designs to match them.
+  const refBlocks = REFERENCE_IMAGES.map(img);
   const brief =
     `Design and write ONE scene (scene ${idx + 1} of ${SCENES.length}) of this premium explainer.\n` +
     `The voiceover line this beat must land visually: ${JSON.stringify(scene.vo ?? '')}\n` +
     (editDirective
       ? `★ USER EDIT — the viewer explicitly asked for this change to THIS scene; honor it directly while keeping the scene premium and on-brand: "${editDirective}"\n`
+      : '') +
+    (refBlocks.length
+      ? `★ STYLE REFERENCE — ${refBlocks.length} reference image(s) are attached below. The user wants this whole video to MATCH their look & feel. Study their composition, typography, colour, density, and energy, and design THIS scene so it belongs in the same film. Match the AESTHETIC — do NOT copy their exact text, logos, or content.\n`
       : '') +
     `Director notes (LOOSE guidance — improve on them, do NOT treat as a template): ${JSON.stringify(scene.props ?? {})}` +
     `${scene.form ? ` (suggested vibe only: "${scene.form}")` : ''}\n` +
@@ -244,10 +257,10 @@ async function craftScene(scene, idx) {
   };
 
   let best = null;
-  let candidate = stripFences(await ask([{type: 'text', text: brief}]));
+  let candidate = stripFences(await ask([{type: 'text', text: brief}, ...refBlocks]));
   for (let round = 1; round <= ROUNDS; round++) {
     const r = await evaluate(candidate);
-    if (!r) { candidate = stripFences(await ask([{type: 'text', text: brief}])); continue; }
+    if (!r) { candidate = stripFences(await ask([{type: 'text', text: brief}, ...refBlocks])); continue; }
     const improved = !best || r.score > best.score;
     if (improved) best = r;
     console.log(`  scene ${idx + 1} r${round}: ${r.score}/10 ${r.ok ? '✓' : '→ ' + (r.issues || []).join('; ').slice(0, 80)}`);
@@ -258,7 +271,7 @@ async function craftScene(scene, idx) {
   // restart-on-stuck: still weak → one fresh from-scratch attempt with a different-approach nudge; keep the better.
   if (best && best.score < 7) {
     const fresh = await evaluate(stripFences(await ask([{type: 'text', text:
-      brief + `\nA previous attempt only reached ${best.score}/10 for: ${JSON.stringify(best.issues)}. Take a COMPLETELY DIFFERENT visual approach — different layout, different motion.`}])));
+      brief + `\nA previous attempt only reached ${best.score}/10 for: ${JSON.stringify(best.issues)}. Take a COMPLETELY DIFFERENT visual approach — different layout, different motion.`}, ...refBlocks])));
     if (fresh && fresh.score > best.score) { best = fresh; console.log(`  scene ${idx + 1} restart → ${fresh.score}/10`); }
   }
 

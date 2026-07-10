@@ -35,12 +35,17 @@ async function download(url: string, dest: string): Promise<void> {
 async function processJob(job: ExplainerJob): Promise<void> {
   const outDir = path.join(DIR, 'out');
   const productDir = path.join(DIR, 'public', 'product');
+  const referenceDir = path.join(DIR, 'public', 'reference');
   mkdirSync(outDir, { recursive: true });
   mkdirSync(productDir, { recursive: true });
+  mkdirSync(referenceDir, { recursive: true });
 
-  // Fresh brand screenshots for this job — clear any prior job's scan-*.png so brands don't bleed across videos.
+  // Fresh per-job images — clear any prior job's downloads so brands/references don't bleed across videos.
   for (const f of existsSync(productDir) ? readdirSync(productDir) : []) {
     if (/^scan-\d+\.(png|jpe?g|webp)$/i.test(f)) rmSync(path.join(productDir, f));
+  }
+  for (const f of existsSync(referenceDir) ? readdirSync(referenceDir) : []) {
+    if (/^ref-\d+\.(png|jpe?g|webp)$/i.test(f)) rmSync(path.join(referenceDir, f));
   }
   writeFileSync(path.join(outDir, 'plan.json'), JSON.stringify(job.plan));
   writeFileSync(path.join(outDir, 'product-model.json'), JSON.stringify(job.productModel));
@@ -52,6 +57,17 @@ async function processJob(job: ExplainerJob): Promise<void> {
       n += 1;
     } catch (e) {
       console.warn(`[explainer-worker] skipping unreachable image: ${String(e)}`);
+    }
+  }
+
+  // Style-reference images (video frames / link screenshot) → the craft agent designs each scene to match them.
+  let r = 0;
+  for (const url of job.referenceImageUrls ?? []) {
+    try {
+      await download(url, path.join(referenceDir, `ref-${r}.png`));
+      r += 1;
+    } catch (e) {
+      console.warn(`[explainer-worker] skipping unreachable reference image: ${String(e)}`);
     }
   }
 

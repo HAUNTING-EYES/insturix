@@ -43,6 +43,8 @@ interface FinalizeBody {
   message?: string;
   projectId?: string;
   brandId?: string;
+  /** Style-reference images (video frames / link screenshot) the craft agent matches. */
+  referenceImageUrls?: string[];
   /** edge-tts voice id for the VO (see vo-voices catalog); defaults to Ava if unknown/omitted. */
   voice?: string;
 }
@@ -106,6 +108,7 @@ export async function POST(request: NextRequest) {
     brandId: body.brandId,
     plan: resolved.plan,
     productModel: resolved.productModel,
+    referenceImageUrls: Array.isArray(body.referenceImageUrls) ? body.referenceImageUrls.filter((u) => typeof u === 'string') : undefined,
     voice: body.voice,
   });
 

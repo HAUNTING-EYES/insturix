@@ -71,6 +71,8 @@ export interface SaasExplainerFinalizePayload {
   message: string;
   voice?: string;
   brandId?: string;
+  /** Style-reference images (video frames / link screenshot) for the craft agent to match. */
+  referenceImageUrls?: string[];
 }
 
 export interface SaasExplainerFinalizeResult {

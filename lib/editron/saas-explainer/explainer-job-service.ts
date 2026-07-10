@@ -32,6 +32,8 @@ export interface ExplainerJob {
   plan: ExplainerPlan;
   productModel: ExplainerProductModel;
   productImageUrls: string[];
+  /** Style-reference images (video frames / a link screenshot) the craft agent designs to match. */
+  referenceImageUrls: string[];
   outputUrl?: string;
   costUsd?: number | null;
   error?: string;
@@ -52,6 +54,8 @@ export interface CreateExplainerJobInput {
   plan: ExplainerPlan;
   productModel: ExplainerProductModel;
   productImageUrls?: string[];
+  /** Style-reference images (video frames / link screenshot) the craft agent matches. */
+  referenceImageUrls?: string[];
   /** edge-tts voice id; falls back to the default if unknown/empty. */
   voice?: string;
 }
@@ -70,6 +74,7 @@ export async function createExplainerJob(input: CreateExplainerJobInput): Promis
     plan: input.plan,
     productModel: input.productModel,
     productImageUrls: input.productImageUrls ?? input.productModel.productImageUrls ?? [],
+    referenceImageUrls: input.referenceImageUrls ?? [],
     createdAt: new Date(),
   };
   const result = await (await getCollection()).insertOne(job as ExplainerJob);
