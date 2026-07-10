@@ -77,6 +77,7 @@ export default function SaasExplainerStudio() {
   const [jobId, setJobId] = useState<string | null>(null);
 
   // chat-edit state
+  const [staged, setStaged] = useState(false); // result-screen edits stacked but not yet rendered
   const [chatInput, setChatInput] = useState('');
   const [chatReply, setChatReply] = useState<string | null>(null);
 
@@ -180,6 +181,7 @@ export default function SaasExplainerStudio() {
       {
         onSuccess: (res) => {
           setJobId(res.jobId);
+          setStaged(false);
           setScreen('render');
         },
         onError: (err) => toast({ variant: 'destructive', title: 'Could not start the render', description: err.message }),
@@ -195,12 +197,12 @@ export default function SaasExplainerStudio() {
       {
         onSuccess: (res) => {
           setScenes(res.scenes);
-          const nextVoice = res.voice ?? voice;
           if (res.voice) setVoice(res.voice);
           setChatReply(res.reply);
           setChatInput('');
-          // From the result screen, a visual/voice/pacing edit needs a fresh render to be seen.
-          if (fromResult && res.needsRerender) renderVideo(res.scenes, nextVoice);
+          // Edits STACK — we do NOT render each one. On the result screen, mark the shown video stale; the
+          // user renders ONCE (the "Render changes" button) after all their edits have landed.
+          if (fromResult && res.op !== 'refuse' && res.op !== 'unknown') setStaged(true);
         },
         onError: (err) => toast({ variant: 'destructive', title: 'Edit failed', description: err.message }),
       },
@@ -218,6 +220,7 @@ export default function SaasExplainerStudio() {
     setPlan(null);
     setScenes([]);
     setJobId(null);
+    setStaged(false);
     clearDoc();
     clearReference();
   };
@@ -456,21 +459,29 @@ export default function SaasExplainerStudio() {
 
           <div className="rounded-xl border border-ds-subtle bg-surface-raised p-4">
             <Mono size="8" className="text-gold">EDIT THIS VIDEO WITH CHAT</Mono>
-            <p className="mt-1 mb-3 text-xs text-ds-muted">Change the words, the look, the voice, or the pacing — e.g. “make scene 2 bolder”, “punchier hook”, “use a British voice”. Visual and voice changes re-render the video.</p>
+            <p className="mt-1 mb-3 text-xs text-ds-muted">Stack up your changes — “make scene 2 bolder”, “punchier hook”, “use a British voice” — then render once when you're done.</p>
             {chatReply && <p className="mb-3 rounded-md border border-ds-subtle bg-surface-well px-3 py-2 text-sm text-ds-secondary">{chatReply}</p>}
             <div className="flex gap-2">
               <input
                 className="flex-1 rounded-md border border-ds-emphasis bg-surface-well px-3 py-2 text-ds-primary"
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !chatEdit.isPending && !finalizeMutation.isPending) sendChatEdit(true); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !chatEdit.isPending) sendChatEdit(true); }}
                 placeholder="Describe the change…"
-                disabled={chatEdit.isPending || finalizeMutation.isPending}
+                disabled={chatEdit.isPending}
               />
-              <Btn variant="ghost" onClick={() => sendChatEdit(true)} disabled={chatEdit.isPending || finalizeMutation.isPending || !chatInput.trim()}>
-                {chatEdit.isPending || finalizeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
+              <Btn variant="ghost" onClick={() => sendChatEdit(true)} disabled={chatEdit.isPending || !chatInput.trim()}>
+                {chatEdit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
               </Btn>
             </div>
+            {staged && (
+              <div className="mt-3 flex items-center justify-between rounded-md border border-gold/40 bg-gold/10 px-3 py-2">
+                <span className="text-sm text-ds-secondary">Changes staged — render to see them in the video.</span>
+                <Btn variant="primary" size="sm" onClick={() => renderVideo()} disabled={finalizeMutation.isPending}>
+                  {finalizeMutation.isPending ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Rendering…</span> : 'Render changes →'}
+                </Btn>
+              </div>
+            )}
           </div>
         </section>
       )}
