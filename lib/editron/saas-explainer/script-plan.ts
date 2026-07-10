@@ -85,7 +85,13 @@ export interface BuildSaasExplainerScriptPlanInput {
   input: NormalizedSaasExplainerIntake;
   productUrl?: string;
   extraProductImageUrls?: string[];
+  /** Extracted text from an uploaded doc/PDF (a new-product spec, brief, one-pager). Understood by the script
+   *  agent as the video's TOPIC/source material — NOT quoted verbatim. Brand still supplies style/voice. */
+  sourceMaterial?: string;
 }
+
+/** Cap source material fed to the script agent (well above a one-pager, below prompt-bloat). */
+const MAX_SOURCE_MATERIAL = 8_000;
 
 /**
  * Produce the editable script + craft-worker plan/model from an intake — WITHOUT creating a draft project.
@@ -140,9 +146,19 @@ export async function buildSaasExplainerScriptPlan(
     .filter(Boolean)
     .join("\n\n");
 
+  // User-provided source material (uploaded doc/PDF about the product/topic) — the video is ABOUT this, in the
+  // brand's voice. Understand it; do NOT copy it verbatim (it may be a spec/one-pager, not a script).
+  const sourceMaterial = (args.sourceMaterial ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_SOURCE_MATERIAL);
+  const sourceMaterialBlock = sourceMaterial
+    ? `SOURCE MATERIAL the user provided about the product/topic this video is about. Base the script's SUBSTANCE on ` +
+      `this (it may describe a new product). Understand and synthesize it into clear spoken narration in the brand's ` +
+      `voice — do NOT quote it verbatim, do NOT invent facts beyond it:\n"""\n${sourceMaterial}\n"""`
+    : "";
+
   const draft = await new ScriptDraftAgent({ maxTokens: 2600 }).generateScript({
     userPrompt: [
       buildSaasExplainerAuthorPrompt(generationInput, productUrl),
+      sourceMaterialBlock,
       productEvidencePrompt,
       directorPrompt,
     ]

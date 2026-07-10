@@ -49,11 +49,18 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // sourceMaterial (extracted doc/PDF text) rides alongside the validated intake — it's not part of the
+    // intake schema (which is user-typed fields); it's understood-not-verbatim topic material for the script agent.
+    const sourceMaterial =
+      body && typeof body === 'object' && typeof (body as { sourceMaterial?: unknown }).sourceMaterial === 'string'
+        ? (body as { sourceMaterial: string }).sourceMaterial
+        : undefined;
     const result = await buildSaasExplainerScriptPlan({
       userId,
       orgId,
       input: validation.input,
       productUrl: validation.productUrl,
+      sourceMaterial,
     });
     return NextResponse.json({
       success: true,

@@ -23,6 +23,7 @@ import {
   useSaasExplainerFinalize,
   useSaasExplainerStatus,
   useSaasExplainerChatEdit,
+  useSaasExplainerIngestDoc,
   type SaasExplainerPlanResult,
   type ScriptPlanScene,
 } from '@/hooks/editron/use-saas-explainer';
@@ -58,6 +59,10 @@ export default function SaasExplainerStudio() {
   const [aspectRatio, setAspectRatio] = useState<Aspect>('16:9');
   const [voice, setVoice] = useState<string>(DEFAULT_VOICE);
 
+  // uploaded source doc (PDF/DOCX) — the video's topic/source material
+  const [sourceMaterial, setSourceMaterial] = useState('');
+  const [sourceDocName, setSourceDocName] = useState('');
+
   // script state
   const [plan, setPlan] = useState<SaasExplainerPlanResult | null>(null);
   const [scenes, setScenes] = useState<ScriptPlanScene[]>([]);
@@ -72,10 +77,24 @@ export default function SaasExplainerStudio() {
   const planMutation = useSaasExplainerPlan();
   const finalizeMutation = useSaasExplainerFinalize();
   const chatEdit = useSaasExplainerChatEdit();
+  const ingestDoc = useSaasExplainerIngestDoc();
   const status = useSaasExplainerStatus(screen === 'render' || screen === 'result' ? jobId : null);
 
   const stepIndex = STEPS.findIndex((s) => s.id === screen);
-  const canBrief = Boolean(activeBrandId || outcome.trim() || productName.trim());
+  const canBrief = Boolean(activeBrandId || outcome.trim() || productName.trim() || sourceMaterial);
+
+  const uploadDoc = (file: File | undefined) => {
+    if (!file) return;
+    ingestDoc.mutate(file, {
+      onSuccess: (res) => {
+        setSourceMaterial(res.text);
+        setSourceDocName(res.name);
+        toast({ title: 'Document loaded', description: `${res.name} — ${res.chars.toLocaleString()} characters of source material.` });
+      },
+      onError: (err) => toast({ variant: 'destructive', title: 'Could not read document', description: err.message }),
+    });
+  };
+  const clearDoc = () => { setSourceMaterial(''); setSourceDocName(''); };
 
   const generateScript = () => {
     if (!canBrief) {
@@ -86,10 +105,14 @@ export default function SaasExplainerStudio() {
       {
         brandId: activeBrandId || undefined,
         productName: productName.trim() || undefined,
-        outcome: outcome.trim() || undefined,
+        // ensure the intake has a content anchor (needs outcome/script/brandId) even when only a doc is provided.
+        outcome:
+          outcome.trim() ||
+          (sourceMaterial ? 'Create a clear explainer about the product/topic in the provided source material.' : undefined),
         audience: audience.trim() || undefined,
         durationSec,
         aspectRatio,
+        sourceMaterial: sourceMaterial || undefined,
       },
       {
         onSuccess: (res) => {
@@ -159,6 +182,7 @@ export default function SaasExplainerStudio() {
     setPlan(null);
     setScenes([]);
     setJobId(null);
+    clearDoc();
   };
 
   return (
@@ -199,6 +223,26 @@ export default function SaasExplainerStudio() {
               onChange={(e) => setOutcome(e.target.value)}
               placeholder="Show how the product turns a week of content work into one on-brand workflow."
             />
+          </FieldRow>
+
+          <FieldRow label="Source document" hint="Optional — upload a PDF/DOCX/PPTX about a product or topic (e.g. a new product spec). The video will be about this, in your brand's voice.">
+            {sourceDocName ? (
+              <div className="flex items-center justify-between rounded-md border border-ds-emphasis bg-surface-well px-3 py-2">
+                <span className="text-sm text-ds-secondary">📄 {sourceDocName} · {sourceMaterial.length.toLocaleString()} chars</span>
+                <Btn variant="ghost" size="sm" onClick={clearDoc}>Remove</Btn>
+              </div>
+            ) : (
+              <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-ds-emphasis bg-surface-well px-3 py-3 text-sm text-ds-muted hover:text-ds-primary ${ingestDoc.isPending ? 'opacity-60' : ''}`}>
+                {ingestDoc.isPending ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Reading…</span> : '⬆ Upload a PDF, DOCX, PPTX, or TXT'}
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md"
+                  className="hidden"
+                  disabled={ingestDoc.isPending}
+                  onChange={(e) => { uploadDoc(e.target.files?.[0]); e.target.value = ''; }}
+                />
+              </label>
+            )}
           </FieldRow>
 
           <FieldRow label="Audience" hint="Optional.">

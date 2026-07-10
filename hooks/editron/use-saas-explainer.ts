@@ -27,6 +27,32 @@ export interface SaasExplainerIntakePayload {
   durationSec: number;
   aspectRatio: '16:9' | '9:16' | '1:1';
   productUrl?: string;
+  /** Extracted text from an uploaded doc/PDF — the video's topic/source material (understood, not verbatim). */
+  sourceMaterial?: string;
+}
+
+export interface SaasExplainerIngestDocResult {
+  success: true;
+  name: string;
+  text: string;
+  chars: number;
+  warnings?: string[];
+}
+
+/** Upload a PDF/DOCX/PPTX/TXT and get its extracted text (POST /ingest-doc, multipart). */
+export function useSaasExplainerIngestDoc() {
+  return useMutation<SaasExplainerIngestDocResult, Error, File>({
+    mutationFn: async (file) => {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(`${BASE}/ingest-doc`, { method: 'POST', body: form, credentials: 'include' });
+      const payload = (await res.json().catch(() => null)) as (SaasExplainerIngestDocResult & { error?: string }) | null;
+      if (!res.ok || !payload || (payload as { success?: boolean }).success === false) {
+        throw new Error(payload?.error || `Upload failed (${res.status}).`);
+      }
+      return payload;
+    },
+  });
 }
 
 export interface SaasExplainerPlanResult {
