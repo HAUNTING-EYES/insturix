@@ -24,6 +24,7 @@ import {
   useSaasExplainerStatus,
   useSaasExplainerChatEdit,
   useSaasExplainerIngestDoc,
+  useSaasExplainerIngestReference,
   type SaasExplainerPlanResult,
   type ScriptPlanScene,
 } from '@/hooks/editron/use-saas-explainer';
@@ -63,6 +64,11 @@ export default function SaasExplainerStudio() {
   const [sourceMaterial, setSourceMaterial] = useState('');
   const [sourceDocName, setSourceDocName] = useState('');
 
+  // style reference video → frames the craft agent designs to match
+  const [referenceImageUrls, setReferenceImageUrls] = useState<string[]>([]);
+  const [referenceLabel, setReferenceLabel] = useState('');
+  const [referenceUrlInput, setReferenceUrlInput] = useState('');
+
   // script state
   const [plan, setPlan] = useState<SaasExplainerPlanResult | null>(null);
   const [scenes, setScenes] = useState<ScriptPlanScene[]>([]);
@@ -78,6 +84,7 @@ export default function SaasExplainerStudio() {
   const finalizeMutation = useSaasExplainerFinalize();
   const chatEdit = useSaasExplainerChatEdit();
   const ingestDoc = useSaasExplainerIngestDoc();
+  const ingestReference = useSaasExplainerIngestReference();
   const status = useSaasExplainerStatus(screen === 'render' || screen === 'result' ? jobId : null);
 
   const stepIndex = STEPS.findIndex((s) => s.id === screen);
@@ -95,6 +102,28 @@ export default function SaasExplainerStudio() {
     });
   };
   const clearDoc = () => { setSourceMaterial(''); setSourceDocName(''); };
+
+  const applyReference = (res: { referenceImageUrls: string[]; frames: number }, label: string) => {
+    setReferenceImageUrls(res.referenceImageUrls);
+    setReferenceLabel(label);
+    toast({ title: 'Reference captured', description: `${res.frames} frame(s) — the video will be designed to match this look.` });
+  };
+  const uploadReferenceVideo = (file: File | undefined) => {
+    if (!file) return;
+    ingestReference.mutate({ file }, {
+      onSuccess: (res) => applyReference(res, file.name),
+      onError: (err) => toast({ variant: 'destructive', title: 'Could not read reference video', description: err.message }),
+    });
+  };
+  const fetchReferenceUrl = () => {
+    const url = referenceUrlInput.trim();
+    if (!url) return;
+    ingestReference.mutate({ videoUrl: url }, {
+      onSuccess: (res) => { applyReference(res, url); setReferenceUrlInput(''); },
+      onError: (err) => toast({ variant: 'destructive', title: 'Could not fetch reference video', description: err.message }),
+    });
+  };
+  const clearReference = () => { setReferenceImageUrls([]); setReferenceLabel(''); setReferenceUrlInput(''); };
 
   const generateScript = () => {
     if (!canBrief) {
@@ -140,7 +169,14 @@ export default function SaasExplainerStudio() {
       return;
     }
     finalizeMutation.mutate(
-      { scriptScenes, productModel: plan.productModel, message: plan.message, voice: overrideVoice ?? voice, brandId: activeBrandId || undefined },
+      {
+        scriptScenes,
+        productModel: plan.productModel,
+        message: plan.message,
+        voice: overrideVoice ?? voice,
+        brandId: activeBrandId || undefined,
+        referenceImageUrls: referenceImageUrls.length ? referenceImageUrls : undefined,
+      },
       {
         onSuccess: (res) => {
           setJobId(res.jobId);
@@ -183,6 +219,7 @@ export default function SaasExplainerStudio() {
     setScenes([]);
     setJobId(null);
     clearDoc();
+    clearReference();
   };
 
   return (
@@ -242,6 +279,36 @@ export default function SaasExplainerStudio() {
                   onChange={(e) => { uploadDoc(e.target.files?.[0]); e.target.value = ''; }}
                 />
               </label>
+            )}
+          </FieldRow>
+
+          <FieldRow label="Style reference video" hint="Optional — a video whose look & feel you want. The craft agent studies its frames and designs to match.">
+            {referenceLabel ? (
+              <div className="flex items-center justify-between rounded-md border border-ds-emphasis bg-surface-well px-3 py-2">
+                <span className="truncate text-sm text-ds-secondary">🎬 {referenceLabel} · {referenceImageUrls.length} frame(s)</span>
+                <Btn variant="ghost" size="sm" onClick={clearReference}>Remove</Btn>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 rounded-md border border-ds-emphasis bg-surface-well px-3 py-2 text-ds-primary"
+                    value={referenceUrlInput}
+                    onChange={(e) => setReferenceUrlInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !ingestReference.isPending) fetchReferenceUrl(); }}
+                    placeholder="Paste a video URL…"
+                    disabled={ingestReference.isPending}
+                  />
+                  <Btn variant="ghost" onClick={fetchReferenceUrl} disabled={ingestReference.isPending || !referenceUrlInput.trim()}>
+                    {ingestReference.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Fetch'}
+                  </Btn>
+                </div>
+                <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-ds-emphasis bg-surface-well px-3 py-2 text-sm text-ds-muted hover:text-ds-primary ${ingestReference.isPending ? 'opacity-60' : ''}`}>
+                  {ingestReference.isPending ? 'Reading…' : '⬆ or upload an mp4 / mov / webm'}
+                  <input type="file" accept=".mp4,.mov,.webm,.m4v" className="hidden" disabled={ingestReference.isPending}
+                    onChange={(e) => { uploadReferenceVideo(e.target.files?.[0]); e.target.value = ''; }} />
+                </label>
+              </div>
             )}
           </FieldRow>
 

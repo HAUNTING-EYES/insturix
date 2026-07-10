@@ -55,6 +55,38 @@ export function useSaasExplainerIngestDoc() {
   });
 }
 
+export interface SaasExplainerIngestReferenceResult {
+  success: true;
+  referenceImageUrls: string[];
+  frames: number;
+}
+
+/** Turn a reference VIDEO (uploaded file or public URL) into style-reference frame URLs (POST /ingest-reference). */
+export function useSaasExplainerIngestReference() {
+  return useMutation<SaasExplainerIngestReferenceResult, Error, { file?: File; videoUrl?: string }>({
+    mutationFn: async ({ file, videoUrl }) => {
+      let res: Response;
+      if (file) {
+        const form = new FormData();
+        form.append('video', file);
+        res = await fetch(`${BASE}/ingest-reference`, { method: 'POST', body: form, credentials: 'include' });
+      } else {
+        res = await fetch(`${BASE}/ingest-reference`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ videoUrl }),
+          credentials: 'include',
+        });
+      }
+      const payload = (await res.json().catch(() => null)) as (SaasExplainerIngestReferenceResult & { error?: string }) | null;
+      if (!res.ok || !payload || (payload as { success?: boolean }).success === false) {
+        throw new Error(payload?.error || `Reference failed (${res.status}).`);
+      }
+      return payload;
+    },
+  });
+}
+
 export interface SaasExplainerPlanResult {
   success: true;
   scenes: ScriptPlanScene[];
