@@ -155,3 +155,41 @@ describe('orderStorylineWithLLM - narrative enrichment reaches the LLM prompt', 
     expect(r.storyline.clips).toHaveLength(2); // still composes, enrichment did not drop/scramble clips
   });
 });
+
+// ─── B7: the order-intent mode reaches the ordering prompt ───
+
+describe('orderStorylineWithLLM - order-intent policy shapes the prompt (B7)', () => {
+  const okPlan = async () =>
+    JSON.stringify({ order: [{ ref: 'c0', linkFromPrev: null }, { ref: 'c1', linkFromPrev: 'and-then' }] });
+
+  it('★ procedural content-type -> the LLM gets the PROCEDURAL prompt (not the story hook)', async () => {
+    let captured = '';
+    const llm = async (p: string) => { captured = p; return okPlan(); };
+    const r = await orderStorylineWithLLM(
+      [scene({ source: 'a', transcription: 'First, crack the eggs.' }), scene({ source: 'b', transcription: 'Finally, serve it hot.' })],
+      brief(), llm, { contentType: 'recipe' },
+    );
+    expect(r.policy?.mode).toBe('procedural');
+    expect(captured).toMatch(/PROCESS|STEP \/ CAUSAL|RECOVER/);
+    expect(captured).not.toContain('tell the strongest story');
+  });
+
+  it('narrative content -> the LLM gets the story prompt + policy.mode narrative', async () => {
+    let captured = '';
+    const llm = async (p: string) => { captured = p; return okPlan(); };
+    const r = await orderStorylineWithLLM(
+      [scene({ source: 'a', transcription: 'our product is amazing' }), scene({ source: 'b', transcription: 'buy it now' })],
+      brief(), llm, { contentType: 'ad' },
+    );
+    expect(r.policy?.mode).toBe('narrative');
+    expect(captured).toContain('tell the strongest story');
+  });
+
+  it('surfaces lowConfidence when clips are silent and no script (flag to the user)', async () => {
+    const r = await orderStorylineWithLLM(
+      [scene({ source: 'a', transcription: '' }), scene({ source: 'b', transcription: '' })],
+      brief(), okPlan,
+    );
+    expect(r.policy?.lowConfidence).toBe(true);
+  });
+});

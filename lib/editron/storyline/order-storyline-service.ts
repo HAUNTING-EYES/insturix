@@ -23,6 +23,7 @@ import { type ComposeOptions, composeStoryline, selectAndFitScenes } from './com
 import { scenesFromAssetAnalyses } from './multi-asset-compose';
 import { buildOrderingDigest } from './ordering-digest';
 import { type OrderingValidation, validateOrderingPlan } from './ordering-plan';
+import { type OrderingPolicy, resolveOrderingPolicy } from './ordering-policy';
 import { buildOrderingPrompt, type OrderingPromptContext, parseOrderingResponse, type SequencingMovesMenu } from './ordering-prompt';
 import type { EditronAssetContext } from './scene-adapter';
 import type { Scene } from './scene';
@@ -46,6 +47,10 @@ export interface OrderStorylineOptions {
    * digest surfaces what exists, so the ordering LLM's SEQUENCING_MOVES have real signals to lean on.
    */
   narrativeSources?: ReadonlyMap<string, NarrativeSignalSource>;
+  /** Order-intent priors (B7): explicit content-type (from analysis) + whether a script/order was
+   *  imported. Drive the narrative-vs-procedural mode; absent = inferred from the content. */
+  contentType?: string;
+  hasScript?: boolean;
 }
 
 export interface OrderStorylineResult {
@@ -57,6 +62,9 @@ export interface OrderStorylineResult {
   validation?: OrderingValidation;
   /** The model's one-line narrative rationale, when a plan was applied. */
   rationale?: string;
+  /** The order-intent policy that shaped the ordering (mode + confidence). Surface `lowConfidence`
+   *  to the user when we could not order with conviction. */
+  policy?: OrderingPolicy;
 }
 
 /** Below this, ordering is moot (0/1 clip has exactly one order) - skip the LLM entirely. */
@@ -68,8 +76,9 @@ function deterministic(
   opts: OrderStorylineOptions | undefined,
   fallbackReason: FallbackReason,
   validation?: OrderingValidation,
+  policy?: OrderingPolicy,
 ): OrderStorylineResult {
-  return { storyline: composeStoryline(scenes, brief, opts?.compose), planApplied: false, fallbackReason, validation };
+  return { storyline: composeStoryline(scenes, brief, opts?.compose), planApplied: false, fallbackReason, validation, policy };
 }
 
 /**
@@ -87,30 +96,35 @@ export async function orderStorylineWithLLM(
   // behaviour is unchanged - composeStoryline ignores narrative; this only feeds the LLM.
   const enriched = enrichScenes(scenes, opts?.narrativeSources ? { sources: opts.narrativeSources } : undefined);
 
+  // B7: decide HOW to order (narrative story vs procedural step sequence) BEFORE prompting, so the
+  // ordering objective matches the content. Procedural content told to "tell the strongest story"
+  // scrambles (a tutorial led with its result); the mode flips the prompt's objective.
+  const policy = resolveOrderingPolicy(enriched, brief, { contentType: opts?.contentType, hasScript: opts?.hasScript });
+
   const picked = selectAndFitScenes(enriched, brief, opts?.compose);
-  if (picked.length < MIN_CLIPS_FOR_LLM) return deterministic(enriched, brief, opts, 'too_few_clips');
+  if (picked.length < MIN_CLIPS_FOR_LLM) return deterministic(enriched, brief, opts, 'too_few_clips', undefined, policy);
 
   const digests = buildOrderingDigest(picked);
-  const prompt = buildOrderingPrompt(digests, opts?.ctx, opts?.moves);
+  const prompt = buildOrderingPrompt(digests, { ...opts?.ctx, mode: policy.mode }, opts?.moves);
 
   let raw: string;
   try {
     raw = await llm(prompt);
   } catch {
-    return deterministic(enriched, brief, opts, 'llm_error');
+    return deterministic(enriched, brief, opts, 'llm_error', undefined, policy);
   }
 
   const { plan } = parseOrderingResponse(raw, digests);
-  if (!plan) return deterministic(enriched, brief, opts, 'parse_error');
+  if (!plan) return deterministic(enriched, brief, opts, 'parse_error', undefined, policy);
 
   const validation = validateOrderingPlan(plan, picked, {
     targetDurationSec: brief.output.targetDurationSec,
     minClipDurationSec: opts?.compose?.minClipDurationSec,
   });
-  if (!validation.valid) return deterministic(enriched, brief, opts, 'invalid_plan', validation);
+  if (!validation.valid) return deterministic(enriched, brief, opts, 'invalid_plan', validation, policy);
 
   const storyline = composeStoryline(enriched, brief, { ...opts?.compose, orderingPlan: plan });
-  return { storyline, planApplied: true, validation, rationale: plan.rationale };
+  return { storyline, planApplied: true, validation, rationale: plan.rationale, policy };
 }
 
 export interface OrderStorylineProjectDeps {

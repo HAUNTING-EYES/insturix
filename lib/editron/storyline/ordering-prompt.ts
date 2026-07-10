@@ -17,6 +17,7 @@
 import { SEQUENCING_MOVES } from '../data/creative-doc-rules';
 import type { ClipDigest } from './ordering-digest';
 import { narrativeLine, refToSceneIdMap } from './ordering-digest';
+import type { OrderingMode } from './ordering-policy';
 import type { OrderedItem, OrderingPlan, SeamLink } from './ordering-plan';
 import { SEAM_LINKS } from './ordering-plan';
 
@@ -33,6 +34,9 @@ export interface OrderingPromptContext {
   targetDurationSec?: number | null;
   /** Source language (ISO code or label), from the transcript. Absent = let the model infer. */
   language?: string | null;
+  /** How to order (from the order-intent policy, B7). 'procedural' => recover the step/causal
+   *  sequence and never lead with the result; absent/'narrative' => story ordering. */
+  mode?: OrderingMode;
 }
 
 /** Assign each distinct source a short tag (s0, s1, ...) so the model can see co-recording groups. */
@@ -64,29 +68,38 @@ export function buildOrderingPrompt(
 ): string {
   const tags = sourceTags(digests);
   const clips = digests.map((d) => renderClip(d, tags.get(d.source)!)).join('\n\n');
-  const movesBlock = Object.entries(moves)
-    .map(([name, m]) => `- ${name}: ${m.effect}${m.whenNotTo ? ` (avoid when: ${m.whenNotTo})` : ''}`)
-    .join('\n');
   const lang = ctx.language ?? 'the clips\' own language';
   const target =
     typeof ctx.targetDurationSec === 'number' && ctx.targetDurationSec > 0
       ? `${ctx.targetDurationSec}s`
       : 'none (keep them all, follow the content)';
+  const procedural = ctx.mode === 'procedural';
+
+  const role = procedural
+    ? `You are a video editor assembling a PROCESS or tutorial. You are given already-cut CLIPS, each a step or moment, and you decide the ORDER they play in so a viewer can FOLLOW the steps. You order existing clips - you never write, rewrite, or translate anything. Reason and respond in ${lang}; keep any natural language mix (e.g. Hindi + English) intact, do not clean it up.`
+    : `You are a narrative video editor. You are given already-cut CLIPS and you decide the ORDER they play in to tell the strongest story. You order existing clips - you never write, rewrite, or translate anything. Reason and respond in ${lang}; if the clips mix languages (e.g. Hindi + English), keep that natural mix, do not clean it up.`;
+
+  // Narrative leans on the sequencing-move menu; a process does not (those moves are for drama).
+  const movesSection = procedural
+    ? ''
+    : `\n<sequencing_moves>\nOrdering moves you may lean on (use what fits; you need not name one, and never force a template):\n${Object.entries(moves).map(([name, m]) => `- ${name}: ${m.effect}${m.whenNotTo ? ` (avoid when: ${m.whenNotTo})` : ''}`).join('\n')}\n</sequencing_moves>\n`;
+
+  const orderingRule = procedural
+    ? `- Order the clips in their natural STEP / CAUSAL sequence: the first step first, each step after the one it depends on, and the RESULT or finished product LAST. The order is already inside the clips - in what is said ("first...", "then...", "finally...") or shown (a state that progresses). RECOVER it.
+- Do NOT lead with the finished result, the payoff, or the "best" moment: leading a process with the result breaks it. There is no dramatic hook here - the first step IS the start.
+- "and-then" is a fine link between steps (a process is a sequence); use "therefore" when a step is a consequence of the previous one.`
+    : `- The FIRST clip in your order is the hook.
+- For each clip after the first, prefer "therefore"/"but"; use "and-then" only when there is genuinely no stronger link.`;
 
   return `<role>
-You are a narrative video editor. You are given already-cut CLIPS and you decide the ORDER they play in to tell the strongest story. You order existing clips - you never write, rewrite, or translate anything. Reason and respond in ${lang}; if the clips mix languages (e.g. Hindi + English), keep that natural mix, do not clean it up.
+${role}
 </role>
-
-<sequencing_moves>
-Ordering moves you may lean on (use what fits; you need not name one, and never force a template):
-${movesBlock}
-</sequencing_moves>
-
+${movesSection}
 <rules>
 - Use EVERY clip exactly once. Ordering is NOT cutting.
 - Clips sharing the same [· sN] source tag are ONE continuous recording: you may move that group anywhere, but keep those clips in the order listed relative to each other. Never reorder a clip against others from its own source.
-- The FIRST clip in your order is the hook.
-- For each clip after the first, label the join from the previous clip with exactly one of: ${SEAM_LINKS.map((l) => `"${l}"`).join(', ')}. Prefer "therefore"/"but"; use "and-then" only when there is genuinely no stronger link.
+${orderingRule}
+- Each clip after the first: label the join from the previous clip with exactly one of: ${SEAM_LINKS.map((l) => `"${l}"`).join(', ')}.
 - Keep total duration within the target when one is given.
 </rules>
 
