@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertUsableScriptWriterResult,
+  ScriptWriterAgent,
   type ScriptWriterResult,
 } from '@/lib/thinkforge/agents/script-writer-agent';
+import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import { SCRIPT_SIDECAR_VERSION, type ScriptSidecar } from '@/lib/thinkforge/schemas/script-sidecar';
 import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
 
@@ -150,6 +152,53 @@ function makeResult(overrides: Partial<ScriptWriterResult> = {}): ScriptWriterRe
     ...overrides,
   };
 }
+
+function productionBriefWithCasting(): ProductionBrief {
+  return {
+    entryPoint: 'thinkforge',
+    output: {
+      format: 'reel',
+      platform: 'instagram-reels',
+      aspectRatio: '9:16',
+      targetDurationSec: 30,
+      count: 1,
+      voiceLanguages: ['en'],
+    },
+    resolution: {
+      fieldConfidence: {},
+      inferred: [],
+      confirmed: [],
+    },
+    casting: {
+      map: {
+        host: {
+          avatarProfileId: 'avatar_profile_primary',
+          voice: { mode: 'cloned', voiceReferenceUrl: 'https://cdn.example.test/avatar/voice.wav' },
+        },
+      },
+    },
+  };
+}
+
+describe('ScriptWriterAgent prompt contract', () => {
+  it('injects resolved avatar casting ids and relip rules into the writer prompt', () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+    const prompt = new ScriptWriterAgent().buildPrompt({
+      context: {
+        projectSummary: 'Founder-led launch reel.',
+        systemBrief: 'Brand voice: direct, practical, warm.',
+      },
+      userPrompt: 'Make me the on-camera host for this launch reel.',
+      productionBrief: productionBriefWithCasting(),
+    });
+
+    expect(prompt).toContain('## Avatar Casting Contract');
+    expect(prompt).toContain('characterId "host"');
+    expect(prompt).toContain('Avatar Vault profile "avatar_profile_primary"');
+    expect(prompt).toContain('delivery: "sync-dialogue"');
+    expect(prompt).toContain('face visible');
+  });
+});
 
 describe('assertUsableScriptWriterResult', () => {
   it('accepts canonical markdown scene scripts that can hydrate a script board', () => {
@@ -319,5 +368,55 @@ describe('assertUsableScriptWriterResult', () => {
         }),
       ),
     ).toThrow(/on_camera_ratio_exceeded:2\/2,max_1/);
+  });
+
+  it('rejects scripts that omit a resolved avatar-cast character', () => {
+    expect(() =>
+      assertUsableScriptWriterResult(makeResult(), {
+        productionBrief: productionBriefWithCasting(),
+      }),
+    ).toThrow(/missing_cast_character:host/);
+  });
+
+  it('rejects avatar-cast character speech authored as voiceover', () => {
+    expect(() =>
+      assertUsableScriptWriterResult(
+        makeResult({
+          sidecar: makeSidecar({
+            characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
+            scenes: [
+              makeOnCameraScene({
+                relipSafe: false,
+                lines: [
+                  {
+                    text: 'Put one accountable owner between draft and publish.',
+                    speakerId: 'host',
+                    onCamera: false,
+                    delivery: 'voiceover',
+                    sourceRefs: [],
+                  },
+                ],
+              }),
+              makeSidecar().scenes[1]!,
+            ],
+          }),
+        }),
+        { productionBrief: productionBriefWithCasting() },
+      ),
+    ).toThrow(/cast_character_speech_not_sync_dialogue:host:scene_1/);
+  });
+
+  it('accepts a resolved avatar-cast character with relip-safe sync dialogue', () => {
+    expect(() =>
+      assertUsableScriptWriterResult(
+        makeResult({
+          sidecar: makeSidecar({
+            characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
+            scenes: [makeOnCameraScene(), makeSidecar().scenes[1]!],
+          }),
+        }),
+        { productionBrief: productionBriefWithCasting() },
+      ),
+    ).not.toThrow();
   });
 });

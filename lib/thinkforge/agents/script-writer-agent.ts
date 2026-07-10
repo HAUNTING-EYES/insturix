@@ -24,6 +24,7 @@ import {
   type SourceLedger,
 } from '../provenance/source-ledger';
 import { formatTrendBriefForPrompt } from './trend-brief-context';
+import { formatCastingBriefForPrompt, getAvatarCastingEntries } from './casting-brief-context';
 
 // Flat ScriptWriter Output Contract
 export const ScriptWriterResultSchema = z.object({
@@ -75,6 +76,7 @@ export interface ScriptWriterInput extends AgentInput {
 
 export interface ScriptWriterValidationOptions {
   sourceLedger?: SourceLedger | null;
+  productionBrief?: ProductionBrief | null;
 }
 
 const CACHED_SCRIPT_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((pattern) => ({
@@ -149,6 +151,37 @@ function validateWriterCapabilityCompliance(
   }
 }
 
+function validateCastingBriefCompliance(
+  sidecar: ReturnType<typeof parseScriptSidecar>,
+  productionBrief: ProductionBrief | null | undefined,
+  failures: string[],
+): void {
+  const castingEntries = getAvatarCastingEntries(productionBrief);
+  if (castingEntries.length === 0) return;
+
+  const characterIds = new Set(sidecar.characters.map((character) => character.id));
+  for (const [characterId] of castingEntries) {
+    if (!characterIds.has(characterId)) {
+      failures.push(`missing_cast_character:${characterId}`);
+      continue;
+    }
+
+    let used = false;
+    sidecar.scenes.forEach((scene, sceneIndex) => {
+      if (scene.charactersPresent.includes(characterId)) used = true;
+      scene.lines.forEach((line) => {
+        if (line.speakerId !== characterId) return;
+        used = true;
+        if (line.delivery !== 'on-screen-text' && (line.delivery !== 'sync-dialogue' || !line.onCamera)) {
+          failures.push(`cast_character_speech_not_sync_dialogue:${characterId}:scene_${sceneIndex + 1}`);
+        }
+      });
+    });
+
+    if (!used) failures.push(`unused_cast_character:${characterId}`);
+  }
+}
+
 function countMatches(text: string, pattern: RegExp): number {
   return Array.from(text.matchAll(pattern)).length;
 }
@@ -177,6 +210,7 @@ export function assertUsableScriptWriterResult(
     const sidecar = parseScriptSidecar(result.sidecar);
     sidecarSceneCount = sidecar.scenes.length;
     validateWriterCapabilityCompliance(result, sidecar, failures);
+    validateCastingBriefCompliance(sidecar, options.productionBrief, failures);
     failures.push(...findSourceLedgerIssuesForSidecar(sidecar, options.sourceLedger));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'unknown';
@@ -215,6 +249,7 @@ export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
     const defaultVoiceLanguage = WRITER_CAPABILITIES.voiceLanguages[0] ?? 'en';
     const sourceLedgerBlock = sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : '';
     const trendBriefBlock = formatTrendBriefForPrompt(productionBrief);
+    const castingBriefBlock = formatCastingBriefForPrompt(productionBrief);
 
 
     // NOTE: the writing knowledge graph block is deliberately NOT injected here. A 10-seed A/B
@@ -267,6 +302,10 @@ Your task is to write a high-retention, engaging video script.
 
     if (trendBriefBlock) {
       prompt += `${trendBriefBlock}\n\n`;
+    }
+
+    if (castingBriefBlock) {
+      prompt += `${castingBriefBlock}\n\n`;
     }
 
     if (sourceLedgerBlock) {
@@ -349,6 +388,7 @@ Return your response strictly adhering to the JSON schema.`;
         'Every scene in content must begin with ## Scene N: ... and include **Narration:** plus **Visual:** labels.',
         'scenePrompts must map 1:1 with the scenes in content.',
         'sidecar.scenes must map 1:1 with the scenes in content, and sidecar sourceRefs must be internally consistent.',
+        'If an Avatar Casting Contract is present, sidecar.characters, lines, and charactersPresent must use the exact cast characterIds from that contract.',
         'Do not add keys outside the required JSON shape.',
       ].join('\n');
       const { text, cacheStatus, modelName } = await generateWithWritingContextCache({
@@ -360,8 +400,9 @@ Return your response strictly adhering to the JSON schema.`;
       });
       const parsed = parseAgentJson(text);
       const result = this.schema.parse(parsed);
+      const validationOptions = { sourceLedger: input.sourceLedger, productionBrief: input.productionBrief };
       // Reject unusable cache-path output before it can persist.
-      assertUsableScriptWriterResult(result, { sourceLedger: input.sourceLedger });
+      assertUsableScriptWriterResult(result, validationOptions);
 
       output = {
         result,
@@ -378,13 +419,13 @@ Return your response strictly adhering to the JSON schema.`;
       const isGateReject = error instanceof Error && error.message.startsWith('Script writer output failed document contract');
       console.error(`[LOUDFAIL][ScriptWriter][CACHE-PATH-FAILED] reason=${isGateReject ? 'QUALITY-GATE-REJECTED' : 'infra/parse/model error'} — falling back to base path (no writing-knowledge doc):`, error);
       output = await super.runStructured(input, overrides, abortSignal);
-      assertUsableScriptWriterResult(output.result, { sourceLedger: input.sourceLedger });
+      assertUsableScriptWriterResult(output.result, { sourceLedger: input.sourceLedger, productionBrief: input.productionBrief });
     }
 
     // Filler self-repair: one in-context rewrite if a banned phrase slipped through either path.
     // Fail-soft — keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
     output.result.content = await repairAiFillerContent(output.result.content, this.config.modelName, abortSignal);
-    assertUsableScriptWriterResult(output.result, { sourceLedger: input.sourceLedger });
+    assertUsableScriptWriterResult(output.result, { sourceLedger: input.sourceLedger, productionBrief: input.productionBrief });
     return output;
   }
 }
