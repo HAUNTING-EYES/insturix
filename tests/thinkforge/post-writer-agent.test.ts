@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   assertUsablePostWriterResult,
   type PostWriterInput,
@@ -50,6 +52,10 @@ function makeResult(overrides: Partial<PostWriterResult> = {}): PostWriterResult
 }
 
 describe('assertUsablePostWriterResult', () => {
+  it('keeps the post writer source valid UTF-8 for Vercel webpack/SWC', () => {
+    const source = readFileSync(resolve(process.cwd(), 'lib/thinkforge/agents/post-writer-agent.ts'));
+    expect(() => new TextDecoder('utf-8', { fatal: true }).decode(source)).not.toThrow();
+  });
   it('accepts a complete publishable social post with Clickatron visual instructions', () => {
     expect(() => assertUsablePostWriterResult(makeResult(), baseInput)).not.toThrow();
   });

@@ -56,7 +56,7 @@ export interface PostWriterInput extends AgentInput {
 }
 
 const POST_CTA_PATTERN =
-  /(?:\b(ask|apply|book|buy|call|claim|comment|contact|dm|donate|discover|download|get|join|learn more|message|register|reply|repost|reserve|save|schedule|send|share|shop|sign ?up|tag|try|visit|watch)\b|inscr[ií]bete|registrate|reg[ií]strate|[uú]nete|reserva|compra|visita|env[ií]a|manda|escr[ií]benos|comenta|comparte)/i;
+  /(?:\b(ask|apply|book|buy|call|claim|comment|contact|dm|donate|discover|download|get|join|learn more|message|register|reply|repost|reserve|save|schedule|send|share|shop|sign ?up|tag|try|visit|watch)\b|inscr[iÃ­]bete|registrate|reg[iÃ­]strate|[uÃº]nete|reserva|compra|visita|env[iÃ­]a|manda|escr[iÃ­]benos|comenta|comparte)/i;
 
 const MIN_COMPLETE_POST_CHARS: Record<string, number> = {
   twitter: 50,
@@ -248,7 +248,7 @@ Return your response strictly adhering to the JSON schema.`;
     }
 
     // Filler self-repair: one in-context rewrite if a banned phrase slipped through either path.
-    // Fail-soft — keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
+    // Fail-soft â€” keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
     output.result.content = await repairAiFillerContent(output.result.content, this.config.modelName, abortSignal);
     assertUsablePostWriterResult(output.result, input);
     return output;
