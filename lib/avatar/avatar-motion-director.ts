@@ -90,6 +90,30 @@ export function composeOmniHumanPrompt(recipe: AvatarRenderRecipe): string {
     .join(' ');
 }
 
+/**
+ * Compose the prompt for a lane-B body-motion (Kling i2v) shot. Unlike the talking-head
+ * prompt, this one commits to a FULL-BODY WIDE framing and real locomotion — because
+ * i2v animates whatever framing it's told, and a "medium shot / speak to camera" prompt
+ * (or a face crop) yields a talking-head closeup, defeating the whole point of lane B.
+ * No lip-sync line: i2v is silent, the mouth is added by the relip step downstream.
+ */
+export function composeBodyMotionPrompt(recipe: AvatarRenderRecipe): string {
+  const creative = recipe.creative;
+  const preset = USE_CASE_PRESETS[recipe.useCase] ?? USE_CASE_PRESETS.generic_clip;
+  const framing = 'Full-body wide shot — the entire person is visible head to toe with room to move in the frame.';
+  const mood = composeMood(creative.personaTone, creative.personaRole, preset.mood);
+  const motion = firstNonEmpty(
+    creative.gestureStyle,
+    'The person moves through the scene with real locomotion — walking, turning, natural steps and weight shifts, full-body hand gestures.',
+  );
+  const expressiveness = EXPRESSIVENESS_MODIFIER[creative.expressiveness ?? 'natural'];
+  const scene = optionalTrim(creative.prompt);
+  return [framing, mood, motion, expressiveness, scene]
+    .map(ensureSentence)
+    .filter(isNonEmpty)
+    .join(' ');
+}
+
 function composeMood(tone: string | undefined, role: string | undefined, fallback: string): string {
   const bits: string[] = [];
   if (isNonEmpty(tone)) bits.push(tone.trim());
