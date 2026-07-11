@@ -253,7 +253,17 @@ describe('from-batch storyline route handoff', () => {
 
   it('persists the request, then composes exactly once from a signed durable callback', async () => {
     const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
-    const requested = await POST(request({ uploadBatchId: 'batch_1', aspectRatio: '16:9', brandId: 'brand_1' }) as never);
+    const editorialPreferences = {
+      families: {
+        motionGraphics: { mode: 'prefer', frequency: 0.7, intensity: 0.8 },
+        transitions: { mode: 'off', frequency: 1, intensity: 1 },
+      },
+      pacing: { mode: 'prefer', intensity: 0.35 },
+      notes: 'Keep the proof sequence clear.',
+    };
+    const requested = await POST(request({
+      uploadBatchId: 'batch_1', aspectRatio: '16:9', brandId: 'brand_1', editorialPreferences,
+    }) as never);
     const requestedPayload = await requested.json();
 
     expect(requested.status).toBe(202);
@@ -275,6 +285,7 @@ describe('from-batch storyline route handoff', () => {
     };
     const response = await POST(request({
       uploadBatchId: 'batch_1',
+      editorialPreferences,
       brandId: 'brand_1',
       _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 0, failureCount: 0 },
     }, true) as never);
@@ -385,6 +396,19 @@ describe('from-batch storyline route handoff', () => {
       'https://qstash.test/v2/publish/http://app.test/api/internal/workers/director',
       expect.objectContaining({ method: 'POST' }),
     );
+    const directorDispatch = mocks.fetch.mock.calls.find(
+      ([url]) => String(url).includes('/api/internal/workers/director'),
+    );
+    expect(directorDispatch).toBeDefined();
+    const directorPayload = JSON.parse(String((directorDispatch?.[1] as RequestInit).body));
+    expect(directorPayload.editorialPreferences).toEqual({
+      families: {
+        motionGraphics: { mode: 'prefer', frequency: 0.7, intensity: 0.8 },
+        transitions: { mode: 'off' },
+      },
+      pacing: { mode: 'prefer', intensity: 0.35 },
+      notes: 'Keep the proof sequence clear.',
+    });
   });
   it('does not compose or charge when another callback owns the orchestration lease', async () => {
     const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');

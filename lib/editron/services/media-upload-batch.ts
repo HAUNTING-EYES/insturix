@@ -1,3 +1,8 @@
+import {
+  normalizeEditorialPreferences,
+  type EditorialPreferences,
+} from '@/lib/editron/production-brief/editorial-preferences';
+
 export const MEDIA_UPLOAD_BATCHES_COLLECTION = 'mediaUploadBatches';
 
 export type MediaUploadBatchAssetType = 'video' | 'image' | 'audio';
@@ -25,6 +30,7 @@ export interface MediaUploadBatchIntake {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
+  editorialPreferences?: EditorialPreferences;
 }
 
 export interface MediaUploadBatchAssetStatusInput extends MediaUploadBatchAssetManifestInput {
@@ -72,7 +78,7 @@ export function encodeUploadBatchAssetKey(assetId: string): string {
   return Buffer.from(trimmed, 'utf8').toString('base64url');
 }
 
-const INTAKE_TEXT_LIMITS: Record<keyof MediaUploadBatchIntake, number> = {
+const INTAKE_TEXT_LIMITS: Record<Exclude<keyof MediaUploadBatchIntake, 'editorialPreferences'>, number> = {
   aspectRatio: 64,
   platform: 64,
   userIntent: 4000,
@@ -90,13 +96,16 @@ export function normalizeMediaUploadBatchIntake(raw: unknown): MediaUploadBatchI
 
   const source = raw as Partial<Record<keyof MediaUploadBatchIntake, unknown>>;
   const normalized: MediaUploadBatchIntake = {};
-  for (const [key, limit] of Object.entries(INTAKE_TEXT_LIMITS) as Array<[keyof MediaUploadBatchIntake, number]>) {
+  for (const [key, limit] of Object.entries(INTAKE_TEXT_LIMITS) as Array<[Exclude<keyof MediaUploadBatchIntake, 'editorialPreferences'>, number]>) {
     const value = source[key];
     if (typeof value !== 'string') continue;
     const trimmed = value.trim();
     if (!trimmed) continue;
     normalized[key] = trimmed.slice(0, limit);
   }
+
+  const editorialPreferences = normalizeEditorialPreferences(source.editorialPreferences);
+  if (editorialPreferences) normalized.editorialPreferences = editorialPreferences;
 
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }

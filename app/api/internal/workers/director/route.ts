@@ -21,6 +21,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { resolveDirectorCompletionHealth } from '@/lib/editron/services/editron-learning-gate';
+import {
+  normalizeEditorialPreferences,
+  type EditorialPreferences,
+} from '@/lib/editron/production-brief/editorial-preferences';
 
 export const runtime = 'nodejs';
 // 800 (not 300): a 20-min+ video's Director (load + Creative Brief + Path D + EDL execute + save) runs right
@@ -41,6 +45,7 @@ interface DirectorWorkerPayload {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
+  editorialPreferences?: EditorialPreferences;
 }
 
 async function handler(request: NextRequest) {
@@ -54,7 +59,7 @@ async function handler(request: NextRequest) {
       projectId, userId, profileId: initialProfileId,
       title, platform, userIntent,
       captionStyle, transitionPreference, zoomBehavior,
-      motionGraphics, pacingFeel, musicPreference,
+      motionGraphics, pacingFeel, musicPreference, editorialPreferences: payloadEditorialPreferences,
     } = payload;
     trackedProjectId = projectId;
 
@@ -96,6 +101,9 @@ async function handler(request: NextRequest) {
 
     // ─── Build brief from preferences + editDNA (from MongoDB) ────
     const editDNA = projectDoc.referenceEditDNA;
+    const editorialPreferences = normalizeEditorialPreferences(payloadEditorialPreferences)
+      ?? normalizeEditorialPreferences(projectDoc.editorialPreferences)
+      ?? normalizeEditorialPreferences(projectDoc.productionBrief?.editorialPreferences);
     const userPrefs = {
       ...(captionStyle && { captionStyle }),
       ...(transitionPreference && { transitionPreference }),
@@ -105,6 +113,7 @@ async function handler(request: NextRequest) {
       ...(musicPreference && { musicPreference }),
       ...(platform && { platform }),
       ...(userIntent && { intent: userIntent }),
+      ...(editorialPreferences && { editorialPreferences }),
     };
 
     let brief: any = undefined;

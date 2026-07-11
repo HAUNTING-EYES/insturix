@@ -6,6 +6,8 @@
  * Each profile defines exactly what the Director Agent executes.
  */
 
+
+import type { EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
 // ─── Profile Categories ─────────────────────────────────────────
 
 export type ProfileCategory =
@@ -153,6 +155,8 @@ export interface ProjectBrief {
   motionGraphics?: 'none' | 'stats_only' | 'full';
   pacingFeel?: 'calm' | 'balanced' | 'energetic' | 'fast';
   musicPreference?: 'none' | 'subtle_bed' | 'energetic' | 'match_video';
+  /** User policy for family authority. Exact form/timing stays resolver-owned. */
+  editorialPreferences?: EditorialPreferences;
 }
 
 export interface DirectorResult {

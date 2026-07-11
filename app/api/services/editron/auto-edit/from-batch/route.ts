@@ -29,6 +29,7 @@ import { narrativeSourceFromTimeline, type NarrativeSignalSource } from '@/lib/e
 import { buildSignalTimeline, buildSignalTimelineFromAnalysis, type RawFootageAnalysis } from '@/lib/editron/services/signal-registry';
 import type { SegmentAnalysis } from '@/lib/editron/types/segment-analysis';
 import { resolveEffectiveBrandWithProfile } from '@/lib/shared/brand-effective-resolver';
+import { normalizeEditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -243,6 +244,7 @@ function buildDirectorBrief(intake: MediaUploadBatchIntake): ProjectBrief {
   const motionGraphics = normalizeDirectorEnum<ProjectBrief['motionGraphics'] & string>(intake.motionGraphics, ['none', 'stats_only', 'full']);
   const pacingFeel = normalizeDirectorEnum<ProjectBrief['pacingFeel'] & string>(intake.pacingFeel, ['calm', 'balanced', 'energetic', 'fast']);
   const musicPreference = normalizeDirectorEnum<ProjectBrief['musicPreference'] & string>(intake.musicPreference, ['none', 'subtle_bed', 'energetic', 'match_video']);
+  const editorialPreferences = normalizeEditorialPreferences(intake.editorialPreferences);
 
   return {
     modifiers: [],
@@ -254,10 +256,13 @@ function buildDirectorBrief(intake: MediaUploadBatchIntake): ProjectBrief {
     ...(motionGraphics && { motionGraphics }),
     ...(pacingFeel && { pacingFeel }),
     ...(musicPreference && { musicPreference }),
+    ...(editorialPreferences && { editorialPreferences }),
   };
 }
 
 function mergeIntake(batchIntake: MediaUploadBatchIntake | undefined, body: FromBatchRequest): MediaUploadBatchIntake {
+  const editorialPreferences = normalizeEditorialPreferences(body.editorialPreferences)
+    ?? normalizeEditorialPreferences(batchIntake?.editorialPreferences);
   return {
     ...(batchIntake ?? {}),
     ...(cleanString(body.aspectRatio, 64) && { aspectRatio: cleanString(body.aspectRatio, 64) }),
@@ -270,6 +275,7 @@ function mergeIntake(batchIntake: MediaUploadBatchIntake | undefined, body: From
     ...(cleanString(body.motionGraphics, 128) && { motionGraphics: cleanString(body.motionGraphics, 128) }),
     ...(cleanString(body.pacingFeel, 128) && { pacingFeel: cleanString(body.pacingFeel, 128) }),
     ...(cleanString(body.musicPreference, 512) && { musicPreference: cleanString(body.musicPreference, 512) }),
+    ...(editorialPreferences && { editorialPreferences }),
   };
 }
 
@@ -675,6 +681,7 @@ async function dispatchDirector(params: {
     motionGraphics: params.intake.motionGraphics,
     pacingFeel: params.intake.pacingFeel,
     musicPreference: params.intake.musicPreference,
+    editorialPreferences: normalizeEditorialPreferences(params.intake.editorialPreferences),
   };
 
   if (!qstashToken) {
@@ -856,6 +863,7 @@ export async function POST(request: NextRequest) {
             sourceUploadBatchId: uploadBatchId,
             sourceAssetIds: visualAssets.map((asset) => asset.assetId),
             updatedAt: new Date(),
+            ...(intake.editorialPreferences ? { editorialPreferences: intake.editorialPreferences } : {}),
           },
         },
       );
