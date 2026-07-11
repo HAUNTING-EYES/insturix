@@ -161,13 +161,15 @@ export function buildSaasExplainerAuthorPrompt(
   return [
     buildSaasExplainerProjectSummary(input, productUrl, referenceLabel, referenceStyleEvidence),
     "Write a complete SaaS explainer script with scene-by-scene structure, narration, and concrete visual direction.",
-    // This is a VOICEOVER-DRIVEN explainer: the spoken line IS the deliverable for every scene (each scene is
-    // rendered with its narration as the voiceover). EVERY scene MUST have a spoken VO line — write a **VO:**
-    // line for each scene. Do NOT make any scene silent / Text-Overlay-only; even hook, feature-demo, UI-proof,
-    // and CTA beats are narrated aloud. On-screen text is in ADDITION to the voiceover, never instead of it.
-    "HARD RULE — every scene must include spoken voiceover: write a **VO:** line for EVERY scene, including the " +
-      "hook, feature/UI-demo, proof, and CTA. Never leave a scene silent or text-overlay-only; on-screen text " +
-      "is additive to the voiceover, not a replacement. A scene with no spoken words is invalid for this explainer.",
+    // Voiceover is the BACKBONE of this explainer (each scene renders its narration as the VO), but silence is a
+    // deliberate craft choice, not a default — pros narrate ~3/4 of an explainer and drop to voice-silent beats
+    // only when motivated. Guidance below encodes that; the real fix (a Director-assigned per-scene audio
+    // treatment) is the next redesign. Interim rule = coverage + motivated-silence, NOT "every scene must speak".
+    "Voiceover is the backbone: MOST scenes are narrated and the VO should read as one continuous through-line " +
+      "(write a **VO:** line for each narrated scene). A scene may be voice-silent (music + on-screen text carry " +
+      "it) ONLY as a deliberate, short contrast beat — a brief UI-proof hold or a tagline punch — never for " +
+      "explanatory content, and never two silent scenes in a row. The CTA is always narrated. Aim for spoken " +
+      "voiceover across roughly three-quarters of the runtime; on-screen text is additive, not a VO replacement.",
     "Prefer real product-demo beats, UI callouts, problem-to-solution flow, proof moments, and a concise CTA.",
     "Do not invent unverifiable metrics, customer names, integrations, or claims.",
     input.script ? `User-provided source script/copy:\n${input.script}` : null,
