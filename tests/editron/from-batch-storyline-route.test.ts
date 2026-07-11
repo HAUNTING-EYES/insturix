@@ -293,54 +293,29 @@ describe('from-batch storyline route handoff', () => {
 
     expect(mocks.updateProject).toHaveBeenCalledWith(
       { projectId: 'proj_batch_1' },
-      { $set: expect.objectContaining({
-        autoEditMode: 'batch',
-        autoEditStatus: 'directing_queued',
-        sourceUploadBatchId: 'batch_1',
-        sourceAssetIds: ['video_1', 'image_1'],
-        storylinePlan: expect.objectContaining({
-          source: 'storyline',
-          planApplied: true,
-          rationale: 'hook then proof image',
-          clipCount: 2,
-          composerClipCount: 2,
+      {
+        $set: expect.objectContaining({
+          autoEditMode: 'batch',
+          autoEditStatus: 'directing_queued',
+          sourceUploadBatchId: 'batch_1',
+          sourceAssetIds: ['video_1', 'image_1'],
+          storylinePlan: expect.objectContaining({
+            source: 'storyline',
+            planApplied: true,
+            rationale: 'hook then proof image',
+            clipCount: 2,
+            composerClipCount: 2,
+          }),
         }),
-      }) },
+        $unset: { batchDeliverable: '' },
+      },
     );
     expect(mocks.fetch).toHaveBeenCalledWith(
       'https://qstash.test/v2/publish/http://app.test/api/internal/workers/director',
       expect.objectContaining({ method: 'POST' }),
     );
   });
-  it('creates one normal Editron project per requested deliverable spec', async () => {
-    mocks.createProject
-      .mockResolvedValueOnce({ projectId: 'proj_reel' })
-      .mockResolvedValueOnce({ projectId: 'proj_full' });
-    mocks.orderStorylineWithLLM.mockImplementation(async (_scenes: unknown, brief: any) => ({
-      planApplied: true,
-      rationale: `ordered ${brief.output.platform}`,
-      storyline: {
-        clips: [
-          { order: 0, sourceRef: 'scene_video', source: 'video_1', in: 1, out: 3, durationSec: 2, role: 'hook', fit: 'cover' },
-        ],
-        renderTarget: {
-          aspectRatio: brief.output.aspectRatio,
-          fps: 30,
-          width: brief.output.aspectRatio === '9:16' ? 1080 : 1920,
-          height: brief.output.aspectRatio === '9:16' ? 1920 : 1080,
-          container: 'mp4',
-          videoCodec: 'h264',
-          audioCodec: 'aac',
-        },
-        totalDurationSec: 2,
-        condensationRatio: 0.5,
-        targetDurationSec: brief.output.targetDurationSec,
-      },
-    }));
-    mocks.fetch
-      .mockResolvedValueOnce(new Response(JSON.stringify({ messageId: 'msg_reel' }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ messageId: 'msg_full' }), { status: 200 }));
-
+  it('rejects multi-output requests before creating or charging for a project', async () => {
     const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
     const response = await POST(request({
       uploadBatchId: 'batch_1',
@@ -352,47 +327,16 @@ describe('from-batch storyline route handoff', () => {
     }) as never);
     const payload = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(payload.projectId).toBe('proj_reel');
-    expect(payload.projectIds).toEqual(['proj_reel', 'proj_full']);
-    expect(payload.deliverables).toEqual([
-      expect.objectContaining({ label: '15s Reel', projectId: 'proj_reel', platform: 'tiktok', aspectRatio: '9:16', targetDurationSec: 15, messageId: 'msg_reel' }),
-      expect.objectContaining({ label: 'Full YouTube', projectId: 'proj_full', platform: 'youtube', aspectRatio: '16:9', targetDurationSec: null, messageId: 'msg_full' }),
-    ]);
-
-    expect(mocks.createProject).toHaveBeenCalledTimes(2);
-    expect(mocks.createProject.mock.calls[0][1]).toBe('Launch pack');
-    expect(mocks.createProject.mock.calls[1][1]).toBe('Launch pack - Full YouTube');
-    expect(mocks.hydrateStorylineAnalysesForBatch).toHaveBeenCalledTimes(2);
-    expect(mocks.hydrateStorylineAnalysesForBatch.mock.calls[0][1]).toEqual(expect.objectContaining({ projectId: 'proj_reel' }));
-    expect(mocks.hydrateStorylineAnalysesForBatch.mock.calls[1][1]).toEqual(expect.objectContaining({ projectId: 'proj_full' }));
-    expect(mocks.orderStorylineWithLLM).toHaveBeenCalledTimes(2);
-    expect(mocks.orderStorylineWithLLM.mock.calls[0][3]).toEqual(expect.objectContaining({
-      ctx: expect.objectContaining({ platform: 'tiktok', targetDurationSec: 15, language: 'hi-en' }),
-    }));
-    expect(mocks.orderStorylineWithLLM.mock.calls[1][3]).toEqual(expect.objectContaining({
-      ctx: expect.objectContaining({ platform: 'youtube', targetDurationSec: null, language: 'hi-en' }),
-    }));
-    expect(mocks.saveProject).toHaveBeenCalledTimes(2);
-    expect(mocks.saveProject.mock.calls[0][2]).toEqual(expect.objectContaining({
-      aspectRatio: '9:16',
-      playerDimensions: { width: 1080, height: 1920 },
-    }));
-    expect(mocks.saveProject.mock.calls[1][2]).toEqual(expect.objectContaining({
-      aspectRatio: '16:9',
-      playerDimensions: { width: 1920, height: 1080 },
-    }));
-    expect(mocks.updateBatch).toHaveBeenCalledWith(
-      { uploadBatchId: 'batch_1', userId: 'user_1' },
-      { $set: expect.objectContaining({
-        projectId: 'proj_reel',
-        projectIds: ['proj_reel', 'proj_full'],
-        deliverableProjects: [
-          expect.objectContaining({ label: '15s Reel', projectId: 'proj_reel' }),
-          expect.objectContaining({ label: 'Full YouTube', projectId: 'proj_full' }),
-        ],
-      }) },
-    );
-    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    expect(response.status).toBe(400);
+    expect(payload).toEqual({
+      success: false,
+      error: 'Editron creates exactly one video per request. Choose one output specification.',
+    });
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.createProject).not.toHaveBeenCalled();
+    expect(mocks.hydrateStorylineAnalysesForBatch).not.toHaveBeenCalled();
+    expect(mocks.orderStorylineWithLLM).not.toHaveBeenCalled();
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
   });
 });

@@ -1,159 +1,84 @@
 # Editron Multi-Upload + Composer Remaining Work - 2026-07-11
 
-This note reconciles the July 9/10 task distribution and composer handoffs against the current code. It is meant to be the short operational source for what remains after the current multi-file/composer wiring pass.
+This note reconciles the July 9/10 task distribution and composer handoffs against current code.
+
+## Product Invariant
+
+One request creates exactly one video project. A request may contain many source videos and images, but it has one user-selected output specification and one resulting Editron project.
+
+`app/api/services/editron/auto-edit/from-batch/route.ts` rejects plural output fields before credits, project creation, analysis bridging, or Director dispatch. The route no longer returns `projectIds` or `deliverables`, and it clears stale plural batch metadata when creating the single project.
 
 ## Current Verified Flow
 
-New project upload UI:
+- `new-project-flow.tsx` accepts multiple videos/images.
+- A single video uses `AutoEditDialog`; multiple files or image-containing selections use `FootageBatchIntakeDialog`.
+- The batch intake currently asks for platform, aspect ratio, output intent, optional script/outline, and music direction.
+- `use-footage-auto-edit.ts` uploads every source, waits for analysis, then calls the singular `from-batch` route.
+- The route passes video scenes, image scenes, embeddings, language, target duration, and per-source signal timelines into the storyline orderer.
+- The resulting storyline is materialized into one project's overlays, persisted, and dispatched once to Director.
+- Source asset id/range, role, and `linkFromPrev` survive on materialized clips.
 
-- `components/editron/project/new-project-flow.tsx` accepts `video/*,image/*` with `multiple`.
-- One selected video still goes through the single-video auto-edit path.
-- Multiple files, or image-only/image+video selections, open `FootageBatchIntakeDialog`.
-- The intake dialog currently asks for platform, aspect ratio, expected output, optional script/outline, and music direction.
+## Current Analysis Truth
 
-Batch project creation:
+Batch videos now have a two-stage worker path:
 
-- `hooks/editron/use-footage-auto-edit.ts` calls `uploadMediaFiles(...)`, polls the upload batch, then calls `createProjectFromMediaUploadBatch(...)`.
-- `app/api/services/editron/auto-edit/from-batch/route.ts` builds one or more deliverable projects from the batch and returns:
-  - `projectId` for the primary generated project.
-  - `projectIds` for all generated projects.
-  - `deliverables` with per-deliverable project ids and worker message ids.
+1. `asset-analysis` performs media-library/base analysis and queues deep analysis.
+2. `asset-deep-analysis` runs full-duration V-JEPA, music analysis, moment weighting, and segment analysis, then marks the asset complete or degraded.
 
-Important UI gap:
+The bridge preserves real V-JEPA, Wav2Vec, OCR, moment-weight, language, and word-timing fields when present. It does not fabricate missing importance or vocal evidence.
 
-- The UI currently opens only `batchProject.projectId`.
-- That means additional generated edits returned in `projectIds` / `deliverables` can exist, but the user is not shown a selectable list of those generated edits.
-- Production behavior should show generated deliverable cards with status, label, format, and project link, while keeping the primary project as the default open action.
-
-Composer wiring:
-
-- The batch route now passes source scenes, image scenes, embedded scenes, language, target duration, embedding scorer, and per-source signal timelines into the composer/orderer path.
-- The bridge now preserves real V-JEPA, Wav2Vec, and moment-weight fields when upstream analysis provides them.
-- The bridge no longer invents confidence as `finalWeight` when it only has a fallback proxy.
-- OCR can be recovered from keyframe subject/logo labels when available.
-
-## Why Batch Analysis Is Different Today
-
-The batch upload worker is not the same as the full single-project analysis path.
-
-Current batch worker:
-
-- `app/api/internal/workers/asset-analysis/route.ts`
-- Built for media-library readiness: duration, 5-track/keyframe summary, tags, semantic embedding, graph enrichment.
-- Does not currently run the full project-level V-JEPA, Wav2Vec, moment-weight map, or `buildSegmentAnalysis` pipeline.
-
-Current rich project analysis:
-
-- `app/api/internal/workers/video-analysis/route.ts`
-- `app/api/internal/workers/tribe-analysis/route.ts`
-- Runs or wires V-JEPA, Wav2Vec, music analysis, moment weights, and full segment analysis before Director decisions.
-
-So yes, batch can run the same richer analysis async. It should not run synchronously inside upload completion. The production version is:
-
-1. Upload files and create media assets quickly.
-2. Queue one deep-analysis job per video asset.
-3. Store results per asset in asset analysis storage, keyed by project/batch/asset id.
-4. Track status, retries, degraded mode, and credit/time costs.
-5. Let the composer use rich fields when ready and honest fallbacks when not ready.
-
-That keeps multi-upload responsive while still allowing visual/audio/moment intelligence to power sequencing, B-roll selection, and repurposing.
-
-## How Multi-Asset Sequencing Should Work
-
-The intended logic is not "concatenate files in upload order."
-
-The production flow should be:
-
-1. Intake captures user intent: output type, target duration, aspect ratio, platform, optional script/outline, references, music/BGM intent, and priority constraints.
-2. Pre-analysis feasibility checks run early:
-   - total usable duration vs requested duration;
-   - asset types available;
-   - language/script availability;
-   - aspect-ratio conflicts;
-   - whether requested output needs talking-head, B-roll, images, product shots, screen recordings, or music sync.
-3. Each asset is analyzed separately:
-   - visual segments;
-   - transcript and word timings where speech exists;
-   - OCR/text-on-screen;
-   - audio energy/prosody/music/beat information;
-   - semantic tags;
-   - V-JEPA/motion/subject/spatial primitives when available.
-4. The composer builds candidate scenes from every asset.
-5. The planner orders scenes against user intent, script, brand, rhythm, and source evidence.
-6. Director/Lambda receives a concrete timeline with source asset ids and time ranges, not just a single primary asset.
-
-For BGM or music-driven videos, the selected music track should become a timing signal. Beat grid, downbeats, silence pockets, and energy changes should influence cut placement, transition timing, SFX restraint, and B-roll sequencing.
+Remaining parity gap: Wav2Vec currently runs only when upstream `speechSegments` exist. Long or unknown-duration assets can skip the ingest-time 5-track pass, leaving no durable transcript/speech windows. They still receive V-JEPA and music analysis, but speech understanding remains unknown until a durable transcription stage is added.
 
 ## Remaining Work
 
-### Multi-Upload Product And UI
+### P0 - One-Output Product And Intake
 
-1. Show all generated deliverables from `projectIds` / `deliverables` in the UI.
-2. Add a post-batch completion view with selectable generated edits.
-3. Make per-deliverable status visible: queued, analyzing, director running, ready, failed, degraded.
-4. Add retry per failed deliverable without rerunning the whole batch.
-5. Add UI support for optional script/outline and references as first-class inputs.
-6. Add UI language/Hinglish expectations and caption style preferences.
-7. Add UI handling for user-provided music/BGM as an asset with timing influence.
+1. Keep one output specification and one project as a permanent route invariant.
+2. Add explicit target duration, language/Hinglish mode, references, per-asset roles/priority/do-not-use, and user-provided BGM/audio to intake.
+3. Add pre-analysis feasibility: source duration, script coverage, aspect/resolution conflicts, language/provider risk, and requested-output feasibility.
+4. Keep per-asset retry/status UX; do not add generated-deliverable selection.
 
-### Batch Analysis Parity
+### P1 - Durable Batch Orchestration
 
-1. Add async deep-analysis jobs for batch video assets.
-2. Persist V-JEPA, Wav2Vec, moment-weight map, segment analysis, OCR, and language per asset.
-3. Keep asset analysis storage outside the main project document to avoid Mongo document bloat.
-4. Make the batch bridge prefer real per-asset fields over synthesized fallbacks.
-5. Persist degraded-analysis reasons so a thin result is explainable.
-6. Add idempotency and retry safety for per-asset deep analysis.
+1. Replace the browser's fixed ~96-second polling window with durable server-owned orchestration. The deep worker can run for up to 300 seconds, while `from-batch` correctly returns 409 while assets are still analyzing.
+2. Add a durable per-asset transcription stage before Wav2Vec for long/unknown-duration video and audio.
+3. Persist transcript language, words, speech segments, retries, provider status, and degradation reasons outside the project document.
+4. Trigger storyline/project creation exactly once when the batch reaches a terminal usable state.
+5. Prove idempotency across duplicate QStash delivery, worker retry, and browser refresh.
 
-### Composer To Director/Lambda Handoff
+### P2 - Multi-Asset Planning And VLM
 
-1. Ensure Storyline output becomes actual Director/Lambda timeline output for multi-source projects.
-2. Preserve source asset id, source time range, role, reason, link-from-previous, and intended transition/motion hints.
-3. Verify Director reads Storyline `role` and `linkFromPrev` instead of discarding them.
-4. Verify multiple deliverable projects dispatch Director jobs and save overlays independently.
-5. Add contract tests for Storyline -> Director -> project timeline.
+1. Wire the existing moment-planning actions into the normal batch route where user intent/script requires them: retain, trim, split, reorder, repurpose as b-roll/proof, or request coverage.
+2. Keep VLM/V-JEPA as timecoded evidence, not a direct verdict.
+3. Add fixtures for VO-heavy, visual-only, static talking head, silent demo, image-heavy, music-driven, Hinglish, and artifact-heavy footage.
+4. Persist why each source range was selected, omitted, or repurposed.
 
-### Visual/VLM Cutting
+### P3 - Music And BGM
 
-1. Treat visual analysis as a second evidence source, not a simple "still frame equals bad" rule.
-2. For voice-heavy videos, build the VO cut first, then run visual checks once to catch visual dead zones, broken shots, wrong B-roll, AI-slop segments, or missing visual support.
-3. For visual-only or low-speech videos, visual/motion/music evidence becomes primary.
-4. Cutting decisions should use evidence bundles: speech, visual change, subject action, text-on-screen, beat grid, semantic relevance, user intent, and brand/context.
-5. Add acceptance fixtures for talking-head, B-roll montage, product demo, screen recording, image-heavy story, music-driven edit, and Hinglish speech.
+1. Accept user-provided audio/BGM as a first-class batch asset.
+2. Extract beat grid, downbeats, phrase/energy changes, and silence pockets.
+3. Let music affect cuts, transitions, SFX restraint, and b-roll pacing only when user intent and content structure license it.
+4. Keep VO-led edits speech-led unless the user asks for music-driven cutting.
 
-### Music And BGM
+### P4 - Storyline To Render Proof
 
-1. Treat user-provided music as an analyzable source asset.
-2. Extract beat grid, energy curve, downbeats, phrase changes, and silence pockets.
-3. Let music timing influence cuts, transitions, SFX allowance, and B-roll pacing when the requested output benefits from music sync.
-4. Avoid forcing music sync onto VO-led talking-head edits unless user intent asks for it.
+1. Run a real preview with multiple source assets and verify one project is created.
+2. Verify the saved source ranges, roles, ordering, transitions, captions, audio, and final Lambda pixels/audio match the storyline.
+3. Add an end-to-end Storyline -> Director -> persisted timeline -> Lambda contract fixture.
+4. Keep code-complete and live-proven statuses separate.
 
-### Known Live Bugs And Conflicts
+### Master Plan Still Open
 
-1. MP4 duration/moov parsing still needs hardening for broken or non-faststart files.
-2. Gemini Files 90s polling timeout still needs production handling.
-3. Neo4j/Graph sync must be verified live now that infrastructure is back up.
-4. Embedding model work must not be a blind model swap. Verify TS and Python Graphiti paths preserve 768-dimensional vectors, then handle null/backfill vectors safely.
-5. Chapter concat is code-built but still needs live-deploy and real long-render smoke proof before calling it operationally complete.
-6. `done in code` and `done live` must remain separate statuses.
+1. P0/P12/P15: rendered truth, gate teeth, and holdout calibration.
+2. P2: normalize/calibrate importance versus execution confidence.
+3. P3: rendered caption proof and calibration.
+4. P4: visual-heavy/visual-only proof and calibrated visual thresholds.
+5. P7: SFX provider depth, non-transition roles, and live BGM proof.
+6. P9-P11: MG form breadth, expression/stage/family hardening with rendered evidence.
+7. P13: rendered choreography timing/collision proof.
+8. P16: real per-brand edit-feedback learning.
+9. Operational proof: embedding backfill, chapter concat on a real long render, Neo4j/Graphiti, and deployed Remotion bundle parity.
 
-### Remaining Master Plan Items
+## Next Implementation Slice
 
-1. P0/P12/P15 loop: rendered truth artifacts, gate teeth, and calibration remain the quality spine.
-2. Full rendered aesthetic judging is still not final hard truth.
-3. Calibration remains last, after authority, render truth, and quality gates are reliable.
-4. Path E/D authority is improved, but any remaining executable authority loopholes must be checked against live projects.
-5. Rule-11 generative MG form remains a core creative frontier.
-6. Fable audit items still open unless separately verified in code: color render writer, match-cut executor, visual system consolidation, graph-sync executor teeth, choreography shaper, and MG residuals.
-7. Seam contract-test harness is still needed for Claude/Codex handoff boundaries.
-8. Rename or disambiguate the overloaded `tier` meanings.
-
-## Practical Next Step
-
-The next Codex implementation slice should be one of:
-
-1. UI deliverable selection after multi-batch generation.
-2. Batch deep-analysis parity as async per-asset jobs.
-3. Storyline -> Director/Lambda contract hardening.
-
-Do not start calibration or broad MG polish before those seams are proven with real multi-file projects.
+Build durable batch orchestration and transcription parity. Do not start calibration or broad MG polish before a real multi-file, one-output project completes with rich per-asset analysis and rendered proof.
