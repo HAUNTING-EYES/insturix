@@ -32,6 +32,12 @@ if (!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)) {
 const multiSeed = process.argv.includes("--multi-seed");
 const SEEDS = multiSeed ? [1, 2, 3, 4, 5, 6, 7, 8] : [1];
 
+// Free-tier Gemini allows ~5 requests/min. Throttle between calls so a multi-seed run doesn't false-fail on quota.
+// Override with --throttle=<ms> (0 to disable, e.g. on a paid key).
+const throttleArg = process.argv.find((a) => a.startsWith("--throttle="));
+const THROTTLE_MS = throttleArg ? Number(throttleArg.split("=")[1]) : multiSeed ? 13_000 : 0;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 // ── Fixtures: realistic director-beat sequences + grounding ────────────────────────────────────────────────
 interface Fixture {
   name: string;
@@ -110,6 +116,7 @@ async function main() {
     console.log(`\n=== ${fx.name} ===`);
     for (const seed of SEEDS) {
       runs++;
+      if (THROTTLE_MS > 0 && runs > 1) await sleep(THROTTLE_MS); // stay under the free-tier rate limit
       try {
         const r = await scoreOne(fx, seed);
         if (r.pass) passes++;
