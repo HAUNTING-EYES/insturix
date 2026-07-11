@@ -30,6 +30,53 @@ describe('resolveAtomicTransitionForm', () => {
     expect(form.sfxRole).toBe('fast-whoosh');
   });
 
+  it('modulates physical strength without changing the boundary job or transition type', () => {
+    const baseInput = {
+      params: { transitionType: 'whip-pan' },
+      signals: {
+        speech_energy: 0.72,
+        motion_vector_x: 0.2,
+        motion_intensity: 0.1,
+        visual_complexity: 0.05,
+      },
+    };
+    const high = resolveAtomicTransitionForm({
+      ...baseInput,
+      params: {
+        ...baseInput.params,
+        editorialPreferencePolicy: {
+          mode: 'prefer',
+          editorialFamily: 'transitions',
+          intensity: 1,
+        },
+      },
+    });
+    const low = resolveAtomicTransitionForm({
+      ...baseInput,
+      params: {
+        ...baseInput.params,
+        editorialPreferencePolicy: {
+          mode: 'prefer',
+          editorialFamily: 'transitions',
+          intensity: 0.16,
+        },
+      },
+    });
+
+    expect(high.job).toBe(low.job);
+    expect(high.compatibilityType).toBe('whip-pan');
+    expect(low.compatibilityType).toBe('whip-pan');
+    expect(high.intensity).toBeGreaterThan(low.intensity);
+    expect(high.blurPx).toBeGreaterThan(low.blurPx);
+    expect(high.durationFrames).toBeLessThan(low.durationFrames);
+    expect(high.sfxRole).toBe(low.sfxRole);
+    expect(high.editorialPreference).toMatchObject({
+      mode: 'prefer',
+      requestedIntensity: 1,
+      method: 'geometric-mean',
+    });
+  });
+
   it('restrains harsh transitions on text-heavy face/gaze frames', () => {
     const form = resolveAtomicTransitionForm({
       params: { transitionType: 'zoom-punch' },

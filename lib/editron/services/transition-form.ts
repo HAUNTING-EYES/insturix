@@ -1,5 +1,9 @@
 import type { TransitionStyle } from '@/components/editron/editor/version-7.0.0/types';
 import { momentBundleToSignalMap, type AtomicMomentBundle } from './moment-bundle';
+import {
+  resolveEditorialPreferenceIntensity,
+  type EditorialPreferenceIntensityResolution,
+} from './editorial-decision-policy';
 
 export type AtomicTransitionIntent =
   | 'continuity-blend'
@@ -48,6 +52,7 @@ export interface AtomicTransitionForm {
   maskFeather: number;
   intensity: number;
   visualPressure: number;
+  editorialPreference: EditorialPreferenceIntensityResolution;
   keyframeBased: boolean;
   sfxRole: 'none' | 'soft-whoosh' | 'fast-whoosh' | 'impact' | 'digital-tick';
 }
@@ -91,7 +96,7 @@ export function resolveAtomicTransitionForm(input: {
   const facePresent = signalNumber(signals, 'face_present', 'visual.face_present') >= 0.5;
   const eyeContact = signalNumber(signals, 'visual_eye_contact', 'visual.eye_contact', 'eye_contact') >= 0.5;
 
-  const intensity = clamp01(Math.max(
+  const signalIntensity = clamp01(Math.max(
     beatStrength,
     speechEnergy,
     wordImportance,
@@ -101,6 +106,8 @@ export function resolveAtomicTransitionForm(input: {
     motionIntensity * 0.76,
     direction.magnitude * 0.7,
   ));
+  const editorialPreference = resolveEditorialPreferenceIntensity(params, 'transitions', signalIntensity);
+  const intensity = editorialPreference.resolvedIntensity;
   const visualPressure = clamp01(Math.max(
     textOnScreen,
     textCoverage,
@@ -113,7 +120,7 @@ export function resolveAtomicTransitionForm(input: {
   const job = resolveTransitionJob({
     params,
     direction,
-    intensity,
+    intensity: signalIntensity,
     topicShift,
     beatStrength,
     emotion,
@@ -127,7 +134,7 @@ export function resolveAtomicTransitionForm(input: {
     compatibilityHint,
     intentHint,
     direction,
-    intensity,
+    intensity: signalIntensity,
     topicShift,
     beatStrength,
     emotion,
@@ -146,7 +153,7 @@ export function resolveAtomicTransitionForm(input: {
   const blurPx = resolveBlurPx(compatibilityType, intensity, softness);
   const exposure = resolveExposure(compatibilityType, intensity, visualPressure);
   const smear = resolveSmear(compatibilityType, direction.magnitude, intensity, visualPressure);
-  const intent = resolveIntent(compatibilityType, topicShift, direction.magnitude, intensity, softness);
+  const intent = resolveIntent(compatibilityType, topicShift, direction.magnitude, signalIntensity, softness);
 
   return {
     version: 'atomic-transition-form-v1',
@@ -155,7 +162,7 @@ export function resolveAtomicTransitionForm(input: {
     compatibilityType,
     evidence: resolveTransitionEvidence(params, job, {
       direction,
-      intensity,
+      intensity: signalIntensity,
       topicShift,
       beatStrength,
       emotion,
@@ -172,8 +179,9 @@ export function resolveAtomicTransitionForm(input: {
     maskFeather: clamp01(softness * 0.7 + visualPressure * 0.2),
     intensity,
     visualPressure,
+    editorialPreference,
     keyframeBased: false,
-    sfxRole: resolveSfxRole(compatibilityType, intensity, softness),
+    sfxRole: resolveSfxRole(compatibilityType, signalIntensity, softness),
   };
 }
 
