@@ -753,7 +753,9 @@ describe('Avatar pipeline-job API', () => {
         input: expect.objectContaining({
           model: 'fal-ai/kling-video/v2.6/pro/image-to-video',
           durationSeconds: 8,
-          // The reference is staged before the body model animates it (fixture has a look).
+          // Full-body framing prompt (not the talking-head one) so i2v renders a body, not a closeup.
+          prompt: expect.stringContaining('Full-body'),
+          // The reference is staged (reframed to full body) before the body model animates it.
           staging: expect.objectContaining({ enabled: true }),
         }),
       }),
@@ -773,6 +775,26 @@ describe('Avatar pipeline-job API', () => {
         }),
       }),
     );
+  });
+
+  it('still stages the body_motion reference even with no wardrobe (full-body reframing)', () => {
+    // Lane B needs full-body framing regardless of wardrobe, so staging runs whenever
+    // there are photos — otherwise a face crop → talking-head closeup (the reported bug).
+    const recipe = buildAvatarRenderRecipe({
+      profileRecord: acceptedRecord('avatar_body_no_look', {
+        userId: 'user_avatar',
+        stylePack: { wardrobePresets: [] }, // no look → no wardrobe
+      }),
+      useCase: 'speech_delivery',
+      renderModality: 'body_motion',
+      prompt: 'presenting in a studio',
+      script: 'Short line.',
+      audio: { mode: 'uploaded_voiceover', sourceUrl: 'https://cdn.example.test/audio/vo.wav' },
+    });
+    const stages = buildAvatarPipelineStages(recipe, { FAL_AI_API_KEY: 'fal_test_key' });
+    const body = stages.find((stage) => stage.id === 'body_i2v_fal');
+    expect((body?.input as { staging?: { enabled?: boolean } }).staging?.enabled).toBe(true);
+    expect((body?.input as { prompt?: string }).prompt).toContain('Full-body');
   });
 
   it('blocks the body_motion stage when the shot exceeds the 10s relip cap', async () => {

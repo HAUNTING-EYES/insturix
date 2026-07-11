@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { composeOmniHumanPrompt } from '../../lib/avatar/avatar-motion-director';
+import { composeBodyMotionPrompt, composeOmniHumanPrompt } from '../../lib/avatar/avatar-motion-director';
 import type { AvatarRenderRecipe } from '../../lib/avatar/avatar-render-recipe';
 
 type RecipeParts = {
@@ -15,6 +15,25 @@ function recipe(parts: RecipeParts = {}): AvatarRenderRecipe {
     audio: { mode: 'tts_voiceover', ...(parts.audio ?? {}) },
   } as unknown as AvatarRenderRecipe;
 }
+
+describe('composeBodyMotionPrompt (lane B)', () => {
+  it('commits to full-body wide framing and locomotion — not a talking-head closeup', () => {
+    const prompt = composeBodyMotionPrompt(recipe({ creative: { prompt: 'walking through a modern studio' } }));
+    const lower = prompt.toLowerCase();
+    expect(lower).toContain('full-body');
+    expect(lower).toContain('wide shot');
+    expect(lower).toMatch(/walk|moves|locomotion|steps/);
+    // scene prompt preserved
+    expect(lower).toContain('walking through a modern studio');
+  });
+
+  it('drops the talking-head close-frame bias that made i2v render a face closeup (root cause)', () => {
+    const lower = composeBodyMotionPrompt(recipe()).toLowerCase();
+    expect(lower).not.toContain('speaking directly to the camera');
+    expect(lower).not.toContain('medium shot');
+    expect(lower).not.toContain('push-in');
+  });
+});
 
 describe('composeOmniHumanPrompt', () => {
   it('directs the render even when the avatar has no performance pack (preset fallback)', () => {

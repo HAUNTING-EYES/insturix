@@ -39,7 +39,7 @@ import {
   type AvatarCompositionDeps,
   type AvatarCompositionRenderRef,
 } from './avatar-composition';
-import { composeOmniHumanPrompt } from './avatar-motion-director';
+import { composeOmniHumanPrompt, composeBodyMotionPrompt } from './avatar-motion-director';
 import {
   stageAvatarReference,
   type ReferenceStagingInput,
@@ -765,7 +765,10 @@ function buildOmniHumanStage(
  * presence is the signal the user wants a staged look; absence ⇒ no staging ⇒ the raw
  * portrait is animated exactly as before (behavior-preserving, no surprise fal cost).
  */
-function buildAvatarStagingConfig(recipe: AvatarRenderRecipe): {
+function buildAvatarStagingConfig(
+  recipe: AvatarRenderRecipe,
+  opts: { alwaysWhenRefs?: boolean } = {},
+): {
   enabled: boolean;
   scenePrompt: string;
   sourceImageUrls: string[];
@@ -774,11 +777,11 @@ function buildAvatarStagingConfig(recipe: AvatarRenderRecipe): {
   const sourceImageUrls = recipe.visual.referenceImages
     .filter((ref) => ref.role !== 'product' && typeof ref.imageUrl === 'string' && ref.imageUrl.trim())
     .map((ref) => ref.imageUrl as string);
-  return {
-    enabled: Boolean(scenePrompt) && sourceImageUrls.length > 0,
-    scenePrompt,
-    sourceImageUrls,
-  };
+  // Face lane: stage only when a wardrobe/look is set (behavior-preserving). Body lane
+  // passes alwaysWhenRefs — staging also does the full-body REFRAMING that i2v needs, so
+  // it must run whenever we have photos, even with no wardrobe (else a face crop → closeup).
+  const enabled = sourceImageUrls.length > 0 && (opts.alwaysWhenRefs || Boolean(scenePrompt));
+  return { enabled, scenePrompt, sourceImageUrls };
 }
 
 function buildRemotionStage(recipe: AvatarRenderRecipe): AvatarPipelineStageSnapshot {
@@ -808,14 +811,18 @@ function buildBodyMotionStage(
   recipe: AvatarRenderRecipe,
   env: Record<string, string | undefined>,
 ): AvatarPipelineStageSnapshot {
-  const image = selectHumanImage(recipe.visual.referenceImages, recipe.useCase);
+  // Lane B animates a BODY, so prefer a full-body reference and a full-body/wide-framing
+  // prompt — feeding a face crop + a talking-head "medium shot, speak to camera" prompt
+  // (the face lane's choices) makes i2v render a talking-head closeup. Staging also
+  // reframes to full-body, hence alwaysWhenRefs.
+  const image = selectBodyReferenceImage(recipe.visual.referenceImages);
   const durationSeconds = Math.min(recipe.target.durationSeconds, RELIP_MAX_SHOT_SEC);
   const input = {
     model: KLING_I2V_MODEL_ID,
     provider: 'kling_i2v',
-    prompt: composeOmniHumanPrompt(recipe),
+    prompt: composeBodyMotionPrompt(recipe),
     image,
-    staging: buildAvatarStagingConfig(recipe),
+    staging: buildAvatarStagingConfig(recipe, { alwaysWhenRefs: true }),
     resolution: recipe.target.resolution,
     durationSeconds,
     aspectRatio: recipe.target.aspectRatio,
@@ -1837,6 +1844,19 @@ function selectHumanImage(
   const fullBody = byRole('full_body_front') ?? byRole('full_body_side');
   const any = refs.find((ref) => ref.imageUrl);
   return CLOSE_FRAME_USE_CASES.has(useCase) ? (face ?? fullBody ?? any) : (fullBody ?? face ?? any);
+}
+
+// Lane B (Kling i2v) animates a moving BODY, so it always wants a full-body start frame
+// — a face/portrait crop yields a talking-head closeup. Prefer full-body refs; fall back
+// to face/portrait/any (staging then reframes to full-body from whatever we have).
+function selectBodyReferenceImage(refs: AvatarRenderReferenceImage[]): AvatarRenderReferenceImage | undefined {
+  const byRole = (role: AvatarRenderReferenceImage['role']) => refs.find((ref) => ref.role === role && ref.imageUrl);
+  return byRole('full_body_front')
+    ?? byRole('full_body_side')
+    ?? byRole('portrait')
+    ?? byRole('face_front')
+    ?? byRole('face_side')
+    ?? refs.find((ref) => ref.imageUrl);
 }
 
 function resolveOmniHumanAudio(
