@@ -13,10 +13,14 @@
  * export target. Additive + non-breaking: mounts at its own route, leaves the existing draft intake untouched.
  */
 import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import {
+  Loader2, Sparkles, Film, FileText, Upload, Link2, Wand2, Download,
+  RotateCcw, ArrowRight, Check, Mic, X,
+} from 'lucide-react';
 import { useActiveBrand } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import { useToast } from '@/hooks/editron/use-toast';
-import { Btn, Mono } from '@/components/primitives';
+import { Btn, Mono, inputClass, textareaClass } from '@/components/primitives';
+import { cn } from '@/lib/utils';
 import { VO_VOICES, DEFAULT_VOICE } from '@/lib/editron/saas-explainer/vo-voices';
 import {
   useSaasExplainerPlan,
@@ -41,9 +45,9 @@ const STEPS: Array<{ id: Screen; label: string }> = [
 
 const DURATIONS = [30, 45, 60, 90] as const;
 const ASPECTS: Array<{ id: Aspect; label: string }> = [
-  { id: '16:9', label: 'Landscape 16:9' },
-  { id: '9:16', label: 'Vertical 9:16' },
-  { id: '1:1', label: 'Square 1:1' },
+  { id: '16:9', label: '16:9' },
+  { id: '9:16', label: '9:16' },
+  { id: '1:1', label: '1:1' },
 ];
 
 export default function SaasExplainerStudio() {
@@ -226,312 +230,318 @@ export default function SaasExplainerStudio() {
   };
 
   return (
-    <div className="mx-auto flex min-h-[70vh] w-full max-w-3xl flex-col gap-6 p-6 text-ds-primary">
-      <header className="flex items-center justify-between">
-        <div className="flex flex-col gap-1">
-          <Mono size="9" className="text-gold">SAAS EXPLAINER · STUDIO</Mono>
-          <h1 className="text-2xl font-bold tracking-tight">Make a brand-faithful explainer</h1>
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 p-6 text-ds-primary sm:p-8">
+      <header className="flex flex-col gap-6">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-gold/40 bg-gold/10 text-gold">
+            <Sparkles size={16} />
+          </span>
+          <div>
+            <Mono size="8" className="text-gold">SaaS explainer · Studio</Mono>
+            <h1 className="text-[22px] font-bold leading-tight tracking-tight">Make a brand-faithful explainer</h1>
+          </div>
         </div>
-        <StepRail stepIndex={stepIndex} />
+        <Stepper stepIndex={stepIndex} />
       </header>
 
       {screen === 'brief' && (
-        <section className="flex flex-col gap-5 rounded-xl border border-ds-subtle bg-surface-raised p-6">
-          <FieldRow label="Brand" hint="Colors, logo, voice pull from Brand Vault.">
-            <select
-              className="w-full rounded-md border border-ds-emphasis bg-surface-well px-3 py-2 text-ds-primary"
-              value={activeBrandId ?? ''}
-              onChange={(e) => setActiveBrandId(e.target.value || null)}
-              disabled={brandsLoading}
-            >
-              <option value="">No brand — describe manually</option>
-              {brands.map((b) => (
-                <option key={b.brandId} value={b.brandId}>{b.name}</option>
-              ))}
-            </select>
-            {activeBrand?.name && <p className="mt-1 text-xs text-ds-muted">Using {activeBrand.name}.</p>}
-          </FieldRow>
+        <div className="flex flex-col gap-5">
+          <Card>
+            <SectionHead icon={<FileText size={14} />} title="Your brief" hint="What the video is about." />
+            <div className="flex flex-col gap-4">
+              <Field label="Brand" hint="Colors, logo, and voice pull from Brand Vault.">
+                <select className={inputClass} value={activeBrandId ?? ''} onChange={(e) => setActiveBrandId(e.target.value || null)} disabled={brandsLoading}>
+                  <option value="">No brand — describe manually</option>
+                  {brands.map((b) => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}
+                </select>
+                {activeBrand?.name && <p className="text-[11px] text-ds-muted">Using {activeBrand.name}.</p>}
+              </Field>
 
-          <FieldRow label="Product name" hint="Optional — falls back to the brand.">
-            <TextInput value={productName} onChange={setProductName} placeholder="e.g. Insturix" />
-          </FieldRow>
+              <Field label="Product name" hint="Optional — falls back to the brand.">
+                <input className={inputClass} value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="Insturix" />
+              </Field>
 
-          <FieldRow label="Goal of the video" hint="What should a viewer understand or do?">
-            <textarea
-              className="min-h-[80px] w-full rounded-md border border-ds-emphasis bg-surface-well px-3 py-2 text-ds-primary"
-              value={outcome}
-              onChange={(e) => setOutcome(e.target.value)}
-              placeholder="Show how the product turns a week of content work into one on-brand workflow."
-            />
-          </FieldRow>
-
-          <div className="rounded-xl border border-ds-subtle bg-surface-raised/40 p-4">
-            <Mono size="8" className="text-gold">REFERENCES · OPTIONAL</Mono>
-            <p className="mt-1 mb-4 text-xs text-ds-muted">A video sets the <span className="text-ds-secondary">look</span>, a doc sets the <span className="text-ds-secondary">topic</span>.</p>
-
-            <FieldRow label="Reference video" hint="Match a video's style — link or upload.">
-              {referenceLabel ? (
-                <div className="flex items-center justify-between rounded-md border border-ds-emphasis bg-surface-well px-3 py-2">
-                  <span className="truncate text-sm text-ds-secondary">🎬 {referenceLabel} · {referenceImageUrls.length} frame(s)</span>
-                  <Btn variant="ghost" size="sm" onClick={clearReference}>Remove</Btn>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <div className="flex gap-2">
-                    <input
-                      className="flex-1 rounded-md border border-ds-emphasis bg-surface-well px-3 py-2 text-ds-primary"
-                      value={referenceUrlInput}
-                      onChange={(e) => setReferenceUrlInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && !ingestReference.isPending) fetchReferenceUrl(); }}
-                      placeholder="Paste a video link…"
-                      disabled={ingestReference.isPending}
-                    />
-                    <Btn variant="ghost" onClick={fetchReferenceUrl} disabled={ingestReference.isPending || !referenceUrlInput.trim()}>
-                      {ingestReference.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add'}
-                    </Btn>
-                  </div>
-                  <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-ds-emphasis bg-surface-well px-3 py-2 text-sm text-ds-muted hover:text-ds-primary ${ingestReference.isPending ? 'opacity-60' : ''}`}>
-                    {ingestReference.isPending ? 'Reading…' : '⬆ or upload an mp4 / mov / webm'}
-                    <input type="file" accept=".mp4,.mov,.webm,.m4v" className="hidden" disabled={ingestReference.isPending}
-                      onChange={(e) => { uploadReferenceVideo(e.target.files?.[0]); e.target.value = ''; }} />
-                  </label>
-                </div>
-              )}
-            </FieldRow>
-
-            <div className="mt-4">
-              <FieldRow label="Source document" hint="What it's about — PDF, deck, or doc.">
-                {sourceDocName ? (
-                  <div className="flex items-center justify-between rounded-md border border-ds-emphasis bg-surface-well px-3 py-2">
-                    <span className="text-sm text-ds-secondary">📄 {sourceDocName} · {sourceMaterial.length.toLocaleString()} chars</span>
-                    <Btn variant="ghost" size="sm" onClick={clearDoc}>Remove</Btn>
-                  </div>
-                ) : (
-                  <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-ds-emphasis bg-surface-well px-3 py-3 text-sm text-ds-muted hover:text-ds-primary ${ingestDoc.isPending ? 'opacity-60' : ''}`}>
-                    {ingestDoc.isPending ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Reading…</span> : '⬆ Upload a PDF, DOCX, PPTX, or TXT'}
-                    <input
-                      type="file"
-                      accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md"
-                      className="hidden"
-                      disabled={ingestDoc.isPending}
-                      onChange={(e) => { uploadDoc(e.target.files?.[0]); e.target.value = ''; }}
-                    />
-                  </label>
-                )}
-              </FieldRow>
+              <Field label="Goal of the video" hint="What should a viewer understand or do?">
+                <textarea className={cn(textareaClass, 'min-h-[84px]')} value={outcome} onChange={(e) => setOutcome(e.target.value)}
+                  placeholder="Show how the product turns a week of content work into one on-brand workflow." />
+              </Field>
             </div>
-          </div>
+          </Card>
 
-          <FieldRow label="Audience" hint="Optional.">
-            <TextInput value={audience} onChange={setAudience} placeholder="SaaS founders, marketing agencies" />
-          </FieldRow>
+          <Card subtle>
+            <SectionHead icon={<Film size={14} />} title="References" tag="Optional"
+              hint={<>A video sets the <span className="text-ds-secondary">look</span>, a doc sets the <span className="text-ds-secondary">topic</span>.</>} />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Reference video" hint="Match a video's style.">
+                {referenceLabel ? (
+                  <Pill icon={<Film size={13} className="text-gold" />} label={`${referenceLabel} · ${referenceImageUrls.length} frame(s)`} onRemove={clearReference} />
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <input className={cn(inputClass, 'flex-1')} value={referenceUrlInput} onChange={(e) => setReferenceUrlInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !ingestReference.isPending) fetchReferenceUrl(); }} placeholder="Paste a video link…" disabled={ingestReference.isPending} />
+                      <Btn variant="ghost" onClick={fetchReferenceUrl} disabled={ingestReference.isPending || !referenceUrlInput.trim()}>
+                        {ingestReference.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 size={14} />}
+                      </Btn>
+                    </div>
+                    <DropZone busy={ingestReference.isPending} icon={<Upload size={14} />} label="or upload mp4 / mov / webm"
+                      accept=".mp4,.mov,.webm,.m4v" onFile={(f) => uploadReferenceVideo(f)} />
+                  </div>
+                )}
+              </Field>
 
-          <div className="grid grid-cols-2 gap-4">
-            <FieldRow label="Length">
-              <div className="flex gap-2">
-                {DURATIONS.map((d) => (
-                  <Chip key={d} on={durationSec === d} onClick={() => setDurationSec(d)}>{d}s</Chip>
-                ))}
-              </div>
-            </FieldRow>
-            <FieldRow label="Aspect">
-              <div className="flex flex-wrap gap-2">
-                {ASPECTS.map((a) => (
-                  <Chip key={a.id} on={aspectRatio === a.id} onClick={() => setAspectRatio(a.id)}>{a.id}</Chip>
-                ))}
-              </div>
-            </FieldRow>
-          </div>
+              <Field label="Source document" hint="What it's about.">
+                {sourceDocName ? (
+                  <Pill icon={<FileText size={13} className="text-gold" />} label={`${sourceDocName} · ${sourceMaterial.length.toLocaleString()} chars`} onRemove={clearDoc} />
+                ) : (
+                  <DropZone busy={ingestDoc.isPending} icon={<Upload size={14} />} label="Upload PDF, DOCX, PPTX, or TXT"
+                    accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md" onFile={(f) => uploadDoc(f)} tall />
+                )}
+              </Field>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="grid gap-4 sm:grid-cols-[1fr_auto_auto]">
+              <Field label="Audience" hint="Optional.">
+                <input className={inputClass} value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="SaaS founders, agencies" />
+              </Field>
+              <Field label="Length">
+                <Seg options={DURATIONS.map((d) => ({ id: String(d), label: `${d}s` }))} value={String(durationSec)} onPick={(v) => setDurationSec(Number(v))} />
+              </Field>
+              <Field label="Aspect">
+                <Seg options={ASPECTS.map((a) => ({ id: a.id, label: a.label }))} value={aspectRatio} onPick={(v) => setAspectRatio(v as Aspect)} />
+              </Field>
+            </div>
+          </Card>
 
           <div className="flex justify-end">
             <Btn variant="primary" size="lg" onClick={generateScript} disabled={planMutation.isPending || !canBrief}>
-              {planMutation.isPending ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Writing the script…</span> : 'Write the script →'}
+              {planMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Writing the script…</> : <>Write the script <ArrowRight size={15} /></>}
             </Btn>
           </div>
-        </section>
+        </div>
       )}
 
       {screen === 'script' && plan && (
-        <section className="flex flex-col gap-5">
-          <div className="rounded-xl border border-ds-subtle bg-surface-raised p-4">
-            <Mono size="8" className="text-ds-muted">THE VIDEO</Mono>
-            <p className="mt-1 text-ds-secondary">{plan.message}</p>
+        <div className="flex flex-col gap-5">
+          <div className="rounded-card border border-ds-subtle bg-surface-raised p-4">
+            <Mono size="8" className="text-ds-muted">The video</Mono>
+            <p className="mt-1.5 text-[15px] leading-relaxed text-ds-secondary">{plan.message}</p>
           </div>
 
           <div className="flex flex-col gap-3">
             {scenes.map((scene) => (
-              <div key={scene.index} className="rounded-xl border border-ds-subtle bg-surface-raised p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <Mono size="8" className="text-gold">SCENE {scene.index + 1}</Mono>
-                  <span className="text-xs text-ds-faint">{scene.form} · {scene.durationSec}s</span>
+              <div key={scene.index} className="rounded-card border border-ds-subtle bg-surface-raised p-4 transition-colors hover:border-ds-emphasis">
+                <div className="mb-2.5 flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gold/15 font-mono text-[10px] font-bold text-gold">{scene.index + 1}</span>
+                  <span className="text-[13px] font-semibold text-ds-primary">{scene.title}</span>
+                  <span className="ml-auto rounded-full border border-ds-subtle px-2 py-0.5 font-mono text-[9px] uppercase tracking-wide text-ds-muted">{scene.form} · {scene.durationSec}s</span>
                 </div>
-                <p className="mb-2 text-xs text-ds-muted">{scene.title}</p>
-                <textarea
-                  className="w-full rounded-md border border-ds-emphasis bg-surface-well px-3 py-2 text-ds-primary"
-                  value={scene.narration}
-                  onChange={(e) => updateScene(scene.index, e.target.value)}
-                  placeholder="What the voiceover says in this scene…"
-                  rows={2}
-                />
+                <textarea className={textareaClass} value={scene.narration} onChange={(e) => updateScene(scene.index, e.target.value)}
+                  placeholder="What the voiceover says in this scene…" rows={2} />
               </div>
             ))}
           </div>
 
-          <FieldRow label="Voice" hint="The narration voice.">
-            <select
-              className="w-full rounded-md border border-ds-emphasis bg-surface-well px-3 py-2 text-ds-primary"
-              value={voice}
-              onChange={(e) => setVoice(e.target.value)}
-            >
-              {VO_VOICES.map((v) => (
-                <option key={v.id} value={v.id}>{v.label} · {v.accent} — {v.description}</option>
-              ))}
-            </select>
-          </FieldRow>
-
-          <div className="rounded-xl border border-ds-subtle bg-surface-raised p-4">
-            <Mono size="8" className="text-gold">EDIT WITH CHAT</Mono>
-            <p className="mt-1 mb-3 text-xs text-ds-muted">Change the script, the look, the voice, or pacing — e.g. “punchier hook”, “make scene 2 bolder”, “use a British voice”. Look/voice changes apply when you render.</p>
-            {chatReply && <p className="mb-3 rounded-md border border-ds-subtle bg-surface-well px-3 py-2 text-sm text-ds-secondary">{chatReply}</p>}
-            <div className="flex gap-2">
-              <input
-                className="flex-1 rounded-md border border-ds-emphasis bg-surface-well px-3 py-2 text-ds-primary"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !chatEdit.isPending) sendChatEdit(); }}
-                placeholder="Describe the change…"
-                disabled={chatEdit.isPending}
-              />
-              <Btn variant="ghost" onClick={() => sendChatEdit()} disabled={chatEdit.isPending || !chatInput.trim()}>
-                {chatEdit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
-              </Btn>
+          <Field label="Voice">
+            <div className="flex items-center gap-2">
+              <Mic size={14} className="shrink-0 text-ds-muted" />
+              <select className={inputClass} value={voice} onChange={(e) => setVoice(e.target.value)}>
+                {VO_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label} · {v.accent} — {v.description}</option>)}
+              </select>
             </div>
-          </div>
+          </Field>
+
+          <ChatEdit
+            reply={chatReply}
+            input={chatInput}
+            setInput={setChatInput}
+            pending={chatEdit.isPending}
+            onSend={() => sendChatEdit()}
+            hint="Change the script, look, voice, or pacing — e.g. “punchier hook”, “make scene 2 bolder”, “use a British voice”. Look/voice changes apply when you render."
+          />
 
           <div className="flex items-center justify-between">
             <Btn variant="ghost" onClick={generateScript} disabled={planMutation.isPending}>
-              {planMutation.isPending ? 'Regenerating…' : '↻ Regenerate script'}
+              {planMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Regenerating…</> : <><RotateCcw size={14} /> Regenerate</>}
             </Btn>
             <Btn variant="primary" size="lg" onClick={() => renderVideo()} disabled={finalizeMutation.isPending}>
-              {finalizeMutation.isPending ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Starting…</span> : 'Render video →'}
+              {finalizeMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Starting…</> : <>Render video <ArrowRight size={15} /></>}
             </Btn>
           </div>
-        </section>
+        </div>
       )}
 
       {screen === 'render' && (
-        <section className="flex flex-col items-center gap-5 rounded-xl border border-ds-subtle bg-surface-raised p-10 text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-gold" />
-          <div>
-            <p className="font-medium text-ds-primary">{renderStageLabel(s?.status, s?.progress ?? 0)}</p>
-            <p className="mt-1 text-sm text-ds-muted">The craft agent is designing each scene, then rendering with voiceover. This takes a few minutes.</p>
-          </div>
-          <div className="h-2 w-full max-w-md overflow-hidden rounded-full bg-surface-well">
-            <div className="h-full rounded-full bg-gold transition-all duration-500" style={{ width: `${Math.round((s?.progress ?? 0.02) * 100)}%` }} />
-          </div>
-          {s?.status === 'error' && (
-            <div className="flex flex-col items-center gap-3">
-              <p className="text-status-danger">{s.error || 'The render failed.'}</p>
-              <Btn variant="ghost" onClick={() => setScreen('script')}>← Back to script</Btn>
+        <div className="relative flex flex-col items-center gap-6 overflow-hidden rounded-card border border-ds-subtle bg-surface-raised p-12 text-center">
+          <span className="pointer-events-none absolute inset-0 flex select-none items-center justify-center text-[120px] font-extrabold tracking-tighter text-white/[0.02]">
+            {s?.status === 'queued' ? 'QUEUED' : 'CRAFTING'}
+          </span>
+          <div className="relative flex flex-col items-center gap-6">
+            <Loader2 className="h-8 w-8 animate-spin text-gold" />
+            <div>
+              <p className="text-[15px] font-semibold text-ds-primary">{renderStageLabel(s?.status, s?.progress ?? 0)}</p>
+              <p className="mt-1 max-w-sm text-[13px] text-ds-muted">The craft agent designs each scene, then renders with voiceover. This takes a few minutes.</p>
             </div>
-          )}
-        </section>
-      )}
-
-      {screen === 'result' && (
-        <section className="flex flex-col gap-4">
-          {s?.outputUrl ? (
-            <video src={s.outputUrl} controls className="w-full rounded-xl border border-ds-subtle bg-black" />
-          ) : (
-            <div className="rounded-xl border border-ds-subtle bg-surface-raised p-10 text-center text-ds-muted">Preparing your video…</div>
-          )}
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-ds-faint">{typeof s?.costUsd === 'number' ? `Render cost ≈ $${s.costUsd.toFixed(3)}` : ''}</span>
-            <div className="flex gap-2">
-              {s?.outputUrl && (
-                <a href={s.outputUrl} download>
-                  <Btn variant="ghost">Download</Btn>
-                </a>
-              )}
-              <Btn variant="primary" onClick={startOver}>Make another</Btn>
+            <div className="h-2 w-full max-w-md overflow-hidden rounded-full bg-surface-well">
+              <div className="h-full rounded-full bg-gold transition-all duration-500" style={{ width: `${Math.round((s?.progress ?? 0.02) * 100)}%` }} />
             </div>
-          </div>
-
-          <div className="rounded-xl border border-ds-subtle bg-surface-raised p-4">
-            <Mono size="8" className="text-gold">EDIT THIS VIDEO WITH CHAT</Mono>
-            <p className="mt-1 mb-3 text-xs text-ds-muted">Stack up your changes — “make scene 2 bolder”, “punchier hook”, “use a British voice” — then render once when you're done.</p>
-            {chatReply && <p className="mb-3 rounded-md border border-ds-subtle bg-surface-well px-3 py-2 text-sm text-ds-secondary">{chatReply}</p>}
-            <div className="flex gap-2">
-              <input
-                className="flex-1 rounded-md border border-ds-emphasis bg-surface-well px-3 py-2 text-ds-primary"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !chatEdit.isPending) sendChatEdit(true); }}
-                placeholder="Describe the change…"
-                disabled={chatEdit.isPending}
-              />
-              <Btn variant="ghost" onClick={() => sendChatEdit(true)} disabled={chatEdit.isPending || !chatInput.trim()}>
-                {chatEdit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
-              </Btn>
-            </div>
-            {staged && (
-              <div className="mt-3 flex items-center justify-between rounded-md border border-gold/40 bg-gold/10 px-3 py-2">
-                <span className="text-sm text-ds-secondary">Changes staged — render to see them in the video.</span>
-                <Btn variant="primary" size="sm" onClick={() => renderVideo()} disabled={finalizeMutation.isPending}>
-                  {finalizeMutation.isPending ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Rendering…</span> : 'Render changes →'}
-                </Btn>
+            {s?.status === 'error' && (
+              <div className="flex flex-col items-center gap-3">
+                <p className="text-status-danger">{s.error || 'The render failed.'}</p>
+                <Btn variant="ghost" onClick={() => setScreen('script')}>← Back to script</Btn>
               </div>
             )}
           </div>
-        </section>
+        </div>
+      )}
+
+      {screen === 'result' && (
+        <div className="flex flex-col gap-4">
+          {s?.outputUrl ? (
+            <video src={s.outputUrl} controls className="w-full rounded-card border border-ds-subtle bg-black shadow-[0_20px_60px_rgba(0,0,0,0.4)]" />
+          ) : (
+            <div className="rounded-card border border-ds-subtle bg-surface-raised p-12 text-center text-ds-muted">Preparing your video…</div>
+          )}
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[11px] text-ds-faint">{typeof s?.costUsd === 'number' ? `Render cost ≈ $${s.costUsd.toFixed(3)}` : ''}</span>
+            <div className="flex gap-2">
+              {s?.outputUrl && <a href={s.outputUrl} download><Btn variant="ghost"><Download size={14} /> Download</Btn></a>}
+              <Btn variant="primary" onClick={startOver}><Sparkles size={14} /> Make another</Btn>
+            </div>
+          </div>
+
+          <ChatEdit
+            reply={chatReply}
+            input={chatInput}
+            setInput={setChatInput}
+            pending={chatEdit.isPending}
+            onSend={() => sendChatEdit(true)}
+            title="Edit this video with chat"
+            hint="Stack up your changes — “make scene 2 bolder”, “punchier hook”, “use a British voice” — then render once when you're done."
+            footer={staged ? (
+              <div className="mt-3 flex items-center justify-between rounded-md border border-gold/40 bg-gold/10 px-3 py-2">
+                <span className="text-[13px] text-ds-secondary">Changes staged — render to see them.</span>
+                <Btn variant="primary" size="sm" onClick={() => renderVideo()} disabled={finalizeMutation.isPending}>
+                  {finalizeMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Rendering…</> : <>Render changes <ArrowRight size={14} /></>}
+                </Btn>
+              </div>
+            ) : null}
+          />
+        </div>
       )}
     </div>
   );
 }
 
-function StepRail({ stepIndex }: { stepIndex: number }) {
+/* ── presentation helpers ─────────────────────────────────────────── */
+
+function Stepper({ stepIndex }: { stepIndex: number }) {
   return (
-    <div className="hidden items-center gap-2 sm:flex">
-      {STEPS.map((step, i) => (
-        <div key={step.id} className="flex items-center gap-2">
-          <span className={`text-xs ${i === stepIndex ? 'text-gold' : i < stepIndex ? 'text-ds-secondary' : 'text-ds-faint'}`}>{step.label}</span>
-          {i < STEPS.length - 1 && <span className="text-ds-faint">·</span>}
-        </div>
+    <div className="flex items-center">
+      {STEPS.map((step, i) => {
+        const done = i < stepIndex;
+        const active = i === stepIndex;
+        return (
+          <div key={step.id} className="flex flex-1 items-center last:flex-none">
+            <div className="flex items-center gap-2">
+              <span className={cn('flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-bold transition-colors',
+                active ? 'border-gold bg-gold text-[#241B08]' : done ? 'border-gold/50 bg-gold/10 text-gold' : 'border-ds-subtle bg-surface-deeper text-ds-dim')}>
+                {done ? <Check size={12} /> : i + 1}
+              </span>
+              <span className={cn('text-[12px] font-semibold', active ? 'text-ds-primary' : done ? 'text-ds-secondary' : 'text-ds-faint')}>{step.label}</span>
+            </div>
+            {i < STEPS.length - 1 && <span className={cn('mx-3 h-px flex-1', done ? 'bg-gold/40' : 'bg-ds-subtle')} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Card({ children, subtle }: { children: React.ReactNode; subtle?: boolean }) {
+  return (
+    <section className={cn('flex flex-col gap-4 rounded-card border p-5', subtle ? 'border-ds-subtle bg-surface-canvas' : 'border-ds-subtle bg-surface-raised')}>
+      {children}
+    </section>
+  );
+}
+
+function SectionHead({ icon, title, tag, hint }: { icon: React.ReactNode; title: string; tag?: string; hint?: React.ReactNode }) {
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <span className="text-gold">{icon}</span>
+        <Mono size="9" className="text-ds-secondary">{title}</Mono>
+        {tag && <span className="rounded-full border border-ds-subtle px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wide text-ds-dim">{tag}</span>}
+      </div>
+      {hint && <p className="mt-1 text-[12px] text-ds-muted">{hint}</p>}
+    </div>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-[12px] font-semibold text-ds-secondary">{label}</span>
+      {children}
+      {hint && <span className="text-[11px] text-ds-faint">{hint}</span>}
+    </label>
+  );
+}
+
+function Seg({ options, value, onPick }: { options: Array<{ id: string; label: string }>; value: string; onPick: (v: string) => void }) {
+  return (
+    <div className="inline-flex rounded-button border border-ds-subtle bg-surface-deeper p-0.5">
+      {options.map((o) => (
+        <button key={o.id} type="button" onClick={() => onPick(o.id)}
+          className={cn('rounded-[5px] px-2.5 py-1.5 font-mono text-[11px] transition-colors focus-visible:outline-hidden',
+            value === o.id ? 'bg-gold font-bold text-[#241B08]' : 'text-ds-muted hover:text-ds-secondary')}>
+          {o.label}
+        </button>
       ))}
     </div>
   );
 }
 
-function FieldRow({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Pill({ icon, label, onRemove }: { icon: React.ReactNode; label: string; onRemove: () => void }) {
   return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium text-ds-secondary">{label}</span>
-      {children}
-      {hint && <span className="text-xs text-ds-faint">{hint}</span>}
+    <div className="flex items-center justify-between rounded-md border border-ds-emphasis bg-surface-well px-3 py-2">
+      <span className="flex min-w-0 items-center gap-2 truncate text-[13px] text-ds-secondary">{icon}<span className="truncate">{label}</span></span>
+      <button type="button" onClick={onRemove} className="shrink-0 text-ds-muted hover:text-status-danger" aria-label="Remove"><X size={14} /></button>
+    </div>
+  );
+}
+
+function DropZone({ busy, icon, label, accept, onFile, tall }: { busy: boolean; icon: React.ReactNode; label: string; accept: string; onFile: (f: File | undefined) => void; tall?: boolean }) {
+  return (
+    <label className={cn('flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-ds-emphasis bg-surface-well text-[12.5px] text-ds-muted transition-colors hover:border-gold/40 hover:text-ds-secondary',
+      tall ? 'px-3 py-4' : 'px-3 py-2.5', busy && 'opacity-60')}>
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
+      {busy ? 'Reading…' : label}
+      <input type="file" accept={accept} className="hidden" disabled={busy} onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
     </label>
   );
 }
 
-function TextInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+function ChatEdit({ reply, input, setInput, pending, onSend, title = 'Edit with chat', hint, footer }: {
+  reply: string | null; input: string; setInput: (v: string) => void; pending: boolean; onSend: () => void; title?: string; hint: string; footer?: React.ReactNode;
+}) {
   return (
-    <input
-      className="w-full rounded-md border border-ds-emphasis bg-surface-well px-3 py-2 text-ds-primary"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-    />
-  );
-}
-
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${on ? 'border-gold bg-gold/10 text-gold' : 'border-ds-emphasis bg-surface-well text-ds-secondary hover:text-ds-primary'}`}
-    >
-      {children}
-    </button>
+    <div className="rounded-card border border-ds-subtle bg-surface-raised p-4">
+      <div className="flex items-center gap-2"><Wand2 size={14} className="text-gold" /><Mono size="8" className="text-gold">{title}</Mono></div>
+      <p className="mt-1.5 mb-3 text-[12px] text-ds-muted">{hint}</p>
+      {reply && <p className="mb-3 rounded-md border border-ds-subtle bg-surface-well px-3 py-2 text-[13px] text-ds-secondary">{reply}</p>}
+      <div className="flex gap-2">
+        <input className={cn(inputClass, 'flex-1')} value={input} onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !pending) onSend(); }} placeholder="Describe the change…" disabled={pending} />
+        <Btn variant="ghost" onClick={onSend} disabled={pending || !input.trim()}>
+          {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
+        </Btn>
+      </div>
+      {footer}
+    </div>
   );
 }
 
