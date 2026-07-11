@@ -2,7 +2,7 @@ import { fal } from '@fal-ai/client';
 
 export const OMNIHUMAN_FAL_MODEL_ID = 'fal-ai/bytedance/omnihuman/v1.5';
 
-export interface OmniHumanFalSubmitInput {
+export interface TalkingHeadFalSubmitInput {
   imageUrl: string;
   audioUrl: string;
   prompt?: string;
@@ -10,13 +10,13 @@ export interface OmniHumanFalSubmitInput {
   turboMode?: boolean;
 }
 
-export interface OmniHumanFalSubmitResult {
+export interface TalkingHeadFalSubmitResult {
   modelId: string;
   requestId: string;
   input: Record<string, unknown>;
 }
 
-export interface OmniHumanFalRefreshResult {
+export interface TalkingHeadFalRefreshResult {
   modelId: string;
   requestId: string;
   status: 'queued' | 'running' | 'succeeded' | 'failed';
@@ -27,14 +27,14 @@ export interface OmniHumanFalRefreshResult {
   errorMessage?: string;
 }
 
-export interface OmniHumanFalClient {
-  submit(input: OmniHumanFalSubmitInput): Promise<OmniHumanFalSubmitResult>;
-  refresh(requestId: string): Promise<OmniHumanFalRefreshResult>;
+export interface TalkingHeadFalClient {
+  submit(input: TalkingHeadFalSubmitInput): Promise<TalkingHeadFalSubmitResult>;
+  refresh(requestId: string): Promise<TalkingHeadFalRefreshResult>;
 }
 
 let falConfigured = false;
 
-export type TalkingHeadFalInputBuilder = (input: OmniHumanFalSubmitInput) => Record<string, unknown>;
+export type TalkingHeadFalInputBuilder = (input: TalkingHeadFalSubmitInput) => Record<string, unknown>;
 
 /**
  * Generic fal talking-head client (submit → poll → video URL). OmniHuman and Kling
@@ -45,7 +45,7 @@ export function createFalTalkingHeadClient(
   modelId: string,
   buildInput: TalkingHeadFalInputBuilder,
   env: Record<string, string | undefined> = process.env,
-): OmniHumanFalClient {
+): TalkingHeadFalClient {
   return {
     async submit(input) {
       ensureFalConfigured(env);
@@ -88,10 +88,10 @@ export function createFalTalkingHeadClient(
   };
 }
 
-export function createDefaultOmniHumanFalClient(
+export function createDefaultTalkingHeadFalClient(
   env: Record<string, string | undefined> = process.env,
-): OmniHumanFalClient {
-  return createFalTalkingHeadClient(OMNIHUMAN_FAL_MODEL_ID, buildOmniHumanFalInput, env);
+): TalkingHeadFalClient {
+  return createFalTalkingHeadClient(OMNIHUMAN_FAL_MODEL_ID, buildTalkingHeadFalInput, env);
 }
 
 // Kling AI Avatar — better identity retention + ~3x cheaper than OmniHuman (bake-off 2026-07-06).
@@ -102,7 +102,7 @@ export const KLING_AVATAR_MODEL_IDS: Record<KlingAvatarTier, string> = {
   pro: 'fal-ai/kling-video/ai-avatar/v2/pro',
 };
 
-export function buildKlingAvatarFalInput(input: OmniHumanFalSubmitInput): Record<string, unknown> {
+export function buildKlingAvatarFalInput(input: TalkingHeadFalSubmitInput): Record<string, unknown> {
   // Kling AI Avatar length is driven by the audio; resolution/turbo are not accepted.
   return {
     image_url: input.imageUrl,
@@ -114,11 +114,11 @@ export function buildKlingAvatarFalInput(input: OmniHumanFalSubmitInput): Record
 export function createKlingAvatarFalClient(
   env: Record<string, string | undefined> = process.env,
   tier: KlingAvatarTier = 'standard',
-): OmniHumanFalClient {
+): TalkingHeadFalClient {
   return createFalTalkingHeadClient(KLING_AVATAR_MODEL_IDS[tier], buildKlingAvatarFalInput, env);
 }
 
-export function buildOmniHumanFalInput(input: OmniHumanFalSubmitInput): Record<string, unknown> {
+export function buildTalkingHeadFalInput(input: TalkingHeadFalSubmitInput): Record<string, unknown> {
   return {
     image_url: input.imageUrl,
     audio_url: input.audioUrl,
@@ -139,7 +139,7 @@ function ensureFalConfigured(env: Record<string, string | undefined>): void {
   }
 }
 
-function normalizeFalQueueStatus(providerStatus: string): OmniHumanFalRefreshResult['status'] {
+function normalizeFalQueueStatus(providerStatus: string): TalkingHeadFalRefreshResult['status'] {
   if (providerStatus === 'COMPLETED') return 'succeeded';
   if (providerStatus === 'IN_PROGRESS') return 'running';
   if (providerStatus === 'IN_QUEUE') return 'queued';

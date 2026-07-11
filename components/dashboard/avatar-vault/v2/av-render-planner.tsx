@@ -18,7 +18,7 @@ import {
 
 /* ═══ Avatar Vault v2 · render planner ════════════════════════════════
    Wired to the PROVEN pipeline: /pipeline-jobs → Chatterbox voice clone →
-   fal OmniHuman face video → Remotion composite. One "Generate" button;
+   avatar face video → Remotion composite. One "Generate" button;
    live-polls the three real stages and surfaces the final video. */
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v : undefined);

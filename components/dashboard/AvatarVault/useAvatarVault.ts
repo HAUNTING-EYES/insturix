@@ -185,7 +185,7 @@ export function useAvatarRenderJobMutation() {
   });
 }
 
-/** Create a job on the PROVEN pipeline path: Chatterbox voice → OmniHuman face → Remotion composite. */
+/** Create a job on the PROVEN pipeline path: Chatterbox voice → avatar face → Remotion composite. */
 export function useAvatarPipelineJobMutation() {
   return useMutation({
     mutationFn: createAvatarPipelineJobRequest,

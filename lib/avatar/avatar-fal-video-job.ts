@@ -3,7 +3,7 @@
  * + Kling LipSync relip). Unlike the blocking submit-then-poll loops in
  * generate-avatar-shot.ts / avatar-relip.ts (fine for a worker, minutes per call), the
  * pipeline manages polling itself: submit once at dispatch, then one status check per
- * refresh. Mirrors the OmniHumanFalClient (submit + refresh) contract so the body/relip
+ * refresh. Mirrors the TalkingHeadFalClient (submit + refresh) contract so the body/relip
  * stages advance exactly like the talking-head stage.
  *
  * Also holds the audio/video IO the align step needs (fetch bytes, upload the padded

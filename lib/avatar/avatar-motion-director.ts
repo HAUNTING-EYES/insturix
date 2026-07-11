@@ -1,15 +1,15 @@
 /**
- * Motion Director — turns an AvatarRenderRecipe into a fal OmniHuman v1.5 prompt
+ * Motion Director — turns an AvatarRenderRecipe into a an avatar face-model prompt
  * that actually directs the performance (gesture, camera, mood), instead of the
  * bare scene text the pipeline used to send.
  *
  * Root cause this fixes (confirmed by live A/B render 2026-07-06): OmniHuman v1.5
- * is prompt-directable, but `buildOmniHumanStage` shipped `recipe.creative.prompt`
+ * is prompt-directable, but `buildTalkingHeadStage` shipped `recipe.creative.prompt`
  * raw — dropping the gestureStyle/cameraPresence/personaTone the recipe already
  * computes. Blank prompt → the subject stands frozen. A directed prompt → gesture,
  * push-in, life.
  *
- * OmniHuman reads the prompt left-to-right in this order (fal's own prompt guide):
+ * The face model reads the prompt left-to-right in this order (fal's own prompt guide):
  *   [Camera movement] + [Emotion/mood] + [Speaking state] + [Specific actions] + [Scene]
  *
  * The direction is natural language derived from recipe tokens — never frame
@@ -70,10 +70,10 @@ const EXPRESSIVENESS_MODIFIER: Record<AvatarExpressiveness, string> = {
 };
 
 /**
- * Compose the OmniHuman prompt for a recipe. Pure and deterministic: identical
+ * Compose the talking-head prompt for a recipe. Pure and deterministic: identical
  * recipes yield identical prompts (important for reproducible renders).
  */
-export function composeOmniHumanPrompt(recipe: AvatarRenderRecipe): string {
+export function composeTalkingHeadPrompt(recipe: AvatarRenderRecipe): string {
   const preset = USE_CASE_PRESETS[recipe.useCase] ?? USE_CASE_PRESETS.generic_clip;
   const creative = recipe.creative;
 
