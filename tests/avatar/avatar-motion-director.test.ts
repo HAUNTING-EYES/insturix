@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { composeBodyMotionPrompt, composeOmniHumanPrompt } from '../../lib/avatar/avatar-motion-director';
+import { composeBodyMotionPrompt, composeTalkingHeadPrompt } from '../../lib/avatar/avatar-motion-director';
 import type { AvatarRenderRecipe } from '../../lib/avatar/avatar-render-recipe';
 
 type RecipeParts = {
@@ -35,9 +35,9 @@ describe('composeBodyMotionPrompt (lane B)', () => {
   });
 });
 
-describe('composeOmniHumanPrompt', () => {
+describe('composeTalkingHeadPrompt', () => {
   it('directs the render even when the avatar has no performance pack (preset fallback)', () => {
-    const prompt = composeOmniHumanPrompt(recipe());
+    const prompt = composeTalkingHeadPrompt(recipe());
     const lower = prompt.toLowerCase();
     // camera + gesture direction present — the whole point vs the old blank prompt
     expect(lower).toContain('push-in');
@@ -49,13 +49,13 @@ describe('composeOmniHumanPrompt', () => {
 
   it('never returns the bare scene prompt (regression guard for the root cause)', () => {
     const r = recipe({ creative: { prompt: 'in a modern studio office' } });
-    const prompt = composeOmniHumanPrompt(r);
+    const prompt = composeTalkingHeadPrompt(r);
     expect(prompt).not.toBe('in a modern studio office');
     expect(prompt.length).toBeGreaterThan('in a modern studio office'.length);
   });
 
   it('prefers the avatar’s own gesture/camera/tone over presets', () => {
-    const prompt = composeOmniHumanPrompt(
+    const prompt = composeTalkingHeadPrompt(
       recipe({
         creative: {
           prompt: 'presenting on stage',
@@ -71,7 +71,7 @@ describe('composeOmniHumanPrompt', () => {
   });
 
   it('marks a silent render as not speaking', () => {
-    const prompt = composeOmniHumanPrompt(
+    const prompt = composeTalkingHeadPrompt(
       recipe({ audio: { mode: 'silent' }, creative: { prompt: 'standing in a lobby' } }),
     ).toLowerCase();
     expect(prompt).toContain('not speaking');
@@ -79,14 +79,14 @@ describe('composeOmniHumanPrompt', () => {
   });
 
   it('treats a script as speech even if audio mode is unset', () => {
-    const prompt = composeOmniHumanPrompt(
+    const prompt = composeTalkingHeadPrompt(
       recipe({ audio: { mode: 'silent' }, creative: { prompt: 'x', script: 'Hello there' } }),
     ).toLowerCase();
     expect(prompt).toContain('speaking directly to the camera');
   });
 
   it('folds product interaction into the actions for product shoots', () => {
-    const prompt = composeOmniHumanPrompt(
+    const prompt = composeTalkingHeadPrompt(
       recipe({
         useCase: 'product_shoot',
         creative: { prompt: 'clean seamless backdrop', productInteraction: 'holds the bottle up and points to the label' },
@@ -96,15 +96,15 @@ describe('composeOmniHumanPrompt', () => {
   });
 
   it('maps the expressiveness dial', () => {
-    const animated = composeOmniHumanPrompt(recipe({ creative: { prompt: 'x', expressiveness: 'animated' } })).toLowerCase();
-    const calm = composeOmniHumanPrompt(recipe({ creative: { prompt: 'x', expressiveness: 'calm' } })).toLowerCase();
+    const animated = composeTalkingHeadPrompt(recipe({ creative: { prompt: 'x', expressiveness: 'animated' } })).toLowerCase();
+    const calm = composeTalkingHeadPrompt(recipe({ creative: { prompt: 'x', expressiveness: 'calm' } })).toLowerCase();
     expect(animated).toContain('animated');
     expect(calm).toContain('restrained');
   });
 
   it('is deterministic — same recipe yields the same prompt', () => {
     const r = recipe({ creative: { prompt: 'in a warm-lit cafe', gestureStyle: 'relaxed hands' } });
-    expect(composeOmniHumanPrompt(r)).toBe(composeOmniHumanPrompt(r));
+    expect(composeTalkingHeadPrompt(r)).toBe(composeTalkingHeadPrompt(r));
   });
 
   it('covers every use case without throwing or emptying', () => {
@@ -112,7 +112,7 @@ describe('composeOmniHumanPrompt', () => {
       'speech_delivery', 'explainer_host', 'social_presenter', 'product_shoot', 'ad_actor', 'generic_clip',
     ];
     for (const useCase of cases) {
-      const prompt = composeOmniHumanPrompt(recipe({ useCase, creative: { prompt: 'a scene' } }));
+      const prompt = composeTalkingHeadPrompt(recipe({ useCase, creative: { prompt: 'a scene' } }));
       expect(prompt.trim().length).toBeGreaterThan(40);
     }
   });

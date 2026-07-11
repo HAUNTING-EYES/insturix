@@ -10,7 +10,7 @@ import { createInMemoryAvatarProfileRepository } from '../../lib/avatar/avatar-r
 import type { AvatarProfileRecord } from '../../lib/avatar/avatar-lifecycle';
 import type { AvatarProfile } from '../../lib/avatar/avatar-profile';
 import type { ChatterboxClient, ChatterboxSynthesizeInput } from '../../lib/avatar/avatar-chatterbox-client';
-import type { OmniHumanFalClient, OmniHumanFalSubmitInput } from '../../lib/avatar/avatar-omnihuman-fal';
+import type { TalkingHeadFalClient, TalkingHeadFalSubmitInput } from '../../lib/avatar/avatar-omnihuman-fal';
 
 const NOW = '2026-07-04T00:00:00.000Z';
 
@@ -82,8 +82,8 @@ describe('Avatar pipeline-job API', () => {
       records: [acceptedRecord('avatar_pipeline_ready', { userId: 'user_avatar' })],
     });
     const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
-    const submittedInputs: OmniHumanFalSubmitInput[] = [];
-    const omniHumanClient: OmniHumanFalClient = {
+    const submittedInputs: TalkingHeadFalSubmitInput[] = [];
+    const talkingHeadClient: TalkingHeadFalClient = {
       async submit(input) {
         submittedInputs.push(input);
         return {
@@ -123,7 +123,7 @@ describe('Avatar pipeline-job API', () => {
         pipelineJobStore,
         now: () => NOW,
         idGenerator: () => 'avatar_pipeline_job_2',
-        omniHumanClient,
+        talkingHeadClient,
         stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
         env: {
           CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
@@ -189,7 +189,7 @@ describe('Avatar pipeline-job API', () => {
     });
     const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
     const chatterboxInputs: ChatterboxSynthesizeInput[] = [];
-    const omniHumanInputs: OmniHumanFalSubmitInput[] = [];
+    const talkingHeadInputs: TalkingHeadFalSubmitInput[] = [];
     const chatterboxClient: ChatterboxClient = {
       async synthesize(input) {
         chatterboxInputs.push(input);
@@ -201,9 +201,9 @@ describe('Avatar pipeline-job API', () => {
         };
       },
     };
-    const omniHumanClient: OmniHumanFalClient = {
+    const talkingHeadClient: TalkingHeadFalClient = {
       async submit(input) {
-        omniHumanInputs.push(input);
+        talkingHeadInputs.push(input);
         return {
           modelId: 'fal-ai/bytedance/omnihuman/v1.5',
           requestId: 'fal_request_from_chatterbox',
@@ -236,7 +236,7 @@ describe('Avatar pipeline-job API', () => {
         now: () => NOW,
         idGenerator: () => 'avatar_pipeline_job_voice_clone',
         chatterboxClient,
-        omniHumanClient,
+        talkingHeadClient,
         stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
         env: {
           CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
@@ -266,7 +266,7 @@ describe('Avatar pipeline-job API', () => {
         },
       }),
     ]);
-    expect(omniHumanInputs).toEqual([
+    expect(talkingHeadInputs).toEqual([
       expect.objectContaining({
         imageUrl: 'https://cdn.example.test/avatar/staged.png',
         audioUrl: 'https://cdn.example.test/audio/generated-rishi-chatterbox.wav',
@@ -316,7 +316,7 @@ describe('Avatar pipeline-job API', () => {
     });
     const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
     const chatterboxInputs: ChatterboxSynthesizeInput[] = [];
-    const omniHumanInputs: OmniHumanFalSubmitInput[] = [];
+    const talkingHeadInputs: TalkingHeadFalSubmitInput[] = [];
     const chatterboxClient: ChatterboxClient = {
       async synthesize(input) {
         chatterboxInputs.push(input);
@@ -328,9 +328,9 @@ describe('Avatar pipeline-job API', () => {
         };
       },
     };
-    const omniHumanClient: OmniHumanFalClient = {
+    const talkingHeadClient: TalkingHeadFalClient = {
       async submit(input) {
-        omniHumanInputs.push(input);
+        talkingHeadInputs.push(input);
         return {
           modelId: 'fal-ai/bytedance/omnihuman/v1.5',
           requestId: 'fal_request_from_reference_url',
@@ -367,7 +367,7 @@ describe('Avatar pipeline-job API', () => {
         now: () => NOW,
         idGenerator: () => 'avatar_pipeline_job_reference_url',
         chatterboxClient,
-        omniHumanClient,
+        talkingHeadClient,
         stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
         env: {
           CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
@@ -393,7 +393,7 @@ describe('Avatar pipeline-job API', () => {
         },
       }),
     ]);
-    expect(omniHumanInputs).toEqual([
+    expect(talkingHeadInputs).toEqual([
       expect.objectContaining({
         imageUrl: 'https://cdn.example.test/avatar/staged.png',
         audioUrl: 'https://cdn.example.test/audio/generated-from-request-reference.wav',
@@ -424,7 +424,7 @@ describe('Avatar pipeline-job API', () => {
       records: [acceptedRecord('avatar_pipeline_refresh', { userId: 'user_avatar' })],
     });
     const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
-    const omniHumanClient: OmniHumanFalClient = {
+    const talkingHeadClient: TalkingHeadFalClient = {
       async submit(input) {
         return {
           modelId: 'fal-ai/bytedance/omnihuman/v1.5',
@@ -467,7 +467,7 @@ describe('Avatar pipeline-job API', () => {
         pipelineJobStore,
         now: () => NOW,
         idGenerator: () => 'avatar_pipeline_job_3',
-        omniHumanClient,
+        talkingHeadClient,
         stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
         env: { FAL_AI_API_KEY: 'fal_test_key' },
       },
@@ -478,7 +478,7 @@ describe('Avatar pipeline-job API', () => {
       { userId: 'user_avatar', orgId: null, jobId: 'avatar_pipeline_job_3' },
       {
         pipelineJobStore,
-        omniHumanClient,
+        talkingHeadClient,
         now: () => '2026-07-04T00:01:00.000Z',
         env: { FAL_AI_API_KEY: 'fal_test_key' },
       },
@@ -554,8 +554,8 @@ describe('Avatar pipeline-job API', () => {
     });
     const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
     const stagingCalls: Array<{ sourceImageUrls: string[]; scenePrompt: string }> = [];
-    const submittedInputs: OmniHumanFalSubmitInput[] = [];
-    const omniHumanClient: OmniHumanFalClient = {
+    const submittedInputs: TalkingHeadFalSubmitInput[] = [];
+    const talkingHeadClient: TalkingHeadFalClient = {
       async submit(input) {
         submittedInputs.push(input);
         return { modelId: 'fal-ai/kling-video/v1/standard/ai-avatar', requestId: 'fal_req_staged', input: {} };
@@ -582,7 +582,7 @@ describe('Avatar pipeline-job API', () => {
         pipelineJobStore,
         now: () => NOW,
         idGenerator: () => 'avatar_staging_job',
-        omniHumanClient,
+        talkingHeadClient,
         stageReference: async (input) => {
           stagingCalls.push(input);
           return { imageUrl: 'https://cdn.example.test/avatar/staged.png' };
@@ -623,8 +623,8 @@ describe('Avatar pipeline-job API', () => {
     });
     const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
     let stagingCalled = false;
-    const submittedInputs: OmniHumanFalSubmitInput[] = [];
-    const omniHumanClient: OmniHumanFalClient = {
+    const submittedInputs: TalkingHeadFalSubmitInput[] = [];
+    const talkingHeadClient: TalkingHeadFalClient = {
       async submit(input) {
         submittedInputs.push(input);
         return { modelId: 'fal-ai/kling-video/v1/standard/ai-avatar', requestId: 'fal_req_raw', input: {} };
@@ -651,7 +651,7 @@ describe('Avatar pipeline-job API', () => {
         pipelineJobStore,
         now: () => NOW,
         idGenerator: () => 'avatar_staging_off_job',
-        omniHumanClient,
+        talkingHeadClient,
         stageReference: async () => {
           stagingCalled = true;
           return { imageUrl: 'https://cdn.example.test/avatar/should-not-be-used.png' };
@@ -676,8 +676,8 @@ describe('Avatar pipeline-job API', () => {
       records: [acceptedRecord('avatar_staging_fail', { userId: 'user_avatar' })],
     });
     const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
-    const submittedInputs: OmniHumanFalSubmitInput[] = [];
-    const omniHumanClient: OmniHumanFalClient = {
+    const submittedInputs: TalkingHeadFalSubmitInput[] = [];
+    const talkingHeadClient: TalkingHeadFalClient = {
       async submit(input) {
         submittedInputs.push(input);
         return { modelId: 'fal-ai/kling-video/v1/standard/ai-avatar', requestId: 'fal_req_never', input: {} };
@@ -704,7 +704,7 @@ describe('Avatar pipeline-job API', () => {
         pipelineJobStore,
         now: () => NOW,
         idGenerator: () => 'avatar_staging_fail_job',
-        omniHumanClient,
+        talkingHeadClient,
         stageReference: async () => {
           throw new Error('nano banana exploded');
         },

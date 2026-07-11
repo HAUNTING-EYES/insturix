@@ -24,13 +24,13 @@ import {
   type ChatterboxSynthesizeResult,
 } from './avatar-chatterbox-client';
 import {
-  createDefaultOmniHumanFalClient,
+  createDefaultTalkingHeadFalClient,
   createKlingAvatarFalClient,
   KLING_AVATAR_MODEL_IDS,
   OMNIHUMAN_FAL_MODEL_ID,
-  type OmniHumanFalClient,
-  type OmniHumanFalRefreshResult,
-  type OmniHumanFalSubmitInput,
+  type TalkingHeadFalClient,
+  type TalkingHeadFalRefreshResult,
+  type TalkingHeadFalSubmitInput,
 } from './avatar-omnihuman-fal';
 import {
   dispatchAvatarComposition,
@@ -39,7 +39,7 @@ import {
   type AvatarCompositionDeps,
   type AvatarCompositionRenderRef,
 } from './avatar-composition';
-import { composeOmniHumanPrompt, composeBodyMotionPrompt } from './avatar-motion-director';
+import { composeTalkingHeadPrompt, composeBodyMotionPrompt } from './avatar-motion-director';
 import {
   stageAvatarReference,
   type ReferenceStagingInput,
@@ -196,11 +196,11 @@ export interface CreateAvatarPipelineJobDependencies {
   idGenerator?: () => string;
   env?: Record<string, string | undefined>;
   chatterboxClient?: ChatterboxClient;
-  omniHumanClient?: OmniHumanFalClient;
+  talkingHeadClient?: TalkingHeadFalClient;
   /**
    * Reference-staging adapter (Nano Banana wardrobe/scene). Injected in tests; the
    * default calls the real fal client. Runs once, in the face dispatch, before the
-   * talking-head model animates the reference — see dispatchReadyOmniHumanJob.
+   * talking-head model animates the reference — see dispatchReadyTalkingHeadJob.
    */
   stageReference?: (input: ReferenceStagingInput) => Promise<ReferenceStagingResult>;
   /** Lane B (body_motion): Kling i2v body client. Injected in tests; default = real fal. */
@@ -214,7 +214,7 @@ export interface RefreshAvatarPipelineJobDependencies {
   now?: () => string;
   env?: Record<string, string | undefined>;
   chatterboxClient?: ChatterboxClient;
-  omniHumanClient?: OmniHumanFalClient;
+  talkingHeadClient?: TalkingHeadFalClient;
   compositionDeps?: AvatarCompositionDeps;
   /** Lane B (body_motion) adapters — all injected in tests; defaults call the real services. */
   klingI2vClient?: FalVideoJobClient;
@@ -421,7 +421,7 @@ export async function refreshAvatarPipelineJobFromRequest(
   // Lane B polls the body → relip chain; lane A polls the single talking-head stage.
   const afterSource = job.recipe.renderModality === 'body_motion'
     ? await refreshBodyMotionJob(job, dependencies)
-    : await refreshQueuedOmniHumanJob(job, dependencies);
+    : await refreshQueuedTalkingHeadJob(job, dependencies);
   // Advance composition only when the source lane did NOT transition this cycle (it
   // already reached its terminal video on a prior refresh) — the refresh returns the
   // same job ref when nothing changed, keeping this to one stage-transition per poll.
@@ -445,7 +445,7 @@ function resolveCameraMove(recipe: AvatarRenderRecipe): AvatarCameraMove {
   return CLOSE_FRAME_USE_CASES.has(recipe.useCase) ? 'push_in' : 'static';
 }
 
-// After OmniHuman produces the raw face video, render it into a finished
+// After the face model produces the raw face video, render it into a finished
 // Editron-owned MP4 via the existing Remotion Lambda path, then poll to completion.
 async function advanceCompositionStage(
   job: AvatarPipelineJobSnapshot,
@@ -595,7 +595,7 @@ export function buildAvatarPipelineStages(
   }
   return [
     voiceStage,
-    buildOmniHumanStage(recipe, env, voiceStage),
+    buildTalkingHeadStage(recipe, env, voiceStage),
     buildRemotionStage(recipe),
   ];
 }
@@ -658,7 +658,7 @@ interface FaceProviderDescriptor {
   modelId: string;
   providerId: 'fal_omnihuman_v1_5' | 'fal_kling_avatar';
   displayName: string;
-  createClient: (env: Record<string, string | undefined>) => OmniHumanFalClient;
+  createClient: (env: Record<string, string | undefined>) => TalkingHeadFalClient;
 }
 
 /**
@@ -674,7 +674,7 @@ function resolveFaceProvider(provider: AvatarFaceProvider | undefined): FaceProv
         modelId: OMNIHUMAN_FAL_MODEL_ID,
         providerId: 'fal_omnihuman_v1_5',
         displayName: 'fal OmniHuman v1.5',
-        createClient: (env) => createDefaultOmniHumanFalClient(env),
+        createClient: (env) => createDefaultTalkingHeadFalClient(env),
       };
     case 'kling_pro':
       return {
@@ -699,26 +699,26 @@ function resolveFaceProvider(provider: AvatarFaceProvider | undefined): FaceProv
 /** Pick the talking-head client for a face stage: test override wins, else the stage's provider. */
 function faceClientForStage(
   faceStage: AvatarPipelineStageSnapshot,
-  override: OmniHumanFalClient | undefined,
+  override: TalkingHeadFalClient | undefined,
   env: Record<string, string | undefined>,
-): OmniHumanFalClient {
+): TalkingHeadFalClient {
   if (override) return override;
   const provider = stringValue(faceStage.input.provider) as AvatarFaceProvider | undefined;
   return resolveFaceProvider(provider).createClient(env);
 }
 
-function buildOmniHumanStage(
+function buildTalkingHeadStage(
   recipe: AvatarRenderRecipe,
   env: Record<string, string | undefined>,
   voiceStage: AvatarPipelineStageSnapshot,
 ): AvatarPipelineStageSnapshot {
   const faceProvider = resolveFaceProvider(recipe.faceProvider);
   const image = selectHumanImage(recipe.visual.referenceImages, recipe.useCase);
-  const audio = resolveOmniHumanAudio(recipe, voiceStage);
+  const audio = resolveTalkingHeadAudio(recipe, voiceStage);
   const input = {
     model: faceProvider.modelId,
     provider: faceProvider.provider,
-    prompt: composeOmniHumanPrompt(recipe),
+    prompt: composeTalkingHeadPrompt(recipe),
     image,
     audio,
     staging: buildAvatarStagingConfig(recipe),
@@ -728,16 +728,16 @@ function buildOmniHumanStage(
   };
 
   if (!image?.imageUrl) {
-    return blockedOmniHumanStage(faceProvider, 'missing_human_image', 'The avatar model needs a usable human reference image URL.', input);
+    return blockedTalkingHeadStage(faceProvider, 'missing_human_image', 'The avatar model needs a usable human reference image URL.', input);
   }
   if (!audio.sourceUrl && !audio.sourceAssetId && !audio.dependsOnStageId) {
-    return blockedOmniHumanStage(faceProvider, 'missing_omnihuman_audio', 'The avatar model needs uploaded audio or the Chatterbox voice stage output.', input);
+    return blockedTalkingHeadStage(faceProvider, 'missing_omnihuman_audio', 'The avatar model needs uploaded audio or the Chatterbox voice stage output.', input);
   }
-  if (exceedsOmniHumanDurationLimit(recipe.target.resolution, recipe.target.durationSeconds)) {
-    return blockedOmniHumanStage(faceProvider, 'omnihuman_duration_limit', 'Avatar renders are limited to 30s at 1080p and 60s at 720p.', input);
+  if (exceedsTalkingHeadDurationLimit(recipe.target.resolution, recipe.target.durationSeconds)) {
+    return blockedTalkingHeadStage(faceProvider, 'omnihuman_duration_limit', 'Avatar renders are limited to 30s at 1080p and 60s at 720p.', input);
   }
   if (!hasAnyEnv(env, FAL_ENDPOINT_KEYS)) {
-    return blockedOmniHumanStage(faceProvider, 'missing_fal_key', 'FAL_AI_API_KEY or FAL_KEY is not configured, so the avatar model cannot be dispatched.', input);
+    return blockedTalkingHeadStage(faceProvider, 'missing_fal_key', 'FAL_AI_API_KEY or FAL_KEY is not configured, so the avatar model cannot be dispatched.', input);
   }
 
   return stage({
@@ -792,7 +792,7 @@ function buildRemotionStage(recipe: AvatarRenderRecipe): AvatarPipelineStageSnap
     providerDisplayName: 'Remotion',
     status: 'waiting',
     dispatchCode: 'waiting_for_face_video',
-    statusReason: 'Remotion composition waits for the OmniHuman face video output before stitching backgrounds, product media, captions, and audio.',
+    statusReason: 'Remotion composition waits for the avatar face video output before stitching backgrounds, product media, captions, and audio.',
     requiredEnvKeys: [],
     input: {
       aspectRatio: recipe.target.aspectRatio,
@@ -918,7 +918,7 @@ function resolvePipelineDispatch(stages: AvatarPipelineStageSnapshot[]): {
   }
   return {
     code: 'pipeline_adapter_not_implemented',
-    message: 'Avatar pipeline contract is ready, but the Chatterbox, fal OmniHuman, and Remotion execution adapters are not wired in this build yet.',
+    message: 'Avatar pipeline contract is ready, but the Chatterbox, the avatar face model, and Remotion execution adapters are not wired in this build yet.',
   };
 }
 
@@ -926,7 +926,7 @@ async function dispatchReadyAvatarPipelineJob(
   job: AvatarPipelineJobSnapshot,
   dependencies: Pick<
     CreateAvatarPipelineJobDependencies,
-    'env' | 'now' | 'chatterboxClient' | 'omniHumanClient' | 'stageReference' | 'klingI2vClient' | 'fetchAudioBytes'
+    'env' | 'now' | 'chatterboxClient' | 'talkingHeadClient' | 'stageReference' | 'klingI2vClient' | 'fetchAudioBytes'
   >,
 ): Promise<AvatarPipelineJobSnapshot> {
   // Lane B: synth+measure+fit-gate the voice, then submit the body i2v. Voice is not
@@ -936,7 +936,7 @@ async function dispatchReadyAvatarPipelineJob(
   }
   const voicePreparedJob = await dispatchReadyChatterboxJob(job, dependencies);
   if (voicePreparedJob.status === 'failed') return voicePreparedJob;
-  return dispatchReadyOmniHumanJob(voicePreparedJob, dependencies);
+  return dispatchReadyTalkingHeadJob(voicePreparedJob, dependencies);
 }
 
 async function dispatchReadyChatterboxJob(
@@ -945,13 +945,13 @@ async function dispatchReadyChatterboxJob(
 ): Promise<AvatarPipelineJobSnapshot> {
   if (job.dispatchCode !== 'pipeline_adapter_not_implemented') return job;
   const voiceStage = findPipelineStage(job, 'voice_chatterbox');
-  const omniHumanStage = findPipelineStage(job, 'face_omnihuman_fal');
-  const omniHumanAudio = asRecord(omniHumanStage?.input.audio);
+  const talkingHeadStage = findPipelineStage(job, 'face_omnihuman_fal');
+  const talkingHeadAudio = asRecord(talkingHeadStage?.input.audio);
   if (
     !voiceStage
-    || !omniHumanStage
+    || !talkingHeadStage
     || voiceStage.status !== 'ready'
-    || omniHumanAudio?.dependsOnStageId !== 'voice_chatterbox'
+    || talkingHeadAudio?.dependsOnStageId !== 'voice_chatterbox'
   ) {
     return job;
   }
@@ -963,7 +963,7 @@ async function dispatchReadyChatterboxJob(
   try {
     const client = dependencies.chatterboxClient ?? createDefaultChatterboxClient(dependencies.env ?? process.env);
     const synthesized = await client.synthesize(synthesizeInput);
-    return applyChatterboxSynthesis(job, voiceStage, omniHumanStage, synthesized, now);
+    return applyChatterboxSynthesis(job, voiceStage, talkingHeadStage, synthesized, now);
   } catch (error) {
     return failChatterboxJob(job, now, `Chatterbox voice synthesis failed: ${errorMessage(error)}`);
   }
@@ -972,7 +972,7 @@ async function dispatchReadyChatterboxJob(
 function applyChatterboxSynthesis(
   job: AvatarPipelineJobSnapshot,
   voiceStage: AvatarPipelineStageSnapshot,
-  omniHumanStage: AvatarPipelineStageSnapshot,
+  talkingHeadStage: AvatarPipelineStageSnapshot,
   synthesized: ChatterboxSynthesizeResult,
   now: string,
 ): AvatarPipelineJobSnapshot {
@@ -980,7 +980,7 @@ function applyChatterboxSynthesis(
     ...job,
     status: 'running',
     dispatchCode: 'chatterbox_succeeded',
-    statusReason: 'Chatterbox generated the avatar voiceover from the saved voice reference. OmniHuman dispatch is next.',
+    statusReason: 'Chatterbox generated the avatar voiceover from the saved voice reference. The avatar face model is next.',
     stages: job.stages.map((pipelineStage) => {
       if (pipelineStage.id === voiceStage.id) {
         return {
@@ -997,7 +997,7 @@ function applyChatterboxSynthesis(
           },
         };
       }
-      if (pipelineStage.id === omniHumanStage.id) {
+      if (pipelineStage.id === talkingHeadStage.id) {
         return {
           ...pipelineStage,
           input: {
@@ -1038,18 +1038,18 @@ function failChatterboxJob(job: AvatarPipelineJobSnapshot, now: string, reason: 
   };
 }
 
-async function dispatchReadyOmniHumanJob(
+async function dispatchReadyTalkingHeadJob(
   job: AvatarPipelineJobSnapshot,
-  dependencies: Pick<CreateAvatarPipelineJobDependencies, 'env' | 'now' | 'omniHumanClient' | 'stageReference'>,
+  dependencies: Pick<CreateAvatarPipelineJobDependencies, 'env' | 'now' | 'talkingHeadClient' | 'stageReference'>,
 ): Promise<AvatarPipelineJobSnapshot> {
   if (
     job.dispatchCode !== 'pipeline_adapter_not_implemented'
     && job.dispatchCode !== 'chatterbox_succeeded'
   ) return job;
-  const omniHumanStage = findPipelineStage(job, 'face_omnihuman_fal');
-  if (!omniHumanStage || omniHumanStage.status !== 'ready') return job;
+  const talkingHeadStage = findPipelineStage(job, 'face_omnihuman_fal');
+  if (!talkingHeadStage || talkingHeadStage.status !== 'ready') return job;
 
-  const submitInput = toOmniHumanSubmitInput(omniHumanStage);
+  const submitInput = toTalkingHeadSubmitInput(talkingHeadStage);
   if (!submitInput) return job;
 
   const now = dependencies.now?.() ?? new Date().toISOString();
@@ -1059,7 +1059,7 @@ async function dispatchReadyOmniHumanJob(
   // identity-locked still, then animate THAT. Fail loud on error — never silently
   // animate the un-staged portrait, which would ship a different (worse) product than
   // the user asked for (R18N). Skipped entirely when no wardrobe/look is configured.
-  const staging = readAvatarStagingConfig(omniHumanStage);
+  const staging = readAvatarStagingConfig(talkingHeadStage);
   let stagedImageUrl: string | undefined;
   if (staging) {
     try {
@@ -1072,24 +1072,24 @@ async function dispatchReadyOmniHumanJob(
       stagedImageUrl = staged.imageUrl;
       submitInput.imageUrl = stagedImageUrl;
     } catch (error) {
-      return failOmniHumanJob(job, now, `Reference staging failed: ${errorMessage(error)}`);
+      return failTalkingHeadJob(job, now, `Reference staging failed: ${errorMessage(error)}`);
     }
   }
 
   try {
-    const client = faceClientForStage(omniHumanStage, dependencies.omniHumanClient, dependencies.env ?? process.env);
+    const client = faceClientForStage(talkingHeadStage, dependencies.talkingHeadClient, dependencies.env ?? process.env);
     const submitted = await client.submit(submitInput);
     return {
       ...job,
       status: 'queued',
       dispatchCode: 'omnihuman_queued',
-      statusReason: `fal OmniHuman v1.5 queued request ${submitted.requestId}. Poll this pipeline job until the raw face video is available.`,
+      statusReason: `The avatar face model queued request ${submitted.requestId}. Poll this pipeline job until the raw face video is available.`,
       stages: job.stages.map((pipelineStage) => pipelineStage.id === 'face_omnihuman_fal'
         ? {
             ...pipelineStage,
             status: 'running',
             dispatchCode: 'omnihuman_queued',
-            statusReason: `fal OmniHuman v1.5 request ${submitted.requestId} is queued.`,
+            statusReason: `The avatar face model request ${submitted.requestId} is queued.`,
             providerRequestId: submitted.requestId,
             input: {
               ...pipelineStage.input,
@@ -1109,43 +1109,43 @@ async function dispatchReadyOmniHumanJob(
       updatedAt: now,
     };
   } catch (error) {
-    return failOmniHumanJob(job, now, `fal OmniHuman dispatch failed: ${errorMessage(error)}`);
+    return failTalkingHeadJob(job, now, `The avatar face model dispatch failed: ${errorMessage(error)}`);
   }
 }
 
-async function refreshQueuedOmniHumanJob(
+async function refreshQueuedTalkingHeadJob(
   job: AvatarPipelineJobSnapshot,
   dependencies: RefreshAvatarPipelineJobDependencies,
 ): Promise<AvatarPipelineJobSnapshot> {
-  const omniHumanStage = findPipelineStage(job, 'face_omnihuman_fal');
-  const requestId = omniHumanStage?.providerRequestId ?? stringValue(asRecord(omniHumanStage?.output)?.requestId);
-  if (!omniHumanStage || !requestId || omniHumanStage.status === 'succeeded' || omniHumanStage.status === 'failed') {
+  const talkingHeadStage = findPipelineStage(job, 'face_omnihuman_fal');
+  const requestId = talkingHeadStage?.providerRequestId ?? stringValue(asRecord(talkingHeadStage?.output)?.requestId);
+  if (!talkingHeadStage || !requestId || talkingHeadStage.status === 'succeeded' || talkingHeadStage.status === 'failed') {
     return job;
   }
 
   const now = dependencies.now?.() ?? new Date().toISOString();
   try {
-    const client = faceClientForStage(omniHumanStage, dependencies.omniHumanClient, dependencies.env ?? process.env);
+    const client = faceClientForStage(talkingHeadStage, dependencies.talkingHeadClient, dependencies.env ?? process.env);
     const refresh = await client.refresh(requestId);
-    return applyOmniHumanRefresh(job, omniHumanStage, refresh, now);
+    return applyTalkingHeadRefresh(job, talkingHeadStage, refresh, now);
   } catch (error) {
-    return failOmniHumanJob(job, now, `fal OmniHuman status refresh failed: ${errorMessage(error)}`);
+    return failTalkingHeadJob(job, now, `The avatar face model status refresh failed: ${errorMessage(error)}`);
   }
 }
 
-function applyOmniHumanRefresh(
+function applyTalkingHeadRefresh(
   job: AvatarPipelineJobSnapshot,
-  omniHumanStage: AvatarPipelineStageSnapshot,
-  refresh: OmniHumanFalRefreshResult,
+  talkingHeadStage: AvatarPipelineStageSnapshot,
+  refresh: TalkingHeadFalRefreshResult,
   now: string,
 ): AvatarPipelineJobSnapshot {
   if (refresh.status === 'failed') {
-    return failOmniHumanJob(
+    return failTalkingHeadJob(
       job,
       now,
       refresh.errorMessage
-        ? `fal OmniHuman failed: ${refresh.errorMessage}`
-        : `fal OmniHuman request ${refresh.requestId} failed with status ${refresh.providerStatus}.`,
+        ? `The avatar face model failed: ${refresh.errorMessage}`
+        : `The avatar face model request ${refresh.requestId} failed with status ${refresh.providerStatus}.`,
     );
   }
 
@@ -1157,13 +1157,13 @@ function applyOmniHumanRefresh(
       ...job,
       status: refresh.status === 'queued' ? 'queued' : 'running',
       dispatchCode: dispatchCode === 'omnihuman_queued' ? 'omnihuman_queued' : 'omnihuman_running',
-      statusReason: `fal OmniHuman request ${refresh.requestId} is ${refresh.providerStatus || refresh.status}.`,
-      stages: job.stages.map((pipelineStage) => pipelineStage.id === omniHumanStage.id
+      statusReason: `The avatar face model request ${refresh.requestId} is ${refresh.providerStatus || refresh.status}.`,
+      stages: job.stages.map((pipelineStage) => pipelineStage.id === talkingHeadStage.id
         ? {
             ...pipelineStage,
             status: 'running',
             dispatchCode,
-            statusReason: `fal OmniHuman request ${refresh.requestId} is ${refresh.providerStatus || refresh.status}.`,
+            statusReason: `The avatar face model request ${refresh.requestId} is ${refresh.providerStatus || refresh.status}.`,
             providerRequestId: refresh.requestId,
             output: {
               ...(pipelineStage.output ?? {}),
@@ -1178,21 +1178,21 @@ function applyOmniHumanRefresh(
   }
 
   if (!refresh.videoUrl) {
-    return failOmniHumanJob(job, now, `fal OmniHuman request ${refresh.requestId} completed without a video URL.`);
+    return failTalkingHeadJob(job, now, `The avatar face model request ${refresh.requestId} completed without a video URL.`);
   }
 
   return {
     ...job,
     status: 'running',
     dispatchCode: 'omnihuman_succeeded',
-    statusReason: 'fal OmniHuman returned the raw face video. Remotion composition is still pending.',
+    statusReason: 'The avatar face model returned the raw face video. Remotion composition is still pending.',
     stages: job.stages.map((pipelineStage) => {
-      if (pipelineStage.id === omniHumanStage.id) {
+      if (pipelineStage.id === talkingHeadStage.id) {
         return {
           ...pipelineStage,
           status: 'succeeded',
           dispatchCode: 'omnihuman_succeeded',
-          statusReason: 'fal OmniHuman returned the raw face video.',
+          statusReason: 'The avatar face model returned the raw face video.',
           providerRequestId: refresh.requestId,
           output: {
             ...(pipelineStage.output ?? {}),
@@ -1210,7 +1210,7 @@ function applyOmniHumanRefresh(
           input: {
             ...pipelineStage.input,
             faceVideo: {
-              providerId: omniHumanStage.providerId,
+              providerId: talkingHeadStage.providerId,
               requestId: refresh.requestId,
               videoUrl: refresh.videoUrl,
               durationSeconds: refresh.durationSeconds,
@@ -1224,7 +1224,7 @@ function applyOmniHumanRefresh(
   };
 }
 
-function failOmniHumanJob(job: AvatarPipelineJobSnapshot, now: string, reason: string): AvatarPipelineJobSnapshot {
+function failTalkingHeadJob(job: AvatarPipelineJobSnapshot, now: string, reason: string): AvatarPipelineJobSnapshot {
   return {
     ...job,
     status: 'failed',
@@ -1705,7 +1705,7 @@ function toChatterboxSynthesizeInput(
   };
 }
 
-function toOmniHumanSubmitInput(stageSnapshot: AvatarPipelineStageSnapshot): OmniHumanFalSubmitInput | null {
+function toTalkingHeadSubmitInput(stageSnapshot: AvatarPipelineStageSnapshot): TalkingHeadFalSubmitInput | null {
   const image = asRecord(stageSnapshot.input.image);
   const audio = asRecord(stageSnapshot.input.audio);
   const imageUrl = stringValue(image?.imageUrl);
@@ -1777,7 +1777,7 @@ function blockedChatterboxStage(
   });
 }
 
-function blockedOmniHumanStage(
+function blockedTalkingHeadStage(
   faceProvider: FaceProviderDescriptor,
   dispatchCode: AvatarPipelineStageDispatchCode,
   statusReason: string,
@@ -1830,7 +1830,7 @@ function resolveChatterboxModel(recipe: AvatarRenderRecipe): 'chatterbox_turbo' 
   return !language || language === 'en' ? 'chatterbox_turbo' : 'chatterbox_multilingual_v3';
 }
 
-// Talking-head use cases read best framed head-and-shoulders. Feeding OmniHuman a
+// Talking-head use cases read best framed head-and-shoulders. Feeding the face model a
 // face/portrait reference makes it generate a close presenter shot; a full-body ref
 // yields a tiny figure lost in the frame.
 const CLOSE_FRAME_USE_CASES = new Set<AvatarRenderUseCase>(['speech_delivery', 'explainer_host', 'social_presenter']);
@@ -1859,7 +1859,7 @@ function selectBodyReferenceImage(refs: AvatarRenderReferenceImage[]): AvatarRen
     ?? refs.find((ref) => ref.imageUrl);
 }
 
-function resolveOmniHumanAudio(
+function resolveTalkingHeadAudio(
   recipe: AvatarRenderRecipe,
   _voiceStage: AvatarPipelineStageSnapshot,
 ): { sourceUrl?: string; sourceAssetId?: string; dependsOnStageId?: AvatarPipelineStageId } {
@@ -1875,7 +1875,7 @@ function resolveOmniHumanAudio(
   return {};
 }
 
-function exceedsOmniHumanDurationLimit(resolution: string, durationSeconds: number): boolean {
+function exceedsTalkingHeadDurationLimit(resolution: string, durationSeconds: number): boolean {
   if (resolution === '1080p') return durationSeconds > 30;
   if (resolution === '720p') return durationSeconds > 60;
   return false;

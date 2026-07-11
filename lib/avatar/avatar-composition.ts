@@ -1,9 +1,9 @@
 /**
- * Avatar composition stage: turn the raw OmniHuman face video into a finished,
+ * Avatar composition stage: turn the raw avatar face video into a finished,
  * Editron-owned MP4 by rendering it through the existing Remotion Lambda pipeline
  * (the same `renderMediaOnLambda` path the editor's /cloudrun/render route uses).
  *
- * MVP: one full-frame video overlay. OmniHuman output already has the spoken audio
+ * MVP: one full-frame video overlay. the face model output already has the spoken audio
  * muxed in (hasNativeAudio), so no separate audio track is needed yet. Background,
  * captions, and product overlays are the next visual pass, not this slice.
  *
@@ -146,7 +146,7 @@ export function buildAvatarCompositionProps(input: AvatarCompositionInput): Avat
     row: 0,
     isDragging: false,
     rotation: 0,
-    hasNativeAudio: true, // OmniHuman muxes the spoken audio into the clip.
+    hasNativeAudio: true, // the face model muxes the spoken audio into the clip.
     ...(cameraTracks.length ? { keyframeTracks: cameraTracks } : {}),
     styles: { objectFit: 'cover' },
   };
