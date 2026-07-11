@@ -48,6 +48,11 @@ import {
   type AudioTreatment,
 } from "@/lib/editron/saas-explainer/audio-treatment";
 import {
+  writeFlowingVoScript,
+  voLinesToStoryboard,
+  type VoScriptBeat,
+} from "@/lib/editron/saas-explainer/vo-script";
+import {
   evidencePackToProductModel,
   type ExplainerPlan,
   type ExplainerPlanScene,
@@ -158,52 +163,34 @@ export async function buildSaasExplainerScriptPlan(
   // User-provided source material (uploaded doc/PDF about the product/topic) — the video is ABOUT this, in the
   // brand's voice. Understand it; do NOT copy it verbatim (it may be a spec/one-pager, not a script).
   const sourceMaterial = (args.sourceMaterial ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_SOURCE_MATERIAL);
-  const sourceMaterialBlock = sourceMaterial
-    ? `SOURCE MATERIAL the user provided about the product/topic this video is about. Base the script's SUBSTANCE on ` +
-      `this (it may describe a new product). Understand and synthesize it into clear spoken narration in the brand's ` +
-      `voice — do NOT quote it verbatim, do NOT invent facts beyond it:\n"""\n${sourceMaterial}\n"""`
-    : "";
 
-  const draft = await new ScriptDraftAgent({ maxTokens: 2600 }).generateScript({
-    userPrompt: [
-      buildSaasExplainerAuthorPrompt(generationInput, productUrl),
-      sourceMaterialBlock,
+  // Two strategies for turning the director's beat sequence into a narrated storyboard:
+  //   scenes-first (default): author a full draft, then re-parse it into scenes (the proven path).
+  //   narration-led (Part A, flag-gated + EVAL-GATED per Rule 35): author ONE flowing VO across the beats. It falls
+  //   back to scenes-first on any failure, so flipping the flag can never 500 the route.
+  const scenesFirst = () =>
+    buildScenesFirstStoryboard({
+      generationInput,
+      productUrl,
+      userId,
+      sourceMaterial,
+      projectSummary,
+      systemBrief,
       productEvidencePrompt,
       directorPrompt,
-    ]
-      .filter(Boolean)
-      .join("\n\n"),
-    sessionId: sourceSessionId,
-    brandId: generationInput.brandId,
-    generationMode: "manual",
-    project: {
-      idea: "SaaS explainer video",
-      purpose: generationInput.outcome || "Create a clear SaaS explainer video.",
-      style: "clear product-led SaaS demo",
-      format: "video_script",
-      platform: platformForAspectRatio(generationInput.aspectRatio),
-      projectName: projectNameFor(generationInput, productUrl),
-      originalPrompt: generationInput.outcome || generationInput.script || "SaaS explainer",
-      brandId: generationInput.brandId,
-    },
-    context: { projectSummary, systemBrief },
-  });
-
-  const parsed = await parseScriptWithLLM(draft.content, {
-    aspectRatio: generationInput.aspectRatio,
-    artStyle: "SaaS product demo with readable UI proof moments",
-    brandId: generationInput.brandId,
-    userId,
-  });
-  const parsedScenes = normalizeScenes(parsed.scenes);
-  if (parsedScenes.length === 0) {
-    throw new SaasExplainerGenerationError(
-      422,
-      "no_scenes_generated",
-      "The generated script did not produce valid scenes.",
-    );
-  }
-  const storyboard = ensureMinimumSaasExplainerScenes(parsedScenes, generationInput);
+      sourceSessionId,
+    });
+  const storyboard =
+    process.env.SAAS_EXPLAINER_NARRATION_LED === "1"
+      ? await buildNarrationLedStoryboard({
+          directorContract,
+          generationInput,
+          brandContextPrompt,
+          productEvidencePrompt,
+          sourceMaterial,
+          fallback: scenesFirst,
+        })
+      : await scenesFirst();
 
   const message =
     generationInput.outcome ||
@@ -261,6 +248,104 @@ export async function buildSaasExplainerScriptPlan(
   ];
 
   return { scenes: scriptScenes, plan, productModel, directorContract, productEvidencePack, message, warnings };
+}
+
+/** Scenes-first (proven default): author a full draft, then re-parse it into scenes. */
+async function buildScenesFirstStoryboard(args: {
+  generationInput: NormalizedSaasExplainerIntake;
+  productUrl?: string;
+  userId: string;
+  sourceMaterial: string;
+  projectSummary: string;
+  systemBrief: string;
+  productEvidencePrompt: string;
+  directorPrompt: string;
+  sourceSessionId: string;
+}): Promise<SceneDescriptor[]> {
+  const { generationInput, productUrl, userId, sourceMaterial, projectSummary, systemBrief, productEvidencePrompt, directorPrompt, sourceSessionId } = args;
+  const sourceMaterialBlock = sourceMaterial
+    ? `SOURCE MATERIAL the user provided about the product/topic this video is about. Base the script's SUBSTANCE on ` +
+      `this (it may describe a new product). Understand and synthesize it into clear spoken narration in the brand's ` +
+      `voice — do NOT quote it verbatim, do NOT invent facts beyond it:\n"""\n${sourceMaterial}\n"""`
+    : "";
+
+  const draft = await new ScriptDraftAgent({ maxTokens: 2600 }).generateScript({
+    userPrompt: [
+      buildSaasExplainerAuthorPrompt(generationInput, productUrl),
+      sourceMaterialBlock,
+      productEvidencePrompt,
+      directorPrompt,
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    sessionId: sourceSessionId,
+    brandId: generationInput.brandId,
+    generationMode: "manual",
+    project: {
+      idea: "SaaS explainer video",
+      purpose: generationInput.outcome || "Create a clear SaaS explainer video.",
+      style: "clear product-led SaaS demo",
+      format: "video_script",
+      platform: platformForAspectRatio(generationInput.aspectRatio),
+      projectName: projectNameFor(generationInput, productUrl),
+      originalPrompt: generationInput.outcome || generationInput.script || "SaaS explainer",
+      brandId: generationInput.brandId,
+    },
+    context: { projectSummary, systemBrief },
+  });
+
+  const parsed = await parseScriptWithLLM(draft.content, {
+    aspectRatio: generationInput.aspectRatio,
+    artStyle: "SaaS product demo with readable UI proof moments",
+    brandId: generationInput.brandId,
+    userId,
+  });
+  const parsedScenes = normalizeScenes(parsed.scenes);
+  if (parsedScenes.length === 0) {
+    throw new SaasExplainerGenerationError(
+      422,
+      "no_scenes_generated",
+      "The generated script did not produce valid scenes.",
+    );
+  }
+  return ensureMinimumSaasExplainerScenes(parsedScenes, generationInput);
+}
+
+/**
+ * Narration-led (Part A, flag-gated + EVAL-GATED per Rule 35): author ONE flowing VO across the director's beats,
+ * then hang scenes on it. Falls back to scenes-first on ANY failure so flipping the flag can never break the route.
+ */
+async function buildNarrationLedStoryboard(args: {
+  directorContract: SaasDirectorContract;
+  generationInput: NormalizedSaasExplainerIntake;
+  brandContextPrompt?: string;
+  productEvidencePrompt: string;
+  sourceMaterial: string;
+  fallback: () => Promise<SceneDescriptor[]>;
+}): Promise<SceneDescriptor[]> {
+  const { directorContract, generationInput, brandContextPrompt, productEvidencePrompt, sourceMaterial, fallback } = args;
+  try {
+    const voBeats: VoScriptBeat[] = directorContract.sequence.map((beat) => ({
+      index: beat.index,
+      family: beat.family,
+      copyRole: beat.copyRole,
+      directorNotes: beat.directorNotes,
+      durationSec: beat.durationSec,
+    }));
+    const { lines } = await writeFlowingVoScript({
+      beats: voBeats,
+      totalDurationSec: generationInput.durationSec,
+      brandContextPrompt,
+      productEvidencePrompt,
+      sourceMaterial: sourceMaterial || undefined,
+    });
+    const storyboard = ensureMinimumSaasExplainerScenes(voLinesToStoryboard(voBeats, lines), generationInput);
+    if (storyboard.length === 0) throw new Error("narration-led produced no scenes");
+    return storyboard;
+  } catch (e) {
+    console.warn("[saas-explainer] narration-led VO failed; falling back to scenes-first:", e);
+    return fallback();
+  }
 }
 
 /**
