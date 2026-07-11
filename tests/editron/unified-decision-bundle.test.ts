@@ -2765,6 +2765,82 @@ describe('unified decision bundle merge', () => {
   });
 });
 
+describe('editorial decision policy', () => {
+  it('hard-vetoes a family even when the Creative Brief is the only producer', () => {
+    const bundle = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      editorialPreferences: {
+        families: { motionGraphics: { mode: 'off' } },
+      },
+      edl: edl([
+        decision({
+          type: 'graphic',
+          frame: 90,
+          source: 'creative-brief:test',
+          params: { text: 'Valid legacy graphic content' },
+        }),
+      ]),
+    });
+
+    expect(bundle.edl.decisions).toEqual([]);
+    expect(bundle.expectedSkipped).toBe(1);
+    expect(bundle.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
+      family: 'graphic',
+      reason: 'user-policy-off:motionGraphics',
+    }));
+  });
+
+  it('hard-vetoes both producers in the ranked planner and preserves the reason', () => {
+    const preferences = { families: { transitions: { mode: 'off' as const } } };
+    const transition = (source: string, frame: number) => decision({
+      type: 'transition',
+      frame,
+      source,
+      confidence: 0.95,
+      params: { transitionType: 'dissolve', boundaryConfidence: 0.9 },
+    });
+    const bundle = planUnifiedDecisionBundleFromCandidates([
+      { source: 'creative-brief', editorialPreferences: preferences, edl: edl([transition('creative-brief:test', 120)]) },
+      { source: 'signal-driven', editorialPreferences: preferences, edl: edl([transition('signal-executor:test', 240)]) },
+    ]);
+
+    expect(bundle?.edl.decisions).toEqual([]);
+    expect(bundle?.evidence.evidenceOnlySignalDecisionCount).toBe(2);
+    expect(bundle?.evidence.signalDecisionAudit.byReason['user-policy-off:transitions']).toEqual(
+      expect.objectContaining({ count: 2 }),
+    );
+  });
+
+  it('carries soft preference evidence to the family resolver without licensing form', () => {
+    const bundle = createUnifiedDecisionBundle({
+      source: 'signal-driven',
+      editorialPreferences: {
+        families: { motionGraphics: { mode: 'prefer', frequency: 0.75, intensity: 0.9 } },
+      },
+      edl: edl([
+        decision({
+          type: 'graphic',
+          frame: 150,
+          source: 'signal-executor:test',
+          params: { text: 'Proof point' },
+        }),
+      ]),
+    });
+
+    expect(bundle.edl.decisions).toHaveLength(1);
+    expect(bundle.edl.decisions[0].params.editorialPreferencePolicy).toEqual({
+      version: 'editorial-decision-policy-v1',
+      decisionFamily: 'graphic',
+      editorialFamily: 'motionGraphics',
+      mode: 'prefer',
+      frequency: 0.75,
+      intensity: 0.9,
+      source: 'user-intake',
+      formAuthority: 'family-resolver',
+    });
+  });
+});
+
 function edl(decisions: EditDecision[]): EditDecisionList {
   return {
     projectId: 'unified-decision-bundle-test',

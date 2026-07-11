@@ -1166,6 +1166,7 @@ export async function executeDirectorPlan(
 
             unifiedDecisionCandidates.push({
               source: 'creative-brief',
+              editorialPreferences: brief?.editorialPreferences,
               edl: briefResult.edl,
               graphicsDensity: densityFromSignalsOrNeutral(pathEGenreParams),
               expectedExecuted: briefResult.stats.resolvedToFrame,
@@ -1597,6 +1598,7 @@ export async function executeDirectorPlan(
 
             unifiedDecisionCandidates.push({
               source: 'signal-driven',
+              editorialPreferences: brief?.editorialPreferences,
               edl,
               graphicsDensity: densityFromSignalsOrNeutral(pathDGenreParams),
               expectedExecuted: edl.totalDecisions,
@@ -1614,6 +1616,7 @@ export async function executeDirectorPlan(
       if (storylineSeamEdl) {
         unifiedDecisionCandidates.push({
           source: 'signal-driven',
+          editorialPreferences: brief?.editorialPreferences,
           edl: storylineSeamEdl,
           graphicsDensity: densityFromSignalsOrNeutral(pathDGenreParams ?? pathEGenreParams),
           expectedExecuted: storylineSeamEdl.totalDecisions,

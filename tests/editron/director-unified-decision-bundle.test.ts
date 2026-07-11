@@ -21,6 +21,7 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain('const unifiedDecisionCandidates');
     expect(source).toContain('if (canRunPathD)');
     expect(source).toContain('planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates)');
+    expect(source.match(/editorialPreferences: brief\?\.editorialPreferences/g)).toHaveLength(3);
     expect(source).toContain('await executeEDL(');
     expect(source).toContain('unifiedDecisionBundle.edl');
     expect(source).toContain('Unified decision bundle execution COMPLETE');
