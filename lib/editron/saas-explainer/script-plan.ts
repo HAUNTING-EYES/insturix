@@ -46,7 +46,7 @@ import {
   assignAudioTreatments,
   type AudioSceneInput,
   type AudioTreatment,
-} from "@/lib/editron/saas-explainer/audio-director";
+} from "@/lib/editron/saas-explainer/audio-treatment";
 import {
   evidencePackToProductModel,
   type ExplainerPlan,
@@ -66,7 +66,7 @@ export interface ScriptPlanScene {
   durationSec: number;
   /** Loose vibe hint (archetype/family) from the aligned director beat. */
   form: string;
-  /** Audio treatment decided by the Audio Director: `vo` = spoken; `music_beat` = deliberate voice-silent hold
+  /** Audio treatment decided by the audio-treatment resolver: `vo` = spoken; `music_beat` = deliberate voice-silent hold
    *  (music + on-screen text carry it). `music_beat` scenes intentionally carry an empty `narration`. Optional so
    *  older/edited scenes without it default to spoken. */
   audioTreatment?: AudioTreatment;
@@ -210,7 +210,7 @@ export async function buildSaasExplainerScriptPlan(
     baseProjectSummary ||
     `${generationInput.productName || "Your product"} — a clear SaaS explainer.`;
 
-  // Audio Director: decide per scene whether it is spoken or a deliberate voice-silent beat (music + on-screen
+  // Audio treatment: decide per scene whether it is spoken or a deliberate voice-silent beat (music + on-screen
   // text). This replaces "force VO everywhere" AND "accidentally silent" — silence is now a ruled choice.
   const audioInputs: AudioSceneInput[] = storyboard.map((scene, order) => ({
     index: order,

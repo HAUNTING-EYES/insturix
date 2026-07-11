@@ -3,10 +3,10 @@ import {
   assignAudioTreatments,
   audioFamilyKey,
   type AudioSceneInput,
-} from "@/lib/editron/saas-explainer/audio-director";
+} from "@/lib/editron/saas-explainer/audio-treatment";
 
 /**
- * The Audio Director decides per scene: spoken (`vo`) vs deliberate voice-silent beat (`music_beat`). Rules
+ * The audio-treatment resolver decides per scene: spoken (`vo`) vs deliberate voice-silent beat (`music_beat`). Rules
  * (research-grounded): author's line always wins; CTA always spoken; explanatory families must be spoken; silence
  * only for short, eligible holds; never two silent in a row; silent beats ≤ ~30% of runtime.
  */

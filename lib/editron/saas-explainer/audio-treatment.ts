@@ -1,9 +1,13 @@
 /**
- * SaaS Explainer — Audio Director.
+ * SaaS Explainer — Audio Treatment resolver.
  *
- * Decides, per scene, whether it is spoken (`vo`) or a deliberate voice-silent beat (`music_beat`, carried by
- * music + on-screen text). This replaces two bad extremes: forcing voiceover on every scene (robotic, ignores
- * that pros use silence) and letting scenes go silent BY ACCIDENT because the writer omitted a line.
+ * NOTE: this is NOT the Editron Director (`lib/editron/agent/director-agent.ts`) nor the SaaS shot-list director
+ * (`director-contract.ts`). It is a small, scoped helper that only decides, per scene, whether it is spoken
+ * (`vo`) or a deliberate voice-silent beat (`music_beat`, carried by music + on-screen text). It CONSUMES the
+ * SaaS director's scene families; it decides nothing about shots, story, or edits.
+ *
+ * This replaces two bad extremes: forcing voiceover on every scene (robotic, ignores that pros use silence) and
+ * letting scenes go silent BY ACCIDENT because the writer omitted a line.
  *
  * The decision is LOGIC, not language (Rule 30) — a narrative role + duration + coverage decision — so it is a
  * deterministic engine, not another LLM pass. Rules are research-grounded (see memory saas-explainer-vo-architecture):
