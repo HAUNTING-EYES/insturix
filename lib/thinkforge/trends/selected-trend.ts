@@ -19,7 +19,33 @@ export const TrendSelectionRequestSchema = z.object({
 
 export const TrendSourceKindSchema = z.enum(['asset', 'remote-url']);
 
-export const TrendSourceAnalysisSchema = z.object({
+export const QueuedTrendSourceAnalysisSchema = z.object({
+  analysisVersion: z.literal(TREND_SOURCE_ANALYSIS_VERSION),
+  status: z.literal('queued'),
+  queuedAt: z.string().datetime(),
+  jobId: z.string().min(1).max(160).regex(/^[a-zA-Z0-9_-]+$/),
+  request: z.object({
+    sourceKind: TrendSourceKindSchema,
+  }).strict(),
+}).strict();
+
+export const FailedTrendSourceAnalysisSchema = z.object({
+  analysisVersion: z.literal(TREND_SOURCE_ANALYSIS_VERSION),
+  status: z.literal('failed'),
+  failedAt: z.string().datetime(),
+  jobId: z.string().min(1).max(160).regex(/^[a-zA-Z0-9_-]+$/),
+  request: z.object({
+    sourceKind: TrendSourceKindSchema,
+  }).strict(),
+  failureCode: z.enum([
+    'dispatch_failed',
+    'source_rejected',
+    'source_too_long',
+    'analysis_generation_failed',
+  ]),
+}).strict();
+
+export const CompletedTrendSourceAnalysisSchema = z.object({
   analysisVersion: z.literal(TREND_SOURCE_ANALYSIS_VERSION),
   status: z.literal('completed'),
   analyzedAt: z.string().datetime(),
@@ -35,6 +61,12 @@ export const TrendSourceAnalysisSchema = z.object({
   trendSpec: TrendSpecSchema,
 }).strict();
 
+export const TrendSourceAnalysisSchema = z.discriminatedUnion('status', [
+  QueuedTrendSourceAnalysisSchema,
+  FailedTrendSourceAnalysisSchema,
+  CompletedTrendSourceAnalysisSchema,
+]);
+
 export const SelectedTrendSchema = z.object({
   selectionVersion: z.literal(SELECTED_TREND_VERSION),
   status: z.literal('selected'),
@@ -46,7 +78,9 @@ export const SelectedTrendSchema = z.object({
 
 export type TrendSelectionTarget = z.infer<typeof TrendSelectionTargetSchema>;
 export type TrendSelectionRequest = z.infer<typeof TrendSelectionRequestSchema>;
+export type TrendAnalysisSourceKind = z.infer<typeof TrendSourceKindSchema>;
 export type TrendSourceAnalysis = z.infer<typeof TrendSourceAnalysisSchema>;
+export type CompletedTrendSourceAnalysis = z.infer<typeof CompletedTrendSourceAnalysisSchema>;
 export type SelectedTrend = z.infer<typeof SelectedTrendSchema>;
 
 export class SelectedTrendInputError extends Error {
@@ -78,6 +112,9 @@ export function buildAnalyzedSelectedTrend(
   const selected = SelectedTrendSchema.parse(selectedTrend);
   const parsedAnalysis = TrendSourceAnalysisSchema.parse(analysis);
 
+  if (parsedAnalysis.status !== 'completed') {
+    throw new SelectedTrendInputError('Only completed source analysis can activate a trend.');
+  }
   if (parsedAnalysis.trendSpec.trendId !== selected.candidate.candidateId) {
     throw new SelectedTrendInputError('Trend analysis does not belong to the currently selected candidate.');
   }
@@ -90,6 +127,46 @@ export function buildAnalyzedSelectedTrend(
       nextAction: 'use_as_timed_angle',
     },
     analysis: parsedAnalysis,
+  });
+}
+
+export function buildQueuedTrendAnalysis(
+  selectedTrend: SelectedTrend,
+  input: { jobId: string; sourceKind: TrendAnalysisSourceKind; now?: Date },
+): SelectedTrend {
+  const selected = SelectedTrendSchema.parse(selectedTrend);
+  return SelectedTrendSchema.parse({
+    ...selected,
+    analysis: {
+      analysisVersion: TREND_SOURCE_ANALYSIS_VERSION,
+      status: 'queued',
+      queuedAt: (input.now ?? new Date()).toISOString(),
+      jobId: input.jobId,
+      request: { sourceKind: input.sourceKind },
+    },
+  });
+}
+
+export function buildFailedTrendAnalysis(
+  selectedTrend: SelectedTrend,
+  input: {
+    jobId: string;
+    sourceKind: TrendAnalysisSourceKind;
+    failureCode: z.infer<typeof FailedTrendSourceAnalysisSchema>['failureCode'];
+    now?: Date;
+  },
+): SelectedTrend {
+  const selected = SelectedTrendSchema.parse(selectedTrend);
+  return SelectedTrendSchema.parse({
+    ...selected,
+    analysis: {
+      analysisVersion: TREND_SOURCE_ANALYSIS_VERSION,
+      status: 'failed',
+      failedAt: (input.now ?? new Date()).toISOString(),
+      jobId: input.jobId,
+      request: { sourceKind: input.sourceKind },
+      failureCode: input.failureCode,
+    },
   });
 }
 

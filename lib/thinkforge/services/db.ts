@@ -1142,13 +1142,27 @@ export async function setSessionSelectedTrendAnalysis(
   sessionId: string,
   candidateId: string,
   selectedTrend: SelectedTrend,
+  options: {
+    expectedAnalysisJobId?: string;
+    requireNoQueuedAnalysis?: boolean;
+  } = {},
 ): Promise<ProjectMeta | null> {
   const { SessionModel } = await getModels();
+  const query: Record<string, unknown> = {
+    _id: sessionId,
+    'projectMeta.selectedTrend.candidate.candidateId': candidateId,
+  };
+  if (options.expectedAnalysisJobId) {
+    query['projectMeta.selectedTrend.analysis.status'] = 'queued';
+    query['projectMeta.selectedTrend.analysis.jobId'] = options.expectedAnalysisJobId;
+  } else if (options.requireNoQueuedAnalysis) {
+    query.$or = [
+      { 'projectMeta.selectedTrend.analysis': { $exists: false } },
+      { 'projectMeta.selectedTrend.analysis.status': { $ne: 'queued' } },
+    ];
+  }
   const doc = await SessionModel.findOneAndUpdate(
-    {
-      _id: sessionId,
-      'projectMeta.selectedTrend.candidate.candidateId': candidateId,
-    },
+    query,
     {
       $set: {
         'projectMeta.selectedTrend': selectedTrend,
