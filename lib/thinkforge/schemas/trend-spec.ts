@@ -75,6 +75,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const NonNegativeNumberSchema = z.number().finite().min(0);
+// Server-owned version: numeric defaults compile to a Gemini-safe number schema,
+// while the transform keeps the persisted wire contract pinned to v1.
+const TrendSpecVersionSchema = z.number().int().default(TREND_SPEC_VERSION).transform((version, ctx): TrendSpecVersion => {
+  if (version !== TREND_SPEC_VERSION) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Unsupported TrendSpec version ${version}.`,
+    });
+    return z.NEVER;
+  }
+  return TREND_SPEC_VERSION;
+});
 const OptionalLooseStringArraySchema = z.preprocess(
   (value) => Array.isArray(value) ? value.filter((entry) => typeof entry === 'string') : undefined,
   z.array(z.string()).optional(),
@@ -205,7 +217,7 @@ export const TrendVariableSchema: z.ZodType<TrendVariable> = z.object({
 
 export const TrendSpecSchema: z.ZodType<TrendSpec> = z.object({
   trendId: z.string().min(1),
-  version: z.literal(TREND_SPEC_VERSION),
+  version: TrendSpecVersionSchema,
   alignmentFrame: TrendAlignmentFrameSchema,
   beatGrid: TrendBeatGridSchema,
   invariants: z.array(TrendInvariantSchema),

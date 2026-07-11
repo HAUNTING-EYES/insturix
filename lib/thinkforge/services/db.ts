@@ -1134,6 +1134,33 @@ export async function setSessionSelectedTrend(sessionId: string, selectedTrend: 
   return doc.projectMeta || {};
 }
 
+/**
+ * Attaches analysis only if the same trend is still selected. This prevents a
+ * slow media-analysis result from overwriting a newer user selection.
+ */
+export async function setSessionSelectedTrendAnalysis(
+  sessionId: string,
+  candidateId: string,
+  selectedTrend: SelectedTrend,
+): Promise<ProjectMeta | null> {
+  const { SessionModel } = await getModels();
+  const doc = await SessionModel.findOneAndUpdate(
+    {
+      _id: sessionId,
+      'projectMeta.selectedTrend.candidate.candidateId': candidateId,
+    },
+    {
+      $set: {
+        'projectMeta.selectedTrend': selectedTrend,
+        updatedAt: new Date(),
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+
+  return doc?.projectMeta || null;
+}
+
 export async function getActiveGeneration(sessionId: string): Promise<GenerationState | null> {
   const { SessionModel } = await getModels();
   const doc = await SessionModel.findOne({ _id: sessionId }).lean() as any;

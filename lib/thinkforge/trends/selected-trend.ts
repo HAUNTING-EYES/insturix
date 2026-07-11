@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import type { ContentCardTrendContext } from '../planning/content-card-contract';
+import { TrendSpecSchema } from '../schemas/trend-spec';
 import {
   TrendCandidateSchema,
   type TrendCandidate,
 } from './trend-evidence';
 
 export const SELECTED_TREND_VERSION = 1 as const;
+export const TREND_SOURCE_ANALYSIS_VERSION = 1 as const;
 
 export const TrendSelectionTargetSchema = z.enum(['post', 'script', 'calendar']);
 
@@ -15,16 +17,36 @@ export const TrendSelectionRequestSchema = z.object({
   target: TrendSelectionTargetSchema,
 }).strict();
 
+export const TrendSourceKindSchema = z.enum(['asset', 'remote-url']);
+
+export const TrendSourceAnalysisSchema = z.object({
+  analysisVersion: z.literal(TREND_SOURCE_ANALYSIS_VERSION),
+  status: z.literal('completed'),
+  analyzedAt: z.string().datetime(),
+  provider: z.literal('gemini'),
+  model: z.string().min(1).max(160),
+  source: z.object({
+    referenceId: z.string().min(1).max(240),
+    sourceKind: TrendSourceKindSchema,
+    sourceLabel: z.string().min(1).max(240),
+    sourceFingerprint: z.string().min(1).max(360),
+    durationSec: z.number().finite().positive().max(900).optional(),
+  }),
+  trendSpec: TrendSpecSchema,
+}).strict();
+
 export const SelectedTrendSchema = z.object({
   selectionVersion: z.literal(SELECTED_TREND_VERSION),
   status: z.literal('selected'),
   target: TrendSelectionTargetSchema,
   selectedAt: z.string().datetime(),
   candidate: TrendCandidateSchema,
+  analysis: TrendSourceAnalysisSchema.optional(),
 });
 
 export type TrendSelectionTarget = z.infer<typeof TrendSelectionTargetSchema>;
 export type TrendSelectionRequest = z.infer<typeof TrendSelectionRequestSchema>;
+export type TrendSourceAnalysis = z.infer<typeof TrendSourceAnalysisSchema>;
 export type SelectedTrend = z.infer<typeof SelectedTrendSchema>;
 
 export class SelectedTrendInputError extends Error {
@@ -45,6 +67,29 @@ export function buildSelectedTrend(
     target: request.target,
     selectedAt: now.toISOString(),
     candidate,
+  });
+}
+
+/** Attaches model-derived format evidence only after the server has analyzed an authorized source. */
+export function buildAnalyzedSelectedTrend(
+  selectedTrend: SelectedTrend,
+  analysis: TrendSourceAnalysis,
+): SelectedTrend {
+  const selected = SelectedTrendSchema.parse(selectedTrend);
+  const parsedAnalysis = TrendSourceAnalysisSchema.parse(analysis);
+
+  if (parsedAnalysis.trendSpec.trendId !== selected.candidate.candidateId) {
+    throw new SelectedTrendInputError('Trend analysis does not belong to the currently selected candidate.');
+  }
+
+  return SelectedTrendSchema.parse({
+    ...selected,
+    candidate: {
+      ...selected.candidate,
+      trendSpecEligible: true,
+      nextAction: 'use_as_timed_angle',
+    },
+    analysis: parsedAnalysis,
   });
 }
 
