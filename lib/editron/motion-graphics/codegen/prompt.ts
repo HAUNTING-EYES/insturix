@@ -42,7 +42,11 @@ interpolate). There is no chart/particle primitive — you draw it. This is the 
 
 /** The hard rules — the scan enforces these; the model must obey them exactly. `durF` = the clip's frame count. */
 export const hardRules = (durF: number): string => `<hard_rules>
-- Export EXACTLY: export const MgScene: React.FC<{brand: Brand}> = ({brand}) => { ... }
+- Export EXACTLY: export const MgScene: React.FC<{brand: Brand; data: MgData}> = ({brand, data}) => { ... }
+  where MgData = { value?: number; suffix?: string; label?: string; comparison?: {label:string;value:number}[]; phrase?: string; accentWord?: string }.
+  ★ The numbers/words come from \`data\` (PROPS): read data.value / data.label / data.phrase / etc. NEVER bake a
+  literal number or word into the JSX — an edit ("42"->"48") must re-render from the SAME code with a new prop,
+  never re-generate (Law 5). Guard optional fields (data.value ?? 0). Define \`type MgData = {...}\` inline (do NOT import it).
 - IMPORT ONLY from the kit + react/remotion (copy the lines you use; invent no others):
     import React from 'react';
     import {useCurrentFrame, useVideoConfig, interpolate, spring, AbsoluteFill, Sequence} from 'remotion';
@@ -56,8 +60,10 @@ export const hardRules = (durF: number): string => `<hard_rules>
   CSS colour is an automatic rejection.
 - DETERMINISTIC: animate ONLY from useCurrentFrame()/useVideoConfig(). NEVER Math.random, Date, timers, fetch,
   window, document, eval, require, dynamic import, process. Math.sin/cos of the frame is encouraged.
-- CHOREOGRAPHY IS COMPUTED: ph = phases(${durF}, brand); anchor every entrance/exit/beat to ph.* (+ stagger).
-  No hand-typed frame windows like [14, 38]. Exactly ${durF} frames; motion on every frame; end settled via exitOut.
+- CHOREOGRAPHY IS COMPUTED: const {durationInFrames, fps} = useVideoConfig(); const ph = phases(durationInFrames, brand);
+  anchor every entrance/exit/beat to ph.* (+ stagger). No hand-typed frame windows like [14, 38]. This clip is
+  ~${durF} frames — but READ the length from useVideoConfig() (a duration edit must NOT need a re-generate).
+  Motion on every frame; end settled via exitOut.
 - Every interpolate(): {extrapolateLeft:'clamp', extrapolateRight:'clamp'}. spring() takes fps from useVideoConfig().
 - ONE focal point at a time. Restraint = FEWER, LARGER, better-placed elements. Fill the frame; no dead quadrant.
 </hard_rules>`;
