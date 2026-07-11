@@ -2,7 +2,6 @@ import { z } from 'zod';
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
-import type { ThinkForgeContentSignalProfile } from '../signals';
 import { generateWithWritingContextCache } from '../services/gemini-writing-context-cache';
 import { parseAgentJson } from '../protocol/parse-agent-json';
 import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
@@ -67,7 +66,6 @@ export interface ScriptWriterEditContext {
 }
 
 export interface ScriptWriterInput extends AgentInput {
-  contentSignalProfile?: ThinkForgeContentSignalProfile;
   productionBrief?: ProductionBrief | null;
   sourceLedger?: SourceLedger | null;
   /** When set, switches the writer into edit/revise mode (see ScriptWriterEditContext). */
