@@ -92,3 +92,6 @@ docs/agents/
 
 # Vercel env-check (contains secrets, never commit)
 .env.vercel-check
+
+# MG codegen render scratch (Phase D)
+.mg-render-tmp/
