@@ -347,7 +347,10 @@ export async function POST(request: NextRequest) {
           { $set: { analysisStatus: 'queued', analysisQueuedAt: new Date() } },
         );
 
-        const analysisRes = await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/asset-analysis`, {
+        const analysisWorkerPath = fileType === 'image'
+          ? '/api/internal/workers/asset-analysis'
+          : '/api/internal/workers/asset-transcription';
+        const analysisRes = await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}${analysisWorkerPath}`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${qstashToken}`,

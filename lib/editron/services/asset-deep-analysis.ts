@@ -22,12 +22,21 @@ import {
 } from './moment-weight-service';
 import { buildSegmentAnalysis } from './segment-analysis-builder';
 import type { SegmentAnalysis } from '../types/segment-analysis';
+import { DEFAULT_CONFIG } from '../config/editron-config';
 
 type SourceSpeechSegment = { startMs?: number; endMs?: number; text?: string };
+type SourceWord = { word?: string; startMs?: number; endMs?: number; confidence?: number; speaker?: number };
+type CanonicalSourceWord = { word: string; startMs: number; endMs: number; confidence: number; speaker?: number };
 
 export type AssetDeepAnalysisSource = {
   durationMs?: number;
   speechSegments?: SourceSpeechSegment[];
+  transcription?: {
+    words?: SourceWord[];
+    transcript?: string;
+    language?: string;
+    confidence?: number;
+  };
 };
 
 export type AssetDeepAnalysisInput = {
@@ -74,6 +83,55 @@ function finiteMs(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
 }
 
+function cleanSourceWords(source: AssetDeepAnalysisSource | null | undefined): CanonicalSourceWord[] {
+  return (source?.transcription?.words ?? [])
+    .map((word): CanonicalSourceWord | null => {
+      const text = typeof word.word === 'string' ? word.word.trim() : '';
+      const startMs = finiteMs(word.startMs);
+      const endMs = finiteMs(word.endMs);
+      if (!text || startMs === null || endMs === null || endMs <= startMs) return null;
+      return {
+        word: text,
+        startMs,
+        endMs,
+        confidence: typeof word.confidence === 'number' && Number.isFinite(word.confidence)
+          ? Math.max(0, Math.min(1, word.confidence))
+          : 0,
+        ...(typeof word.speaker === 'number' ? { speaker: word.speaker } : {}),
+      };
+    })
+    .filter((word): word is CanonicalSourceWord => word !== null)
+    .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+}
+
+function speechSegmentsFromWords(words: readonly CanonicalSourceWord[]): Array<Required<SourceSpeechSegment>> {
+  if (words.length === 0) return [];
+  const segments: Array<Required<SourceSpeechSegment>> = [];
+  let current: CanonicalSourceWord[] = [words[0]];
+  const flush = () => {
+    if (current.length === 0) return;
+    segments.push({
+      startMs: current[0].startMs,
+      endMs: current[current.length - 1].endMs,
+      text: current.map((word) => word.word).join(' '),
+    });
+  };
+  for (let index = 1; index < words.length; index++) {
+    const previous = words[index - 1];
+    const word = words[index];
+    const pauseBoundary = word.startMs - previous.endMs >= DEFAULT_CONFIG.rawFootage.segmentPauseThresholdMs;
+    const sentenceBoundary = /[.!?]["')\]]?$/.test(previous.word);
+    if (pauseBoundary || sentenceBoundary) {
+      flush();
+      current = [word];
+    } else {
+      current.push(word);
+    }
+  }
+  flush();
+  return segments;
+}
+
 function cleanSpeechSegments(source: AssetDeepAnalysisSource | null | undefined): Array<Required<SourceSpeechSegment>> {
   return (source?.speechSegments ?? [])
     .map((segment) => {
@@ -97,21 +155,30 @@ export function buildAssetDeepAnalysisTimeline(input: AssetDeepAnalysisInput): {
 } {
   const sourceDurationMs = finiteMs(input.sourceAnalysis?.durationMs) ?? 0;
   const durationMs = Math.max(finiteMs(input.durationMs) ?? 0, sourceDurationMs);
-  const speech = cleanSpeechSegments(input.sourceAnalysis);
+  const words = cleanSourceWords(input.sourceAnalysis);
+  const classifiedSpeech = cleanSpeechSegments(input.sourceAnalysis);
+  const speech = classifiedSpeech.length > 0 ? classifiedSpeech : speechSegmentsFromWords(words);
   const speechWindows = speech.map(({ startMs, endMs }) => ({ startMs, endMs }));
   const visualWindows = buildVjepaCoverageSegments(durationMs, speechWindows);
   const segments = visualWindows.map((window, index) => {
     const matchingSpeech = speech.filter((segment) => overlaps(window.startMs, window.endMs, segment.startMs, segment.endMs));
-    const text = matchingSpeech.map((segment) => segment.text).filter(Boolean).join(' ');
+    const matchingWords = words.filter((word) => overlaps(window.startMs, window.endMs, word.startMs, word.endMs));
+    const text = matchingSpeech.map((segment) => segment.text).filter(Boolean).join(' ')
+      || matchingWords.map((word) => word.word).join(' ');
+    const wordGaps = matchingWords.slice(1).map((word, wordIndex) =>
+      Math.max(0, word.startMs - matchingWords[wordIndex].endMs),
+    );
     return {
       startMs: window.startMs,
       endMs: window.endMs,
       text,
-      wordCount: text ? text.split(/\s+/).length : 0,
-      words: [],
+      wordCount: matchingWords.length || (text ? text.split(/\s+/).length : 0),
+      words: matchingWords,
       fillerCount: 0,
-      silenceGapCount: 0,
-      avgWordGapMs: 0,
+      silenceGapCount: wordGaps.filter((gap) => gap > 500).length,
+      avgWordGapMs: wordGaps.length > 0
+        ? Math.round(wordGaps.reduce((sum, gap) => sum + gap, 0) / wordGaps.length)
+        : 0,
       index,
     };
   });
@@ -120,15 +187,25 @@ export function buildAssetDeepAnalysisTimeline(input: AssetDeepAnalysisInput): {
     0,
   );
   const speechCoverage = durationMs > 0 ? Math.min(1, speechDurationMs / durationMs) : 0;
-  const transcript = speech.map((segment) => segment.text).filter(Boolean).join(' ');
+  const sourceTranscription = input.sourceAnalysis?.transcription;
+  const transcript = typeof sourceTranscription?.transcript === 'string' && sourceTranscription.transcript.trim()
+    ? sourceTranscription.transcript.trim()
+    : words.map((word) => word.word).join(' ');
+  const transcriptionConfidence = typeof sourceTranscription?.confidence === 'number' && Number.isFinite(sourceTranscription.confidence)
+    ? Math.max(0, Math.min(1, sourceTranscription.confidence))
+    : words.length > 0
+      ? words.reduce((sum, word) => sum + word.confidence, 0) / words.length
+      : 0;
 
   return {
     rawFootageAnalysis: {
       transcription: {
-        words: [],
+        words,
         transcript,
-        language: 'unknown',
-        confidence: 0,
+        language: typeof sourceTranscription?.language === 'string' && sourceTranscription.language.trim()
+          ? sourceTranscription.language.trim()
+          : 'unknown',
+        confidence: transcriptionConfidence,
         generatedAt: new Date(),
       },
       silenceGaps: [],

@@ -29,6 +29,8 @@ import {
   type ProviderCostEventStatus,
 } from '@/lib/financials/provider-cost-events';
 import type { ProviderCostBasis, ProviderCostUnits } from '@/lib/financials/provider-cost-estimates';
+import type { TranscriptionData } from '@/lib/editron/services/media/types';
+import { buildAssetDeepAnalysisTimeline } from '@/lib/editron/services/asset-deep-analysis';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -80,6 +82,38 @@ async function handler(request: NextRequest) {
       });
     }
 
+    const mediaAsset = type === 'video'
+      ? await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne(
+        { assetId, userId },
+        { projection: { transcription: 1 } },
+      ) as { transcription?: TranscriptionData } | null
+      : null;
+    const transcription = mediaAsset?.transcription ?? null;
+    if (type === 'video' && (
+      !transcription ||
+      !Array.isArray(transcription.words) ||
+      typeof transcription.language !== 'string'
+    )) {
+      throw new Error(`Transcription prerequisite missing for video asset ${assetId}`);
+    }
+
+    if (transcription) {
+      const durationMs = Math.round((duration || 0) * 1000);
+      const transcriptTimeline = buildAssetDeepAnalysisTimeline({
+        videoUrl: url,
+        durationMs,
+        sourceAnalysis: { durationMs, transcription },
+      });
+      const speechSegments = (transcriptTimeline.rawFootageAnalysis.segments ?? [])
+        .filter((segment) => segment.text.trim().length > 0)
+        .map((segment) => ({ startMs: segment.startMs, endMs: segment.endMs, text: segment.text }));
+      await db.collection('asset_analyses').updateOne(
+        { assetId, userId },
+        { $set: { transcription, durationMs, speechSegments, status: 'complete' } },
+        { upsert: true },
+      );
+    }
+
     const tags: string[] = [];
     let embedding: number[] | null = null;
 
@@ -95,7 +129,10 @@ async function handler(request: NextRequest) {
 
           analysis = await runFullAnalysis(assetId, userId, {
             videoUrl: url,
+            audioUrl: url,
             durationMs,
+            transcript: transcription?.transcript,
+            words: transcription?.words,
             sourceType: 'real-footage',
           });
         } else {
