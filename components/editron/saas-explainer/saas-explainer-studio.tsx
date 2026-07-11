@@ -16,10 +16,10 @@
  * brand chip + step breadcrumb) over numbered bands. Reads like a film treatment that becomes a video. Single gold
  * accent, JetBrains-mono micro-labels, hairline structure — all via design tokens, no inline colors.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Loader2, Sparkles, Film, FileText, Upload, Link2, Wand2, Download,
-  RotateCcw, ArrowRight, Mic, X,
+  RotateCcw, ArrowRight, Mic, X, ChevronDown, Check,
 } from 'lucide-react';
 import { useActiveBrand } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import { useToast } from '@/hooks/editron/use-toast';
@@ -248,23 +248,26 @@ export default function SaasExplainerStudio() {
         <div className="flex flex-col">
           <Band n="01" title="Brand & goal" active
             desc="One line the whole film inherits from. Pick a Brand Vault brand for its colors, logo, and voice — or describe it by hand.">
-            <div className="flex flex-col gap-5">
-              <Field label="Brand" hint={activeBrand?.name ? `Using ${activeBrand.name}.` : 'Colors, logo, and voice pull from Brand Vault.'}>
-                <select className={inputClass} value={activeBrandId ?? ''} onChange={(e) => setActiveBrandId(e.target.value || null)} disabled={brandsLoading}>
-                  <option value="">No brand — describe manually</option>
-                  {brands.map((b) => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}
-                </select>
-              </Field>
-              <Field label="Product name" hint="Optional — falls back to the brand.">
-                <input className={inputClass} value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="Insturix" />
-              </Field>
+            <div className="flex flex-col gap-6">
+              {/* Goal is the hero line of the brief — everything downstream inherits from it. */}
               <Field label="Goal of the video" hint="What should a viewer understand or do?">
-                <textarea className={cn(textareaClass, 'min-h-[84px]')} value={outcome} onChange={(e) => setOutcome(e.target.value)}
+                <textarea className={cn(textareaClass, 'min-h-[92px] text-[15px] leading-relaxed')} value={outcome} onChange={(e) => setOutcome(e.target.value)}
                   placeholder="Show how the product turns a week of content work into one on-brand workflow." />
               </Field>
-              <Field label="Audience" hint="Optional.">
-                <input className={inputClass} value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="SaaS founders, agencies" />
-              </Field>
+              {/* Brand + product + audience are the quieter, secondary inputs. */}
+              <div className="grid gap-x-5 gap-y-5 border-t border-ds-subtle pt-5 sm:grid-cols-2">
+                <Field label="Brand" hint={activeBrand?.name ? `Colors, logo, and voice from ${activeBrand.name}.` : 'Colors, logo, and voice pull from Brand Vault.'}>
+                  <Dropdown value={activeBrandId ?? ''} onChange={(v) => setActiveBrandId(v || null)} disabled={brandsLoading}
+                    placeholder="Select a brand…"
+                    options={[{ value: '', label: 'No brand — describe manually' }, ...brands.map((b) => ({ value: b.brandId, label: b.name }))]} />
+                </Field>
+                <Field label="Product name" hint="Optional — falls back to the brand.">
+                  <input className={inputClass} value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="Insturix" />
+                </Field>
+                <Field label="Audience" hint="Optional.">
+                  <input className={inputClass} value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="SaaS founders, agencies" />
+                </Field>
+              </div>
             </div>
           </Band>
 
@@ -350,9 +353,10 @@ export default function SaasExplainerStudio() {
             <Field label="Voice">
               <div className="flex items-center gap-2">
                 <Mic size={14} className="shrink-0 text-ds-muted" />
-                <select className={inputClass} value={voice} onChange={(e) => setVoice(e.target.value)}>
-                  {VO_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label} · {v.accent} — {v.description}</option>)}
-                </select>
+                <div className="min-w-0 flex-1">
+                  <Dropdown value={voice} onChange={setVoice}
+                    options={VO_VOICES.map((v) => ({ value: v.id, label: `${v.label} · ${v.accent}`, sublabel: v.description }))} />
+                </div>
               </div>
             </Field>
           </div>
@@ -443,9 +447,12 @@ function Masthead({ subtitle, brandName, productName, stepIndex }: { subtitle: s
   const headlineBrand = (brandName || productName).trim();
   return (
     <header className="mb-9 border-b border-ds-emphasis pb-7">
-      <Mono size="9" className="mb-4 block text-gold">Explainer Studio · {subtitle}</Mono>
+      <div className="mb-4 flex items-center gap-2.5">
+        <span className="h-2 w-2 rounded-full bg-[#D4A652] shadow-[0_0_10px_2px_rgba(212,166,82,0.55)]" />
+        <Mono size="9" className="text-[#E0B86A]">Explainer Studio · {subtitle}</Mono>
+      </div>
       <h1 className="max-w-[15ch] text-[38px] font-extrabold leading-[0.98] tracking-[-0.035em] sm:text-[50px]">
-        An explainer{headlineBrand ? <> for <span className="text-gold">{headlineBrand}</span></> : ' for your product'}, in your brand’s voice.
+        An explainer{headlineBrand ? <> for <span className="text-[#E0B86A] [text-shadow:0_0_28px_rgba(212,166,82,0.35)]">{headlineBrand}</span></> : ' for your product'}, in your brand’s voice.
       </h1>
       <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-3">
         <BrandChip name={brandName} />
@@ -477,8 +484,9 @@ function Band({ n, title, tag, desc, active, children }: {
   n: string; title: string; tag?: string; desc?: React.ReactNode; active?: boolean; children: React.ReactNode;
 }) {
   return (
-    <section className="grid grid-cols-[44px_1fr] border-t border-ds-subtle py-8 first:border-t-0">
-      <div className={cn('pt-1 font-mono text-[12px]', active ? 'text-gold' : 'text-ds-faint')}>{n}</div>
+    <section className="relative grid grid-cols-[44px_1fr] border-t border-ds-subtle py-8 first:border-t-0">
+      {active && <span className="absolute left-0 top-8 h-6 w-[2px] rounded-full bg-[#D4A652] shadow-[0_0_8px_rgba(212,166,82,0.5)]" />}
+      <div className={cn('pt-0.5 font-mono', active ? 'text-[14px] font-bold text-[#E0B86A]' : 'text-[12px] text-ds-faint')}>{n}</div>
       <div>
         <div className="flex items-baseline justify-between gap-3">
           <h2 className="text-[23px] font-bold leading-tight tracking-[-0.025em]">{title}</h2>
@@ -505,6 +513,59 @@ function RefCard({ kicker, title, blurb, children }: { kicker: string; title: st
   );
 }
 
+/** Token-styled dark dropdown — replaces the native <select> (whose OS option list renders white and
+ *  breaks the dark theme). Warm-dark surfaces, gold-marked selection, outside-click + Esc to close. */
+function Dropdown({ value, onChange, options, placeholder, disabled }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: Array<{ value: string; label: string; sublabel?: string }>;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
+        className={cn('flex h-11 w-full items-center justify-between gap-2 rounded-md border bg-surface-well px-3.5 text-left text-[14px] transition-colors focus-visible:outline-hidden',
+          disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+          open ? 'border-gold' : 'border-ds-subtle hover:border-ds-emphasis')}>
+        <span className={cn('truncate', selected ? 'text-ds-primary' : 'text-ds-dim')}>{selected?.label ?? placeholder ?? 'Select…'}</span>
+        <ChevronDown size={15} className={cn('shrink-0 transition-transform', open ? 'rotate-180 text-gold' : 'text-ds-muted')} />
+      </button>
+      {open && (
+        <div className="absolute inset-x-0 top-[calc(100%+6px)] z-30 max-h-64 overflow-y-auto rounded-lg border border-ds-emphasis bg-surface-raised p-1 shadow-[0_24px_50px_-12px_rgba(0,0,0,0.75)]">
+          {options.map((o) => {
+            const on = o.value === value;
+            return (
+              <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+                className={cn('flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors',
+                  on ? 'bg-gold/10 text-gold' : 'text-ds-secondary hover:bg-surface-well hover:text-ds-primary')}>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13.5px]">{o.label}</span>
+                  {o.sublabel && <span className="mt-0.5 block truncate text-[11px] text-ds-faint">{o.sublabel}</span>}
+                </span>
+                {on && <Check size={14} className="shrink-0 text-gold" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Field({ label, hint, children, group }: { label: string; hint?: React.ReactNode; children: React.ReactNode; group?: boolean }) {
   const inner = (
     <>
@@ -522,11 +583,13 @@ function Field({ label, hint, children, group }: { label: string; hint?: React.R
 
 function Seg({ options, value, onPick }: { options: Array<{ id: string; label: string }>; value: string; onPick: (v: string) => void }) {
   return (
-    <div className="inline-flex rounded-button border border-ds-subtle bg-surface-deeper p-0.5">
+    <div className="inline-flex rounded-button border border-ds-emphasis bg-surface-deeper p-1">
       {options.map((o) => (
         <button key={o.id} type="button" onClick={() => onPick(o.id)}
-          className={cn('rounded-[5px] px-2.5 py-1.5 font-mono text-[11px] transition-colors focus-visible:outline-hidden',
-            value === o.id ? 'bg-gold font-bold text-[#241B08]' : 'text-ds-muted hover:text-ds-secondary')}>
+          className={cn('rounded-[6px] px-3 py-1.5 font-mono text-[11px] tracking-wide transition-all focus-visible:outline-hidden',
+            value === o.id
+              ? 'bg-[#D4A652] font-bold text-[#120f09] shadow-[0_1px_12px_rgba(212,166,82,0.4)]'
+              : 'text-ds-secondary hover:bg-surface-well hover:text-ds-primary')}>
           {o.label}
         </button>
       ))}
