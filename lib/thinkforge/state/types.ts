@@ -4,6 +4,7 @@
 
 import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
 import type { ScriptIntent } from '../protocol/intent';
+import type { SelectedTrend } from '../trends/selected-trend';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -53,6 +54,7 @@ export interface ProjectMeta {
   seriesId?: string;
   calendarItemId?: string;
   contentCardId?: string;
+  selectedTrend?: SelectedTrend;
   preferences?: Record<string, any>;
 }
 

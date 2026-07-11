@@ -53,6 +53,7 @@ function blockMutation(collection: string, operation: string): never {
 }
 
 import type { ChatMessage, ProjectMeta, ScriptState } from '../state/types';
+import type { SelectedTrend } from '../trends/selected-trend';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import type { CIRDocument, CIRSection } from '../schemas/cir';
 
@@ -1111,6 +1112,28 @@ export async function claimInitialDraftIntent(sessionId: string): Promise<boolea
 
   return Boolean(session);
 }
+
+/** Atomically records a user-confirmed trend without overwriting other session metadata. */
+export async function setSessionSelectedTrend(sessionId: string, selectedTrend: SelectedTrend): Promise<ProjectMeta> {
+  const { SessionModel } = await getModels();
+  const doc = await SessionModel.findByIdAndUpdate(
+    sessionId,
+    {
+      $set: {
+        'projectMeta.selectedTrend': selectedTrend,
+        updatedAt: new Date(),
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+
+  if (!doc) {
+    throw new Error(`Session ${sessionId} not found`);
+  }
+
+  return doc.projectMeta || {};
+}
+
 export async function getActiveGeneration(sessionId: string): Promise<GenerationState | null> {
   const { SessionModel } = await getModels();
   const doc = await SessionModel.findOne({ _id: sessionId }).lean() as any;
