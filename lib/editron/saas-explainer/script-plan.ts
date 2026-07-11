@@ -43,6 +43,11 @@ import {
   SaasExplainerGenerationError,
 } from "@/lib/editron/saas-explainer/scene-helpers";
 import {
+  assignAudioTreatments,
+  type AudioSceneInput,
+  type AudioTreatment,
+} from "@/lib/editron/saas-explainer/audio-director";
+import {
   evidencePackToProductModel,
   type ExplainerPlan,
   type ExplainerPlanScene,
@@ -61,6 +66,10 @@ export interface ScriptPlanScene {
   durationSec: number;
   /** Loose vibe hint (archetype/family) from the aligned director beat. */
   form: string;
+  /** Audio treatment decided by the Audio Director: `vo` = spoken; `music_beat` = deliberate voice-silent hold
+   *  (music + on-screen text carry it). `music_beat` scenes intentionally carry an empty `narration`. Optional so
+   *  older/edited scenes without it default to spoken. */
+  audioTreatment?: AudioTreatment;
   /** Optional user visual-edit directive ("make it bolder", "redo the layout") — the Claude craft agent honors it. */
   editDirective?: string;
 }
@@ -201,20 +210,34 @@ export async function buildSaasExplainerScriptPlan(
     baseProjectSummary ||
     `${generationInput.productName || "Your product"} — a clear SaaS explainer.`;
 
+  // Audio Director: decide per scene whether it is spoken or a deliberate voice-silent beat (music + on-screen
+  // text). This replaces "force VO everywhere" AND "accidentally silent" — silence is now a ruled choice.
+  const audioInputs: AudioSceneInput[] = storyboard.map((scene, order) => ({
+    index: order,
+    family: resolveDirectorBeat(directorContract, scene, order)?.family ?? "hook",
+    hasAuthoredVo: resolveSceneNarration(scene).source === "authored",
+    durationSec: sceneDurationSec(scene, directorContract, generationInput),
+  }));
+  const treatments = assignAudioTreatments(audioInputs);
+
   const scriptScenes = storyboard.map((scene, order) =>
-    toScriptPlanScene(scene, order, directorContract, generationInput),
+    toScriptPlanScene(scene, order, directorContract, generationInput, treatments[order].treatment),
   );
   const plan = scriptScenesToPlan(scriptScenes, message);
   const productModel = evidencePackToProductModel(productEvidencePack, args.extraProductImageUrls ?? []);
 
-  // VO integrity: the plan is scene-driven (vo = narration), so a scene with empty narration renders SILENT.
-  // The author prompt mandates a spoken line per scene; this reports what the deterministic safety net had to
-  // do so it's visible on the script screen rather than silently shipping quiet scenes.
-  const narrationSources = storyboard.map(resolveSceneNarration);
-  const backfilledFromOnScreen = narrationSources.filter((n) => n.source === "onscreen_text").length;
-  const silentSceneNumbers = narrationSources
-    .map((n, i) => (n.source === "empty" ? i + 1 : null))
+  // Warnings: only a SPOKEN scene that ended up without words is a real problem. `music_beat` scenes are
+  // intentionally silent (an info line keeps the empty-VO boxes on the script screen from reading as broken).
+  const backfilledFromOnScreen = storyboard.filter(
+    (scene, order) =>
+      treatments[order].treatment === "vo" && resolveSceneNarration(scene).source === "onscreen_text",
+  ).length;
+  const spokenButEmpty = storyboard
+    .map((scene, order) =>
+      treatments[order].treatment === "vo" && resolveSceneNarration(scene).source === "empty" ? order + 1 : null,
+    )
     .filter((v): v is number => v !== null);
+  const musicBeats = treatments.filter((t) => t.treatment === "music_beat").length;
 
   const warnings = [
     ...(brandContext.metadata.acceptedProfile
@@ -227,10 +250,13 @@ export async function buildSaasExplainerScriptPlan(
       .filter((d) => d.severity !== "info")
       .map((d) => `SaaS director: ${d.message}`),
     ...(backfilledFromOnScreen > 0
-      ? [`${backfilledFromOnScreen} scene(s) had no voiceover; used their on-screen text as the spoken line — review on the script screen.`]
+      ? [`${backfilledFromOnScreen} narrated scene(s) had no written voiceover; used their on-screen text — review on the script screen.`]
       : []),
-    ...(silentSceneNumbers.length > 0
-      ? [`Scene(s) ${silentSceneNumbers.join(", ")} have no voiceover yet — add a line or they render silent.`]
+    ...(spokenButEmpty.length > 0
+      ? [`Scene(s) ${spokenButEmpty.join(", ")} are meant to be spoken but have no line yet — add one or they render silent.`]
+      : []),
+    ...(musicBeats > 0
+      ? [`${musicBeats} scene(s) are music beats (music + visuals, no voiceover by design).`]
       : []),
   ];
 
@@ -242,17 +268,23 @@ export async function buildSaasExplainerScriptPlan(
  * user edits narration on the script screen, so the render uses exactly what they approved.
  */
 export function scriptScenesToPlan(scenes: ScriptPlanScene[], message: string): ExplainerPlan {
-  const planScenes: ExplainerPlanScene[] = scenes.map((s) => ({
-    form: s.form,
-    durationInFrames: Math.max(1, Math.round(s.durationSec * PLAN_FPS)),
-    vo: s.narration,
-    props: {
-      index: s.index,
-      copyRole: s.form,
-      // user visual-edit directive flows into the craft brief so Claude re-designs this scene honoring it.
-      ...(s.editDirective && s.editDirective.trim() ? { editDirective: s.editDirective.trim() } : {}),
-    },
-  }));
+  const planScenes: ExplainerPlanScene[] = scenes.map((s) => {
+    // Effective treatment reflects reality: if a line is present (author or user-typed), the scene is spoken
+    // regardless of the original decision; only a genuinely wordless scene stays a `music_beat`.
+    const effectiveTreatment: AudioTreatment = s.narration.trim() ? "vo" : s.audioTreatment ?? "vo";
+    return {
+      form: s.form,
+      durationInFrames: Math.max(1, Math.round(s.durationSec * PLAN_FPS)),
+      vo: s.narration,
+      props: {
+        index: s.index,
+        copyRole: s.form,
+        audioTreatment: effectiveTreatment,
+        // user visual-edit directive flows into the craft brief so Claude re-designs this scene honoring it.
+        ...(s.editDirective && s.editDirective.trim() ? { editDirective: s.editDirective.trim() } : {}),
+      },
+    };
+  });
   return {
     fps: PLAN_FPS,
     transitionFrames: Math.round(PLAN_FPS * 0.37),
@@ -261,26 +293,38 @@ export function scriptScenesToPlan(scenes: ScriptPlanScene[], message: string): 
   };
 }
 
+/** Estimated (pre VO-fit) scene duration in seconds — the scene's own value, else an even split of the target. */
+function sceneDurationSec(
+  scene: SceneDescriptor,
+  contract: SaasDirectorContract,
+  input: NormalizedSaasExplainerIntake,
+): number {
+  const sceneCount = Math.max(1, contract.sequence.length);
+  const fallbackDuration = Math.max(3, Math.round(input.durationSec / sceneCount));
+  return typeof scene.durationSeconds === "number" && scene.durationSeconds > 0
+    ? scene.durationSeconds
+    : fallbackDuration;
+}
+
 function toScriptPlanScene(
   scene: SceneDescriptor,
   order: number,
   contract: SaasDirectorContract,
   input: NormalizedSaasExplainerIntake,
+  treatment: AudioTreatment,
 ): ScriptPlanScene {
   const beat = resolveDirectorBeat(contract, scene, order);
   const form = beat ? `${beat.visualArchetype}/${beat.family}` : "TYPE_ONLY/hook";
-  const sceneCount = Math.max(1, contract.sequence.length);
-  const fallbackDuration = Math.max(3, Math.round(input.durationSec / sceneCount));
-  const durationSec =
-    typeof scene.durationSeconds === "number" && scene.durationSeconds > 0
-      ? scene.durationSeconds
-      : fallbackDuration;
+  // A `music_beat` is deliberately voice-silent — leave narration empty. A `vo` scene must end up with words,
+  // so fall back to the scene's own on-screen text if the author left the spoken line blank.
+  const narration = treatment === "music_beat" ? "" : resolveSceneNarration(scene).narration;
   return {
     index: order,
     title: cleanLine(scene.title || `Scene ${order + 1}`, 72),
-    narration: resolveSceneNarration(scene).narration,
-    durationSec,
+    narration,
+    durationSec: sceneDurationSec(scene, contract, input),
     form,
+    audioTreatment: treatment,
   };
 }
 

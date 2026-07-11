@@ -11,11 +11,15 @@
  *
  * The user finishes the whole video here (chat-to-edit lives on the result screen); Editron is only the optional
  * export target. Additive + non-breaking: mounts at its own route, leaves the existing draft intake untouched.
+ *
+ * Visual language — "The Treatment": a persistent editorial masthead (mono eyebrow + big Plus-Jakarta headline +
+ * brand chip + step breadcrumb) over numbered bands. Reads like a film treatment that becomes a video. Single gold
+ * accent, JetBrains-mono micro-labels, hairline structure — all via design tokens, no inline colors.
  */
 import { useEffect, useState } from 'react';
 import {
   Loader2, Sparkles, Film, FileText, Upload, Link2, Wand2, Download,
-  RotateCcw, ArrowRight, Check, Mic, X,
+  RotateCcw, ArrowRight, Mic, X,
 } from 'lucide-react';
 import { useActiveBrand } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import { useToast } from '@/hooks/editron/use-toast';
@@ -42,6 +46,13 @@ const STEPS: Array<{ id: Screen; label: string }> = [
   { id: 'render', label: 'Render' },
   { id: 'result', label: 'Result' },
 ];
+
+const SUBTITLE: Record<Screen, string> = {
+  brief: 'A treatment',
+  script: 'Draft script',
+  render: 'Rendering',
+  result: 'Final cut',
+};
 
 const DURATIONS = [30, 45, 60, 90] as const;
 const ASPECTS: Array<{ id: Aspect; label: string }> = [
@@ -230,49 +241,37 @@ export default function SaasExplainerStudio() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 p-6 text-ds-primary sm:p-8">
-      <header className="flex flex-col gap-6">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-gold/40 bg-gold/10 text-gold">
-            <Sparkles size={16} />
-          </span>
-          <div>
-            <Mono size="8" className="text-gold">SaaS explainer · Studio</Mono>
-            <h1 className="text-[22px] font-bold leading-tight tracking-tight">Make a brand-faithful explainer</h1>
-          </div>
-        </div>
-        <Stepper stepIndex={stepIndex} />
-      </header>
+    <div className="mx-auto flex w-full max-w-2xl flex-col px-6 pb-16 pt-10 text-ds-primary sm:px-8">
+      <Masthead subtitle={SUBTITLE[screen]} brandName={activeBrand?.name} productName={productName} stepIndex={stepIndex} />
 
       {screen === 'brief' && (
-        <div className="flex flex-col gap-5">
-          <Card>
-            <SectionHead icon={<FileText size={14} />} title="Your brief" hint="What the video is about." />
-            <div className="flex flex-col gap-4">
-              <Field label="Brand" hint="Colors, logo, and voice pull from Brand Vault.">
+        <div className="flex flex-col">
+          <Band n="01" title="Brand & goal" active
+            desc="One line the whole film inherits from. Pick a Brand Vault brand for its colors, logo, and voice — or describe it by hand.">
+            <div className="flex flex-col gap-5">
+              <Field label="Brand" hint={activeBrand?.name ? `Using ${activeBrand.name}.` : 'Colors, logo, and voice pull from Brand Vault.'}>
                 <select className={inputClass} value={activeBrandId ?? ''} onChange={(e) => setActiveBrandId(e.target.value || null)} disabled={brandsLoading}>
                   <option value="">No brand — describe manually</option>
                   {brands.map((b) => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}
                 </select>
-                {activeBrand?.name && <p className="text-[11px] text-ds-muted">Using {activeBrand.name}.</p>}
               </Field>
-
               <Field label="Product name" hint="Optional — falls back to the brand.">
                 <input className={inputClass} value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="Insturix" />
               </Field>
-
               <Field label="Goal of the video" hint="What should a viewer understand or do?">
                 <textarea className={cn(textareaClass, 'min-h-[84px]')} value={outcome} onChange={(e) => setOutcome(e.target.value)}
                   placeholder="Show how the product turns a week of content work into one on-brand workflow." />
               </Field>
+              <Field label="Audience" hint="Optional.">
+                <input className={inputClass} value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="SaaS founders, agencies" />
+              </Field>
             </div>
-          </Card>
+          </Band>
 
-          <Card subtle>
-            <SectionHead icon={<Film size={14} />} title="References" tag="Optional"
-              hint={<>A video sets the <span className="text-ds-secondary">look</span>, a doc sets the <span className="text-ds-secondary">topic</span>.</>} />
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Reference video" hint="Match a video's style.">
+          <Band n="02" title="References" tag="Optional"
+            desc="A clip for the look, a doc for the truth. We match the pacing of the first and explain from the second.">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <RefCard kicker="Look" title="Reference video" blurb="Drop a clip whose pacing & feel we should match.">
                 {referenceLabel ? (
                   <Pill icon={<Film size={13} className="text-gold" />} label={`${referenceLabel} · ${referenceImageUrls.length} frame(s)`} onRemove={clearReference} />
                 ) : (
@@ -288,24 +287,22 @@ export default function SaasExplainerStudio() {
                       accept=".mp4,.mov,.webm,.m4v" onFile={(f) => uploadReferenceVideo(f)} />
                   </div>
                 )}
-              </Field>
+              </RefCard>
 
-              <Field label="Source document" hint="What it's about.">
+              <RefCard kicker="Topic" title="Source doc" blurb="Paste a PDF, page, or notes we should explain from.">
                 {sourceDocName ? (
                   <Pill icon={<FileText size={13} className="text-gold" />} label={`${sourceDocName} · ${sourceMaterial.length.toLocaleString()} chars`} onRemove={clearDoc} />
                 ) : (
                   <DropZone busy={ingestDoc.isPending} icon={<Upload size={14} />} label="Upload PDF, DOCX, PPTX, or TXT"
                     accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md" onFile={(f) => uploadDoc(f)} tall />
                 )}
-              </Field>
+              </RefCard>
             </div>
-          </Card>
+          </Band>
 
-          <Card>
-            <div className="grid gap-4 sm:grid-cols-[1fr_auto_auto]">
-              <Field label="Audience" hint="Optional.">
-                <input className={inputClass} value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="SaaS founders, agencies" />
-              </Field>
+          <Band n="03" title="Shape"
+            desc="The frame it lives in. Length is bounded to your source; aspect follows the platform you're posting to.">
+            <div className="flex flex-wrap gap-x-10 gap-y-5">
               <Field label="Length" group>
                 <Seg options={DURATIONS.map((d) => ({ id: String(d), label: `${d}s` }))} value={String(durationSec)} onPick={(v) => setDurationSec(Number(v))} />
               </Field>
@@ -313,56 +310,65 @@ export default function SaasExplainerStudio() {
                 <Seg options={ASPECTS.map((a) => ({ id: a.id, label: a.label }))} value={aspectRatio} onPick={(v) => setAspectRatio(v as Aspect)} />
               </Field>
             </div>
-          </Card>
+          </Band>
 
-          <div className="flex justify-end">
+          <div className="mt-2 flex items-center gap-4 border-t border-ds-subtle pt-7">
             <Btn variant="primary" size="lg" onClick={generateScript} disabled={planMutation.isPending || !canBrief}>
               {planMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Writing the script…</> : <>Write the script <ArrowRight size={15} /></>}
             </Btn>
+            <div className="ml-auto text-right">
+              <p className="text-[13px] text-ds-muted">Script draft · <span className="font-semibold text-gold">1 credit</span></p>
+              <Mono size="8" className="mt-1 block text-ds-faint">Render billed at step 03</Mono>
+            </div>
           </div>
         </div>
       )}
 
       {screen === 'script' && plan && (
-        <div className="flex flex-col gap-5">
-          <div className="rounded-card border border-ds-subtle bg-surface-raised p-4">
+        <div className="flex flex-col">
+          <div className="mb-2 rounded-card border border-ds-subtle bg-surface-raised p-4">
             <Mono size="8" className="text-ds-muted">The video</Mono>
             <p className="mt-1.5 text-[15px] leading-relaxed text-ds-secondary">{plan.message}</p>
           </div>
 
-          <div className="flex flex-col gap-3">
-            {scenes.map((scene) => (
-              <div key={scene.index} className="rounded-card border border-ds-subtle bg-surface-raised p-4 transition-colors hover:border-ds-emphasis">
-                <div className="mb-2.5 flex items-center gap-2">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gold/15 font-mono text-[10px] font-bold text-gold">{scene.index + 1}</span>
-                  <span className="text-[13px] font-semibold text-ds-primary">{scene.title}</span>
-                  <span className="ml-auto rounded-full border border-ds-subtle px-2 py-0.5 font-mono text-[9px] uppercase tracking-wide text-ds-muted">{scene.form} · {scene.durationSec}s</span>
-                </div>
+          {scenes.map((scene) => {
+            // A music beat is a deliberate voice-silent scene (music + visuals carry it). Show it as such so the
+            // empty box reads as intentional, not broken — typing a line turns it back into a spoken scene.
+            const silent = scene.audioTreatment === 'music_beat' && !scene.narration.trim();
+            return (
+              <Band key={scene.index} n={String(scene.index + 1).padStart(2, '0')} title={scene.title} active
+                tag={`${scene.form} · ${scene.durationSec}s${silent ? ' · ♪ MUSIC BEAT' : ''}`}>
                 <textarea className={textareaClass} value={scene.narration} onChange={(e) => updateScene(scene.index, e.target.value)}
-                  placeholder="What the voiceover says in this scene…" rows={2} />
+                  placeholder={silent
+                    ? 'Music beat — visuals + music carry this scene. Type to add a voiceover…'
+                    : 'What the voiceover says in this scene…'} rows={2} />
+              </Band>
+            );
+          })}
+
+          <div className="border-t border-ds-subtle pt-7">
+            <Field label="Voice">
+              <div className="flex items-center gap-2">
+                <Mic size={14} className="shrink-0 text-ds-muted" />
+                <select className={inputClass} value={voice} onChange={(e) => setVoice(e.target.value)}>
+                  {VO_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label} · {v.accent} — {v.description}</option>)}
+                </select>
               </div>
-            ))}
+            </Field>
           </div>
 
-          <Field label="Voice">
-            <div className="flex items-center gap-2">
-              <Mic size={14} className="shrink-0 text-ds-muted" />
-              <select className={inputClass} value={voice} onChange={(e) => setVoice(e.target.value)}>
-                {VO_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label} · {v.accent} — {v.description}</option>)}
-              </select>
-            </div>
-          </Field>
+          <div className="mt-5">
+            <ChatEdit
+              reply={chatReply}
+              input={chatInput}
+              setInput={setChatInput}
+              pending={chatEdit.isPending}
+              onSend={() => sendChatEdit()}
+              hint="Change the script, look, voice, or pacing — e.g. “punchier hook”, “make scene 2 bolder”, “use a British voice”. Look/voice changes apply when you render."
+            />
+          </div>
 
-          <ChatEdit
-            reply={chatReply}
-            input={chatInput}
-            setInput={setChatInput}
-            pending={chatEdit.isPending}
-            onSend={() => sendChatEdit()}
-            hint="Change the script, look, voice, or pacing — e.g. “punchier hook”, “make scene 2 bolder”, “use a British voice”. Look/voice changes apply when you render."
-          />
-
-          <div className="flex items-center justify-between">
+          <div className="mt-6 flex items-center justify-between border-t border-ds-subtle pt-7">
             <Btn variant="ghost" onClick={generateScript} disabled={planMutation.isPending}>
               {planMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Regenerating…</> : <><RotateCcw size={14} /> Regenerate</>}
             </Btn>
@@ -374,26 +380,22 @@ export default function SaasExplainerStudio() {
       )}
 
       {screen === 'render' && (
-        <div className="relative flex flex-col items-center gap-6 overflow-hidden rounded-card border border-ds-subtle bg-surface-raised p-12 text-center">
-          <span className="pointer-events-none absolute inset-0 flex select-none items-center justify-center text-[120px] font-extrabold tracking-tighter text-white/[0.02]">
-            {s?.status === 'queued' ? 'QUEUED' : 'CRAFTING'}
-          </span>
-          <div className="relative flex flex-col items-center gap-6">
-            <Loader2 className="h-8 w-8 animate-spin text-gold" />
-            <div>
-              <p className="text-[15px] font-semibold text-ds-primary">{renderStageLabel(s?.status, s?.progress ?? 0)}</p>
-              <p className="mt-1 max-w-sm text-[13px] text-ds-muted">The craft agent designs each scene, then renders with voiceover. This takes a few minutes.</p>
-            </div>
-            <div className="h-2 w-full max-w-md overflow-hidden rounded-full bg-surface-well">
-              <div className="h-full rounded-full bg-gold transition-all duration-500" style={{ width: `${Math.round((s?.progress ?? 0.02) * 100)}%` }} />
-            </div>
-            {s?.status === 'error' && (
-              <div className="flex flex-col items-center gap-3">
-                <p className="text-status-danger">{s.error || 'The render failed.'}</p>
-                <Btn variant="ghost" onClick={() => setScreen('script')}>← Back to script</Btn>
-              </div>
-            )}
+        <div className="flex flex-col items-center gap-6 rounded-card border border-ds-subtle bg-surface-raised px-8 py-14 text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-gold" />
+          <div>
+            <Mono size="8" className="text-gold">{s?.status === 'queued' ? 'Queued' : 'Crafting'}</Mono>
+            <p className="mt-2 text-[17px] font-bold tracking-tight text-ds-primary">{renderStageLabel(s?.status, s?.progress ?? 0)}</p>
+            <p className="mt-1.5 max-w-sm text-[13px] leading-relaxed text-ds-muted">The craft agent designs each scene, then renders with voiceover. This takes a few minutes.</p>
           </div>
+          <div className="h-2 w-full max-w-md overflow-hidden rounded-full bg-surface-well">
+            <div className="h-full rounded-full bg-gold transition-all duration-500" style={{ width: `${Math.round((s?.progress ?? 0.02) * 100)}%` }} />
+          </div>
+          {s?.status === 'error' && (
+            <div className="flex flex-col items-center gap-3">
+              <p className="text-status-danger">{s.error || 'The render failed.'}</p>
+              <Btn variant="ghost" onClick={() => setScreen('script')}>← Back to script</Btn>
+            </div>
+          )}
         </div>
       )}
 
@@ -405,7 +407,7 @@ export default function SaasExplainerStudio() {
             <div className="rounded-card border border-ds-subtle bg-surface-raised p-12 text-center text-ds-muted">Preparing your video…</div>
           )}
           <div className="flex items-center justify-between">
-            <span className="font-mono text-[11px] text-ds-faint">{typeof s?.costUsd === 'number' ? `Render cost ≈ $${s.costUsd.toFixed(3)}` : ''}</span>
+            <Mono size="8" className="text-ds-faint">{typeof s?.costUsd === 'number' ? `Render cost ≈ $${s.costUsd.toFixed(3)}` : ''}</Mono>
             <div className="flex gap-2">
               {s?.outputUrl && <a href={s.outputUrl} download><Btn variant="ghost"><Download size={14} /> Download</Btn></a>}
               <Btn variant="primary" onClick={startOver}><Sparkles size={14} /> Make another</Btn>
@@ -437,46 +439,68 @@ export default function SaasExplainerStudio() {
 
 /* ── presentation helpers ─────────────────────────────────────────── */
 
-function Stepper({ stepIndex }: { stepIndex: number }) {
+function Masthead({ subtitle, brandName, productName, stepIndex }: { subtitle: string; brandName?: string; productName: string; stepIndex: number }) {
+  const headlineBrand = (brandName || productName).trim();
   return (
-    <div className="flex items-center">
-      {STEPS.map((step, i) => {
-        const done = i < stepIndex;
-        const active = i === stepIndex;
-        return (
-          <div key={step.id} className="flex flex-1 items-center last:flex-none">
-            <div className="flex items-center gap-2">
-              <span className={cn('flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-bold transition-colors',
-                active ? 'border-gold bg-gold text-[#241B08]' : done ? 'border-gold/50 bg-gold/10 text-gold' : 'border-ds-subtle bg-surface-deeper text-ds-dim')}>
-                {done ? <Check size={12} /> : i + 1}
-              </span>
-              <span className={cn('text-[12px] font-semibold', active ? 'text-ds-primary' : done ? 'text-ds-secondary' : 'text-ds-faint')}>{step.label}</span>
-            </div>
-            {i < STEPS.length - 1 && <span className={cn('mx-3 h-px flex-1', done ? 'bg-gold/40' : 'bg-ds-subtle')} />}
-          </div>
-        );
-      })}
-    </div>
+    <header className="mb-9 border-b border-ds-emphasis pb-7">
+      <Mono size="9" className="mb-4 block text-gold">Explainer Studio · {subtitle}</Mono>
+      <h1 className="max-w-[15ch] text-[38px] font-extrabold leading-[0.98] tracking-[-0.035em] sm:text-[50px]">
+        An explainer{headlineBrand ? <> for <span className="text-gold">{headlineBrand}</span></> : ' for your product'}, in your brand’s voice.
+      </h1>
+      <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-3">
+        <BrandChip name={brandName} />
+        <div className="flex items-center gap-2.5">
+          {STEPS.map((step, i) => (
+            <span key={step.id} className="flex items-center gap-2.5">
+              {i > 0 && <span className="font-mono text-[10px] text-ds-faint">/</span>}
+              <span className={cn('font-mono text-[10px] uppercase tracking-[0.12em]',
+                i === stepIndex ? 'text-gold' : i < stepIndex ? 'text-ds-secondary' : 'text-ds-dim')}>{step.label}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+    </header>
   );
 }
 
-function Card({ children, subtle }: { children: React.ReactNode; subtle?: boolean }) {
+function BrandChip({ name }: { name?: string }) {
+  const letter = (name || '·').trim().charAt(0).toUpperCase() || '·';
   return (
-    <section className={cn('flex flex-col gap-4 rounded-card border p-5', subtle ? 'border-ds-subtle bg-surface-canvas' : 'border-ds-subtle bg-surface-raised')}>
-      {children}
+    <span className="inline-flex items-center gap-2 rounded-full border border-ds-emphasis bg-surface-raised py-1 pl-1 pr-3 text-[12.5px] text-ds-secondary">
+      <span className="grid h-5 w-5 place-items-center rounded-[6px] bg-gold/15 text-[10px] font-bold text-gold">{letter}</span>
+      {name || 'No brand'}
+    </span>
+  );
+}
+
+function Band({ n, title, tag, desc, active, children }: {
+  n: string; title: string; tag?: string; desc?: React.ReactNode; active?: boolean; children: React.ReactNode;
+}) {
+  return (
+    <section className="grid grid-cols-[44px_1fr] border-t border-ds-subtle py-8 first:border-t-0">
+      <div className={cn('pt-1 font-mono text-[12px]', active ? 'text-gold' : 'text-ds-faint')}>{n}</div>
+      <div>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-[23px] font-bold leading-tight tracking-[-0.025em]">{title}</h2>
+          {tag && <span className="shrink-0 font-mono text-[9px] uppercase tracking-wide text-ds-muted">{tag}</span>}
+        </div>
+        {desc && <p className="mb-5 mt-2 max-w-[52ch] text-[14px] leading-relaxed text-ds-secondary">{desc}</p>}
+        {!desc && <div className="mt-4" />}
+        {children}
+      </div>
     </section>
   );
 }
 
-function SectionHead({ icon, title, tag, hint }: { icon: React.ReactNode; title: string; tag?: string; hint?: React.ReactNode }) {
+function RefCard({ kicker, title, blurb, children }: { kicker: string; title: string; blurb: string; children: React.ReactNode }) {
   return (
-    <div>
-      <div className="flex items-center gap-2">
-        <span className="text-gold">{icon}</span>
-        <Mono size="9" className="text-ds-secondary">{title}</Mono>
-        {tag && <span className="rounded-full border border-ds-subtle px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wide text-ds-dim">{tag}</span>}
+    <div className="flex flex-col gap-3 rounded-card border border-ds-subtle bg-surface-canvas p-4">
+      <div>
+        <Mono size="8" className="text-gold">{kicker}</Mono>
+        <p className="mt-1.5 text-[13.5px] font-semibold text-ds-primary">{title}</p>
+        <p className="mt-0.5 text-[11.5px] leading-relaxed text-ds-faint">{blurb}</p>
       </div>
-      {hint && <p className="mt-1 text-[12px] text-ds-muted">{hint}</p>}
+      {children}
     </div>
   );
 }
@@ -484,7 +508,7 @@ function SectionHead({ icon, title, tag, hint }: { icon: React.ReactNode; title:
 function Field({ label, hint, children, group }: { label: string; hint?: React.ReactNode; children: React.ReactNode; group?: boolean }) {
   const inner = (
     <>
-      <span className="text-[12px] font-semibold text-ds-secondary">{label}</span>
+      <Mono size="9" className="text-ds-secondary">{label}</Mono>
       {children}
       {hint && <span className="text-[11px] text-ds-faint">{hint}</span>}
     </>
@@ -492,8 +516,8 @@ function Field({ label, hint, children, group }: { label: string; hint?: React.R
   // A <label> forwards clicks to its first control — which breaks a group of
   // buttons (Seg). Use a plain div for those; keep <label> for single inputs.
   return group
-    ? <div className="flex flex-col items-start gap-1.5">{inner}</div>
-    : <label className="flex flex-col gap-1.5">{inner}</label>;
+    ? <div className="flex flex-col items-start gap-2">{inner}</div>
+    : <label className="flex flex-col gap-2">{inner}</label>;
 }
 
 function Seg({ options, value, onPick }: { options: Array<{ id: string; label: string }>; value: string; onPick: (v: string) => void }) {
@@ -536,7 +560,7 @@ function ChatEdit({ reply, input, setInput, pending, onSend, title = 'Edit with 
   return (
     <div className="rounded-card border border-ds-subtle bg-surface-raised p-4">
       <div className="flex items-center gap-2"><Wand2 size={14} className="text-gold" /><Mono size="8" className="text-gold">{title}</Mono></div>
-      <p className="mt-1.5 mb-3 text-[12px] text-ds-muted">{hint}</p>
+      <p className="mb-3 mt-1.5 text-[12px] text-ds-muted">{hint}</p>
       {reply && <p className="mb-3 rounded-md border border-ds-subtle bg-surface-well px-3 py-2 text-[13px] text-ds-secondary">{reply}</p>}
       <div className="flex gap-2">
         <input className={cn(inputClass, 'flex-1')} value={input} onChange={(e) => setInput(e.target.value)}
