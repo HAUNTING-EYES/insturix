@@ -9,10 +9,9 @@
  * Pattern: DaVinci Resolve "New Timeline Using Selected Clips" — file first,
  * options second, all optional, smart defaults, one-click quick path.
  *
- * Backend fields supported (from-asset/route.ts):
- *   script, userIntent, platform, aspectRatio, captionStyle,
- *   transitionPreference, zoomBehavior, motionGraphics, pacingFeel,
- *   musicPreference, referenceAssetId, imageAssetIds.
+ * The dialog emits editorialPreferences as user policy: auto/brand authority,
+ * hard family vetoes, or soft frequency/intensity direction. Legacy named-style
+ * fields remain API compatibility inputs for older clients and are not emitted here.
  */
 
 import { useState, useCallback } from 'react';
@@ -20,12 +19,12 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
 import {
   Select,
   SelectContent,
@@ -34,6 +33,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { FileVideo, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  EDITORIAL_FAMILIES,
+  type EditorialFamily,
+  type EditorialFamilyPreference,
+  type EditorialPreferences,
+  type EditorialPreferenceMode,
+} from '@/lib/editron/production-brief/editorial-preferences';
 
 /** Options forwarded to the from-asset backend endpoint. */
 export interface AutoEditOptions {
@@ -41,11 +47,18 @@ export interface AutoEditOptions {
   platform?: string;
   script?: string;
   aspectRatio?: string;
+  editorialPreferences?: EditorialPreferences;
+  /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   captionStyle?: 'word_by_word' | 'sentence' | 'key_phrases' | 'none';
+  /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   transitionPreference?: 'minimal' | 'subtle' | 'dynamic' | 'energetic';
+  /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   zoomBehavior?: 'none' | 'subtle' | 'moderate' | 'aggressive';
+  /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   motionGraphics?: 'none' | 'stats_only' | 'full';
+  /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   pacingFeel?: 'calm' | 'balanced' | 'energetic' | 'fast';
+  /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   musicPreference?: 'none' | 'subtle_bed' | 'energetic' | 'match_video';
 }
 
@@ -74,18 +87,28 @@ const ASPECT_RATIO_OPTIONS = [
   { value: '1:1', label: '1:1 — Square (Instagram, Facebook)' },
 ] as const;
 
+const FAMILY_LABELS: Record<EditorialFamily, { label: string; description: string }> = {
+  captions: { label: 'Captions', description: 'Speech coverage and visual emphasis' },
+  motionGraphics: { label: 'Motion graphics', description: 'How often ideas receive visual explanation' },
+  zoom: { label: 'Camera motion', description: 'Signal-licensed pushes, pulls, and reframing' },
+  transitions: { label: 'Transitions', description: 'Visible treatment at meaningful boundaries' },
+  sfx: { label: 'Sound effects', description: 'Impacts, accents, and transition support' },
+  music: { label: 'Background music', description: 'Music presence and prominence' },
+};
+
+const DEFAULT_PREFERENCE: EditorialFamilyPreference = { mode: 'auto' };
+
 export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProps) {
   const [showAdvanced, setShowAdvanced] = useState(true);
   const [platform, setPlatform] = useState('auto');
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [userIntent, setUserIntent] = useState('');
   const [script, setScript] = useState('');
-  const [captionStyle, setCaptionStyle] = useState<AutoEditOptions['captionStyle']>(undefined);
-  const [transitionPreference, setTransitionPreference] = useState<AutoEditOptions['transitionPreference']>(undefined);
-  const [zoomBehavior, setZoomBehavior] = useState<AutoEditOptions['zoomBehavior']>(undefined);
-  const [motionGraphics, setMotionGraphics] = useState<AutoEditOptions['motionGraphics']>(undefined);
-  const [pacingFeel, setPacingFeel] = useState<AutoEditOptions['pacingFeel']>(undefined);
-  const [musicPreference, setMusicPreference] = useState<AutoEditOptions['musicPreference']>(undefined);
+  const [familyPreferences, setFamilyPreferences] = useState<Partial<Record<EditorialFamily, EditorialFamilyPreference>>>({});
+  const [pacingMode, setPacingMode] = useState<'auto' | 'prefer'>('auto');
+  const [pacingIntensity, setPacingIntensity] = useState(0.5);
+  const [musicPrompt, setMusicPrompt] = useState('');
+  const [creativeNotes, setCreativeNotes] = useState('');
 
   const resetState = useCallback(() => {
     setShowAdvanced(true);
@@ -93,12 +116,11 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
     setAspectRatio('16:9');
     setUserIntent('');
     setScript('');
-    setCaptionStyle(undefined);
-    setTransitionPreference(undefined);
-    setZoomBehavior(undefined);
-    setMotionGraphics(undefined);
-    setPacingFeel(undefined);
-    setMusicPreference(undefined);
+    setFamilyPreferences({});
+    setPacingMode('auto');
+    setPacingIntensity(0.5);
+    setMusicPrompt('');
+    setCreativeNotes('');
   }, []);
 
   const handleQuickEdit = useCallback(() => {
@@ -115,15 +137,36 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
     if (aspectRatio && aspectRatio !== '16:9') options.aspectRatio = aspectRatio;
     if (userIntent.trim()) options.userIntent = userIntent.trim();
     if (script.trim()) options.script = script.trim();
-    if (captionStyle) options.captionStyle = captionStyle;
-    if (transitionPreference) options.transitionPreference = transitionPreference;
-    if (zoomBehavior) options.zoomBehavior = zoomBehavior;
-    if (motionGraphics) options.motionGraphics = motionGraphics;
-    if (pacingFeel) options.pacingFeel = pacingFeel;
-    if (musicPreference) options.musicPreference = musicPreference;
+    const selectedFamilies = Object.fromEntries(
+      Object.entries(familyPreferences).filter(([, preference]) => preference?.mode !== 'auto'),
+    ) as NonNullable<EditorialPreferences['families']>;
+    if (Object.keys(selectedFamilies).length > 0 || pacingMode === 'prefer' || musicPrompt.trim() || creativeNotes.trim()) {
+      options.editorialPreferences = {
+        ...(Object.keys(selectedFamilies).length > 0 ? { families: selectedFamilies } : {}),
+        ...(pacingMode === 'prefer' ? { pacing: { mode: 'prefer', intensity: pacingIntensity } } : {}),
+        ...(musicPrompt.trim() ? { musicPrompt: musicPrompt.trim() } : {}),
+        ...(creativeNotes.trim() ? { notes: creativeNotes.trim() } : {}),
+      };
+    }
     onConfirm(file, options);
     resetState();
-  }, [file, platform, aspectRatio, userIntent, script, captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference, onConfirm, resetState]);
+  }, [file, platform, aspectRatio, userIntent, script, familyPreferences, pacingMode, pacingIntensity, musicPrompt, creativeNotes, onConfirm, resetState]);
+
+  const updateFamilyMode = useCallback((family: EditorialFamily, mode: EditorialPreferenceMode) => {
+    setFamilyPreferences((current) => ({
+      ...current,
+      [family]: mode === 'prefer'
+        ? { mode, frequency: current[family]?.frequency ?? 0.5, intensity: current[family]?.intensity ?? 0.5 }
+        : { mode },
+    }));
+  }, []);
+
+  const updateFamilyValue = useCallback((family: EditorialFamily, key: 'frequency' | 'intensity', value: number) => {
+    setFamilyPreferences((current) => ({
+      ...current,
+      [family]: { ...(current[family] ?? DEFAULT_PREFERENCE), mode: 'prefer', [key]: value },
+    }));
+  }, []);
 
   const handleOpenChange = useCallback((open: boolean) => {
     if (!open) {
@@ -136,7 +179,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
 
   return (
     <Dialog open={file !== null} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-[640px] max-h-none p-0 bg-[#131312] border-[#282724] rounded-lg">
+      <DialogContent className="max-w-[680px] max-h-[92vh] overflow-y-auto p-0 bg-[#131312] border-[#282724] rounded-lg">
         <DialogHeader className="sr-only">
           <DialogDescription>
             Configure how AI edits your video
@@ -303,97 +346,96 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
                 />
               </div>
 
-              {/* Editing Style Preferences */}
+              {/* Editorial policy controls. These constrain planners; they never select forms. */}
               <div className="mt-3.5 pt-3 border-t border-[#1C1B19]">
                 <p className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-2">
-                  Editing Style
-                  <span className="ml-1 text-[#454340] normal-case tracking-normal">(leave blank for AI to decide)</span>
+                  Creative direction
                 </p>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <Label htmlFor="ae-captions" className="font-mono text-[9px] tracking-[0.06em] uppercase text-[#454340] mb-0.5 block">Captions</Label>
-                    <Select value={captionStyle || ''} onValueChange={(v) => setCaptionStyle(v as AutoEditOptions['captionStyle'])}>
-                      <SelectTrigger id="ae-captions" className="h-[30px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[12px] focus:border-[#D4A652]/35">
-                        <SelectValue placeholder="Auto" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#1B1A18] border-[#282724]">
-                        <SelectItem value="word_by_word">Word-by-word</SelectItem>
-                        <SelectItem value="sentence">Sentence</SelectItem>
-                        <SelectItem value="key_phrases">Key phrases</SelectItem>
-                        <SelectItem value="none">None</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor="ae-transitions" className="font-mono text-[9px] tracking-[0.06em] uppercase text-[#454340] mb-0.5 block">Transitions</Label>
-                    <Select value={transitionPreference || ''} onValueChange={(v) => setTransitionPreference(v as AutoEditOptions['transitionPreference'])}>
-                      <SelectTrigger id="ae-transitions" className="h-[30px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[12px] focus:border-[#D4A652]/35">
-                        <SelectValue placeholder="Auto" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#1B1A18] border-[#282724]">
-                        <SelectItem value="minimal">Minimal</SelectItem>
-                        <SelectItem value="subtle">Subtle</SelectItem>
-                        <SelectItem value="dynamic">Dynamic</SelectItem>
-                        <SelectItem value="energetic">Energetic</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor="ae-zoom" className="font-mono text-[9px] tracking-[0.06em] uppercase text-[#454340] mb-0.5 block">Zoom</Label>
-                    <Select value={zoomBehavior || ''} onValueChange={(v) => setZoomBehavior(v as AutoEditOptions['zoomBehavior'])}>
-                      <SelectTrigger id="ae-zoom" className="h-[30px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[12px] focus:border-[#D4A652]/35">
-                        <SelectValue placeholder="Auto" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#1B1A18] border-[#282724]">
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="subtle">Subtle</SelectItem>
-                        <SelectItem value="moderate">Moderate</SelectItem>
-                        <SelectItem value="aggressive">Aggressive</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor="ae-graphics" className="font-mono text-[9px] tracking-[0.06em] uppercase text-[#454340] mb-0.5 block">Graphics</Label>
-                    <Select value={motionGraphics || ''} onValueChange={(v) => setMotionGraphics(v as AutoEditOptions['motionGraphics'])}>
-                      <SelectTrigger id="ae-graphics" className="h-[30px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[12px] focus:border-[#D4A652]/35">
-                        <SelectValue placeholder="Auto" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#1B1A18] border-[#282724]">
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="stats_only">Stats only</SelectItem>
-                        <SelectItem value="full">Full</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor="ae-pacing" className="font-mono text-[9px] tracking-[0.06em] uppercase text-[#454340] mb-0.5 block">Pacing</Label>
-                    <Select value={pacingFeel || ''} onValueChange={(v) => setPacingFeel(v as AutoEditOptions['pacingFeel'])}>
-                      <SelectTrigger id="ae-pacing" className="h-[30px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[12px] focus:border-[#D4A652]/35">
-                        <SelectValue placeholder="Auto" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#1B1A18] border-[#282724]">
-                        <SelectItem value="calm">Calm</SelectItem>
-                        <SelectItem value="balanced">Balanced</SelectItem>
-                        <SelectItem value="energetic">Energetic</SelectItem>
-                        <SelectItem value="fast">Fast</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor="ae-music" className="font-mono text-[9px] tracking-[0.06em] uppercase text-[#454340] mb-0.5 block">Music</Label>
-                    <Select value={musicPreference || ''} onValueChange={(v) => setMusicPreference(v as AutoEditOptions['musicPreference'])}>
-                      <SelectTrigger id="ae-music" className="h-[30px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[12px] focus:border-[#D4A652]/35">
-                        <SelectValue placeholder="Auto" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#1B1A18] border-[#282724]">
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="subtle_bed">Subtle bed</SelectItem>
-                        <SelectItem value="energetic">Energetic</SelectItem>
-                        <SelectItem value="match_video">Match video</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="divide-y divide-[#1C1B19]">
+                  {EDITORIAL_FAMILIES.map((family) => {
+                    const preference = familyPreferences[family] ?? DEFAULT_PREFERENCE;
+                    return (
+                      <div key={family} className="py-2.5 first:pt-0">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[12px] font-medium text-[#D8D4CA]">{FAMILY_LABELS[family].label}</p>
+                            <p className="truncate text-[10px] text-[#5F5E5A]">{FAMILY_LABELS[family].description}</p>
+                          </div>
+                          <div className="grid shrink-0 grid-cols-3 overflow-hidden rounded border border-[#282724]" role="group" aria-label={`${FAMILY_LABELS[family].label} policy`}>
+                            {(['auto', 'off', 'prefer'] as const).map((mode) => (
+                              <button
+                                key={mode}
+                                type="button"
+                                onClick={() => updateFamilyMode(family, mode)}
+                                className={`h-7 px-2.5 text-[10px] font-medium transition-colors ${preference.mode === mode ? 'bg-[#D4A652] text-[#0B0B0A]' : 'bg-[#1B1A18] text-[#77736A] hover:text-[#D4A652]'}`}
+                              >
+                                {mode === 'auto' ? 'AI + brand' : mode === 'off' ? 'Off' : 'Prefer'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {preference.mode === 'prefer' && (
+                          <div className="mt-2 grid grid-cols-2 gap-5 pl-1 pr-2">
+                            <PreferenceSlider
+                              label="Frequency"
+                              value={preference.frequency ?? 0.5}
+                              onChange={(value) => updateFamilyValue(family, 'frequency', value)}
+                            />
+                            <PreferenceSlider
+                              label="Intensity"
+                              value={preference.intensity ?? 0.5}
+                              onChange={(value) => updateFamilyValue(family, 'intensity', value)}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
+
+                <div className="border-t border-[#1C1B19] pt-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[12px] font-medium text-[#D8D4CA]">Pacing</p>
+                    <div className="grid grid-cols-2 overflow-hidden rounded border border-[#282724]">
+                      {(['auto', 'prefer'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setPacingMode(mode)}
+                          className={`h-7 px-3 text-[10px] font-medium transition-colors ${pacingMode === mode ? 'bg-[#D4A652] text-[#0B0B0A]' : 'bg-[#1B1A18] text-[#77736A] hover:text-[#D4A652]'}`}
+                        >
+                          {mode === 'auto' ? 'AI + brand' : 'Prefer'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {pacingMode === 'prefer' && (
+                    <div className="mt-2 px-1">
+                      <PreferenceSlider label="Calm to fast" value={pacingIntensity} onChange={setPacingIntensity} />
+                    </div>
+                  )}
+                </div>
+
+                {familyPreferences.music?.mode === 'prefer' && (
+                  <Textarea
+                    aria-label="Music preference"
+                    placeholder="Music preference, mood, instruments, or uploaded-track instruction"
+                    value={musicPrompt}
+                    onChange={(event) => setMusicPrompt(event.target.value)}
+                    rows={2}
+                    maxLength={500}
+                    className="mt-2 resize-none bg-[#1B1A18] text-[12px] text-[#ECE9E1] border-[#282724] placeholder:text-[#454340]"
+                  />
+                )}
+                <Textarea
+                  aria-label="Additional creative direction"
+                  placeholder="Additional creative direction (optional)"
+                  value={creativeNotes}
+                  onChange={(event) => setCreativeNotes(event.target.value)}
+                  rows={2}
+                  maxLength={500}
+                  className="mt-2 resize-none bg-[#1B1A18] text-[12px] text-[#ECE9E1] border-[#282724] placeholder:text-[#454340]"
+                />
               </div>
 
               {/* Footer */}
@@ -421,5 +463,25 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function PreferenceSlider({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between text-[9px] uppercase tracking-[0.06em] text-[#5F5E5A]">
+        <span>{label}</span>
+        <span>{Math.round(value * 100)}</span>
+      </div>
+      <Slider
+        aria-label={label}
+        min={0}
+        max={100}
+        step={1}
+        value={[Math.round(value * 100)]}
+        onValueChange={([next]) => onChange(next / 100)}
+        className="[&_[role=slider]]:border-[#D4A652]/60 [&_[role=slider]]:bg-[#151411] [&_[data-orientation=horizontal]>span]:bg-[#D4A652]"
+      />
+    </div>
   );
 }

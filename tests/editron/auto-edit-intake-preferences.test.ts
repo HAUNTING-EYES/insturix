@@ -14,12 +14,15 @@ describe('auto-edit intake preferences', () => {
         aspectRatio: '9:16',
         userIntent: '  talking-head reel with crisp captions  ',
         script: '  intro hook then proof  ',
-        captionStyle: 'key_phrases',
-        transitionPreference: 'minimal',
-        zoomBehavior: 'subtle',
-        motionGraphics: 'stats_only',
-        pacingFeel: 'balanced',
-        musicPreference: 'none',
+        editorialPreferences: {
+          families: {
+            captions: { mode: 'prefer', frequency: 0.8, intensity: 0.45 },
+            motionGraphics: { mode: 'prefer', frequency: 1.4, intensity: -0.2 },
+            transitions: { mode: 'off', frequency: 0.9, intensity: 0.9 },
+          },
+          pacing: { mode: 'prefer', intensity: 0.62 },
+          musicPrompt: '  restrained piano, no vocals  ',
+        },
       },
     });
 
@@ -31,12 +34,15 @@ describe('auto-edit intake preferences', () => {
       aspectRatio: '9:16',
       userIntent: 'talking-head reel with crisp captions',
       script: 'intro hook then proof',
-      captionStyle: 'key_phrases',
-      transitionPreference: 'minimal',
-      zoomBehavior: 'subtle',
-      motionGraphics: 'stats_only',
-      pacingFeel: 'balanced',
-      musicPreference: 'none',
+      editorialPreferences: {
+        families: {
+          captions: { mode: 'prefer', frequency: 0.8, intensity: 0.45 },
+          motionGraphics: { mode: 'prefer', frequency: 1, intensity: 0 },
+          transitions: { mode: 'off' },
+        },
+        pacing: { mode: 'prefer', intensity: 0.62 },
+        musicPrompt: 'restrained piano, no vocals',
+      },
     });
   });
 
@@ -49,5 +55,9 @@ describe('auto-edit intake preferences', () => {
     expect(source).toContain('useState(true)');
     expect(source).toContain('Skip Preferences - Let AI Decide Everything');
     expect(source).toContain('Edit with These Settings');
+    expect(source).toContain('Frequency');
+    expect(source).toContain('Intensity');
+    expect(source).not.toContain('Stats only');
+    expect(source).not.toContain('Word-by-word');
   });
 });

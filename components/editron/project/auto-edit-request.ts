@@ -1,16 +1,11 @@
 import type { AutoEditOptions } from '@/components/editron/project/auto-edit-dialog';
+import { normalizeEditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
 
 const AUTO_EDIT_OPTION_KEYS: Array<keyof AutoEditOptions> = [
   'platform',
   'aspectRatio',
   'userIntent',
   'script',
-  'captionStyle',
-  'transitionPreference',
-  'zoomBehavior',
-  'motionGraphics',
-  'pacingFeel',
-  'musicPreference',
 ];
 
 export interface BuildAutoEditFromAssetPayloadInput {
@@ -26,7 +21,7 @@ export function buildAutoEditFromAssetPayload({
   brandId,
   options = {},
 }: BuildAutoEditFromAssetPayloadInput) {
-  const payload: Record<string, string> = {
+  const payload: Record<string, unknown> = {
     assetId,
     title,
   };
@@ -45,6 +40,9 @@ export function buildAutoEditFromAssetPayload({
       payload[key] = normalizedValue;
     }
   }
+
+  const editorialPreferences = normalizeEditorialPreferences(options.editorialPreferences);
+  if (editorialPreferences) payload.editorialPreferences = editorialPreferences;
 
   return payload;
 }

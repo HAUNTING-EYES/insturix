@@ -23,6 +23,7 @@ import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { validateReferenceVideoUrlForAutoEditIntake } from '@/lib/editron/reference-video/reference-video-source';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
+import { normalizeEditorialPreferences, type EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -46,6 +47,7 @@ interface FromAssetRequest {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
+  editorialPreferences?: EditorialPreferences;
 }
 
 export async function POST(request: NextRequest) {
@@ -63,6 +65,7 @@ export async function POST(request: NextRequest) {
 
     const body: FromAssetRequest = await request.json();
     const { assetId, title, aspectRatio = '16:9', script, referenceAssetId, referenceVideoUrl, imageAssetIds, userIntent, platform, brandId, captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference } = body;
+    const editorialPreferences = normalizeEditorialPreferences(body.editorialPreferences);
 
     if (!assetId) {
       return NextResponse.json({ success: false, error: 'assetId is required' }, { status: 400 });
@@ -262,6 +265,7 @@ export async function POST(request: NextRequest) {
             referenceVideoSource: referenceVideoUrlMetadata,
           }),
           ...(imageAssetIds?.length && { referenceImageAssetIds: imageAssetIds }),
+          ...(editorialPreferences && { editorialPreferences }),
           updatedAt: new Date(),
         },
       },
@@ -305,6 +309,7 @@ export async function POST(request: NextRequest) {
           motionGraphics,
           pacingFeel,
           musicPreference,
+          editorialPreferences,
           creditTransactionId: autoEditCreditTransactionId,
           chargedCredits: autoEditChargedCredits,
         }),
