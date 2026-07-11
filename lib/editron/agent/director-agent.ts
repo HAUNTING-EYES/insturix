@@ -38,6 +38,7 @@ import {
   type UnifiedDecisionProducerCandidate,
 } from '@/lib/editron/services/unified-decision-bundle';
 import { enforceCanonicalDecisionTimeline } from '@/lib/editron/services/decision-timeline-guard';
+import { resolveEditorialDecisionPolicy } from '@/lib/editron/services/editorial-decision-policy';
 import {
   shouldInjectGlobalCaptionAction,
   shouldRunPostBundleProfileAction,
@@ -539,6 +540,10 @@ export async function executeDirectorPlan(
     let pathDGenreParams: any | undefined;
     let pathEGenreParams: any | undefined;
     let briefCaptionStyle: string | undefined;
+    const captionEditorialPolicy = resolveEditorialDecisionPolicy(
+      brief?.editorialPreferences,
+      'caption',
+    );
     let briefPacing: string | undefined;
     let briefSignalContext: Record<string, number> = {};
     let unifiedDecisionBundleExecuted = false;
@@ -1658,7 +1663,7 @@ export async function executeDirectorPlan(
           // when the track was installed AFTER executeEDL, every caption-emphasis returned null -> 0
           // emphasized words (observed in proj_e4BGPZza2CAl: 0/1739). Installing it here puts the track
           // in `overlays` for the EDL pass so per-word emphasis can be marked.
-          if (editedTimelineContext) {
+          if (editedTimelineContext && captionEditorialPolicy.executionAllowed) {
             const captionPresentation = resolveAtomicCaptionPresentation({
               requestedStyle: briefCaptionStyle,
               profileStyle: undefined,
@@ -1684,6 +1689,10 @@ export async function executeDirectorPlan(
                 `removedGenerated=${captionTrackResult.removedGenerated}`,
               );
             }
+          } else if (editedTimelineContext) {
+            console.log(
+              `[Director] Canonical caption track skipped (${captionEditorialPolicy.reason})`,
+            );
           }
 
           const unifiedExecutionResult = await executeEDL(
@@ -2242,6 +2251,7 @@ export async function executeDirectorPlan(
       captionStyle: resolvedCaptionStyle,
       hasRawFootage: hasRawFootageForGlobalCaptions,
       hasCanonicalEditedTimeline: hasCanonicalEditedTimelineForGlobalCaptions,
+      editorialExecutionAllowed: captionEditorialPolicy.executionAllowed,
     });
 
     if (globalCaptionAction.run) {

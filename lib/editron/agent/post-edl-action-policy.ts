@@ -34,12 +34,14 @@ export interface UtilityLiveProducerDecision {
 export type GlobalCaptionActionReason =
   | 'eligible'
   | 'caption-style-disabled'
+  | 'user-policy-off:captions'
   | 'canonical-upload-needs-caption-track-planner';
 
 export interface GlobalCaptionActionInput {
   captionStyle?: string | null;
   hasRawFootage: boolean;
   hasCanonicalEditedTimeline: boolean;
+  editorialExecutionAllowed?: boolean;
 }
 
 export interface GlobalCaptionActionDecision {
@@ -132,6 +134,10 @@ export function shouldRunUtilityLiveProducer(
 export function shouldInjectGlobalCaptionAction(
   input: GlobalCaptionActionInput,
 ): GlobalCaptionActionDecision {
+  if (input.editorialExecutionAllowed === false) {
+    return { run: false, reason: 'user-policy-off:captions' };
+  }
+
   if (!input.captionStyle || input.captionStyle === 'none') {
     return { run: false, reason: 'caption-style-disabled' };
   }

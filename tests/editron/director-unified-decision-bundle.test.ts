@@ -230,5 +230,19 @@ describe('director unified decision bundle control flow', () => {
       run: false,
       reason: 'caption-style-disabled',
     });
+
+    expect(shouldInjectGlobalCaptionAction({
+      captionStyle: 'word_by_word',
+      hasRawFootage: false,
+      hasCanonicalEditedTimeline: false,
+      editorialExecutionAllowed: false,
+    })).toEqual({
+      run: false,
+      reason: 'user-policy-off:captions',
+    });
+
+    const source = directorSource();
+    expect(source).toContain('if (editedTimelineContext && captionEditorialPolicy.executionAllowed)');
+    expect(source).toContain('editorialExecutionAllowed: captionEditorialPolicy.executionAllowed');
   });
 });
