@@ -106,6 +106,45 @@ describe('Clickatron creative sidecar signal profile', () => {
     expect(profile.intent.outputFormat).toBe('video_script');
     expect(shouldRequestClickatronCreativeSidecar(input, profile)).toBe(false);
   });
+  it('keeps an explicit video_script project off the image sidecar despite incidental brand vocabulary', () => {
+    // Regression: production /plan built an enriched author prompt from real brand + director + product
+    // evidence context that legitimately says "social proof", "captions", "social=ready". Those stray
+    // NON_VIDEO keywords flipped promptRequestsCreative/contextRequestsCreative true, defeating the video
+    // guard, so a video was forced to author a Clickatron image sidecar whose required JSON.parse threw a
+    // 500. An explicit video_script project must stay off the still-image sidecar regardless.
+    const input: AgentInput = {
+      context: {
+        projectSummary: [
+          'Create a 45s SaaS explainer in 16:9.',
+          'Product/social/preview images: dashboard | onboarding.',
+          'Intake: website=ready; social=ready; uploads=ready.',
+          'Typography: captions kept readable and separated from graphics.',
+        ].join('\n'),
+        systemBrief: 'Brand DNA: bold, expert, social-native voice.',
+      },
+      project: {
+        idea: 'SaaS explainer video',
+        purpose: 'Create a clear SaaS explainer video.',
+        style: 'clear product-led SaaS demo',
+        format: 'video_script',
+        platform: 'YouTube',
+      },
+      userPrompt: [
+        'Write a complete SaaS explainer script with scene-by-scene narration.',
+        'Director beats include a social_proof family scene; keep captions readable.',
+      ].join('\n'),
+    };
+    const profile = resolveContentSignalProfile({
+      userPrompt: input.userPrompt,
+      project: input.project,
+      context: input.context,
+    });
+
+    // Sanity: the incidental keywords really are present (this is what used to defeat the guard).
+    expect(shouldRequestClickatronCreativeSidecar(input, profile)).toBe(false);
+    // …and without the profile arg too (generateScript always passes one, but the guard must not depend on it).
+    expect(shouldRequestClickatronCreativeSidecar(input)).toBe(false);
+  });
   it('ignores learned social voice examples when deciding hidden Clickatron export intent', () => {
     const input: AgentInput = {
       context: {

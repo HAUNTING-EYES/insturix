@@ -94,11 +94,20 @@ export function shouldRequestClickatronCreativeSidecar(
     && profile.intent.clickatron.assetIntent === 'static_image'
     && (profile.intent.outputFormat === 'social_post' || profile.intent.outputFormat === 'caption');
 
-  if (
-    (promptRequestsVideoProductionDeliverable || projectRequestsVideoProductionDeliverable)
-    && !promptRequestsCreative
-    && !profileStaticCreative
-  ) {
+  // An explicitly-declared video PROJECT (project.format = video_script / saas explainer / …) is
+  // authoritative: a video never emits a Clickatron still-image sidecar. This declaration must beat
+  // incidental non-video vocabulary that rides along in the enriched author prompt — a SaaS explainer's
+  // brand/director context legitimately mentions "social proof", "captions", "social=ready", etc., and a
+  // stray keyword there must NOT force the video to author an image-post export (whose required JSON.parse
+  // then hard-throws a 500 when the model's sidecar JSON is malformed). Only a RESOLVED static-image social
+  // profile (a real intent signal, not a keyword) can override an explicit video project.
+  if (projectRequestsVideoProductionDeliverable && !profileStaticCreative) {
+    return false;
+  }
+
+  // Prompt-level video detection stays keyword-gated: a bare user prompt ("make a reel AND some posts") can
+  // legitimately want both, so an explicit non-video request in the same prompt still opts back in.
+  if (promptRequestsVideoProductionDeliverable && !promptRequestsCreative && !profileStaticCreative) {
     return false;
   }
 
