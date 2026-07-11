@@ -33,6 +33,29 @@ describe('brandDefaultsFromProfile', () => {
     expect(d.vibe).toEqual({ tone: 'playful, premium', energy: 'punchy' });
   });
 
+  it('carries only actionable Brand Vault narrative and kinetic signals into brief style defaults', () => {
+    const d = brandDefaultsFromProfile({
+      narrative: {
+        emotionalArc: { value: 0.72, confidence: 0.8 },
+        pacePreference: { value: 0.91, confidence: 0.2 },
+      },
+      motion: {
+        motionEnergy: { value: 0.68, confidence: 0.7 },
+        easingTaste: { value: 1.4, confidence: 0.9 },
+      },
+      composition: {
+        safeZones: { value: 0.63, confidence: 0.75 },
+      },
+    });
+
+    expect(d.vibe).toEqual({
+      'narrative.emotionalArc': 0.72,
+      'motion.motionEnergy': 0.68,
+      'motion.easingTaste': 1,
+      'composition.safeZones': 0.63,
+    });
+  });
+
   it('★ leaves aspect/duration UNSET (platform-derived, not a brand attribute)', () => {
     const d = brandDefaultsFromProfile({ primaryPlatform: 'youtube' });
     expect(d.preferredAspectRatio).toBeUndefined();
@@ -45,11 +68,12 @@ describe('brandDefaultsFromProfile', () => {
 
   it('feeds the resolver: a TikTok brand default drives platform (over content inference)', () => {
     const signals: IntakeSignals = {
-      entryPoint: 'upload', assetCount: 2, hasBrand: true,
+      entryPoint: 'upload', assetCount: 2, hasBrand: true, brandId: 'brand_tiktok',
       brand: brandDefaultsFromProfile({ primaryPlatform: 'tiktok', toneKeywords: ['bold'] }),
     };
     const brief = resolveProductionBrief(signals);
     expect(brief.output.platform).toBe('tiktok');
     expect(brief.output.aspectRatio).toBe('9:16'); // derived from the brand's platform
+    expect(brief.brand).toEqual({ brandId: 'brand_tiktok' });
   });
 });

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
   getDatabase: vi.fn(),
   hydrateStorylineAnalysesForBatch: vi.fn(),
+  intakeSignalsFromProject: vi.fn(),
   isR2Available: vi.fn(),
   embedScenes: vi.fn(),
   generateEditronEmbedding: vi.fn(),
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   receiverVerify: vi.fn(),
   resolveAssetUrl: vi.fn(),
   resolveProductionBrief: vi.fn(),
+  resolveEffectiveBrandWithProfile: vi.fn(),
   saveProject: vi.fn(),
   updateBatch: vi.fn(),
   updateProject: vi.fn(),
@@ -81,10 +83,13 @@ vi.mock('@/lib/editron/storyline/signal-enricher', () => ({
   narrativeSourceFromTimeline: mocks.narrativeSourceFromTimeline,
 }));
 vi.mock('@/lib/editron/production-brief/intake-adapter', () => ({
-  intakeSignalsFromProject: vi.fn(() => ({ requested: {} })),
+  intakeSignalsFromProject: mocks.intakeSignalsFromProject,
 }));
 vi.mock('@/lib/editron/production-brief/intake-resolver', () => ({
   resolveProductionBrief: mocks.resolveProductionBrief,
+}));
+vi.mock('@/lib/shared/brand-effective-resolver', () => ({
+  resolveEffectiveBrandWithProfile: mocks.resolveEffectiveBrandWithProfile,
 }));
 vi.mock('@/lib/editron/db/mongodb', () => ({
   COLLECTIONS: {
@@ -204,12 +209,22 @@ describe('from-batch storyline route handoff', () => {
     mocks.buildSignalTimeline.mockReturnValue({ eventSignals: [{ timestampMs: 1000, signal: 'entity.name', value: 'Proof', context: 'Proof' }], gridSignals: new Map(), globalSignals: {}, fps: 30, totalFrames: 240, gridInterval: 15 });
     mocks.buildSignalTimelineFromAnalysis.mockReturnValue({ eventSignals: [], gridSignals: new Map(), globalSignals: {}, fps: 30, totalFrames: 240, gridInterval: 15 });
     mocks.narrativeSourceFromTimeline.mockReturnValue({ events: [{ timestampMs: 1000, kind: 'name', context: 'Proof' }], durationMs: 8000 });
+    mocks.intakeSignalsFromProject.mockReturnValue({ requested: {} });
     mocks.resolveProductionBrief.mockReturnValue({
       output: { aspectRatio: '16:9', platform: 'youtube', targetDurationSec: null, count: 1, format: 'auto-edit' },
       brand: null,
       entryPoint: 'upload',
       sourceDurationSec: 120,
       resolution: { fieldConfidence: {}, confirmed: [], inferred: [] },
+    });
+    mocks.resolveEffectiveBrandWithProfile.mockResolvedValue({
+      source: 'brand_vault',
+      brand: null,
+      acceptedProfile: {
+        narrative: { emotionalArc: { value: 0.7, confidence: 0.8 } },
+        motion: { motionEnergy: { value: 0.65, confidence: 0.8 } },
+        composition: { safeZones: { value: 0.8, confidence: 0.8 } },
+      },
     });
     mocks.orderStorylineWithLLM.mockResolvedValue({
       planApplied: true,
@@ -238,7 +253,7 @@ describe('from-batch storyline route handoff', () => {
 
   it('persists the request, then composes exactly once from a signed durable callback', async () => {
     const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
-    const requested = await POST(request({ uploadBatchId: 'batch_1', aspectRatio: '16:9' }) as never);
+    const requested = await POST(request({ uploadBatchId: 'batch_1', aspectRatio: '16:9', brandId: 'brand_1' }) as never);
     const requestedPayload = await requested.json();
 
     expect(requested.status).toBe(202);
@@ -260,6 +275,7 @@ describe('from-batch storyline route handoff', () => {
     };
     const response = await POST(request({
       uploadBatchId: 'batch_1',
+      brandId: 'brand_1',
       _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 0, failureCount: 0 },
     }, true) as never);
     const payload = await response.json();
@@ -274,6 +290,25 @@ describe('from-batch storyline route handoff', () => {
     }));
     expect(mocks.receiverVerify).toHaveBeenCalledOnce();
     expect(mocks.deductCredits).toHaveBeenCalledOnce();
+    expect(mocks.resolveEffectiveBrandWithProfile).toHaveBeenCalledWith('user_1', 'brand_1', {
+      service: 'editron',
+      orgId: 'org_1',
+    });
+    expect(mocks.intakeSignalsFromProject).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.any(Array),
+      expect.objectContaining({
+        hasBrand: true,
+        brand: expect.objectContaining({
+          vibe: expect.objectContaining({
+            'narrative.emotionalArc': 0.7,
+            'motion.motionEnergy': 0.65,
+            'composition.safeZones': 0.8,
+          }),
+        }),
+      }),
+    );
+    expect(mocks.resolveProductionBrief).toHaveBeenCalledWith(expect.objectContaining({ brandId: 'brand_1' }));
 
     expect(mocks.saveProject).toHaveBeenCalledOnce();
     const savedState = mocks.saveProject.mock.calls[0][2];

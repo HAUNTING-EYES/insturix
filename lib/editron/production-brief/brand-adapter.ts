@@ -14,6 +14,12 @@
 
 import type { BrandDefaults } from './intake-resolver';
 import type { Platform } from './production-brief';
+import { BRAND_CONFIDENCE } from '@/lib/shared/brand-confidence';
+
+interface ProfileSignal<T> {
+  value: T;
+  confidence?: number;
+}
 
 /** The subset of a Brand Vault profile the adapter reads. The caller maps the real profile here. */
 export interface BrandProfileLike {
@@ -25,6 +31,22 @@ export interface BrandProfileLike {
   toneKeywords?: (string | null)[] | null;
   /** Energy / pace descriptor if the brand specifies one ('punchy', 'calm', ...) -> vibe.energy. */
   energy?: string | null;
+  visual?: Partial<Record<
+    'minimalism' | 'densityTolerance' | 'dataVizAffinity' | 'expressiveness' | 'decorationTolerance' | 'contrastPreference',
+    ProfileSignal<number>
+  >> | null;
+  narrative?: {
+    emotionalArc?: ProfileSignal<number>;
+    pacePreference?: ProfileSignal<number>;
+  } | null;
+  motion?: Partial<Record<
+    'motionEnergy' | 'overshootTolerance' | 'transitionSharpness' | 'rhythmRegularity' | 'anticipationStyle' | 'easingTaste',
+    ProfileSignal<number>
+  >> | null;
+  composition?: {
+    safeZones?: ProfileSignal<number>;
+    figureGroundRatio?: ProfileSignal<number>;
+  } | null;
 }
 
 /** Map common free-text platform names to a Platform. Unknown -> undefined (never guessed). */
@@ -52,14 +74,31 @@ function firstNormalizedPlatform(list: (string | null)[] | null | undefined): Pl
   return undefined;
 }
 
-function buildVibe(profile: BrandProfileLike): Record<string, string> | undefined {
-  const vibe: Record<string, string> = {};
+function buildVibe(profile: BrandProfileLike): Record<string, number | string> | undefined {
+  const vibe: Record<string, number | string> = {};
   const tones = (profile.toneKeywords ?? [])
     .map((t) => (typeof t === 'string' ? t.trim() : ''))
     .filter((t) => t.length > 0);
   if (tones.length > 0) vibe.tone = tones.join(', ');
   if (typeof profile.energy === 'string' && profile.energy.trim().length > 0) vibe.energy = profile.energy.trim();
+  copyActionableSignals(vibe, profile.visual, 'visual');
+  copyActionableSignals(vibe, profile.narrative, 'narrative');
+  copyActionableSignals(vibe, profile.motion, 'motion');
+  copyActionableSignals(vibe, profile.composition, 'composition');
   return Object.keys(vibe).length > 0 ? vibe : undefined;
+}
+
+function copyActionableSignals(
+  target: Record<string, number | string>,
+  source: Record<string, ProfileSignal<number> | undefined> | null | undefined,
+  namespace: string,
+): void {
+  if (!source) return;
+  for (const [key, signal] of Object.entries(source)) {
+    if (!signal || !Number.isFinite(signal.value)) continue;
+    if ((signal.confidence ?? 0) < BRAND_CONFIDENCE.ACTIONABLE_SIGNAL) continue;
+    target[`${namespace}.${key}`] = Math.max(0, Math.min(1, signal.value));
+  }
 }
 
 /**

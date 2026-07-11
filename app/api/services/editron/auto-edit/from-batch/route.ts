@@ -16,6 +16,7 @@ import { orderStorylineWithLLM, type OrderStorylineResult } from '@/lib/editron/
 import { buildAssetContextMap, scenesFromAssetAnalyses } from '@/lib/editron/storyline/multi-asset-compose';
 import { intakeSignalsFromProject } from '@/lib/editron/production-brief/intake-adapter';
 import { resolveProductionBrief } from '@/lib/editron/production-brief/intake-resolver';
+import { brandDefaultsFromProfile } from '@/lib/editron/production-brief/brand-adapter';
 import type { AspectRatio, Platform, ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import { readProjectAssetAnalyses } from '@/lib/editron/storyline/asset-analysis-reader';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
@@ -27,6 +28,7 @@ import { generateEditronEmbedding } from '@/lib/editron/services/gemini-embeddin
 import { narrativeSourceFromTimeline, type NarrativeSignalSource } from '@/lib/editron/storyline/signal-enricher';
 import { buildSignalTimeline, buildSignalTimelineFromAnalysis, type RawFootageAnalysis } from '@/lib/editron/services/signal-registry';
 import type { SegmentAnalysis } from '@/lib/editron/types/segment-analysis';
+import { resolveEffectiveBrandWithProfile } from '@/lib/shared/brand-effective-resolver';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -271,12 +273,13 @@ function mergeIntake(batchIntake: MediaUploadBatchIntake | undefined, body: From
   };
 }
 
-function buildBrief(
+async function buildBrief(
   analyses: Awaited<ReturnType<typeof readProjectAssetAnalyses>>,
   assets: readonly BatchMediaAsset[],
   intake: MediaUploadBatchIntake,
   body: FromBatchRequest,
-): ProductionBrief {
+  caller: Pick<BatchCaller, 'userId' | 'orgId'>,
+): Promise<ProductionBrief> {
   const requested: NonNullable<Parameters<typeof intakeSignalsFromProject>[2]>['requested'] = {};
   const platform = normalizePlatform(intake.platform);
   const aspectRatio = normalizeAspectRatio(intake.aspectRatio);
@@ -292,15 +295,28 @@ function buildBrief(
     .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
     .join('\n\n');
 
-  return resolveProductionBrief(intakeSignalsFromProject(
+  const brandId = cleanString(body.brandId, 128);
+  const brandResolution = brandId
+    ? await resolveEffectiveBrandWithProfile(caller.userId, brandId, {
+        service: 'editron',
+        orgId: caller.orgId,
+      })
+    : null;
+  const brand = brandResolution?.acceptedProfile
+    ? brandDefaultsFromProfile(brandResolution.acceptedProfile)
+    : null;
+
+  const signals = intakeSignalsFromProject(
     analyses,
     assets.map((asset) => ({ assetId: asset.assetId, durationSec: positiveDurationSec(asset) })),
     {
-      hasBrand: Boolean(cleanString(body.brandId, 128)),
+      hasBrand: Boolean(brandId),
+      brand,
       prompt: prompt || null,
       requested,
     },
-  ));
+  );
+  return resolveProductionBrief({ ...signals, brandId });
 }
 
 function dimensionsForAspect(aspectRatio: AspectRatio): { width: number; height: number } {
@@ -982,7 +998,7 @@ export async function POST(request: NextRequest) {
       assets: visualAssets,
     });
     const analyses = await readProjectAssetAnalyses(db as any, activeProjectId);
-    const brief = buildBrief(analyses, visualAssets, intake, body);
+    const brief = await buildBrief(analyses, visualAssets, intake, body, caller);
     const dims = dimensionsForAspect(brief.output.aspectRatio ?? '16:9');
     const assetContexts = buildAssetContextMap(visualAssets.map((asset) => ({
       assetId: asset.assetId,

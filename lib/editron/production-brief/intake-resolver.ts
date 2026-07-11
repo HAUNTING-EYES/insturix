@@ -45,6 +45,8 @@ export interface IntakeSignals {
   contentType?: string | null;
   speechCoverage?: number | null;
   hasBrand: boolean;
+  /** Selected persistent brand scope. Preserved even when no accepted profile is available. */
+  brandId?: string | null;
   /** The user's connected posting destinations, if known - the best platform signal. */
   connectedPlatforms?: Platform[];
   /** Brand-derived defaults (from the Brand Vault profile). A trusted default, overridable. */
@@ -266,7 +268,9 @@ export function resolveProductionBrief(signals: IntakeSignals): ProductionBrief 
 
   return {
     output,
-    brand: signals.hasBrand ? {} : null,
+    brand: signals.hasBrand
+      ? (signals.brandId?.trim() ? { brandId: signals.brandId.trim() } : {})
+      : null,
     entryPoint: signals.entryPoint,
     sourceDurationSec,
     resolution: { fieldConfidence, confirmed, inferred },
