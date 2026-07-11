@@ -172,14 +172,24 @@ export function buildFailedTrendAnalysis(
 
 export function selectedTrendToContentCardContext(selectedTrend: SelectedTrend): ContentCardTrendContext {
   const sourceUrl = selectedTrend.candidate.evidence.find((evidence) => evidence.sourceUrl)?.sourceUrl;
+  const analysis = selectedTrend.analysis?.status === 'completed'
+    ? selectedTrend.analysis
+    : undefined;
+  const provenance = Array.from(new Set([
+    ...selectedTrend.candidate.evidence.map((evidence) => evidence.evidenceId),
+    ...(analysis ? [analysis.source.referenceId] : []),
+  ]));
+
   return {
     trendId: selectedTrend.candidate.candidateId,
-    source: 'public_trend',
+    source: analysis ? 'social' : 'public_trend',
     title: selectedTrend.candidate.title,
     ...(selectedTrend.candidate.summary ? { summary: selectedTrend.candidate.summary } : {}),
     ...(sourceUrl ? { url: sourceUrl } : {}),
-    provenance: selectedTrend.candidate.evidence.map((evidence) => evidence.evidenceId),
-    status: 'accepted',
+    provenance,
+    // Selecting a public candidate is intent. It only becomes accepted after
+    // ThinkForge has analysed an authorized reference into the canonical spec.
+    status: analysis ? 'accepted' : 'suggested',
   };
 }
 

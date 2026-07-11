@@ -65,6 +65,16 @@ function firstPresent(project: ProjectMeta | null | undefined, keys: readonly st
   return undefined;
 }
 
+/**
+ * A selected trend becomes generation input only after its authorized reference
+ * has been analysed. Browser candidates, queued jobs, and failed jobs remain
+ * planning context, not writer instructions.
+ */
+function completedSelectedTrendSpec(project: ProjectMeta | null | undefined): unknown {
+  const analysis = project?.selectedTrend?.analysis;
+  return analysis?.status === 'completed' ? analysis.trendSpec : undefined;
+}
+
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
     if (typeof value !== 'string') continue;
@@ -192,7 +202,12 @@ export function resolveThinkForgeProductionBrief(input: ThinkForgeProductionBrie
     ...brief,
     brand: brandId ? { brandId } : brief.brand,
   };
-  const trendSpec = input.trendSpec ?? firstPresent(project, ['trendSpec']);
+  // An explicit caller-supplied spec wins, then the current session's analysed
+  // selection. The latter must beat legacy preferences so a stale prior trend
+  // cannot silently steer a new request.
+  const trendSpec = input.trendSpec
+    ?? completedSelectedTrendSpec(project)
+    ?? firstPresent(project, ['trendSpec']);
 
   return trendSpec
     ? applyTrendSpecToBrief({ brief: resolvedBrief, trendSpec })

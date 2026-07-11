@@ -937,23 +937,26 @@ CRITICAL: You are editing a SELECTION from a larger document.
           console.warn('[chat-service] content signal profile resolution failed; generating without it:', profileErr);
         }
 
-        try {
-          const trendContext = await resolveThinkForgeTrendContext({
-            userPrompt: effectivePrompt,
-            project: sessionState.metadata,
-            brandId: sessionState.metadata.brandId,
-            contentPath,
-          });
-          if (trendContext?.promptBlock) {
-            groundedSystemBrief = [groundedSystemBrief, trendContext.promptBlock]
-              .filter(Boolean)
-              .join('\n\n');
+        const hasCompletedSelectedTrend = sessionState.metadata.selectedTrend?.analysis?.status === 'completed';
+        if (!hasCompletedSelectedTrend) {
+          try {
+            const trendContext = await resolveThinkForgeTrendContext({
+              userPrompt: effectivePrompt,
+              project: sessionState.metadata,
+              brandId: sessionState.metadata.brandId,
+              contentPath,
+            });
+            if (trendContext?.promptBlock) {
+              groundedSystemBrief = [groundedSystemBrief, trendContext.promptBlock]
+                .filter(Boolean)
+                .join('\n\n');
+            }
+            if (trendContext?.metadata) {
+              trendContextMetadata = trendContext.metadata;
+            }
+          } catch (trendErr) {
+            console.warn('[chat-service] public trend context failed; generating without it:', trendErr);
           }
-          if (trendContext?.metadata) {
-            trendContextMetadata = trendContext.metadata;
-          }
-        } catch (trendErr) {
-          console.warn('[chat-service] public trend context failed; generating without it:', trendErr);
         }
 
         if (contentPath !== 'post') {

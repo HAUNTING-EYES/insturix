@@ -16,8 +16,15 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
 }));
 
 import { POST } from '@/app/api/services/thinkforge/trends/select/route';
+import {
+  buildAnalyzedSelectedTrend,
+  buildSelectedTrend,
+  selectedTrendToContentCardContext,
+} from '@/lib/thinkforge/trends/selected-trend';
+import { TREND_SPEC_VERSION } from '@/lib/thinkforge/schemas/trend-spec';
+import type { TrendCandidate } from '@/lib/thinkforge/trends/trend-evidence';
 
-function candidate(overrides: Record<string, unknown> = {}) {
+function candidate(overrides: Partial<TrendCandidate> = {}): TrendCandidate {
   return {
     candidateId: 'candidate_1',
     candidateVersion: 1,
@@ -103,8 +110,50 @@ describe('ThinkForge trend selection route', () => {
       calendarTrendContext: {
         trendId: 'candidate_1',
         source: 'public_trend',
-        status: 'accepted',
+        status: 'suggested',
       },
+    });
+  });
+
+  it('marks calendar trend context accepted only after authorized analysis completes', () => {
+    const selected = buildSelectedTrend({
+      sessionId: 'session_1',
+      target: 'calendar',
+      candidate: candidate(),
+    }, new Date('2026-07-12T00:00:00.000Z'));
+    const analyzed = buildAnalyzedSelectedTrend(selected, {
+      analysisVersion: 1,
+      status: 'completed',
+      analyzedAt: '2026-07-12T00:01:00.000Z',
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      source: {
+        referenceId: 'asset_reference_1',
+        sourceKind: 'asset',
+        sourceLabel: 'Reference reel',
+        sourceFingerprint: 'sha256:reference_1',
+      },
+      trendSpec: {
+        trendId: 'candidate_1',
+        version: TREND_SPEC_VERSION,
+        alignmentFrame: 'beat-space',
+        beatGrid: {
+          beatsMs: [0, 500],
+          sections: [{ id: 'hook', role: 'hook', start: 0, end: 500, beats: [0] }],
+          totalMs: 500,
+        },
+        invariants: [],
+        variables: [],
+        copyFormula: { slots: [] },
+        performanceScript: 'Use the beat as a pacing cue.',
+      },
+    });
+
+    expect(selectedTrendToContentCardContext(analyzed)).toMatchObject({
+      trendId: 'candidate_1',
+      source: 'social',
+      status: 'accepted',
+      provenance: ['evidence_1', 'asset_reference_1'],
     });
   });
 

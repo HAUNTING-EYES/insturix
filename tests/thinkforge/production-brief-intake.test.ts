@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import { resolveThinkForgeProductionBrief } from '@/lib/thinkforge/brief/resolve-production-brief';
-import { TREND_SPEC_VERSION } from '@/lib/thinkforge/schemas/trend-spec';
+import { TREND_SPEC_VERSION, type TrendSpec } from '@/lib/thinkforge/schemas/trend-spec';
 import type { ProjectMeta } from '@/lib/thinkforge/state/types';
+import {
+  buildAnalyzedSelectedTrend,
+  buildFailedTrendAnalysis,
+  buildQueuedTrendAnalysis,
+  buildSelectedTrend,
+} from '@/lib/thinkforge/trends/selected-trend';
 
-function trendSpec(overrides: Record<string, unknown> = {}) {
+function trendSpec(overrides: Partial<TrendSpec> = {}): TrendSpec {
   return {
     trendId: 'trend_pov_drop_reveal',
     version: TREND_SPEC_VERSION,
@@ -44,6 +50,35 @@ function trendSpec(overrides: Record<string, unknown> = {}) {
     performanceScript: 'Beat 0-6: build anticipation. Beat 7: reveal and react.',
     ...overrides,
   };
+}
+
+function selectedTrend() {
+  return buildSelectedTrend({
+    sessionId: 'session_1',
+    target: 'script',
+    candidate: {
+      candidateId: 'trend_pov_drop_reveal',
+      candidateVersion: 1,
+      title: 'POV drop reveal',
+      platform: 'instagram',
+      evidence: [{
+        evidenceId: 'evidence_1',
+        evidenceVersion: 1,
+        kind: 'user_submitted_reference',
+        provider: 'user',
+        platform: 'instagram',
+        title: 'Reference reel',
+        provenance: {
+          purpose: 'public_trend_discovery',
+          queryFingerprint: 'query_1',
+        },
+      }],
+      evidenceCompleteness: 1,
+      freshness: 'fresh',
+      trendSpecEligible: false,
+      nextAction: 'add_reference_video',
+    },
+  }, new Date('2026-07-12T00:00:00.000Z'));
 }
 describe('resolveThinkForgeProductionBrief', () => {
   it('maps explicit ThinkForge session fields into the shared ProductionBrief', () => {
@@ -183,5 +218,57 @@ describe('resolveThinkForgeProductionBrief', () => {
     expect(brief.output.targetDurationSec).toBe(7.5);
     expect(brief.resolution.confirmed).toContain('targetDurationSec');
     expect(brief.trend?.warnings).toEqual(['requested_duration_snapped_to_section_boundary']);
+  });
+
+  it('uses the completed selected trend ahead of a stale legacy preference', () => {
+    const selected = buildAnalyzedSelectedTrend(selectedTrend(), {
+      analysisVersion: 1,
+      status: 'completed',
+      analyzedAt: '2026-07-12T00:01:00.000Z',
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      source: {
+        referenceId: 'asset_reference_1',
+        sourceKind: 'asset',
+        sourceLabel: 'Reference reel',
+        sourceFingerprint: 'sha256:reference_1',
+      },
+      trendSpec: trendSpec(),
+    });
+
+    const brief = resolveThinkForgeProductionBrief({
+      userPrompt: 'Adapt this format to our launch',
+      project: {
+        selectedTrend: selected,
+        preferences: {
+          trendSpec: trendSpec({ trendId: 'stale_legacy_trend', beatGrid: { ...trendSpec().beatGrid, totalMs: 30_000 } }),
+        },
+      },
+    });
+
+    expect(brief.trend?.trendId).toBe('trend_pov_drop_reveal');
+    expect(brief.output.targetDurationSec).toBe(7.5);
+  });
+
+  it.each([
+    ['queued', (selected: ReturnType<typeof selectedTrend>) => buildQueuedTrendAnalysis(selected, {
+      jobId: 'job_1',
+      sourceKind: 'asset',
+      now: new Date('2026-07-12T00:01:00.000Z'),
+    })],
+    ['failed', (selected: ReturnType<typeof selectedTrend>) => buildFailedTrendAnalysis(selected, {
+      jobId: 'job_1',
+      sourceKind: 'asset',
+      failureCode: 'analysis_generation_failed',
+      now: new Date('2026-07-12T00:01:00.000Z'),
+    })],
+  ])('does not activate a %s selected trend', (_status, withAnalysis) => {
+    const brief = resolveThinkForgeProductionBrief({
+      userPrompt: 'Adapt this format to our launch',
+      project: { selectedTrend: withAnalysis(selectedTrend()) },
+    });
+
+    expect(brief.trend).toBeUndefined();
+    expect(brief.output.targetDurationSec).toBeNull();
   });
 });
