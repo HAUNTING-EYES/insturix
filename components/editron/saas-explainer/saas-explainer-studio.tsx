@@ -306,10 +306,10 @@ export default function SaasExplainerStudio() {
               <Field label="Audience" hint="Optional.">
                 <input className={inputClass} value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="SaaS founders, agencies" />
               </Field>
-              <Field label="Length">
+              <Field label="Length" group>
                 <Seg options={DURATIONS.map((d) => ({ id: String(d), label: `${d}s` }))} value={String(durationSec)} onPick={(v) => setDurationSec(Number(v))} />
               </Field>
-              <Field label="Aspect">
+              <Field label="Aspect" group>
                 <Seg options={ASPECTS.map((a) => ({ id: a.id, label: a.label }))} value={aspectRatio} onPick={(v) => setAspectRatio(v as Aspect)} />
               </Field>
             </div>
@@ -481,14 +481,19 @@ function SectionHead({ icon, title, tag, hint }: { icon: React.ReactNode; title:
   );
 }
 
-function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1.5">
+function Field({ label, hint, children, group }: { label: string; hint?: React.ReactNode; children: React.ReactNode; group?: boolean }) {
+  const inner = (
+    <>
       <span className="text-[12px] font-semibold text-ds-secondary">{label}</span>
       {children}
       {hint && <span className="text-[11px] text-ds-faint">{hint}</span>}
-    </label>
+    </>
   );
+  // A <label> forwards clicks to its first control — which breaks a group of
+  // buttons (Seg). Use a plain div for those; keep <label> for single inputs.
+  return group
+    ? <div className="flex flex-col items-start gap-1.5">{inner}</div>
+    : <label className="flex flex-col gap-1.5">{inner}</label>;
 }
 
 function Seg({ options, value, onPick }: { options: Array<{ id: string; label: string }>; value: string; onPick: (v: string) => void }) {
