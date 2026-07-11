@@ -5,11 +5,15 @@ const mocks = vi.hoisted(() => ({
   addDataBankEntry: vi.fn(),
   auth: vi.fn(),
   checkDuplicateBeforeSave: vi.fn(),
-  createModelByTier: vi.fn(),
+  createThinkForgeModelForRoute: vi.fn(),
   embedDataBankEntry: vi.fn(),
   generateObject: vi.fn(),
   getSession: vi.fn(),
   processPendingEmbeddings: vi.fn(),
+  readAiSdkUsage: vi.fn(),
+  recordThinkForgeDirectCost: vi.fn(),
+  resolveThinkForgeProviderRoute: vi.fn(),
+  safeJsonLength: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({
@@ -21,8 +25,8 @@ vi.mock('ai', () => ({
 }));
 
 vi.mock('@/lib/thinkforge/agents/model-factory', () => ({
-  createModelByTier: mocks.createModelByTier,
-  ModelTier: { Structural: 'structural' },
+  createThinkForgeModelForRoute: mocks.createThinkForgeModelForRoute,
+  resolveThinkForgeProviderRoute: mocks.resolveThinkForgeProviderRoute,
 }));
 
 vi.mock('@/lib/thinkforge/services/db', () => ({
@@ -34,6 +38,12 @@ vi.mock('@/lib/thinkforge/services/embedding-service', () => ({
   checkDuplicateBeforeSave: mocks.checkDuplicateBeforeSave,
   embedDataBankEntry: mocks.embedDataBankEntry,
   processPendingEmbeddings: mocks.processPendingEmbeddings,
+}));
+
+vi.mock('@/lib/thinkforge/services/provider-cost-telemetry', () => ({
+  readAiSdkUsage: mocks.readAiSdkUsage,
+  recordThinkForgeDirectCost: mocks.recordThinkForgeDirectCost,
+  safeJsonLength: mocks.safeJsonLength,
 }));
 
 const LONG_TEXT = 'This is a long enough editor buffer where I explain that I prefer warm direct response openings and crisp captions.';
@@ -60,10 +70,17 @@ describe('ThinkForge observer ingress', () => {
       mock.mockReset();
     }
     mocks.auth.mockResolvedValue({ userId: 'user_1' });
-    mocks.createModelByTier.mockReturnValue('model');
+    mocks.resolveThinkForgeProviderRoute.mockReturnValue({
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+    });
+    mocks.createThinkForgeModelForRoute.mockReturnValue('model');
     mocks.checkDuplicateBeforeSave.mockResolvedValue(false);
     mocks.embedDataBankEntry.mockResolvedValue(undefined);
     mocks.processPendingEmbeddings.mockResolvedValue(undefined);
+    mocks.readAiSdkUsage.mockResolvedValue(undefined);
+    mocks.recordThinkForgeDirectCost.mockResolvedValue(undefined);
+    mocks.safeJsonLength.mockReturnValue(0);
     mocks.generateObject.mockResolvedValue({
       object: {
         facts: [
@@ -123,6 +140,18 @@ describe('ThinkForge observer ingress', () => {
 
     expect(response.status).toBe(202);
     await flushBackgroundWork();
+
+    expect(mocks.resolveThinkForgeProviderRoute).toHaveBeenCalledWith({
+      routePurpose: 'structural',
+      privacyClass: 'business_confidential',
+      modelName: 'gemini-2.5-flash',
+    });
+    expect(mocks.createThinkForgeModelForRoute).toHaveBeenCalledWith({
+      routePurpose: 'structural',
+      privacyClass: 'business_confidential',
+      preferredProvider: 'gemini',
+      modelName: 'gemini-2.5-flash',
+    });
 
     expect(mocks.checkDuplicateBeforeSave).toHaveBeenCalledWith(
       'user_1',
