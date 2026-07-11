@@ -148,6 +148,7 @@ function modelToScript(m: ScriptModel | null): Script | null {
 export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: string) => void }> = ({
   selectedIdea,
   script,
+  isScriptLoading,
   onApplyEdit,
   sessionId,
   scriptId,
@@ -169,6 +170,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   const [activeThreadId, setActiveThreadId] = useState<string>('default');
   const [threadRegistry, setThreadRegistry] = useState<Array<{ id: string; name: string; lastEdited: number }>>([]);
   const scriptIdRef = React.useRef<string | null>(scriptId || null);
+  const initialDraftClaimedSessionRef = React.useRef<string | null>(null);
   const [briefExtracting, setBriefExtracting] = useState(false);
   const justStoppedStreamRef = React.useRef(false);
   const [sidecarLoading, setSidecarLoading] = useState<SidecarActionType | null>(null);
@@ -272,57 +274,73 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   // Build script payload
   const scriptPayload = useMemo(() => scriptToModel(script), [script]);
 
-  // Auto-starter (SILENT): generate the first draft on its own for a genuinely NEW idea with an
-  // empty canvas — no visible "write a starter draft" user bubble (silent flag; the server skips
-  // persisting it too). Never fires on a saved project reopen (B1 guard: bail if the canvas already
-  // has content/blocks, if the chat has messages, or if a saved script loads during the debounce).
-  // Restores the auto-draft that commit 11bf42ae removed as collateral; the silent flag drops the
-  // clunky fake message the old version showed.
-  const autoStartFired = React.useRef(false);
-  const autoStartScriptRef = React.useRef(script);
-  autoStartScriptRef.current = script;
-
+  // An initial script draft is created only after an explicit Start Drafting action
+  // persists a pending intent on the session. Mounting an old session never creates one.
   useEffect(() => {
-    if (autoStartFired.current) return;
-    if (!sessionId) return;
-    if (!selectedIdea?.idea) return;
-    if (chat.messages.length > 0) return;
-    if (chat.isStreaming) return;
-    const hasData = !!(script?.content || (Array.isArray(script?.blocks) && script.blocks.length > 0));
-    if (hasData) return;
+    if (!sessionId || isScriptLoading) return;
+    if (initialDraftClaimedSessionRef.current === sessionId) return;
+    if (!selectedIdea?.idea || chat.messages.length > 0 || chat.isStreaming) return;
 
-    // Wait long enough for a saved script to load from the server (Vercel cold starts 2-3s) before
-    // concluding this is a fresh canvas. Re-read the latest script via ref at fire time.
-    const timer = setTimeout(() => {
-      if (autoStartFired.current) return;
-      const latest = autoStartScriptRef.current;
-      const latestHasData = !!(latest?.content || (Array.isArray(latest?.blocks) && latest.blocks.length > 0));
-      if (latestHasData) return;
-      if (chat.messages.length > 0 || chat.isStreaming) return;
+    const hasScript = Boolean(
+      script?.content ||
+      (Array.isArray(script?.blocks) && script.blocks.length > 0),
+    );
+    if (hasScript) return;
 
-      autoStartFired.current = true;
-      const autoPrompt = `Write a short starter draft for this idea: "${selectedIdea.idea}". Keep it concise — just enough to give me something to work with. Include a hook, a brief body, and a closing.`;
-      chat.sendMessage(autoPrompt, {
-        silent: true,
-        script: scriptPayload,
-        project: sessionPayload,
-        onTokenStream,
-        onScriptCreated,
-        scriptId: scriptIdRef.current || undefined,
-        intentContext: {
-          editorFocused: false,
-          hasSelection: false,
-          workspaceMode,
-          lastUserAction: 'auto_start',
-        },
-      });
-    }, 3000);
+    void (async () => {
+      try {
+        const response = await fetch('/api/services/thinkforge/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, claimInitialDraft: true }),
+        });
+        if (!response.ok) {
+          throw new Error(`Initial draft claim failed: ${response.status}`);
+        }
 
-    return () => clearTimeout(timer);
-    // Fire once per new idea; intentionally not reacting to chat/script churn.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, selectedIdea?.idea]);
+        const claim = await response.json();
+        initialDraftClaimedSessionRef.current = sessionId;
+        if (claim?.initialDraftClaimed !== true) return;
 
+        const initialDraftPrompt = `Create the complete first script draft for this idea: "${selectedIdea.idea}". Keep the narrative specific to the idea, begin with a strong hook, and include a clear ending.`;
+        void chat.sendMessage(initialDraftPrompt, {
+          silent: true,
+          script: scriptPayload,
+          project: sessionPayload,
+          onTokenStream,
+          onScriptCreated,
+          scriptId: scriptIdRef.current || undefined,
+          intentContext: {
+            editorFocused: false,
+            hasSelection: false,
+            workspaceMode,
+            lastUserAction: 'initial_draft_claim',
+          },
+        });
+      } catch (error) {
+        console.error('[ThinkForge] Initial draft claim failed:', error);
+        toast({
+          title: 'Could not start the script draft',
+          description: 'Please try again from the editor.',
+          variant: 'destructive',
+        });
+      }
+    })();
+  }, [
+    sessionId,
+    isScriptLoading,
+    selectedIdea?.idea,
+    script?.content,
+    script?.blocks,
+    chat.messages.length,
+    chat.isStreaming,
+    chat.sendMessage,
+    scriptPayload,
+    sessionPayload,
+    onTokenStream,
+    onScriptCreated,
+    workspaceMode,
+  ]);
   const handleSend = useCallback(() => {
     console.log('[ChatPanel.handleSend] called', { inputValue: inputValue.trim(), sessionId, isStreaming: chat.isStreaming });
     if (!inputValue.trim()) {

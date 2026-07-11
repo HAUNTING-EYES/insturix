@@ -54,7 +54,10 @@ const hasMissingProjectMetaPassthrough = (target: unknown, source: unknown): boo
 	});
 };
 
-const buildProjectMetaPayload = (idea: IdeaCardData | null | undefined): Record<string, string> => ({
+const buildProjectMetaPayload = (
+	idea: IdeaCardData | null | undefined,
+	initialDraftIntent?: Record<string, unknown>,
+): Record<string, unknown> => ({
 	idea: idea?.idea || '',
 	purpose: (idea as any)?.purpose || '',
 	style: (idea as any)?.style || '',
@@ -65,8 +68,8 @@ const buildProjectMetaPayload = (idea: IdeaCardData | null | undefined): Record<
 	originalPrompt: (idea as any)?.originalPrompt || '',
 	brandBrief: (idea as any)?.brandBrief || '',
 	...pickProjectMetaPassthrough(idea),
+	...(initialDraftIntent ? { initialDraftIntent } : {}),
 });
-
 const buildIdeaGenerationPayload = (
 	prompt: string,
 	projectMeta?: Record<string, unknown> | null,
@@ -101,6 +104,7 @@ export default function ThinkForgeLanding() {
 	const [ideationPhase, setIdeationPhase] = useState<'PROMPT' | 'IDEAS' | 'SELECTED'>('PROMPT');
 
 	const [sessions, setSessions] = useState<SessionMeta[]>([]);
+	const initialDraftRequestedRef = useRef(false);
 
 	// Modular hooks
 	const session = useThinkForgeSession();
@@ -313,6 +317,7 @@ export default function ThinkForgeLanding() {
 	// (The old code auto-opened the library when hovering near the right edge of the screen)
 
 	const handleSelectIdea = async (idea: IdeaCardData) => {
+		initialDraftRequestedRef.current = true;
 		// Auto-generate a session name from the idea if not present
 		const sessionName = idea.sessionName || (idea.idea || 'New Session').split('–')[0].trim().slice(0, 40);
 		// Persist URL brief data into the idea so it survives the ideation→scripting transition
@@ -331,6 +336,7 @@ export default function ThinkForgeLanding() {
 	};
 
 	const handleProceedToScript = async (updatedIdea?: IdeaCardData) => {
+		initialDraftRequestedRef.current = false;
 		const targetIdea = updatedIdea || selectedIdea;
 		const name = (targetIdea?.sessionName || '').trim();
 		if (!name || name.length > 100) {
@@ -404,7 +410,10 @@ export default function ThinkForgeLanding() {
 			// Skip if we're still in ideation phase (no active session yet)
 			const activeSessionId = session.sessionId || pendingSessionId;
 			if (activeSessionId && workspaceMode === 'scripting') {
-				const projectMetaPayload = buildProjectMetaPayload(updated);
+				const projectMetaPayload = buildProjectMetaPayload(
+					updated,
+					session.projectMeta?.initialDraftIntent as Record<string, unknown> | undefined,
+				);
 
 				try {
 					const res = await fetch('/api/services/thinkforge/session/update', {
@@ -517,8 +526,11 @@ export default function ThinkForgeLanding() {
 				await session.closeSession();
 				// Ensure UI is cleared before creating a fresh session
 				scriptHook.resetSessionState();
+				const initialDraftIntent = initialDraftRequestedRef.current
+					? { status: 'pending', requestedAt: new Date().toISOString() }
+					: undefined;
 				const created = await session.hydrate({
-					projectMeta: buildProjectMetaPayload(selectedIdea)
+					projectMeta: buildProjectMetaPayload(selectedIdea, initialDraftIntent)
 				});
 				// Check mount state after async operations
 				if (!isMountedRef.current) {
@@ -529,6 +541,7 @@ export default function ThinkForgeLanding() {
 					// STEP 3: Immediately persist sessionId - hydration is now complete
 					// hasHydratedRef stays true to prevent any future hydration until idea resets
 					hasHydratedRef.current = true;
+					initialDraftRequestedRef.current = false;
 					setPendingSessionId(created.sessionId);
 					scriptHook.resetSessionState();
 					console.log('[ThinkForge] Hydration success', created.sessionId);

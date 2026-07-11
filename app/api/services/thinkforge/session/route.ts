@@ -24,16 +24,34 @@ export async function POST(req: Request) {
 
   let sessionId: string | undefined;
   let projectMeta: ProjectMeta | undefined;
+  let claimInitialDraft = false;
 
   try {
     const body = await req.json();
     sessionId = body?.sessionId ? String(body.sessionId) : undefined;
     projectMeta = body?.projectMeta;
+    claimInitialDraft = body?.claimInitialDraft === true;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
   try {
+    if (claimInitialDraft) {
+      if (!sessionId) {
+        return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
+      }
+
+      const existingSession = await db.getSession(sessionId, userId, orgId);
+      if (!existingSession) {
+        return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+      }
+
+      const initialDraftClaimed = await db.claimInitialDraftIntent(sessionId);
+      return NextResponse.json({
+        sessionId,
+        initialDraftClaimed,
+      });
+    }
     // Get creator name for org context display (only for new sessions)
     let createdByName: string | undefined;
     if (orgId && !sessionId) {

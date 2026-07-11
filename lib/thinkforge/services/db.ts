@@ -1091,6 +1091,26 @@ export async function clearActiveGeneration(sessionId: string): Promise<void> {
   );
 }
 
+export async function claimInitialDraftIntent(sessionId: string): Promise<boolean> {
+  const { SessionModel } = await getModels();
+  const now = new Date();
+  const session = await SessionModel.findOneAndUpdate(
+    {
+      _id: sessionId,
+      'projectMeta.initialDraftIntent.status': 'pending',
+    },
+    {
+      $set: {
+        'projectMeta.initialDraftIntent.status': 'claimed',
+        'projectMeta.initialDraftIntent.claimedAt': now,
+        updatedAt: now,
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+
+  return Boolean(session);
+}
 export async function getActiveGeneration(sessionId: string): Promise<GenerationState | null> {
   const { SessionModel } = await getModels();
   const doc = await SessionModel.findOne({ _id: sessionId }).lean() as any;

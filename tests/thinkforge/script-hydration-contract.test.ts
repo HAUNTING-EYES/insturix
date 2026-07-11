@@ -64,15 +64,24 @@ describe('ThinkForge script hydration contract', () => {
     expect(scriptHook).toContain('Server remains the source of truth');
     expect(scriptHook).toContain('Ignoring remote script update for inactive script');
   });
-  it('does not auto-send draft prompts when the chat panel mounts', () => {
+  it('creates an initial draft only from an explicit session intent and claims it once', () => {
+    const page = read('app/dashboard/thinkforge/page.tsx');
     const chatPanel = read('components/dashboard/ThinkForge/ChatPanel.tsx');
+    const sessionRoute = read('app/api/services/thinkforge/session/route.ts');
+    const db = read('lib/thinkforge/services/db.ts');
 
-    expect(chatPanel).not.toContain('auto_start');
-    expect(chatPanel).not.toContain('autoPrompt');
-    expect(chatPanel).not.toContain('Auto-starter');
-    expect(chatPanel).not.toContain('Write a ${prefix} from the original user brief');
+    expect(page).toContain('initialDraftRequestedRef.current = true');
+    expect(page).toContain("status: 'pending'");
+    expect(page).toContain('initialDraftRequestedRef.current = false');
+    expect(chatPanel).toContain('isScriptLoading');
+    expect(chatPanel).toContain('claimInitialDraft: true');
+    expect(chatPanel).toContain("lastUserAction: 'initial_draft_claim'");
+    expect(chatPanel).not.toContain('autoStartFired');
+    expect(chatPanel).not.toContain("lastUserAction: 'auto_start'");
+    expect(sessionRoute).toContain('db.claimInitialDraftIntent(sessionId)');
+    expect(db).toContain("'projectMeta.initialDraftIntent.status': 'pending'");
+    expect(db).toContain("'projectMeta.initialDraftIntent.status': 'claimed'");
   });
-
   it('resolves Clickatron export preview through the server context route', () => {
     const exportHook = read('components/dashboard/ThinkForge/export/hooks/useExportPipeline.ts');
 
