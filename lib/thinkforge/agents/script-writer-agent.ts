@@ -5,7 +5,6 @@ import type { AgentInput, AgentStructuredOutput } from './types';
 import { generateWithWritingContextCache } from '../services/gemini-writing-context-cache';
 import { parseAgentJson } from '../protocol/parse-agent-json';
 import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
-import { repairAiFillerContent } from '../services/ai-filler-repair';
 import {
   DEFAULT_ON_CAMERA_RATIO,
   WRITER_CAPABILITIES,
@@ -420,10 +419,6 @@ Return your response strictly adhering to the JSON schema.`;
       assertUsableScriptWriterResult(output.result, { sourceLedger: input.sourceLedger, productionBrief: input.productionBrief });
     }
 
-    // Filler self-repair: one in-context rewrite if a banned phrase slipped through either path.
-    // Fail-soft — keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
-    output.result.content = await repairAiFillerContent(output.result.content, this.config.modelName, abortSignal);
-    assertUsableScriptWriterResult(output.result, { sourceLedger: input.sourceLedger, productionBrief: input.productionBrief });
     return output;
   }
 }
