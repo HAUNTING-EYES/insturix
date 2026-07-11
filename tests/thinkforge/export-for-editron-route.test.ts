@@ -33,6 +33,45 @@ function block(id: string, kind: string, text: string) {
     content: [{ type: 'text', text, styles: {} }],
   };
 }
+
+function scriptSidecar() {
+  return {
+    sidecarVersion: 1,
+    characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }],
+    scenes: [{
+      title: 'Same-pass Scene',
+      narration: 'The workflow is clear from the first frame.',
+      visualDescription: 'A focused product team reviews one connected production timeline.',
+      videoMotionPrompt: 'Slow push toward the team as the timeline resolves.',
+      audioDescription: 'Quiet studio room tone.',
+      musicDescription: 'A restrained, optimistic pulse.',
+      sfxDescription: 'A soft confirmation chime.',
+      durationSeconds: 8,
+      mood: 'inspirational',
+      imageQualityTokens: 'editorial, considered lighting',
+      videoQualityTokens: 'natural motion, stable camera',
+      generationUnitId: 'unit_1',
+      primaryVisualForUnit: true,
+      sceneType: 'continuous',
+      assetRecommendation: 'ai-video',
+      lines: [{
+        text: 'The workflow is clear from the first frame.',
+        speakerId: 'narrator',
+        onCamera: false,
+        delivery: 'voiceover',
+      }],
+      sourceRefs: [],
+      charactersPresent: ['narrator'],
+    }],
+    overallMusicPrompt: 'A restrained, optimistic pulse.',
+    characterDescriptions: { narrator: 'Warm, credible narrator.' },
+    colorPalette: ['#0B1020', '#F4C95D'],
+    environmentNotes: 'Modern studio workspace.',
+    globalEditDirections: { pacing: 'medium' },
+    suggestedProfileCategory: 'production-mode',
+    sourceRefs: [],
+  };
+}
 describe('export-for-editron route', () => {
   beforeEach(() => {
     mocks.auth.mockReset();
@@ -119,6 +158,75 @@ describe('export-for-editron route', () => {
     });
     expect(payload.productionManifest.warnings).toEqual([]);
     expect(JSON.stringify(payload)).not.toContain('product launch film');
+  });
+  it('uses the persisted same-pass sidecar for an unchanged saved script', async () => {
+    const savedBlocks = [
+      block('blk_1', 'header', 'Same-pass Scene'),
+      block('blk_2', 'paragraph', 'The workflow is clear from the first frame.'),
+    ];
+    mocks.getSession.mockResolvedValue({ _id: 'tf_session_sidecar', userId: 'user_1' });
+    mocks.getScript.mockResolvedValue({
+      _id: 'script_doc_sidecar',
+      sessionId: 'tf_session_sidecar',
+      scriptId: 'script_sidecar',
+      title: 'Same-pass Scene',
+      content: '',
+      blocks: savedBlocks,
+      metadata: { writerOutput: { writerType: 'script', scriptSidecar: scriptSidecar() } },
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
+
+    const response = await POST(request({
+      sessionId: 'tf_session_sidecar',
+      scriptId: 'script_sidecar',
+      blocks: savedBlocks,
+      aspectRatio: '16:9',
+      artStyle: 'cinematic',
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.scenes).toEqual([expect.objectContaining({
+      title: 'Same-pass Scene',
+      narration: 'The workflow is clear from the first frame.',
+      generationUnitId: 'unit_1',
+    })]);
+    expect(payload.productionManifest.parser).toMatchObject({
+      fallbackUsed: false,
+      sidecarUsed: true,
+      sidecarVersion: 1,
+      sidecarSource: 'stored-script',
+    });
+    expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
+    expect(JSON.stringify(payload)).not.toContain('sourceRefs');
+    expect(JSON.stringify(payload)).not.toContain('charactersPresent');
+  });
+  it('does not reuse a persisted sidecar after the export source was edited', async () => {
+    mocks.getSession.mockResolvedValue({ _id: 'tf_session_edited', userId: 'user_1' });
+    mocks.getScript.mockResolvedValue({
+      _id: 'script_doc_edited',
+      sessionId: 'tf_session_edited',
+      scriptId: 'script_edited',
+      title: 'Saved script',
+      content: 'This is the saved script.',
+      blocks: [],
+      metadata: { writerOutput: { writerType: 'script', scriptSidecar: scriptSidecar() } },
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
+
+    const response = await POST(request({
+      sessionId: 'tf_session_edited',
+      scriptId: 'script_edited',
+      plainText: 'This is a materially edited script.',
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mocks.parseScriptWithLLM).toHaveBeenCalledWith(
+      'This is a materially edited script.',
+      expect.any(Object),
+    );
+    expect(payload.productionManifest.parser.sidecarUsed).toBe(false);
   });
   it('recovers the stored script when the request is a stale one-block title snapshot', async () => {
     mocks.isLLMParserAvailable.mockReturnValue(false);
