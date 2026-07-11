@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { INSTURIX } from '@/lib/editron/motion-graphics/codegen/kit/brand';
 import { scanCode } from '@/lib/editron/motion-graphics/codegen/scan';
 import {
+  applyImportPreamble,
   buildCodegenPrompt,
   generateMoment,
   promptHash,
@@ -33,6 +34,22 @@ export const MgScene: React.FC<{brand: Brand; data: MgData}> = ({brand, data}) =
   );
 };`;
 const INVALID_CODE = 'export const MgScene = () => <div>no stage root</div>;'; // fails the scan
+// The model is now told NOT to write imports — this is a realistic import-less body (VALID_CODE minus imports).
+const NO_IMPORT_CODE = `
+type MgData = { value?: number };
+export const MgScene: React.FC<{brand: Brand; data: MgData}> = ({brand, data}) => {
+  const frame = useCurrentFrame();
+  const { durationInFrames } = useVideoConfig();
+  const ph = phases(durationInFrames, brand);
+  const n = countUp(frame, ph.intro, 30, data.value ?? 0);
+  return (
+    <Stage brand={brand}>
+      <Region brand={brand} x={0.08} y={0.2} w={0.84} h={0.6} align="center" justify="center">
+        <FitHeadline brand={brand} text={String(n)} size="display" />
+      </Region>
+    </Stage>
+  );
+};`;
 
 function input(over: Partial<MgMomentInput> = {}): MgMomentInput {
   return {
@@ -59,7 +76,9 @@ describe('generateMoment - the pipeline (scan→repair→compile→judge→fallb
   it('valid code + passing judge → generated', async () => {
     const r = await generateMoment(input(), deps());
     expect(r.status).toBe('generated');
-    expect(r.code).toBe(VALID_CODE);
+    expect(r.code).toContain('export const MgScene'); // body preserved
+    expect(r.code).toMatch(/^import React from 'react';/); // canonical imports prepended (deterministic)
+    expect(scanCode(r.code!).ok).toBe(true); // the returned artifact re-passes the scan
     expect(r.receipt.outcome).toBe('generated');
     expect(r.receipt.attempts).toBe(1);
     expect(r.receipt.judgeScore).toBe(8);
@@ -113,6 +132,30 @@ describe('generateMoment - the pipeline (scan→repair→compile→judge→fallb
     await expect((async () => { r = await generateMoment(input(), deps({ writeComponent: async () => { throw new Error('boom'); } })); })()).resolves.toBeUndefined();
     expect(r!.status).toBe('fallback');
     expect(r!.receipt.momentId).toBe('m1');
+  });
+});
+
+describe('import normalization - the eval-caught fix (model omits imports ~half the time)', () => {
+  it('★ model returns an import-LESS body → the artifact ships with the full canonical import block', async () => {
+    const r = await generateMoment(input(), deps({ writeComponent: async () => NO_IMPORT_CODE }));
+    expect(r.status).toBe('generated');
+    expect(r.code).toMatch(/^import React from 'react';/);
+    expect(r.code).toContain("} from './kit/choreo';"); // every kit module imported
+    expect(r.code).toContain('export const MgScene'); // the model's body is preserved
+    expect(scanCode(r.code!).ok).toBe(true); // compile-ready AND still scan-clean
+  });
+
+  it('applyImportPreamble prepends the kit block to an import-less body (scan still passes)', () => {
+    const out = applyImportPreamble(NO_IMPORT_CODE);
+    expect(out.startsWith("import React from 'react';")).toBe(true);
+    expect(out).toContain('export const MgScene');
+    expect(scanCode(out).ok).toBe(true);
+  });
+
+  it('strips the model\'s own imports (no duplicates) and is idempotent', () => {
+    const out = applyImportPreamble(VALID_CODE); // VALID_CODE already carries its own imports
+    expect((out.match(/^import React from 'react';/gm) ?? []).length).toBe(1); // exactly one, not doubled
+    expect(applyImportPreamble(out)).toBe(out); // running it again changes nothing
   });
 });
 

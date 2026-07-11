@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { scanCode } from '@/lib/editron/motion-graphics/codegen/scan';
-import { PRIMITIVE_API, hardRules, E0_COMPOSITION_GUIDE, JUDGE_PROMPT } from '@/lib/editron/motion-graphics/codegen/prompt';
+import { PRIMITIVE_API, hardRules, E0_COMPOSITION_GUIDE, JUDGE_PROMPT, KIT_IMPORT_PREAMBLE } from '@/lib/editron/motion-graphics/codegen/prompt';
 
 // A minimal, valid generated component — passes every construction rule.
 const VALID = `
@@ -124,11 +124,16 @@ describe('prompt scaffolding - well-formed for E0', () => {
     expect(PRIMITIVE_API).toMatch(/backdrop is FALSE|backdrop.*false/i);
     expect(PRIMITIVE_API).not.toMatch(/ProductShot|VideoShot|FullBleedProduct/);
   });
-  it('hard rules embed the frame count + kit imports + determinism', () => {
+  it('hard rules embed the frame count + tell the model NOT to write imports + determinism', () => {
     const r = hardRules(120);
     expect(r).toMatch(/120/);
-    expect(r).toMatch(/\.\/kit\/brand/);
+    expect(r).toMatch(/do not write any import/i); // imports are injected, not authored
     expect(r).toMatch(/Math\.random/);
+  });
+  it('the canonical import preamble covers every kit module (deterministic imports)', () => {
+    for (const mod of ['react', 'remotion', './kit/brand', './kit/stage', './kit/fit-text', './kit/choreo']) {
+      expect(KIT_IMPORT_PREAMBLE).toContain(mod);
+    }
   });
   it('composition guide bans keyword-highlighting / lower-thirds (founder rule)', () => {
     expect(E0_COMPOSITION_GUIDE).toMatch(/keyword|lower-third/i);

@@ -16,7 +16,7 @@
 import { createHash } from 'node:crypto';
 
 import { scanCode, type ScanResult } from './scan';
-import { PRIMITIVE_API, hardRules, E0_COMPOSITION_GUIDE } from './prompt';
+import { PRIMITIVE_API, hardRules, E0_COMPOSITION_GUIDE, KIT_IMPORT_PREAMBLE } from './prompt';
 import type { MgGenerateResult, MgMomentInput, MgReceipt } from './types';
 
 /** Bumped when the kit or prompt changes — part of the cache key so stale code never gets reused. */
@@ -71,6 +71,23 @@ ${E0_COMPOSITION_GUIDE}
 <moment_data>
 ${momentData(input)}
 </moment_data>`;
+}
+
+/**
+ * Make the component's imports deterministic. The model is told not to write imports, but it omits or mangles
+ * them ~half the time (the eval proved it), and an import-less component fails to compile → needless Tier-A
+ * fallback. So: STRIP any import lines the model wrote (single- or multi-line), then PREPEND the canonical kit
+ * block. Runs AFTER the scan (which sees the model's raw output, so a forbidden import is still caught) and
+ * BEFORE compile/render. Idempotent, and the prepended block re-passes the scan's import whitelist.
+ */
+export function applyImportPreamble(code: string): string {
+  const body = code
+    // single-line: `import X from 'y';`, `import {a, b} from 'y';`, `import 'y';`, `import type {..} from 'y';`
+    .replace(/^[ \t]*import\b[^;'"]*['"][^'"]*['"][ \t]*;?[ \t]*$/gm, '')
+    // multi-line braced: `import {\n a,\n b\n} from 'y';`
+    .replace(/^[ \t]*import\s*\{[\s\S]*?\}\s*from\s*['"][^'"]*['"][ \t]*;?[ \t]*$/gm, '')
+    .trimStart();
+  return `${KIT_IMPORT_PREAMBLE}\n\n${body}`;
 }
 
 /** Cache key / receipt id: hash of everything that determines the output (§7). Identical moments never
@@ -142,6 +159,8 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     ({ code, scan } = await attempt(`Your previous output was rejected: ${scan.reason} Fix ONLY that and return the full corrected component.`));
   }
   if (!scan.ok) return fallback(`scan: ${scan.reason}`);
+  // Imports become deterministic here — the model authored only the body; the harness owns the import block.
+  code = applyImportPreamble(code);
 
   // 2. compile
   const compiled = await deps.compile(code);
@@ -158,17 +177,18 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
   if (ev.score < threshold) {
     const rev = await attempt(`A design reviewer scored your output ${ev.score}/10. Issues: ${ev.issues.join('; ')}. Revise to fix them; return the full component.`);
     if (!rev.scan.ok) return fallback(`revision scan: ${rev.scan.reason}`);
-    const rc = await deps.compile(rev.code);
+    const revCode = applyImportPreamble(rev.code);
+    const rc = await deps.compile(revCode);
     receipt.compiled = rc.ok;
     if (!rc.ok) {
       receipt.compileError = rc.error;
       return fallback('revision compile failed');
     }
-    const ev2 = await deps.evaluate(rev.code, input);
+    const ev2 = await deps.evaluate(revCode, input);
     receipt.judgeScore = ev2.score;
     receipt.judgeIssues = ev2.issues;
     if (ev2.score < threshold) return fallback(`judge ${ev2.score} < ${threshold}`);
-    code = rev.code;
+    code = revCode;
   }
 
   receipt.outcome = 'generated';

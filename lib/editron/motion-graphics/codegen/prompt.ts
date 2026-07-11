@@ -40,6 +40,20 @@ NON-TEXT GRAPHICS (charts, arcs, bars, marks, particles, grids): compose them yo
 interpolate). There is no chart/particle primitive — you draw it. This is the point: any graphic, composed fresh.
 </primitive_api>`;
 
+/**
+ * The canonical import block. The MODEL never writes imports (it omits or mangles them ~half the time — the
+ * eval proved it); the service PREPENDS this deterministically so every component compiles (Law 5: imports are
+ * invariant, only the body varies). Every path is react/remotion/the kit, so the scan's import whitelist passes.
+ * NOTE for the Phase-D compile/render step: bundle via esbuild (Remotion's bundler), which tolerates the unused
+ * imports a given component won't reference — do NOT type-check these components with `noUnusedLocals`.
+ */
+export const KIT_IMPORT_PREAMBLE = `import React from 'react';
+import {useCurrentFrame, useVideoConfig, interpolate, spring, AbsoluteFill, Sequence} from 'remotion';
+import {Brand, withAlpha, dv} from './kit/brand';
+import {Stage, Region, Corner, Bleed, useStage, useRegionSize} from './kit/stage';
+import {FitHeadline, TextBlock, Chip} from './kit/fit-text';
+import {phases, enter, exitOut, stagger, pulseAt, countUp, progress, travel, EASE} from './kit/choreo';`;
+
 /** The hard rules — the scan enforces these; the model must obey them exactly. `durF` = the clip's frame count. */
 export const hardRules = (durF: number): string => `<hard_rules>
 - Export EXACTLY: export const MgScene: React.FC<{brand: Brand; data: MgData}> = ({brand, data}) => { ... }
@@ -47,13 +61,9 @@ export const hardRules = (durF: number): string => `<hard_rules>
   ★ The numbers/words come from \`data\` (PROPS): read data.value / data.label / data.phrase / etc. NEVER bake a
   literal number or word into the JSX — an edit ("42"->"48") must re-render from the SAME code with a new prop,
   never re-generate (Law 5). Guard optional fields (data.value ?? 0). Define \`type MgData = {...}\` inline (do NOT import it).
-- IMPORT ONLY from the kit + react/remotion (copy the lines you use; invent no others):
-    import React from 'react';
-    import {useCurrentFrame, useVideoConfig, interpolate, spring, AbsoluteFill, Sequence} from 'remotion';
-    import {Brand, withAlpha, dv} from './kit/brand';
-    import {Stage, Region, Corner, Bleed, useStage, useRegionSize} from './kit/stage';
-    import {FitHeadline, TextBlock, Chip} from './kit/fit-text';
-    import {phases, enter, exitOut, stagger, pulseAt, countUp, progress, travel, EASE} from './kit/choreo';
+- Do NOT write ANY import statements. React, the Remotion hooks/components (useCurrentFrame, useVideoConfig,
+  interpolate, spring, AbsoluteFill, Sequence), and EVERY kit primitive listed in <primitive_api> are ALREADY
+  IN SCOPE — the harness injects the imports. Begin your output directly at \`type MgData = {...}\`.
 - Scene root MUST be <Stage brand={brand}> (backdrop stays FALSE — over footage). All words via FitHeadline/
   TextBlock/Chip inside a <Region>/<Corner> — NEVER a raw text node in a styled div, NEVER a fontSize you type.
 - COLOUR: only brand.colors.* / withAlpha(brand.colors.*, a) / 'transparent'. Any hex, rgb()/hsl(), or named
