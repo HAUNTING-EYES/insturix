@@ -207,6 +207,15 @@ export async function buildSaasExplainerScriptPlan(
   const plan = scriptScenesToPlan(scriptScenes, message);
   const productModel = evidencePackToProductModel(productEvidencePack, args.extraProductImageUrls ?? []);
 
+  // VO integrity: the plan is scene-driven (vo = narration), so a scene with empty narration renders SILENT.
+  // The author prompt mandates a spoken line per scene; this reports what the deterministic safety net had to
+  // do so it's visible on the script screen rather than silently shipping quiet scenes.
+  const narrationSources = storyboard.map(resolveSceneNarration);
+  const backfilledFromOnScreen = narrationSources.filter((n) => n.source === "onscreen_text").length;
+  const silentSceneNumbers = narrationSources
+    .map((n, i) => (n.source === "empty" ? i + 1 : null))
+    .filter((v): v is number => v !== null);
+
   const warnings = [
     ...(brandContext.metadata.acceptedProfile
       ? []
@@ -217,6 +226,12 @@ export async function buildSaasExplainerScriptPlan(
     ...directorContract.evidenceAudit.degradations
       .filter((d) => d.severity !== "info")
       .map((d) => `SaaS director: ${d.message}`),
+    ...(backfilledFromOnScreen > 0
+      ? [`${backfilledFromOnScreen} scene(s) had no voiceover; used their on-screen text as the spoken line — review on the script screen.`]
+      : []),
+    ...(silentSceneNumbers.length > 0
+      ? [`Scene(s) ${silentSceneNumbers.join(", ")} have no voiceover yet — add a line or they render silent.`]
+      : []),
   ];
 
   return { scenes: scriptScenes, plan, productModel, directorContract, productEvidencePack, message, warnings };
@@ -263,10 +278,34 @@ function toScriptPlanScene(
   return {
     index: order,
     title: cleanLine(scene.title || `Scene ${order + 1}`, 72),
-    narration: cleanLine(scene.narration || "", 320),
+    narration: resolveSceneNarration(scene).narration,
     durationSec,
     form,
   };
+}
+
+/**
+ * Guarantee a spoken VO line for a scene. The premium plan is scene-driven (vo = narration), so a scene with
+ * empty narration renders SILENT — wrong for a voiceover explainer. The author prompt mandates a VO line per
+ * scene; this is the deterministic safety net for the rare slip (the shared author agent can still pick a
+ * "Text Overlay" / silent scene): fall back to the scene's OWN on-screen text — real authored copy, spoken
+ * aloud. Never fabricate a claim: if there is neither narration nor on-screen text, leave it empty and let the
+ * caller surface a warning (the user edits VO directly on the script screen).
+ */
+export function resolveSceneNarration(
+  scene: SceneDescriptor,
+): { narration: string; source: "authored" | "onscreen_text" | "empty" } {
+  const authored = cleanLine(scene.narration || "", 320);
+  if (authored) return { narration: authored, source: "authored" };
+
+  const onScreen = (scene.editDirections?.onScreenText ?? [])
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(". ");
+  const fromOnScreen = cleanLine(onScreen, 320);
+  if (fromOnScreen) return { narration: fromOnScreen, source: "onscreen_text" };
+
+  return { narration: "", source: "empty" };
 }
 
 function resolveDirectorBeat(
