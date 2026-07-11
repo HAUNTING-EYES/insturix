@@ -544,6 +544,10 @@ export async function executeDirectorPlan(
       brief?.editorialPreferences,
       'caption',
     );
+    const musicEditorialPolicy = resolveEditorialDecisionPolicy(
+      brief?.editorialPreferences,
+      'music',
+    );
     let briefPacing: string | undefined;
     let briefSignalContext: Record<string, number> = {};
     let unifiedDecisionBundleExecuted = false;
@@ -1777,13 +1781,14 @@ export async function executeDirectorPlan(
                 durationSec: bgmDurationSec,
                 totalFrames: bgmTotalFrames,
                 fps: bgmFps,
+                editorialPolicy: musicEditorialPolicy,
                 ...evidenceInput,
               });
               await persistAutoBgmDecisionEvidence(projectId, evidence);
               return evidence;
             };
 
-            if (bgmRec?.shouldAddBgm !== true || isStoryboardProject) {
+            if (!musicEditorialPolicy.executionAllowed || bgmRec?.shouldAddBgm !== true || isStoryboardProject) {
               const evidence = await persistAutoBgmEvidence({});
               console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, shouldAdd=${evidence.shouldAddBgm}`);
             } else {
@@ -1798,10 +1803,14 @@ export async function executeDirectorPlan(
                   : bgmEnergy < 0.35 ? (bgmFormality > 0.55 ? 'calm' : 'nostalgic')
                   : (bgmFormality > 0.6 ? 'sophisticated' : 'inspirational');
                 const bgmPacing = bgmEnergy > 0.6 ? 'fast' : bgmEnergy < 0.35 ? 'slow' : 'medium';
-                const bgmMusicPrompt = buildMusicPrompt(
+                const signalMusicPrompt = buildMusicPrompt(
                   [{ mood: bgmMood, editDirections: { pacing: bgmPacing }, narration: 'voiceover' }],
                   bgmDurationSec,
                 );
+                const requestedMusicPrompt = brief?.editorialPreferences?.musicPrompt;
+                const bgmMusicPrompt = requestedMusicPrompt
+                  ? `${signalMusicPrompt}. User direction: ${requestedMusicPrompt}`
+                  : signalMusicPrompt;
                 const { dispatchAudioJob } = await import('@/lib/editron/services/audio-worker-dispatch');
                 const dispatchResult = await dispatchAudioJob({
                   type: 'bgm',
@@ -1844,6 +1853,7 @@ export async function executeDirectorPlan(
                 durationSec: Math.round(bgmTotalFrames / bgmFps),
                 totalFrames: bgmTotalFrames,
                 fps: bgmFps,
+                editorialPolicy: musicEditorialPolicy,
                 error: bgmErr,
               });
               await persistAutoBgmDecisionEvidence(projectId, evidence);

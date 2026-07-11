@@ -8,6 +8,7 @@ export type EditorialDecisionFamily =
   | 'camera'
   | 'caption'
   | 'graphic'
+  | 'music'
   | 'pacing'
   | 'timing'
   | 'transition'
@@ -31,6 +32,7 @@ const FAMILY_MAP: Partial<Record<EditorialDecisionFamily, EditorialFamily>> = {
   camera: 'zoom',
   caption: 'captions',
   graphic: 'motionGraphics',
+  music: 'music',
   transition: 'transitions',
 };
 

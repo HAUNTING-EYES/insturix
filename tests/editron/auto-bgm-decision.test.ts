@@ -16,6 +16,7 @@ import {
   buildAutoBgmDecisionEvidence,
   persistAutoBgmDecisionEvidence,
 } from '@/lib/editron/services/auto-bgm-decision';
+import { resolveEditorialDecisionPolicy } from '@/lib/editron/services/editorial-decision-policy';
 
 describe('Auto-BGM decision evidence', () => {
   const evaluatedAt = '2026-06-30T00:00:00.000Z';
@@ -38,6 +39,30 @@ describe('Auto-BGM decision evidence', () => {
       storyboardOwned: false,
       durationSec: 90,
       evaluatedAt,
+    });
+  });
+
+  it('treats explicit music off as the effective decision while preserving signal evidence', () => {
+    const editorialPolicy = resolveEditorialDecisionPolicy({
+      families: { music: { mode: 'off' } },
+    }, 'music');
+    const evidence = buildAutoBgmDecisionEvidence({
+      recommendation: { shouldAddBgm: true, reason: 'signals license a music bed' },
+      editorialPolicy,
+      durationSec: 90,
+      evaluatedAt,
+    });
+
+    expect(evidence).toMatchObject({
+      status: 'user-disabled',
+      shouldAddBgm: false,
+      signalShouldAddBgm: true,
+      reason: 'user-policy-off:music',
+      editorialPolicy: {
+        decisionFamily: 'music',
+        editorialFamily: 'music',
+        executionAllowed: false,
+      },
     });
   });
 
@@ -141,6 +166,9 @@ describe('Auto-BGM decision evidence', () => {
     expect(directorSource).toContain("@/lib/editron/services/auto-bgm-decision");
     expect(directorSource).toContain('const bgmGenreParams = pathDGenreParams ?? pathEGenreParams');
     expect(directorSource).toContain('const bgmRec = (bgmGenreParams as any)?.bgmRecommendation');
+    expect(directorSource).toContain("resolveEditorialDecisionPolicy(\n      brief?.editorialPreferences,\n      'music',\n    )");
+    expect(directorSource).toContain('editorialPolicy: musicEditorialPolicy');
+    expect(directorSource).toContain('const requestedMusicPrompt = brief?.editorialPreferences?.musicPrompt');
     expect(directorSource).toContain('persistAutoBgmDecisionEvidence(projectId, evidence)');
     expect(directorSource).toContain('const dispatchResult = await dispatchAudioJob');
     expect(dispatchSource).toContain('Promise<AudioDispatchResult>');
