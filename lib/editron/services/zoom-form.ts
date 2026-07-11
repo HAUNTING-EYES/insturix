@@ -1,5 +1,9 @@
 import type { ZoomKeyframe } from './zoom-keyframes';
 import { momentBundleToSignalMap, type AtomicMomentBundle } from './moment-bundle';
+import {
+  resolveEditorialPreferenceIntensity,
+  type EditorialPreferenceIntensityResolution,
+} from './editorial-decision-policy';
 
 export type AtomicZoomDirection = 'push-in' | 'pull-back';
 export type ZoomCompatibilityType = 'punch-in' | 'slow-push' | 'pull-back';
@@ -27,6 +31,7 @@ export interface AtomicZoomForm {
   focal: ZoomFocalAnchor;
   intensity: number;
   visualPressure: number;
+  editorialPreference: EditorialPreferenceIntensityResolution;
   keyframes: ZoomKeyframe[];
 }
 
@@ -57,7 +62,7 @@ export function resolveAtomicZoomForm(input: {
   const visualComplexity = signalNumber(signals, 'visual_complexity', 'visual.complexity');
   const topicShift = signalNumber(signals, 'topic_shift', 'topic.shift');
 
-  const intensity = clamp01(Math.max(
+  const signalIntensity = clamp01(Math.max(
     speechEnergy,
     wordImportance,
     beatStrength,
@@ -65,6 +70,8 @@ export function resolveAtomicZoomForm(input: {
     visualSignificance * 0.86,
     motionIntensity * 0.72,
   ));
+  const editorialPreference = resolveEditorialPreferenceIntensity(params, 'zoom', signalIntensity);
+  const intensity = editorialPreference.resolvedIntensity;
   const visualPressure = clamp01(Math.max(
     textOnScreen,
     visualComplexity,
@@ -133,6 +140,7 @@ export function resolveAtomicZoomForm(input: {
     focal,
     intensity,
     visualPressure,
+    editorialPreference,
     keyframes: buildAtomicZoomKeyframes({
       direction,
       compatibilityType,

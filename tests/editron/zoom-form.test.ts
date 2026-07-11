@@ -63,6 +63,55 @@ describe('resolveAtomicZoomForm', () => {
     expect(Math.abs(reveal.scaleDelta)).toBeLessThanOrEqual(0.15);
   });
 
+  it('blends requested strength with signal intensity without licensing a preset', () => {
+    const baseInput = {
+      localFrame: 45,
+      sceneEnd: 150,
+      signals: { speech_energy: 0.64, visual_complexity: 0.05 },
+    };
+    const high = resolveAtomicZoomForm({
+      ...baseInput,
+      params: {
+        editorialPreferencePolicy: {
+          mode: 'prefer',
+          editorialFamily: 'zoom',
+          intensity: 1,
+        },
+      },
+    });
+    const low = resolveAtomicZoomForm({
+      ...baseInput,
+      params: {
+        editorialPreferencePolicy: {
+          mode: 'prefer',
+          editorialFamily: 'zoom',
+          intensity: 0.16,
+        },
+      },
+    });
+    const wrongFamily = resolveAtomicZoomForm({
+      ...baseInput,
+      params: {
+        editorialPreferencePolicy: {
+          mode: 'prefer',
+          editorialFamily: 'transitions',
+          intensity: 1,
+        },
+      },
+    });
+
+    expect(high.intensity).toBeCloseTo(0.8);
+    expect(low.intensity).toBeCloseTo(0.32);
+    expect(high.scaleDelta).toBeGreaterThan(low.scaleDelta);
+    expect(high.editorialPreference).toMatchObject({
+      mode: 'prefer',
+      requestedIntensity: 1,
+      method: 'geometric-mean',
+    });
+    expect(wrongFamily.intensity).toBeCloseTo(0.64);
+    expect(wrongFamily.editorialPreference.mode).toBe('signal-only');
+  });
+
   it('restrains scale amplitude on busy visual frames', () => {
     const calm = resolveAtomicZoomForm({
       localFrame: 45,

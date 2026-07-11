@@ -27,6 +27,16 @@ export interface EditorialDecisionPolicy {
   source: 'user-intake' | 'ai-brand';
 }
 
+export interface EditorialPreferenceIntensityResolution {
+  version: 'editorial-preference-intensity-v1';
+  editorialFamily: EditorialFamily;
+  mode: 'signal-only' | 'prefer';
+  signalIntensity: number;
+  requestedIntensity: number | null;
+  resolvedIntensity: number;
+  method: 'identity' | 'geometric-mean';
+}
+
 const FAMILY_MAP: Partial<Record<EditorialDecisionFamily, EditorialFamily>> = {
   audio: 'sfx',
   camera: 'zoom',
@@ -35,6 +45,36 @@ const FAMILY_MAP: Partial<Record<EditorialDecisionFamily, EditorialFamily>> = {
   music: 'music',
   transition: 'transitions',
 };
+
+export function resolveEditorialPreferenceIntensity(
+  params: Record<string, unknown>,
+  editorialFamily: EditorialFamily,
+  signalIntensity: number,
+): EditorialPreferenceIntensityResolution {
+  const normalizedSignal = clampPolicy01(signalIntensity);
+  const rawPolicy = params.editorialPreferencePolicy;
+  const policy = rawPolicy && typeof rawPolicy === 'object' && !Array.isArray(rawPolicy)
+    ? rawPolicy as Record<string, unknown>
+    : null;
+  const requestedIntensity = typeof policy?.intensity === 'number' && Number.isFinite(policy.intensity)
+    ? clampPolicy01(policy.intensity)
+    : null;
+  const applies = policy?.mode === 'prefer'
+    && policy.editorialFamily === editorialFamily
+    && requestedIntensity !== null;
+
+  return {
+    version: 'editorial-preference-intensity-v1',
+    editorialFamily,
+    mode: applies ? 'prefer' : 'signal-only',
+    signalIntensity: normalizedSignal,
+    requestedIntensity: applies ? requestedIntensity : null,
+    resolvedIntensity: applies
+      ? Math.sqrt(normalizedSignal * requestedIntensity)
+      : normalizedSignal,
+    method: applies ? 'geometric-mean' : 'identity',
+  };
+}
 
 export function resolveEditorialDecisionPolicy(
   preferences: EditorialPreferences | undefined,
@@ -107,4 +147,9 @@ function autoPolicy(
     reason: 'ai-brand-policy',
     source: 'ai-brand',
   };
+}
+
+function clampPolicy01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
 }
