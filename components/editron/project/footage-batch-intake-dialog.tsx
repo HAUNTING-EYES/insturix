@@ -21,6 +21,11 @@ import {
 } from '@/components/ui/select';
 import { ImageIcon, Video } from 'lucide-react';
 import type { AutoEditOptions } from '@/components/editron/project/auto-edit-dialog';
+import { EditorialPreferenceControls } from '@/components/editron/project/editorial-preference-controls';
+import {
+  normalizeEditorialPreferences,
+  type EditorialPreferences,
+} from '@/lib/editron/production-brief/editorial-preferences';
 
 interface FootageBatchIntakeDialogProps {
   files: File[];
@@ -43,7 +48,7 @@ export function FootageBatchIntakeDialog({
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [userIntent, setUserIntent] = useState('');
   const [script, setScript] = useState('');
-  const [musicPreference, setMusicPreference] = useState<AutoEditOptions['musicPreference']>(undefined);
+  const [editorialPreferences, setEditorialPreferences] = useState<EditorialPreferences>({});
 
   const inventory = useMemo(() => {
     let videos = 0;
@@ -62,7 +67,7 @@ export function FootageBatchIntakeDialog({
     setAspectRatio('16:9');
     setUserIntent('');
     setScript('');
-    setMusicPreference(undefined);
+    setEditorialPreferences({});
   }, []);
 
   const close = useCallback(() => {
@@ -76,14 +81,15 @@ export function FootageBatchIntakeDialog({
     if (aspectRatio !== '16:9') options.aspectRatio = aspectRatio;
     if (userIntent.trim()) options.userIntent = userIntent.trim();
     if (script.trim()) options.script = script.trim();
-    if (musicPreference) options.musicPreference = musicPreference;
+    const normalizedPreferences = normalizeEditorialPreferences(editorialPreferences);
+    if (normalizedPreferences) options.editorialPreferences = normalizedPreferences;
     onConfirm(options);
     reset();
-  }, [aspectRatio, musicPreference, onConfirm, platform, reset, script, userIntent]);
+  }, [aspectRatio, editorialPreferences, onConfirm, platform, reset, script, userIntent]);
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) close(); }}>
-      <DialogContent className="max-w-[680px] bg-[#131312] border-[#282724] text-[#ECE9E1]">
+      <DialogContent className="max-h-[92vh] max-w-[680px] overflow-y-auto bg-[#131312] border-[#282724] text-[#ECE9E1]">
         <DialogHeader>
           <DialogTitle>Prepare multi-source footage</DialogTitle>
           <DialogDescription className="text-[#B5B2A8]">
@@ -165,24 +171,7 @@ export function FootageBatchIntakeDialog({
             />
           </div>
 
-          <div className="grid gap-1.5">
-            <Label className="text-[#B5B2A8]">Music direction</Label>
-            <Select
-              value={musicPreference ?? 'auto'}
-              onValueChange={(value) => setMusicPreference(value === 'auto' ? undefined : value as AutoEditOptions['musicPreference'])}
-            >
-              <SelectTrigger className="bg-[#0B0B0A] border-[#282724]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">Let Editron infer it</SelectItem>
-                <SelectItem value="none">No BGM</SelectItem>
-                <SelectItem value="subtle_bed">Subtle bed</SelectItem>
-                <SelectItem value="energetic">Energetic</SelectItem>
-                <SelectItem value="match_video">Match source video</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <EditorialPreferenceControls value={editorialPreferences} onChange={setEditorialPreferences} />
         </div>
 
         <DialogFooter>

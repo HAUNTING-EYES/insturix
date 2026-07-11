@@ -61,5 +61,8 @@ describe('new project multi-upload intake', () => {
     expect(flowSource).not.toContain('footage.startMany(files);');
     expect(batchDialogSource).toContain('What should this become?');
     expect(batchDialogSource).toContain('Optional script / outline');
+    expect(batchDialogSource).toContain('EditorialPreferenceControls');
+    expect(batchDialogSource).toContain('normalizeEditorialPreferences');
+    expect(batchDialogSource).not.toContain('musicPreference');
   });
 });

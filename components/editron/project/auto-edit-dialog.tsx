@@ -24,7 +24,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Slider } from '@/components/ui/slider';
 import {
   Select,
   SelectContent,
@@ -34,12 +33,10 @@ import {
 } from '@/components/ui/select';
 import { FileVideo, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import {
-  EDITORIAL_FAMILIES,
-  type EditorialFamily,
-  type EditorialFamilyPreference,
+  normalizeEditorialPreferences,
   type EditorialPreferences,
-  type EditorialPreferenceMode,
 } from '@/lib/editron/production-brief/editorial-preferences';
+import { EditorialPreferenceControls } from '@/components/editron/project/editorial-preference-controls';
 
 /** Options forwarded to the from-asset backend endpoint. */
 export interface AutoEditOptions {
@@ -87,28 +84,13 @@ const ASPECT_RATIO_OPTIONS = [
   { value: '1:1', label: '1:1 — Square (Instagram, Facebook)' },
 ] as const;
 
-const FAMILY_LABELS: Record<EditorialFamily, { label: string; description: string }> = {
-  captions: { label: 'Captions', description: 'Speech coverage and visual emphasis' },
-  motionGraphics: { label: 'Motion graphics', description: 'How often ideas receive visual explanation' },
-  zoom: { label: 'Camera motion', description: 'Signal-licensed pushes, pulls, and reframing' },
-  transitions: { label: 'Transitions', description: 'Visible treatment at meaningful boundaries' },
-  sfx: { label: 'Sound effects', description: 'Impacts, accents, and transition support' },
-  music: { label: 'Background music', description: 'Music presence and prominence' },
-};
-
-const DEFAULT_PREFERENCE: EditorialFamilyPreference = { mode: 'auto' };
-
 export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProps) {
   const [showAdvanced, setShowAdvanced] = useState(true);
   const [platform, setPlatform] = useState('auto');
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [userIntent, setUserIntent] = useState('');
   const [script, setScript] = useState('');
-  const [familyPreferences, setFamilyPreferences] = useState<Partial<Record<EditorialFamily, EditorialFamilyPreference>>>({});
-  const [pacingMode, setPacingMode] = useState<'auto' | 'prefer'>('auto');
-  const [pacingIntensity, setPacingIntensity] = useState(0.5);
-  const [musicPrompt, setMusicPrompt] = useState('');
-  const [creativeNotes, setCreativeNotes] = useState('');
+  const [editorialPreferences, setEditorialPreferences] = useState<EditorialPreferences>({});
 
   const resetState = useCallback(() => {
     setShowAdvanced(true);
@@ -116,11 +98,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
     setAspectRatio('16:9');
     setUserIntent('');
     setScript('');
-    setFamilyPreferences({});
-    setPacingMode('auto');
-    setPacingIntensity(0.5);
-    setMusicPrompt('');
-    setCreativeNotes('');
+    setEditorialPreferences({});
   }, []);
 
   const handleQuickEdit = useCallback(() => {
@@ -137,37 +115,11 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
     if (aspectRatio && aspectRatio !== '16:9') options.aspectRatio = aspectRatio;
     if (userIntent.trim()) options.userIntent = userIntent.trim();
     if (script.trim()) options.script = script.trim();
-    const selectedFamilies = Object.fromEntries(
-      Object.entries(familyPreferences).filter(([, preference]) => preference?.mode !== 'auto'),
-    ) as NonNullable<EditorialPreferences['families']>;
-    if (Object.keys(selectedFamilies).length > 0 || pacingMode === 'prefer' || musicPrompt.trim() || creativeNotes.trim()) {
-      options.editorialPreferences = {
-        ...(Object.keys(selectedFamilies).length > 0 ? { families: selectedFamilies } : {}),
-        ...(pacingMode === 'prefer' ? { pacing: { mode: 'prefer', intensity: pacingIntensity } } : {}),
-        ...(musicPrompt.trim() ? { musicPrompt: musicPrompt.trim() } : {}),
-        ...(creativeNotes.trim() ? { notes: creativeNotes.trim() } : {}),
-      };
-    }
+    const normalizedPreferences = normalizeEditorialPreferences(editorialPreferences);
+    if (normalizedPreferences) options.editorialPreferences = normalizedPreferences;
     onConfirm(file, options);
     resetState();
-  }, [file, platform, aspectRatio, userIntent, script, familyPreferences, pacingMode, pacingIntensity, musicPrompt, creativeNotes, onConfirm, resetState]);
-
-  const updateFamilyMode = useCallback((family: EditorialFamily, mode: EditorialPreferenceMode) => {
-    setFamilyPreferences((current) => ({
-      ...current,
-      [family]: mode === 'prefer'
-        ? { mode, frequency: current[family]?.frequency ?? 0.5, intensity: current[family]?.intensity ?? 0.5 }
-        : { mode },
-    }));
-  }, []);
-
-  const updateFamilyValue = useCallback((family: EditorialFamily, key: 'frequency' | 'intensity', value: number) => {
-    setFamilyPreferences((current) => ({
-      ...current,
-      [family]: { ...(current[family] ?? DEFAULT_PREFERENCE), mode: 'prefer', [key]: value },
-    }));
-  }, []);
-
+  }, [file, platform, aspectRatio, userIntent, script, editorialPreferences, onConfirm, resetState]);
   const handleOpenChange = useCallback((open: boolean) => {
     if (!open) {
       onCancel();
@@ -346,97 +298,10 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
                 />
               </div>
 
-              {/* Editorial policy controls. These constrain planners; they never select forms. */}
-              <div className="mt-3.5 pt-3 border-t border-[#1C1B19]">
-                <p className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-2">
-                  Creative direction
-                </p>
-                <div className="divide-y divide-[#1C1B19]">
-                  {EDITORIAL_FAMILIES.map((family) => {
-                    const preference = familyPreferences[family] ?? DEFAULT_PREFERENCE;
-                    return (
-                      <div key={family} className="py-2.5 first:pt-0">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-[12px] font-medium text-[#D8D4CA]">{FAMILY_LABELS[family].label}</p>
-                            <p className="truncate text-[10px] text-[#5F5E5A]">{FAMILY_LABELS[family].description}</p>
-                          </div>
-                          <div className="grid shrink-0 grid-cols-3 overflow-hidden rounded border border-[#282724]" role="group" aria-label={`${FAMILY_LABELS[family].label} policy`}>
-                            {(['auto', 'off', 'prefer'] as const).map((mode) => (
-                              <button
-                                key={mode}
-                                type="button"
-                                onClick={() => updateFamilyMode(family, mode)}
-                                className={`h-7 px-2.5 text-[10px] font-medium transition-colors ${preference.mode === mode ? 'bg-[#D4A652] text-[#0B0B0A]' : 'bg-[#1B1A18] text-[#77736A] hover:text-[#D4A652]'}`}
-                              >
-                                {mode === 'auto' ? 'AI + brand' : mode === 'off' ? 'Off' : 'Prefer'}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        {preference.mode === 'prefer' && (
-                          <div className="mt-2 grid grid-cols-2 gap-5 pl-1 pr-2">
-                            <PreferenceSlider
-                              label="Frequency"
-                              value={preference.frequency ?? 0.5}
-                              onChange={(value) => updateFamilyValue(family, 'frequency', value)}
-                            />
-                            <PreferenceSlider
-                              label="Intensity"
-                              value={preference.intensity ?? 0.5}
-                              onChange={(value) => updateFamilyValue(family, 'intensity', value)}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="border-t border-[#1C1B19] pt-2.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[12px] font-medium text-[#D8D4CA]">Pacing</p>
-                    <div className="grid grid-cols-2 overflow-hidden rounded border border-[#282724]">
-                      {(['auto', 'prefer'] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => setPacingMode(mode)}
-                          className={`h-7 px-3 text-[10px] font-medium transition-colors ${pacingMode === mode ? 'bg-[#D4A652] text-[#0B0B0A]' : 'bg-[#1B1A18] text-[#77736A] hover:text-[#D4A652]'}`}
-                        >
-                          {mode === 'auto' ? 'AI + brand' : 'Prefer'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {pacingMode === 'prefer' && (
-                    <div className="mt-2 px-1">
-                      <PreferenceSlider label="Calm to fast" value={pacingIntensity} onChange={setPacingIntensity} />
-                    </div>
-                  )}
-                </div>
-
-                {familyPreferences.music?.mode === 'prefer' && (
-                  <Textarea
-                    aria-label="Music preference"
-                    placeholder="Music preference, mood, instruments, or uploaded-track instruction"
-                    value={musicPrompt}
-                    onChange={(event) => setMusicPrompt(event.target.value)}
-                    rows={2}
-                    maxLength={500}
-                    className="mt-2 resize-none bg-[#1B1A18] text-[12px] text-[#ECE9E1] border-[#282724] placeholder:text-[#454340]"
-                  />
-                )}
-                <Textarea
-                  aria-label="Additional creative direction"
-                  placeholder="Additional creative direction (optional)"
-                  value={creativeNotes}
-                  onChange={(event) => setCreativeNotes(event.target.value)}
-                  rows={2}
-                  maxLength={500}
-                  className="mt-2 resize-none bg-[#1B1A18] text-[12px] text-[#ECE9E1] border-[#282724] placeholder:text-[#454340]"
-                />
-              </div>
+              <EditorialPreferenceControls
+                value={editorialPreferences}
+                onChange={setEditorialPreferences}
+              />
 
               {/* Footer */}
               <div className="flex items-center justify-end gap-2 mt-3.5 pt-3 border-t border-[#1C1B19]">
@@ -463,25 +328,5 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function PreferenceSlider({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
-  return (
-    <div>
-      <div className="mb-1 flex items-center justify-between text-[9px] uppercase tracking-[0.06em] text-[#5F5E5A]">
-        <span>{label}</span>
-        <span>{Math.round(value * 100)}</span>
-      </div>
-      <Slider
-        aria-label={label}
-        min={0}
-        max={100}
-        step={1}
-        value={[Math.round(value * 100)]}
-        onValueChange={([next]) => onChange(next / 100)}
-        className="[&_[role=slider]]:border-[#D4A652]/60 [&_[role=slider]]:bg-[#151411] [&_[data-orientation=horizontal]>span]:bg-[#D4A652]"
-      />
-    </div>
   );
 }

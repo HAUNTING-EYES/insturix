@@ -51,13 +51,19 @@ describe('auto-edit intake preferences', () => {
       join(process.cwd(), 'components/editron/project/auto-edit-dialog.tsx'),
       'utf8',
     );
+    const controlsSource = readFileSync(
+      join(process.cwd(), 'components/editron/project/editorial-preference-controls.tsx'),
+      'utf8',
+    );
 
     expect(source).toContain('useState(true)');
     expect(source).toContain('Skip Preferences - Let AI Decide Everything');
     expect(source).toContain('Edit with These Settings');
-    expect(source).toContain('Frequency');
-    expect(source).toContain('Intensity');
-    expect(source).not.toContain('Stats only');
-    expect(source).not.toContain('Word-by-word');
+    expect(source).toContain('EditorialPreferenceControls');
+    expect(controlsSource).toContain('AI + brand');
+    expect(controlsSource).toContain('Frequency');
+    expect(controlsSource).toContain('Intensity');
+    expect(controlsSource).not.toContain('Stats only');
+    expect(controlsSource).not.toContain('Word-by-word');
   });
 });
