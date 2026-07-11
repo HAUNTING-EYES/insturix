@@ -21,9 +21,7 @@ import { MultipartUploader } from '@/lib/editron/client/multipart-uploader';
 import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import {
   createProjectFromMediaUploadBatch,
-  getMediaUploadBatchStatus,
   uploadMediaFiles,
-  type MediaUploadBatchStatus,
 } from '@/components/editron/editor/version-7.0.0/utils/media-upload';
 
 /** Auto-edit config from the dialog. Forwarded verbatim to /auto-edit/from-asset,
@@ -45,7 +43,6 @@ export interface FootageAutoEditState {
   running: boolean;
   progress: string;
   error: string | null;
-  batchStatus: MediaUploadBatchStatus | null;
   start: (file: File, options?: FootageAutoEditOptions) => void;
   startMany: (files: File[], options?: FootageAutoEditOptions) => void;
 }
@@ -56,7 +53,6 @@ export function useFootageAutoEdit(): FootageAutoEditState {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [batchStatus, setBatchStatus] = useState<MediaUploadBatchStatus | null>(null);
 
   const run = useCallback(async (file: File, options: FootageAutoEditOptions = {}) => {
     setRunning(true);
@@ -192,7 +188,6 @@ export function useFootageAutoEdit(): FootageAutoEditState {
 
     setRunning(true);
     setError(null);
-    setBatchStatus(null);
     setProgress(`Uploading ${selectedFiles.length} files...`);
 
     try {
@@ -203,26 +198,9 @@ export function useFootageAutoEdit(): FootageAutoEditState {
         throw new Error(firstError);
       }
 
-      // Wait for the batch to analyze enough to compose a storyline, THEN start
-      // the multi-source auto-edit. (Previously this bailed to "saved to library"
-      // if analysis wasn't instantly ready — which it never is right after
-      // upload — so the multi-source auto-edit essentially never fired.)
-      // from-batch has a chronological fallback, so we proceed after a timeout
-      // even if analysis is still catching up.
-      let status: MediaUploadBatchStatus | null = null;
-      for (let i = 0; i < 24; i++) {
-        try {
-          status = await getMediaUploadBatchStatus(result.uploadBatchId);
-          setBatchStatus(status);
-          if (status?.canCreateProject) break;
-        } catch (statusError) {
-          console.warn('[NewProjectFlow] Batch status lookup failed:', statusError);
-        }
-        setProgress(`Analyzing your footage… (${uploadedCount} clip${uploadedCount === 1 ? '' : 's'})`);
-        await new Promise((r) => setTimeout(r, 4000));
-      }
-
-      setProgress('Assembling multi-source edit...');
+      // The server persists the request and owns analysis polling through QStash.
+      // The browser can navigate away immediately without orphaning the edit.
+      setProgress('Starting durable multi-source analysis...');
       const batchProject = await createProjectFromMediaUploadBatch(result.uploadBatchId, {
         ...options,
         title: options.userIntent || result.uploaded[0]?.filename?.replace(/\.[^.]+$/, ''),
@@ -245,5 +223,5 @@ export function useFootageAutoEdit(): FootageAutoEditState {
   const start = useCallback((file: File, options?: FootageAutoEditOptions) => { void run(file, options); }, [run]);
   const startMany = useCallback((files: File[], options?: FootageAutoEditOptions) => { void runMany(files, options); }, [runMany]);
 
-  return { running, progress, error, batchStatus, start, startMany };
+  return { running, progress, error, start, startMany };
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { Receiver } from '@upstash/qstash';
 import { projectService } from '@/lib/editron/services/project-service';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
@@ -38,6 +39,10 @@ type BatchDocument = {
   userId: string;
   orgId?: string | null;
   projectId?: string;
+  orchestrationStatus?: 'initializing' | 'requested' | 'waiting_analysis' | 'composing' | 'retryable_error' | 'director_queued' | 'failed';
+  orchestrationRequestedAt?: Date | string;
+  orchestrationLeaseUntil?: Date | string;
+  orchestrationAttempt?: number;
   assetIds?: string[];
   productionBriefIntake?: MediaUploadBatchIntake & Record<string, unknown>;
 };
@@ -73,6 +78,12 @@ type FromBatchRequest = MediaUploadBatchIntake & {
   title?: string;
   brandId?: string;
   targetDurationSec?: number | string | null;
+  _orchestration?: {
+    userId?: string;
+    orgId?: string | null;
+    pollAttempt?: number;
+    failureCount?: number;
+  };
 };
 
 type MaterializedTimeline = {
@@ -128,6 +139,101 @@ function hasMultiOutputRequest(source: unknown): boolean {
   });
 }
 
+type BatchCaller = {
+  userId: string;
+  orgId?: string | null;
+  internal: boolean;
+  pollAttempt: number;
+  failureCount: number;
+};
+
+const DEFAULT_ORCHESTRATION_DELAY_SECONDS = 10;
+const DEFAULT_ORCHESTRATION_DEADLINE_MS = 30 * 60 * 1000;
+const DEFAULT_ORCHESTRATION_FAILURE_LIMIT = 3;
+
+function boundedEnvInt(name: string, fallback: number, min: number, max: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : fallback;
+}
+
+function orchestrationDelaySeconds(): number {
+  return boundedEnvInt('EDITRON_BATCH_ORCHESTRATION_DELAY_SECONDS', DEFAULT_ORCHESTRATION_DELAY_SECONDS, 5, 60);
+}
+
+function orchestrationDeadlineMs(): number {
+  return boundedEnvInt('EDITRON_BATCH_ORCHESTRATION_DEADLINE_MS', DEFAULT_ORCHESTRATION_DEADLINE_MS, 5 * 60 * 1000, 2 * 60 * 60 * 1000);
+}
+
+function orchestrationFailureLimit(): number {
+  return boundedEnvInt('EDITRON_BATCH_ORCHESTRATION_FAILURE_LIMIT', DEFAULT_ORCHESTRATION_FAILURE_LIMIT, 1, 8);
+}
+
+function orchestrationRequestBody(body: FromBatchRequest, caller: BatchCaller): FromBatchRequest {
+  return {
+    uploadBatchId: body.uploadBatchId,
+    title: body.title,
+    brandId: body.brandId,
+    targetDurationSec: body.targetDurationSec,
+    _orchestration: {
+      userId: caller.userId,
+      orgId: caller.orgId,
+      pollAttempt: caller.pollAttempt,
+      failureCount: caller.failureCount,
+    },
+  };
+}
+
+async function resolveBatchCaller(request: NextRequest, rawBody: string, body: FromBatchRequest): Promise<BatchCaller> {
+  const signature = request.headers.get('upstash-signature');
+  if (signature) {
+    const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY;
+    const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY;
+    if (!currentSigningKey || !nextSigningKey) throw new Error('QStash signing keys are required for batch orchestration');
+    const receiver = new Receiver({ currentSigningKey, nextSigningKey });
+    await receiver.verify({ signature, body: rawBody });
+    const userId = cleanString(body._orchestration?.userId, 128);
+    if (!userId) throw new Error('Signed batch orchestration payload is missing userId');
+    return {
+      userId,
+      orgId: cleanString(body._orchestration?.orgId, 128) ?? null,
+      internal: true,
+      pollAttempt: Math.max(0, Math.round(Number(body._orchestration?.pollAttempt) || 0)),
+      failureCount: Math.max(0, Math.round(Number(body._orchestration?.failureCount) || 0)),
+    };
+  }
+
+  const identity = await auth();
+  if (!identity.userId) throw new Error('Unauthorized');
+  return { userId: identity.userId, orgId: identity.orgId, internal: false, pollAttempt: 0, failureCount: 0 };
+}
+
+async function dispatchBatchOrchestration(params: {
+  baseUrl: string;
+  body: FromBatchRequest;
+  caller: BatchCaller;
+  delaySeconds?: number;
+}): Promise<string | undefined> {
+  const token = process.env.QSTASH_TOKEN;
+  if (!token) throw new Error('QSTASH_TOKEN is required for durable batch orchestration');
+  const target = `${params.baseUrl}/api/services/editron/auto-edit/from-batch`;
+  const response = await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${target}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'Upstash-Retries': '2',
+      'Upstash-Timeout': '300s',
+      ...(params.delaySeconds ? { 'Upstash-Delay': `${params.delaySeconds}s` } : {}),
+    },
+    body: JSON.stringify(orchestrationRequestBody(params.body, params.caller)),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => 'no body');
+    throw new Error(`Batch orchestration dispatch failed: HTTP ${response.status} - ${detail}`);
+  }
+  const json = await response.json().catch(() => ({}));
+  return typeof json.messageId === 'string' ? json.messageId : undefined;
+}
 function buildDirectorBrief(intake: MediaUploadBatchIntake): ProjectBrief {
   const captionStyle = normalizeDirectorEnum<ProjectBrief['captionStyle'] & string>(intake.captionStyle, ['word_by_word', 'sentence', 'key_phrases', 'none']);
   const transitionPreference = normalizeDirectorEnum<ProjectBrief['transitionPreference'] & string>(intake.transitionPreference, ['minimal', 'subtle', 'dynamic', 'energetic']);
@@ -583,20 +689,27 @@ async function dispatchDirector(params: {
 
 export async function POST(request: NextRequest) {
   let creditCheck: CreditCheckResult | null = null;
+  let creditsDeducted = false;
   let queuedOrRanDirector = false;
+  let caller: BatchCaller | null = null;
+  let body: FromBatchRequest | null = null;
+  let uploadBatchId: string | null = null;
+  let activeProjectId: string | null = null;
+  let baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
   try {
-    const { userId, orgId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const body: FromBatchRequest = await request.json();
-    const uploadBatchId = normalizeUploadBatchId(body.uploadBatchId ?? '');
+    const rawBody = await request.text();
+    body = JSON.parse(rawBody) as FromBatchRequest;
+    caller = await resolveBatchCaller(request, rawBody, body);
+    const { userId, orgId } = caller;
+    uploadBatchId = normalizeUploadBatchId(body.uploadBatchId ?? '');
     const brandId = cleanString(body.brandId, 128);
+    baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
 
     const db = await getDatabase();
-    const batch = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).findOne({ uploadBatchId, userId }) as BatchDocument | null;
+    let batch = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).findOne({ uploadBatchId, userId }) as BatchDocument | null;
     if (!batch) {
       return NextResponse.json({ success: false, error: 'Upload batch not found' }, { status: 404 });
     }
@@ -606,8 +719,12 @@ export async function POST(request: NextRequest) {
         error: 'Editron creates exactly one video per request. Choose one output specification.',
       }, { status: 400 });
     }
-    if (batch.projectId) {
-      return NextResponse.json({ success: true, projectId: batch.projectId, status: 'existing' });
+    if (!caller.internal && batch.projectId) {
+      return NextResponse.json({
+        success: true,
+        projectId: batch.projectId,
+        status: batch.orchestrationStatus === 'director_queued' ? 'processing' : 'existing',
+      });
     }
 
     const assetIds = Array.isArray(batch.assetIds) ? batch.assetIds.filter(Boolean) : [];
@@ -648,17 +765,14 @@ export async function POST(request: NextRequest) {
 
     const summary = buildMediaUploadBatchSummary(mediaAssets.map(buildStatusInput));
     const readinessByAsset = new Map(summary.assets.map((asset) => [asset.assetId, asset]));
-    const inProgress = summary.counts.uploaded + summary.counts.queued + summary.counts.analyzing;
-    if (inProgress > 0) {
-      return NextResponse.json({
-        success: false,
-        error: 'Upload batch is still analyzing. Try again when analysis completes.',
-        batch: summary,
-      }, { status: 409 });
-    }
-
     const visualAssets = mediaAssets.filter((asset) => isUsableVisualAsset(asset, readinessByAsset.get(asset.assetId)));
     if (visualAssets.length === 0) {
+      if (batch.projectId) {
+        await db.collection(COLLECTIONS.PROJECTS).updateOne(
+          { projectId: batch.projectId },
+          { $set: { autoEditStatus: 'failed', autoEditError: 'Upload batch has no usable video or image assets.', updatedAt: new Date() } },
+        );
+      }
       return NextResponse.json({
         success: false,
         error: 'Upload batch has no usable video or image assets.',
@@ -670,28 +784,204 @@ export async function POST(request: NextRequest) {
       durationMinutes: getBillableAutoEditMinutes(visualAssets),
       requestType: visualAssets.length > 1 ? 'reference_guided' as const : 'standard' as const,
     };
+
+    if (!caller.internal) {
+      if (!process.env.QSTASH_TOKEN) {
+        return NextResponse.json({
+          success: false,
+          error: 'Durable batch orchestration is unavailable. QSTASH_TOKEN is not configured.',
+        }, { status: 503 });
+      }
+
+      creditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', creditOptions);
+      if (!creditCheck.allowed) return creditCheck.errorResponse!;
+
+      const claimNow = new Date();
+      const claim = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+        {
+          uploadBatchId,
+          userId,
+          projectId: { $exists: false },
+          orchestrationStatus: { $nin: ['initializing', 'requested', 'waiting_analysis', 'composing', 'director_queued'] },
+        },
+        {
+          $set: {
+            orchestrationStatus: 'initializing',
+            orchestrationRequestedAt: claimNow,
+            orchestrationAttempt: 0,
+            updatedAt: claimNow,
+          },
+        },
+      );
+      if (claim.matchedCount === 0) {
+        batch = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).findOne({ uploadBatchId, userId }) as BatchDocument | null;
+        if (batch?.projectId) {
+          return NextResponse.json({ success: true, projectId: batch.projectId, status: 'existing' });
+        }
+        return NextResponse.json({ success: false, error: 'Batch auto-edit is already initializing.' }, { status: 409 });
+      }
+
+      const intake = mergeIntake(batch.productionBriefIntake, body);
+      const projectName = cleanString(body.title, 160)
+        || cleanString(intake.userIntent, 80)
+        || `Auto-Edit Batch: ${uploadBatchId}`;
+      const project = await projectService.createProject(userId, projectName, {
+        brandId,
+        orgId: orgId ?? batch.orgId ?? null,
+      });
+      activeProjectId = project.projectId;
+
+      await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        { projectId: activeProjectId },
+        {
+          $set: {
+            autoEditMode: 'batch',
+            autoEditStatus: 'analyzing',
+            sourceUploadBatchId: uploadBatchId,
+            sourceAssetIds: visualAssets.map((asset) => asset.assetId),
+            updatedAt: new Date(),
+          },
+        },
+      );
+      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+        { uploadBatchId, userId, orchestrationStatus: 'initializing' },
+        {
+          $set: {
+            projectId: activeProjectId,
+            orchestrationStatus: 'requested',
+            orchestrationRequestedAt: claimNow,
+            orchestrationAttempt: 0,
+            productionBriefIntake: intake,
+            autoEditRequest: {
+              title: projectName,
+              brandId: brandId ?? null,
+              targetDurationSec: body.targetDurationSec ?? null,
+            },
+            updatedAt: new Date(),
+          },
+          $unset: { projectIds: '', deliverableProjects: '' },
+        },
+      );
+
+      const messageId = await dispatchBatchOrchestration({
+        baseUrl,
+        body,
+        caller: { ...caller, pollAttempt: 0, failureCount: 0 },
+      });
+      return NextResponse.json({
+        success: true,
+        projectId: activeProjectId,
+        status: 'processing',
+        messageId,
+        orchestrationStatus: 'requested',
+      }, { status: 202 });
+    }
+
+    activeProjectId = batch.projectId ?? null;
+    if (!activeProjectId) {
+      return NextResponse.json({ success: false, error: 'Batch orchestration has no project to resume.' }, { status: 409 });
+    }
+    if (batch.orchestrationStatus === 'director_queued') {
+      return NextResponse.json({ success: true, projectId: activeProjectId, status: 'processing', skipped: 'director-already-queued' });
+    }
+    if (batch.orchestrationStatus === 'failed') {
+      return NextResponse.json({ success: false, projectId: activeProjectId, status: 'failed' }, { status: 409 });
+    }
+
+    const inProgress = summary.counts.uploaded + summary.counts.queued + summary.counts.analyzing;
+    if (inProgress > 0) {
+      const requestedAtMs = new Date(batch.orchestrationRequestedAt ?? Date.now()).getTime();
+      if (Date.now() - requestedAtMs >= orchestrationDeadlineMs()) {
+        const reason = `Batch analysis did not reach a terminal state within ${Math.round(orchestrationDeadlineMs() / 60000)} minutes.`;
+        await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+          { uploadBatchId, userId, projectId: activeProjectId },
+          { $set: { orchestrationStatus: 'failed', orchestrationError: reason, updatedAt: new Date() }, $unset: { orchestrationLeaseUntil: '' } },
+        );
+        await db.collection(COLLECTIONS.PROJECTS).updateOne(
+          { projectId: activeProjectId },
+          { $set: { autoEditStatus: 'failed', autoEditError: reason, updatedAt: new Date() } },
+        );
+        return NextResponse.json({ success: false, projectId: activeProjectId, status: 'failed', error: reason });
+      }
+
+      const nextPollAttempt = caller.pollAttempt + 1;
+      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+        { uploadBatchId, userId, projectId: activeProjectId },
+        {
+          $set: {
+            orchestrationStatus: 'waiting_analysis',
+            orchestrationAttempt: nextPollAttempt,
+            orchestrationLastSummary: summary.counts,
+            updatedAt: new Date(),
+          },
+          $unset: { orchestrationLeaseUntil: '' },
+        },
+      );
+      const messageId = await dispatchBatchOrchestration({
+        baseUrl,
+        body,
+        caller: { ...caller, pollAttempt: nextPollAttempt },
+        delaySeconds: orchestrationDelaySeconds(),
+      });
+      return NextResponse.json({
+        success: true,
+        projectId: activeProjectId,
+        status: 'processing',
+        orchestrationStatus: 'waiting_analysis',
+        messageId,
+        batch: summary,
+      }, { status: 202 });
+    }
+
+    const leaseNow = new Date();
+    const leaseUntil = new Date(leaseNow.getTime() + 10 * 60 * 1000);
+    const composeClaim = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+      {
+        uploadBatchId,
+        userId,
+        projectId: activeProjectId,
+        orchestrationStatus: { $in: ['requested', 'waiting_analysis', 'retryable_error', 'composing'] },
+        $or: [
+          { orchestrationStatus: { $ne: 'composing' } },
+          { orchestrationLeaseUntil: { $exists: false } },
+          { orchestrationLeaseUntil: { $lte: leaseNow } },
+        ],
+      },
+      {
+        $set: {
+          orchestrationStatus: 'composing',
+          orchestrationLeaseUntil: leaseUntil,
+          orchestrationAttempt: caller.pollAttempt,
+          updatedAt: leaseNow,
+        },
+      },
+    );
+    if (composeClaim.matchedCount === 0) {
+      return NextResponse.json({ success: true, projectId: activeProjectId, status: 'processing', skipped: 'orchestration-lease-held' });
+    }
+
     creditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', creditOptions);
     if (!creditCheck.allowed) {
+      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+        { uploadBatchId, userId, projectId: activeProjectId },
+        { $set: { orchestrationStatus: 'failed', orchestrationError: 'Insufficient credits', updatedAt: new Date() }, $unset: { orchestrationLeaseUntil: '' } },
+      );
+      await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        { projectId: activeProjectId },
+        { $set: { autoEditStatus: 'failed', autoEditError: 'Insufficient credits', updatedAt: new Date() } },
+      );
       return creditCheck.errorResponse!;
     }
-    await creditCheck.deduct();
+    const deduction = await creditCheck.deduct();
+    creditsDeducted = true;
 
     const intake = mergeIntake(batch.productionBriefIntake, body);
-    const projectName = cleanString(body.title, 160)
-      || cleanString(intake.userIntent, 80)
-      || `Auto-Edit Batch: ${uploadBatchId}`;
-    const project = await projectService.createProject(userId, projectName, {
-      brandId,
-      orgId: orgId ?? batch.orgId ?? null,
-    });
-    const projectId = project.projectId;
-
     const analysisBridge = await hydrateStorylineAnalysesForBatch(db as any, {
-      projectId,
+      projectId: activeProjectId,
       userId,
       assets: visualAssets,
     });
-    const analyses = await readProjectAssetAnalyses(db as any, projectId);
+    const analyses = await readProjectAssetAnalyses(db as any, activeProjectId);
     const brief = buildBrief(analyses, visualAssets, intake, body);
     const dims = dimensionsForAspect(brief.output.aspectRatio ?? '16:9');
     const assetContexts = buildAssetContextMap(visualAssets.map((asset) => ({
@@ -725,21 +1015,17 @@ export async function POST(request: NextRequest) {
     });
     const storylineTimeline = await materializeStoryline(ordering, visualAssets, userId, uploadBatchId, dims);
     const timeline = storylineTimeline ?? await materializeChronologicalFallback(visualAssets, userId, uploadBatchId, dims);
+    if (timeline.overlays.length === 0) throw new Error('No usable clips could be materialized from this batch.');
 
-    if (timeline.overlays.length === 0) {
-      throw new Error('No usable clips could be materialized from this batch.');
-    }
-
-    await projectService.saveProject(userId, projectId, {
+    await projectService.saveProject(userId, activeProjectId, {
       overlays: timeline.overlays as any,
       aspectRatio: brief.output.aspectRatio ?? '16:9',
       playerDimensions: dims,
       fps: FPS,
       durationInFrames: timeline.durationInFrames,
     });
-
     await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId },
+      { projectId: activeProjectId },
       {
         $set: {
           autoEditMode: 'batch',
@@ -762,20 +1048,12 @@ export async function POST(request: NextRequest) {
       },
     );
 
-    await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-      { uploadBatchId, userId },
-      {
-        $set: { projectId, updatedAt: new Date() },
-        $unset: { projectIds: '', deliverableProjects: '' },
-      },
-    );
-
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+    const projectName = cleanString(body.title, 160)
+      || cleanString(intake.userIntent, 80)
+      || `Auto-Edit Batch: ${uploadBatchId}`;
     const dispatch = await dispatchDirector({
       baseUrl,
-      projectId,
+      projectId: activeProjectId,
       userId,
       orgId: orgId || batch.orgId || undefined,
       title: projectName,
@@ -787,9 +1065,22 @@ export async function POST(request: NextRequest) {
     });
     queuedOrRanDirector = true;
 
+    await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+      { uploadBatchId, userId, projectId: activeProjectId },
+      {
+        $set: {
+          orchestrationStatus: 'director_queued',
+          orchestrationAttempt: caller.pollAttempt,
+          autoEditCreditTransactionId: deduction.transactionId,
+          updatedAt: new Date(),
+        },
+        $unset: { orchestrationLeaseUntil: '', projectIds: '', deliverableProjects: '' },
+      },
+    );
+
     return NextResponse.json({
       success: true,
-      projectId,
+      projectId: activeProjectId,
       status: dispatch.queued ? 'processing' : 'complete',
       storylinePlan: {
         source: timeline.source,
@@ -802,13 +1093,74 @@ export async function POST(request: NextRequest) {
       messageId: dispatch.messageId,
     });
   } catch (error) {
-    if (creditCheck && !queuedOrRanDirector) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (creditCheck && creditsDeducted && !queuedOrRanDirector) {
       await creditCheck.refund('Multi-upload auto-edit failed before Director dispatch').catch((refundError) => {
         console.error('[auto-edit/from-batch] credit refund failed:', refundError);
       });
     }
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error('[auto-edit/from-batch] failed:', msg);
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+
+    if (caller?.internal && body && uploadBatchId && activeProjectId) {
+      try {
+        const db = await getDatabase();
+        const nextFailureCount = caller.failureCount + 1;
+        if (nextFailureCount < orchestrationFailureLimit()) {
+          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+            { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
+            {
+              $set: {
+                orchestrationStatus: 'retryable_error',
+                orchestrationError: message,
+                orchestrationFailureCount: nextFailureCount,
+                updatedAt: new Date(),
+              },
+              $unset: { orchestrationLeaseUntil: '' },
+            },
+          );
+          await dispatchBatchOrchestration({
+            baseUrl,
+            body,
+            caller: { ...caller, failureCount: nextFailureCount },
+            delaySeconds: orchestrationDelaySeconds(),
+          });
+          console.warn(`[auto-edit/from-batch] retrying durable orchestration after failure ${nextFailureCount}: ${message}`);
+          return NextResponse.json({ success: true, projectId: activeProjectId, status: 'processing', retryScheduled: true }, { status: 202 });
+        }
+
+        await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+          { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
+          { $set: { orchestrationStatus: 'failed', orchestrationError: message, updatedAt: new Date() }, $unset: { orchestrationLeaseUntil: '' } },
+        );
+        await db.collection(COLLECTIONS.PROJECTS).updateOne(
+          { projectId: activeProjectId },
+          { $set: { autoEditStatus: 'failed', autoEditError: message, updatedAt: new Date() } },
+        );
+      } catch (recoveryError) {
+        console.error('[auto-edit/from-batch] orchestration recovery failed:', recoveryError);
+      }
+    } else if (activeProjectId) {
+      try {
+        const db = await getDatabase();
+        if (caller && uploadBatchId) {
+          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+            { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
+            {
+              $set: { orchestrationStatus: 'failed', orchestrationError: message, updatedAt: new Date() },
+              $unset: { orchestrationLeaseUntil: '' },
+            },
+          );
+        }
+        await db.collection(COLLECTIONS.PROJECTS).updateOne(
+          { projectId: activeProjectId },
+          { $set: { autoEditStatus: 'failed', autoEditError: message, updatedAt: new Date() } },
+        );
+      } catch (statusError) {
+        console.error('[auto-edit/from-batch] project failure status update failed:', statusError);
+      }
+    }
+
+    console.error('[auto-edit/from-batch] failed:', message);
+    const status = message === 'Unauthorized' || message.includes('signature') ? 401 : 500;
+    return NextResponse.json({ success: false, error: message }, { status });
   }
 }

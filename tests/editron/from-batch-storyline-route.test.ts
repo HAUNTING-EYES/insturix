@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   synthesizeImageScenes: vi.fn(),
   readProjectAssetAnalyses: vi.fn(),
   refundCredits: vi.fn(),
+  receiverVerify: vi.fn(),
   resolveAssetUrl: vi.fn(),
   resolveProductionBrief: vi.fn(),
   saveProject: vi.fn(),
@@ -28,6 +29,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
+vi.mock('@upstash/qstash', () => ({
+  Receiver: class {
+    verify = mocks.receiverVerify;
+  },
+}));
 vi.mock('@/lib/services/creditsMiddleware', () => ({ checkCredits: mocks.checkCredits }));
 vi.mock('@/lib/editron/services/project-service', () => ({
   projectService: {
@@ -89,15 +95,18 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
   getDatabase: mocks.getDatabase,
 }));
 
-function request(body: Record<string, unknown>): Request {
+function request(body: Record<string, unknown>, internal = false): Request {
   return new Request('http://localhost/api/services/editron/auto-edit/from-batch', {
     method: 'POST',
+    headers: internal ? { 'upstash-signature': 'signed-callback' } : undefined,
     body: JSON.stringify(body),
   });
 }
 
+let batchDocument: Record<string, unknown>;
+
 function mockDb() {
-  const batch = {
+  batchDocument = {
     uploadBatchId: 'batch_1',
     userId: 'user_1',
     orgId: 'org_1',
@@ -138,7 +147,7 @@ function mockDb() {
     collection(name: string) {
       if (name === 'mediaUploadBatches') {
         return {
-          findOne: vi.fn(async () => batch),
+          findOne: vi.fn(async () => batchDocument),
           updateOne: mocks.updateBatch,
         };
       }
@@ -165,13 +174,15 @@ describe('from-batch storyline route handoff', () => {
   beforeEach(() => {
     vi.resetModules();
     for (const mock of Object.values(mocks)) mock.mockReset();
-    process.env = { ...oldEnv, QSTASH_TOKEN: 'qstash_token', QSTASH_URL: 'https://qstash.test', NEXT_PUBLIC_APP_URL: 'http://app.test' };
+    process.env = { ...oldEnv, QSTASH_TOKEN: 'qstash_token', QSTASH_URL: 'https://qstash.test', QSTASH_CURRENT_SIGNING_KEY: 'current_key', QSTASH_NEXT_SIGNING_KEY: 'next_key', NEXT_PUBLIC_APP_URL: 'http://app.test' };
     vi.stubGlobal('fetch', mocks.fetch);
 
     mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1' });
+    mocks.receiverVerify.mockResolvedValue(true);
     mocks.getDatabase.mockResolvedValue(mockDb());
     mocks.checkCredits.mockResolvedValue({ allowed: true, deduct: mocks.deductCredits, refund: mocks.refundCredits });
     mocks.createProject.mockResolvedValue({ projectId: 'proj_batch_1' });
+    mocks.deductCredits.mockResolvedValue({ transactionId: 'credit_tx_1' });
     mocks.resolveAssetUrl.mockImplementation(async (assetId: string) => `https://cdn.test/${assetId}`);
     mocks.isR2Available.mockReturnValue(false);
     mocks.hydrateStorylineAnalysesForBatch.mockResolvedValue({
@@ -214,10 +225,10 @@ describe('from-batch storyline route handoff', () => {
         targetDurationSec: null,
       },
     });
-    mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ messageId: 'msg_1' }), { status: 200 }));
+    mocks.fetch.mockImplementation(async () => new Response(JSON.stringify({ messageId: 'msg_1' }), { status: 200 }));
     mocks.saveProject.mockResolvedValue(undefined);
     mocks.updateProject.mockResolvedValue({ acknowledged: true });
-    mocks.updateBatch.mockResolvedValue({ acknowledged: true });
+    mocks.updateBatch.mockResolvedValue({ acknowledged: true, matchedCount: 1 });
   });
 
   afterEach(() => {
@@ -225,9 +236,32 @@ describe('from-batch storyline route handoff', () => {
     vi.unstubAllGlobals();
   });
 
-  it('persists composer-ordered video and image overlays before dispatching Director', async () => {
+  it('persists the request, then composes exactly once from a signed durable callback', async () => {
     const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
-    const response = await POST(request({ uploadBatchId: 'batch_1', aspectRatio: '16:9' }) as never);
+    const requested = await POST(request({ uploadBatchId: 'batch_1', aspectRatio: '16:9' }) as never);
+    const requestedPayload = await requested.json();
+
+    expect(requested.status).toBe(202);
+    expect(requestedPayload).toEqual(expect.objectContaining({
+      success: true,
+      projectId: 'proj_batch_1',
+      status: 'processing',
+      orchestrationStatus: 'requested',
+      messageId: 'msg_1',
+    }));
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'requested',
+      orchestrationRequestedAt: new Date(),
+    };
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 0, failureCount: 0 },
+    }, true) as never);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -238,6 +272,8 @@ describe('from-batch storyline route handoff', () => {
       messageId: 'msg_1',
       storylinePlan: expect.objectContaining({ source: 'storyline', planApplied: true, clipCount: 2 }),
     }));
+    expect(mocks.receiverVerify).toHaveBeenCalledOnce();
+    expect(mocks.deductCredits).toHaveBeenCalledOnce();
 
     expect(mocks.saveProject).toHaveBeenCalledOnce();
     const savedState = mocks.saveProject.mock.calls[0][2];
@@ -314,6 +350,37 @@ describe('from-batch storyline route handoff', () => {
       'https://qstash.test/v2/publish/http://app.test/api/internal/workers/director',
       expect.objectContaining({ method: 'POST' }),
     );
+  });
+  it('does not compose or charge when another callback owns the orchestration lease', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'composing',
+      orchestrationRequestedAt: new Date(),
+      orchestrationLeaseUntil: new Date(Date.now() + 60_000),
+    };
+    mocks.updateBatch.mockResolvedValueOnce({ acknowledged: true, matchedCount: 0 });
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 1, failureCount: 0 },
+    }, true) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({
+      success: true,
+      projectId: 'proj_batch_1',
+      status: 'processing',
+      skipped: 'orchestration-lease-held',
+    });
+    expect(mocks.receiverVerify).toHaveBeenCalledOnce();
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+    expect(mocks.hydrateStorylineAnalysesForBatch).not.toHaveBeenCalled();
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
   });
   it('rejects multi-output requests before creating or charging for a project', async () => {
     const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');

@@ -50,7 +50,9 @@ describe('new project multi-upload intake', () => {
 
     expect(hookSource).toContain('uploadMediaFiles(selectedFiles, { uploadBatchIntake: options })');
     expect(hookSource).toContain('createProjectFromMediaUploadBatch(result.uploadBatchId');
-    expect(hookSource).toContain('Assembling multi-source edit');
+    expect(hookSource).toContain('Starting durable multi-source analysis');
+    expect(hookSource).not.toContain('getMediaUploadBatchStatus');
+    expect(hookSource).not.toContain('setTimeout');
     expect(hookSource).toContain('/dashboard/editron/auto-edit/');
     expect(hookSource).toContain('startMany');
     expect(flowSource).toContain('setPendingFootageFiles(files)');
