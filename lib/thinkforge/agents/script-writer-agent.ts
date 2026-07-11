@@ -2,8 +2,7 @@ import { z } from 'zod';
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
-import { generateWithWritingContextCache } from '../services/gemini-writing-context-cache';
-import { parseAgentJson } from '../protocol/parse-agent-json';
+import { generateStructuredWithWritingContextCache } from '../services/gemini-writing-context-cache';
 import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
 import {
   DEFAULT_ON_CAMERA_RATIO,
@@ -340,10 +339,9 @@ Return your response strictly adhering to the JSON schema.`;
     return prompt;
   }
 
-  // Mirrors PostWriterAgent: route generation through the writing-context cache so
-  // video scripts receive the creative-content-knowledge doc that the base structured
-  // path never loaded. Falls back to the base path on any cache/parse error, so this
-  // can only add the doc, never regress. (Quality delta needs a live Gemini eval.)
+  // One schema-constrained completion is the sole source of a script. The cached
+  // creative-writing context is optional infrastructure; an unavailable cache falls
+  // back to inline context before generation, never to a second model completion.
   async runStructured(
     input: ScriptWriterInput,
     overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
@@ -351,75 +349,27 @@ Return your response strictly adhering to the JSON schema.`;
   ): Promise<AgentStructuredOutput<ScriptWriterResult>> {
     const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
     const gen = this.resolveGenConfig(overrides);
+    const { result, cacheStatus, modelName } = await generateStructuredWithWritingContextCache({
+      prompt,
+      schema: this.schema,
+      modelName: this.config.modelName,
+      temperature: gen.temperature,
+      maxTokens: gen.maxTokens,
+      abortSignal,
+    });
 
-    let output: AgentStructuredOutput<ScriptWriterResult>;
-    try {
-      const jsonContract = [
-        'Return ONLY valid JSON. Do not include markdown fences or commentary.',
-        'Required JSON shape:',
-        '{',
-        '  "content": "the full script as markdown with ## Scene headers; no JSON inside",',
-        '  "contentAnalysis": { "hooks": ["string"], "theme": "string", "emphasisPoints": ["string"], "qualityScore": 0 },',
-        '  "visualMetadata": { "motionInfo": "string", "scenePrompts": ["string"] },',
-        '  "metadata": { "estimatedTimeSeconds": 0, "platform": "string", "voiceLanguage": "en" },',
-        '  "sidecar": {',
-        `    "sidecarVersion": ${SCRIPT_SIDECAR_VERSION},`,
-        '    "characters": [{ "id": "narrator", "name": "Narrator", "role": "narrator" }],',
-        '    "scenes": [{',
-        '      "title": "Scene title", "narration": "spoken text", "visualDescription": "what is seen",',
-        '      "videoMotionPrompt": "camera or motion direction", "audioDescription": "",',
-        '      "musicDescription": "music cue", "sfxDescription": "", "durationSeconds": 5,',
-        '      "mood": "neutral", "imageQualityTokens": "visual quality tokens",',
-        '      "videoQualityTokens": "video quality tokens", "generationUnitId": "scene_1",',
-        '      "primaryVisualForUnit": true, "sceneType": "talking-head", "assetRecommendation": "ai-video",',
-        '      "lines": [{ "text": "spoken text", "speakerId": "narrator", "onCamera": false, "delivery": "voiceover", "sourceRefs": [] }],',
-        '      "charactersPresent": ["narrator"], "relipSafe": false, "sourceRefs": []',
-        '    }],',
-        '    "overallMusicPrompt": "overall music direction", "characterDescriptions": {},',
-        '    "colorPalette": [], "environmentNotes": "environment notes",',
-        '    "suggestedProfileCategory": "production-mode", "sourceRefs": []',
-        '  }',
-        '}',
-        'hooks, emphasisPoints, and scenePrompts must be arrays of strings only.',
-        'content must be markdown scene script text, not JSON, not an array, and not ThinkForge block objects.',
-        'Every scene in content must begin with ## Scene N: ... and include **Narration:** plus **Visual:** labels.',
-        'scenePrompts must map 1:1 with the scenes in content.',
-        'sidecar.scenes must map 1:1 with the scenes in content, and sidecar sourceRefs must be internally consistent.',
-        'If an Avatar Casting Contract is present, sidecar.characters, lines, and charactersPresent must use the exact cast characterIds from that contract.',
-        'Do not add keys outside the required JSON shape.',
-      ].join('\n');
-      const { text, cacheStatus, modelName } = await generateWithWritingContextCache({
-        prompt: `${prompt}\n\n${jsonContract}`,
-        modelName: this.config.modelName,
-        temperature: gen.temperature,
-        maxTokens: gen.maxTokens,
-        abortSignal,
-      });
-      const parsed = parseAgentJson(text);
-      const result = this.schema.parse(parsed);
-      const validationOptions = { sourceLedger: input.sourceLedger, productionBrief: input.productionBrief };
-      // Reject unusable cache-path output before it can persist.
-      assertUsableScriptWriterResult(result, validationOptions);
+    assertUsableScriptWriterResult(result, {
+      sourceLedger: input.sourceLedger,
+      productionBrief: input.productionBrief,
+    });
 
-      output = {
-        result,
-        metadata: {
-          model: modelName,
-          notes: `writing_context_cache:${cacheStatus}`,
-        },
-      };
-    } catch (error) {
-      // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md).
-      // One catch covers cache-load + gen + parse + the quality gate; without this a permanent
-      // cache-miss, a 100%-fallback regression, or the gate silently rejecting every cache output
-      // all look identical. Distinguish gate-reject from an infra error so a test can count them.
-      const isGateReject = error instanceof Error && error.message.startsWith('Script writer output failed document contract');
-      console.error(`[LOUDFAIL][ScriptWriter][CACHE-PATH-FAILED] reason=${isGateReject ? 'QUALITY-GATE-REJECTED' : 'infra/parse/model error'} — falling back to base path (no writing-knowledge doc):`, error);
-      output = await super.runStructured(input, overrides, abortSignal);
-      assertUsableScriptWriterResult(output.result, { sourceLedger: input.sourceLedger, productionBrief: input.productionBrief });
-    }
-
-    return output;
+    return {
+      result,
+      metadata: {
+        model: modelName,
+        notes: `writing_context_cache:${cacheStatus}`,
+      },
+    };
   }
 }
 

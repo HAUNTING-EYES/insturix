@@ -1,12 +1,17 @@
+import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { generateObject } from 'ai';
+import type { z } from 'zod';
+import { createThinkForgeModel } from '../agents/model-factory';
 import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
 } from '@/lib/financials/provider-cost-events';
 
 const CACHE_TTL_SECONDS = 1800;
-const REDIS_KEY = 'thinkforge:gemini:creative-content-cache';
+const CACHE_STORE_TIMEOUT_MS = 1_500;
+const REDIS_KEY = 'thinkforge:gemini:creative-content-cache:v2';
 const DEFAULT_CACHE_MODEL = 'models/gemini-2.5-flash';
 
 interface CacheEntry {
@@ -14,6 +19,7 @@ interface CacheEntry {
   expiresAt: number;
   createdAt: number;
   modelName: string;
+  contextHash: string;
 }
 
 export interface WritingContextGenerationInput {
@@ -30,12 +36,31 @@ export interface WritingContextGenerationResult {
   modelName: string;
 }
 
+export interface WritingContextStructuredGenerationInput<TOutput> extends WritingContextGenerationInput {
+  schema: z.ZodType<TOutput>;
+}
+
+export interface WritingContextStructuredGenerationResult<TOutput> {
+  result: TOutput;
+  cacheStatus: WritingContextGenerationResult['cacheStatus'];
+  modelName: string;
+}
+
+interface ResolvedWritingContext {
+  cacheName?: string;
+  cacheStatus: WritingContextGenerationResult['cacheStatus'];
+  modelName: string;
+  systemInstruction: string;
+}
+
 let cachedDocText: string | null = null;
 
 type GeminiWritingContextOperation =
   | 'context_cache_create'
   | 'llm_completion_cached_context'
-  | 'llm_completion_inline_context';
+  | 'llm_completion_inline_context'
+  | 'llm_structured_cached_context'
+  | 'llm_structured_inline_context';
 
 type GeminiWritingContextUsage = {
   inputTokens?: number;
@@ -60,7 +85,7 @@ async function recordThinkForgeWritingContextCost(input: {
   );
   const estimatedOutputTokens = estimateTokensFromChars(input.outputChars);
 
-  await recordProviderCostEvent({
+  void recordProviderCostEvent({
     status: input.status,
     service: 'thinkforge',
     action: 'writing_context_cache',
@@ -88,13 +113,15 @@ async function recordThinkForgeWritingContextCost(input: {
       outputChars: input.outputChars,
       errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
     },
+  }).catch((error) => {
+    console.warn('[ThinkForgeWritingCache] Provider cost event failed:', error);
   });
 }
 
 function readGeminiUsage(result: unknown): GeminiWritingContextUsage | undefined {
   const root = asRecord(result);
   const response = asRecord(root?.response);
-  const usage = asRecord(response?.usageMetadata ?? root?.usageMetadata);
+  const usage = asRecord(root?.usageMetadata ?? response?.usageMetadata);
   if (!usage) return undefined;
 
   const inputTokens = readNumber(usage.promptTokenCount ?? usage.inputTokenCount ?? usage.inputTokens);
@@ -142,7 +169,7 @@ function toRuntimeModelName(modelName: string): string {
 }
 
 function getApiKey(): string {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (!apiKey) throw new Error('No GEMINI_API_KEY or GOOGLE_API_KEY');
   return apiKey;
 }
@@ -155,34 +182,23 @@ async function getRedis() {
   return new Redis({ url, token });
 }
 
-async function getCachedEntry(modelName: string): Promise<CacheEntry | null> {
-  try {
-    const redis = await getRedis();
-    if (!redis) return null;
-    const entry = await redis.get<CacheEntry>(REDIS_KEY);
-    if (!entry || entry.modelName !== modelName) return null;
-    if (Date.now() > entry.expiresAt - 60_000) return null;
-    return entry;
-  } catch (error) {
-    console.warn('[ThinkForgeWritingCache] Redis read failed:', error);
-    return null;
-  }
-}
+function withCacheStoreDeadline<T>(promise: Promise<T>, operation: 'read' | 'write'): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Redis cache ${operation} exceeded ${CACHE_STORE_TIMEOUT_MS}ms`));
+    }, CACHE_STORE_TIMEOUT_MS);
 
-async function storeCacheEntry(cacheName: string, modelName: string): Promise<void> {
-  try {
-    const redis = await getRedis();
-    if (!redis) return;
-    const entry: CacheEntry = {
-      cacheName,
-      modelName,
-      expiresAt: Date.now() + CACHE_TTL_SECONDS * 1000,
-      createdAt: Date.now(),
-    };
-    await redis.set(REDIS_KEY, entry, { ex: CACHE_TTL_SECONDS });
-  } catch (error) {
-    console.warn('[ThinkForgeWritingCache] Redis write failed:', error);
-  }
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 export function getCreativeContentKnowledgeText(): string {
@@ -221,50 +237,130 @@ export function buildWritingContextSystemInstruction(docText = getCreativeConten
   ].join('\n');
 }
 
-async function createCache(modelName: string): Promise<string | null> {
+function hashWritingContext(systemInstruction: string): string {
+  return createHash('sha256').update(systemInstruction).digest('hex');
+}
+
+async function getCachedEntry(modelName: string, contextHash: string): Promise<CacheEntry | null> {
+  try {
+    const redis = await getRedis();
+    if (!redis) return null;
+    const entry = await withCacheStoreDeadline(redis.get<CacheEntry>(REDIS_KEY), 'read');
+    if (!entry || entry.modelName !== modelName || entry.contextHash !== contextHash) return null;
+    if (Date.now() > entry.expiresAt - 60_000) return null;
+    return entry;
+  } catch (error) {
+    console.warn('[ThinkForgeWritingCache] Redis read failed:', error);
+    return null;
+  }
+}
+
+async function storeCacheEntry(cacheName: string, modelName: string, contextHash: string): Promise<void> {
+  try {
+    const redis = await getRedis();
+    if (!redis) return;
+    const entry: CacheEntry = {
+      cacheName,
+      modelName,
+      contextHash,
+      expiresAt: Date.now() + CACHE_TTL_SECONDS * 1000,
+      createdAt: Date.now(),
+    };
+    await withCacheStoreDeadline(redis.set(REDIS_KEY, entry, { ex: CACHE_TTL_SECONDS }), 'write');
+  } catch (error) {
+    console.warn('[ThinkForgeWritingCache] Redis write failed:', error);
+  }
+}
+
+async function createCache(
+  modelName: string,
+  contextHash: string,
+  systemInstruction: string,
+): Promise<string | null> {
   const startedAt = Date.now();
-  let systemInstructionChars: number | undefined;
 
   try {
-    const systemInstruction = buildWritingContextSystemInstruction();
-    systemInstructionChars = systemInstruction.length;
-    const { GoogleAICacheManager } = await import('@google/generative-ai/server');
-    const cacheManager = new GoogleAICacheManager(getApiKey());
-    const cache = await cacheManager.create({
-      model: modelName,
-      displayName: 'thinkforge-creative-content-knowledge-v1',
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: systemInstruction }],
-        },
-      ],
-      ttlSeconds: CACHE_TTL_SECONDS,
+    const { GoogleGenAI } = await import('@google/genai');
+    const client = new GoogleGenAI({ apiKey: getApiKey() });
+    const cache = await client.caches.create({
+      model: toRuntimeModelName(modelName),
+      config: {
+        displayName: 'thinkforge-creative-content-knowledge-v2',
+        systemInstruction,
+        ttl: `${CACHE_TTL_SECONDS}s`,
+      },
     });
 
-    if (!cache?.name) throw new Error('Cache creation returned no name');
-    await storeCacheEntry(cache.name, modelName);
-    await recordThinkForgeWritingContextCost({
+    if (!cache.name) throw new Error('Cache creation returned no name');
+    await storeCacheEntry(cache.name, modelName, contextHash);
+    recordThinkForgeWritingContextCost({
       status: 'success',
       modelName,
       operation: 'context_cache_create',
       cacheStatus: 'created',
-      systemInstructionChars,
+      systemInstructionChars: systemInstruction.length,
       functionMs: Date.now() - startedAt,
     });
     return cache.name;
-  } catch (error: any) {
-    await recordThinkForgeWritingContextCost({
+  } catch (error) {
+    recordThinkForgeWritingContextCost({
       status: 'failed',
       modelName,
       operation: 'context_cache_create',
-      systemInstructionChars,
+      systemInstructionChars: systemInstruction.length,
       functionMs: Date.now() - startedAt,
       error,
     });
-    console.warn(`[ThinkForgeWritingCache] Cache creation failed: ${error?.message || error}`);
+    console.warn('[ThinkForgeWritingCache] Cache creation failed; using inline context:', error);
     return null;
   }
+}
+
+async function resolveWritingContext(modelName: string): Promise<ResolvedWritingContext> {
+  const systemInstruction = buildWritingContextSystemInstruction();
+  const contextHash = hashWritingContext(systemInstruction);
+  const existing = await getCachedEntry(modelName, contextHash);
+
+  if (existing) {
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const client = new GoogleGenAI({ apiKey: getApiKey() });
+      const cache = await client.caches.get({ name: existing.cacheName });
+      if (!cache.name) throw new Error('Cached context returned no name');
+      return {
+        cacheName: existing.cacheName,
+        cacheStatus: 'hit',
+        modelName,
+        systemInstruction,
+      };
+    } catch (error) {
+      console.warn('[ThinkForgeWritingCache] Cached context is unavailable; recreating it:', error);
+    }
+  }
+
+  const cacheName = await createCache(modelName, contextHash, systemInstruction);
+  return {
+    ...(cacheName ? { cacheName } : {}),
+    cacheStatus: cacheName ? 'created' : 'inline',
+    modelName,
+    systemInstruction,
+  };
+}
+
+function readGeneratedText(response: { text?: string }): string {
+  const text = response.text?.trim();
+  if (!text) throw new Error('Gemini returned an empty writing-context response');
+  return text;
+}
+
+async function readAiSdkUsage(value: unknown): Promise<GeminiWritingContextUsage | undefined> {
+  const usage = asRecord(await Promise.resolve(value));
+  if (!usage) return undefined;
+
+  const inputTokens = readNumber(usage.inputTokens ?? usage.promptTokens ?? usage.prompt_tokens);
+  const outputTokens = readNumber(usage.outputTokens ?? usage.completionTokens ?? usage.completion_tokens);
+  const totalTokens = readNumber(usage.totalTokens ?? usage.total_tokens);
+  return inputTokens || outputTokens || totalTokens ? { inputTokens, outputTokens, totalTokens } : undefined;
 }
 
 export async function generateWithWritingContextCache(
@@ -274,93 +370,108 @@ export async function generateWithWritingContextCache(
     throw new Error('ThinkForge writing generation aborted before start');
   }
 
-  const { GoogleGenerativeAI } = await import('@google/generative-ai');
-  const apiKey = getApiKey();
-  const genAI = new GoogleGenerativeAI(apiKey);
   const modelName = normalizeCacheModelName(input.modelName);
-  const generationConfig = {
-    temperature: input.temperature,
-    maxOutputTokens: input.maxTokens,
-  };
-
-  const existing = await getCachedEntry(modelName);
-  let cacheName = existing?.cacheName || null;
-  let cacheStatus: WritingContextGenerationResult['cacheStatus'] = existing ? 'hit' : 'inline';
-
-  if (!cacheName) {
-    cacheName = await createCache(modelName);
-    cacheStatus = cacheName ? 'created' : 'inline';
-  }
-
-  if (cacheName) {
-    const startedAt = Date.now();
-    try {
-      const { GoogleAICacheManager } = await import('@google/generative-ai/server');
-      const cacheManager = new GoogleAICacheManager(apiKey);
-      const cachedContent = await cacheManager.get(cacheName);
-      const model = genAI.getGenerativeModelFromCachedContent(cachedContent);
-      const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: input.prompt }] }],
-        generationConfig,
-      });
-      const text = result.response.text();
-      await recordThinkForgeWritingContextCost({
-        status: 'success',
-        modelName,
-        operation: 'llm_completion_cached_context',
-        cacheStatus,
-        userInputChars: input.prompt.length,
-        outputChars: text.length,
-        functionMs: Date.now() - startedAt,
-        usage: readGeminiUsage(result),
-      });
-      return { text, cacheStatus, modelName };
-    } catch (error: any) {
-      await recordThinkForgeWritingContextCost({
-        status: 'failed',
-        modelName,
-        operation: 'llm_completion_cached_context',
-        cacheStatus,
-        userInputChars: input.prompt.length,
-        functionMs: Date.now() - startedAt,
-        error,
-      });
-      console.warn(`[ThinkForgeWritingCache] Cache bind/generate failed: ${error?.message || error}. Using inline context.`);
-    }
-  }
-
-  const systemInstruction = buildWritingContextSystemInstruction();
-  const model = genAI.getGenerativeModel({
-    model: toRuntimeModelName(modelName),
-    systemInstruction,
-  });
+  const context = await resolveWritingContext(modelName);
+  const { GoogleGenAI } = await import('@google/genai');
+  const client = new GoogleGenAI({ apiKey: getApiKey() });
   const startedAt = Date.now();
+  const completionOperation = context.cacheName
+    ? { operation: 'llm_completion_cached_context' as const }
+    : { operation: 'llm_completion_inline_context' as const };
+
   try {
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: input.prompt }] }],
-      generationConfig,
+    const result = await client.models.generateContent({
+      model: toRuntimeModelName(modelName),
+      contents: input.prompt,
+      config: {
+        temperature: input.temperature,
+        maxOutputTokens: input.maxTokens,
+        abortSignal: input.abortSignal,
+        ...(context.cacheName
+          ? { cachedContent: context.cacheName }
+          : { systemInstruction: context.systemInstruction }),
+      },
     });
-    const text = result.response.text();
-    await recordThinkForgeWritingContextCost({
+    const text = readGeneratedText(result);
+    recordThinkForgeWritingContextCost({
       status: 'success',
       modelName,
-      operation: 'llm_completion_inline_context',
-      cacheStatus: 'inline',
+      ...completionOperation,
+      cacheStatus: context.cacheStatus,
       userInputChars: input.prompt.length,
-      systemInstructionChars: systemInstruction.length,
+      ...(context.cacheName ? {} : { systemInstructionChars: context.systemInstruction.length }),
       outputChars: text.length,
       functionMs: Date.now() - startedAt,
       usage: readGeminiUsage(result),
     });
-    return { text, cacheStatus: 'inline', modelName };
+    return { text, cacheStatus: context.cacheStatus, modelName };
   } catch (error) {
-    await recordThinkForgeWritingContextCost({
+    recordThinkForgeWritingContextCost({
       status: 'failed',
       modelName,
-      operation: 'llm_completion_inline_context',
-      cacheStatus: 'inline',
+      ...completionOperation,
+      cacheStatus: context.cacheStatus,
       userInputChars: input.prompt.length,
-      systemInstructionChars: systemInstruction.length,
+      ...(context.cacheName ? {} : { systemInstructionChars: context.systemInstruction.length }),
+      functionMs: Date.now() - startedAt,
+      error,
+    });
+    throw error;
+  }
+}
+
+export async function generateStructuredWithWritingContextCache<TOutput>(
+  input: WritingContextStructuredGenerationInput<TOutput>,
+): Promise<WritingContextStructuredGenerationResult<TOutput>> {
+  if (input.abortSignal?.aborted) {
+    throw new Error('ThinkForge writing generation aborted before start');
+  }
+
+  const modelName = normalizeCacheModelName(input.modelName);
+  const context = await resolveWritingContext(modelName);
+  const startedAt = Date.now();
+  const structuredOperation = context.cacheName
+    ? { operation: 'llm_structured_cached_context' as const }
+    : { operation: 'llm_structured_inline_context' as const };
+
+  try {
+    const generation = await generateObject({
+      model: createThinkForgeModel(toRuntimeModelName(modelName)),
+      schema: input.schema,
+      prompt: input.prompt,
+      system: context.cacheName ? undefined : context.systemInstruction,
+      temperature: input.temperature,
+      maxTokens: input.maxTokens,
+      abortSignal: input.abortSignal,
+      ...(context.cacheName
+        ? { providerOptions: { google: { cachedContent: context.cacheName } } }
+        : {}),
+    });
+    const outputChars = JSON.stringify(generation.object).length;
+    recordThinkForgeWritingContextCost({
+      status: 'success',
+      modelName,
+      ...structuredOperation,
+      cacheStatus: context.cacheStatus,
+      userInputChars: input.prompt.length,
+      ...(context.cacheName ? {} : { systemInstructionChars: context.systemInstruction.length }),
+      outputChars,
+      functionMs: Date.now() - startedAt,
+      usage: await readAiSdkUsage(generation.usage),
+    });
+    return {
+      result: generation.object,
+      cacheStatus: context.cacheStatus,
+      modelName,
+    };
+  } catch (error) {
+    recordThinkForgeWritingContextCost({
+      status: 'failed',
+      modelName,
+      ...structuredOperation,
+      cacheStatus: context.cacheStatus,
+      userInputChars: input.prompt.length,
+      ...(context.cacheName ? {} : { systemInstructionChars: context.systemInstruction.length }),
       functionMs: Date.now() - startedAt,
       error,
     });

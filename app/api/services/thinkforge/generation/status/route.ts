@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import * as db from '@/lib/thinkforge/services/db';
-import type { GenerationState } from '@/lib/thinkforge/services/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,16 +27,33 @@ export async function GET(req: Request) {
     let generation = await db.getActiveGeneration(sessionId);
     let script: any = null;
 
-    // Auto-clear stale running generations (prevents UI from getting stuck)
+    // A status poll is a watchdog, not a cleanup mechanism. Keep failures durable so
+    // the client can tell the user what happened instead of presenting an empty board.
     if (generation && generation.status === 'running') {
       const updatedAt = generation.updatedAt ? new Date(generation.updatedAt).getTime() : 0;
       const startedAt = generation.startedAt ? new Date(generation.startedAt).getTime() : 0;
       const lastActivity = Math.max(updatedAt, startedAt);
-      const STALE_AFTER_MS = 30_000; // 30s - aggressive cleanup to prevent stuck UI
+      const SERVERLESS_REQUEST_BUDGET_MS = 60_000;
+      const WATCHDOG_GRACE_MS = 30_000;
+      const STALE_AFTER_MS = SERVERLESS_REQUEST_BUDGET_MS + WATCHDOG_GRACE_MS;
+
       if (lastActivity && Date.now() - lastActivity > STALE_AFTER_MS) {
-        console.log('[ThinkForge] Clearing stale generation', { generationId: generation.id, age: Date.now() - lastActivity });
-        await db.clearActiveGeneration(sessionId);
-        generation = null;
+        const message = 'Generation timed out before a script could be saved. Please try again.';
+        console.error('[ThinkForge] Generation watchdog timed out', {
+          generationId: generation.id,
+          age: Date.now() - lastActivity,
+          type: generation.type,
+        });
+        await db.updateGenerationState(sessionId, generation.id, {
+          status: 'failed',
+          message,
+        });
+        generation = {
+          ...generation,
+          status: 'failed',
+          message,
+          updatedAt: new Date(),
+        };
       }
     }
 

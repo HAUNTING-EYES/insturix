@@ -1,7 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { generateStructuredWithWritingContextCacheMock } = vi.hoisted(() => ({
+  generateStructuredWithWritingContextCacheMock: vi.fn(),
+}));
+
+vi.mock('@/lib/thinkforge/services/gemini-writing-context-cache', () => ({
+  generateStructuredWithWritingContextCache: generateStructuredWithWritingContextCacheMock,
+}));
 import {
   assertUsableScriptWriterResult,
   ScriptWriterAgent,
+  ScriptWriterResultSchema,
   type ScriptWriterResult,
 } from '@/lib/thinkforge/agents/script-writer-agent';
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
@@ -197,6 +206,44 @@ describe('ScriptWriterAgent prompt contract', () => {
     expect(prompt).toContain('Avatar Vault profile "avatar_profile_primary"');
     expect(prompt).toContain('delivery: "sync-dialogue"');
     expect(prompt).toContain('face visible');
+  });
+});
+
+describe('ScriptWriterAgent structured generation', () => {
+  beforeEach(() => {
+    generateStructuredWithWritingContextCacheMock.mockReset();
+  });
+
+  it('uses one schema-constrained cached completion without a fallback generation', async () => {
+    generateStructuredWithWritingContextCacheMock.mockResolvedValue({
+      result: makeResult(),
+      cacheStatus: 'hit',
+      modelName: 'models/gemini-2.5-flash',
+    });
+
+    const output = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Approval workflow launch.' },
+      userPrompt: 'Write a short Instagram video script for the launch.',
+    });
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(1);
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledWith(expect.objectContaining({
+      schema: ScriptWriterResultSchema,
+      prompt: expect.stringContaining('Write a short Instagram video script for the launch.'),
+    }));
+    expect(output.metadata?.notes).toBe('writing_context_cache:hit');
+    expect(output.result).toEqual(makeResult());
+  });
+
+  it('surfaces a structured-generation failure instead of starting a second model call', async () => {
+    generateStructuredWithWritingContextCacheMock.mockRejectedValue(new Error('invalid sidecar enum'));
+
+    await expect(new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Approval workflow launch.' },
+      userPrompt: 'Write a short Instagram video script for the launch.',
+    })).rejects.toThrow('invalid sidecar enum');
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(1);
   });
 });
 

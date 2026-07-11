@@ -637,6 +637,35 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         intentRef.current = null;
         setGenerationProgress(null);
         setGenerationMessage(null);
+
+        const failureId = `generation-failed:${gen.id}`;
+        const failureMessage = typeof gen.message === 'string' && gen.message.trim()
+          ? gen.message.trim()
+          : 'Generation failed before content could be saved. Please try again.';
+        const generationLabel = gen.type === 'script_edit' ? 'script revision' : 'script';
+
+        setMessages(prev => {
+          if (prev.some(message => message.id === failureId)) return prev;
+          const next = [
+            ...prev,
+            {
+              id: failureId,
+              role: 'assistant' as const,
+              content: `Unable to complete the ${generationLabel}. ${failureMessage}`,
+              timestamp: new Date(),
+              streaming: false,
+            },
+          ];
+          if (sessionId && threadId) {
+            saveLocal(sessionId, threadId, { chat: next } as any);
+          }
+          return next;
+        });
+        toast({
+          title: 'Generation failed',
+          description: failureMessage,
+          variant: 'destructive',
+        });
       }
     } catch (error) {
       console.error('Failed to poll generation status:', error);
