@@ -134,6 +134,7 @@
     "@vercel/analytics": "^1.5.0",
     "@vercel/edge": "^1.2.2",
     "@vercel/kv": "^3.0.0",
+    "@vercel/sandbox": "^2.5.0",
     "@vercel/speed-insights": "^1.2.0",
     "ai": "^5.0.96",
     "audio-decode": "^3.10.1",
