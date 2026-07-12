@@ -72,6 +72,7 @@ export const COLLECTIONS = {
   MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
   STYLE_PROFILES: 'styleProfiles',
   PROJECT_LINKS: 'project_links',
+  MG_RENDER_JOBS: 'editron_mg_render_jobs',
 } as const;
 
 /**
@@ -152,6 +153,16 @@ export async function initializeIndexes(): Promise<void> {
     { key: { userId: 1, storyboardIds: 1 }, name: 'userId_storyboardIds' },
     { key: { userId: 1, projectIds: 1 }, name: 'userId_projectIds' },
     { key: { userId: 1, videoIds: 1 }, name: 'userId_videoIds' },
+  ]);
+
+  // Isolated MG renderer jobs. `_id` is a deterministic request hash, so retries and duplicate
+  // Director deliveries converge on one job instead of charging/rendering twice.
+  await db.collection(COLLECTIONS.MG_RENDER_JOBS).createIndexes([
+    { key: { idempotencyKey: 1 }, name: 'idempotencyKey_unique', unique: true },
+    { key: { status: 1, nextAttemptAt: 1, createdAt: 1 }, name: 'status_nextAttempt_createdAt' },
+    { key: { status: 1, leaseExpiresAt: 1 }, name: 'status_leaseExpiresAt' },
+    { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
+    { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
   ]);
 
   console.log('Database indexes initialized successfully');
