@@ -14,6 +14,7 @@ describe('thinkforge eval provider adapter', () => {
     vi.restoreAllMocks();
     delete process.env.THINKFORGE_EVAL_TRANSIENT_RETRY_BASE_MS;
     delete process.env.THINKFORGE_EVAL_TRANSIENT_RETRY_ATTEMPTS;
+    delete process.env.THINKFORGE_EVAL_REQUEST_TIMEOUT_MS;
   });
 
   it('retries transient provider errors before scoring the eval run as failed', async () => {
@@ -51,5 +52,14 @@ describe('thinkforge eval provider adapter', () => {
 
     await expect(runEvalPrompt(baseConfig, 'Public synthetic eval prompt.')).rejects.toThrow('400');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails a stalled provider request within the configured deadline', async () => {
+    process.env.THINKFORGE_EVAL_REQUEST_TIMEOUT_MS = '10';
+    process.env.THINKFORGE_EVAL_TRANSIENT_RETRY_ATTEMPTS = '1';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>(() => {}));
+
+    await expect(runEvalPrompt(baseConfig, 'Public synthetic eval prompt.'))
+      .rejects.toThrow('timed out after 10ms');
   });
 });

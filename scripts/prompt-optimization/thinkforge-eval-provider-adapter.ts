@@ -101,6 +101,7 @@ const DEFAULT_PRICE_HINTS: Record<string, PriceHint> = {
 
 const DEFAULT_TRANSIENT_RETRY_ATTEMPTS = 3;
 const DEFAULT_TRANSIENT_RETRY_BASE_MS = 400;
+const DEFAULT_REQUEST_TIMEOUT_MS = 90_000;
 
 export function parseEvalProviders(value: string | undefined): EvalProvider[] {
   const raw = value ?? 'gemini,deepseek';
@@ -169,15 +170,21 @@ async function runProviderPromptWithRetry(
 ): Promise<RawEvalRunResult> {
   const attempts = readPositiveIntEnv('THINKFORGE_EVAL_TRANSIENT_RETRY_ATTEMPTS')
     ?? DEFAULT_TRANSIENT_RETRY_ATTEMPTS;
+  const requestTimeoutMs = readPositiveIntEnv('THINKFORGE_EVAL_REQUEST_TIMEOUT_MS')
+    ?? DEFAULT_REQUEST_TIMEOUT_MS;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      return config.provider === 'gemini'
-        ? await runGeminiPrompt(config, prompt)
-        : config.provider === 'anthropic'
-          ? await runAnthropicPrompt(config, prompt)
-          : await runOpenAICompatiblePrompt(config, prompt);
+      return await withTimeout(
+        config.provider === 'gemini'
+          ? runGeminiPrompt(config, prompt)
+          : config.provider === 'anthropic'
+            ? runAnthropicPrompt(config, prompt)
+            : runOpenAICompatiblePrompt(config, prompt),
+        requestTimeoutMs,
+        `${config.provider}/${config.model}`,
+      );
     } catch (error) {
       lastError = error;
       if (attempt >= attempts || !isTransientProviderError(error)) {
@@ -206,6 +213,21 @@ function retryDelayMs(attempt: number): number {
 function sleep(ms: number): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`Eval provider request timed out after ${timeoutMs}ms (${label}).`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function readApiKey(provider: EvalProvider): string {
