@@ -807,6 +807,19 @@ Call with no arguments to get full timeline.`,
   // --- UNIFIED ADD OVERLAY TOOL ---
   // This replaces the 4 separate add_*_overlay tools with one powerful tool
 
+  // Valid sticker template ids — MUST mirror config.id in
+  // components/editron/editor/version-7.0.0/templates/sticker-templates/* (source of truth). The renderer
+  // (sticker-layer-content.tsx) looks up templateMap[overlay.content]; an id NOT in this map renders NOTHING.
+  // Hardcoded (not imported) because templateMap lives in a client component tree; kept in sync by review.
+  const STICKER_TEMPLATE_IDS = [
+    'emoji-grin', 'emoji-joy', 'emoji-heart-eyes', 'emoji-cool', 'emoji-love', 'emoji-fire',
+    'emoji-hundred', 'emoji-sparkles', 'emoji-star', 'emoji-gift', 'emoji-balloon', 'emoji-party',
+    'audio-visualiser', 'bar-chart', 'boom-effect', 'card-flip', 'circular-progress', 'discount-circle',
+    'matrix-rain', 'pulsing-circle', 'spinning-square', 'bouncing-triangle', 'expanding-hexagon',
+    'morphing-star', 'rotating-octagon', 'zigzag-diamond', 'flashing-pentagon',
+  ];
+  const DEFAULT_STICKER_ID = 'emoji-fire'; // stable, always present — a sensible "add a sticker" default
+
   const addOverlaySchema = z.object({
     type: z.enum(['text', 'image', 'video', 'sound', 'shape', 'sticker']).describe("Type of overlay to add"),
 
@@ -817,6 +830,7 @@ Call with no arguments to get full timeline.`,
     // Content (type-specific)
     text: z.string().optional().describe("Text content (required for type='text')"),
     assetId: z.string().optional().describe("Asset ID (required for image/video/sound)"),
+    stickerId: z.string().optional().describe("Sticker template id (for type='sticker'). Emojis: emoji-fire, emoji-love, emoji-star, emoji-party, emoji-hundred, emoji-sparkles, emoji-grin, emoji-joy, emoji-heart-eyes, emoji-cool, emoji-gift, emoji-balloon. Effects: boom-effect, card-flip, circular-progress, bar-chart, audio-visualiser, matrix-rain, discount-circle, morphing-star, pulsing-circle, spinning-square, bouncing-triangle, expanding-hexagon, rotating-octagon, zigzag-diamond, flashing-pentagon. Defaults to emoji-fire. For a fully custom/bespoke sticker, use generate_html_sticker instead."),
 
     // Position - accepts numbers (pixels) or strings (percentages like '50%' or 'center')
     x: z.union([z.coerce.number(), z.string()]).optional().describe("X position: number for pixels, string for '50%' or 'center'. Default: center"),
@@ -1062,10 +1076,13 @@ Call with no arguments to get full timeline.`,
             };
             break;
 
-          case 'sticker':
+          case 'sticker': {
+            // Was hardcoded content:'emoji' — NOT a valid templateMap id, so the sticker rendered nothing (F-1).
+            const requested = (input.stickerId ?? '').trim();
+            const stickerId = STICKER_TEMPLATE_IDS.includes(requested) ? requested : DEFAULT_STICKER_ID;
             newOverlay = {
               ...baseOverlay,
-              content: 'emoji',
+              content: stickerId,
               category: 'Default',
               styles: {
                 opacity: input.styles?.opacity ?? 1,
@@ -1073,6 +1090,7 @@ Call with no arguments to get full timeline.`,
               }
             };
             break;
+          }
         }
 
         await projectService.addOverlay(userId, projectId, newOverlay as any);
