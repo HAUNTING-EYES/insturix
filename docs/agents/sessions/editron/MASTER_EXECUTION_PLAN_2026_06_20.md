@@ -7,6 +7,10 @@ This document is the **authoritative** operating plan for the next implementatio
 No one-off patches. No â€œPath E vs Path D mergeâ€ claims unless the control flow is
 proven in code for producer â†’ authority â†’ final consumer.
 
+## START HERE -- 2026-07-12 Binding Production Contracts
+
+Read [Editron-Production-Contracts-2026-07-12.md](./Editron-Production-Contracts-2026-07-12.md) before changing candidate selection, frequency behavior, MG codegen, or MG placement. It is the binding specification for the production opportunity optimizer and full-frame MG codegen integration, and supersedes stale fixed-count, density-as-guidance, MG-type-menu, and post-composition placement language below.
+
 ## START HERE -- 2026-06-27 Codex Handoff (current remaining work)
 
 **Full execute-cold instructions:** [`Editron-Codex-Handoff-2026-06-27.md`](./Editron-Codex-Handoff-2026-06-27.md)
