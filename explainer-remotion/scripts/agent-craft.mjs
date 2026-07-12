@@ -63,6 +63,7 @@ writeFileSync('src/bricks/gen/manifest.ts',
   `export type GenScene = {Comp: React.FC<{brand: Brand}>; durationInFrames: number; form: string; vo: string; focus?: {x: number; y: number}};\n` +
   `export const GEN_META = {fps: ${plan.fps}, transitionFrames: ${plan.transitionFrames}, message: ${JSON.stringify(plan.message || '')}};\n` +
   `export const GEN_SCENES: GenScene[] = [];\n`);
+console.log(`[agent-craft] cwd=${process.cwd()} seeded gen/manifest.ts exists=${existsSync('src/bricks/gen/manifest.ts')}`);
 const MODELF = existsSync('out/product-model.json') ? JSON.parse(readFileSync('out/product-model.json', 'utf8')) : null;
 const BRAND = existsSync('scripts/brand-brief.json') ? JSON.parse(readFileSync('scripts/brand-brief.json', 'utf8')) : {};
 const FACTS = existsSync('scripts/product-facts.json') ? JSON.parse(readFileSync('scripts/product-facts.json', 'utf8')) : {};
