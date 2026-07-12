@@ -48,8 +48,11 @@ export function AutoEditProcessing({
         @keyframes ae-word{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
         @keyframes ae-line{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
         @keyframes ae-ph{from{left:54px}to{left:calc(100% - 2px)}}
+        @keyframes ae-breathe{0%,100%{opacity:.6;transform:scale(1)}50%{opacity:1;transform:scale(1.3)}}
         .ae-pop{animation:ae-pop .42s cubic-bezier(0.16,1,0.3,1) both}
-        .ae-ph{animation:ae-ph 2.6s linear infinite}
+        .ae-ph{animation:ae-ph 2.8s linear infinite}
+        .ae-breathe{animation:ae-breathe 1.3s ease-in-out infinite}
+        @media (prefers-reduced-motion:reduce){.ae-ph,.ae-breathe{animation:none}}
       `}</style>
 
       {/* top progress hairline */}
@@ -108,9 +111,12 @@ export function AutoEditProcessing({
             </div>
 
             <div className="relative">
-              {/* playhead */}
-              <div className={cn('ae-ph pointer-events-none absolute inset-y-0 z-[6] w-[1.5px] bg-gold', done && 'opacity-35')}>
-                <span className="absolute -left-[3px] -top-px h-1.5 w-[7px] bg-gold" style={{ clipPath: 'polygon(0 0,100% 0,50% 100%)' }} />
+              {/* playhead — a live scan beam sweeping the timeline so the wait never reads as stuck */}
+              <div className={cn('ae-ph pointer-events-none absolute inset-y-0 z-[6] w-[2px] bg-gold shadow-[0_0_14px_2px_rgba(212,166,82,0.5)]', done && 'opacity-35')}>
+                {/* trailing light — a soft gold wash behind the head */}
+                <span className="pointer-events-none absolute inset-y-0 right-full w-16 bg-gradient-to-l from-[rgba(212,166,82,0.16)] to-transparent" />
+                {/* breathing head */}
+                <span className="ae-breathe absolute -left-[3px] -top-px h-1.5 w-[7px] bg-gold" style={{ clipPath: 'polygon(0 0,100% 0,50% 100%)', filter: 'drop-shadow(0 0 5px rgba(212,166,82,0.85))' }} />
               </div>
 
               {/* ruler + markers */}

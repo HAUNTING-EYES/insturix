@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import { useAcceptedBrandVaultBrands } from '@/components/dashboard/BrandVault/useBrandVault';
@@ -178,6 +179,11 @@ export default function NewProjectFlow() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  // Portal-mount guard: the auto-edit processing overlay must escape the `.enp`
+  // console (whose `.panel` transform makes `position:fixed` anchor to the framed
+  // box, not the viewport — collapsing the full-screen screen). Portal to body.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   // Beta notice — dismissible, remembered per browser. Starts hidden until the
   // effect confirms it wasn't dismissed (SSR-safe: no localStorage read on render).
@@ -466,8 +472,8 @@ export default function NewProjectFlow() {
       {/* Auto-edit processing screen (single OR multi-source). Upload/analyze
           maps to the analyze stage; the hook then navigates to /auto-edit/[id]
           for the real director stages. */}
-      {screen === 'onair' && (
-        <div className="fixed inset-0 z-[70]">
+      {screen === 'onair' && mounted && createPortal(
+        <div className="fixed inset-0 z-[9999]">
           <AutoEditProcessing
             filename={projName}
             stageIndex={0}
@@ -476,7 +482,8 @@ export default function NewProjectFlow() {
             logLines={footage.progress ? [footage.progress] : []}
             onSkip={goProjects}
           />
-        </div>
+        </div>,
+        document.body,
       )}
       <AutoEditDialog
         file={pendingSingleVideo}
