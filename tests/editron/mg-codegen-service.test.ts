@@ -163,6 +163,16 @@ describe('generateMoment - the pipeline (decline / scan→repair→compile→jud
     expect(r!.status).toBe('fallback');
     expect(r!.receipt.momentId).toBe('m1');
   });
+
+  it('compile or judge throws -> fallback, never escapes the codegen boundary', async () => {
+    const compile = await generateMoment(input(), deps({ compile: async () => { throw new Error('bundler crashed'); } }));
+    expect(compile.status).toBe('fallback');
+    expect(compile.reason).toMatch(/compile threw: bundler crashed/);
+
+    const judge = await generateMoment(input(), deps({ evaluate: async () => { throw new Error('invalid judge JSON'); } }));
+    expect(judge.status).toBe('fallback');
+    expect(judge.reason).toMatch(/judge threw: invalid judge JSON/);
+  });
 });
 
 describe('import normalization - the eval-caught fix (model omits imports ~half the time)', () => {

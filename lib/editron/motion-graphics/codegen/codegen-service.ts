@@ -216,7 +216,14 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
   code = applyImportPreamble(code);
 
   // 2. compile
-  const compiled = await deps.compile(code);
+  let compiled: Awaited<ReturnType<CodegenDeps['compile']>>;
+  try {
+    compiled = await deps.compile(code);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    receipt.compileError = message;
+    return fallback(`compile threw: ${message.slice(0, 120)}`);
+  }
   receipt.compiled = compiled.ok;
   if (!compiled.ok) {
     receipt.compileError = compiled.error;
@@ -224,20 +231,37 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
   }
 
   // 3. render-probe + judge (1 revision on a low score; the judge vetoes fabrication)
-  const ev = await deps.evaluate(code, input);
+  let ev: Awaited<ReturnType<CodegenDeps['evaluate']>>;
+  try {
+    ev = await deps.evaluate(code, input);
+  } catch (error) {
+    return fallback(`judge threw: ${(error instanceof Error ? error.message : String(error)).slice(0, 120)}`);
+  }
   receipt.judgeScore = ev.score;
   receipt.judgeIssues = ev.issues;
   if (ev.score < threshold) {
     const rev = await attempt(`A design reviewer scored your output ${ev.score}/10. Issues: ${ev.issues.join('; ')}. Revise to fix them; return the full component.`);
     if (!rev.scan.ok) return fallback(`revision scan: ${rev.scan.reason}`);
     const revCode = applyImportPreamble(rev.code);
-    const rc = await deps.compile(revCode);
+    let rc: Awaited<ReturnType<CodegenDeps['compile']>>;
+    try {
+      rc = await deps.compile(revCode);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      receipt.compileError = message;
+      return fallback(`revision compile threw: ${message.slice(0, 120)}`);
+    }
     receipt.compiled = rc.ok;
     if (!rc.ok) {
       receipt.compileError = rc.error;
       return fallback('revision compile failed');
     }
-    const ev2 = await deps.evaluate(revCode, input);
+    let ev2: Awaited<ReturnType<CodegenDeps['evaluate']>>;
+    try {
+      ev2 = await deps.evaluate(revCode, input);
+    } catch (error) {
+      return fallback(`revision judge threw: ${(error instanceof Error ? error.message : String(error)).slice(0, 120)}`);
+    }
     receipt.judgeScore = ev2.score;
     receipt.judgeIssues = ev2.issues;
     if (ev2.score < threshold) return fallback(`judge ${ev2.score} < ${threshold}`);
