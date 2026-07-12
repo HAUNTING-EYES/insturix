@@ -44,7 +44,13 @@ const BAND_MID_MAX = 4000;
 export async function analyzeBeatsFull(
   audioBuffer: { sampleRate: number; length: number; numberOfChannels: number; getChannelData: (ch: number) => Float32Array; duration: number },
   options: BeatDetectionOptions = {},
-): Promise<BeatAnalysis> {
+): Promise<BeatAnalysis | null> {
+  // ponytail: callers pass a URL string here (see five-track-analysis), not a decoded AudioBuffer — so there is
+  // no audio to analyze. Return null (the caller already does `beatResult?.beats || []`) instead of crashing on
+  // `getChannelData`. Real fix: decode audio server-side before calling this. Not today.
+  if (typeof audioBuffer?.getChannelData !== 'function' || !(audioBuffer.length > 0)) {
+    return null;
+  }
   const fftSize = options.fftSize ?? DEFAULT_FFT_SIZE;
   const hopSize = options.hopSize ?? DEFAULT_HOP_SIZE;
   const minBPM = options.minBPM ?? DEFAULT_MIN_BPM;
