@@ -5,7 +5,7 @@ import { AlertCircle, CheckCircle2, ExternalLink, Loader2, Search, TrendingUp, X
 import type { SelectedTrend } from "@/lib/thinkforge/trends/selected-trend";
 import type { TrendCandidate, TrendPlatform } from "@/lib/thinkforge/trends/trend-evidence";
 
-type TrendTarget = "post" | "script";
+export type TrendTarget = "post" | "script";
 type WorkflowStage = "discover" | "select" | "source" | "analyzing" | "ready";
 
 interface TrendWorkflowPanelProps {
@@ -13,7 +13,8 @@ interface TrendWorkflowPanelProps {
   sessionId: string | null | undefined;
   initialTarget?: TrendTarget;
   onClose: () => void;
-  onGenerate: (prompt: string) => void;
+  onEnsureSession?: (candidate: TrendCandidate, target: TrendTarget) => Promise<string | null>;
+  onGenerate: (prompt: string, sessionId: string, target: TrendTarget, selectedTrend: SelectedTrend) => void;
 }
 
 const PLATFORM_OPTIONS: Array<{ value: "all" | TrendPlatform; label: string }> = [
@@ -38,7 +39,7 @@ async function readJsonResponse(response: Response): Promise<any> {
   return payload;
 }
 
-export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", onClose, onGenerate }: TrendWorkflowPanelProps) {
+export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", onClose, onEnsureSession, onGenerate }: TrendWorkflowPanelProps) {
   const [niche, setNiche] = useState("");
   const [platform, setPlatform] = useState<"all" | TrendPlatform>("all");
   const [target, setTarget] = useState<TrendTarget>(initialTarget);
@@ -47,15 +48,20 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
   const [selectedTrend, setSelectedTrend] = useState<SelectedTrend | null>(null);
   const [provider, setProvider] = useState<string | null>(null);
   const [stage, setStage] = useState<WorkflowStage>("discover");
+  const [workflowSessionId, setWorkflowSessionId] = useState<string | null>(sessionId || null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pollStartedAtRef = useRef<number | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!open || !sessionId) return;
+    if (open && sessionId) setWorkflowSessionId(sessionId);
+  }, [open, sessionId]);
+
+  useEffect(() => {
+    if (!open || !workflowSessionId) return;
     let cancelled = false;
-    void fetch("/api/services/thinkforge/trends/status?sessionId=" + encodeURIComponent(sessionId))
+    void fetch("/api/services/thinkforge/trends/status?sessionId=" + encodeURIComponent(workflowSessionId))
       .then(readJsonResponse)
       .then((payload) => {
         if (cancelled || !payload.selectedTrend) return;
@@ -71,12 +77,12 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
   }, [open, sessionId]);
 
   useEffect(() => {
-    if (!open || stage !== "analyzing" || !sessionId) return;
+    if (!open || stage !== "analyzing" || !workflowSessionId) return;
     let cancelled = false;
     pollStartedAtRef.current ??= Date.now();
     const poll = async () => {
       try {
-        const payload = await readJsonResponse(await fetch("/api/services/thinkforge/trends/status?sessionId=" + encodeURIComponent(sessionId)));
+        const payload = await readJsonResponse(await fetch("/api/services/thinkforge/trends/status?sessionId=" + encodeURIComponent(workflowSessionId)));
         if (cancelled) return;
         const nextTrend = payload.selectedTrend as SelectedTrend | null;
         if (nextTrend) setSelectedTrend(nextTrend);
@@ -112,7 +118,7 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
     };
-  }, [open, sessionId, stage]);
+  }, [open, workflowSessionId, stage]);
 
   if (!open) return null;
 
@@ -144,17 +150,19 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
   };
 
   const selectCandidate = async (candidate: TrendCandidate) => {
-    if (!sessionId) {
-      setError("This session is not ready yet. Please try again in a moment.");
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
+      const resolvedSessionId = workflowSessionId || await onEnsureSession?.(candidate, target) || null;
+      if (!resolvedSessionId) {
+        setError("ThinkForge could not create a session for this trend. Please try again.");
+        return;
+      }
+      setWorkflowSessionId(resolvedSessionId);
       const payload = await readJsonResponse(await fetch("/api/services/thinkforge/trends/select", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, candidate, target }),
+        body: JSON.stringify({ sessionId: resolvedSessionId, candidate, target }),
       }));
       setSelectedTrend(payload.selectedTrend as SelectedTrend);
       setReferenceVideoUrl(firstSourceUrl(candidate));
@@ -167,7 +175,7 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
   };
 
   const analyze = async () => {
-    if (!sessionId || !selectedTrend) return;
+    if (!workflowSessionId || !selectedTrend) return;
     if (!referenceVideoUrl.trim()) {
       setError("Add a public reference video URL so ThinkForge can learn the format mechanics.");
       return;
@@ -178,7 +186,7 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
       await readJsonResponse(await fetch("/api/services/thinkforge/trends/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, referenceVideoUrl: referenceVideoUrl.trim() }),
+        body: JSON.stringify({ sessionId: workflowSessionId, referenceVideoUrl: referenceVideoUrl.trim() }),
       }));
       pollStartedAtRef.current = Date.now();
       setStage("analyzing");
@@ -190,7 +198,8 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
   };
 
   const generate = () => {
-    onGenerate("Create a " + target + " using the analyzed trend selected in this session. Preserve its structural mechanics, timing, and audience pattern, but make the idea original, brand-safe, and specific to my brief. Do not copy the reference's wording, logos, claims, or exact performance.");
+    if (!workflowSessionId || !selectedTrend) return;
+    onGenerate("Create a " + target + " using the analyzed trend selected in this session. Preserve its structural mechanics, timing, and audience pattern, but make the idea original, brand-safe, and specific to my brief. Do not copy the reference's wording, logos, claims, or exact performance.", workflowSessionId, target, selectedTrend);
     onClose();
   };
 

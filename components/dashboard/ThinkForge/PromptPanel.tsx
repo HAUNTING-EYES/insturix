@@ -196,7 +196,6 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
         <span className="enhance-icon">✦</span>
         Enhance with AI
       </button>
-      
       {showPlatformPicker && (
         <div className="platform-picker" style={{
           display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px 0',

@@ -4,6 +4,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import { FolderOpen, Lightbulb, FileText, Calendar, Brain, Library } from "lucide-react";
 import { toast } from '@/hooks/use-toast';
 import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
+import type { SelectedTrend } from "@/lib/thinkforge/trends/selected-trend";
+import type { TrendCandidate } from "@/lib/thinkforge/trends/trend-evidence";
+import type { TrendTarget } from "@/components/dashboard/ThinkForge/TrendWorkflowPanel";
 import { LibraryPanel, SessionMeta } from "@/components/dashboard/ThinkForge/LibraryPanel";
 import { BackgroundDecor } from "@/components/dashboard/ThinkForge/BackgroundDecor";
 import { Script } from "@/app/dashboard/thinkforge/types";
@@ -359,6 +362,52 @@ export default function ThinkForgeLanding() {
 		setHasSubmitted(false);
 		setPrompt("");
 	};
+
+	const handleEnsureTrendSession = useCallback(async (candidate: TrendCandidate, target: TrendTarget): Promise<string | null> => {
+		const title = candidate.title.trim().slice(0, 80);
+		const created = await session.hydrate({
+			projectMeta: {
+				idea: 'Create a ' + target + ' using the analyzed trend: ' + title,
+				purpose: 'Apply an analyzed public trend format to a brand-specific original draft.',
+				style: 'Original, brand-safe adaptation of the analyzed trend mechanics.',
+				format: target,
+				platform: candidate.platform === 'unknown' ? '' : candidate.platform,
+				tone: 'blue',
+				sessionName: ('Trend - ' + title).slice(0, 100),
+				originalPrompt: 'Create a ' + target + ' using the analyzed trend: ' + title,
+				initialDraftIntent: { status: 'pending', requestedAt: new Date().toISOString() },
+			},
+		});
+		if (created?.sessionId) {
+			setPendingSessionId(created.sessionId);
+			return created.sessionId;
+		}
+		return null;
+	}, [session]);
+
+	const handleTrendDraft = useCallback((input: { prompt: string; sessionId: string; target: TrendTarget; selectedTrend: SelectedTrend }) => {
+		const title = input.selectedTrend.candidate.title.trim();
+		const platform = input.selectedTrend.candidate.platform === 'unknown' ? '' : input.selectedTrend.candidate.platform;
+		setSelectedIdea({
+			id: 'trend-' + input.selectedTrend.candidate.candidateId,
+			idea: 'Create a ' + input.target + ' using the analyzed trend: ' + title,
+			purpose: input.prompt,
+			style: 'Original, brand-safe adaptation of the analyzed trend mechanics.',
+			format: input.target,
+			platform,
+			tone: 'blue',
+			sessionName: ('Trend - ' + title).slice(0, 100),
+			originalPrompt: input.prompt,
+		});
+		initialDraftRequestedRef.current = false;
+		setPendingSessionId(input.sessionId);
+		setActiveScriptId('default');
+		setIdeationPhase('PROMPT');
+		setIdeas([]);
+		setHasSubmitted(false);
+		setPrompt('');
+		setWorkspaceMode('scripting');
+	}, []);
 
 	const handleJumpToSettings = () => {
 		// Initialize empty idea
@@ -808,6 +857,9 @@ export default function ThinkForgeLanding() {
 				onGoBackToIdeas={() => setIdeationPhase('IDEAS')}
 				onUpdateIdea={handleUpdateIdea}
 				onManualSetup={handleJumpToSettings}
+				sessionId={activeSessionId}
+				onEnsureTrendSession={handleEnsureTrendSession}
+				onTrendDraft={handleTrendDraft}
 				isVisible={workspaceMode === 'ideation'}
 				sessionCount={sessions.length}
 				onUrlSubmit={handleUrlSubmit}
