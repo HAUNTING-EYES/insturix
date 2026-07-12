@@ -55,13 +55,10 @@ async function handler(request: NextRequest) {
     if (!assetId || !userId || !url || !filename || (type !== 'video' && type !== 'audio')) {
       return NextResponse.json({ success: false, error: 'Invalid asset transcription payload' }, { status: 400 });
     }
-    if (type === 'video' && (
-      typeof payload.duration !== 'number' ||
-      !Number.isFinite(payload.duration) ||
-      payload.duration <= 0
-    )) {
-      throw new Error(`Verified video duration is required before transcription: ${assetId}`);
-    }
+    // Missing/invalid duration is NOT fatal — a clip we can't time is still valid visual-only content. Do NOT
+    // throw (a 500 here makes QStash retry and stalls the whole batch); just skip the transcription attempt.
+    const hasVerifiedDuration = type !== 'video'
+      || (typeof payload.duration === 'number' && Number.isFinite(payload.duration) && payload.duration > 0);
 
     const db = await getDatabase();
     const now = new Date();
@@ -98,7 +95,28 @@ async function handler(request: NextRequest) {
       });
     }
 
-    const transcription = await getTranscription(assetId, userId, { preferWordLevel: true });
+    // Transcription is BEST-EFFORT. A silent product shot / b-roll clip — or one whose audio can't be decoded —
+    // has NO speech, and that is valid content, not a failure. NEVER throw/500 for "no transcript": a 500 makes
+    // QStash retry, which re-claims the asset and stalls the ENTIRE batch so the Director never runs. An empty
+    // transcript → the clip is a visual-only asset the composer still uses (with the user's script as narration).
+    let words: Awaited<ReturnType<typeof getTranscription>>['words'] = [];
+    let language: string | null = null;
+    let skipReason: string | undefined;
+    if (!hasVerifiedDuration) {
+      skipReason = 'missing-duration';
+    } else {
+      try {
+        const transcription = await getTranscription(assetId, userId, { preferWordLevel: true });
+        words = transcription.words;
+        language = transcription.language || null;
+        if (words.length === 0) skipReason = 'no-speech';
+      } catch (transcriptionError) {
+        const m = transcriptionError instanceof Error ? transcriptionError.message : String(transcriptionError);
+        console.warn(`[AssetTranscription] No usable transcript for ${assetId} (${m.slice(0, 140)}) — treating as silent/visual-only.`);
+        skipReason = 'no-speech';
+      }
+    }
+
     const completedAt = new Date();
     await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
       { assetId, userId },
@@ -106,23 +124,19 @@ async function handler(request: NextRequest) {
         $set: {
           batchTranscriptionStatus: 'complete',
           batchTranscriptionCompletedAt: completedAt,
-          batchTranscriptionWordCount: transcription.words.length,
-          batchTranscriptionLanguage: transcription.language || null,
+          batchTranscriptionWordCount: words.length,
+          batchTranscriptionLanguage: language,
+          ...(skipReason ? { batchTranscriptionSkipReason: skipReason } : {}),
           analysisStatus: 'queued',
           analysisQueuedAt: completedAt,
         },
+        $unset: { batchTranscriptionError: '' },
       },
     );
 
     const messageId = await dispatchAssetAnalysis(payload);
 
-    return NextResponse.json({
-      success: true,
-      assetId,
-      wordCount: transcription.words.length,
-      language: transcription.language || null,
-      messageId,
-    });
+    return NextResponse.json({ success: true, assetId, wordCount: words.length, language, skipReason, messageId });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[AssetTranscription] Worker failed:', message);
