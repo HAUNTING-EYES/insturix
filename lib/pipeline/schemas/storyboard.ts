@@ -231,6 +231,10 @@ export interface StoryboardScene {
   videoGcsPath?: string;
   videoProvider?: string;
   videoDurationMs?: number;
+  /** Avatar Vault render job lineage for ThinkForge-cast scenes. */
+  avatarPipelineJobId?: string;
+  avatarPipelineStatus?: 'blocked' | 'queued' | 'running' | 'succeeded' | 'failed';
+  avatarPipelineError?: string;
   /** R2 storage key for the video asset */
   videoR2Key?: string;
   /** True if the video model generated native audio with the video (e.g., Seedance 1.5 Pro).
