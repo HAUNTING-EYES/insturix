@@ -13,11 +13,13 @@ vi.mock('@/lib/editron/utils/gemini-model-factory', () => ({
 import { createProductionMgRuntime } from '@/lib/editron/motion-graphics/codegen/production-runtime';
 import { INSTURIX } from '@/lib/editron/motion-graphics/codegen/kit/brand';
 import type { MgMomentInput } from '@/lib/editron/motion-graphics/codegen/types';
+import { getAnalysisModel } from '@/lib/editron/utils/gemini-model-factory';
 
 const tempDirs: string[] = [];
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  vi.clearAllMocks();
 });
 
 function moment(): MgMomentInput {
@@ -96,5 +98,39 @@ describe('production MG codegen runtime', () => {
     await expect(runtime.codegen.evaluate('component', moment())).resolves.toEqual({ score: 0, issues: ['fabricated value'] });
     await runtime.dispose();
     expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries malformed visual-judge JSON with a deterministic seed and schema', async () => {
+    const generateContent = vi.fn()
+      .mockResolvedValueOnce({ response: { text: () => '{"faithful":true,"score":8.4,' } })
+      .mockResolvedValueOnce({ response: { text: () => JSON.stringify({ faithful: true, score: 8.4, issues: [], reasoning: 'faithful and readable' }) } });
+    vi.mocked(getAnalysisModel).mockResolvedValue({ generateContent } as never);
+    const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
+      render: fakeRender,
+      cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
+      writeComponent: async () => 'component',
+    });
+
+    await expect(runtime.codegen.compile('component')).resolves.toEqual({ ok: true });
+    await expect(runtime.codegen.evaluate('component', moment())).resolves.toEqual({ score: 8.4, issues: [] });
+    expect(generateContent).toHaveBeenCalledTimes(2);
+    expect(generateContent.mock.calls.map(([request]) => request.generationConfig.seed)).toEqual([42, 7]);
+    expect(generateContent.mock.calls[0][0].generationConfig.responseSchema).toBeDefined();
+    await runtime.dispose();
+  });
+
+  it('fails closed after both visual-judge structured responses are malformed', async () => {
+    const generateContent = vi.fn().mockResolvedValue({ response: { text: () => '{"faithful":' } });
+    vi.mocked(getAnalysisModel).mockResolvedValue({ generateContent } as never);
+    const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
+      render: fakeRender,
+      cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
+      writeComponent: async () => 'component',
+    });
+
+    await runtime.codegen.compile('component');
+    await expect(runtime.codegen.evaluate('component', moment())).rejects.toThrow(/failed after 2 attempts/);
+    expect(generateContent).toHaveBeenCalledTimes(2);
+    await runtime.dispose();
   });
 });

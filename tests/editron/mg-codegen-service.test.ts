@@ -134,6 +134,37 @@ describe('generateMoment - the pipeline (decline / scan→repair→compile→jud
     expect(r.reason).toMatch(/compile/);
   });
 
+  it('scanner-valid malformed JSX gets one compiler-guided repair before rendering', async () => {
+    const prompts: string[] = [];
+    let compileCalls = 0;
+    const r = await generateMoment(input(), deps({
+      writeComponent: async (prompt) => {
+        prompts.push(prompt);
+        return NO_IMPORT_CODE;
+      },
+      compile: async () => (++compileCalls === 1
+        ? { ok: false, error: 'MgScene.tsx:37:12 ERROR: Expected ">" but found end of file' }
+        : { ok: true }),
+    }));
+
+    expect(r.status).toBe('generated');
+    expect(r.receipt.attempts).toBe(2);
+    expect(r.receipt.compiled).toBe(true);
+    expect(compileCalls).toBe(2);
+    expect(prompts[1]).toContain('Expected ">" but found end of file');
+  });
+
+  it('falls back after the single compiler repair also fails', async () => {
+    const r = await generateMoment(input(), deps({
+      writeComponent: async () => NO_IMPORT_CODE,
+      compile: async () => ({ ok: false, error: 'still malformed' }),
+    }));
+    expect(r.status).toBe('fallback');
+    expect(r.receipt.attempts).toBe(2);
+    expect(r.receipt.compiled).toBe(false);
+    expect(r.reason).toMatch(/compile repair failed/);
+  });
+
   it('low judge score → 1 revision → generated', async () => {
     let c = 0;
     const r = await generateMoment(input(), deps({

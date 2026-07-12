@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+import { SchemaType, type ResponseSchema } from '@google/generative-ai';
 import sharp from 'sharp';
 
 import { getAnalysisModel, getGeneralModel } from '@/lib/editron/utils/gemini-model-factory';
@@ -16,6 +17,18 @@ import {
 
 type RenderFn = (input: MgRenderInput, opts?: ProductionMgRuntimeOptions['renderOpts']) => Promise<MgRenderResult>;
 type CleanupFn = (workspaceDir: string) => Promise<void>;
+
+const MG_JUDGE_RESPONSE_SCHEMA: ResponseSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    faithful: { type: SchemaType.BOOLEAN },
+    score: { type: SchemaType.NUMBER },
+    issues: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+    reasoning: { type: SchemaType.STRING },
+  },
+  required: ['faithful', 'score', 'issues', 'reasoning'],
+};
+const JUDGE_SEEDS = [42, 7] as const;
 
 export interface ProductionMgRuntimeOptions {
   render?: RenderFn;
@@ -79,6 +92,55 @@ async function buildContactSheet(render: MgRenderResult): Promise<Buffer> {
   }).composite(composites).png().toBuffer();
 }
 
+function extractJsonObject(text: string): string {
+  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  try {
+    JSON.parse(trimmed);
+    return trimmed;
+  } catch {
+    // Gemini occasionally wraps otherwise valid JSON despite responseMimeType. Extract one balanced object.
+  }
+  const start = trimmed.indexOf('{');
+  if (start < 0) throw new Error('response did not contain a JSON object');
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = start; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+      continue;
+    }
+    if (char === '"') quoted = true;
+    else if (char === '{') depth += 1;
+    else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) return trimmed.slice(start, index + 1);
+    }
+  }
+  throw new Error('response contained an incomplete JSON object');
+}
+
+function parseJudgeResponse(response: string): { score: number; issues: string[] } {
+  const parsed = JSON.parse(extractJsonObject(response)) as {
+    faithful?: unknown;
+    score?: unknown;
+    issues?: unknown;
+  };
+  if (typeof parsed.faithful !== 'boolean') throw new Error('faithful must be a boolean');
+  if (typeof parsed.score !== 'number' || !Number.isFinite(parsed.score)) throw new Error('score must be a finite number');
+  if (!Array.isArray(parsed.issues) || parsed.issues.some((issue) => typeof issue !== 'string')) {
+    throw new Error('issues must be an array of strings');
+  }
+  const issues = parsed.issues.slice(0, 20);
+  if (!parsed.faithful) {
+    return { score: 0, issues: issues.length ? issues : ['render is not faithful to the licensed fact'] };
+  }
+  return { score: Math.max(0, Math.min(10, parsed.score)), issues };
+}
+
 async function defaultJudgeRendered(
   render: MgRenderResult,
   moment: MgMomentInput,
@@ -103,27 +165,35 @@ ${fact}
 
 Return JSON only:
 {"faithful":boolean,"score":0-10,"issues":["specific issue"],"reasoning":"one sentence"}`;
-  const result = await model.generateContent({
-    contents: [{
-      role: 'user',
-      parts: [
-        { inlineData: { mimeType: 'image/png', data: sheet.toString('base64') } },
-        { text: prompt },
-      ],
-    }],
-    generationConfig: {
-      responseMimeType: 'application/json',
-      temperature: 0,
-      maxOutputTokens: 1200,
-    },
-  });
-  const response = result.response?.text?.();
-  if (!response) throw new Error('MG visual judge returned an empty response');
-  const parsed = JSON.parse(response) as { faithful?: unknown; score?: unknown; issues?: unknown };
-  const issues = Array.isArray(parsed.issues) ? parsed.issues.map(String).slice(0, 20) : [];
-  const score = typeof parsed.score === 'number' && Number.isFinite(parsed.score) ? parsed.score : 0;
-  if (parsed.faithful !== true) return { score: 0, issues: issues.length ? issues : ['render is not faithful to the licensed fact'] };
-  return { score: Math.max(0, Math.min(10, score)), issues };
+  let lastError = 'unknown structured-output failure';
+  for (let attempt = 0; attempt < JUDGE_SEEDS.length; attempt += 1) {
+    try {
+      const strictRetry = attempt === 0 ? '' : '\nYour prior response was malformed. Return exactly one complete JSON object matching the schema.';
+      const result = await model.generateContent({
+        contents: [{
+          role: 'user',
+          parts: [
+            { inlineData: { mimeType: 'image/png', data: sheet.toString('base64') } },
+            { text: `${prompt}${strictRetry}` },
+          ],
+        }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: MG_JUDGE_RESPONSE_SCHEMA,
+          temperature: 0,
+          seed: JUDGE_SEEDS[attempt],
+          maxOutputTokens: 1200,
+        },
+      });
+      const response = result.response?.text?.();
+      if (!response) throw new Error('empty response');
+      return parseJudgeResponse(response);
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      console.warn(`[MGCodegen] Visual judge structured output failed (${attempt + 1}/${JUDGE_SEEDS.length}): ${lastError.slice(0, 160)}`);
+    }
+  }
+  throw new Error(`MG visual judge failed after ${JUDGE_SEEDS.length} attempts: ${lastError.slice(0, 160)}`);
 }
 
 export function createProductionMgRuntime(
