@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { CalosTrendOpportunity, type ICalosTrendOpportunity } from "@/schemas/calos-trend-opportunity";
+import CalosDeliverable, { type ICalosDeliverable } from "@/schemas/calos-deliverable";
 import { calosScope } from "@/lib/calos/scope";
+import {
+  contentCardClientView,
+  normalizeContentCardForStorage,
+  type ContentCard,
+} from "@/lib/thinkforge/planning/content-card-contract";
+import { toDeliverableDoc } from "@/lib/calos/deliverable-mapper";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +28,8 @@ type OpportunityView = {
   calendarWindowEndsAt: string | null;
   expiresAt: string;
 };
+
+class TrendDraftUnavailableError extends Error {}
 
 export function parseReviewAction(value: unknown): ReviewAction | null {
   return typeof value === "string" && (REVIEW_ACTIONS as readonly string[]).includes(value)
@@ -102,7 +111,35 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Trend opportunity has expired" }, { status: 410 });
     }
 
-    const targetStatus = action === "accept" ? "accepted" : action === "dismiss" ? "dismissed" : "snoozed";
+    if (action === "accept") {
+      if (opportunity.status !== "suggested" && opportunity.status !== "snoozed" && opportunity.status !== "accepted") {
+        return NextResponse.json({ error: "Trend opportunity is no longer reviewable" }, { status: 409 });
+      }
+      try {
+        const draft = await ensureAcceptedTrendDraft(opportunity, { userId, orgId: orgId ?? null, brandId }, now);
+        const alreadyApplied = opportunity.status === "accepted";
+        if (!alreadyApplied) {
+          opportunity.status = "accepted";
+          opportunity.reviewedAt = now;
+          opportunity.reviewedBy = userId;
+          opportunity.snoozedUntil = null;
+          await opportunity.save();
+        }
+        return NextResponse.json({
+          opportunity: toOpportunityView(opportunity),
+          action,
+          alreadyApplied,
+          deliverableId: draft.card.id,
+        });
+      } catch (error) {
+        if (error instanceof TrendDraftUnavailableError) {
+          return NextResponse.json({ error: error.message }, { status: 409 });
+        }
+        throw error;
+      }
+    }
+
+    const targetStatus = action === "dismiss" ? "dismissed" : "snoozed";
     if (action !== "snooze" && opportunity.status === targetStatus) {
       return NextResponse.json({ opportunity: toOpportunityView(opportunity), action, alreadyApplied: true });
     }
@@ -123,6 +160,116 @@ export async function PATCH(req: NextRequest) {
     console.error("[CalOS:TrendOpportunity] review failed", { errorClass: error instanceof Error ? error.name : typeof error });
     return NextResponse.json({ error: "Failed to review trend opportunity" }, { status: 500 });
   }
+}
+
+async function ensureAcceptedTrendDraft(
+  opportunity: ICalosTrendOpportunity,
+  scope: { userId: string; orgId: string | null; brandId: string },
+  now: Date,
+): Promise<Pick<ICalosDeliverable, "card">> {
+  const calosQuery = calosScope(scope, scope.brandId);
+  const existing = await CalosDeliverable.findOne({ ...calosQuery, sourceTrendOpportunityId: opportunity.opportunityId });
+  if (existing) {
+    if (existing.deletedAt) {
+      throw new TrendDraftUnavailableError("The linked trend draft was deleted. Review a new opportunity instead.");
+    }
+    return existing;
+  }
+
+  let adaptationSource: Pick<ICalosDeliverable, "card" | "plannedDates"> | null = null;
+  if (opportunity.recommendation === "adapt") {
+    if (!opportunity.adaptDeliverableId) {
+      throw new TrendDraftUnavailableError("The planned draft to adapt is unavailable. Review a new opportunity instead.");
+    }
+    adaptationSource = await CalosDeliverable.findOne({
+      ...calosQuery,
+      _id: opportunity.adaptDeliverableId,
+      deletedAt: null,
+    });
+    if (!adaptationSource) {
+      throw new TrendDraftUnavailableError("The planned draft to adapt no longer exists. Review a new opportunity instead.");
+    }
+    if (validFutureDates(adaptationSource.plannedDates, now).length === 0) {
+      throw new TrendDraftUnavailableError("The planned draft no longer has a future date. Review a new opportunity instead.");
+    }
+  }
+
+  const card = buildAcceptedTrendCard(opportunity, scope.userId, now, adaptationSource);
+  try {
+    return await CalosDeliverable.create({
+      ...toDeliverableDoc(card, { ownerUserId: scope.userId, orgId: scope.orgId, brandId: scope.brandId }),
+      sourceTrendOpportunityId: opportunity.opportunityId,
+    });
+  } catch (error) {
+    if (!isDuplicateKeyError(error)) throw error;
+    const concurrent = await CalosDeliverable.findOne({ ...calosQuery, sourceTrendOpportunityId: opportunity.opportunityId });
+    if (concurrent && !concurrent.deletedAt) return concurrent;
+    throw new TrendDraftUnavailableError("The trend draft could not be recovered after a concurrent request. Please retry.");
+  }
+}
+
+function buildAcceptedTrendCard(
+  opportunity: ICalosTrendOpportunity,
+  userId: string,
+  now: Date,
+  adaptationSource: Pick<ICalosDeliverable, "card" | "plannedDates"> | null,
+): ContentCard {
+  const sourceTitle = adaptationSource?.card.title;
+  const plannedDates = adaptationSource ? validFutureDates(adaptationSource.plannedDates, now) : [];
+  const date = plannedDates[0] ?? now.toISOString();
+  const platform = normalizedPlatform(opportunity.candidate.platform);
+  const title = sourceTitle
+    ? `Trend adaptation: ${sourceTitle}`
+    : `Trend response: ${opportunity.candidate.title}`;
+  const summary = opportunity.candidate.summary?.trim();
+  const repurposingAngle = sourceTitle
+    ? `Create a timely revision of "${sourceTitle}" using this trend. Keep the original card unchanged until the revision is approved.`
+    : "Create a timely, on-brand response to this trend without copying its source wording or claims.";
+  const details = [
+    `Trend: ${opportunity.candidate.title}`,
+    summary ? `What changed: ${summary}` : null,
+    `Direction: ${repurposingAngle}`,
+  ].filter(Boolean).join("\n");
+
+  return contentCardClientView(normalizeContentCardForStorage({
+    title,
+    date,
+    plannedDates: plannedDates.length > 0 ? plannedDates : [date],
+    platform,
+    status: "draft",
+    tags: ["trend", platform],
+    customTags: [],
+    contentFormat: "text",
+    details,
+    trendContext: {
+      trendId: opportunity.opportunityId,
+      source: "public_trend",
+      title: opportunity.candidate.title,
+      ...(summary ? { summary } : {}),
+      ...(opportunity.candidate.url ? { url: opportunity.candidate.url } : {}),
+      provenance: opportunity.candidate.url ? [opportunity.candidate.url] : [],
+      ...(typeof opportunity.relevanceScore === "number" ? { brandFit: opportunity.relevanceScore } : {}),
+      expiresAt: opportunity.expiresAt.toISOString(),
+      repurposingAngle,
+      status: "accepted",
+    },
+  }, { userId }));
+}
+
+function validFutureDates(values: string[] | undefined, now: Date): string[] {
+  return (values ?? []).filter((value) => {
+    const parsed = new Date(value);
+    return !Number.isNaN(parsed.getTime()) && parsed >= now;
+  });
+}
+
+function normalizedPlatform(value: string): string {
+  const platform = value.trim().toLowerCase().replace(/\s+/g, "_");
+  return platform || "generic";
+}
+
+function isDuplicateKeyError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === 11000;
 }
 
 function toOpportunityView(doc: ICalosTrendOpportunity): OpportunityView {

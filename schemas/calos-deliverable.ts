@@ -39,8 +39,10 @@ export interface CalosApproval {
 export interface ICalosDeliverable extends Document {
   ownerUserId: string; // creator; also the connected-account owner for downstream publish
   orgId?: string | null; // optional agency/team-share layer (future); P0 scopes by ownerUserId + brandId
-  brandId: string; // client brand — scoping
+  brandId: string; // client brand -- scoping
   campaignId?: string | null;
+  /** Immutable provenance for a draft created from one accepted CalOS trend opportunity. */
+  sourceTrendOpportunityId?: string;
   editorialStatus: CalosEditorialStatus;
   version: number; // bumped on content edits; approvals bind to a version
   serviceRef?: CalosServiceRef;
@@ -94,6 +96,7 @@ const CalosDeliverableSchema = new Schema<ICalosDeliverable>(
     orgId: { type: String, default: null },
     brandId: { type: String, required: true },
     campaignId: { type: String, default: null },
+    sourceTrendOpportunityId: { type: String, immutable: true },
     editorialStatus: {
       type: String,
       required: true,
@@ -119,6 +122,8 @@ const CalosDeliverableSchema = new Schema<ICalosDeliverable>(
 CalosDeliverableSchema.index({ ownerUserId: 1, brandId: 1, plannedDates: 1 });
 CalosDeliverableSchema.index({ ownerUserId: 1, brandId: 1, editorialStatus: 1 });
 CalosDeliverableSchema.index({ campaignId: 1 });
+// Retries after a client timeout reuse the original trend draft instead of creating a duplicate.
+CalosDeliverableSchema.index({ sourceTrendOpportunityId: 1 }, { unique: true, sparse: true });
 
 const CalosDeliverable =
   mongoose.models.CalosDeliverable ||

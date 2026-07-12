@@ -566,7 +566,7 @@ export default function CalosCalendarV3() {
         <BrandConnections brandId={brandId} brandName={brandName} open={connectionsOpen} onClose={() => setConnectionsOpen(false)} />
       )}
       {brandId && trendOpportunitiesOpen && (
-        <CalosTrendOpportunityReview brandId={brandId} brandName={brandName} onClose={() => setTrendOpportunitiesOpen(false)} />
+        <CalosTrendOpportunityReview brandId={brandId} brandName={brandName} onClose={() => setTrendOpportunitiesOpen(false)} onAccepted={() => void refresh()} />
       )}
 
       {brandId && brandRefsOpen && (

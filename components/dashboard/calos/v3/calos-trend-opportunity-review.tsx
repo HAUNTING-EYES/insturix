@@ -27,7 +27,7 @@ const REASON_LABELS: Record<string, string> = {
   planned_card_alignment: 'Planned draft fit',
 };
 
-export function CalosTrendOpportunityReview({ brandId, brandName, onClose }: { brandId: string; brandName: string; onClose: () => void }) {
+export function CalosTrendOpportunityReview({ brandId, brandName, onClose, onAccepted }: { brandId: string; brandName: string; onClose: () => void; onAccepted?: (deliverableId: string) => void }) {
   const [items, setItems] = useState<TrendOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -65,8 +65,13 @@ export function CalosTrendOpportunityReview({ brandId, brandName, onClose }: { b
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || `Unable to update (${response.status})`);
+      if (action === 'accept') {
+        const deliverableId = typeof data?.deliverableId === 'string' ? data.deliverableId : '';
+        if (!deliverableId) throw new Error('Trend acceptance did not create a draft');
+        onAccepted?.(deliverableId);
+      }
       setItems((current) => current.filter((entry) => entry.id !== item.id));
-      toast({ title: action === 'accept' ? 'Trend idea accepted' : action === 'dismiss' ? 'Trend idea dismissed' : 'Trend idea snoozed' });
+      toast({ title: action === 'accept' ? 'Trend draft added' : action === 'dismiss' ? 'Trend idea dismissed' : 'Trend idea snoozed' });
     } catch (error) {
       toast({ title: 'Trend idea update failed', description: error instanceof Error ? error.message : 'Unknown error', variant: 'destructive' });
     } finally {

@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   findOne: vi.fn(),
   find: vi.fn(),
   updateMany: vi.fn(),
+  findDeliverable: vi.fn(),
+  createDeliverable: vi.fn(),
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({ auth: mocks.auth }));
@@ -16,6 +18,12 @@ vi.mock("@/schemas/calos-trend-opportunity", () => ({
     findOne: mocks.findOne,
     find: mocks.find,
     updateMany: mocks.updateMany,
+  },
+}));
+vi.mock("@/schemas/calos-deliverable", () => ({
+  default: {
+    findOne: mocks.findDeliverable,
+    create: mocks.createDeliverable,
   },
 }));
 
@@ -32,7 +40,12 @@ function opportunity(overrides: Record<string, unknown> = {}) {
     opportunityId: "opp_1",
     status: "suggested",
     expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-    candidate: { title: "Workflow templates", platform: "linkedin", summary: "A timely format." },
+    candidate: {
+      title: "Workflow templates",
+      platform: "linkedin",
+      summary: "A timely format.",
+      url: "https://example.com/trend",
+    },
     relevanceScore: 0.8,
     reasonCodes: ["product_or_service"],
     matchedSignalPaths: ["identity.productServices"],
@@ -52,6 +65,8 @@ describe("CalOS trend opportunity review route", () => {
     mocks.auth.mockResolvedValue({ userId: "user_1", orgId: null });
     mocks.connectToDatabase.mockResolvedValue(undefined);
     mocks.updateMany.mockResolvedValue({ modifiedCount: 0 });
+    mocks.findDeliverable.mockResolvedValue(null);
+    mocks.createDeliverable.mockImplementation(async (input: { card: { id: string } }) => input);
   });
 
   it("rejects review actions without a signed-in user", async () => {
@@ -69,9 +84,10 @@ describe("CalOS trend opportunity review route", () => {
     expect(mocks.connectToDatabase).not.toHaveBeenCalled();
   });
 
-  it("accepts only the scoped reviewable opportunity and records the reviewer", async () => {
+  it("accepts only the scoped reviewable opportunity and creates one source-linked ThinkForge-ready draft", async () => {
     const doc = opportunity();
     mocks.findOne.mockResolvedValue(doc);
+
     const response = await PATCH(request("PATCH", { brandId: "brand_1", opportunityId: "opp_1", action: "accept" }) as never);
     const payload = await response.json();
 
@@ -81,7 +97,83 @@ describe("CalOS trend opportunity review route", () => {
     expect(doc.snoozedUntil).toBeNull();
     expect(doc.save).toHaveBeenCalledOnce();
     expect(mocks.findOne).toHaveBeenCalledWith(expect.objectContaining({ opportunityId: "opp_1", brandId: "brand_1", ownerUserId: "user_1" }));
+    expect(mocks.createDeliverable).toHaveBeenCalledWith(expect.objectContaining({
+      sourceTrendOpportunityId: "opp_1",
+      card: expect.objectContaining({
+        contentFormat: "text",
+        trendContext: expect.objectContaining({
+          trendId: "opp_1",
+          source: "public_trend",
+          status: "accepted",
+          provenance: ["https://example.com/trend"],
+        }),
+      }),
+    }));
     expect(payload.action).toBe("accept");
+    expect(typeof payload.deliverableId).toBe("string");
+  });
+
+  it("reuses the existing source-linked draft when an accepted action is retried", async () => {
+    const doc = opportunity({ status: "accepted" });
+    mocks.findOne.mockResolvedValue(doc);
+    mocks.findDeliverable.mockResolvedValue({ card: { id: "card_existing" }, deletedAt: null });
+
+    const response = await PATCH(request("PATCH", { brandId: "brand_1", opportunityId: "opp_1", action: "accept" }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ alreadyApplied: true, deliverableId: "card_existing" });
+    expect(mocks.createDeliverable).not.toHaveBeenCalled();
+  });
+
+  it("creates an adaptation revision on the aligned card date without changing the original card", async () => {
+    const sourceCard = { card: { title: "Operations playbook" }, plannedDates: ["2030-02-01T10:00:00.000Z"], deletedAt: null };
+    const doc = opportunity({ recommendation: "adapt", adaptDeliverableId: "mongo_source" });
+    mocks.findOne.mockResolvedValue(doc);
+    mocks.findDeliverable
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(sourceCard);
+
+    const response = await PATCH(request("PATCH", { brandId: "brand_1", opportunityId: "opp_1", action: "accept" }) as never);
+
+    expect(response.status).toBe(200);
+    expect(mocks.createDeliverable).toHaveBeenCalledWith(expect.objectContaining({
+      card: expect.objectContaining({
+        title: "Trend adaptation: Operations playbook",
+        plannedDates: ["2030-02-01T10:00:00.000Z"],
+      }),
+    }));
+    expect(sourceCard.card.title).toBe("Operations playbook");
+  });
+
+  it("fails loudly without creating a card when an adaptation target was removed", async () => {
+    const doc = opportunity({ recommendation: "adapt", adaptDeliverableId: "mongo_source" });
+    mocks.findOne.mockResolvedValue(doc);
+    mocks.findDeliverable
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+
+    const response = await PATCH(request("PATCH", { brandId: "brand_1", opportunityId: "opp_1", action: "accept" }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("no longer exists");
+    expect(doc.status).toBe("suggested");
+    expect(doc.save).not.toHaveBeenCalled();
+    expect(mocks.createDeliverable).not.toHaveBeenCalled();
+  });
+
+  it("does not resurrect a deleted linked trend draft on a retried acceptance", async () => {
+    const doc = opportunity({ status: "accepted" });
+    mocks.findOne.mockResolvedValue(doc);
+    mocks.findDeliverable.mockResolvedValue({ card: { id: "card_deleted" }, deletedAt: new Date("2029-01-01T00:00:00.000Z") });
+
+    const response = await PATCH(request("PATCH", { brandId: "brand_1", opportunityId: "opp_1", action: "accept" }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("linked trend draft was deleted");
+    expect(mocks.createDeliverable).not.toHaveBeenCalled();
   });
 
   it("returns only safe public opportunity fields in the review queue", async () => {
