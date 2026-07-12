@@ -250,7 +250,12 @@ async function craftScene(scene, idx) {
       if (se) { cur = stripFences(await ask([{type: 'text', text: `Static check failed: ${se}\nRewrite the FULL .tsx fixing exactly that. Output the file only.`}])); continue; }
       let frames;
       try { frames = await renderProof(cur, idx); }
-      catch (e) { cur = stripFences(await ask([{type: 'text', text: `Your code crashed the renderer:\n${String(e).slice(0, 900)}\nRewrite the FULL .tsx to render cleanly. Output the file only.`}])); continue; }
+      catch (e) {
+        // Log the real renderer failure — otherwise it's swallowed (only sent to Opus), and a box-level Chromium
+        // crash (e.g. missing browser / sandbox on Cloud Run) is invisible: every scene silently falls back to brick.
+        console.error(`  scene ${idx + 1} t${t + 1}: renderer crashed — ${String(e).slice(0, 700)}`);
+        cur = stripFences(await ask([{type: 'text', text: `Your code crashed the renderer:\n${String(e).slice(0, 900)}\nRewrite the FULL .tsx to render cleanly. Output the file only.`}])); continue;
+      }
       return {code: cur, frames, ...(await judge(frames, scene))};
     }
     return null;

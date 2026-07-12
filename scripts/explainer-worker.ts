@@ -115,6 +115,26 @@ async function processJob(job: ExplainerJob): Promise<void> {
 //     triggered by Cloud Scheduler (run-to-completion, scales to zero, no client-disconnect gotchas).
 const RUN_ONCE = process.env.EXPLAINER_WORKER_ONCE === '1' || process.argv.includes('--once');
 
+// Cloud Run sends SIGTERM ~10s before SIGKILL (e.g. when a run hits the task-timeout mid-craft). If a job is
+// in flight, mark it errored on the way out so it isn't left orphaned in 'rendering' forever (an eternal studio
+// spinner that no later run can re-claim). The render itself is unrecoverable — fail loud, don't hang.
+let inFlightJobId: string | null = null;
+let shuttingDown = false;
+async function onTerminate(signal: NodeJS.Signals): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.error(`[explainer-worker] ${signal} received${inFlightJobId ? ` — failing in-flight job ${inFlightJobId}` : ''}`);
+  if (inFlightJobId) {
+    await failExplainerJob(
+      inFlightJobId,
+      `worker terminated (${signal}) mid-render — likely the Cloud Run task timeout; increase task-timeout or reduce scene count.`,
+    ).catch(() => {});
+  }
+  process.exit(signal === 'SIGTERM' ? 0 : 1);
+}
+process.on('SIGTERM', () => { void onTerminate('SIGTERM'); });
+process.on('SIGINT', () => { void onTerminate('SIGINT'); });
+
 async function main(): Promise<void> {
   console.log(`[explainer-worker] ${RUN_ONCE ? 'batch (drain + exit)' : `daemon (poll ${POLL_MS}ms)`} · dir=${DIR}`);
   for (;;) {
@@ -134,12 +154,15 @@ async function main(): Promise<void> {
       continue;
     }
     console.log(`[explainer-worker] claimed ${job._id} (${job.plan.scenes.length} scenes)`);
+    inFlightJobId = job._id;
     try {
       await processJob(job);
       console.log(`[explainer-worker] done ${job._id}`);
     } catch (e) {
       console.error(`[explainer-worker] failed ${job._id}:`, e);
       await failExplainerJob(job._id, String(e)).catch(() => {});
+    } finally {
+      inFlightJobId = null;
     }
   }
 }
