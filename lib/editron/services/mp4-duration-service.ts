@@ -10,13 +10,28 @@
  * durationInFrames, executor tries to remove more than exists).
  *
  * MP4 box format: [4 bytes size][4 bytes type][size-8 bytes data]
- * moov -> mvhd: version, timeScale, duration -> seconds = duration/timeScale
+ *   moov -> mvhd: version, timeScale, duration -> seconds = duration/timeScale
+ *   moov -> mvex -> mehd: fragment_duration (FRAGMENTED mp4, where mvhd.duration is 0)
+ *
+ * The range strategy tries tail then head, small then large, so it works for
+ * both moov-at-end (most files) and fast-start (moov-at-start) layouts.
  */
 
-const MOOV = 0x6D6F6F76; // 'moov'
-const MVHD = 0x6D766864; // 'mvhd'
+const MOOV = 0x6d6f6f76; // 'moov'
+const MVHD = 0x6d766864; // 'mvhd'
+const MEHD = 0x6d656864; // 'mehd' (movie extends header — fragmented-mp4 total duration)
 const INITIAL_FETCH_SIZE = 128 * 1024; // 128KB - covers most moov atoms
 const MAX_FETCH_SIZE = 2 * 1024 * 1024; // 2MB - give up beyond this
+/** When a server IGNORES Range and returns 200 with the whole file, cap how much we buffer into
+ *  memory just to find a small moov — a 500MB upload would otherwise OOM the function. */
+const MAX_FULL_FILE_BYTES = 64 * 1024 * 1024; // 64MB
+
+interface RangeAttempt {
+  /** Parsed duration in seconds, or null if this slice had no parseable moov/mvhd/mehd. */
+  seconds: number | null;
+  /** The server ignored Range and returned the whole file (status 200) — further ranges are pointless. */
+  wasFullFile: boolean;
+}
 
 /**
  * Extract video duration from an MP4 file via HTTP Range request.
@@ -25,24 +40,23 @@ const MAX_FETCH_SIZE = 2 * 1024 * 1024; // 2MB - give up beyond this
  */
 export async function extractMP4Duration(url: string): Promise<number | null> {
   try {
-    // Try tail first (most MP4s have moov at the end)
-    const tailDuration = await tryParseFromRange(url, 'tail', INITIAL_FETCH_SIZE);
-    if (tailDuration !== null) return tailDuration;
+    // tail first (most MP4s have moov at the end); then head (fast-start); then larger reads for a big moov.
+    const attempts: Array<['head' | 'tail', number]> = [
+      ['tail', INITIAL_FETCH_SIZE],
+      ['head', INITIAL_FETCH_SIZE],
+      ['tail', MAX_FETCH_SIZE],
+      ['head', MAX_FETCH_SIZE],
+    ];
 
-    // Some encoders put moov at the start (fast-start/qt-faststart)
-    const headDuration = await tryParseFromRange(url, 'head', INITIAL_FETCH_SIZE);
-    if (headDuration !== null) return headDuration;
+    for (const [position, size] of attempts) {
+      const attempt = await tryParseFromRange(url, position, size);
+      if (attempt.seconds !== null) return attempt.seconds;
+      // If Range was ignored we already have (or refused) the whole file — the remaining ranges would
+      // just re-download the same bytes.
+      if (attempt.wasFullFile) break;
+    }
 
-    // Large moov - try bigger fetch from tail
-    const largeTail = await tryParseFromRange(url, 'tail', MAX_FETCH_SIZE);
-    if (largeTail !== null) return largeTail;
-
-    // Fast-start files can have a large moov box at the beginning. If mvhd sits
-    // after a large child box, the small head read is not enough.
-    const largeHead = await tryParseFromRange(url, 'head', MAX_FETCH_SIZE);
-    if (largeHead !== null) return largeHead;
-
-    console.warn('[MP4Duration] Could not find moov/mvhd in file');
+    console.warn('[MP4Duration] Could not find moov/mvhd/mehd in file');
     return null;
   } catch (err: any) {
     console.warn(`[MP4Duration] Failed: ${err.message}`);
@@ -54,7 +68,7 @@ async function tryParseFromRange(
   url: string,
   position: 'head' | 'tail',
   size: number,
-): Promise<number | null> {
+): Promise<RangeAttempt> {
   const rangeHeader = position === 'tail'
     ? `bytes=-${size}`
     : `bytes=0-${size - 1}`;
@@ -65,13 +79,23 @@ async function tryParseFromRange(
       signal: AbortSignal.timeout(10_000),
     });
 
-    if (!response.ok && response.status !== 206) return null;
+    if (!response.ok && response.status !== 206) return { seconds: null, wasFullFile: false };
+
+    // 206 = the server honored Range (we got just the slice). 200 = it ignored Range and sent the whole file.
+    const wasFullFile = response.status === 200;
+    if (wasFullFile) {
+      const contentLength = Number(response.headers.get('content-length') ?? '0');
+      if (contentLength > MAX_FULL_FILE_BYTES) {
+        console.warn(`[MP4Duration] Server ignored Range; body is ${contentLength} bytes (> ${MAX_FULL_FILE_BYTES}) — refusing to buffer it`);
+        return { seconds: null, wasFullFile: true };
+      }
+    }
 
     const buffer = new Uint8Array(await response.arrayBuffer());
-    return parseMoovDuration(buffer);
+    return { seconds: parseMoovDuration(buffer), wasFullFile };
   } catch (err: any) {
     console.warn(`[MP4Duration] ${position} range (${size} bytes) failed: ${err.message}`);
-    return null;
+    return { seconds: null, wasFullFile: false };
   }
 }
 
@@ -86,66 +110,111 @@ function parseMoovDuration(data: Uint8Array): number | null {
     if (!moovBox) continue;
 
     const moovEnd = Math.min(moovOffset + moovBox.size, len);
-    const mvhdOffset = findAlignedBox(view, moovEnd, MVHD, moovOffset + moovBox.headerSize);
+    const childStart = moovOffset + moovBox.headerSize;
+    const mvhdOffset = findAlignedBox(view, moovEnd, MVHD, childStart);
     if (mvhdOffset === -1) continue;
 
-    const seconds = parseMvhdDuration(view, len, mvhdOffset);
+    const mvhd = readMvhd(view, len, mvhdOffset);
+    if (!mvhd) continue;
+
+    // Normal MP4: mvhd carries the whole-movie duration.
+    const seconds = secondsFromUnits(mvhd.durationUnits, mvhd.timeScale);
     if (seconds !== null) return seconds;
+
+    // Fragmented MP4 (mvhd.duration === 0): the real length is in mehd (moov > mvex > mehd),
+    // expressed in the movie timeScale we just read. Scan the moov region for a mehd candidate.
+    if (mvhd.timeScale > 0) {
+      for (const mehdOffset of findBoxCandidates(view, moovEnd, MEHD, childStart)) {
+        const fragSeconds = parseMehdDuration(view, len, mehdOffset, mvhd.timeScale);
+        if (fragSeconds !== null) return fragSeconds;
+      }
+    }
   }
 
   // If a huge moov started before the fetched range, mvhd itself may still be
   // present. Parse plausible mvhd candidates directly instead of failing closed.
   for (const mvhdOffset of findBoxCandidates(view, len, MVHD)) {
-    const seconds = parseMvhdDuration(view, len, mvhdOffset);
+    const mvhd = readMvhd(view, len, mvhdOffset);
+    if (!mvhd) continue;
+    const seconds = secondsFromUnits(mvhd.durationUnits, mvhd.timeScale);
     if (seconds !== null) return seconds;
   }
 
   return null;
 }
 
-function parseMvhdDuration(view: DataView, len: number, mvhdOffset: number): number | null {
+/** Read timeScale + raw duration units from an mvhd box (no seconds conversion). */
+function readMvhd(view: DataView, len: number, mvhdOffset: number): { timeScale: number; durationUnits: number } | null {
   const mvhdBox = readBox(view, mvhdOffset, len);
   if (!mvhdBox) return null;
 
-  // Parse mvhd: [size:4/16][type:4][version:1][flags:3][...fields...]
+  // mvhd: [size][type][version:1][flags:3][...fields...]
   const headerStart = mvhdOffset + mvhdBox.headerSize;
   if (headerStart + 4 >= len) return null;
 
   const version = view.getUint8(headerStart);
 
-  let timeScale: number;
-  let duration: number;
-
   if (version === 0) {
     // v0: creation(4) + modification(4) + timeScale(4) + duration(4)
     if (headerStart + 20 > len) return null;
-    timeScale = view.getUint32(headerStart + 4 + 8, false);
-    duration = view.getUint32(headerStart + 4 + 12, false);
-  } else {
-    // v1: creation(8) + modification(8) + timeScale(4) + duration(8)
-    if (headerStart + 32 > len) return null;
-    timeScale = view.getUint32(headerStart + 4 + 16, false);
-    const hi = view.getUint32(headerStart + 4 + 20, false);
-    const lo = view.getUint32(headerStart + 4 + 24, false);
-    duration = hi * 0x100000000 + lo;
+    return {
+      timeScale: view.getUint32(headerStart + 4 + 8, false),
+      durationUnits: view.getUint32(headerStart + 4 + 12, false),
+    };
   }
 
-  if (timeScale <= 0 || duration <= 0) return null;
+  // v1: creation(8) + modification(8) + timeScale(4) + duration(8)
+  if (headerStart + 32 > len) return null;
+  const hi = view.getUint32(headerStart + 4 + 20, false);
+  const lo = view.getUint32(headerStart + 4 + 24, false);
+  return {
+    timeScale: view.getUint32(headerStart + 4 + 16, false),
+    durationUnits: hi * 0x100000000 + lo,
+  };
+}
 
-  const seconds = duration / timeScale;
+/** mehd: [size][type][version:1][flags:3][fragment_duration: 4 (v0) or 8 (v1)] in the movie timeScale. */
+function parseMehdDuration(view: DataView, len: number, mehdOffset: number, timeScale: number): number | null {
+  const mehdBox = readBox(view, mehdOffset, len);
+  if (!mehdBox) return null;
 
-  // Sanity: duration should be between 1s and 24h
+  const headerStart = mehdOffset + mehdBox.headerSize;
+  if (headerStart + 4 >= len) return null;
+
+  const version = view.getUint8(headerStart);
+  let fragmentUnits: number;
+
+  if (version === 0) {
+    if (headerStart + 8 > len) return null;
+    fragmentUnits = view.getUint32(headerStart + 4, false);
+  } else {
+    if (headerStart + 12 > len) return null;
+    const hi = view.getUint32(headerStart + 4, false);
+    const lo = view.getUint32(headerStart + 8, false);
+    fragmentUnits = hi * 0x100000000 + lo;
+  }
+
+  return secondsFromUnits(fragmentUnits, timeScale);
+}
+
+/** Convert timeScale-relative units to seconds, with the shared 1s..24h sanity gate. */
+function secondsFromUnits(units: number, timeScale: number): number | null {
+  if (timeScale <= 0 || units <= 0) return null;
+
+  const seconds = units / timeScale;
+
+  // Sanity: duration should be between 1s and 24h (rejects false-positive box matches).
   if (seconds < 1 || seconds > 86400) {
-    console.warn(`[MP4Duration] Suspicious duration: ${seconds.toFixed(1)}s (timeScale=${timeScale}, duration=${duration})`);
+    console.warn(`[MP4Duration] Suspicious duration: ${seconds.toFixed(1)}s (timeScale=${timeScale}, units=${units})`);
     return null;
   }
 
   return Math.round(seconds * 10) / 10; // 1 decimal precision
 }
 
-function findBoxCandidates(view: DataView, limit: number, boxType: number): number[] {
+function findBoxCandidates(view: DataView, limit: number, boxType: number, start = 0): number[] {
   const offsets: number[] = [];
-  for (let offset = 0; offset + 8 <= limit; offset++) {
+  for (let offset = Math.max(0, start); offset + 8 <= limit; offset++) {
     if (view.getUint32(offset + 4, false) !== boxType) continue;
     if (!readBox(view, offset, limit)) continue;
     offsets.push(offset);
