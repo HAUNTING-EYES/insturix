@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+﻿import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -102,7 +102,13 @@ describe('production MG codegen runtime', () => {
 
   it('retries malformed visual-judge JSON with a deterministic seed and schema', async () => {
     const generateContent = vi.fn()
-      .mockResolvedValueOnce({ response: { text: () => '{"faithful":true,"score":8.4,' } })
+      .mockResolvedValueOnce({
+        response: {
+          text: () => '{"faithful":true,"score":8.4,',
+          candidates: [{ finishReason: 'MAX_TOKENS' }],
+          usageMetadata: { totalTokenCount: 1_200, thoughtsTokenCount: 1_100 },
+        },
+      })
       .mockResolvedValueOnce({ response: { text: () => JSON.stringify({ faithful: true, score: 8.4, issues: [], reasoning: 'faithful and readable' }) } });
     vi.mocked(getAnalysisModel).mockResolvedValue({ generateContent } as never);
     const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
@@ -115,12 +121,19 @@ describe('production MG codegen runtime', () => {
     await expect(runtime.codegen.evaluate('component', moment())).resolves.toEqual({ score: 8.4, issues: [] });
     expect(generateContent).toHaveBeenCalledTimes(2);
     expect(generateContent.mock.calls.map(([request]) => request.generationConfig.seed)).toEqual([42, 7]);
+    expect(generateContent.mock.calls.map(([request]) => request.generationConfig.maxOutputTokens)).toEqual([1_200, 4_096]);
     expect(generateContent.mock.calls[0][0].generationConfig.responseSchema).toBeDefined();
     await runtime.dispose();
   });
 
   it('fails closed after both visual-judge structured responses are malformed', async () => {
-    const generateContent = vi.fn().mockResolvedValue({ response: { text: () => '{"faithful":' } });
+    const generateContent = vi.fn().mockResolvedValue({
+      response: {
+        text: () => '{"faithful":',
+        candidates: [{ finishReason: 'STOP' }],
+        usageMetadata: { totalTokenCount: 400, thoughtsTokenCount: 100 },
+      },
+    });
     vi.mocked(getAnalysisModel).mockResolvedValue({ generateContent } as never);
     const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
       render: fakeRender,
@@ -129,7 +142,7 @@ describe('production MG codegen runtime', () => {
     });
 
     await runtime.codegen.compile('component');
-    await expect(runtime.codegen.evaluate('component', moment())).rejects.toThrow(/failed after 2 attempts/);
+    await expect(runtime.codegen.evaluate('component', moment())).rejects.toThrow(/failed after 2 attempts:.*finishReason=STOP/);
     expect(generateContent).toHaveBeenCalledTimes(2);
     await runtime.dispose();
   });

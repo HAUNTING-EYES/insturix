@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+﻿import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { SchemaType, type ResponseSchema } from '@google/generative-ai';
@@ -28,7 +28,10 @@ const MG_JUDGE_RESPONSE_SCHEMA: ResponseSchema = {
   },
   required: ['faithful', 'score', 'issues', 'reasoning'],
 };
-const JUDGE_SEEDS = [42, 7] as const;
+const JUDGE_ATTEMPTS = [
+  { seed: 42, maxOutputTokens: 1_200 },
+  { seed: 7, maxOutputTokens: 4_096 },
+] as const;
 
 export interface ProductionMgRuntimeOptions {
   render?: RenderFn;
@@ -166,7 +169,10 @@ ${fact}
 Return JSON only:
 {"faithful":boolean,"score":0-10,"issues":["specific issue"],"reasoning":"one sentence"}`;
   let lastError = 'unknown structured-output failure';
-  for (let attempt = 0; attempt < JUDGE_SEEDS.length; attempt += 1) {
+  for (let attempt = 0; attempt < JUDGE_ATTEMPTS.length; attempt += 1) {
+    let finishReason = 'unknown';
+    let totalTokens: number | undefined;
+    let thoughtsTokens: number | undefined;
     try {
       const strictRetry = attempt === 0 ? '' : '\nYour prior response was malformed. Return exactly one complete JSON object matching the schema.';
       const result = await model.generateContent({
@@ -181,19 +187,27 @@ Return JSON only:
           responseMimeType: 'application/json',
           responseSchema: MG_JUDGE_RESPONSE_SCHEMA,
           temperature: 0,
-          seed: JUDGE_SEEDS[attempt],
-          maxOutputTokens: 1200,
+          seed: JUDGE_ATTEMPTS[attempt].seed,
+          maxOutputTokens: JUDGE_ATTEMPTS[attempt].maxOutputTokens,
         },
       });
+      finishReason = String(result.response?.candidates?.[0]?.finishReason ?? 'unknown');
+      const usage = result.response?.usageMetadata as {
+        totalTokenCount?: number;
+        thoughtsTokenCount?: number;
+      } | undefined;
+      totalTokens = usage?.totalTokenCount;
+      thoughtsTokens = usage?.thoughtsTokenCount;
       const response = result.response?.text?.();
       if (!response) throw new Error('empty response');
       return parseJudgeResponse(response);
     } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-      console.warn(`[MGCodegen] Visual judge structured output failed (${attempt + 1}/${JUDGE_SEEDS.length}): ${lastError.slice(0, 160)}`);
+      const message = error instanceof Error ? error.message : String(error);
+      lastError = `${message} (finishReason=${finishReason}, totalTokens=${totalTokens ?? 'unknown'}, thoughtsTokens=${thoughtsTokens ?? 'unknown'})`;
+      console.warn(`[MGCodegen] Visual judge structured output failed (${attempt + 1}/${JUDGE_ATTEMPTS.length}): ${lastError.slice(0, 240)}`);
     }
   }
-  throw new Error(`MG visual judge failed after ${JUDGE_SEEDS.length} attempts: ${lastError.slice(0, 160)}`);
+  throw new Error(`MG visual judge failed after ${JUDGE_ATTEMPTS.length} attempts: ${lastError.slice(0, 240)}`);
 }
 
 export function createProductionMgRuntime(
