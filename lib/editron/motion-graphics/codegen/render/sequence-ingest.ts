@@ -8,7 +8,7 @@
  * Remotion webm/prores AND direct ffmpeg libvpx — tmp/mg-alpha-probe/bench-webp.mjs), and a single sprite
  * sheet of full-res frames blows past browser canvas/texture limits. So frames stay individual and
  * index-addressable. This module is the un-skippable "get the frames to durable URLs" step; it is
- * independent of how the CONSUMING layer is typed (that layer — Phase E — does not exist yet).
+ * consumed by the compact MG_SEQUENCE playback descriptor without persisting the URL array.
  *
  * PURE of any storage SDK: the uploader is INJECTED (prod = R2 via makeR2FrameUploader in the sibling
  * adapter; tests = a fake). So this is unit-testable without touching the network or the prod CDN bucket.
@@ -18,6 +18,9 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import type { MgRenderResult } from './frame-renderer';
+import { sequenceFrameKey } from './sequence-playback';
+
+export { sequenceFrameKey as frameKey } from './sequence-playback';
 
 /** Uploads one frame's bytes under `key`, returns a durable public URL. */
 export type FrameUploader = (bytes: Buffer, key: string, contentType: string) => Promise<string>;
@@ -35,15 +38,7 @@ export interface MgSequenceManifest {
 }
 
 const FRAME_CONTENT_TYPE = 'image/webp';
-const INDEX_PAD = 5; // ← up to 99999 frames (≫ any real clip); keeps keys lexically ordered
-const DEFAULT_CONCURRENCY = 8; // ← I/O-bound uploads; bounded so we don't open ~90 sockets at once
-
-/** Flat, URL-safe R2 key for frame i of a sequence. Underscore-delimited, NOT slashes: the CDN worker
- *  serves /asset/:id as a SINGLE path segment, so a slash in the id would break the route. */
-export function frameKey(sequenceId: string, index: number): string {
-  return `mgseq_${sequenceId}_${String(index).padStart(INDEX_PAD, '0')}`;
-}
-
+const DEFAULT_CONCURRENCY = 8;
 /** Bounded-concurrency map that preserves index → result order regardless of completion order. */
 async function mapPool<T, R>(items: T[], limit: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
   const out = new Array<R>(items.length);
@@ -78,7 +73,7 @@ export async function ingestSequence(
 
   const frameUrls = await mapPool(render.files, limit, async (file, i) => {
     const bytes = await read(path.join(render.webpDir, file));
-    return deps.uploadFrame(bytes, frameKey(deps.sequenceId, i), FRAME_CONTENT_TYPE);
+    return deps.uploadFrame(bytes, sequenceFrameKey(deps.sequenceId, i), FRAME_CONTENT_TYPE);
   });
 
   if (frameUrls.length !== render.count) {
