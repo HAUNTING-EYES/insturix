@@ -3889,7 +3889,11 @@ function isLiveMgCodegenEnabled(): boolean {
   const override = process.env.MG_CODEGEN_ENABLED?.trim().toLowerCase();
   if (override === 'false' || override === '0') return false;
   if (override === 'true' || override === '1') return true;
-  return process.env.NODE_ENV === 'production';
+  // OFF by default. The live seam renders in-process (production-runtime → frame-renderer → @remotion/bundler +
+  // Chromium), which cannot run inside a Vercel function — Remotion's bundler is explicitly unsupported there.
+  // Until MG rendering is moved to an isolated render worker, the seam stays off and MGs use the Tier-A engine.
+  // Re-enable for a worker-backed run with MG_CODEGEN_ENABLED=true.
+  return false;
 }
 
 function localMgAnchor(frame: unknown, startFrame: number, durationInFrames: number): number | undefined {

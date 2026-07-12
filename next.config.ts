@@ -40,6 +40,11 @@ const nextConfig: NextConfig = {
     // your project has type errors.
     ignoreBuildErrors: true,
   },
+  // Remotion's bundler/renderer are Node build tools (they embed webpack + spawn Chromium + native deps) and
+  // CANNOT be bundled by Next's webpack — that is "bundling webpack with webpack" and fails the build. This was
+  // the 67fc4fe6 regression: the MG codegen seam pulled frame-renderer into the Director route graph. Keep them
+  // external so the build is green; the actual rendering must run in an isolated worker, never a Vercel function.
+  serverExternalPackages: ['@remotion/bundler', '@remotion/renderer', 'sharp'],
   // Performance optimizations
   experimental: {
     optimizePackageImports: [
