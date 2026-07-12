@@ -12,7 +12,7 @@
 
 import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
 import { DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
-import type { Overlay, Keyframe, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
+import { OverlayType, type MgSequenceOverlay, type Overlay, type Keyframe, type KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult, type SFXLibrarySearchReport } from '@/lib/pipeline/sfx-library-service';
@@ -57,6 +57,8 @@ import {
 } from '@/lib/editron/engine/atomic-overlay-core';
 import type { OverlayCategory, OverlayDefinition, ScoringResult } from '@/lib/editron/engine/utility-types';
 import type { SignalCurves } from '@/lib/editron/motion-graphics/engine/primitive-renderers';
+import type { UnifiedBrandLike } from '@/lib/editron/motion-graphics/codegen/brand-mapper';
+import type { MgAnchors, MgReceipt } from '@/lib/editron/motion-graphics/codegen/types';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -411,6 +413,9 @@ export interface ExecutionResult {
 
 interface EDLSignalContext {
   vjepaSegments?: Array<Record<string, unknown>>;
+  codegenBrand?: UnifiedBrandLike;
+  hasConfiguredBrand?: boolean;
+  orgId?: string;
   wav2vecSegments?: Array<Record<string, unknown>>;
   musicAnalysis?: Record<string, unknown>;
   vjepaScreenContextPolicy?: VjepaScreenContextPolicy;
@@ -770,6 +775,9 @@ export async function executeEDL(
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const projectDoc = await (await getDatabase()).collection('projects').findOne({ projectId });
     projectSignalContext = {
+      codegenBrand: undefined,
+      hasConfiguredBrand: Boolean(projectDoc?.brandId),
+      orgId: typeof projectDoc?.orgId === 'string' ? projectDoc.orgId : undefined,
       vjepaSegments: arrayOrUndefined(projectDoc?.vjepaAnalysis?.segments),
       wav2vecSegments: arrayOrUndefined(projectDoc?.wav2vecAnalysis?.segments),
       musicAnalysis: recordValue(projectDoc?.musicAnalysis) ?? recordValue(projectDoc?.essentiaAnalysis) ?? undefined,
@@ -783,6 +791,7 @@ export async function executeEDL(
         service: 'editron',
         orgId: projectDoc.orgId ?? null,
       });
+      projectSignalContext.codegenBrand = resolution.brand ?? undefined;
       projectBrand = resolution.acceptedProfile
         ? {
             ...brandInputsFromUnifiedBrandAtomic(resolution.brand),
@@ -1074,6 +1083,35 @@ export async function executeEDL(
     console.log(`[EDL-Exec] REJECTION SUMMARY: ${result.rejectedDecisions.length} decisions rejected — ${Object.entries(grouped).map(([k, v]) => `${k}:${v}`).join(', ')}`);
   }
 
+  const mgCodegenOutcomes = actionable
+    .map((decision) => decision.params?.mgCodegenOutcome)
+    .filter((outcome): outcome is MgCodegenDecisionOutcome => (
+      Boolean(outcome)
+      && typeof outcome === 'object'
+      && ['generated', 'declined', 'fallback'].includes((outcome as MgCodegenDecisionOutcome).status)
+    ));
+  if (mgCodegenOutcomes.length > 0) {
+    try {
+      const { getDatabase } = await import('@/lib/editron/db/mongodb');
+      await (await getDatabase()).collection('projects').updateOne(
+        { projectId, userId },
+        {
+          $set: {
+            'intelligence.mgCodegenRun': {
+              version: 'mg-codegen-run-v1',
+              generatedCount: mgCodegenOutcomes.filter((outcome) => outcome.status === 'generated').length,
+              failedCount: mgCodegenOutcomes.filter((outcome) => outcome.status !== 'generated').length,
+              outcomes: mgCodegenOutcomes.slice(0, 100),
+              truncated: mgCodegenOutcomes.length > 100,
+              completedAt: new Date(),
+            },
+          },
+        },
+      );
+    } catch (error) {
+      console.error('[EDL-MG-Codegen] failed to persist run evidence:', error);
+    }
+  }
   return result;
 }
 
@@ -3760,7 +3798,8 @@ function readableGraphicWords(content: Record<string, unknown>): number {
 }
 
 function isGraphicOverlayForDedupe(overlay: Overlay): boolean {
-  return overlay.type === 'html-scene'
+  return overlay.type === OverlayType.MG_SEQUENCE
+    || overlay.type === 'html-scene'
     || overlay.type === 'motion-graphic'
     || (overlay as any).type === 'sticker';
 }
@@ -3834,6 +3873,95 @@ function normalizeGraphicDedupeToken(value: unknown): string {
     .replace(/\s+/g, ' ')
     .slice(0, 180);
 }
+
+interface MgCodegenDecisionOutcome {
+  status: 'generated' | 'declined' | 'fallback';
+  frame: number;
+  candidateId: string;
+  factKind: string;
+  reason?: string;
+  assetId?: string;
+  sequenceId?: string;
+  receipt?: MgReceipt;
+}
+
+function isLiveMgCodegenEnabled(): boolean {
+  const override = process.env.MG_CODEGEN_ENABLED?.trim().toLowerCase();
+  if (override === 'false' || override === '0') return false;
+  if (override === 'true' || override === '1') return true;
+  return process.env.NODE_ENV === 'production';
+}
+
+function localMgAnchor(frame: unknown, startFrame: number, durationInFrames: number): number | undefined {
+  if (typeof frame !== 'number' || !Number.isFinite(frame)) return undefined;
+  const rounded = Math.round(frame);
+  if (rounded >= startFrame && rounded < startFrame + durationInFrames) return rounded - startFrame;
+  if (rounded >= 0 && rounded < durationInFrames) return rounded;
+  return undefined;
+}
+
+function buildMgCodegenAnchors(
+  decision: EditDecision,
+  startFrame: number,
+  durationInFrames: number,
+  signalCurves?: { curves: SignalCurves },
+): MgAnchors | undefined {
+  const params = decision.params ?? {};
+  const directWords = Array.isArray(params.wordFrames)
+    ? params.wordFrames
+    : Array.isArray(params.wordAnchorFrames)
+      ? params.wordAnchorFrames
+      : [];
+  const wordFrames = [...new Set(directWords
+    .map((frame: unknown) => localMgAnchor(frame, startFrame, durationInFrames))
+    .filter((frame: number | undefined): frame is number => frame !== undefined))]
+    .sort((a, b) => a - b)
+    .slice(0, 32);
+
+  const beatCurve = signalCurves?.curves.music_beat ?? signalCurves?.curves.beat_level;
+  const beatFrames: number[] = [];
+  if (Array.isArray(beatCurve)) {
+    for (let frame = 0; frame < beatCurve.length && beatFrames.length < 24; frame += 1) {
+      if ((beatCurve[frame] ?? 0) >= 0.5 && (beatFrames.length === 0 || frame - beatFrames[beatFrames.length - 1] >= 3)) {
+        beatFrames.push(frame);
+      }
+    }
+  }
+
+  const directLanding = [
+    params.mgLandingFrame,
+    params.landingFrame,
+    params.beatFrame,
+    params.targetBeatFrame,
+  ].map((frame) => localMgAnchor(frame, startFrame, durationInFrames)).find((frame) => frame !== undefined);
+  const onset = signalCurves?.curves.onset;
+  let strongestOnset: number | undefined;
+  if (directLanding === undefined && Array.isArray(onset) && onset.length > 0) {
+    let strength = 0;
+    onset.forEach((value, frame) => {
+      if (typeof value === 'number' && value > strength) {
+        strength = value;
+        strongestOnset = frame;
+      }
+    });
+  }
+
+  const anchors: MgAnchors = {};
+  if (wordFrames.length) anchors.wordFrames = wordFrames;
+  if (beatFrames.length) anchors.beatFrames = beatFrames;
+  if (directLanding !== undefined || strongestOnset !== undefined) {
+    anchors.landingFrame = directLanding ?? strongestOnset;
+  }
+  return Object.keys(anchors).length > 0 ? anchors : undefined;
+}
+
+function mgCodegenNotes(decision: EditDecision): string | undefined {
+  const notes = [decision.params?.notes, decision.params?.editorialNotes, decision.reason]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => value.trim());
+  return notes.length ? notes.join(' | ').slice(0, 400) : undefined;
+}
+
 async function applyGraphic(
   decision: EditDecision,
   overlays: Overlay[],
@@ -3937,7 +4065,7 @@ async function applyGraphic(
   const existingGraphic = overlays.find(o =>
     isGraphicOverlayForDedupe(o)
     && Math.abs(o.from - decision.frame) <= 15
-    && graphicDedupeKeyFromOverlay(o) === currentGraphicKey
+    && (o.type === OverlayType.MG_SEQUENCE || graphicDedupeKeyFromOverlay(o) === currentGraphicKey)
   );
   if (existingGraphic) {
     console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: SKIPPED — duplicate ${currentGraphicKey} at frame ${existingGraphic.from}`);
@@ -4033,6 +4161,240 @@ async function applyGraphic(
       return null;
     }
     mgScores = applyMgExpressionAuthorityToScores(mgScores, mgExpressionAuthority);
+    const snappedFrame = findClipAtFrame(decision.frame, overlays, 20)?.snappedFrame ?? decision.frame;
+    const baseCompositionDuration = resolveGraphicDwellFrames(duration, decision.params, contentMap);
+    const compositionDuration = Math.max(
+      mgExpressionAuthority.duration.minFrames,
+      Math.min(
+        mgExpressionAuthority.duration.maxFrames,
+        Math.round(baseCompositionDuration * mgExpressionAuthority.duration.multiplier),
+      ),
+    );
+    const signalCurves = buildMotionGraphicSignalCurves(
+      decision,
+      overlays,
+      snappedFrame,
+      compositionDuration,
+      rawSignals,
+      analyses,
+      projectSignalContext,
+    );
+
+    if (isLiveMgCodegenEnabled()) {
+      const selectedCandidate = semanticMgCandidateSelection.selectedCandidate;
+      const outcomeBase = {
+        frame: snappedFrame,
+        candidateId: selectedCandidate?.id ?? 'none',
+        factKind: selectedCandidate?.factKind ?? 'none',
+      };
+      const rejectCodegenMoment = (
+        status: 'declined' | 'fallback',
+        reason: string,
+        receipt?: MgReceipt,
+      ): null => {
+        const outcome: MgCodegenDecisionOutcome = { ...outcomeBase, status, reason, ...(receipt ? { receipt } : {}) };
+        decision.params.mgCodegenOutcome = outcome;
+        console.error(`[EDL-MG-Codegen] ${status.toUpperCase()} ${outcome.candidateId} @${snappedFrame}: ${reason}`);
+        return null;
+      };
+
+      if (!selectedCandidate) {
+        return rejectCodegenMoment('declined', 'No licensed semantic candidate survived the MG ledger');
+      }
+
+      let disposeRuntime: (() => Promise<void>) | undefined;
+      try {
+        const [
+          { brandToKit },
+          { buildMgMomentInput },
+          { renderMgMoment },
+          { makeR2FrameUploader },
+          { createProductionMgRuntime },
+        ] = await Promise.all([
+          import('@/lib/editron/motion-graphics/codegen/brand-mapper'),
+          import('@/lib/editron/motion-graphics/codegen/moment-input'),
+          import('@/lib/editron/motion-graphics/codegen/render/render-moment'),
+          import('@/lib/editron/motion-graphics/codegen/render/sequence-ingest-r2'),
+          import('@/lib/editron/motion-graphics/codegen/production-runtime'),
+        ]);
+        const mappedBrand = brandToKit(projectSignalContext.codegenBrand);
+        if (projectSignalContext.hasConfiguredBrand && mappedBrand.isDefault) {
+          return rejectCodegenMoment('fallback', 'Configured brand could not be mapped to the MG kit');
+        }
+
+        const momentInput = buildMgMomentInput({
+          momentId: `${projectId}:${snappedFrame}:${selectedCandidate.id}`,
+          candidate: selectedCandidate,
+          brand: mappedBrand.brand,
+          window: {
+            startFrame: snappedFrame,
+            endFrame: snappedFrame + compositionDuration,
+            fps: DEFAULT_CONFIG.timing.fps,
+          },
+          expression: mgExpressionAuthority,
+          placement: atomicPlacement,
+          anchors: buildMgCodegenAnchors(decision, snappedFrame, compositionDuration, signalCurves),
+          notes: mgCodegenNotes(decision),
+        });
+        const runtime = createProductionMgRuntime(momentInput, canvas);
+        disposeRuntime = () => runtime.dispose();
+        const generated = await renderMgMoment(momentInput, {
+          codegen: runtime.codegen,
+          render: runtime.render,
+          cleanup: runtime.cleanup,
+          canvas,
+          uploadFrame: makeR2FrameUploader(userId),
+          sequenceNamespace: userId,
+          authorizeStorage: async (sizeBytes) => {
+            const { reserveStorageForUpload } = await import('@/lib/services/storage-reserve-service');
+            const reservation = await reserveStorageForUpload(userId, projectSignalContext.orgId, sizeBytes);
+            if (!reservation.allowed) {
+              throw new Error(`storage_full: ${reservation.usedBytes + sizeBytes} bytes exceeds ${reservation.limitBytes}`);
+            }
+          },
+        });
+
+        if (generated.status !== 'generated') {
+          return rejectCodegenMoment(generated.status, generated.reason, generated.receipt);
+        }
+
+        const sequence = generated.sequence;
+        const assetId = `mgseq_${sequence.address.sequenceId}`;
+        const now = new Date();
+        const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
+        const db = await getDatabase();
+        const assets = db.collection(COLLECTIONS.MEDIA_ASSETS);
+        let inserted = false;
+        try {
+          const write = await assets.updateOne(
+            { assetId, userId },
+            {
+              $set: { lastUsedAt: now },
+              $setOnInsert: {
+                assetId,
+                userId,
+                ...(projectSignalContext.orgId ? { orgId: projectSignalContext.orgId } : {}),
+                projectId,
+                type: 'sequence',
+                source: 'generated',
+                filename: `${selectedCandidate.id}.mg-sequence`,
+                gcsPath: null,
+                cachedUrl: sequence.address.cdnBaseUrl,
+                publicUrl: sequence.address.cdnBaseUrl,
+                urlExpiresAt: new Date('2100-01-01T00:00:00.000Z'),
+                size: sequence.sizeBytes,
+                dimensions: { width: sequence.width, height: sequence.height },
+                uploadedAt: now,
+                pinned: false,
+                sequenceId: sequence.address.sequenceId,
+                frameCount: sequence.address.frameCount,
+                fps: sequence.fps,
+                frameFormat: sequence.frameFormat,
+                transparent: sequence.transparent,
+                status: 'ready',
+                r2Prefix: sequence.r2Prefix,
+                cdnBaseUrl: sequence.address.cdnBaseUrl,
+                address: sequence.address,
+                codegen: {
+                  candidateId: selectedCandidate.id,
+                  factKind: selectedCandidate.factKind,
+                  receipt: generated.receipt,
+                  window: momentInput.window,
+                  expressiveness: momentInput.expressiveness,
+                  placement: momentInput.placement,
+                  renderMs: sequence.renderMs,
+                },
+              },
+            },
+            { upsert: true },
+          );
+          inserted = write.upsertedCount > 0;
+          if (inserted) {
+            const { recordStorageUsage, resolveStorageOwner } = await import('@/lib/services/storage-quota-service');
+            await recordStorageUsage(
+              resolveStorageOwner(userId, projectSignalContext.orgId),
+              sequence.sizeBytes,
+            );
+          }
+        } catch (persistError) {
+          try {
+            const existing = await assets.findOne({ assetId, userId });
+            if (!existing) {
+              const { deleteR2Prefix } = await import('@/lib/editron/services/r2-service');
+              await deleteR2Prefix(sequence.r2Prefix);
+            }
+          } catch (cleanupError) {
+            console.error('[EDL-MG-Codegen] failed to reconcile an unpersisted sequence:', cleanupError);
+          }
+          return rejectCodegenMoment(
+            'fallback',
+            `MG sequence persistence failed: ${persistError instanceof Error ? persistError.message : String(persistError)}`,
+            generated.receipt,
+          );
+        }
+
+        const sequenceOverlay: MgSequenceOverlay & { metadata: Record<string, unknown> } = {
+          id: deterministicOverlayId(idEpoch, 'mg-sequence', decision.frame, decisionIndex),
+          type: OverlayType.MG_SEQUENCE,
+          assetId,
+          from: snappedFrame,
+          durationInFrames: sequence.address.frameCount,
+          row: ROW.MOTION_GRAPHICS,
+          left: 0,
+          top: 0,
+          width: canvas.width,
+          height: canvas.height,
+          isDragging: false,
+          rotation: 0,
+          _workerAdded: true,
+          styles: { opacity: 1 },
+          sequence: {
+            sequenceId: sequence.address.sequenceId,
+            frameCount: sequence.address.frameCount,
+            fps: sequence.fps,
+            width: sequence.width,
+            height: sequence.height,
+            transparent: true,
+            frameFormat: 'webp',
+            cdnBaseUrl: sequence.address.cdnBaseUrl,
+          },
+          metadata: {
+            sourceType: 'edl-mg-codegen',
+            candidateId: selectedCandidate.id,
+            factKind: selectedCandidate.factKind,
+            atomicPlacement,
+            mgExpressionAuthority,
+            receipt: generated.receipt,
+            edlSource: decision.source,
+            edlReason: decision.reason,
+          },
+        };
+        const outcome: MgCodegenDecisionOutcome = {
+          ...outcomeBase,
+          status: 'generated',
+          assetId,
+          sequenceId: sequence.address.sequenceId,
+          receipt: generated.receipt,
+        };
+        decision.params.mgCodegenOutcome = outcome;
+        overlays.push(sequenceOverlay);
+        console.log(`[EDL-MG-Codegen] GENERATED ${selectedCandidate.id} @${snappedFrame}: ${assetId} (${sequence.address.frameCount} frames)`);
+        return { created: 1, modified: 0 };
+      } catch (error) {
+        return rejectCodegenMoment(
+          'fallback',
+          error instanceof Error ? error.message : String(error),
+        );
+      } finally {
+        if (disposeRuntime) {
+          try {
+            await disposeRuntime();
+          } catch (disposeError) {
+            console.error('[EDL-MG-Codegen] runtime cleanup failed:', disposeError);
+          }
+        }
+      }
+    }
 
     // Overlays-as-signals: the mg.typography.font_weight dial (signal→curve→[300..800]) is the
     // source of boldness — feed it into the typography token every MG composer binds
@@ -4074,26 +4436,6 @@ async function applyGraphic(
     }
     const atomicOverlayPlan = buildAtomicOverlayPlan(recipe, tokens, contentMap, rawSignals, mgScores, decision.params.brand || {});
     const atomicOverlayDecision = decideAtomicOverlay(atomicOverlayPlan);
-
-    const snappedFrame = findClipAtFrame(decision.frame, overlays, 20)?.snappedFrame ?? decision.frame;
-    const baseCompositionDuration = resolveGraphicDwellFrames(duration, decision.params, contentMap);
-    const compositionDuration = Math.max(
-      mgExpressionAuthority.duration.minFrames,
-      Math.min(
-        mgExpressionAuthority.duration.maxFrames,
-        Math.round(baseCompositionDuration * mgExpressionAuthority.duration.multiplier),
-      ),
-    );
-
-    const signalCurves = buildMotionGraphicSignalCurves(
-      decision,
-      overlays,
-      snappedFrame,
-      compositionDuration,
-      rawSignals,
-      analyses,
-      projectSignalContext,
-    );
 
     const motionOverlay = {
       id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),

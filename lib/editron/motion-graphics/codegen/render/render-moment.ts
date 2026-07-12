@@ -20,6 +20,7 @@
  * so unit tests can inject fakes for every step without loading a browser/native module.
  */
 
+import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
@@ -79,10 +80,20 @@ export interface RenderMomentDeps {
   ingest?: IngestFn;
   cleanup?: CleanupFn;
   frameSize?: (webpDir: string, files: string[]) => Promise<number>;
+  /** Authorize exact rendered bytes before any frame reaches durable storage. */
+  authorizeStorage?: (sizeBytes: number) => Promise<void>;
+  /** Tenant/owner namespace. Required by the live seam so identical outputs never share deletable R2 keys. */
+  sequenceNamespace?: string;
 }
 
 const durationInFrames = (input: MgMomentInput): number =>
   Math.max(1, Math.round(input.window.endFrame - input.window.startFrame));
+
+export function scopeMgSequenceId(baseId: string, namespace?: string): string {
+  if (!namespace?.trim()) return baseId;
+  const ownerHash = createHash('sha256').update(namespace.trim()).digest('hex').slice(0, 12);
+  return `${ownerHash}_${baseId}`;
+}
 
 /** Sum the on-disk bytes of the rendered frames (before the workspace is cleaned). */
 async function defaultFrameSize(webpDir: string, files: string[]): Promise<number> {
@@ -150,12 +161,13 @@ export async function renderMgMoment(input: MgMomentInput, deps: RenderMomentDep
     durationInFrames: durationInFrames(input),
   };
   // Deterministic + URL-safe id: identical code+data+dims reuse the same R2 keys (idempotent); any change → new id.
-  const sequenceId = workspaceId(renderInput);
+  const sequenceId = scopeMgSequenceId(workspaceId(renderInput), deps.sequenceNamespace);
 
   let rendered: MgRenderResult | undefined;
   try {
     rendered = await render(renderInput, deps.renderOpts);
     const sizeBytes = await frameSize(rendered.webpDir, rendered.files);
+    await deps.authorizeStorage?.(sizeBytes);
     const manifest = await ingest(rendered, { sequenceId, uploadFrame: deps.uploadFrame, concurrency: deps.concurrency });
     const address = toPlaybackAddress(sequenceId, manifest);
     return {

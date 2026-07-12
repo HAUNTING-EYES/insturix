@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
-import { Sequence, useCurrentFrame } from "remotion";
+import { Sequence, useCurrentFrame, useVideoConfig } from "remotion";
 import { LayerContent } from "./layer-content";
-import { Overlay } from "../../types";
+import { Overlay, OverlayType } from "../../types";
 import { evaluateAllTracks } from "../../utils/keyframe-evaluator";
 
 /**
@@ -17,7 +17,17 @@ export const Layer: React.FC<{
   baseUrl?: string;
 }> = ({ overlay, selectedOverlayId, baseUrl }) => {
   const globalFrame = useCurrentFrame();
-  const hasKeyframes = overlay.keyframeTracks && overlay.keyframeTracks.length > 0;
+  const videoConfig = useVideoConfig();
+  const isMgSequence = overlay.type === OverlayType.MG_SEQUENCE;
+  const hasKeyframes = !isMgSequence && overlay.keyframeTracks && overlay.keyframeTracks.length > 0;
+
+  if (isMgSequence && overlay.sequence) {
+    if (overlay.sequence.width !== videoConfig.width || overlay.sequence.height !== videoConfig.height || overlay.sequence.fps !== videoConfig.fps) {
+      throw new Error(
+        `MG sequence ${overlay.assetId} does not match composition ${videoConfig.width}x${videoConfig.height}@${videoConfig.fps}`,
+      );
+    }
+  }
 
   /**
    * Style calculations for the layer.
@@ -38,11 +48,11 @@ export const Layer: React.FC<{
 
     // Evaluate keyframe tracks if present
     // localFrame = frames since this overlay started playing (0-based)
-    let left = overlay.left;
-    let top = overlay.top;
+    let left = isMgSequence ? 0 : overlay.left;
+    let top = isMgSequence ? 0 : overlay.top;
     let scale = 1;
     let opacity = (overlay as any).styles?.opacity ?? 1;
-    let rotation = overlay.rotation || 0;
+    let rotation = isMgSequence ? 0 : (overlay.rotation || 0);
     const transformOrigin = (overlay as any).styles?.transformOrigin || "center center";
 
     if (hasKeyframes) {
@@ -62,8 +72,8 @@ export const Layer: React.FC<{
       position: "absolute",
       left,
       top,
-      width: overlay.width,
-      height: overlay.height,
+      width: isMgSequence ? videoConfig.width : overlay.width,
+      height: isMgSequence ? videoConfig.height : overlay.height,
       transform: `rotate(${rotation}deg)${scaleTransform}`,
       transformOrigin,
       zIndex,
@@ -81,6 +91,9 @@ export const Layer: React.FC<{
     overlay.from,
     selectedOverlayId,
     hasKeyframes,
+    isMgSequence,
+    videoConfig.width,
+    videoConfig.height,
     // Only re-evaluate per frame if keyframes exist
     hasKeyframes ? globalFrame : 0,
   ]);

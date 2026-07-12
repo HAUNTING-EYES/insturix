@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     // Fetch all media assets for this user, sorted by most recent first
     const mediaAssets = await db
       .collection(COLLECTIONS.MEDIA_ASSETS)
-      .find({ userId })
+      .find({ userId, type: { $in: ['video', 'audio', 'image'] } })
       .sort({ uploadedAt: -1 })
       .toArray() as unknown as MediaAsset[];
 
