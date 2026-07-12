@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   generateEditronEmbedding: vi.fn(),
   buildSignalTimeline: vi.fn(),
   buildSignalTimelineFromAnalysis: vi.fn(),
+  bulkWriteAssets: vi.fn(),
   narrativeSourceFromTimeline: vi.fn(),
   makeEmbeddingScorer: vi.fn(),
   orderStorylineWithLLM: vi.fn(),
@@ -109,6 +110,7 @@ function request(body: Record<string, unknown>, internal = false): Request {
 }
 
 let batchDocument: Record<string, unknown>;
+let mediaAssets: Array<Record<string, any>>;
 
 function mockDb() {
   batchDocument = {
@@ -118,7 +120,7 @@ function mockDb() {
     assetIds: ['video_1', 'image_1'],
     productionBriefIntake: { userIntent: 'make a concise product proof cut' },
   };
-  const assets = [
+  mediaAssets = [
     {
       assetId: 'video_1',
       userId: 'user_1',
@@ -158,11 +160,15 @@ function mockDb() {
       }
       if (name === 'mediaAssets') {
         return {
-          find: vi.fn(() => ({
-            sort: vi.fn(() => ({
-              toArray: vi.fn(async () => assets),
-            })),
-          })),
+          find: vi.fn(() => {
+            const cursor = {
+              toArray: vi.fn(async () => mediaAssets),
+              sort: vi.fn(),
+            };
+            cursor.sort.mockReturnValue(cursor);
+            return cursor;
+          }),
+          bulkWrite: mocks.bulkWriteAssets,
         };
       }
       if (name === 'projects') {
@@ -208,6 +214,16 @@ describe('from-batch storyline route handoff', () => {
     mocks.generateEditronEmbedding.mockResolvedValue([1, 0, 0]);
     mocks.buildSignalTimeline.mockReturnValue({ eventSignals: [{ timestampMs: 1000, signal: 'entity.name', value: 'Proof', context: 'Proof' }], gridSignals: new Map(), globalSignals: {}, fps: 30, totalFrames: 240, gridInterval: 15 });
     mocks.buildSignalTimelineFromAnalysis.mockReturnValue({ eventSignals: [], gridSignals: new Map(), globalSignals: {}, fps: 30, totalFrames: 240, gridInterval: 15 });
+    mocks.bulkWriteAssets.mockImplementation(async (operations: Array<any>) => {
+      let modifiedCount = 0;
+      for (const operation of operations) {
+        const asset = mediaAssets.find((entry) => entry.assetId === operation.updateOne?.filter?.assetId);
+        if (!asset || asset.analysisStatus === 'complete') continue;
+        Object.assign(asset, operation.updateOne.update.$set);
+        modifiedCount += 1;
+      }
+      return { acknowledged: true, modifiedCount };
+    });
     mocks.narrativeSourceFromTimeline.mockReturnValue({ events: [{ timestampMs: 1000, kind: 'name', context: 'Proof' }], durationMs: 8000 });
     mocks.intakeSignalsFromProject.mockReturnValue({ requested: {} });
     mocks.resolveProductionBrief.mockReturnValue({
@@ -464,5 +480,121 @@ describe('from-batch storyline route handoff', () => {
     expect(mocks.orderStorylineWithLLM).not.toHaveBeenCalled();
     expect(mocks.saveProject).not.toHaveBeenCalled();
     expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it('composes from successful assets when transcription is terminal-failed but analysis is stale', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    mediaAssets[1].analysisStatus = 'queued';
+    mediaAssets[1].batchTranscriptionStatus = 'failed';
+    mediaAssets[1].batchTranscriptionError = 'undecodable audio';
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'waiting_analysis',
+      orchestrationRequestedAt: new Date(),
+    };
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 2, failureCount: 0 },
+    }, true) as never);
+
+    expect(response.status).toBe(200);
+    expect(mocks.bulkWriteAssets).not.toHaveBeenCalled();
+    expect(mocks.saveProject).toHaveBeenCalledOnce();
+    expect(mocks.saveProject.mock.calls[0][2].overlays).toHaveLength(1);
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      { projectId: 'proj_batch_1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({ sourceAssetIds: ['video_1'] }),
+      }),
+    );
+  });
+
+  it('marks only wedged assets terminal at max-wait and composes from successful survivors', async () => {
+    process.env.EDITRON_BATCH_ORCHESTRATION_DEADLINE_MS = String(5 * 60 * 1000);
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    mediaAssets[1].analysisStatus = 'uploaded';
+    mediaAssets[1].batchTranscriptionStatus = 'complete';
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'waiting_analysis',
+      orchestrationRequestedAt: new Date(Date.now() - 6 * 60 * 1000),
+    };
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 30, failureCount: 0 },
+    }, true) as never);
+
+    expect(response.status).toBe(200);
+    expect(mocks.bulkWriteAssets).toHaveBeenCalledWith([
+      expect.objectContaining({
+        updateOne: expect.objectContaining({
+          filter: expect.objectContaining({ assetId: 'image_1', userId: 'user_1' }),
+          update: {
+            $set: expect.objectContaining({
+              analysisStatus: 'orchestration_timed_out',
+              analysisError: expect.stringContaining('5 minutes'),
+            }),
+          },
+        }),
+      }),
+    ], { ordered: false });
+    expect(mocks.saveProject).toHaveBeenCalledOnce();
+    expect(mocks.saveProject.mock.calls[0][2].overlays).toHaveLength(1);
+    expect(mocks.checkCredits).toHaveBeenLastCalledWith(
+      'user_1',
+      'editron',
+      'auto_edit_analysis',
+      expect.objectContaining({ requestType: 'standard' }),
+    );
+    expect(mocks.updateBatch).toHaveBeenCalledWith(
+      { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          orchestrationTimedOutAssetIds: ['image_1'],
+          orchestrationFailForwardAt: expect.any(Date),
+        }),
+      }),
+    );
+  });
+  it('preserves an asset that completes while the deadline write is racing', async () => {
+    process.env.EDITRON_BATCH_ORCHESTRATION_DEADLINE_MS = String(5 * 60 * 1000);
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    mediaAssets[1].analysisStatus = 'analyzing';
+    mediaAssets[1].batchTranscriptionStatus = 'complete';
+    mocks.bulkWriteAssets.mockImplementationOnce(async () => {
+      mediaAssets[1].analysisStatus = 'complete';
+      mediaAssets[1].analysisCompletedAt = new Date();
+      return { acknowledged: true, modifiedCount: 0 };
+    });
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'waiting_analysis',
+      orchestrationRequestedAt: new Date(Date.now() - 6 * 60 * 1000),
+    };
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 30, failureCount: 0 },
+    }, true) as never);
+
+    expect(response.status).toBe(200);
+    expect(mocks.saveProject.mock.calls[0][2].overlays).toHaveLength(2);
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      { projectId: 'proj_batch_1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({ sourceAssetIds: ['video_1', 'image_1'] }),
+      }),
+    );
+    expect(mocks.updateBatch).toHaveBeenCalledWith(
+      { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({ orchestrationTimedOutAssetIds: [] }),
+      }),
+    );
   });
 });

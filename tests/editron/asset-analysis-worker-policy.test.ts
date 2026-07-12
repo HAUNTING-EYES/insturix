@@ -269,14 +269,15 @@ describe("durable asset transcription worker", () => {
     );
     expect(workerMocks.updateOne).toHaveBeenLastCalledWith(
       { assetId: "asset_1", userId: "user_1" },
-      {
+      expect.objectContaining({
         $set: expect.objectContaining({
           batchTranscriptionStatus: "complete",
           batchTranscriptionWordCount: 1,
           batchTranscriptionLanguage: "hi-en",
           analysisStatus: "queued",
         }),
-      },
+        $unset: { batchTranscriptionError: "" },
+      }),
     );
   });
 
@@ -292,43 +293,47 @@ describe("durable asset transcription worker", () => {
     expect(workerMocks.fetch).not.toHaveBeenCalled();
   });
 
-  it("rejects missing video duration before ASR or analysis dispatch", async () => {
+  it("treats missing video duration as visual-only and still dispatches analysis", async () => {
     const { POST } = await import("@/app/api/internal/workers/asset-transcription/route");
     const response = await POST(workerRequest({ ...payload, duration: undefined }) as never);
     const body = await response.json();
 
-    expect(response.status).toBe(500);
-    expect(body.error).toContain("Verified video duration is required");
+    expect(response.status).toBe(200);
+    expect(body).toEqual(expect.objectContaining({ success: true, wordCount: 0, skipReason: "missing-duration" }));
     expect(workerMocks.getTranscription).not.toHaveBeenCalled();
-    expect(workerMocks.fetch).not.toHaveBeenCalled();
+    expect(workerMocks.fetch).toHaveBeenCalledOnce();
     expect(workerMocks.updateOne).toHaveBeenLastCalledWith(
       { assetId: "asset_1", userId: "user_1" },
-      {
+      expect.objectContaining({
         $set: expect.objectContaining({
-          batchTranscriptionStatus: "failed",
-          analysisStatus: "failed",
+          batchTranscriptionStatus: "complete",
+          batchTranscriptionWordCount: 0,
+          batchTranscriptionSkipReason: "missing-duration",
+          analysisStatus: "queued",
         }),
-      },
+      }),
     );
   });
 
-  it("fails loudly and does not dispatch analysis when transcription fails", async () => {
+  it("treats ASR failure as visual-only and still dispatches analysis", async () => {
     workerMocks.getTranscription.mockRejectedValueOnce(new Error("ASR unavailable"));
     const { POST } = await import("@/app/api/internal/workers/asset-transcription/route");
     const response = await POST(workerRequest(payload) as never);
     const body = await response.json();
 
-    expect(response.status).toBe(500);
-    expect(body).toEqual({ success: false, error: "ASR unavailable" });
-    expect(workerMocks.fetch).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(body).toEqual(expect.objectContaining({ success: true, wordCount: 0, skipReason: "no-speech" }));
+    expect(workerMocks.fetch).toHaveBeenCalledOnce();
     expect(workerMocks.updateOne).toHaveBeenLastCalledWith(
       { assetId: "asset_1", userId: "user_1" },
-      {
+      expect.objectContaining({
         $set: expect.objectContaining({
-          batchTranscriptionStatus: "failed",
-          analysisStatus: "failed",
+          batchTranscriptionStatus: "complete",
+          batchTranscriptionWordCount: 0,
+          batchTranscriptionSkipReason: "no-speech",
+          analysisStatus: "queued",
         }),
-      },
+      }),
     );
   });
 });

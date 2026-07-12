@@ -74,6 +74,10 @@ type BatchMediaAsset = {
   analysisQueuedAt?: Date | string | null;
   analysisStartedAt?: Date | string | null;
   analysisCompletedAt?: Date | string | null;
+  batchTranscriptionStatus?: string | null;
+  batchTranscriptionError?: string | null;
+  batchTranscriptionStartedAt?: Date | string | null;
+  batchTranscriptionCompletedAt?: Date | string | null;
 };
 
 type FromBatchRequest = MediaUploadBatchIntake & {
@@ -503,6 +507,11 @@ async function analyzeImageFacts(assetInput: ImageAssetInput, assetsById: Readon
   };
 }
 function buildStatusInput(asset: BatchMediaAsset): MediaUploadBatchAssetStatusInput {
+  const transcriptionFailed = asset.analysisStatus !== 'complete'
+    && ['failed', 'dispatch_failed', 'orchestration_timed_out'].includes(asset.batchTranscriptionStatus ?? '');
+  const analysisFailed = ['failed', 'dispatch_failed', 'orchestration_timed_out']
+    .includes(asset.analysisStatus ?? '');
+  const terminalFailure = analysisFailed || transcriptionFailed;
   return {
     assetId: asset.assetId,
     filename: asset.filename,
@@ -512,8 +521,8 @@ function buildStatusInput(asset: BatchMediaAsset): MediaUploadBatchAssetStatusIn
     dimensions: asset.dimensions,
     thumbnail: asset.thumbnail,
     uploadedAt: asset.uploadedAt,
-    analysisStatus: asset.analysisStatus,
-    analysisError: asset.analysisError,
+    analysisStatus: terminalFailure ? 'failed' : asset.analysisStatus,
+    analysisError: asset.analysisError || (transcriptionFailed ? asset.batchTranscriptionError || 'transcription_failed' : null),
     analysisSkipReason: asset.analysisSkipReason,
     analysisQueuedAt: asset.analysisQueuedAt,
     analysisStartedAt: asset.analysisStartedAt,
@@ -781,14 +790,18 @@ export async function POST(request: NextRequest) {
           analysisQueuedAt: 1,
           analysisStartedAt: 1,
           analysisCompletedAt: 1,
+          batchTranscriptionStatus: 1,
+          batchTranscriptionError: 1,
+          batchTranscriptionStartedAt: 1,
+          batchTranscriptionCompletedAt: 1,
         },
       })
       .sort({ uploadedAt: 1 })
       .toArray() as unknown as BatchMediaAsset[];
 
-    const summary = buildMediaUploadBatchSummary(mediaAssets.map(buildStatusInput));
-    const readinessByAsset = new Map(summary.assets.map((asset) => [asset.assetId, asset]));
-    const visualAssets = mediaAssets.filter((asset) => isUsableVisualAsset(asset, readinessByAsset.get(asset.assetId)));
+    let summary = buildMediaUploadBatchSummary(mediaAssets.map(buildStatusInput));
+    let readinessByAsset = new Map(summary.assets.map((asset) => [asset.assetId, asset]));
+    let visualAssets = mediaAssets.filter((asset) => isUsableVisualAsset(asset, readinessByAsset.get(asset.assetId)));
     if (visualAssets.length === 0) {
       if (batch.projectId) {
         await db.collection(COLLECTIONS.PROJECTS).updateOne(
@@ -803,7 +816,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const creditOptions = {
+    let creditOptions = {
       durationMinutes: getBillableAutoEditMinutes(visualAssets),
       requestType: visualAssets.length > 1 ? 'reference_guided' as const : 'standard' as const,
     };
@@ -914,49 +927,136 @@ export async function POST(request: NextRequest) {
 
     const inProgress = summary.counts.uploaded + summary.counts.queued + summary.counts.analyzing;
     if (inProgress > 0) {
-      const requestedAtMs = new Date(batch.orchestrationRequestedAt ?? Date.now()).getTime();
-      if (Date.now() - requestedAtMs >= orchestrationDeadlineMs()) {
-        const reason = `Batch analysis did not reach a terminal state within ${Math.round(orchestrationDeadlineMs() / 60000)} minutes.`;
+      const deadlineMs = orchestrationDeadlineMs();
+      const parsedRequestedAtMs = new Date(batch.orchestrationRequestedAt ?? Date.now()).getTime();
+      const requestedAtMs = Number.isFinite(parsedRequestedAtMs) ? parsedRequestedAtMs : Date.now();
+      if (Date.now() - requestedAtMs >= deadlineMs) {
+        const now = new Date();
+        const reason = `Asset analysis did not reach a terminal state within ${Math.round(deadlineMs / 60000)} minutes.`;
+        const timeoutCandidates = mediaAssets.filter((asset) => {
+          const readiness = readinessByAsset.get(asset.assetId)?.readiness;
+          return readiness === 'uploaded' || readiness === 'queued' || readiness === 'analyzing';
+        });
+        const assetCollection = db.collection(COLLECTIONS.MEDIA_ASSETS);
+        if (timeoutCandidates.length > 0) {
+          await assetCollection.bulkWrite(
+            timeoutCandidates.map((asset) => {
+              const set: Record<string, unknown> = {
+                analysisStatus: 'orchestration_timed_out',
+                analysisError: reason,
+                analysisCompletedAt: now,
+              };
+              if (
+                asset.type !== 'image'
+                && !['complete', 'failed', 'dispatch_failed', 'orchestration_timed_out'].includes(asset.batchTranscriptionStatus ?? '')
+              ) {
+                set.batchTranscriptionStatus = 'orchestration_timed_out';
+                set.batchTranscriptionError = reason;
+                set.batchTranscriptionCompletedAt = now;
+              }
+              return {
+                updateOne: {
+                  filter: {
+                    assetId: asset.assetId,
+                    userId,
+                    $or: [
+                      { analysisStatus: { $exists: false } },
+                      { analysisStatus: null },
+                      { analysisStatus: { $in: ['uploaded', 'queued', 'analyzing'] } },
+                    ],
+                  },
+                  update: { $set: set },
+                },
+              };
+            }),
+            { ordered: false },
+          );
+          const refreshedAssets = await assetCollection.find(
+            { userId, assetId: { $in: timeoutCandidates.map((asset) => asset.assetId) } },
+            {
+              projection: {
+                _id: 0,
+                assetId: 1,
+                analysisStatus: 1,
+                analysisError: 1,
+                analysisCompletedAt: 1,
+                batchTranscriptionStatus: 1,
+                batchTranscriptionError: 1,
+                batchTranscriptionCompletedAt: 1,
+              },
+            },
+          ).toArray() as unknown as Array<Partial<BatchMediaAsset> & { assetId: string }>;
+          const refreshedById = new Map(refreshedAssets.map((asset) => [asset.assetId, asset]));
+          for (const asset of timeoutCandidates) {
+            const refreshed = refreshedById.get(asset.assetId);
+            if (refreshed) Object.assign(asset, refreshed);
+          }
+        }
+        const timedOutAssetIds = timeoutCandidates
+          .filter((asset) => asset.analysisStatus === 'orchestration_timed_out')
+          .map((asset) => asset.assetId);
+        summary = buildMediaUploadBatchSummary(mediaAssets.map(buildStatusInput));
+        readinessByAsset = new Map(summary.assets.map((asset) => [asset.assetId, asset]));
+        visualAssets = mediaAssets.filter((asset) => isUsableVisualAsset(asset, readinessByAsset.get(asset.assetId)));
+        creditOptions = {
+          durationMinutes: getBillableAutoEditMinutes(visualAssets),
+          requestType: visualAssets.length > 1 ? 'reference_guided' as const : 'standard' as const,
+        };
         await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
           { uploadBatchId, userId, projectId: activeProjectId },
-          { $set: { orchestrationStatus: 'failed', orchestrationError: reason, updatedAt: new Date() }, $unset: { orchestrationLeaseUntil: '' } },
-        );
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId: activeProjectId },
-          { $set: { autoEditStatus: 'failed', autoEditError: reason, updatedAt: new Date() } },
-        );
-        return NextResponse.json({ success: false, projectId: activeProjectId, status: 'failed', error: reason });
-      }
-
-      const nextPollAttempt = caller.pollAttempt + 1;
-      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-        { uploadBatchId, userId, projectId: activeProjectId },
-        {
-          $set: {
-            orchestrationStatus: 'waiting_analysis',
-            orchestrationAttempt: nextPollAttempt,
-            orchestrationLastSummary: summary.counts,
-            updatedAt: new Date(),
+          {
+            $set: {
+              orchestrationLastSummary: summary.counts,
+              orchestrationTimedOutAssetIds: timedOutAssetIds,
+              orchestrationFailForwardAt: now,
+              updatedAt: now,
+            },
+            $unset: { orchestrationLeaseUntil: '' },
           },
-          $unset: { orchestrationLeaseUntil: '' },
-        },
-      );
-      const messageId = await dispatchBatchOrchestration({
-        baseUrl,
-        body,
-        caller: { ...caller, pollAttempt: nextPollAttempt },
-        delaySeconds: orchestrationDelaySeconds(),
-      });
-      return NextResponse.json({
-        success: true,
-        projectId: activeProjectId,
-        status: 'processing',
-        orchestrationStatus: 'waiting_analysis',
-        messageId,
-        batch: summary,
-      }, { status: 202 });
+        );
+        if (visualAssets.length === 0) {
+          const batchReason = `${reason} No usable video or image assets completed successfully.`;
+          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+            { uploadBatchId, userId, projectId: activeProjectId },
+            { $set: { orchestrationStatus: 'failed', orchestrationError: batchReason, updatedAt: now } },
+          );
+          await db.collection(COLLECTIONS.PROJECTS).updateOne(
+            { projectId: activeProjectId },
+            { $set: { autoEditStatus: 'failed', autoEditError: batchReason, updatedAt: now } },
+          );
+          return NextResponse.json({ success: false, projectId: activeProjectId, status: 'failed', error: batchReason });
+        }
+        console.warn(`[BatchAutoEdit] Fail-forward after analysis deadline: composing ${visualAssets.length} successful assets; excluded ${timedOutAssetIds.length} timed-out assets.`);
+      } else {
+        const nextPollAttempt = caller.pollAttempt + 1;
+        await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+          { uploadBatchId, userId, projectId: activeProjectId },
+          {
+            $set: {
+              orchestrationStatus: 'waiting_analysis',
+              orchestrationAttempt: nextPollAttempt,
+              orchestrationLastSummary: summary.counts,
+              updatedAt: new Date(),
+            },
+            $unset: { orchestrationLeaseUntil: '' },
+          },
+        );
+        const messageId = await dispatchBatchOrchestration({
+          baseUrl,
+          body,
+          caller: { ...caller, pollAttempt: nextPollAttempt },
+          delaySeconds: orchestrationDelaySeconds(),
+        });
+        return NextResponse.json({
+          success: true,
+          projectId: activeProjectId,
+          status: 'processing',
+          orchestrationStatus: 'waiting_analysis',
+          messageId,
+          batch: summary,
+        }, { status: 202 });
+      }
     }
-
     const leaseNow = new Date();
     const leaseUntil = new Date(leaseNow.getTime() + 10 * 60 * 1000);
     const composeClaim = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
