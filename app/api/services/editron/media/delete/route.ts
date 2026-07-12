@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { auth } from '@clerk/nextjs/server';
 import { deleteFromGCS } from '@/lib/editron/services/gcs-service';
-import { deleteFromR2 } from '@/lib/editron/services/r2-service';
+import { deleteFromR2, deleteR2Prefix } from '@/lib/editron/services/r2-service';
 import { recordStorageUsage, resolveStorageOwner } from '@/lib/services/storage-quota-service';
 
 export const runtime = 'nodejs';
@@ -53,20 +53,21 @@ export async function DELETE(request: NextRequest) {
       storageUsageRecordedAt: { $exists: true },
     });
 
-    try {
-      if (asset.gcsPath) {
-        await deleteFromGCS(asset.gcsPath);
-      } else {
-        const r2Keys = new Set<string>();
-        r2Keys.add(asset.r2Key || asset.assetId);
-        if (asset.originalR2Key) r2Keys.add(asset.originalR2Key);
-        if (completedMultipartUpload?.r2Key) r2Keys.add(completedMultipartUpload.r2Key);
-        for (const r2Key of r2Keys) {
-          await deleteFromR2(r2Key);
-        }
+    if (asset.type === 'sequence') {
+      if (!asset.r2Prefix) {
+        throw new Error(`Sequence asset ${asset.assetId} is missing r2Prefix`);
       }
-    } catch (error) {
-      console.error('Error deleting from storage:', error);
+      await deleteR2Prefix(asset.r2Prefix);
+    } else if (asset.gcsPath) {
+      await deleteFromGCS(asset.gcsPath);
+    } else {
+      const r2Keys = new Set<string>();
+      r2Keys.add(asset.r2Key || asset.assetId);
+      if (asset.originalR2Key) r2Keys.add(asset.originalR2Key);
+      if (completedMultipartUpload?.r2Key) r2Keys.add(completedMultipartUpload.r2Key);
+      for (const r2Key of r2Keys) {
+        await deleteFromR2(r2Key);
+      }
     }
 
     await db
