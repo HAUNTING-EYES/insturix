@@ -50,6 +50,19 @@ mkdirSync('src/bricks/gen', {recursive: true});
 // inputs: the Product UI Model (SCAN+UNDERSTAND output) + the scene plan (director output).
 const plan = JSON.parse(readFileSync('out/plan.json', 'utf8'));
 const SCENES = plan.scenes || plan;
+
+// Seed a STUB gen/manifest.ts up front. GenFilm.tsx imports './gen/manifest', and the per-scene proof render
+// bundles the ENTIRE Remotion project — so the manifest must RESOLVE even before any scene is crafted (the real
+// one is written at the end by writeManifest()). On a fresh render box src/bricks/gen/ is empty (it's generated
+// output, excluded from the container image), so without this seed the bundle fails "Can't resolve './gen/manifest'"
+// and EVERY scene crashes the renderer → falls back to brick → the whole render is bricks. Empty GEN_SCENES is fine:
+// the proof render targets the Gen-Proof (_proof.tsx) composition, not the assembled film.
+writeFileSync('src/bricks/gen/manifest.ts',
+  `// AUTO-GENERATED stub (agent-craft startup) — replaced by the real manifest once scenes are crafted.\n` +
+  `import type React from 'react';\nimport type {Brand} from '../brand';\n` +
+  `export type GenScene = {Comp: React.FC<{brand: Brand}>; durationInFrames: number; form: string; vo: string; focus?: {x: number; y: number}};\n` +
+  `export const GEN_META = {fps: ${plan.fps}, transitionFrames: ${plan.transitionFrames}, message: ${JSON.stringify(plan.message || '')}};\n` +
+  `export const GEN_SCENES: GenScene[] = [];\n`);
 const MODELF = existsSync('out/product-model.json') ? JSON.parse(readFileSync('out/product-model.json', 'utf8')) : null;
 const BRAND = existsSync('scripts/brand-brief.json') ? JSON.parse(readFileSync('scripts/brand-brief.json', 'utf8')) : {};
 const FACTS = existsSync('scripts/product-facts.json') ? JSON.parse(readFileSync('scripts/product-facts.json', 'utf8')) : {};
