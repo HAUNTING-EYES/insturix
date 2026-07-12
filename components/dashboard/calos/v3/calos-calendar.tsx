@@ -19,6 +19,7 @@ import { CalosCadenceModal } from './calos-cadence-modal';
 import BrandConnections from '@/app/dashboard/calos/BrandConnections';
 import { CalosBrandReferencesModal } from './calos-brand-references-modal';
 import { useActiveBrand } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
+import { CalosTrendOpportunityReview } from './calos-trend-opportunity-review';
 
 /* ═══ CalOS v3 · calendar (Phase 1 spine) ═════════════════════════════
    The founder's calos-v3.jsx design, wired to the real deliverables service.
@@ -50,6 +51,7 @@ export default function CalosCalendarV3() {
   const [wsEditOpen, setWsEditOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [brandRefsOpen, setBrandRefsOpen] = useState(false);
+  const [trendOpportunitiesOpen, setTrendOpportunitiesOpen] = useState(false);
   const [pubStatus, setPubStatus] = useState<Record<string, { platform: string; status: string; postUrl: string | null; error: string | null }>>({});
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
   const [search, setSearch] = useState('');
@@ -353,6 +355,7 @@ export default function CalosCalendarV3() {
             <button className="calos-fr" title={`${reviews.length} awaiting review`} onClick={() => toast({ title: reviews.length ? `${reviews.length} awaiting your review` : 'Nothing to review' })} style={{ position: 'relative', cursor: 'pointer', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, width: 34, height: 34, color: C.soft }}>◔
               {reviews.length > 0 && <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: C.gold, color: '#241B08', fontFamily: MONO, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{reviews.length}</span>}
             </button>
+            <Btn size="sm" onClick={() => setTrendOpportunitiesOpen(true)}>Trend ideas</Btn>
             <Btn size="sm" onClick={() => setScreen('share')}>Share</Btn>
             <Btn size="sm" onClick={() => setBrandRefsOpen(true)}>References</Btn>
             <Btn size="sm" onClick={() => setConnectionsOpen(true)}>Publishing</Btn>
@@ -562,6 +565,10 @@ export default function CalosCalendarV3() {
       {brandId && (
         <BrandConnections brandId={brandId} brandName={brandName} open={connectionsOpen} onClose={() => setConnectionsOpen(false)} />
       )}
+      {brandId && trendOpportunitiesOpen && (
+        <CalosTrendOpportunityReview brandId={brandId} brandName={brandName} onClose={() => setTrendOpportunitiesOpen(false)} />
+      )}
+
       {brandId && brandRefsOpen && (
         <CalosBrandReferencesModal brandId={brandId} brandName={brandName} onClose={() => setBrandRefsOpen(false)} />
       )}

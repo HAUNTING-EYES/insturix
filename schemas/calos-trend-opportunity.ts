@@ -1,7 +1,16 @@
 import mongoose, { Schema, type Document } from "mongoose";
 import type { CalosTrendWatchCandidate } from "@/schemas/calos-trend-watch";
 
-export type CalosTrendOpportunityStatus = "processing" | "suggested" | "not_relevant" | "blocked" | "failed" | "expired";
+export type CalosTrendOpportunityStatus =
+  | "processing"
+  | "suggested"
+  | "accepted"
+  | "dismissed"
+  | "snoozed"
+  | "not_relevant"
+  | "blocked"
+  | "failed"
+  | "expired";
 export type CalosTrendOpportunityRecommendation = "add" | "adapt";
 
 export interface ICalosTrendOpportunity extends Document {
@@ -25,6 +34,9 @@ export interface ICalosTrendOpportunity extends Document {
   matcherVersion: number;
   acceptedProfileGeneratedAt?: string | null;
   evaluatedAt?: Date | null;
+  reviewedAt?: Date | null;
+  reviewedBy?: string | null;
+  snoozedUntil?: Date | null;
   leaseId?: string | null;
   leaseExpiresAt?: Date | null;
   nextAttemptAt?: Date | null;
@@ -62,7 +74,7 @@ const CalosTrendOpportunitySchema = new Schema<ICalosTrendOpportunity>(
     status: {
       type: String,
       required: true,
-      enum: ["processing", "suggested", "not_relevant", "blocked", "failed", "expired"],
+      enum: ["processing", "suggested", "accepted", "dismissed", "snoozed", "not_relevant", "blocked", "failed", "expired"],
       index: true,
     },
     relevanceScore: { type: Number, default: null, min: 0, max: 1 },
@@ -74,6 +86,9 @@ const CalosTrendOpportunitySchema = new Schema<ICalosTrendOpportunity>(
     matcherVersion: { type: Number, required: true, min: 1 },
     acceptedProfileGeneratedAt: { type: String, default: null, maxlength: 80 },
     evaluatedAt: { type: Date, default: null },
+    reviewedAt: { type: Date, default: null },
+    reviewedBy: { type: String, default: null },
+    snoozedUntil: { type: Date, default: null },
     leaseId: { type: String, default: null },
     leaseExpiresAt: { type: Date, default: null },
     nextAttemptAt: { type: Date, default: null },
@@ -86,6 +101,7 @@ const CalosTrendOpportunitySchema = new Schema<ICalosTrendOpportunity>(
 
 CalosTrendOpportunitySchema.index({ status: 1, nextAttemptAt: 1, leaseExpiresAt: 1 });
 CalosTrendOpportunitySchema.index({ brandId: 1, orgId: 1, status: 1, expiresAt: 1 });
+CalosTrendOpportunitySchema.index({ status: 1, snoozedUntil: 1 });
 
 export const CalosTrendOpportunity =
   mongoose.models.CalosTrendOpportunity ||
