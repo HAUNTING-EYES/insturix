@@ -3889,10 +3889,9 @@ function isLiveMgCodegenEnabled(): boolean {
   const override = process.env.MG_CODEGEN_ENABLED?.trim().toLowerCase();
   if (override === 'false' || override === '0') return false;
   if (override === 'true' || override === '1') return true;
-  // OFF by default. The live seam renders in-process (production-runtime → frame-renderer → @remotion/bundler +
-  // Chromium), which cannot run inside a Vercel function — Remotion's bundler is explicitly unsupported there.
-  // Until MG rendering is moved to an isolated render worker, the seam stays off and MGs use the Tier-A engine.
-  // Re-enable for a worker-backed run with MG_CODEGEN_ENABLED=true.
+  // OFF by default until the commit-pinned Sandbox snapshot and callback secret are deployed and smoke-tested.
+  // When explicitly enabled, applyGraphic sends only MgMomentInput to the isolated worker. Next.js never imports
+  // the Remotion compiler/Chromium runtime, and decline/failure never falls through to a legacy card.
   return false;
 }
 
@@ -4206,20 +4205,15 @@ async function applyGraphic(
         return rejectCodegenMoment('declined', 'No licensed semantic candidate survived the MG ledger');
       }
 
-      let disposeRuntime: (() => Promise<void>) | undefined;
       try {
         const [
           { brandToKit },
           { buildMgMomentInput },
-          { renderMgMoment },
-          { makeR2FrameUploader },
-          { createProductionMgRuntime },
+          { resolveMgRenderAppCommit, runDurableMgRenderJob },
         ] = await Promise.all([
           import('@/lib/editron/motion-graphics/codegen/brand-mapper'),
           import('@/lib/editron/motion-graphics/codegen/moment-input'),
-          import('@/lib/editron/motion-graphics/codegen/render/render-moment'),
-          import('@/lib/editron/motion-graphics/codegen/render/sequence-ingest-r2'),
-          import('@/lib/editron/motion-graphics/codegen/production-runtime'),
+          import('@/lib/editron/motion-graphics/codegen/mg-render-job-runner'),
         ]);
         const mappedBrand = brandToKit(projectSignalContext.codegenBrand);
         if (projectSignalContext.hasConfiguredBrand && mappedBrand.isDefault) {
@@ -4240,22 +4234,14 @@ async function applyGraphic(
           anchors: buildMgCodegenAnchors(decision, snappedFrame, compositionDuration, signalCurves),
           notes: mgCodegenNotes(decision),
         });
-        const runtime = createProductionMgRuntime(momentInput, canvas);
-        disposeRuntime = () => runtime.dispose();
-        const generated = await renderMgMoment(momentInput, {
-          codegen: runtime.codegen,
-          render: runtime.render,
-          cleanup: runtime.cleanup,
+        const generated = await runDurableMgRenderJob({
+          projectId,
+          userId,
+          orgId: projectSignalContext.orgId ?? null,
+          appCommit: resolveMgRenderAppCommit(),
+          input: momentInput,
           canvas,
-          uploadFrame: makeR2FrameUploader(userId),
           sequenceNamespace: userId,
-          authorizeStorage: async (sizeBytes) => {
-            const { reserveStorageForUpload } = await import('@/lib/services/storage-reserve-service');
-            const reservation = await reserveStorageForUpload(userId, projectSignalContext.orgId, sizeBytes);
-            if (!reservation.allowed) {
-              throw new Error(`storage_full: ${reservation.usedBytes + sizeBytes} bytes exceeds ${reservation.limitBytes}`);
-            }
-          },
         });
 
         if (generated.status !== 'generated') {
@@ -4321,15 +4307,7 @@ async function applyGraphic(
             );
           }
         } catch (persistError) {
-          try {
-            const existing = await assets.findOne({ assetId, userId });
-            if (!existing) {
-              const { deleteR2Prefix } = await import('@/lib/editron/services/r2-service');
-              await deleteR2Prefix(sequence.r2Prefix);
-            }
-          } catch (cleanupError) {
-            console.error('[EDL-MG-Codegen] failed to reconcile an unpersisted sequence:', cleanupError);
-          }
+          console.error(`[EDL-MG-Codegen] retaining completed sequence ${sequence.address.sequenceId} for persistence retry via job ${generated.jobId}`);
           return rejectCodegenMoment(
             'fallback',
             `MG sequence persistence failed: ${persistError instanceof Error ? persistError.message : String(persistError)}`,
@@ -4389,14 +4367,6 @@ async function applyGraphic(
           'fallback',
           error instanceof Error ? error.message : String(error),
         );
-      } finally {
-        if (disposeRuntime) {
-          try {
-            await disposeRuntime();
-          } catch (disposeError) {
-            console.error('[EDL-MG-Codegen] runtime cleanup failed:', disposeError);
-          }
-        }
       }
     }
 

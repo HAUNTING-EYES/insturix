@@ -29,9 +29,12 @@ const storageAuthorizationClaimsSchema = z.object({
 
 export type MgStorageAuthorizationClaims = z.infer<typeof storageAuthorizationClaimsSchema>;
 
-const DEFAULT_AUTH_TTL_MS = 30 * 60 * 1_000;
+const DEFAULT_SANDBOX_TIMEOUT_MS = 20 * 60 * 1_000;
+const MIN_SANDBOX_TIMEOUT_MS = 5 * 60 * 1_000;
+const MAX_SANDBOX_TIMEOUT_MS = 45 * 60 * 1_000;
+const LEASE_GRACE_MS = 5 * 60 * 1_000;
 const MIN_AUTH_TTL_MS = 5 * 60 * 1_000;
-const MAX_AUTH_TTL_MS = 45 * 60 * 1_000;
+const MAX_AUTH_TTL_MS = 60 * 60 * 1_000;
 
 function required(env: EnvLike, name: string): string {
   const value = env[name]?.trim();
@@ -45,11 +48,19 @@ function authSecret(env: EnvLike): string {
   return secret;
 }
 
-function authTtlMs(env: EnvLike): number {
-  const parsed = Number(env.MG_RENDER_STORAGE_AUTH_TTL_MS);
-  return Number.isInteger(parsed) && parsed >= MIN_AUTH_TTL_MS && parsed <= MAX_AUTH_TTL_MS
+function sandboxTimeoutMs(env: EnvLike): number {
+  const parsed = Number(env.MG_RENDER_SANDBOX_TIMEOUT_MS);
+  return Number.isInteger(parsed) && parsed >= MIN_SANDBOX_TIMEOUT_MS && parsed <= MAX_SANDBOX_TIMEOUT_MS
     ? parsed
-    : DEFAULT_AUTH_TTL_MS;
+    : DEFAULT_SANDBOX_TIMEOUT_MS;
+}
+
+function authTtlMs(env: EnvLike, minimumTtlMs: number): number {
+  const parsed = Number(env.MG_RENDER_STORAGE_AUTH_TTL_MS);
+  const requested = Number.isInteger(parsed) && parsed >= MIN_AUTH_TTL_MS && parsed <= MAX_AUTH_TTL_MS
+    ? parsed
+    : minimumTtlMs;
+  return Math.min(MAX_AUTH_TTL_MS, Math.max(minimumTtlMs, requested));
 }
 
 function signature(payload: string, secret: string): string {
@@ -86,7 +97,9 @@ export function verifyMgStorageAuthorizationToken(
 }
 
 export function resolveMgRenderAppCommit(env: EnvLike = process.env): string {
-  return required(env, 'VERCEL_GIT_COMMIT_SHA') || required(env, 'MG_RENDER_SANDBOX_APP_COMMIT');
+  const commit = env.VERCEL_GIT_COMMIT_SHA?.trim() || env.MG_RENDER_SANDBOX_APP_COMMIT?.trim();
+  if (!commit) throw new Error('MG render job runner: missing VERCEL_GIT_COMMIT_SHA or MG_RENDER_SANDBOX_APP_COMMIT');
+  return commit;
 }
 
 export function resolveMgStorageAuthorizationUrl(env: EnvLike = process.env): string {
@@ -140,7 +153,8 @@ export async function runDurableMgRenderJob(
   if (stored.status === 'failed') throw new Error(`MG render job ${stored._id} is terminal: ${stored.lastError ?? 'unknown failure'}`);
 
   const leaseId = `mgl_${nanoid(20)}`;
-  const claimed = await claimJob({ jobId: stored._id, leaseId, now });
+  const leaseMs = sandboxTimeoutMs(env) + LEASE_GRACE_MS;
+  const claimed = await claimJob({ jobId: stored._id, leaseId, leaseMs, now });
   if (!claimed) {
     const latest = await getJob({ jobId: stored._id, userId: input.userId, projectId: input.projectId });
     if (latest?.status === 'completed' && latest.result) return latest.result;
@@ -154,7 +168,7 @@ export async function runDurableMgRenderJob(
     projectId: claimed.projectId,
     userId: claimed.userId,
     orgId: claimed.orgId,
-    expiresAtMs: now.getTime() + authTtlMs(env),
+    expiresAtMs: now.getTime() + authTtlMs(env, leaseMs),
   };
   const storageAuthorization = {
     url: resolveMgStorageAuthorizationUrl(env),

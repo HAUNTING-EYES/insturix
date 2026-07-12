@@ -5,18 +5,8 @@ const mocks = vi.hoisted(() => ({
   assetsUpdateOne: vi.fn(async () => ({ upsertedCount: 1 })),
   projectsFindOne: vi.fn(async () => ({ projectId: 'mg-live-project', orgId: 'org-1' })),
   projectsUpdateOne: vi.fn(async () => ({ matchedCount: 1 })),
-  renderMgMoment: vi.fn(),
-  reserveStorageForUpload: vi.fn(async () => ({
-    allowed: true,
-    owner: { id: 'org-1', type: 'org' },
-    usedBytes: 0,
-    limitBytes: 1_000_000,
-    addBytes: 1200,
-    evictedAssetIds: [],
-    overage: false,
-  })),
+  runDurableMgRenderJob: vi.fn(),
   recordStorageUsage: vi.fn(async () => undefined),
-  dispose: vi.fn(async () => undefined),
   deleteR2Prefix: vi.fn(async () => 0),
 }));
 
@@ -35,26 +25,9 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
   })),
 }));
 
-vi.mock('@/lib/editron/motion-graphics/codegen/production-runtime', () => ({
-  createProductionMgRuntime: vi.fn(() => ({
-    codegen: {},
-    render: vi.fn(),
-    cleanup: vi.fn(),
-    dispose: mocks.dispose,
-  })),
-}));
-
-vi.mock('@/lib/editron/motion-graphics/codegen/render/render-moment', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/editron/motion-graphics/codegen/render/render-moment')>();
-  return { ...actual, renderMgMoment: mocks.renderMgMoment };
-});
-
-vi.mock('@/lib/editron/motion-graphics/codegen/render/sequence-ingest-r2', () => ({
-  makeR2FrameUploader: vi.fn(() => vi.fn()),
-}));
-
-vi.mock('@/lib/services/storage-reserve-service', () => ({
-  reserveStorageForUpload: mocks.reserveStorageForUpload,
+vi.mock('@/lib/editron/motion-graphics/codegen/mg-render-job-runner', () => ({
+  resolveMgRenderAppCommit: vi.fn(() => '350b04ccb037ce3ae018627a1b6df0d3f959e2b8'),
+  runDurableMgRenderJob: mocks.runDurableMgRenderJob,
 }));
 
 vi.mock('@/lib/services/storage-quota-service', () => ({
@@ -151,18 +124,7 @@ beforeEach(() => {
   mocks.assetsUpdateOne.mockResolvedValue({ upsertedCount: 1 });
   mocks.projectsFindOne.mockResolvedValue({ projectId: 'mg-live-project', orgId: 'org-1' });
   mocks.projectsUpdateOne.mockResolvedValue({ matchedCount: 1 });
-  mocks.reserveStorageForUpload.mockResolvedValue({
-    allowed: true,
-    owner: { id: 'org-1', type: 'org' },
-    usedBytes: 0,
-    limitBytes: 1_000_000,
-    addBytes: 1200,
-    evictedAssetIds: [],
-    overage: false,
-  });
-  mocks.renderMgMoment.mockImplementation(async (_input, deps) => {
-    await deps.authorizeStorage?.(1200);
-    return {
+  mocks.runDurableMgRenderJob.mockResolvedValue({
       status: 'generated',
       sequence: {
         address: { sequenceId: 'tenant-seq-1', frameCount: 90, cdnBaseUrl: 'https://cdn.example.com' },
@@ -176,7 +138,6 @@ beforeEach(() => {
         renderMs: 45,
       },
       receipt: RECEIPT,
-    };
   });
 });
 
@@ -214,11 +175,10 @@ describe('live MG codegen seam', () => {
     });
     expect(overlays.some((overlay) => overlay.type === OverlayType.MOTION_GRAPHIC)).toBe(false);
 
-    const [momentInput, renderDeps] = mocks.renderMgMoment.mock.calls[0];
-    expect(momentInput.candidate).toMatchObject({ factKind: 'bounded-stat', content: expect.objectContaining({ label: 'conversion lift' }) });
-    expect(momentInput.window).toMatchObject({ startFrame: 30, fps: 30 });
-    expect(renderDeps.sequenceNamespace).toBe('user-1');
-    expect(mocks.reserveStorageForUpload).toHaveBeenCalledWith('user-1', 'org-1', 1200);
+    const [jobInput] = mocks.runDurableMgRenderJob.mock.calls[0];
+    expect(jobInput.input.candidate).toMatchObject({ factKind: 'bounded-stat', content: expect.objectContaining({ label: 'conversion lift' }) });
+    expect(jobInput.input.window).toMatchObject({ startFrame: 30, fps: 30 });
+    expect(jobInput).toMatchObject({ projectId: 'mg-live-project', userId: 'user-1', orgId: 'org-1', sequenceNamespace: 'user-1' });
     expect(mocks.recordStorageUsage).toHaveBeenCalledWith({ id: 'org-1', type: 'org' }, 1200);
 
     const assetCall = mocks.assetsUpdateOne.mock.calls[0] as unknown as [unknown, { $setOnInsert: Record<string, unknown> }];
@@ -247,7 +207,7 @@ describe('live MG codegen seam', () => {
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    mocks.renderMgMoment.mockResolvedValue({
+    mocks.runDurableMgRenderJob.mockResolvedValue({
       status: 'declined',
       reason: 'the moment has no faithful visual explanation',
       receipt: { ...RECEIPT, outcome: 'declined', reason: 'the moment has no faithful visual explanation' },
