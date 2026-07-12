@@ -57,11 +57,12 @@ function scriptSidecar() {
       lines: [{
         text: 'The workflow is clear from the first frame.',
         speakerId: 'narrator',
-        onCamera: false,
-        delivery: 'voiceover',
+        onCamera: true,
+        delivery: 'sync-dialogue',
       }],
-      sourceRefs: [],
+      sourceRefs: ['brief_user'],
       charactersPresent: ['narrator'],
+      relipSafe: true,
     }],
     overallMusicPrompt: 'A restrained, optimistic pulse.',
     characterDescriptions: { narrator: 'Warm, credible narrator.' },
@@ -69,7 +70,7 @@ function scriptSidecar() {
     environmentNotes: 'Modern studio workspace.',
     globalEditDirections: { pacing: 'medium' },
     suggestedProfileCategory: 'production-mode',
-    sourceRefs: [],
+    sourceRefs: ['brief_user'],
   };
 }
 describe('export-for-editron route', () => {
@@ -172,7 +173,33 @@ describe('export-for-editron route', () => {
       title: 'Same-pass Scene',
       content: '',
       blocks: savedBlocks,
-      metadata: { writerOutput: { writerType: 'script', scriptSidecar: scriptSidecar() } },
+      metadata: {
+        briefSnapshot: {
+          output: { platform: 'youtube', targetDurationSec: 8, aspectRatio: '16:9', count: 1, format: 'auto-edit' },
+          resolution: { confirmed: ['platform'], inferred: [] },
+          entryPoint: 'thinkforge',
+          casting: {
+            map: {
+              narrator: { avatarProfileId: 'avatar_123', voice: { mode: 'cloned', voiceReferenceUrl: 'https://private.example/voice.wav' } },
+            },
+          },
+        },
+        writerOutput: {
+          writerType: 'script',
+          scriptSidecar: scriptSidecar(),
+          sourceLedger: {
+            ledgerVersion: 1,
+            entries: [{
+              referenceId: 'brief_user',
+              kind: 'user_brief',
+              title: 'User brief',
+              summary: 'A factual brief.',
+              confidence: 1,
+              provenance: { origin: 'user_prompt' },
+            }],
+          },
+        },
+      },
     });
     const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
 
@@ -197,9 +224,30 @@ describe('export-for-editron route', () => {
       sidecarVersion: 1,
       sidecarSource: 'stored-script',
     });
+    expect(payload.productionManifest.thinkforgeContext).toEqual({
+      version: 1,
+      briefSnapshot: expect.objectContaining({
+        casting: { map: { narrator: expect.objectContaining({ avatarProfileId: 'avatar_123' }) } },
+      }),
+      sourceLedger: expect.objectContaining({ ledgerVersion: 1 }),
+      sidecarSourceRefs: ['brief_user'],
+      avatarDirectives: [{
+        sceneIndex: 0,
+        durationSeconds: 8,
+        relipSafe: true,
+        speakers: [{
+          characterId: 'narrator',
+          avatarProfileId: 'avatar_123',
+          voiceMode: 'cloned',
+          lineText: 'The workflow is clear from the first frame.',
+        }],
+      }],
+    });
+    expect(payload.productionManifest.thinkforgeContext.briefSnapshot.casting.map.narrator.voice).toEqual({ mode: 'cloned' });
+    expect(JSON.stringify(payload.productionManifest.thinkforgeContext)).not.toContain('private.example');
     expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
-    expect(JSON.stringify(payload)).not.toContain('sourceRefs');
-    expect(JSON.stringify(payload)).not.toContain('charactersPresent');
+    expect(payload.scenes[0].sourceRefs).toBeUndefined();
+    expect(payload.scenes[0].charactersPresent).toBeUndefined();
   });
   it('does not reuse a persisted sidecar after the export source was edited', async () => {
     mocks.getSession.mockResolvedValue({ _id: 'tf_session_edited', userId: 'user_1' });

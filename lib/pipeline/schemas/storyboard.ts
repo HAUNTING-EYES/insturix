@@ -288,6 +288,25 @@ export interface EditronProductionManifest {
   targetDurationSeconds?: number;
   coveragePolicy: 'production-require-all-scenes' | 'draft-partial-allowed';
   warnings: string[];
+  /** Server-resolved ThinkForge brief, casting, and provenance carried to downstream consumers. */
+  thinkforgeContext?: {
+    version: number;
+    briefSnapshot?: Record<string, unknown>;
+    sourceLedger?: Record<string, unknown>;
+    sidecarSourceRefs: string[];
+    avatarDirectives: Array<{
+      sceneIndex: number;
+      durationSeconds: number;
+      relipSafe?: boolean;
+      speakers: Array<{
+        characterId: string;
+        avatarProfileId?: string;
+        voiceMode: 'cloned' | 'preset' | 'none' | 'unbound';
+        lineText: string;
+        sourceRefs?: string[];
+      }>;
+    }>;
+  };
 }
 
 export type ApprovedStoryboardReferenceProvenance =

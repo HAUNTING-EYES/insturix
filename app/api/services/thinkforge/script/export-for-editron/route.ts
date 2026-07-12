@@ -24,7 +24,9 @@ import {
 import { tiptapJSONToThinkForgeBlocks } from '@/lib/thinkforge/mappers/tiptap-to-thinkforge';
 import { extractPlainText, isTiptapJSON } from '@/lib/thinkforge/schemas/tiptap-validation';
 import {
+  buildThinkForgeEditronHandoffContext,
   mapScriptSidecarToEditronExport,
+  type ThinkForgeEditronHandoffContext,
   type ScriptSidecarEditronExport,
 } from '@/lib/thinkforge/export/script-sidecar-to-editron';
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
@@ -47,6 +49,7 @@ interface ExportSource {
   title: string;
   scenePreview: SceneDescriptor[];
   sidecarExport?: ScriptSidecarEditronExport;
+  thinkforgeContext?: ThinkForgeEditronHandoffContext;
 }
 
 function isParserSentinelScene(scene: Pick<SceneDescriptor, 'title'>): boolean {
@@ -220,6 +223,11 @@ async function loadStoredScriptSource(
       return {
         ...storedSource,
         sidecarExport: mapScriptSidecarToEditronExport(writerOutput.scriptSidecar),
+        thinkforgeContext: buildThinkForgeEditronHandoffContext({
+          sidecar: writerOutput.scriptSidecar,
+          briefSnapshot: metadata?.briefSnapshot,
+          sourceLedger: writerOutput.sourceLedger,
+        }),
       };
     } catch {
       console.warn('[export-for-editron] Ignoring an invalid persisted script sidecar');
@@ -305,6 +313,7 @@ export async function POST(request: NextRequest) {
         ? storedSource
         : undefined;
     const sidecarExport = sidecarSource?.sidecarExport;
+    const thinkforgeContext = sidecarSource?.thinkforgeContext;
 
     const blocks = activeSource.blocks;
     const plainText = activeSource.plainText;
@@ -594,6 +603,7 @@ export async function POST(request: NextRequest) {
         sidecarVersion: sidecarExport?.sidecarVersion,
         sidecarSource: sidecarExport ? 'stored-script' : undefined,
       },
+      ...(thinkforgeContext ? { thinkforgeContext } : {}),
       warnings: targetDurationSeconds
         ? []
         : ['target-duration-missing-parser-used-short-form-defaults'],

@@ -24,6 +24,7 @@ import {
 import { buildClickatronSessionFormData } from "@/lib/thinkforge/clickatron-session-payload";
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
+import type { ThinkForgeEditronHandoffContext } from "@/lib/thinkforge/export/script-sidecar-to-editron";
 // ─── Hook input ──────────────────────────────────────────────────
 export interface UseExportPipelineInput {
   blocks: any[];
@@ -55,6 +56,7 @@ export interface EditronProductionManifest {
   expectedVideoClips?: number;
   coveragePolicy?: "production-require-all-scenes" | "draft-partial-allowed" | string;
   warnings?: string[];
+  thinkforgeContext?: ThinkForgeEditronHandoffContext;
 }
 
 export interface EditronImportPreflightResult {
