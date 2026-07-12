@@ -64,6 +64,49 @@ export async function extractMP4Duration(url: string): Promise<number | null> {
   }
 }
 
+export interface VideoDurationResolution {
+  seconds: number;
+  source: 'container' | 'transcript' | 'reported';
+  /** True when the pick differs from the reported value by more than the tolerance — the caller should overwrite. */
+  corrected: boolean;
+}
+
+/**
+ * Pick the AUTHORITATIVE duration for one video from three candidate signals. The file CONTAINER is the truth
+ * (the real length of the bytes); the transcript's last-word end is only a fallback (it marks end-of-SPEECH,
+ * not end-of-video — it underestimates trailing footage and is absent for silent clips); the reported/browser
+ * value is the last resort (unreliable). `corrected` means the pick materially differs from `reportedSec`.
+ *
+ * This is the one place that decides which duration wins, so it is pure + unit-tested. The container never
+ * loses to the transcript — that was the bug (a correct length dragged down to when the talking stopped).
+ */
+export function resolveVideoDurationSec(input: {
+  containerSec: number | null;
+  transcriptEndSec: number | null;
+  reportedSec: number;
+  toleranceSec?: number;
+}): VideoDurationResolution {
+  const tol = input.toleranceSec ?? 5;
+  const validContainer = typeof input.containerSec === 'number' && Number.isFinite(input.containerSec) && input.containerSec > 1;
+  const validTranscript = typeof input.transcriptEndSec === 'number' && Number.isFinite(input.transcriptEndSec) && input.transcriptEndSec > 10;
+
+  let seconds: number;
+  let source: VideoDurationResolution['source'];
+  if (validContainer) {
+    seconds = input.containerSec as number;
+    source = 'container';
+  } else if (validTranscript) {
+    seconds = input.transcriptEndSec as number;
+    source = 'transcript';
+  } else {
+    seconds = input.reportedSec;
+    source = 'reported';
+  }
+
+  const corrected = source !== 'reported' && Number.isFinite(input.reportedSec) && Math.abs(seconds - input.reportedSec) > tol;
+  return { seconds, source, corrected };
+}
+
 async function tryParseFromRange(
   url: string,
   position: 'head' | 'tail',

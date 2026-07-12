@@ -1,8 +1,50 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { extractMP4Duration } from '@/lib/editron/services/mp4-duration-service';
+import { extractMP4Duration, resolveVideoDurationSec } from '@/lib/editron/services/mp4-duration-service';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe('resolveVideoDurationSec - the file container is the source of truth', () => {
+  it('★ container WINS over a shorter transcript (trailing footage does not shrink the video)', () => {
+    // The bug: speech ends at 90s but the video is 120s. The container must win; duration must NOT drop to 90.
+    const r = resolveVideoDurationSec({ containerSec: 120, transcriptEndSec: 90, reportedSec: 120 });
+    expect(r.source).toBe('container');
+    expect(r.seconds).toBe(120);
+    expect(r.corrected).toBe(false); // matches reported → no overwrite needed
+  });
+
+  it('★ container corrects a wrong reported/browser value (572 → 1175)', () => {
+    const r = resolveVideoDurationSec({ containerSec: 1175, transcriptEndSec: 1100, reportedSec: 572 });
+    expect(r.source).toBe('container');
+    expect(r.seconds).toBe(1175);
+    expect(r.corrected).toBe(true);
+  });
+
+  it('falls back to transcript ONLY when there is no container reading', () => {
+    const r = resolveVideoDurationSec({ containerSec: null, transcriptEndSec: 45, reportedSec: 20 });
+    expect(r.source).toBe('transcript');
+    expect(r.seconds).toBe(45);
+    expect(r.corrected).toBe(true);
+  });
+
+  it('falls back to reported when neither container nor a valid (>10s) transcript exists', () => {
+    const r = resolveVideoDurationSec({ containerSec: null, transcriptEndSec: 8, reportedSec: 20 });
+    expect(r.source).toBe('reported');
+    expect(r.seconds).toBe(20);
+    expect(r.corrected).toBe(false);
+  });
+
+  it('an invalid / NaN container reading is ignored', () => {
+    expect(resolveVideoDurationSec({ containerSec: 0.5, transcriptEndSec: 45, reportedSec: 20 }).source).toBe('transcript');
+    expect(resolveVideoDurationSec({ containerSec: NaN, transcriptEndSec: null, reportedSec: 30 }).source).toBe('reported');
+  });
+
+  it('no correction when the container agrees with reported within tolerance', () => {
+    const r = resolveVideoDurationSec({ containerSec: 61, transcriptEndSec: 45, reportedSec: 60 });
+    expect(r.source).toBe('container');
+    expect(r.corrected).toBe(false); // 61 vs 60 ≤ 5
+  });
 });
 
 describe('mp4 duration service', () => {

@@ -385,14 +385,20 @@ async function handler(request: NextRequest) {
     // and ensures future lookups find the correct duration).
     if (rawFootageAnalysis?.transcription?.words?.length > 0) {
       const lastWord = rawFootageAnalysis.transcription.words[rawFootageAnalysis.transcription.words.length - 1];
-      const actualDurationMs = lastWord.endMs;
-      const actualDurationSec = actualDurationMs / 1000;
+      const transcriptEndSec = lastWord.endMs / 1000;
+      // The file CONTAINER is the source of truth for how long the video is; the transcript only marks when the
+      // talking stops (it undershoots any trailing footage / outro). Read the real length from the bytes and let
+      // the transcript be a fallback only — so a correct duration is never dragged down to end-of-speech.
+      const { resolveVideoDurationSec, extractMP4Duration } = await import('@/lib/editron/services/mp4-duration-service');
+      const containerSec = await extractMP4Duration(videoUrl).catch(() => null);
+      const resolved = resolveVideoDurationSec({ containerSec, transcriptEndSec, reportedSec: durationSec });
+      const actualDurationSec = resolved.seconds;
+      const actualDurationMs = Math.round(actualDurationSec * 1000);
       const reportedDuration = durationSec;
 
-      // Fix duration if transcript reveals different length (guard: actualDuration must be > 10s)
-      if (actualDurationSec > 10 && Math.abs(actualDurationSec - reportedDuration) > 5) {
+      if (resolved.corrected) {
         const actualFrames = Math.round(actualDurationSec * 30);
-        console.log(`[VideoAnalysisWorker] Duration mismatch: reported=${reportedDuration}s, actual=${actualDurationSec.toFixed(1)}s. Correcting.`);
+        console.log(`[VideoAnalysisWorker] Duration corrected via ${resolved.source}: reported=${reportedDuration}s → ${actualDurationSec.toFixed(1)}s (speech ends ${transcriptEndSec.toFixed(1)}s).`);
 
         await db.collection('projects').updateOne(
           { projectId },
