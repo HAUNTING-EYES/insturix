@@ -1,87 +1,103 @@
 /**
- * MG Codegen — the moment input contract + receipt types (E0 Phase C). §4 of the spec, scoped to E0
- * (M3 numeric/data moments, no external assets). This is the neutral contract Editron assembles per hero
- * moment and hands to the codegen service.
+ * MG Codegen — the moment input contract + receipt types. The neutral contract the seam
+ * (edl-executor.applyGraphic, currently unbuilt) assembles per moment and hands to the codegen service.
+ *
+ * ★ Redesigned (2026-07-12) from the type-shaped E0 numeric payload to CONSUME the licensed
+ * `SemanticMgCandidate` produced upstream (mg-semantic-fact-extractor → semantic-mg-candidates ledger+gate)
+ * plus the moment's context (brand, placement regions, expressiveness, screen). There is NO MG "type" — the
+ * component is composed from the licensed FACT + context. Grounding is enforced on both ends: upstream the
+ * candidate's `hardGate` licenses only real, evidenced facts; in the prompt the model composes ONLY from the
+ * fact and never invents a value.
  */
 
 import type { Brand } from './kit/brand';
+import type { SemanticMgCandidate } from '../engine/semantic-mg-candidates';
 
-/** E0 = M3 (data/type). M1 (trend-copy) + M2 (concept scenes) are E1/E2. */
-export type MgMode = 'M3';
-
-/** The license that permits codegen for this moment. E0: a numeric/data fact (encoding-wire licensed). */
-export interface MgLicense {
-  kind: 'numeric';
-  /** Where the license came from (e.g. the transcript sentence / encoding-wire id) — provenance. */
-  source: string;
-  claimStrength?: 'hedged' | 'assertive';
-}
-
-/** The clip window in the SOURCE video, in frames at `fps`. */
+/** The clip window on the timeline, in frames at `fps`. */
 export interface MgWindow {
   startFrame: number;
   endFrame: number;
   fps: number;
 }
 
-/** Timing anchors (frames relative to the clip start) the graphic syncs to. */
+/** Timing anchors (clip-local frames) the graphic may sync to. */
 export interface MgAnchors {
-  /** Word onset frames (from transcription.words, remapped to clip-local frames). */
   wordFrames?: number[];
-  /** Beat frames (from the audio beat grid). */
   beatFrames?: number[];
+  /** The intended landing beat (clip-local frame), from the producer's timing. */
+  landingFrame?: number;
 }
 
-/** The data the moment visualizes (verbatim-protected where applicable). */
-export interface MgContentPayload {
-  /** The primary number (the stat). */
-  value?: number;
-  /** Unit shown after the value: '' | '%' | '×' | '+' | 'x'. */
-  suffix?: string;
-  /** A short context label (≤8 words). */
-  label?: string;
-  /** For comparisons: the two (or more) quantities and their labels. */
-  comparison?: { label: string; value: number }[];
-  /** A kinetic-type phrase, when the moment is a statement rather than a lone number. */
-  phrase?: string;
-  /** The word to accent (must appear in `phrase`/`label`). */
-  accentWord?: string;
+/** A rectangle in title-safe fractions (0..1). The seam maps atomic-placement geometry into these. */
+export interface MgRegionBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  reason: string;
 }
 
-/** The full per-moment input (§4), E0 subset. */
+/** Where in the frame the graphic composes — derived from atomic placement (subject-aware). A SOFT prior. */
+export interface MgPlacementContext {
+  /** Preferred region label (e.g. 'bottom-center', 'full-frame'). */
+  region: string;
+  /** Regions to keep clear (subject / face / existing text). */
+  avoid: MgRegionBox[];
+  /** Regions with room (negative space). */
+  prefer: MgRegionBox[];
+}
+
+/** How expressive vs restrained — derived from mg-expression-authority. NOT a graphic type. */
+export interface MgExpressiveness {
+  tier: 'subtle' | 'standard' | 'hero';
+  /** 0..1 — restrained → bold. */
+  intensity: number;
+  emphasisScale: number;
+}
+
+/** Coarse screen context (soft prior) — where the subject is, where the room is. */
+export interface MgScreenContext {
+  subject?: { x: number; y: number; width?: number; height?: number };
+  negativeSpace?: { region: string; strength: number };
+}
+
+/** The full per-moment input: the licensed FACT + its context. No MG type. */
 export interface MgMomentInput {
   momentId: string;
-  mode: MgMode;
-  license: MgLicense;
-  window: MgWindow;
-  anchors: MgAnchors;
-  /** The client's brand, already mapped to the kit Brand (Phase A). */
+  /** The licensed fact to visualize (upstream-gated, evidenced) — the ground truth. */
+  candidate: SemanticMgCandidate;
+  /** The client's brand, mapped to the kit Brand (Phase A). */
   brand: Brand;
-  contentPayload: MgContentPayload;
-  budgetRemaining?: number;
+  window: MgWindow;
+  anchors?: MgAnchors;
+  expressiveness: MgExpressiveness;
+  placement: MgPlacementContext;
+  screen?: MgScreenContext;
+  /** Bounded free-text editorial direction — Layer-2 context, never an executable instruction. */
+  notes?: string;
 }
 
-/** Forensic receipt for one moment — written at every stage (§7 discipline). */
+/** Forensic receipt for one moment — written at every stage. */
 export interface MgReceipt {
   momentId: string;
-  /** hash(mode, license, payload, tokens, anchors, kitVersion) — the cache key (§7). */
   promptHash: string;
   attempts: number;
-  /** Per-attempt scan outcomes (the reason on failure). */
   scans: { passed: boolean; reason?: string }[];
   compiled: boolean;
   compileError?: string;
   judgeScore?: number;
   judgeIssues?: string[];
-  outcome: 'generated' | 'fallback';
-  fallbackReason?: string;
+  outcome: 'generated' | 'declined' | 'fallback';
+  /** Reason for a decline or fallback (absent when generated). */
+  reason?: string;
 }
 
-/** The service result: a validated component, or a signal to place the Tier-A engine form (Law 2). */
+/** The service result: a validated component, an honest decline (no faithful graphic), or a Law-2 fallback. */
 export interface MgGenerateResult {
-  status: 'generated' | 'fallback';
+  status: 'generated' | 'declined' | 'fallback';
   /** The generated component source (only when status === 'generated'). */
   code?: string;
-  fallbackReason?: string;
+  /** Reason for decline/fallback (absent when generated). */
+  reason?: string;
   receipt: MgReceipt;
 }

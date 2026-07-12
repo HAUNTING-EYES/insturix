@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import { scanCode } from '@/lib/editron/motion-graphics/codegen/scan';
-import { PRIMITIVE_API, hardRules, E0_COMPOSITION_GUIDE, JUDGE_PROMPT, KIT_IMPORT_PREAMBLE } from '@/lib/editron/motion-graphics/codegen/prompt';
+import {
+  PRIMITIVE_API,
+  hardRules,
+  COMPOSITION_GUIDE,
+  FOUNDATIONAL_MG_KNOWLEDGE,
+  GROUNDING_RULE,
+  JUDGE_PROMPT,
+  KIT_IMPORT_PREAMBLE,
+} from '@/lib/editron/motion-graphics/codegen/prompt';
 
 // A minimal, valid generated component — passes every construction rule.
 const VALID = `
@@ -135,9 +143,20 @@ describe('prompt scaffolding - well-formed for E0', () => {
       expect(KIT_IMPORT_PREAMBLE).toContain(mod);
     }
   });
-  it('composition guide bans keyword-highlighting / lower-thirds (founder rule)', () => {
-    expect(E0_COMPOSITION_GUIDE).toMatch(/keyword|lower-third/i);
-    expect(E0_COMPOSITION_GUIDE).toMatch(/percent/i); // perceptual honesty
+  it('composition guide is type-free + bans keyword-highlighting / lower-thirds (Rule 11)', () => {
+    expect(COMPOSITION_GUIDE).toMatch(/keyword|lower-third/i);
+    expect(COMPOSITION_GUIDE).toMatch(/fresh composition/i);
+    expect(COMPOSITION_GUIDE).toMatch(/not a menu|directions, not/i); // priors, never a menu
+  });
+  it('foundational knowledge carries purpose + craft + range-as-priors (no template catalog)', () => {
+    expect(FOUNDATIONAL_MG_KNOWLEDGE).toMatch(/purpose/i);
+    expect(FOUNDATIONAL_MG_KNOWLEDGE).toMatch(/honest/i); // perceptual honesty
+    expect(FOUNDATIONAL_MG_KNOWLEDGE).toMatch(/priors, NOT a menu/i);
+  });
+  it('grounding rule forbids fabrication and offers an honest DECLINE', () => {
+    expect(GROUNDING_RULE).toMatch(/never invent/i);
+    expect(GROUNDING_RULE).toMatch(/DECLINE:/);
+    expect(GROUNDING_RULE).toMatch(/read them from `?data`?/i); // values are props, never baked
   });
   it('judge prompt returns scored JSON and judges over footage', () => {
     expect(JUDGE_PROMPT).toMatch(/score/);

@@ -1,15 +1,15 @@
 /**
- * MG Codegen — prompt scaffolding (E0 Phase B). The pieces the codegen service (Phase C) assembles
- * into the model prompt: the primitive API the model may use, the hard rules the scan enforces, the
- * E0 composition guidance (numeric/data license + signatures as PRIORS, never a required menu — Rule 11),
- * and the vision-judge prompt.
+ * MG Codegen — prompt scaffolding. The pieces the codegen service assembles into the model prompt:
+ * the primitive API the model may use, the foundational MG knowledge (what MGs ARE + purpose + craft +
+ * range as PRIORS, ground-up — Rule 11), the grounding rule (compose ONLY from the licensed fact; decline
+ * rather than fabricate), the hard rules the scan enforces, the composition guidance, and the vision judge.
  *
- * Adapted from the render-proven explainer grammar (grammar-v2.mjs) to the Editron kit + E0 scope:
- *  - only the ported primitives (Stage/Region/Corner/Bleed, FitHeadline/TextBlock/Chip, choreo) — NO
- *    product-screenshot composers/ProductShot/VideoShot (E0 = vector, no external assets);
- *  - transparent over footage (Stage backdrop={false}); the graphic is COMPOSED fresh per moment.
+ * ★ Redesigned (2026-07-12) from the numeric-only E0 scope to type-free composition from a licensed fact +
+ * context. The component declares its OWN `Data` type (no fixed MgData). Authored ground-up: the creative
+ * knowledge graph is an editing engine, not MG-composition knowledge (verified) — its only "graphics" are the
+ * Tier-1 templates Rule 11 exists to kill, so it is NOT used here.
  *
- * ★ NOT deployed here. Phase C wires + TUNES this via the eval harness before any real use (Rule 35).
+ * ★ NOT deployed here. The service wires + TUNES this via the eval harness before any real use (Rule 35).
  */
 
 /** The primitive API — every symbol the model may use, imported ONLY from the kit (the scan enforces this). */
@@ -44,8 +44,8 @@ interpolate). There is no chart/particle primitive — you draw it. This is the 
  * The canonical import block. The MODEL never writes imports (it omits or mangles them ~half the time — the
  * eval proved it); the service PREPENDS this deterministically so every component compiles (Law 5: imports are
  * invariant, only the body varies). Every path is react/remotion/the kit, so the scan's import whitelist passes.
- * NOTE for the Phase-D compile/render step: bundle via esbuild (Remotion's bundler), which tolerates the unused
- * imports a given component won't reference — do NOT type-check these components with `noUnusedLocals`.
+ * NOTE for the compile/render step: bundle via esbuild (Remotion's bundler), which tolerates the unused imports
+ * a given component won't reference — do NOT type-check these components with `noUnusedLocals`.
  */
 export const KIT_IMPORT_PREAMBLE = `import React from 'react';
 import {useCurrentFrame, useVideoConfig, interpolate, spring, AbsoluteFill, Sequence} from 'remotion';
@@ -54,52 +54,106 @@ import {Stage, Region, Corner, Bleed, useStage, useRegionSize} from './kit/stage
 import {FitHeadline, TextBlock, Chip} from './kit/fit-text';
 import {phases, enter, exitOut, stagger, pulseAt, countUp, progress, travel, EASE} from './kit/choreo';`;
 
+/**
+ * Foundational MG knowledge (Layer 1) — STABLE across every moment, so the service caches it (prompt-cache
+ * prefix). This is what a motion graphic IS, the purposes it serves, the craft that separates it from slop,
+ * and the RANGE it can span — expressed as PRIORS the model composes from, never a menu it picks from (Rule 11).
+ * Authored ground-up (the creative graph is not MG-composition knowledge).
+ */
+export const FOUNDATIONAL_MG_KNOWLEDGE = `<what_motion_graphics_are>
+A motion graphic here is a TRANSPARENT, animated visual composed fresh for ONE moment — it sits over the footage
+and makes a real thing the speaker said LAND. It is never a template, a lower-third, or a stat-counter from a
+catalog. It is composed from the fact, the brand, and the moment.
+
+PURPOSES it can serve (functions, NOT types — a moment may need one, several, or none):
+- make a real quantity FELT (a figure grows, a proportion fills, a magnitude dwarfs);
+- clarify a real relationship (a true before/after, a comparison at its real ratio, a refutation striking a false claim);
+- land a key phrase or term (the words own the frame, one accent);
+- reveal structure (a concept shown through spatial arrangement, a short ordered list);
+- create emphasis and rhythm, timed to the speech.
+
+CRAFT — what separates a crafted graphic from AI-slop:
+- ONE focal point. Restraint = fewer, larger, better-placed elements; deliberate negative space; no dead quadrant.
+- PERCEPTUAL HONESTY. The visual encodes the TRUE quantity — a value counts to its real figure, a proportion
+  fills to its real fraction, a comparison shows the real ratio. Never exaggerate for drama.
+- MOTION WITH INTENT. Every animation carries meaning (a reveal, a build, a landing), never decoration; it moves
+  on every frame and ends settled.
+- COMMAND. The key figure or word is large and confident. Timid type is slop.
+- BRAND by construction — colour and type come only from the brand tokens.
+- IT READS OVER FOOTAGE — placed where the frame has room, with a scrim/plate only where legibility needs it.
+
+RANGE (priors, NOT a menu — never "pick one"): great graphics span a wide space — a single metric owning the
+void; kinetic type where a phrase fills the frame with one accent word; two quantities as bars or rings at their
+true ratio, the winner accented; a value filling a ring to its true fraction on its beat; a term revealed with
+its context through spatial relationship; a false claim struck as the truth lands. Let the fact and the moment
+suggest the form; compose it freshly. Two moments with the same KIND of fact should NOT look identical — the
+brand, the intent, the screen, and the expressiveness make each its own.
+
+AVOID (slop): keyword-highlighting; lower-third / name-tag templates; a number shown statically; decoration that
+carries no meaning; muddy gradients; more than one focal point; a graphic that floats ignoring the footage beneath.
+</what_motion_graphics_are>`;
+
+/**
+ * The grounding rule (Layer 1, cached) — the honesty gate. The model composes ONLY from the licensed fact and
+ * never invents a value; qualitative facts get qualitative treatment; and it may DECLINE rather than fabricate
+ * or force a broken graphic. Enforced again downstream by the judge (fabrication = auto-reject).
+ */
+export const GROUNDING_RULE = `<grounding>
+You are given ONE licensed fact the speaker actually said, with its data. Compose a graphic that visualizes THAT
+fact — and ONLY that fact.
+- Visualize ONLY the values and words present in the fact's data. NEVER invent, extrapolate, or round a number,
+  statistic, comparison, or claim that is not in the data. A fabricated quantity on someone's video is a lie.
+- The numbers and words reach your component as \`data\` PROPS. Read them from \`data\` (e.g. data.value) — NEVER
+  bake a literal fact value or word into the JSX. This keeps an edit ("20"->"18") a re-render, not a
+  re-generation (Law 5), and makes fabrication impossible: you lay values out, you never write them.
+- If the fact is qualitative (a concept, a term, a refutation with no number), visualize it qualitatively —
+  kinetic type, emphasis, spatial relationship — NEVER as a fabricated quantity.
+- If you cannot construct a faithful, honest visual for this fact, DECLINE: output exactly
+  \`DECLINE: <one short reason>\` and nothing else. A missing graphic is correct; a dishonest or broken one is not.
+</grounding>`;
+
 /** The hard rules — the scan enforces these; the model must obey them exactly. `durF` = the clip's frame count. */
 export const hardRules = (durF: number): string => `<hard_rules>
-- Export EXACTLY: export const MgScene: React.FC<{brand: Brand; data: MgData}> = ({brand, data}) => { ... }
-  where MgData = { value?: number; suffix?: string; label?: string; comparison?: {label:string;value:number}[]; phrase?: string; accentWord?: string }.
-  ★ The numbers/words come from \`data\` (PROPS): read data.value / data.label / data.phrase / etc. NEVER bake a
-  literal number or word into the JSX — an edit ("42"->"48") must re-render from the SAME code with a new prop,
-  never re-generate (Law 5). Guard optional fields (data.value ?? 0). Define \`type MgData = {...}\` inline (do NOT import it).
+- Export EXACTLY: export const MgScene: React.FC<{brand: Brand; data: Data}> = ({brand, data}) => { ... }
+  Declare \`type Data = {...}\` INLINE for exactly the values this fact needs (the data props listed in <moment>).
+  Read every number/word from \`data\` (guard optionals: data.value ?? 0). NEVER bake a literal fact value into
+  the JSX (Law 5 + grounding). Do NOT import Data.
 - Do NOT write ANY import statements. React, the Remotion hooks/components (useCurrentFrame, useVideoConfig,
-  interpolate, spring, AbsoluteFill, Sequence), and EVERY kit primitive listed in <primitive_api> are ALREADY
-  IN SCOPE — the harness injects the imports. Begin your output directly at \`type MgData = {...}\`.
+  interpolate, spring, AbsoluteFill, Sequence), and EVERY kit primitive in <primitive_api> are ALREADY IN SCOPE —
+  the harness injects imports. Begin your output directly at \`type Data = {...}\` (or at \`DECLINE:\`).
 - Scene root MUST be <Stage brand={brand}> (backdrop stays FALSE — over footage). All words via FitHeadline/
   TextBlock/Chip inside a <Region>/<Corner> — NEVER a raw text node in a styled div, NEVER a fontSize you type.
-- COLOUR: only brand.colors.* / withAlpha(brand.colors.*, a) / 'transparent'. Any hex, rgb()/hsl(), or named
-  CSS colour is an automatic rejection.
+- COLOUR: only brand.colors.* / withAlpha(brand.colors.*, a) / 'transparent'. Any hex, rgb()/hsl(), or named CSS
+  colour is an automatic rejection.
 - DETERMINISTIC: animate ONLY from useCurrentFrame()/useVideoConfig(). NEVER Math.random, Date, timers, fetch,
   window, document, eval, require, dynamic import, process. Math.sin/cos of the frame is encouraged.
 - CHOREOGRAPHY IS COMPUTED: const {durationInFrames, fps} = useVideoConfig(); const ph = phases(durationInFrames, brand);
   anchor every entrance/exit/beat to ph.* (+ stagger). No hand-typed frame windows like [14, 38]. This clip is
-  ~${durF} frames — but READ the length from useVideoConfig() (a duration edit must NOT need a re-generate).
-  Motion on every frame; end settled via exitOut.
+  ~${durF} frames — but READ the length from useVideoConfig(). Motion on every frame; end settled via exitOut.
 - Every interpolate(): {extrapolateLeft:'clamp', extrapolateRight:'clamp'}. spring() takes fps from useVideoConfig().
-- ONE focal point at a time. Restraint = FEWER, LARGER, better-placed elements. Fill the frame; no dead quadrant.
+- Compose within the placement region given in <moment>; keep the AVOID regions clear (the subject/text are there).
+  ONE focal point. Fill the region; no dead quadrant.
 </hard_rules>`;
 
 /**
- * E0 composition guidance. The moment is LICENSED by an explicit number/stat/comparison (E0 scope). Visualize
- * the DATA honestly. The signatures below are PRIORS you may lean on — NOT a menu you must pick from, and NOT
- * templates. Compose the graphic that best serves THIS number. (Rule 11: a system, not a component catalog.)
+ * Composition guidance — type-free. Compose from the licensed fact + purpose + context. The fact's KIND tells
+ * the model what is TRUE, not which template to use. Directions, never a menu (Rule 11).
  */
-export const E0_COMPOSITION_GUIDE = `<composition>
-This moment carries a real number/statistic/comparison the speaker states. Build a graphic that makes that data
-LAND — animated, on-brand, over the footage. Perceptual honesty: a value counts UP to its true figure; a sweep
-arc/ring is used ONLY for a true percentage; a comparison shows the real ratio, never an exaggerated one.
-Signatures you may lean on (compose freely, never force one):
-- a single metric owning the void: a giant count-up + a small context line, deliberate negative space.
-- kinetic type: the figure/phrase fills the frame, per-char/word reveal, one accent word.
-- a comparison: two quantities as bars/rings whose sizes are the true ratio, the winner accented.
-- a progress/ring: a value filling to its true fraction on its anchor.
-Draw bars/arcs/rings yourself in SVG coloured with brand tokens. NO keyword-highlighting, NO lower-third
-templates — a bespoke composition every time.
+export const COMPOSITION_GUIDE = `<composition>
+This moment carries the licensed fact in <moment> — its kind, its data, its context. Compose a bespoke
+transparent graphic that makes THAT fact land, at the expressiveness the moment asks for, placed where the frame
+has room, in the brand's voice. The fact's KIND tells you what is TRUE — not which template to use. A true
+proportion invites a value filling to its real fraction; a comparison invites two quantities at their real ratio;
+a magnitude invites a figure that dwarfs; a concept or term invites a spatial reveal or kinetic type; a refutation
+invites the false claim struck as the truth lands. These are directions, not a menu — compose freshly for THIS
+fact, THIS brand, THIS moment. Draw any bars/arcs/rings/marks yourself in SVG with brand tokens. No templates, no
+keyword-highlighting, no lower-thirds — a fresh composition every time.
 </composition>`;
 
-/** Vision-judge prompt: the transparent graphic is composited on a dark checker + a real footage frame, so the
- *  judge rates LEGIBILITY OVER REAL CONTENT + brand craft — not a graphic floating in a void. */
-export const JUDGE_PROMPT = `You are a ruthless senior motion/brand designer reviewing 2 frames of ONE motion-graphic composited OVER a real video frame (the transparent MG on top of the footage). Judge the ADDED graphic only — its brand fidelity, composition, motion, and legibility over real content.
-AUTOMATIC <=4: any colour that is not a brand token (red/green/blue/neon where the brand's accent should be); clipped/overflowing/broken text; a keyword-highlight or lower-third-template look instead of a bespoke composition; a graphic that does not read over the footage (no scrim/shadow/plate where it needs one).
-PENALIZE: more than one focal point; timid/small type that fails to command the frame; a dead frame (nothing moving); a number shown statically instead of animating; muddy gradients / AI-slop.
-REWARD: the data landing (a clean count-up / honest comparison); type that owns the frame; exactly one accent; deliberate negative space; clean legibility over the footage.
-Return ONLY JSON: {"score": <1-10>, "issues": ["specific fixable problem naming the element", ...]}. 8+ = genuinely premium.`;
+/** Vision-judge prompt: the transparent graphic is composited on a real footage frame; the judge rates brand
+ *  craft, legibility over content, AND faithfulness to the licensed fact (fabrication is an automatic reject). */
+export const JUDGE_PROMPT = `You are a ruthless senior motion/brand designer reviewing 2 frames of ONE motion-graphic composited OVER a real video frame (the transparent MG on top of the footage). Judge the ADDED graphic only — brand fidelity, composition, motion, legibility over real content, AND faithfulness to the licensed fact.
+AUTOMATIC REJECT (score 1): any number, statistic, comparison, or claim shown that is NOT in the licensed fact's data (fabrication — a lie on the video); any colour that is not a brand token (red/green/blue/neon where the brand's accent should be); clipped/overflowing/broken text; a keyword-highlight or lower-third-template look instead of a bespoke composition; a graphic that does not read over the footage (no scrim/shadow/plate where it needs one).
+PENALIZE: more than one focal point; timid/small type that fails to command the frame; a dead frame (nothing moving); a value shown statically instead of animating; a graphic covering the subject; muddy gradients / AI-slop.
+REWARD: the fact landing faithfully (a clean honest count-up / true comparison); type that owns the frame; exactly one accent; deliberate negative space; clean legibility over the footage.
+Return ONLY JSON: {"score": <1-10>, "issues": ["specific fixable problem naming the element", ...]}. 8+ = genuinely premium AND faithful.`;

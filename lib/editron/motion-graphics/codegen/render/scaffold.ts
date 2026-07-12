@@ -7,7 +7,6 @@
 import { createHash } from 'node:crypto';
 
 import type { Brand } from '../kit/brand';
-import type { MgContentPayload } from '../types';
 
 /** The composition id the generated Root registers and the renderer selects. */
 export const COMPOSITION_ID = 'MgMoment';
@@ -17,8 +16,9 @@ export interface MgRenderInput {
   componentSource: string;
   /** The mapped brand (Phase A) — baked into the render as the component's `brand` prop. */
   brand: Brand;
-  /** The moment's data — baked in as the `data` prop (Law 5: a value edit re-renders from the same source). */
-  data: MgContentPayload;
+  /** The fact's data — the component's own emergent props, baked in as the `data` prop (Law 5: a value edit
+   *  re-renders from the same source). Shape is per-component (the model declares its own `Data`). */
+  data: Record<string, unknown>;
   width: number;
   height: number;
   fps: number;
@@ -26,7 +26,7 @@ export interface MgRenderInput {
 }
 
 /** Root that registers the generated component as the only Composition, with brand+data baked into
- *  defaultProps (pure data — Brand and MgContentPayload carry no functions, so JSON is faithful). */
+ *  defaultProps (pure data — Brand and the fact data carry no functions, so JSON is faithful). */
 export function buildRootSource(input: MgRenderInput): string {
   const props = JSON.stringify({ brand: input.brand, data: input.data });
   return `import React from 'react';

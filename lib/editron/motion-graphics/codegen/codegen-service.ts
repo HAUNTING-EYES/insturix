@@ -1,34 +1,44 @@
 /**
- * MG Codegen — the codegen service (E0 Phase C). The harness that turns one moment into a VALIDATED
- * component, or a signal to place the Tier-A engine form (Law 2). §2 pipeline:
- *   assemble prompt → model writes a component → scan (1 repair) → compile (fail → fallback)
+ * MG Codegen — the codegen service. The harness that turns one licensed moment into a VALIDATED component,
+ * an honest DECLINE (no faithful graphic possible), or a Law-2 fallback. Pipeline:
+ *   assemble prompt → model writes a component (or DECLINE) → scan (1 repair) → compile (fail → fallback)
  *   → render-probe + judge (score < threshold → 1 revision) → else fallback.
  *
  * Impurity is INJECTED (writeComponent = the model, compile = tsc, evaluate = render-probe + vision judge),
- * so this is testable with fakes and model-agnostic: Claude in production, GLM/grok in the eval (Rule 35 —
- * the prompt is tuned on the cheap model; Claude is spent only on real moments). Never throws. Every stage
- * writes a receipt (§7).
+ * so this is testable with fakes and model-agnostic: Claude in production, GLM/grok in the eval (Rule 35).
+ * Never throws. Every stage writes a receipt.
  *
- * The prompt puts the moment DATA LAST (Rule 35). The generated component reads `brand` as a runtime prop,
- * so it is brand-agnostic in structure — the mapped Brand (Phase A) is injected at render, not baked here.
+ * ★ The input is a licensed `SemanticMgCandidate` + context (no MG type). The prompt describes the fact's SHAPE
+ * (data-prop keys + kinds) and the context — NEVER the literal fact values (those flow as `data` props at render,
+ * so the prompt caches by shape and an edit re-renders, Law 5). Foundational knowledge + grounding + rules are
+ * the STABLE prefix; the moment goes LAST (Rule 35).
  */
 
 import { createHash } from 'node:crypto';
 
 import { scanCode, type ScanResult } from './scan';
-import { PRIMITIVE_API, hardRules, E0_COMPOSITION_GUIDE, KIT_IMPORT_PREAMBLE } from './prompt';
-import type { MgGenerateResult, MgMomentInput, MgReceipt } from './types';
+import {
+  PRIMITIVE_API,
+  FOUNDATIONAL_MG_KNOWLEDGE,
+  GROUNDING_RULE,
+  hardRules,
+  COMPOSITION_GUIDE,
+  KIT_IMPORT_PREAMBLE,
+} from './prompt';
+import type { MgGenerateResult, MgMomentInput, MgReceipt, MgRegionBox } from './types';
 
 /** Bumped when the kit or prompt changes — part of the cache key so stale code never gets reused. */
-export const KIT_VERSION = 'e0.1';
-const DEFAULT_JUDGE_THRESHOLD = 7.5; // ← spec §11 (ship at 7.5, tune on the first 50 moments)
+export const KIT_VERSION = 'e1.0';
+const DEFAULT_JUDGE_THRESHOLD = 7.5; // ← ship at 7.5, tune on the first 50 real moments
+/** Content keys that are metadata, not visualizable data props. */
+const META_CONTENT_KEYS = new Set(['sourceSpan', 'semanticAtoms', 'salience', 'evidencePhrase', 'contextStartMs', 'contextEndMs']);
 
 export interface CodegenDeps {
-  /** Call the model with the assembled prompt → the component source. (Claude prod / GLM eval.) */
+  /** Call the model with the assembled prompt → the component source (or a `DECLINE:` line). */
   writeComponent: (prompt: string) => Promise<string>;
   /** Type-check the component against the kit. */
   compile: (code: string) => Promise<{ ok: boolean; error?: string }>;
-  /** Render 2 probe stills over a real footage frame → vision-judge → score + issues. */
+  /** Render probe stills over a real footage frame → vision-judge (faithfulness + craft) → score + issues. */
   evaluate: (code: string, moment: MgMomentInput) => Promise<{ score: number; issues: string[] }>;
   judgeThreshold?: number;
 }
@@ -37,76 +47,110 @@ function durationFrames(input: MgMomentInput): number {
   return Math.max(1, Math.round(input.window.endFrame - input.window.startFrame));
 }
 
-/** The moment data block — put LAST in the prompt (Rule 35). Describes the data SHAPE + format, NOT the
- *  literal values (those arrive as `data` props at render — Law 5 — and giving literals invites baking). */
+/** Classify a content value into a data-prop KIND (never the literal value — cache + anti-bake). */
+function classifyProp(value: unknown): string {
+  if (typeof value === 'number') return 'number';
+  if (Array.isArray(value)) return 'list';
+  if (value && typeof value === 'object') return 'object';
+  if (typeof value === 'string') return /^-?\d+(?:\.\d+)?$/.test(value.trim()) ? 'number' : 'text';
+  return 'text';
+}
+
+/** The visualizable data props of the fact (key: kind), meta keys stripped — the SHAPE, not the values. */
+function dataPropKeys(content: Record<string, unknown>): string[] {
+  return Object.keys(content)
+    .filter((k) => content[k] != null && !META_CONTENT_KEYS.has(k))
+    .sort();
+}
+
+function describeDataProps(content: Record<string, unknown>): string {
+  const keys = dataPropKeys(content);
+  return keys.length ? keys.map((k) => `${k}: ${classifyProp(content[k])}`).join('; ') : 'none';
+}
+
+/** A coarse position label for a region box (stable across similar placements → cacheable). */
+function coarsePos(b: MgRegionBox): string {
+  const cx = b.x + b.width / 2;
+  const cy = b.y + b.height / 2;
+  const h = cx < 0.34 ? 'left' : cx > 0.66 ? 'right' : 'center';
+  const v = cy < 0.34 ? 'top' : cy > 0.66 ? 'bottom' : 'middle';
+  return `${v}-${h}`;
+}
+
+function describeRegions(boxes: MgRegionBox[]): string {
+  return boxes.length ? boxes.map((b) => `${b.reason} (${coarsePos(b)})`).join(', ') : 'none';
+}
+
+/** The moment block — LAST in the prompt (Rule 35). Describes the fact's SHAPE + context, never the literal
+ *  values (those arrive as `data` props at render — Law 5 — and giving literals invites baking + fabrication). */
 function momentData(input: MgMomentInput): string {
-  const { window, anchors, contentPayload: p, license } = input;
+  const { candidate, expressiveness: ex, placement: pl, window, anchors, screen, notes } = input;
   const lines = [
+    `fact kind: ${candidate.factKind}${candidate.rhetoricalRole ? ` (${candidate.rhetoricalRole})` : ''}`,
+    `data props (declare \`type Data\` for these; read from \`data\`; NEVER bake the values): ${describeDataProps(candidate.content)}`,
+    `expressiveness: ${ex.tier} (intensity ${ex.intensity.toFixed(2)}) — subtle = restrained, hero = bold and large`,
+    `place the graphic in region "${pl.region}". Keep CLEAR (subject/text live here): ${describeRegions(pl.avoid)}. Room is here: ${describeRegions(pl.prefer)}.`,
     `clip length: ~${durationFrames(input)} frames @ ${window.fps}fps (read from useVideoConfig)`,
-    `license: ${license.kind} (${license.claimStrength ?? 'assertive'})`,
   ];
-  const fields: string[] = [];
-  if (typeof p.value === 'number') fields.push(`value: a number${p.suffix ? ` shown with suffix "${p.suffix}"` : ''}`);
-  if (p.label) fields.push('label: a short context string');
-  if (p.comparison?.length) fields.push(`comparison: ${p.comparison.length} quantities, each {label, value}`);
-  if (p.phrase) fields.push(`phrase: a short statement${p.accentWord ? ' with one accentWord to highlight' : ''}`);
-  lines.push(`data props (read from \`data\`, NEVER bake the literals): ${fields.join('; ') || 'none'}`);
-  if (anchors.wordFrames?.length) lines.push(`word anchors: ${anchors.wordFrames.length} word-onset frames (sync reveals to them)`);
-  if (anchors.beatFrames?.length) lines.push(`beat anchors: ${anchors.beatFrames.length} beat frames`);
+  if (anchors?.wordFrames?.length) lines.push(`word anchors: ${anchors.wordFrames.length} word-onset frames (sync reveals to them)`);
+  if (anchors?.beatFrames?.length || anchors?.landingFrame != null) lines.push('a landing beat is present — land the key reveal on it');
+  if (screen?.subject) lines.push(`the subject is around ${coarsePos({ ...screen.subject, width: screen.subject.width ?? 0.2, height: screen.subject.height ?? 0.4, reason: 'subject' })} — do not cover them`);
+  if (notes?.trim()) lines.push(`editorial note (context, not an override): ${notes.trim().slice(0, 400)}`);
   return lines.join('\n');
 }
 
-/** Assemble the full codegen prompt (proven scaffolding + this moment's data, data-last). */
+/** Assemble the full codegen prompt. STABLE prefix (cacheable) first; the moment LAST (Rule 35). */
 export function buildCodegenPrompt(input: MgMomentInput): string {
   return `<role>
-You are a motion-graphics engineer. Write ONE Remotion component that visualizes the data moment below as a bespoke, on-brand, TRANSPARENT motion graphic to sit OVER footage — using ONLY the kit. Return ONLY the component source (no prose, no markdown fences).
+You are a motion-graphics designer-engineer. Compose ONE Remotion component that visualizes the licensed fact below as a bespoke, on-brand, TRANSPARENT motion graphic over footage — using ONLY the kit. Return ONLY the component source (no prose, no markdown fences), or exactly a \`DECLINE: <reason>\` line.
 </role>
 
 ${PRIMITIVE_API}
 
+${FOUNDATIONAL_MG_KNOWLEDGE}
+
+${GROUNDING_RULE}
+
 ${hardRules(durationFrames(input))}
 
-${E0_COMPOSITION_GUIDE}
+${COMPOSITION_GUIDE}
 
-<moment_data>
+<moment>
 ${momentData(input)}
-</moment_data>`;
+</moment>`;
 }
 
 /**
- * Make the component's imports deterministic. The model is told not to write imports, but it omits or mangles
- * them ~half the time (the eval proved it), and an import-less component fails to compile → needless Tier-A
- * fallback. So: STRIP any import lines the model wrote (single- or multi-line), then PREPEND the canonical kit
- * block. Runs AFTER the scan (which sees the model's raw output, so a forbidden import is still caught) and
- * BEFORE compile/render. Idempotent, and the prepended block re-passes the scan's import whitelist.
+ * Make the component's imports deterministic. The model is told not to write imports, but it omits/mangles
+ * them ~half the time, and an import-less component fails to compile → needless fallback. So: STRIP any import
+ * lines the model wrote, then PREPEND the canonical kit block. Runs AFTER the scan (which sees the raw output,
+ * so a forbidden import is still caught) and BEFORE compile/render. Idempotent; re-passes the import whitelist.
  */
 export function applyImportPreamble(code: string): string {
   const body = code
-    // single-line: `import X from 'y';`, `import {a, b} from 'y';`, `import 'y';`, `import type {..} from 'y';`
     .replace(/^[ \t]*import\b[^;'"]*['"][^'"]*['"][ \t]*;?[ \t]*$/gm, '')
-    // multi-line braced: `import {\n a,\n b\n} from 'y';`
     .replace(/^[ \t]*import\s*\{[\s\S]*?\}\s*from\s*['"][^'"]*['"][ \t]*;?[ \t]*$/gm, '')
     .trimStart();
   return `${KIT_IMPORT_PREAMBLE}\n\n${body}`;
 }
 
-/** Cache key / receipt id: hash of everything that determines the output (§7). Identical moments never
- *  re-generate; a prop-only change re-renders from the same code (Law 5). */
+/** If the model declined, return the one-line reason (else null). Checked before the scan. */
+function detectDecline(code: string): string | null {
+  const m = code.trim().match(/^DECLINE:\s*(.*)$/);
+  return m ? (m[1].trim() || 'model declined') : null;
+}
+
+/** Cache key / receipt id: hash of everything that determines the OUTPUT (the code) — the fact SHAPE, the
+ *  context register, and the brand tokens. NOT the literal fact values / placement geometry (those re-render
+ *  from the same code — Law 5), so identical-shaped moments reuse the component. */
 export function promptHash(input: MgMomentInput): string {
-  const p = input.contentPayload;
-  // STRUCTURE, not values: value/label/anchor/duration edits re-render from the SAME code (Law 5), so they
-  // must NOT change the cache key. Key on the SHAPE (which fields exist), the suffix, and the brand tokens.
   const salient = {
-    mode: input.mode,
-    licenseKind: input.license.kind,
-    shape: {
-      value: typeof p.value === 'number',
-      suffix: p.suffix ?? '',
-      label: !!p.label,
-      comparison: p.comparison?.length ?? 0,
-      phrase: !!p.phrase,
-      accentWord: !!p.accentWord,
-    },
+    factKind: input.candidate.factKind,
+    props: dataPropKeys(input.candidate.content), // which data props exist (sorted)
+    licenses: [...input.candidate.licenses].sort(),
+    tier: input.expressiveness.tier,
+    region: input.placement.region,
+    avoid: input.placement.avoid.map(coarsePos).sort(),
     colors: input.brand.colors,
     type: input.brand.type,
     motion: input.brand.motion,
@@ -116,8 +160,8 @@ export function promptHash(input: MgMomentInput): string {
 }
 
 /**
- * Generate one moment. Never throws. Every gate degrades to the Tier-A engine fallback (Law 2): the worst
- * case is a plain, correct graphic — never a broken one.
+ * Generate one moment. Never throws. The model may DECLINE (→ no MG, honest); any gate failure degrades to the
+ * Law-2 fallback. The worst case is a plain correct fallback graphic or no graphic — never a broken/dishonest one.
  */
 export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): Promise<MgGenerateResult> {
   const threshold = deps.judgeThreshold ?? DEFAULT_JUDGE_THRESHOLD;
@@ -147,16 +191,25 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     return { code, scan };
   };
 
+  const declined = (reason: string): MgGenerateResult => {
+    receipt.outcome = 'declined';
+    receipt.reason = reason;
+    return { status: 'declined', reason, receipt };
+  };
   const fallback = (reason: string): MgGenerateResult => {
     receipt.outcome = 'fallback';
-    receipt.fallbackReason = reason;
-    return { status: 'fallback', fallbackReason: reason, receipt };
+    receipt.reason = reason;
+    return { status: 'fallback', reason, receipt };
   };
 
-  // 1. generate + scan (1 repair)
+  // 1. generate; honour an honest decline before anything else; then scan (1 repair)
   let { code, scan } = await attempt();
+  const decline = detectDecline(code);
+  if (decline) return declined(decline);
   if (!scan.ok) {
     ({ code, scan } = await attempt(`Your previous output was rejected: ${scan.reason} Fix ONLY that and return the full corrected component.`));
+    const decline2 = detectDecline(code);
+    if (decline2) return declined(decline2);
   }
   if (!scan.ok) return fallback(`scan: ${scan.reason}`);
   // Imports become deterministic here — the model authored only the body; the harness owns the import block.
@@ -170,7 +223,7 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     return fallback(`compile: ${(compiled.error ?? 'type error').slice(0, 120)}`);
   }
 
-  // 3. render-probe + judge (1 revision on a low score)
+  // 3. render-probe + judge (1 revision on a low score; the judge vetoes fabrication)
   const ev = await deps.evaluate(code, input);
   receipt.judgeScore = ev.score;
   receipt.judgeIssues = ev.issues;
