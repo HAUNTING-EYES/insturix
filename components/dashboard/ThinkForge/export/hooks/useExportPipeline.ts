@@ -1136,6 +1136,8 @@ export function useExportPipeline(
     let createdProjectId = "";
 
     let videoGenFailed = false;
+    const avatarSceneIndices = new Set<number>();
+    let avatarSucceededCount = 0;
 
     // Phase A3.3 — Detect zero-narration scripts
     const scriptHasNarration = (currentScenes || []).some(
@@ -1158,21 +1160,87 @@ export function useExportPipeline(
         }
       }
 
-      // Step 5: Generate AI video clips (optional)
-      if (generateVideos && sbId && sbImages.length > 0) {
+      // Step 5a: Start and materialize ThinkForge-owned Avatar Pipeline scenes.
+      // Successful avatar scenes are excluded from generic video/TTS so we do not
+      // spend credits twice or overwrite avatar audio with ordinary narration.
+      if (generateVideos && sbId && productionManifest?.thinkforgeContext?.avatarDirectives?.length) {
         setStep("generating-videos");
-        setVideoProgress({ done: 0, total: sbImages.length });
+        const avatarRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/avatar`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        const avatarData = await avatarRes.json().catch(() => ({}));
+        if (!avatarRes.ok || !avatarData.success) {
+          throw new Error(avatarData.error || `Avatar pipeline handoff failed (${avatarRes.status})`);
+        }
+
+        const initialJobs = Array.isArray(avatarData.jobs) ? avatarData.jobs : [];
+        const avatarSceneCount = initialJobs.filter(
+          (job: any) => job.status !== "skipped" && job.status !== "failed" && job.status !== "blocked",
+        ).length;
+
+        if (avatarSceneCount > 0) {
+          const MAX_AVATAR_POLLS = 90;
+          const AVATAR_POLL_INTERVAL_MS = 10_000;
+          let avatarCompleted = false;
+
+          for (let poll = 0; poll < MAX_AVATAR_POLLS; poll++) {
+            await new Promise((resolve) => setTimeout(resolve, AVATAR_POLL_INTERVAL_MS));
+            try {
+              const statusRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/avatar`);
+              const statusData = await statusRes.json().catch(() => ({}));
+              if (!statusRes.ok || !statusData.success) {
+                console.warn(`[ExportToEditron] Avatar poll #${poll + 1} failed:`, statusData.error || statusRes.status);
+                continue;
+              }
+
+              const jobs = Array.isArray(statusData.jobs) ? statusData.jobs : [];
+              if (statusData.isComplete) {
+                for (const job of jobs) {
+                  if (job.status === "succeeded" && Number.isInteger(job.sceneIndex)) {
+                    avatarSceneIndices.add(job.sceneIndex);
+                  }
+                }
+                avatarSucceededCount = avatarSceneIndices.size;
+                const failedAvatarJobs = jobs.filter((job: any) => job.status === "failed" || job.status === "blocked");
+                if (failedAvatarJobs.length > 0) {
+                  const warning = `${failedAvatarJobs.length} avatar scene${failedAvatarJobs.length === 1 ? "" : "s"} fell back to standard video and voiceover.`;
+                  setError((previous) => previous ? `${previous} | ${warning}` : warning);
+                }
+                avatarCompleted = true;
+                break;
+              }
+            } catch (pollErr: any) {
+              console.warn(`[ExportToEditron] Avatar poll #${poll + 1} failed:`, pollErr.message);
+            }
+          }
+
+          if (!avatarCompleted) {
+            throw new Error("Avatar generation timed out after 15 minutes. Retry the export before finalizing.");
+          }
+        }
+      }
+
+      const genericVideoSceneIndices = sbImages
+        .map((scene: any) => scene.sceneIndex)
+        .filter((sceneIndex: number) => !avatarSceneIndices.has(sceneIndex));
+      const expectedTotalVideoClips = getExpectedVideoClips(sbImages.length);
+      const expectedGenericVideoClips = Math.max(0, expectedTotalVideoClips - avatarSucceededCount);
+
+      // Step 5b: Generate remaining generic AI video clips (optional).
+      if (generateVideos && sbId && genericVideoSceneIndices.length > 0) {
+        setStep("generating-videos");
+        setVideoProgress({ done: avatarSucceededCount, total: expectedTotalVideoClips });
 
         try {
-          const allSceneIndices = sbImages.map((s: any) => s.sceneIndex);
-          console.log(`[ExportToEditron] Enqueuing ${allSceneIndices.length} scenes for video generation`);
+          console.log(`[ExportToEditron] Enqueuing ${genericVideoSceneIndices.length} scenes for video generation (${avatarSucceededCount} handled by Avatar Pipeline)`);
 
           const enqueueRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/generate-videos`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               aspectRatio,
-              sceneIndices: allSceneIndices,
+              sceneIndices: genericVideoSceneIndices,
               videoModel,
               brandId: sourceBrandId || undefined,
               enableChaining,
@@ -1207,7 +1275,7 @@ export function useExportPipeline(
             console.log(
               `[ExportToEditron] All ${enqueueData.skippedScenes} scenes use animated storyboard/graphics — no video gen needed`,
             );
-            setVideoProgress({ done: enqueueData.skippedScenes, total: enqueueData.skippedScenes });
+            setVideoProgress({ done: avatarSucceededCount + enqueueData.skippedScenes, total: expectedTotalVideoClips });
             setVideosGenerated(true);
           } else if (enqueueData.async === false && enqueueData.isComplete) {
             // Direct fallback mode (Redis unavailable)
@@ -1216,11 +1284,11 @@ export function useExportPipeline(
             console.log(
               `[ExportToEditron] Videos generated directly (fallback): ${completed} done, ${failed} failed`,
             );
-            const expectedVideos = getExpectedVideoClips(enqueueData.totalScenes || allSceneIndices.length);
-            setVideoProgress({ done: completed + failed, total: enqueueData.totalScenes || allSceneIndices.length });
-            setVideosGenerated(completed >= expectedVideos);
-            if (requiresProductionCoverage && (failed > 0 || completed < expectedVideos)) {
-              setError(buildProductionCoverageError("video", completed, expectedVideos));
+            const combinedCompleted = completed + avatarSucceededCount;
+            setVideoProgress({ done: combinedCompleted + failed, total: expectedTotalVideoClips });
+            setVideosGenerated(combinedCompleted >= expectedTotalVideoClips);
+            if (requiresProductionCoverage && (failed > 0 || completed < expectedGenericVideoClips)) {
+              setError(buildProductionCoverageError("video", combinedCompleted, expectedTotalVideoClips));
               videoGenFailed = true;
             } else if (failed > 0 && completed > 0) {
               setError(`${failed} of ${enqueueData.totalScenes} video clips failed.`);
@@ -1253,19 +1321,19 @@ export function useExportPipeline(
                 if (statusData.success) {
                   const completed = statusData.completed || 0;
                   const failed = statusData.failed || 0;
-                  setVideoProgress({ done: completed + failed, total: statusData.totalScenes || sbImages.length });
+                  setVideoProgress({ done: avatarSucceededCount + completed + failed, total: expectedTotalVideoClips });
 
                   console.log(
                     `[ExportToEditron] Video poll #${poll + 1}: ${completed} done, ${failed} failed, status=${statusData.status}`,
                   );
 
                   if (statusData.isComplete) {
-                    const expectedVideos = getExpectedVideoClips(statusData.totalScenes || sbImages.length);
-                    setVideosGenerated(completed >= expectedVideos);
-                    sendNotification("Video Clips Generated", `${completed} of ${statusData.totalScenes} video clips ready.`);
+                    const combinedCompleted = completed + avatarSucceededCount;
+                    setVideosGenerated(combinedCompleted >= expectedTotalVideoClips);
+                    sendNotification("Video Clips Generated", `${combinedCompleted} of ${expectedTotalVideoClips} video clips ready.`);
 
-                    if (requiresProductionCoverage && (failed > 0 || completed < expectedVideos)) {
-                      setError(buildProductionCoverageError("video", completed, expectedVideos));
+                    if (requiresProductionCoverage && (failed > 0 || completed < expectedGenericVideoClips)) {
+                      setError(buildProductionCoverageError("video", combinedCompleted, expectedTotalVideoClips));
                       videoGenFailed = true;
                     } else if (completed === 0 && failed > 0) {
                       const sceneErrors =
@@ -1302,14 +1370,30 @@ export function useExportPipeline(
         }
       }
 
-      // Step 6: Generate AI voiceover
-      if (sbId && scriptHasNarration) {
+      if (generateVideos && sbId && genericVideoSceneIndices.length === 0 && avatarSucceededCount > 0) {
+        setVideoProgress({ done: avatarSucceededCount, total: expectedTotalVideoClips });
+        setVideosGenerated(avatarSucceededCount >= expectedTotalVideoClips);
+      }
+
+      const voiceoverSceneIndices = currentScenes
+        .filter((scene: any) => typeof scene.narration === "string" && scene.narration.trim().length > 0)
+        .map((scene: any, index: number) => ({
+          sceneIndex: Number.isInteger(scene.sceneIndex) ? scene.sceneIndex : index,
+        }))
+        .filter(({ sceneIndex }) => !avatarSceneIndices.has(sceneIndex))
+        .map(({ sceneIndex }) => sceneIndex);
+
+      // Step 6: Generate AI voiceover for scenes not handled by Avatar Pipeline.
+      if (sbId && voiceoverSceneIndices.length > 0) {
         setStep("generating-voiceover");
         try {
           const voRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/voiceover`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ voice: selectedVoice || undefined }),
+            body: JSON.stringify({
+              voice: selectedVoice || undefined,
+              sceneIndices: voiceoverSceneIndices,
+            }),
           });
           const voData = await voRes.json().catch(() => ({}));
           if (voRes.ok && voData.scenesProcessed > 0) {
@@ -1323,6 +1407,8 @@ export function useExportPipeline(
           console.error("[ExportToEditron] Voiceover error:", voErr.message);
           setError((prev) => (prev ? `${prev} | Voiceover error: ${voErr.message}` : `Voiceover error: ${voErr.message}`));
         }
+      } else if (sbId && scriptHasNarration && avatarSceneIndices.size > 0) {
+        console.log("[ExportToEditron] Skipping standard voiceover for Avatar Pipeline scenes — avatar audio is already materialized.");
       } else if (sbId && !scriptHasNarration) {
         console.log(
           "[ExportToEditron] Skipping voiceover step — script has no narration. Captions will come from script on-screen text via finalize fallback.",

@@ -65,6 +65,13 @@ export async function POST(
     const { id } = await params;
     const body = await req.json();
     const { voice, language, contentType: bodyContentType } = body;
+    const requestedSceneIndices = Array.isArray(body.sceneIndices)
+      ? new Set(
+        body.sceneIndices.filter(
+          (value: unknown): value is number => Number.isInteger(value),
+        ),
+      )
+      : null;
 
     const storyboard = await getStoryboard(id, userId);
     if (!storyboard) {
@@ -84,7 +91,8 @@ export async function POST(
     if (!contentType) contentType = 'narration';
 
     const scenesWithNarration = storyboard.scenes.filter(
-      (s) => s.descriptor.narration?.trim(),
+      (s) => s.descriptor.narration?.trim()
+        && (!requestedSceneIndices || requestedSceneIndices.has(s.sceneIndex)),
     );
 
     if (scenesWithNarration.length === 0) {

@@ -138,6 +138,7 @@ export async function GET(
     const terminal = summaries.filter((summary) => (
       summary.status === 'succeeded'
       || summary.status === 'failed'
+      || summary.status === 'blocked'
     )).length;
 
     return NextResponse.json({
