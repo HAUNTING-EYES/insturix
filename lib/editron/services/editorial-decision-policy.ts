@@ -125,7 +125,7 @@ export function resolveEditorialDecisionPolicy(
     executionAllowed: true,
     frequency: preference.frequency ?? null,
     intensity: preference.intensity ?? null,
-    rankingPriority: preference.frequency ?? 0.5,
+    rankingPriority: 0.5,
     reason: `user-policy-prefer:${editorialFamily}`,
     source: 'user-intake',
   };

@@ -11,6 +11,13 @@ import {
   resolveEditorialDecisionPolicy,
   type EditorialDecisionPolicy,
 } from './editorial-decision-policy';
+import {
+  resolveEditorialFrequencySelection,
+  type EditorialFrequencyCandidate,
+  type EditorialFrequencyFamily,
+  type EditorialFrequencySelectionEvidence,
+  type EditorialFrequencySelectionReport,
+} from './editorial-frequency-selection';
 
 type LegacyCompatibleDecisionType = ReactiveEditDecision['type'] | 'slow-motion' | 'filter';
 
@@ -450,6 +457,7 @@ export interface UnifiedDecisionBundleEvidence {
   evidenceOnlySignalDecisions: UnifiedSignalDecisionEvidence[];
   signalDecisionAudit: UnifiedSignalDecisionAuditReport;
   crossOverlayChoreography?: CrossOverlayChoreographyReport;
+  editorialFrequencySelection?: EditorialFrequencySelectionReport;
   overlayTimelineContextDecisions?: UnifiedOverlayTimelineContextDecision[];
 }
 
@@ -768,12 +776,12 @@ function planUnifiedDecisionBundleFromRankedCandidates(
   const signalExecutionBudgets = buildSignalExecutionBudgets(signalDecisions);
   const signalDecisionAudit = createSignalDecisionAuditBuilder(createEmptySignalDecisionAudit());
   const evidenceOnlySignalDecisions: UnifiedSignalDecisionEvidence[] = [];
-  const selectedEntries: PlannedDecision[] = [];
+  const selectedEntries: RankedPlannedDecision[] = [];
   let validatedDecisionCount = 0;
   let suppressedSignalDuplicateCount = 0;
   let evidenceOnlySignalDecisionCount = 0;
 
-  const plannerEntries = [
+  const plannerEntries: RankedPlannedDecision[] = [
     ...creativeDecisions.map((decision) => toPlannedDecision({ decision, source: 'creative-brief', editorialPreferences })),
     ...signalDecisions.map((decision) => toPlannedDecision({ decision, source: 'signal-driven', editorialPreferences })),
   ].sort((a, b) => (
@@ -783,12 +791,23 @@ function planUnifiedDecisionBundleFromRankedCandidates(
     || a.decision.frame - b.decision.frame
     || producerRank(a.source) - producerRank(b.source)
     || a.decision.type.localeCompare(b.decision.type)
-  ));
+  )).map((entry, index) => ({
+    ...entry,
+    candidateKey: `${decisionSelectionKey(entry.decision)}|${entry.source}|${index}`,
+  }));
+
+  const frequencySelection = buildEditorialFrequencySelectionForPlanner(
+    plannerEntries,
+    maxNearFrameWindow,
+  );
+  const frequencySelectionByCandidateKey = new Map(
+    frequencySelection.selections.map((selection) => [selection.candidateKey, selection]),
+  );
 
   const selectedDecisions = () => selectedEntries.map((entry) => entry.decision);
 
   const keepAsEvidence = (
-    entry: PlannedDecision,
+    entry: RankedPlannedDecision,
     outcome: UnifiedSignalDecisionOutcome,
     reason: string,
   ): void => {
@@ -807,6 +826,16 @@ function planUnifiedDecisionBundleFromRankedCandidates(
   for (const entry of plannerEntries) {
     if (!entry.editorialPolicy.executionAllowed) {
       keepAsEvidence(entry, 'evidence-only', entry.editorialPolicy.reason);
+      continue;
+    }
+    const independentLicense = resolveIndependentPlannerLicense(entry);
+    if (!independentLicense.executable) {
+      keepAsEvidence(entry, 'evidence-only', independentLicense.reason);
+      continue;
+    }
+    const editorialFrequency = frequencySelectionByCandidateKey.get(entry.candidateKey);
+    if (editorialFrequency && !editorialFrequency.selected) {
+      keepAsEvidence(entry, 'evidence-only', editorialFrequency.reason);
       continue;
     }
     const license = entry.source === 'signal-driven'
@@ -832,7 +861,10 @@ function planUnifiedDecisionBundleFromRankedCandidates(
       continue;
     }
 
-    const policyDecision = stampEditorialPolicyDecision(entry.decision, entry.editorialPolicy);
+    const policyDecision = stampEditorialFrequencySelectionDecision(
+      stampEditorialPolicyDecision(entry.decision, entry.editorialPolicy),
+      editorialFrequency,
+    );
     selectedEntries.push({
       ...entry,
       decision: entry.source === 'signal-driven'
@@ -907,6 +939,9 @@ function planUnifiedDecisionBundleFromRankedCandidates(
       evidenceOnlySignalDecisions,
       signalDecisionAudit: finalizeSignalDecisionAudit(signalDecisionAudit),
       crossOverlayChoreography: choreographyResult.report,
+      ...(frequencySelection.selections.length > 0
+        ? { editorialFrequencySelection: frequencySelection.report }
+        : {}),
       overlayTimelineContextDecisions: buildOverlayTimelineContext([
         ...overlayTimelineContextDecisions,
         ...choreographyResult.decisions,
@@ -1077,6 +1112,10 @@ type PlannedDecision = {
   editorialPolicy: EditorialDecisionPolicy;
 };
 
+type RankedPlannedDecision = PlannedDecision & {
+  candidateKey: string;
+};
+
 function toPlannedDecision(params: {
   decision: ReactiveEditDecision;
   source: UnifiedDecisionCandidateProducer;
@@ -1115,6 +1154,91 @@ function stampEditorialPolicyDecision(
       },
     },
   };
+}
+
+function stampEditorialFrequencySelectionDecision(
+  decision: ReactiveEditDecision,
+  selection: EditorialFrequencySelectionEvidence | undefined,
+): ReactiveEditDecision {
+  if (!selection) return decision;
+  return {
+    ...decision,
+    params: {
+      ...decision.params,
+      editorialFrequencySelection: selection,
+    },
+  };
+}
+
+function buildEditorialFrequencySelectionForPlanner(
+  entries: RankedPlannedDecision[],
+  maxNearFrameWindow: number,
+): ReturnType<typeof resolveEditorialFrequencySelection> {
+  const representatives: Array<{
+    family: EditorialFrequencyFamily;
+    decision: ReactiveEditDecision;
+    opportunityKey: string;
+  }> = [];
+  const frequencyCandidates: EditorialFrequencyCandidate[] = [];
+
+  for (const entry of [...entries].sort((a, b) => (
+    a.decision.frame - b.decision.frame
+    || a.candidateKey.localeCompare(b.candidateKey)
+  ))) {
+    const family = toEditorialFrequencyFamily(entry.editorialPolicy);
+    if (!family || entry.editorialPolicy.frequency === null) continue;
+    if (!resolveIndependentPlannerLicense(entry).executable) continue;
+
+    const representativeIndex = representatives.findIndex((representative) => (
+      representative.family === family
+      && findNearEquivalentDecisionIndex(
+        [representative.decision],
+        entry.decision,
+        maxNearFrameWindow,
+      ) === 0
+    ));
+    const opportunityKey = representativeIndex >= 0
+      ? representatives[representativeIndex].opportunityKey
+      : `${family}|${entry.decision.type}|${entry.decision.frame}|${representatives.length}`;
+
+    if (representativeIndex < 0) {
+      representatives.push({ family, decision: entry.decision, opportunityKey });
+    }
+    frequencyCandidates.push({
+      candidateKey: entry.candidateKey,
+      opportunityKey,
+      family,
+      score: entry.score,
+      frame: entry.decision.frame,
+      requestedFrequency: entry.editorialPolicy.frequency,
+    });
+  }
+
+  return resolveEditorialFrequencySelection(frequencyCandidates);
+}
+
+function resolveIndependentPlannerLicense(
+  entry: PlannedDecision,
+): { executable: boolean; reason: string } {
+  return entry.source === 'signal-driven'
+    ? resolveSignalIndependentExecutionLicense(entry.decision)
+    : resolvePrimaryCreativeDecisionLicense(entry.decision, { requireFamilyAtoms: true });
+}
+
+function toEditorialFrequencyFamily(
+  policy: EditorialDecisionPolicy,
+): EditorialFrequencyFamily | null {
+  if (policy.mode !== 'prefer' || policy.frequency === null) return null;
+  switch (policy.editorialFamily) {
+    case 'captions':
+    case 'motionGraphics':
+    case 'zoom':
+    case 'transitions':
+    case 'sfx':
+      return policy.editorialFamily;
+    default:
+      return null;
+  }
 }
 
 function scoreUnifiedDecision(
@@ -3952,27 +4076,8 @@ function resolveSignalExecutionLicense(
   signalDecision: ReactiveEditDecision,
   budgets: Partial<Record<ReactiveEditDecision['type'], number>>,
 ): { executable: boolean; reason: string } {
-  const candidate = normalizeSignalExecutionCandidate(signalDecision);
-  const minConfidence = SIGNAL_EXECUTION_MIN_CONFIDENCE[signalDecision.type];
-  if (minConfidence === undefined) {
-    return { executable: false, reason: 'unsupported-signal-decision-type' };
-  }
-
-  if (candidate.confidence < minConfidence) {
-    return { executable: false, reason: 'below-signal-confidence-floor' };
-  }
-
-  if (signalDecision.type === 'sfx' || signalDecision.type === 'sfx-trigger') {
-    const sfxType = normalizeParamString(signalDecision.params.sfxType ?? signalDecision.params.type);
-    if (!sfxType || sfxType === 'none') {
-      return { executable: false, reason: 'missing-sfx-intent' };
-    }
-  }
-
-  const familyLicense = resolveFamilyExecutionLicense(signalDecision);
-  if (!familyLicense.executable) {
-    return familyLicense;
-  }
+  const independentLicense = resolveSignalIndependentExecutionLicense(signalDecision);
+  if (!independentLicense.executable) return independentLicense;
 
   const budget = budgets[signalDecision.type] ?? 0;
   const executableCountForType = mergedDecisions
@@ -3991,7 +4096,30 @@ function resolveSignalExecutionLicense(
     return { executable: false, reason: 'nearby-executable-same-type' };
   }
 
-  return familyLicense;
+  return independentLicense;
+}
+
+function resolveSignalIndependentExecutionLicense(
+  signalDecision: ReactiveEditDecision,
+): { executable: boolean; reason: string } {
+  const candidate = normalizeSignalExecutionCandidate(signalDecision);
+  const minConfidence = SIGNAL_EXECUTION_MIN_CONFIDENCE[signalDecision.type];
+  if (minConfidence === undefined) {
+    return { executable: false, reason: 'unsupported-signal-decision-type' };
+  }
+
+  if (candidate.confidence < minConfidence) {
+    return { executable: false, reason: 'below-signal-confidence-floor' };
+  }
+
+  if (signalDecision.type === 'sfx' || signalDecision.type === 'sfx-trigger') {
+    const sfxType = normalizeParamString(signalDecision.params.sfxType ?? signalDecision.params.type);
+    if (!sfxType || sfxType === 'none') {
+      return { executable: false, reason: 'missing-sfx-intent' };
+    }
+  }
+
+  return resolveFamilyExecutionLicense(signalDecision);
 }
 
 function resolveFamilyExecutionLicense(

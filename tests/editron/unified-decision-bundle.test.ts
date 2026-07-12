@@ -2839,6 +2839,64 @@ describe('editorial decision policy', () => {
       formAuthority: 'family-resolver',
     });
   });
+  it('uses frequency as post-license opportunity pressure without choosing zoom form', () => {
+    const zoomDecisions = [
+      { frame: 120, confidence: 0.98, energy: 0.95 },
+      { frame: 300, confidence: 0.94, energy: 0.88 },
+      { frame: 480, confidence: 0.9, energy: 0.81 },
+      { frame: 660, confidence: 0.86, energy: 0.74 },
+    ].map(({ frame, confidence, energy }, index) => decision({
+      type: 'zoom',
+      frame,
+      source: `signal-executor:frequency-${index}`,
+      signal: 'speech.visual_emphasis',
+      confidence,
+      params: {
+        signals: {
+          speech_energy: energy,
+          word_importance: energy,
+          mainSubjectX: 0.54,
+          mainSubjectY: 0.44,
+          mainSubjectWidth: 0.34,
+          mainSubjectHeight: 0.5,
+          face_present: 1,
+          eye_contact: 0.82,
+          shot_scale: 'CU',
+          timeSinceLastZoomSec: 6,
+          recentZoomSimilarity: 0.08,
+        },
+      },
+    }));
+    const plan = (frequency: number) => planUnifiedDecisionBundleFromCandidates([{
+      source: 'signal-driven',
+      editorialPreferences: {
+        families: { zoom: { mode: 'prefer', frequency } },
+      },
+      edl: edl(zoomDecisions),
+    }]);
+
+    const low = plan(0.25);
+    const high = plan(0.75);
+
+    expect(low?.evidence.editorialFrequencySelection?.groups).toEqual([
+      expect.objectContaining({ family: 'zoom', opportunityCount: 4, selectedOpportunityCount: 1 }),
+    ]);
+    expect(high?.evidence.editorialFrequencySelection?.groups).toEqual([
+      expect.objectContaining({ family: 'zoom', opportunityCount: 4, selectedOpportunityCount: 3 }),
+    ]);
+    expect(low?.edl.decisions).toHaveLength(1);
+    expect(high?.edl.decisions.length).toBeGreaterThan(low?.edl.decisions.length ?? 0);
+    expect(high?.edl.decisions.every((entry) => (
+      (entry.params.editorialFrequencySelection as { selected?: boolean } | undefined)?.selected === true
+    ))).toBe(true);
+    expect(low?.evidence.signalDecisionAudit.byReason['below-editorial-frequency-pressure'])
+      .toEqual(expect.objectContaining({ count: 3 }));
+    expect(high?.edl.decisions[0].params.zoomMotionPlan).toEqual(expect.objectContaining({
+      version: 'zoom-motion-plan-v1',
+    }));
+    expect(high?.edl.decisions[0].params.editorialFrequencySelection).not.toHaveProperty('zoomType');
+    expect(high?.edl.decisions[0].params.editorialFrequencySelection).not.toHaveProperty('scale');
+  });
 });
 
 function edl(decisions: EditDecision[]): EditDecisionList {
