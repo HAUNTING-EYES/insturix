@@ -1,7 +1,7 @@
 "use client";
 import React, { useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Send, Loader2, Square, Sparkles, X } from "lucide-react";
+import { Send, Loader2, Square, Sparkles, TrendingUp, X } from "lucide-react";
 import { ChatSuggestions } from "./ChatSuggestions";
 import { motion, AnimatePresence } from "framer-motion";
 import clsx from "clsx";
@@ -18,6 +18,7 @@ interface ChatInputProps {
   placeholder?: string;
   editingSelection?: { text: string; range: { from: number; to: number }; blocks: any[] } | null;
   onCancelEditSelection?: () => void;
+  onOpenTrendWorkflow?: () => void;
 }
 
 export function ChatInput({
@@ -31,6 +32,7 @@ export function ChatInput({
   placeholder = "Ask the AI to write, edit, or improve your script...",
   editingSelection,
   onCancelEditSelection,
+  onOpenTrendWorkflow,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -104,6 +106,14 @@ export function ChatInput({
           "relative flex flex-col rounded-[10px] bg-[#0F0F0E] border border-[#282724] transition-colors duration-200",
           "group-focus-within:border-[#D4A652]/50"
         )}>
+          {onOpenTrendWorkflow && (
+            <div className="border-b border-[#282724] px-2 pt-2">
+              <button type="button" onClick={onOpenTrendWorkflow} disabled={disabled} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium text-[#D4A652] hover:bg-[#D4A652]/10 disabled:opacity-50" aria-label="Open trend workflow">
+                <TrendingUp className="h-3.5 w-3.5" />
+                Use a trend
+              </button>
+            </div>
+          )}
           <div className="flex items-end gap-2 p-2">
             <div className="flex-1 min-w-0 relative">
               <textarea

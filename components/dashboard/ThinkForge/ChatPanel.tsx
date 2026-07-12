@@ -15,6 +15,7 @@ import { toast } from "@/hooks/use-toast";
 import { extractUrls } from "./PromptPanel";
 import { logShadowEvent } from "@/lib/thinkforge/services/shadow-logger";
 import { BlueprintCustomizer } from "./chat/BlueprintCustomizer";
+import { TrendWorkflowPanel } from "./TrendWorkflowPanel";
 
 interface ChatPanelProps {
   selectedIdea: Idea;
@@ -179,6 +180,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     cardId: string;
     artifacts: Array<{ type: string; label: string; description?: string; priority?: string }>;
   } | null>(null);
+  const [trendWorkflowOpen, setTrendWorkflowOpen] = useState(false);
 
   useEffect(() => {
     scriptIdRef.current = scriptId || null;
@@ -734,6 +736,10 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     // Cards are embedded in messages; dismissal is a no-op for now
   }, []);
 
+  const handleGenerateFromTrend = useCallback((prompt: string) => {
+    sendChatMessage(prompt);
+  }, [sendChatMessage]);
+
   const hasEditorSelection = useMemo(() => {
     if (editingSelection) return true;
     return false;
@@ -793,6 +799,14 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         <div className="absolute bottom-0 left-0 right-0 h-8 bg-linear-to-t from-neutral-900/60 to-transparent pointer-events-none" />
       </div>
 
+      <TrendWorkflowPanel
+        open={trendWorkflowOpen}
+        sessionId={sessionId}
+        initialTarget={workspaceMode === "script" ? "script" : "post"}
+        onClose={() => setTrendWorkflowOpen(false)}
+        onGenerate={handleGenerateFromTrend}
+      />
+
       <ChatInput
         value={inputValue}
         onChange={setInputValue}
@@ -806,6 +820,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         suggestions={suggestions}
         editingSelection={editingSelection}
         onCancelEditSelection={handleCancelEditSelection}
+        onOpenTrendWorkflow={() => setTrendWorkflowOpen(true)}
       />
 
       {/* Chat History Panel */}
