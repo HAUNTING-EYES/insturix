@@ -95,3 +95,10 @@ docs/agents/
 
 # MG codegen render scratch (Phase D)
 .mg-render-tmp/
+
+# Local scratch / generated artifacts — never shipped, were leaking into `git status`
+/outputs/
+/tmp/
+/.codex-digest/
+/tmp_*.txt
+*.local-bak
