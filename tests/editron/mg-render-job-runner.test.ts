@@ -139,6 +139,7 @@ describe('durable MG render job runner', () => {
   it('leases beyond Sandbox timeout, signs exact owner scope, and completes once', async () => {
     const queued = job();
     const result = generatedResult(queued._id);
+    const createOrGetJob = vi.fn(async () => queued);
     const claimJob = vi.fn(async (args) => ({ ...queued, status: 'running' as const, leaseId: args.leaseId }));
     const executeSandbox = vi.fn(async (_options: ExecuteMgRenderInSandboxOptions) => result);
     const completeJob = vi.fn(async () => true);
@@ -148,7 +149,7 @@ describe('durable MG render job runner', () => {
       env: ENV,
       now: NOW,
       dependencies: {
-        createOrGetJob: vi.fn(async () => queued),
+        createOrGetJob,
         claimJob,
         executeSandbox,
         completeJob,
@@ -156,6 +157,7 @@ describe('durable MG render job runner', () => {
       },
     })).resolves.toEqual(result);
 
+    expect(createOrGetJob).toHaveBeenCalledWith(input(), { now: NOW });
     expect(claimJob).toHaveBeenCalledWith(expect.objectContaining({ leaseMs: 25 * 60 * 1_000 }));
     const sandboxArgs = executeSandbox.mock.calls.at(0)?.[0];
     if (!sandboxArgs) throw new Error('expected Sandbox execution arguments');

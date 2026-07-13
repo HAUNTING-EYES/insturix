@@ -148,7 +148,7 @@ export async function runDurableMgRenderJob(
   const getJob = dependencies.getJob ?? getMgRenderJobForOwner;
   const executeSandbox = dependencies.executeSandbox ?? executeMgRenderInSandbox;
 
-  const stored = await createOrGetJob(input);
+  const stored = await createOrGetJob(input, { now });
   if (stored.status === 'completed' && stored.result) return stored.result;
   if (stored.status === 'failed') throw new Error(`MG render job ${stored._id} is terminal: ${stored.lastError ?? 'unknown failure'}`);
 
