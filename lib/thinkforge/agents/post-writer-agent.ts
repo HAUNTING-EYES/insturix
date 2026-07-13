@@ -7,8 +7,7 @@ import {
   detectPlatform,
 } from './prompt-utils';
 import type { ThinkForgeContentSignalProfile } from '../signals';
-import { parseAgentJson } from '../protocol/parse-agent-json';
-import { generateWithWritingContextCache } from '../services/gemini-writing-context-cache';
+import { generateStructuredWithWritingContextCache } from '../services/gemini-writing-context-cache';
 import { getAntiAiConstraintBundle, buildWritingKnowledgeBlock } from '../data/writing-graph-query';
 import { extractSignalsFromContext } from '../data/extract-signals';
 import { repairAiFillerContent } from '../services/ai-filler-repair';
@@ -208,45 +207,23 @@ Return your response strictly adhering to the JSON schema.`;
     const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
     const gen = this.resolveGenConfig(overrides);
 
-    let output: AgentStructuredOutput<PostWriterResult>;
-    try {
-      const jsonContract = [
-        'Return ONLY valid JSON. Do not include markdown fences or commentary.',
-        'Required JSON shape:',
-        '{',
-        '  "content": "publishable post text as a string",',
-        '  "contentAnalysis": { "tone": "string", "vibe": "string", "theme": "string", "qualityScore": 0, "violations": [] },',
-        '  "clickatron": { "singleImagePrompt": "string", "carouselPrompts": ["string"] },',
-        '  "metadata": { "platform": "string", "charCount": 0 }',
-        '}',
-        'contentAnalysis.violations must be an array of strings only. Use [] when there are no violations; never return violation objects.',
-        'clickatron.singleImagePrompt must be a string, not an object.',
-        'Every carouselPrompts item must be a string, not an object.',
-        'Do not add keys outside the required JSON shape.',
-      ].join('\n');
-      const { text, cacheStatus, modelName } = await generateWithWritingContextCache({
-        prompt: `${prompt}\n\n${jsonContract}`,
-        modelName: this.config.modelName,
-        temperature: gen.temperature,
-        maxTokens: gen.maxTokens,
-        abortSignal,
-      });
-      const parsed = parseAgentJson(text);
-      const result = this.schema.parse(parsed);
-      assertUsablePostWriterResult(result, input);
+    const { result, cacheStatus, modelName } = await generateStructuredWithWritingContextCache({
+      prompt,
+      schema: this.schema,
+      modelName: this.config.modelName,
+      temperature: gen.temperature,
+      maxTokens: gen.maxTokens,
+      abortSignal,
+    });
 
-      output = {
-        result,
-        metadata: {
-          model: modelName,
-          notes: `writing_context_cache:${cacheStatus}`,
-        },
-      };
-    } catch (error) {
-      console.warn('[ThinkForge:PostWriter] Writing context cache failed; falling back to structured path:', error);
-      output = await super.runStructured(input, overrides, abortSignal);
-    }
-
+    assertUsablePostWriterResult(result, input);
+    const output: AgentStructuredOutput<PostWriterResult> = {
+      result,
+      metadata: {
+        model: modelName,
+        notes: `writing_context_cache:${cacheStatus}`,
+      },
+    };
     // Filler self-repair: one in-context rewrite if a banned phrase slipped through either path.
     // Fail-soft — keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
     output.result.content = await repairAiFillerContent(output.result.content, this.config.modelName, abortSignal);

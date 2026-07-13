@@ -11,6 +11,8 @@ import {
 
 const CACHE_TTL_SECONDS = 1800;
 const CACHE_STORE_TIMEOUT_MS = 1_500;
+const CACHE_PROVIDER_TIMEOUT_MS = 10_000;
+const WRITING_PROVIDER_TIMEOUT_MS = 120_000;
 const REDIS_KEY = 'thinkforge:gemini:creative-content-cache:v2';
 const DEFAULT_CACHE_MODEL = 'models/gemini-2.5-flash';
 
@@ -276,18 +278,24 @@ async function createCache(
   modelName: string,
   contextHash: string,
   systemInstruction: string,
+  abortSignal?: AbortSignal,
 ): Promise<string | null> {
   const startedAt = Date.now();
 
   try {
+    if (abortSignal?.aborted) {
+      throw new Error('ThinkForge writing context cache creation aborted before start');
+    }
+
     const { GoogleGenAI } = await import('@google/genai');
-    const client = new GoogleGenAI({ apiKey: getApiKey() });
+    const client = new GoogleGenAI({ apiKey: getApiKey(), httpOptions: { timeout: CACHE_PROVIDER_TIMEOUT_MS } });
     const cache = await client.caches.create({
       model: toRuntimeModelName(modelName),
       config: {
         displayName: 'thinkforge-creative-content-knowledge-v2',
         systemInstruction,
         ttl: `${CACHE_TTL_SECONDS}s`,
+        abortSignal,
       },
     });
 
@@ -303,6 +311,8 @@ async function createCache(
     });
     return cache.name;
   } catch (error) {
+    if (abortSignal?.aborted) throw error;
+
     recordThinkForgeWritingContextCost({
       status: 'failed',
       modelName,
@@ -316,7 +326,13 @@ async function createCache(
   }
 }
 
-async function resolveWritingContext(modelName: string): Promise<ResolvedWritingContext> {
+async function resolveWritingContext(
+  modelName: string,
+  abortSignal?: AbortSignal,
+): Promise<ResolvedWritingContext> {
+  if (abortSignal?.aborted) {
+    throw new Error('ThinkForge writing context resolution aborted before start');
+  }
   const systemInstruction = buildWritingContextSystemInstruction();
   const contextHash = hashWritingContext(systemInstruction);
   const existing = await getCachedEntry(modelName, contextHash);
@@ -324,8 +340,11 @@ async function resolveWritingContext(modelName: string): Promise<ResolvedWriting
   if (existing) {
     try {
       const { GoogleGenAI } = await import('@google/genai');
-      const client = new GoogleGenAI({ apiKey: getApiKey() });
-      const cache = await client.caches.get({ name: existing.cacheName });
+      const client = new GoogleGenAI({ apiKey: getApiKey(), httpOptions: { timeout: CACHE_PROVIDER_TIMEOUT_MS } });
+      const cache = await client.caches.get({
+        name: existing.cacheName,
+        config: { abortSignal },
+      });
       if (!cache.name) throw new Error('Cached context returned no name');
       return {
         cacheName: existing.cacheName,
@@ -334,11 +353,12 @@ async function resolveWritingContext(modelName: string): Promise<ResolvedWriting
         systemInstruction,
       };
     } catch (error) {
+      if (abortSignal?.aborted) throw error;
       console.warn('[ThinkForgeWritingCache] Cached context is unavailable; recreating it:', error);
     }
   }
 
-  const cacheName = await createCache(modelName, contextHash, systemInstruction);
+  const cacheName = await createCache(modelName, contextHash, systemInstruction, abortSignal);
   return {
     ...(cacheName ? { cacheName } : {}),
     cacheStatus: cacheName ? 'created' : 'inline',
@@ -371,9 +391,9 @@ export async function generateWithWritingContextCache(
   }
 
   const modelName = normalizeCacheModelName(input.modelName);
-  const context = await resolveWritingContext(modelName);
+  const context = await resolveWritingContext(modelName, input.abortSignal);
   const { GoogleGenAI } = await import('@google/genai');
-  const client = new GoogleGenAI({ apiKey: getApiKey() });
+  const client = new GoogleGenAI({ apiKey: getApiKey(), httpOptions: { timeout: WRITING_PROVIDER_TIMEOUT_MS } });
   const startedAt = Date.now();
   const completionOperation = context.cacheName
     ? { operation: 'llm_completion_cached_context' as const }
@@ -428,7 +448,7 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
   }
 
   const modelName = normalizeCacheModelName(input.modelName);
-  const context = await resolveWritingContext(modelName);
+  const context = await resolveWritingContext(modelName, input.abortSignal);
   const startedAt = Date.now();
   const structuredOperation = context.cacheName
     ? { operation: 'llm_structured_cached_context' as const }

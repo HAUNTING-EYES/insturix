@@ -71,16 +71,21 @@ async function withWriterTimeout<T>(
   label: string,
 ): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort(new Error('Eval writer request timed out: ' + label));
-  }, timeoutMs);
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutTimer = setTimeout(() => {
+      const reason = new Error('Eval writer request timed out: ' + label);
+      controller.abort(reason);
+      reject(reason);
+    }, timeoutMs);
+  });
+
   try {
-    return await operation(controller.signal);
+    return await Promise.race([operation(controller.signal), timeout]);
   } finally {
-    clearTimeout(timer);
+    if (timeoutTimer) clearTimeout(timeoutTimer);
   }
 }
-
 // ---- CLI Args --------------------------------------------------------
 
 const seedArg = process.argv.find(a => a.startsWith('--seed='));
