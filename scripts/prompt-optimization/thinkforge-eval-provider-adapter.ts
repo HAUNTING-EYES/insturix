@@ -176,7 +176,7 @@ async function runProviderPromptWithRetry(
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      return await withTimeout(
+      return await withEvalTimeout(
         config.provider === 'gemini'
           ? runGeminiPrompt(config, prompt)
           : config.provider === 'anthropic'
@@ -214,7 +214,7 @@ function sleep(ms: number): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+export async function withEvalTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Local eval harness for the LIVE ThinkForge writers: PostWriterAgent + ScriptWriterAgent.
  *
  * WHY THIS EXISTS:
@@ -53,12 +53,33 @@ import { getAntiAiConstraintBundle } from '../../lib/thinkforge/data/writing-gra
 import {
   buildEvalProviderConfig,
   runEvalPrompt,
+
   type EvalProvider,
   type EvalProviderConfig,
 } from './thinkforge-eval-provider-adapter';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(__dirname, '../../.env.local') });
+const configuredWriterTimeoutMs = Number.parseInt(process.env.THINKFORGE_EVAL_REQUEST_TIMEOUT_MS ?? '90000', 10);
+const EVAL_WRITER_TIMEOUT_MS = Number.isFinite(configuredWriterTimeoutMs) && configuredWriterTimeoutMs > 0
+  ? configuredWriterTimeoutMs
+  : 90_000;
+
+async function withWriterTimeout<T>(
+  operation: (abortSignal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new Error('Eval writer request timed out: ' + label));
+  }, timeoutMs);
+  try {
+    return await operation(controller.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // ---- CLI Args --------------------------------------------------------
 
@@ -700,10 +721,14 @@ async function runOnce(tc: TestCase, seedVal: number): Promise<RunResult> {
 
   if (routedPath === 'post') {
     const agent = new PostWriterAgent();
-    const { result: object } = await agent.runStructured(input as PostWriterInput, {
-      temperature: 0.45,
-      maxTokens: 8192,
-    });
+    const { result: object } = await withWriterTimeout(
+      (abortSignal) => agent.runStructured(input as PostWriterInput, {
+        temperature: 0.45,
+        maxTokens: 8192,
+      }, abortSignal),
+      EVAL_WRITER_TIMEOUT_MS,
+      'writer/' + routedPath,
+    );
     result = object;
     content = object.content;
     scenePromptsBlob = [object.clickatron?.singleImagePrompt, ...(object.clickatron?.carouselPrompts || [])]
@@ -711,12 +736,17 @@ async function runOnce(tc: TestCase, seedVal: number): Promise<RunResult> {
   } else {
     const agent = new ScriptWriterAgent();
     const prompt = agent.buildPrompt(input as ScriptWriterInput);
-    const { object } = await generateObject({
-      model, schema: ScriptWriterResultSchema, prompt, temperature: 0.7,
-      seed: seedVal,
-      // @ts-expect-error - Vercel AI SDK version mismatch on maxTokens (same as base-agent.ts)
-      maxTokens: 8192,
-    });
+    const { object } = await withWriterTimeout(
+      (abortSignal) => generateObject({
+        model, schema: ScriptWriterResultSchema, prompt, temperature: 0.7,
+        seed: seedVal,
+        abortSignal,
+        // @ts-expect-error - Vercel AI SDK version mismatch on maxTokens (same as base-agent.ts)
+        maxTokens: 8192,
+      }),
+      EVAL_WRITER_TIMEOUT_MS,
+      'writer/' + routedPath,
+    );
     result = object;
     content = object.content;
     scenePromptsBlob = (object.visualMetadata?.scenePrompts || []).join('\n');
