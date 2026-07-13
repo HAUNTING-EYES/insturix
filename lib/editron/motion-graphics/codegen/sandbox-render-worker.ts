@@ -9,10 +9,12 @@ import {
 
 type EnvLike = Record<string, string | undefined>;
 
-interface SandboxCommandResult {
-  exitCode: number;
+interface MgSandboxCommand {
+  cmdId: string;
+  exitCode: number | null;
   stdout(): Promise<string>;
   stderr(): Promise<string>;
+  kill?(): Promise<void>;
 }
 
 interface MgSandbox {
@@ -22,9 +24,10 @@ interface MgSandbox {
     args?: string[];
     cwd?: string;
     env?: Record<string, string>;
-    detached?: false;
+    detached: true;
     timeoutMs?: number;
-  }): Promise<SandboxCommandResult>;
+  }): Promise<MgSandboxCommand>;
+  getCommand(cmdId: string): Promise<MgSandboxCommand>;
   readFileToBuffer(file: { path: string; cwd?: string }): Promise<Buffer | null>;
   delete(): Promise<void>;
 }
@@ -46,6 +49,7 @@ export interface ExecuteMgRenderInSandboxOptions {
   storageAuthorization: { url: string; token: string };
   env?: EnvLike;
   createSandbox?: (params: MgSandboxCreateParams) => Promise<MgSandbox>;
+  pollIntervalMs?: number;
 }
 
 export interface MgSandboxRuntimeConfig {
@@ -60,6 +64,7 @@ export interface MgSandboxRuntimeConfig {
 const DEFAULT_TIMEOUT_MS = 20 * 60 * 1_000;
 const MIN_TIMEOUT_MS = 5 * 60 * 1_000;
 const MAX_TIMEOUT_MS = 45 * 60 * 1_000;
+const DEFAULT_POLL_INTERVAL_MS = 2_000;
 
 function required(env: EnvLike, name: string): string {
   const value = env[name]?.trim();
@@ -162,7 +167,7 @@ function sandboxName(jobId: string, executionId: string): string {
 
 async function defaultCreateSandbox(params: MgSandboxCreateParams): Promise<MgSandbox> {
   const { Sandbox } = await import('@vercel/sandbox');
-  return Sandbox.create({
+  const sandbox = await Sandbox.create({
     name: params.name,
     source: params.source,
     timeout: params.timeout,
@@ -172,10 +177,42 @@ async function defaultCreateSandbox(params: MgSandboxCreateParams): Promise<MgSa
     tags: params.tags,
     persistent: params.persistent,
   });
+  return {
+    writeFiles: (files) => sandbox.writeFiles(files),
+    runCommand: (command) => sandbox.runCommand(command),
+    getCommand: (cmdId) => sandbox.getCommand(cmdId),
+    readFileToBuffer: (file) => sandbox.readFileToBuffer(file),
+    delete: () => sandbox.delete(),
+  };
 }
 
 function boundedLog(value: string): string {
   return value.trim().slice(0, 8_000);
+}
+
+function sleep(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+function parseResultBuffer(buffer: Buffer, expectedJobId: string): MgRenderWorkerResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(buffer.toString('utf8'));
+  } catch (error) {
+    throw new Error(`MG Sandbox worker wrote an invalid result file: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const result = parseMgRenderWorkerResult(parsed);
+  if (result.jobId !== expectedJobId) throw new Error('MG Sandbox returned a result for a different job');
+  return result;
+}
+
+async function terminalCommandError(command: MgSandboxCommand): Promise<Error> {
+  const stderr = boundedLog(await command.stderr());
+  const stdout = boundedLog(await command.stdout());
+  if (command.exitCode === 0) {
+    return new Error('MG Sandbox worker exited successfully without publishing a result file');
+  }
+  return new Error(`MG Sandbox worker exited ${command.exitCode}: ${stderr || stdout || 'no worker output'}`);
 }
 
 export async function executeMgRenderInSandbox(
@@ -213,18 +250,24 @@ export async function executeMgRenderInSandbox(
       cmd: './node_modules/.bin/tsx',
       args: ['scripts/editron-mg-render-worker.ts', requestPath, resultPath],
       cwd: '/vercel/sandbox',
+      detached: true,
       timeoutMs: config.timeoutMs,
     });
-    if (command.exitCode !== 0) {
-      const stderr = boundedLog(await command.stderr());
-      const stdout = boundedLog(await command.stdout());
-      throw new Error(`MG Sandbox worker exited ${command.exitCode}: ${stderr || stdout || 'no worker output'}`);
+    const deadline = Date.now() + config.timeoutMs;
+    const pollIntervalMs = Math.max(0, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
+    let currentCommand = command;
+
+    while (Date.now() < deadline) {
+      const resultBuffer = await sandbox.readFileToBuffer({ path: resultPath });
+      if (resultBuffer) return parseResultBuffer(resultBuffer, request.jobId);
+
+      currentCommand = await sandbox.getCommand(command.cmdId);
+      if (currentCommand.exitCode !== null) throw await terminalCommandError(currentCommand);
+      await sleep(pollIntervalMs);
     }
-    const resultBuffer = await sandbox.readFileToBuffer({ path: resultPath });
-    if (!resultBuffer) throw new Error('MG Sandbox worker completed without a result file');
-    const result = parseMgRenderWorkerResult(JSON.parse(resultBuffer.toString('utf8')));
-    if (result.jobId !== request.jobId) throw new Error('MG Sandbox returned a result for a different job');
-    return result;
+
+    await currentCommand.kill?.().catch(() => undefined);
+    throw new Error(`MG Sandbox worker timed out after ${config.timeoutMs}ms without publishing a result`);
   } catch (error) {
     primaryError = error;
     throw error;

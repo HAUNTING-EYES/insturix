@@ -143,20 +143,30 @@ describe('MG Sandbox render worker', () => {
     })).toThrow(/storage authorization token/);
   });
 
-  it('runs the worker, parses only the compact result, and always deletes the sandbox', async () => {
+  it('runs the worker detached, polls for the compact result, and always deletes the sandbox', async () => {
     const req = request();
     const result = generatedResult(req.jobId);
     const writeFiles = vi.fn(async () => undefined);
     const runCommand = vi.fn(async () => ({
-      exitCode: 0,
+      cmdId: 'cmd_1',
+      exitCode: null,
       stdout: async () => '',
       stderr: async () => '',
     }));
-    const readFileToBuffer = vi.fn(async () => Buffer.from(JSON.stringify(result)));
+    const getCommand = vi.fn(async () => ({
+      cmdId: 'cmd_1',
+      exitCode: null,
+      stdout: async () => '',
+      stderr: async () => '',
+    }));
+    const readFileToBuffer = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(Buffer.from(JSON.stringify(result)));
     const deleteSandbox = vi.fn(async () => undefined);
     const createSandbox = vi.fn(async () => ({
       writeFiles,
       runCommand,
+      getCommand,
       readFileToBuffer,
       delete: deleteSandbox,
     }));
@@ -167,12 +177,15 @@ describe('MG Sandbox render worker', () => {
       storageAuthorization: { url: 'https://app.example.com/api/internal/mg-storage', token: 'job-token' },
       env,
       createSandbox,
+      pollIntervalMs: 0,
     })).resolves.toEqual(result);
     expect(writeFiles).toHaveBeenCalledOnce();
     expect(runCommand).toHaveBeenCalledWith(expect.objectContaining({
       cmd: './node_modules/.bin/tsx',
       cwd: '/vercel/sandbox',
+      detached: true,
     }));
+    expect(getCommand).toHaveBeenCalledWith('cmd_1');
     expect(deleteSandbox).toHaveBeenCalledOnce();
   });
 
@@ -181,6 +194,13 @@ describe('MG Sandbox render worker', () => {
     const createSandbox = vi.fn(async () => ({
       writeFiles: vi.fn(async () => undefined),
       runCommand: vi.fn(async () => ({
+        cmdId: 'cmd_2',
+        exitCode: null,
+        stdout: async () => '',
+        stderr: async () => '',
+      })),
+      getCommand: vi.fn(async () => ({
+        cmdId: 'cmd_2',
         exitCode: 1,
         stdout: async () => '',
         stderr: async () => 'Chromium launch failed',
@@ -194,7 +214,39 @@ describe('MG Sandbox render worker', () => {
       storageAuthorization: { url: 'https://app.example.com/api/internal/mg-storage', token: 'job-token' },
       env,
       createSandbox,
+      pollIntervalMs: 0,
     })).rejects.toThrow(/Chromium launch failed/);
+    expect(deleteSandbox).toHaveBeenCalledOnce();
+  });
+
+  it('fails loudly when the detached worker exits without publishing a result', async () => {
+    const deleteSandbox = vi.fn(async () => undefined);
+    const createSandbox = vi.fn(async () => ({
+      writeFiles: vi.fn(async () => undefined),
+      runCommand: vi.fn(async () => ({
+        cmdId: 'cmd_3',
+        exitCode: null,
+        stdout: async () => '',
+        stderr: async () => '',
+      })),
+      getCommand: vi.fn(async () => ({
+        cmdId: 'cmd_3',
+        exitCode: 0,
+        stdout: async () => 'done',
+        stderr: async () => '',
+      })),
+      readFileToBuffer: vi.fn(async () => null),
+      delete: deleteSandbox,
+    }));
+
+    await expect(executeMgRenderInSandbox({
+      request: request(),
+      executionId: 'lease_03',
+      storageAuthorization: { url: 'https://app.example.com/api/internal/mg-storage', token: 'job-token' },
+      env,
+      createSandbox,
+      pollIntervalMs: 0,
+    })).rejects.toThrow(/without publishing a result file/);
     expect(deleteSandbox).toHaveBeenCalledOnce();
   });
 });

@@ -115,7 +115,9 @@ async function run(requestPath: string, resultPath: string): Promise<void> {
         receipt: rendered.receipt,
         reason: rendered.reason,
       };
-    await fs.writeFile(resultPath, JSON.stringify(parseMgRenderWorkerResult(result)), 'utf8');
+    const resultTempPath = `${resultPath}.tmp`;
+    await fs.writeFile(resultTempPath, JSON.stringify(parseMgRenderWorkerResult(result)), 'utf8');
+    await fs.rename(resultTempPath, resultPath);
   } finally {
     await runtime.dispose();
   }
