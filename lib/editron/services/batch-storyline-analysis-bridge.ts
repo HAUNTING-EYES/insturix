@@ -114,7 +114,8 @@ type AssetAnalysisDoc = {
       words?: SourceWord[];
       language?: string | null;
     };
-  };
+  } & Record<string, unknown>;
+  segmentAnalysis?: unknown;
   speechSegments?: SpeechSegment[];
   motionSegments?: MotionSegment[];
   shots?: Shot[];
@@ -126,6 +127,7 @@ type AssetAnalysisDoc = {
   wav2vecAnalysis?: { segments?: Wav2VecSegment[] } | null;
   momentWeightMap?: { weights?: MomentWeightEntry[] } | null;
   musicStructure?: unknown;
+  musicAnalysis?: unknown;
   audio?: unknown;
 };
 
@@ -394,6 +396,15 @@ function sourceLanguage(analysis: AssetAnalysisDoc): string | undefined {
   if (typeof raw === 'string' && raw.trim()) return raw.trim();
   return undefined;
 }
+
+function fullSegmentAnalysis(analysis: AssetAnalysisDoc): { segments: EditronSegment[] } & Record<string, unknown> | null {
+  if (!analysis.segmentAnalysis || typeof analysis.segmentAnalysis !== 'object') return null;
+  const candidate = analysis.segmentAnalysis as { segments?: unknown; globalContext?: unknown } & Record<string, unknown>;
+  return Array.isArray(candidate.segments) && candidate.globalContext
+    ? candidate as { segments: EditronSegment[] } & Record<string, unknown>
+    : null;
+}
+
 function visualWindowToSegment(analysis: AssetAnalysisDoc, startMs: number, endMs: number): EditronSegment | null {
   if (!(endMs > startMs)) return null;
   return {
@@ -476,7 +487,9 @@ export async function hydrateStorylineAnalysesForBatch(
       continue;
     }
 
-    const segments = buildComposableSegmentsFromAssetAnalysis(analysis, positiveNumber(asset.duration));
+    const completeSegmentAnalysis = fullSegmentAnalysis(analysis);
+    const segments = completeSegmentAnalysis?.segments
+      ?? buildComposableSegmentsFromAssetAnalysis(analysis, positiveNumber(asset.duration));
     if (segments.length === 0) {
       result.skipped.push({ assetId: asset.assetId, reason: 'no_composable_segments' });
       continue;
@@ -485,14 +498,14 @@ export async function hydrateStorylineAnalysesForBatch(
     const language = sourceLanguage(analysis);
 
     await persistProjectAssetAnalysis(db, params.projectId, asset.assetId, {
-      rawFootageAnalysis: {
+      rawFootageAnalysis: analysis.rawFootageAnalysis ?? {
         transcription: {
           transcript: segments.map((segment) => segment.transcript?.text).filter(Boolean).join(' '),
           words: sourceWords(analysis),
           ...(language ? { language } : {}),
         },
       },
-      segmentAnalysis: {
+      segmentAnalysis: completeSegmentAnalysis ?? {
         version: 1,
         source: 'asset_analyses_bridge',
         segments,
@@ -505,7 +518,7 @@ export async function hydrateStorylineAnalysesForBatch(
       vjepaAnalysis: analysis.vjepaAnalysis ?? undefined,
       wav2vecAnalysis: analysis.wav2vecAnalysis ?? undefined,
       momentWeightMap: analysis.momentWeightMap ?? undefined,
-      musicAnalysis: analysis.musicStructure ?? analysis.audio ?? undefined,
+      musicAnalysis: analysis.musicAnalysis ?? analysis.musicStructure ?? analysis.audio ?? undefined,
     }, now);
 
     result.persistedAssetCount += 1;

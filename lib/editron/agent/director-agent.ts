@@ -1015,7 +1015,9 @@ export async function executeDirectorPlan(
             // resolves against the CUT timeline, so they'd land "out of range" and get dropped (regression
             // from the 2026-06-13 editedTimelineContext switch). Map them onto the cut timeline first.
             let briefDecisionsForExecutor = creativeBrief.decisions;
-            if (editedTimelineContext?.sourceClips?.length) {
+            if (editedTimelineContext?.evidence.sourceAlreadyCanonical) {
+              // Batch analyses are already projected onto the final cut timeline.
+            } else if (editedTimelineContext?.sourceClips?.length) {
               const { remapBriefTimestampsToEditedTimeline } = await import('@/lib/editron/services/edited-timeline-context');
               briefDecisionsForExecutor = remapBriefTimestampsToEditedTimeline(creativeBrief.decisions, editedTimelineContext.sourceClips, pathEFps);
             } else if (editedTimelineContext) {
