@@ -87,34 +87,55 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
 
   // Load saved media files from server on component mount
   useEffect(() => {
+    let cancelled = false;
+
     const loadMediaFiles = async () => {
+      let nextCursor: string | null = null;
+      let receivedPage = false;
+      const seenCursors = new Set<string>();
+      setIsLoading(true);
+
       try {
-        setIsLoading(true);
-        
-        // Fetch from server (MongoDB)
-        const response = await fetch('/api/services/editron/media/list');
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && data.assets) {
-            setLocalMediaFiles(data.assets);
-          } else {
-            console.error('Failed to load media files from server:', data.error);
-            setLocalMediaFiles([]);
+        do {
+          const query = new URLSearchParams({ limit: "100" });
+          if (nextCursor) query.set("cursor", nextCursor);
+          const response = await fetch(`/api/services/editron/media/list?${query.toString()}`);
+          const data = await response.json().catch(() => null);
+          if (!response.ok || !data?.success || !Array.isArray(data.assets)) {
+            throw new Error(data?.error || `Media list failed with HTTP ${response.status}`);
           }
-        } else {
-          console.error('Failed to load media files from server');
-          setLocalMediaFiles([]);
-        }
+          if (cancelled) return;
+
+          setLocalMediaFiles((previous) =>
+            receivedPage ? mergeLocalMediaFiles(previous, data.assets) : data.assets,
+          );
+          receivedPage = true;
+          setIsLoading(false);
+
+          const continuation = data.hasMore && typeof data.nextCursor === "string"
+            ? data.nextCursor
+            : null;
+          if (data.hasMore && !continuation) {
+            throw new Error("Media list reported more assets without a continuation cursor");
+          }
+          if (continuation && seenCursors.has(continuation)) {
+            throw new Error("Media list returned a repeated continuation cursor");
+          }
+          if (continuation) seenCursors.add(continuation);
+          nextCursor = continuation;
+        } while (nextCursor && !cancelled);
       } catch (error) {
         console.error("Error loading media files from server:", error);
-        setLocalMediaFiles([]);
+        if (!cancelled && !receivedPage) setLocalMediaFiles([]);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
-    loadMediaFiles();
+    void loadMediaFiles();
+    return () => {
+      cancelled = true;
+    };
   }, [userId]);
 
   /**

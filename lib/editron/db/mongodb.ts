@@ -114,7 +114,7 @@ export async function initializeIndexes(): Promise<void> {
 
   // Media assets indexes
   await db.collection(COLLECTIONS.MEDIA_ASSETS).createIndexes([
-    { key: { userId: 1, uploadedAt: -1 }, name: 'userId_uploadedAt' },
+    { key: { userId: 1, uploadedAt: -1, assetId: -1 }, name: 'userId_uploadedAt_assetId' },
     { key: { projectId: 1 }, name: 'projectId' },
     { key: { assetId: 1, userId: 1 }, name: 'assetId_userId', unique: true },
     // LRU eviction candidate queries (ownerAssetFilter + sort by lastUsedAt asc).

@@ -1,6 +1,6 @@
 /**
  * GET /api/services/editron/media/list
- * Fetch all media assets for the current user
+ * Fetch a stable, bounded page of media assets for the current user.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -10,6 +10,42 @@ import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
 
 export const runtime = 'nodejs';
+
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 100;
+
+type MediaListCursor = {
+  uploadedAt: Date;
+  assetId: string;
+};
+
+function mediaListPageSize(searchParams: URLSearchParams): number {
+  const rawLimit = searchParams.get('limit');
+  if (!rawLimit) return DEFAULT_PAGE_SIZE;
+  const requested = Number(rawLimit);
+  return Number.isFinite(requested)
+    ? Math.min(MAX_PAGE_SIZE, Math.max(1, Math.round(requested)))
+    : DEFAULT_PAGE_SIZE;
+}
+
+function decodeMediaListCursor(value: string | null): MediaListCursor | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as { uploadedAt?: unknown; assetId?: unknown };
+    const uploadedAt = new Date(typeof parsed.uploadedAt === 'string' ? parsed.uploadedAt : '');
+    const assetId = typeof parsed.assetId === 'string' ? parsed.assetId.trim() : '';
+    return Number.isFinite(uploadedAt.getTime()) && assetId ? { uploadedAt, assetId } : null;
+  } catch {
+    return null;
+  }
+}
+
+function encodeMediaListCursor(asset: Pick<MediaAsset, 'uploadedAt' | 'assetId'>): string {
+  return Buffer.from(JSON.stringify({
+    uploadedAt: new Date(asset.uploadedAt).toISOString(),
+    assetId: asset.assetId,
+  })).toString('base64url');
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,13 +59,44 @@ export async function GET(request: NextRequest) {
     }
 
     const db = await getDatabase();
-    
-    // Fetch all media assets for this user, sorted by most recent first
-    const mediaAssets = await db
+    const searchParams = new URL(request.url).searchParams;
+    const pageSize = mediaListPageSize(searchParams);
+    const rawCursor = searchParams.get('cursor');
+    const cursor = decodeMediaListCursor(rawCursor);
+    if (rawCursor && !cursor) {
+      return NextResponse.json({ success: false, error: 'Invalid media-list cursor' }, { status: 400 });
+    }
+    const filter: Record<string, unknown> = {
+      userId,
+      type: { $in: ['video', 'audio', 'image'] },
+      ...(cursor ? {
+        $or: [
+          { uploadedAt: { $lt: cursor.uploadedAt } },
+          { uploadedAt: cursor.uploadedAt, assetId: { $lt: cursor.assetId } },
+        ],
+      } : {}),
+    };
+    const mediaAssetsWithSentinel = await db
       .collection(COLLECTIONS.MEDIA_ASSETS)
-      .find({ userId, type: { $in: ['video', 'audio', 'image'] } })
-      .sort({ uploadedAt: -1 })
+      .find(filter, {
+        projection: {
+          semanticEmbedding: 0,
+          transcription: 0,
+          analysis: 0,
+          rawFootageAnalysis: 0,
+          segmentAnalysis: 0,
+          vjepaAnalysis: 0,
+          wav2vecAnalysis: 0,
+          musicAnalysis: 0,
+          momentWeightMap: 0,
+        },
+      })
+      .sort({ uploadedAt: -1, assetId: -1 })
+      .limit(pageSize + 1)
+      .allowDiskUse(true)
       .toArray() as unknown as MediaAsset[];
+    const hasMore = mediaAssetsWithSentinel.length > pageSize;
+    const mediaAssets = hasMore ? mediaAssetsWithSentinel.slice(0, pageSize) : mediaAssetsWithSentinel;
 
     // Resolve assets to get fresh signed URLs if needed
     const resolvedAssets = await Promise.all(
@@ -44,7 +111,7 @@ export async function GET(request: NextRequest) {
             type: asset.type,
             path: resolvedUrl, // Fresh signed URL
             size: asset.size,
-            lastModified: asset.uploadedAt.getTime(),
+            lastModified: new Date(asset.uploadedAt).getTime(),
             thumbnail: asset.thumbnail,
             duration: asset.duration,
             dimensions: asset.dimensions,
@@ -61,7 +128,7 @@ export async function GET(request: NextRequest) {
             type: asset.type,
             path: asset.cachedUrl || '',
             size: asset.size,
-            lastModified: asset.uploadedAt.getTime(),
+            lastModified: new Date(asset.uploadedAt).getTime(),
             thumbnail: asset.thumbnail,
             duration: asset.duration,
             dimensions: asset.dimensions,
@@ -74,6 +141,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       assets: resolvedAssets,
+      hasMore,
+      nextCursor: hasMore && mediaAssets.length > 0
+        ? encodeMediaListCursor(mediaAssets[mediaAssets.length - 1])
+        : null,
     });
   } catch (error: any) {
     console.error('Error fetching media assets:', error);
