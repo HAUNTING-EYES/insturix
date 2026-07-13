@@ -4,6 +4,7 @@ import {
   assessVjepaReliability,
   auditVjepaCoverage,
   resolveVjepaScreenContextPolicy,
+  summarizeVideoTimelineDurationMs,
   type VjepaCoverageAudit,
   type VjepaCoverageSegment,
 } from './vjepa-coverage-audit';
@@ -1244,9 +1245,13 @@ function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0O
     };
   }
 
+  const rawFootageRecord = isRecord(project.rawFootageAnalysis) ? project.rawFootageAnalysis : null;
   const audit = auditVjepaCoverage({
     fps,
     originalDurationMs: readNullableNumber(project.rawFootageAnalysis?.originalDurationMs) ?? undefined,
+    eligibleDurationMs: isRecord(rawFootageRecord?.multiAssetProvenance)
+      ? summarizeVideoTimelineDurationMs(overlays, fps)
+      : undefined,
     cleanDurationMs: readNullableNumber(project.rawFootageAnalysis?.estimatedCleanDurationMs) ?? undefined,
     vjepaSegments: segments,
     rawFootageSegments: project.vjepaAnalysis?.rawFootageSegments,

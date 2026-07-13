@@ -108,7 +108,9 @@ function finalOverlayBypass(overlay: any): CrossOverlayFinalOverlayBypass | null
 function finalOverlayProducer(overlay: any): CrossOverlayFinalOverlayProducer | null {
   const metadata = recordParam(overlay?.metadata) ?? {};
   if (overlay?.type === 'caption' && metadata.source === 'canonical-caption-track') {
-    return 'canonical-caption-track';
+    return hasScheduledCanonicalCaptionReservations(metadata)
+      ? null
+      : 'canonical-caption-track';
   }
   if (overlay?.type === 'sound' && overlay?._workerAdded === true) {
     return 'async-worker-audio';
@@ -117,6 +119,19 @@ function finalOverlayProducer(overlay: any): CrossOverlayFinalOverlayProducer | 
     return 'post-edl-drift-zoom';
   }
   return null;
+}
+
+function hasScheduledCanonicalCaptionReservations(metadata: Record<string, unknown>): boolean {
+  const receipt = recordParam(metadata.crossOverlayChoreographyReservations);
+  if (!receipt || receipt.status !== 'scheduled') return false;
+  const reservationCount = receipt.reservationCount;
+  const activeGroupCount = receipt.activeGroupCount;
+  return typeof reservationCount === 'number'
+    && Number.isFinite(reservationCount)
+    && reservationCount > 0
+    && typeof activeGroupCount === 'number'
+    && Number.isFinite(activeGroupCount)
+    && activeGroupCount === reservationCount;
 }
 
 function finalOverlayFamily(

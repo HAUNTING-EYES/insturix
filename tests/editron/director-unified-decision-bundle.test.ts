@@ -20,7 +20,8 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain('let unifiedDecisionBundle');
     expect(source).toContain('const unifiedDecisionCandidates');
     expect(source).toContain('if (canRunPathD)');
-    expect(source).toContain('planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates)');
+    expect(source).toContain('planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates, {');
+    expect(source).toContain('choreographyReservations: canonicalCaptionChoreographyReservations');
     expect(source.match(/editorialPreferences: brief\?\.editorialPreferences/g)).toHaveLength(3);
     expect(source).toContain('await executeEDL(');
     expect(source).toContain('unifiedDecisionBundle.edl');

@@ -227,6 +227,8 @@ describe('phase0 failure taxonomy', () => {
           status: 'warn',
           issues: ['warn:low-vjepa-duration-coverage:50%'],
           fps: 30,
+          expectedDurationMs: 6000,
+          durationBasis: 'original-media',
           segmentCoverage: {
             segmentCount: 1,
             spanStartMs: 0,

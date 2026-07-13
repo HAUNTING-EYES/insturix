@@ -51,6 +51,8 @@ export interface CrossOverlayChoreographyReport {
   outputDecisionCount: number;
   suppressedDecisionCount: number;
   annotatedDecisionCount: number;
+  reservationCount: number;
+  reservations: CrossOverlayChoreographyDecisionSummary[];
   calibrationStatus: 'invented-needs-calibration';
   laneLoad: Record<CrossOverlayChoreographyLane, number>;
   syncGroups: CrossOverlayChoreographySyncGroup[];
@@ -86,9 +88,12 @@ const MOTION_SYNC_WINDOW_FRAMES = 18;
 const AUDIO_SYNC_WINDOW_FRAMES = 12;
 const MAX_ACTIVE_VISUAL_FAMILIES = 3;
 
-export function applyCrossOverlayChoreography(decisions: EditDecision[]): CrossOverlayChoreographyResult {
+export function applyCrossOverlayChoreography(
+  decisions: EditDecision[],
+  reservations: EditDecision[] = [],
+): CrossOverlayChoreographyResult {
   if (decisions.length === 0) {
-    return buildResult([], []);
+    return buildResult([], [], [], reservations);
   }
 
   const ordered = [...decisions].sort((a, b) => (
@@ -96,7 +101,8 @@ export function applyCrossOverlayChoreography(decisions: EditDecision[]): CrossO
     || decisionStrength(b) - decisionStrength(a)
     || a.frame - b.frame
   ));
-  const kept: EditDecision[] = [];
+  const kept: EditDecision[] = [...reservations];
+  const keptExecutable: EditDecision[] = [];
   const suppressed: CrossOverlayChoreographySuppression[] = [];
   const shaped: CrossOverlayChoreographyShape[] = [];
 
@@ -106,6 +112,7 @@ export function applyCrossOverlayChoreography(decisions: EditDecision[]): CrossO
       const shapedDecision = shapeDecisionAwayFromConflict(decision, conflict, kept);
       if (shapedDecision) {
         kept.push(shapedDecision.decision);
+        keptExecutable.push(shapedDecision.decision);
         shaped.push(shapedDecision);
         continue;
       }
@@ -120,13 +127,14 @@ export function applyCrossOverlayChoreography(decisions: EditDecision[]): CrossO
       continue;
     }
     kept.push(decision);
+    keptExecutable.push(decision);
   }
 
-  const annotated = kept
+  const annotated = keptExecutable
     .sort((a, b) => a.frame - b.frame || a.priority - b.priority)
     .map((decision) => annotateKeptDecision(decision, kept, suppressed));
 
-  return buildResult(annotated, suppressed, shaped);
+  return buildResult(annotated, suppressed, shaped, reservations);
 }
 
 function findChoreographyConflict(
@@ -276,6 +284,7 @@ function buildResult(
   decisions: EditDecision[],
   suppressed: CrossOverlayChoreographySuppression[],
   shaped: CrossOverlayChoreographyShape[] = [],
+  reservations: EditDecision[] = [],
 ): CrossOverlayChoreographyResult {
   return {
     decisions,
@@ -289,6 +298,8 @@ function buildResult(
       shapedDecisionCount: shaped.length,
       annotatedDecisionCount: decisions.length,
       calibrationStatus: 'invented-needs-calibration',
+      reservationCount: reservations.length,
+      reservations: reservations.slice(0, 100).map(summarizeDecision),
       laneLoad: buildLaneLoad(decisions),
       syncGroups: buildSyncGroups(decisions),
       suppressed: suppressed.map(({ decision: _decision, ...rest }) => rest),

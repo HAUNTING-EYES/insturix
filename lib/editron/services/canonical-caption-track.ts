@@ -8,6 +8,7 @@ import {
 } from '@/components/editron/editor/version-7.0.0/types';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import type { AtomicCaptionPresentation } from './caption-form';
+import type { EditDecision } from './reactive-edit-engine';
 import type { EditedTimelineContext } from './edited-timeline-context';
 import type { SegmentAnalysis, SegmentRecord } from '../types/segment-analysis';
 import type { VjepaTextBox } from './vjepa-service';
@@ -23,6 +24,7 @@ export interface InstallCanonicalCaptionTrackInput {
   segmentAnalysis?: SegmentAnalysis | null;
   playerDimensions?: { width: number; height: number } | null;
   presentation: AtomicCaptionPresentation;
+  choreographyReservationCount?: number;
 }
 
 export interface InstallCanonicalCaptionTrackResult {
@@ -75,6 +77,33 @@ export function installCanonicalCaptionTrack(input: InstallCanonicalCaptionTrack
   };
 }
 
+export function buildCanonicalCaptionChoreographyReservations(
+  input: InstallCanonicalCaptionTrackInput,
+): EditDecision[] {
+  const overlay = createCanonicalCaptionTrack(input);
+  if (!overlay) return [];
+  const fps = input.editedTimelineContext.fps > 0 ? input.editedTimelineContext.fps : 30;
+  return overlay.captions.map((caption, index) => {
+    const frame = Math.max(0, Math.floor((caption.startMs / 1000) * fps));
+    const endFrame = Math.max(frame + 1, Math.ceil((caption.endMs / 1000) * fps));
+    return {
+      type: 'caption-emphasis',
+      frame,
+      durationFrames: endFrame - frame,
+      priority: 1,
+      source: CANONICAL_CAPTION_TRACK_SOURCE,
+      signal: 'caption-group-active',
+      reason: 'Reserve the text-attention lane while a canonical caption group is visible.',
+      params: {
+        choreographyReservationOnly: true,
+        captionGroupIndex: index,
+        captionStartMs: caption.startMs,
+        captionEndMs: caption.endMs,
+      },
+      confidence: 1,
+    };
+  });
+}
 export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackInput): (CaptionOverlay & { metadata: Record<string, unknown>; words: CaptionWord[] }) | null {
   const words = input.editedTimelineContext.transcription
     .map((word): CaptionWord => ({
@@ -143,6 +172,12 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
       version: 'canonical-caption-track-v1',
       timeline: 'cut',
       generated: true,
+      crossOverlayChoreographyReservations: {
+        version: 'canonical-caption-reservations-v1',
+        status: input.choreographyReservationCount === captions.length ? 'scheduled' : 'unreserved',
+        reservationCount: input.choreographyReservationCount ?? 0,
+        activeGroupCount: captions.length,
+      },
       captionPresentation: input.presentation,
       evidence: {
         editedWordCount: words.length,

@@ -263,6 +263,8 @@ function baseProject(overrides: Partial<Phase0FixtureProject> = {}): Phase0Fixtu
         status: 'warn',
         issues: ['warn:test coverage gap'],
         fps,
+        expectedDurationMs: 3000,
+        durationBasis: 'original-media',
         overlayHitRate: 0.5,
         overlayHits: [],
         segmentCoverage: {

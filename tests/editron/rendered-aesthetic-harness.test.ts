@@ -84,6 +84,30 @@ describe('rendered aesthetic harness helpers', () => {
     expect(baseline.map((overlay) => overlay.id)).toEqual([2]);
   });
 
+  it('treats an image on the canonical video row as source media, not an audited overlay', () => {
+    const sourceImage = imageOverlay({
+      id: 21,
+      row: 2,
+      left: 0,
+      top: 0,
+      width: 1080,
+      height: 1920,
+      durationInFrames: 120,
+    });
+    const decorativeImage = imageOverlay({
+      id: 22,
+      row: 6,
+      left: 0,
+      top: 0,
+      width: 1080,
+      height: 1920,
+      durationInFrames: 120,
+    });
+
+    expect(pickRenderedAestheticSampleFrames([sourceImage], 120, 10)).toEqual([]);
+    expect(pickRenderedAestheticSampleFrames([decorativeImage], 120, 10)).toEqual([0, 66]);
+    expect(buildBaselineOverlays([sourceImage], 1080, 1920).map((overlay) => overlay.id)).toEqual([21]);
+  });
   it('builds overlay-only render props without source video or audio', () => {
     const overlays = buildOverlayOnlyRenderOverlays([
       videoOverlay({ id: 1 }),

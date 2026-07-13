@@ -484,6 +484,7 @@ export type UnifiedDecisionProducerCandidate = CreateUnifiedDecisionBundleOption
 
 interface MergeSignalDrivenBundleOptions {
   maxNearFrameWindow?: number;
+  choreographyReservations?: ReactiveEditDecision[];
 }
 
 const DEFAULT_MAX_NEAR_FRAME_WINDOW = 24;
@@ -746,7 +747,7 @@ export function planUnifiedDecisionBundleFromCandidates(
   if (candidates.length === 0) return null;
 
   const producerSet = new Set(candidates.map((candidate) => candidate.source));
-  if (producerSet.has('signal-driven')) {
+  if (producerSet.has('signal-driven') || (options.choreographyReservations?.length ?? 0) > 0) {
     return planUnifiedDecisionBundleFromRankedCandidates(candidates, options);
   }
 
@@ -771,8 +772,16 @@ function planUnifiedDecisionBundleFromRankedCandidates(
   const rawSignalDecisions = orderedProducerCandidates
     .filter((candidate) => candidate.source === 'signal-driven')
     .flatMap((candidate) => normalizeEdl(candidate.edl).decisions);
-  const signalDecisions = enrichDecisionsWithOverlayTimelineMemory(rawSignalDecisions, creativeDecisions);
-  const overlayTimelineContextDecisions = buildOverlayTimelineContext([...creativeDecisions, ...signalDecisions]);
+  const choreographyReservations = options.choreographyReservations ?? [];
+  const signalDecisions = enrichDecisionsWithOverlayTimelineMemory(
+    rawSignalDecisions,
+    [...creativeDecisions, ...choreographyReservations],
+  );
+  const overlayTimelineContextDecisions = buildOverlayTimelineContext([
+    ...creativeDecisions,
+    ...signalDecisions,
+    ...choreographyReservations,
+  ]);
   const signalExecutionBudgets = buildSignalExecutionBudgets(signalDecisions);
   const signalDecisionAudit = createSignalDecisionAuditBuilder(createEmptySignalDecisionAudit());
   const evidenceOnlySignalDecisions: UnifiedSignalDecisionEvidence[] = [];
@@ -881,7 +890,10 @@ function planUnifiedDecisionBundleFromRankedCandidates(
     selectedEntrySourceByKey.get(decisionSelectionKey(decision))
       ?? (isSignalSourceDecision(decision) ? 'signal-driven' : 'creative-brief')
   );
-  const choreographyResult = applyCrossOverlayChoreography(selectedEntries.map((entry) => entry.decision));
+  const choreographyResult = applyCrossOverlayChoreography(
+    selectedEntries.map((entry) => entry.decision),
+    choreographyReservations,
+  );
 
   for (const suppression of choreographyResult.suppressed) {
     const suppressedProducer = selectedProducerForDecision(suppression.decision);

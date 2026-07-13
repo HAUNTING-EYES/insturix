@@ -10,6 +10,7 @@ import type { Overlay } from '../components/editron/editor/version-7.0.0/types';
 import { OverlayType } from '../components/editron/editor/version-7.0.0/types';
 import { evaluateAllTracks } from '../components/editron/editor/version-7.0.0/utils/keyframe-evaluator';
 import { ensureLiveAtomicOverlayReceipt } from '../lib/editron/engine/overlay-atomic-receipts';
+import { ROW } from '../lib/pipeline/scene-to-editron';
 import {
   scoreRenderedFrameAesthetic,
   type RenderedAestheticIssue,
@@ -1778,6 +1779,7 @@ function isInsideAllowedRoot(candidate: string, root: string): boolean {
 }
 
 function isAuditedOverlay(overlay: Overlay): boolean {
+  if (overlay.type === OverlayType.IMAGE && overlay.row === ROW.VIDEO) return false;
   return AUDITED_VISUAL_TYPES.has(String(overlay.type));
 }
 

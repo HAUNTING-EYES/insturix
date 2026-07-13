@@ -50,7 +50,10 @@ import {
   formatVjepaCoverageAuditWarning,
   shouldRunLegacyIntelligenceFallback,
 } from '@/lib/editron/agent/director-observability';
-import { installCanonicalCaptionTrack } from '@/lib/editron/services/canonical-caption-track';
+import {
+  buildCanonicalCaptionChoreographyReservations,
+  installCanonicalCaptionTrack,
+} from '@/lib/editron/services/canonical-caption-track';
 import { buildPersistedQualityReview } from '@/lib/editron/services/quality-review-persistence';
 import { buildPhase0LiveTruthSnapshot } from '@/lib/editron/services/phase0-live-truth';
 import { buildPhase0FixtureManifest } from '@/lib/editron/services/phase0-fixture-manifest';
@@ -1636,7 +1639,22 @@ export async function executeDirectorPlan(
         console.log(`[Director] Storyline seam hints: ${storylineSeamEdl.totalDecisions} transition candidates`);
       }
 
-      unifiedDecisionBundle = planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates);
+      const canonicalCaptionChoreographyReservations = editedTimelineContext && captionEditorialPolicy.executionAllowed
+        ? buildCanonicalCaptionChoreographyReservations({
+          overlays,
+          editedTimelineContext,
+          segmentAnalysis: projectDoc?.segmentAnalysis ?? null,
+          playerDimensions: project.playerDimensions || { width: 1920, height: 1080 },
+          presentation: resolveAtomicCaptionPresentation({
+            requestedStyle: briefCaptionStyle,
+            profileStyle: undefined,
+            genreParams: pathDGenreParams,
+          }),
+        })
+        : [];
+      unifiedDecisionBundle = planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates, {
+        choreographyReservations: canonicalCaptionChoreographyReservations,
+      });
       if (unifiedDecisionBundle?.source === 'creative-brief+signal-driven') {
         console.log(
           `[Director] Unified decision planner (mode=${unifiedDecisionBundle.authority.decisionMode ?? 'creative-brief-primary'}) - ` +
@@ -1681,6 +1699,7 @@ export async function executeDirectorPlan(
               segmentAnalysis: projectDoc?.segmentAnalysis ?? null,
               playerDimensions: canvas,
               presentation: captionPresentation,
+              choreographyReservationCount: canonicalCaptionChoreographyReservations.length,
             });
             if (captionTrackResult.created > 0) {
               result.overlaysModified += captionTrackResult.created + captionTrackResult.removedGenerated;
@@ -2142,12 +2161,16 @@ export async function executeDirectorPlan(
     try {
       const hasUploadToEditSignals = Array.isArray(projectDoc?.rawFootageAnalysis?.segments) || Array.isArray(projectDoc?.vjepaAnalysis?.segments);
       if (hasUploadToEditSignals) {
-        const { auditVjepaCoverage } = await import('@/lib/editron/services/vjepa-coverage-audit');
+        const { auditVjepaCoverage, summarizeVideoTimelineDurationMs } = await import('@/lib/editron/services/vjepa-coverage-audit');
         const fpsForAudit = project.fps || 30;
         const rawFootageSegments = projectDoc?.rawFootageAnalysis?.segments;
+        const isCanonicalMultiAssetTimeline = !!projectDoc?.rawFootageAnalysis?.multiAssetProvenance;
         const vjepaAudit = auditVjepaCoverage({
           fps: fpsForAudit,
           originalDurationMs: projectDoc?.rawFootageAnalysis?.originalDurationMs,
+          eligibleDurationMs: isCanonicalMultiAssetTimeline
+            ? summarizeVideoTimelineDurationMs(overlays as any[], fpsForAudit)
+            : undefined,
           cleanDurationMs: projectDoc?.rawFootageAnalysis?.estimatedCleanDurationMs,
           vjepaSegments: projectDoc?.vjepaAnalysis?.segments ?? [],
           rawFootageSegments: Array.isArray(rawFootageSegments) ? rawFootageSegments : undefined,
