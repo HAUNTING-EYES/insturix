@@ -176,6 +176,48 @@ describe('generateMoment - the pipeline (decline / scan→repair→compile→jud
     expect(r.receipt.attempts).toBe(2);
   });
 
+  it('repairs a compiler-invalid visual revision with the remaining bounded attempt', async () => {
+    let compileCalls = 0;
+    let judgeCalls = 0;
+    const r = await generateMoment(input(), deps({
+      writeComponent: queue([VALID_CODE, NO_IMPORT_CODE, NO_IMPORT_CODE]),
+      compile: async () => {
+        compileCalls += 1;
+        return compileCalls === 2
+          ? { ok: false, error: 'MgScene.tsx:50:22 ERROR: Syntax error "p"' }
+          : { ok: true };
+      },
+      evaluate: async () => {
+        judgeCalls += 1;
+        return judgeCalls === 1
+          ? { score: 0, issues: ['comparison value unreadable'] }
+          : { score: 8.6, issues: [] };
+      },
+    }));
+
+    expect(r.status).toBe('generated');
+    expect(r.receipt.attempts).toBe(3);
+    expect(r.receipt.compiled).toBe(true);
+    expect(compileCalls).toBe(3);
+    expect(judgeCalls).toBe(2);
+  });
+
+  it('fails closed when the bounded visual-revision compiler repair is still invalid', async () => {
+    let compileCalls = 0;
+    const r = await generateMoment(input(), deps({
+      writeComponent: queue([VALID_CODE, NO_IMPORT_CODE, NO_IMPORT_CODE]),
+      compile: async () => {
+        compileCalls += 1;
+        return compileCalls === 1 ? { ok: true } : { ok: false, error: 'still malformed' };
+      },
+      evaluate: async () => ({ score: 0, issues: ['unreadable'] }),
+    }));
+
+    expect(r.status).toBe('fallback');
+    expect(r.receipt.attempts).toBe(3);
+    expect(r.receipt.compiled).toBe(false);
+    expect(r.reason).toMatch(/revision compile repair failed: still malformed/);
+  });
   it('low judge score twice → fallback', async () => {
     const r = await generateMoment(input(), deps({ evaluate: async () => ({ score: 5, issues: ['x'] }) }));
     expect(r.status).toBe('fallback');
