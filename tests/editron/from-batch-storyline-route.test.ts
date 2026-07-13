@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   embedScenes: vi.fn(),
   generateEditronEmbedding: vi.fn(),
   buildSignalTimeline: vi.fn(),
+  buildMultiAssetDirectorContext: vi.fn(),
   buildSignalTimelineFromAnalysis: vi.fn(),
   bulkWriteAssets: vi.fn(),
   narrativeSourceFromTimeline: vi.fn(),
@@ -55,6 +56,9 @@ vi.mock('@/lib/editron/services/r2-service', () => ({
 }));
 vi.mock('@/lib/editron/services/batch-storyline-analysis-bridge', () => ({
   hydrateStorylineAnalysesForBatch: mocks.hydrateStorylineAnalysesForBatch,
+}));
+vi.mock('@/lib/editron/services/multi-asset-director-context', () => ({
+  buildMultiAssetDirectorContext: mocks.buildMultiAssetDirectorContext,
 }));
 vi.mock('@/lib/editron/storyline/asset-analysis-reader', () => ({
   readProjectAssetAnalyses: mocks.readProjectAssetAnalyses,
@@ -118,7 +122,7 @@ function mockDb() {
     userId: 'user_1',
     orgId: 'org_1',
     assetIds: ['video_1', 'image_1'],
-    productionBriefIntake: { userIntent: 'make a concise product proof cut' },
+    productionBriefIntake: { userIntent: 'make a concise product proof cut', script: 'Show the proof, then the result.' },
   };
   mediaAssets = [
     {
@@ -207,6 +211,20 @@ describe('from-batch storyline route handoff', () => {
       assetId: 'video_1',
       rawFootageAnalysis: { transcription: { words: [{ word: 'Proof', startMs: 1000, endMs: 1300 }] }, originalDurationMs: 8000 },
     }, { assetId: 'image_1' }]);
+    mocks.buildMultiAssetDirectorContext.mockReturnValue({
+      rawFootageAnalysis: { timelineCoordinateSpace: 'canonical-edited-v1', transcription: { words: [{ word: 'Proof', startMs: 0, endMs: 300 }] } },
+      segmentAnalysis: { version: 1, segments: [{ startMs: 0, endMs: 2000 }], globalContext: {}, meta: { segmentCount: 1 } },
+      vjepaAnalysis: { segments: [{ startMs: 0, endMs: 2000 }], modelVersion: 'test', processingTimeMs: 1 },
+      wav2vecAnalysis: { segments: [{ startMs: 0, endMs: 500 }], modelVersion: 'test', processingTimeMs: 1 },
+      momentWeightMap: { weights: [{ segment_start_ms: 0, segment_end_ms: 2000 }], default_weight: 0.5, computation_phase: 2 },
+      musicAnalysis: { bpm: 100, beats: [], sections: [], musicPresence: 0, key: null, energyCurve: [], durationMs: 2000, processingTimeMs: 1 },
+      provenance: {
+        version: 'multi-asset-director-context-v1',
+        coordinateSpace: 'canonical-edited-v1',
+        selectedVideoClipCount: 1,
+        sourceAssetCount: 1,
+      },
+    });
     mocks.scenesFromAssetAnalyses.mockReturnValue([{ id: 'scene_video', source: 'video_1', startTime: 1, endTime: 3, durationSec: 2 }]);
     mocks.synthesizeImageScenes.mockResolvedValue([{ id: 'scene_image', source: 'image_1', startTime: 0, endTime: 4, durationSec: 4 }]);
     mocks.embedScenes.mockImplementation(async (scenes: unknown) => scenes);
@@ -353,6 +371,13 @@ describe('from-batch storyline route handoff', () => {
       sourceStartFrame: 30,
       storyline: expect.objectContaining({ source: 'storyline', order: 0, role: 'hook', sourceRef: 'scene_video' }),
     }));
+    expect(mocks.buildMultiAssetDirectorContext).toHaveBeenCalledWith({
+      analyses: expect.any(Array),
+      overlays: savedState.overlays,
+      fps: 30,
+      durationInFrames: 180,
+    });
+
 
     expect(savedState.overlays[1]).toEqual(expect.objectContaining({
       type: 'image',
@@ -397,6 +422,13 @@ describe('from-batch storyline route handoff', () => {
           autoEditStatus: 'directing_queued',
           sourceUploadBatchId: 'batch_1',
           sourceAssetIds: ['video_1', 'image_1'],
+          rawFootageAnalysis: expect.objectContaining({ timelineCoordinateSpace: 'canonical-edited-v1' }),
+          segmentAnalysis: expect.objectContaining({ version: 1 }),
+          vjepaAnalysis: expect.objectContaining({ modelVersion: 'test' }),
+          wav2vecAnalysis: expect.objectContaining({ modelVersion: 'test' }),
+          momentWeightMap: expect.objectContaining({ computation_phase: 2 }),
+          musicAnalysis: expect.objectContaining({ bpm: 100 }),
+          multiAssetDirectorContext: expect.objectContaining({ coordinateSpace: 'canonical-edited-v1' }),
           storylinePlan: expect.objectContaining({
             source: 'storyline',
             planApplied: true,
@@ -417,6 +449,9 @@ describe('from-batch storyline route handoff', () => {
     );
     expect(directorDispatch).toBeDefined();
     const directorPayload = JSON.parse(String((directorDispatch?.[1] as RequestInit).body));
+    expect(directorPayload.userIntent).toBe(
+      'make a concise product proof cut\n\nUser-provided script or outline:\nShow the proof, then the result.',
+    );
     expect(directorPayload.editorialPreferences).toEqual({
       families: {
         motionGraphics: { mode: 'prefer', frequency: 0.7, intensity: 0.8 },

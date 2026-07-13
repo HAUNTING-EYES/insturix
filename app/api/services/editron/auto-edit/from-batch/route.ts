@@ -22,6 +22,7 @@ import { readProjectAssetAnalyses } from '@/lib/editron/storyline/asset-analysis
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
 import { hydrateStorylineAnalysesForBatch } from '@/lib/editron/services/batch-storyline-analysis-bridge';
+import { buildMultiAssetDirectorContext } from '@/lib/editron/services/multi-asset-director-context';
 import { embedScenes, makeEmbeddingScorer } from '@/lib/editron/storyline/scene-embedding';
 import { synthesizeImageScenes, type ImageAssetInput, type ImageFacts } from '@/lib/editron/storyline/image-scene';
 import { generateEditronEmbedding } from '@/lib/editron/services/gemini-embedding';
@@ -381,6 +382,16 @@ async function recoverStaleExistingBatch(params: {
   }
 }
 
+function directorNarrativeContext(intake: MediaUploadBatchIntake): string | undefined {
+  const intent = cleanString(intake.userIntent, 4000);
+  const script = cleanString(intake.script, 12000);
+  const context = [
+    intent,
+    script ? 'User-provided script or outline:\n' + script : undefined,
+  ].filter((part): part is string => Boolean(part));
+  return context.length > 0 ? context.join('\n\n') : undefined;
+}
+
 function buildDirectorBrief(intake: MediaUploadBatchIntake): ProjectBrief {
   const captionStyle = normalizeDirectorEnum<ProjectBrief['captionStyle'] & string>(intake.captionStyle, ['word_by_word', 'sentence', 'key_phrases', 'none']);
   const transitionPreference = normalizeDirectorEnum<ProjectBrief['transitionPreference'] & string>(intake.transitionPreference, ['minimal', 'subtle', 'dynamic', 'energetic']);
@@ -388,12 +399,13 @@ function buildDirectorBrief(intake: MediaUploadBatchIntake): ProjectBrief {
   const motionGraphics = normalizeDirectorEnum<ProjectBrief['motionGraphics'] & string>(intake.motionGraphics, ['none', 'stats_only', 'full']);
   const pacingFeel = normalizeDirectorEnum<ProjectBrief['pacingFeel'] & string>(intake.pacingFeel, ['calm', 'balanced', 'energetic', 'fast']);
   const musicPreference = normalizeDirectorEnum<ProjectBrief['musicPreference'] & string>(intake.musicPreference, ['none', 'subtle_bed', 'energetic', 'match_video']);
+  const narrativeContext = directorNarrativeContext(intake);
   const editorialPreferences = normalizeEditorialPreferences(intake.editorialPreferences);
 
   return {
     modifiers: [],
     ...(cleanString(intake.platform, 64) && { platform: cleanString(intake.platform, 64) }),
-    ...(cleanString(intake.userIntent) && { intent: cleanString(intake.userIntent) }),
+    ...(narrativeContext && { intent: narrativeContext }),
     ...(captionStyle && { captionStyle }),
     ...(transitionPreference && { transitionPreference }),
     ...(zoomBehavior && { zoomBehavior }),
@@ -823,7 +835,7 @@ async function dispatchDirector(params: {
     profileId: 'A-01',
     title: params.title,
     platform: params.intake.platform,
-    userIntent: params.intake.userIntent,
+    userIntent: directorNarrativeContext(params.intake),
     captionStyle: params.intake.captionStyle,
     transitionPreference: params.intake.transitionPreference,
     zoomBehavior: params.intake.zoomBehavior,
@@ -1300,6 +1312,39 @@ export async function POST(request: NextRequest) {
     const storylineTimeline = await materializeStoryline(ordering, visualAssets, userId, uploadBatchId, dims);
     const timeline = storylineTimeline ?? await materializeChronologicalFallback(visualAssets, userId, uploadBatchId, dims);
     if (timeline.overlays.length === 0) throw new Error('No usable clips could be materialized from this batch.');
+    const selectedVideoClipCount = timeline.overlays.filter((overlay) => overlay.type === 'video').length;
+    const directorContext = selectedVideoClipCount > 0
+      ? buildMultiAssetDirectorContext({
+          analyses,
+          overlays: timeline.overlays,
+          fps: FPS,
+          durationInFrames: timeline.durationInFrames,
+        })
+      : null;
+    const directorAnalysisSet: Record<string, unknown> = {};
+    const directorAnalysisUnset: Record<string, ''> = { batchDeliverable: '' };
+    if (directorContext) {
+      Object.assign(directorAnalysisSet, {
+        rawFootageAnalysis: directorContext.rawFootageAnalysis,
+        segmentAnalysis: directorContext.segmentAnalysis,
+        multiAssetDirectorContext: directorContext.provenance,
+      });
+      const optionalAnalyses: Record<string, unknown> = {
+        vjepaAnalysis: directorContext.vjepaAnalysis,
+        wav2vecAnalysis: directorContext.wav2vecAnalysis,
+        momentWeightMap: directorContext.momentWeightMap,
+        musicAnalysis: directorContext.musicAnalysis,
+      };
+      for (const [field, value] of Object.entries(optionalAnalyses)) {
+        if (value != null) directorAnalysisSet[field] = value;
+        else directorAnalysisUnset[field] = '';
+      }
+    } else {
+      for (const field of ['rawFootageAnalysis', 'segmentAnalysis', 'multiAssetDirectorContext', 'vjepaAnalysis', 'wav2vecAnalysis', 'momentWeightMap', 'musicAnalysis']) {
+        directorAnalysisUnset[field] = '';
+      }
+    }
+
 
     await projectService.saveProject(userId, activeProjectId, {
       overlays: timeline.overlays as any,
@@ -1316,6 +1361,7 @@ export async function POST(request: NextRequest) {
           autoEditStatus: 'directing_queued',
           sourceUploadBatchId: uploadBatchId,
           sourceAssetIds: visualAssets.map((asset) => asset.assetId),
+          ...directorAnalysisSet,
           productionBrief: brief,
           storylinePlan: {
             source: timeline.source,
@@ -1325,10 +1371,11 @@ export async function POST(request: NextRequest) {
             clipCount: timeline.clipCount,
             composerClipCount: ordering.storyline.clips.length,
             analysisBridge,
+            directorContext: directorContext?.provenance ?? null,
           },
           updatedAt: new Date(),
         },
-        $unset: { batchDeliverable: '' },
+        $unset: directorAnalysisUnset,
       },
     );
 
