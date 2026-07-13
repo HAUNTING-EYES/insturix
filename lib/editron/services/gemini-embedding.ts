@@ -23,6 +23,10 @@ export async function generateEditronEmbedding(
     process.env.GOOGLE_API_KEY ||
     '';
   if (!apiKey) return null;
+  const taskType = options.taskType || 'RETRIEVAL_DOCUMENT';
+  if (options.title && taskType !== 'RETRIEVAL_DOCUMENT') {
+    throw new Error('Embedding titles require RETRIEVAL_DOCUMENT task type');
+  }
 
   const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
@@ -31,8 +35,8 @@ export async function generateEditronEmbedding(
     contents: normalized,
     config: {
       outputDimensionality: EDITRON_EMBEDDING_DIMENSIONS,
-      taskType: options.taskType || 'RETRIEVAL_DOCUMENT',
-      title: options.title,
+      taskType,
+      ...(options.title ? { title: options.title } : {}),
     },
   });
 

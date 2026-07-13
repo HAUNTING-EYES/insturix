@@ -577,7 +577,7 @@ async function embedStorylineDocument(text: string): Promise<number[]> {
 
 async function embedStorylineIntent(text: string | null): Promise<number[] | null> {
   if (!text) return null;
-  return await generateEditronEmbedding(text, { taskType: 'RETRIEVAL_QUERY', title: 'Edit intent' });
+  return await generateEditronEmbedding(text, { taskType: 'RETRIEVAL_QUERY' });
 }
 
 function imageSceneInputs(assets: readonly BatchMediaAsset[]): ImageAssetInput[] {
