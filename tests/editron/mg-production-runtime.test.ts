@@ -13,7 +13,7 @@ vi.mock('@/lib/editron/utils/gemini-model-factory', () => ({
 import { createProductionMgRuntime } from '@/lib/editron/motion-graphics/codegen/production-runtime';
 import { INSTURIX } from '@/lib/editron/motion-graphics/codegen/kit/brand';
 import type { MgMomentInput } from '@/lib/editron/motion-graphics/codegen/types';
-import { getAnalysisModel } from '@/lib/editron/utils/gemini-model-factory';
+import { getAnalysisModel, getGeneralModel } from '@/lib/editron/utils/gemini-model-factory';
 
 const tempDirs: string[] = [];
 
@@ -98,6 +98,45 @@ describe('production MG codegen runtime', () => {
     await expect(runtime.codegen.evaluate('component', moment())).resolves.toEqual({ score: 0, issues: ['fabricated value'] });
     await runtime.dispose();
     expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses a larger deterministic budget for component generation and a distinct repair seed', async () => {
+    const generateContent = vi.fn().mockResolvedValue({
+      response: {
+        text: () => 'component',
+        candidates: [{ finishReason: 'STOP' }],
+        usageMetadata: { totalTokenCount: 9_100, thoughtsTokenCount: 7_800 },
+      },
+    });
+    vi.mocked(getGeneralModel).mockResolvedValue({ generateContent } as never);
+    const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
+      render: fakeRender,
+      cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
+    });
+
+    await expect(runtime.codegen.writeComponent('initial prompt')).resolves.toBe('component');
+    await expect(runtime.codegen.writeComponent('<previous_attempt_feedback>repair</previous_attempt_feedback>')).resolves.toBe('component');
+    expect(generateContent.mock.calls.map(([request]) => request.generationConfig.seed)).toEqual([42, 7]);
+    expect(generateContent.mock.calls.map(([request]) => request.generationConfig.maxOutputTokens)).toEqual([16_384, 16_384]);
+    await runtime.dispose();
+  });
+
+  it('rejects a MAX_TOKENS component before scanner or compiler can accept truncated JSX', async () => {
+    const generateContent = vi.fn().mockResolvedValue({
+      response: {
+        text: () => 'export const MgScene = (',
+        candidates: [{ finishReason: 'MAX_TOKENS' }],
+        usageMetadata: { totalTokenCount: 18_500, thoughtsTokenCount: 16_000 },
+      },
+    });
+    vi.mocked(getGeneralModel).mockResolvedValue({ generateContent } as never);
+    const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
+      render: fakeRender,
+      cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
+    });
+
+    await expect(runtime.codegen.writeComponent('initial prompt')).rejects.toThrow(/component truncated: finishReason=MAX_TOKENS/);
+    await runtime.dispose();
   });
 
   it('retries malformed visual-judge JSON with a deterministic seed and schema', async () => {

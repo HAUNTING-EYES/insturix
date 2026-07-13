@@ -32,6 +32,8 @@ const JUDGE_ATTEMPTS = [
   { seed: 42, maxOutputTokens: 1_200 },
   { seed: 7, maxOutputTokens: 4_096 },
 ] as const;
+const COMPONENT_MAX_OUTPUT_TOKENS = 16_384;
+const COMPONENT_SEEDS = { initial: 42, repair: 7 } as const;
 
 export interface ProductionMgRuntimeOptions {
   render?: RenderFn;
@@ -50,10 +52,24 @@ export interface ProductionMgRuntime {
 
 async function defaultWriteComponent(prompt: string): Promise<string> {
   const model = await getGeneralModel();
+  const isRepair = prompt.includes('<previous_attempt_feedback>');
   const result = await model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0, maxOutputTokens: 8192 },
+    generationConfig: {
+      temperature: 0,
+      seed: isRepair ? COMPONENT_SEEDS.repair : COMPONENT_SEEDS.initial,
+      maxOutputTokens: COMPONENT_MAX_OUTPUT_TOKENS,
+    },
   });
+  const finishReason = String(result.response?.candidates?.[0]?.finishReason ?? 'unknown');
+  const usage = result.response?.usageMetadata as {
+    totalTokenCount?: number;
+    thoughtsTokenCount?: number;
+  } | undefined;
+  console.info(`[MGCodegen] Component writer finished: finishReason=${finishReason}, totalTokens=${usage?.totalTokenCount ?? 'unknown'}, thoughtsTokens=${usage?.thoughtsTokenCount ?? 'unknown'}`);
+  if (finishReason === 'MAX_TOKENS') {
+    throw new Error(`MG codegen component truncated: finishReason=MAX_TOKENS, maxOutputTokens=${COMPONENT_MAX_OUTPUT_TOKENS}, totalTokens=${usage?.totalTokenCount ?? 'unknown'}, thoughtsTokens=${usage?.thoughtsTokenCount ?? 'unknown'}`);
+  }
   const text = result.response?.text?.().trim();
   if (!text) throw new Error('MG codegen model returned no component source');
   return text;

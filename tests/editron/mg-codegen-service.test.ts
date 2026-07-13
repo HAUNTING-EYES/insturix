@@ -192,6 +192,7 @@ describe('generateMoment - the pipeline (decline / scan→repair→compile→jud
     let r: Awaited<ReturnType<typeof generateMoment>> | undefined;
     await expect((async () => { r = await generateMoment(input(), deps({ writeComponent: async () => { throw new Error('boom'); } })); })()).resolves.toBeUndefined();
     expect(r!.status).toBe('fallback');
+    expect(r!.reason).toMatch(/model call failed: boom/);
     expect(r!.receipt.momentId).toBe('m1');
   });
 

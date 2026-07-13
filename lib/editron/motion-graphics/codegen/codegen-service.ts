@@ -194,8 +194,8 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     let code = '';
     try {
       code = await deps.writeComponent(prompt);
-    } catch {
-      const scan: ScanResult = { ok: false, reason: 'model call failed' };
+    } catch (error) {
+      const scan: ScanResult = { ok: false, reason: `model call failed: ${boundedCompileFeedback(error).slice(0, 160)}` };
       receipt.scans.push({ passed: false, reason: scan.reason });
       return { code: '', scan };
     }
