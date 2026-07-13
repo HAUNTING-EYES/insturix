@@ -114,14 +114,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Get or create session
+    // Authorize the project before touching any chat session state.
+    const project = await projectService.loadProject(userId, projectId);
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    // Get or create a session scoped to this user and project.
     const actualSessionId = await chatService.getOrCreateSession(userId, projectId, sessionId);
 
     // Load history BEFORE saving new message to avoid duplicate
-    const history = await chatService.getSessionHistory(actualSessionId);
+    const history = await chatService.getSessionHistory(actualSessionId, userId, projectId);
+    if (!history) {
+      throw new Error('Chat session was not created for this project');
+    }
 
     // Save user message (after loading history so it's not included in history conversion)
-    await chatService.saveMessage(actualSessionId, {
+    await chatService.saveMessage(actualSessionId, userId, projectId, {
       role: 'user',
       content: message,
     });
@@ -176,12 +185,6 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    // Load project for context injection
-    const project = await projectService.loadProject(userId, projectId);
-    if (!project) {
-      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
-    }
-    
     // Generate project summary — cached per projectId:updatedAt (Priyank's perf fix)
     let contextMessage = getCachedProjectContext(project);
 
@@ -319,7 +322,7 @@ export async function POST(req: NextRequest) {
         }
 
         // Save assistant response with tool info
-        await chatService.saveMessage(actualSessionId, {
+        await chatService.saveMessage(actualSessionId, userId, projectId, {
           role: 'assistant',
           content: finalResponse,
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined,

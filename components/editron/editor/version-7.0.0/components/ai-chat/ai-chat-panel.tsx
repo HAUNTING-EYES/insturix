@@ -80,7 +80,7 @@ interface ChatSession {
 
 export function AIChatPanel() {
   const { overlays, setOverlays, playerDimensions, durationInFrames, getAspectRatioDimensions, playerRef, saveProject,
-    setIsAIProcessing, selectedOverlayId, currentFrame
+    setIsAIProcessing, selectedOverlayId, currentFrame, projectId: editorProjectId
   } = useEditorContext();
   const { toast } = useToast();
   const userId = getUserId();
@@ -99,48 +99,107 @@ export function AIChatPanel() {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const projectId = typeof window !== 'undefined' ? window.location.pathname.split('/').pop() || 'default' : 'default';
+  const activeProjectIdRef = useRef('');
+  const activeSessionIdRef = useRef<string | null>(null);
+  const projectId = editorProjectId?.trim() ?? '';
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isProcessing]);
 
-  // Load sessions on mount
+  // A route change must never retain chat state from the previous project.
   useEffect(() => {
-    loadSessions();
-  }, []);
+    activeProjectIdRef.current = projectId;
+    activeSessionIdRef.current = null;
+    abortControllerRef.current?.abort();
+    setSessions([]);
+    setCurrentSessionId(null);
+    setMessages([]);
+    setShowHistory(false);
+    setIsProcessing(false);
+    setIsAIProcessing(false);
 
-  // Load messages when session changes
-  useEffect(() => {
-    if (currentSessionId) {
-      loadSessionMessages(currentSessionId);
+    if (!projectId) {
+      setIsLoadingSessions(false);
+      return;
     }
-  }, [currentSessionId]);
 
-  const loadSessions = async () => {
+    void loadSessions(projectId);
+  }, [projectId]);
+
+  // Load messages only for the active project/session pair.
+  useEffect(() => {
+    activeSessionIdRef.current = currentSessionId;
+    if (currentSessionId && projectId) {
+      void loadSessionMessages(currentSessionId, projectId);
+    } else {
+      setMessages([]);
+    }
+  }, [currentSessionId, projectId]);
+
+  const loadSessions = async (expectedProjectId: string = projectId) => {
+    if (!expectedProjectId) return;
+
     try {
       setIsLoadingSessions(true);
-      const res = await fetch(`/api/services/editron/chat/sessions/list?projectId=${projectId}`);
+      const res = await fetch(
+        '/api/services/editron/chat/sessions/list?projectId=' + encodeURIComponent(expectedProjectId),
+      );
+      if (!res.ok) throw new Error('Failed to load chat sessions');
+
       const data = await res.json();
+      if (activeProjectIdRef.current !== expectedProjectId) return;
+
       if (data.success) {
-        setSessions(data.sessions);
-        // Auto-select most recent session if none selected
-        if (!currentSessionId && data.sessions.length > 0) {
-          setCurrentSessionId(data.sessions[0].sessionId);
-        }
+        const projectSessions: ChatSession[] = Array.isArray(data.sessions)
+          ? data.sessions.filter((session: ChatSession) => session.projectId === expectedProjectId)
+          : [];
+        setSessions(projectSessions);
+        setCurrentSessionId((activeSessionId) => {
+          if (
+            activeSessionId &&
+            projectSessions.some((session) => session.sessionId === activeSessionId)
+          ) {
+            return activeSessionId;
+          }
+          return projectSessions[0]?.sessionId ?? null;
+        });
       }
     } catch (error) {
-      console.error("Failed to load sessions:", error);
+      if (activeProjectIdRef.current === expectedProjectId) {
+        console.error('Failed to load sessions:', error);
+      }
     } finally {
-      setIsLoadingSessions(false);
+      if (activeProjectIdRef.current === expectedProjectId) {
+        setIsLoadingSessions(false);
+      }
     }
   };
 
-  const loadSessionMessages = async (sessionId: string) => {
+  const loadSessionMessages = async (
+    sessionId: string,
+    expectedProjectId: string = projectId,
+  ) => {
+    if (!expectedProjectId) return;
+
     try {
-      const res = await fetch(`/api/services/editron/chat/sessions/${sessionId}/history`);
+      const res = await fetch(
+        '/api/services/editron/chat/sessions/' +
+          encodeURIComponent(sessionId) +
+          '/history?projectId=' +
+          encodeURIComponent(expectedProjectId),
+      );
+      if (!res.ok) throw new Error('Failed to load chat history');
+
       const data = await res.json();
+      if (
+        activeProjectIdRef.current !== expectedProjectId ||
+        activeSessionIdRef.current !== sessionId
+      ) {
+        return;
+      }
+
       if (data.success) {
         // Transform messages to merge toolResults into toolCalls and generate contentSegments
         setMessages(data.messages.map((m: any) => {
@@ -187,7 +246,12 @@ export function AIChatPanel() {
         }));
       }
     } catch (error) {
-      console.error("Failed to load messages:", error);
+      if (
+        activeProjectIdRef.current === expectedProjectId &&
+        activeSessionIdRef.current === sessionId
+      ) {
+        console.error('Failed to load messages:', error);
+      }
     }
   };
 
@@ -364,6 +428,10 @@ export function AIChatPanel() {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (activeProjectIdRef.current !== projectId) {
+          await reader.cancel();
+          return;
+        }
 
         const chunk = decoder.decode(value);
         const lines = chunk.split('\n\n');
@@ -564,6 +632,10 @@ export function AIChatPanel() {
       }
 
     } catch (error: any) {
+      if (error?.name === 'AbortError' || activeProjectIdRef.current !== projectId) {
+        return;
+      }
+
       console.error("LLM Error:", error);
       addLog('error', 'LLM Error', error);
       const errorMsg: ChatMessage = {
@@ -573,8 +645,10 @@ export function AIChatPanel() {
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
-      setIsProcessing(false);
-      setIsAIProcessing(false); // Unlock editor when done
+      if (activeProjectIdRef.current === projectId) {
+        setIsProcessing(false);
+        setIsAIProcessing(false); // Unlock editor when done
+      }
     }
   };
 

@@ -64,6 +64,8 @@ export class ChatService {
    */
   async saveMessage(
     sessionId: string,
+    userId: string,
+    projectId: string,
     message: Omit<ChatMessage, 'timestamp'>
   ): Promise<void> {
     const db = await getDatabase();
@@ -73,13 +75,17 @@ export class ChatService {
       timestamp: new Date(),
     };
 
-    await db.collection(COLLECTIONS.CHAT_SESSIONS).updateOne(
-      { sessionId },
+    const result = await db.collection(COLLECTIONS.CHAT_SESSIONS).updateOne(
+      { sessionId, userId, projectId },
       {
         $push: { messages: messageWithTimestamp } as any,
         $set: { updatedAt: new Date() },
       }
     );
+
+    if (result.matchedCount !== 1) {
+      throw new Error('Chat session is not accessible for this project');
+    }
 
     console.log(`[CHAT] Saved ${message.role} message to session ${sessionId}`);
   }
@@ -87,15 +93,19 @@ export class ChatService {
   /**
    * Get session history
    */
-  async getSessionHistory(sessionId: string): Promise<ChatMessage[]> {
+  async getSessionHistory(
+    sessionId: string,
+    userId: string,
+    projectId: string,
+  ): Promise<ChatMessage[] | null> {
     const db = await getDatabase();
 
     const session = await db
       .collection(COLLECTIONS.CHAT_SESSIONS)
-      .findOne({ sessionId });
+      .findOne({ sessionId, userId, projectId });
 
     if (!session) {
-      return [];
+      return null;
     }
 
     return session.messages || [];
@@ -111,7 +121,7 @@ export class ChatService {
       const db = await getDatabase();
       const session = await db
         .collection(COLLECTIONS.CHAT_SESSIONS)
-        .findOne({ sessionId, userId });
+        .findOne({ sessionId, userId, projectId });
 
       if (session) {
         return sessionId;
@@ -182,11 +192,15 @@ export class ChatService {
   /**
    * Get a single session
    */
-  async getSession(sessionId: string, userId: string): Promise<ChatSession | null> {
+  async getSession(
+    sessionId: string,
+    userId: string,
+    projectId: string,
+  ): Promise<ChatSession | null> {
     const db = await getDatabase();
     const session = await db
       .collection(COLLECTIONS.CHAT_SESSIONS)
-      .findOne({ sessionId, userId });
+      .findOne({ sessionId, userId, projectId });
     
     if (!session) return null;
 
