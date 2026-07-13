@@ -85,36 +85,70 @@ async function handler(request: NextRequest) {
     const mediaAsset = type === 'video'
       ? await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne(
         { assetId, userId },
-        { projection: { transcription: 1 } },
-      ) as { transcription?: TranscriptionData } | null
+        {
+          projection: {
+            transcription: 1,
+            batchTranscriptionStatus: 1,
+            batchTranscriptionSkipReason: 1,
+          },
+        },
+      ) as {
+        transcription?: TranscriptionData | null;
+        batchTranscriptionStatus?: string | null;
+        batchTranscriptionSkipReason?: string | null;
+      } | null
       : null;
-    const transcription = mediaAsset?.transcription ?? null;
-    if (type === 'video' && (
-      !transcription ||
-      !Array.isArray(transcription.words) ||
-      typeof transcription.language !== 'string'
+    const transcriptionCandidate = mediaAsset?.transcription ?? null;
+    const transcription = transcriptionCandidate
+      && Array.isArray(transcriptionCandidate.words)
+      && typeof transcriptionCandidate.language === 'string'
+      ? transcriptionCandidate
+      : null;
+    const visualOnlyReason = typeof mediaAsset?.batchTranscriptionSkipReason === 'string'
+      ? mediaAsset.batchTranscriptionSkipReason.trim() || null
+      : null;
+    if (type === 'video' && !transcription && (
+      mediaAsset?.batchTranscriptionStatus !== 'complete'
+      || !visualOnlyReason
     )) {
-      throw new Error(`Transcription prerequisite missing for video asset ${assetId}`);
+      throw new Error(`Transcription stage incomplete for video asset ${assetId}`);
     }
 
-    if (transcription) {
-      const durationMs = Math.round((duration || 0) * 1000);
-      const transcriptTimeline = buildAssetDeepAnalysisTimeline({
-        videoUrl: url,
-        durationMs,
-        sourceAnalysis: { durationMs, transcription },
-      });
-      const speechSegments = (transcriptTimeline.rawFootageAnalysis.segments ?? [])
-        .filter((segment) => segment.text.trim().length > 0)
-        .map((segment) => ({ startMs: segment.startMs, endMs: segment.endMs, text: segment.text }));
+    const analysisInputMode = type !== 'video'
+      ? 'not-applicable' as const
+      : transcription
+        ? 'speech-and-visual' as const
+        : 'visual-only' as const;
+    const durationMs = Math.round((duration || 0) * 1000);
+    if (type === 'video') {
+      let speechSegments: Array<{ startMs: number; endMs: number; text: string }> = [];
+      if (transcription) {
+        const transcriptTimeline = buildAssetDeepAnalysisTimeline({
+          videoUrl: url,
+          durationMs,
+          sourceAnalysis: { durationMs, transcription },
+        });
+        speechSegments = (transcriptTimeline.rawFootageAnalysis.segments ?? [])
+          .filter((segment) => segment.text.trim().length > 0)
+          .map((segment) => ({ startMs: segment.startMs, endMs: segment.endMs, text: segment.text }));
+      }
       await db.collection('asset_analyses').updateOne(
         { assetId, userId },
-        { $set: { transcription, durationMs, speechSegments, status: 'complete' } },
+        {
+          $set: {
+            durationMs,
+            analysisInputMode,
+            transcriptionSkipReason: visualOnlyReason,
+            status: 'complete',
+            ...(transcription ? { transcription, speechSegments } : {}),
+          },
+          ...(transcription ? {} : { $unset: { transcription: '', speechSegments: '' } }),
+        },
         { upsert: true },
       );
     }
 
-    const tags: string[] = [];
+    const tags: string[] = analysisInputMode === 'visual-only' ? ['video', 'visual-only'] : [];
     let embedding: number[] | null = null;
 
     // ─── Video Analysis (full 5-Track) ──────────────────────────
@@ -358,6 +392,11 @@ Return JSON only:
 
     const updateDoc: any = {
       analysisStatus: shouldQueueDeepAnalysis ? 'analyzing' : 'complete',
+      ...(type === 'video' ? {
+        analysisInputMode,
+        ...(analysisInputMode === 'visual-only' ? { visualOnlyReason } : {}),
+      } : {}),
+
       ...(shouldQueueDeepAnalysis
         ? { deepAnalysisStatus: 'queued', deepAnalysisQueuedAt: new Date() }
         : type === 'video'
@@ -374,7 +413,10 @@ Return JSON only:
 
     await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
       { assetId, userId },
-      { $set: updateDoc },
+      {
+        $set: updateDoc,
+        ...(type === 'video' && analysisInputMode !== 'visual-only' ? { $unset: { visualOnlyReason: '' } } : {}),
+      },
     );
 
     let deepAnalysisQueued = false;
@@ -508,6 +550,7 @@ Return JSON only:
     return NextResponse.json({
       success: true,
       assetId,
+      analysisInputMode,
       tags: updateDoc.tags,
       hasEmbedding: !!embedding,
       deepAnalysisQueued,

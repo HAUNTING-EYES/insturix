@@ -134,11 +134,15 @@ describe("asset-analysis worker policy", () => {
     expect(workerSource).toContain("resolveAssetVideoAnalysisPolicy");
     expect(workerSource.indexOf("resolveAssetVideoAnalysisPolicy")).toBeLessThan(workerSource.indexOf("runFullAnalysis"));
     expect(workerSource).toContain("'full-analysis-deferred'");
-    expect(workerSource).toContain("Transcription prerequisite missing");
+    expect(workerSource).not.toContain("Transcription prerequisite missing");
+    expect(workerSource).toContain("Transcription stage incomplete");
+    expect(workerSource).toContain("analysisInputMode === 'visual-only'");
+    expect(workerSource).toContain("batchTranscriptionSkipReason");
     expect(workerSource).toContain("transcript: transcription?.transcript");
     expect(workerSource).toContain("audioUrl: url");
     expect(workerSource).toContain("words: transcription?.words");
-    expect(workerSource).toContain("speechSegments, status: 'complete'");
+    expect(workerSource).toContain("...(transcription ? { transcription, speechSegments } : {})");
+    expect(workerSource).toContain("$unset: { transcription: '', speechSegments: '' }");
   });
 
   it("keeps video assets unready until the deep multimodal worker finishes", () => {
