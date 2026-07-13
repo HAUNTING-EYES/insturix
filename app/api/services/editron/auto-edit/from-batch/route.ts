@@ -828,6 +828,7 @@ async function dispatchDirector(params: {
 }): Promise<{ queued: boolean; messageId?: string }> {
   const qstashToken = process.env.QSTASH_TOKEN;
   const workerUrl = `${params.baseUrl}/api/internal/workers/director`;
+  const failureCallbackUrl = `${params.baseUrl}/api/internal/workers/director/failure`;
   const payload = {
     projectId: params.projectId,
     userId: params.userId,
@@ -858,6 +859,10 @@ async function dispatchDirector(params: {
       Authorization: `Bearer ${qstashToken}`,
       'Content-Type': 'application/json',
       'Upstash-Retries': '0',
+      'Upstash-Timeout': '800s',
+      'Upstash-Failure-Callback': failureCallbackUrl,
+      'Upstash-Failure-Callback-Retries': '2',
+      'Upstash-Failure-Callback-Timeout': '30s',
     },
     body: JSON.stringify(payload),
   });
@@ -1395,6 +1400,26 @@ export async function POST(request: NextRequest) {
       },
     });
     queuedOrRanDirector = true;
+    const directorQueuedAt = new Date();
+
+    if (dispatch.messageId) {
+      await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        {
+          projectId: activeProjectId,
+          userId,
+          autoEditStatus: { $in: ['directing_queued', 'directing'] },
+        },
+        {
+          $set: {
+            directorMessageId: dispatch.messageId,
+            directorQueuedAt,
+            updatedAt: directorQueuedAt,
+          },
+          $unset: { autoEditError: '', autoEditFailedAt: '', 'intelligence.directorDeliveryFailure': '' },
+        },
+      );
+    }
+
 
     await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
       { uploadBatchId, userId, projectId: activeProjectId },
@@ -1402,10 +1427,12 @@ export async function POST(request: NextRequest) {
         $set: {
           orchestrationStatus: 'director_queued',
           orchestrationAttempt: caller.pollAttempt,
+          directorQueuedAt,
+          ...(dispatch.messageId ? { directorMessageId: dispatch.messageId } : {}),
           autoEditCreditTransactionId: deduction.transactionId,
-          updatedAt: new Date(),
+          updatedAt: directorQueuedAt,
         },
-        $unset: { orchestrationLeaseUntil: '', projectIds: '', deliverableProjects: '' },
+        $unset: { orchestrationLeaseUntil: '', projectIds: '', deliverableProjects: '', directorFailure: '' },
       },
     );
 

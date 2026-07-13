@@ -1,4 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  generateCreativeBrief,
+  resolveCreativeBriefRequestTimeoutMs,
+} from '../../lib/editron/services/creative-brief';
+import {
+  buildDirectorDeliveryFailureAudit,
+  parseDirectorDeliveryFailure,
+} from '../../lib/editron/services/director-delivery-failure';
+
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -7,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   deductCredits: vi.fn(),
   fetch: vi.fn(),
   getDatabase: vi.fn(),
+  findProject: vi.fn(),
+  getCreativeDocCachedModel: vi.fn(),
   hydrateStorylineAnalysesForBatch: vi.fn(),
   intakeSignalsFromProject: vi.fn(),
   isR2Available: vi.fn(),
@@ -37,6 +48,9 @@ vi.mock('@upstash/qstash', () => ({
   Receiver: class {
     verify = mocks.receiverVerify;
   },
+}));
+vi.mock('@upstash/qstash/nextjs', () => ({
+  verifySignatureAppRouter: (handler: unknown) => handler,
 }));
 vi.mock('@/lib/services/creditsMiddleware', () => ({ checkCredits: mocks.checkCredits }));
 vi.mock('@/lib/editron/services/project-service', () => ({
@@ -79,6 +93,9 @@ vi.mock('@/lib/editron/storyline/scene-embedding', () => ({
 }));
 vi.mock('@/lib/editron/services/gemini-embedding', () => ({
   generateEditronEmbedding: mocks.generateEditronEmbedding,
+}));
+vi.mock('@/lib/editron/services/gemini-context-cache', () => ({
+  getCreativeDocCachedModel: mocks.getCreativeDocCachedModel,
 }));
 vi.mock('@/lib/editron/services/signal-registry', () => ({
   buildSignalTimeline: mocks.buildSignalTimeline,
@@ -176,7 +193,7 @@ function mockDb() {
         };
       }
       if (name === 'projects') {
-        return { updateOne: mocks.updateProject };
+        return { findOne: mocks.findProject, updateOne: mocks.updateProject };
       }
       throw new Error(`unexpected collection ${name}`);
     },
@@ -277,6 +294,7 @@ describe('from-batch storyline route handoff', () => {
     mocks.fetch.mockImplementation(async () => new Response(JSON.stringify({ messageId: 'msg_1' }), { status: 200 }));
     mocks.saveProject.mockResolvedValue(undefined);
     mocks.updateProject.mockResolvedValue({ acknowledged: true });
+    mocks.findProject.mockResolvedValue(null);
     mocks.updateBatch.mockResolvedValue({ acknowledged: true, matchedCount: 1 });
   });
 
@@ -448,6 +466,14 @@ describe('from-batch storyline route handoff', () => {
       ([url]) => String(url).includes('/api/internal/workers/director'),
     );
     expect(directorDispatch).toBeDefined();
+    const directorRequest = directorDispatch?.[1] as RequestInit;
+    expect(directorRequest.headers).toEqual(expect.objectContaining({
+      'Upstash-Retries': '0',
+      'Upstash-Timeout': '800s',
+      'Upstash-Failure-Callback': 'http://app.test/api/internal/workers/director/failure',
+      'Upstash-Failure-Callback-Retries': '2',
+      'Upstash-Failure-Callback-Timeout': '30s',
+    }));
     const directorPayload = JSON.parse(String((directorDispatch?.[1] as RequestInit).body));
     expect(directorPayload.userIntent).toBe(
       'make a concise product proof cut\n\nUser-provided script or outline:\nShow the proof, then the result.',
@@ -460,6 +486,27 @@ describe('from-batch storyline route handoff', () => {
       pacing: { mode: 'prefer', intensity: 0.35 },
       notes: 'Keep the proof sequence clear.',
     });
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      {
+        projectId: 'proj_batch_1',
+        userId: 'user_1',
+        autoEditStatus: { $in: ['directing_queued', 'directing'] },
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({ directorMessageId: 'msg_1' }),
+        $unset: expect.objectContaining({ 'intelligence.directorDeliveryFailure': '' }),
+      }),
+    );
+    expect(mocks.updateBatch).toHaveBeenCalledWith(
+      { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          orchestrationStatus: 'director_queued',
+          directorMessageId: 'msg_1',
+        }),
+        $unset: expect.objectContaining({ directorFailure: '' }),
+      }),
+    );
   });
   it('does not compose or charge when another callback owns the orchestration lease', async () => {
     const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
@@ -704,5 +751,145 @@ describe('from-batch storyline route handoff', () => {
         $set: expect.objectContaining({ orchestrationTimedOutAssetIds: [] }),
       }),
     );
+  });
+  it('bounds Creative Brief transport time and does not retry a hung model request', async () => {
+    delete process.env.EDITRON_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS;
+    const generateContent = vi.fn().mockRejectedValue(new Error('request timed out'));
+    const errorSwallowed = vi.fn();
+    mocks.getCreativeDocCachedModel.mockResolvedValue({ generateContent });
+
+    const brief = await generateCreativeBrief(
+      { transcription: [], totalDurationSec: 10, segmentCount: 1 },
+      {},
+      undefined,
+      undefined,
+      'speech',
+      { errorSwallowed } as never,
+    );
+
+    expect(brief).toBeNull();
+    expect(generateContent).toHaveBeenCalledOnce();
+    expect(generateContent).toHaveBeenCalledWith(
+      expect.objectContaining({ generationConfig: expect.objectContaining({ seed: 42 }) }),
+      { timeout: 90_000 },
+    );
+    expect(errorSwallowed).toHaveBeenCalledWith(
+      'director',
+      expect.any(Error),
+      'creative brief model request',
+    );
+    expect(resolveCreativeBriefRequestTimeoutMs('1000')).toBe(15_000);
+    expect(resolveCreativeBriefRequestTimeoutMs('999999')).toBe(180_000);
+  });
+
+  it('parses and bounds a QStash Director delivery failure audit', () => {
+    const failure = parseDirectorDeliveryFailure({
+      status: 504,
+      retried: 0,
+      maxRetries: 0,
+      dlqId: 'dlq_1',
+      sourceMessageId: 'msg_director_1',
+      sourceBody: Buffer.from(JSON.stringify({
+        projectId: 'proj_batch_1',
+        userId: 'user_1',
+      })).toString('base64'),
+      body: Buffer.from('FUNCTION_INVOCATION_TIMEOUT').toString('base64'),
+    });
+
+    expect(failure).toEqual({
+      projectId: 'proj_batch_1',
+      userId: 'user_1',
+      sourceMessageId: 'msg_director_1',
+      status: 504,
+      retried: 0,
+      maxRetries: 0,
+      dlqId: 'dlq_1',
+      errorMessage: 'Director delivery failed with HTTP 504: FUNCTION_INVOCATION_TIMEOUT',
+    });
+    expect(buildDirectorDeliveryFailureAudit(
+      failure,
+      new Date('2026-07-13T00:00:00.000Z'),
+    )).toEqual(expect.objectContaining({
+      source: 'qstash-failure-callback',
+      sourceMessageId: 'msg_director_1',
+      status: 504,
+      failedAt: new Date('2026-07-13T00:00:00.000Z'),
+    }));
+  });
+
+  it('persists a signed Director delivery failure without overwriting another run', async () => {
+    const { POST } = await import('@/app/api/internal/workers/director/failure/route');
+    mocks.findProject.mockResolvedValue({
+      autoEditStatus: 'directing',
+      directorMessageId: 'msg_director_1',
+      sourceUploadBatchId: 'batch_1',
+    });
+    mocks.updateProject.mockResolvedValue({ acknowledged: true, modifiedCount: 1 });
+
+    const response = await POST(new Request('http://app.test/api/internal/workers/director/failure', {
+      method: 'POST',
+      body: JSON.stringify({
+        status: 504,
+        retried: 0,
+        maxRetries: 0,
+        sourceMessageId: 'msg_director_1',
+        sourceBody: Buffer.from(JSON.stringify({
+          projectId: 'proj_batch_1',
+          userId: 'user_1',
+        })).toString('base64'),
+        body: Buffer.from('FUNCTION_INVOCATION_TIMEOUT').toString('base64'),
+      }),
+    }) as never);
+
+    expect(response.status).toBe(200);
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: 'proj_batch_1',
+        userId: 'user_1',
+        directorMessageId: 'msg_director_1',
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          autoEditStatus: 'failed',
+          autoEditStageDesc: 'Director delivery failed',
+          'intelligence.directorDeliveryFailure': expect.objectContaining({
+            sourceMessageId: 'msg_director_1',
+          }),
+        }),
+      }),
+    );
+    expect(mocks.updateBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploadBatchId: 'batch_1',
+        projectId: 'proj_batch_1',
+        orchestrationStatus: 'director_queued',
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({ orchestrationStatus: 'failed' }),
+      }),
+    );
+
+    mocks.updateProject.mockClear();
+    mocks.updateBatch.mockClear();
+    mocks.findProject.mockResolvedValue({
+      autoEditStatus: 'directing',
+      directorMessageId: 'msg_newer',
+      sourceUploadBatchId: 'batch_1',
+    });
+    const staleResponse = await POST(new Request('http://app.test/api/internal/workers/director/failure', {
+      method: 'POST',
+      body: JSON.stringify({
+        status: 504,
+        sourceMessageId: 'msg_director_1',
+        sourceBody: Buffer.from(JSON.stringify({
+          projectId: 'proj_batch_1',
+          userId: 'user_1',
+        })).toString('base64'),
+      }),
+    }) as never);
+
+    expect(await staleResponse.json()).toEqual({ success: true, skipped: 'stale_message' });
+    expect(mocks.updateProject).not.toHaveBeenCalled();
+    expect(mocks.updateBatch).not.toHaveBeenCalled();
   });
 });
