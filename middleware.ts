@@ -16,6 +16,7 @@ const isProtectedRoute = createRouteMatcher([
 const isQStashWorkerRoute = createRouteMatcher([
   '/api/services/alyzitron/processor',
   '/api/services/musitron/processor',
+  '/api/services/editron/auto-edit/from-batch',
 ]);
 
 // Resolve authorized parties from env or dynamic Vercel URLs

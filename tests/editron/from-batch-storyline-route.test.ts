@@ -482,6 +482,79 @@ describe('from-batch storyline route handoff', () => {
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
+  it('persists the requested aspect ratio before async composition starts', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    const response = await POST(request({ uploadBatchId: 'batch_1', aspectRatio: '9:16' }) as never);
+
+    expect(response.status).toBe(202);
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      { projectId: 'proj_batch_1' },
+      {
+        $set: expect.objectContaining({
+          autoEditStatus: 'analyzing',
+          aspectRatio: '9:16',
+          playerDimensions: { width: 1080, height: 1920 },
+        }),
+      },
+    );
+  });
+
+  it('re-dispatches a stale existing batch exactly once without creating or charging again', async () => {
+    process.env.EDITRON_BATCH_ORCHESTRATION_RECOVERY_STALE_MS = '60000';
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'requested',
+      orchestrationRequestedAt: new Date(Date.now() - 5 * 60 * 1000),
+      orchestrationAttempt: 0,
+    };
+
+    const response = await POST(request({ uploadBatchId: 'batch_1' }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(payload).toEqual(expect.objectContaining({
+      success: true,
+      projectId: 'proj_batch_1',
+      status: 'processing',
+      recoveryDispatched: true,
+      messageId: 'msg_1',
+    }));
+    expect(mocks.createProject).not.toHaveBeenCalled();
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      'https://qstash.test/v2/publish/http://app.test/api/services/editron/auto-edit/from-batch',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('does not duplicate a fresh existing batch dispatch', async () => {
+    process.env.EDITRON_BATCH_ORCHESTRATION_RECOVERY_STALE_MS = '60000';
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'requested',
+      orchestrationRequestedAt: new Date(),
+      orchestrationAttempt: 0,
+    };
+
+    const response = await POST(request({ uploadBatchId: 'batch_1' }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({
+      success: true,
+      projectId: 'proj_batch_1',
+      status: 'existing',
+    });
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+  });
+
   it('composes from successful assets when transcription is terminal-failed but analysis is stale', async () => {
     const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
     mediaAssets[1].analysisStatus = 'queued';
