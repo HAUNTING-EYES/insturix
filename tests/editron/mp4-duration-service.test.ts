@@ -35,8 +35,15 @@ describe('resolveVideoDurationSec - the file container is the source of truth', 
     expect(r.corrected).toBe(false);
   });
 
+  it('accepts a structurally validated sub-second container reading', () => {
+    const r = resolveVideoDurationSec({ containerSec: 0.5, transcriptEndSec: 45, reportedSec: 20 });
+    expect(r.source).toBe('container');
+    expect(r.seconds).toBe(0.5);
+    expect(r.corrected).toBe(true);
+  });
+
   it('an invalid / NaN container reading is ignored', () => {
-    expect(resolveVideoDurationSec({ containerSec: 0.5, transcriptEndSec: 45, reportedSec: 20 }).source).toBe('transcript');
+    expect(resolveVideoDurationSec({ containerSec: 0, transcriptEndSec: 45, reportedSec: 20 }).source).toBe('transcript');
     expect(resolveVideoDurationSec({ containerSec: NaN, transcriptEndSec: null, reportedSec: 30 }).source).toBe('reported');
   });
 
@@ -71,6 +78,29 @@ describe('mp4 duration service', () => {
     stubRangeFetch(mp4);
 
     await expect(extractMP4Duration('https://example.test/fast-start.mp4')).resolves.toBe(90);
+  });
+
+  it('accepts a valid sub-second duration from a structured moov/mvhd hierarchy', async () => {
+    const mp4 = concatBytes(
+      makeBox('ftyp', bytes(8, 1)),
+      makeBox('moov', makeMvhdV0(600, 300)),
+      makeBox('mdat', bytes(16_000, 3)),
+    );
+
+    stubRangeFetch(mp4);
+
+    await expect(extractMP4Duration('https://example.test/micro-clip.mp4')).resolves.toBe(0.5);
+  });
+
+  it('keeps the sub-second floor for a loose mvhd rescue candidate', async () => {
+    const mp4 = concatBytes(
+      makeBox('ftyp', bytes(8, 1)),
+      makeBox('mdat', concatBytes(bytes(64, 7), makeMvhdV0(600, 300), bytes(64, 9))),
+    );
+
+    stubRangeFetch(mp4);
+
+    await expect(extractMP4Duration('https://example.test/orphaned-mvhd.mp4')).resolves.toBeNull();
   });
 
   it('falls back to head parsing when a tail range has a truncated mvhd-like box', async () => {

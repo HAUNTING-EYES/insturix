@@ -87,7 +87,11 @@ export function resolveVideoDurationSec(input: {
   toleranceSec?: number;
 }): VideoDurationResolution {
   const tol = input.toleranceSec ?? 5;
-  const validContainer = typeof input.containerSec === 'number' && Number.isFinite(input.containerSec) && input.containerSec > 1;
+  // The container value has already passed the MP4 box-structure checks below.
+  // Very short b-roll and flash clips are valid media, so do not reinterpret a
+  // trustworthy sub-second container duration as missing metadata.
+  const validContainer = typeof input.containerSec === 'number'
+    && Number.isFinite(input.containerSec) && input.containerSec > 0;
   const validTranscript = typeof input.transcriptEndSec === 'number' && Number.isFinite(input.transcriptEndSec) && input.transcriptEndSec > 10;
 
   let seconds: number;
@@ -161,7 +165,7 @@ function parseMoovDuration(data: Uint8Array): number | null {
     if (!mvhd) continue;
 
     // Normal MP4: mvhd carries the whole-movie duration.
-    const seconds = secondsFromUnits(mvhd.durationUnits, mvhd.timeScale);
+    const seconds = secondsFromUnits(mvhd.durationUnits, mvhd.timeScale, 'structured-container');
     if (seconds !== null) return seconds;
 
     // Fragmented MP4 (mvhd.duration === 0): the real length is in mehd (moov > mvex > mehd),
@@ -237,17 +241,27 @@ function parseMehdDuration(view: DataView, len: number, mehdOffset: number, time
     fragmentUnits = hi * 0x100000000 + lo;
   }
 
-  return secondsFromUnits(fragmentUnits, timeScale);
+  return secondsFromUnits(fragmentUnits, timeScale, 'structured-container');
 }
 
-/** Convert timeScale-relative units to seconds, with the shared 1s..24h sanity gate. */
-function secondsFromUnits(units: number, timeScale: number): number | null {
+/**
+ * Convert timeScale-relative units to seconds.
+ *
+ * A duration reached through a validated moov/mvhd or mehd hierarchy may be
+ * sub-second. The loose mvhd rescue scan has weaker structural evidence, so it
+ * keeps the historical one-second floor to reject byte-pattern false matches.
+ */
+function secondsFromUnits(
+  units: number,
+  timeScale: number,
+  evidence: 'structured-container' | 'loose-candidate' = 'loose-candidate',
+): number | null {
   if (timeScale <= 0 || units <= 0) return null;
 
   const seconds = units / timeScale;
 
-  // Sanity: duration should be between 1s and 24h (rejects false-positive box matches).
-  if (seconds < 1 || seconds > 86400) {
+  const belowEvidenceFloor = evidence === 'loose-candidate' && seconds < 1;
+  if (!Number.isFinite(seconds) || seconds <= 0 || belowEvidenceFloor || seconds > 86400) {
     console.warn(`[MP4Duration] Suspicious duration: ${seconds.toFixed(1)}s (timeScale=${timeScale}, units=${units})`);
     return null;
   }
