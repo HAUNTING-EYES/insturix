@@ -9,6 +9,7 @@ import {
   battlePhase0Invocation,
   battlePhase0OutputRoot,
   isProductionMgRenderJobForProject,
+  resolveBattleUploadBatchId,
   parseBattleCliArgs,
   validateOptions,
 } from '../../scripts/run-editron-battle-test';
@@ -170,5 +171,12 @@ describe('run-editron-battle-test cli', () => {
       projectId: 'proj_other',
       request: { input: { momentId: 'proj_other:120:candidate_1' } },
     }, 'proj_test')).toBe(false);
+  });
+
+  it('resolves persisted batch evidence for existing batch-origin projects', () => {
+    expect(resolveBattleUploadBatchId({ sourceUploadBatchId: 'upload_batch_source' })).toBe('upload_batch_source');
+    expect(resolveBattleUploadBatchId({ uploadBatchId: 'upload_batch_legacy' })).toBe('upload_batch_legacy');
+    expect(resolveBattleUploadBatchId({ sourceUploadBatchId: 'upload_batch_source' }, 'upload_batch_explicit')).toBe('upload_batch_explicit');
+    expect(resolveBattleUploadBatchId({})).toBeUndefined();
   });
 });

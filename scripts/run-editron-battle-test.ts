@@ -7,6 +7,7 @@ import { promisify } from 'util';
 import { pathToFileURL } from 'url';
 
 import { config as loadEnv } from 'dotenv';
+import type { Db } from 'mongodb';
 
 import {
   EDITRON_BATTLE_CONTRACT_TESTS,
@@ -18,6 +19,10 @@ import {
   type EditronBattleScenario,
   type EditronBattleStaticSuiteEvidence,
 } from '../lib/editron/services/editron-battle-test-contract';
+import {
+  buildMediaUploadBatchSummary,
+  type MediaUploadBatchAssetStatusInput,
+} from '../lib/editron/services/media-upload-batch';
 import { buildPhase0ArtifactPaths } from '../lib/editron/services/phase0-artifact-paths';
 import { buildPhase0FixtureManifest, type Phase0FixtureManifest, type Phase0FixtureProject } from '../lib/editron/services/phase0-fixture-manifest';
 import { sequenceFrameUrls } from '../lib/editron/motion-graphics/codegen/render/sequence-playback';
@@ -389,10 +394,56 @@ async function loadDatabaseEvidence(projectId: string, uploadBatchId?: string) {
   }).toArray();
   const mgJobs = (await db.collection(COLLECTIONS.MG_RENDER_JOBS).find({ projectId }).sort({ createdAt: 1 }).toArray())
     .filter((job) => isProductionMgRenderJobForProject(job, projectId));
-  const batch = uploadBatchId ? await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).findOne({ uploadBatchId }) : null;
+  const resolvedUploadBatchId = resolveBattleUploadBatchId(project, uploadBatchId);
+  const batch = resolvedUploadBatchId
+    ? await loadBattleBatchEvidence(db, resolvedUploadBatchId, {
+        batches: COLLECTIONS.MEDIA_UPLOAD_BATCHES,
+        assets: COLLECTIONS.MEDIA_ASSETS,
+      })
+    : null;
   return { client, collections: { project, assets, mgJobs, batch } };
 }
 
+export function resolveBattleUploadBatchId(project: unknown, explicitUploadBatchId?: string): string | undefined {
+  const record = asRecord(project);
+  return explicitUploadBatchId?.trim()
+    || stringField(record, 'sourceUploadBatchId')
+    || stringField(record, 'uploadBatchId')
+    || undefined;
+}
+
+async function loadBattleBatchEvidence(
+  db: Db,
+  uploadBatchId: string,
+  collectionNames: { batches: string; assets: string },
+): Promise<Record<string, unknown> | null> {
+  const batchDocument = await db.collection(collectionNames.batches).findOne({ uploadBatchId });
+  if (!batchDocument || typeof batchDocument.userId !== 'string') return null;
+
+  const batchAssetIds = Array.isArray(batchDocument.assetIds)
+    ? batchDocument.assetIds.filter((assetId): assetId is string => typeof assetId === 'string' && assetId.length > 0)
+    : [];
+  const mediaAssets = await db.collection(collectionNames.assets).find({
+    userId: batchDocument.userId,
+    $or: [{ uploadBatchId }, ...(batchAssetIds.length > 0 ? [{ assetId: { $in: batchAssetIds } }] : [])],
+  }).toArray();
+  const assets = mediaAssets.map((asset): MediaUploadBatchAssetStatusInput | null => {
+    const type = asset.type;
+    if (typeof asset.assetId !== 'string' || typeof asset.filename !== 'string'
+      || (type !== 'video' && type !== 'image' && type !== 'audio')) return null;
+    return {
+      assetId: asset.assetId,
+      filename: asset.filename,
+      type,
+      size: typeof asset.size === 'number' ? asset.size : 0,
+      analysisStatus: typeof asset.analysisStatus === 'string' ? asset.analysisStatus : null,
+      analysisError: typeof asset.analysisError === 'string' ? asset.analysisError : null,
+      analysisSkipReason: typeof asset.analysisSkipReason === 'string' ? asset.analysisSkipReason : null,
+    };
+  }).filter((asset): asset is MediaUploadBatchAssetStatusInput => asset != null);
+
+  return { ...batchDocument, ...buildMediaUploadBatchSummary(assets) };
+}
 async function probeMgSequences(assets: Array<Record<string, unknown>>, event: (stage: string, status: string, detail?: Record<string, unknown>) => Promise<void>): Promise<EditronBattleMgFrameProbe[]> {
   const sequenceAssets = assets.filter((asset) => stringField(asset, 'type') === 'sequence');
   const probes: EditronBattleMgFrameProbe[] = [];
