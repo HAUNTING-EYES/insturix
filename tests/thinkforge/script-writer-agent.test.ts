@@ -249,6 +249,38 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(output.result).toEqual(materializeScriptWriterResult(makeModelOutput()));
   });
 
+  it('repairs an overlong on-camera scene into valid canonical relip scenes', async () => {
+    const invalid = makeModelOutput({
+      sidecar: makeSidecar({
+        characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
+        scenes: [makeOnCameraScene({ durationSeconds: 15 }), makeSidecar().scenes[1]!],
+      }),
+    });
+    const repaired = makeModelOutput({
+      sidecar: makeSidecar({
+        characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
+        scenes: [makeOnCameraScene({ durationSeconds: 8 }), makeSidecar().scenes[1]!],
+      }),
+    });
+    generateStructuredWithWritingContextCacheMock
+      .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
+      .mockResolvedValueOnce({ result: repaired, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
+
+    const output = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Founder-led launch reel.' },
+      userPrompt: 'Write a short Instagram reel with the founder speaking to camera.',
+    });
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
+    expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]).toMatchObject({
+      schema: ScriptWriterModelOutputSchema,
+      temperature: 0.25,
+      prompt: expect.stringContaining('<writer_capability_repair>'),
+    });
+    expect(output.metadata?.notes).toContain('capability_repair:applied');
+    expect(() => assertUsableScriptWriterResult(output.result)).not.toThrow();
+  });
+
   it('derives every editor scene and visual prompt from the canonical sidecar', () => {
     const baseScenes = makeSidecar().scenes;
     const sixSceneSidecar = makeSidecar({
@@ -450,7 +482,7 @@ describe('assertUsableScriptWriterResult', () => {
     ).toThrow(/relip_face_not_visible|relip_unsafe_occlusion/);
   });
 
-  it('rejects overlong on-camera speaking scenes without bounded sub-shots', () => {
+  it('rejects overlong on-camera scenes because sub-shots do not split an Editron relip job', () => {
     expect(() =>
       assertUsableScriptWriterResult(
         makeResult({
@@ -460,7 +492,7 @@ describe('assertUsableScriptWriterResult', () => {
           }),
         }),
       ),
-    ).toThrow(/speaking_beat_needs_split:scene_1:12s/);
+    ).toThrow(/on_camera_scene_exceeds_relip_limit:scene_1:12s/);
   });
 
   it('rejects scripts that exceed the on-camera speaking ratio budget', () => {

@@ -84,7 +84,7 @@ export default function IdeationMode({
             briefLoading={briefLoading}
             briefResults={briefResults}
           />
-          <IdeaGrid ideas={ideas} loading={loading} hasSubmitted={hasSubmitted} prompt={prompt} onSelect={onSelectIdea} />
+          <IdeaGrid ideas={ideas} loading={loading} hasSubmitted={hasSubmitted} prompt={prompt} onSelect={onSelectIdea} onRegenerate={onRegenerate} />
           <TrendWorkflowPanel
             open={trendWorkflowOpen}
             sessionId={sessionId}

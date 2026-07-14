@@ -111,6 +111,7 @@ const SCHEMA_ARTIFACT_PATTERNS = [
 
 const RELIP_UNSAFE_OCCLUSION_PATTERN = /\b(masked|mask covering|face covered|covered face|hidden face|occluded face|heavy occlusion|silhouette|back turned|turned away|profile only)\b/i;
 const RELIP_UNSAFE_MOTION_PATTERN = /\b(rapid|chaotic|whip pan|spinning|running|shaky|handheld chase|fast motion)\b/i;
+const CAPABILITY_REPAIR_FAILURE_PATTERN = /\b(?:relip_safe_not_true|relip_face_visibility_undeclared|relip_occlusion_unsafe|relip_motion_unsafe|relip_unsafe_occlusion|relip_unsafe_motion|on_camera_scene_exceeds_relip_limit|on_camera_ratio_exceeded|unsupported_voice_language)\b/;
 
 function narrationForScene(scene: ScriptSidecar['scenes'][number]): string {
   const narration = scene.narration.trim();
@@ -206,14 +207,37 @@ function validateWriterCapabilityCompliance(
       failures.push(`relip_unsafe_motion:${sceneLabel}`);
     }
 
+    // Editron receives avatar directives per canonical scene. Montage sub-shots do not
+    // split an on-camera relip job, so the parent scene itself must fit the rig cap.
     if (speakingBeatNeedsSplit(scene.durationSeconds)) {
-      const subShots = scene.subShots ?? [];
-      const hasValidSplit = subShots.length >= 2 && subShots.every(
-        (subShot) => !speakingBeatNeedsSplit(subShot.targetDurationSeconds),
-      );
-      if (!hasValidSplit) failures.push(`speaking_beat_needs_split:${sceneLabel}:${scene.durationSeconds}s`);
+      failures.push(`on_camera_scene_exceeds_relip_limit:${sceneLabel}:${scene.durationSeconds}s`);
     }
   }
+}
+
+function isCapabilityRepairableError(error: unknown): error is Error {
+  return error instanceof Error && CAPABILITY_REPAIR_FAILURE_PATTERN.test(error.message);
+}
+
+function buildCapabilityRepairPrompt(
+  prompt: string,
+  modelOutput: ScriptWriterModelOutput,
+  failure: Error,
+): string {
+  return `${prompt}
+
+<writer_capability_repair>
+The previous structured output failed a production writer contract:
+${failure.message}
+
+Return a complete replacement object using the same JSON schema. Preserve the brief's facts, brand intent, source references, casting, and overall narrative. Repair only the capability violations.
+
+Critical rule: every scene that contains on-camera sync-dialogue is one actual relip job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. Do not use subShots to bypass this limit. Split an overlong on-camera beat into multiple consecutive sidecar.scenes instead, each with its own duration, visual direction, lines, and relip safety data. Do not silently turn required on-camera cast speech into voiceover.
+
+<previous_output_json>
+${JSON.stringify(modelOutput)}
+</previous_output_json>
+</writer_capability_repair>`;
 }
 
 function validateCastingBriefCompliance(
@@ -394,16 +418,15 @@ Your task is to write a high-retention, engaging video script.
    - Set \`metadata.voiceLanguage\` to the supported spoken language actually used.
    - On-camera sync dialogue is expensive. Keep on-camera sync dialogue to about ${Math.round(DEFAULT_ON_CAMERA_RATIO * 100)}% of spoken lines; use voiceover over visuals for the rest.
    - For every on-camera sync-dialogue scene, make \`visualDescription\` match its structured \`relipSafety\`: visible face, front/on-camera framing, no more than light occlusion, and still/moderate motion.
-   - Any on-camera sync-dialogue scene longer than ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s must include \`subShots\` split into chunks of ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or less.
+   - Every on-camera sync-dialogue scene is one actual lip-sync job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. When a spoken beat runs longer, split it into multiple consecutive \`sidecar.scenes\`; do not use \`subShots\` to bypass this limit.
 
 Return your response strictly adhering to the JSON schema.`;
 
     return prompt;
   }
 
-  // One schema-constrained completion is the sole source of a script. The cached
-  // creative-writing context is optional infrastructure; an unavailable cache falls
-  // back to inline context before generation, never to a second model completion.
+  // One schema-constrained completion is the canonical source of a script. A single,
+  // low-temperature repair is allowed only after a proven production capability failure.
   async runStructured(
     input: ScriptWriterInput,
     overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
@@ -411,7 +434,7 @@ Return your response strictly adhering to the JSON schema.`;
   ): Promise<AgentStructuredOutput<ScriptWriterResult>> {
     const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
     const gen = this.resolveGenConfig(overrides);
-    const { result: modelOutput, cacheStatus, modelName } = await generateStructuredWithWritingContextCache({
+    const initialGeneration = await generateStructuredWithWritingContextCache({
       prompt,
       schema: ScriptWriterModelOutputSchema,
       modelName: this.config.modelName,
@@ -420,18 +443,41 @@ Return your response strictly adhering to the JSON schema.`;
       abortSignal,
     });
 
-    const result = materializeScriptWriterResult(modelOutput);
+    let modelOutput = initialGeneration.result;
+    let result = materializeScriptWriterResult(modelOutput);
+    let capabilityRepairApplied = false;
 
-    assertUsableScriptWriterResult(result, {
-      sourceLedger: input.sourceLedger,
-      productionBrief: input.productionBrief,
-    });
+    try {
+      assertUsableScriptWriterResult(result, {
+        sourceLedger: input.sourceLedger,
+        productionBrief: input.productionBrief,
+      });
+    } catch (error) {
+      if (!isCapabilityRepairableError(error)) throw error;
+
+      const repairedGeneration = await generateStructuredWithWritingContextCache({
+        prompt: buildCapabilityRepairPrompt(prompt, modelOutput, error),
+        schema: ScriptWriterModelOutputSchema,
+        modelName: this.config.modelName,
+        temperature: Math.min(gen.temperature, 0.25),
+        maxTokens: gen.maxTokens,
+        abortSignal,
+      });
+      modelOutput = repairedGeneration.result;
+      result = materializeScriptWriterResult(modelOutput);
+      capabilityRepairApplied = true;
+
+      assertUsableScriptWriterResult(result, {
+        sourceLedger: input.sourceLedger,
+        productionBrief: input.productionBrief,
+      });
+    }
 
     return {
       result,
       metadata: {
-        model: modelName,
-        notes: `writing_context_cache:${cacheStatus}`,
+        model: initialGeneration.modelName,
+        notes: `writing_context_cache:${initialGeneration.cacheStatus}${capabilityRepairApplied ? ';capability_repair:applied' : ''}`,
       },
     };
   }

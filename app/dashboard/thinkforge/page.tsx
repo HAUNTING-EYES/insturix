@@ -154,6 +154,9 @@ export default function ThinkForgeLanding() {
 	const generateIdeas = useCallback(async (promptOverride?: string) => {
 		const ideaPrompt = promptOverride || prompt;
 		if (!ideaPrompt.trim()) return;
+		setIdeas([]);
+		setSelectedIdea(null);
+		setIdeationPhase('IDEAS');
 		setLoading(true);
 		setHasSubmitted(true);
 		try {
