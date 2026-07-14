@@ -14,6 +14,7 @@ import {
   parseScriptSidecar,
   SCRIPT_SIDECAR_VERSION,
   ScriptSidecarSchema,
+  type ScriptSidecar,
 } from '../schemas/script-sidecar';
 import {
   findSourceLedgerIssuesForSidecar,
@@ -23,28 +24,46 @@ import {
 import { formatTrendBriefForPrompt } from './trend-brief-context';
 import { formatCastingBriefForPrompt, getAvatarCastingEntries } from './casting-brief-context';
 
-// Flat ScriptWriter Output Contract
-export const ScriptWriterResultSchema = z.object({
-  content: z.string().describe('The actual script text, formatted in markdown with scenes'),
-  contentAnalysis: z.object({
-    hooks: z.array(z.string()).describe('List of key hooks utilized in the script'),
-    theme: z.string().describe('The core theme of the script'),
-    emphasisPoints: z.array(z.string()).describe('Key moments intended for emphasis'),
-    qualityScore: z.number().min(0).max(100).describe('Self-evaluated quality score (0-100) based on specificity and engagement'),
-  }),
+const ContentAnalysisSchema = z.object({
+  hooks: z.array(z.string()).describe('List of key hooks utilized in the script'),
+  theme: z.string().describe('The core theme of the script'),
+  emphasisPoints: z.array(z.string()).describe('Key moments intended for emphasis'),
+  qualityScore: z.number().min(0).max(100).describe('Self-evaluated quality score (0-100) based on specificity and engagement'),
+});
+
+const WriterMetadataSchema = z.object({
+  estimatedTimeSeconds: z.number().describe('Estimated duration of the script in seconds'),
+  platform: z.string().describe('The targeted platform (e.g., youtube, tiktok)'),
+  voiceLanguage: z.string().default(WRITER_CAPABILITIES.voiceLanguages[0] ?? 'en'),
+});
+
+const ScriptVisualMetadataSchema = z.object({
+  motionInfo: z.string().describe('General motion graphic styling instructions'),
+  scenePrompts: z.array(z.string()).describe('One deterministic visual prompt per Script Sidecar scene.'),
+});
+
+// The model authors one canonical scene representation. The visible markdown and scene prompts
+// are derived from it so downstream consumers cannot receive divergent scene counts.
+export const ScriptWriterModelOutputSchema = z.object({
+  contentAnalysis: ContentAnalysisSchema,
   visualMetadata: z.object({
     motionInfo: z.string().describe('General motion graphic styling instructions'),
-    scenePrompts: z.array(z.string()).describe('Detailed prompts per scene to generate visuals. MUST include specific physical props/elements and explicitly define any Text Overlays (headings, dates, locations, quotes).'),
   }),
-  metadata: z.object({
-    estimatedTimeSeconds: z.number().describe('Estimated duration of the script in seconds'),
-    platform: z.string().describe('The targeted platform (e.g., youtube, tiktok)'),
-    voiceLanguage: z.string().default(WRITER_CAPABILITIES.voiceLanguages[0] ?? 'en'),
-  }),
-  sidecar: ScriptSidecarSchema.describe('Script Sidecar v1 emitted in the same pass as the script prose'),
+  metadata: WriterMetadataSchema,
+  sidecar: ScriptSidecarSchema.describe('Canonical Script Sidecar v1 emitted in the single writer pass'),
+});
+
+// Public writer result consumed by the editor and exports after deterministic materialization.
+export const ScriptWriterResultSchema = z.object({
+  content: z.string().describe('The actual script text, formatted in markdown with scenes'),
+  contentAnalysis: ContentAnalysisSchema,
+  visualMetadata: ScriptVisualMetadataSchema,
+  metadata: WriterMetadataSchema,
+  sidecar: ScriptSidecarSchema,
 });
 
 export type ScriptWriterResult = z.infer<typeof ScriptWriterResultSchema>;
+export type ScriptWriterModelOutput = z.infer<typeof ScriptWriterModelOutputSchema>;
 
 /**
  * Edit framing for the revise-existing-content path (P5).
@@ -90,10 +109,54 @@ const SCHEMA_ARTIFACT_PATTERNS = [
   /^\s*(?:header|paragraph|blockquote|list)\s*[:{]/im,
 ];
 
-const RELIP_FACE_VISIBLE_PATTERN = /\b(face visible|visible face|front[- ]facing|frontal|head[- ]and[- ]shoulders|medium close[- ]up|close[- ]up|talking head|speaking to camera|direct(?:ly)? to camera|looking into camera|host speaking|presenter speaking|on-camera)\b/i;
 const RELIP_UNSAFE_OCCLUSION_PATTERN = /\b(masked|mask covering|face covered|covered face|hidden face|occluded face|heavy occlusion|silhouette|back turned|turned away|profile only)\b/i;
 const RELIP_UNSAFE_MOTION_PATTERN = /\b(rapid|chaotic|whip pan|spinning|running|shaky|handheld chase|fast motion)\b/i;
 
+function narrationForScene(scene: ScriptSidecar['scenes'][number]): string {
+  const narration = scene.narration.trim();
+  if (narration) return narration;
+
+  return scene.lines
+    .filter((line) => line.delivery !== 'on-screen-text')
+    .map((line) => line.text.trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
+function promptForScene(scene: ScriptSidecar['scenes'][number], index: number): string {
+  const overlays = scene.editDirections?.onScreenText?.filter((text) => text.trim().length > 0) ?? [];
+  const parts = [
+    `Scene ${index + 1}: ${scene.visualDescription.trim()}`,
+    scene.videoMotionPrompt.trim(),
+    scene.imageQualityTokens.trim(),
+    scene.videoQualityTokens.trim(),
+    overlays.length > 0 ? `Text overlays: ${overlays.join(' | ')}` : '',
+  ].filter(Boolean);
+
+  return parts.join('. ');
+}
+
+export function materializeScriptWriterResult(modelOutput: ScriptWriterModelOutput): ScriptWriterResult {
+  const sidecar = parseScriptSidecar(modelOutput.sidecar);
+  const content = sidecar.scenes
+    .map((scene, index) => [
+      `## Scene ${index + 1}: ${scene.title.trim()}`,
+      `**Narration:** ${narrationForScene(scene)}`,
+      `**Visual:** ${scene.visualDescription.trim()}`,
+    ].join('\n'))
+    .join('\n\n');
+
+  return {
+    content,
+    contentAnalysis: modelOutput.contentAnalysis,
+    visualMetadata: {
+      motionInfo: modelOutput.visualMetadata.motionInfo,
+      scenePrompts: sidecar.scenes.map(promptForScene),
+    },
+    metadata: modelOutput.metadata,
+    sidecar,
+  };
+}
 function validateWriterCapabilityCompliance(
   result: ScriptWriterResult,
   sidecar: ReturnType<typeof parseScriptSidecar>,
@@ -127,8 +190,14 @@ function validateWriterCapabilityCompliance(
     const visualText = `${scene.visualDescription} ${scene.videoMotionPrompt}`;
 
     if (scene.relipSafe !== true) failures.push(`relip_safe_not_true:${sceneLabel}`);
-    if (!RELIP_FACE_VISIBLE_PATTERN.test(scene.visualDescription)) {
-      failures.push(`relip_face_not_visible:${sceneLabel}`);
+    if (scene.relipSafety?.faceVisibility !== 'visible') {
+      failures.push(`relip_face_visibility_undeclared:${sceneLabel}`);
+    }
+    if (!scene.relipSafety || !['none', 'light'].includes(scene.relipSafety.occlusion)) {
+      failures.push(`relip_occlusion_unsafe:${sceneLabel}`);
+    }
+    if (!scene.relipSafety || !['still', 'moderate'].includes(scene.relipSafety.motion)) {
+      failures.push(`relip_motion_unsafe:${sceneLabel}`);
     }
     if (RELIP_UNSAFE_OCCLUSION_PATTERN.test(visualText)) {
       failures.push(`relip_unsafe_occlusion:${sceneLabel}`);
@@ -266,11 +335,10 @@ ${editContext.selection ? `\n## Focused Selection (the change targets this text)
 ${editContext.instruction}
 
 ## Edit Rules (mandatory)
-1. Return the ENTIRE revised script in the \`content\` field — not a diff, not only the changed part. Every scene the user keeps must reappear unless the change requires altering it.
-2. Preserve the existing scene order, headings, and structure except where the change demands otherwise.
-3. Preserve all supplied facts verbatim: dates, times, locations, brand/event/product names, offers, prices, statistics, CTA links, and required logo/text mentions — in both kept and revised scenes.
-4. Keep the scene format: every scene begins with \`## Scene N: ...\` and includes **Narration:** and **Visual:** labels.
-
+1. Return the complete revised scene plan in \`sidecar.scenes\` - not a diff and not only the changed beat. Every scene the user keeps must reappear unless the change requires altering it.
+2. Preserve the existing scene order and narrative structure except where the change demands otherwise.
+3. Preserve all supplied facts verbatim: dates, times, locations, brand/event/product names, offers, prices, statistics, CTA links, and required logo/text mentions.
+4. For each scene, keep narration in \`narration\` and the image/video direction in \`visualDescription\` plus \`videoMotionPrompt\`.
 `
       : `You are an elite Video Scriptwriter and Creative Director.
 Your task is to write a high-retention, engaging video script.
@@ -310,28 +378,22 @@ Your task is to write a high-retention, engaging video script.
 
     // 3. Script Writing Rules
     prompt += `## Generation Requirements
-1. **Content Formatting:** Write the FINAL script in markdown. Every scene must start exactly like \`## Scene 1: The Hook\`, \`## Scene 2: The Problem\`, etc. Each scene must include bold \`**Narration:**\` and \`**Visual:**\` labels. Do NOT include JSON, block arrays, rich-text objects, \`header\`/\`paragraph\`/\`list\`/\`blockquote\` labels, or meta-commentary inside the content string.
-2. **Narration & Visuals:** For each scene, clearly denote **Narration:** and **Visual:** (what the viewer sees). Visual direction serves the narration.
-3. **Factual Source Of Truth:** Treat the original user brief as mandatory factual input. If an idea/angle is present, use it only as creative framing. Preserve exact dates, times, locations, brand names, event names, product/service names, offers, prices, statistics, CTA links/instructions, contact details, and required logo/text/tagline mentions.
+1. **Canonical scenes:** Author the complete script only in \`sidecar.scenes\`. The server deterministically creates the visible markdown script and one Clickatron/Editron scene prompt from each sidecar scene. Do not create duplicate scene lists or beat-only entries: one \`sidecar.scenes[N]\` is one published script scene.
+2. **Narration & visuals:** Each scene's \`narration\` is the spoken script; \`visualDescription\` is what the viewer sees. Visual direction serves the narration.
+3. **Factual source of truth:** Treat the original user brief as mandatory factual input. If an idea/angle is present, use it only as creative framing. Preserve exact dates, times, locations, brand names, event names, product/service names, offers, prices, statistics, CTA links/instructions, contact details, and required logo/text/tagline mentions.
 4. **Quality:** Do NOT use filler. Be specific. Use facts provided in the context. Ensure a strong hook in Scene 1.
-5. **Visual Metadata:** Provide detailed \`scenePrompts\` mapping 1:1 with the scenes in your script. These prompts will be fed into a visual generation engine (Clickatron/Editron). 
-   - **Source Facts Are Mandatory:** Every scene prompt must carry the relevant source facts from the brief: brand name, logo placement if mentioned, event name, date, time, location, audience, product/service, offer, handouts/freebies, required colors/brand style, and exact words that must appear.
-   - **Include Specific Props/Elements:** Explicitly list relevant physical objects that should appear in the visuals (e.g., for a blood donation drive, specify "blood drops, syringes"; for a clothes drive, specify "folded clothes, donation boxes").
-   - **Include Text Overlays:** Explicitly define exact text overlays from the brief, including heading, brand name, date, location, CTA, and short tagline when available. If a logo is requested, say "Place [Brand Name] logo at [position]" rather than omitting it.
-   - **No Generic Scene Prompts:** Never return prompts like "cinematic scene", "modern visual", or "professional graphic" without the concrete factual details above.
-   - Include \`motionInfo\` to guide pacing and graphic overlays.
-6. **Script Sidecar v1:** In the SAME JSON response, include a \`sidecar\` object with \`sidecarVersion: ${SCRIPT_SIDECAR_VERSION}\`. It must describe the same scenes as \`content\` without re-parsing later:
+5. **Visual specificity:** Put all renderable facts in each scene's \`visualDescription\` and \`videoMotionPrompt\`: physical props/elements, composition, relevant source facts, brand/logo placement when supplied, and exact intended text overlays through \`editDirections.onScreenText\`. Never use generic visual direction such as "cinematic scene", "modern visual", or "professional graphic" without concrete details. Include \`motionInfo\` for overall pacing and graphic overlays.
+6. **Script Sidecar v1:** In the SAME JSON response, include a \`sidecar\` object with \`sidecarVersion: ${SCRIPT_SIDECAR_VERSION}\`. It is the canonical script contract:
    - Include \`characters\`. Always include \`{ "id": "narrator", "name": "Narrator", "role": "narrator" }\`. Add one \`host\` character only if someone speaks on camera.
-   - Each \`sidecar.scenes[N]\` maps to \`## Scene N\` in \`content\`.
    - Each scene includes required parser fields: \`title\`, \`narration\`, \`visualDescription\`, \`videoMotionPrompt\`, \`audioDescription\`, \`musicDescription\`, \`sfxDescription\`, \`durationSeconds\`, \`mood\`, \`imageQualityTokens\`, \`videoQualityTokens\`, \`generationUnitId\`, \`primaryVisualForUnit\`, \`sceneType\`, and \`assetRecommendation\`.
    - Each scene includes \`lines\` with \`text\`, \`speakerId\`, \`onCamera\`, and \`delivery\`. Use \`delivery: "voiceover"\` for narrator voiceover and \`delivery: "sync-dialogue"\` only for visible on-camera speech.
-   - If any line has \`onCamera: true\` and \`delivery: "sync-dialogue"\`, set that scene's \`relipSafe: true\`; otherwise set \`relipSafe: false\`.
+   - If any line has \`onCamera: true\` and \`delivery: "sync-dialogue"\`, set that scene's \`relipSafe: true\` and \`relipSafety: { "faceVisibility": "visible", "occlusion": "none" or "light", "motion": "still" or "moderate" }\`. The object must match the visual description. Otherwise set \`relipSafe: false\` and omit \`relipSafety\`.
    - \`sourceRefs\` are provenance IDs only. If a Source Ledger is present, use ONLY referenceId values listed there (\`brief_user\`, \`source_1\`, etc.). Every numeric/date/price/URL/proof/testimonial claim must carry sourceRefs on the line and scene. A line or scene \`sourceRefs\` value must also appear in top-level \`sidecar.sourceRefs\`. If no factual sources are used, use empty arrays.
-7. **Writer Capability Limits:** Author only what the downstream avatar/video rig can produce:
+7. **Writer capability limits:** Author only what the downstream avatar/video rig can produce:
    - Supported spoken voice languages: ${WRITER_CAPABILITIES.voiceLanguages.join(', ') || 'none'}. Requested spoken languages: ${requestedVoiceLanguages.length ? requestedVoiceLanguages.join(', ') : 'none supplied'}. Unsupported requested spoken languages: ${unsupportedVoiceLanguages.length ? unsupportedVoiceLanguages.join(', ') : 'none'}. If any requested spoken language is unsupported, keep spoken narration/dialogue in ${defaultVoiceLanguage}; unsupported languages may be captions/on-screen text only.
    - Set \`metadata.voiceLanguage\` to the supported spoken language actually used.
    - On-camera sync dialogue is expensive. Keep on-camera sync dialogue to about ${Math.round(DEFAULT_ON_CAMERA_RATIO * 100)}% of spoken lines; use voiceover over visuals for the rest.
-   - For every on-camera sync-dialogue scene, make \`visualDescription\` relip-safe: face visible, front/on-camera framing, no more than light occlusion, still/moderate motion.
+   - For every on-camera sync-dialogue scene, make \`visualDescription\` match its structured \`relipSafety\`: visible face, front/on-camera framing, no more than light occlusion, and still/moderate motion.
    - Any on-camera sync-dialogue scene longer than ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s must include \`subShots\` split into chunks of ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or less.
 
 Return your response strictly adhering to the JSON schema.`;
@@ -349,14 +411,16 @@ Return your response strictly adhering to the JSON schema.`;
   ): Promise<AgentStructuredOutput<ScriptWriterResult>> {
     const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
     const gen = this.resolveGenConfig(overrides);
-    const { result, cacheStatus, modelName } = await generateStructuredWithWritingContextCache({
+    const { result: modelOutput, cacheStatus, modelName } = await generateStructuredWithWritingContextCache({
       prompt,
-      schema: this.schema,
+      schema: ScriptWriterModelOutputSchema,
       modelName: this.config.modelName,
       temperature: gen.temperature,
       maxTokens: gen.maxTokens,
       abortSignal,
     });
+
+    const result = materializeScriptWriterResult(modelOutput);
 
     assertUsableScriptWriterResult(result, {
       sourceLedger: input.sourceLedger,

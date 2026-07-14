@@ -40,11 +40,18 @@ export interface SidecarLine {
   sourceRefs?: string[];
 }
 
+export interface RelipSafety {
+  faceVisibility: 'visible';
+  occlusion: 'none' | 'light';
+  motion: 'still' | 'moderate';
+}
+
 export interface SidecarScene extends ParsedScene {
   lines: SidecarLine[];
   sourceRefs: string[];
   charactersPresent: string[];
   relipSafe?: boolean;
+  relipSafety?: RelipSafety;
 }
 
 export interface ScriptSidecar extends Omit<LLMParseResult, 'scenes'> {
@@ -77,6 +84,12 @@ export const SidecarLineSchema = z.object({
   onCamera: z.boolean(),
   delivery: z.enum(LINE_DELIVERIES),
   sourceRefs: StringArraySchema.optional(),
+});
+
+const RelipSafetySchema: z.ZodType<RelipSafety> = z.object({
+  faceVisibility: z.literal('visible'),
+  occlusion: z.enum(['none', 'light']),
+  motion: z.enum(['still', 'moderate']),
 });
 
 const SubShotSchema = z.object({
@@ -136,6 +149,7 @@ export const SidecarSceneSchema: z.ZodType<SidecarScene> = z.object({
   sourceRefs: StringArraySchema,
   charactersPresent: StringArraySchema,
   relipSafe: z.boolean().optional(),
+  relipSafety: RelipSafetySchema.optional(),
 }).passthrough() as z.ZodType<SidecarScene>;
 
 const GlobalEditDirectionsSchema = z.record(z.string(), z.unknown()).optional();

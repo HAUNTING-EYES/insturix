@@ -9,8 +9,10 @@ vi.mock('@/lib/thinkforge/services/gemini-writing-context-cache', () => ({
 }));
 import {
   assertUsableScriptWriterResult,
+  materializeScriptWriterResult,
   ScriptWriterAgent,
-  ScriptWriterResultSchema,
+  ScriptWriterModelOutputSchema,
+  type ScriptWriterModelOutput,
   type ScriptWriterResult,
 } from '@/lib/thinkforge/agents/script-writer-agent';
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
@@ -57,6 +59,7 @@ function makeOnCameraScene(overrides: Partial<SidecarScene> = {}): SidecarScene 
     ],
     charactersPresent: ['host'],
     relipSafe: true,
+    relipSafety: { faceVisibility: 'visible', occlusion: 'light', motion: 'moderate' },
     sourceRefs: [],
     ...overrides,
   };
@@ -162,6 +165,17 @@ function makeResult(overrides: Partial<ScriptWriterResult> = {}): ScriptWriterRe
   };
 }
 
+function makeModelOutput(overrides: Partial<ScriptWriterModelOutput> = {}): ScriptWriterModelOutput {
+  const result = makeResult();
+  return {
+    contentAnalysis: result.contentAnalysis,
+    visualMetadata: { motionInfo: result.visualMetadata.motionInfo },
+    metadata: result.metadata,
+    sidecar: result.sidecar,
+    ...overrides,
+  };
+}
+
 function productionBriefWithCasting(): ProductionBrief {
   return {
     entryPoint: 'thinkforge',
@@ -216,7 +230,7 @@ describe('ScriptWriterAgent structured generation', () => {
 
   it('uses one schema-constrained cached completion without a fallback generation', async () => {
     generateStructuredWithWritingContextCacheMock.mockResolvedValue({
-      result: makeResult(),
+      result: makeModelOutput(),
       cacheStatus: 'hit',
       modelName: 'models/gemini-2.5-flash',
     });
@@ -228,11 +242,28 @@ describe('ScriptWriterAgent structured generation', () => {
 
     expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(1);
     expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledWith(expect.objectContaining({
-      schema: ScriptWriterResultSchema,
+      schema: ScriptWriterModelOutputSchema,
       prompt: expect.stringContaining('Write a short Instagram video script for the launch.'),
     }));
     expect(output.metadata?.notes).toBe('writing_context_cache:hit');
-    expect(output.result).toEqual(makeResult());
+    expect(output.result).toEqual(materializeScriptWriterResult(makeModelOutput()));
+  });
+
+  it('derives every editor scene and visual prompt from the canonical sidecar', () => {
+    const baseScenes = makeSidecar().scenes;
+    const sixSceneSidecar = makeSidecar({
+      scenes: Array.from({ length: 6 }, (_, index) => ({
+        ...baseScenes[index % baseScenes.length]!,
+        title: `Beat ${index + 1}`,
+        generationUnitId: `scene_${index + 1}`,
+      })),
+    });
+
+    const result = materializeScriptWriterResult(makeModelOutput({ sidecar: sixSceneSidecar }));
+
+    expect(result.content.match(/^## Scene \d+/gm)).toHaveLength(6);
+    expect(result.visualMetadata.scenePrompts).toHaveLength(6);
+    expect(() => assertUsableScriptWriterResult(result)).not.toThrow();
   });
 
   it('surfaces a structured-generation failure instead of starting a second model call', async () => {
@@ -250,6 +281,37 @@ describe('ScriptWriterAgent structured generation', () => {
 describe('assertUsableScriptWriterResult', () => {
   it('accepts canonical markdown scene scripts that can hydrate a script board', () => {
     expect(() => assertUsableScriptWriterResult(makeResult())).not.toThrow();
+  });
+
+  it('uses structural relip evidence instead of requiring a particular face-visibility phrase', () => {
+    const result = makeResult({
+      sidecar: makeSidecar({
+        characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
+        scenes: [
+          makeOnCameraScene({
+            visualDescription: 'A founder seated at a clean desk, addressing the viewer with an open posture.',
+          }),
+          makeSidecar().scenes[1]!,
+        ],
+      }),
+    });
+
+    expect(() => assertUsableScriptWriterResult(result)).not.toThrow();
+  });
+
+  it('rejects on-camera dialogue that omits structural relip evidence', () => {
+    const unsafeScene = { ...makeOnCameraScene(), relipSafety: undefined };
+
+    expect(() =>
+      assertUsableScriptWriterResult(
+        makeResult({
+          sidecar: makeSidecar({
+            characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
+            scenes: [unsafeScene, makeSidecar().scenes[1]!],
+          }),
+        }),
+      ),
+    ).toThrow(/relip_face_visibility_undeclared/);
   });
 
   it('rejects raw ThinkForge block dumps inside the script content field', () => {

@@ -4,7 +4,7 @@
  * Regression guard for the P0 crash: a numeric z.literal (sidecarVersion) in the sidecar
  * schema became a numeric enum in Gemini's response_schema, which only supports STRING enums
  * -> 400 "generation_config.response_schema...enum[0] (TYPE_STRING), 1" -> every video-script
- * generation failed. This drives the REAL path (generateObject with ScriptWriterResultSchema)
+ * generation failed. This drives the REAL path (generateObject with ScriptWriterModelOutputSchema)
  * and asserts Gemini does not reject the schema.
  *
  * Opt-in (never a CI network call): RUN_LIVE_EVAL=1 + a Google key.
@@ -15,7 +15,11 @@ import { generateObject } from 'ai';
 import { describe, expect, it } from 'vitest';
 
 import { createThinkForgeModelForRoute } from '@/lib/thinkforge/agents/model-factory';
-import { ScriptWriterResultSchema } from '@/lib/thinkforge/agents/script-writer-agent';
+import {
+  materializeScriptWriterResult,
+  ScriptWriterAgent,
+  ScriptWriterModelOutputSchema,
+} from '@/lib/thinkforge/agents/script-writer-agent';
 
 const HAS_KEY = !!(
   process.env.GEMINI_API_KEY ||
@@ -30,26 +34,34 @@ function isSchemaRejection(message: string): boolean {
 }
 
 describe.skipIf(!RUN_LIVE)('ScriptWriter schema is Gemini-compatible', () => {
-  it('Gemini accepts the response schema (no numeric-enum 400)', async () => {
+  it('Gemini accepts the real writer schema and returns a materializable result', async () => {
     const model = createThinkForgeModelForRoute({
       routePurpose: 'creative_authoring',
       privacyClass: 'business_confidential',
     });
-
+    const writer = new ScriptWriterAgent();
     let errMsg = '';
+
     try {
-      await generateObject({
+      const generation = await generateObject({
         model,
-        schema: ScriptWriterResultSchema,
-        prompt:
-          'Write a minimal 2-scene, 10-second talking-head video script about making coffee. ' +
-          'One host character. Keep every field short.',
+        schema: ScriptWriterModelOutputSchema,
+        prompt: writer.buildPrompt({
+          context: { projectSummary: 'A simple coffee tutorial for social video.' },
+          userPrompt: 'Write a 2-scene, 12-second coffee tutorial. Use narrator voiceover only; no on-camera dialogue.',
+        }),
+        maxOutputTokens: 8192,
+        temperature: 0.2,
       });
-    } catch (e: unknown) {
-      errMsg = e instanceof Error ? e.message : String(e);
+      const result = materializeScriptWriterResult(generation.object);
+      expect(result.content.match(/^## Scene \d+/gm)).toHaveLength(2);
+      expect(result.visualMetadata.scenePrompts).toHaveLength(2);
+    } catch (error: unknown) {
+      errMsg = error instanceof Error ? error.message : String(error);
     }
 
-    console.log(errMsg ? `[schema-live] non-schema error (OK for this check): ${errMsg.slice(0, 200)}` : '[schema-live] Gemini accepted the schema and generated an object');
+    console.log(errMsg ? `[schema-live] writer generation failed: ${errMsg.slice(0, 200)}` : '[schema-live] Gemini returned a materializable writer result');
     expect(isSchemaRejection(errMsg), `Gemini REJECTED the schema: ${errMsg}`).toBe(false);
+    expect(errMsg, `Gemini failed the real writer output contract: ${errMsg}`).toBe('');
   }, 120_000);
 });
