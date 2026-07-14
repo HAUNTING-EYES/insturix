@@ -15,6 +15,8 @@ import type { MgMomentInput } from '@/lib/editron/motion-graphics/codegen/types'
 import { getAnalysisModel } from '@/lib/editron/utils/gemini-model-factory';
 
 const tempDirs: string[] = [];
+const TINY_WEBP_DATA_URL = 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAUAAAAdQiirUo/+BiOh/AAA=';
+
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
@@ -41,6 +43,27 @@ function moment(): MgMomentInput {
     window: { startFrame: 30, endFrame: 90, fps: 30 },
     expressiveness: { tier: 'hero', intensity: 0.8, emphasisScale: 1.2 },
     placement: { region: 'full-frame', avoid: [], prefer: [] },
+    visualEvidence: {
+      space: 'edited-canvas',
+      canvas: { width: 1_920, height: 1_080 },
+      frames: [
+        {
+          role: 'context-before',
+          coordinate: { kind: 'edited-timeline', timelineFrame: 30 },
+          imageDataUrl: TINY_WEBP_DATA_URL,
+        },
+        {
+          role: 'anchor',
+          coordinate: { kind: 'source-asset', assetId: 'asset-1', sourceFrame: 240, timelineFrame: 60 },
+          imageDataUrl: TINY_WEBP_DATA_URL,
+        },
+        {
+          role: 'context-after',
+          coordinate: { kind: 'edited-timeline', timelineFrame: 89 },
+          imageDataUrl: TINY_WEBP_DATA_URL,
+        },
+      ],
+    },
   };
 }
 
@@ -121,7 +144,7 @@ describe('production MG codegen runtime', () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
-  it('uses GLM-5V-Turbo for JSX generation with deterministic sampling disabled', async () => {
+  it('sends ordered real-frame evidence to GLM-5V-Turbo with deterministic sampling disabled', async () => {
     vi.stubEnv('ZAI_API_KEY', 'zai-secret');
     const completion = {
       choices: [{ message: { content: '```tsx\ncomponent\n```' }, finish_reason: 'stop' }],
@@ -152,7 +175,34 @@ describe('production MG codegen runtime', () => {
       response_format: { type: 'text' },
       thinking: { type: 'enabled', clear_thinking: true },
     });
-    expect(payload.messages).toEqual([{ role: 'user', content: 'initial prompt' }]);
+    const content = payload.messages[0].content;
+    expect(content.map((part: { type: string }) => part.type)).toEqual([
+      'text', 'text', 'image_url', 'text', 'image_url', 'text', 'image_url', 'text',
+    ]);
+    expect(content[0].text).toContain('untrusted visual context');
+    expect(content[0].text).toContain('final 1920x1080 edited canvas');
+    expect(content[1].text).toContain('role=context-before; timelineFrame=30');
+    expect(content[2]).toEqual({ type: 'image_url', image_url: { url: TINY_WEBP_DATA_URL } });
+    expect(content[3].text).toContain('role=anchor; timelineFrame=60');
+    expect(content[3].text).not.toContain('assetId');
+    expect(content[3].text).not.toContain('sourceFrame');
+    expect(content[4]).toEqual({ type: 'image_url', image_url: { url: TINY_WEBP_DATA_URL } });
+    expect(content[content.length - 1]).toEqual({ type: 'text', text: 'initial prompt' });
+    const retryPayload = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    const retryContent = retryPayload.messages[0].content;
+    expect(retryContent[retryContent.length - 1].text).toContain('<previous_attempt_feedback>repair</previous_attempt_feedback>');
+    await runtime.dispose();
+  });
+
+  it('refuses visual evidence when the component model is not the approved vision model', async () => {
+    vi.stubEnv('ZAI_API_KEY', 'zai-secret');
+    vi.stubEnv('MG_CODEGEN_MODEL', 'glm-4.5');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const runtime = createProductionMgRuntime(moment(), { width: 1_920, height: 1_080 });
+
+    await expect(runtime.codegen.writeComponent('initial prompt')).rejects.toThrow(/requires glm-5v-turbo/);
+    expect(fetchMock).not.toHaveBeenCalled();
     await runtime.dispose();
   });
 

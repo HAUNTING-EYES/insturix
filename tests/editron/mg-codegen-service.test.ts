@@ -6,10 +6,16 @@ import {
   applyImportPreamble,
   buildCodegenPrompt,
   generateMoment,
+  MgProviderFailureError,
+  mgProviderHttpError,
   promptHash,
   type CodegenDeps,
 } from '@/lib/editron/motion-graphics/codegen/codegen-service';
 import type { MgMomentInput } from '@/lib/editron/motion-graphics/codegen/types';
+import {
+  MG_RENDER_WORKER_CONTRACT_VERSION,
+  mgRenderWorkerResultSchema,
+} from '@/lib/editron/motion-graphics/codegen/worker-contract';
 import type { SemanticMgCandidate } from '@/lib/editron/motion-graphics/engine/semantic-mg-candidates';
 
 // A minimal scan-passing component that declares its own Data type and reads data.value as a prop.
@@ -240,6 +246,62 @@ describe('generateMoment - the pipeline (decline / scan→repair→compile→jud
     expect(r!.receipt.momentId).toBe('m1');
   });
 
+  it('persists typed retry semantics through the strict worker result contract', async () => {
+    const providerError = mgProviderHttpError({
+      provider: 'zai',
+      operation: 'component-generation',
+      statusCode: 429,
+      message: 'quota exhausted',
+    });
+    const r = await generateMoment(input(), deps({ writeComponent: async () => { throw providerError; } }));
+
+    expect(r.status).toBe('fallback');
+    expect(r.receipt.attempts).toBe(2);
+    expect(r.receipt.failure).toEqual({
+      domain: 'provider',
+      provider: 'zai',
+      operation: 'component-generation',
+      code: 'rate-limited',
+      disposition: 'retryable',
+      statusCode: 429,
+    });
+    expect(mgRenderWorkerResultSchema.parse({
+      version: MG_RENDER_WORKER_CONTRACT_VERSION,
+      jobId: `mgr_${'a'.repeat(32)}`,
+      status: 'fallback',
+      completedAt: '2026-07-14T00:00:00.000Z',
+      receipt: r.receipt,
+      reason: r.reason,
+    }).receipt.failure).toEqual(r.receipt.failure);
+
+    expect(mgProviderHttpError({
+      provider: 'zai',
+      operation: 'component-generation',
+      statusCode: 401,
+      message: 'bad credentials',
+    }).failure).toMatchObject({ code: 'authentication', disposition: 'terminal' });
+  });
+
+  it('does not leave a provider failure on a later successful generation attempt', async () => {
+    let calls = 0;
+    const r = await generateMoment(input(), deps({
+      writeComponent: async () => {
+        calls += 1;
+        if (calls === 1) throw new MgProviderFailureError('temporary network failure', {
+          domain: 'provider',
+          provider: 'zai',
+          operation: 'component-generation',
+          code: 'network',
+          disposition: 'retryable',
+        });
+        return VALID_CODE;
+      },
+    }));
+
+    expect(r.status).toBe('generated');
+    expect(r.receipt.failure).toBeUndefined();
+  });
+
   it('compile or judge throws -> fallback, never escapes the codegen boundary', async () => {
     const compile = await generateMoment(input(), deps({ compile: async () => { throw new Error('bundler crashed'); } }));
     expect(compile.status).toBe('fallback');
@@ -305,6 +367,30 @@ describe('promptHash - Law 5 caching (keys on the fact SHAPE + register, not val
     expect(promptHash(input({ expressiveness: { tier: 'hero', intensity: 0.9, emphasisScale: 1.4 } }))).not.toBe(a);
     const b = { ...INSTURIX, colors: { ...INSTURIX.colors, accent: '#123456' } };
     expect(promptHash(input({ brand: b }))).not.toBe(a);
+  });
+
+  it('changes when real visual evidence changes, but stays stable for identical evidence', () => {
+    const visualEvidence: NonNullable<MgMomentInput['visualEvidence']> = {
+      space: 'edited-canvas',
+      canvas: { width: 1920, height: 1080 },
+      frames: [
+        { role: 'context-before', coordinate: { kind: 'edited-timeline', timelineFrame: 10 }, imageDataUrl: 'data:image/jpeg;base64,before' },
+        { role: 'anchor', coordinate: { kind: 'edited-timeline', timelineFrame: 20 }, imageDataUrl: 'data:image/jpeg;base64,anchor' },
+        { role: 'context-after', coordinate: { kind: 'edited-timeline', timelineFrame: 30 }, imageDataUrl: 'data:image/jpeg;base64,after' },
+      ],
+    };
+    const a = promptHash(input({ visualEvidence }));
+    expect(promptHash(input({ visualEvidence }))).toBe(a);
+    expect(promptHash(input({
+      visualEvidence: {
+        ...visualEvidence,
+        frames: [
+          visualEvidence.frames[0],
+          { ...visualEvidence.frames[1], imageDataUrl: 'data:image/jpeg;base64,different' },
+          visualEvidence.frames[2],
+        ],
+      },
+    }))).not.toBe(a);
   });
 });
 

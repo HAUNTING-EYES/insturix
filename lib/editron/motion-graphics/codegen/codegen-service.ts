@@ -25,7 +25,13 @@ import {
   COMPOSITION_GUIDE,
   KIT_IMPORT_PREAMBLE,
 } from './prompt';
-import type { MgGenerateResult, MgMomentInput, MgReceipt, MgRegionBox } from './types';
+import type {
+  MgGenerateResult,
+  MgMomentInput,
+  MgProviderFailureReceipt,
+  MgReceipt,
+  MgRegionBox,
+} from './types';
 
 /** Bumped when the kit or prompt changes — part of the cache key so stale code never gets reused. */
 export const KIT_VERSION = 'e1.1';
@@ -44,6 +50,43 @@ export interface CodegenDeps {
   /** Render probe stills over a real footage frame → vision-judge (faithfulness + craft) → score + issues. */
   evaluate: (code: string, moment: MgMomentInput) => Promise<{ score: number; issues: string[] }>;
   judgeThreshold?: number;
+}
+
+export class MgProviderFailureError extends Error {
+  readonly failure: MgProviderFailureReceipt;
+
+  constructor(message: string, failure: MgProviderFailureReceipt, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'MgProviderFailureError';
+    this.failure = failure;
+  }
+}
+
+export function mgProviderHttpError(input: {
+  provider: MgProviderFailureReceipt['provider'];
+  operation: MgProviderFailureReceipt['operation'];
+  statusCode: number;
+  message: string;
+}): MgProviderFailureError {
+  const { statusCode } = input;
+  const retryable = statusCode === 408 || statusCode === 425 || statusCode === 429 || statusCode >= 500;
+  const code: MgProviderFailureReceipt['code'] = statusCode === 408
+    ? 'timeout'
+    : statusCode === 429
+      ? 'rate-limited'
+      : statusCode === 425 || statusCode >= 500
+        ? 'unavailable'
+        : statusCode === 401 || statusCode === 403
+          ? 'authentication'
+          : 'request-rejected';
+  return new MgProviderFailureError(input.message, {
+    domain: 'provider',
+    provider: input.provider,
+    operation: input.operation,
+    code,
+    disposition: retryable ? 'retryable' : 'terminal',
+    statusCode,
+  });
 }
 
 function durationFrames(input: MgMomentInput): number {
@@ -153,10 +196,18 @@ function boundedCompileFeedback(error: unknown): string {
     .slice(0, MAX_COMPILE_FEEDBACK_CHARS) || 'unknown compiler error';
 }
 
-/** Cache key / receipt id: hash of everything that determines the OUTPUT (the code) — the fact SHAPE, the
- *  context register, and the brand tokens. NOT the literal fact values / placement geometry (those re-render
- *  from the same code — Law 5), so identical-shaped moments reuse the component. */
+/** Cache key / receipt id: hash of everything that determines the authored component. Literal fact values and
+ *  timing anchors remain data, but real footage evidence is authored context and therefore affects the key. */
 export function promptHash(input: MgMomentInput): string {
+  const visualEvidence = input.visualEvidence ? {
+    space: input.visualEvidence.space,
+    canvas: input.visualEvidence.canvas,
+    frames: input.visualEvidence.frames.map((frame) => ({
+      role: frame.role,
+      coordinate: frame.coordinate,
+      contentHash: createHash('sha256').update(frame.imageDataUrl).digest('hex'),
+    })),
+  } : null;
   const salient = {
     factKind: input.candidate.factKind,
     props: dataPropKeys(input.candidate.content), // which data props exist (sorted)
@@ -167,6 +218,7 @@ export function promptHash(input: MgMomentInput): string {
     colors: input.brand.colors,
     type: input.brand.type,
     motion: input.brand.motion,
+    visualEvidence,
     kit: KIT_VERSION,
   };
   return createHash('sha256').update(JSON.stringify(salient)).digest('hex');
@@ -188,7 +240,11 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
   };
   const basePrompt = buildCodegenPrompt(input);
 
-  const attempt = async (note?: string): Promise<{ code: string; scan: ScanResult }> => {
+  const attempt = async (note?: string): Promise<{
+    code: string;
+    scan: ScanResult;
+    providerFailure?: MgProviderFailureReceipt;
+  }> => {
     receipt.attempts += 1;
     const prompt = note ? `${basePrompt}\n\n<previous_attempt_feedback>\n${note}\n</previous_attempt_feedback>` : basePrompt;
     let code = '';
@@ -197,7 +253,11 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     } catch (error) {
       const scan: ScanResult = { ok: false, reason: `model call failed: ${boundedCompileFeedback(error).slice(0, 160)}` };
       receipt.scans.push({ passed: false, reason: scan.reason });
-      return { code: '', scan };
+      return {
+        code: '',
+        scan,
+        providerFailure: error instanceof MgProviderFailureError ? error.failure : undefined,
+      };
     }
     const scan = scanCode(code);
     receipt.scans.push({ passed: scan.ok, reason: scan.reason });
@@ -209,9 +269,10 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     receipt.reason = reason;
     return { status: 'declined', reason, receipt };
   };
-  const fallback = (reason: string): MgGenerateResult => {
+  const fallback = (reason: string, failure?: MgProviderFailureReceipt): MgGenerateResult => {
     receipt.outcome = 'fallback';
     receipt.reason = reason;
+    if (failure) receipt.failure = failure;
     return { status: 'fallback', reason, receipt };
   };
 
@@ -232,15 +293,15 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
   };
 
   // 1. generate; honour an honest decline before anything else; then scan (1 repair)
-  let { code, scan } = await attempt();
+  let { code, scan, providerFailure } = await attempt();
   const decline = detectDecline(code);
   if (decline) return declined(decline);
   if (!scan.ok) {
-    ({ code, scan } = await attempt(`Your previous output was rejected: ${scan.reason} Fix ONLY that and return the full corrected component.`));
+    ({ code, scan, providerFailure } = await attempt(`Your previous output was rejected: ${scan.reason} Fix ONLY that and return the full corrected component.`));
     const decline2 = detectDecline(code);
     if (decline2) return declined(decline2);
   }
-  if (!scan.ok) return fallback(`scan: ${scan.reason}`);
+  if (!scan.ok) return fallback(`scan: ${scan.reason}`, providerFailure);
   // Imports become deterministic here — the model authored only the body; the harness owns the import block.
   code = applyImportPreamble(code);
 
@@ -258,6 +319,7 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     );
     const repairDecline = detectDecline(repair.code);
     if (repairDecline) return declined(repairDecline);
+    if (repair.providerFailure) return fallback(`compile repair: ${repair.scan.reason}`, repair.providerFailure);
     if (!repair.scan.ok) return fallback(`compile repair scan: ${repair.scan.reason}`);
     code = applyImportPreamble(repair.code);
     compileResult = await compile(code);
@@ -274,7 +336,10 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
   try {
     ev = await deps.evaluate(code, input);
   } catch (error) {
-    return fallback(`judge threw: ${(error instanceof Error ? error.message : String(error)).slice(0, 120)}`);
+    return fallback(
+      `judge threw: ${(error instanceof Error ? error.message : String(error)).slice(0, 120)}`,
+      error instanceof MgProviderFailureError ? error.failure : undefined,
+    );
   }
   receipt.judgeScore = ev.score;
   receipt.judgeIssues = ev.issues;
@@ -283,6 +348,7 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
       return fallback(`judge ${ev.score} < ${threshold}; model attempt budget exhausted`);
     }
     const rev = await attempt(`A design reviewer scored your output ${ev.score}/10. Issues: ${ev.issues.join('; ')}. Revise to fix them; return the full component.`);
+    if (rev.providerFailure) return fallback(`revision: ${rev.scan.reason}`, rev.providerFailure);
     if (!rev.scan.ok) return fallback(`revision scan: ${rev.scan.reason}`);
     let revCode = applyImportPreamble(rev.code);
     let revisionCompile = await compile(revCode);
@@ -295,6 +361,7 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
       );
       const repairDecline = detectDecline(repair.code);
       if (repairDecline) return declined(repairDecline);
+      if (repair.providerFailure) return fallback(`revision compile repair: ${repair.scan.reason}`, repair.providerFailure);
       if (!repair.scan.ok) return fallback(`revision compile repair scan: ${repair.scan.reason}`);
       revCode = applyImportPreamble(repair.code);
       revisionCompile = await compile(revCode);
@@ -309,7 +376,10 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     try {
       ev2 = await deps.evaluate(revCode, input);
     } catch (error) {
-      return fallback(`revision judge threw: ${(error instanceof Error ? error.message : String(error)).slice(0, 120)}`);
+      return fallback(
+        `revision judge threw: ${(error instanceof Error ? error.message : String(error)).slice(0, 120)}`,
+        error instanceof MgProviderFailureError ? error.failure : undefined,
+      );
     }
     receipt.judgeScore = ev2.score;
     receipt.judgeIssues = ev2.issues;
