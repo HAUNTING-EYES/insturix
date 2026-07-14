@@ -4209,10 +4209,12 @@ async function applyGraphic(
         const [
           { brandToKit },
           { buildMgMomentInput },
+          { captureMgVisualEvidence },
           { resolveMgRenderAppCommit, runDurableMgRenderJob },
         ] = await Promise.all([
           import('@/lib/editron/motion-graphics/codegen/brand-mapper'),
           import('@/lib/editron/motion-graphics/codegen/moment-input'),
+          import('@/lib/editron/motion-graphics/codegen/visual-evidence'),
           import('@/lib/editron/motion-graphics/codegen/mg-render-job-runner'),
         ]);
         const mappedBrand = brandToKit(projectSignalContext.codegenBrand);
@@ -4220,18 +4222,27 @@ async function applyGraphic(
           return rejectCodegenMoment('fallback', 'Configured brand could not be mapped to the MG kit');
         }
 
+        const codegenWindow = {
+          startFrame: snappedFrame,
+          endFrame: snappedFrame + compositionDuration,
+          fps: DEFAULT_CONFIG.timing.fps,
+        };
+        const codegenAnchors = buildMgCodegenAnchors(decision, snappedFrame, compositionDuration, signalCurves);
+        const visualEvidence = await captureMgVisualEvidence({
+          overlays,
+          window: codegenWindow,
+          canvas,
+          anchors: codegenAnchors,
+        });
         const momentInput = buildMgMomentInput({
           momentId: `${projectId}:${snappedFrame}:${selectedCandidate.id}`,
           candidate: selectedCandidate,
           brand: mappedBrand.brand,
-          window: {
-            startFrame: snappedFrame,
-            endFrame: snappedFrame + compositionDuration,
-            fps: DEFAULT_CONFIG.timing.fps,
-          },
+          window: codegenWindow,
           expression: mgExpressionAuthority,
           placement: atomicPlacement,
-          anchors: buildMgCodegenAnchors(decision, snappedFrame, compositionDuration, signalCurves),
+          anchors: codegenAnchors,
+          visualEvidence,
           notes: mgCodegenNotes(decision),
         });
         const generated = await runDurableMgRenderJob({
