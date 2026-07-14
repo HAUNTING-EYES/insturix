@@ -17,7 +17,15 @@
 
 import type { Brand } from './kit/brand';
 import type { SemanticMgCandidate } from '../engine/semantic-mg-candidates';
-import type { MgAnchors, MgExpressiveness, MgMomentInput, MgPlacementContext, MgRegionBox, MgScreenContext } from './types';
+import type {
+  MgAnchors,
+  MgExpressiveness,
+  MgMomentInput,
+  MgPlacementContext,
+  MgRegionBox,
+  MgScreenContext,
+  MgVisualEvidence,
+} from './types';
 
 /** A rectangle in fractions — the caller's placement boxes satisfy this structurally. */
 export interface MgBoxSource {
@@ -56,6 +64,8 @@ export interface BuildMgMomentInputArgs {
   placement: MgPlacementSource;
   /** Timing anchors, if the producer computed them. */
   anchors?: MgAnchors;
+  /** Canonical edited-canvas footage sampled for multimodal composition. */
+  visualEvidence?: MgVisualEvidence;
   /** Bounded editorial direction (context, never an executable instruction). */
   notes?: string;
 }
@@ -94,7 +104,7 @@ function deriveScreen(placement: MgPlacementSource): MgScreenContext | undefined
  * zero/negative-length clip or non-positive fps is a caller bug — fail loud, do not silently "fix" it).
  */
 export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput {
-  const { momentId, candidate, brand, window, expression, placement, anchors, notes } = args;
+  const { momentId, candidate, brand, window, expression, placement, anchors, visualEvidence, notes } = args;
 
   if (!Number.isFinite(window.fps) || window.fps <= 0) {
     throw new Error(`buildMgMomentInput: fps must be positive, got ${window.fps}`);
@@ -126,6 +136,7 @@ export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput 
 
   const screen = deriveScreen(placement);
   if (screen) input.screen = screen;
+  if (visualEvidence) input.visualEvidence = visualEvidence;
   if (anchors) input.anchors = anchors;
   const trimmedNotes = notes?.trim();
   if (trimmedNotes) input.notes = trimmedNotes.slice(0, 400);

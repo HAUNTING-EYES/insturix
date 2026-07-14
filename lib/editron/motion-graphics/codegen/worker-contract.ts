@@ -2,14 +2,34 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 import type { MgSequenceOutput } from './render/render-moment';
-import type { MgMomentInput, MgReceipt } from './types';
+import type { MgMomentInput, MgReceipt, MgVisualEvidenceRole } from './types';
 
-export const MG_RENDER_WORKER_CONTRACT_VERSION = 'editron-mg-render-worker-v1' as const;
+export const MG_RENDER_WORKER_CONTRACT_VERSION = 'editron-mg-render-worker-v2' as const;
 
 const finiteNumber = z.number().finite();
 const unitNumber = finiteNumber.min(0).max(1);
 const boundedString = (max: number) => z.string().min(1).max(max);
-const MAX_WORKER_REQUEST_BYTES = 512 * 1_024;
+export const MAX_WORKER_REQUEST_BYTES = 512 * 1_024;
+export const MAX_VISUAL_EVIDENCE_IMAGE_BYTES = 96 * 1_024;
+const MAX_VISUAL_EVIDENCE_DATA_URL_CHARS = Math.ceil(MAX_VISUAL_EVIDENCE_IMAGE_BYTES * 4 / 3) + 64;
+
+function isValidVisualEvidenceImage(value: string): boolean {
+  const match = value.match(/^data:image\/(jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/);
+  if (!match) return false;
+  const mime = match[1];
+  const encoded = match[2];
+  const decoded = Buffer.from(encoded, 'base64');
+  if (decoded.byteLength < 12 || decoded.byteLength > MAX_VISUAL_EVIDENCE_IMAGE_BYTES) return false;
+  if (decoded.toString('base64') !== encoded) return false;
+  if (mime === 'jpeg') return decoded[0] === 0xff && decoded[1] === 0xd8 && decoded[2] === 0xff;
+  return decoded.subarray(0, 4).toString('ascii') === 'RIFF'
+    && decoded.subarray(8, 12).toString('ascii') === 'WEBP';
+}
+
+const visualEvidenceImageDataUrlSchema = z.string()
+  .max(MAX_VISUAL_EVIDENCE_DATA_URL_CHARS)
+  .refine(isValidVisualEvidenceImage, { message: 'visual evidence must be a valid bounded JPEG or WebP data URL' });
+
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
@@ -99,6 +119,47 @@ const regionBoxSchema = z.object({
   message: 'region box must stay within normalized canvas bounds',
 });
 
+const visualEvidenceCoordinateSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('source-asset'),
+    assetId: boundedString(240),
+    sourceFrame: z.number().int().nonnegative(),
+    timelineFrame: z.number().int().nonnegative(),
+  }).strict(),
+  z.object({
+    kind: z.literal('edited-timeline'),
+    timelineFrame: z.number().int().nonnegative(),
+  }).strict(),
+]);
+
+function visualEvidenceFrameSchema<const Role extends MgVisualEvidenceRole>(role: Role) {
+  return z.object({
+    role: z.literal(role),
+    coordinate: visualEvidenceCoordinateSchema,
+    imageDataUrl: visualEvidenceImageDataUrlSchema,
+  }).strict();
+}
+
+const visualEvidenceSchema = z.object({
+  space: z.literal('edited-canvas'),
+  canvas: z.object({
+    width: z.number().int().min(64).max(4_096),
+    height: z.number().int().min(64).max(4_096),
+  }).strict().refine(({ width, height }) => width * height <= 3_840 * 2_160, {
+    message: 'visual evidence canvas must not exceed 4K pixel count',
+  }),
+  frames: z.tuple([
+    visualEvidenceFrameSchema('context-before'),
+    visualEvidenceFrameSchema('anchor'),
+    visualEvidenceFrameSchema('context-after'),
+  ]),
+}).strict()
+  .refine(
+    ({ frames }) => frames.every((frame, index) => index === 0
+      || frames[index - 1].coordinate.timelineFrame < frame.coordinate.timelineFrame),
+    { message: 'visual evidence timeline frames must be strictly increasing' },
+  );
+
 export const mgMomentInputSchema = z.object({
   momentId: boundedString(240),
   candidate: semanticCandidateSchema,
@@ -134,8 +195,21 @@ export const mgMomentInputSchema = z.object({
     }).strict().optional(),
     negativeSpace: z.object({ region: boundedString(120), strength: unitNumber }).strict().optional(),
   }).strict().optional(),
+  visualEvidence: visualEvidenceSchema.optional(),
   notes: z.string().max(2_000).optional(),
-}).strict();
+}).strict().superRefine((moment, context) => {
+  if (!moment.visualEvidence) return;
+  for (const [index, frame] of moment.visualEvidence.frames.entries()) {
+    const timelineFrame = frame.coordinate.timelineFrame;
+    if (timelineFrame < moment.window.startFrame || timelineFrame >= moment.window.endFrame) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['visualEvidence', 'frames', index, 'coordinate', 'timelineFrame'],
+        message: 'visual evidence timeline frame must belong to the MG window',
+      });
+    }
+  }
+});
 
 const receiptSchema: z.ZodType<MgReceipt> = z.object({
   momentId: boundedString(240),
@@ -148,6 +222,23 @@ const receiptSchema: z.ZodType<MgReceipt> = z.object({
   judgeIssues: z.array(z.string().max(2_000)).max(100).optional(),
   outcome: z.enum(['generated', 'declined', 'fallback']),
   reason: z.string().max(8_000).optional(),
+  failure: z.object({
+    domain: z.literal('provider'),
+    provider: z.enum(['zai', 'gemini']),
+    operation: z.enum(['component-generation', 'visual-judge']),
+    code: z.enum([
+      'rate-limited',
+      'timeout',
+      'unavailable',
+      'network',
+      'authentication',
+      'request-rejected',
+      'invalid-response',
+      'configuration',
+    ]),
+    disposition: z.enum(['retryable', 'terminal']),
+    statusCode: z.number().int().min(100).max(599).optional(),
+  }).strict().optional(),
 }).strict();
 
 const sequenceOutputSchema: z.ZodType<MgSequenceOutput> = z.object({
@@ -182,6 +273,15 @@ export const mgRenderWorkerRequestSchema = z.object({
   sequenceNamespace: boundedString(500),
   requestedAt: z.string().datetime(),
 }).strict().superRefine((request, context) => {
+  const evidenceCanvas = request.input.visualEvidence?.canvas;
+  if (evidenceCanvas
+    && (evidenceCanvas.width !== request.canvas.width || evidenceCanvas.height !== request.canvas.height)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['input', 'visualEvidence', 'canvas'],
+      message: 'visual evidence canvas must match the render canvas',
+    });
+  }
   if (Buffer.byteLength(JSON.stringify(request), 'utf8') > MAX_WORKER_REQUEST_BYTES) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'MG render worker request exceeds 512 KiB' });
   }
