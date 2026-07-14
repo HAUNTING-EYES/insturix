@@ -161,21 +161,20 @@ export async function runDurableMgRenderJob(
     throw new Error(`MG render job ${stored._id} is already running or waiting for retry`);
   }
 
-  const authorizationClaims: MgStorageAuthorizationClaims = {
-    version: 1,
-    jobId: claimed._id,
-    leaseId,
-    projectId: claimed.projectId,
-    userId: claimed.userId,
-    orgId: claimed.orgId,
-    expiresAtMs: now.getTime() + authTtlMs(env, leaseMs),
-  };
-  const storageAuthorization = {
-    url: resolveMgStorageAuthorizationUrl(env),
-    token: createMgStorageAuthorizationToken(authorizationClaims, env),
-  };
-
   try {
+    const authorizationClaims: MgStorageAuthorizationClaims = {
+      version: 1,
+      jobId: claimed._id,
+      leaseId,
+      projectId: claimed.projectId,
+      userId: claimed.userId,
+      orgId: claimed.orgId,
+      expiresAtMs: now.getTime() + authTtlMs(env, leaseMs),
+    };
+    const storageAuthorization = {
+      url: resolveMgStorageAuthorizationUrl(env),
+      token: createMgStorageAuthorizationToken(authorizationClaims, env),
+    };
     const result = await executeSandbox({
       request: claimed.request,
       executionId: leaseId,

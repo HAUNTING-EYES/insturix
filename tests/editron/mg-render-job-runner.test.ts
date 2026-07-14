@@ -181,6 +181,32 @@ describe('durable MG render job runner', () => {
     expect(failJob).not.toHaveBeenCalled();
   });
 
+  it('records authorization failures after a lease is claimed', async () => {
+    const queued = job();
+    const claimJob = vi.fn(async (args) => ({ ...queued, status: 'running' as const, leaseId: args.leaseId }));
+    const executeSandbox = vi.fn();
+    const failJob = vi.fn(async () => 'failed' as const);
+
+    await expect(runDurableMgRenderJob(input(), {
+      env: { ...ENV, MG_RENDER_STORAGE_AUTH_SECRET: undefined },
+      now: NOW,
+      dependencies: {
+        createOrGetJob: vi.fn(async () => queued),
+        claimJob,
+        executeSandbox,
+        completeJob: vi.fn(),
+        failJob,
+      },
+    })).rejects.toThrow(/failed \(failed\): MG render job runner: missing MG_RENDER_STORAGE_AUTH_SECRET/);
+
+    expect(executeSandbox).not.toHaveBeenCalled();
+    expect(failJob).toHaveBeenCalledWith(expect.objectContaining({
+      jobId: queued._id,
+      retryable: false,
+      error: expect.any(Error),
+    }));
+  });
+
   it('reuses a completed idempotent result without launching another Sandbox', async () => {
     const completed = { ...job('completed'), result: generatedResult(job()._id) };
     const claimJob = vi.fn();
