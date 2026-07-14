@@ -85,14 +85,17 @@ async function phaseSampleRender() {
   await fs.mkdir(webpDir);
   const files = Array.from({ length: 60 }, (_, index) => `${String(index).padStart(5, '0')}.webp`);
   await Promise.all(files.map(async (file, index) => {
-    const background = index === 10
-      ? { r: 255, g: 0, b: 0, alpha: 1 }
+    const fill = index === 10
+      ? '#ff0000'
       : index === 27
-        ? { r: 0, g: 255, b: 0, alpha: 1 }
+        ? '#00ff00'
         : index === 54
-          ? { r: 0, g: 0, b: 255, alpha: 1 }
-          : { r: 0, g: 0, b: 0, alpha: 1 };
-    await sharp({ create: { width: 32, height: 18, channels: 4, background } })
+          ? '#0000ff'
+          : null;
+    const svg = Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="18">${fill ? `<rect width="16" height="18" fill="${fill}"/>` : ''}</svg>`,
+    );
+    await sharp(svg)
       .webp({ lossless: true })
       .toFile(path.join(webpDir, file));
   }));
@@ -238,16 +241,47 @@ describe('production MG codegen runtime', () => {
     const sheet = Buffer.from(request.contents[0].parts[0].inlineData.data, 'base64');
     const metadata = await sharp(sheet).metadata();
     const tileWidth = Math.floor((metadata.width ?? 0) / 3);
-    const tileHeight = Math.floor((metadata.height ?? 0) / 2);
-    const pixels = await Promise.all([0, 1, 2].map((column) => sharp(sheet)
-      .extract({ left: column * tileWidth + Math.floor(tileWidth / 2), top: Math.floor(tileHeight / 2), width: 1, height: 1 })
+    const tileHeight = Math.floor((metadata.height ?? 0) / 3);
+    const phasePixels = await Promise.all([0, 1, 2].map((column) => sharp(sheet)
+      .extract({ left: column * tileWidth + Math.floor(tileWidth / 4), top: Math.floor(tileHeight / 2), width: 1, height: 1 })
       .removeAlpha()
       .raw()
       .toBuffer()));
-    expect([...pixels[0]]).toEqual([255, 0, 0]);
-    expect([...pixels[1]]).toEqual([0, 255, 0]);
-    expect([...pixels[2]]).toEqual([0, 0, 255]);
+    expect([...phasePixels[0]]).toEqual([255, 0, 0]);
+    expect([...phasePixels[1]]).toEqual([0, 255, 0]);
+    expect([...phasePixels[2]]).toEqual([0, 0, 255]);
+    const backgroundPixels = await Promise.all([0, 1, 2].map((row) => sharp(sheet)
+      .extract({
+        left: Math.floor(tileWidth * 0.75),
+        top: row * tileHeight + Math.floor(tileHeight / 2),
+        width: 1,
+        height: 1,
+      })
+      .removeAlpha()
+      .raw()
+      .toBuffer()));
+    expect([...backgroundPixels[0]]).toEqual([10, 20, 30]);
+    expect([...backgroundPixels[1]]).toEqual([17, 17, 17]);
+    expect([...backgroundPixels[2]]).toEqual([242, 242, 242]);
     expect(request.contents[0].parts[1].text).toContain('columns are sequential time samples');
+    expect(request.contents[0].parts[1].text).toContain('TOP row composites each animation phase over its matching real final edited-canvas frame');
+    await runtime.dispose();
+  });
+
+  it('fails closed when the rendered judge has no final edited-canvas evidence', async () => {
+    const input = moment();
+    delete input.visualEvidence;
+    const generateContent = vi.fn();
+    vi.mocked(getAnalysisModel).mockResolvedValue({ generateContent } as never);
+    const runtime = createProductionMgRuntime(input, { width: 1920, height: 1080 }, {
+      render: fakeRender,
+      cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
+      writeComponent: async () => 'component',
+    });
+
+    await expect(runtime.codegen.compile('component')).resolves.toEqual({ ok: true });
+    await expect(runtime.codegen.evaluate('component', input)).rejects.toThrow(/requires complete edited-canvas visual evidence/);
+    expect(generateContent).not.toHaveBeenCalled();
     await runtime.dispose();
   });
 
@@ -263,7 +297,7 @@ describe('production MG codegen runtime', () => {
       .mockResolvedValueOnce({ response: { text: () => JSON.stringify({ faithful: true, score: 8.4, issues: [], reasoning: 'faithful and readable' }) } });
     vi.mocked(getAnalysisModel).mockResolvedValue({ generateContent } as never);
     const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
-      render: fakeRender,
+      render: phaseSampleRender,
       cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
       writeComponent: async () => 'component',
     });
@@ -291,7 +325,7 @@ describe('production MG codegen runtime', () => {
     });
     vi.mocked(getAnalysisModel).mockResolvedValue({ generateContent } as never);
     const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
-      render: fakeRender,
+      render: phaseSampleRender,
       cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
       writeComponent: async () => 'component',
     });

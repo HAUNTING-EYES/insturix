@@ -156,17 +156,19 @@ keyword-highlighting, no lower-thirds — a fresh composition every time.
 /** Vision-judge prompt: the transparent graphic is composited on a real footage frame; the judge rates brand
  *  craft, legibility over content, AND faithfulness to the licensed fact (fabrication is an automatic reject). */
 export const JUDGE_PROMPT = `You are the final ruthless motion-graphics craft and faithfulness judge.
-The image is a three-moment contact sheet of ONE transparent animation composited over both dark and light footage backgrounds. Judge the ADDED graphic only: brand fidelity, composition, visible motion development, mobile legibility, clipping, contrast on both backgrounds, safe-region compliance, and faithfulness to the licensed fact.
+The image is a 3-column by 3-row contact sheet of ONE transparent animation. Judge the ADDED graphic only: brand fidelity, composition, visible motion development, mobile legibility, clipping, contrast, safe-region compliance, subject/caption obstruction, and faithfulness to the licensed fact.
 
 CONTACT-SHEET TRUTH:
 - The three columns are sequential time samples (intro, build, settled hold), not simultaneous elements. Never penalize the same visual for appearing once in each time column.
-- The two rows repeat those same time samples over dark and light footage stress backgrounds. Never count row repetition as extra focal points.
+- The TOP row composites each animation phase over its matching real final edited-canvas frame (before, anchor, after). This is the authority for placement, hierarchy, subject/caption collision, and whether the graphic belongs in the shot.
+- The MIDDLE and BOTTOM rows repeat those phases over neutral dark and light stress backgrounds. They test alpha and contrast only. Never count row repetition as extra focal points.
+- Reject a graphic that looks acceptable on neutral stress backgrounds but obscures a subject, existing text, or the visual point of the real footage row.
 
 FAITHFULNESS:
 - ALLOW transient interpolated numbers between licensed start/end values only when they are clearly animation states of an honest count-up, progress, or transition and settle on the licensed values. Intermediate motion states are not asserted facts.
 - REJECT unsupported settled values, endpoints, labels, annotations, statistics, comparisons, or claims. A stable fabricated value is a lie on the video.
 
-AUTOMATIC REJECT: unsupported asserted content; any colour outside brand tokens; clipped/overflowing/broken text; a keyword-highlight or lower-third-template look instead of a bespoke composition; an opaque full-canvas graphic that hides the footage; or a graphic that cannot read over both backgrounds.
+AUTOMATIC REJECT: unsupported asserted content; any colour outside brand tokens; clipped/overflowing/broken text; a keyword-highlight or lower-third-template look instead of a bespoke composition; an opaque full-canvas graphic that hides the footage; subject/caption obstruction in the real footage row; or a graphic that cannot read over the real footage and both stress backgrounds.
 PENALIZE: more than one focal point; timid type; no visible development across sampled moments; static values; subject obstruction; muddy gradients; decorative motion without meaning.
 REWARD: faithful settled content, honest interpolation, clear visual development, one focal point, one accent, deliberate negative space, and clean readability.
 Return ONLY JSON: {"faithful":boolean,"score":0-10,"issues":["specific fixable issue"],"reasoning":"one sentence"}. 8+ = genuinely premium AND faithful.`;

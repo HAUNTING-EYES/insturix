@@ -251,11 +251,43 @@ function sampleIndices(frameCount: number, brand: MgMomentInput['brand']): numbe
   return [...new Set([clampFrame(ph.intro), clampFrame(ph.build), clampFrame(settledHold)])];
 }
 
+const JUDGE_EVIDENCE_ROLES: MgVisualEvidenceFrame['role'][] = [
+  'context-before',
+  'anchor',
+  'context-after',
+];
+const JUDGE_STRESS_BACKGROUNDS = ['#111111', '#f2f2f2'] as const;
+
+function decodeVisualEvidenceFrame(frame: MgVisualEvidenceFrame): Buffer {
+  const match = frame.imageDataUrl.match(/^data:image\/(?:jpeg|webp);base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) throw new Error(`MG judge received malformed ${frame.role} visual evidence`);
+  const bytes = Buffer.from(match[1], 'base64');
+  if (!bytes.length) throw new Error(`MG judge received empty ${frame.role} visual evidence`);
+  return bytes;
+}
+
+function requireJudgeVisualEvidence(moment: MgMomentInput): MgVisualEvidenceFrame[] {
+  const frames = moment.visualEvidence?.frames;
+  if (!frames || frames.length !== JUDGE_EVIDENCE_ROLES.length) {
+    throw new Error('MG judge requires complete edited-canvas visual evidence');
+  }
+  for (let index = 0; index < JUDGE_EVIDENCE_ROLES.length; index += 1) {
+    if (frames[index].role !== JUDGE_EVIDENCE_ROLES[index]) {
+      throw new Error(`MG judge expected ${JUDGE_EVIDENCE_ROLES[index]} visual evidence at index ${index}`);
+    }
+  }
+  return frames;
+}
+
 async function buildContactSheet(render: MgRenderResult, moment: MgMomentInput): Promise<Buffer> {
   if (!render.files.length) throw new Error('MG judge cannot evaluate an empty frame sequence');
   const tileWidth = 360;
   const tileHeight = Math.max(202, Math.min(640, Math.round(tileWidth * render.height / render.width)));
   const indices = sampleIndices(render.files.length, moment.brand);
+  const evidenceFrames = requireJudgeVisualEvidence(moment);
+  if (indices.length !== evidenceFrames.length) {
+    throw new Error(`MG judge requires ${evidenceFrames.length} distinct animation phase samples; received ${indices.length}`);
+  }
   const composites: sharp.OverlayOptions[] = [];
 
   for (let column = 0; column < indices.length; column += 1) {
@@ -264,19 +296,34 @@ async function buildContactSheet(render: MgRenderResult, moment: MgMomentInput):
       .resize({ width: tileWidth, height: tileHeight, fit: 'contain' })
       .png()
       .toBuffer();
-    for (let row = 0; row < 2; row += 1) {
-      const background = row === 0 ? '#111111' : '#f2f2f2';
+    const footage = await sharp(decodeVisualEvidenceFrame(evidenceFrames[column]))
+      .resize({ width: tileWidth, height: tileHeight, fit: 'cover' })
+      .png()
+      .toBuffer();
+    const footageTile = await sharp(footage).composite([{ input: frame }]).png().toBuffer();
+    composites.push({ input: footageTile, left: column * tileWidth, top: 0 });
+
+    for (let stressIndex = 0; stressIndex < JUDGE_STRESS_BACKGROUNDS.length; stressIndex += 1) {
       const tile = await sharp({
-        create: { width: tileWidth, height: tileHeight, channels: 4, background },
+        create: {
+          width: tileWidth,
+          height: tileHeight,
+          channels: 4,
+          background: JUDGE_STRESS_BACKGROUNDS[stressIndex],
+        },
       }).composite([{ input: frame }]).png().toBuffer();
-      composites.push({ input: tile, left: column * tileWidth, top: row * tileHeight });
+      composites.push({
+        input: tile,
+        left: column * tileWidth,
+        top: (stressIndex + 1) * tileHeight,
+      });
     }
   }
 
   return sharp({
     create: {
       width: tileWidth * indices.length,
-      height: tileHeight * 2,
+      height: tileHeight * (JUDGE_STRESS_BACKGROUNDS.length + 1),
       channels: 4,
       background: '#000000',
     },
