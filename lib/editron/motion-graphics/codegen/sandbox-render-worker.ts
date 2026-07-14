@@ -6,6 +6,7 @@ import {
   type MgRenderWorkerRequest,
   type MgRenderWorkerResult,
 } from './worker-contract';
+import { resolveMgVisualJudgeProviderName } from './visual-judge-provider';
 
 type EnvLike = Record<string, string | undefined>;
 
@@ -130,24 +131,35 @@ export function resolveMgSandboxRuntimeConfig(input: {
   const authorizationToken = input.storageAuthorization.token.trim();
   if (!authorizationToken) throw new Error('MG Sandbox: missing job-scoped storage authorization token');
   const r2AccountId = required(env, 'R2_ACCOUNT_ID');
+  const visualJudgeProvider = resolveMgVisualJudgeProviderName(env);
   const geminiApiKey = env.GEMINI_API_KEY?.trim() || env.GOOGLE_API_KEY?.trim();
-  if (!geminiApiKey) throw new Error('MG Sandbox: missing GEMINI_API_KEY or GOOGLE_API_KEY');
+  if (visualJudgeProvider === 'gemini' && !geminiApiKey) {
+    throw new Error('MG Sandbox: Gemini visual judge requires GEMINI_API_KEY or GOOGLE_API_KEY');
+  }
   const zaiApiKey = required(env, 'ZAI_API_KEY');
   const zaiApi = httpsUrl(env.ZAI_BASE_URL?.trim() || DEFAULT_ZAI_BASE_URL, env, 'Z.AI base URL');
 
   const workerEnv: Record<string, string> = {
     NODE_ENV: 'production',
-    GEMINI_API_KEY: geminiApiKey,
     ZAI_API_KEY: zaiApiKey,
     ZAI_BASE_URL: zaiApi.toString().replace(/\/$/, ''),
     MG_CODEGEN_MODEL: env.MG_CODEGEN_MODEL?.trim() || DEFAULT_MG_CODEGEN_MODEL,
+    MG_VISUAL_JUDGE_PROVIDER: visualJudgeProvider,
     R2_ACCESS_KEY_ID: required(env, 'R2_ACCESS_KEY_ID'),
     R2_SECRET_ACCESS_KEY: required(env, 'R2_SECRET_ACCESS_KEY'),
     R2_ACCOUNT_ID: r2AccountId,
     MG_STORAGE_AUTHORIZATION_URL: authorization.toString(),
     MG_STORAGE_AUTHORIZATION_TOKEN: authorizationToken,
   };
-  for (const name of ['R2_BUCKET_NAME', 'CDN_WORKER_URL', 'LLM_GENERAL_MODEL', 'LLM_ANALYSIS_MODEL', 'MG_CODEGEN_TIMEOUT_MS']) {
+  if (geminiApiKey) workerEnv.GEMINI_API_KEY = geminiApiKey;
+  for (const name of [
+    'R2_BUCKET_NAME',
+    'CDN_WORKER_URL',
+    'LLM_GENERAL_MODEL',
+    'LLM_ANALYSIS_MODEL',
+    'MG_CODEGEN_TIMEOUT_MS',
+    'MG_VISUAL_JUDGE_MODEL',
+  ]) {
     const value = env[name]?.trim();
     if (value) workerEnv[name] = value;
   }

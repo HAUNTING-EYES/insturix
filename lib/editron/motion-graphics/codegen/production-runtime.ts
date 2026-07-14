@@ -1,11 +1,9 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { SchemaType, type ResponseSchema } from '@google/generative-ai';
 import sharp from 'sharp';
 
 import { chatCompletionsUrl } from '@/lib/editron/reference-video/glm-vision-client';
-import { getAnalysisModel } from '@/lib/editron/utils/gemini-model-factory';
 
 import {
   MgProviderFailureError,
@@ -16,6 +14,10 @@ import { phases } from './kit/choreo';
 import { JUDGE_PROMPT } from './prompt';
 import type { MgMomentInput, MgVisualEvidence, MgVisualEvidenceFrame } from './types';
 import {
+  createMgVisualJudgeProvider,
+  resolveMgVisualJudgeProviderName,
+} from './visual-judge-provider';
+import {
   cleanupWorkspace,
   renderMomentToWebpFrames,
   type MgRenderInput,
@@ -25,16 +27,6 @@ import {
 type RenderFn = (input: MgRenderInput, opts?: ProductionMgRuntimeOptions['renderOpts']) => Promise<MgRenderResult>;
 type CleanupFn = (workspaceDir: string) => Promise<void>;
 
-const MG_JUDGE_RESPONSE_SCHEMA: ResponseSchema = {
-  type: SchemaType.OBJECT,
-  properties: {
-    faithful: { type: SchemaType.BOOLEAN },
-    score: { type: SchemaType.NUMBER },
-    issues: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-    reasoning: { type: SchemaType.STRING },
-  },
-  required: ['faithful', 'score', 'issues', 'reasoning'],
-};
 const JUDGE_ATTEMPTS = [
   { seed: 42, maxOutputTokens: 1_200 },
   { seed: 7, maxOutputTokens: 4_096 },
@@ -345,12 +337,14 @@ async function defaultJudgeRendered(
   moment: MgMomentInput,
 ): Promise<{ score: number; issues: string[] }> {
   const sheet = await buildContactSheet(render, moment);
-  let model: Awaited<ReturnType<typeof getAnalysisModel>>;
+  const providerName = resolveMgVisualJudgeProviderName();
+  let provider: Awaited<ReturnType<typeof createMgVisualJudgeProvider>>;
   try {
-    model = await getAnalysisModel();
+    provider = await createMgVisualJudgeProvider();
   } catch (error) {
-    throw normalizeProviderFailure({ provider: 'gemini', operation: 'visual-judge', error });
+    throw normalizeProviderFailure({ provider: providerName, operation: 'visual-judge', error });
   }
+  console.info(`[MGCodegen] Visual judge configured: provider=${provider.name}, model=${provider.model}`);
   const fact = JSON.stringify({
     factKind: moment.candidate.factKind,
     rhetoricalRole: moment.candidate.rhetoricalRole,
@@ -370,42 +364,28 @@ ${fact}`;
     let thoughtsTokens: number | undefined;
     try {
       const strictRetry = attempt === 0 ? '' : '\nYour prior response was malformed. Return exactly one complete JSON object matching the schema.';
-      const result = await model.generateContent({
-        contents: [{
-          role: 'user',
-          parts: [
-            { inlineData: { mimeType: 'image/png', data: sheet.toString('base64') } },
-            { text: `${prompt}${strictRetry}` },
-          ],
-        }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: MG_JUDGE_RESPONSE_SCHEMA,
-          temperature: 0,
-          seed: JUDGE_ATTEMPTS[attempt].seed,
-          maxOutputTokens: JUDGE_ATTEMPTS[attempt].maxOutputTokens,
-        },
+      const result = await provider.generate({
+        image: sheet,
+        prompt: `${prompt}${strictRetry}`,
+        seed: JUDGE_ATTEMPTS[attempt].seed,
+        maxOutputTokens: JUDGE_ATTEMPTS[attempt].maxOutputTokens,
       });
-      finishReason = String(result.response?.candidates?.[0]?.finishReason ?? 'unknown');
-      const usage = result.response?.usageMetadata as {
-        totalTokenCount?: number;
-        thoughtsTokenCount?: number;
-      } | undefined;
-      totalTokens = usage?.totalTokenCount;
-      thoughtsTokens = usage?.thoughtsTokenCount;
-      const response = result.response?.text?.();
+      finishReason = result.finishReason;
+      totalTokens = result.totalTokens;
+      thoughtsTokens = result.thoughtsTokens;
+      const response = result.text;
       if (!response) throw new MgProviderFailureError('MG visual judge returned an empty response', {
-        domain: 'provider', provider: 'gemini', operation: 'visual-judge', code: 'invalid-response', disposition: 'terminal',
+        domain: 'provider', provider: providerName, operation: 'visual-judge', code: 'invalid-response', disposition: 'terminal',
       });
       try {
         return parseJudgeResponse(response);
       } catch (error) {
         throw new MgProviderFailureError('MG visual judge returned invalid structured output', {
-          domain: 'provider', provider: 'gemini', operation: 'visual-judge', code: 'invalid-response', disposition: 'terminal',
+          domain: 'provider', provider: providerName, operation: 'visual-judge', code: 'invalid-response', disposition: 'terminal',
         }, error instanceof Error ? { cause: error } : undefined);
       }
     } catch (error) {
-      const failure = normalizeProviderFailure({ provider: 'gemini', operation: 'visual-judge', error });
+      const failure = normalizeProviderFailure({ provider: providerName, operation: 'visual-judge', error });
       const message = failure.message;
       lastFailure = failure;
       lastError = `${message} (finishReason=${finishReason}, totalTokens=${totalTokens ?? 'unknown'}, thoughtsTokens=${thoughtsTokens ?? 'unknown'})`;
@@ -415,7 +395,7 @@ ${fact}`;
   throw new MgProviderFailureError(
     `MG visual judge failed after ${JUDGE_ATTEMPTS.length} attempts: ${lastError.slice(0, 240)}`,
     lastFailure?.failure ?? {
-      domain: 'provider', provider: 'gemini', operation: 'visual-judge', code: 'network', disposition: 'retryable',
+      domain: 'provider', provider: providerName, operation: 'visual-judge', code: 'network', disposition: 'retryable',
     },
     lastFailure ? { cause: lastFailure } : undefined,
   );
