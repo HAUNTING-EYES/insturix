@@ -27,11 +27,15 @@ import {
   verifyMgStorageAuthorizationToken,
 } from '@/lib/editron/motion-graphics/codegen/mg-render-job-runner';
 import {
+  buildMgRenderJobRequestAudit,
   buildMgRenderWorkerRequest,
   type CreateMgRenderJobInput,
   type MgRenderJob,
 } from '@/lib/editron/motion-graphics/codegen/mg-render-job-service';
-import { MG_RENDER_WORKER_CONTRACT_VERSION } from '@/lib/editron/motion-graphics/codegen/worker-contract';
+import {
+  MG_RENDER_WORKER_CONTRACT_VERSION,
+  type MgRenderWorkerResult,
+} from '@/lib/editron/motion-graphics/codegen/worker-contract';
 import type { ExecuteMgRenderInSandboxOptions } from '@/lib/editron/motion-graphics/codegen/sandbox-render-worker';
 
 const NOW = new Date('2026-07-13T00:00:00.000Z');
@@ -89,6 +93,7 @@ function job(status: MgRenderJob['status'] = 'queued'): MgRenderJob {
     userId: request.userId,
     orgId: request.orgId,
     request,
+    requestAudit: buildMgRenderJobRequestAudit(request),
     status,
     attemptCount: status === 'queued' ? 0 : 1,
     maxAttempts: 3,
@@ -131,6 +136,36 @@ function generatedResult(jobId: string) {
       transparent: true as const,
       sizeBytes: 12_345,
       renderMs: 4_500,
+    },
+  };
+}
+
+function providerFallbackResult(
+  jobId: string,
+  disposition: 'retryable' | 'terminal',
+): MgRenderWorkerResult {
+  return {
+    version: MG_RENDER_WORKER_CONTRACT_VERSION,
+    jobId,
+    status: 'fallback',
+    completedAt: '2026-07-13T00:01:00.000Z',
+    reason: 'component provider unavailable',
+    receipt: {
+      momentId: 'moment-1',
+      promptHash: 'prompt-hash',
+      attempts: 2,
+      scans: [{ passed: false, reason: 'model call failed' }],
+      compiled: false,
+      outcome: 'fallback',
+      reason: 'component provider unavailable',
+      failure: {
+        domain: 'provider',
+        provider: 'zai',
+        operation: 'component-generation',
+        code: disposition === 'retryable' ? 'rate-limited' : 'authentication',
+        disposition,
+        statusCode: disposition === 'retryable' ? 429 : 401,
+      },
     },
   };
 }
@@ -181,6 +216,62 @@ describe('durable MG render job runner', () => {
     expect(failJob).not.toHaveBeenCalled();
   });
 
+  it('requeues a typed transient provider fallback instead of caching it as completed', async () => {
+    const queued = job();
+    const result = providerFallbackResult(queued._id, 'retryable');
+    const completeJob = vi.fn();
+    const failJob = vi.fn(async () => 'queued' as const);
+
+    await expect(runDurableMgRenderJob(input(), {
+      env: ENV,
+      now: NOW,
+      dependencies: {
+        createOrGetJob: vi.fn(async () => queued),
+        claimJob: vi.fn(async (args) => ({
+          ...queued,
+          status: 'running' as const,
+          leaseId: args.leaseId ?? 'lease-retryable-provider-fallback',
+        })),
+        executeSandbox: vi.fn(async () => result),
+        completeJob,
+        failJob,
+      },
+    })).rejects.toThrow(/failed \(queued\): MG render worker returned retryable provider failure \(zai\/rate-limited\)/);
+
+    expect(completeJob).not.toHaveBeenCalled();
+    expect(failJob).toHaveBeenCalledWith(expect.objectContaining({
+      jobId: queued._id,
+      retryable: true,
+      error: expect.any(Error),
+    }));
+  });
+
+  it('completes a typed terminal provider fallback without scheduling another paid attempt', async () => {
+    const queued = job();
+    const result = providerFallbackResult(queued._id, 'terminal');
+    const completeJob = vi.fn(async () => true);
+    const failJob = vi.fn();
+
+    await expect(runDurableMgRenderJob(input(), {
+      env: ENV,
+      now: NOW,
+      dependencies: {
+        createOrGetJob: vi.fn(async () => queued),
+        claimJob: vi.fn(async (args) => ({
+          ...queued,
+          status: 'running' as const,
+          leaseId: args.leaseId ?? 'lease-terminal-provider-fallback',
+        })),
+        executeSandbox: vi.fn(async () => result),
+        completeJob,
+        failJob,
+      },
+    })).resolves.toEqual(result);
+
+    expect(completeJob).toHaveBeenCalledOnce();
+    expect(failJob).not.toHaveBeenCalled();
+  });
+
   it('records authorization failures after a lease is claimed', async () => {
     const queued = job();
     const claimJob = vi.fn(async (args) => ({ ...queued, status: 'running' as const, leaseId: args.leaseId }));
@@ -217,6 +308,30 @@ describe('durable MG render job runner', () => {
     })).resolves.toEqual(completed.result);
     expect(claimJob).not.toHaveBeenCalled();
     expect(executeSandbox).not.toHaveBeenCalled();
+  });
+
+  it('terminally fails a runnable job whose executable request was already redacted', async () => {
+    const queued = { ...job(), request: null };
+    const executeSandbox = vi.fn();
+    const failJob = vi.fn(async () => 'failed' as const);
+
+    await expect(runDurableMgRenderJob(input(), {
+      env: ENV,
+      now: NOW,
+      dependencies: {
+        createOrGetJob: vi.fn(async () => queued),
+        claimJob: vi.fn(async (args) => {
+          if (!args.leaseId) throw new Error('runner must provide a lease id');
+          return { ...queued, status: 'running' as const, leaseId: args.leaseId };
+        }),
+        executeSandbox,
+        completeJob: vi.fn(),
+        failJob,
+      },
+    })).rejects.toThrow(/missing its executable request/);
+
+    expect(executeSandbox).not.toHaveBeenCalled();
+    expect(failJob).toHaveBeenCalledWith(expect.objectContaining({ retryable: false }));
   });
 
   it('rejects forged and expired storage tokens', () => {

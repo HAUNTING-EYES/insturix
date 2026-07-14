@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import type { Collection } from 'mongodb';
 import { nanoid } from 'nanoid';
 
@@ -15,6 +17,24 @@ import {
 
 export type MgRenderJobStatus = 'queued' | 'running' | 'completed' | 'failed';
 
+export interface MgRenderJobRequestAudit {
+  momentId: string;
+  candidateId: string;
+  factKind: MgMomentInput['candidate']['factKind'];
+  window: MgMomentInput['window'];
+  canvas: { width: number; height: number };
+  visualEvidence: null | {
+    space: 'edited-canvas';
+    canvas: { width: number; height: number };
+    frames: Array<{
+      role: NonNullable<MgMomentInput['visualEvidence']>['frames'][number]['role'];
+      timelineFrame: number;
+      sha256: string;
+      byteLength: number;
+    }>;
+  };
+}
+
 export interface MgRenderJob {
   _id: string;
   version: typeof MG_RENDER_WORKER_CONTRACT_VERSION;
@@ -22,7 +42,9 @@ export interface MgRenderJob {
   projectId: string;
   userId: string;
   orgId: string | null;
-  request: MgRenderWorkerRequest;
+  /** Present only while the job can still execute. Terminal jobs retain requestAudit, not frame bytes. */
+  request: MgRenderWorkerRequest | null;
+  requestAudit: MgRenderJobRequestAudit;
   status: MgRenderJobStatus;
   attemptCount: number;
   maxAttempts: number;
@@ -69,6 +91,38 @@ function boundedError(error: unknown): string {
   return value.slice(0, 8_000);
 }
 
+function decodedImageBytes(imageDataUrl: string): Buffer {
+  const separator = imageDataUrl.indexOf(',');
+  if (separator < 0) throw new Error('MG render job: visual evidence data URL is malformed');
+  return Buffer.from(imageDataUrl.slice(separator + 1), 'base64');
+}
+
+export function buildMgRenderJobRequestAudit(request: MgRenderWorkerRequest): MgRenderJobRequestAudit {
+  const evidence = request.input.visualEvidence;
+  return {
+    momentId: request.input.momentId,
+    candidateId: request.input.candidate.id,
+    factKind: request.input.candidate.factKind,
+    window: { ...request.input.window },
+    canvas: { ...request.canvas },
+    visualEvidence: evidence
+      ? {
+        space: evidence.space,
+        canvas: { ...evidence.canvas },
+        frames: evidence.frames.map((frame) => {
+          const bytes = decodedImageBytes(frame.imageDataUrl);
+          return {
+            role: frame.role,
+            timelineFrame: frame.coordinate.timelineFrame,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+            byteLength: bytes.byteLength,
+          };
+        }),
+      }
+      : null,
+  };
+}
+
 export function buildMgRenderWorkerRequest(
   input: CreateMgRenderJobInput,
   requestedAt = new Date(),
@@ -112,6 +166,7 @@ export async function createOrGetMgRenderJob(
     userId: request.userId,
     orgId: request.orgId,
     request,
+    requestAudit: buildMgRenderJobRequestAudit(request),
     status: 'queued',
     attemptCount: 0,
     maxAttempts: options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
@@ -200,6 +255,7 @@ export async function completeMgRenderJob(input: {
       $set: {
         status: 'completed',
         result,
+        request: null,
         leaseId: null,
         leaseExpiresAt: null,
         completedAt: now,
@@ -243,6 +299,7 @@ export async function failMgRenderJob(input: {
     {
       $set: {
         status: 'failed',
+        request: null,
         leaseId: null,
         leaseExpiresAt: null,
         lastError: boundedError(input.error),

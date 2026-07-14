@@ -8,6 +8,7 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
 }));
 
 import {
+  buildMgRenderJobRequestAudit,
   buildMgRenderWorkerRequest,
   claimMgRenderJob,
   completeMgRenderJob,
@@ -35,6 +36,15 @@ const input: MgMomentInput = {
   window: { startFrame: 30, endFrame: 120, fps: 30 },
   expressiveness: { tier: 'standard', intensity: 0.6, emphasisScale: 1 },
   placement: { region: 'top-right', avoid: [], prefer: [] },
+  visualEvidence: {
+    space: 'edited-canvas',
+    canvas: { width: 1920, height: 1080 },
+    frames: [
+      { role: 'context-before', coordinate: { kind: 'edited-timeline', timelineFrame: 30 }, imageDataUrl: 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAUAAAAdQiirUo/+BiOh/AAA=' },
+      { role: 'anchor', coordinate: { kind: 'edited-timeline', timelineFrame: 75 }, imageDataUrl: 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAUAAAAdQiirUo/+BiOh/AAA=' },
+      { role: 'context-after', coordinate: { kind: 'edited-timeline', timelineFrame: 119 }, imageDataUrl: 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAUAAAAdQiirUo/+BiOh/AAA=' },
+    ],
+  },
 };
 
 const createInput = {
@@ -56,6 +66,16 @@ describe('MG render job service', () => {
       collection: { findOneAndUpdate } as any,
     });
     expect(job._id).toBe(request.jobId);
+    expect(buildMgRenderJobRequestAudit(request)).toEqual(expect.objectContaining({
+      momentId: 'moment_1',
+      candidateId: 'candidate_1',
+      visualEvidence: expect.objectContaining({
+        frames: expect.arrayContaining([
+          expect.objectContaining({ role: 'anchor', timelineFrame: 75, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+        ]),
+      }),
+    }));
+    expect(JSON.stringify(buildMgRenderJobRequestAudit(request))).not.toContain('imageDataUrl');
     expect(findOneAndUpdate).toHaveBeenCalledWith(
       { _id: request.jobId },
       expect.objectContaining({
@@ -78,7 +98,9 @@ describe('MG render job service', () => {
   });
 
   it('rejects stale completion leases and validates job/result identity', async () => {
-    const updateOne = vi.fn(async () => ({ modifiedCount: 0 }));
+    const updateOne = vi.fn()
+      .mockResolvedValueOnce({ modifiedCount: 0 })
+      .mockResolvedValueOnce({ modifiedCount: 1 });
     const result = {
       version: MG_RENDER_WORKER_CONTRACT_VERSION,
       jobId: `mgr_${'a'.repeat(32)}`,
@@ -106,6 +128,15 @@ describe('MG render job service', () => {
       result,
       collection: { updateOne } as any,
     })).toBe(false);
+    expect(await completeMgRenderJob({
+      jobId: result.jobId,
+      leaseId: 'current',
+      result,
+      collection: { updateOne } as any,
+    })).toBe(true);
+    expect(updateOne.mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
+      $set: expect.objectContaining({ request: null }),
+    }));
   });
 
   it('requeues retryable failures before the attempt ceiling and terminally fails otherwise', async () => {
@@ -120,5 +151,9 @@ describe('MG render job service', () => {
     expect(await failMgRenderJob({
       jobId: 'mgr_job', leaseId: 'lease', error: 'terminal', retryable: true, collection,
     })).toBe('failed');
+    expect(updateOne.mock.calls[0]?.[1]?.$set).not.toHaveProperty('request');
+    expect(updateOne.mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
+      $set: expect.objectContaining({ request: null }),
+    }));
   });
 });

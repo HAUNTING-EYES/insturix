@@ -116,9 +116,25 @@ export function resolveMgStorageAuthorizationUrl(env: EnvLike = process.env): st
   return new URL('/api/internal/workers/mg-render/storage-authorize', origin).toString();
 }
 
+class RetryableMgRenderResultError extends Error {
+  readonly result: MgRenderWorkerResult;
+
+  constructor(result: MgRenderWorkerResult) {
+    const failure = result.receipt.failure;
+    super(`MG render worker returned retryable provider failure (${failure?.provider ?? 'unknown'}/${failure?.code ?? 'unknown'})`);
+    this.name = 'RetryableMgRenderResultError';
+    this.result = result;
+  }
+}
+
+function isRetryableMgRenderResult(result: MgRenderWorkerResult): boolean {
+  return result.status === 'fallback' && result.receipt.failure?.disposition === 'retryable';
+}
+
 function retryableSandboxFailure(error: unknown): boolean {
+  if (error instanceof RetryableMgRenderResultError) return true;
   const message = error instanceof Error ? error.message : String(error);
-  return !/missing MG_RENDER_|commit mismatch|does not match snapshot commit|storage_full|authorization denied|invalid MG storage/i.test(message);
+  return !/missing MG_RENDER_|missing (?:its )?executable request|commit mismatch|does not match snapshot commit|storage_full|authorization denied|invalid MG storage/i.test(message);
 }
 
 interface MgRenderJobRunnerDependencies {
@@ -162,6 +178,9 @@ export async function runDurableMgRenderJob(
   }
 
   try {
+    if (!claimed.request) {
+      throw new Error(`MG render job ${claimed._id} is missing its executable request`);
+    }
     const authorizationClaims: MgStorageAuthorizationClaims = {
       version: 1,
       jobId: claimed._id,
@@ -181,6 +200,7 @@ export async function runDurableMgRenderJob(
       storageAuthorization,
       env,
     });
+    if (isRetryableMgRenderResult(result)) throw new RetryableMgRenderResultError(result);
     const completed = await completeJob({ jobId: claimed._id, leaseId, result });
     if (!completed) throw new Error(`MG render job ${claimed._id} lost its lease before completion`);
     return result;
