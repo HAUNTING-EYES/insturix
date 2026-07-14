@@ -54,6 +54,26 @@ async function fakeRender() {
   }).webp().toFile(path.join(webpDir, file))));
   return { webpDir, files, workspaceDir, width: 320, height: 180, fps: 30, count: 3, renderMs: 12 };
 }
+async function phaseSampleRender() {
+  const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mg-runtime-phase-test-'));
+  tempDirs.push(workspaceDir);
+  const webpDir = path.join(workspaceDir, 'webp');
+  await fs.mkdir(webpDir);
+  const files = Array.from({ length: 60 }, (_, index) => `${String(index).padStart(5, '0')}.webp`);
+  await Promise.all(files.map(async (file, index) => {
+    const background = index === 10
+      ? { r: 255, g: 0, b: 0, alpha: 1 }
+      : index === 27
+        ? { r: 0, g: 255, b: 0, alpha: 1 }
+        : index === 54
+          ? { r: 0, g: 0, b: 255, alpha: 1 }
+          : { r: 0, g: 0, b: 0, alpha: 1 };
+    await sharp({ create: { width: 32, height: 18, channels: 4, background } })
+      .webp({ lossless: true })
+      .toFile(path.join(webpDir, file));
+  }));
+  return { webpDir, files, workspaceDir, width: 32, height: 18, fps: 30, count: 60, renderMs: 12 };
+}
 
 describe('production MG codegen runtime', () => {
   it('uses a real rendered result for compile/evaluate and reuses it for final ingest rendering', async () => {
@@ -136,6 +156,36 @@ describe('production MG codegen runtime', () => {
     });
 
     await expect(runtime.codegen.writeComponent('initial prompt')).rejects.toThrow(/component truncated: finishReason=MAX_TOKENS/);
+    await runtime.dispose();
+  });
+
+  it('judges visible intro, build, and settled-hold phases instead of transparent timeline endpoints', async () => {
+    const generateContent = vi.fn().mockResolvedValue({
+      response: { text: () => JSON.stringify({ faithful: true, score: 8.4, issues: [], reasoning: 'phase samples are readable' }) },
+    });
+    vi.mocked(getAnalysisModel).mockResolvedValue({ generateContent } as never);
+    const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
+      render: phaseSampleRender,
+      cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
+      writeComponent: async () => 'component',
+    });
+
+    await expect(runtime.codegen.compile('component')).resolves.toEqual({ ok: true });
+    await expect(runtime.codegen.evaluate('component', moment())).resolves.toEqual({ score: 8.4, issues: [] });
+    const request = generateContent.mock.calls[0][0];
+    const sheet = Buffer.from(request.contents[0].parts[0].inlineData.data, 'base64');
+    const metadata = await sharp(sheet).metadata();
+    const tileWidth = Math.floor((metadata.width ?? 0) / 3);
+    const tileHeight = Math.floor((metadata.height ?? 0) / 2);
+    const pixels = await Promise.all([0, 1, 2].map((column) => sharp(sheet)
+      .extract({ left: column * tileWidth + Math.floor(tileWidth / 2), top: Math.floor(tileHeight / 2), width: 1, height: 1 })
+      .removeAlpha()
+      .raw()
+      .toBuffer()));
+    expect([...pixels[0]]).toEqual([255, 0, 0]);
+    expect([...pixels[1]]).toEqual([0, 255, 0]);
+    expect([...pixels[2]]).toEqual([0, 0, 255]);
+    expect(request.contents[0].parts[1].text).toContain('columns are sequential time samples');
     await runtime.dispose();
   });
 

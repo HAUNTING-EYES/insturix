@@ -284,6 +284,8 @@ describe('buildCodegenPrompt - structure (no types, fact-driven, data-last)', ()
     expect(prompt).not.toMatch(/YoY growth/); // no literal fact value/label baked into the prompt
     expect(prompt).not.toMatch(/\b40\b/); // no literal figure in the prompt (values flow as data props)
     expect(prompt).toMatch(/DECLINE/); // decline path is offered
+    expect(prompt).toContain('FOOTAGE CONTRAST');
+    expect(prompt).toContain('intrusive LOCAL brand-token protection');
   });
 });
 

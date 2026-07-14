@@ -7,6 +7,7 @@ import sharp from 'sharp';
 import { getAnalysisModel, getGeneralModel } from '@/lib/editron/utils/gemini-model-factory';
 
 import type { CodegenDeps } from './codegen-service';
+import { phases } from './kit/choreo';
 import { JUDGE_PROMPT } from './prompt';
 import type { MgMomentInput } from './types';
 import {
@@ -76,15 +77,19 @@ async function defaultWriteComponent(prompt: string): Promise<string> {
   return text;
 }
 
-function sampleIndices(frameCount: number): number[] {
-  return [...new Set([0, Math.floor((frameCount - 1) / 2), frameCount - 1])];
+function sampleIndices(frameCount: number, brand: MgMomentInput['brand']): number[] {
+  const lastFrame = Math.max(0, frameCount - 1);
+  const clampFrame = (frame: number) => Math.max(0, Math.min(lastFrame, Math.round(frame)));
+  const ph = phases(frameCount, brand);
+  const settledHold = ph.resolve + (frameCount - ph.resolve) * 0.35;
+  return [...new Set([clampFrame(ph.intro), clampFrame(ph.build), clampFrame(settledHold)])];
 }
 
-async function buildContactSheet(render: MgRenderResult): Promise<Buffer> {
+async function buildContactSheet(render: MgRenderResult, moment: MgMomentInput): Promise<Buffer> {
   if (!render.files.length) throw new Error('MG judge cannot evaluate an empty frame sequence');
   const tileWidth = 360;
   const tileHeight = Math.max(202, Math.min(640, Math.round(tileWidth * render.height / render.width)));
-  const indices = sampleIndices(render.files.length);
+  const indices = sampleIndices(render.files.length, moment.brand);
   const composites: sharp.OverlayOptions[] = [];
 
   for (let column = 0; column < indices.length; column += 1) {
@@ -165,7 +170,7 @@ async function defaultJudgeRendered(
   render: MgRenderResult,
   moment: MgMomentInput,
 ): Promise<{ score: number; issues: string[] }> {
-  const sheet = await buildContactSheet(render);
+  const sheet = await buildContactSheet(render, moment);
   const model = await getAnalysisModel();
   const fact = JSON.stringify({
     factKind: moment.candidate.factKind,

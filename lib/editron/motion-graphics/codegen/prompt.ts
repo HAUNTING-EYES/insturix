@@ -125,6 +125,9 @@ export const hardRules = (durF: number): string => `<hard_rules>
   TextBlock/Chip inside a <Region>/<Corner> — NEVER a raw text node in a styled div, NEVER a fontSize you type.
 - COLOUR: only brand.colors.* / withAlpha(brand.colors.*, a) / 'transparent'. Any hex, rgb()/hsl(), or named CSS
   colour is an automatic rejection.
+- FOOTAGE CONTRAST: critical text and marks must remain readable as the footage luminance changes. Use the least
+  intrusive LOCAL brand-token protection needed (halo, outline, compact scrim, or bounded plate). Never solve this
+  with an opaque or near-opaque full-frame field, and never turn the composition into a generic card.
 - DETERMINISTIC: animate ONLY from useCurrentFrame()/useVideoConfig(). NEVER Math.random, Date, timers, fetch,
   window, document, eval, require, dynamic import, process. Math.sin/cos of the frame is encouraged.
 - CHOREOGRAPHY IS COMPUTED: const {durationInFrames, fps} = useVideoConfig(); const ph = phases(durationInFrames, brand);
@@ -154,6 +157,10 @@ keyword-highlighting, no lower-thirds — a fresh composition every time.
  *  craft, legibility over content, AND faithfulness to the licensed fact (fabrication is an automatic reject). */
 export const JUDGE_PROMPT = `You are the final ruthless motion-graphics craft and faithfulness judge.
 The image is a three-moment contact sheet of ONE transparent animation composited over both dark and light footage backgrounds. Judge the ADDED graphic only: brand fidelity, composition, visible motion development, mobile legibility, clipping, contrast on both backgrounds, safe-region compliance, and faithfulness to the licensed fact.
+
+CONTACT-SHEET TRUTH:
+- The three columns are sequential time samples (intro, build, settled hold), not simultaneous elements. Never penalize the same visual for appearing once in each time column.
+- The two rows repeat those same time samples over dark and light footage stress backgrounds. Never count row repetition as extra focal points.
 
 FAITHFULNESS:
 - ALLOW transient interpolated numbers between licensed start/end values only when they are clearly animation states of an honest count-up, progress, or transition and settle on the licensed values. Intermediate motion states are not asserted facts.
