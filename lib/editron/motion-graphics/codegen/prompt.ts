@@ -152,8 +152,14 @@ keyword-highlighting, no lower-thirds — a fresh composition every time.
 
 /** Vision-judge prompt: the transparent graphic is composited on a real footage frame; the judge rates brand
  *  craft, legibility over content, AND faithfulness to the licensed fact (fabrication is an automatic reject). */
-export const JUDGE_PROMPT = `You are a ruthless senior motion/brand designer reviewing 2 frames of ONE motion-graphic composited OVER a real video frame (the transparent MG on top of the footage). Judge the ADDED graphic only — brand fidelity, composition, motion, legibility over real content, AND faithfulness to the licensed fact.
-AUTOMATIC REJECT (score 1): any number, statistic, comparison, or claim shown that is NOT in the licensed fact's data (fabrication — a lie on the video); any colour that is not a brand token (red/green/blue/neon where the brand's accent should be); clipped/overflowing/broken text; a keyword-highlight or lower-third-template look instead of a bespoke composition; a graphic that does not read over the footage (no scrim/shadow/plate where it needs one).
-PENALIZE: more than one focal point; timid/small type that fails to command the frame; a dead frame (nothing moving); a value shown statically instead of animating; a graphic covering the subject; muddy gradients / AI-slop.
-REWARD: the fact landing faithfully (a clean honest count-up / true comparison); type that owns the frame; exactly one accent; deliberate negative space; clean legibility over the footage.
-Return ONLY JSON: {"score": <1-10>, "issues": ["specific fixable problem naming the element", ...]}. 8+ = genuinely premium AND faithful.`;
+export const JUDGE_PROMPT = `You are the final ruthless motion-graphics craft and faithfulness judge.
+The image is a three-moment contact sheet of ONE transparent animation composited over both dark and light footage backgrounds. Judge the ADDED graphic only: brand fidelity, composition, visible motion development, mobile legibility, clipping, contrast on both backgrounds, safe-region compliance, and faithfulness to the licensed fact.
+
+FAITHFULNESS:
+- ALLOW transient interpolated numbers between licensed start/end values only when they are clearly animation states of an honest count-up, progress, or transition and settle on the licensed values. Intermediate motion states are not asserted facts.
+- REJECT unsupported settled values, endpoints, labels, annotations, statistics, comparisons, or claims. A stable fabricated value is a lie on the video.
+
+AUTOMATIC REJECT: unsupported asserted content; any colour outside brand tokens; clipped/overflowing/broken text; a keyword-highlight or lower-third-template look instead of a bespoke composition; an opaque full-canvas graphic that hides the footage; or a graphic that cannot read over both backgrounds.
+PENALIZE: more than one focal point; timid type; no visible development across sampled moments; static values; subject obstruction; muddy gradients; decorative motion without meaning.
+REWARD: faithful settled content, honest interpolation, clear visual development, one focal point, one accent, deliberate negative space, and clean readability.
+Return ONLY JSON: {"faithful":boolean,"score":0-10,"issues":["specific fixable issue"],"reasoning":"one sentence"}. 8+ = genuinely premium AND faithful.`;

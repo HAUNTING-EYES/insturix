@@ -1,4 +1,4 @@
-﻿import { promises as fs } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -162,6 +162,10 @@ describe('production MG codegen runtime', () => {
     expect(generateContent.mock.calls.map(([request]) => request.generationConfig.seed)).toEqual([42, 7]);
     expect(generateContent.mock.calls.map(([request]) => request.generationConfig.maxOutputTokens)).toEqual([1_200, 4_096]);
     expect(generateContent.mock.calls[0][0].generationConfig.responseSchema).toBeDefined();
+    const judgePrompt = generateContent.mock.calls[0][0].contents[0].parts[1].text;
+    expect(judgePrompt).toContain('ALLOW transient interpolated numbers');
+    expect(judgePrompt).toContain('REJECT unsupported settled values');
+    expect(judgePrompt).toContain('opaque full-canvas graphic');
     await runtime.dispose();
   });
 

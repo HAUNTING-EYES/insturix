@@ -150,6 +150,7 @@ describe('generateMoment - the pipeline (decline / scan→repair→compile→jud
     expect(r.status).toBe('generated');
     expect(r.receipt.attempts).toBe(2);
     expect(r.receipt.compiled).toBe(true);
+    expect(r.receipt.compileError).toBeUndefined();
     expect(compileCalls).toBe(2);
     expect(prompts[1]).toContain('Expected ">" but found end of file');
   });
@@ -198,6 +199,7 @@ describe('generateMoment - the pipeline (decline / scan→repair→compile→jud
     expect(r.status).toBe('generated');
     expect(r.receipt.attempts).toBe(3);
     expect(r.receipt.compiled).toBe(true);
+    expect(r.receipt.compileError).toBeUndefined();
     expect(compileCalls).toBe(3);
     expect(judgeCalls).toBe(2);
   });

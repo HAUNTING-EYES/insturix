@@ -247,6 +247,7 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
   // 2. compile. The scanner enforces policy, not syntax completeness, so one bounded model repair is licensed.
   let compileResult = await compile(code);
   receipt.compiled = compileResult.ok;
+  if (compileResult.ok) delete receipt.compileError;
   if (!compileResult.ok) {
     receipt.compileError = compileResult.receiptError;
     if (receipt.attempts >= MAX_MODEL_ATTEMPTS) {
@@ -261,6 +262,7 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     code = applyImportPreamble(repair.code);
     compileResult = await compile(code);
     receipt.compiled = compileResult.ok;
+    if (compileResult.ok) delete receipt.compileError;
     if (!compileResult.ok) {
       receipt.compileError = compileResult.receiptError;
       return fallback(`compile repair failed: ${compileResult.receiptError ?? compileResult.feedback ?? 'type error'}`.slice(0, 160));
@@ -285,6 +287,7 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     let revCode = applyImportPreamble(rev.code);
     let revisionCompile = await compile(revCode);
     receipt.compiled = revisionCompile.ok;
+    if (revisionCompile.ok) delete receipt.compileError;
     if (!revisionCompile.ok && receipt.attempts < MAX_MODEL_ATTEMPTS) {
       receipt.compileError = revisionCompile.receiptError;
       const repair = await attempt(
@@ -296,6 +299,7 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
       revCode = applyImportPreamble(repair.code);
       revisionCompile = await compile(revCode);
       receipt.compiled = revisionCompile.ok;
+      if (revisionCompile.ok) delete receipt.compileError;
     }
     if (!revisionCompile.ok) {
       receipt.compileError = revisionCompile.receiptError;

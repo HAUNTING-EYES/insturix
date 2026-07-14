@@ -1,4 +1,4 @@
-﻿import { promises as fs } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { SchemaType, type ResponseSchema } from '@google/generative-ai';
@@ -7,6 +7,7 @@ import sharp from 'sharp';
 import { getAnalysisModel, getGeneralModel } from '@/lib/editron/utils/gemini-model-factory';
 
 import type { CodegenDeps } from './codegen-service';
+import { JUDGE_PROMPT } from './prompt';
 import type { MgMomentInput } from './types';
 import {
   cleanupWorkspace,
@@ -173,17 +174,10 @@ async function defaultJudgeRendered(
     sourceText: moment.candidate.sourceSpan.text,
     placement: moment.placement,
   }).slice(0, 6000);
-  const prompt = `You are the final motion-graphics craft and faithfulness judge.
-The image is a 3-moment contact sheet of one transparent animation over both dark and light backgrounds.
-Compare it against the licensed fact JSON below. Reject any fabricated, missing, altered, or misleading value.
-Also judge mobile readability, hierarchy, clipping, contrast on both backgrounds, safe-region compliance,
-visual polish, and whether the animation visibly develops across the three sampled moments.
+  const prompt = `${JUDGE_PROMPT}
 
 LICENSED FACT JSON:
-${fact}
-
-Return JSON only:
-{"faithful":boolean,"score":0-10,"issues":["specific issue"],"reasoning":"one sentence"}`;
+${fact}`;
   let lastError = 'unknown structured-output failure';
   for (let attempt = 0; attempt < JUDGE_ATTEMPTS.length; attempt += 1) {
     let finishReason = 'unknown';
