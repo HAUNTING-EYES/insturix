@@ -387,7 +387,8 @@ async function loadDatabaseEvidence(projectId: string, uploadBatchId?: string) {
   const assets = await db.collection(COLLECTIONS.MEDIA_ASSETS).find({
     $or: [{ assetId: { $in: [...assetIds] } }, { projectId, type: 'sequence' }],
   }).toArray();
-  const mgJobs = await db.collection(COLLECTIONS.MG_RENDER_JOBS).find({ projectId }).sort({ createdAt: 1 }).toArray();
+  const mgJobs = (await db.collection(COLLECTIONS.MG_RENDER_JOBS).find({ projectId }).sort({ createdAt: 1 }).toArray())
+    .filter((job) => isProductionMgRenderJobForProject(job, projectId));
   const batch = uploadBatchId ? await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).findOne({ uploadBatchId }) : null;
   return { client, collections: { project, assets, mgJobs, batch } };
 }
@@ -607,6 +608,12 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asRecords(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.map(asRecord) : [];
+}
+
+export function isProductionMgRenderJobForProject(job: unknown, projectId: string): boolean {
+  const request = asRecord(asRecord(job).request);
+  const input = asRecord(request.input);
+  return stringField(input, 'momentId')?.startsWith(`${projectId}:`) === true;
 }
 
 function stringField(value: Record<string, unknown>, key: string): string | null {

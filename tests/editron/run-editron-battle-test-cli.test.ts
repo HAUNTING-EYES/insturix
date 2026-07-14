@@ -8,6 +8,7 @@ import {
   battleContractInvocation,
   battlePhase0Invocation,
   battlePhase0OutputRoot,
+  isProductionMgRenderJobForProject,
   parseBattleCliArgs,
   validateOptions,
 } from '../../scripts/run-editron-battle-test';
@@ -154,5 +155,20 @@ describe('run-editron-battle-test cli', () => {
         '--render',
       ],
     });
+  });
+
+  it('excludes ad-hoc smoke jobs from project lifecycle truth', () => {
+    expect(isProductionMgRenderJobForProject({
+      projectId: 'proj_test',
+      request: { input: { momentId: 'proj_test:120:candidate_1' } },
+    }, 'proj_test')).toBe(true);
+    expect(isProductionMgRenderJobForProject({
+      projectId: 'proj_test',
+      request: { input: { momentId: 'mg-live-smoke-proj_test' } },
+    }, 'proj_test')).toBe(false);
+    expect(isProductionMgRenderJobForProject({
+      projectId: 'proj_other',
+      request: { input: { momentId: 'proj_other:120:candidate_1' } },
+    }, 'proj_test')).toBe(false);
   });
 });
