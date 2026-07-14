@@ -6,20 +6,21 @@ import sharp from 'sharp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/editron/utils/gemini-model-factory', () => ({
-  getGeneralModel: vi.fn(),
   getAnalysisModel: vi.fn(),
 }));
 
 import { createProductionMgRuntime } from '@/lib/editron/motion-graphics/codegen/production-runtime';
 import { INSTURIX } from '@/lib/editron/motion-graphics/codegen/kit/brand';
 import type { MgMomentInput } from '@/lib/editron/motion-graphics/codegen/types';
-import { getAnalysisModel, getGeneralModel } from '@/lib/editron/utils/gemini-model-factory';
+import { getAnalysisModel } from '@/lib/editron/utils/gemini-model-factory';
 
 const tempDirs: string[] = [];
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 function moment(): MgMomentInput {
@@ -120,15 +121,17 @@ describe('production MG codegen runtime', () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
-  it('uses a larger deterministic budget for component generation and a distinct repair seed', async () => {
-    const generateContent = vi.fn().mockResolvedValue({
-      response: {
-        text: () => 'component',
-        candidates: [{ finishReason: 'STOP' }],
-        usageMetadata: { totalTokenCount: 9_100, thoughtsTokenCount: 7_800 },
-      },
-    });
-    vi.mocked(getGeneralModel).mockResolvedValue({ generateContent } as never);
+  it('uses GLM-5V-Turbo for JSX generation with deterministic sampling disabled', async () => {
+    vi.stubEnv('ZAI_API_KEY', 'zai-secret');
+    const completion = {
+      choices: [{ message: { content: '```tsx\ncomponent\n```' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 2_100, completion_tokens: 9_100, total_tokens: 11_200 },
+    };
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify(completion), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
     const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
       render: fakeRender,
       cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
@@ -136,26 +139,35 @@ describe('production MG codegen runtime', () => {
 
     await expect(runtime.codegen.writeComponent('initial prompt')).resolves.toBe('component');
     await expect(runtime.codegen.writeComponent('<previous_attempt_feedback>repair</previous_attempt_feedback>')).resolves.toBe('component');
-    expect(generateContent.mock.calls.map(([request]) => request.generationConfig.seed)).toEqual([42, 7]);
-    expect(generateContent.mock.calls.map(([request]) => request.generationConfig.maxOutputTokens)).toEqual([16_384, 16_384]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.z.ai/api/paas/v4/chat/completions');
+    expect(init.headers).toMatchObject({ authorization: 'Bearer zai-secret' });
+    const payload = JSON.parse(String(init.body));
+    expect(payload).toMatchObject({
+      model: 'glm-5v-turbo',
+      stream: false,
+      do_sample: false,
+      max_tokens: 32_768,
+      response_format: { type: 'text' },
+      thinking: { type: 'enabled', clear_thinking: true },
+    });
+    expect(payload.messages).toEqual([{ role: 'user', content: 'initial prompt' }]);
     await runtime.dispose();
   });
 
-  it('rejects a MAX_TOKENS component before scanner or compiler can accept truncated JSX', async () => {
-    const generateContent = vi.fn().mockResolvedValue({
-      response: {
-        text: () => 'export const MgScene = (',
-        candidates: [{ finishReason: 'MAX_TOKENS' }],
-        usageMetadata: { totalTokenCount: 18_500, thoughtsTokenCount: 16_000 },
-      },
-    });
-    vi.mocked(getGeneralModel).mockResolvedValue({ generateContent } as never);
+  it('rejects a length-truncated GLM component before scanner or compiler can accept JSX', async () => {
+    vi.stubEnv('ZAI_API_KEY', 'zai-secret');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'export const MgScene = (' }, finish_reason: 'length' }],
+      usage: { prompt_tokens: 2_500, completion_tokens: 32_768, total_tokens: 35_268 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
     const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
       render: fakeRender,
       cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
     });
 
-    await expect(runtime.codegen.writeComponent('initial prompt')).rejects.toThrow(/component truncated: finishReason=MAX_TOKENS/);
+    await expect(runtime.codegen.writeComponent('initial prompt')).rejects.toThrow(/component truncated: finishReason=length/);
     await runtime.dispose();
   });
 

@@ -65,6 +65,8 @@ const DEFAULT_TIMEOUT_MS = 20 * 60 * 1_000;
 const MIN_TIMEOUT_MS = 5 * 60 * 1_000;
 const MAX_TIMEOUT_MS = 45 * 60 * 1_000;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
+const DEFAULT_ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
+const DEFAULT_MG_CODEGEN_MODEL = 'glm-5v-turbo';
 
 function required(env: EnvLike, name: string): string {
   const value = env[name]?.trim();
@@ -77,11 +79,11 @@ function boundedInteger(value: string | undefined, fallback: number, min: number
   return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
 }
 
-function httpsUrl(value: string, env: EnvLike): URL {
+function httpsUrl(value: string, env: EnvLike, label: string): URL {
   const parsed = new URL(value);
   const localDev = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
   if (parsed.protocol !== 'https:' && !(env.NODE_ENV !== 'production' && localDev)) {
-    throw new Error('MG Sandbox: storage authorization URL must use HTTPS');
+    throw new Error(`MG Sandbox: ${label} must use HTTPS`);
   }
   return parsed;
 }
@@ -89,11 +91,14 @@ function httpsUrl(value: string, env: EnvLike): URL {
 export function buildMgSandboxNetworkPolicy(input: {
   authorizationUrl: string;
   r2AccountId: string;
+  zaiApiUrl: string;
 }): NetworkPolicy {
   const authorizationHost = new URL(input.authorizationUrl).hostname;
+  const zaiHost = new URL(input.zaiApiUrl).hostname;
   return {
     allow: [
       'generativelanguage.googleapis.com',
+      zaiHost,
       `${input.r2AccountId}.r2.cloudflarestorage.com`,
       authorizationHost,
     ],
@@ -121,23 +126,28 @@ export function resolveMgSandboxRuntimeConfig(input: {
   if (!appCommit.startsWith(input.request.appCommit) && !input.request.appCommit.startsWith(appCommit)) {
     throw new Error(`MG Sandbox: request commit ${input.request.appCommit} does not match snapshot commit ${appCommit}`);
   }
-  const authorization = httpsUrl(input.storageAuthorization.url, env);
+  const authorization = httpsUrl(input.storageAuthorization.url, env, 'storage authorization URL');
   const authorizationToken = input.storageAuthorization.token.trim();
   if (!authorizationToken) throw new Error('MG Sandbox: missing job-scoped storage authorization token');
   const r2AccountId = required(env, 'R2_ACCOUNT_ID');
   const geminiApiKey = env.GEMINI_API_KEY?.trim() || env.GOOGLE_API_KEY?.trim();
   if (!geminiApiKey) throw new Error('MG Sandbox: missing GEMINI_API_KEY or GOOGLE_API_KEY');
+  const zaiApiKey = required(env, 'ZAI_API_KEY');
+  const zaiApi = httpsUrl(env.ZAI_BASE_URL?.trim() || DEFAULT_ZAI_BASE_URL, env, 'Z.AI base URL');
 
   const workerEnv: Record<string, string> = {
     NODE_ENV: 'production',
     GEMINI_API_KEY: geminiApiKey,
+    ZAI_API_KEY: zaiApiKey,
+    ZAI_BASE_URL: zaiApi.toString().replace(/\/$/, ''),
+    MG_CODEGEN_MODEL: env.MG_CODEGEN_MODEL?.trim() || DEFAULT_MG_CODEGEN_MODEL,
     R2_ACCESS_KEY_ID: required(env, 'R2_ACCESS_KEY_ID'),
     R2_SECRET_ACCESS_KEY: required(env, 'R2_SECRET_ACCESS_KEY'),
     R2_ACCOUNT_ID: r2AccountId,
     MG_STORAGE_AUTHORIZATION_URL: authorization.toString(),
     MG_STORAGE_AUTHORIZATION_TOKEN: authorizationToken,
   };
-  for (const name of ['R2_BUCKET_NAME', 'CDN_WORKER_URL', 'LLM_GENERAL_MODEL', 'LLM_ANALYSIS_MODEL']) {
+  for (const name of ['R2_BUCKET_NAME', 'CDN_WORKER_URL', 'LLM_GENERAL_MODEL', 'LLM_ANALYSIS_MODEL', 'MG_CODEGEN_TIMEOUT_MS']) {
     const value = env[name]?.trim();
     if (value) workerEnv[name] = value;
   }
@@ -155,6 +165,7 @@ export function resolveMgSandboxRuntimeConfig(input: {
     networkPolicy: buildMgSandboxNetworkPolicy({
       authorizationUrl: authorization.toString(),
       r2AccountId,
+      zaiApiUrl: zaiApi.toString(),
     }),
     workerEnv,
   };

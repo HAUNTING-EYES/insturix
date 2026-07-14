@@ -97,7 +97,7 @@ export function verifyMgStorageAuthorizationToken(
 }
 
 export function resolveMgRenderAppCommit(env: EnvLike = process.env): string {
-  const commit = env.VERCEL_GIT_COMMIT_SHA?.trim() || env.MG_RENDER_SANDBOX_APP_COMMIT?.trim();
+  const commit = env.MG_RENDER_SANDBOX_APP_COMMIT?.trim() || env.VERCEL_GIT_COMMIT_SHA?.trim();
   if (!commit) throw new Error('MG render job runner: missing VERCEL_GIT_COMMIT_SHA or MG_RENDER_SANDBOX_APP_COMMIT');
   return commit;
 }

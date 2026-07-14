@@ -3,7 +3,13 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/lib/editron/db/mongodb', () => ({
+  COLLECTIONS: { MG_RENDER_JOBS: 'mgRenderJobs' },
+  getDatabase: vi.fn(async () => { throw new Error('unexpected Mongo access in Sandbox unit test'); }),
+}));
+
 import { INSTURIX } from '@/lib/editron/motion-graphics/codegen/kit/brand';
+import { resolveMgRenderAppCommit } from '@/lib/editron/motion-graphics/codegen/mg-render-job-runner';
 import {
   buildMgSandboxNetworkPolicy,
   executeMgRenderInSandbox,
@@ -68,6 +74,8 @@ const env = {
   MG_RENDER_SANDBOX_SNAPSHOT_ID: 'snap_commit_350b04cc',
   MG_RENDER_SANDBOX_APP_COMMIT: APP_COMMIT,
   GEMINI_API_KEY: 'gemini-secret',
+  ZAI_API_KEY: 'zai-secret',
+  MG_CODEGEN_MODEL: 'glm-5v-turbo',
   R2_ACCESS_KEY_ID: 'r2-access',
   R2_SECRET_ACCESS_KEY: 'r2-secret',
   R2_ACCOUNT_ID: 'account123',
@@ -125,11 +133,14 @@ describe('MG Sandbox render worker', () => {
     });
     expect(config.snapshotId).toBe('snap_commit_350b04cc');
     expect(config.workerEnv.GEMINI_API_KEY).toBe('gemini-secret');
+    expect(config.workerEnv.ZAI_API_KEY).toBe('zai-secret');
+    expect(config.workerEnv.MG_CODEGEN_MODEL).toBe('glm-5v-turbo');
     expect(config.workerEnv.MONGODB_URI).toBeUndefined();
     expect(config.workerEnv.MG_STORAGE_AUTHORIZATION_TOKEN).toBe('job-token');
     expect(config.networkPolicy).toEqual(buildMgSandboxNetworkPolicy({
       authorizationUrl: 'https://app.example.com/api/internal/mg-storage',
       r2AccountId: 'account123',
+      zaiApiUrl: 'https://api.z.ai/api/paas/v4',
     }));
     expect(() => resolveMgSandboxRuntimeConfig({
       request: { ...request(), appCommit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
@@ -143,6 +154,12 @@ describe('MG Sandbox render worker', () => {
     })).toThrow(/storage authorization token/);
   });
 
+  it('uses the pinned Sandbox app commit even when the caller deployment is newer', () => {
+    expect(resolveMgRenderAppCommit({
+      MG_RENDER_SANDBOX_APP_COMMIT: APP_COMMIT,
+      VERCEL_GIT_COMMIT_SHA: 'ab7dfa2158f278e3b64023f66b55865b86789bf4',
+    })).toBe(APP_COMMIT);
+  });
   it('runs the worker detached, polls for the compact result, and always deletes the sandbox', async () => {
     const req = request();
     const result = generatedResult(req.jobId);

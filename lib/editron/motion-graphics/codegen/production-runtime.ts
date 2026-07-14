@@ -4,7 +4,8 @@ import path from 'node:path';
 import { SchemaType, type ResponseSchema } from '@google/generative-ai';
 import sharp from 'sharp';
 
-import { getAnalysisModel, getGeneralModel } from '@/lib/editron/utils/gemini-model-factory';
+import { chatCompletionsUrl } from '@/lib/editron/reference-video/glm-vision-client';
+import { getAnalysisModel } from '@/lib/editron/utils/gemini-model-factory';
 
 import type { CodegenDeps } from './codegen-service';
 import { phases } from './kit/choreo';
@@ -34,8 +35,10 @@ const JUDGE_ATTEMPTS = [
   { seed: 42, maxOutputTokens: 1_200 },
   { seed: 7, maxOutputTokens: 4_096 },
 ] as const;
-const COMPONENT_MAX_OUTPUT_TOKENS = 16_384;
-const COMPONENT_SEEDS = { initial: 42, repair: 7 } as const;
+const DEFAULT_ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
+const DEFAULT_MG_CODEGEN_MODEL = 'glm-5v-turbo';
+const DEFAULT_COMPONENT_TIMEOUT_MS = 3 * 60 * 1_000;
+const COMPONENT_MAX_OUTPUT_TOKENS = 32_768;
 
 export interface ProductionMgRuntimeOptions {
   render?: RenderFn;
@@ -52,29 +55,98 @@ export interface ProductionMgRuntime {
   dispose(): Promise<void>;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function readString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readNumber(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function providerError(payload: unknown): string | undefined {
+  if (!isRecord(payload)) return undefined;
+  const direct = readString(payload, 'message');
+  if (direct) return direct;
+  return isRecord(payload.error) ? readString(payload.error, 'message') : undefined;
+}
+
+function componentTimeoutMs(): number {
+  const configured = Number(process.env.MG_CODEGEN_TIMEOUT_MS);
+  return Number.isInteger(configured) && configured >= 30_000 && configured <= 10 * 60 * 1_000
+    ? configured
+    : DEFAULT_COMPONENT_TIMEOUT_MS;
+}
+
+function stripComponentFence(value: string): string {
+  const trimmed = value.trim();
+  const fence = trimmed.match(/^```(?:tsx|typescript|jsx|javascript)?\s*([\s\S]*?)\s*```$/i);
+  return (fence?.[1] ?? trimmed).trim();
+}
+
 async function defaultWriteComponent(prompt: string): Promise<string> {
-  const model = await getGeneralModel();
-  const isRepair = prompt.includes('<previous_attempt_feedback>');
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0,
-      seed: isRepair ? COMPONENT_SEEDS.repair : COMPONENT_SEEDS.initial,
-      maxOutputTokens: COMPONENT_MAX_OUTPUT_TOKENS,
-    },
-  });
-  const finishReason = String(result.response?.candidates?.[0]?.finishReason ?? 'unknown');
-  const usage = result.response?.usageMetadata as {
-    totalTokenCount?: number;
-    thoughtsTokenCount?: number;
-  } | undefined;
-  console.info(`[MGCodegen] Component writer finished: finishReason=${finishReason}, totalTokens=${usage?.totalTokenCount ?? 'unknown'}, thoughtsTokens=${usage?.thoughtsTokenCount ?? 'unknown'}`);
-  if (finishReason === 'MAX_TOKENS') {
-    throw new Error(`MG codegen component truncated: finishReason=MAX_TOKENS, maxOutputTokens=${COMPONENT_MAX_OUTPUT_TOKENS}, totalTokens=${usage?.totalTokenCount ?? 'unknown'}, thoughtsTokens=${usage?.thoughtsTokenCount ?? 'unknown'}`);
+  const apiKey = process.env.ZAI_API_KEY?.trim();
+  if (!apiKey) throw new Error('MG codegen component writer: missing ZAI_API_KEY');
+  const model = process.env.MG_CODEGEN_MODEL?.trim() || DEFAULT_MG_CODEGEN_MODEL;
+  const baseUrl = process.env.ZAI_BASE_URL?.trim() || DEFAULT_ZAI_BASE_URL;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), componentTimeoutMs());
+
+  try {
+    const response = await fetch(chatCompletionsUrl(baseUrl), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        stream: false,
+        do_sample: false,
+        max_tokens: COMPONENT_MAX_OUTPUT_TOKENS,
+        response_format: { type: 'text' },
+        thinking: { type: 'enabled', clear_thinking: true },
+      }),
+      signal: controller.signal,
+    });
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const detail = providerError(payload);
+      throw new Error(`MG codegen component writer failed with HTTP ${response.status}${detail ? `: ${detail}` : ''}`);
+    }
+    if (!isRecord(payload) || !Array.isArray(payload.choices) || !isRecord(payload.choices[0])) {
+      throw new Error('MG codegen component writer returned an invalid completion payload');
+    }
+    const choice = payload.choices[0];
+    const message = isRecord(choice.message) ? choice.message : null;
+    const finishReason = readString(choice, 'finish_reason') ?? 'unknown';
+    const usage = isRecord(payload.usage) ? payload.usage : {};
+    const totalTokens = readNumber(usage, 'total_tokens');
+    const completionTokens = readNumber(usage, 'completion_tokens');
+    console.info(`[MGCodegen] GLM component writer finished: model=${model}, finishReason=${finishReason}, totalTokens=${totalTokens ?? 'unknown'}, completionTokens=${completionTokens ?? 'unknown'}`);
+    if (finishReason === 'length' || finishReason === 'model_context_window_exceeded') {
+      throw new Error(`MG codegen component truncated: finishReason=${finishReason}, maxOutputTokens=${COMPONENT_MAX_OUTPUT_TOKENS}, totalTokens=${totalTokens ?? 'unknown'}, completionTokens=${completionTokens ?? 'unknown'}`);
+    }
+    if (finishReason !== 'stop') {
+      throw new Error(`MG codegen component writer stopped unexpectedly: finishReason=${finishReason}`);
+    }
+    const source = message ? stripComponentFence(readString(message, 'content') ?? '') : '';
+    if (!source) throw new Error('MG codegen model returned no component source');
+    return source;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`MG codegen component writer timed out after ${componentTimeoutMs()}ms`, { cause: error });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  const text = result.response?.text?.().trim();
-  if (!text) throw new Error('MG codegen model returned no component source');
-  return text;
 }
 
 function sampleIndices(frameCount: number, brand: MgMomentInput['brand']): number[] {
