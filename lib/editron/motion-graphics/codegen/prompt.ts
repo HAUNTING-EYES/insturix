@@ -156,19 +156,19 @@ keyword-highlighting, no lower-thirds — a fresh composition every time.
 /** Vision-judge prompt: the transparent graphic is composited on a real footage frame; the judge rates brand
  *  craft, legibility over content, AND faithfulness to the licensed fact (fabrication is an automatic reject). */
 export const JUDGE_PROMPT = `You are the final ruthless motion-graphics craft and faithfulness judge.
-The image is a 3-column by 3-row contact sheet of ONE transparent animation. Judge the ADDED graphic only: brand fidelity, composition, visible motion development, mobile legibility, clipping, contrast, safe-region compliance, subject/caption obstruction, and faithfulness to the licensed fact.
+The ordered images show ONE transparent animation. Judge the ADDED graphic only: brand fidelity, composition, visible motion development, mobile legibility, clipping, contrast, safe-region compliance, subject/caption obstruction, and faithfulness to the licensed fact.
 
-CONTACT-SHEET TRUTH:
-- The three columns are sequential time samples (intro, build, settled hold), not simultaneous elements. Never penalize the same visual for appearing once in each time column.
-- The TOP row composites each animation phase over its matching real final edited-canvas frame (before, anchor, after). This is the authority for placement, hierarchy, subject/caption collision, and whether the graphic belongs in the shot.
-- The MIDDLE and BOTTOM rows repeat those phases over neutral dark and light stress backgrounds. They test alpha and contrast only. Never count row repetition as extra focal points.
-- Reject a graphic that looks acceptable on neutral stress backgrounds but obscures a subject, existing text, or the visual point of the real footage row.
+IMAGE TRUTH:
+- JUDGE IMAGES 1-3 are sequential full composites: intro, build, and settled hold, each over its matching real final edited-canvas frame. Inspect EACH image independently at useful resolution, then judge the progression. They are not simultaneous elements.
+- The final judge image is one contrast-only stress sheet. Its columns are intro/build/settled-hold; its top row is dark and bottom row is light. Use it only for alpha and contrast, never for placement or subject-obstruction judgments.
+- The three full composites are the authority for placement, hierarchy, subject/caption collision, and whether the graphic belongs in the shot. Check every subject and face in every phase.
+- Reject a graphic that looks acceptable in the stress image but obscures a subject, existing text, or the visual point of any real-footage composite.
 
 FAITHFULNESS:
 - ALLOW transient interpolated numbers between licensed start/end values only when they are clearly animation states of an honest count-up, progress, or transition and settle on the licensed values. Intermediate motion states are not asserted facts.
 - REJECT unsupported settled values, endpoints, labels, annotations, statistics, comparisons, or claims. A stable fabricated value is a lie on the video.
 
-AUTOMATIC REJECT: unsupported asserted content; any colour outside brand tokens; clipped/overflowing/broken text; a keyword-highlight or lower-third-template look instead of a bespoke composition; an opaque full-canvas graphic that hides the footage; subject/caption obstruction in the real footage row; or a graphic that cannot read over the real footage and both stress backgrounds.
+AUTOMATIC REJECT: unsupported asserted content; any colour outside brand tokens; clipped/overflowing/broken text; a keyword-highlight or lower-third-template look instead of a bespoke composition; an opaque full-canvas graphic that hides the footage; subject/caption obstruction in any real-footage composite; or a graphic that cannot read over the real footage and both stress backgrounds.
 PENALIZE: more than one focal point; timid type; no visible development across sampled moments; static values; subject obstruction; muddy gradients; decorative motion without meaning.
 REWARD: faithful settled content, honest interpolation, clear visual development, one focal point, one accent, deliberate negative space, and clean readability.
 Return ONLY JSON: {"faithful":boolean,"score":0-10,"issues":["specific fixable issue"],"reasoning":"one sentence"}. 8+ = genuinely premium AND faithful.`;

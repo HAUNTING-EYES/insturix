@@ -17,7 +17,10 @@ afterEach(() => {
 });
 
 const request = {
-  image: Buffer.from('synthetic-png'),
+  images: [
+    { label: 'intro over real footage', image: Buffer.from('phase-png'), mimeType: 'image/png' as const },
+    { label: 'contrast-only stress', image: Buffer.from('stress-webp'), mimeType: 'image/webp' as const },
+  ],
   prompt: 'Return the MG judge JSON.',
   seed: 42,
   maxOutputTokens: 1_200,
@@ -48,8 +51,11 @@ describe('MG visual judge provider', () => {
       contents: [{
         role: 'user',
         parts: [
-          { inlineData: { mimeType: 'image/png', data: request.image.toString('base64') } },
           { text: request.prompt },
+          { text: 'JUDGE IMAGE 1: intro over real footage' },
+          { inlineData: { mimeType: 'image/png', data: request.images[0].image.toString('base64') } },
+          { text: 'JUDGE IMAGE 2: contrast-only stress' },
+          { inlineData: { mimeType: 'image/webp', data: request.images[1].image.toString('base64') } },
         ],
       }],
       generationConfig: expect.objectContaining({
@@ -92,9 +98,25 @@ describe('MG visual judge provider', () => {
       response_format: { type: 'json_object' },
       thinking: { type: 'disabled', clear_thinking: true },
     });
-    expect(payload.messages[0].content[0].image_url.url).toBe(
-      `data:image/png;base64,${request.image.toString('base64')}`,
-    );
+    expect(payload.messages[0].content).toEqual([
+      { type: 'text', text: request.prompt },
+      { type: 'text', text: 'JUDGE IMAGE 1: intro over real footage' },
+      { type: 'image_url', image_url: { url: `data:image/png;base64,${request.images[0].image.toString('base64')}` } },
+      { type: 'text', text: 'JUDGE IMAGE 2: contrast-only stress' },
+      { type: 'image_url', image_url: { url: `data:image/webp;base64,${request.images[1].image.toString('base64')}` } },
+    ]);
+  });
+
+  it('fails closed before a provider call when visual evidence is empty', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = await createMgVisualJudgeProvider({
+      MG_VISUAL_JUDGE_PROVIDER: 'zai',
+      ZAI_API_KEY: 'zai-secret',
+    });
+
+    await expect(provider.generate({ ...request, images: [] })).rejects.toThrow(/requires at least one image/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects unknown judge providers instead of guessing', () => {

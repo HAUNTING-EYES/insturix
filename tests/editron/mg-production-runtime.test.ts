@@ -224,7 +224,7 @@ describe('production MG codegen runtime', () => {
     await runtime.dispose();
   });
 
-  it('judges visible intro, build, and settled-hold phases instead of transparent timeline endpoints', async () => {
+  it('judges full-resolution phase composites separately from contrast-only stress evidence', async () => {
     const generateContent = vi.fn().mockResolvedValue({
       response: { text: () => JSON.stringify({ faithful: true, score: 8.4, issues: [], reasoning: 'phase samples are readable' }) },
     });
@@ -238,33 +238,51 @@ describe('production MG codegen runtime', () => {
     await expect(runtime.codegen.compile('component')).resolves.toEqual({ ok: true });
     await expect(runtime.codegen.evaluate('component', moment())).resolves.toEqual({ score: 8.4, issues: [] });
     const request = generateContent.mock.calls[0][0];
-    const sheet = Buffer.from(request.contents[0].parts[0].inlineData.data, 'base64');
-    const metadata = await sharp(sheet).metadata();
-    const tileWidth = Math.floor((metadata.width ?? 0) / 3);
-    const tileHeight = Math.floor((metadata.height ?? 0) / 3);
-    const phasePixels = await Promise.all([0, 1, 2].map((column) => sharp(sheet)
-      .extract({ left: column * tileWidth + Math.floor(tileWidth / 4), top: Math.floor(tileHeight / 2), width: 1, height: 1 })
+    const parts = request.contents[0].parts;
+    expect(parts.map((part: { text?: string; inlineData?: unknown }) => part.text ? 'text' : 'image')).toEqual([
+      'text', 'text', 'image', 'text', 'image', 'text', 'image', 'text', 'image',
+    ]);
+    expect(parts[1].text).toContain('intro phase over its matching real edited-canvas frame');
+    expect(parts[3].text).toContain('build phase over its matching real edited-canvas frame');
+    expect(parts[5].text).toContain('settled-hold phase over its matching real edited-canvas frame');
+    expect(parts[7].text).toContain('contrast-only stress sheet');
+
+    const phaseImages = [parts[2], parts[4], parts[6]].map((part) => Buffer.from(part.inlineData.data, 'base64'));
+    const phasePixels = await Promise.all(phaseImages.map((image) => sharp(image)
+      .extract({ left: 135, top: 152, width: 1, height: 1 })
       .removeAlpha()
       .raw()
       .toBuffer()));
     expect([...phasePixels[0]]).toEqual([255, 0, 0]);
     expect([...phasePixels[1]]).toEqual([0, 255, 0]);
     expect([...phasePixels[2]]).toEqual([0, 0, 255]);
-    const backgroundPixels = await Promise.all([0, 1, 2].map((row) => sharp(sheet)
+
+    const footagePixels = await Promise.all(phaseImages.map((image) => sharp(image)
+      .extract({ left: 405, top: 152, width: 1, height: 1 })
+      .removeAlpha()
+      .raw()
+      .toBuffer()));
+    expect(footagePixels.map((pixel) => [...pixel])).toEqual([
+      [10, 20, 30], [10, 20, 30], [10, 20, 30],
+    ]);
+
+    const stressSheet = Buffer.from(parts[8].inlineData.data, 'base64');
+    const stressMetadata = await sharp(stressSheet).metadata();
+    expect({ width: stressMetadata.width, height: stressMetadata.height }).toEqual({ width: 1_080, height: 406 });
+    const backgroundPixels = await Promise.all([0, 1].map((row) => sharp(stressSheet)
       .extract({
-        left: Math.floor(tileWidth * 0.75),
-        top: row * tileHeight + Math.floor(tileHeight / 2),
+        left: 270,
+        top: row * 203 + 101,
         width: 1,
         height: 1,
       })
       .removeAlpha()
       .raw()
       .toBuffer()));
-    expect([...backgroundPixels[0]]).toEqual([10, 20, 30]);
-    expect([...backgroundPixels[1]]).toEqual([17, 17, 17]);
-    expect([...backgroundPixels[2]]).toEqual([242, 242, 242]);
-    expect(request.contents[0].parts[1].text).toContain('columns are sequential time samples');
-    expect(request.contents[0].parts[1].text).toContain('TOP row composites each animation phase over its matching real final edited-canvas frame');
+    expect([...backgroundPixels[0]]).toEqual([17, 17, 17]);
+    expect([...backgroundPixels[1]]).toEqual([242, 242, 242]);
+    expect(parts[0].text).toContain('JUDGE IMAGES 1-3 are sequential full composites');
+    expect(parts[0].text).toContain('final judge image is one contrast-only stress sheet');
     await runtime.dispose();
   });
 
@@ -308,7 +326,7 @@ describe('production MG codegen runtime', () => {
     expect(generateContent.mock.calls.map(([request]) => request.generationConfig.seed)).toEqual([42, 7]);
     expect(generateContent.mock.calls.map(([request]) => request.generationConfig.maxOutputTokens)).toEqual([1_200, 4_096]);
     expect(generateContent.mock.calls[0][0].generationConfig.responseSchema).toBeDefined();
-    const judgePrompt = generateContent.mock.calls[0][0].contents[0].parts[1].text;
+    const judgePrompt = generateContent.mock.calls[0][0].contents[0].parts[0].text;
     expect(judgePrompt).toContain('ALLOW transient interpolated numbers');
     expect(judgePrompt).toContain('REJECT unsupported settled values');
     expect(judgePrompt).toContain('opaque full-canvas graphic');

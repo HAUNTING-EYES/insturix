@@ -16,6 +16,7 @@ import type { MgMomentInput, MgVisualEvidence, MgVisualEvidenceFrame } from './t
 import {
   createMgVisualJudgeProvider,
   resolveMgVisualJudgeProviderName,
+  type MgVisualJudgeImage,
 } from './visual-judge-provider';
 import {
   cleanupWorkspace,
@@ -256,6 +257,7 @@ const JUDGE_EVIDENCE_ROLES: MgVisualEvidenceFrame['role'][] = [
   'anchor',
   'context-after',
 ];
+const JUDGE_PHASE_LABELS = ['intro', 'build', 'settled-hold'] as const;
 const JUDGE_STRESS_BACKGROUNDS = ['#111111', '#f2f2f2'] as const;
 
 function decodeVisualEvidenceFrame(frame: MgVisualEvidenceFrame): Buffer {
@@ -279,55 +281,74 @@ function requireJudgeVisualEvidence(moment: MgMomentInput): MgVisualEvidenceFram
   return frames;
 }
 
-async function buildContactSheet(render: MgRenderResult, moment: MgMomentInput): Promise<Buffer> {
+async function buildJudgeImages(render: MgRenderResult, moment: MgMomentInput): Promise<MgVisualJudgeImage[]> {
   if (!render.files.length) throw new Error('MG judge cannot evaluate an empty frame sequence');
-  const tileWidth = 360;
-  const tileHeight = Math.max(202, Math.min(640, Math.round(tileWidth * render.height / render.width)));
+  const phaseWidth = 540;
+  const phaseHeight = Math.max(304, Math.min(960, Math.round(phaseWidth * render.height / render.width)));
+  const stressTileWidth = 360;
+  const stressTileHeight = Math.max(202, Math.min(640, Math.round(stressTileWidth * render.height / render.width)));
   const indices = sampleIndices(render.files.length, moment.brand);
   const evidenceFrames = requireJudgeVisualEvidence(moment);
   if (indices.length !== evidenceFrames.length) {
     throw new Error(`MG judge requires ${evidenceFrames.length} distinct animation phase samples; received ${indices.length}`);
   }
-  const composites: sharp.OverlayOptions[] = [];
+  const images: MgVisualJudgeImage[] = [];
+  const stressComposites: sharp.OverlayOptions[] = [];
 
   for (let column = 0; column < indices.length; column += 1) {
     const framePath = path.join(render.webpDir, render.files[indices[column]]);
-    const frame = await sharp(await fs.readFile(framePath))
-      .resize({ width: tileWidth, height: tileHeight, fit: 'contain' })
+    const frameBytes = await fs.readFile(framePath);
+    const phaseFrame = await sharp(frameBytes)
+      .resize({ width: phaseWidth, height: phaseHeight, fit: 'contain' })
       .png()
       .toBuffer();
     const footage = await sharp(decodeVisualEvidenceFrame(evidenceFrames[column]))
-      .resize({ width: tileWidth, height: tileHeight, fit: 'cover' })
+      .resize({ width: phaseWidth, height: phaseHeight, fit: 'cover' })
       .png()
       .toBuffer();
-    const footageTile = await sharp(footage).composite([{ input: frame }]).png().toBuffer();
-    composites.push({ input: footageTile, left: column * tileWidth, top: 0 });
+    const phaseComposite = await sharp(footage).composite([{ input: phaseFrame }]).png().toBuffer();
+    images.push({
+      label: `${JUDGE_PHASE_LABELS[column]} phase over its matching real edited-canvas frame; generatedFrame=${indices[column]}; timelineFrame=${evidenceFrames[column].coordinate.timelineFrame}`,
+      image: phaseComposite,
+      mimeType: 'image/png',
+    });
+
+    const stressFrame = await sharp(frameBytes)
+      .resize({ width: stressTileWidth, height: stressTileHeight, fit: 'contain' })
+      .png()
+      .toBuffer();
 
     for (let stressIndex = 0; stressIndex < JUDGE_STRESS_BACKGROUNDS.length; stressIndex += 1) {
       const tile = await sharp({
         create: {
-          width: tileWidth,
-          height: tileHeight,
+          width: stressTileWidth,
+          height: stressTileHeight,
           channels: 4,
           background: JUDGE_STRESS_BACKGROUNDS[stressIndex],
         },
-      }).composite([{ input: frame }]).png().toBuffer();
-      composites.push({
+      }).composite([{ input: stressFrame }]).png().toBuffer();
+      stressComposites.push({
         input: tile,
-        left: column * tileWidth,
-        top: (stressIndex + 1) * tileHeight,
+        left: column * stressTileWidth,
+        top: stressIndex * stressTileHeight,
       });
     }
   }
 
-  return sharp({
+  const stressSheet = await sharp({
     create: {
-      width: tileWidth * indices.length,
-      height: tileHeight * (JUDGE_STRESS_BACKGROUNDS.length + 1),
+      width: stressTileWidth * indices.length,
+      height: stressTileHeight * JUDGE_STRESS_BACKGROUNDS.length,
       channels: 4,
       background: '#000000',
     },
-  }).composite(composites).png().toBuffer();
+  }).composite(stressComposites).png().toBuffer();
+  images.push({
+    label: 'contrast-only stress sheet; columns=intro/build/settled-hold; top row=dark; bottom row=light; do not use this image for placement or subject-obstruction judgments',
+    image: stressSheet,
+    mimeType: 'image/png',
+  });
+  return images;
 }
 
 function extractJsonObject(text: string): string {
@@ -383,7 +404,7 @@ async function defaultJudgeRendered(
   render: MgRenderResult,
   moment: MgMomentInput,
 ): Promise<{ score: number; issues: string[] }> {
-  const sheet = await buildContactSheet(render, moment);
+  const images = await buildJudgeImages(render, moment);
   const providerName = resolveMgVisualJudgeProviderName();
   let provider: Awaited<ReturnType<typeof createMgVisualJudgeProvider>>;
   try {
@@ -412,7 +433,7 @@ ${fact}`;
     try {
       const strictRetry = attempt === 0 ? '' : '\nYour prior response was malformed. Return exactly one complete JSON object matching the schema.';
       const result = await provider.generate({
-        image: sheet,
+        images,
         prompt: `${prompt}${strictRetry}`,
         seed: JUDGE_ATTEMPTS[attempt].seed,
         maxOutputTokens: JUDGE_ATTEMPTS[attempt].maxOutputTokens,

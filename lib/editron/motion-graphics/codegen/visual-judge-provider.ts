@@ -9,8 +9,14 @@ type EnvLike = Record<string, string | undefined>;
 
 export type MgVisualJudgeProviderName = 'gemini' | 'zai';
 
-export interface MgVisualJudgeRequest {
+export interface MgVisualJudgeImage {
+  label: string;
   image: Buffer;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+}
+
+export interface MgVisualJudgeRequest {
+  images: readonly MgVisualJudgeImage[];
   prompt: string;
   seed: number;
   maxOutputTokens: number;
@@ -71,6 +77,18 @@ function required(env: EnvLike, name: string): string {
   return value;
 }
 
+function assertJudgeImages(images: readonly MgVisualJudgeImage[]): void {
+  if (!images.length) throw new Error('MG visual judge requires at least one image');
+  for (const image of images) {
+    if (!image.label.trim()) throw new Error('MG visual judge image label cannot be empty');
+    if (!image.image.length) throw new Error(`MG visual judge image ${image.label} cannot be empty`);
+  }
+}
+
+function imageDataUrl(image: MgVisualJudgeImage): string {
+  return `data:${image.mimeType};base64,${image.image.toString('base64')}`;
+}
+
 function providerMessage(payload: unknown): string | undefined {
   if (!isRecord(payload)) return undefined;
   const direct = readString(payload, 'message');
@@ -91,12 +109,16 @@ async function createGeminiProvider(env: EnvLike): Promise<MgVisualJudgeProvider
     name: 'gemini',
     model: modelName,
     async generate(request) {
+      assertJudgeImages(request.images);
       const result = await model.generateContent({
         contents: [{
           role: 'user',
           parts: [
-            { inlineData: { mimeType: 'image/png', data: request.image.toString('base64') } },
             { text: request.prompt },
+            ...request.images.flatMap((image, index) => [
+              { text: `JUDGE IMAGE ${index + 1}: ${image.label}` },
+              { inlineData: { mimeType: image.mimeType, data: image.image.toString('base64') } },
+            ]),
           ],
         }],
         generationConfig: {
@@ -139,6 +161,7 @@ function createZaiProvider(env: EnvLike): MgVisualJudgeProvider {
     name: 'zai',
     model,
     async generate(request) {
+      assertJudgeImages(request.images);
       const response = await fetch(chatCompletionsUrl(baseUrl), {
         method: 'POST',
         headers: {
@@ -150,11 +173,11 @@ function createZaiProvider(env: EnvLike): MgVisualJudgeProvider {
           messages: [{
             role: 'user',
             content: [
-              {
-                type: 'image_url',
-                image_url: { url: `data:image/png;base64,${request.image.toString('base64')}` },
-              },
               { type: 'text', text: request.prompt },
+              ...request.images.flatMap((image, index) => [
+                { type: 'text', text: `JUDGE IMAGE ${index + 1}: ${image.label}` },
+                { type: 'image_url', image_url: { url: imageDataUrl(image) } },
+              ]),
             ],
           }],
           stream: false,
