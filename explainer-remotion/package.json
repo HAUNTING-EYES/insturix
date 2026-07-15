@@ -4,7 +4,7 @@
   "type": "module",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
-    "@remotion/media-utils": "^4.0.398",
-    "@remotion/transitions": "^4.0.398"
+    "@remotion/media-utils": "4.0.398",
+    "@remotion/transitions": "4.0.398"
   }
 }

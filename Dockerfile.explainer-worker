@@ -27,7 +27,9 @@ WORKDIR /app
 RUN corepack enable
 COPY . .
 RUN pnpm install --no-frozen-lockfile
-RUN cd explainer-remotion && (npm ci --legacy-peer-deps || npm install --legacy-peer-deps)
+# npm ci (NOT `|| npm install`): the fallback silently re-resolved ^4.0.x carets and pulled a skewed @remotion
+# version that imported a missing export (HtmlInCanvas), breaking the bundle. Fail loud on a bad lockfile instead.
+RUN cd explainer-remotion && npm ci --legacy-peer-deps
 
 # Pre-fetch the Remotion browser so the first render doesn't pay the download (best-effort).
 RUN cd explainer-remotion && (npx remotion browser ensure || true)

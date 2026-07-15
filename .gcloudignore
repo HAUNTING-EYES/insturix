@@ -1,0 +1,116 @@
+# .gcloudignore controls what `gcloud builds submit` uploads. WITHOUT this file gcloud falls back to .gitignore,
+# which excludes package-lock.json (line "package-lock.json") — so the Cloud Build context had NO lockfile,
+# `npm ci` failed, and the Dockerfile's fallback re-resolved caret deps → a skewed @remotion version broke the
+# bundle (HtmlInCanvas). This file is a verbatim copy of .gitignore (so every .env/secret exclusion is preserved)
+# PLUS a negation that re-includes ONLY explainer-remotion/package-lock.json, which the Dockerfile's npm ci needs.
+node_modules
+.axon
+
+.next
+
+.env
+.env.local
+.env.production
+.env.preview
+.env.staging
+.env.development
+
+.excalidraw
+tsconfig.tsbuildinfo
+.DS_Store
+# clerk configuration (can include secrets)
+/.clerk/
+
+editron-457314-dbaa23a9bf46.json
+
+.roo
+
+/app/api/test
+
+secret_md_files
+app/dashboard/musitron/task/[id]/reference_ui
+.vscode/settings.json
+
+*.env
+react-video-editor-pro-main
+tsconfig.tsbuildinfo
+
+# Cloud Run Renderer - Ignore copied files during deployment
+/cloud-run-renderer/app/
+/cloud-run-renderer/components/
+/cloud-run-renderer/lib/
+/cloud-run-renderer/public/
+/cloud-run-renderer/tailwind.config.ts
+/cloud-run-renderer/postcss.config.mjs
+/cloud-run-renderer/postcss.config.js
+/cloud-run-renderer/remotion.config.ts
+/cloud-run-renderer/node_modules/
+/cloud-run-renderer/dist/
+/cloud-run-renderer/package-lock.json
+.vercel
+.env*.local
+.env.local.*
+.env.neo4j
+
+# Claude Code context file (not part of codebase)
+CLAUDE.md
+.mcp.json
+.code-review-graph/
+
+# GCP Migration secrets — NEVER commit
+migrations/gcp-account-switch/secrets/
+
+# Local reference repos (vendored open-source projects for inspiration, not shipped)
+reference-repos/
+
+# IDE / agent config (personal, not shipped)
+.claude/plans/
+.claude/settings.json
+.claude/skills/
+.cursor/
+.opencode.json
+
+# Personal notes and local docs
+personal docs/
+
+# Dev-only scripts (debug/test helpers, not shipped)
+scripts/TEST_SCRIPT_COMPREHENSIVE.md
+scripts/audit-orphans.py
+scripts/debug-proj.mjs
+scripts/debug-proj-storyboard.mjs
+graphify-out/
+
+# Local Editron verification artifacts
+.calibration-temp/
+__pycache__/
+modal/__pycache__/
+
+
+thinkforge-ui.html
+DESIGN_BIBLE.md
+yarn.lock
+# NOTE: the bare `package-lock.json` exclusion is intentionally omitted here — the Dockerfile's `npm ci` needs
+# explainer-remotion/package-lock.json in the build context. cloud-run-renderer's lockfile is excluded above.
+.gstack/
+
+# Local agent working notes / design docs (not shipped)
+docs/agents/
+
+# Vercel env-check (contains secrets, never commit)
+.env.vercel-check
+
+# MG codegen render scratch (Phase D)
+.mg-render-tmp/
+
+# Local scratch / generated artifacts — never shipped, were leaking into `git status`
+/outputs/
+/tmp/
+/.codex-digest/
+/tmp_*.txt
+*.local-bak
+
+# Also drop the heavy git dir from the upload (not needed by the build).
+.git
+
+# ── RE-INCLUDE: the Dockerfile's `npm ci` needs this lockfile in the build context ──
+!explainer-remotion/package-lock.json
