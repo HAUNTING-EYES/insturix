@@ -24,6 +24,7 @@ import {
   type MgRenderInput,
   type MgRenderResult,
 } from './render/frame-renderer';
+import { mgPlacementGate, type MgGateRegion } from './mg-placement-gate';
 
 type RenderFn = (input: MgRenderInput, opts?: ProductionMgRuntimeOptions['renderOpts']) => Promise<MgRenderResult>;
 type CleanupFn = (workspaceDir: string) => Promise<void>;
@@ -43,6 +44,9 @@ export interface ProductionMgRuntimeOptions {
   renderOpts?: { repoRoot?: string; workspaceRoot?: string; kitDir?: string };
   writeComponent?: (prompt: string) => Promise<string>;
   judgeRendered?: (render: MgRenderResult, moment: MgMomentInput) => Promise<{ score: number; issues: string[] }>;
+  /** Deterministic placement gate (defaults to the real geometric gate). Tests inject a pass-through to
+   *  exercise the judge in isolation. */
+  placementGate?: (render: MgRenderResult, moment: MgMomentInput) => Promise<{ pass: boolean; reasons: string[] }>;
 }
 
 export interface ProductionMgRuntime {
@@ -469,6 +473,23 @@ ${fact}`;
   );
 }
 
+/**
+ * Deterministic placement gate on the SETTLED-HOLD frame. Measures the rendered alpha against the subject box
+ * and the caption / title-safe zones (see mg-placement-gate). A graphic that swamps the frame, paints over the
+ * subject, intrudes into the caption band, or bleeds outside title-safe FAILS here — regardless of the vision
+ * judge, which the investigation showed accepts static, oversized, footage-covering text at 8/10.
+ */
+async function runMgPlacementGate(render: MgRenderResult, moment: MgMomentInput): Promise<{ pass: boolean; reasons: string[] }> {
+  if (!render.files.length) return { pass: true, reasons: [] };
+  const indices = sampleIndices(render.files.length, moment.brand);
+  const settledHold = indices[indices.length - 1]; // last sampled index = the final resting placement
+  const frame = await fs.readFile(path.join(render.webpDir, render.files[settledHold]));
+  const s = moment.screen?.subject;
+  const subject: MgGateRegion | null = s ? { x: s.x, y: s.y, width: s.width ?? 0.2, height: s.height ?? 0.4 } : null;
+  const { pass, reasons } = await mgPlacementGate(frame, { subject });
+  return { pass, reasons };
+}
+
 export function createProductionMgRuntime(
   moment: MgMomentInput,
   canvas: { width: number; height: number },
@@ -479,6 +500,7 @@ export function createProductionMgRuntime(
   const writeComponent = options.writeComponent
     ?? ((prompt: string) => defaultWriteComponent(prompt, moment.visualEvidence));
   const judgeRendered = options.judgeRendered ?? defaultJudgeRendered;
+  const placementGate = options.placementGate ?? runMgPlacementGate;
   let cached: { code: string; result: MgRenderResult } | null = null;
 
   const discardCached = async (): Promise<void> => {
@@ -516,6 +538,13 @@ export function createProductionMgRuntime(
       },
       evaluate: async (code, input) => {
         const rendered = cached?.code === code ? cached.result : await renderCode(code);
+        // Deterministic placement gate FIRST: a geometric veto the subjective judge can't waive. Cheap (~one
+        // downsampled frame), so run it before the VLM judge and skip that call entirely when placement fails.
+        // score 0 → generateMoment's existing `score < threshold` forces a revision (fed these reasons) or decline.
+        const gate = await placementGate(rendered, input);
+        if (!gate.pass) {
+          return { score: 0, issues: gate.reasons.map((reason) => `placement: ${reason}`) };
+        }
         return judgeRendered(rendered, input);
       },
     },

@@ -102,6 +102,10 @@ async function phaseSampleRender() {
   return { webpDir, files, workspaceDir, width: 32, height: 18, fps: 30, count: 60, renderMs: 12 };
 }
 
+// The judge tests exercise the VLM judge in isolation, so they bypass the deterministic placement gate.
+// (The gate itself is proven in mg-placement-gate.test.ts + the "vetoes" test below with the real gate.)
+const PASS_PLACEMENT = async () => ({ pass: true, reasons: [] as string[] });
+
 describe('production MG codegen runtime', () => {
   it('uses a real rendered result for compile/evaluate and reuses it for final ingest rendering', async () => {
     const render = vi.fn(fakeRender);
@@ -111,6 +115,7 @@ describe('production MG codegen runtime', () => {
       render,
       cleanup,
       writeComponent: async () => 'component',
+      placementGate: PASS_PLACEMENT,
       judgeRendered,
     });
 
@@ -139,12 +144,29 @@ describe('production MG codegen runtime', () => {
       render: fakeRender,
       cleanup,
       writeComponent: async () => 'component',
+      placementGate: PASS_PLACEMENT,
       judgeRendered: async () => ({ score: 0, issues: ['fabricated value'] }),
     });
     await runtime.codegen.compile('component');
     await expect(runtime.codegen.evaluate('component', moment())).resolves.toEqual({ score: 0, issues: ['fabricated value'] });
     await runtime.dispose();
     expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('★ the deterministic gate VETOES a footage-covering graphic (score 0, judge never called)', async () => {
+    const judgeRendered = vi.fn(async () => ({ score: 9, issues: [] })); // judge WOULD accept — the gate must not
+    const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
+      render: fakeRender, // fakeRender fills the whole frame → the real gate rejects it on coverage
+      cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
+      judgeRendered,
+      // no placementGate override → the REAL geometric gate runs
+    });
+    await runtime.codegen.compile('component');
+    const ev = await runtime.codegen.evaluate('component', moment());
+    expect(ev.score).toBe(0);
+    expect(ev.issues.join(' ')).toMatch(/placement: covers/);
+    expect(judgeRendered).not.toHaveBeenCalled(); // gate-first skips the expensive VLM judge on a placement fail
+    await runtime.dispose();
   });
 
   it('sends ordered real-frame evidence to GLM-5V-Turbo with deterministic sampling disabled', async () => {
@@ -233,6 +255,7 @@ describe('production MG codegen runtime', () => {
       render: phaseSampleRender,
       cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
       writeComponent: async () => 'component',
+      placementGate: PASS_PLACEMENT,
     });
 
     await expect(runtime.codegen.compile('component')).resolves.toEqual({ ok: true });
@@ -295,6 +318,7 @@ describe('production MG codegen runtime', () => {
       render: fakeRender,
       cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
       writeComponent: async () => 'component',
+      placementGate: PASS_PLACEMENT,
     });
 
     await expect(runtime.codegen.compile('component')).resolves.toEqual({ ok: true });
@@ -318,6 +342,7 @@ describe('production MG codegen runtime', () => {
       render: phaseSampleRender,
       cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
       writeComponent: async () => 'component',
+      placementGate: PASS_PLACEMENT,
     });
 
     await expect(runtime.codegen.compile('component')).resolves.toEqual({ ok: true });
@@ -346,6 +371,7 @@ describe('production MG codegen runtime', () => {
       render: phaseSampleRender,
       cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
       writeComponent: async () => 'component',
+      placementGate: PASS_PLACEMENT,
     });
 
     await runtime.codegen.compile('component');
