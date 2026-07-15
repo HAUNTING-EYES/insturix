@@ -114,12 +114,9 @@ async function connectToThinkForgeDb(): Promise<mongoose.Connection> {
     connectTimeoutMS: 10000, // 10s timeout for initial connection
   };
 
-  console.log('[ThinkForge] Connecting to database using createConnection...');
   thinkforgeDbCached.promise = mongoose.createConnection(mongoUri, opts).asPromise();
   
-  thinkforgeDbCached.promise.then(() => {
-    console.log(`[ThinkForge] Connected to database: ${THINKFORGE_DB_NAME}`);
-  }).catch((err) => {
+  thinkforgeDbCached.promise.catch((err) => {
     console.error('[ThinkForge] Failed to connect to database:', err?.message || err);
     thinkforgeDbCached.promise = null;
     thinkforgeDbCached.conn = null;
@@ -1290,7 +1287,6 @@ export async function deleteSession(sessionId: string, userId: string): Promise<
       RateUsageModel.deleteMany({ sessionId })
     ]);
 
-    console.log(`Deleted session ${sessionId} and all associated data`);
     return true;
   } catch (error) {
     console.error('Error deleting session:', error);
@@ -2086,7 +2082,6 @@ export async function deleteProject(projectId: string, userId: string): Promise<
     // Note: ContentBlocks are NOT deleted (they may be referenced by other versions)
     // Garbage collection for orphaned blocks should be a separate maintenance task
 
-    console.log(`Deleted project ${projectId} and all associated data`);
     return true;
   } catch (error) {
     console.error('Error deleting project:', error);
