@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+  ThinkForgeDocumentContractSchema,
+  normalizeThinkForgeDocumentContract,
+} from './document-contract';
 
 // ── BrandDNA ────────────────────────────────────────────────────────
 // Matches BrandDNA interface in lib/thinkforge/services/db.ts
@@ -82,8 +86,33 @@ export const ScriptPayloadSchema = z.object({
   content: z.string().optional(),
   blocks: z.array(ThinkForgeBlockZodSchema).optional(),
   richText: z.record(z.string(), z.any()).optional(),
-  documentType: z.string().optional(),
-}).passthrough();
+  documentType: z.string().trim().min(1).optional(),
+  contentContract: ThinkForgeDocumentContractSchema.optional(),
+}).passthrough().superRefine((payload, ctx) => {
+  if (!payload.documentType) return;
+
+  const normalized = normalizeThinkForgeDocumentContract(payload.documentType);
+  if (!normalized) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['documentType'],
+      message: 'unsupported ThinkForge document type',
+    });
+    return;
+  }
+
+  if (payload.contentContract && (
+    payload.contentContract.documentKind !== normalized.documentKind
+    || payload.contentContract.outputKind !== normalized.outputKind
+    || payload.contentContract.artifactType !== normalized.artifactType
+  )) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['contentContract'],
+      message: 'content contract conflicts with document type',
+    });
+  }
+});
 
 export type ScriptPayload = z.infer<typeof ScriptPayloadSchema>;
 

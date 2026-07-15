@@ -15,6 +15,9 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
 
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
 import { detectContentPath } from '@/lib/thinkforge/agents/prompt-utils';
+import { resolveContentSignalProfile } from '@/lib/thinkforge/signals/content-signal-resolver';
+import { ScriptPayloadSchema } from '@/lib/thinkforge/schemas/route-validation';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 
 const block: ThinkForgeBlock = {
   id: 'block_001',
@@ -41,6 +44,27 @@ describe('ThinkForge content-path routing', () => {
     expect(detectContentPath('Write an Instagram reel script with camera direction.')).toBe('script');
     expect(detectContentPath('Write the draft.', 'video_script')).toBe('script');
   });
+
+  it('keeps signal resolution on the post contract when the topic mentions video', () => {
+    const resolved = resolveContentSignalProfile({
+      userPrompt: 'Write a LinkedIn post about video production workflows.',
+      documentType: 'post',
+      platform: 'LinkedIn',
+    });
+
+    expect(resolved.intent.outputFormat).toBe('social_post');
+    expect(resolved.profile.constraints.output_format).toBe('social_post');
+  });
+
+  it('rejects contradictory API document classifications', () => {
+    const conflicting = ScriptPayloadSchema.safeParse({
+      documentType: 'post',
+      contentContract: createThinkForgeWriterContract('video_script'),
+    });
+
+    expect(conflicting.success).toBe(false);
+    expect(ScriptPayloadSchema.safeParse({ documentType: 'screenplay' }).success).toBe(true);
+  });
 });
 
 describe('ThinkForge command-service metadata persistence', () => {
@@ -59,6 +83,7 @@ describe('ThinkForge command-service metadata persistence', () => {
         richText: script.richText,
         metadata: script.metadata,
         documentType: script.documentType,
+        contentContract: script.contentContract,
         version: 1,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
@@ -87,14 +112,36 @@ describe('ThinkForge command-service metadata persistence', () => {
     expect(dbMock.saveScriptWithVersion).toHaveBeenCalledWith(
       'session_001',
       expect.objectContaining({
-        documentType: 'post',
+        documentType: 'social_post',
+        contentContract: createThinkForgeWriterContract('social_post'),
       }),
       0,
       'doc_002'
     );
     if (result.ok) {
-      expect(result.script.documentType).toBe('post');
+      expect(result.script.documentType).toBe('social_post');
+      expect(result.script.contentContract).toEqual(createThinkForgeWriterContract('social_post'));
     }
+  });
+
+  it('rejects contradictory direct command classifications before persistence', async () => {
+    dbMock.getScript.mockResolvedValue(null);
+
+    const result = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId: 'session_001',
+      baseVersion: 0,
+      source: 'ai',
+      payload: {
+        scriptId: 'doc_conflict',
+        blocks: [block],
+        documentType: 'post',
+        contentContract: createThinkForgeWriterContract('video_script'),
+      },
+    }, 'user_001');
+
+    expect(result).toEqual({ ok: false, error: 'Document contract conflicts with document type' });
+    expect(dbMock.saveScriptWithVersion).not.toHaveBeenCalled();
   });
 
   it('stores signalTrace metadata when replacing a generated document', async () => {
@@ -133,7 +180,7 @@ describe('ThinkForge command-service metadata persistence', () => {
     }
   });
 
-  it('preserves existing signalTrace metadata during block edits', async () => {
+  it('dual-reads legacy post aliases and preserves their contract during block edits', async () => {
     const metadata = {
       signalTrace: {
         outputFormat: 'social_post',
@@ -148,6 +195,7 @@ describe('ThinkForge command-service metadata persistence', () => {
       content: 'Draft caption',
       blocks: [block],
       metadata,
+      documentType: 'post',
       version: 1,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
@@ -168,12 +216,18 @@ describe('ThinkForge command-service metadata persistence', () => {
     expect(result.ok).toBe(true);
     expect(dbMock.saveScriptWithVersion).toHaveBeenCalledWith(
       'session_001',
-      expect.objectContaining({ metadata }),
+      expect.objectContaining({
+        metadata,
+        documentType: 'social_post',
+        contentContract: createThinkForgeWriterContract('social_post'),
+      }),
       1,
       'doc_001'
     );
     if (result.ok) {
       expect(result.script.metadata).toEqual(metadata);
+      expect(result.script.documentType).toBe('social_post');
+      expect(result.script.contentContract).toEqual(createThinkForgeWriterContract('social_post'));
     }
   });
 });

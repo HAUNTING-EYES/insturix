@@ -2,6 +2,11 @@ import type { AssembledContext, ProjectContextData } from '../agents/types';
 import type { RetrievedContext, SemanticFact } from '../context/fetchContextSources';
 import { extractSignalsFromContext } from '../data/extract-signals';
 import { brandSignalProfileToCreativeSignalDefaults } from '../../shared/brand-to-creative-signals';
+import {
+  ThinkForgeDocumentContractSchema,
+  normalizeThinkForgeDocumentContract,
+  type ThinkForgeDocumentContract,
+} from '../schemas/document-contract';
 import type {
   ContentSignalProfile,
   ContentConstraints,
@@ -17,6 +22,7 @@ type SignalSource = InferenceMetadata['source'];
 
 export interface ResolveContentSignalProfileInput {
   userPrompt: string;
+  contentContract?: ThinkForgeDocumentContract | null;
   documentType?: string;
   medium?: string;
   platform?: string;
@@ -63,8 +69,9 @@ export interface ThinkForgeContentSignalProfile {
 }
 
 const OUTPUT_FORMAT_ALIASES: Array<[RegExp, OutputFormat]> = [
-  [/\b(video|script|reels?|tiktok|youtube|ugc|commercial)\b|\bshort[-\s]?form\b|\bbrand[-\s]?film\b/i, 'video_script'],
+  [/\b(script|reels?|tiktok|youtube|ugc|commercial)\b|\bshort[-\s]?form\b|\bbrand[-\s]?film\b/i, 'video_script'],
   [/linkedin|twitter|x\.com|instagram|facebook|social|post|thread/i, 'social_post'],
+  [/\bvideo\b/i, 'video_script'],
   [/caption/i, 'caption'],
   [/blog|article/i, 'blog_article'],
   [/newsletter/i, 'newsletter'],
@@ -211,6 +218,20 @@ function inferOutputFormat(
   input: ResolveContentSignalProfileInput,
   combinedText: string,
 ): OutputFormat {
+  if (input.contentContract) {
+    return outputFormatFromDocumentContract(
+      ThinkForgeDocumentContractSchema.parse(input.contentContract),
+    );
+  }
+
+  const explicitContract = [input.documentType, input.medium, input.project?.format]
+    .map((value) => normalizeThinkForgeDocumentContract(value))
+    .find((contract): contract is ThinkForgeDocumentContract => Boolean(contract));
+
+  if (explicitContract) {
+    return outputFormatFromDocumentContract(explicitContract);
+  }
+
   const candidates = [
     input.documentType,
     input.medium,
@@ -224,6 +245,18 @@ function inferOutputFormat(
 
   if (input.project?.platform || input.platform) return 'social_post';
   return 'video_script';
+}
+
+function outputFormatFromDocumentContract(contract: ThinkForgeDocumentContract): OutputFormat {
+  if (contract.outputKind === 'video_script') return 'video_script';
+  if (contract.outputKind === 'social_post' || contract.outputKind === 'carousel') {
+    return 'social_post';
+  }
+
+  if (contract.artifactType === 'research_brief') return 'whitepaper';
+  if (contract.artifactType === 'interview_questions') return 'podcast_script';
+  if (contract.artifactType === 'score_direction') return 'presentation_script';
+  return 'whitepaper';
 }
 
 function inferPlatform(input: ResolveContentSignalProfileInput, combinedText: string): string | undefined {
@@ -244,9 +277,10 @@ function normalizePlatform(value: string): string {
 }
 
 function toExtractionDocumentType(outputFormat: OutputFormat, explicit?: string): string {
-  if (explicit?.trim()) return explicit.trim().toLowerCase().replace(/\s+/g, '_');
   if (outputFormat === 'social_post' || outputFormat === 'caption') return 'post';
+  if (outputFormat === 'video_script') return 'script';
   if (outputFormat === 'blog_article') return 'article';
+  if (explicit?.trim()) return explicit.trim().toLowerCase().replace(/\s+/g, '_');
   return outputFormat;
 }
 
