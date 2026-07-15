@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import type { ICalosTrendWatchPolicy } from "@/schemas/calos-trend-watch";
 import { getTrendWatchPolicy, upsertTrendWatchPolicy } from "@/lib/calos/trend-watch-service";
+import { resolveBrandNiche } from "@/lib/calos/brand-niche";
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +36,12 @@ export async function GET(req: NextRequest) {
     if (!brandId) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
 
     await connectToDatabase();
-    const policy = await getTrendWatchPolicy({ ownerUserId: userId, orgId: orgId ?? null, brandId });
-    return NextResponse.json({ watch: policy ? serialize(policy) : null });
+    const scope = { ownerUserId: userId, orgId: orgId ?? null, brandId };
+    const [policy, suggestedNiche] = await Promise.all([
+      getTrendWatchPolicy(scope),
+      resolveBrandNiche(scope), // from the Brand Vault — so the UI never makes the user type it
+    ]);
+    return NextResponse.json({ watch: policy ? serialize(policy) : null, suggestedNiche });
   } catch (error) {
     console.error("[CalOS] get trend watch error:", error);
     return NextResponse.json({ error: "Failed to load trend watch" }, { status: 500 });
@@ -51,18 +56,29 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const { brandId, enabled, publicNiche, platforms, location, intervalHours } = body ?? {};
     if (!brandId) return NextResponse.json({ error: "brandId is required" }, { status: 400 });
-    if (enabled && (typeof publicNiche !== "string" || publicNiche.trim().length < 2)) {
-      return NextResponse.json({ error: "A niche is required to turn on trend watching." }, { status: 400 });
-    }
 
     await connectToDatabase();
+
+    // The niche comes from the Brand Vault, not the user. Only fall back to a typed value, and only
+    // error when BOTH the vault and any typed override are empty.
+    let niche = typeof publicNiche === "string" ? publicNiche.trim() : "";
+    if (enabled && niche.length < 2) {
+      niche = await resolveBrandNiche({ ownerUserId: userId, orgId: orgId ?? null, brandId });
+      if (niche.length < 2) {
+        return NextResponse.json(
+          { error: "Couldn't read a niche from this brand's vault — scan the brand first, or type one to override.", code: "NO_BRAND_NICHE" },
+          { status: 400 },
+        );
+      }
+    }
+
     try {
       const policy = await upsertTrendWatchPolicy({
         ownerUserId: userId,
         orgId: orgId ?? null,
         brandId,
         enabled: Boolean(enabled),
-        publicNiche: typeof publicNiche === "string" ? publicNiche : "",
+        publicNiche: niche,
         platforms: Array.isArray(platforms) ? platforms : undefined,
         location: typeof location === "string" ? location : null,
         intervalHours: typeof intervalHours === "number" ? intervalHours : undefined,

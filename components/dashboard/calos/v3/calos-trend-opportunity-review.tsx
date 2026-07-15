@@ -72,23 +72,20 @@ export function CalosTrendOpportunityReview({ brandId, brandName, onClose, onAcc
       const data = await response.json().catch(() => ({}));
       const next: WatchState | null = data?.watch ?? null;
       setWatch(next);
-      setNicheInput(next?.publicNiche ?? '');
+      // Prefill from the saved policy, else the Brand-Vault-derived suggestion — the user never types it.
+      setNicheInput(next?.publicNiche || (typeof data?.suggestedNiche === 'string' ? data.suggestedNiche : ''));
     } catch { /* best-effort — the toggle just starts empty */ }
   }, [brandId]);
   useEffect(() => { void loadWatch(); }, [loadWatch]);
 
   const saveWatch = async (enabled: boolean) => {
-    const niche = nicheInput.trim();
-    if (enabled && niche.length < 2) {
-      toast({ title: 'Add a niche to watch', description: 'e.g. "AI productivity tools for founders"', variant: 'destructive' });
-      return;
-    }
     setSavingWatch(true);
     try {
+      // Empty niche is fine — the server fills it from the Brand Vault (only errors if the vault is empty).
       const response = await fetch('/api/services/calos/trend-watch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brandId, enabled, publicNiche: niche }),
+        body: JSON.stringify({ brandId, enabled, publicNiche: nicheInput.trim() }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || `Failed (${response.status})`);
@@ -145,8 +142,8 @@ export function CalosTrendOpportunityReview({ brandId, brandName, onClose, onAcc
           <input
             value={nicheInput}
             onChange={(event) => setNicheInput(event.target.value)}
-            placeholder='Niche to watch — e.g. "AI productivity tools for founders"'
-            aria-label="Trend watch niche"
+            placeholder='From your brand vault — edit only to override'
+            aria-label="Trend watch niche (from brand vault)"
             style={{ flex: 1, minWidth: 220, height: 32, background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: '0 10px', fontFamily: SANS, fontSize: 13, outline: 'none' }}
           />
           {watch?.enabled ? (
@@ -160,7 +157,7 @@ export function CalosTrendOpportunityReview({ brandId, brandName, onClose, onAcc
         </div>
         {!watch?.enabled && (
           <Mono s={8.5} c={C.dim} st={{ display: 'block', marginTop: 8 }}>
-            Turn on to auto-surface trends for {brandName} every few hours — accepted ones become draft cards. (Needs a niche.)
+            Turn on to auto-surface trends for {brandName} every few hours — matched to your brand vault. Accepted ones become draft cards.
           </Mono>
         )}
       </div>
