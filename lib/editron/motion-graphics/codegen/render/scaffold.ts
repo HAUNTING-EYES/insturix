@@ -31,6 +31,7 @@ export function buildRootSource(input: MgRenderInput): string {
   const props = JSON.stringify({ brand: input.brand, data: input.data });
   return `import React from 'react';
 import { Composition } from 'remotion';
+import './kit/fonts';
 import { MgScene } from './MgScene';
 
 export const Root = () => (

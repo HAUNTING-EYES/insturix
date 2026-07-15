@@ -29,9 +29,10 @@ import { COMPOSITION_ID, buildRootSource, ENTRY_SOURCE, workspaceId, type MgRend
 
 export type { MgRenderInput } from './scaffold';
 
-/** The 4 kit modules a generated component imports as `./kit/*`. Copied into the isolated render workspace so
- *  the component's `import … from './kit/brand'` resolves without touching the real lib tree. */
-const KIT_FILES = ['brand.ts', 'stage.tsx', 'fit-text.tsx', 'choreo.ts'] as const;
+/** The kit modules copied into the isolated render workspace so the component's `import … from './kit/brand'`
+ *  resolves without touching the real lib tree. `fonts.ts` is imported by the scaffolded Root (not the component)
+ *  so its @remotion/google-fonts loads register at bundle module-eval — before the first frame renders. */
+const KIT_FILES = ['brand.ts', 'stage.tsx', 'fit-text.tsx', 'choreo.ts', 'fonts.ts'] as const;
 /** Kit source lives here relative to the repo root (the render worker runs with the repo checked out). Not
  *  derived from __dirname so it works under both the CJS build and a tsx/ESM run; overridable via opts.kitDir. */
 const KIT_SUBPATH = ['lib', 'editron', 'motion-graphics', 'codegen', 'kit'];
