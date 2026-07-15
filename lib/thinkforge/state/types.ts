@@ -3,6 +3,10 @@
  */
 
 import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
+import type {
+  ThinkForgeCanonicalDocumentType,
+  ThinkForgeLegacyDocumentType,
+} from '../schemas/document-contract';
 import type { ScriptIntent } from '../protocol/intent';
 import type { SelectedTrend } from '../trends/selected-trend';
 
@@ -117,17 +121,8 @@ export function resolveProjectMetaBrandId(projectMeta?: ProjectMeta | null): str
 // Document Type & Complexity (Dynamic Blueprints)
 // ---------------------------------------------------------------------------
 
-export type DocumentType =
-  | 'screenplay'
-  | 'vfx_brief'
-  | 'budget'
-  | 'shot_list'
-  | 'character_bible'
-  | 'world_bible'
-  | 'interview_questions'
-  | 'score_direction'
-  | 'research_brief'
-  | 'custom';
+/** New writes use canonical document values. Legacy aliases remain readable during migration. */
+export type DocumentType = ThinkForgeCanonicalDocumentType | ThinkForgeLegacyDocumentType;
 
 export type ProjectComplexity = 'solo_ugc' | 'brand_doc' | 'short_film' | 'feature_film' | 'epic';
 

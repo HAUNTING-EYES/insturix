@@ -9,6 +9,11 @@
 import { ScriptWriterAgent, type ScriptWriterInput } from '../agents/script-writer-agent';
 import { PostWriterAgent, type PostWriterInput } from '../agents/post-writer-agent';
 import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
+import {
+  isThinkForgePostKind,
+  normalizeThinkForgeDocumentType,
+  type ThinkForgeWriterKind,
+} from '../schemas/document-contract';
 import { applyCommand } from './command-service';
 import * as db from './db';
 
@@ -30,11 +35,25 @@ export interface FlatWriterEditResult {
   blocks: unknown[];
 }
 
+export function resolveFlatWriterDocumentKind(
+  documentType: string | undefined,
+  existingContent: string,
+): ThinkForgeWriterKind {
+  const storedKind = normalizeThinkForgeDocumentType(documentType);
+  if (storedKind === 'social_post' || storedKind === 'carousel' || storedKind === 'video_script') {
+    return storedKind;
+  }
+
+  return /^\s*#{1,3}\s+Scene\s+\d+/im.test(existingContent)
+    ? 'video_script'
+    : 'social_post';
+}
+
 export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Promise<FlatWriterEditResult> {
   const { userId, sessionId, scriptId, existingScript, existingContent, instruction, selection, baseVersion } = args;
 
-  const isScript = existingScript?.documentType === 'video_script'
-    || /^\s*#{1,3}\s+Scene\s+\d+/im.test(existingContent);
+  const documentKind = resolveFlatWriterDocumentKind(existingScript?.documentType, existingContent);
+  const isScript = !isThinkForgePostKind(documentKind);
 
   const baseInput = {
     context: { projectSummary: existingScript?.title ? `Editing document: ${existingScript.title}` : '' },
@@ -67,7 +86,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
       title,
       content: revised,
       blocks,
-      ...(isScript ? { documentType: 'video_script' } : {}),
+      documentType: documentKind,
     },
   } as Parameters<typeof applyCommand>[0], userId);
 
