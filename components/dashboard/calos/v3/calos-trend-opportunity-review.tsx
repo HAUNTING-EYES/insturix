@@ -18,6 +18,16 @@ type TrendOpportunity = {
 
 type ReviewAction = 'accept' | 'dismiss' | 'snooze';
 
+type WatchState = {
+  enabled: boolean;
+  publicNiche: string;
+  platforms: string[];
+  location: string | null;
+  intervalHours: number;
+  lastScanAt: string | null;
+  nextScanAt: string | null;
+};
+
 const REASON_LABELS: Record<string, string> = {
   industry_or_category: 'Industry fit',
   product_or_service: 'Product fit',
@@ -50,6 +60,50 @@ export function CalosTrendOpportunityReview({ brandId, brandName, onClose, onAcc
 
   useEffect(() => { void load(); }, [load]);
 
+  // Trend-watch enrollment — the on-ramp. Without an enabled watch policy, the queue above never fills
+  // (nothing feeds the watch cron), so this is what turns the whole pipeline on for the brand.
+  const [watch, setWatch] = useState<WatchState | null>(null);
+  const [nicheInput, setNicheInput] = useState('');
+  const [savingWatch, setSavingWatch] = useState(false);
+
+  const loadWatch = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/services/calos/trend-watch?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      const next: WatchState | null = data?.watch ?? null;
+      setWatch(next);
+      setNicheInput(next?.publicNiche ?? '');
+    } catch { /* best-effort — the toggle just starts empty */ }
+  }, [brandId]);
+  useEffect(() => { void loadWatch(); }, [loadWatch]);
+
+  const saveWatch = async (enabled: boolean) => {
+    const niche = nicheInput.trim();
+    if (enabled && niche.length < 2) {
+      toast({ title: 'Add a niche to watch', description: 'e.g. "AI productivity tools for founders"', variant: 'destructive' });
+      return;
+    }
+    setSavingWatch(true);
+    try {
+      const response = await fetch('/api/services/calos/trend-watch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandId, enabled, publicNiche: niche }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || `Failed (${response.status})`);
+      setWatch(data.watch ?? null);
+      toast({
+        title: enabled ? 'Trend watching on' : 'Trend watching off',
+        ...(enabled ? { description: 'New trends will surface here within a few hours.' } : {}),
+      });
+    } catch (error) {
+      toast({ title: "Couldn't update trend watching", description: error instanceof Error ? error.message : 'Unknown error', variant: 'destructive' });
+    } finally {
+      setSavingWatch(false);
+    }
+  };
+
   const review = async (item: TrendOpportunity, action: ReviewAction) => {
     setBusyId(item.id);
     try {
@@ -81,6 +135,36 @@ export function CalosTrendOpportunityReview({ brandId, brandName, onClose, onAcc
 
   return (
     <Sheet title="Trend ideas" sub={brandName} onClose={onClose} w={760}>
+      {/* Trend-watch enrollment — turns the whole pipeline on for the brand. */}
+      <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 12, background: C.surface }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          <Mono s={9} c={watch?.enabled ? C.gold : C.muted}>{watch?.enabled ? '● Trend watching ON' : 'Trend watching OFF'}</Mono>
+          {watch?.enabled && <Mono s={8.5} c={C.dim}>{watch.lastScanAt ? 'scanning every few hours' : 'first scan due shortly'}</Mono>}
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            value={nicheInput}
+            onChange={(event) => setNicheInput(event.target.value)}
+            placeholder='Niche to watch — e.g. "AI productivity tools for founders"'
+            aria-label="Trend watch niche"
+            style={{ flex: 1, minWidth: 220, height: 32, background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: '0 10px', fontFamily: SANS, fontSize: 13, outline: 'none' }}
+          />
+          {watch?.enabled ? (
+            <>
+              <Btn size="sm" disabled={savingWatch} onClick={() => void saveWatch(true)}>Update</Btn>
+              <Btn size="sm" variant="danger" disabled={savingWatch} onClick={() => void saveWatch(false)}>Turn off</Btn>
+            </>
+          ) : (
+            <Btn size="sm" variant="approve" disabled={savingWatch} onClick={() => void saveWatch(true)}>Turn on</Btn>
+          )}
+        </div>
+        {!watch?.enabled && (
+          <Mono s={8.5} c={C.dim} st={{ display: 'block', marginTop: 8 }}>
+            Turn on to auto-surface trends for {brandName} every few hours — accepted ones become draft cards. (Needs a niche.)
+          </Mono>
+        )}
+      </div>
+
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
         <button
           className="calos-fr"

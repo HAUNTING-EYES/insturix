@@ -49,6 +49,70 @@ export function nextTrendWatchScanAt(now: Date, intervalHours: unknown): Date {
   return new Date(now.getTime() + normalizeTrendWatchIntervalHours(intervalHours) * 60 * 60 * 1_000);
 }
 
+export interface TrendWatchScope {
+  ownerUserId: string;
+  orgId?: string | null;
+  brandId: string;
+}
+
+/** Stable unique key for one brand's watch policy — per org when in an org, else per creator. */
+export function buildTrendWatchScopeKey(scope: TrendWatchScope): string {
+  return `${scope.orgId ? `org:${scope.orgId}` : `user:${scope.ownerUserId}`}:${scope.brandId}`;
+}
+
+export async function getTrendWatchPolicy(scope: TrendWatchScope): Promise<ICalosTrendWatchPolicy | null> {
+  return CalosTrendWatchPolicy.findOne({ scopeKey: buildTrendWatchScopeKey(scope) });
+}
+
+export interface UpsertTrendWatchInput extends TrendWatchScope {
+  enabled: boolean;
+  publicNiche: string;
+  platforms?: string[];
+  location?: string | null;
+  intervalHours?: number;
+}
+
+/**
+ * Create or update a brand's trend-watch policy — the ENROLLMENT the watch pipeline was missing.
+ * Nothing else in the app writes calos_trend_watch_policies, so without this the watch cron never has
+ * anything to scan and the whole watch → opportunity → "Trend ideas" queue stays empty. Enabling sets
+ * nextScanAt to now, so the first scan fires on the next cron tick (≤ the 6h cadence).
+ */
+export async function upsertTrendWatchPolicy(input: UpsertTrendWatchInput): Promise<ICalosTrendWatchPolicy> {
+  const scopeKey = buildTrendWatchScopeKey(input);
+  const niche = input.publicNiche.trim().slice(0, 300);
+  if (niche.length < 2) throw new Error("A niche is required to watch trends.");
+  const platforms = Array.from(
+    new Set((input.platforms ?? []).map((p) => String(p).trim().toLowerCase()).filter(Boolean)),
+  ).slice(0, 12);
+  const location = input.location ? String(input.location).trim().slice(0, 120) : null;
+  const intervalHours = normalizeTrendWatchIntervalHours(input.intervalHours);
+  const now = new Date();
+
+  const policy = await CalosTrendWatchPolicy.findOneAndUpdate(
+    { scopeKey },
+    {
+      $set: {
+        enabled: input.enabled,
+        publicNiche: niche,
+        platforms,
+        location,
+        intervalHours,
+        // Enabling → due now so the first scan runs on the next cron tick.
+        ...(input.enabled ? { nextScanAt: now } : {}),
+      },
+      $setOnInsert: {
+        scopeKey,
+        ownerUserId: input.ownerUserId,
+        orgId: input.orgId ?? null,
+        brandId: input.brandId,
+      },
+    },
+    { new: true, upsert: true, setDefaultsOnInsert: true },
+  );
+  return policy!;
+}
+
 export function buildPublicTrendWatchQuery(policy: Pick<ICalosTrendWatchPolicy, "publicNiche" | "platforms" | "location">): PublicTrendWatchQuery {
   const niche = sanitizePublicQueryText(policy.publicNiche, 300);
   if (niche.length < 2) throw new Error("Trend watch policy has no safe public niche.");
