@@ -39,6 +39,10 @@ function run(script, args = []) {
   console.log(`\n=== [2/3] CRAFT scenes for ${VIDEO_ID} ===`);
   await run('scripts/agent-craft.mjs');
 
+  // Free health check: agent-craft (CRAFT_SMOKE=1) proved bundle+Chromium with no model calls — stop before the
+  // paid Lambda render (which would cost $ and produce a garbage one-scene film).
+  if (process.env.CRAFT_SMOKE === '1') { console.log('\nCRAFT_SMOKE — skipping Lambda render (health check only).'); process.exit(0); }
+
   console.log(`\n=== [3/3] RENDER on Lambda ===`);
   const renderOut = await run('scripts/lambda-render.mjs', [VIDEO_ID]);
 
