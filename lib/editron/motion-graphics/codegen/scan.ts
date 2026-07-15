@@ -22,7 +22,7 @@ export interface ScanResult {
 
 /** Imports the generated component may use: react, remotion, and the kit primitives only (any relative
  *  depth). NO product composers / external modules in E0. */
-const ALLOWED_IMPORT = /^import\b[^'"]*['"](react|remotion|(?:\.{1,2}\/)*(?:kit\/)?(?:brand|stage|fit-text|choreo))['"]\s*;?\s*$/;
+const ALLOWED_IMPORT = /^import\b[^'"]*['"](react|remotion|(?:\.{1,2}\/)*(?:kit\/)?(?:brand|stage|fit-text|choreo|marks))['"]\s*;?\s*$/;
 
 const COLOR_BANNED: { re: RegExp; why: string }[] = [
   { re: /(['"`\s:(,])#[0-9a-fA-F]{3,8}\b/, why: 'raw hex colour — use brand.colors.* / withAlpha only' },

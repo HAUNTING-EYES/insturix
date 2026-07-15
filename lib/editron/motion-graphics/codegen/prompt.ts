@@ -35,9 +35,15 @@ exitOut(frame, ph, "fade|rise") -> style        stagger(brand, i)   pulseAt(fram
 countUp(frame, at, dur, to, from?)              progress(frame, from, to)   travel(frame, ph, px)   EASE
 useRegionSize() -> {wPx,hPx}   useStage() -> {W,H,...}
 
-NON-TEXT GRAPHICS (charts, arcs, bars, marks, particles, grids): compose them yourself with SVG / divs inside a
-<Region>/<Bleed>, COLOURED ONLY with brand.colors.* / withAlpha, ANIMATED ONLY from the frame (countUp/progress/
-interpolate). There is no chart/particle primitive — you draw it. This is the point: any graphic, composed fresh.
+NON-TEXT PRIMITIVES (brand-locked, animated from the frame — compose these into charts / gauges / trends / structure):
+<Bar brand value={0..1} at dur? tone="accent|text|muted" thickness? vertical? track?/>   // a value bar that grows; N Bars = a bar chart / comparison
+<Ring brand value={0..1} at dur? tone? size? thickness?/>                                  // a progress arc / gauge that fills to its TRUE fraction
+<Plot brand points={[...]} at dur? tone? area? width? height?/>                            // a line / area trend that draws on
+<Rule brand at dur? tone? thickness? vertical?/>    <Dot brand at dur? tone? size?/>       // a line (underline / divider / axis / connector); an accent dot
+<Plate brand at dur? opacity? radius?>...</Plate>                                          // a rounded brand surface / scrim behind a group or for legibility
+Pass REAL values (the true 0..1 fraction, the true series — perceptual honesty). For anything these don't cover you
+MAY still hand-draw SVG/divs inside a <Region>/<Bleed>, coloured ONLY with brand.colors.*/withAlpha, animated ONLY
+from the frame — but PREFER the primitives: they are brand- and motion-correct by construction. Make numbers FELT.
 </primitive_api>`;
 
 /**
@@ -52,6 +58,7 @@ import {useCurrentFrame, useVideoConfig, interpolate, spring, AbsoluteFill, Sequ
 import {Brand, withAlpha, dv} from './kit/brand';
 import {Stage, Region, Corner, Bleed, useStage, useRegionSize} from './kit/stage';
 import {FitHeadline, TextBlock, Chip} from './kit/fit-text';
+import {Bar, Ring, Plot, Rule, Plate, Dot} from './kit/marks';
 import {phases, enter, exitOut, stagger, pulseAt, countUp, progress, travel, EASE} from './kit/choreo';`;
 
 /**
