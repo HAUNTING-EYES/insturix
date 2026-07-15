@@ -402,12 +402,49 @@ export class CreditsService {
   ): Promise<CreditsPurchaseResult> {
     await connectToDatabase();
 
-    // Route the refund back to the SAME pool the original charge drew from.
-    // If the caller doesn't identify the action, default to the main pool.
-    const pool: CreditPool = options?.service && options?.action
+    let pool: CreditPool = options?.service && options?.action
       ? getCreditPool(options.service, options.action)
       : 'main';
-    const refundPath = `creditsBalance.${POOL_FIELDS[pool].subscription}`;
+    let fromSubscription = amount;
+    let fromTopup = 0;
+
+    if (options?.originalTransactionId) {
+      const chargedUser = await User.findOne({
+        clerkUserId,
+        'creditsBalance.creditHistory': {
+          $elemMatch: { type: 'usage', id: options.originalTransactionId },
+        },
+      }).select('creditsBalance.creditHistory');
+      const originalCharge = chargedUser?.creditsBalance?.creditHistory?.find(
+        (entry: ICreditTransaction) => entry.type === 'usage' && entry.id === options.originalTransactionId,
+      );
+      if (!originalCharge) {
+        return {
+          success: false,
+          error: `Original credit transaction not found: ${options.originalTransactionId}`,
+        };
+      }
+
+      const metadata = originalCharge.metadata || {};
+      if (metadata.pool === 'main' || metadata.pool === 'media') {
+        pool = metadata.pool;
+      }
+      fromSubscription = Number(metadata.fromSubscription ?? amount);
+      fromTopup = Number(metadata.fromTopup ?? 0);
+      if (
+        fromSubscription < 0
+        || fromTopup < 0
+        || Math.abs((fromSubscription + fromTopup) - amount) > 1e-9
+      ) {
+        return {
+          success: false,
+          error: `Original credit transaction has an invalid refund split: ${options.originalTransactionId}`,
+        };
+      }
+    }
+
+    const subscriptionPath = `creditsBalance.${POOL_FIELDS[pool].subscription}`;
+    const topupPath = `creditsBalance.${POOL_FIELDS[pool].topup}`;
 
     const transaction: ICreditTransaction = {
       id: `txn_${nanoid(12)}`,
@@ -421,14 +458,33 @@ export class CreditsService {
         pool,
         reason,
         originalTransactionId: options?.originalTransactionId,
+        fromSubscription,
+        fromTopup,
       },
     };
 
-    // Atomic: refund to the pool's subscription credits
+    const refundFilter = options?.originalTransactionId
+      ? {
+          clerkUserId,
+          creditsBalance: { $exists: true },
+          'creditsBalance.creditHistory': {
+            $not: {
+              $elemMatch: {
+                type: 'refund',
+                'metadata.originalTransactionId': options.originalTransactionId,
+              },
+            },
+          },
+        }
+      : { clerkUserId, creditsBalance: { $exists: true } };
+
     const updated = await User.findOneAndUpdate(
-      { clerkUserId, creditsBalance: { $exists: true } },
+      refundFilter,
       {
-        $inc: { [refundPath]: amount },
+        $inc: {
+          [subscriptionPath]: fromSubscription,
+          [topupPath]: fromTopup,
+        },
         $push: {
           'creditsBalance.creditHistory': {
             $each: [transaction],
@@ -440,6 +496,20 @@ export class CreditsService {
     );
 
     if (!updated) {
+      if (options?.originalTransactionId) {
+        const existing = await User.findOne({
+          clerkUserId,
+          'creditsBalance.creditHistory': {
+            $elemMatch: {
+              type: 'refund',
+              'metadata.originalTransactionId': options.originalTransactionId,
+            },
+          },
+        }).select('creditsBalance');
+        if (existing) {
+          return { success: true, duplicate: true, balance: existing.creditsBalance };
+        }
+      }
       return { success: false, error: `User not found or no credits balance: ${clerkUserId}` };
     }
 

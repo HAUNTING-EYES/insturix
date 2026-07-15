@@ -5,6 +5,8 @@ import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
 import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
+import { getCreditCost } from '@/lib/config/creditCosts';
+import * as db from '@/lib/thinkforge/services/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,6 +37,7 @@ export async function POST(req: Request) {
   let intentContext: any | undefined;
   let blueprintArtifacts: Array<{ type: string; label: string; description?: string; priority?: string }> | undefined;
   let silent: boolean | undefined;
+  let generationAdmitted = false;
 
   try {
     const body = await req.json();
@@ -80,8 +83,31 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Deduct credits before starting the stream
-    await creditCheck.deduct();
+    const deduction = await creditCheck.deduct();
+    generationId = generationId || `gen_${crypto.randomUUID()}`;
+    const now = new Date();
+    generationAdmitted = await db.setActiveGeneration(sessionId, userId, {
+      id: generationId,
+      type: 'chat',
+      status: 'running',
+      intent: 'chat_request',
+      progress: 0,
+      message: 'Request accepted',
+      startedAt: now,
+      updatedAt: now,
+      billing: {
+        transactionId: deduction.transactionId,
+        userId,
+        amount: getCreditCost('thinkforge', 'chat_message'),
+        service: 'thinkforge',
+        action: 'chat_message',
+        status: 'reserved',
+        updatedAt: now,
+      },
+    });
+    if (!generationAdmitted) {
+      throw new Error('This session is finishing another generation. Please retry in a moment.');
+    }
 
     const stream = await retryOnceOnOverload(() => processChat({
       sessionId,
@@ -111,10 +137,23 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error('Error in chat endpoint:', error);
-    
-    // Refund credits on failure
-    await creditCheck.refund(error?.message || 'Chat processing failed');
-    
+
+    let lifecycleSettled = false;
+    if (generationAdmitted && generationId) {
+      try {
+        await db.updateGenerationState(sessionId, generationId, {
+          status: 'failed',
+          message: error?.message || 'Chat processing failed',
+        });
+        lifecycleSettled = true;
+      } catch (lifecycleError) {
+        console.error('[ThinkForge Chat] Failed to settle generation lifecycle:', lifecycleError);
+      }
+    }
+    if (!lifecycleSettled) {
+      await creditCheck.refund(error?.message || 'Chat processing failed');
+    }
+
     // Handle rate limit errors
     if (error.message?.includes('limit reached')) {
       return NextResponse.json(

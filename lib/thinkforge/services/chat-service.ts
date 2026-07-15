@@ -335,8 +335,37 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
   // Run in background
   (async () => {
-    let activeGenerationId: string | null = null;
+    const activeGenerationId = providedGenerationId || `gen_${crypto.randomUUID()}`;
+    let generationTerminalized = false;
+    let commitOwnershipClaimed = false;
+    let commitPersisted = false;
+    let terminalFailureMessage: string | null = null;
+
+    const claimCommitOwnership = async (): Promise<void> => {
+      if (commitOwnershipClaimed) return;
+      if (!session) throw new Error('Cannot claim generation commit without a session');
+      const claimed = await db.claimGenerationCommit(sessionId || session._id, activeGenerationId);
+      if (!claimed) {
+        throw new db.GenerationStateConflictError(
+          `Generation ${activeGenerationId} was cancelled or superseded before commit`,
+        );
+      }
+      commitOwnershipClaimed = true;
+    };
+
     try {
+      if (!providedGenerationId) {
+        const now = new Date();
+        const admitted = await db.setActiveGeneration(sessionId || session._id, userId, {
+          id: activeGenerationId,
+          type: 'chat',
+          status: 'running',
+          startedAt: now,
+          updatedAt: now,
+        });
+        if (!admitted) throw new Error('Could not acquire generation ownership');
+      }
+
       let finalResponse = '';
       const hasExistingScript = !!script && thinkforgeBlocks.length > 0;
 
@@ -357,6 +386,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           resetAt: chatLimit.resetAt,
         };
         await emitEvent('error', { error: 'Chat limit reached. Please upgrade your plan.', quota });
+        terminalFailureMessage = 'Chat limit reached. Please upgrade your plan.';
         await emitEvent('done', { sessionId: session?._id, quota });
         return;
       }
@@ -372,6 +402,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
       // Blueprint initialization — skip intent classification, run full draft pipeline per artifact
       if (Array.isArray(providedBlueprintArtifacts) && providedBlueprintArtifacts.length > 0) {
+        await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
+          type: 'script_generate',
+          intent: 'blueprint',
+          message: 'Generating blueprint documents',
+        });
         const artifacts = providedBlueprintArtifacts;
         const total = artifacts.length;
         const projectDesc = sessionState.metadata.idea
@@ -435,6 +470,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             );
 
             // Save document
+            await claimCommitOwnership();
             const saveResult = await applyCommand({
               type: 'ReplaceDocument',
               sessionId: sessionId || session!._id,
@@ -460,6 +496,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               continue;
             }
 
+            commitPersisted = true;
             createdDocs.push({ scriptId: newScriptId, title: draft.title || title, documentType: docType });
             await emitEvent('script_created', { scriptId: newScriptId, title: draft.title || title, documentType: docType });
             if (!(await emitEvent('token', { content: `\n✓ ${draft.title || title}\n` }))) return;
@@ -664,37 +701,20 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         } else {
           const newScriptId = crypto.randomUUID();
           const initialTitle = requestedContentPath === 'post' ? 'New Post' : 'New Script';
-          const createResult = await applyCommand({
-            type: 'ReplaceDocument',
-            sessionId: sessionId || session._id,
-            baseVersion: 0,
-            source: 'ai',
-            payload: {
-              scriptId: newScriptId,
-              title: initialTitle,
-              content: '',
-              blocks: [],
-              documentType: requestedDocumentType,
-              metadata: {
-                workflow: 'create',
-                source: 'ai',
-                initializing: true,
-              },
-            }
-          }, userId);
-
-          if (!createResult.ok) {
-            finalResponse = createResult.error || `Failed to create new ${requestedDocumentLabel}.`;
-            if (!(await emitEvent('token', { content: finalResponse }))) return;
-            if (!(await emitEvent('done', { sessionId: session?._id }))) return;
-            return;
-          }
-
           effectiveScriptId = newScriptId;
           await emitEvent('script_created', { scriptId: newScriptId, sessionId: eventSessionId, title: initialTitle, documentType: requestedDocumentType });
         }
       }
 
+      if (shouldRunGeneration || shouldRunEdit) {
+        const generationType = shouldRunGeneration ? 'script_generate' : 'script_edit';
+        const updatedGeneration = await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
+          type: generationType,
+          scriptId: effectiveScriptId || undefined,
+          intent: shouldRunGeneration ? 'draft' : 'edit',
+        });
+        if (!updatedGeneration) throw new Error('Generation ownership was lost before execution');
+      }
       if ((shouldRunGeneration || shouldRunEdit) && !effectiveScriptId) {
         finalResponse = `No active ${requestedDocumentLabel}. Create a new ${requestedDocumentLabel} first, then generate.`;
         if (!(await emitEvent('token', { content: finalResponse }))) return;
@@ -779,7 +799,9 @@ CRITICAL: You are editing a SELECTION from a larger document.
             }
           };
 
+          await claimCommitOwnership();
           if (!(await emitEvent('script_update', scriptUpdate))) return;
+          commitPersisted = true;
         } else {
           // Traditional block-based editing
           const anchorId = blockIds[0];
@@ -796,6 +818,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
           let savedVersion: number | undefined;
           if (session) {
+            await claimCommitOwnership();
             const latest = await db.getScript(sessionId || session._id, effectiveScriptId);
             let baseVersion = latest?.version ?? 0;
             const saveResult = await applyCommand({
@@ -819,6 +842,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
               throw new Error(saveResult.error);
             }
             savedVersion = saveResult.script.version;
+            commitPersisted = true;
           }
 
           const scriptUpdate = {
@@ -882,20 +906,12 @@ CRITICAL: You are editing a SELECTION from a larger document.
           }
         }
 
-        activeGenerationId = providedGenerationId || `gen_${Date.now()}`;
-        if (session) {
-          await db.setActiveGeneration(sessionId || session._id, {
-            id: activeGenerationId,
-            type: 'script_generate',
-            scriptId: effectiveScriptId || undefined,
-            status: 'running',
-            intent: 'draft',
-            progress: 0.01,
-            message: 'Starting content generation',
-            startedAt: new Date(),
-            updatedAt: new Date(),
-          });
-        }
+        await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
+          type: 'script_generate',
+          scriptId: effectiveScriptId || undefined,
+          progress: 0.01,
+          message: 'Starting content generation',
+        });
         if (!(await emitEvent('progress', { progress: 0.01, message: 'Starting content generation' }))) return;
 
         let finalTitle = contentPath === 'post' ? 'New Post' : 'New Script';
@@ -1042,7 +1058,6 @@ CRITICAL: You are editing a SELECTION from a larger document.
             );
             finalRichText = thinkForgeBlocksToTiptapJSON(finalBlocks);
             
-
           } else {
             const writer = new ScriptWriterAgent();
             const { result } = await writer.runStructured(baseInput as ScriptWriterInput);
@@ -1106,6 +1121,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         // Save new script with richText (Tiptap JSON AST)
         let savedVersion: number | undefined;
         if (session) {
+          await claimCommitOwnership();
           const latest = await db.getScript(sessionId || session._id, effectiveScriptId);
           let baseVersion = latest?.version ?? 0;
           const saveResult = await applyCommand({
@@ -1134,6 +1150,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
             throw new Error(saveResult.error);
           }
           savedVersion = saveResult.script.version;
+          commitPersisted = true;
 
           // Passive exemplar collection (fire-and-forget, never blocks save)
           const detectedType = /post|linkedin|twitter|instagram/i.test(prompt) ? 'post' : 'video_script';
@@ -1169,15 +1186,6 @@ CRITICAL: You are editing a SELECTION from a larger document.
         };
 
         if (!(await emitEvent('script_update', scriptUpdate))) return;
-
-        if (session) {
-          await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
-            status: 'completed',
-            scriptId: effectiveScriptId || undefined,
-            progress: 1,
-            message: 'Content generated',
-          });
-        }
 
         // Send completion response
         const completionLabel = contentPath === 'post' ? 'Post' : 'Script';
@@ -1289,27 +1297,61 @@ CRITICAL: You are editing a SELECTION from a larger document.
         await emitEvent('done', { sessionId: session?._id });
       }
     } catch (error: any) {
-      // Check if error is due to stream being closed (abort)
       const isAbortError = error?.name === 'InvalidStateError' ||
         error?.code === 'ERR_INVALID_STATE' ||
         error?.message?.includes('WritableStream is closed') ||
         error?.message?.includes('ResponseAborted');
+      const wasAborted = isAbortError || isStreamClosed;
+      const terminalStatus = commitPersisted
+        ? 'completed'
+        : wasAborted
+          ? 'cancelled'
+          : 'failed';
+      generationTerminalized = true;
 
-      if (isAbortError || isStreamClosed) {
-        return; // Exit early, don't try to write error
+      if (session) {
+        try {
+          await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
+            status: terminalStatus,
+            scriptId: effectiveScriptId || undefined,
+            progress: terminalStatus === 'completed' ? 1 : undefined,
+            message: commitPersisted
+              ? 'Content saved before the response ended'
+              : error?.message || (wasAborted ? 'Generation cancelled' : 'Generation failed'),
+          });
+        } catch (lifecycleError) {
+          if (!(lifecycleError instanceof db.GenerationStateConflictError)) {
+            console.error('[ThinkForge] Failed to settle generation after stream error:', lifecycleError);
+          }
+        }
       }
 
+      if (wasAborted) return;
       console.error('Error in chat stream:', error);
-      if (session && activeGenerationId) {
-        await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
-          status: 'failed',
-          message: error?.message || 'Generation failed',
-        });
-      }
-      // Try to send error, but don't fail if stream is closed
       await emitEvent('error', { error: error.message || 'Chat failed' });
     } finally {
-      // CRITICAL: Only close if stream is still open
+      if (session && !generationTerminalized) {
+        const terminalStatus = terminalFailureMessage
+          ? 'failed'
+          : commitPersisted || !isStreamClosed
+            ? 'completed'
+            : 'cancelled';
+        try {
+          await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
+            status: terminalStatus,
+            scriptId: effectiveScriptId || undefined,
+            progress: terminalStatus === 'completed' ? 1 : undefined,
+            message: terminalFailureMessage
+              || (terminalStatus === 'completed' ? 'Request completed' : 'Generation cancelled'),
+          });
+        } catch (lifecycleError) {
+          if (!(lifecycleError instanceof db.GenerationStateConflictError)) {
+            console.error('[ThinkForge] Failed to finalize generation lifecycle:', lifecycleError);
+          }
+        }
+        generationTerminalized = true;
+      }
+
       if (!isStreamClosed) {
         try {
           await writer.close();

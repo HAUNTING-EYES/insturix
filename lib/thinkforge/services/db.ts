@@ -159,6 +159,25 @@ export interface GenerationState {
   startedAt: Date;
   updatedAt: Date;
   message?: string;
+  commitClaimedAt?: Date;
+  billing?: GenerationBilling;
+}
+
+export interface GenerationBilling {
+  transactionId: string;
+  userId: string;
+  amount: number;
+  service: 'thinkforge';
+  action: 'chat_message';
+  status: 'reserved' | 'refund_pending' | 'refunding' | 'refunded' | 'settled';
+  updatedAt: Date;
+}
+
+export class GenerationStateConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GenerationStateConflictError';
+  }
 }
 
 export interface Session {
@@ -1158,12 +1177,164 @@ export async function getOrCreateSession(
   }
 }
 
-export async function setActiveGeneration(sessionId: string, generation: GenerationState): Promise<void> {
+async function settleGenerationRefund(
+  sessionId: string,
+  generation: GenerationState,
+): Promise<GenerationState> {
+  const billing = generation.billing;
+  if (
+    !billing
+    || (generation.status !== 'failed' && generation.status !== 'cancelled')
+    || billing.status === 'refunded'
+    || billing.status === 'settled'
+  ) {
+    return generation;
+  }
+
   const { SessionModel } = await getModels();
-  await SessionModel.updateOne(
-    { _id: sessionId },
-    { $set: { activeGeneration: generation, updatedAt: new Date() } }
+  const now = new Date();
+  const staleRefundLease = new Date(now.getTime() - 2 * 60_000);
+  const claimed = await SessionModel.findOneAndUpdate(
+    {
+      _id: sessionId,
+      'activeGeneration.id': generation.id,
+      'activeGeneration.status': generation.status,
+      $or: [
+        { 'activeGeneration.billing.status': 'refund_pending' },
+        {
+          'activeGeneration.billing.status': 'refunding',
+          'activeGeneration.billing.updatedAt': { $lt: staleRefundLease },
+        },
+      ],
+    },
+    {
+      $set: {
+        'activeGeneration.billing.status': 'refunding',
+        'activeGeneration.billing.updatedAt': now,
+        updatedAt: now,
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+
+  if (!claimed?.activeGeneration) {
+    const latest = await SessionModel.findOne({ _id: sessionId }).lean() as any;
+    return latest?.activeGeneration || generation;
+  }
+
+  const claimedGeneration = claimed.activeGeneration as GenerationState;
+  const claimedBilling = claimedGeneration.billing;
+  const hasRefundableCharge = Boolean(
+    claimedBilling
+    && typeof claimedBilling.userId === 'string'
+    && typeof claimedBilling.transactionId === 'string'
+    && typeof claimedBilling.amount === 'number'
+    && Number.isFinite(claimedBilling.amount),
   );
+  let refundSucceeded = !hasRefundableCharge
+    || claimedBilling?.transactionId === 'no_charge'
+    || (claimedBilling?.amount ?? 0) <= 0;
+  let refundError: string | undefined;
+
+  if (!refundSucceeded && claimedBilling && hasRefundableCharge) {
+    const { CreditsService } = await import('@/lib/services/creditsService');
+    const refund = await CreditsService.refundCredits(
+      claimedBilling.userId,
+      claimedBilling.amount,
+      claimedGeneration.message || `ThinkForge generation ${claimedGeneration.status}`,
+      {
+        service: claimedBilling.service,
+        action: claimedBilling.action,
+        originalTransactionId: claimedBilling.transactionId,
+      },
+    );
+    refundSucceeded = refund.success;
+    refundError = refund.error;
+  }
+
+  const settledAt = new Date();
+  if (!refundSucceeded) {
+    await SessionModel.updateOne(
+      {
+        _id: sessionId,
+        'activeGeneration.id': generation.id,
+        'activeGeneration.billing.status': 'refunding',
+      },
+      {
+        $set: {
+          'activeGeneration.billing.status': 'refund_pending',
+          'activeGeneration.billing.updatedAt': settledAt,
+          updatedAt: settledAt,
+        },
+      },
+    );
+    throw new Error(refundError || `Failed to refund ThinkForge generation ${generation.id}`);
+  }
+
+  const settled = await SessionModel.findOneAndUpdate(
+    {
+      _id: sessionId,
+      'activeGeneration.id': generation.id,
+      'activeGeneration.billing.status': 'refunding',
+    },
+    {
+      $set: {
+        'activeGeneration.billing.status': 'refunded',
+        'activeGeneration.billing.updatedAt': settledAt,
+        updatedAt: settledAt,
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+
+  return settled?.activeGeneration || claimedGeneration;
+}
+
+export async function setActiveGeneration(
+  sessionId: string,
+  userId: string,
+  generation: GenerationState,
+): Promise<boolean> {
+  const { SessionModel } = await getModels();
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const session = await SessionModel.findOne({ _id: sessionId, userId }).lean() as any;
+    if (!session) return false;
+
+    const active = session.activeGeneration as GenerationState | null;
+    if (active?.status === 'running') {
+      if (active.commitClaimedAt) return false;
+      await updateGenerationState(sessionId, active.id, {
+        status: 'cancelled',
+        message: 'Superseded by a newer generation',
+      });
+      continue;
+    }
+
+    if (active?.billing?.status === 'refund_pending' || active?.billing?.status === 'refunding') {
+      await settleGenerationRefund(sessionId, active);
+      continue;
+    }
+
+    const ownershipFilter = active
+      ? {
+          'activeGeneration.id': active.id,
+          'activeGeneration.status': active.status,
+        }
+      : {
+          $or: [
+            { activeGeneration: null },
+            { activeGeneration: { $exists: false } },
+          ],
+        };
+    const admitted = await SessionModel.updateOne(
+      { _id: sessionId, userId, ...ownershipFilter },
+      { $set: { activeGeneration: generation, updatedAt: new Date() } },
+    );
+    if (admitted.modifiedCount === 1) return true;
+  }
+
+  throw new GenerationStateConflictError('Could not acquire ThinkForge generation ownership');
 }
 
 export async function clearActiveGeneration(sessionId: string): Promise<void> {
@@ -1260,30 +1431,91 @@ export async function setSessionSelectedTrendAnalysis(
 export async function getActiveGeneration(sessionId: string): Promise<GenerationState | null> {
   const { SessionModel } = await getModels();
   const doc = await SessionModel.findOne({ _id: sessionId }).lean() as any;
-  return doc?.activeGeneration || null;
+  const generation = doc?.activeGeneration as GenerationState | null;
+  if (generation?.billing?.status === 'refund_pending' || generation?.billing?.status === 'refunding') {
+    return settleGenerationRefund(sessionId, generation);
+  }
+  return generation || null;
+}
+
+export async function claimGenerationCommit(sessionId: string, generationId: string): Promise<boolean> {
+  const { SessionModel } = await getModels();
+  const now = new Date();
+  const claimed = await SessionModel.updateOne(
+    {
+      _id: sessionId,
+      'activeGeneration.id': generationId,
+      'activeGeneration.status': 'running',
+      'activeGeneration.commitClaimedAt': { $exists: false },
+    },
+    {
+      $set: {
+        'activeGeneration.commitClaimedAt': now,
+        'activeGeneration.updatedAt': now,
+        updatedAt: now,
+      },
+    },
+  );
+  return claimed.modifiedCount === 1;
 }
 
 export async function updateGenerationState(
   sessionId: string,
   generationId: string,
   updates: Partial<GenerationState>
-): Promise<void> {
+): Promise<GenerationState | null> {
   const { SessionModel } = await getModels();
-  const session = await SessionModel.findOne({ _id: sessionId }).lean() as any;
-  if (!session || !session.activeGeneration || session.activeGeneration.id !== generationId) {
-    return;
+  const now = new Date();
+  const query: Record<string, unknown> = {
+    _id: sessionId,
+    'activeGeneration.id': generationId,
+    'activeGeneration.status': 'running',
+  };
+  if (updates.status === 'cancelled') {
+    query['activeGeneration.commitClaimedAt'] = { $exists: false };
   }
 
-  const updatedGen = {
-    ...session.activeGeneration,
-    ...updates,
-    updatedAt: new Date()
+  const setFields: Record<string, unknown> = {
+    'activeGeneration.updatedAt': now,
+    updatedAt: now,
   };
+  for (const [key, value] of Object.entries(updates)) {
+    if (key !== 'updatedAt' && value !== undefined) {
+      setFields[`activeGeneration.${key}`] = value;
+    }
+  }
+  if (updates.status === 'completed') {
+    setFields['activeGeneration.billing.status'] = 'settled';
+    setFields['activeGeneration.billing.updatedAt'] = now;
+  } else if (updates.status === 'failed' || updates.status === 'cancelled') {
+    setFields['activeGeneration.billing.status'] = 'refund_pending';
+    setFields['activeGeneration.billing.updatedAt'] = now;
+  }
 
-  await SessionModel.updateOne(
-    { _id: sessionId },
-    { $set: { activeGeneration: updatedGen, updatedAt: new Date() } }
-  );
+  const updated = await SessionModel.findOneAndUpdate(
+    query,
+    { $set: setFields },
+    { new: true, lean: true },
+  ) as any;
+  if (updated?.activeGeneration) {
+    const generation = updated.activeGeneration as GenerationState;
+    if (generation.status === 'failed' || generation.status === 'cancelled') {
+      return settleGenerationRefund(sessionId, generation);
+    }
+    return generation;
+  }
+
+  const current = await SessionModel.findOne({ _id: sessionId }).lean() as any;
+  const active = current?.activeGeneration as GenerationState | null;
+  if (active?.id === generationId && active.status === updates.status) {
+    return settleGenerationRefund(sessionId, active);
+  }
+  if (updates.status) {
+    throw new GenerationStateConflictError(
+      `Generation ${generationId} cannot transition to ${updates.status}; ownership or terminal state changed`,
+    );
+  }
+  return null;
 }
 
 export async function updateSession(sessionId: string, updates: Partial<Session>): Promise<Session> {
