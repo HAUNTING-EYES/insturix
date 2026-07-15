@@ -38,6 +38,8 @@ export async function GET(req: Request) {
         richText: script.richText || null,
         metadata: script.metadata || {},
         version: script.version ?? 1,
+        documentType: script.documentType,
+        contentContract: script.contentContract,
         updatedAt: script.updatedAt,
         createdAt: script.createdAt,
       }

@@ -41,7 +41,9 @@ export async function executeScriptOperation(operation: ScriptOperation): Promis
             title: script.title || 'Untitled Script',
             content: script.content || '',
             blocks: script.blocks || [],
-            richText: script.richText
+            richText: script.richText,
+            documentType: script.documentType,
+            contentContract: script.contentContract,
           }
         }, userId);
         if (!result.ok) {
@@ -65,7 +67,9 @@ export async function executeScriptOperation(operation: ScriptOperation): Promis
             title: script.title || 'Untitled Script',
             content: script.content || '',
             blocks: script.blocks || [],
-            richText: script.richText
+            richText: script.richText,
+            documentType: script.documentType,
+            contentContract: script.contentContract,
           }
         }, userId);
         if (!result.ok) {

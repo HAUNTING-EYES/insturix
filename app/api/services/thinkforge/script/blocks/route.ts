@@ -38,7 +38,8 @@ export async function GET(req: Request) {
         title: 'Untitled Script',
         content: '',
         metadata: {},
-        documentType: 'screenplay'
+        documentType: null,
+        contentContract: null,
       });
     }
 
@@ -49,7 +50,8 @@ export async function GET(req: Request) {
       content: script.content || '',
       version: script.version ?? 1,
       metadata: script.metadata || {},
-      documentType: script.documentType || 'screenplay'
+      documentType: script.documentType,
+      contentContract: script.contentContract,
     });
   } catch (error: any) {
     console.error('Error getting script blocks:', error);
@@ -138,7 +140,8 @@ export async function POST(req: Request) {
         content: result.script.content,
         version: result.script.version ?? 1,
         metadata: result.script.metadata || {},
-        documentType: result.script.documentType || 'screenplay',
+        documentType: result.script.documentType,
+        contentContract: result.script.contentContract,
       }
     });
   } catch (error: any) {

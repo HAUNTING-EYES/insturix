@@ -53,6 +53,8 @@ export async function POST(req: Request) {
         content: script?.content || '',
         blocks: script?.blocks || [],
         richText: script?.richText,
+        documentType: script?.documentType,
+        contentContract: script?.contentContract,
       }
     }, userId);
 
@@ -70,6 +72,8 @@ export async function POST(req: Request) {
         blocks: result.script.blocks || [],
         richText: result.script.richText || null,
         version: result.script.version ?? 1,
+        documentType: result.script.documentType,
+        contentContract: result.script.contentContract,
       }
     });
   } catch (error: any) {
