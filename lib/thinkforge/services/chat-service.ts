@@ -315,7 +315,6 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       // Stream was closed (client aborted)
       if (error?.name === 'InvalidStateError' || error?.code === 'ERR_INVALID_STATE') {
         isStreamClosed = true;
-        console.log('[ThinkForge] Stream closed by client');
         return false;
       }
       throw error;
@@ -534,7 +533,6 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               textSample: effectivePrompt.substring(0, 50),
               usedFallback: false
             };
-            console.log('[ThinkForge][Proposal] Confirmed by user');
           }
         } else if (isMatch(prompt, REJECT_PATTERNS)) {
           finalResponse = "Understood. I've cancelled that suggestion. What would you like to do instead?";
@@ -1044,8 +1042,6 @@ CRITICAL: You are editing a SELECTION from a larger document.
             );
             finalRichText = thinkForgeBlocksToTiptapJSON(finalBlocks);
             
-            // Log analytics
-            console.log(`[ThinkForge:PostWriter] Score: ${result.contentAnalysis?.qualityScore}`);
 
           } else {
             const writer = new ScriptWriterAgent();
@@ -1079,8 +1075,6 @@ CRITICAL: You are editing a SELECTION from a larger document.
             );
             finalRichText = thinkForgeBlocksToTiptapJSON(finalBlocks);
             
-            // Log analytics
-            console.log(`[ThinkForge:ScriptWriter] Score: ${result.contentAnalysis?.qualityScore}`);
           }
 
           // Stack A profile-compliance: run the same post-gen scoring Stack B runs (forbidden
@@ -1302,7 +1296,6 @@ CRITICAL: You are editing a SELECTION from a larger document.
         error?.message?.includes('ResponseAborted');
 
       if (isAbortError || isStreamClosed) {
-        console.log('[ThinkForge] Stream aborted by client');
         return; // Exit early, don't try to write error
       }
 
