@@ -73,14 +73,19 @@ PURPOSES it can serve (functions, NOT types — a moment may need one, several, 
 - create emphasis and rhythm, timed to the speech.
 
 CRAFT — what separates a crafted graphic from AI-slop:
-- ONE focal point. Restraint = fewer, larger, better-placed elements; deliberate negative space; no dead quadrant.
+- HIERARCHY THROUGH SCALE. One focal element carries the point; supporting elements are deliberately smaller
+  (about half its size, then a third) so the eye is TOLD what matters. Restraint = fewer, better-placed elements
+  and real negative space — not every element shouting at once.
 - PERCEPTUAL HONESTY. The visual encodes the TRUE quantity — a value counts to its real figure, a proportion
   fills to its real fraction, a comparison shows the real ratio. Never exaggerate for drama.
 - MOTION WITH INTENT. Every animation carries meaning (a reveal, a build, a landing), never decoration; it moves
   on every frame and ends settled.
-- COMMAND. The key figure or word is large and confident. Timid type is slop.
+- SCALE TO THE MOMENT. The focal element is exactly as prominent as THIS moment asks — read the expressiveness
+  in <moment>: a hero beat can command the frame, a subtle beat is quiet and precise. Prominence is a deliberate
+  choice per moment, never a default maximum. Bigger is not better; right-sized is better.
 - BRAND by construction — colour and type come only from the brand tokens.
-- IT READS OVER FOOTAGE — placed where the frame has room, with a scrim/plate only where legibility needs it.
+- IT READS OVER FOOTAGE — the focal content sits in the frame's ROOM (the negative space named in <moment>),
+  clear of the subject; use a LOCAL scrim/outline only where legibility needs it, never a field that hides footage.
 
 RANGE (priors, NOT a menu — never "pick one"): great graphics span a wide space — a single metric owning the
 void; kinetic type where a phrase fills the frame with one accent word; two quantities as bars or rings at their
@@ -135,7 +140,8 @@ export const hardRules = (durF: number): string => `<hard_rules>
   ~${durF} frames — but READ the length from useVideoConfig(). Motion on every frame; end settled via exitOut.
 - Every interpolate(): {extrapolateLeft:'clamp', extrapolateRight:'clamp'}. spring() takes fps from useVideoConfig().
 - Compose within the placement region given in <moment>; keep the AVOID regions clear (the subject/text are there).
-  ONE focal point. Fill the region; no dead quadrant.
+  ONE focal point with a clear scale hierarchy. Do NOT stretch an element to fill the frame — compose within the
+  room the region gives you; negative space is intentional, not a dead quadrant to fill.
 </hard_rules>`;
 
 /**
@@ -169,6 +175,7 @@ FAITHFULNESS:
 - REJECT unsupported settled values, endpoints, labels, annotations, statistics, comparisons, or claims. A stable fabricated value is a lie on the video.
 
 AUTOMATIC REJECT: unsupported asserted content; any colour outside brand tokens; clipped/overflowing/broken text; a keyword-highlight or lower-third-template look instead of a bespoke composition; an opaque full-canvas graphic that hides the footage; subject/caption obstruction in any real-footage composite; or a graphic that cannot read over the real footage and both stress backgrounds.
-PENALIZE: more than one focal point; timid type; no visible development across sampled moments; static values; subject obstruction; muddy gradients; decorative motion without meaning.
-REWARD: faithful settled content, honest interpolation, clear visual development, one focal point, one accent, deliberate negative space, and clean readability.
+PENALIZE: more than one focal point; weak scale hierarchy (every element the same size); no visible development across sampled moments; static values; muddy gradients; decorative motion without meaning.
+REWARD: faithful settled content, honest interpolation, clear visual development, one focal point at the moment's volume, one accent, deliberate negative space, and clean readability.
+SCORING DISCIPLINE: the score MUST match the issues you list. If you note any reject-class problem — fabrication, subject/caption obstruction, an opaque field hiding the footage, NO visible motion development across the three phases, clipped/broken text, or a non-brand colour — the score is at most 4. Never award 8+ while listing a serious flaw. Do NOT mark a graphic down for restraint: quiet, precise type at a subtle moment is CORRECT, not "timid" — size is right when it fits the moment, not when it is large.
 Return ONLY JSON: {"faithful":boolean,"score":0-10,"issues":["specific fixable issue"],"reasoning":"one sentence"}. 8+ = genuinely premium AND faithful.`;

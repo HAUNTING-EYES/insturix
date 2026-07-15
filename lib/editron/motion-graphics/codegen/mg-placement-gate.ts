@@ -1,131 +1,98 @@
 /**
- * MG placement gate (Phase A) — the DETERMINISTIC "don't obscure the footage" check.
+ * MG render-sanity guard (Phase B redesign, 2026-07-15) — the ONLY deterministic pixel check this lane can
+ * correctly make. It replaces the Phase-A "placement gate" (coverage cap + subject/caption/margin vetoes), which
+ * was built on a wrong premise.
  *
- * WHY: the codegen pipeline accepts a graphic on a single VLM score (bar 7.5). The investigation found that
- * placement is 100% suggestion — the scan enforces NO geometry, so a full-frame centered box is legal, and the
- * judge waves it through. This gate replaces taste with measurement for the properties that are COMPUTABLE from
- * the rendered alpha: how much of the frame the graphic covers, whether it sits on the subject, whether it
- * overlaps the caption band, and whether it bleeds outside title-safe. A failed check forces revision/decline,
- * regardless of the judge's number.
+ * WHY THE OLD GATE WAS WRONG: the codegen lane IS the Tier-B engine (Fable MG-Codegen-Lane §3 M2 "Licensed
+ * concept scene (Tier B proper)"; §8 truth table — codegen alone does kinetic type, maps, particles, reveals,
+ * parallax-with-layers, and with assets does full-frame photos/collage). Its output spans a corner chip → a
+ * full-frame concept scene (Tier-B Axis 2: pure-vector ↔ cutout ↔ full-frame photo). The v2 context architecture
+ * (2026-07-12, founder-directed) states it outright: "a big MG is full-frame transparent with content placed in
+ * the frame-safe region." A coverage cap, a subject-overlap veto, and caption/margin rules therefore HARD-FAIL
+ * legitimate points on that spectrum. And there is NO real face detection — the subject box is a coarse
+ * motion-blob ("do NOT assume we know where the face is"); corpse ⑤ (MG covers the subject) is damage-6, handled
+ * by a SOFT prior in the prompt + the vision judge (which sees the footage composite), NOT a deterministic veto.
  *
- * The PRINCIPLES are sourced from the creative knowledge graph (the codegen never consumed them):
- *   - caption clearance  ← constraint:overlay.graphic_in_caption_zone (caption = bottom 15-25%)
- *   - title-safe         ← constant:safe_zone.title_safe (center 90%, SMPTE ST 2046-1)
- *   - subject clearance  ← constraint:overlay + placement engine's subject box ("don't cover the subject")
- * The TOLERANCES (how much overlap trips a fail) are calibration knobs, marked ⚠ below — the graph gives the
- * rule, not the tolerance. Contrast (WCAG) and the 72px font floor need the footage / component and land in a
- * follow-up (they can't be read from the graphic's alpha alone).
+ * WHAT REMAINS deterministically correct at EVERY point of the spectrum — two degenerate renders that a broken
+ * component produces and that the prompt's own hard rules already forbid:
+ *   1. the component rendered NOTHING (no visible pixels) — a blank/broken component;
+ *   2. a NEAR-OPAQUE FULL-FRAME field — "an opaque full-canvas graphic that hides the footage" (prompt.ts
+ *      hardRules: "Never solve this with an opaque or near-opaque full-frame field"; JUDGE_PROMPT auto-rejects
+ *      it). A legitimate full-frame MG is TRANSPARENT — kinetic type, vector marks, particles never fill the
+ *      frame solid; footage reads through the gaps — so this check has zero false-positives on real output.
+ * Everything else ("is it too big? does it cover the speaker? is it in the caption zone?") is taste over content
+ * the judge reasons about, not blind alpha geometry. This guard is the cheap deterministic floor under the judge.
  */
 
 import sharp from 'sharp';
 
-/** A rectangle in frame fractions [0,1]. */
-export interface MgGateRegion {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface MgAlphaMetrics {
-  /** Opaque (visible) pixels / total pixels — how much of the frame the graphic paints. */
+export interface MgRenderSanityMetrics {
+  /** Visible (alpha > faint threshold) pixels / total — 0 means the component rendered nothing. */
   coverageFrac: number;
-  /** Bounding box of the opaque pixels (fractions), or null if the component rendered nothing. */
-  bbox: MgGateRegion | null;
-  /** Opaque pixels inside the subject box / subject box area — how much of the subject is covered. */
-  subjectOverlapFrac: number;
-  /** Opaque pixels inside the caption band / caption band area. */
-  captionOverlapFrac: number;
-  /** Opaque pixels outside title-safe / total opaque — how much of the graphic risks being cropped. */
-  marginBleedFrac: number;
+  /** Near-opaque (alpha > opaque threshold) pixels / total — ~1 means a solid field hiding the footage. */
+  nearOpaqueFrac: number;
 }
 
-export interface MgGateThresholds {
-  maxCoverageFrac: number;
-  maxSubjectOverlapFrac: number;
-  maxCaptionOverlapFrac: number;
-  maxMarginBleedFrac: number;
-  /** Top of the caption band (fraction of height). Graph: caption = bottom 15-25% → guard the bottom 20%. */
-  captionBandTop: number;
-  /** Title-safe margin (fraction). Graph: center 90% → 5% margins. */
-  titleSafeMargin: number;
-  /** Alpha value (0-255) at/below which a pixel is treated as transparent. */
-  opaqueThreshold: number;
-}
-
-export const DEFAULT_MG_GATE_THRESHOLDS: MgGateThresholds = {
-  // ⚠ INVENTED (calibration-pending): the graph has NO "graphic too big" constraint. This is a generous sanity
-  //   ceiling so a full-frame swamp fails; tune down against the first batch of human-accepted MGs.
-  maxCoverageFrac: 0.55,
-  // ⚠ calibration: graph constraint:overlay says "don't cover the subject" (qualitative). A graphic edge grazing
-  //   the box is fine; painting over the person/product is not.
-  maxSubjectOverlapFrac: 0.15,
-  // ⚠ calibration: graph constraint:overlay.graphic_in_caption_zone flags "any spatial overlap" — too strict for
-  //   a pixel; tolerate a sliver, fail a real intrusion.
-  maxCaptionOverlapFrac: 0.10,
-  // graph constant:safe_zone.title_safe = center 90%; a little bleed is tolerated, a lot means cropping.
-  maxMarginBleedFrac: 0.03,
-  captionBandTop: 0.80, // graph: caption zone bottom 15-25%
-  titleSafeMargin: 0.05, // graph: 5% margins (center 90%)
-  opaqueThreshold: 32, // alpha > 32/255 counts as visible (ignores near-transparent anti-alias fringe)
-};
-
-export interface MgPlacementGateResult {
-  pass: boolean;
-  reasons: string[];
-  metrics: MgAlphaMetrics;
+export interface MgRenderSanityThresholds {
+  /** Alpha (0-255) above which a pixel counts as "near-opaque" (part of a solid field). 230 ≈ 0.9. */
+  opaqueAlpha: number;
+  /** Alpha (0-255) above which a pixel counts as "visible" at all (ignores anti-alias fringe). */
+  faintAlpha: number;
+  /** Fraction of the frame that, when near-opaque, means the graphic is a solid field hiding the footage. */
+  maxNearOpaqueFrac: number;
 }
 
 /**
- * PURE: given measured alpha metrics + thresholds, decide pass/fail with human-readable reasons.
- * This is the whole verdict logic — unit-tested with synthetic metrics, no rendering needed.
+ * Guard constants — these define DEGENERATE, not taste. Sourced from the existing hard rules, not invented:
+ *   - opaqueAlpha 230 (0.9)  ← prompt hardRules "near-opaque full-frame field" is forbidden.
+ *   - maxNearOpaqueFrac 0.92 ← "full-frame": only a graphic that is BOTH near-opaque AND covers essentially the
+ *     whole frame trips this. A translucent scrim (alpha ~0.6) or full-frame kinetic type (huge alpha gaps)
+ *     never reaches 0.92 near-opaque coverage, so legitimate full-frame MGs pass.
  */
-export function evaluateMgPlacement(
-  m: MgAlphaMetrics,
-  t: MgGateThresholds = DEFAULT_MG_GATE_THRESHOLDS,
+export const DEFAULT_MG_RENDER_SANITY_THRESHOLDS: MgRenderSanityThresholds = {
+  opaqueAlpha: 230,
+  faintAlpha: 16,
+  maxNearOpaqueFrac: 0.92,
+};
+
+export interface MgRenderSanityResult {
+  pass: boolean;
+  reasons: string[];
+  metrics: MgRenderSanityMetrics;
+}
+
+/**
+ * PURE: given measured alpha metrics, decide pass/fail. Only the two universally-degenerate cases fail; a
+ * legitimate MG at any size passes. Unit-tested with synthetic metrics, no rendering needed.
+ */
+export function evaluateMgRenderSanity(
+  m: MgRenderSanityMetrics,
+  t: MgRenderSanityThresholds = DEFAULT_MG_RENDER_SANITY_THRESHOLDS,
 ): { pass: boolean; reasons: string[] } {
   const reasons: string[] = [];
-  const pct = (v: number) => `${Math.round(v * 100)}%`;
-
-  if (m.bbox === null || m.coverageFrac <= 0) {
+  if (m.coverageFrac <= 0) {
     reasons.push('the component rendered no visible pixels');
     return { pass: false, reasons };
   }
-  if (m.coverageFrac > t.maxCoverageFrac) {
-    reasons.push(`covers ${pct(m.coverageFrac)} of the frame (max ${pct(t.maxCoverageFrac)}) — the graphic swamps the footage`);
-  }
-  if (m.subjectOverlapFrac > t.maxSubjectOverlapFrac) {
-    reasons.push(`paints over ${pct(m.subjectOverlapFrac)} of the subject (max ${pct(t.maxSubjectOverlapFrac)}) — obscures the person/product`);
-  }
-  if (m.captionOverlapFrac > t.maxCaptionOverlapFrac) {
-    reasons.push(`intrudes ${pct(m.captionOverlapFrac)} into the caption band (max ${pct(t.maxCaptionOverlapFrac)}) — two competing reading tasks`);
-  }
-  if (m.marginBleedFrac > t.maxMarginBleedFrac) {
-    reasons.push(`${pct(m.marginBleedFrac)} of the graphic sits outside title-safe (max ${pct(t.maxMarginBleedFrac)}) — will be cropped on some platforms`);
+  if (m.nearOpaqueFrac > t.maxNearOpaqueFrac) {
+    reasons.push(
+      `${Math.round(m.nearOpaqueFrac * 100)}% of the frame is a near-opaque field — it hides the footage (a full-frame MG must stay transparent)`,
+    );
   }
   return { pass: reasons.length === 0, reasons };
 }
 
 /**
- * IMPURE: measure ONE rendered alpha frame against the placement regions. Downsamples first (coverage/overlap
- * fractions are scale-invariant) so the per-pixel pass is fast even for 1080p frames.
+ * IMPURE: measure ONE rendered alpha frame. Downsamples first (the two fractions are scale-invariant) so the
+ * per-pixel pass is fast even for 1080p frames.
  */
-export async function measureMgAlpha(
+export async function measureMgRenderSanity(
   frame: Buffer,
-  opts: {
-    subject?: MgGateRegion | null;
-    captionBandTop?: number;
-    titleSafeMargin?: number;
-    opaqueThreshold?: number;
-    sampleWidth?: number;
-  } = {},
-): Promise<MgAlphaMetrics> {
-  const captionTop = opts.captionBandTop ?? DEFAULT_MG_GATE_THRESHOLDS.captionBandTop;
-  const margin = opts.titleSafeMargin ?? DEFAULT_MG_GATE_THRESHOLDS.titleSafeMargin;
-  const opaqueAt = opts.opaqueThreshold ?? DEFAULT_MG_GATE_THRESHOLDS.opaqueThreshold;
-  const subj = opts.subject ?? null;
+  opts: { opaqueAlpha?: number; faintAlpha?: number; sampleWidth?: number } = {},
+): Promise<MgRenderSanityMetrics> {
+  const opaqueAt = opts.opaqueAlpha ?? DEFAULT_MG_RENDER_SANITY_THRESHOLDS.opaqueAlpha;
+  const faintAt = opts.faintAlpha ?? DEFAULT_MG_RENDER_SANITY_THRESHOLDS.faintAlpha;
 
-  // Downsample to a bounded width (default 256px) — fractions are invariant, and 1080p per-pixel in JS is slow.
   const target = opts.sampleWidth ?? 256;
   const { data, info } = await sharp(frame)
     .ensureAlpha()
@@ -135,64 +102,29 @@ export async function measureMgAlpha(
   const { width, height, channels } = info;
   const alphaIdx = channels - 1;
 
-  let opaque = 0;
-  let minX = width;
-  let minY = height;
-  let maxX = -1;
-  let maxY = -1;
-  let subjOpaque = 0;
-  let capOpaque = 0;
-  let marginOpaque = 0;
-
-  const subjArea = subj
-    ? Math.max(1, Math.round(subj.width * width) * Math.round(subj.height * height))
-    : 1;
-  const capArea = Math.max(1, Math.round((1 - captionTop) * height) * width);
-
-  for (let y = 0; y < height; y += 1) {
-    const fy = y / height;
-    const inCaption = fy >= captionTop;
-    const yMargin = fy < margin || fy > 1 - margin;
-    for (let x = 0; x < width; x += 1) {
-      const a = data[(y * width + x) * channels + alphaIdx];
-      if (a <= opaqueAt) continue;
-      opaque += 1;
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-      const fx = x / width;
-      if (subj && fx >= subj.x && fx < subj.x + subj.width && fy >= subj.y && fy < subj.y + subj.height) subjOpaque += 1;
-      if (inCaption) capOpaque += 1;
-      if (yMargin || fx < margin || fx > 1 - margin) marginOpaque += 1;
-    }
+  let visible = 0;
+  let nearOpaque = 0;
+  const pixels = width * height;
+  for (let i = 0; i < pixels; i += 1) {
+    const a = data[i * channels + alphaIdx];
+    if (a > faintAt) visible += 1;
+    if (a > opaqueAt) nearOpaque += 1;
   }
 
-  const total = width * height;
-  const bbox: MgGateRegion | null = maxX < 0
-    ? null
-    : { x: minX / width, y: minY / height, width: (maxX - minX + 1) / width, height: (maxY - minY + 1) / height };
-
   return {
-    coverageFrac: opaque / total,
-    bbox,
-    subjectOverlapFrac: subj ? Math.min(1, subjOpaque / subjArea) : 0,
-    captionOverlapFrac: Math.min(1, capOpaque / capArea),
-    marginBleedFrac: opaque ? marginOpaque / opaque : 0,
+    coverageFrac: pixels ? visible / pixels : 0,
+    nearOpaqueFrac: pixels ? nearOpaque / pixels : 0,
   };
 }
 
-/** Measure a rendered alpha frame + apply the gate. The seam calls this on a settled-hold frame. */
-export async function mgPlacementGate(
+/** Measure a rendered alpha frame + apply the guard. The seam calls this on a settled-hold frame. */
+export async function mgRenderSanityGate(
   frame: Buffer,
-  regions: { subject?: MgGateRegion | null },
-  thresholds: MgGateThresholds = DEFAULT_MG_GATE_THRESHOLDS,
-): Promise<MgPlacementGateResult> {
-  const metrics = await measureMgAlpha(frame, {
-    subject: regions.subject,
-    captionBandTop: thresholds.captionBandTop,
-    titleSafeMargin: thresholds.titleSafeMargin,
-    opaqueThreshold: thresholds.opaqueThreshold,
+  thresholds: MgRenderSanityThresholds = DEFAULT_MG_RENDER_SANITY_THRESHOLDS,
+): Promise<MgRenderSanityResult> {
+  const metrics = await measureMgRenderSanity(frame, {
+    opaqueAlpha: thresholds.opaqueAlpha,
+    faintAlpha: thresholds.faintAlpha,
   });
-  return { ...evaluateMgPlacement(metrics, thresholds), metrics };
+  return { ...evaluateMgRenderSanity(metrics, thresholds), metrics };
 }

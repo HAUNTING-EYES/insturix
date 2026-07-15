@@ -2,113 +2,107 @@ import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
 
 import {
-  DEFAULT_MG_GATE_THRESHOLDS,
-  evaluateMgPlacement,
-  measureMgAlpha,
-  mgPlacementGate,
-  type MgAlphaMetrics,
+  DEFAULT_MG_RENDER_SANITY_THRESHOLDS,
+  evaluateMgRenderSanity,
+  measureMgRenderSanity,
+  mgRenderSanityGate,
+  type MgRenderSanityMetrics,
 } from '@/lib/editron/motion-graphics/codegen/mg-placement-gate';
 
-const good: MgAlphaMetrics = {
-  coverageFrac: 0.12,
-  bbox: { x: 0.05, y: 0.06, width: 0.35, height: 0.18 },
-  subjectOverlapFrac: 0.0,
-  captionOverlapFrac: 0.0,
-  marginBleedFrac: 0.0,
-};
+const small: MgRenderSanityMetrics = { coverageFrac: 0.12, nearOpaqueFrac: 0.05 };
 
-describe('evaluateMgPlacement - the deterministic verdict (pure)', () => {
-  it('a small, clear, in-bounds graphic PASSES', () => {
-    const r = evaluateMgPlacement(good);
+describe('evaluateMgRenderSanity - the deterministic degenerate-render verdict (pure)', () => {
+  it('a small, transparent graphic PASSES', () => {
+    const r = evaluateMgRenderSanity(small);
     expect(r.pass).toBe(true);
     expect(r.reasons).toEqual([]);
   });
 
-  it('★ a full-frame swamp FAILS (coverage)', () => {
-    const r = evaluateMgPlacement({ ...good, coverageFrac: 0.9 });
-    expect(r.pass).toBe(false);
-    expect(r.reasons.join(' ')).toMatch(/swamps the footage/);
+  it('★ a FULL-FRAME transparent graphic PASSES (kinetic type / concept scene — the Tier-B case the old gate killed)', () => {
+    // high visible coverage, but the frame is mostly transparent (glyph gaps) → not a solid field.
+    const r = evaluateMgRenderSanity({ coverageFrac: 0.45, nearOpaqueFrac: 0.12 });
+    expect(r.pass).toBe(true);
   });
 
-  it('★ painting over the subject FAILS (the "obscures footage" case)', () => {
-    const r = evaluateMgPlacement({ ...good, subjectOverlapFrac: 0.5 });
-    expect(r.pass).toBe(false);
-    expect(r.reasons.join(' ')).toMatch(/obscures the person\/product/);
+  it('★ a full-frame TRANSLUCENT wash (a legibility scrim) PASSES — visible everywhere, opaque nowhere', () => {
+    const r = evaluateMgRenderSanity({ coverageFrac: 1.0, nearOpaqueFrac: 0.0 });
+    expect(r.pass).toBe(true);
   });
 
-  it('★ intruding into the caption band FAILS', () => {
-    const r = evaluateMgPlacement({ ...good, captionOverlapFrac: 0.4 });
-    expect(r.pass).toBe(false);
-    expect(r.reasons.join(' ')).toMatch(/caption band/);
-  });
-
-  it('★ bleeding outside title-safe FAILS', () => {
-    const r = evaluateMgPlacement({ ...good, marginBleedFrac: 0.2 });
-    expect(r.pass).toBe(false);
-    expect(r.reasons.join(' ')).toMatch(/title-safe/);
-  });
-
-  it('an empty render (no pixels) FAILS with a single clear reason', () => {
-    const r = evaluateMgPlacement({ ...good, bbox: null, coverageFrac: 0 });
+  it('★ an empty render (no pixels) FAILS', () => {
+    const r = evaluateMgRenderSanity({ coverageFrac: 0, nearOpaqueFrac: 0 });
     expect(r.pass).toBe(false);
     expect(r.reasons).toEqual(['the component rendered no visible pixels']);
   });
 
-  it('a graphic EDGE grazing the subject (within tolerance) still passes', () => {
-    expect(evaluateMgPlacement({ ...good, subjectOverlapFrac: DEFAULT_MG_GATE_THRESHOLDS.maxSubjectOverlapFrac - 0.01 }).pass).toBe(true);
+  it('★ a near-opaque full-frame field FAILS (hides the footage — the one coverage-like defect)', () => {
+    const r = evaluateMgRenderSanity({ coverageFrac: 1.0, nearOpaqueFrac: 0.95 });
+    expect(r.pass).toBe(false);
+    expect(r.reasons.join(' ')).toMatch(/hides the footage/);
   });
 
-  it('reports EVERY violated criterion at once', () => {
-    const r = evaluateMgPlacement({ coverageFrac: 0.9, bbox: good.bbox, subjectOverlapFrac: 0.6, captionOverlapFrac: 0.5, marginBleedFrac: 0.3 });
-    expect(r.pass).toBe(false);
-    expect(r.reasons.length).toBe(4); // coverage + subject + caption + margin
+  it('the near-opaque threshold is a boundary: at the limit passes, just above fails', () => {
+    const t = DEFAULT_MG_RENDER_SANITY_THRESHOLDS;
+    expect(evaluateMgRenderSanity({ coverageFrac: 1, nearOpaqueFrac: t.maxNearOpaqueFrac }).pass).toBe(true);
+    expect(evaluateMgRenderSanity({ coverageFrac: 1, nearOpaqueFrac: t.maxNearOpaqueFrac + 0.01 }).pass).toBe(false);
   });
 });
 
-/** Compose an RGBA PNG: transparent background + opaque white boxes at pixel coords. */
-async function alphaImage(width: number, height: number, boxes: Array<{ x: number; y: number; w: number; h: number }>): Promise<Buffer> {
+/** Compose an RGBA PNG: transparent background + boxes at pixel coords with a given alpha. */
+async function alphaImage(
+  width: number,
+  height: number,
+  boxes: Array<{ x: number; y: number; w: number; h: number; alpha?: number }>,
+  bgAlpha = 0,
+): Promise<Buffer> {
   const composites = boxes.map((b) => ({
-    input: { create: { width: b.w, height: b.h, channels: 4 as const, background: { r: 255, g: 255, b: 255, alpha: 1 } } },
+    input: { create: { width: b.w, height: b.h, channels: 4 as const, background: { r: 255, g: 255, b: 255, alpha: b.alpha ?? 1 } } },
     left: b.x,
     top: b.y,
   }));
-  return sharp({ create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+  return sharp({ create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: bgAlpha } } })
     .composite(composites)
     .png()
     .toBuffer();
 }
 
-describe('measureMgAlpha - reads real alpha geometry (sharp)', () => {
-  it('★ a small top-left box → low coverage, top-left bbox, no subject/caption overlap', async () => {
-    const frame = await alphaImage(400, 400, [{ x: 20, y: 20, w: 80, h: 80 }]); // 5%..25% region
-    const m = await measureMgAlpha(frame, { subject: { x: 0.3, y: 0.4, width: 0.4, height: 0.5 } });
+describe('measureMgRenderSanity - reads real alpha (sharp)', () => {
+  it('a small opaque box → low coverage, low near-opaque → passes', async () => {
+    const frame = await alphaImage(400, 400, [{ x: 20, y: 20, w: 80, h: 80 }]);
+    const m = await measureMgRenderSanity(frame);
     expect(m.coverageFrac).toBeCloseTo((80 * 80) / (400 * 400), 1); // ~0.04
-    expect(m.bbox).not.toBeNull();
-    expect(m.bbox!.x).toBeLessThan(0.1);
-    expect(m.bbox!.y).toBeLessThan(0.1);
-    expect(m.subjectOverlapFrac).toBe(0); // box is top-left, subject is center-bottom
-    expect(m.captionOverlapFrac).toBe(0);
+    expect(m.nearOpaqueFrac).toBeLessThan(0.1);
+    expect(evaluateMgRenderSanity(m).pass).toBe(true);
   });
 
-  it('★ a box ON the subject → high subjectOverlap (the failure the gate catches)', async () => {
-    // subject occupies center; opaque box sits right on it
-    const frame = await alphaImage(400, 400, [{ x: 140, y: 160, w: 120, h: 160 }]);
-    const m = await measureMgAlpha(frame, { subject: { x: 0.35, y: 0.4, width: 0.3, height: 0.4 } });
-    expect(m.subjectOverlapFrac).toBeGreaterThan(0.5);
-    const verdict = evaluateMgPlacement(m);
-    expect(verdict.pass).toBe(false);
+  it('★ a SOLID full-frame opaque fill → near-opaque ~1 → FAILS (hides footage)', async () => {
+    const frame = await alphaImage(400, 400, [{ x: 0, y: 0, w: 400, h: 400, alpha: 1 }]);
+    const m = await measureMgRenderSanity(frame);
+    expect(m.nearOpaqueFrac).toBeGreaterThan(0.92);
+    expect((await mgRenderSanityGate(frame)).pass).toBe(false);
   });
 
-  it('★ a box in the bottom band → caption overlap', async () => {
-    const frame = await alphaImage(400, 400, [{ x: 40, y: 340, w: 320, h: 50 }]); // bottom ~85-97%
-    const m = await measureMgAlpha(frame);
-    expect(m.captionOverlapFrac).toBeGreaterThan(0.1);
+  it('★ a full-frame SPARSE composition (many small marks, big gaps) → PASSES (footage reads through)', async () => {
+    const boxes: Array<{ x: number; y: number; w: number; h: number }> = [];
+    for (let gy = 0; gy < 400; gy += 80) for (let gx = 0; gx < 400; gx += 80) boxes.push({ x: gx, y: gy, w: 24, h: 24 });
+    const frame = await alphaImage(400, 400, boxes); // spans the whole frame, but ~9% ink
+    const m = await measureMgRenderSanity(frame);
+    expect(m.nearOpaqueFrac).toBeLessThan(0.5);
+    expect(evaluateMgRenderSanity(m).pass).toBe(true);
   });
 
-  it('mgPlacementGate composes measure + verdict on a real frame', async () => {
-    const frame = await alphaImage(400, 400, [{ x: 20, y: 20, w: 70, h: 60 }]); // small, clear, in-bounds
-    const r = await mgPlacementGate(frame, { subject: { x: 0.4, y: 0.5, width: 0.3, height: 0.4 } });
+  it('★ a full-frame TRANSLUCENT wash (alpha 0.5) → visible but not near-opaque → PASSES', async () => {
+    const frame = await alphaImage(400, 400, [], 0.5); // whole frame at alpha 0.5
+    const m = await measureMgRenderSanity(frame);
+    expect(m.coverageFrac).toBeGreaterThan(0.9);
+    expect(m.nearOpaqueFrac).toBeLessThan(0.5);
+    expect(evaluateMgRenderSanity(m).pass).toBe(true);
+  });
+
+  it('mgRenderSanityGate composes measure + verdict on a real frame', async () => {
+    const frame = await alphaImage(400, 400, [{ x: 20, y: 20, w: 70, h: 60 }]);
+    const r = await mgRenderSanityGate(frame);
     expect(r.pass).toBe(true);
-    expect(r.metrics.bbox).not.toBeNull();
+    expect(r.metrics.coverageFrac).toBeGreaterThan(0);
   });
 });

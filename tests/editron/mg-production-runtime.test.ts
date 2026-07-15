@@ -78,6 +78,21 @@ async function fakeRender() {
   }).webp().toFile(path.join(webpDir, file))));
   return { webpDir, files, workspaceDir, width: 320, height: 180, fps: 30, count: 3, renderMs: 12 };
 }
+/** Deterministic full-frame render at a fixed alpha — every frame identical, so the guard's settled-hold pick is
+ *  irrelevant. alpha 1 = a solid plate (guard fails, hides footage); alpha 0.3 = translucent (guard passes). */
+async function solidFrames(prefix: string, alpha: number) {
+  const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  tempDirs.push(workspaceDir);
+  const webpDir = path.join(workspaceDir, 'webp');
+  await fs.mkdir(webpDir);
+  const files = ['00000.webp', '00001.webp', '00002.webp'];
+  await Promise.all(files.map((file) => sharp({
+    create: { width: 320, height: 180, channels: 4, background: { r: 212, g: 166, b: 82, alpha } },
+  }).webp({ lossless: true }).toFile(path.join(webpDir, file))));
+  return { webpDir, files, workspaceDir, width: 320, height: 180, fps: 30, count: 3, renderMs: 12 };
+}
+const opaqueFullFrameRender = () => solidFrames('mg-runtime-opaque-', 1);
+const transparentFullFrameRender = () => solidFrames('mg-runtime-transp-', 0.3);
 async function phaseSampleRender() {
   const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mg-runtime-phase-test-'));
   tempDirs.push(workspaceDir);
@@ -102,9 +117,9 @@ async function phaseSampleRender() {
   return { webpDir, files, workspaceDir, width: 32, height: 18, fps: 30, count: 60, renderMs: 12 };
 }
 
-// The judge tests exercise the VLM judge in isolation, so they bypass the deterministic placement gate.
-// (The gate itself is proven in mg-placement-gate.test.ts + the "vetoes" test below with the real gate.)
-const PASS_PLACEMENT = async () => ({ pass: true, reasons: [] as string[] });
+// The judge tests exercise the VLM judge in isolation, so they bypass the deterministic render-sanity guard.
+// (The guard itself is proven in mg-placement-gate.test.ts + the "vetoes" / "passes full-frame" tests below.)
+const PASS_SANITY = async () => ({ pass: true, reasons: [] as string[] });
 
 describe('production MG codegen runtime', () => {
   it('uses a real rendered result for compile/evaluate and reuses it for final ingest rendering', async () => {
@@ -115,7 +130,7 @@ describe('production MG codegen runtime', () => {
       render,
       cleanup,
       writeComponent: async () => 'component',
-      placementGate: PASS_PLACEMENT,
+      renderSanityGate: PASS_SANITY,
       judgeRendered,
     });
 
@@ -144,7 +159,7 @@ describe('production MG codegen runtime', () => {
       render: fakeRender,
       cleanup,
       writeComponent: async () => 'component',
-      placementGate: PASS_PLACEMENT,
+      renderSanityGate: PASS_SANITY,
       judgeRendered: async () => ({ score: 0, issues: ['fabricated value'] }),
     });
     await runtime.codegen.compile('component');
@@ -153,19 +168,34 @@ describe('production MG codegen runtime', () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
-  it('★ the deterministic gate VETOES a footage-covering graphic (score 0, judge never called)', async () => {
-    const judgeRendered = vi.fn(async () => ({ score: 9, issues: [] })); // judge WOULD accept — the gate must not
+  it('★ the render-sanity guard VETOES an opaque full-frame plate (score 0, judge never called)', async () => {
+    const judgeRendered = vi.fn(async () => ({ score: 9, issues: [] })); // judge WOULD accept — the guard must not
     const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
-      render: fakeRender, // fakeRender fills the whole frame → the real gate rejects it on coverage
+      render: opaqueFullFrameRender, // a fully-opaque full frame → hides the footage (prompt hard-rule)
       cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
       judgeRendered,
-      // no placementGate override → the REAL geometric gate runs
+      // no renderSanityGate override → the REAL guard runs
     });
     await runtime.codegen.compile('component');
     const ev = await runtime.codegen.evaluate('component', moment());
     expect(ev.score).toBe(0);
-    expect(ev.issues.join(' ')).toMatch(/placement: covers/);
-    expect(judgeRendered).not.toHaveBeenCalled(); // gate-first skips the expensive VLM judge on a placement fail
+    expect(ev.issues.join(' ')).toMatch(/render:.*hides the footage/);
+    expect(judgeRendered).not.toHaveBeenCalled(); // guard-first skips the expensive VLM judge on a degenerate render
+    await runtime.dispose();
+  });
+
+  it('★ a full-frame TRANSPARENT graphic PASSES the guard and reaches the judge (Tier-B is legitimate)', async () => {
+    const judgeRendered = vi.fn(async () => ({ score: 8, issues: [] }));
+    const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
+      render: transparentFullFrameRender, // full-frame EXTENT but translucent → footage reads through → NOT a plate
+      cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
+      judgeRendered,
+      // no renderSanityGate override → the REAL guard runs, and must NOT reject a legit full-frame MG
+    });
+    await runtime.codegen.compile('component');
+    const ev = await runtime.codegen.evaluate('component', moment());
+    expect(ev.score).toBe(8);
+    expect(judgeRendered).toHaveBeenCalledTimes(1); // guard passed a full-frame transparent graphic → judge ran
     await runtime.dispose();
   });
 
@@ -255,7 +285,7 @@ describe('production MG codegen runtime', () => {
       render: phaseSampleRender,
       cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
       writeComponent: async () => 'component',
-      placementGate: PASS_PLACEMENT,
+      renderSanityGate: PASS_SANITY,
     });
 
     await expect(runtime.codegen.compile('component')).resolves.toEqual({ ok: true });
@@ -318,7 +348,7 @@ describe('production MG codegen runtime', () => {
       render: fakeRender,
       cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
       writeComponent: async () => 'component',
-      placementGate: PASS_PLACEMENT,
+      renderSanityGate: PASS_SANITY,
     });
 
     await expect(runtime.codegen.compile('component')).resolves.toEqual({ ok: true });
@@ -342,7 +372,7 @@ describe('production MG codegen runtime', () => {
       render: phaseSampleRender,
       cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
       writeComponent: async () => 'component',
-      placementGate: PASS_PLACEMENT,
+      renderSanityGate: PASS_SANITY,
     });
 
     await expect(runtime.codegen.compile('component')).resolves.toEqual({ ok: true });
@@ -371,7 +401,7 @@ describe('production MG codegen runtime', () => {
       render: phaseSampleRender,
       cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
       writeComponent: async () => 'component',
-      placementGate: PASS_PLACEMENT,
+      renderSanityGate: PASS_SANITY,
     });
 
     await runtime.codegen.compile('component');
