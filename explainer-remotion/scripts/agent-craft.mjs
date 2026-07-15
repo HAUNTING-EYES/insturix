@@ -32,17 +32,27 @@ import {PRIM_V2, FALLBACK_V2} from './grammar-v2.mjs';
 
 // ---------------------------------------------------------------------------------------------------
 // config
-const KEY = process.env.ANTHROPIC_API_KEY;
+// Craft model = GLM-5V-turbo (the UNCAGED vision loop, not the old glm-film machinery) via z.ai's OpenAI-compatible
+// API. Opus is OFF for now (cost). Swap with CRAFT_MODEL; anything starting "glm" routes to z.ai, else Anthropic.
+const MODEL = process.env.CRAFT_MODEL || 'glm-5v-turbo';
+const IS_GLM = /^glm/i.test(MODEL);
+const GLM_ENDPOINT = 'https://api.z.ai/api/paas/v4/chat/completions';
+const KEY = IS_GLM ? process.env.GLM_KEY : process.env.ANTHROPIC_API_KEY;
 if (!KEY) {
-  console.error('✗ ANTHROPIC_API_KEY unset. Add it to .env.local and:  set -a; . ./.env.local; set +a');
+  console.error(`✗ ${IS_GLM ? 'GLM_KEY' : 'ANTHROPIC_API_KEY'} unset. Add it to .env.local and:  set -a; . ./.env.local; set +a`);
   process.exit(1);
 }
-const MODEL = process.env.CRAFT_MODEL || 'claude-opus-4-8'; // vision + writes + looks — the whole point is a capable model in this seat
-const ROUNDS = Math.max(1, Number(process.env.CRAFT_ROUNDS || 3)); // look/fix rounds per scene
+// Cost caps — bound the blast radius so a bad scene can never run away again (what burned creds before):
+const ROUNDS = Math.max(1, Number(process.env.CRAFT_ROUNDS || 2));       // look/fix rounds per scene (was 3)
+const SELF_HEAL = Math.max(1, Number(process.env.CRAFT_SELF_HEAL || 2)); // render-crash retries per attempt (was 3)
+const RESTART = process.env.CRAFT_RESTART === '1';                        // extra from-scratch attempt when stuck — OFF by default
+const MAX_CALLS = Number(process.env.CRAFT_MAX_CALLS || 40);              // HARD ceiling on model calls per video — runaway guard
+const SMOKE = process.env.CRAFT_SMOKE === '1';                            // free health check: render a trivial scene, ZERO model calls
+let callCount = 0;
 const ENTRY = 'src/index.ts';
 const PROOF_ID = 'Gen-Proof';
 const PROOF_DUR = 400; // Gen-Proof composition length (frames)
-const client = new Anthropic({apiKey: KEY});
+const client = IS_GLM ? null : new Anthropic({apiKey: KEY});
 mkdirSync('out', {recursive: true});
 mkdirSync('src/bricks/gen', {recursive: true});
 
@@ -143,16 +153,23 @@ const stripFences = (s) => s.replace(/^```[a-z]*\n?/i, '').replace(/\n?```\s*$/,
 
 // one Claude turn (streaming so long output / thinking never hits the request timeout).
 async function ask(userBlocks, maxTokens = 16000) {
-  const stream = client.messages.stream({
-    model: MODEL,
-    max_tokens: maxTokens,
-    thinking: {type: 'adaptive'},
-    system: SYSTEM,
-    messages: [{role: 'user', content: userBlocks}],
-  });
+  if (++callCount > MAX_CALLS) throw new Error(`craft model-call budget exhausted (${MAX_CALLS} calls) — aborting to avoid runaway cost. Raise CRAFT_MAX_CALLS only if intended.`);
+  if (IS_GLM) {
+    // z.ai OpenAI-compatible chat/completions (same shape as glm-film's calls). userBlocks are already
+    // OpenAI-shaped: {type:'text',text} + {type:'image_url',image_url:{url}}.
+    const messages = [{role: 'system', content: SYSTEM}, {role: 'user', content: userBlocks}];
+    const res = await fetch(GLM_ENDPOINT, {method: 'POST', headers: {Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json'}, body: JSON.stringify({model: MODEL, max_tokens: maxTokens, temperature: 0.6, thinking: {type: 'enabled'}, messages})});
+    if (!res.ok) throw new Error(`GLM ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    return (await res.json()).choices?.[0]?.message?.content ?? '';
+  }
+  const stream = client.messages.stream({model: MODEL, max_tokens: maxTokens, thinking: {type: 'adaptive'}, system: SYSTEM, messages: [{role: 'user', content: userBlocks}]});
   return textOf(await stream.finalMessage());
 }
-const img = (path) => ({type: 'image', source: {type: 'base64', media_type: 'image/png', data: readFileSync(path).toString('base64')}});
+// Vision image block — GLM (z.ai) uses OpenAI's image_url; Anthropic uses its base64 source block. Text blocks
+// ({type:'text',text}) are identical in both, so call sites don't change.
+const img = (path) => IS_GLM
+  ? {type: 'image_url', image_url: {url: `data:image/png;base64,${readFileSync(path).toString('base64')}`}}
+  : {type: 'image', source: {type: 'base64', media_type: 'image/png', data: readFileSync(path).toString('base64')}};
 
 // ---------------------------------------------------------------------------------------------------
 // static gate — same contract the render enforces, checked BEFORE we spend a render: legal imports +
@@ -259,7 +276,7 @@ async function craftScene(scene, idx) {
   // render + judge a candidate; self-heal static/render failures up to 3× before giving up. Returns {code,frames,score,ok,issues} or null.
   const evaluate = async (candidate) => {
     let cur = candidate;
-    for (let t = 0; t < 3; t++) {
+    for (let t = 0; t < SELF_HEAL; t++) {
       const se = staticCheck(cur);
       if (se) { cur = stripFences(await ask([{type: 'text', text: `Static check failed: ${se}\nRewrite the FULL .tsx fixing exactly that. Output the file only.`}])); continue; }
       let frames;
@@ -288,7 +305,7 @@ async function craftScene(scene, idx) {
   }
 
   // restart-on-stuck: still weak → one fresh from-scratch attempt with a different-approach nudge; keep the better.
-  if (best && best.score < 7) {
+  if (RESTART && best && best.score < 7) {
     const fresh = await evaluate(stripFences(await ask([{type: 'text', text:
       brief + `\nA previous attempt only reached ${best.score}/10 for: ${JSON.stringify(best.issues)}. Take a COMPLETELY DIFFERENT visual approach — different layout, different motion.`}, ...refBlocks])));
     if (fresh && fresh.score > best.score) { best = fresh; console.log(`  scene ${idx + 1} restart → ${fresh.score}/10`); }
@@ -331,6 +348,23 @@ function writeManifest() {
 // ---------------------------------------------------------------------------------------------------
 (async () => {
   console.log(`agent-craft: ${MODEL}, ${SCENES.length} scenes, ${ROUNDS} rounds each${only ? ` (only ${[...only]})` : ''}`);
+  if (SMOKE) {
+    // FREE health check (CRAFT_SMOKE=1): render one trivial deterministic scene through the real bundle+Chromium
+    // path with ZERO model calls, to prove the render pipeline works on the box before spending a single credit.
+    console.log('[agent-craft] SMOKE — rendering a trivial scene, NO model calls');
+    const code = [
+      "import React from 'react';",
+      "import {AbsoluteFill, useCurrentFrame} from 'remotion';",
+      "import type {Brand} from '../brand';",
+      "export const GlmScene: React.FC<{brand: Brand}> = () => {",
+      "  const f = useCurrentFrame();",
+      "  return <AbsoluteFill style={{background: '#0b0b0f', opacity: Math.min(1, f / 20)}} />;",
+      "};",
+    ].join('\n');
+    const frames = await renderProof(code, 0);
+    console.log(`[agent-craft] SMOKE OK — bundle + Chromium render succeeded (${frames.length} frames)`);
+    process.exit(0);
+  }
   const results = [];
   for (let i = 0; i < SCENES.length; i++) {
     if (only && !only.has(i)) { results.push({ok: true, form: SCENES[i].form, skipped: true}); continue; }
