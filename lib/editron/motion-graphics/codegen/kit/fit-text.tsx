@@ -13,20 +13,21 @@ import type { Brand } from './brand';
 import { withAlpha, dv } from './brand';
 import { useRegionSize } from './stage';
 
-const avgAdvance = (weight: number, upper: boolean): number => {
-  const base = weight >= 700 ? 0.6 : weight >= 500 ? 0.565 : 0.535; // Plus Jakarta-ish, conservative
+const avgAdvance = (weight: number, upper: boolean, condensed = false): number => {
+  // condensed = the Anton display face (a narrow black display); else Plus-Jakarta-ish, conservative.
+  const base = condensed ? 0.44 : weight >= 700 ? 0.6 : weight >= 500 ? 0.565 : 0.535;
   return base * (upper ? 1.08 : 1);
 };
-const lineWidth = (line: string, px: number, weight: number, trackingEm: number, upper: boolean): number =>
-  line.length * px * avgAdvance(weight, upper) + Math.max(0, line.length - 1) * trackingEm * px;
+const lineWidth = (line: string, px: number, weight: number, trackingEm: number, upper: boolean, condensed = false): number =>
+  line.length * px * avgAdvance(weight, upper, condensed) + Math.max(0, line.length - 1) * trackingEm * px;
 
-const wrap = (text: string, px: number, maxW: number, weight: number, trEm: number, upper: boolean): string[] => {
+const wrap = (text: string, px: number, maxW: number, weight: number, trEm: number, upper: boolean, condensed = false): string[] => {
   const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let cur = '';
   for (const w of words) {
     const cand = cur ? `${cur} ${w}` : w;
-    if (lineWidth(cand, px, weight, trEm, upper) <= maxW || !cur) cur = cand;
+    if (lineWidth(cand, px, weight, trEm, upper, condensed) <= maxW || !cur) cur = cand;
     else {
       lines.push(cur);
       cur = w;
@@ -45,13 +46,14 @@ export const fitSize = (
   weight = 800,
   trackingEm = -0.02,
   upper = false,
+  condensed = false,
 ): number => {
   let lo = 10;
   let hi = Math.max(12, Math.round(capPx));
   while (lo < hi) {
     const mid = Math.ceil((lo + hi) / 2);
-    const lines = wrap(text, mid, maxW, weight, trackingEm, upper);
-    const fits = lines.length <= maxLines && lines.every((l) => lineWidth(l, mid, weight, trackingEm, upper) <= maxW);
+    const lines = wrap(text, mid, maxW, weight, trackingEm, upper, condensed);
+    const fits = lines.length <= maxLines && lines.every((l) => lineWidth(l, mid, weight, trackingEm, upper, condensed) <= maxW);
     if (fits) lo = mid;
     else hi = mid - 1;
   }
@@ -78,21 +80,27 @@ export const FitHeadline: React.FC<{
   brand: Brand;
   text: string;
   accentWords?: string[];
+  face?: 'sans' | 'display';
   size?: keyof typeof SIZE_CAP;
   maxLines?: number;
   startAt?: number;
   kinetic?: 'rise' | 'chars' | 'none';
   align?: 'left' | 'center' | 'right';
-}> = ({ brand, text, accentWords = [], size = 'xl', maxLines, startAt = 0, kinetic = 'rise', align = 'left' }) => {
+}> = ({ brand, text, accentWords = [], face = 'sans', size = 'xl', maxLines, startAt = 0, kinetic = 'rise', align = 'left' }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const { wPx } = useRegionSize();
   const cap = SIZE_CAP[size];
   const lines = maxLines ?? cap.lines;
-  const weight = brand.type.headingWeight;
-  const trEm = parseFloat(brand.type.tracking) || -0.02;
-  const px = fitSize(text, wPx, lines, cap.frac * (wPx / 0.9) /* cap relative to region */, weight, trEm, false);
-  const wrapped = wrap(text, px, wPx, weight, trEm, false);
+  // face='display' = the heavy CONDENSED impact face (brand.fontDisplay / Anton), rendered ALL-CAPS — the
+  // bold-statement / kinetic-punch look. 'sans' (default) = the brand's normal sans.
+  const display = face === 'display';
+  const fontFamily = display ? (brand.fontDisplay ?? 'Anton, sans-serif') : brand.fontSans;
+  const weight = display ? 700 : brand.type.headingWeight;
+  const trEm = display ? -0.01 : (parseFloat(brand.type.tracking) || -0.02);
+  const shown = display ? text.toUpperCase() : text;
+  const px = fitSize(shown, wPx, lines, cap.frac * (wPx / 0.9) /* cap relative to region */, weight, trEm, display, display);
+  const wrapped = wrap(shown, px, wPx, weight, trEm, display, display);
   const accents = new Set(accentWords.map(clean));
   const stg = interpolate(brand.motion.energy, [0, 1], [5.5, 2.2]);
   const damping = interpolate(brand.motion.overshoot, [0, 1], [26, 11]);
@@ -101,10 +109,11 @@ export const FitHeadline: React.FC<{
     <div
       style={{
         width: '100%',
+        fontFamily,
         fontWeight: weight,
         fontSize: px,
-        lineHeight: brand.type.lineHeight,
-        letterSpacing: brand.type.tracking,
+        lineHeight: display ? 0.98 : brand.type.lineHeight,
+        letterSpacing: `${trEm}em`,
         textAlign: align,
       }}
     >

@@ -22,6 +22,9 @@ export type Brand = {
     accentText: string; // legible text ON the accent
   };
   fontSans: string;
+  /** Heavy CONDENSED display face for impact/kinetic headlines (FitHeadline face='display', rendered ALL-CAPS).
+   *  Loaded by kit/fonts.ts. Optional — falls back to Anton when a brand doesn't specify one. */
+  fontDisplay?: string;
   type: {
     headingWeight: number; // 500..900
     tracking: string; // letter-spacing on headings
@@ -59,6 +62,7 @@ export const INSTURIX: Brand = {
     accentText: '#0B0B0A',
   },
   fontSans: 'Plus Jakarta Sans, Inter, sans-serif',
+  fontDisplay: 'Anton, sans-serif',
   type: { headingWeight: 800, tracking: '-0.022em', lineHeight: 1.0, eyebrowCase: 'upper' },
   shape: { radius: 14, border: 1 },
   density: 0.78,
@@ -82,6 +86,7 @@ export const NORTHWIND: Brand = {
     accentText: '#FFFFFF',
   },
   fontSans: 'Inter, Helvetica, Arial, sans-serif',
+  fontDisplay: 'Anton, sans-serif',
   type: { headingWeight: 600, tracking: '-0.005em', lineHeight: 1.14, eyebrowCase: 'none' },
   shape: { radius: 24, border: 1.5 },
   density: 0.32,

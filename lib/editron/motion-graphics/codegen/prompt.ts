@@ -24,7 +24,7 @@ LAYOUT (positions are FRACTIONS of the title-safe region; px positioning is forb
 <Bleed>...</Bleed>                              // full-frame layer for IMAGERY/SHAPES only — text is rejected inside
 
 TEXT (the only way words render — size & colour COMPUTED, never passed):
-<FitHeadline brand text accentWords={["word"]} size="display|xl|l|m|s" kinetic="rise|chars|none" startAt align/>
+<FitHeadline brand text accentWords={["word"]} face="sans|display" size="display|xl|l|m|s" kinetic="rise|chars|none" startAt align/>  // face="display" = heavy CONDENSED ALL-CAPS impact face (bold-statement / kinetic-punch look); "sans"=brand sans (default)
 <TextBlock brand text tone="text|muted|accent" size="m|s" startAt align/>
 <Chip brand text tone="ghost|accent" startAt/>
 
@@ -83,6 +83,9 @@ CRAFT — what separates a crafted graphic from AI-slop:
 - SCALE TO THE MOMENT. The focal element is exactly as prominent as THIS moment asks — read the expressiveness
   in <moment>: a hero beat can command the frame, a subtle beat is quiet and precise. Prominence is a deliberate
   choice per moment, never a default maximum. Bigger is not better; right-sized is better.
+- IMPACT TYPE for the ONE phrase that must hit. When a key phrase is the payload (a punchline, a bold claim, a
+  kinetic statement), set THAT phrase with FitHeadline face="display" (heavy CONDENSED ALL-CAPS) + one accent
+  word — the bold-statement look. It is the focal element, not decoration; supporting copy stays face="sans".
 - BRAND by construction — colour and type come only from the brand tokens.
 - IT READS OVER FOOTAGE — the focal content sits in the frame's ROOM (the negative space named in <moment>),
   clear of the subject; use a LOCAL scrim/outline only where legibility needs it, never a field that hides footage.
