@@ -152,3 +152,50 @@ export const Dot: React.FC<{ brand: Brand; at?: number; dur?: number; tone?: Ton
   const p = grow(frame, at, dur);
   return <div style={{ width: size, height: size, borderRadius: 999, background: toneOf(brand, tone), transform: `scale(${p})`, opacity: p }} />;
 };
+
+/** A REVEAL — clip-path wipe that unmasks its children over `dur` from `at`. `from` = the edge the wipe starts. */
+export const Reveal: React.FC<{ at?: number; dur?: number; from?: 'left' | 'right' | 'up' | 'down'; children?: React.ReactNode }> = ({ at = 0, dur = 16, from = 'left', children }) => {
+  const frame = useCurrentFrame();
+  const inset = (1 - grow(frame, at, dur)) * 100;
+  const clip =
+    from === 'right' ? `inset(0 0 0 ${inset}%)`
+      : from === 'up' ? `inset(0 0 ${inset}% 0)`
+        : from === 'down' ? `inset(${inset}% 0 0 0)`
+          : `inset(0 ${inset}% 0 0)`; // left (default)
+  return <div style={{ clipPath: clip, WebkitClipPath: clip }}>{children}</div>;
+};
+
+/** PARTICLES — a DETERMINISTIC animated field (fills its positioned parent; for emphasis moments, not content).
+ *  dust = slow rising motes; bokeh = soft blurred floats; sparks = burst outward + fade; confetti = fall + spin. */
+export const Particles: React.FC<{ brand: Brand; kind?: 'dust' | 'bokeh' | 'sparks' | 'confetti'; count?: number; at?: number; tone?: Tone }> = ({ brand, kind = 'dust', count = 24, at = 0, tone = 'accent' }) => {
+  const frame = useCurrentFrame();
+  const color = toneOf(brand, tone);
+  const t = Math.max(0, frame - at);
+  const n = Math.max(1, Math.min(80, Math.round(count)));
+  // deterministic pseudo-random from index (no Math.random — the scan bans it; renders identically every time).
+  const rnd = (i: number, seed: number): number => { const v = Math.sin((i + 1) * seed) * 43758.5453; return v - Math.floor(v); };
+  return (
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+      {Array.from({ length: n }, (_, i) => {
+        const x = rnd(i, 12.9898) * 100;
+        const baseY = rnd(i, 78.233) * 100;
+        const cycle = 60 + rnd(i, 9.4) * 60;
+        const prog = ((t + rnd(i, 3.17) * cycle) % cycle) / cycle;
+        const size = kind === 'bokeh' ? 10 + rnd(i, 5.1) * 22 : kind === 'confetti' ? 6 + rnd(i, 7.7) * 6 : 2 + rnd(i, 2.3) * 3;
+        const style: React.CSSProperties = { position: 'absolute', width: size, height: size, borderRadius: 999, background: color };
+        if (kind === 'sparks') {
+          const a = rnd(i, 4.4) * Math.PI * 2; const r = prog * 28;
+          style.left = `${x + Math.cos(a) * r}%`; style.top = `${baseY + Math.sin(a) * r}%`; style.opacity = Math.max(0, 1 - prog);
+        } else if (kind === 'confetti') {
+          style.left = `${x}%`; style.top = `${baseY - 10 + prog * 45}%`; style.opacity = Math.max(0, 1 - prog);
+          style.borderRadius = 2; style.transform = `rotate(${prog * 360}deg)`;
+        } else if (kind === 'bokeh') {
+          style.left = `${x}%`; style.top = `${baseY - prog * 6}%`; style.opacity = 0.08 + (0.5 + 0.5 * Math.sin(prog * Math.PI * 2)) * 0.16; style.filter = 'blur(2px)';
+        } else { // dust
+          style.left = `${x}%`; style.top = `${baseY - prog * 12}%`; style.opacity = 0.15 + (0.5 + 0.5 * Math.sin(prog * Math.PI * 2)) * 0.35;
+        }
+        return <div key={i} style={style} />;
+      })}
+    </div>
+  );
+};

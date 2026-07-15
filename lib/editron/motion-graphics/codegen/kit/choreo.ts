@@ -38,7 +38,7 @@ const springOf = (brand: Brand, frame: number, at: number, fps: number) =>
     },
   });
 
-export type EnterKind = 'rise' | 'scale' | 'fade' | 'blurIn' | 'sweepL' | 'sweepR';
+export type EnterKind = 'rise' | 'scale' | 'pop' | 'fade' | 'blurIn' | 'zoomBlur' | 'sweepL' | 'sweepR';
 
 /** Entrance verb → style. All physics from brand.motion; distance scales with the element via `unit`. */
 export const enter = (
@@ -63,8 +63,44 @@ export const enter = (
       return { opacity: o, transform: `translateX(${-d * 2.2}px)` };
     case 'sweepR':
       return { opacity: o, transform: `translateX(${d * 2.2}px)` };
+    case 'pop': {
+      // squash & stretch overshoot — an energetic entrance for a focal figure / word / number
+      const sq = Math.sin(o * Math.PI * 1.5) * 0.12 * (1 - o);
+      return { opacity: o, transform: `scale(${o * (1 - sq * 0.5)}, ${o * (1 + sq)})` };
+    }
+    case 'zoomBlur':
+      // dramatic reveal — starts large + blurred, settles to normal
+      return { opacity: o, transform: `scale(${1 + (1 - s) * 0.6})`, filter: `blur(${(1 - o) * 22}px)` };
     default:
       return { opacity: o, transform: `translateY(${d}px)` };
+  }
+};
+
+export type AmbientKind = 'float' | 'pulse' | 'breathe' | 'glow' | 'drift';
+
+/**
+ * Sustained HOLD-phase life. Compose onto a WRAPPER around the entered content (nest it — do NOT merge into the
+ * same style object as enter(), CSS transforms on one element overwrite) so the graphic keeps MOVING through the
+ * hold instead of freezing after its entrance. This is the "static / no motion" fix. Loops on a ~2.8s cycle;
+ * strength 0..1 scales the amplitude. Subtle by design — ambient, not the focal motion.
+ */
+export const ambient = (frame: number, at: number, kind: AmbientKind = 'float', strength = 1): React.CSSProperties => {
+  const t = frame - at;
+  if (t < 0) return {};
+  const ph = (t % 84) / 84; // ~2.8s @30fps
+  const w = Math.sin(ph * Math.PI * 2);
+  const s = Math.max(0, Math.min(1, strength));
+  switch (kind) {
+    case 'pulse':
+      return { transform: `scale(${1 + w * 0.02 * s})` };
+    case 'breathe':
+      return { opacity: 0.82 + (0.5 + 0.5 * Math.cos(ph * Math.PI * 2)) * 0.18 * s };
+    case 'glow':
+      return { filter: `brightness(${1 + (0.5 + 0.5 * w) * 0.12 * s})` };
+    case 'drift':
+      return { transform: `translateX(${w * 5 * s}px)` };
+    default: // float
+      return { transform: `translateY(${w * 4 * s}px)` };
   }
 };
 

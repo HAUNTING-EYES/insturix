@@ -30,7 +30,8 @@ TEXT (the only way words render — size & colour COMPUTED, never passed):
 
 CHOREOGRAPHY (numbers are DERIVED — anchor to phases, never hand-type frame windows):
 const ph = phases(durationInFrames, brand)      // {intro, build, resolve, durF}
-enter(brand, frame, at, fps, "rise|scale|fade|blurIn|sweepL|sweepR", unit?) -> style
+enter(brand, frame, at, fps, "rise|scale|pop|fade|blurIn|zoomBlur|sweepL|sweepR", unit?) -> style   // entrance verb
+ambient(frame, at, "float|pulse|breathe|glow|drift", strength?) -> style   // SUSTAINED hold-phase life — nest on a WRAPPER so the graphic keeps MOVING, not frozen after its entrance
 exitOut(frame, ph, "fade|rise") -> style        stagger(brand, i)   pulseAt(frame, at, strength)
 countUp(frame, at, dur, to, from?)              progress(frame, from, to)   travel(frame, ph, px)   EASE
 useRegionSize() -> {wPx,hPx}   useStage() -> {W,H,...}
@@ -41,6 +42,8 @@ NON-TEXT PRIMITIVES (brand-locked, animated from the frame — compose these int
 <Plot brand points={[...]} at dur? tone? area? width? height?/>                            // a line / area trend that draws on
 <Rule brand at dur? tone? thickness? vertical?/>    <Dot brand at dur? tone? size?/>       // a line (underline / divider / axis / connector); an accent dot
 <Plate brand at dur? opacity? radius?>...</Plate>                                          // a rounded brand surface / scrim behind a group or for legibility
+<Reveal at dur? from="left|right|up|down">...</Reveal>                                      // clip-path WIPE — unmask any children on
+<Particles brand kind="dust|bokeh|sparks|confetti" count? at? tone?/>                       // deterministic emphasis field (fills its positioned parent)
 Pass REAL values (the true 0..1 fraction, the true series — perceptual honesty). For anything these don't cover you
 MAY still hand-draw SVG/divs inside a <Region>/<Bleed>, coloured ONLY with brand.colors.*/withAlpha, animated ONLY
 from the frame — but PREFER the primitives: they are brand- and motion-correct by construction. Make numbers FELT.
@@ -58,8 +61,8 @@ import {useCurrentFrame, useVideoConfig, interpolate, spring, AbsoluteFill, Sequ
 import {Brand, withAlpha, dv} from './kit/brand';
 import {Stage, Region, Corner, Bleed, useStage, useRegionSize} from './kit/stage';
 import {FitHeadline, TextBlock, Chip} from './kit/fit-text';
-import {Bar, Ring, Plot, Rule, Plate, Dot} from './kit/marks';
-import {phases, enter, exitOut, stagger, pulseAt, countUp, progress, travel, EASE} from './kit/choreo';`;
+import {Bar, Ring, Plot, Rule, Plate, Dot, Reveal, Particles} from './kit/marks';
+import {phases, enter, exitOut, stagger, pulseAt, countUp, progress, travel, ambient, EASE} from './kit/choreo';`;
 
 /**
  * Foundational MG knowledge (Layer 1) — STABLE across every moment, so the service caches it (prompt-cache
