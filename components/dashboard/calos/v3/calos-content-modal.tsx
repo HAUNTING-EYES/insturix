@@ -79,6 +79,30 @@ export function ContentModal({
     setAdding(false);
   };
 
+  // Edit an existing planned date's date+time in place (the direct time control) — click a chip to
+  // open a datetime picker on it; save replaces just that date and persists via onSaveDates.
+  const [editingIso, setEditingIso] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const startEdit = (iso: string) => {
+    setAdding(false);
+    setEditingIso(iso);
+    setEditValue(toLocalInput(new Date(iso)));
+  };
+  const saveEdit = () => {
+    if (!editingIso) return;
+    const dt = new Date(editValue);
+    if (!editValue || Number.isNaN(dt.getTime())) { setEditingIso(null); setEditValue(''); return; }
+    const iso = dt.toISOString();
+    // Replace the edited date; a Set collapses any collision with an existing date so we never dupe.
+    const next = Array.from(new Set(dates.map((x) => (x === editingIso ? iso : x)))).sort(
+      (a, b) => new Date(a).getTime() - new Date(b).getTime(),
+    );
+    setDates(next);
+    onSaveDates(d.id, next);
+    setEditingIso(null);
+    setEditValue('');
+  };
+
   const [details, setDetails] = useState(d.brief);
   const [tags, setTags] = useState<string[]>(d.tags);
   const [tagInput, setTagInput] = useState('');
@@ -169,9 +193,20 @@ export function ContentModal({
             {dates.map((iso) => {
               const dt = new Date(iso);
               const valid = !Number.isNaN(dt.getTime());
+              if (editingIso === iso) {
+                return (
+                  <span key={iso} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <input type="datetime-local" value={editValue} autoFocus onChange={(e) => setEditValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveEdit(); } }} className="calos-fr" style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: '6px 8px', color: C.text, fontSize: 12, fontFamily: SANS, outline: 'none', colorScheme: 'dark' }} />
+                    <button type="button" className="calos-fr" onClick={saveEdit} style={{ cursor: 'pointer', padding: '6px 10px', background: 'transparent', border: '1px solid rgba(212,166,82,.4)', borderRadius: 6, color: C.gold, fontFamily: MONO, fontSize: 9 }}>SAVE</button>
+                    <button type="button" className="calos-fr" onClick={() => { setEditingIso(null); setEditValue(''); }} title="Cancel" style={{ cursor: 'pointer', background: 'none', border: 'none', color: C.muted }}>✕</button>
+                  </span>
+                );
+              }
               return (
                 <span key={iso} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6 }}>
-                  <Mono s={9} c={C.soft}>{valid ? `${dayTitle(dt)} · ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}` : 'Unscheduled'}</Mono>
+                  <button type="button" className="calos-fr" onClick={() => startEdit(iso)} title="Edit date & time" style={{ cursor: 'pointer', background: 'none', border: 'none', padding: 0, margin: 0, color: 'inherit', display: 'inline-flex', alignItems: 'center' }}>
+                    <Mono s={9} c={C.soft}>{valid ? `${dayTitle(dt)} · ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}` : 'Unscheduled'}</Mono>
+                  </button>
                   {dates.length > 1 && <span onClick={() => removeDate(iso)} title="Remove this date" style={{ color: C.coral, cursor: 'pointer', fontSize: 11 }}>✕</span>}
                 </span>
               );
