@@ -37,11 +37,12 @@ import {PRIM_V2, FALLBACK_V2} from './grammar-v2.mjs';
 const MODEL = process.env.CRAFT_MODEL || 'glm-5v-turbo';
 const IS_GLM = /^glm/i.test(MODEL);
 const GLM_ENDPOINT = 'https://api.z.ai/api/paas/v4/chat/completions';
-const KEY = IS_GLM ? process.env.GLM_KEY : process.env.ANTHROPIC_API_KEY;
+// z.ai key is GLM_KEY in the glm scripts but ZAI_API_KEY in Vercel/prod — accept either.
+const KEY = IS_GLM ? (process.env.GLM_KEY || process.env.ZAI_API_KEY) : process.env.ANTHROPIC_API_KEY;
 // SMOKE (CRAFT_SMOKE=1) makes ZERO model calls, so it must NOT require an API key — else the free health check
 // aborts before it can prove bundle+Chromium.
 if (!KEY && process.env.CRAFT_SMOKE !== '1') {
-  console.error(`✗ ${IS_GLM ? 'GLM_KEY' : 'ANTHROPIC_API_KEY'} unset. Add it to .env.local and:  set -a; . ./.env.local; set +a`);
+  console.error(`✗ ${IS_GLM ? 'GLM_KEY / ZAI_API_KEY' : 'ANTHROPIC_API_KEY'} unset. Add it to .env.local and:  set -a; . ./.env.local; set +a`);
   process.exit(1);
 }
 // Cost caps — bound the blast radius so a bad scene can never run away again (what burned creds before):
