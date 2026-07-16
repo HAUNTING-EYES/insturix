@@ -55,6 +55,7 @@ function defineTool(input: ChatToolMetadataInput): ChatToolMetadata {
 export const CHAT_TOOL_REGISTRY = {
   read_project_file: defineTool({ name: 'read_project_file', label: 'Reading project data', shortLabel: 'Read', iconCategory: 'file', receiptLabel: 'Read project data' }),
   get_timeline_view: defineTool({ name: 'get_timeline_view', label: 'Reading timeline layout', shortLabel: 'Timeline', iconCategory: 'timeline', receiptLabel: 'Read timeline' }),
+  apply_editorial_intent: defineTool({ name: 'apply_editorial_intent', label: 'Grounding editorial intent', shortLabel: 'Editorial plan', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied grounded editorial intent', loadingMessages: ['Reading the edit', 'Grounding the request', 'Applying warranted changes'] }),
   add_overlay: defineTool({ name: 'add_overlay', label: 'Adding element', shortLabel: 'Add', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added element' }),
   update_overlay: defineTool({ name: 'update_overlay', label: 'Updating element', shortLabel: 'Update', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Updated element' }),
   batch_update_overlays: defineTool({ name: 'batch_update_overlays', label: 'Batch updating elements', shortLabel: 'Batch', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Batch updated elements' }),

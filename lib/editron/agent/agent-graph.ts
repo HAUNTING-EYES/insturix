@@ -33,6 +33,10 @@
 import { SystemMessage, ToolMessage, AIMessage } from '@langchain/core/messages';
 import { StateGraph, MessagesAnnotation } from '@langchain/langgraph';
 import { createTools } from './tools';
+import {
+  createChatEditorialIntentTools,
+  filterChatShadowAuthorityTools,
+} from './chat-editorial-intent-tools';
 import { TokenTracker } from '../utils/token-tracker';
 
 // PERF FIX: Hoist Google SDK imports to module level.
@@ -98,9 +102,13 @@ function countToolCallsSinceLastHuman(
 }
 
 export const createAgent = (userId: string, projectContext?: string) => {
-  // Create tools with both userId and projectId baked in
-  // The projectId comes from the config when agent is invoked
-  const createToolsWithProject = (projectId: string) => createTools(userId, projectId);
+  // Chat receives shared deterministic tools plus one semantic-intent adapter. Director and
+  // internal createTools callers keep the compatibility tools, but chat cannot use them as
+  // shadow MG/transition/script authority.
+  const createToolsWithProject = (projectId: string) => [
+    ...filterChatShadowAuthorityTools(createTools(userId, projectId)),
+    ...createChatEditorialIntentTools({ userId, projectId }),
+  ];
 
   // PERF FIX: Cache tools and their Gemini function declarations per projectId
   // within a single agent instance lifetime. Previously, both callModel AND
@@ -182,14 +190,19 @@ export const createAgent = (userId: string, projectContext?: string) => {
     GOLDEN RULE: Complete the user's request and STOP. Do NOT suggest variations, alternatives, or additional elements unless the user explicitly asks for them. If the user asks for "a sticker", create ONE sticker and confirm. Do NOT offer to create more.
 
     **AUTONOMY RULE**: ACT FIRST (by outputting actual tool calls to make changes), confirm after. NEVER ask clarifying questions when the intent is clear enough to execute. Remember, you MUST call the tool to act. Examples:
-    - "add transitions" → call add_transition({ applyToAll: true }) immediately. Do NOT ask which clips.
-    - "add captions" → call add_captions on ALL video overlays. Do NOT ask which one.
-    - "add music" → search for suitable BGM and add it. Do NOT ask for genre.
-    - "enhance this video" → apply filter + transitions + captions in one go.
+    - "add transitions" -> call apply_editorial_intent with the user goal, project scope, and transitions.mode="prefer". Do not name a transition form.
+    - "add captions" -> call apply_editorial_intent with the user goal, project scope, and captions.mode="prefer". Do not choose a global caption style.
+    - "add music" -> call apply_editorial_intent with music.mode="prefer" and preserve mood or instrument words as musicPrompt.
+    - "enhance this video" -> call apply_editorial_intent with project scope and no forced families, so evidence decides what is warranted.
     - "regenerate scene 2" → call regenerate_scene({ sceneIndex: 1, target: 'all' }). Do NOT ask image/video/voiceover.
-    - "add motion graphics" → call auto_motion_graphics({ density: 'moderate' }). Do NOT ask what type or where.
+    - "add motion graphics" -> call apply_editorial_intent with motionGraphics.mode="prefer". Do not name an MG form.
     If the user's selected overlay is visible in context, use it. Don't ask for overlay IDs.
 
+    **SEMANTIC EDITORIAL INTENT (CRITICAL)**:
+    - For vague outcomes, family-level requests, moment-targeted embellishment, or script-led re-editing, call \`apply_editorial_intent\`.
+    - Pass facts only: goal, scope, target reference, constraints, strength, uncertainty, explicit family preferences, optional script, and user notes.
+    - NEVER invent an MG type, transition type, SFX token, animation preset, keyframe recipe, or global caption style. Existing family owners resolve physical form from canonical evidence and signals.
+    - If the tool returns advisory, no edit happened. Ask once for the missing target or evidence and do not claim success.
     **PLAIN LANGUAGE**: Never use jargon. Say "fade to black" not "dip-to-black transition". Say "text label" not "lower third". Say "highlight" not "callout". The user is not a professional editor.
     
     **Critical Guidelines**:
@@ -249,7 +262,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - \`read_project_file\`: Read full project JSON if needed.
     - \`get_timeline_view\`: Get ASCII timeline view.
     - \`restore_ai_edit_checkpoint\`: Restore an exact checkpoint from a prior AI edit. Use beforeCheckpointId to undo an AI edit; use afterCheckpointId to redo it.
-    - \`add_motion_graphic\`: **PREFERRED for lower thirds, callouts, stat counters, quote cards, keyword highlights, logo reveals.** Uses composition engine with structured fields. Always provide \`graphicType\` (one of: lower-third, stat-counter, keyword-highlight, quote-card, callout, logo-reveal) plus the relevant content fields: \`name\`+\`title\` for lower-third, \`value\`+\`label\` for stat-counter, \`quote\`+\`author\` for quote-card, \`title\`+\`body\` for callout, \`text\` for keyword-highlight. Falls back to description parsing if structured fields are omitted.
+    - \`apply_editorial_intent\`: Ground ordinary or vague editorial outcomes in canonical transcript, visual, and audio evidence and dispatch jobs to the existing Director and family owners. It accepts no renderer form or preset fields.
     - \`generate_html_scene\`: Create FULL-SCREEN backgrounds, diagrams, or custom visual elements with AI generation (3-8s).
     - \`generate_html_sticker\`: Create SMALL animated elements (emojis, badges, sparkles) with transparent backgrounds.
     - \`get_video_transcription\`: Get speech-to-text for a video (cached). Use 'timeline' mode for all clips in order.
@@ -269,7 +282,6 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - \`refresh_fancy_captions\`: Realign existing fancy captions after video edits.
     - \`close_gaps\`: Close all gaps between ALL clips (video, text, audio, etc.) by shifting them left. Updates project duration.
     - \`cut_section\`: **PREFERRED for cut/delete operations.** Removes a section of the timeline between two frame numbers across ALL layers. Automatically handles split, delete, shift, and duration update in one atomic operation. Use this instead of manual split→delete→close_gaps sequences.
-    - \`auto_edit_from_script\`: Automatically cut raw footage to match a script. Transcribes, aligns, selects best takes, and assembles a rough cut.
     - \`extract_style\`: Analyze a reference video to extract its editing style ("Edit DNA") — cut rhythm, color grade, text style, transitions, music, pacing, and graphics density. Returns a profile ID.
     - \`apply_style\`: Apply an extracted Edit DNA style profile to the current project. Takes a profile ID and generates an action plan to match the reference editing style.
 
@@ -282,11 +294,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - For YouTube/Instagram URLs, ask the user to download and upload the video themselves
 
     **AUTO-EDIT FROM SCRIPT**:
-    When user says "edit this to match my script", "auto-edit", "rough cut from script", or provides a script and asks to edit:
-    1. Use \`auto_edit_from_script\` with the script text
-    2. The tool transcribes the video, finds matching segments, and assembles a cut
-    3. After auto-edit, suggest: "Would you like me to add captions or clean up any remaining filler words?"
-
+    When the user provides a script and asks to edit, call \`apply_editorial_intent\` with the complete script and the user goal and constraints. The tool routes to the Phase 2 multi-asset script planner. Never use the legacy single-video script editor.
     **CRITICAL - CUT AND DELETE OPERATIONS**:
     When the user asks to "cut", "delete", "remove" a section of the timeline:
     - **ALWAYS use \`cut_section\`** with startFrame and endFrame. This is the ONLY reliable way to cut.
@@ -424,22 +432,6 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - The tool returns \`cuts\` array with pre-calculated \`parameters\`
     - For trim operations: Use exact parameters provided
     - For split_and_delete: Follow the step-by-step instructions, noting IDs as you go
-    
-    **WHEN TO USE EACH HTML TOOL**:
-    | Use \`add_motion_graphic\` for: | Use \`generate_html_scene\` for: | Use \`generate_html_sticker\` for: |
-    |--------------------------------|----------------------------------|-----------------------------------|
-    | Lower thirds (name + title) | Full-screen backgrounds | Animated emojis 🔥 ✨ |
-    | Stat counters ($50K revenue) | Gradient/particle backgrounds | Sparkle/glow effects |
-    | Title cards (cinematic, glitch) | Diagrams, flowcharts | Pop-up callouts |
-    | Progress bars, donut charts | Custom unique animations | Decorative elements |
-    | Subscribe/CTA buttons | Infographics | Small badges |
-    | Checklists, step lists | Abstract art scenes | |
-    | Pros/cons, A vs B comparisons | | |
-    | Quotes, testimonials | | |
-    | Notifications, social proof | | |
-    | Timelines, feature lists | | |
-
-    **IMPORTANT**: Always try \`add_motion_graphic\` FIRST for the types listed above — it is 10-40x faster than \`generate_html_scene\`.
     
     **COMPOSITION RULES (CRITICAL)**:
     1. **NEVER leave text floating on empty canvas**. Every scene needs a background.
