@@ -215,6 +215,7 @@ describe('from-batch storyline route handoff', () => {
     mocks.checkCredits.mockResolvedValue({ allowed: true, deduct: mocks.deductCredits, refund: mocks.refundCredits });
     mocks.createProject.mockResolvedValue({ projectId: 'proj_batch_1' });
     mocks.deductCredits.mockResolvedValue({ transactionId: 'credit_tx_1' });
+    mocks.refundCredits.mockResolvedValue(undefined);
     mocks.resolveAssetUrl.mockImplementation(async (assetId: string) => `https://cdn.test/${assetId}`);
     mocks.isR2Available.mockReturnValue(false);
     mocks.hydrateStorylineAnalysesForBatch.mockResolvedValue({
@@ -426,11 +427,18 @@ describe('from-batch storyline route handoff', () => {
         ctx: expect.objectContaining({ language: 'hi-en', platform: 'youtube', targetDurationSec: null }),
         compose: { scorer: 'semantic-scorer' },
         narrativeSources: expect.any(Map),
+        hasScript: true,
+        script: 'Show the proof, then the result.',
+        scriptQueryEmbed: expect.any(Function),
       }),
     );
 
     const orderOptions = mocks.orderStorylineWithLLM.mock.calls[0][3];
     expect(orderOptions.narrativeSources.get('video_1')).toEqual(expect.objectContaining({ durationMs: 8000 }));
+    expect(mocks.generateEditronEmbedding).toHaveBeenCalledWith(
+      'make a concise product proof cut\n\nShow the proof, then the result.',
+      { taskType: 'RETRIEVAL_QUERY' },
+    );
 
     expect(mocks.updateProject).toHaveBeenCalledWith(
       { projectId: 'proj_batch_1' },
@@ -508,6 +516,58 @@ describe('from-batch storyline route handoff', () => {
       }),
     );
   });
+
+  it('does not save or dispatch an unrelated fallback when authoritative script grounding fails', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'requested',
+      orchestrationRequestedAt: new Date(),
+    };
+    mocks.orderStorylineWithLLM.mockResolvedValueOnce({
+      planApplied: false,
+      fallbackReason: 'script_plan_failed',
+      scriptPlan: {
+        status: 'failed',
+        units: [],
+        beats: [],
+        assignments: [],
+        selectedSceneIds: [],
+        errors: ['no grounded scenes selected for the script'],
+        attempts: 3,
+      },
+      storyline: {
+        clips: [],
+        renderTarget: { aspectRatio: '16:9', fps: 30, width: 1920, height: 1080, container: 'mp4', videoCodec: 'h264', audioCodec: 'aac' },
+        totalDurationSec: 0,
+        condensationRatio: 0,
+        targetDurationSec: null,
+      },
+    });
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 0, failureCount: 0 },
+    }, true) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(payload).toEqual(expect.objectContaining({ success: true, retryScheduled: true }));
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.refundCredits).toHaveBeenCalledOnce();
+    expect(mocks.updateBatch).toHaveBeenCalledWith(
+      { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          orchestrationStatus: 'retryable_error',
+          orchestrationError: expect.stringContaining('could not be grounded'),
+        }),
+      }),
+    );
+    expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes('/api/internal/workers/director'))).toBe(false);
+  });
+
   it('does not compose or charge when another callback owns the orchestration lease', async () => {
     const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
     batchDocument = {

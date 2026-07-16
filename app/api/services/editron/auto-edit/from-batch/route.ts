@@ -577,10 +577,12 @@ function sourceLanguageFromAssets(assets: readonly BatchMediaAsset[]): string | 
 }
 
 function storylineIntentText(intake: MediaUploadBatchIntake, body: FromBatchRequest): string | null {
-  return cleanString(intake.userIntent, 2000)
-    ?? cleanString(body.title, 500)
-    ?? cleanString(intake.script, 4000)
-    ?? null;
+  const parts = [
+    cleanString(intake.userIntent, 2000),
+    cleanString(body.title, 500),
+    cleanString(intake.script, 12000),
+  ].filter((part): part is string => Boolean(part));
+  return [...new Set(parts)].join('\n\n') || null;
 }
 
 async function embedStorylineDocument(text: string): Promise<number[]> {
@@ -590,6 +592,34 @@ async function embedStorylineDocument(text: string): Promise<number[]> {
 async function embedStorylineIntent(text: string | null): Promise<number[] | null> {
   if (!text) return null;
   return await generateEditronEmbedding(text, { taskType: 'RETRIEVAL_QUERY' });
+}
+
+function storylineScriptPlanAudit(result: OrderStorylineResult): Record<string, unknown> | null {
+  const scriptPlan = result.scriptPlan;
+  if (!scriptPlan) return null;
+  return {
+    status: scriptPlan.status,
+    attempts: scriptPlan.attempts,
+    unitCount: scriptPlan.units.length,
+    retrieval: scriptPlan.retrieval,
+    selectedSceneIds: scriptPlan.selectedSceneIds,
+    beats: scriptPlan.beats.map((beat) => ({
+      id: beat.id,
+      unitIds: beat.unitIds,
+      scriptText: beat.scriptText.slice(0, 500),
+      visualIntent: beat.visualIntent,
+      relationFromPrevious: beat.relationFromPrevious,
+    })),
+    assignments: scriptPlan.assignments,
+    errors: scriptPlan.errors.slice(0, 20),
+    validation: scriptPlan.validation
+      ? {
+          valid: scriptPlan.validation.valid,
+          issues: scriptPlan.validation.issues.slice(0, 20),
+          warnings: scriptPlan.validation.warnings.slice(0, 20),
+        }
+      : null,
+  };
 }
 
 function imageSceneInputs(assets: readonly BatchMediaAsset[]): ImageAssetInput[] {
@@ -1305,6 +1335,7 @@ export async function POST(request: NextRequest) {
     const intentEmbedding = await embedStorylineIntent(storylineIntentText(intake, body));
     const narrativeSources = narrativeSourcesFromAnalyses(analyses, assetContexts);
     const language = sourceLanguageFromAssets(visualAssets);
+    const script = cleanString(intake.script, 12000);
     const ordering = await orderStorylineWithLLM(embeddedScenes, brief, completeStorylinePrompt, {
       ctx: {
         platform: brief.output.platform,
@@ -1313,7 +1344,14 @@ export async function POST(request: NextRequest) {
       },
       compose: { scorer: makeEmbeddingScorer(intentEmbedding) },
       narrativeSources,
+      hasScript: Boolean(script),
+      script,
+      scriptQueryEmbed: async (text) => await embedStorylineIntent(text) ?? [],
     });
+    if (script && (ordering.fallbackReason === 'script_planner_unavailable' || ordering.fallbackReason === 'script_plan_failed')) {
+      const errors = ordering.scriptPlan?.errors.join('; ') || ordering.fallbackReason;
+      throw new Error(`Authoritative script could not be grounded to uploaded footage: ${errors}`);
+    }
     const storylineTimeline = await materializeStoryline(ordering, visualAssets, userId, uploadBatchId, dims);
     const timeline = storylineTimeline ?? await materializeChronologicalFallback(visualAssets, userId, uploadBatchId, dims);
     if (timeline.overlays.length === 0) throw new Error('No usable clips could be materialized from this batch.');
@@ -1375,6 +1413,7 @@ export async function POST(request: NextRequest) {
             rationale: ordering.rationale,
             clipCount: timeline.clipCount,
             composerClipCount: ordering.storyline.clips.length,
+            scriptCoverage: storylineScriptPlanAudit(ordering),
             analysisBridge,
             directorContext: directorContext?.provenance ?? null,
           },
@@ -1446,6 +1485,7 @@ export async function POST(request: NextRequest) {
         fallbackReason: ordering.fallbackReason ?? (storylineTimeline ? undefined : 'no_materialized_storyline_clips'),
         rationale: ordering.rationale,
         clipCount: timeline.clipCount,
+        scriptCoverage: storylineScriptPlanAudit(ordering),
         analysisBridge,
       },
       messageId: dispatch.messageId,

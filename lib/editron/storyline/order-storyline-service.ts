@@ -27,13 +27,21 @@ import { type OrderingPolicy, resolveOrderingPolicy } from './ordering-policy';
 import { buildOrderingPrompt, type OrderingPromptContext, parseOrderingResponse, type SequencingMovesMenu } from './ordering-prompt';
 import type { EditronAssetContext } from './scene-adapter';
 import type { Scene } from './scene';
+import type { SceneEmbed } from './scene-embedding';
+import { planStorylineFromScript, type ScriptBeatPlanResult } from './script-beat-planner';
 import { enrichScenes, type NarrativeSignalSource } from './signal-enricher';
 import type { Storyline } from './storyline';
 
 /** Complete a prompt with an LLM. Inject the app's Gemini client in prod; grok in the eval. */
 export type LLMComplete = (prompt: string) => Promise<string>;
 
-export type FallbackReason = 'too_few_clips' | 'llm_error' | 'parse_error' | 'invalid_plan';
+export type FallbackReason =
+  | 'too_few_clips'
+  | 'llm_error'
+  | 'parse_error'
+  | 'invalid_plan'
+  | 'script_planner_unavailable'
+  | 'script_plan_failed';
 
 export interface OrderStorylineOptions {
   ctx?: OrderingPromptContext;
@@ -51,6 +59,10 @@ export interface OrderStorylineOptions {
    *  imported. Drive the narrative-vs-procedural mode; absent = inferred from the content. */
   contentType?: string;
   hasScript?: boolean;
+  /** Authoritative user script. When present, script beats own scene selection and ordering. */
+  script?: string | null;
+  /** Query embedder for beat-to-scene retrieval. Required when `script` is authoritative. */
+  scriptQueryEmbed?: SceneEmbed;
 }
 
 export interface OrderStorylineResult {
@@ -65,6 +77,8 @@ export interface OrderStorylineResult {
   /** The order-intent policy that shaped the ordering (mode + confidence). Surface `lowConfidence`
    *  to the user when we could not order with conviction. */
   policy?: OrderingPolicy;
+  /** Grounded script coverage and decision audit, when an authoritative script was supplied. */
+  scriptPlan?: ScriptBeatPlanResult;
 }
 
 /** Below this, ordering is moot (0/1 clip has exactly one order) - skip the LLM entirely. */
@@ -77,8 +91,16 @@ function deterministic(
   fallbackReason: FallbackReason,
   validation?: OrderingValidation,
   policy?: OrderingPolicy,
+  scriptPlan?: ScriptBeatPlanResult,
 ): OrderStorylineResult {
-  return { storyline: composeStoryline(scenes, brief, opts?.compose), planApplied: false, fallbackReason, validation, policy };
+  return {
+    storyline: composeStoryline(scenes, brief, opts?.compose),
+    planApplied: false,
+    fallbackReason,
+    validation,
+    policy,
+    scriptPlan,
+  };
 }
 
 /**
@@ -100,6 +122,42 @@ export async function orderStorylineWithLLM(
   // ordering objective matches the content. Procedural content told to "tell the strongest story"
   // scrambles (a tutorial led with its result); the mode flips the prompt's objective.
   const policy = resolveOrderingPolicy(enriched, brief, { contentType: opts?.contentType, hasScript: opts?.hasScript });
+
+  const script = opts?.script?.trim();
+  if (script) {
+    if (!opts?.scriptQueryEmbed) {
+      return deterministic(enriched, brief, opts, 'script_planner_unavailable', undefined, policy);
+    }
+    const scriptPlan = await planStorylineFromScript({
+      scenes: enriched,
+      script,
+      brief,
+      llm,
+      queryEmbed: opts.scriptQueryEmbed,
+      language: opts.ctx?.language,
+      minClipDurationSec: opts.compose?.minClipDurationSec,
+    });
+    if (scriptPlan.status === 'failed' || !scriptPlan.plan) {
+      return deterministic(enriched, brief, opts, 'script_plan_failed', scriptPlan.validation, policy, scriptPlan);
+    }
+
+    const byId = new Map(enriched.map((scene) => [scene.id, scene]));
+    const selected = scriptPlan.selectedSceneIds
+      .map((sceneId) => byId.get(sceneId))
+      .filter((scene): scene is Scene => Boolean(scene));
+    const storyline = composeStoryline(selected, brief, {
+      ...opts.compose,
+      orderingPlan: scriptPlan.plan,
+    });
+    return {
+      storyline,
+      planApplied: true,
+      validation: scriptPlan.validation,
+      rationale: scriptPlan.rationale,
+      policy,
+      scriptPlan,
+    };
+  }
 
   const picked = selectAndFitScenes(enriched, brief, opts?.compose);
   if (picked.length < MIN_CLIPS_FOR_LLM) return deterministic(enriched, brief, opts, 'too_few_clips', undefined, policy);
