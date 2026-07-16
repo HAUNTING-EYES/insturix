@@ -7,6 +7,7 @@ import { config as loadEnv } from 'dotenv';
 
 import {
   CHAT_EDIT_BATTLE_SCENARIOS,
+  buildChatBattleProjectSnapshot,
   chatBattleToolEventsFromSse,
   extractPersistedChatBattleRenderEvidence,
   getChatEditBattleScenario,
@@ -60,6 +61,8 @@ async function main(): Promise<void> {
     ? await readJsonRecord(options.clientContextPath)
     : undefined;
   const startedAtHolder = { value: '' };
+  let baselineMaterialDigest: string | null = null;
+  let latestInvocation: ChatBattleInvocationEvidence | null = null;
 
   const report = await runChatEditBattleJourney(
     {
@@ -75,16 +78,42 @@ async function main(): Promise<void> {
       },
     },
     {
-      loadMongoProject: async (projectId) => loadMongoProject(projectId),
-      invokeAgent: async ({ scenario, projectId, selectedOverlayId, clientContext: context }) => invokeLiveChatAgent({
-        api,
-        scenarioPrompt: scenario.prompt,
-        projectId,
-        selectedOverlayId,
-        clientContext: context,
-        runId: options.runId,
-        startedAt: startedAtHolder.value || new Date().toISOString(),
-      }),
+      loadMongoProject: async (projectId, phase) => {
+        if (phase === 'before') {
+          const project = await loadMongoProject(projectId);
+          baselineMaterialDigest = buildChatBattleProjectSnapshot(project, 'mongo-before').digest;
+          return project;
+        }
+        if (
+          baselineMaterialDigest
+          && latestInvocation
+          && chatBattleInvocationQueuedProjectMutation(latestInvocation)
+        ) {
+          console.log('[chat-battle] queued edit detected; waiting for material project state to change');
+          const settled = await waitForQueuedProjectMutation({
+            projectId,
+            baselineDigest: baselineMaterialDigest,
+          });
+          console.log(settled.changed
+            ? `[chat-battle] queued edit settled after ${settled.polls} poll(s)`
+            : `[chat-battle] queued edit did not change material state within the settlement deadline (${settled.polls} poll(s))`);
+          return settled.project;
+        }
+        return loadMongoProject(projectId);
+      },
+      invokeAgent: async ({ scenario, projectId, selectedOverlayId, clientContext: context }) => {
+        const invocation = await invokeLiveChatAgent({
+          api,
+          scenarioPrompt: scenario.prompt,
+          projectId,
+          selectedOverlayId,
+          clientContext: context,
+          runId: options.runId,
+          startedAt: startedAtHolder.value || new Date().toISOString(),
+        });
+        latestInvocation = invocation;
+        return invocation;
+      },
       reloadUiProject: async (projectId) => getJson(api, `/api/services/editron/projects/${encodeURIComponent(projectId)}`),
       captureRenderEvidence: async ({ mongoAfter, startedAt }) => extractPersistedChatBattleRenderEvidence(mongoAfter, startedAt),
     },
@@ -178,6 +207,72 @@ async function loadMongoProject(projectId: string): Promise<Record<string, unkno
   } finally {
     await client.close();
   }
+}
+
+export function chatBattleInvocationQueuedProjectMutation(invocation: ChatBattleInvocationEvidence): boolean {
+  return invocation.toolEvents.some((event) => {
+    const output = parseToolOutputRecord(event.output);
+    if (output.status !== 'success') return false;
+    return asRecord(asRecord(output.data).dispatch).status === 'queued';
+  });
+}
+
+export interface QueuedProjectSettlementResult {
+  project: Record<string, unknown>;
+  changed: boolean;
+  polls: number;
+}
+
+interface QueuedProjectSettlementDependencies {
+  loadProject(projectId: string): Promise<Record<string, unknown>>;
+  now(): number;
+  sleep(milliseconds: number): Promise<void>;
+}
+
+export async function waitForQueuedProjectMutation(
+  input: {
+    projectId: string;
+    baselineDigest: string;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  },
+  dependencies: QueuedProjectSettlementDependencies = {
+    loadProject: loadMongoProject,
+    now: () => Date.now(),
+    sleep: async (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  },
+): Promise<QueuedProjectSettlementResult> {
+  const timeoutMs = input.timeoutMs
+    ?? boundedEnvInteger('EDITRON_CHAT_BATTLE_SETTLEMENT_TIMEOUT_MS', 15 * 60 * 1000, 30_000, 30 * 60 * 1000);
+  const pollIntervalMs = input.pollIntervalMs
+    ?? boundedEnvInteger('EDITRON_CHAT_BATTLE_SETTLEMENT_POLL_MS', 5_000, 500, 30_000);
+  const deadline = dependencies.now() + timeoutMs;
+  let polls = 0;
+  let project = await dependencies.loadProject(input.projectId);
+
+  while (true) {
+    polls += 1;
+    const digest = buildChatBattleProjectSnapshot(project, 'mongo-after').digest;
+    if (digest !== input.baselineDigest) return { project, changed: true, polls };
+    if (dependencies.now() >= deadline) return { project, changed: false, polls };
+    await dependencies.sleep(pollIntervalMs);
+    project = await dependencies.loadProject(input.projectId);
+  }
+}
+
+function parseToolOutputRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object') return asRecord(value);
+  if (typeof value !== 'string' || !value.trim()) return {};
+  try {
+    return asRecord(JSON.parse(value));
+  } catch {
+    return {};
+  }
+}
+
+function boundedEnvInteger(name: string, fallback: number, min: number, max: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : fallback;
 }
 
 async function buildApiClient(baseUrl: string, headerFile: string): Promise<ApiClient> {

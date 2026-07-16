@@ -114,8 +114,10 @@ import {
   type ChatBattleToolEvent,
 } from '@/lib/editron/services/chat-edit-battle-harness';
 import {
+  chatBattleInvocationQueuedProjectMutation,
   parseChatBattleCliArgs,
   validateChatBattleCliOptions,
+  waitForQueuedProjectMutation,
 } from '../../scripts/run-chat-edit-battle';
 
 function project(overlays: Record<string, unknown>[] = []) {
@@ -227,6 +229,76 @@ describe('chat edit battle harness', () => {
     expect(report.uiReload?.digest).toBe(report.mongoAfter.digest);
     expect(fixture.systemInstruction).toContain('Editron AI');
     expect(JSON.stringify(fixture.modelContents[0])).toContain('Add a bold white title');
+  });
+
+  it('requires the semantic script owner and forbids the legacy single-video tool', () => {
+    for (const id of ['multiasset-script-intake', 'multiasset-script-chat']) {
+      const scenario = getChatEditBattleScenario(id)!;
+      expect(scenario.prompt).toContain('Script:');
+      expect(scenario.requiredToolSequence).toEqual([
+        ['read_project_file', 'get_timeline_view'],
+        'apply_editorial_intent',
+      ]);
+      expect(scenario.forbiddenTools).toContain('auto_edit_from_script');
+      expect(scenario.requireRenderedEvidence).toBe(false);
+    }
+  });
+
+  it('recognizes a queued semantic-owner result without treating ordinary successful tools as queued', () => {
+    const queued = invocation('multiasset-script-chat', [{
+      id: 'intent',
+      name: 'apply_editorial_intent',
+      args: {},
+      startedAt: '2026-07-16T10:00:00.100Z',
+      completedAt: '2026-07-16T10:00:00.200Z',
+      output: successEnvelope({ dispatch: { status: 'queued' } }),
+    }]);
+    const immediate = invocation('explicit-text', [{
+      id: 'text',
+      name: 'add_overlay',
+      args: {},
+      startedAt: '2026-07-16T10:00:00.100Z',
+      completedAt: '2026-07-16T10:00:00.200Z',
+      output: successEnvelope({ overlayId: 'title-1' }),
+    }]);
+
+    expect(chatBattleInvocationQueuedProjectMutation(queued)).toBe(true);
+    expect(chatBattleInvocationQueuedProjectMutation(immediate)).toBe(false);
+  });
+
+  it('waits for material project state after a queued edit and reports timeout honestly', async () => {
+    const unchanged = project([]);
+    const changed = project([{ id: 'video-2', type: 'video', from: 0, durationInFrames: 300, row: 0 }]);
+    const baselineDigest = buildChatBattleProjectSnapshot(unchanged, 'mongo-before').digest;
+    let clock = 0;
+    const loadProject = vi.fn()
+      .mockResolvedValueOnce(unchanged)
+      .mockResolvedValueOnce(unchanged)
+      .mockResolvedValueOnce(changed);
+    const settled = await waitForQueuedProjectMutation({
+      projectId: 'proj_battle',
+      baselineDigest,
+      timeoutMs: 100,
+      pollIntervalMs: 10,
+    }, {
+      loadProject,
+      now: () => clock,
+      sleep: async (milliseconds) => { clock += milliseconds; },
+    });
+
+    expect(settled).toMatchObject({ project: changed, changed: true, polls: 3 });
+
+    const timedOut = await waitForQueuedProjectMutation({
+      projectId: 'proj_battle',
+      baselineDigest,
+      timeoutMs: 0,
+      pollIntervalMs: 10,
+    }, {
+      loadProject: vi.fn(async () => unchanged),
+      now: () => 0,
+      sleep: vi.fn(async () => undefined),
+    });
+    expect(timedOut).toMatchObject({ project: unchanged, changed: false, polls: 1 });
   });
 
   it('does not let the static scenario registry count as battle evidence', () => {
