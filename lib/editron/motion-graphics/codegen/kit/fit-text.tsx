@@ -86,7 +86,10 @@ export const FitHeadline: React.FC<{
   startAt?: number;
   kinetic?: 'rise' | 'chars' | 'none';
   align?: 'left' | 'center' | 'right';
-}> = ({ brand, text, accentWords = [], face = 'sans', size = 'xl', maxLines, startAt = 0, kinetic = 'rise', align = 'left' }) => {
+  /** 100..900 — override the SANS headline weight (the type-weight axis: light-editorial ↔ heavy-punchy).
+   *  The display face is single-weight (Anton) and ignores this — face='display' IS the heavy anchor. */
+  weight?: number;
+}> = ({ brand, text, accentWords = [], face = 'sans', size = 'xl', maxLines, startAt = 0, kinetic = 'rise', align = 'left', weight: weightProp }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const { wPx } = useRegionSize();
@@ -96,7 +99,7 @@ export const FitHeadline: React.FC<{
   // bold-statement / kinetic-punch look. 'sans' (default) = the brand's normal sans.
   const display = face === 'display';
   const fontFamily = display ? (brand.fontDisplay ?? 'Anton, sans-serif') : brand.fontSans;
-  const weight = display ? 700 : brand.type.headingWeight;
+  const weight = display ? 700 : Math.max(100, Math.min(900, weightProp ?? brand.type.headingWeight));
   const trEm = display ? -0.01 : (parseFloat(brand.type.tracking) || -0.02);
   const shown = display ? text.toUpperCase() : text;
   const px = fitSize(shown, wPx, lines, cap.frac * (wPx / 0.9) /* cap relative to region */, weight, trEm, display, display);

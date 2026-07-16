@@ -25,7 +25,7 @@ LAYOUT (positions are FRACTIONS of the title-safe region; px positioning is forb
 <Bleed>...</Bleed>                              // full-frame layer for IMAGERY/SHAPES only — text is rejected inside
 
 TEXT (the only way words render — size & colour COMPUTED, never passed):
-<FitHeadline brand text accentWords={["word"]} face="sans|display" size="display|xl|l|m|s" kinetic="rise|chars|none" startAt align/>  // face="display" = heavy CONDENSED ALL-CAPS impact face (bold-statement / kinetic-punch look); "sans"=brand sans (default)
+<FitHeadline brand text accentWords={["word"]} face="sans|display" weight={100..900} size="display|xl|l|m|s" kinetic="rise|chars|none" startAt align/>  // face="display" = heavy CONDENSED ALL-CAPS impact (bold-statement/kinetic-punch); "sans"=brand sans (default). weight = sans thickness (light-editorial↔heavy); display is single-weight (ignores it)
 <TextBlock brand text tone="text|muted|accent" size="m|s" startAt align/>
 <Chip brand text tone="ghost|accent" startAt/>
 

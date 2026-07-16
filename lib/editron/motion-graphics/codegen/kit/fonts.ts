@@ -28,7 +28,8 @@ import { loadFont as loadAnton } from '@remotion/google-fonts/Anton';
 import { loadFont as loadMontserrat } from '@remotion/google-fonts/Montserrat';
 
 const { fontFamily: sans } = loadPlusJakartaSans('normal', {
-  weights: ['300', '400', '500', '600', '700', '800'],
+  // 200..800 = Plus Jakarta's full range → the type-weight axis (FitHeadline weight) spans ExtraLight→ExtraBold.
+  weights: ['200', '300', '400', '500', '600', '700', '800'],
   subsets: ['latin'],
 });
 const { fontFamily: mono } = loadJetBrainsMono('normal', {
