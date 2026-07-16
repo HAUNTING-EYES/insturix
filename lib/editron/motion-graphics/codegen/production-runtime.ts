@@ -25,7 +25,7 @@ import {
   type MgRenderInput,
   type MgRenderResult,
 } from './render/frame-renderer';
-import { mgRenderSanityGate } from './mg-placement-gate';
+import { mgRenderSanityGate, mgMotionPresenceGate } from './mg-placement-gate';
 
 type RenderFn = (input: MgRenderInput, opts?: ProductionMgRuntimeOptions['renderOpts']) => Promise<MgRenderResult>;
 type CleanupFn = (workspaceDir: string) => Promise<void>;
@@ -495,8 +495,16 @@ async function runMgRenderSanityGate(render: MgRenderResult, moment: MgMomentInp
   const indices = sampleIndices(render.files.length, moment.brand);
   const settledHold = indices[indices.length - 1]; // settled-hold = fullest presence, before the exit-out release
   const frame = await fs.readFile(path.join(render.webpDir, render.files[settledHold]));
-  const { pass, reasons } = await mgRenderSanityGate(frame);
-  return { pass, reasons };
+  const sanity = await mgRenderSanityGate(frame);
+  // Taste-gate floor, check 2: MOTION PRESENCE across the sequence — fail a component that renders fine but sits
+  // FROZEN (the "static / no motion" failure). Read a spread of ~6 frames; the measure + threshold live in the
+  // gate module. Objective (not taste): a frozen render is broken at every point of the chip→full-frame spectrum.
+  if (render.files.length < 2) return sanity; // can't judge motion on a single frame — leave it to sanity + judge
+  const n = Math.min(6, render.files.length);
+  const motionIdx = Array.from({ length: n }, (_, k) => Math.round((k / (n - 1)) * (render.files.length - 1)));
+  const motionFrames = await Promise.all(motionIdx.map((i) => fs.readFile(path.join(render.webpDir, render.files[i]))));
+  const motion = await mgMotionPresenceGate(motionFrames);
+  return { pass: sanity.pass && motion.pass, reasons: [...sanity.reasons, ...motion.reasons] };
 }
 
 export function createProductionMgRuntime(

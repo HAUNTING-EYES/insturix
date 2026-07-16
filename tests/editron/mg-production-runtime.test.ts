@@ -78,16 +78,17 @@ async function fakeRender() {
   }).webp().toFile(path.join(webpDir, file))));
   return { webpDir, files, workspaceDir, width: 320, height: 180, fps: 30, count: 3, renderMs: 12 };
 }
-/** Deterministic full-frame render at a fixed alpha — every frame identical, so the guard's settled-hold pick is
- *  irrelevant. alpha 1 = a solid plate (guard fails, hides footage); alpha 0.3 = translucent (guard passes). */
+/** Full-frame render at a fixed ALPHA (sets the sanity semantics) with a subtle per-frame COLOUR shift so the
+ *  fixture ANIMATES like a real render (passes the motion-presence floor). alpha 1 = a solid plate (guard fails,
+ *  hides footage); alpha 0.3 = translucent (guard passes). The colour shift never touches the alpha check. */
 async function solidFrames(prefix: string, alpha: number) {
   const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   tempDirs.push(workspaceDir);
   const webpDir = path.join(workspaceDir, 'webp');
   await fs.mkdir(webpDir);
   const files = ['00000.webp', '00001.webp', '00002.webp'];
-  await Promise.all(files.map((file) => sharp({
-    create: { width: 320, height: 180, channels: 4, background: { r: 212, g: 166, b: 82, alpha } },
+  await Promise.all(files.map((file, index) => sharp({
+    create: { width: 320, height: 180, channels: 4, background: { r: 212, g: 120 + 46 * (index / (files.length - 1)), b: 82, alpha } },
   }).webp({ lossless: true }).toFile(path.join(webpDir, file))));
   return { webpDir, files, workspaceDir, width: 320, height: 180, fps: 30, count: 3, renderMs: 12 };
 }

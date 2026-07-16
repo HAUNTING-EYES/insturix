@@ -128,3 +128,66 @@ export async function mgRenderSanityGate(
   });
   return { ...evaluateMgRenderSanity(metrics, thresholds), metrics };
 }
+
+// ─── Taste-gate deterministic floor, check 2: MOTION PRESENCE ───
+// The sanity guard sees ONE frame; a component can render fine and just SIT there (the "static / no motion"
+// failure). This is the objective, no-taste check across the SEQUENCE: if consecutive frames are ~identical,
+// nothing is animating. Motion presence ≠ good motion (that's the judge's job), but a frozen render is broken.
+
+/** Minimum mean frame-to-frame change (0-1, all channels incl alpha) for the render to count as ANIMATED. Below
+ *  this the graphic is effectively frozen. ⚠ craft-tuned — calibrate on real static-vs-animated renders. */
+export const MIN_MG_MOTION_PRESENCE = 0.004;
+
+/** PURE: given a measured motion score, decide pass/fail. Unit-testable with a synthetic number, no rendering. */
+export function evaluateMgMotionPresence(
+  motion: number,
+  min: number = MIN_MG_MOTION_PRESENCE,
+): { pass: boolean; reasons: string[] } {
+  if (!(motion >= min)) {
+    return { pass: false, reasons: [`the graphic barely moves (motion ${motion.toFixed(4)} < ${min}) — a static/frozen render`] };
+  }
+  return { pass: true, reasons: [] };
+}
+
+/**
+ * IMPURE: mean frame-to-frame change across the sequence (0-1). Samples up to `maxSamples` evenly-spaced frames,
+ * downscales each to a tiny RGBA thumbnail, and averages the mean absolute per-channel delta between consecutive
+ * samples (alpha included, so a fade counts as motion). Near-0 = the frames are ~identical = nothing animates.
+ * Needs >= 2 frames; returns 0 for fewer (a single-frame "sequence" can't be judged for motion).
+ */
+export async function measureMgMotionPresence(
+  frames: Buffer[],
+  opts: { maxSamples?: number; sampleWidth?: number } = {},
+): Promise<number> {
+  if (frames.length < 2) return 0;
+  const width = opts.sampleWidth ?? 48;
+  const n = Math.min(Math.max(2, opts.maxSamples ?? 6), frames.length);
+  const idxs = Array.from({ length: n }, (_, k) => Math.round((k / (n - 1)) * (frames.length - 1)));
+  const thumbs: Buffer[] = [];
+  for (const i of idxs) {
+    const { data } = await sharp(frames[i]).ensureAlpha().resize({ width, fit: 'fill', kernel: 'nearest' }).raw().toBuffer({ resolveWithObject: true });
+    thumbs.push(data);
+  }
+  let total = 0;
+  let comparisons = 0;
+  for (let k = 1; k < thumbs.length; k += 1) {
+    const a = thumbs[k - 1];
+    const b = thumbs[k];
+    const len = Math.min(a.length, b.length);
+    if (!len) continue;
+    let sum = 0;
+    for (let j = 0; j < len; j += 1) sum += Math.abs(a[j] - b[j]);
+    total += sum / len / 255;
+    comparisons += 1;
+  }
+  return comparisons ? total / comparisons : 0;
+}
+
+/** Measure motion across the rendered sequence + apply the floor check. */
+export async function mgMotionPresenceGate(
+  frames: Buffer[],
+  min: number = MIN_MG_MOTION_PRESENCE,
+): Promise<{ pass: boolean; reasons: string[]; motion: number }> {
+  const motion = await measureMgMotionPresence(frames);
+  return { ...evaluateMgMotionPresence(motion, min), motion };
+}
