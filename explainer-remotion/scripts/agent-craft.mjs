@@ -80,7 +80,10 @@ function readModuleExports(file) {
 const MODULE_EXPORTS = Object.fromEntries(Object.entries(MODULE_FILES).map(([mod, f]) => [mod, readModuleExports(f)]));
 const PALETTE_BLOCK = Object.entries(MODULE_EXPORTS).map(([mod, ex]) => `    ${mod} → ${ex.join(', ')}`).join('\n');
 
-const ENTRY = 'src/index.ts';
+// Proof renders bundle the MINIMAL proof entry (only the Gen-Proof composition), not the whole app — this is the
+// big speed win: each re-bundle drops from ~1-2 min to seconds. The final film still renders from the full Root
+// on Lambda (lambda-render.mjs), which is a one-time render.
+const ENTRY = 'src/proof-index.ts';
 const PROOF_ID = 'Gen-Proof';
 const PROOF_DUR = 400; // Gen-Proof composition length (frames)
 const client = IS_OPENAI_COMPAT ? null : new Anthropic({apiKey: KEY});
@@ -229,6 +232,24 @@ function staticCheck(code) {
         return `"${name}" is not exported from ${m[2]}. The ONLY exports of ${m[2]} are: ${known.join(', ')}. Use a real one (or a react/remotion primitive) — inventing names crashes the render (React #130).`;
       }
     }
+  }
+  // Every remotion API the code USES must be imported from 'remotion' — else it's a ReferenceError at render
+  // ("useCurrentFrame is not defined"). Fast models often use the right hook but forget the import line; catch it
+  // statically and make them add it (a ~1-line fix), instead of wasting a render + retry.
+  const remotionImported = new Set();
+  for (const m of code.matchAll(/import\s*\{([^}]+)\}\s*from\s*['"]remotion['"]/g))
+    for (const n of m[1].split(',')) { const nm = n.trim().split(/\s+as\s+/)[0].trim(); if (nm) remotionImported.add(nm); }
+  const REMOTION_USES = [
+    ['useCurrentFrame', /\buseCurrentFrame\s*\(/], ['useVideoConfig', /\buseVideoConfig\s*\(/],
+    ['interpolate', /\binterpolate\s*\(/], ['interpolateColors', /\binterpolateColors\s*\(/],
+    ['spring', /\bspring\s*\(/], ['staticFile', /\bstaticFile\s*\(/], ['Easing', /\bEasing\./],
+    ['AbsoluteFill', /<AbsoluteFill[\s/>]/], ['Sequence', /<Sequence[\s/>]/], ['Series', /<Series[\s./>]/],
+    ['Img', /<Img[\s/>]/], ['OffthreadVideo', /<OffthreadVideo[\s/>]/], ['Video', /<Video[\s/>]/],
+    ['Audio', /<Audio[\s/>]/], ['Loop', /<Loop[\s/>]/], ['Freeze', /<Freeze[\s/>]/],
+  ];
+  const missingRemotion = REMOTION_USES.filter(([name, re]) => re.test(code) && !remotionImported.has(name)).map(([n]) => n);
+  if (missingRemotion.length) {
+    return `You use these remotion APIs but never import them: ${missingRemotion.join(', ')}. Add them to a single \`import {${missingRemotion.join(', ')}} from 'remotion';\` at the top — using a remotion export without importing it is a ReferenceError at render.`;
   }
   // Correctness-only gate (NOT a style cage): the ONE class of thing that breaks a deterministic render.
   // Everything about LOOK/BRAND/COMPOSITION is judged by the vision loop, not statically — Opus has eyes.
