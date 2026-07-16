@@ -415,6 +415,7 @@ describe('production MG codegen runtime', () => {
     const judgePrompt = generateContent.mock.calls[0][0].contents[0].parts[0].text;
     expect(judgePrompt).toContain('CRAFT DIMENSIONS');
     expect(judgePrompt).toContain('RESTRAINT IS CRAFT');
+    expect(judgePrompt).toContain('PROFESSIONAL BAR'); // layer-3a reference-anchor bar (Vox/Hormozi/Gadzhi/competitive floor)
     const schema = generateContent.mock.calls[0][0].generationConfig.responseSchema;
     expect(schema.required).toEqual(expect.arrayContaining(['hierarchy', 'typography', 'color', 'composition', 'motion', 'score']));
     await runtime.dispose();
