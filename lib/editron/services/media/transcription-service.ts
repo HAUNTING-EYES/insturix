@@ -37,6 +37,35 @@ type TranscriptionProviderCostInput = {
   error?: unknown;
 };
 
+export function hasUsableWordTimings(transcription: unknown): transcription is TranscriptionData {
+  if (!transcription || typeof transcription !== 'object') return false;
+  const words = (transcription as { words?: unknown }).words;
+  if (!Array.isArray(words) || words.length === 0) return false;
+
+  let timedWordCount = 0;
+  let previousStartMs = -Infinity;
+  for (const rawWord of words) {
+    if (!rawWord || typeof rawWord !== 'object') return false;
+    const word = rawWord as { word?: unknown; startMs?: unknown; endMs?: unknown };
+    if (typeof word.word !== 'string' || !word.word.trim()) continue;
+    if (
+      typeof word.startMs !== 'number'
+      || !Number.isFinite(word.startMs)
+      || word.startMs < 0
+      || typeof word.endMs !== 'number'
+      || !Number.isFinite(word.endMs)
+      || word.endMs <= word.startMs
+      || word.startMs < previousStartMs
+    ) {
+      return false;
+    }
+    timedWordCount += 1;
+    previousStartMs = word.startMs;
+  }
+
+  return timedWordCount > 0;
+}
+
 function getErrorClass(error: unknown): string | undefined {
   if (!error) return undefined;
   return error instanceof Error ? error.name : typeof error;
@@ -111,10 +140,15 @@ export async function getTranscription(
     throw new Error(`Asset ${assetId} is type '${asset.type}', not video or audio`);
   }
 
-  // Return cached if exists and not forcing refresh
+  // A text-only cache is useful for reading, but unsafe for frame-addressed edits.
+  // When a caller requests word-level grounding, regenerate instead of fabricating
+  // frames from word order or returning stale segment-only timing.
   if (asset.transcription && !options.forceRefresh) {
-    console.log(`[Transcription] Using cached transcription for ${assetId}: ${asset.transcription.words?.length || 0} words`);
-    return asset.transcription;
+    if (!options.preferWordLevel || hasUsableWordTimings(asset.transcription)) {
+      console.log(`[Transcription] Using cached transcription for ${assetId}: ${asset.transcription.words?.length || 0} words`);
+      return asset.transcription;
+    }
+    console.warn(`[Transcription] Cached transcript for ${assetId} has no usable word alignment; regenerating word timings.`);
   }
   
   // Generate new transcription
@@ -123,9 +157,13 @@ export async function getTranscription(
     userId,
   });
   
+  if (options.preferWordLevel && !hasUsableWordTimings(transcription)) {
+    throw new Error(`Transcription for ${assetId} did not produce usable word-level timing.`);
+  }
+
   // Cache to database
   await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-    { assetId },
+    { assetId, userId },
     { $set: { transcription } }
   );
   
@@ -163,15 +201,15 @@ async function generateTranscription(
   language?: string,
   options?: { preferWordLevel?: boolean; userId?: string }
 ): Promise<TranscriptionData> {
-  const { refreshSignedUrl } = await import('../gcs-service');
-
-  // --- Strategy 1: Synthetic timings from known narration text ----
-  // For ThinkForge-generated voiceovers, we already know the exact text.
-  // No transcription needed - instant, free, always accurate.
+  // Synthetic timing is suitable for non-precision reading/caption previews only.
+  // Frame-addressed edits require measured ASR timing even when narration text is known.
   const narrationText = await getNarrationTextForAsset(asset.assetId);
-  if (narrationText) {
+  if (narrationText && !options?.preferWordLevel) {
     console.log(`[Transcription] Using synthetic timings from narration text for ${asset.assetId}`);
     return generateSyntheticTimings(narrationText, asset);
+  }
+  if (narrationText) {
+    console.log(`[Transcription] Known narration found for ${asset.assetId}; measuring real word timing for precision grounding.`);
   }
 
   // --- Mode 2: Grok STT for real footage (word-level timestamps) --
@@ -190,6 +228,7 @@ async function generateTranscription(
       try {
         let mediaUrl = asset.cachedUrl;
         if (!mediaUrl && asset.gcsPath) {
+          const { refreshSignedUrl } = await import('../gcs-service');
           const signed = await refreshSignedUrl(asset.gcsPath);
           mediaUrl = signed.url;
         }
@@ -332,6 +371,7 @@ async function generateTranscription(
 
   if (asset.gcsPath) {
     try {
+      const { refreshSignedUrl } = await import('../gcs-service');
       const { url } = await refreshSignedUrl(asset.gcsPath);
       mediaUrl = url;
     } catch (refreshErr: any) {

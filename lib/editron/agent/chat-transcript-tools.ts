@@ -2,6 +2,10 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
 import type { TranscriptionWord } from "../services/media/types";
+import {
+  searchCanonicalChatEvidence,
+  type CanonicalChatEvidenceCandidate,
+} from "../services/chat-multimodal-evidence";
 
 type OverlayId = string | number;
 
@@ -21,6 +25,19 @@ export interface TranscriptSearchWord {
   };
 }
 
+export type TranscriptMomentSource = TranscriptSearchWord["source"] | {
+  type: "multimodal-evidence";
+  overlayId?: OverlayId;
+  assetId: string;
+  overlayType?: string;
+  evidenceId: string;
+  auditId: string;
+  path: string;
+  scores: CanonicalChatEvidenceCandidate["scores"];
+  missingModalities: string[];
+  rejectionReasons: string[];
+};
+
 export interface TranscriptMomentCandidate {
   text: string;
   startFrame: number;
@@ -30,10 +47,10 @@ export interface TranscriptMomentCandidate {
   durationFrames: number;
   confidence: number;
   confidenceLabel: "high" | "medium" | "low";
-  matchType: "phrase" | "fuzzy" | "lexical-vector";
+  matchType: "phrase" | "fuzzy" | "lexical-vector" | "multimodal-semantic";
   matchReasons: string[];
   surroundingWords: string;
-  source: TranscriptSearchWord["source"];
+  source: TranscriptMomentSource;
   wordIndexes: number[];
   safeForAutoEdit: boolean;
   useWith: {
@@ -54,6 +71,7 @@ export interface TranscriptEditResolveOptions extends TranscriptMomentOptions {
   action?: TranscriptEditAction;
   minGapFrames?: number;
   maxCutFrames?: number;
+  precomputedCandidates?: TranscriptMomentCandidate[];
 }
 
 export interface TranscriptEditResolution {
@@ -171,10 +189,15 @@ export function createChatTranscriptTools({ userId, projectId }: CreateChatTrans
         videoOverlayId: input.videoOverlayId,
         getTranscription: media.getTranscription,
       });
-      const candidates = findTranscriptMomentCandidates(words, input.query, {
+      const lexicalCandidates = findTranscriptMomentCandidates(words, input.query, {
         limit: input.limit,
         minConfidence: input.minConfidence,
       });
+      const retrieval = await enrichTranscriptCandidatesWithCanonicalEvidence({
+        project, projectId, userId, query: input.query, fps,
+        overlayId: input.videoOverlayId, limit: input.limit, lexicalCandidates,
+      });
+      const candidates = retrieval.candidates;
 
       return JSON.stringify({
         status: "success",
@@ -183,6 +206,7 @@ export function createChatTranscriptTools({ userId, projectId }: CreateChatTrans
           searchedWordCount: words.length,
           returned: candidates.length,
           candidates,
+          canonicalEvidence: retrieval.audit,
           message: candidates.length
             ? `Found ${candidates.length} transcript moment candidate(s). Use startFrame/endFrame directly when confidence is high.`
             : `No transcript moment matched "${input.query}". Ask once for a clearer phrase or use get_video_transcription for broader context.`,
@@ -215,12 +239,21 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
         videoOverlayId: input.videoOverlayId,
         getTranscription: media.getTranscription,
       });
+      const lexicalCandidates = findTranscriptMomentCandidates(words, input.query, {
+        limit: input.limit,
+        minConfidence: input.minConfidence,
+      });
+      const retrieval = await enrichTranscriptCandidatesWithCanonicalEvidence({
+        project, projectId, userId, query: input.query, fps,
+        overlayId: input.videoOverlayId, limit: input.limit, lexicalCandidates,
+      });
       const plan = resolveTranscriptEditRange(words, input.query, {
         action: input.action,
         limit: input.limit,
         minConfidence: input.minConfidence,
         minGapFrames: input.minGapFrames,
         maxCutFrames: input.maxCutFrames,
+        precomputedCandidates: retrieval.candidates,
       });
 
       return JSON.stringify({
@@ -228,6 +261,7 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
         data: {
           ...plan,
           searchedWordCount: words.length,
+          canonicalEvidence: retrieval.audit,
         },
         message: plan.message,
       });
@@ -286,6 +320,133 @@ Use before transcript-anchored sticker requests like "add a sparkle sticker near
   );
 
   return [findTranscriptMoment, resolveTranscriptEdit, resolveStickerOverlay];
+}
+
+async function enrichTranscriptCandidatesWithCanonicalEvidence(input: {
+  project: unknown;
+  projectId: string;
+  userId: string;
+  query: string;
+  fps: number;
+  overlayId?: OverlayId;
+  limit: number;
+  lexicalCandidates: TranscriptMomentCandidate[];
+}): Promise<{
+  candidates: TranscriptMomentCandidate[];
+  audit: {
+    mode: "lexical-exact" | "canonical-multimodal";
+    auditId: string | null;
+    analyzedDocumentCount: number;
+    embeddedDocumentCount: number;
+  };
+}> {
+  if (input.lexicalCandidates.some((candidate) => candidate.safeForAutoEdit && candidate.matchType === "phrase")) {
+    return {
+      candidates: input.lexicalCandidates,
+      audit: {
+        mode: "lexical-exact",
+        auditId: null,
+        analyzedDocumentCount: 0,
+        embeddedDocumentCount: 0,
+      },
+    };
+  }
+
+  const evidence = await searchCanonicalChatEvidence({
+    projectId: input.projectId,
+    userId: input.userId,
+    project: input.project,
+    query: input.query,
+    intent: "transcript",
+    overlayId: input.overlayId,
+    limit: input.limit,
+  });
+  const semanticCandidates = evidence.candidates
+    .filter((candidate) => candidate.accepted && candidate.startFrame != null && candidate.endFrame != null)
+    .map((candidate) => canonicalTranscriptCandidate(candidate, evidence.auditId, input.query, input.fps));
+  return {
+    candidates: mergeTranscriptCandidates(input.lexicalCandidates, semanticCandidates, input.limit),
+    audit: {
+      mode: "canonical-multimodal",
+      auditId: evidence.auditId,
+      analyzedDocumentCount: evidence.analyzedDocumentCount,
+      embeddedDocumentCount: evidence.embeddedDocumentCount,
+    },
+  };
+}
+
+function canonicalTranscriptCandidate(
+  candidate: CanonicalChatEvidenceCandidate,
+  auditId: string,
+  query: string,
+  fps: number,
+): TranscriptMomentCandidate {
+  const startFrame = candidate.startFrame!;
+  const endFrame = Math.max(startFrame + 1, candidate.endFrame!);
+  const text = candidate.transcriptText || candidate.text;
+  return {
+    text,
+    startFrame,
+    endFrame,
+    startMs: Math.round(startFrame / fps * 1_000),
+    endMs: Math.round(endFrame / fps * 1_000),
+    durationFrames: endFrame - startFrame,
+    confidence: round3(candidate.score),
+    confidenceLabel: candidate.score >= 0.75 ? "high" : candidate.score >= 0.5 ? "medium" : "low",
+    matchType: "multimodal-semantic",
+    matchReasons: [
+      `canonical-match=${candidate.matchType}`,
+      `text-semantic=${candidate.scores.textSemantic ?? "missing"}`,
+      `lexical=${candidate.scores.lexical}`,
+      `audit=${auditId}`,
+    ],
+    surroundingWords: candidate.transcriptText,
+    source: {
+      type: "multimodal-evidence",
+      ...(candidate.overlayId != null ? { overlayId: candidate.overlayId } : {}),
+      assetId: candidate.assetId,
+      ...(candidate.overlayType ? { overlayType: candidate.overlayType } : {}),
+      evidenceId: candidate.evidenceId,
+      auditId,
+      path: candidate.sourcePaths.join(" | "),
+      scores: candidate.scores,
+      missingModalities: candidate.missingModalities,
+      rejectionReasons: candidate.rejectionReasons,
+    },
+    wordIndexes: [],
+    safeForAutoEdit: false,
+    useWith: {
+      cut_section: {
+        startFrame,
+        endFrame,
+        note: "Semantic segment evidence only. Resolve an exact word range or ask the user before cutting.",
+      },
+      add_captions: { startFrame, endFrame, text },
+      add_motion_graphic: { frame: startFrame, text: truncate(query, 80) },
+      add_sfx: { frame: startFrame, sync: "word-start" },
+      set_keyframes: { frame: startFrame, note: "Inspect this semantic moment before applying keyframes." },
+    },
+  };
+}
+
+function mergeTranscriptCandidates(
+  lexical: TranscriptMomentCandidate[],
+  semantic: TranscriptMomentCandidate[],
+  limit: number,
+): TranscriptMomentCandidate[] {
+  const candidates = new Map<string, TranscriptMomentCandidate>();
+  for (const candidate of [...lexical, ...semantic]) {
+    const key = `${String(candidate.source.overlayId ?? "")}:${candidate.startFrame}:${candidate.endFrame}`;
+    const existing = candidates.get(key);
+    if (!existing || candidate.safeForAutoEdit || (!existing.safeForAutoEdit && candidate.confidence > existing.confidence)) {
+      candidates.set(key, candidate);
+    }
+  }
+  return [...candidates.values()]
+    .sort((left, right) => Number(right.safeForAutoEdit) - Number(left.safeForAutoEdit)
+      || right.confidence - left.confidence
+      || left.startFrame - right.startFrame)
+    .slice(0, clampInt(limit, 1, 12));
 }
 
 export function findTranscriptMomentCandidates(
@@ -373,10 +534,10 @@ export function resolveTranscriptEditRange(
   options: TranscriptEditResolveOptions = {},
 ): TranscriptEditResolution {
   const action = options.action ?? "cut_after_phrase";
-  const candidates = findTranscriptMomentCandidates(words, query, {
-    limit: options.limit ?? 5,
-    minConfidence: options.minConfidence ?? 0.42,
-  });
+  const candidates = options.precomputedCandidates ?? findTranscriptMomentCandidates(words, query, {
+      limit: options.limit ?? 5,
+      minConfidence: options.minConfidence ?? 0.42,
+    });
   const warnings: string[] = [];
 
   if (!candidates.length) {
@@ -586,8 +747,9 @@ function resolvePostPhraseGap(
 
 function sameTranscriptSource(
   left: TranscriptSearchWord["source"],
-  right: TranscriptSearchWord["source"],
+  right: TranscriptMomentSource,
 ): boolean {
+  if (right.type === "multimodal-evidence") return false;
   return left.type === right.type
     && String(left.overlayId ?? "") === String(right.overlayId ?? "")
     && String(left.assetId ?? "") === String(right.assetId ?? "");
@@ -649,28 +811,38 @@ function mapMediaWordsToTimeline(
   const sourceStartFrame = finiteFrame(overlay?.sourceStartFrame ?? overlay?.videoStartTime ?? overlay?.audioStartFrame);
   const overlayType = stringValue(overlay?.type) ?? "video";
 
-  return transcriptionWords
-    .map((word) => {
-      const startSourceFrame = Math.round((word.startMs / 1000) * fps);
-      const endSourceFrame = Math.max(startSourceFrame + 1, Math.round((word.endMs / 1000) * fps));
-      const startFrame = clipFrom + (startSourceFrame - sourceStartFrame);
-      const endFrame = clipFrom + (endSourceFrame - sourceStartFrame);
-      return {
-        word: word.word,
-        startMs: Math.round((startFrame / fps) * 1000),
-        endMs: Math.round((endFrame / fps) * 1000),
-        startFrame,
-        endFrame,
-        confidence: word.confidence,
-        speaker: word.speaker,
-        source: {
-          type: overlayType === "audio" || overlayType === "sound" ? "audio-transcription" : "video-transcription",
-          overlayId: overlay?.id,
-          assetId,
-          overlayType,
-        },
-      } satisfies TranscriptSearchWord;
-    })
+  const mapped: TranscriptSearchWord[] = [];
+  for (const word of transcriptionWords) {
+    if (
+      !Number.isFinite(word.startMs)
+      || !Number.isFinite(word.endMs)
+      || word.startMs < 0
+      || word.endMs <= word.startMs
+    ) {
+      continue;
+    }
+    const startSourceFrame = Math.round((word.startMs / 1000) * fps);
+    const endSourceFrame = Math.max(startSourceFrame + 1, Math.round((word.endMs / 1000) * fps));
+    const startFrame = clipFrom + (startSourceFrame - sourceStartFrame);
+    const endFrame = clipFrom + (endSourceFrame - sourceStartFrame);
+    mapped.push({
+      word: word.word,
+      startMs: Math.round((startFrame / fps) * 1000),
+      endMs: Math.round((endFrame / fps) * 1000),
+      startFrame,
+      endFrame,
+      confidence: word.confidence,
+      speaker: word.speaker,
+      source: {
+        type: overlayType === "audio" || overlayType === "sound" ? "audio-transcription" : "video-transcription",
+        overlayId: overlay?.id,
+        assetId,
+        overlayType,
+      },
+    });
+  }
+
+  return mapped
     .filter((word) => word.endFrame > clipFrom && word.startFrame < clipFrom + clipDuration)
     .map((word) => ({
       ...word,
@@ -690,10 +862,18 @@ function extractCaptionWords(overlay: any, fps: number): TranscriptSearchWord[] 
     for (const rawWord of (node as any).words) {
       const text = stringValue(rawWord?.word ?? rawWord?.text ?? rawWord?.content);
       if (!text) continue;
-      const startFrame = readWordFrame(rawWord, ["startFrame", "from"], overlayFrom, fps);
-      const endFrame = readWordFrame(rawWord, ["endFrame", "to"], startFrame + Math.round(0.18 * fps), fps);
+      const startFrame = readWordFrame(
+        rawWord,
+        ["startFrame", "from"],
+        ["startMs"],
+        ["startSec", "startSeconds", "start"],
+        fps,
+      );
+      const endFrame = readWordFrame(rawWord, ["endFrame", "to"], ["endMs"], ["endSec", "endSeconds", "end"], fps);
+      if (startFrame == null || endFrame == null || endFrame <= startFrame) continue;
       const clampedStart = clampInt(startFrame, overlayFrom, overlayEnd);
-      const clampedEnd = clampInt(Math.max(endFrame, clampedStart + 1), overlayFrom, overlayEnd);
+      const clampedEnd = clampInt(endFrame, overlayFrom, overlayEnd);
+      if (clampedEnd <= clampedStart) continue;
       words.push({
         word: text,
         startMs: Math.round((clampedStart / fps) * 1000),
@@ -846,19 +1026,32 @@ function tokenize(value: string): string[] {
 }
 
 function normalizeToken(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, "");
 }
 
-function readWordFrame(rawWord: any, frameKeys: string[], fallbackFrame: number, fps: number): number {
+function readWordFrame(
+  rawWord: any,
+  frameKeys: string[],
+  millisecondKeys: string[],
+  secondKeys: string[],
+  fps: number,
+): number | undefined {
   for (const key of frameKeys) {
     const value = integerValue(rawWord?.[key]);
     if (typeof value === "number") return value;
   }
-  const startMs = numberValue(rawWord?.startMs ?? rawWord?.start);
-  if (typeof startMs === "number") {
-    return Math.round(startMs > 1000 ? (startMs / 1000) * fps : startMs * fps);
+  for (const key of millisecondKeys) {
+    const value = numberValue(rawWord?.[key]);
+    if (typeof value === "number") return Math.round((value / 1000) * fps);
   }
-  return fallbackFrame;
+  for (const key of secondKeys) {
+    const value = numberValue(rawWord?.[key]);
+    if (typeof value === "number") return Math.round(value * fps);
+  }
+  return undefined;
 }
 
 function isMediaOverlay(overlay: any): boolean {
@@ -920,6 +1113,10 @@ function clampInt(value: number, min: number, max: number): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function truncate(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 3)).trim()}...`;
 }
 
 function round3(value: number): number {

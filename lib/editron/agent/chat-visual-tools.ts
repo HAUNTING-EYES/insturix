@@ -2,6 +2,10 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
 import { DEFAULT_CONFIG } from "../config/editron-config";
+import {
+  searchCanonicalChatEvidence,
+  type CanonicalChatEvidenceCandidate,
+} from "../services/chat-multimodal-evidence";
 
 type OverlayId = string | number;
 
@@ -38,16 +42,21 @@ export interface VisualMomentCandidate {
   durationFrames: number;
   confidence: number;
   confidenceLabel: "high" | "medium" | "low";
-  matchType: "exact-phrase" | "token-overlap" | "character-vector";
+  matchType: "exact-phrase" | "token-overlap" | "character-vector" | "multimodal-semantic";
   matchReasons: string[];
   evidenceText: string;
   boundingBox?: VisualBoundingBox;
   source: {
-    type: "overlay" | "analysis";
+    type: "overlay" | "analysis" | "multimodal-evidence";
     overlayId?: OverlayId;
     assetId?: string;
     overlayType?: string;
     path: string;
+    evidenceId?: string;
+    auditId?: string;
+    scores?: CanonicalChatEvidenceCandidate["scores"];
+    missingModalities?: string[];
+    rejectionReasons?: string[];
   };
   safeForAutoEdit: boolean;
   useWith: {
@@ -76,6 +85,7 @@ export type VisualEditResolutionStatus = "ready" | "no-match" | "ambiguous" | "n
 export interface VisualEditResolveOptions extends VisualMomentOptions {
   action?: VisualEditAction;
   durationFrames?: number;
+  precomputedCandidates?: VisualMomentCandidate[];
 }
 
 export interface VisualEditResolution {
@@ -638,12 +648,17 @@ export function createChatVisualTools({ userId, projectId }: CreateChatVisualToo
         videoOverlayId: input.videoOverlayId,
         includeOverlayText: input.includeOverlayText,
       });
-      const candidates = findVisualMomentCandidates(project, input.query, {
+      const lexicalCandidates = findVisualMomentCandidates(project, input.query, {
         videoOverlayId: input.videoOverlayId,
         limit: input.limit,
         minConfidence: input.minConfidence,
         includeOverlayText: input.includeOverlayText,
       });
+      const retrieval = await enrichVisualCandidatesWithCanonicalEvidence({
+        project, projectId, userId, query: input.query,
+        overlayId: input.videoOverlayId, limit: input.limit, lexicalCandidates,
+      });
+      const candidates = retrieval.candidates;
 
       return JSON.stringify({
         status: "success",
@@ -652,6 +667,7 @@ export function createChatVisualTools({ userId, projectId }: CreateChatVisualToo
           searchedEvidenceCount: evidence.length,
           returned: candidates.length,
           candidates,
+          canonicalEvidence: retrieval.audit,
           message: candidates.length
             ? `Found ${candidates.length} visual moment candidate(s). Use frame/startFrame/endFrame directly when confidence is high.`
             : `No stored visual evidence matched "${input.query}". Use analyze_clip_video/analyze_video_content first, or ask once for a clearer visual phrase.`,
@@ -676,6 +692,16 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
         videoOverlayId: input.videoOverlayId,
         includeOverlayText: input.includeOverlayText,
       });
+      const lexicalCandidates = findVisualMomentCandidates(project, input.query, {
+        videoOverlayId: input.videoOverlayId,
+        limit: input.limit,
+        minConfidence: input.minConfidence,
+        includeOverlayText: input.includeOverlayText,
+      });
+      const retrieval = await enrichVisualCandidatesWithCanonicalEvidence({
+        project, projectId, userId, query: input.query,
+        overlayId: input.videoOverlayId, limit: input.limit, lexicalCandidates,
+      });
       const plan = resolveVisualEditPlacement(project, input.query, {
         action: input.action,
         videoOverlayId: input.videoOverlayId,
@@ -683,6 +709,7 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
         minConfidence: input.minConfidence,
         includeOverlayText: input.includeOverlayText,
         durationFrames: input.durationFrames,
+        precomputedCandidates: retrieval.candidates,
       });
 
       return JSON.stringify({
@@ -690,6 +717,7 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
         data: {
           ...plan,
           searchedEvidenceCount: evidence.length,
+          canonicalEvidence: retrieval.audit,
         },
         message: plan.message,
       });
@@ -940,6 +968,130 @@ Writes only overlay.styles.filter, which is already consumed by the renderer. It
   );
 
   return [findVisualMoment, resolveVisualEdit, resolveKeyframeEdit, applyCameraShake, applySpeedRamp, applyFade, reorderLayer, moveRetimeOverlay, applyFilter];
+}
+
+async function enrichVisualCandidatesWithCanonicalEvidence(input: {
+  project: unknown;
+  projectId: string;
+  userId: string;
+  query: string;
+  overlayId?: OverlayId;
+  limit: number;
+  lexicalCandidates: VisualMomentCandidate[];
+}): Promise<{
+  candidates: VisualMomentCandidate[];
+  audit: {
+    mode: "lexical-exact" | "canonical-multimodal";
+    auditId: string | null;
+    analyzedDocumentCount: number;
+    embeddedDocumentCount: number;
+  };
+}> {
+  if (input.lexicalCandidates.some((candidate) => candidate.safeForAutoEdit && candidate.matchType === "exact-phrase")) {
+    return {
+      candidates: input.lexicalCandidates,
+      audit: {
+        mode: "lexical-exact",
+        auditId: null,
+        analyzedDocumentCount: 0,
+        embeddedDocumentCount: 0,
+      },
+    };
+  }
+
+  const evidence = await searchCanonicalChatEvidence({
+    projectId: input.projectId,
+    userId: input.userId,
+    project: input.project,
+    query: input.query,
+    intent: "visual",
+    overlayId: input.overlayId,
+    limit: input.limit,
+  });
+  const semanticCandidates = evidence.candidates
+    .filter((candidate) => candidate.accepted && candidate.startFrame != null && candidate.endFrame != null)
+    .map((candidate) => canonicalVisualCandidate(candidate, evidence.auditId, input.query));
+  return {
+    candidates: mergeVisualCandidates(input.lexicalCandidates, semanticCandidates, input.limit),
+    audit: {
+      mode: "canonical-multimodal",
+      auditId: evidence.auditId,
+      analyzedDocumentCount: evidence.analyzedDocumentCount,
+      embeddedDocumentCount: evidence.embeddedDocumentCount,
+    },
+  };
+}
+
+function canonicalVisualCandidate(
+  candidate: CanonicalChatEvidenceCandidate,
+  auditId: string,
+  query: string,
+): VisualMomentCandidate {
+  const startFrame = candidate.startFrame!;
+  const endFrame = Math.max(startFrame + 1, candidate.endFrame!);
+  const frame = Math.round((startFrame + endFrame) / 2);
+  return {
+    text: truncate(candidate.visualText || candidate.text, 140),
+    frame,
+    startFrame,
+    endFrame,
+    durationFrames: endFrame - startFrame,
+    confidence: round3(candidate.score),
+    confidenceLabel: confidenceLabel(candidate.score),
+    matchType: "multimodal-semantic",
+    matchReasons: [
+      `canonical-match=${candidate.matchType}`,
+      `text-semantic=${candidate.scores.textSemantic ?? "missing"}`,
+      `image-semantic=${candidate.scores.imageSemantic ?? "missing"}`,
+      `lexical=${candidate.scores.lexical}`,
+      `audit=${auditId}`,
+    ],
+    evidenceText: candidate.visualText || candidate.text,
+    ...(candidate.boundingBox ? { boundingBox: candidate.boundingBox } : {}),
+    source: {
+      type: "multimodal-evidence",
+      ...(candidate.overlayId != null ? { overlayId: candidate.overlayId } : {}),
+      assetId: candidate.assetId,
+      ...(candidate.overlayType ? { overlayType: candidate.overlayType } : {}),
+      path: candidate.sourcePaths.join(" | "),
+      evidenceId: candidate.evidenceId,
+      auditId,
+      scores: candidate.scores,
+      missingModalities: candidate.missingModalities,
+      rejectionReasons: candidate.rejectionReasons,
+    },
+    safeForAutoEdit: candidate.safeForAutomaticMutation,
+    useWith: {
+      cut_section: {
+        startFrame,
+        endFrame,
+        note: "Semantic visual segment only. Confirm the range before removing footage.",
+      },
+      add_motion_graphic: { frame, text: truncate(query, 80) },
+      set_keyframes: { frame, note: "Use as a visually grounded emphasis anchor after inspection." },
+      visual_inspect_frame: { frame, question: `Verify canonical visual match for: ${truncate(query, 80)}` },
+    },
+  };
+}
+
+function mergeVisualCandidates(
+  lexical: VisualMomentCandidate[],
+  semantic: VisualMomentCandidate[],
+  limit: number,
+): VisualMomentCandidate[] {
+  const candidates = new Map<string, VisualMomentCandidate>();
+  for (const candidate of [...lexical, ...semantic]) {
+    const key = `${String(candidate.source.overlayId ?? "")}:${candidate.startFrame}:${candidate.endFrame}`;
+    const existing = candidates.get(key);
+    if (!existing || candidate.safeForAutoEdit || (!existing.safeForAutoEdit && candidate.confidence > existing.confidence)) {
+      candidates.set(key, candidate);
+    }
+  }
+  return [...candidates.values()]
+    .sort((left, right) => Number(right.safeForAutoEdit) - Number(left.safeForAutoEdit)
+      || right.confidence - left.confidence
+      || left.startFrame - right.startFrame)
+    .slice(0, clampInt(limit, 1, 12));
 }
 
 export function resolveKeyframeEditParams(
@@ -2891,7 +3043,10 @@ export function findVisualMomentCandidates(
 
   return candidates.map((candidate, index) => ({
     ...candidate,
-    safeForAutoEdit: index === 0 && !ambiguous && candidate.confidence >= 0.78,
+    safeForAutoEdit: index === 0
+      && !ambiguous
+      && candidate.matchType === "exact-phrase"
+      && candidate.confidence >= 0.78,
   }));
 }
 
@@ -2901,12 +3056,12 @@ export function resolveVisualEditPlacement(
   options: VisualEditResolveOptions = {},
 ): VisualEditResolution {
   const action = options.action ?? "highlight";
-  const candidates = findVisualMomentCandidates(project, query, {
-    videoOverlayId: options.videoOverlayId,
-    limit: options.limit ?? 5,
-    minConfidence: options.minConfidence ?? 0.35,
-    includeOverlayText: options.includeOverlayText,
-  });
+  const candidates = options.precomputedCandidates ?? findVisualMomentCandidates(project, query, {
+      videoOverlayId: options.videoOverlayId,
+      limit: options.limit ?? 5,
+      minConfidence: options.minConfidence ?? 0.35,
+      includeOverlayText: options.includeOverlayText,
+    });
   const warnings: string[] = [];
 
   if (!candidates.length) {
@@ -2932,7 +3087,10 @@ export function resolveVisualEditPlacement(
     };
   }
 
-  if (!candidate.safeForAutoEdit) {
+  const semanticCutRequiresConfirmation = action === "cut_range"
+    && candidate.matchType === "multimodal-semantic";
+  const readOnlyInspection = action === "inspect";
+  if ((!candidate.safeForAutoEdit && !readOnlyInspection) || semanticCutRequiresConfirmation) {
     const second = candidates[1];
     return {
       status: "ambiguous",
