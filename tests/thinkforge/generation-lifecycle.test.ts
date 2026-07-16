@@ -34,7 +34,7 @@ describe('ThinkForge generation lifecycle', () => {
     expect(service).toContain('claimCommitOwnership');
     expect(service).toContain("commitPersisted || !isStreamClosed");
     expect(service.indexOf("terminalFailureMessage = 'Chat limit reached"))
-      .toBeLessThan(service.indexOf("await emitEvent('done', { sessionId: session?._id, quota })"));
+      .toBeLessThan(service.indexOf("await emitEvent('done', { sessionId: canonicalSessionId, quota })"));
     expect(service).not.toContain('initializing: true');
   });
 });

@@ -168,6 +168,7 @@ export interface ChatRequest {
   prompt: string;
   selection?: string;
   userId: string;
+  orgId?: string | null;
   script?: { title?: string; content?: string; blocks?: ThinkForgeBlock[] | any[] } | null;
   project?: ProjectMeta | null;
   blockIds?: string[];
@@ -211,6 +212,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     prompt,
     selection,
     userId,
+    orgId,
     script: providedScript,
     project: providedProject,
     blockIds: providedBlockIds,
@@ -228,7 +230,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
   // STEP 5: Explicit session existence verification before processing
   // Load session - require it to exist (no auto-create for chat operations)
-  let session = sessionId ? await db.getSession(sessionId, userId) : null;
+  const session = sessionId ? await db.getSession(sessionId, userId, orgId) : null;
   if (!session && sessionId) {
     // Session doesn't exist - this is an error condition for chat operations
     // The client should have created the session via hydrate first
@@ -240,13 +242,14 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     // No sessionId provided - also an error for chat operations
     throw new Error('sessionId is required for chat operations');
   }
+  const canonicalSessionId = session._id;
 
   let effectiveScriptId = typeof providedScriptId === 'string' && providedScriptId.trim()
     ? providedScriptId
     : null;
 
   // Load script if session exists (prefer provided script)
-  const script = providedScript || (session ? await db.getScript(sessionId || session._id, effectiveScriptId) : null);
+  const script = providedScript || (session ? await db.getScript(canonicalSessionId, effectiveScriptId) : null);
 
   const thinkforgeBlocks = validateThinkForgeBlocks(Array.isArray((script as any)?.blocks) ? (script as any).blocks : []);
   if (script && thinkforgeBlocks.length !== ((script as any)?.blocks?.length || 0)) {
@@ -258,12 +261,12 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   const baseProjectMeta = mergeThinkForgeProjectMetadata(session.projectMeta, providedProject);
   const retrievalBrandId = resolveProjectMetaBrandId(baseProjectMeta);
   const [chatHistory, preferences, retrievedCtx] = await Promise.all([
-    session ? db.getChatHistory(sessionId || session._id, 50, threadId) : Promise.resolve([]),
+    session ? db.getChatHistory(canonicalSessionId, 50, threadId) : Promise.resolve([]),
     db.getUserPreferences(userId),
     fetchContextSources({
       userId,
-      projectId: sessionId || undefined,
-      sessionId: sessionId || undefined,
+      projectId: canonicalSessionId,
+      sessionId: canonicalSessionId,
       brandId: retrievalBrandId,
       orgId: session.orgId ?? null,
       currentPrompt: prompt,
@@ -286,7 +289,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
   // Build session state
   const sessionState: SessionState = {
-    sessionId: session?._id || 'temp',
+    sessionId: canonicalSessionId,
     userId,
     chat: chatHistory,
     script: currentScriptState,
@@ -322,7 +325,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   };
 
   const emitEvent = async (eventType: string, payload: Record<string, any>): Promise<boolean> => {
-    const sid = sessionId || session?._id || 'temp';
+    const sid = canonicalSessionId;
     const record = appendEvent(sid, eventType, payload, threadId);
     const data = {
       ...payload,
@@ -344,7 +347,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     const claimCommitOwnership = async (): Promise<void> => {
       if (commitOwnershipClaimed) return;
       if (!session) throw new Error('Cannot claim generation commit without a session');
-      const claimed = await db.claimGenerationCommit(sessionId || session._id, activeGenerationId);
+      const claimed = await db.claimGenerationCommit(canonicalSessionId, activeGenerationId);
       if (!claimed) {
         throw new db.GenerationStateConflictError(
           `Generation ${activeGenerationId} was cancelled or superseded before commit`,
@@ -356,7 +359,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     try {
       if (!providedGenerationId) {
         const now = new Date();
-        const admitted = await db.setActiveGeneration(sessionId || session._id, userId, {
+        const admitted = await db.setActiveGeneration(canonicalSessionId, userId, {
           id: activeGenerationId,
           type: 'chat',
           status: 'running',
@@ -387,7 +390,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         };
         await emitEvent('error', { error: 'Chat limit reached. Please upgrade your plan.', quota });
         terminalFailureMessage = 'Chat limit reached. Please upgrade your plan.';
-        await emitEvent('done', { sessionId: session?._id, quota });
+        await emitEvent('done', { sessionId: canonicalSessionId, quota });
         return;
       }
 
@@ -395,14 +398,14 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       // never shows as a user bubble — on first render or on reload. Usage is still recorded.)
       if (session) {
         if (!isSilent) {
-          await db.appendChatMessage(sessionId || session._id, 'user', prompt, threadId);
+          await db.appendChatMessage(canonicalSessionId, 'user', prompt, threadId);
         }
-        await db.recordChatUsage(userId, sessionId || session._id, chatLimit.planName);
+        await db.recordChatUsage(userId, canonicalSessionId, chatLimit.planName);
       }
 
       // Blueprint initialization — skip intent classification, run full draft pipeline per artifact
       if (Array.isArray(providedBlueprintArtifacts) && providedBlueprintArtifacts.length > 0) {
-        await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
+        await db.updateGenerationState(canonicalSessionId, activeGenerationId, {
           type: 'script_generate',
           intent: 'blueprint',
           message: 'Generating blueprint documents',
@@ -473,7 +476,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             await claimCommitOwnership();
             const saveResult = await applyCommand({
               type: 'ReplaceDocument',
-              sessionId: sessionId || session!._id,
+              sessionId: canonicalSessionId,
               baseVersion: 0,
               source: 'ai',
               payload: {
@@ -489,7 +492,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
                   ...(draft.signalTrace ? { signalTrace: draft.signalTrace } : {}),
                 },
               },
-            }, userId);
+            }, userId, orgId);
 
             if (!saveResult.ok) {
               if (!(await emitEvent('token', { content: `Failed to save "${title}": ${saveResult.error}\n` }))) return;
@@ -521,11 +524,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         if (!(await emitEvent('token', { content: summaryMsg }))) return;
 
         if (session) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', `Blueprint initialized: ${createdDocs.map(d => d.title).join(', ')}`, threadId);
+          await db.appendChatMessage(canonicalSessionId, 'assistant', `Blueprint initialized: ${createdDocs.map(d => d.title).join(', ')}`, threadId);
         }
 
         await emitEvent('progress', { progress: 1, message: 'Blueprint complete' });
-        await emitEvent('done', { sessionId: session?._id });
+        await emitEvent('done', { sessionId: canonicalSessionId });
         if (!isStreamClosed) {
           try { await writer.close(); } catch { /* stream already closed */ }
         }
@@ -574,8 +577,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         } else if (isMatch(prompt, REJECT_PATTERNS)) {
           finalResponse = "Understood. I've cancelled that suggestion. What would you like to do instead?";
           if (!(await emitEvent('token', { content: finalResponse }))) return;
-          if (!(await emitEvent('done', { sessionId: session?._id }))) return;
-          if (session) await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
+          if (!(await emitEvent('done', { sessionId: canonicalSessionId }))) return;
+          if (session) await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
           return;
         }
       }
@@ -630,8 +633,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           if (sectionIds.length === 0) {
             const clarification = 'Which section should I edit? Place your cursor inside the section or select the section heading.';
             if (!(await emitEvent('token', { content: clarification }))) return;
-            if (!(await emitEvent('done', { sessionId: session?._id }))) return;
-            if (session) await db.appendChatMessage(sessionId || session._id, 'assistant', clarification, threadId);
+            if (!(await emitEvent('done', { sessionId: canonicalSessionId }))) return;
+            if (session) await db.appendChatMessage(canonicalSessionId, 'assistant', clarification, threadId);
             return;
           }
           blockIds = sectionIds;
@@ -646,7 +649,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       if (intentResult.intent === 'edit' && !hasExistingScript) {
         finalResponse = 'No script open. Open a script or start a new one before editing.';
         if (!(await emitEvent('token', { content: finalResponse }))) return;
-        if (!(await emitEvent('done', { sessionId: session?._id }))) return;
+        if (!(await emitEvent('done', { sessionId: canonicalSessionId }))) return;
         return;
       }
 
@@ -660,9 +663,9 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           finalResponse = 'I need a specific target. Please select the exact block(s) or place your cursor in the section you want to edit.';
         }
         if (!(await emitEvent('token', { content: finalResponse }))) return;
-        if (!(await emitEvent('done', { sessionId: session?._id }))) return;
+        if (!(await emitEvent('done', { sessionId: canonicalSessionId }))) return;
         if (session) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
+          await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
         }
         return;
       }
@@ -677,7 +680,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       const requestedContentPath = requestedDocumentIntent?.contentPath ?? null;
       const requestedDocumentType = requestedDocumentIntent?.documentType ?? 'screenplay';
       const requestedDocumentLabel = requestedDocumentIntent?.documentLabel ?? 'script';
-      const eventSessionId = sessionId || session?._id;
+      const eventSessionId = canonicalSessionId;
 
       const isCanvasEmpty = (() => {
         if (!script) return true;
@@ -708,7 +711,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
       if (shouldRunGeneration || shouldRunEdit) {
         const generationType = shouldRunGeneration ? 'script_generate' : 'script_edit';
-        const updatedGeneration = await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
+        const updatedGeneration = await db.updateGenerationState(canonicalSessionId, activeGenerationId, {
           type: generationType,
           scriptId: effectiveScriptId || undefined,
           intent: shouldRunGeneration ? 'draft' : 'edit',
@@ -718,7 +721,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       if ((shouldRunGeneration || shouldRunEdit) && !effectiveScriptId) {
         finalResponse = `No active ${requestedDocumentLabel}. Create a new ${requestedDocumentLabel} first, then generate.`;
         if (!(await emitEvent('token', { content: finalResponse }))) return;
-        if (!(await emitEvent('done', { sessionId: session?._id }))) return;
+        if (!(await emitEvent('done', { sessionId: canonicalSessionId }))) return;
         return;
       }
       if (shouldRunEdit && hasExistingScript && !wantsFullRegenerate) {
@@ -819,11 +822,11 @@ CRITICAL: You are editing a SELECTION from a larger document.
           let savedVersion: number | undefined;
           if (session) {
             await claimCommitOwnership();
-            const latest = await db.getScript(sessionId || session._id, effectiveScriptId);
+            const latest = await db.getScript(canonicalSessionId, effectiveScriptId);
             let baseVersion = latest?.version ?? 0;
             const saveResult = await applyCommand({
               type: 'ReplaceDocument',
-              sessionId: sessionId || session._id,
+              sessionId: canonicalSessionId,
               baseVersion,
               source: 'ai',
               payload: {
@@ -837,7 +840,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
                   source: 'ai',
                 },
               }
-            }, userId);
+            }, userId, orgId);
             if (!saveResult.ok) {
               throw new Error(saveResult.error);
             }
@@ -873,7 +876,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         if (!(await emitEvent('token', { content: finalResponse }))) return;
 
         if (session) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
+          await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
         }
       } else if (shouldRunGeneration) {
         // Generate a new document from scratch
@@ -906,7 +909,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
           }
         }
 
-        await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
+        await db.updateGenerationState(canonicalSessionId, activeGenerationId, {
           type: 'script_generate',
           scriptId: effectiveScriptId || undefined,
           progress: 0.01,
@@ -1122,11 +1125,11 @@ CRITICAL: You are editing a SELECTION from a larger document.
         let savedVersion: number | undefined;
         if (session) {
           await claimCommitOwnership();
-          const latest = await db.getScript(sessionId || session._id, effectiveScriptId);
+          const latest = await db.getScript(canonicalSessionId, effectiveScriptId);
           let baseVersion = latest?.version ?? 0;
           const saveResult = await applyCommand({
             type: 'ReplaceDocument',
-            sessionId: sessionId || session._id,
+            sessionId: canonicalSessionId,
             baseVersion,
             source: 'ai',
             payload: {
@@ -1145,7 +1148,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
                 ...(writerOutputMetadata ? { writerOutput: writerOutputMetadata } : {}),
               },
             }
-          }, userId);
+          }, userId, orgId);
           if (!saveResult.ok) {
             throw new Error(saveResult.error);
           }
@@ -1194,7 +1197,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
         // Persist assistant message
         if (session) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', `Creating your ${generatedDocumentLabel}...\n\n${completionLabel} "${finalTitle}" created successfully!`, threadId);
+          await db.appendChatMessage(canonicalSessionId, 'assistant', `Creating your ${generatedDocumentLabel}...\n\n${completionLabel} "${finalTitle}" created successfully!`, threadId);
       }
       } else if (intentResult.intent === 'research') {
         // Research intent - use search-grounded agent (non-streaming for metadata access)
@@ -1218,13 +1221,13 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
           // Persist assistant message
           if (session && finalResponse) {
-            await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
+            await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
           }
 
           // Auto-save research to DataBank (with verified sources)
           try {
             await db.addDataBankEntry(
-              sessionId || session._id,
+              canonicalSessionId,
               userId,
               {
                 type: 'research',
@@ -1247,7 +1250,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
           if (!(await emitEvent('token', { content: errorMsg }))) return;
           finalResponse += errorMsg;
           if (session) {
-            await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
+            await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
           }
         }
       } else {
@@ -1288,13 +1291,13 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
         // Persist assistant message
         if (session && finalResponse) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
+          await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
         }
       }
 
       // Send done event (only if stream is still open)
       if (!isStreamClosed) {
-        await emitEvent('done', { sessionId: session?._id });
+        await emitEvent('done', { sessionId: canonicalSessionId });
       }
     } catch (error: any) {
       const isAbortError = error?.name === 'InvalidStateError' ||
@@ -1311,7 +1314,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
       if (session) {
         try {
-          await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
+          await db.updateGenerationState(canonicalSessionId, activeGenerationId, {
             status: terminalStatus,
             scriptId: effectiveScriptId || undefined,
             progress: terminalStatus === 'completed' ? 1 : undefined,
@@ -1337,7 +1340,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
             ? 'completed'
             : 'cancelled';
         try {
-          await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
+          await db.updateGenerationState(canonicalSessionId, activeGenerationId, {
             status: terminalStatus,
             scriptId: effectiveScriptId || undefined,
             progress: terminalStatus === 'completed' ? 1 : undefined,

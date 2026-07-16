@@ -83,11 +83,11 @@ export async function createLinkedThinkForgeSession(
         },
       },
       userId,
+      orgId,
     );
     if (!res.ok) {
-      // The session exists even if the first script write conflicted; still return the id so the card
-      // links to it. Loud (R18N) — a persistent failure here is a real wiring bug.
-      console.warn("[CalOS] ThinkForge script save failed (session still linked):", res.error);
+      console.warn("[CalOS] ThinkForge script save failed; session link withheld:", res.error);
+      return null;
     }
     return sessionId;
   } catch (err) {
