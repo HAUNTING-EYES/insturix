@@ -3,14 +3,13 @@ import { auth } from '@clerk/nextjs/server';
 import { createIngestorAgent } from '@/lib/thinkforge/agents/ingestor-agent';
 import { createArchitectAgent } from '@/lib/thinkforge/agents/architect-agent';
 import { createStylistAgent } from '@/lib/thinkforge/agents/stylist-agent';
-import { createSupervisorAgent, type NullAgentDefinition } from '@/lib/thinkforge/agents/supervisor-agent';
+import { createSupervisorAgent } from '@/lib/thinkforge/agents/supervisor-agent';
 import { createNullAgent } from '@/lib/thinkforge/agents/null-agent';
 import { createScopeDetectorAgent } from '@/lib/thinkforge/agents/scope-detector-agent';
 import { createDiscoveryAgent, type DiscoveryAgentInput } from '@/lib/thinkforge/agents/discovery-agent';
 import { quickAssembleContext, fetchContextSources, formatSystemBrief } from '@/lib/thinkforge/context';
 import * as db from '@/lib/thinkforge/services/db';
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
-import { appendEvent } from '@/lib/thinkforge/services/event-log';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { parseMarkdownToBlocks } from '@/lib/thinkforge/normalization/markdown-parser';
@@ -55,7 +54,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid request body', details: parsed.error.issues }, { status: 400 });
   }
-  const { action, sessionId, content, scriptId, specialistRequest, threadId, artifacts: blueprintArtifacts } = parsed.data;
+  const { action, sessionId, content, scriptId, specialistRequest } = parsed.data;
 
   const creditCheck = await checkCredits(userId, 'thinkforge', 'document_creation', { taskId: sessionId });
   if (!creditCheck.allowed) return creditCheck.errorResponse;
