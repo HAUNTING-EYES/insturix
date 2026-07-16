@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
  * Returns both blocks (ThinkForgeBlock[]) and richText (Tiptap JSON AST)
  */
 export async function GET(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -29,7 +29,12 @@ export async function GET(req: Request) {
   }
 
   try {
-    const script = await db.getScript(sessionId, scriptId || null);
+    const session = await db.getSession(sessionId, userId, orgId);
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    const script = await db.getScript(session._id, scriptId || null);
     
     if (!script) {
       return NextResponse.json({
@@ -74,7 +79,7 @@ export async function GET(req: Request) {
  * - content: Plain text content
  */
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -106,14 +111,19 @@ export async function POST(req: Request) {
   }
 
   try {
+    const session = await db.getSession(sessionId, userId, orgId);
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
     let effectiveBaseVersion = typeof baseVersion === 'number' ? baseVersion : undefined;
     if (effectiveBaseVersion === undefined) {
-      const existing = await db.getScript(sessionId, scriptId || null);
+      const existing = await db.getScript(session._id, scriptId || null);
       effectiveBaseVersion = existing?.version ?? 0;
     }
     const result = await applyCommand({
       type: 'ReplaceDocument',
-      sessionId,
+      sessionId: session._id,
       baseVersion: effectiveBaseVersion,
       source: 'user',
       payload: {

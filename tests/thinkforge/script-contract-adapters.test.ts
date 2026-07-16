@@ -3,12 +3,18 @@ import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/documen
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
+  getSession: vi.fn(),
   getScript: vi.fn(),
+  listScripts: vi.fn(),
   applyCommand: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
-vi.mock('@/lib/thinkforge/services/db', () => ({ getScript: mocks.getScript }));
+vi.mock('@/lib/thinkforge/services/db', () => ({
+  getSession: mocks.getSession,
+  getScript: mocks.getScript,
+  listScripts: mocks.listScripts,
+}));
 vi.mock('@/lib/thinkforge/services/command-service', () => ({
   applyCommand: mocks.applyCommand,
 }));
@@ -36,7 +42,9 @@ describe('ThinkForge script contract adapters', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.auth.mockResolvedValue({ userId: 'user_001' });
+    mocks.getSession.mockResolvedValue({ _id: 'session_001', userId: 'user_001' });
     mocks.getScript.mockResolvedValue(storedPost);
+    mocks.listScripts.mockResolvedValue([]);
     mocks.applyCommand.mockResolvedValue({ ok: true, script: storedPost });
   });
 
@@ -169,5 +177,31 @@ describe('ThinkForge script contract adapters', () => {
         contentContract: postContract,
       },
     });
+  });
+
+  it('does not expose script data from a session the authenticated user does not own', async () => {
+    mocks.getSession.mockResolvedValue(null);
+
+    const [{ GET: getScript }, { GET: getBlocks }, { GET: listScripts }] = await Promise.all([
+      import('@/app/api/services/thinkforge/script/get/route'),
+      import('@/app/api/services/thinkforge/script/blocks/route'),
+      import('@/app/api/services/thinkforge/script/list/route'),
+    ]);
+
+    const responses = await Promise.all([
+      getScript(new Request(
+        'http://localhost/api/services/thinkforge/script/get?sessionId=session_other&scriptId=post_001',
+      )),
+      getBlocks(new Request(
+        'http://localhost/api/services/thinkforge/script/blocks?sessionId=session_other&scriptId=post_001',
+      )),
+      listScripts(new Request(
+        'http://localhost/api/services/thinkforge/script/list?sessionId=session_other',
+      )),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([404, 404, 404]);
+    expect(mocks.getScript).not.toHaveBeenCalled();
+    expect(mocks.listScripts).not.toHaveBeenCalled();
   });
 });
