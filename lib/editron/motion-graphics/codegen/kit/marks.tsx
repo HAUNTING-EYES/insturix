@@ -232,3 +232,66 @@ export const Particles: React.FC<{ brand: Brand; kind?: 'dust' | 'bokeh' | 'spar
     </div>
   );
 };
+
+/**
+ * TEXTURE — a DETERMINISTIC brand-token pattern filling its positioned parent (mood/atmosphere BEHIND content).
+ * The TEXTURE half of the texture/ornament axis. grain = fine film noise (SVG feTurbulence, seeded → neutral,
+ * identical every render); scanline = CRT/VHS lines; grid = editorial/technical lattice; dots = halftone field.
+ * `strength` (0..1) scales presence. Pattern ink comes from brand.colors.text (scan-safe, brand-locked).
+ */
+export const Texture: React.FC<{ brand: Brand; kind?: 'grain' | 'scanline' | 'grid' | 'dots'; at?: number; dur?: number; strength?: number }> = ({ brand, kind = 'grid', at = 0, dur = 14, strength = 0.5 }) => {
+  const frame = useCurrentFrame();
+  const s = clamp01(strength) * grow(frame, at, dur);
+  const ink = withAlpha(brand.colors.text, 0.08 * s);
+  const common: React.CSSProperties = { position: 'absolute', inset: 0, pointerEvents: 'none' };
+  if (kind === 'grain') {
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='7' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(#g)'/></svg>`;
+    return <div style={{ ...common, opacity: 0.11 * s, backgroundImage: `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`, backgroundSize: '120px 120px' }} />;
+  }
+  if (kind === 'scanline') {
+    return <div style={{ ...common, backgroundImage: `repeating-linear-gradient(0deg, ${ink}, ${ink} 1px, transparent 1px, transparent 3px)` }} />;
+  }
+  if (kind === 'dots') {
+    return <div style={{ ...common, backgroundImage: `radial-gradient(${withAlpha(brand.colors.text, 0.14 * s)} ${dv(brand, 1.2, 1.8)}px, transparent ${dv(brand, 1.7, 2.5)}px)`, backgroundSize: `${dv(brand, 22, 15)}px ${dv(brand, 22, 15)}px` }} />;
+  }
+  return <div style={{ ...common, backgroundImage: `linear-gradient(${ink} 1px, transparent 1px), linear-gradient(90deg, ${ink} 1px, transparent 1px)`, backgroundSize: `${dv(brand, 64, 40)}px ${dv(brand, 64, 40)}px` }} />;
+};
+
+/**
+ * MOTIF — a DECORATIVE brand-accent ornament that draws/fades in (the ORNAMENT half of the axis; a flourish, NOT
+ * content). chevrons = a row of > marks marching in; sunburst = radial rays growing from a centre (Art-Deco /
+ * broadcast); zigzag = a running zig line drawing on (Memphis / retro). Colour is a brand tone; motion from frame.
+ */
+export const Motif: React.FC<{ brand: Brand; kind?: 'chevrons' | 'sunburst' | 'zigzag'; at?: number; dur?: number; tone?: Tone; count?: number }> = ({ brand, kind = 'chevrons', at = 0, dur = 16, tone = 'accent', count = 10 }) => {
+  const frame = useCurrentFrame();
+  const p = grow(frame, at, dur);
+  const color = toneOf(brand, tone);
+  const n = Math.max(2, Math.min(48, Math.round(count)));
+  if (kind === 'sunburst') {
+    return (
+      <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', opacity: p, overflow: 'visible' }}>
+        {Array.from({ length: n }, (_, i) => {
+          const a = (i / n) * Math.PI * 2;
+          const r1 = 14 + 34 * p;
+          return <line key={i} x1={50 + Math.cos(a) * 14} y1={50 + Math.sin(a) * 14} x2={50 + Math.cos(a) * r1} y2={50 + Math.sin(a) * r1} stroke={color} strokeWidth={1.4} strokeLinecap="round" />;
+        })}
+      </svg>
+    );
+  }
+  if (kind === 'zigzag') {
+    const pts = Array.from({ length: n + 1 }, (_, i) => `${(i / n) * 100},${i % 2 === 0 ? 28 : 72}`).join(' ');
+    return (
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: '100%', opacity: p }}>
+        <polyline points={pts} fill="none" stroke={color} strokeWidth={3} strokeLinejoin="round" strokeDasharray={220} strokeDashoffset={(1 - p) * 220} />
+      </svg>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', gap: dv(brand, 10, 6), opacity: p }}>
+      {Array.from({ length: n }, (_, i) => {
+        const local = clamp01(p * n - i);
+        return <div key={i} style={{ width: 12, height: 12, borderRight: `2px solid ${color}`, borderBottom: `2px solid ${color}`, transform: `rotate(-45deg) scale(${local})`, opacity: local }} />;
+      })}
+    </div>
+  );
+};

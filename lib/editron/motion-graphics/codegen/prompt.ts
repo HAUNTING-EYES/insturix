@@ -45,6 +45,8 @@ NON-TEXT PRIMITIVES (brand-locked, animated from the frame — compose these int
 <Plate brand at dur? opacity? radius? surface="flat|frosted|raised|glow">...</Plate>        // a rounded brand surface. surface = look: flat scrim · frosted glass-panel · raised (drop-shadow depth) · glow (accent halo)
 <Reveal at dur? from="left|right|up|down">...</Reveal>                                      // clip-path WIPE — unmask any children on
 <Particles brand kind="dust|bokeh|sparks|confetti" count? at? tone?/>                       // deterministic emphasis field (fills its positioned parent)
+<Texture brand kind="grain|scanline|grid|dots" strength? at?/>                              // atmosphere pattern BEHIND content (grain=cinematic · scanline=retro · grid/dots=editorial); fills its positioned parent
+<Motif brand kind="chevrons|sunburst|zigzag" count? at? tone?/>                             // decorative accent ORNAMENT / flourish (retro / broadcast / editorial) — never content
 Pass REAL values (the true 0..1 fraction, the true series — perceptual honesty). For anything these don't cover you
 MAY still hand-draw SVG/divs inside a <Region>/<Bleed>, coloured ONLY with brand.colors.*/withAlpha, animated ONLY
 from the frame — but PREFER the primitives: they are brand- and motion-correct by construction. Make numbers FELT.
@@ -62,7 +64,7 @@ import {useCurrentFrame, useVideoConfig, interpolate, spring, AbsoluteFill, Sequ
 import {Brand, withAlpha, dv, tint, shade, mix} from './kit/brand';
 import {Stage, Region, Corner, Bleed, useStage, useRegionSize} from './kit/stage';
 import {FitHeadline, TextBlock, Chip} from './kit/fit-text';
-import {Bar, Ring, Plot, Rule, Plate, Dot, Reveal, Particles} from './kit/marks';
+import {Bar, Ring, Plot, Rule, Plate, Dot, Reveal, Particles, Texture, Motif} from './kit/marks';
 import {phases, enter, exitOut, stagger, pulseAt, countUp, progress, travel, ambient, EASE} from './kit/choreo';`;
 
 /**
