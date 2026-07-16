@@ -2,11 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
+  checkCredits: vi.fn(),
+  deductCredits: vi.fn(),
   deleteScript: vi.fn(),
   getChatHistory: vi.fn(),
   getScript: vi.fn(),
   getSession: vi.fn(),
   listChatThreads: vi.fn(),
+  refundCredits: vi.fn(),
+  reviseDocument: vi.fn(),
+  saveScriptWithVersion: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
@@ -16,7 +21,16 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
   getScript: mocks.getScript,
   getSession: mocks.getSession,
   listChatThreads: mocks.listChatThreads,
+  saveScriptWithVersion: mocks.saveScriptWithVersion,
 }));
+vi.mock('@/lib/services/creditsMiddleware', () => ({
+  checkCredits: mocks.checkCredits,
+}));
+vi.mock('@/lib/thinkforge/services/flat-writer-edit', () => ({
+  reviseDocumentViaFlatWriter: mocks.reviseDocument,
+}));
+
+import { applyCommand } from '@/lib/thinkforge/services/command-service';
 
 async function loadRoutes() {
   const [chatList, chatThreads, currentScript, deleteScript] = await Promise.all([
@@ -66,6 +80,37 @@ async function callRoutes() {
   ]);
 }
 
+async function callAiEditRoutes() {
+  const [{ POST: editDocument }, { POST: editBlocks }] = await Promise.all([
+    import('@/app/api/services/thinkforge/script/edit/route'),
+    import('@/app/api/services/thinkforge/script/edit-blocks/route'),
+  ]);
+  const body = {
+    instruction: 'Make this clearer.',
+    sessionId: 'session_requested',
+    scriptId: 'script_2',
+    script: {
+      title: 'Draft',
+      content: 'This is a sufficiently long existing document for an AI edit.',
+      blocks: [{ id: 'block_1', kind: 'paragraph', content: [] }],
+      version: 1,
+    },
+  };
+
+  return Promise.all([
+    editDocument(new Request('http://localhost/api/services/thinkforge/script/edit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })),
+    editBlocks(new Request('http://localhost/api/services/thinkforge/script/edit-blocks', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })),
+  ]);
+}
+
 describe('ThinkForge session route authorization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -79,6 +124,30 @@ describe('ThinkForge session route authorization', () => {
     mocks.listChatThreads.mockResolvedValue([]);
     mocks.getScript.mockResolvedValue(null);
     mocks.deleteScript.mockResolvedValue(true);
+    mocks.checkCredits.mockResolvedValue({
+      allowed: true,
+      deduct: mocks.deductCredits,
+      refund: mocks.refundCredits,
+    });
+    mocks.reviseDocument.mockResolvedValue({
+      title: 'Draft',
+      content: 'This is the revised document content.',
+      blocks: [{ id: 'block_1', kind: 'paragraph', content: [] }],
+    });
+    mocks.saveScriptWithVersion.mockImplementation(
+      async (sessionId, script, _baseVersion, scriptId) => ({
+        ok: true,
+        script: {
+          ...script,
+          _id: 'mongo_script_1',
+          sessionId,
+          scriptId,
+          version: 1,
+          createdAt: new Date('2026-07-16T00:00:00.000Z'),
+          updatedAt: new Date('2026-07-16T00:00:00.000Z'),
+        },
+      }),
+    );
   });
 
   it('rejects unauthenticated callers before accessing session data', async () => {
@@ -117,5 +186,54 @@ describe('ThinkForge session route authorization', () => {
     expect(mocks.listChatThreads).toHaveBeenCalledWith('session_canonical');
     expect(mocks.getScript).toHaveBeenCalledWith('session_canonical');
     expect(mocks.deleteScript).toHaveBeenCalledWith('session_canonical', 'script_2');
+  });
+
+  it('rejects foreign-session AI edits before credits or model work', async () => {
+    mocks.getSession.mockResolvedValue(null);
+
+    const responses = await callAiEditRoutes();
+
+    expect(responses.map((response) => response?.status)).toEqual([404, 404]);
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+    expect(mocks.reviseDocument).not.toHaveBeenCalled();
+  });
+
+  it('routes organization-member AI edits through the canonical session', async () => {
+    const responses = await callAiEditRoutes();
+
+    expect(responses.map((response) => response?.status)).toEqual([200, 200]);
+    expect(mocks.deductCredits).toHaveBeenCalledOnce();
+    expect(mocks.reviseDocument).toHaveBeenCalledTimes(2);
+    expect(mocks.reviseDocument).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'session_canonical',
+    }));
+  });
+
+  it('keeps organization authorization and canonical identity at the command boundary', async () => {
+    const result = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId: 'session_requested',
+      baseVersion: 0,
+      source: 'user',
+      payload: {
+        scriptId: 'script_2',
+        title: 'Draft',
+        content: 'Authorized content',
+        blocks: [],
+      },
+    }, 'user_1', 'org_1');
+
+    expect(result.ok).toBe(true);
+    expect(mocks.getSession).toHaveBeenCalledWith('session_requested', 'user_1', 'org_1');
+    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'script_2');
+    expect(mocks.saveScriptWithVersion).toHaveBeenCalledWith(
+      'session_canonical',
+      expect.any(Object),
+      0,
+      'script_2',
+    );
   });
 });

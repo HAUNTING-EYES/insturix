@@ -19,6 +19,7 @@ import * as db from './db';
 
 export interface FlatWriterEditArgs {
   userId: string;
+  orgId?: string | null;
   sessionId: string;
   scriptId?: string;
   // The current document as stored ({ title, content, blocks, documentType? }).
@@ -50,7 +51,7 @@ export function resolveFlatWriterDocumentKind(
 }
 
 export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Promise<FlatWriterEditResult> {
-  const { userId, sessionId, scriptId, existingScript, existingContent, instruction, selection, baseVersion } = args;
+  const { userId, orgId, sessionId, scriptId, existingScript, existingContent, instruction, selection, baseVersion } = args;
 
   const documentKind = resolveFlatWriterDocumentKind(existingScript?.documentType, existingContent);
   const isScript = !isThinkForgePostKind(documentKind);
@@ -88,7 +89,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
       blocks,
       documentType: documentKind,
     },
-  } as Parameters<typeof applyCommand>[0], userId);
+  } as Parameters<typeof applyCommand>[0], userId, orgId);
 
   if (!saveResult.ok) {
     throw new Error(saveResult.error || 'failed to save revised document');

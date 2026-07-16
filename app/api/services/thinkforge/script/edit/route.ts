@@ -18,7 +18,7 @@ export const maxDuration = 60;
  * POST /api/services/thinkforge/script/edit
  */
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -40,6 +40,19 @@ export async function POST(req: Request) {
 
   if (!instruction) {
     return NextResponse.json({ error: 'Missing instruction' }, { status: 400 });
+  }
+
+  if (sessionId) {
+    try {
+      const session = await db.getSession(sessionId, userId, orgId);
+      if (!session) {
+        return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+      }
+      sessionId = session._id;
+    } catch (error) {
+      console.error('[ThinkForge:script/edit] Session authorization failed:', error);
+      return NextResponse.json({ error: 'Failed to authorize session' }, { status: 500 });
+    }
   }
 
   const creditCheck = await checkCredits(userId, 'thinkforge', 'document_creation', { taskId: sessionId });
@@ -71,7 +84,7 @@ export async function POST(req: Request) {
     if (sessionId && existingContent.trim().length > 0 && existingBlocks.length > 0) {
       try {
         const revised = await reviseDocumentViaFlatWriter({
-          userId, sessionId, scriptId, existingScript, existingContent, instruction, baseVersion,
+          userId, orgId, sessionId, scriptId, existingScript, existingContent, instruction, baseVersion,
         });
         return NextResponse.json({
           title: revised.title,
@@ -121,7 +134,7 @@ export async function POST(req: Request) {
           content: result.content || '',
           blocks: result.blocks || []
         }
-      }, userId);
+      }, userId, orgId);
     }
 
     return NextResponse.json({

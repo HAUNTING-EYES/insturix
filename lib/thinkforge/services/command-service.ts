@@ -65,15 +65,20 @@ function parseStoredContract(script: db.Script): ThinkForgeDocumentContract | nu
   return normalizeThinkForgeDocumentContract(script.documentType);
 }
 
-export async function applyCommand(request: CommandRequest, userId: string): Promise<CommandResult> {
+export async function applyCommand(
+  request: CommandRequest,
+  userId: string,
+  orgId?: string | null,
+): Promise<CommandResult> {
   const { type, payload, sessionId, baseVersion } = request;
-  const session = await db.getSession(sessionId, userId);
+  const session = await db.getSession(sessionId, userId, orgId);
   if (!session) {
     return { ok: false, error: 'Session not found' };
   }
+  const canonicalSessionId = session._id;
 
   const scriptId = typeof payload.scriptId === 'string' ? payload.scriptId : 'default';
-  const existing = await db.getScript(sessionId, scriptId);
+  const existing = await db.getScript(canonicalSessionId, scriptId);
   const currentVersion = existing?.version ?? 0;
 
   let effectiveBaseVersion = baseVersion;
@@ -185,7 +190,7 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
     : computeContentFromBlocks(nextBlocks);
 
   const saveResult = await db.saveScriptWithVersion(
-    sessionId,
+    canonicalSessionId,
     {
       title: nextTitle,
       content: nextContent,
