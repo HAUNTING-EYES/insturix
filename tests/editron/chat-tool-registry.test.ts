@@ -16,6 +16,7 @@ const CHAT_TOOL_SOURCE_FILES = [
   'lib/editron/agent/chat-visual-tools.ts',
   'lib/editron/agent/chat-audio-tools.ts',
   'lib/editron/agent/chat-asset-tools.ts',
+  'lib/editron/agent/chat-editorial-intent-tools.ts',
 ];
 
 function extractDeclaredChatToolNames(): string[] {

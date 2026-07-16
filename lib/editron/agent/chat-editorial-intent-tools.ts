@@ -11,6 +11,11 @@ import {
 } from '@/lib/editron/production-brief/editorial-preferences';
 import type { EditDecision, EditDecisionList } from '@/lib/editron/services/reactive-edit-engine';
 import { extractMotionGraphicSemanticFacts } from '@/lib/editron/services/mg-semantic-fact-extractor';
+import {
+  CHAT_SCRIPT_MAX_CHARS,
+  CHAT_SCRIPT_RECOMPOSITION_VERSION,
+  queueChatScriptRecomposition,
+} from '@/lib/editron/services/chat-script-recomposition';
 import type {
   CanonicalChatEvidenceCandidate,
   SearchCanonicalChatEvidenceResult,
@@ -65,7 +70,7 @@ export const chatEditorialIntentSchema = z.object({
   }).strict().optional(),
   musicPrompt: z.string().min(1).max(500).optional(),
   notes: z.string().min(1).max(500).optional(),
-  script: z.string().min(1).max(50_000).optional().describe('Optional authoritative script. When present, the Phase 2 multi-asset script planner owns clip selection and ordering.'),
+  script: z.string().min(1).max(CHAT_SCRIPT_MAX_CHARS).optional().describe('Optional authoritative script. When present, the Phase 2 multi-asset script planner owns clip selection and ordering.'),
 }).strict();
 
 export type ChatEditorialIntentInput = z.infer<typeof chatEditorialIntentSchema>;
@@ -156,7 +161,7 @@ export function compileGroundedEditorialIntent(input: ChatEditorialIntentInput):
     notes: [input.notes, ...input.constraints].filter(Boolean).join('\n'),
   });
   const targetReference = cleanText(input.targetReference);
-  const script = cleanText(input.script, 50_000);
+  const script = cleanText(input.script, CHAT_SCRIPT_MAX_CHARS);
   return {
     version: CHAT_EDITORIAL_INTENT_VERSION,
     intentId: `intent_${randomUUID()}`,
@@ -260,7 +265,9 @@ export function createChatEditorialIntentTools(
           error: result.status === 'error' ? result.dispatch.reasons.join(', ') : null,
           nextAction: result.status === 'advisory'
             ? 'Ask once for a clearer target or narrower constraint. Do not claim an edit was made.'
-            : 'Reload the project and verify the requested outcome.',
+            : result.dispatch.status === 'queued'
+              ? 'Tell the user the script-led re-edit is processing. Do not claim the timeline has changed yet.'
+              : 'Reload the project and verify the requested outcome.',
         });
       } catch (error) {
         return JSON.stringify({
@@ -406,14 +413,44 @@ async function defaultExecuteTargetedIntent(args: {
   };
 }
 
-async function defaultDispatchScriptIntent(): Promise<EditorialOwnerDispatchResult> {
+export async function dispatchScriptIntentToPhase2(
+  args: {
+    projectId: string;
+    userId: string;
+    project: any;
+    intent: GroundedEditorialIntent;
+  },
+  enqueue: typeof queueChatScriptRecomposition = queueChatScriptRecomposition,
+): Promise<EditorialOwnerDispatchResult> {
+  const result = await enqueue({
+    projectId: args.projectId,
+    userId: args.userId,
+    intentId: args.intent.intentId,
+    script: args.intent.script ?? '',
+    goal: args.intent.goal,
+    editorialPreferences: args.intent.editorialPreferences,
+  });
+  const queued = result.status !== 'failed';
   return {
     owner: 'phase2-script-planner',
-    status: 'failed',
+    status: queued ? 'queued' : 'failed',
     mutated: false,
-    reasons: ['phase2-script-recomposition-dispatch-not-yet-wired'],
+    authority: {
+      orchestrationVersion: CHAT_SCRIPT_RECOMPOSITION_VERSION,
+      queueStatus: result.status,
+      uploadBatchId: result.uploadBatchId,
+      messageId: result.messageId,
+    },
+    reasons: [
+      result.reason
+        ?? (result.status === 'already-queued'
+          ? 'script-recomposition-already-queued'
+          : 'script-recomposition-queued'),
+    ],
   };
 }
+
+const defaultDispatchScriptIntent = dispatchScriptIntentToPhase2;
 
 async function defaultPersistAudit(record: Record<string, unknown>): Promise<void> {
   const { getDatabase } = await import('@/lib/editron/db/mongodb');
