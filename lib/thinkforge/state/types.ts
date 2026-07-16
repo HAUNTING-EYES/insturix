@@ -3,9 +3,12 @@
  */
 
 import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
-import type {
-  ThinkForgeCanonicalDocumentType,
-  ThinkForgeLegacyDocumentType,
+import {
+  normalizeThinkForgeDocumentContract,
+  ThinkForgeDocumentContractSchema,
+  type ThinkForgeCanonicalDocumentType,
+  type ThinkForgeDocumentContract,
+  type ThinkForgeLegacyDocumentType,
 } from '../schemas/document-contract';
 import type { ScriptIntent } from '../protocol/intent';
 import type { SelectedTrend } from '../trends/selected-trend';
@@ -46,6 +49,7 @@ export interface ProjectMeta {
   purpose?: string;
   style?: string;
   format?: string;
+  contentContract?: ThinkForgeDocumentContract;
   platform?: string;
   tone?: string;
   sessionName?: string;
@@ -88,6 +92,19 @@ function firstNonEmptyString(...values: unknown[]): string | undefined {
   return undefined;
 }
 
+export function resolveProjectMetaContentContract(
+  projectMeta?: ProjectMeta | null,
+): ThinkForgeDocumentContract | null {
+  if (projectMeta?.contentContract !== undefined) {
+    const parsed = ThinkForgeDocumentContractSchema.safeParse(projectMeta.contentContract);
+    if (!parsed.success) {
+      throw new Error('ThinkForge project metadata contains an invalid document contract');
+    }
+    return parsed.data;
+  }
+  return normalizeThinkForgeDocumentContract(projectMeta?.format);
+}
+
 export function mergeThinkForgeProjectMetadata(
   sessionProjectMeta?: ProjectMeta | null,
   providedProject?: ProjectMeta | null,
@@ -97,6 +114,12 @@ export function mergeThinkForgeProjectMetadata(
     ...(sessionProjectMeta || {}),
     ...(providedProject || {}),
   };
+
+  const contentContract = resolveProjectMetaContentContract(sessionProjectMeta)
+    ?? resolveProjectMetaContentContract(providedProject);
+  if (contentContract) {
+    merged.contentContract = contentContract;
+  }
 
   for (const key of SOURCE_OF_TRUTH_PROJECT_META_KEYS) {
     const providedValue = providedProject?.[key];

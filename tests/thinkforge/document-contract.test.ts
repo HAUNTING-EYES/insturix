@@ -1,5 +1,7 @@
+import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
 import {
+  createThinkForgeWriterContract,
   normalizeThinkForgeDocumentType,
   parseThinkForgeDocumentContract,
 } from '@/lib/thinkforge/schemas/document-contract';
@@ -8,6 +10,7 @@ import {
   resolveThinkForgeGenerationDocumentIntent,
 } from '@/lib/thinkforge/agents/prompt-utils';
 import { resolveFlatWriterDocumentKind } from '@/lib/thinkforge/services/flat-writer-edit';
+import { mergeThinkForgeProjectMetadata } from '@/lib/thinkforge/state/types';
 
 describe('ThinkForge canonical document contract', () => {
   it('normalizes legacy and user-facing labels at the boundary', () => {
@@ -53,6 +56,47 @@ describe('ThinkForge canonical document contract', () => {
       'Write an Instagram reel script with camera direction.',
       'post',
     )).toMatchObject({ contentPath: 'script', documentKind: 'script', outputKind: 'video_script' });
+  });
+
+  it('uses explicit deliverable grammar instead of ambiguous adjectives', () => {
+    expect(resolveThinkForgeDocumentIntent(
+      'Write a short, honest LinkedIn post for founders.',
+      'video_script',
+    )).toMatchObject({ contentPath: 'post', outputKind: 'social_post', source: 'user_prompt' });
+
+    expect(resolveThinkForgeDocumentIntent(
+      'Write a LinkedIn post about scripts that waste production time.',
+      'video_script',
+    )).toMatchObject({ contentPath: 'post', outputKind: 'social_post', source: 'user_prompt' });
+
+    expect(resolveThinkForgeDocumentIntent(
+      'Turn this LinkedIn post into a reel script with camera direction.',
+      'social_post',
+    )).toMatchObject({ contentPath: 'script', outputKind: 'video_script', source: 'user_prompt' });
+  });
+
+  it('keeps the persisted canonical contract above loose format metadata for system drafts', () => {
+    const carouselContract = createThinkForgeWriterContract('carousel');
+    const metadata = mergeThinkForgeProjectMetadata(
+      { format: 'LinkedIn carousel', contentContract: carouselContract },
+      { format: 'video script' },
+    );
+
+    expect(metadata.contentContract).toEqual(carouselContract);
+    expect(resolveThinkForgeGenerationDocumentIntent(
+      'Create the complete first script draft for this idea.',
+      metadata.format,
+      'initial_draft_claim',
+      metadata.contentContract,
+    )).toMatchObject({ contentPath: 'post', outputKind: 'carousel', source: 'document_type' });
+  });
+
+  it('persists a canonical contract at intake and consumes it in generation', () => {
+    const page = readFileSync(new URL('../../app/dashboard/thinkforge/page.tsx', import.meta.url), 'utf8');
+    const service = readFileSync(new URL('../../lib/thinkforge/services/chat-service.ts', import.meta.url), 'utf8');
+
+    expect(page).toContain('contentContract');
+    expect(service).toContain('sessionState.metadata.contentContract');
   });
 
   it('uses the selected canonical kind for system-triggered initial drafts', () => {

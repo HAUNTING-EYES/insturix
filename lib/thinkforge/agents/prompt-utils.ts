@@ -3,6 +3,7 @@ import {
   createThinkForgeWriterContract,
   isThinkForgePostKind,
   normalizeThinkForgeDocumentType,
+  ThinkForgeDocumentContractSchema,
   type ThinkForgeDocumentContract,
   type ThinkForgeDocumentKind,
   type ThinkForgeWriterKind,
@@ -18,7 +19,9 @@ export interface DocumentRoleProfile {
 }
 
 const POST_CONTENT_REQUEST_PATTERN = /\b(linkedin\s+(?:post|carousel|article)|twitter\s+(?:post|thread)|x\s+(?:post|thread)|instagram\s+(?:post|caption|carousel)|ig\s+(?:post|caption|carousel)|facebook\s+(?:post|caption)|social\s+media\s+(?:post|caption|copy)|blog\s+post|article|newsletter|email\s+(?:campaign|copy)|carousel\s+post)\b/i;
-const SCRIPT_DOCUMENT_TYPE_PATTERN = /\b(screenplay|script|video\s+script|reel|short|youtube|tiktok|commercial|brand\s+film|product\s+ad|ugc)\b/i;
+const SCRIPT_DOCUMENT_TYPE_PATTERN = /\b(screenplay|script|video\s+script|reel|short[ -]form|short\s+video|youtube\s+shorts?|youtube|tiktok|commercial|brand\s+film|product\s+ad|ugc)\b/i;
+const EXPLICIT_SCRIPT_TARGET_PATTERN = /\b(?:turn|convert|adapt|rewrite)\b.{0,100}\b(?:into|as)\b.{0,40}\b(?:video\s+script|reel\s+script|screenplay|youtube\s+short|short[ -]form\s+script|commercial\s+script|ugc\s+script)\b/i;
+const EXPLICIT_SCRIPT_CREATION_PATTERN = /\b(?:write|create|make|draft|produce)\b.{0,50}\b(?:video\s+script|reel\s+script|screenplay|youtube\s+short|short[ -]form\s+script|commercial\s+script|ugc\s+script)\b/i;
 const GENERIC_POST_REQUEST_PATTERN = /\b(?:post(?!\s*production)|caption|carousel|article|newsletter)\b/i;
 
 export type ThinkForgeContentPath = 'post' | 'script';
@@ -66,15 +69,43 @@ function resolvePromptDocumentKind(value?: string): ThinkForgeWriterKind | null 
   const normalized = normalizeContentRequest(value);
   if (!normalized) return null;
 
+  if (EXPLICIT_SCRIPT_TARGET_PATTERN.test(normalized) || EXPLICIT_SCRIPT_CREATION_PATTERN.test(normalized)) {
+    return 'video_script';
+  }
   if (/\bcarousel\b|\bslides?\b/.test(normalized)) return 'carousel';
-  if (hasScriptContentSignal(normalized)) return 'video_script';
   if (hasPostContentSignal(normalized)) return 'social_post';
+  if (hasScriptContentSignal(normalized)) return 'video_script';
   return null;
 }
 
-export function resolveThinkForgeDocumentIntent(userPrompt: string, docType?: string): ThinkForgeDocumentIntent {
-  const promptKind = resolvePromptDocumentKind(userPrompt);
+function resolveSelectedWriterKind(
+  docType?: string,
+  selectedContract?: ThinkForgeDocumentContract | null,
+): ThinkForgeWriterKind | null {
+  if (selectedContract) {
+    const contract = ThinkForgeDocumentContractSchema.parse(selectedContract);
+    if (
+      contract.outputKind === 'social_post'
+      || contract.outputKind === 'carousel'
+      || contract.outputKind === 'video_script'
+    ) {
+      return contract.outputKind;
+    }
+  }
+
   const selectedKind = normalizeThinkForgeDocumentType(docType);
+  return selectedKind === 'social_post' || selectedKind === 'carousel' || selectedKind === 'video_script'
+    ? selectedKind
+    : null;
+}
+
+export function resolveThinkForgeDocumentIntent(
+  userPrompt: string,
+  docType?: string,
+  selectedContract?: ThinkForgeDocumentContract | null,
+): ThinkForgeDocumentIntent {
+  const promptKind = resolvePromptDocumentKind(userPrompt);
+  const selectedKind = resolveSelectedWriterKind(docType, selectedContract);
   const promptHasPostSignal = isThinkForgePostKind(promptKind);
   const promptHasScriptSignal = promptKind === 'video_script';
 
@@ -110,10 +141,11 @@ export function resolveThinkForgeGenerationDocumentIntent(
   userPrompt: string,
   docType?: string,
   origin: ThinkForgeDocumentIntentOrigin = 'user_request',
+  selectedContract?: ThinkForgeDocumentContract | null,
 ): ThinkForgeDocumentIntent {
   // A claimed initial draft is a system action for the format the user already selected.
   // Only real user requests may override that stored format with prompt wording.
-  return resolveThinkForgeDocumentIntent(origin === 'initial_draft_claim' ? '' : userPrompt, docType);
+  return resolveThinkForgeDocumentIntent(origin === 'initial_draft_claim' ? '' : userPrompt, docType, selectedContract);
 }
 
 export function inferRoleFromContext(projectSummary: string, userPrompt: string, explicitDocType?: string): DocumentRoleProfile {

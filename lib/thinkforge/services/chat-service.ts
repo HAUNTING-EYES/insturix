@@ -31,7 +31,7 @@ import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
 import { createThinkForgeModelForRoute } from '../agents/model-factory';
-import { resolveThinkForgeDocumentIntent } from '../agents/prompt-utils';
+import { resolveThinkForgeDocumentIntent, resolveThinkForgeGenerationDocumentIntent } from '../agents/prompt-utils';
 import { resolveThinkForgeTrendContext } from './trend-context';
 import { resolveThinkForgeProductionBrief } from '../brief/resolve-production-brief';
 import { resolveThinkForgeAvatarCasting, type ThinkForgeCastingMetadata } from '../casting/resolve-casting';
@@ -674,8 +674,16 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       const isGenerateIntent = intentResult.intent === 'draft';
       const shouldRunGeneration = isGenerateIntent || (hasExistingScript && wantsFullRegenerate);
       const shouldRunEdit = intentResult.intent === 'edit' || intentResult.intent === 'hybrid';
+      const documentIntentOrigin = providedIntentContext?.lastUserAction === 'initial_draft_claim'
+        ? 'initial_draft_claim'
+        : 'user_request';
       const requestedDocumentIntent = shouldRunGeneration
-        ? resolveThinkForgeDocumentIntent(effectivePrompt, sessionState.metadata.format)
+        ? resolveThinkForgeGenerationDocumentIntent(
+            effectivePrompt,
+            sessionState.metadata.format,
+            documentIntentOrigin,
+            sessionState.metadata.contentContract,
+          )
         : null;
       const requestedContentPath = requestedDocumentIntent?.contentPath ?? null;
       const requestedDocumentType = requestedDocumentIntent?.documentType ?? 'screenplay';
@@ -885,7 +893,11 @@ CRITICAL: You are editing a SELECTION from a larger document.
         if (!(await emitEvent('token', { content: workingMsg }))) return;
 
         // Run Thinking Agent before draft ONLY for video scripts or explicit doc types
-        const documentIntent = requestedDocumentIntent || resolveThinkForgeDocumentIntent(effectivePrompt, sessionState.metadata.format);
+        const documentIntent = requestedDocumentIntent || resolveThinkForgeDocumentIntent(
+          effectivePrompt,
+          sessionState.metadata.format,
+          sessionState.metadata.contentContract,
+        );
         const contentPath = documentIntent.contentPath;
         const generatedDocumentType = documentIntent.documentType;
         const generatedDocumentLabel = documentIntent.documentLabel;

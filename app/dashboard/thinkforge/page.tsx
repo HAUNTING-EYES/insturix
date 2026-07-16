@@ -20,6 +20,7 @@ import StoryboardingMode from "@/components/dashboard/ThinkForge/StoryboardingMo
 import PlanningMode from "@/components/dashboard/ThinkForge/PlanningMode";
 import { PipelineBreadcrumb } from "@/components/dashboard/shared/PipelineBreadcrumb";
 
+import { normalizeThinkForgeDocumentContract } from "@/lib/thinkforge/schemas/document-contract";
 const PROJECT_META_PASSTHROUGH_KEYS = [
 	'brandId',
 	'brandBrief',
@@ -57,22 +58,30 @@ const hasMissingProjectMetaPassthrough = (target: unknown, source: unknown): boo
 	});
 };
 
+const resolveIdeaDocumentContract = (idea: IdeaCardData | null | undefined) => (
+	normalizeThinkForgeDocumentContract(idea?.format)
+);
+
 const buildProjectMetaPayload = (
 	idea: IdeaCardData | null | undefined,
 	initialDraftIntent?: Record<string, unknown>,
-): Record<string, unknown> => ({
-	idea: idea?.idea || '',
-	purpose: (idea as any)?.purpose || '',
-	style: (idea as any)?.style || '',
-	format: (idea as any)?.format || '',
-	platform: (idea as any)?.platform || '',
-	tone: idea?.tone || 'blue',
-	sessionName: (idea as any)?.sessionName || '',
-	originalPrompt: (idea as any)?.originalPrompt || '',
-	brandBrief: (idea as any)?.brandBrief || '',
-	...pickProjectMetaPassthrough(idea),
-	...(initialDraftIntent ? { initialDraftIntent } : {}),
-});
+): Record<string, unknown> => {
+	const contentContract = resolveIdeaDocumentContract(idea);
+	return {
+		idea: idea?.idea || '',
+		purpose: (idea as any)?.purpose || '',
+		style: (idea as any)?.style || '',
+		format: (idea as any)?.format || '',
+		...(contentContract ? { contentContract } : {}),
+		platform: (idea as any)?.platform || '',
+		tone: idea?.tone || 'blue',
+		sessionName: (idea as any)?.sessionName || '',
+		originalPrompt: (idea as any)?.originalPrompt || '',
+		brandBrief: (idea as any)?.brandBrief || '',
+		...pickProjectMetaPassthrough(idea),
+		...(initialDraftIntent ? { initialDraftIntent } : {}),
+	};
+};
 const buildIdeaGenerationPayload = (
 	prompt: string,
 	projectMeta?: Record<string, unknown> | null,
@@ -323,6 +332,14 @@ export default function ThinkForgeLanding() {
 	// (The old code auto-opened the library when hovering near the right edge of the screen)
 
 	const handleSelectIdea = async (idea: IdeaCardData) => {
+		if (!resolveIdeaDocumentContract(idea)) {
+			toast({
+				title: 'Content format required',
+				description: 'Choose a post, carousel, or video-script format before starting the draft.',
+				variant: 'destructive',
+			});
+			return;
+		}
 		initialDraftRequestedRef.current = true;
 		// Auto-generate a session name from the idea if not present
 		const sessionName = idea.sessionName || (idea.idea || 'New Session').split('–')[0].trim().slice(0, 40);
@@ -344,6 +361,14 @@ export default function ThinkForgeLanding() {
 	const handleProceedToScript = async (updatedIdea?: IdeaCardData) => {
 		initialDraftRequestedRef.current = false;
 		const targetIdea = updatedIdea || selectedIdea;
+		if (!resolveIdeaDocumentContract(targetIdea)) {
+			toast({
+				title: 'Content format required',
+				description: 'Choose a post, carousel, or video-script format before continuing.',
+				variant: 'destructive',
+			});
+			return;
+		}
 		const name = (targetIdea?.sessionName || '').trim();
 		if (!name || name.length > 100) {
 			toast({
@@ -368,12 +393,22 @@ export default function ThinkForgeLanding() {
 
 	const handleEnsureTrendSession = useCallback(async (candidate: TrendCandidate, target: TrendTarget): Promise<string | null> => {
 		const title = candidate.title.trim().slice(0, 80);
+		const contentContract = normalizeThinkForgeDocumentContract(target);
+		if (!contentContract) {
+			toast({
+				title: 'Unsupported trend format',
+				description: 'Choose a supported post, carousel, or video-script target.',
+				variant: 'destructive',
+			});
+			return null;
+		}
 		const created = await session.hydrate({
 			projectMeta: {
 				idea: 'Create a ' + target + ' using the analyzed trend: ' + title,
 				purpose: 'Apply an analyzed public trend format to a brand-specific original draft.',
 				style: 'Original, brand-safe adaptation of the analyzed trend mechanics.',
 				format: target,
+				contentContract,
 				platform: candidate.platform === 'unknown' ? '' : candidate.platform,
 				tone: 'blue',
 				sessionName: ('Trend - ' + title).slice(0, 100),
