@@ -40,6 +40,28 @@ describe('MG style resolver — VIDEO identity (resolved once)', () => {
 
     expect(resolveVideoStyle({ brandFont: 'X', styleOverride: 'neon' }).styleName).toBe('neon');
   });
+
+  it('SIGNAL-DRIVEN: aggregate signals drive identity and BEAT the font (font demoted, precedence intent>signals>font)', () => {
+    // high-energy/casual signals → kinetic-bold, even on a CALM serif brand font (Georgia alone = editorial)
+    const energetic = resolveVideoStyle({ brandFont: 'Georgia', videoSignals: { energy: 0.9, formality: 0.2 } });
+    expect(energetic.styleName).toBe('kinetic-bold'); // signals beat the font
+    expect(energetic.motion).toBe('pop');
+    expect(energetic.weight).toBe('heavy');
+    expect(energetic.sources).toContain('signals');
+
+    // formal/calm signals → editorial/restrained, even on a DISPLAY brand font (Anton alone = kinetic-bold)
+    const calm = resolveVideoStyle({ brandFont: 'Anton', videoSignals: { energy: 0.2, formality: 0.9 } });
+    expect(calm.styleName).toBe('editorial'); // signals beat the display font
+    expect(calm.motion).toBe('gentle');
+    expect(calm.weight).toBe('regular');
+
+    // intent still wins the name over signals (the stated "why" is strongest)
+    const intentWins = resolveVideoStyle({ intent: 'hype reel', videoSignals: { energy: 0.2, formality: 0.9 } });
+    expect(intentWins.styleName).toBe('kinetic-bold');
+
+    // no intent + no signals → font is the fallback (backward-compatible)
+    expect(resolveVideoStyle({ brandFont: 'Georgia' }).styleName).toBe('editorial');
+  });
 });
 
 describe('MG style resolver — MOMENT treatment (resolved PER moment, the anti-monotony fix)', () => {

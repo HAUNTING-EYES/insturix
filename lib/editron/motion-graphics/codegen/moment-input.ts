@@ -26,7 +26,7 @@ import type {
   MgScreenContext,
   MgVisualEvidence,
 } from './types';
-import { resolveVideoStyle } from './style/style-resolver';
+import { resolveVideoStyle, type VideoAggregateSignals } from './style/style-resolver';
 import type { FootageSignals } from './style/footage-character';
 
 /** A rectangle in fractions — the caller's placement boxes satisfy this structurally. */
@@ -76,6 +76,9 @@ export interface BuildMgMomentInputArgs {
   /** THIS moment's footage character (V-JEPA + content signals for the moment's window, mapped by the seam) —
    *  drives the per-moment treatment. Absent → the video identity holds unchanged for this moment. */
   footageSignals?: FootageSignals;
+  /** The video's aggregate SIGNALS (energy/formality), computed by the seam across the whole video — the PRIMARY
+   *  driver of the style identity (font is only a weak fallback). Absent → falls back to intent + font. */
+  videoSignals?: VideoAggregateSignals;
 }
 
 const clamp01 = (v: number): number => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
@@ -112,7 +115,7 @@ function deriveScreen(placement: MgPlacementSource): MgScreenContext | undefined
  * zero/negative-length clip or non-positive fps is a caller bug — fail loud, do not silently "fix" it).
  */
 export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput {
-  const { momentId, candidate, brand, window, expression, placement, anchors, visualEvidence, notes, intent, footageSignals } = args;
+  const { momentId, candidate, brand, window, expression, placement, anchors, visualEvidence, notes, intent, footageSignals, videoSignals } = args;
 
   if (!Number.isFinite(window.fps) || window.fps <= 0) {
     throw new Error(`buildMgMomentInput: fps must be positive, got ${window.fps}`);
@@ -152,7 +155,7 @@ export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput 
   // Style IDENTITY (resolved once per video, deterministic from brand font + intent — the same on every moment;
   // the per-moment TREATMENT is derived from this + the moment's own signals at prompt-build). Always set: the
   // font alone gives a valid identity. footageSignals (this moment's) drives the per-moment variation when present.
-  input.videoStyle = resolveVideoStyle({ brandFont: brand.fontSans, intent });
+  input.videoStyle = resolveVideoStyle({ brandFont: brand.fontSans, intent, videoSignals });
   if (footageSignals) input.footageSignals = footageSignals;
 
   return input;

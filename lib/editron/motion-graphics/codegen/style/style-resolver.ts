@@ -33,13 +33,21 @@ export interface VideoStyle {
   sources: string[];
 }
 
+/** The video's AGGREGATE signal character (the system is SIGNAL-driven, not brand-profile-driven) — computed by
+ *  the seam from the per-moment signals across the whole video. energy = how kinetic; formality = how restrained. */
+export interface VideoAggregateSignals {
+  energy?: number; // 0-1 — aggregate motion + arousal + pacing. High → kinetic.
+  formality?: number; // 0-1 — high → restrained/editorial, low → casual/loud.
+}
+
 export interface VideoStyleInputs {
-  /** The brand's PRIMARY / BODY typeface (kit Brand.fontSans) — the strongest style signal. R1: the seam MUST
-   *  pass the body font, NOT a display/header face — a serious brand often uses a condensed display face for
-   *  HEADERS only, and classifying that would force the whole video to kinetic-bold. */
-  brandFont?: string | null;
-  /** The video's purpose (production-brief format / platform / editorial intent) — the strongest "why". */
+  /** The video's PURPOSE (production-brief `brief.intent`, asked at upload) — the strongest "why", PRIMARY. */
   intent?: string | null;
+  /** The video's aggregate SIGNALS — the video's real character, PRIMARY when intent is silent. */
+  videoSignals?: VideoAggregateSignals;
+  /** The brand's BODY typeface (kit Brand.fontSans) — DEMOTED to a WEAK fallback + the locked type token; it is
+   *  NOT the style picker (a brand's font is a static profile; the video's SIGNALS decide the style). */
+  brandFont?: string | null;
   /** User preference: name a style directly (chat / picker) — overrides the auto-derived styleName. */
   styleOverride?: string | null;
 }
@@ -59,25 +67,52 @@ const FAMILY_STYLE_NAME: Record<FontFamily, string> = {
 /** Concrete sans headline weights → a number the model passes to FitHeadline weight={}. */
 const WEIGHT_PX: Record<FontStylePriors['weight'], number> = { light: 250, regular: 400, medium: 550, heavy: 750 };
 
-/** Resolve the video IDENTITY once: font family (base) + intent lean. Intent gets first say on the name + weight
- *  (a hype-reel reads kinetic-bold even on a neutral font). NO footage here — footage is per-moment. */
-export function resolveVideoStyle(inputs: VideoStyleInputs): VideoStyle {
-  const priors = fontStylePriors(inputs.brandFont);
-  const { genre, delta: iDelta } = intentStyleDelta(inputs.intent);
-  const override = inputs.styleOverride?.trim();
+/** Derive the identity from the video's aggregate SIGNALS — the PRIMARY driver (the system is signal-driven, not
+ *  brand-profile-driven). energy = how kinetic, formality = how restrained. Mappings harvested from the old
+ *  resolveAnimation/resolveTypography directions (high energy → snappy/heavy; high formality → gentle/restrained). */
+function styleFromSignals(s: VideoAggregateSignals): {
+  styleName: string;
+  motion: FontStylePriors['motion'];
+  weight: FontStylePriors['weight'];
+  surface: FontStylePriors['surface'];
+  density: FontStylePriors['density'];
+} {
+  const e = Math.max(0, Math.min(1, s.energy ?? 0.5));
+  const f = Math.max(0, Math.min(1, s.formality ?? 0.5));
   return {
-    styleName: override || iDelta.styleName || FAMILY_STYLE_NAME[priors.family],
-    personality: priors.personality,
-    motion: iDelta.motion ?? priors.motion,
-    weight: iDelta.weight ?? priors.weight,
-    corner: priors.corner,
-    alignment: priors.alignment,
-    baseSurface: iDelta.surface ?? priors.surface,
-    baseTexture: iDelta.texture ?? priors.texture,
-    baseDensity: iDelta.density ?? priors.density,
+    styleName: e > 0.62 && f < 0.4 ? 'kinetic-bold' : f > 0.62 ? 'editorial' : e > 0.55 ? 'dynamic' : 'clean-modern',
+    motion: e > 0.66 ? 'pop' : e > 0.5 ? 'snappy' : f > 0.6 ? 'gentle' : 'smooth',
+    weight: e > 0.62 && f < 0.45 ? 'heavy' : f > 0.6 ? 'regular' : 'medium',
+    surface: e > 0.66 ? 'glow' : 'flat',
+    density: e > 0.6 ? 'dense' : f > 0.6 ? 'airy' : 'standard',
+  };
+}
+
+/**
+ * Resolve the video IDENTITY once. SIGNAL-DRIVEN: the video's PURPOSE (intent) + its aggregate SIGNALS decide the
+ * style; the brand font is DEMOTED to a weak fallback + the locked type token (a font is a static profile — it does
+ * not pick the style). Precedence per axis: intent (the stated why) > video signals (the real character) > font.
+ * NO footage here — that is per-moment (resolveMomentStyle).
+ */
+export function resolveVideoStyle(inputs: VideoStyleInputs): VideoStyle {
+  const override = inputs.styleOverride?.trim();
+  const { genre, delta: iDelta } = intentStyleDelta(inputs.intent);
+  const sig = inputs.videoSignals ? styleFromSignals(inputs.videoSignals) : null;
+  const font = fontStylePriors(inputs.brandFont); // weak fallback + the locked type token only
+  return {
+    styleName: override || iDelta.styleName || sig?.styleName || FAMILY_STYLE_NAME[font.family],
+    personality: sig ? `${sig.styleName} (signal-driven)` : font.personality,
+    motion: iDelta.motion ?? sig?.motion ?? font.motion,
+    weight: iDelta.weight ?? sig?.weight ?? font.weight,
+    corner: font.corner, // typographic — from the (locked) font
+    alignment: font.alignment, // typographic — from the (locked) font
+    baseSurface: iDelta.surface ?? sig?.surface ?? font.surface,
+    baseTexture: iDelta.texture ?? font.texture, // signals don't set texture — intent or the font's
+    baseDensity: iDelta.density ?? sig?.density ?? font.density,
     sources: [
+      ...(inputs.intent && genre !== 'generic' ? [`intent:${genre}`] : []),
+      ...(sig ? ['signals'] : []),
       `font:${classifyFontFamily(inputs.brandFont)}`,
-      ...(genre !== 'generic' ? [`intent:${genre}`] : []),
       ...(override ? ['user:override'] : []),
     ],
   };
