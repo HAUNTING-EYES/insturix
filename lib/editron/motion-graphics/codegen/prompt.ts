@@ -130,8 +130,11 @@ fact — and ONLY that fact.
   \`DECLINE: <one short reason>\` and nothing else. A missing graphic is correct; a dishonest or broken one is not.
 </grounding>`;
 
-/** The hard rules — the scan enforces these; the model must obey them exactly. `durF` = the clip's frame count. */
-export const hardRules = (durF: number): string => `<hard_rules>
+/**
+ * The hard rules — the scan enforces these; the model must obey them exactly. STABLE (byte-identical every call)
+ * so it belongs to the cacheable prefix — the clip's frame count lives in <moment>, never interpolated here.
+ */
+export const HARD_RULES = `<hard_rules>
 - Export EXACTLY: export const MgScene: React.FC<{brand: Brand; data: Data}> = ({brand, data}) => { ... }
   Declare \`type Data = {...}\` INLINE for exactly the values this fact needs (the data props listed in <moment>).
   Read every number/word from \`data\` (guard optionals: data.value ?? 0). NEVER bake a literal fact value into
@@ -149,8 +152,8 @@ export const hardRules = (durF: number): string => `<hard_rules>
 - DETERMINISTIC: animate ONLY from useCurrentFrame()/useVideoConfig(). NEVER Math.random, Date, timers, fetch,
   window, document, eval, require, dynamic import, process. Math.sin/cos of the frame is encouraged.
 - CHOREOGRAPHY IS COMPUTED: const {durationInFrames, fps} = useVideoConfig(); const ph = phases(durationInFrames, brand);
-  anchor every entrance/exit/beat to ph.* (+ stagger). No hand-typed frame windows like [14, 38]. This clip is
-  ~${durF} frames — but READ the length from useVideoConfig(). Motion on every frame; end settled via exitOut.
+  anchor every entrance/exit/beat to ph.* (+ stagger). No hand-typed frame windows like [14, 38]. READ the clip
+  length from useVideoConfig() (its value is stated in <moment>). Motion on every frame; end settled via exitOut.
 - Every interpolate(): {extrapolateLeft:'clamp', extrapolateRight:'clamp'}. spring() takes fps from useVideoConfig().
 - Compose within the placement region given in <moment>; keep the AVOID regions clear (the subject/text are there).
   ONE focal point with a clear scale hierarchy. Do NOT stretch an element to fill the frame — compose within the

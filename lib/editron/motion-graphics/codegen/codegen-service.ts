@@ -21,7 +21,7 @@ import {
   PRIMITIVE_API,
   FOUNDATIONAL_MG_KNOWLEDGE,
   GROUNDING_RULE,
-  hardRules,
+  HARD_RULES,
   COMPOSITION_GUIDE,
   KIT_IMPORT_PREAMBLE,
 } from './prompt';
@@ -145,9 +145,14 @@ function momentData(input: MgMomentInput): string {
   return lines.join('\n');
 }
 
-/** Assemble the full codegen prompt. STABLE prefix (cacheable) first; the moment LAST (Rule 35). */
-export function buildCodegenPrompt(input: MgMomentInput): string {
-  return `<role>
+/**
+ * The STABLE prefix — role + primitive API + foundational MG knowledge + grounding + hard rules + composition
+ * guidance. It is byte-identical on EVERY moment in EVERY video (nothing is interpolated in), so it is the
+ * provider cache prefix: the writer places it FIRST, the volatile per-moment images + <moment> go AFTER it, and
+ * "what motion graphics are" is ingested once and cache-hit thereafter instead of re-sent every call (Rule 35 +
+ * caching). If ANY per-input value ever leaks in here, the cache silently dies — keep this a constant.
+ */
+export const CODEGEN_STABLE_PREFIX = `<role>
 You are a motion-graphics designer-engineer. Compose ONE Remotion component that visualizes the licensed fact below as a bespoke, on-brand, TRANSPARENT motion graphic over footage — using ONLY the kit. Return ONLY the component source (no prose, no markdown fences), or exactly a \`DECLINE: <reason>\` line.
 </role>
 
@@ -157,13 +162,22 @@ ${FOUNDATIONAL_MG_KNOWLEDGE}
 
 ${GROUNDING_RULE}
 
-${hardRules(durationFrames(input))}
+${HARD_RULES}
 
-${COMPOSITION_GUIDE}
+${COMPOSITION_GUIDE}`;
 
-<moment>
+/** The volatile per-moment block — the licensed fact's SHAPE + context. Goes LAST, after the stable prefix and
+ *  the footage images, so it never poisons the cache prefix (Rule 35: data LAST). */
+export function buildMomentBlock(input: MgMomentInput): string {
+  return `<moment>
 ${momentData(input)}
 </moment>`;
+}
+
+/** Assemble the full codegen prompt. STABLE prefix (cacheable) first; the moment LAST (Rule 35). The production
+ *  writer splits on {@link CODEGEN_STABLE_PREFIX} to cache the prefix; text-only callers use the whole string. */
+export function buildCodegenPrompt(input: MgMomentInput): string {
+  return `${CODEGEN_STABLE_PREFIX}\n\n${buildMomentBlock(input)}`;
 }
 
 /**

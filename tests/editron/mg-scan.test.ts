@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { scanCode } from '@/lib/editron/motion-graphics/codegen/scan';
 import {
   PRIMITIVE_API,
-  hardRules,
+  HARD_RULES,
   COMPOSITION_GUIDE,
   FOUNDATIONAL_MG_KNOWLEDGE,
   GROUNDING_RULE,
@@ -132,9 +132,10 @@ describe('prompt scaffolding - well-formed for E0', () => {
     expect(PRIMITIVE_API).toMatch(/backdrop is FALSE|backdrop.*false/i);
     expect(PRIMITIVE_API).not.toMatch(/ProductShot|VideoShot|FullBleedProduct/);
   });
-  it('hard rules embed the frame count + tell the model NOT to write imports + determinism', () => {
-    const r = hardRules(120);
-    expect(r).toMatch(/120/);
+  it('hard rules are stable (clip length read from useVideoConfig, not interpolated) + no imports + determinism', () => {
+    const r = HARD_RULES;
+    expect(r).not.toMatch(/\$\{/); // byte-identical → cacheable prefix; nothing interpolated in
+    expect(r).toMatch(/useVideoConfig/); // the clip length is READ, not baked into the rules
     expect(r).toMatch(/do not write any import/i); // imports are injected, not authored
     expect(r).toMatch(/Math\.random/);
   });
