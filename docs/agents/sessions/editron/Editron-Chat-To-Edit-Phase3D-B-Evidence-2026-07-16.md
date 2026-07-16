@@ -67,10 +67,35 @@ The broader verification set passed 132/132 tests across chat intent, canonical 
 
 Focused ESLint passed. Full TypeScript reported only the pre-existing Avatar Vault route export, Calos route export, two prompt probe, and temporary SaaS fixture errors; no Phase 3D file appeared.
 
-## Honest Remaining Proof
+## Live Environment Proof
 
-The code path is wired and regression-tested. A deployed, signed QStash request from a real chat turn still needs to prove the live environment contract end to end:
+The end-to-end environment contract was proven on 2026-07-16/17 with an expiring clone of `proj_iitL6e9a5ndg`. The original project was not mutated.
 
-`chat request -> intent audit -> batch requested/composing -> grounded Storyline -> canonical timeline save -> Director queued`
+Fixture identifiers:
 
-Until that live trace is captured, Phase 3D-B is code-complete but not live-proven.
+- project: `proj_chat3d_b239e9d3890d`;
+- upload batch: `upload_batch_chat3d_b239e9d3890d`;
+- editorial intent: `intent_72d25235-49af-496c-af83-07497a507153`.
+
+Observed production trace:
+
+1. real Gemini chat inspected uploaded assets and the canonical timeline;
+2. `apply_editorial_intent` accepted the script-led project request;
+3. the signed QStash dispatch was persisted at `2026-07-16T18:56:48.370Z`;
+4. Storyline recomposition materialized a new canonical timeline;
+5. Director was queued at `2026-07-16T18:57:52.824Z` with a persisted Director message id;
+6. the project completed at `2026-07-16T18:59:48.605Z`.
+
+Material result:
+
+- overlays changed from 10 to 5;
+- duration changed from 855 to 372 frames;
+- final timeline contained 3 video clips, 1 image, and 1 transition;
+- batch status was `director_queued`;
+- project status was `complete`.
+
+The first live attempt exposed two chat-transport defects before Storyline: inactive `read_project_file` arguments were validated even in full mode, and Gemini thought signatures were lost across tool turns. `df774d74` fixed mode-scoped argument normalization and signed-part persistence. The real SDK then proved that its aggregated streaming response drops the signature even when the stream chunk contains it; `03071de7` therefore preserves exact streamed parts and uses the aggregate for usage accounting only. The regression fixture now models that lossy aggregate explicitly.
+
+Phase 3D-B is live-proven for the required path:
+
+`real chat -> canonical evidence -> semantic intent -> signed QStash -> Storyline -> canonical timeline save -> Director queued`
