@@ -12,6 +12,7 @@
 
 import { classifyFontFamily, fontStylePriors, type FontFamily, type FontStylePriors } from './font-family';
 import { footageStyleDelta, type FootageSignals } from './footage-character';
+import { intentStyleDelta } from './intent-genre';
 
 /** The per-video resolved style — the priors composed + given a legible name. */
 export interface StyleBundle {
@@ -35,7 +36,9 @@ export interface StyleInputs {
   styleOverride?: string | null;
   /** This video's footage analysis (V-JEPA + content signals, mapped by the seam) — narrows the font style. */
   footage?: FootageSignals;
-  // intent?: IntentGenre;        // Phase 3b — picks the family (SaaS demo vs hype-reel vs documentary)
+  /** The video's purpose (production-brief format / platform / editorial intent). Strongest "why" — gets first
+   *  say on the style name + may push weight. A free-text string; classified to a genre internally. */
+  intent?: string | null;
 }
 
 /** Family → a legible named style. The font family is a strong style identity on its own; footage + intent
@@ -58,22 +61,25 @@ const WEIGHT_PX: Record<FontStylePriors['weight'], number> = { light: 250, regul
 /** Compose the classified priors into a per-video StyleBundle. Today: font-family prior (+ user override). */
 export function resolveStyle(inputs: StyleInputs): StyleBundle {
   const priors = fontStylePriors(inputs.brandFont);
-  const { character, delta } = footageStyleDelta(inputs.footage);
+  const { character, delta: fDelta } = footageStyleDelta(inputs.footage);
+  const { genre, delta: iDelta } = intentStyleDelta(inputs.intent);
   const override = inputs.styleOverride?.trim();
+  // Compose: font BASE ← footage narrows ← intent narrows. Precedence per axis is intent > footage > font
+  // (intent = the strongest "why"); intent may also push weight + set the style name. Name: user > intent > font.
   return {
-    styleName: override || FAMILY_STYLE_NAME[priors.family],
+    styleName: override || iDelta.styleName || FAMILY_STYLE_NAME[priors.family],
     personality: priors.personality,
-    // The footage NARROWS the font base — only the axes it has an opinion on (brand ⊇ footage). 'neutral' = no delta.
-    motion: delta.motion ?? priors.motion,
-    density: delta.density ?? priors.density,
+    motion: iDelta.motion ?? fDelta.motion ?? priors.motion,
+    density: iDelta.density ?? fDelta.density ?? priors.density,
     corner: priors.corner,
-    weight: priors.weight,
-    surface: delta.surface ?? priors.surface,
-    texture: delta.texture ?? priors.texture,
+    weight: iDelta.weight ?? priors.weight,
+    surface: iDelta.surface ?? fDelta.surface ?? priors.surface,
+    texture: iDelta.texture ?? fDelta.texture ?? priors.texture,
     alignment: priors.alignment,
     sources: [
       `font:${classifyFontFamily(inputs.brandFont)}`,
       ...(character !== 'neutral' ? [`footage:${character}`] : []),
+      ...(genre !== 'generic' ? [`intent:${genre}`] : []),
       ...(override ? ['user:override'] : []),
     ],
   };
