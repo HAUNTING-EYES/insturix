@@ -97,7 +97,9 @@ export const NORTHWIND: Brand = {
 /** Append a 2-digit hex alpha to a 6-digit hex, else return unchanged (safe for rgba() brands). */
 export const withAlpha = (color: string, alpha: number): string => {
   if (/^#[0-9a-f]{6}$/i.test(color)) {
-    return color + Math.max(0, Math.min(255, Math.round(alpha * 255))).toString(16).padStart(2, '0');
+    // NaN-safe (same rule as clampByte below): a non-finite alpha degrades to fully transparent, never '#..NaN'.
+    const a = Number.isFinite(alpha) ? Math.max(0, Math.min(255, Math.round(alpha * 255))) : 0;
+    return color + a.toString(16).padStart(2, '0');
   }
   return color;
 };
@@ -115,7 +117,11 @@ const parseHex = (c: string): [number, number, number] | null => {
   const h = m[1].length === 3 ? m[1].split('').map((x) => x + x).join('') : m[1];
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 };
-const clampByte = (v: number): number => Math.max(0, Math.min(255, Math.round(v)));
+// NaN-safe: a non-finite channel or amount (e.g. a model-computed value that went NaN via frame math) must NEVER
+// emit a garbage '#NaNNaNNaN' string — it degrades to a valid colour. clampByte→0; unit01→0 (0 = identity, so
+// tint/shade/mix return the base colour unblended rather than a broken hex).
+const clampByte = (v: number): number => (Number.isFinite(v) ? Math.max(0, Math.min(255, Math.round(v))) : 0);
+const unit01 = (v: number): number => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
 const toHex = (r: number, g: number, b: number): string =>
   `#${[r, g, b].map((v) => clampByte(v).toString(16).padStart(2, '0')).join('')}`;
 
@@ -123,14 +129,14 @@ const toHex = (r: number, g: number, b: number): string =>
 export const tint = (color: string, amount: number): string => {
   const rgb = parseHex(color);
   if (!rgb) return color;
-  const t = Math.max(0, Math.min(1, amount));
+  const t = unit01(amount);
   return toHex(rgb[0] + (255 - rgb[0]) * t, rgb[1] + (255 - rgb[1]) * t, rgb[2] + (255 - rgb[2]) * t);
 };
 /** Darken a brand colour toward black by `amount` (0..1) — the muted/calm/deep end of the colour axis. */
 export const shade = (color: string, amount: number): string => {
   const rgb = parseHex(color);
   if (!rgb) return color;
-  const t = Math.max(0, Math.min(1, amount));
+  const t = unit01(amount);
   return toHex(rgb[0] * (1 - t), rgb[1] * (1 - t), rgb[2] * (1 - t));
 };
 /** Blend two brand colours (`t`=0 → a, 1 → b) — duotone / gradient stops within the brand palette. */
@@ -138,6 +144,6 @@ export const mix = (a: string, b: string, t: number): string => {
   const ca = parseHex(a);
   const cb = parseHex(b);
   if (!ca || !cb) return a;
-  const u = Math.max(0, Math.min(1, t));
+  const u = unit01(t);
   return toHex(ca[0] + (cb[0] - ca[0]) * u, ca[1] + (cb[1] - ca[1]) * u, ca[2] + (cb[2] - ca[2]) * u);
 };

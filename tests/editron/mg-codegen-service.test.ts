@@ -340,7 +340,11 @@ describe('import normalization - the eval-caught fix (model omits imports ~half 
 describe('buildCodegenPrompt - structure (no types, fact-driven, data-last)', () => {
   it('the moment is LAST (Rule 35), describes the fact SHAPE, and leaks no literal values', () => {
     const prompt = buildCodegenPrompt(input());
-    expect(prompt.indexOf('<moment>')).toBeGreaterThan(prompt.indexOf('<hard_rules>'));
+    // The <moment> tag is also REFERENCED in prose (foundational knowledge + hard rules point the model at it),
+    // so a first-indexOf collides with those references. The DATA block is the LAST <moment> occurrence, it must
+    // start AFTER the hard-rules section, and it must CLOSE the prompt (Rule 35: the licensed data goes last).
+    expect(prompt.lastIndexOf('<moment>')).toBeGreaterThan(prompt.indexOf('</hard_rules>'));
+    expect(prompt.trimEnd().endsWith('</moment>')).toBe(true);
     expect(prompt).toMatch(/data props/);
     expect(prompt).toMatch(/bounded-stat/); // the fact KIND is named
     expect(prompt).not.toMatch(/YoY growth/); // no literal fact value/label baked into the prompt

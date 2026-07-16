@@ -124,10 +124,13 @@ export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput 
     throw new Error(`buildMgMomentInput: window must have endFrame > startFrame, got [${window.startFrame}, ${window.endFrame}]`);
   }
 
+  // emphasisScale is NORMALISED to the contract's declared [0.25, 4] (worker-contract mgMomentInputSchema) so the
+  // assembler's output is always contract-valid regardless of producer; a non-positive/non-finite scale → 1 (neutral).
+  const rawEmphasisScale = finiteOr(expression.typography.emphasisScale, 1);
   const expressiveness: MgExpressiveness = {
     tier: toTier(expression.qualityTier),
     intensity: clamp01(finiteOr(expression.relevanceScore, 0.5)), // intensity is DEFINED 0..1
-    emphasisScale: finiteOr(expression.typography.emphasisScale, 1) > 0 ? finiteOr(expression.typography.emphasisScale, 1) : 1,
+    emphasisScale: rawEmphasisScale > 0 ? Math.min(4, Math.max(0.25, rawEmphasisScale)) : 1,
   };
 
   const placementContext: MgPlacementContext = {

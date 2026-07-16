@@ -94,6 +94,7 @@ const brandSchema = z.object({
     accentText: colorSchema,
   }).strict(),
   fontSans: boundedString(500),
+  fontDisplay: boundedString(500).optional(),
   type: z.object({
     headingWeight: finiteNumber.min(100).max(1_000),
     tracking: z.string().max(40),
@@ -160,6 +161,35 @@ const visualEvidenceSchema = z.object({
     { message: 'visual evidence timeline frames must be strictly increasing' },
   );
 
+// The style-resolver outputs that ride to the worker: the worker AUTHORS the component from request.input, and
+// codegen-service.buildCodegenPrompt reads input.videoStyle + input.footageSignals to render the <style_direction>.
+// So they MUST cross the wire. These mirror VideoStyle (style/style-resolver.ts) + FootageSignals
+// (style/footage-character.ts); the atom-vocab enums mirror FontStylePriors (style/font-family.ts) — if any of
+// those unions change, update here too (Rule 10). Footage numbers use finiteNumber (classifyFootage clamps to
+// [0,1] downstream) so a valid seam signal is never rejected at the boundary.
+const videoStyleSchema = z.object({
+  styleName: boundedString(120),
+  personality: boundedString(240),
+  motion: z.enum(['gentle', 'smooth', 'snappy', 'sharp', 'elastic', 'pop']),
+  weight: z.enum(['light', 'regular', 'medium', 'heavy']),
+  corner: z.enum(['sharp', 'medium', 'round']),
+  alignment: z.enum(['left', 'center']),
+  baseSurface: z.enum(['flat', 'frosted', 'raised', 'glow']),
+  baseTexture: z.enum(['none', 'grain', 'scanline', 'grid', 'dots']),
+  baseDensity: z.enum(['airy', 'standard', 'dense']),
+  sources: z.array(z.string().max(120)).max(16),
+}).strict();
+
+const footageSignalsSchema = z.object({
+  motionEnergy: finiteNumber.optional(),
+  warmth: finiteNumber.optional(),
+  arousal: finiteNumber.optional(),
+  faceEmotion: z.string().max(120).nullable().optional(),
+  motionType: z.enum(['subject_moving', 'camera_moving', 'both', 'static']).optional(),
+  brightness: finiteNumber.optional(),
+  saturation: finiteNumber.optional(),
+}).strict();
+
 export const mgMomentInputSchema = z.object({
   momentId: boundedString(240),
   candidate: semanticCandidateSchema,
@@ -197,6 +227,8 @@ export const mgMomentInputSchema = z.object({
   }).strict().optional(),
   visualEvidence: visualEvidenceSchema.optional(),
   notes: z.string().max(2_000).optional(),
+  videoStyle: videoStyleSchema.optional(),
+  footageSignals: footageSignalsSchema.optional(),
 }).strict().superRefine((moment, context) => {
   if (!moment.visualEvidence) return;
   for (const [index, frame] of moment.visualEvidence.frames.entries()) {
