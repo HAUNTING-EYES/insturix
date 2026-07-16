@@ -59,6 +59,7 @@ import type { OverlayCategory, OverlayDefinition, ScoringResult } from '@/lib/ed
 import type { SignalCurves } from '@/lib/editron/motion-graphics/engine/primitive-renderers';
 import type { UnifiedBrandLike } from '@/lib/editron/motion-graphics/codegen/brand-mapper';
 import type { MgAnchors, MgReceipt } from '@/lib/editron/motion-graphics/codegen/types';
+import type { FootageSignals } from '@/lib/editron/motion-graphics/codegen/style/footage-character';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -4234,6 +4235,30 @@ async function applyGraphic(
           canvas,
           anchors: codegenAnchors,
         });
+        // Seam pass 2 — THIS moment's footage character, read from its V-JEPA + wav2vec segment at the moment
+        // frame (same segment lookup the signal-curve builder uses). The R2/R3 resolver fixes need the motionType
+        // + faceEmotion STRINGS, which are NOT in the numeric signalCurves, so we read the segment directly. No
+        // segment → {} → undefined → the video style identity holds for this moment (graceful, deterministic).
+        const mgFrameRef = resolveSourceFrame(snappedFrame, overlays);
+        const mgSourceMs = (mgFrameRef.sourceFrame / DEFAULT_CONFIG.timing.fps) * 1000;
+        const mgAnalysis = analysisForAsset(analyses, mgFrameRef.assetId);
+        const mgVjepa = findTimeSegment(
+          arrayOrUndefined(mgAnalysis?.vjepaAnalysis?.segments) ?? arrayOrUndefined(mgAnalysis?.vjepa?.segments) ?? projectSignalContext.vjepaSegments,
+          mgSourceMs,
+        );
+        const mgWav2vec = findTimeSegment(
+          arrayOrUndefined(mgAnalysis?.wav2vecAnalysis?.segments) ?? arrayOrUndefined(mgAnalysis?.wav2vec?.segments) ?? projectSignalContext.wav2vecSegments,
+          mgSourceMs,
+        );
+        const mgFootage: FootageSignals = {};
+        const mgMotion = mgVjepa ? readNumber(mgVjepa, 'motionIntensity', 'motion_intensity') : undefined;
+        if (mgMotion != null) mgFootage.motionEnergy = clamp01(mgMotion);
+        const mgMotionType = mgVjepa ? readString(mgVjepa, 'motionType', 'motion_type') : undefined;
+        if (mgMotionType === 'subject_moving' || mgMotionType === 'camera_moving' || mgMotionType === 'both' || mgMotionType === 'static') mgFootage.motionType = mgMotionType;
+        const mgFace = mgVjepa ? readString(mgVjepa, 'faceEmotion', 'face_emotion') : undefined;
+        if (mgFace) mgFootage.faceEmotion = mgFace;
+        const mgArousal = mgWav2vec ? readNumber(mgWav2vec, 'emotionIntensity', 'emotion_intensity') : undefined;
+        if (mgArousal != null) mgFootage.arousal = clamp01(mgArousal);
         const momentInput = buildMgMomentInput({
           momentId: `${projectId}:${snappedFrame}:${selectedCandidate.id}`,
           candidate: selectedCandidate,
@@ -4244,6 +4269,7 @@ async function applyGraphic(
           anchors: codegenAnchors,
           visualEvidence,
           notes: mgCodegenNotes(decision),
+          footageSignals: Object.keys(mgFootage).length > 0 ? mgFootage : undefined,
         });
         const generated = await runDurableMgRenderJob({
           projectId,
