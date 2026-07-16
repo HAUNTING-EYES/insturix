@@ -13,7 +13,7 @@
 import React from 'react';
 import { interpolate, useCurrentFrame } from 'remotion';
 import type { Brand } from './brand';
-import { withAlpha } from './brand';
+import { withAlpha, dv } from './brand';
 import { EASE } from './choreo';
 
 type Tone = 'accent' | 'text' | 'muted';
@@ -127,16 +127,49 @@ export const Rule: React.FC<{
   );
 };
 
-/** A PLATE — a rounded brand surface / scrim that fades+lifts in. Backs a group or holds legibility (translucent). */
+/**
+ * A PLATE — a rounded brand surface / scrim that fades+lifts in. Backs a group or holds legibility.
+ * `surface` = the SURFACE AXIS (atomize-the-style, axis 4) — a NAMED mode a style preset maps straight onto:
+ *   flat    (default, unchanged): translucent brand scrim + hairline border.
+ *   frosted (glass-LOOK): lighter fill + a top sheen + soft light border. ⚠ Does NOT blur the footage — the MG
+ *           renders on transparent alpha, so there is nothing behind to blur; true footage-blur is a
+ *           compositing-stage effect, not a kit knob. This is the panel LOOK, honestly.
+ *   raised  (material elevation): opaque surfaceAlt fill + a soft drop shadow.
+ *   glow    (neon / emphasis): brand-accent border + an accent halo that fades in with the plate.
+ * The kit builds every treatment from brand tokens only — the model just picks the mode (scan-safe, brand-locked).
+ */
 export const Plate: React.FC<{
-  brand: Brand; at?: number; dur?: number; opacity?: number; radius?: number; children?: React.ReactNode;
-}> = ({ brand, at = 0, dur = 12, opacity = 0.9, radius, children }) => {
+  brand: Brand; at?: number; dur?: number; opacity?: number; radius?: number;
+  surface?: 'flat' | 'frosted' | 'raised' | 'glow'; children?: React.ReactNode;
+}> = ({ brand, at = 0, dur = 12, opacity = 0.9, radius, surface = 'flat', children }) => {
   const frame = useCurrentFrame();
   const p = grow(frame, at, dur);
+  const treatment: React.CSSProperties =
+    surface === 'frosted'
+      ? {
+          background: withAlpha(brand.colors.surface, opacity * 0.55),
+          backgroundImage: `linear-gradient(155deg, ${withAlpha(brand.colors.text, 0.06)}, transparent 55%)`,
+          border: `${brand.shape.border}px solid ${withAlpha(brand.colors.text, 0.14)}`,
+        }
+      : surface === 'raised'
+        ? {
+            background: withAlpha(brand.colors.surfaceAlt, Math.min(1, opacity + 0.08)),
+            border: `${brand.shape.border}px solid ${brand.colors.border}`,
+            boxShadow: `0 ${dv(brand, 6, 10)}px ${dv(brand, 20, 34)}px rgba(0,0,0,0.34)`,
+          }
+        : surface === 'glow'
+          ? {
+              background: withAlpha(brand.colors.surface, opacity),
+              border: `${brand.shape.border}px solid ${withAlpha(brand.colors.accent, 0.5)}`,
+              boxShadow: `0 0 ${dv(brand, 22, 40)}px ${withAlpha(brand.colors.accent, 0.34 * p)}`,
+            }
+          : {
+              background: withAlpha(brand.colors.surface, opacity),
+              border: `${brand.shape.border}px solid ${brand.colors.border}`,
+            };
   return (
     <div style={{
-      background: withAlpha(brand.colors.surface, opacity),
-      border: `${brand.shape.border}px solid ${brand.colors.border}`,
+      ...treatment,
       borderRadius: radius ?? brand.shape.radius,
       opacity: p,
       transform: `translateY(${(1 - p) * 10}px)`,

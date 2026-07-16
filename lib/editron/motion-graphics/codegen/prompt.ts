@@ -41,7 +41,7 @@ NON-TEXT PRIMITIVES (brand-locked, animated from the frame — compose these int
 <Ring brand value={0..1} at dur? tone? size? thickness?/>                                  // a progress arc / gauge that fills to its TRUE fraction
 <Plot brand points={[...]} at dur? tone? area? width? height?/>                            // a line / area trend that draws on
 <Rule brand at dur? tone? thickness? vertical?/>    <Dot brand at dur? tone? size?/>       // a line (underline / divider / axis / connector); an accent dot
-<Plate brand at dur? opacity? radius?>...</Plate>                                          // a rounded brand surface / scrim behind a group or for legibility
+<Plate brand at dur? opacity? radius? surface="flat|frosted|raised|glow">...</Plate>        // a rounded brand surface. surface = look: flat scrim · frosted glass-panel · raised (drop-shadow depth) · glow (accent halo)
 <Reveal at dur? from="left|right|up|down">...</Reveal>                                      // clip-path WIPE — unmask any children on
 <Particles brand kind="dust|bokeh|sparks|confetti" count? at? tone?/>                       // deterministic emphasis field (fills its positioned parent)
 Pass REAL values (the true 0..1 fraction, the true series — perceptual honesty). For anything these don't cover you
