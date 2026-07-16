@@ -19,8 +19,27 @@ vi.mock('@google/generative-ai', () => ({
         async generateContentStream(input: { contents: unknown[] }) {
           fixture.modelContents.push(input.contents);
           const step = fixture.modelStep++;
+          if (step > 0) {
+            const modelMessages = (input.contents as Array<{
+              role?: string;
+              parts?: Array<Record<string, unknown>>;
+            }>).filter((content) => content.role === 'model');
+            const latestFunctionCall = [...modelMessages]
+              .reverse()
+              .flatMap((content) => content.parts ?? [])
+              .find((part) => 'functionCall' in part);
+            if (!latestFunctionCall?.thoughtSignature) {
+              throw new Error('Function call is missing a thought_signature');
+            }
+          }
           const part = step === 0
-            ? { functionCall: { name: 'read_project_file', args: {} } }
+            ? {
+                functionCall: {
+                  name: 'read_project_file',
+                  args: { mode: 'full', start: '0', end: '1000000', trackIds: 'all' },
+                },
+                thoughtSignature: 'signed-read-project',
+              }
             : step === 1
               ? {
                   functionCall: {
@@ -32,6 +51,7 @@ vi.mock('@google/generative-ai', () => ({
                       durationInFrames: 90,
                     },
                   },
+                  thoughtSignature: 'signed-add-overlay',
                 }
               : { text: 'Added the requested title.' };
           const chunk = { candidates: [{ content: { parts: [part] } }] };
@@ -67,7 +87,12 @@ vi.mock('@/lib/editron/agent/tools', () => ({
       {
         name: 'read_project_file',
         description: 'Read project state.',
-        schema: z.object({}),
+        schema: z.object({
+          mode: z.enum(['full', 'slice', 'byTrackIds']).optional().default('full'),
+          start: z.coerce.number().optional(),
+          end: z.coerce.number().optional(),
+          trackIds: z.array(z.string()).optional(),
+        }),
       },
     ),
     tool(
@@ -102,7 +127,7 @@ vi.mock('@/lib/editron/agent/tools', () => ({
   ],
 }));
 
-import { createAgent } from '@/lib/editron/agent/agent-graph';
+import { createAgent, normalizeAgentToolArgs } from '@/lib/editron/agent/agent-graph';
 import {
   CHAT_EDIT_BATTLE_SCENARIOS,
   buildChatBattleProjectSnapshot,
@@ -229,6 +254,29 @@ describe('chat edit battle harness', () => {
     expect(report.uiReload?.digest).toBe(report.mongoAfter.digest);
     expect(fixture.systemInstruction).toContain('Editron AI');
     expect(JSON.stringify(fixture.modelContents[0])).toContain('Add a bold white title');
+    expect(JSON.stringify(fixture.modelContents[1])).toContain('signed-read-project');
+    expect(JSON.stringify(fixture.modelContents[2])).toContain('signed-add-overlay');
+    expect(String(report.invocation.toolEvents[0]?.output)).toContain('"status":"success"');
+  });
+
+  it('drops only inactive read-project arguments and keeps active arguments strict', () => {
+    expect(normalizeAgentToolArgs('read_project_file', {
+      mode: 'full',
+      start: '0',
+      end: '1000000',
+      trackIds: 'all',
+    })).toEqual({ mode: 'full' });
+
+    const activeInvalidArgs = normalizeAgentToolArgs('read_project_file', {
+      mode: 'byTrackIds',
+      trackIds: 'all',
+    });
+    const schema = z.object({
+      mode: z.enum(['full', 'slice', 'byTrackIds']),
+      trackIds: z.array(z.string()).optional(),
+    });
+    expect(activeInvalidArgs).toEqual({ mode: 'byTrackIds', trackIds: 'all' });
+    expect(schema.safeParse(activeInvalidArgs).success).toBe(false);
   });
 
   it('requires the semantic script owner and forbids the legacy single-video tool', () => {

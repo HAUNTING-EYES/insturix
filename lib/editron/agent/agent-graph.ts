@@ -101,6 +101,39 @@ function countToolCallsSinceLastHuman(
   return count;
 }
 
+/**
+ * Remove arguments that are irrelevant to the selected read mode before the
+ * tool schema validates them. Gemini occasionally supplies `trackIds: "all"`
+ * alongside `mode: "full"`; the value is not used in that mode and must not
+ * prevent an otherwise valid project read. Active mode arguments remain
+ * untouched and therefore retain their strict schema validation.
+ */
+export function normalizeAgentToolArgs(
+  toolName: string,
+  input: unknown,
+): Record<string, unknown> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return {};
+  }
+
+  const args = { ...(input as Record<string, unknown>) };
+  if (toolName !== 'read_project_file') return args;
+
+  const mode = typeof args.mode === 'string' ? args.mode : 'full';
+  if (mode === 'full') {
+    delete args.start;
+    delete args.end;
+    delete args.trackIds;
+  } else if (mode === 'slice') {
+    delete args.trackIds;
+  } else if (mode === 'byTrackIds') {
+    delete args.start;
+    delete args.end;
+  }
+
+  return args;
+}
+
 export const createAgent = (userId: string, projectContext?: string) => {
   // Chat receives shared deterministic tools plus one semantic-intent adapter. Director and
   // internal createTools callers keep the compatibility tools, but chat cannot use them as
@@ -656,14 +689,24 @@ export const createAgent = (userId: string, projectContext?: string) => {
           });
         } else if (msgType === 'ai' || msgType === 'AIMessage' || msgType === 'AIMessageChunk') {
           const parts: any[] = [];
+
+          // Gemini 3 requires the exact thought-signed model parts to be sent
+          // back during multi-step function calling. Prefer the preserved raw
+          // parts over reconstructing a lossy functionCall from LangChain's
+          // normalized tool_calls representation.
+          const preservedParts = msgAny.additional_kwargs?.geminiParts;
+          if (Array.isArray(preservedParts) && preservedParts.length > 0) {
+            parts.push(...preservedParts);
+          }
           
-          // Add text content if present and not array
-          if (typeof msg.content === 'string' && msg.content.trim()) {
+          // Legacy messages created before signed-part preservation still need
+          // the compatibility reconstruction path.
+          if (parts.length === 0 && typeof msg.content === 'string' && msg.content.trim()) {
             parts.push({ text: msg.content });
           }
           
           // Add function calls
-          if (msgAny.tool_calls && msgAny.tool_calls.length > 0) {
+          if (parts.length === 0 && msgAny.tool_calls && msgAny.tool_calls.length > 0) {
             for (const tc of msgAny.tool_calls) {
               parts.push({
                 functionCall: {
@@ -732,6 +775,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
       
       let textContent = '';
       const toolCalls: any[] = [];
+      let modelResponseParts: any[] = [];
       
       // Use streaming if callback is provided
       if (streamCallback) {
@@ -746,6 +790,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
           attempt++;
           textContent = '';
           toolCalls.length = 0; // Clear any previous attempts
+          modelResponseParts = [];
           
           debugLog(`Attempt ${attempt}/${MAX_RETRIES}: Calling generateContentStream...`);
           
@@ -788,6 +833,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
             }
             
             for (const part of parts) {
+              modelResponseParts.push(part);
               if (part.text) {
                 debugLog('Got text part:', part.text.substring(0, 100));
                 textContent += part.text;
@@ -819,6 +865,10 @@ export const createAgent = (userId: string, projectContext?: string) => {
             // Extract token usage from the aggregated response for billing
             try {
               const aggregatedResponse = await streamResult.response;
+              const aggregatedParts = aggregatedResponse.candidates?.[0]?.content?.parts;
+              if (Array.isArray(aggregatedParts) && aggregatedParts.length > 0) {
+                modelResponseParts = aggregatedParts;
+              }
               if (aggregatedResponse.usageMetadata && tokenTracker) {
                 tokenTracker.addUsage(aggregatedResponse.usageMetadata);
                 debugLog('Token usage:', aggregatedResponse.usageMetadata);
@@ -858,6 +908,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
         
         const candidate = candidates[0];
         const parts = candidate.content?.parts || [];
+        modelResponseParts = parts;
         
         for (const part of parts) {
           if (part.text) {
@@ -885,6 +936,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
       return processResponse({
         content: textContent,
         tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+        geminiParts: modelResponseParts.length > 0 ? modelResponseParts : undefined,
       });
       
     } catch (invokeError: any) {
@@ -895,7 +947,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
   }
   
   // Separate function to process response (extracted for cleaner try/catch)
-  function processResponse(responseData: { content: string, tool_calls?: any[] }) {
+  function processResponse(responseData: { content: string, tool_calls?: any[], geminiParts?: any[] }) {
     
     // DEBUG: Log what the model is returning
     debugLog('Model response content length:', responseData.content?.length || 0);
@@ -906,6 +958,9 @@ export const createAgent = (userId: string, projectContext?: string) => {
     const aiMessage = new AIMessage({
       content: responseData.content || '',
       tool_calls: responseData.tool_calls,
+      additional_kwargs: responseData.geminiParts
+        ? { geminiParts: responseData.geminiParts }
+        : undefined,
     });
     
     return { messages: [aiMessage] };
@@ -1002,7 +1057,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
             // Pre-process args to handle Gemini's incorrect formats
             // 1. Time strings: "3s" → 90 (frames at 30fps)
             // 2. CSS-like strings: "fontSize: 72px; color: #FFF" → object
-            const args = { ...toolCall.args };
+            const args = normalizeAgentToolArgs(toolCall.name, toolCall.args);
             for (const key of Object.keys(args)) {
               const value = args[key];
               if (typeof value === 'string') {
