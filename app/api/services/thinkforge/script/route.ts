@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  * Handles get, save, and update operations
  */
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -35,15 +35,23 @@ export async function POST(req: Request) {
       userId,
       action,
       script,
+      orgId,
       baseVersion
     });
 
     return NextResponse.json({ script: result });
   } catch (error: any) {
-    console.error('Error in script endpoint:', error);
+    const status = error?.message === 'Session not found'
+      ? 404
+      : error?.message === 'Version conflict'
+        ? 409
+        : error?.message?.includes('Script data required') ? 400 : 500;
+    if (status >= 500) {
+      console.error('Error in script endpoint:', error);
+    }
     return NextResponse.json(
       { error: 'Script operation failed', details: error?.message },
-      { status: 500 }
+      { status }
     );
   }
 }

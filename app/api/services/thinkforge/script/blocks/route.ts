@@ -133,7 +133,7 @@ export async function POST(req: Request) {
         blocks: blocks || [],
         richText: validatedRichText
       }
-    }, userId);
+    }, userId, orgId);
 
     if (!result.ok) {
       const status = result.error === 'Version conflict' ? 409 : result.error === 'Session not found' ? 404 : 400;

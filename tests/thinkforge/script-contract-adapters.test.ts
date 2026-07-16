@@ -41,8 +41,8 @@ const storedPost = {
 describe('ThinkForge script contract adapters', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.auth.mockResolvedValue({ userId: 'user_001' });
-    mocks.getSession.mockResolvedValue({ _id: 'session_001', userId: 'user_001' });
+    mocks.auth.mockResolvedValue({ userId: 'user_001', orgId: 'org_001' });
+    mocks.getSession.mockResolvedValue({ _id: 'session_001', userId: 'user_001', orgId: 'org_001' });
     mocks.getScript.mockResolvedValue(storedPost);
     mocks.listScripts.mockResolvedValue([]);
     mocks.applyCommand.mockResolvedValue({ ok: true, script: storedPost });
@@ -61,6 +61,7 @@ describe('ThinkForge script contract adapters', () => {
       sessionId: storedPost.sessionId,
       scriptId: storedPost.scriptId,
       userId: 'user_001',
+      orgId: 'org_001',
       action: 'save',
       baseVersion: 1,
       script,
@@ -70,6 +71,7 @@ describe('ThinkForge script contract adapters', () => {
       scriptId: storedPost.scriptId,
       userId: 'user_001',
       action: 'update',
+      orgId: 'org_001',
       baseVersion: 2,
       script,
     });
@@ -81,6 +83,12 @@ describe('ThinkForge script contract adapters', () => {
         contentContract: postContract,
       });
     }
+    expect(mocks.applyCommand).toHaveBeenNthCalledWith(
+      1, expect.any(Object), 'user_001', 'org_001',
+    );
+    expect(mocks.applyCommand).toHaveBeenNthCalledWith(
+      2, expect.any(Object), 'user_001', 'org_001',
+    );
   });
 
   it('forwards and returns classification through the legacy save route', async () => {
@@ -113,6 +121,7 @@ describe('ThinkForge script contract adapters', () => {
         }),
       }),
       'user_001',
+      'org_001',
     );
     expect((await response.json()).script).toMatchObject({
       documentType: 'social_post',
@@ -177,6 +186,11 @@ describe('ThinkForge script contract adapters', () => {
         contentContract: postContract,
       },
     });
+    expect(mocks.applyCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'session_001' }),
+      'user_001',
+      'org_001',
+    );
   });
 
   it('does not expose script data from a session the authenticated user does not own', async () => {
@@ -203,5 +217,82 @@ describe('ThinkForge script contract adapters', () => {
     expect(responses.map((response) => response.status)).toEqual([404, 404, 404]);
     expect(mocks.getScript).not.toHaveBeenCalled();
     expect(mocks.listScripts).not.toHaveBeenCalled();
+  });
+
+  it('rejects foreign unified and legacy operations before script access', async () => {
+    mocks.getSession.mockResolvedValue(null);
+    const [{ POST: unifiedScript }, { POST: saveScript }] = await Promise.all([
+      import('@/app/api/services/thinkforge/script/route'),
+      import('@/app/api/services/thinkforge/script/save/route'),
+    ]);
+
+    const responses = await Promise.all([
+      unifiedScript(new Request('http://localhost/api/services/thinkforge/script', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'session_foreign',
+          action: 'get',
+        }),
+      })),
+      saveScript(new Request('http://localhost/api/services/thinkforge/script/save', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'session_foreign',
+          scriptId: 'post_001',
+          script: { title: 'Blocked save', content: 'Must not persist.', blocks: [] },
+        }),
+      })),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([404, 404]);
+    expect(mocks.getScript).not.toHaveBeenCalled();
+    expect(mocks.applyCommand).not.toHaveBeenCalled();
+  });
+
+  it('uses the canonical session for organization unified and legacy operations', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_001',
+    });
+    const [{ POST: unifiedScript }, { POST: saveScript }] = await Promise.all([
+      import('@/app/api/services/thinkforge/script/route'),
+      import('@/app/api/services/thinkforge/script/save/route'),
+    ]);
+
+    const getResponse = await unifiedScript(new Request(
+      'http://localhost/api/services/thinkforge/script',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 'session_alias', action: 'get' }),
+      },
+    ));
+    const saveResponse = await saveScript(new Request(
+      'http://localhost/api/services/thinkforge/script/save',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'session_alias',
+          scriptId: 'post_001',
+          script: { title: 'Organization save', content: 'Authorized.', blocks: [] },
+        }),
+      },
+    ));
+
+    expect([getResponse.status, saveResponse.status]).toEqual([200, 200]);
+    expect(mocks.getSession).toHaveBeenCalledWith(
+      'session_alias', 'user_001', 'org_001',
+    );
+    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', null);
+    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'post_001');
+    expect(mocks.applyCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'session_canonical' }),
+      'user_001',
+      'org_001',
+    );
   });
 });
