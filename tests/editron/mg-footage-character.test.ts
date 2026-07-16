@@ -13,13 +13,25 @@ describe('MG style resolver — footage classifier', () => {
     expect(classifyFootage({ motionEnergy: 0.9 })).toBe('energetic-vivid');
     expect(classifyFootage({ arousal: 0.85 })).toBe('energetic-vivid');
     expect(classifyFootage({ warmth: 0.8 })).toBe('calm-warm');
-    expect(classifyFootage({ brightness: 0.2 })).toBe('cinematic-moody');
+    expect(classifyFootage({ brightness: 0.2, faceEmotion: 'sad' })).toBe('cinematic-moody');
     expect(classifyFootage({ brightness: 0.8, saturation: 0.2 })).toBe('clean-neutral');
   });
 
   it('face emotion biases perceived warmth (harvested from resolveColor)', () => {
     expect(classifyFootage({ warmth: 0.55, faceEmotion: 'happy' })).toBe('calm-warm'); // +0.15 → >0.62
     expect(classifyFootage({ warmth: 0.7, faceEmotion: 'angry' })).not.toBe('calm-warm'); // -0.15 → <0.62
+  });
+
+  it('R2 regression: CAMERA motion is not emotional energy (a pan ≠ energetic)', () => {
+    expect(classifyFootage({ motionEnergy: 0.9, motionType: 'camera_moving' })).not.toBe('energetic-vivid');
+    expect(classifyFootage({ motionEnergy: 0.9, motionType: 'subject_moving' })).toBe('energetic-vivid');
+    // arousal still counts even under camera motion (real emotional energy)
+    expect(classifyFootage({ motionEnergy: 0.9, motionType: 'camera_moving', arousal: 0.9 })).toBe('energetic-vivid');
+  });
+
+  it('R3 regression: dark ≠ moody without a face (dark UI screenshot is just dark)', () => {
+    expect(classifyFootage({ brightness: 0.2 })).not.toBe('cinematic-moody'); // dark UI, no face
+    expect(classifyFootage({ brightness: 0.2, faceEmotion: 'sad' })).toBe('cinematic-moody'); // dark + human
   });
 
   it('no / weak signal is a NO-OP (neutral, empty delta)', () => {

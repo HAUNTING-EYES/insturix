@@ -34,7 +34,9 @@ export interface VideoStyle {
 }
 
 export interface VideoStyleInputs {
-  /** The brand's PRIMARY typeface (kit Brand.fontSans) — the strongest style signal. */
+  /** The brand's PRIMARY / BODY typeface (kit Brand.fontSans) — the strongest style signal. R1: the seam MUST
+   *  pass the body font, NOT a display/header face — a serious brand often uses a condensed display face for
+   *  HEADERS only, and classifying that would force the whole video to kinetic-bold. */
   brandFont?: string | null;
   /** The video's purpose (production-brief format / platform / editorial intent) — the strongest "why". */
   intent?: string | null;
@@ -94,6 +96,8 @@ export interface MomentSignals {
   /** This moment's expressiveness (from MgExpressiveness). */
   intensity?: number;
   tier?: 'subtle' | 'standard' | 'hero';
+  /** This moment's fact kind (SemanticMgFactKind) — quantitative facts suppress background texture (R7). */
+  factKind?: string;
 }
 
 export type MomentEmphasis = 'quiet' | 'balanced' | 'prominent';
@@ -112,21 +116,28 @@ export interface MomentStyle {
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
+// Quantitative fact kinds — a data graphic (bar/ring/big-number/trend) reads best CLEAN. They suppress the
+// video's base texture so a documentary's grain doesn't sit behind a crisp chart (R7).
+const DATA_FACT_KINDS = new Set(['weak-stat', 'bounded-stat', 'magnitude-stat', 'series', 'comparison']);
+
 /** Resolve THIS moment's treatment within the video identity. Footage narrows surface/texture/motion/density;
- *  salience + tier set emphasis (harvested from the old resolveMomentEmphasis — the fix for the §9 monotony);
- *  beats enable sync. Two moments with different footage/salience get different graphics under the same identity. */
+ *  salience drives emphasis (continuous → varies per moment even if the Director marks every beat 'hero' — R5);
+ *  quantitative facts go clean (R7); beats enable sync. Two moments → different graphics under one identity. */
 export function resolveMomentStyle(video: VideoStyle, m: MomentSignals): MomentStyle {
   const { character, delta: fDelta } = footageStyleDelta(m.footage);
   const beatSync = (m.beatFrames?.length ?? 0) > 0 || (m.wordFrames?.length ?? 0) > 0;
+  // R5: salience is a CONTINUOUS peak signal — use it FIRST so emphasis varies moment to moment. The binary tier
+  // is only the fallback when salience is absent (an all-'hero' tier stream would otherwise flatten to prominent).
   const sal = typeof m.salience === 'number' ? clamp01(m.salience) : undefined;
   const emphasis: MomentEmphasis =
-    m.tier === 'hero' || (sal !== undefined && sal > 0.7) ? 'prominent'
-      : m.tier === 'subtle' || (sal !== undefined && sal < 0.4) ? 'quiet'
-        : 'balanced';
+    sal !== undefined
+      ? (sal > 0.7 ? 'prominent' : sal < 0.4 ? 'quiet' : 'balanced')
+      : (m.tier === 'hero' ? 'prominent' : m.tier === 'subtle' ? 'quiet' : 'balanced');
+  const isDataFact = typeof m.factKind === 'string' && DATA_FACT_KINDS.has(m.factKind);
   return {
     motion: fDelta.motion ?? video.motion,
     surface: fDelta.surface ?? video.baseSurface,
-    texture: fDelta.texture ?? video.baseTexture,
+    texture: isDataFact ? 'none' : (fDelta.texture ?? video.baseTexture),
     density: fDelta.density ?? video.baseDensity,
     emphasis,
     beatSync,

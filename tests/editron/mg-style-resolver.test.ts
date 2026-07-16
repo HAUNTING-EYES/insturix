@@ -53,6 +53,19 @@ describe('MG style resolver — MOMENT treatment (resolved PER moment, the anti-
     expect(resolveMomentStyle(video, { salience: 0.5 }).emphasis).toBe('balanced');
   });
 
+  it('R5 regression: emphasis follows CONTINUOUS salience even when every beat is tier=hero', () => {
+    expect(resolveMomentStyle(video, { tier: 'hero', salience: 0.9 }).emphasis).toBe('prominent');
+    expect(resolveMomentStyle(video, { tier: 'hero', salience: 0.5 }).emphasis).toBe('balanced');
+    expect(resolveMomentStyle(video, { tier: 'hero', salience: 0.2 }).emphasis).toBe('quiet');
+  });
+
+  it('R7 regression: quantitative facts suppress background texture (clean data graphic)', () => {
+    const doc = resolveVideoStyle({ brandFont: 'Georgia', intent: 'documentary' }); // base texture grain
+    expect(resolveMomentStyle(doc, { factKind: 'comparison' }).texture).toBe('none');
+    expect(resolveMomentStyle(doc, { factKind: 'magnitude-stat' }).texture).toBe('none');
+    expect(resolveMomentStyle(doc, { factKind: 'concept' }).texture).toBe('grain'); // non-data keeps it
+  });
+
   it('THIS moment\'s footage narrows the treatment; beats enable sync', () => {
     const energetic = resolveMomentStyle(video, { footage: { motionEnergy: 0.9 } });
     expect(energetic.motion).toBe('pop'); // footage of THIS moment

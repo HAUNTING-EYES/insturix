@@ -21,12 +21,14 @@ export type IntentGenre =
 
 // Upstream format/intent strings → genre. Substring match, lowercased.
 const INTENT_KEYWORDS: Array<[IntentGenre, RegExp]> = [
-  ['hype-reel', /\b(reel|short|promo|hype|teaser|trailer|highlight)\b/],
-  ['saas-demo', /\b(saas|demo|product|explainer|feature|walkthrough|onboarding|app)\b/],
+  // R4: order matters — the more SPECIFIC / aesthetic genres are matched before the generic saas-demo, whose
+  // "product/demo" keywords are common filler ("documentary-style product demo" should be documentary, not saas).
+  ['hype-reel', /\b(reel|reels|short|shorts|tiktok|promo|hype|teaser|trailer|highlight)\b/], // short-form platforms lean kinetic
   ['tutorial', /\b(tutorial|how.?to|guide|lesson|course|educat|training)\b/],
   ['documentary', /\b(documentary|doc|story|interview|testimonial|case.?study|mini.?doc)\b/],
-  ['ad', /\b(ad|advert|commercial|spot|campaign|brand film)\b/],
   ['vlog', /\b(vlog|blog|personal|daily|behind.the.scenes|bts|lifestyle)\b/],
+  ['ad', /\b(ad|advert|commercial|spot|campaign|brand film)\b/],
+  ['saas-demo', /\b(saas|demo|product|explainer|feature|walkthrough|onboarding|app)\b/], // LAST — generic catch-all
 ];
 
 export function classifyIntent(intent: string | undefined | null): IntentGenre {
@@ -40,13 +42,16 @@ export function classifyIntent(intent: string | undefined | null): IntentGenre {
  *  may push `weight` (footage does not) because purpose overrides identity here. Empty for 'generic'. */
 export type IntentStyleDelta = Partial<Pick<FontStylePriors, 'surface' | 'texture' | 'motion' | 'density' | 'weight'>> & { styleName?: string };
 
+// R6: every non-generic genre sets `weight` too — so when intent overrides the style (e.g. a serious explainer
+// on a brand whose HEADER font is a condensed display face), the display font's `heavy` weight doesn't leak
+// through. The genre's own weight wins; only 'generic' inherits the font's weight.
 export const INTENT_STYLE: Record<IntentGenre, IntentStyleDelta> = {
-  'saas-demo': { styleName: 'clean-modern', motion: 'smooth', surface: 'flat', texture: 'grid' },
+  'saas-demo': { styleName: 'clean-modern', motion: 'smooth', weight: 'medium', surface: 'flat', texture: 'grid' },
   'hype-reel': { styleName: 'kinetic-bold', motion: 'pop', weight: 'heavy', surface: 'glow', density: 'dense' },
-  vlog: { styleName: 'friendly', motion: 'gentle', surface: 'frosted', texture: 'none' },
-  tutorial: { styleName: 'technical', motion: 'snappy', surface: 'flat', texture: 'grid' },
-  documentary: { styleName: 'editorial', motion: 'gentle', texture: 'grain', density: 'airy' },
-  ad: { styleName: 'bold-premium', motion: 'snappy', surface: 'raised', density: 'dense' },
+  vlog: { styleName: 'friendly', motion: 'gentle', weight: 'regular', surface: 'frosted', texture: 'none' },
+  tutorial: { styleName: 'technical', motion: 'snappy', weight: 'medium', surface: 'flat', texture: 'grid' },
+  documentary: { styleName: 'editorial', motion: 'gentle', weight: 'regular', texture: 'grain', density: 'airy' },
+  ad: { styleName: 'bold-premium', motion: 'snappy', weight: 'medium', surface: 'raised', density: 'dense' },
   generic: {},
 };
 

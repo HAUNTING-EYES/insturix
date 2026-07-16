@@ -28,6 +28,8 @@ export interface FootageSignals {
   warmth?: number; // 0-1
   arousal?: number; // 0-1
   faceEmotion?: string | null;
+  /** V-JEPA motionType — CAMERA motion (a pan/dolly) is not emotional energy, so it must not read as energetic. */
+  motionType?: 'subject_moving' | 'camera_moving' | 'both' | 'static';
   brightness?: number; // 0-1 (optional)
   saturation?: number; // 0-1 (optional)
 }
@@ -42,15 +44,17 @@ const num = (v: number | undefined): number | undefined => (typeof v === 'number
  *  axes (V-JEPA + content signals, always-ish available); brightness/saturation refine when frame-derived. */
 export function classifyFootage(s: FootageSignals | undefined | null): FootageCharacter {
   if (!s) return 'neutral';
-  const motion = num(s.motionEnergy);
   const arousal = num(s.arousal);
-  // energy composite (harvested: motion + arousal). Undefined if neither signal present.
+  // R2: CAMERA motion (a pan/dolly) is not emotional energy — a slow cinematic pan on a somber beat was misread
+  // as energetic → pop/glow. Only SUBJECT motion feeds energy; camera motion is dropped (arousal can still count).
+  const motion = s.motionType === 'camera_moving' ? undefined : num(s.motionEnergy);
   const energy = motion === undefined && arousal === undefined ? undefined
     : Math.min(1, 0.6 * (motion ?? arousal ?? 0) + 0.4 * (arousal ?? motion ?? 0));
 
   let warm = num(s.warmth);
-  if (typeof s.faceEmotion === 'string') {
-    const e = s.faceEmotion.toLowerCase();
+  const hasFace = typeof s.faceEmotion === 'string' && s.faceEmotion.length > 0;
+  if (hasFace) {
+    const e = (s.faceEmotion as string).toLowerCase();
     if (WARM_EMOTION.has(e)) warm = Math.min(1, (warm ?? 0.5) + 0.15);
     else if (COOL_EMOTION.has(e)) warm = Math.max(0, (warm ?? 0.5) - 0.15);
   }
@@ -58,7 +62,8 @@ export function classifyFootage(s: FootageSignals | undefined | null): FootageCh
   const saturation = num(s.saturation);
 
   if (energy !== undefined && energy > 0.6) return 'energetic-vivid';
-  if (brightness !== undefined && brightness < 0.35) return 'cinematic-moody';
+  // R3: dark ≠ moody. A dark UI screenshot is just dark; cinematic-moody needs a HUMAN element (a face in frame).
+  if (brightness !== undefined && brightness < 0.35 && hasFace) return 'cinematic-moody';
   if (warm !== undefined && warm > 0.62) return 'calm-warm';
   if (brightness !== undefined && brightness > 0.62 && saturation !== undefined && saturation < 0.35) return 'clean-neutral';
   return 'neutral';

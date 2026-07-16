@@ -218,6 +218,7 @@ export function buildCodegenPrompt(input: MgMomentInput): string {
       salience: input.candidate.salience,
       intensity: input.expressiveness.intensity,
       tier: input.expressiveness.tier,
+      factKind: input.candidate.factKind,
     });
     style = `\n\n${renderStyleDirection(input.videoStyle, moment)}`;
   }

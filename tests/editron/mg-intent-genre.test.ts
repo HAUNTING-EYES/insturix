@@ -15,6 +15,13 @@ describe('MG style resolver — intent classifier', () => {
     expect(classifyIntent(undefined)).toBe('generic');
   });
 
+  it('R4 regression: specific genre beats the generic saas catch-all on ambiguous strings', () => {
+    expect(classifyIntent('documentary-style product demo')).toBe('documentary');
+    expect(classifyIntent('product launch hype')).toBe('hype-reel');
+    expect(classifyIntent('tiktok')).toBe('hype-reel');
+    expect(classifyIntent('product explainer')).toBe('saas-demo'); // still saas when no specific genre
+  });
+
   it('generic is a no-op; other genres carry a name + delta', () => {
     expect(INTENT_STYLE.generic).toEqual({});
     expect(INTENT_STYLE['hype-reel'].styleName).toBe('kinetic-bold');
@@ -50,7 +57,7 @@ describe('MG style resolver — intent sets the video IDENTITY; moments vary wit
 
   it('a moody beat in a documentary: footage sets this moment\'s surface, identity sets the name', () => {
     const video = resolveVideoStyle({ brandFont: 'Inter', intent: 'documentary' }); // editorial, gentle
-    const moody = resolveMomentStyle(video, { footage: { brightness: 0.2 } }); // cinematic-moody
+    const moody = resolveMomentStyle(video, { footage: { brightness: 0.2, faceEmotion: 'sad' } }); // cinematic-moody (dark + a face)
     expect(video.styleName).toBe('editorial');
     expect(video.motion).toBe('gentle'); // documentary identity
     expect(moody.surface).toBe('raised'); // this moment's footage
