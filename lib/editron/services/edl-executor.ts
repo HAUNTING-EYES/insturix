@@ -420,6 +420,10 @@ interface EDLSignalContext {
   wav2vecSegments?: Array<Record<string, unknown>>;
   musicAnalysis?: Record<string, unknown>;
   vjepaScreenContextPolicy?: VjepaScreenContextPolicy;
+  /** The user's stated PURPOSE (productionBriefIntake.userIntent) — drives the MG codegen style identity. */
+  intent?: string;
+  /** The video's aggregate signal character (energy/formality) — the SIGNAL-driven style identity primary. */
+  videoSignals?: { energy?: number; formality?: number };
 }
 
 type ScoreAllOverlaysFn = typeof import('@/lib/editron/engine/utility-scorer').scoreAllOverlays;
@@ -775,16 +779,36 @@ export async function executeEDL(
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const projectDoc = await (await getDatabase()).collection('projects').findOne({ projectId });
+    const vjepaSegs = arrayOrUndefined(projectDoc?.vjepaAnalysis?.segments);
+    const wav2vecSegs = arrayOrUndefined(projectDoc?.wav2vecAnalysis?.segments);
+    // SIGNAL-driven MG style identity (Phase B): aggregate the video's ENERGY from its per-segment motion +
+    // emotion, and read the user's stated INTENT (productionBriefIntake.userIntent). These feed resolveVideoStyle
+    // at the codegen seam so the style comes from the video's signals + purpose, not the brand font. (Formality is
+    // not aggregated here yet — energy + intent are the primary drivers; styleFromSignals defaults formality to 0.5.)
+    const mgMeanOf = (segs: Array<Record<string, unknown>> | undefined, ...keys: string[]): number | undefined => {
+      const vals = (segs ?? []).map((s) => readNumber(s, ...keys)).filter((n): n is number => typeof n === 'number' && Number.isFinite(n));
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : undefined;
+    };
+    const mgMotion = mgMeanOf(vjepaSegs, 'motionIntensity', 'motion_intensity');
+    const mgArousal = mgMeanOf(wav2vecSegs, 'emotionIntensity', 'emotion_intensity');
+    const mgEnergy = mgMotion === undefined && mgArousal === undefined
+      ? undefined
+      : Math.max(0, Math.min(1, 0.5 * (mgMotion ?? mgArousal ?? 0) + 0.5 * (mgArousal ?? mgMotion ?? 0)));
+    const mgUserIntent = typeof projectDoc?.productionBriefIntake?.userIntent === 'string' && projectDoc.productionBriefIntake.userIntent.trim()
+      ? String(projectDoc.productionBriefIntake.userIntent)
+      : undefined;
     projectSignalContext = {
       codegenBrand: undefined,
       hasConfiguredBrand: Boolean(projectDoc?.brandId),
       orgId: typeof projectDoc?.orgId === 'string' ? projectDoc.orgId : undefined,
-      vjepaSegments: arrayOrUndefined(projectDoc?.vjepaAnalysis?.segments),
-      wav2vecSegments: arrayOrUndefined(projectDoc?.wav2vecAnalysis?.segments),
+      vjepaSegments: vjepaSegs,
+      wav2vecSegments: wav2vecSegs,
       musicAnalysis: recordValue(projectDoc?.musicAnalysis) ?? recordValue(projectDoc?.essentiaAnalysis) ?? undefined,
       vjepaScreenContextPolicy: projectDoc?.intelligence?.vjepaCoverageAudit
         ? resolveVjepaScreenContextPolicy(projectDoc.intelligence.vjepaCoverageAudit)
         : undefined,
+      intent: mgUserIntent,
+      videoSignals: mgEnergy !== undefined ? { energy: mgEnergy } : undefined,
     };
     if (projectDoc?.brandId && userId) {
       const { resolveEffectiveBrandWithProfile } = await import('@/lib/shared/brand-effective-resolver');
@@ -4269,6 +4293,8 @@ async function applyGraphic(
           anchors: codegenAnchors,
           visualEvidence,
           notes: mgCodegenNotes(decision),
+          intent: projectSignalContext.intent, // the user's stated purpose → signal-driven style identity
+          videoSignals: projectSignalContext.videoSignals, // the video's aggregate energy → style identity
           footageSignals: Object.keys(mgFootage).length > 0 ? mgFootage : undefined,
         });
         const generated = await runDurableMgRenderJob({
