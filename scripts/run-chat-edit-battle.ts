@@ -1,0 +1,240 @@
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+import { config as loadEnv } from 'dotenv';
+
+import {
+  CHAT_EDIT_BATTLE_SCENARIOS,
+  chatBattleToolEventsFromSse,
+  extractPersistedChatBattleRenderEvidence,
+  getChatEditBattleScenario,
+  parseChatBattleSse,
+  runChatEditBattleJourney,
+  type ChatBattleInvocationEvidence,
+} from '../lib/editron/services/chat-edit-battle-harness';
+
+export interface ChatBattleCliOptions {
+  projectId: string;
+  scenarioId: string;
+  baseUrl: string;
+  authHeaderFile: string;
+  outputRoot: string;
+  runId: string;
+  selectedOverlayId?: string;
+  clientContextPath?: string;
+  allowLiveWrite: boolean;
+}
+
+interface ApiClient {
+  baseUrl: string;
+  headers: Record<string, string>;
+}
+
+async function main(): Promise<void> {
+  loadEnv({ path: '.env.local', override: false });
+  loadEnv({ path: '.env', override: false });
+  const argv = process.argv.slice(2);
+  if (argv.includes('--list')) {
+    console.log(CHAT_EDIT_BATTLE_SCENARIOS.map((item) => `${item.id}\t${item.label}`).join('\n'));
+    return;
+  }
+  const options = parseChatBattleCliArgs(argv);
+  if (!options) {
+    console.error(usage());
+    process.exitCode = 1;
+    return;
+  }
+  const validationError = validateChatBattleCliOptions(options);
+  if (validationError) {
+    console.error(validationError);
+    process.exitCode = 1;
+    return;
+  }
+
+  const runDir = path.resolve(options.outputRoot, safeSegment(options.runId));
+  await mkdir(runDir, { recursive: true });
+  const api = await buildApiClient(options.baseUrl, options.authHeaderFile);
+  const clientContext = options.clientContextPath
+    ? await readJsonRecord(options.clientContextPath)
+    : undefined;
+  const startedAtHolder = { value: '' };
+
+  const report = await runChatEditBattleJourney(
+    {
+      scenarioId: options.scenarioId,
+      projectId: options.projectId,
+      selectedOverlayId: options.selectedOverlayId,
+      clientContext,
+      journeyId: options.runId,
+      now: () => {
+        const value = new Date();
+        if (!startedAtHolder.value) startedAtHolder.value = value.toISOString();
+        return value;
+      },
+    },
+    {
+      loadMongoProject: async (projectId) => loadMongoProject(projectId),
+      invokeAgent: async ({ scenario, projectId, selectedOverlayId, clientContext: context }) => invokeLiveChatAgent({
+        api,
+        scenarioPrompt: scenario.prompt,
+        projectId,
+        selectedOverlayId,
+        clientContext: context,
+        runId: options.runId,
+        startedAt: startedAtHolder.value || new Date().toISOString(),
+      }),
+      reloadUiProject: async (projectId) => getJson(api, `/api/services/editron/projects/${encodeURIComponent(projectId)}`),
+      captureRenderEvidence: async ({ mongoAfter, startedAt }) => extractPersistedChatBattleRenderEvidence(mongoAfter, startedAt),
+    },
+  );
+
+  const reportPath = path.join(runDir, `${safeSegment(options.scenarioId)}.json`);
+  await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  console.log(`[chat-battle] ${report.verdict.toUpperCase()} ${report.scenarioId}`);
+  console.log(`[chat-battle] report=${reportPath}`);
+  for (const check of report.checks.filter((item) => item.status !== 'pass')) {
+    console.log(`[chat-battle] ${check.status.toUpperCase()} ${check.id}: ${check.summary}`);
+  }
+  if (report.verdict === 'fail') process.exitCode = 1;
+}
+
+export function parseChatBattleCliArgs(argv: string[]): ChatBattleCliOptions | null {
+  const options: Partial<ChatBattleCliOptions> = {
+    outputRoot: '.calibration-temp/chat-edit-battle',
+    runId: `chat-battle-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`,
+    allowLiveWrite: false,
+  };
+  for (const arg of argv) {
+    if (arg === '--allow-live-write') options.allowLiveWrite = true;
+    else if (arg.startsWith('--project=')) options.projectId = valueAfterEquals(arg);
+    else if (arg.startsWith('--case=')) options.scenarioId = valueAfterEquals(arg);
+    else if (arg.startsWith('--base-url=')) options.baseUrl = valueAfterEquals(arg).replace(/\/$/, '');
+    else if (arg.startsWith('--auth-header-file=')) options.authHeaderFile = valueAfterEquals(arg);
+    else if (arg.startsWith('--output=')) options.outputRoot = valueAfterEquals(arg);
+    else if (arg.startsWith('--run-id=')) options.runId = valueAfterEquals(arg);
+    else if (arg.startsWith('--selected-overlay=')) options.selectedOverlayId = valueAfterEquals(arg);
+    else if (arg.startsWith('--client-context=')) options.clientContextPath = valueAfterEquals(arg);
+  }
+  if (!options.projectId || !options.scenarioId || !options.baseUrl || !options.authHeaderFile || !options.outputRoot || !options.runId) return null;
+  return options as ChatBattleCliOptions;
+}
+
+export function validateChatBattleCliOptions(options: ChatBattleCliOptions): string | null {
+  if (!getChatEditBattleScenario(options.scenarioId)) return `Unknown chat battle case: ${options.scenarioId}`;
+  if (!options.allowLiveWrite) return 'Live chat battle runs can mutate the project. Pass --allow-live-write and use a disposable fixture project.';
+  if (!/^https?:\/\//i.test(options.baseUrl)) return '--base-url must be an absolute HTTP(S) URL.';
+  return null;
+}
+
+async function invokeLiveChatAgent(input: {
+  api: ApiClient;
+  scenarioPrompt: string;
+  projectId: string;
+  selectedOverlayId?: string;
+  clientContext?: Record<string, unknown>;
+  runId: string;
+  startedAt: string;
+}): Promise<ChatBattleInvocationEvidence> {
+  const response = await fetch(`${input.api.baseUrl}/api/services/editron/chat/stream`, {
+    method: 'POST',
+    headers: { ...input.api.headers, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      message: input.scenarioPrompt,
+      projectId: input.projectId,
+      selectedOverlayId: input.selectedOverlayId,
+      clientContext: input.clientContext,
+    }),
+  });
+  const raw = await response.text();
+  if (!response.ok) throw new Error(`Chat route failed HTTP ${response.status}: ${raw.slice(0, 1_000)}`);
+  const records = parseChatBattleSse(raw);
+  const parseErrors = records.filter((record) => record.type === 'parse_error');
+  if (parseErrors.length > 0) throw new Error(`Chat SSE contained ${parseErrors.length} unparseable event(s).`);
+  const done = [...records].reverse().find((record) => record.type === 'done');
+  const routeError = [...records].reverse().find((record) => record.type === 'error');
+  const responseText = records
+    .filter((record) => record.type === 'token')
+    .map((record) => typeof record.content === 'string' ? record.content : '')
+    .join('');
+  return {
+    agentRunId: typeof done?.sessionId === 'string' ? `${input.runId}:${done.sessionId}` : input.runId,
+    mode: 'live-provider',
+    prompt: input.scenarioPrompt,
+    responseText,
+    toolEvents: chatBattleToolEventsFromSse(records, input.startedAt),
+    ...(routeError ? { error: stringValue(routeError.error) ?? 'Chat route emitted an unknown error.' } : {}),
+  };
+}
+
+async function loadMongoProject(projectId: string): Promise<Record<string, unknown>> {
+  const { COLLECTIONS, connectToDatabase } = await import('../lib/editron/db/mongodb');
+  const { client, db } = await connectToDatabase();
+  try {
+    const project = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId });
+    if (!project) throw new Error(`Project not found in Mongo: ${projectId}`);
+    return project as Record<string, unknown>;
+  } finally {
+    await client.close();
+  }
+}
+
+async function buildApiClient(baseUrl: string, headerFile: string): Promise<ApiClient> {
+  const raw = await readJsonRecord(headerFile);
+  const headers = Object.fromEntries(Object.entries(raw).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+  if (!headers.cookie && !headers.authorization) throw new Error('Auth header file must contain cookie or authorization.');
+  return { baseUrl, headers };
+}
+
+async function getJson(api: ApiClient, route: string): Promise<Record<string, unknown>> {
+  const response = await fetch(`${api.baseUrl}${route}`, { headers: api.headers });
+  const text = await response.text();
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = text ? asRecord(JSON.parse(text)) : {};
+  } catch {
+    payload = { raw: text.slice(0, 2_000) };
+  }
+  if (!response.ok) throw new Error(`GET ${route} failed HTTP ${response.status}: ${stringValue(payload.error) ?? text.slice(0, 500)}`);
+  return payload;
+}
+
+async function readJsonRecord(filePath: string): Promise<Record<string, unknown>> {
+  return asRecord(JSON.parse(await readFile(path.resolve(filePath), 'utf8')));
+}
+
+function usage(): string {
+  return [
+    'Run one chat-to-edit battle journey against a disposable fixture project:',
+    '  npx tsx scripts/run-chat-edit-battle.ts --project=proj_x --case=explicit-text --base-url=https://preview.example --auth-header-file=C:\\tmp\\editron-auth.json --allow-live-write',
+    '',
+    'List cases:',
+    '  npx tsx scripts/run-chat-edit-battle.ts --list',
+    '',
+    'The runner records Mongo before/after, selected tools and arguments, API reload parity, and fresh rendered evidence. It fails when rendered evidence is missing or stale.',
+  ].join('\n');
+}
+
+function valueAfterEquals(value: string): string {
+  return value.slice(value.indexOf('=') + 1).trim();
+}
+
+function safeSegment(value: string): string {
+  return value.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 96) || 'run';
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
