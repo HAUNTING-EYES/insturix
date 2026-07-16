@@ -155,9 +155,11 @@ export const HARD_RULES = `<hard_rules>
   anchor every entrance/exit/beat to ph.* (+ stagger). No hand-typed frame windows like [14, 38]. READ the clip
   length from useVideoConfig() (its value is stated in <moment>). Motion on every frame; end settled via exitOut.
 - Every interpolate(): {extrapolateLeft:'clamp', extrapolateRight:'clamp'}. spring() takes fps from useVideoConfig().
-- Compose within the placement region given in <moment>; keep the AVOID regions clear (the subject/text are there).
-  ONE focal point with a clear scale hierarchy. Do NOT stretch an element to fill the frame — compose within the
-  room the region gives you; negative space is intentional, not a dead quadrant to fill.
+- PLACEMENT IS GIVEN, NOT CHOSEN: if <moment> lists a SAFE PLACEMENT rect, your primary <Region> MUST use those
+  exact x/y/w/h (it is already clear of the subject and every avoid-area) and EVERY element stays inside it — do
+  NOT invent your own Region coordinates. ONE focal point with a clear scale hierarchy. Do NOT stretch an element
+  to fill the frame — compose within the room the region gives you; negative space is intentional, not a dead
+  quadrant to fill.
 </hard_rules>`;
 
 /**

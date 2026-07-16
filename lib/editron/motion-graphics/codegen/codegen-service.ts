@@ -127,15 +127,42 @@ function describeRegions(boxes: MgRegionBox[]): string {
   return boxes.length ? boxes.map((b) => `${b.reason} (${coarsePos(b)})`).join(', ') : 'none';
 }
 
+// Safe-region margins — MUST match kit/stage.tsx (SAFE_X, SAFE_Y). A <Region>'s x/y/w/h are fractions of the
+// middle 90%×88% SAFE area, but placement boxes arrive as FULL-FRAME fractions. Convert frame→safe so an
+// injected Region lands exactly on the intended box instead of being offset by the safe margin.
+const STAGE_SAFE_X = 0.05;
+const STAGE_SAFE_Y = 0.06;
+
+/** The authoritative placement rect for the model's primary <Region>, already in Region (safe-area) fractions.
+ *  Picks the largest prefer box (the negative space the seam found) and converts frame→safe coords, so the
+ *  graphic lands where the frame is clear instead of wherever the model guesses. Null when no prefer box exists
+ *  (then the prompt keeps the prose hint — never fabricate a placement). */
+function safePlacementRegion(prefer: MgRegionBox[]): { x: number; y: number; w: number; h: number } | null {
+  if (!prefer.length) return null;
+  const best = prefer.reduce((a, b) => (b.width * b.height > a.width * a.height ? b : a));
+  const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  return {
+    x: r2(clamp01((best.x - STAGE_SAFE_X) / (1 - 2 * STAGE_SAFE_X))),
+    y: r2(clamp01((best.y - STAGE_SAFE_Y) / (1 - 2 * STAGE_SAFE_Y))),
+    w: r2(clamp01(best.width / (1 - 2 * STAGE_SAFE_X))),
+    h: r2(clamp01(best.height / (1 - 2 * STAGE_SAFE_Y))),
+  };
+}
+
 /** The moment block — LAST in the prompt (Rule 35). Describes the fact's SHAPE + context, never the literal
  *  values (those arrive as `data` props at render — Law 5 — and giving literals invites baking + fabrication). */
 function momentData(input: MgMomentInput): string {
   const { candidate, expressiveness: ex, placement: pl, window, anchors, screen, notes } = input;
+  const safe = safePlacementRegion(pl.prefer);
   const lines = [
     `fact kind: ${candidate.factKind}${candidate.rhetoricalRole ? ` (${candidate.rhetoricalRole})` : ''}`,
     `data props (declare \`type Data\` for these; read from \`data\`; NEVER bake the values): ${describeDataProps(candidate.content)}`,
     `expressiveness: ${ex.tier} (intensity ${ex.intensity.toFixed(2)}) — subtle = quiet & precise, hero = prominent & commanding (prominence ≠ oversized: right-sized for the moment, clear of the subject)`,
-    `place the graphic in region "${pl.region}". Keep CLEAR (subject/text live here): ${describeRegions(pl.avoid)}. Room is here: ${describeRegions(pl.prefer)}.`,
+    `place the graphic in region "${pl.region}". Keep CLEAR (subject/text live here): ${describeRegions(pl.avoid)}.`,
+    safe
+      ? `SAFE PLACEMENT — your primary <Region> MUST use exactly x={${safe.x}} y={${safe.y}} w={${safe.w}} h={${safe.h}} (fractions of the safe area; this box is already clear of the subject and every avoid-area). Compose ALL elements inside it; do NOT invent your own coordinates.`
+      : `Room is here: ${describeRegions(pl.prefer)}.`,
     `clip length: ~${durationFrames(input)} frames @ ${window.fps}fps (read from useVideoConfig)`,
   ];
   if (anchors?.wordFrames?.length) lines.push(`word anchors: ${anchors.wordFrames.length} word-onset frames (sync reveals to them)`);
