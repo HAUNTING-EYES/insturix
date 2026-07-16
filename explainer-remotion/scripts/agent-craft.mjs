@@ -341,6 +341,10 @@ async function craftScene(scene, idx) {
   const editDirective = scene.props && typeof scene.props.editDirective === 'string' ? scene.props.editDirective.trim() : '';
   // Reference images as Claude vision blocks — attached to every write so the agent designs to match them.
   const refBlocks = REFERENCE_IMAGES.map(img);
+  // Feed the REAL product screenshots as VISION (not just filenames) so the agent can SEE the UI and recreate it
+  // faithfully. SHOTS are 'product/NAME' (staticFile src paths); the actual files live under public/. Capped so
+  // the vision prompt stays lean.
+  const shotBlocks = SHOTS.slice(0, 4).map((s) => img('public/' + s));
   const brief =
     `Design and write ONE scene (scene ${idx + 1} of ${SCENES.length}) of this premium explainer.\n` +
     `The voiceover line this beat must land visually: ${JSON.stringify(scene.vo ?? '')}\n` +
@@ -352,9 +356,9 @@ async function craftScene(scene, idx) {
       : '') +
     `Director notes (LOOSE guidance — improve on them, do NOT treat as a template): ${JSON.stringify(scene.props ?? {})}` +
     `${scene.form ? ` (suggested vibe only: "${scene.form}")` : ''}\n` +
-    (SHOTS.length
-      ? `Real product screenshots available (use as a src like <FullBleedProduct src="NAME"/>, or recreate their UI as bespoke animated code): ${SHOTS.join(', ')}\n`
-      : `No real product screenshots exist. If this is a PRODUCT beat, RECREATE the product UI as bespoke animated code from the product model — a real-looking app screen that builds/types/clicks itself. Do NOT reference a screenshot file that doesn't exist (it will 404).\n`) +
+    (shotBlocks.length
+      ? `★ REAL PRODUCT SCREENSHOTS — ${shotBlocks.length} actual screenshot(s) of THIS product's UI are attached below as images. STUDY them: the layout, the real components, colours, type, spacing. For a product/demo beat, RECREATE that exact UI as bespoke animated code (a real-looking app screen that types/clicks/builds itself) — match what you SEE, don't invent a generic dashboard. You may also show one directly via <FullBleedProduct src="NAME"/>. Files (for src=): ${SHOTS.join(', ')}\n`
+      : `No real product screenshots exist for this brand. If this is a PRODUCT beat, RECREATE a plausible product UI as bespoke animated code from the product model — a real-looking app screen that builds/types/clicks itself. Do NOT reference a screenshot file that doesn't exist (it will 404).\n`) +
     prefsBlock +
     `Duration: ${PROOF_DUR} frames at ${plan.fps} fps. Make it premium, bespoke, alive. Output the full .tsx now.`;
 
@@ -378,10 +382,10 @@ async function craftScene(scene, idx) {
   };
 
   let best = null;
-  let candidate = stripFences(await ask([{type: 'text', text: brief}, ...refBlocks]));
+  let candidate = stripFences(await ask([{type: 'text', text: brief}, ...shotBlocks, ...refBlocks]));
   for (let round = 1; round <= ROUNDS; round++) {
     const r = await evaluate(candidate);
-    if (!r) { candidate = stripFences(await ask([{type: 'text', text: brief}, ...refBlocks])); continue; }
+    if (!r) { candidate = stripFences(await ask([{type: 'text', text: brief}, ...shotBlocks, ...refBlocks])); continue; }
     const improved = !best || r.score > best.score;
     if (improved) best = r;
     console.log(`  scene ${idx + 1} r${round}: ${r.score}/10 ${r.ok ? '✓' : '→ ' + (r.issues || []).join('; ').slice(0, 80)}`);
@@ -392,7 +396,7 @@ async function craftScene(scene, idx) {
   // restart-on-stuck: still weak → one fresh from-scratch attempt with a different-approach nudge; keep the better.
   if (RESTART && best && best.score < 7) {
     const fresh = await evaluate(stripFences(await ask([{type: 'text', text:
-      brief + `\nA previous attempt only reached ${best.score}/10 for: ${JSON.stringify(best.issues)}. Take a COMPLETELY DIFFERENT visual approach — different layout, different motion.`}, ...refBlocks])));
+      brief + `\nA previous attempt only reached ${best.score}/10 for: ${JSON.stringify(best.issues)}. Take a COMPLETELY DIFFERENT visual approach — different layout, different motion.`}, ...shotBlocks, ...refBlocks])));
     if (fresh && fresh.score > best.score) { best = fresh; console.log(`  scene ${idx + 1} restart → ${fresh.score}/10`); }
   }
 

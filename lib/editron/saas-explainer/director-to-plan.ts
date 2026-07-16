@@ -81,7 +81,12 @@ export function evidencePackToProductModel(
   pack: SaasProductEvidencePack,
   extraProductImageUrls: string[] = [],
 ): ExplainerProductModel {
+  // ONLY real product UI screenshots feed "recreate this product screen". Social-preview images (Instagram/
+  // LinkedIn posts) get merged into brand.productImages upstream (brand-context), but they are NOT product UI —
+  // feeding them as "recreate this UI" produces junk (and those social CDN URLs 403 anyway). Drop them here; a
+  // brand with no real screenshots then honestly gets none, and the craft agent recreates the UI from the model.
   const packImages = pack.visualIdentity.productImages
+    .filter((a) => a.kind !== 'social_media' && a.signalPath !== 'assets.socialPreviewImages')
     .map((a) => a.url)
     .filter((u): u is string => typeof u === 'string' && /^https?:\/\//.test(u));
   return {
