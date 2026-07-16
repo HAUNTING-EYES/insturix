@@ -11,6 +11,7 @@
  */
 
 import { classifyFontFamily, fontStylePriors, type FontFamily, type FontStylePriors } from './font-family';
+import { footageStyleDelta, type FootageSignals } from './footage-character';
 
 /** The per-video resolved style — the priors composed + given a legible name. */
 export interface StyleBundle {
@@ -32,8 +33,9 @@ export interface StyleInputs {
   brandFont?: string | null;
   /** User preference: name a style directly (chat / picker) — overrides the auto-derived styleName. */
   styleOverride?: string | null;
-  // footage?: FootageCharacter;  // Phase 3 — narrows surface/motion/density within the font style
-  // intent?: IntentGenre;        // Phase 3 — picks the family (SaaS demo vs hype-reel vs documentary)
+  /** This video's footage analysis (V-JEPA + content signals, mapped by the seam) — narrows the font style. */
+  footage?: FootageSignals;
+  // intent?: IntentGenre;        // Phase 3b — picks the family (SaaS demo vs hype-reel vs documentary)
 }
 
 /** Family → a legible named style. The font family is a strong style identity on its own; footage + intent
@@ -56,18 +58,24 @@ const WEIGHT_PX: Record<FontStylePriors['weight'], number> = { light: 250, regul
 /** Compose the classified priors into a per-video StyleBundle. Today: font-family prior (+ user override). */
 export function resolveStyle(inputs: StyleInputs): StyleBundle {
   const priors = fontStylePriors(inputs.brandFont);
+  const { character, delta } = footageStyleDelta(inputs.footage);
   const override = inputs.styleOverride?.trim();
   return {
     styleName: override || FAMILY_STYLE_NAME[priors.family],
     personality: priors.personality,
-    motion: priors.motion,
-    density: priors.density,
+    // The footage NARROWS the font base — only the axes it has an opinion on (brand ⊇ footage). 'neutral' = no delta.
+    motion: delta.motion ?? priors.motion,
+    density: delta.density ?? priors.density,
     corner: priors.corner,
     weight: priors.weight,
-    surface: priors.surface,
-    texture: priors.texture,
+    surface: delta.surface ?? priors.surface,
+    texture: delta.texture ?? priors.texture,
     alignment: priors.alignment,
-    sources: [`font:${classifyFontFamily(inputs.brandFont)}`, ...(override ? ['user:override'] : [])],
+    sources: [
+      `font:${classifyFontFamily(inputs.brandFont)}`,
+      ...(character !== 'neutral' ? [`footage:${character}`] : []),
+      ...(override ? ['user:override'] : []),
+    ],
   };
 }
 
