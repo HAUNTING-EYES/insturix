@@ -58,6 +58,20 @@ describe('buildMgMomentInput - fuses the seam context into one validated input',
     expect(mi.screen?.negativeSpace).toEqual({ region: 'bottom-center', strength: 1 });
   });
 
+  it('★ resolves the video STYLE IDENTITY from the brand font (always), intent overrides, footageSignals pass through', () => {
+    // INSTURIX.fontSans = Plus Jakarta Sans → grotesque-sans → clean-modern identity
+    const base = buildMgMomentInput(args());
+    expect(base.videoStyle?.styleName).toBe('clean-modern');
+
+    const hype = buildMgMomentInput(args({ intent: 'hype reel' }));
+    expect(hype.videoStyle?.styleName).toBe('kinetic-bold'); // intent overrides the identity
+    expect(hype.videoStyle?.weight).toBe('heavy');
+
+    const withFootage = buildMgMomentInput(args({ footageSignals: { motionEnergy: 0.9, motionType: 'subject_moving' } }));
+    expect(withFootage.footageSignals).toEqual({ motionEnergy: 0.9, motionType: 'subject_moving' });
+    expect(buildMgMomentInput(args()).footageSignals).toBeUndefined(); // absent by default (degrades to identity)
+  });
+
   it('no subject box + no prefer box → screen is undefined (not a fabricated zero-box)', () => {
     const mi = buildMgMomentInput(args({
       placement: { placementHints: { avoid: [], prefer: [] } },
