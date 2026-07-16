@@ -17,6 +17,7 @@
 import { createHash } from 'node:crypto';
 
 import { scanCode, type ScanResult } from './scan';
+import { renderStyleDirection } from './style/style-resolver';
 import {
   PRIMITIVE_API,
   FOUNDATIONAL_MG_KNOWLEDGE,
@@ -204,7 +205,10 @@ ${momentData(input)}
 /** Assemble the full codegen prompt. STABLE prefix (cacheable) first; the moment LAST (Rule 35). The production
  *  writer splits on {@link CODEGEN_STABLE_PREFIX} to cache the prefix; text-only callers use the whole string. */
 export function buildCodegenPrompt(input: MgMomentInput): string {
-  return `${CODEGEN_STABLE_PREFIX}\n\n${buildMomentBlock(input)}`;
+  // The style direction is VOLATILE (per-video) and goes AFTER the cached prefix + moment, so it never
+  // touches CODEGEN_STABLE_PREFIX (the cache holds). Absent → the prompt is byte-identical to before.
+  const style = input.style ? `\n\n${renderStyleDirection(input.style)}` : '';
+  return `${CODEGEN_STABLE_PREFIX}\n\n${buildMomentBlock(input)}${style}`;
 }
 
 /**

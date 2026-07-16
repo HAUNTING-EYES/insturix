@@ -12,6 +12,7 @@
 
 import type { Brand } from './kit/brand';
 import type { SemanticMgCandidate } from '../engine/semantic-mg-candidates';
+import type { StyleBundle } from './style/style-resolver';
 
 /** The clip window on the timeline, in frames at `fps`. */
 export interface MgWindow {
@@ -111,6 +112,9 @@ export interface MgMomentInput {
   visualEvidence?: MgVisualEvidence;
   /** Bounded free-text editorial direction — Layer-2 context, never an executable instruction. */
   notes?: string;
+  /** The per-video resolved style (font-family + footage + intent → named style + atom priors). Rendered as a
+   *  VOLATILE <style_direction> block after the cached prefix; the model composes toward it within brand lock. */
+  style?: StyleBundle;
 }
 
 export type MgProviderFailureCode =
