@@ -389,6 +389,37 @@ describe('production MG codegen runtime', () => {
     await runtime.dispose();
   });
 
+  it('★ layer-2 rubric: surfaces weak craft dimensions as targeted issues; the gate score is the disciplined overall', async () => {
+    const generateContent = vi.fn().mockResolvedValue({
+      response: { text: () => JSON.stringify({
+        faithful: true,
+        hierarchy: 8, typography: 4, color: 9, composition: 7, motion: 5,
+        score: 6.5, issues: ['tighten the ring stroke'], reasoning: 'clean but the label clips',
+      }) },
+    });
+    vi.mocked(getAnalysisModel).mockResolvedValue({ generateContent } as never);
+    const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
+      render: phaseSampleRender,
+      cleanup: async (dir) => fs.rm(dir, { recursive: true, force: true }),
+      writeComponent: async () => 'component',
+      renderSanityGate: PASS_SANITY,
+    });
+
+    await expect(runtime.codegen.compile('component')).resolves.toEqual({ ok: true });
+    // score = the holistic overall (6.5); weak dims (<6: typography 4, motion 5) become targeted revision feedback;
+    // strong dims (hierarchy 8, color 9, composition 7) are NOT flagged.
+    await expect(runtime.codegen.evaluate('component', moment())).resolves.toEqual({
+      score: 6.5,
+      issues: ['tighten the ring stroke', 'weak typography (4/10)', 'weak motion (5/10)'],
+    });
+    const judgePrompt = generateContent.mock.calls[0][0].contents[0].parts[0].text;
+    expect(judgePrompt).toContain('CRAFT DIMENSIONS');
+    expect(judgePrompt).toContain('RESTRAINT IS CRAFT');
+    const schema = generateContent.mock.calls[0][0].generationConfig.responseSchema;
+    expect(schema.required).toEqual(expect.arrayContaining(['hierarchy', 'typography', 'color', 'composition', 'motion', 'score']));
+    await runtime.dispose();
+  });
+
   it('fails closed after both visual-judge structured responses are malformed', async () => {
     const generateContent = vi.fn().mockResolvedValue({
       response: {

@@ -396,22 +396,33 @@ function extractJsonObject(text: string): string {
   throw new Error('response contained an incomplete JSON object');
 }
 
+// Taste-gate layer-2 craft dimensions the rubric scores 0-10. OPTIONAL in the parser: the Gemini judge path
+// enforces them via responseSchema, but the ZAI path (no schema) and legacy fixtures may omit them — a missing
+// dimension is not an error. When present, a dimension below WEAK_DIMENSION_SCORE is surfaced as an actionable
+// issue so the revision loop knows WHICH craft axis to fix. The accept gate stays the disciplined holistic `score`.
+const JUDGE_DIMENSIONS = ['hierarchy', 'typography', 'color', 'composition', 'motion'] as const;
+const WEAK_DIMENSION_SCORE = 6; // ⚠ tunable, NON-gating — only surfaces a weak axis as text; the accept gate is codegen-service's score threshold.
+
 function parseJudgeResponse(response: string): { score: number; issues: string[] } {
-  const parsed = JSON.parse(extractJsonObject(response)) as {
-    faithful?: unknown;
-    score?: unknown;
-    issues?: unknown;
-  };
+  const parsed = JSON.parse(extractJsonObject(response)) as Record<string, unknown>;
   if (typeof parsed.faithful !== 'boolean') throw new Error('faithful must be a boolean');
   if (typeof parsed.score !== 'number' || !Number.isFinite(parsed.score)) throw new Error('score must be a finite number');
   if (!Array.isArray(parsed.issues) || parsed.issues.some((issue) => typeof issue !== 'string')) {
     throw new Error('issues must be an array of strings');
   }
-  const issues = parsed.issues.slice(0, 20);
-  if (!parsed.faithful) {
-    return { score: 0, issues: issues.length ? issues : ['render is not faithful to the licensed fact'] };
+  const issues = (parsed.issues as string[]).slice(0, 20);
+  const weak: string[] = [];
+  for (const dim of JUDGE_DIMENSIONS) {
+    const value = parsed[dim];
+    if (typeof value === 'number' && Number.isFinite(value) && value < WEAK_DIMENSION_SCORE) {
+      weak.push(`weak ${dim} (${Math.max(0, Math.min(10, value))}/10)`);
+    }
   }
-  return { score: Math.max(0, Math.min(10, parsed.score)), issues };
+  const allIssues = [...issues, ...weak].slice(0, 25);
+  if (!parsed.faithful) {
+    return { score: 0, issues: allIssues.length ? allIssues : ['render is not faithful to the licensed fact'] };
+  }
+  return { score: Math.max(0, Math.min(10, parsed.score)), issues: allIssues };
 }
 
 async function defaultJudgeRendered(

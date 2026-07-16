@@ -39,11 +39,18 @@ const GEMINI_RESPONSE_SCHEMA: ResponseSchema = {
   type: SchemaType.OBJECT,
   properties: {
     faithful: { type: SchemaType.BOOLEAN },
+    // Criterion-separated craft dimensions (taste-gate layer 2). The model scores EACH 0-10; `score` is the
+    // disciplined holistic overall the gate reads. Mirrors JUDGE_PROMPT's dimensions — keep the two in sync.
+    hierarchy: { type: SchemaType.NUMBER },
+    typography: { type: SchemaType.NUMBER },
+    color: { type: SchemaType.NUMBER },
+    composition: { type: SchemaType.NUMBER },
+    motion: { type: SchemaType.NUMBER },
     score: { type: SchemaType.NUMBER },
     issues: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
     reasoning: { type: SchemaType.STRING },
   },
-  required: ['faithful', 'score', 'issues', 'reasoning'],
+  required: ['faithful', 'hierarchy', 'typography', 'color', 'composition', 'motion', 'score', 'issues', 'reasoning'],
 };
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 const DEFAULT_ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
