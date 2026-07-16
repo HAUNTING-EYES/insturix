@@ -16,6 +16,7 @@
 export const PRIMITIVE_API = `<primitive_api>
 type Brand = { colors:{bg,surface,surfaceAlt,text,muted,border,accent,accentText}, fontSans, type:{headingWeight,tracking,lineHeight,eyebrowCase}, shape:{radius,border}, density, decor:{grid,glow}, motion:{energy,overshoot} }
 withAlpha(brand.colors.X, 0..1) — the ONLY way to make a translucent brand colour.  dv(brand, airy, dense) — density-scaled number.
+tint/shade(brand.colors.X, 0..1) — lighten / darken a brand colour IN-PALETTE (bright↔muted mood).  mix(brand.colors.A, brand.colors.B, 0..1) — blend two brand colours (duotone / gradient stop).
 
 LAYOUT (positions are FRACTIONS of the title-safe region; px positioning is forbidden):
 <Stage brand>...</Stage>                        // REQUIRED scene root. backdrop is FALSE (renders over footage) — never set backdrop={true}.
@@ -58,7 +59,7 @@ from the frame — but PREFER the primitives: they are brand- and motion-correct
  */
 export const KIT_IMPORT_PREAMBLE = `import React from 'react';
 import {useCurrentFrame, useVideoConfig, interpolate, spring, AbsoluteFill, Sequence} from 'remotion';
-import {Brand, withAlpha, dv} from './kit/brand';
+import {Brand, withAlpha, dv, tint, shade, mix} from './kit/brand';
 import {Stage, Region, Corner, Bleed, useStage, useRegionSize} from './kit/stage';
 import {FitHeadline, TextBlock, Chip} from './kit/fit-text';
 import {Bar, Ring, Plot, Rule, Plate, Dot, Reveal, Particles} from './kit/marks';
@@ -144,8 +145,8 @@ export const HARD_RULES = `<hard_rules>
   the harness injects imports. Begin your output directly at \`type Data = {...}\` (or at \`DECLINE:\`).
 - Scene root MUST be <Stage brand={brand}> (backdrop stays FALSE — over footage). All words via FitHeadline/
   TextBlock/Chip inside a <Region>/<Corner> — NEVER a raw text node in a styled div, NEVER a fontSize you type.
-- COLOUR: only brand.colors.* / withAlpha(brand.colors.*, a) / 'transparent'. Any hex, rgb()/hsl(), or named CSS
-  colour is an automatic rejection.
+- COLOUR: only brand.colors.*, withAlpha/tint/shade(brand.colors.*, a), mix(brand.colors.*, brand.colors.*, t),
+  or 'transparent'. A raw hex, rgb()/hsl(), or named CSS colour literal is an automatic rejection.
 - FOOTAGE CONTRAST: critical text and marks must remain readable as the footage luminance changes. Use the least
   intrusive LOCAL brand-token protection needed (halo, outline, compact scrim, or bounded plate). Never solve this
   with an opaque or near-opaque full-frame field, and never turn the composition into a generic card.

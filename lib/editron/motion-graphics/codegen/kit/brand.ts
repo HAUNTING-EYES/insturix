@@ -104,3 +104,40 @@ export const withAlpha = (color: string, alpha: number): string => {
 
 /** density → linear scale between an airy value and a dense value. */
 export const dv = (brand: Brand, airy: number, dense: number): number => airy + (dense - airy) * brand.density;
+
+// ─── Colour axis (in-brand palette moves) ───────────────
+// tint/shade/mix derive NEW colours FROM the brand palette, so a style can shift mood (neon-energy ↔ muted-calm,
+// duotone, gradient stops) while staying brand-locked (Law 4). They operate on #rgb/#rrggbb; any non-hex token
+// (e.g. an rgba() border) passes through unchanged, exactly like withAlpha.
+const parseHex = (c: string): [number, number, number] | null => {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim());
+  if (!m) return null;
+  const h = m[1].length === 3 ? m[1].split('').map((x) => x + x).join('') : m[1];
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+};
+const clampByte = (v: number): number => Math.max(0, Math.min(255, Math.round(v)));
+const toHex = (r: number, g: number, b: number): string =>
+  `#${[r, g, b].map((v) => clampByte(v).toString(16).padStart(2, '0')).join('')}`;
+
+/** Lighten a brand colour toward white by `amount` (0..1) — the bright/energetic end of the colour axis. */
+export const tint = (color: string, amount: number): string => {
+  const rgb = parseHex(color);
+  if (!rgb) return color;
+  const t = Math.max(0, Math.min(1, amount));
+  return toHex(rgb[0] + (255 - rgb[0]) * t, rgb[1] + (255 - rgb[1]) * t, rgb[2] + (255 - rgb[2]) * t);
+};
+/** Darken a brand colour toward black by `amount` (0..1) — the muted/calm/deep end of the colour axis. */
+export const shade = (color: string, amount: number): string => {
+  const rgb = parseHex(color);
+  if (!rgb) return color;
+  const t = Math.max(0, Math.min(1, amount));
+  return toHex(rgb[0] * (1 - t), rgb[1] * (1 - t), rgb[2] * (1 - t));
+};
+/** Blend two brand colours (`t`=0 → a, 1 → b) — duotone / gradient stops within the brand palette. */
+export const mix = (a: string, b: string, t: number): string => {
+  const ca = parseHex(a);
+  const cb = parseHex(b);
+  if (!ca || !cb) return a;
+  const u = Math.max(0, Math.min(1, t));
+  return toHex(ca[0] + (cb[0] - ca[0]) * u, ca[1] + (cb[1] - ca[1]) * u, ca[2] + (cb[2] - ca[2]) * u);
+};
