@@ -137,6 +137,21 @@ const prefsBlock = PREFS
   ? `This customer's STORED PREFERENCES from prior explainers (honor them unless the beat demands otherwise): ${JSON.stringify(PREFS)}\n`
   : '';
 
+// Distilled explainer craft knowledge (design laws + motion/pacing/color/cognitive principles) from
+// scripts/explainer-knowledge-graph.json — the field's proven rules for GREAT SaaS video that the system already
+// knew but was NOT feeding the model. Injected into SYSTEM so the model designs to real craft, not just a vibe.
+function loadCraftKnowledge() {
+  try {
+    const g = JSON.parse(readFileSync('scripts/explainer-knowledge-graph.json', 'utf8'));
+    const laws = (Array.isArray(g.laws) ? g.laws : Object.values(g.laws || {})).map((l) => l.statement).filter(Boolean);
+    const pr = (arr) => (arr || []).map((p) => p.rule).filter(Boolean);
+    const p = g.principles || {};
+    const sect = (arr, label) => (arr.length ? `${label}:\n` + arr.map((x) => `  - ${x}`).join('\n') : '');
+    return [sect(laws, 'DESIGN LAWS'), sect(pr(p.motion), 'MOTION'), sect(pr(p.pacing), 'PACING'), sect(pr(p.color), 'COLOR'), sect(pr(p.cognitive), 'COGNITIVE LOAD')].filter(Boolean).join('\n');
+  } catch { return ''; }
+}
+const CRAFT_KNOWLEDGE = loadCraftKnowledge();
+
 // ---------------------------------------------------------------------------------------------------
 // the agent's toolbox = the brick primitives, verbatim from grammar-v2. Not a cage — its palette.
 const SYSTEM =
@@ -152,6 +167,7 @@ const SYSTEM =
   `- For an idea/type beat, big confident kinetic typography that commands the frame.\n` +
   `- Use the OPTIONAL brick helpers below if they help, OR write raw divs/svg/text with brand tokens — whatever ` +
   `makes the best scene. Raw typed fontSize is FINE (you have eyes; fix clipping when you see it).\n\n` +
+  (CRAFT_KNOWLEDGE ? `PROVEN EXPLAINER CRAFT (the field's rules for great SaaS video — apply them to THIS scene):\n${CRAFT_KNOWLEDGE}\n\n` : '') +
   `LAYOUT LAW (non-negotiable — most failed scenes die here):\n` +
   `- NOTHING overlaps. Every text block and UI card owns a RESERVED vertical band; no two groups may share ` +
   `vertical space. Lay the frame out as stacked bands top-to-bottom with real gaps between them, then place ` +
