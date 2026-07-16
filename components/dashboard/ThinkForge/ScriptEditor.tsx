@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 
 // Import Tiptap editor styles
 import '@/styles/thinkforge-editor.css';
@@ -60,6 +60,12 @@ import type { TiptapJSON } from "@/lib/thinkforge/schemas/tiptap-schema";
 import { useStreamingBlocks } from "@/lib/thinkforge/hooks/useStreamingBlocks";
 import { useVersionManager } from "@/app/dashboard/thinkforge/hooks/useVersionManager";
 import { logShadowEvent } from "@/lib/thinkforge/services/shadow-logger";
+import {
+  createThinkForgeDocumentKey,
+  matchesThinkForgeDocumentIdentity,
+  stampThinkForgeDocumentIdentity,
+  type ThinkForgeDocumentIdentity,
+} from '@/lib/thinkforge/client-document-identity';
 
 // Import FormatToolbar
 import { FormatToolbar } from "./FormatToolbar";
@@ -164,6 +170,10 @@ export default function ScriptEditor({
   const MIN_AUTOSAVE_INTERVAL_MS = 4000;
   const autosavePausedRef = useRef(false);
   const scriptVersionRef = useRef<number>(0);
+  const loadAbortControllerRef = useRef<AbortController | null>(null);
+  const saveAbortControllerRef = useRef<AbortController | null>(null);
+  const prevScriptBlocksRef = useRef<string>('');
+  const prevMetadataRef = useRef<string>('');
   const isSwitchingScriptRef = useRef(false);
 
   // CRITICAL: Pending blocks queue for deterministic hydration
@@ -203,6 +213,18 @@ export default function ScriptEditor({
   }, [scriptId]);
 
   // Effective title: prefer loaded API title > prop title > fallback
+  const activeIdentity = useMemo<ThinkForgeDocumentIdentity | null>(() => (
+    sessionId
+      ? { sessionId, scriptId: scriptResourceId }
+      : null
+  ), [sessionId, scriptResourceId]);
+  const activeDocumentKey = useMemo(
+    () => activeIdentity ? createThinkForgeDocumentKey(activeIdentity) : null,
+    [activeIdentity],
+  );
+  const activeDocumentKeyRef = useRef<string | null>(activeDocumentKey);
+  const documentEpochRef = useRef(0);
+
   const getEffectiveTitle = useCallback(() => {
     return loadedTitleRef.current || script?.title || 'Untitled Script';
   }, [script?.title]);
@@ -432,7 +454,7 @@ export default function ScriptEditor({
       const isInitialLoad = reason === 'initial-load-api' || reason === 'initial-load-prop';
       const isVersionRestore = reason === 'version-restore' || isRestoringVersionRef.current;
       const isAIUpdate = reason === 'ai-update';
-      const isNewScript = reason === 'new-script-button' || reason === 'clear-editor-new-script' || reason === 'clear-editor-new-session';
+      const isNewScript = reason === 'new-script-button' || reason === 'clear-editor-new-script' || reason === 'clear-editor-new-session' || reason === 'document-switch';
 
       // Block setContent if:
       // - Not initial load, not restore, not new script, and has local edits
@@ -578,11 +600,11 @@ export default function ScriptEditor({
 
   // Sync hydrated content into parent state (no backend save)
   const notifyHydratedScript = useCallback((tiptapContent: TiptapJSON) => {
-    if (!onEditScript) return;
+    if (!onEditScript || !activeIdentity) return;
     try {
       const blocks = tiptapJSONToThinkForgeBlocks(tiptapContent);
       const validated = validateThinkForgeBlocks(blocks);
-      onEditScript({
+      const hydratedScript = stampThinkForgeDocumentIdentity({
         title: getEffectiveTitle(),
         version: (script as any)?.version ?? scriptVersionRef.current,
         blocks: validated,
@@ -595,20 +617,66 @@ export default function ScriptEditor({
         targetAudience: script?.targetAudience,
         tone: script?.tone,
         metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap' as any }
-      } as any);
+      }, activeIdentity);
+      onEditScript(hydratedScript as any);
     } catch (error) {
       console.error('ScriptEditor: Failed to sync hydrated script', error);
     }
-  }, [onEditScript, script, getEffectiveTitle]);
+  }, [onEditScript, script, getEffectiveTitle, activeIdentity]);
 
   // Load blocks from API or script.blocks prop - only on initial mount or scriptId change
   // CRITICAL: Must never overwrite user edits during load
   const initialLoadDoneRef = useRef(false);
 
+  // Document identity owns reset, load, and save cancellation. This effect must
+  // run before the loader below whenever the active session/document changes.
+  useLayoutEffect(() => {
+    activeDocumentKeyRef.current = activeDocumentKey;
+    documentEpochRef.current += 1;
+    loadAbortControllerRef.current?.abort();
+    loadAbortControllerRef.current = null;
+    saveAbortControllerRef.current?.abort();
+    saveAbortControllerRef.current = null;
+    autosaveInFlightRef.current = false;
+
+    isSwitchingScriptRef.current = true;
+    initialLoadDoneRef.current = false;
+    lastLoadedContentRef.current = '';
+    lastAutosaveHashRef.current = '';
+    prevScriptBlocksRef.current = '';
+    prevMetadataRef.current = '';
+    pendingBlocksRef.current = null;
+    loadedTitleRef.current = null;
+    scriptVersionRef.current = 0;
+    setHasUnsavedChanges(false);
+    isUserTypingRef.current = false;
+    lastUserInputTimeRef.current = 0;
+    hasLocalEditsRef.current = false;
+    isRestoringVersionRef.current = false;
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    if (editor) {
+      safeSetContent(DEFAULT_EMPTY_DOCUMENT as TiptapJSON, 'document-switch');
+      lastLoadedContentRef.current = JSON.stringify(DEFAULT_EMPTY_DOCUMENT);
+    }
+  }, [activeDocumentKey, editor, safeSetContent]);
+
   useEffect(() => {
     const loadBlocks = async () => {
-      if (!editor) return;
+      if (!editor || !activeIdentity || !activeDocumentKey) return;
       const forceHydration = isSwitchingScriptRef.current;
+      const scheduledDocumentKey = activeDocumentKey;
+      const scheduledEpoch = documentEpochRef.current;
+      const controller = new AbortController();
+      loadAbortControllerRef.current?.abort();
+      loadAbortControllerRef.current = controller;
+      const isCurrentLoad = () => (
+        !controller.signal.aborted
+        && activeDocumentKeyRef.current === scheduledDocumentKey
+        && documentEpochRef.current === scheduledEpoch
+      );
 
       // CRITICAL: Skip if user is actively editing or has unsaved changes
       // User input is always the source of truth
@@ -621,13 +689,15 @@ export default function ScriptEditor({
 
       try {
         // Try to fetch from API if session is available
-        if (sessionId) {
-          const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${sessionId}&scriptId=${encodeURIComponent(scriptResourceId)}`, {
+        if (activeIdentity) {
+          const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(activeIdentity.sessionId)}&scriptId=${encodeURIComponent(activeIdentity.scriptId)}`, {
             cache: 'no-store',
-            headers: { 'Cache-Control': 'no-cache' }
+            headers: { 'Cache-Control': 'no-cache' },
+            signal: controller.signal,
           });
           if (response.ok) {
             const data = await response.json();
+            if (!isCurrentLoad()) return;
             if (typeof data?.version === 'number') {
               scriptVersionRef.current = data.version;
             }
@@ -651,6 +721,7 @@ export default function ScriptEditor({
             }
 
             // CRITICAL: Final check before applying - user might have typed during fetch
+            if (!isCurrentLoad()) return;
             const finalCheck = Date.now() - lastUserInputTimeRef.current;
             if (!forceHydration && (isUserTypingRef.current || finalCheck < USER_TYPING_TIMEOUT || hasUnsavedChanges)) {
               return;
@@ -671,7 +742,7 @@ export default function ScriptEditor({
 
         // Fallback: use script.blocks prop if available
         // CRITICAL: Only load from prop if user isn't actively editing
-        if (script?.blocks) {
+        if (script?.blocks && matchesThinkForgeDocumentIdentity(script, activeIdentity)) {
           const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
           const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
 
@@ -703,11 +774,16 @@ export default function ScriptEditor({
             notifyHydratedScript(tiptapContent);
           }
         }
-      } catch (error) {
-        console.error("ScriptEditor: Failed to fetch from API:", error);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error("ScriptEditor: Failed to fetch from API:", error);
+        }
       } finally {
-        if (forceHydration) {
+        if (isCurrentLoad() && forceHydration) {
           isSwitchingScriptRef.current = false;
+        }
+        if (loadAbortControllerRef.current === controller) {
+          loadAbortControllerRef.current = null;
         }
       }
     };
@@ -716,36 +792,8 @@ export default function ScriptEditor({
     if (editor && !initialLoadDoneRef.current) {
       loadBlocks();
     }
-  }, [sessionId, scriptResourceId, editor, hasUnsavedChanges, notifyHydratedScript]);
+  }, [activeDocumentKey, activeIdentity, editor, hasUnsavedChanges, notifyHydratedScript]);
 
-  // Reset state when script tab changes
-  // CRITICAL: Reset all tracking refs to prevent stale state from affecting new session
-  useEffect(() => {
-    isSwitchingScriptRef.current = true;
-    initialLoadDoneRef.current = false;
-    lastLoadedContentRef.current = '';
-    prevScriptBlocksRef.current = '';
-    loadedTitleRef.current = null;
-    setHasUnsavedChanges(false);
-    // CRITICAL: Reset user typing state when switching sessions
-    isUserTypingRef.current = false;
-    lastUserInputTimeRef.current = 0;
-    hasLocalEditsRef.current = false;
-    isRestoringVersionRef.current = false;
-    if (autosaveTimerRef.current) {
-      clearTimeout(autosaveTimerRef.current);
-      autosaveTimerRef.current = null;
-    }
-
-    // Clear the editor content for new sessions
-    if (editor && !sessionId) {
-      try {
-        safeSetContent(DEFAULT_EMPTY_DOCUMENT as TiptapJSON, 'clear-editor-new-session');
-      } catch {
-        // Ignore if editor not ready
-      }
-    }
-  }, [scriptResourceId, sessionId, editor]);
 
   // Handle script reset (when script becomes empty/null - e.g., New Script button)
   useEffect(() => {
@@ -777,13 +825,14 @@ export default function ScriptEditor({
   }, [script?.blocks, editor, safeSetContent]);
 
   // Handle script.blocks updates from AI generation (via chat)
-  const prevScriptBlocksRef = useRef<string>('');
-  const prevMetadataRef = useRef<string>('');
 
   useEffect(() => {
-    if (!editor || (!script?.blocks && !script?.content)) {
+    if (!editor || !activeIdentity || !activeDocumentKey || (!script?.blocks && !script?.content)) {
       return;
     }
+
+    if (!matchesThinkForgeDocumentIdentity(script, activeIdentity)) return;
+    const updateDocumentKey = activeDocumentKey;
 
     // Skip full content updates during streaming (streaming handles incremental updates)
     if (generatingScript && streamingTiptap.isStreaming()) {
@@ -802,6 +851,7 @@ export default function ScriptEditor({
 
         // Defer surgical edit to avoid React lifecycle conflicts
         requestAnimationFrame(() => {
+          if (activeDocumentKeyRef.current !== updateDocumentKey) return;
           // Apply edit surgically to the selection range
           const success = applyAIEditToSelection(
             editor,
@@ -865,6 +915,7 @@ export default function ScriptEditor({
 
       // Defer content update to avoid React lifecycle conflicts
       requestAnimationFrame(() => {
+        if (activeDocumentKeyRef.current !== updateDocumentKey) return;
         if (!editor) {
           // Store pending blocks for retry
           pendingBlocksRef.current = Array.isArray(script.blocks) ? script.blocks : null;
@@ -880,6 +931,7 @@ export default function ScriptEditor({
         }
 
         tiptapPromise.then((tiptapContent) => {
+          if (activeDocumentKeyRef.current !== updateDocumentKey) return;
           const applied = applyContentToEditor(tiptapContent, 'ai-update');
           if (applied) {
             createVersionSnapshot('AI edit');
@@ -889,91 +941,110 @@ export default function ScriptEditor({
     } catch (error) {
       console.error('[Script] Hydration failed:', error);
     }
-  }, [script?.blocks, script?.metadata, editor, generatingScript, streamingTiptap, createVersionSnapshot]);
+  }, [script?.blocks, script?.metadata, editor, activeIdentity, activeDocumentKey, generatingScript, streamingTiptap, createVersionSnapshot]);
 
   // Poll for blocks during generation
   // CRITICAL: Must never overwrite user edits - user input is source of truth
-  // CRITICAL: Polling must NEVER call setContent if user has local edits
+  // CRITICAL: Every request is owned by the active document identity.
   useEffect(() => {
-    if (!sessionId || !editor || !generatingScript) return;
+    if (!activeIdentity || !activeDocumentKey || !editor || !generatingScript) return;
 
-    // CRITICAL: Skip polling if user has unsaved changes, is actively typing, or recently typed
     const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
     const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
     if (hasUnsavedChanges || autosaveTimerRef.current || userRecentlyTyped || hasLocalEditsRef.current) {
       return;
     }
 
+    const pollIdentity = activeIdentity;
+    const pollDocumentKey = activeDocumentKey;
+    let pollAbortController: AbortController | null = null;
+    let pollInFlight = false;
     const pollInterval = 2000;
 
     const interval = setInterval(async () => {
-      // CRITICAL: Multiple guards to prevent overwriting user edits
-      // 1. Check unsaved changes flag
-      // 2. Check if autosave is pending (user just typed)
-      // 3. Check if user is actively typing (within timeout window)
-      // 4. Check if user has local edits (CRITICAL - never overwrite)
-      // 5. Check if restoring version (never poll during restore)
+      if (activeDocumentKeyRef.current !== pollDocumentKey || pollInFlight) return;
+
       const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
       const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
-
-      if (hasUnsavedChanges || autosaveTimerRef.current || userRecentlyTyped || hasLocalEditsRef.current || isRestoringVersionRef.current) {
+      if (
+        hasUnsavedChanges
+        || autosaveTimerRef.current
+        || userRecentlyTyped
+        || hasLocalEditsRef.current
+        || isRestoringVersionRef.current
+      ) {
         return;
       }
 
+      pollAbortController = new AbortController();
+      const requestController = pollAbortController;
+      pollInFlight = true;
+
       try {
-        const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${sessionId}&scriptId=${encodeURIComponent(scriptResourceId)}`, {
-          cache: 'no-store',
-          headers: { 'Cache-Control': 'no-cache' }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          let tiptapContent: TiptapJSON | string;
+        const response = await fetch(
+          '/api/services/thinkforge/script/blocks?sessionId='
+            + encodeURIComponent(pollIdentity.sessionId)
+            + '&scriptId='
+            + encodeURIComponent(pollIdentity.scriptId),
+          {
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache' },
+            signal: requestController.signal,
+          },
+        );
+        if (!response.ok || activeDocumentKeyRef.current !== pollDocumentKey) return;
 
-          // CRITICAL: Prefer richText (TipTap JSON) - this is runtime truth
-          // Only convert ThinkForgeBlocks → TipTap if richText not available
-          if (data.richText && isTiptapJSON(data.richText)) {
-            tiptapContent = data.richText;
-          } else if (data.content) {
-            tiptapContent = await marked.parse(data.content);
-          } else if (data.blocks) {
-            // Only convert at boundary (when fetching from backend)
-            tiptapContent = toTiptapJSON(data.blocks);
-          } else {
-            return;
-          }
+        const data = await response.json();
+        if (activeDocumentKeyRef.current !== pollDocumentKey) return;
 
-          // CRITICAL: Compare with last loaded content to avoid overwriting user edits
-          const contentHash = JSON.stringify(tiptapContent);
-          if (contentHash === lastLoadedContentRef.current) {
-            // No change, skip update
-            return;
-          }
+        let tiptapContent: TiptapJSON | string;
+        if (data.richText && isTiptapJSON(data.richText)) {
+          tiptapContent = data.richText;
+        } else if (data.content) {
+          tiptapContent = await marked.parse(data.content);
+        } else if (data.blocks) {
+          tiptapContent = toTiptapJSON(data.blocks);
+        } else {
+          return;
+        }
 
-          // CRITICAL: Final check - never overwrite if user has local edits
-          if (hasLocalEditsRef.current || isRestoringVersionRef.current) {
-            return;
-          }
+        if (activeDocumentKeyRef.current !== pollDocumentKey) return;
 
-          // CRITICAL: Double-check user isn't typing before applying remote update
-          const finalCheck = Date.now() - lastUserInputTimeRef.current;
-          if (isUserTypingRef.current || finalCheck < USER_TYPING_TIMEOUT) {
-            return;
-          }
+        const contentHash = JSON.stringify(tiptapContent);
+        if (contentHash === lastLoadedContentRef.current) return;
+        if (hasLocalEditsRef.current || isRestoringVersionRef.current) return;
 
-          const applied = applyContentToEditor(tiptapContent, 'polling-update');
-          if (applied) {
-            // Update last loaded content ref to prevent duplicate updates
-            lastLoadedContentRef.current = contentHash;
-          }
+        const finalCheck = Date.now() - lastUserInputTimeRef.current;
+        if (isUserTypingRef.current || finalCheck < USER_TYPING_TIMEOUT) return;
+
+        const applied = applyContentToEditor(tiptapContent, 'polling-update');
+        if (applied && activeDocumentKeyRef.current === pollDocumentKey) {
+          lastLoadedContentRef.current = contentHash;
         }
       } catch (error) {
-        console.error('ScriptEditor: Polling error:', error);
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          console.error('ScriptEditor: Polling error:', error);
+        }
+      } finally {
+        if (pollAbortController === requestController) {
+          pollAbortController = null;
+        }
+        pollInFlight = false;
       }
     }, pollInterval);
 
-    return () => clearInterval(interval);
-  }, [sessionId, scriptResourceId, editor, generatingScript, hasUnsavedChanges]);
-
+    return () => {
+      clearInterval(interval);
+      pollAbortController?.abort();
+    };
+  }, [
+    activeIdentity,
+    activeDocumentKey,
+    editor,
+    generatingScript,
+    hasUnsavedChanges,
+    applyContentToEditor,
+  ]);
   // Integrate streaming blocks
   useEffect(() => {
     if (streamingBlocks.blocks.length > 0 && editor) {
@@ -991,8 +1062,9 @@ export default function ScriptEditor({
   // Only convert to ThinkForgeBlocks at boundaries (saving, exporting)
   const convertEditorToScript = useCallback(async (): Promise<Script> => {
     const effectiveTitle = getEffectiveTitle();
+    if (!activeIdentity) throw new Error('Cannot serialize a document without active identity');
     if (!editor) {
-      return {
+      return stampThinkForgeDocumentIdentity({
         title: effectiveTitle,
         version: (script as any)?.version ?? scriptVersionRef.current,
         blocks: [],
@@ -1004,7 +1076,7 @@ export default function ScriptEditor({
         targetAudience: script?.targetAudience,
         tone: script?.tone,
         metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap', source: 'editor' as any }
-      } as any;
+      }, activeIdentity) as any;
     }
 
     storeCursorPosition();
@@ -1014,7 +1086,7 @@ export default function ScriptEditor({
     const thinkforgeBlocks = tiptapJSONToThinkForgeBlocks(tiptapJSON);
     const validated = validateThinkForgeBlocks(thinkforgeBlocks);
 
-    return {
+    return stampThinkForgeDocumentIdentity({
       title: effectiveTitle,
       version: (script as any)?.version ?? scriptVersionRef.current,
       blocks: validated,
@@ -1027,8 +1099,8 @@ export default function ScriptEditor({
       targetAudience: script?.targetAudience,
       tone: script?.tone,
       metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap', source: 'editor' as any }
-    } as any;
-  }, [editor, script, storeCursorPosition, getEffectiveTitle]);
+    }, activeIdentity) as any;
+  }, [editor, script, storeCursorPosition, getEffectiveTitle, activeIdentity]);
 
   // Sync last version hash when the version manager updates its current version
   useEffect(() => {
@@ -1055,6 +1127,10 @@ export default function ScriptEditor({
     if (isUpdatingFromPropsRef.current || isProgrammaticUpdateRef.current || generatingScript || autosavePausedRef.current) {
       return;
     }
+    if (!activeIdentity || !activeDocumentKey) return;
+    const scheduledIdentity = activeIdentity;
+    const scheduledDocumentKey = activeDocumentKey;
+
 
     // Mark that user is actively typing - this prevents remote updates from overwriting
     isUserTypingRef.current = true;
@@ -1067,7 +1143,11 @@ export default function ScriptEditor({
       clearTimeout(autosaveTimerRef.current);
     }
 
-    autosaveTimerRef.current = setTimeout(async () => {
+    const scheduledTimer = setTimeout(async () => {
+      let saveController: AbortController | null = null;
+      let ownsSaveSlot = false;
+      if (activeDocumentKeyRef.current !== scheduledDocumentKey) return;
+
       try {
         if (!editor) return;
         if (autosavePausedRef.current) return;
@@ -1086,6 +1166,7 @@ export default function ScriptEditor({
         }
 
         autosaveInFlightRef.current = true;
+        ownsSaveSlot = true;
 
         // CRITICAL: Autosave only reads current editor content (TipTap JSON)
         // Converts to ThinkForgeBlocks ONLY for backend storage
@@ -1100,27 +1181,34 @@ export default function ScriptEditor({
         }
 
         // Send to backend (converting TipTap JSON → ThinkForgeBlocks only for storage)
-        if (sessionId && updatedScript.blocks) {
+        if (updatedScript.blocks) {
           try {
+            saveAbortControllerRef.current?.abort();
+            saveController = new AbortController();
+            saveAbortControllerRef.current = saveController;
             const response = await fetch(`/api/commands`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 type: 'ReplaceDocument',
-                sessionId: sessionId,
+                sessionId: scheduledIdentity.sessionId,
                 baseVersion: scriptVersionRef.current,
                 source: 'user',
                 payload: {
-                  scriptId: scriptResourceId,
+                  scriptId: scheduledIdentity.scriptId,
                   richText: (updatedScript as any).richText, // Send TipTap JSON as richText
                   content: updatedScript.content,
                   title: updatedScript.title
                 }
               }),
+              signal: saveController.signal,
             });
+
+            if (activeDocumentKeyRef.current !== scheduledDocumentKey) return;
 
             if (response.ok) {
               const data = await response.json();
+              if (activeDocumentKeyRef.current !== scheduledDocumentKey) return;
               if (data?.script && typeof data.script.version === 'number') {
                 scriptVersionRef.current = data.script.version;
                 (updatedScript as any).version = data.script.version;
@@ -1145,20 +1233,30 @@ export default function ScriptEditor({
               console.error('Failed to save to backend');
             }
           } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') return;
             console.error('Error saving to backend:', error);
           }
         }
 
         // Notify parent (but don't trigger setContent - parent should not rehydrate)
+        if (activeDocumentKeyRef.current !== scheduledDocumentKey) return;
         onEditScript(updatedScript);
-        autosaveTimerRef.current = null;
       } catch (error) {
         console.error('Autosave failed:', error);
       } finally {
-        autosaveInFlightRef.current = false;
+        if (saveAbortControllerRef.current === saveController) {
+          saveAbortControllerRef.current = null;
+        }
+        if (ownsSaveSlot && activeDocumentKeyRef.current === scheduledDocumentKey) {
+          autosaveInFlightRef.current = false;
+        }
+        if (autosaveTimerRef.current === scheduledTimer) {
+          autosaveTimerRef.current = null;
+        }
       }
     }, 1200);
-  }, [convertEditorToScript, onEditScript, sessionId, scriptResourceId, editor, createVersionSnapshot]);
+    autosaveTimerRef.current = scheduledTimer;
+  }, [convertEditorToScript, onEditScript, editor, activeIdentity, activeDocumentKey]);
 
   // Pause autosave when tab/window is not active to avoid stale saves on return
   useEffect(() => {
@@ -1336,6 +1434,8 @@ export default function ScriptEditor({
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
       if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current);
       if (observerTimerRef.current) clearTimeout(observerTimerRef.current);
+      loadAbortControllerRef.current?.abort();
+      saveAbortControllerRef.current?.abort();
     };
   }, []);
 

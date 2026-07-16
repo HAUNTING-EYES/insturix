@@ -278,6 +278,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
 
     const assistantId = crypto.randomUUID();
     const generationId = crypto.randomUUID();
+    let resolvedScriptId = options?.scriptId;
     const assistantMsg: ChatMessage = {
       id: assistantId,
       role: 'assistant',
@@ -387,6 +388,9 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
             generationId: data?.metadata?.generationId || generationIdRef.current,
             forceSource: 'ai',
           });
+          if (typeof remoteScript.scriptId === 'string') {
+            resolvedScriptId = remoteScript.scriptId;
+          }
           if (options?.onScriptUpdate) {
             options.onScriptUpdate(remoteScript);
           }
@@ -400,9 +404,10 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
             ));
           }
         } else if (data?.type === 'script_created') {
-          if (options?.onScriptCreated && typeof data?.scriptId === 'string') {
-            options.onScriptCreated(data.scriptId);
-          }
+          if (typeof data?.scriptId !== 'string') return;
+          resolvedScriptId = data.scriptId;
+          const notifyScriptCreated = options?.onScriptCreated || optionsRef.current?.onScriptCreated;
+          notifyScriptCreated?.(data.scriptId);
         } else if (data?.type === 'done') {
           doneReceivedRef.current = true;
         }
@@ -449,15 +454,16 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         } catch (e) {
           console.error('[useThinkForgeChat] fallbackResync refreshMessages failed:', e);
         }
-        if (optionsRef.current?.onRemoteScriptUpdate && sessionId && options?.scriptId) {
+        const recoveryScriptId = resolvedScriptId || options?.scriptId;
+        if (optionsRef.current?.onRemoteScriptUpdate && sessionId && recoveryScriptId) {
           try {
-            const res = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(options.scriptId)}`, { cache: 'no-store' });
+            const res = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(recoveryScriptId)}`, { cache: 'no-store' });
             if (res.ok) {
               const data = await res.json();
               const fallbackWorkflow = intentRef.current === 'edit' ? 'edit' : 'create';
               optionsRef.current.onRemoteScriptUpdate(normalizeRemoteScriptUpdate(data, data?.metadata, fallbackWorkflow, {
                 sessionId,
-                scriptId: options.scriptId,
+                scriptId: recoveryScriptId,
                 generationId: generationIdRef.current,
                 forceSource: 'ai',
               }));
@@ -604,6 +610,10 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         intentRef.current = null;
         setGenerationProgress(null);
         setGenerationMessage(null);
+        const completedScriptId = gen.scriptId || data.script?.scriptId;
+        if (typeof completedScriptId === 'string') {
+          optionsRef.current?.onScriptCreated?.(completedScriptId);
+        }
         if (data.script && optionsRef.current?.onRemoteScriptUpdate) {
           const fallbackWorkflow = gen.type === 'script_edit' ? 'edit' : 'create';
           optionsRef.current.onRemoteScriptUpdate(normalizeRemoteScriptUpdate(data.script, data.script?.metadata, fallbackWorkflow, {

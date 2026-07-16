@@ -2,6 +2,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sanitizeServerScript } from "@/lib/thinkforge/json";
 import type { ScriptModel } from "./useThinkForgeSession";
+import {
+  matchesThinkForgeDocumentIdentity,
+  stampThinkForgeDocumentIdentity,
+} from "@/lib/thinkforge/client-document-identity";
 
 const LS_SESSION_PREFIX = "thinkforge_session_";
 const DEBOUNCE_MS = 800;
@@ -67,6 +71,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
     resetPendingSaves();
 
     const effectiveScriptId = scriptId || 'default';
+    const activeIdentity = { sessionId, scriptId: effectiveScriptId };
     let cachedScript: ScriptModel | null = null;
 
     try {
@@ -75,7 +80,10 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
       if (raw) {
         const cached = JSON.parse(raw);
         if (cached?.script && cached.script.title && cached.script.title !== 'Untitled Script') {
-          cachedScript = cached.script as ScriptModel;
+          cachedScript = stampThinkForgeDocumentIdentity(
+            cached.script as Record<string, any>,
+            activeIdentity,
+          ) as ScriptModel;
         }
       }
     } catch {
@@ -100,9 +108,10 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
           version: data.version,
           metadata: data.metadata && typeof data.metadata === 'object' ? data.metadata : null,
         };
-        setScript(serverScript);
-        lastSavedSnapshotRef.current = JSON.stringify(serverScript);
-        saveLocal(sessionId, effectiveScriptId, { script: serverScript });
+        const identifiedServerScript = stampThinkForgeDocumentIdentity(serverScript, activeIdentity) as ScriptModel;
+        setScript(identifiedServerScript);
+        lastSavedSnapshotRef.current = JSON.stringify(identifiedServerScript);
+        saveLocal(sessionId, effectiveScriptId, { script: identifiedServerScript });
       } catch {
         if (!cancelled && cachedScript && sessionIdRef.current === sessionId && scriptIdRef.current === scriptId) {
           setScript(cachedScript);
@@ -119,10 +128,18 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
     scriptToSave: ScriptModel | null,
     attempt: number = 1
   ): Promise<boolean> => {
-    if (!sessionId || sessionIdRef.current !== sessionId) return false;
-    if (scriptIdRef.current !== scriptId) return false;
-    
-    const snapshot = JSON.stringify(scriptToSave || {});
+    if (!sessionId) return false;
+    const targetSessionId = sessionId;
+    const targetScriptId = scriptId || 'default';
+    if (sessionIdRef.current !== targetSessionId) return false;
+    if ((scriptIdRef.current || 'default') !== targetScriptId) return false;
+
+    const activeIdentity = { sessionId: targetSessionId, scriptId: targetScriptId };
+    const identifiedScript = scriptToSave
+      ? stampThinkForgeDocumentIdentity(scriptToSave, activeIdentity) as ScriptModel
+      : null;
+
+    const snapshot = JSON.stringify(identifiedScript || {});
     if (snapshot === lastSavedSnapshotRef.current) return true; // Already saved
     
     // Cancel any in-flight save
@@ -143,27 +160,30 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
         signal: controller.signal,
         body: JSON.stringify({
           type: "ReplaceDocument",
-          sessionId,
-          baseVersion: typeof (scriptToSave as any)?.version === 'number' ? (scriptToSave as any).version : 0,
+          sessionId: targetSessionId,
+          baseVersion: typeof (identifiedScript as any)?.version === 'number' ? (identifiedScript as any).version : 0,
           source: "user",
           payload: {
-            scriptId: scriptId || 'default',
-            title: scriptToSave?.title || 'Untitled Script',
-            content: scriptToSave?.content || '',
-            blocks: scriptToSave?.blocks || [],
-            richText: (scriptToSave as any)?.richText
+            scriptId: targetScriptId,
+            title: identifiedScript?.title || 'Untitled Script',
+            content: identifiedScript?.content || '',
+            blocks: identifiedScript?.blocks || [],
+            richText: (identifiedScript as any)?.richText
           }
         }),
       });
       
       clearTimeout(timeoutId);
+      if (sessionIdRef.current !== targetSessionId) return false;
+      if ((scriptIdRef.current || 'default') !== targetScriptId) return false;
+
       
       if (!res.ok) {
         if (res.status === 409) {
           try {
             const data = await res.json();
             if (typeof data?.currentVersion === 'number') {
-              const merged = { ...(scriptToSave || {}), version: data.currentVersion } as any;
+              const merged = { ...(identifiedScript || {}), version: data.currentVersion } as any;
               setScript(merged);
             }
           } catch (e) {
@@ -176,7 +196,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
 
       const data = await res.json();
       if (data?.script && typeof data.script.version === 'number') {
-        const merged = { ...(scriptToSave || {}), version: data.script.version } as any;
+        const merged = { ...(identifiedScript || {}), version: data.script.version } as any;
         setScript(merged);
         lastSavedSnapshotRef.current = JSON.stringify(merged || {});
       } else {
@@ -202,7 +222,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
       // Max retries reached
       throw e;
     }
-  }, [sessionId]);
+  }, [sessionId, scriptId]);
 
   const autosave = useCallback(async (scriptToSave?: ScriptModel | null) => {
     if (!sessionId || sessionIdRef.current !== sessionId) return;
@@ -245,11 +265,17 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
         }, 100); // Short delay to prevent immediate re-save
       }
     }
-  }, [sessionId, script, performSave]);
+  }, [sessionId, scriptId, script, performSave]);
 
   const setScriptAndQueueSave = useCallback((updater: ScriptModel | ((prev: ScriptModel | null) => ScriptModel)) => {
     setScript((prev) => {
-      const next = typeof updater === "function" ? (updater as any)(prev) : updater;
+      const rawNext = typeof updater === "function" ? (updater as any)(prev) : updater;
+      const next = sessionId
+        ? stampThinkForgeDocumentIdentity(rawNext, {
+            sessionId,
+            scriptId: scriptId || 'default',
+          }) as ScriptModel
+        : rawNext;
       
       // Always save to local storage first (synchronous, reliable)
       if (sessionId) {
@@ -277,15 +303,11 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
   const setScriptWithoutSave = useCallback((updater: ScriptModel | ((prev: ScriptModel | null) => ScriptModel)) => {
     setScript((prev) => {
       const next = typeof updater === "function" ? (updater as any)(prev) : updater;
-      const incomingScriptId = typeof (next as any)?.metadata?.scriptId === 'string'
-        ? (next as any).metadata.scriptId
-        : typeof (next as any)?.scriptId === 'string'
-          ? (next as any).scriptId
-          : null;
+      if (!sessionId) return prev;
       const activeScriptId = scriptId || 'default';
-
-      if (incomingScriptId && incomingScriptId !== activeScriptId) {
-        console.warn('[useThinkForgeScript] Ignoring remote script update for inactive script', { incomingScriptId, activeScriptId });
+      const activeIdentity = { sessionId, scriptId: activeScriptId };
+      if (!matchesThinkForgeDocumentIdentity(next, activeIdentity)) {
+        console.warn('[useThinkForgeScript] Ignoring remote script update for inactive script or missing document ownership');
         return prev;
       }
       
