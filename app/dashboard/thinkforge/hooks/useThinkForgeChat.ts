@@ -235,7 +235,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       silent?: boolean;
     }
   ) => {
-    console.log('[useThinkForgeChat.sendMessage] called', { sessionId, prompt: prompt.trim(), isStreaming });
     if (!sessionId || !threadId) {
       // STEP 7: Surface errors to UI instead of silent return
       console.error('[useThinkForgeChat.sendMessage] Missing sessionId or threadId - cannot send message');
@@ -247,11 +246,9 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       return;
     }
     if (!prompt.trim()) {
-      console.log('[useThinkForgeChat.sendMessage] No prompt, returning');
       return;
     }
     if (isStreaming) {
-      console.log('[useThinkForgeChat.sendMessage] Currently streaming, stopping...');
       // Cancel any stuck stream to allow new message
       stopStreaming();
     }
@@ -298,7 +295,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       const controller = new AbortController();
       abortRef.current = controller;
 
-      console.log('[useThinkForgeChat.sendMessage] Making fetch request to /api/services/thinkforge/chat');
       const res = await fetch('/api/services/thinkforge/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -321,7 +317,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         signal: controller.signal,
       });
 
-      console.log('[useThinkForgeChat.sendMessage] Fetch response received', { status: res.status, ok: res.ok });
 
       if (res.status === 429) {
         const errorMsg: ChatMessage = {
@@ -525,7 +520,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       };
       setMessages(prev => prev.map(m => m.id === assistantId ? errorMsg : m));
     } finally {
-      console.log('[useThinkForgeChat.sendMessage] finally block - cleaning up');
       setIsStreaming(false);
       abortRef.current = null;
       generationIdRef.current = null;
@@ -556,7 +550,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
     if (!sessionId) return;
     // Don't poll if we recently cancelled - let the new stream take over
     if (isCancelledRef.current) {
-      console.log('[useThinkForgeChat.pollGenerationStatus] Skipping - cancelled state active');
       return;
     }
     try {
@@ -585,7 +578,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
 
       // Don't update if we have a different active generation locally
       if (generationIdRef.current && generationIdRef.current !== gen.id) {
-        console.log('[useThinkForgeChat.pollGenerationStatus] Ignoring stale generation', { local: generationIdRef.current, remote: gen.id });
         return;
       }
 

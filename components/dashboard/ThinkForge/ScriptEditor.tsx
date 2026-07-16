@@ -327,7 +327,6 @@ export default function ScriptEditor({
 
     // Check if there are pending blocks waiting for hydration
     if (pendingBlocksRef.current && pendingBlocksRef.current.length > 0) {
-      console.log('[Script] Editor ready — hydrating', pendingBlocksRef.current.length, 'pending blocks');
       try {
         const tiptapContent = toTiptapJSON(pendingBlocksRef.current);
         const contentHash = JSON.stringify(tiptapContent);
@@ -338,9 +337,6 @@ export default function ScriptEditor({
           editor.commands.setContent(tiptapContent as any);
           isUpdatingFromPropsRef.current = false;
           lastLoadedContentRef.current = contentHash;
-          console.log('[Script] Pending hydration success');
-        } else {
-          console.log('[Script] Pending blocks already loaded (same hash)');
         }
       } catch (error) {
         console.error('[Script] Pending hydration failed:', error);
@@ -443,11 +439,9 @@ export default function ScriptEditor({
       // - Not initial load, not restore, not new script, and user is typing
       if (!isInitialLoad && !isVersionRestore && !isNewScript) {
         if (hasLocalEditsRef.current && !isAIUpdate) {
-          console.log(`ScriptEditor: Blocking setContent (${reason}), has local edits`);
           return;
         }
         if (isUserTypingRef.current && !isAIUpdate) {
-          console.log(`ScriptEditor: Blocking setContent (${reason}), user is typing`);
           return;
         }
       }
@@ -492,26 +486,22 @@ export default function ScriptEditor({
       const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
 
       if (userRecentlyTyped && !isInitialLoad && !isVersionRestore && !isAIUpdate) {
-        console.log(`[Script] Blocking ${reason} — user is actively typing`);
         return false;
       }
 
       // CRITICAL: Never overwrite if user has unsaved changes (unless initial load/restore/AI)
       // AI updates are allowed because they're the result of user's explicit request
       if (hasUnsavedChanges && !isInitialLoad && !isVersionRestore && !isAIUpdate) {
-        console.log(`[Script] Blocking ${reason} — user has unsaved changes`);
         return false;
       }
 
       // CRITICAL: Never overwrite if user has local edits (unless initial load/restore/AI)
       if (hasLocalEditsRef.current && !isInitialLoad && !isVersionRestore && !isAIUpdate) {
-        console.log(`[Script] Blocking ${reason} — user has local edits`);
         return false;
       }
 
       const contentHash = JSON.stringify(content);
       if (contentHash === lastLoadedContentRef.current) {
-        console.log(`[Script] Skipping ${reason} — content hash unchanged`);
         return false;
       }
 
@@ -626,7 +616,6 @@ export default function ScriptEditor({
       const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
 
       if (!forceHydration && (hasUnsavedChanges || autosaveTimerRef.current || userRecentlyTyped)) {
-        console.log('ScriptEditor: Skipping load, user is actively editing');
         return;
       }
 
@@ -664,7 +653,6 @@ export default function ScriptEditor({
             // CRITICAL: Final check before applying - user might have typed during fetch
             const finalCheck = Date.now() - lastUserInputTimeRef.current;
             if (!forceHydration && (isUserTypingRef.current || finalCheck < USER_TYPING_TIMEOUT || hasUnsavedChanges)) {
-              console.log('ScriptEditor: Skipping load, user typed during fetch');
               return;
             }
 
@@ -674,7 +662,6 @@ export default function ScriptEditor({
               if (applied) {
                 initialLoadDoneRef.current = true;
                 notifyHydratedScript(tiptapContent as any);
-                console.log('ScriptEditor: Loaded content from API');
               }
               return;
             }
@@ -703,7 +690,6 @@ export default function ScriptEditor({
               if (applied) {
                 initialLoadDoneRef.current = true;
                 notifyHydratedScript(tiptapContent as any);
-                console.log('ScriptEditor: Loaded content from prop');
               }
             } else {
               console.warn('ScriptEditor: Prop blocks were invalid');
@@ -824,7 +810,6 @@ export default function ScriptEditor({
           );
 
           if (success) {
-            console.log('ScriptEditor: Applied surgical edit to selection');
             // Reset flag and trigger autosave after a brief delay
             setTimeout(() => {
               isUpdatingFromPropsRef.current = false;
@@ -852,26 +837,19 @@ export default function ScriptEditor({
 
     const metadataSource = (script?.metadata as any)?.source;
     if (metadataSource === 'editor' && !isAIGenerated) {
-      console.log('[Script] Skipping hydration - source is editor (already synced)');
       return;
     }
 
     if (!isAIGenerated) {
-      console.log('[Script] Skipping hydration — not AI workflow:', script?.metadata?.workflow);
       return;
     }
 
-    console.log('[Script] Blocks received from AI:', {
-      blockCount: Array.isArray(script.blocks) ? script.blocks.length : 0,
-      workflow: script?.metadata?.workflow
-    });
 
     const scriptBlocksHash = JSON.stringify(script.blocks);
     const metadataHash = JSON.stringify(script.metadata);
 
     // Skip if already processed
     if (scriptBlocksHash === prevScriptBlocksRef.current && metadataHash === prevMetadataRef.current) {
-      console.log('[Script] Skipping hydration — already processed (same hash)');
       return;
     }
 
@@ -888,12 +866,10 @@ export default function ScriptEditor({
       // Defer content update to avoid React lifecycle conflicts
       requestAnimationFrame(() => {
         if (!editor) {
-          console.log('[Script] Editor not ready — queued hydration');
           // Store pending blocks for retry
           pendingBlocksRef.current = Array.isArray(script.blocks) ? script.blocks : null;
           return;
         }
-        console.log('[Script] Hydrating editor with', Array.isArray(script.blocks) ? script.blocks.length : 0, 'blocks');
         let tiptapPromise: Promise<TiptapJSON | string>;
         if (script.richText && isTiptapJSON(script.richText)) {
           tiptapPromise = Promise.resolve(script.richText);
@@ -906,10 +882,7 @@ export default function ScriptEditor({
         tiptapPromise.then((tiptapContent) => {
           const applied = applyContentToEditor(tiptapContent, 'ai-update');
           if (applied) {
-            console.log('[Script] Hydration success — editor updated');
             createVersionSnapshot('AI edit');
-          } else {
-            console.log('[Script] Hydration blocked by applyContentToEditor guards');
           }
         }).catch(err => console.error('[Script] Hydration error:', err));
       });
@@ -978,7 +951,6 @@ export default function ScriptEditor({
 
           // CRITICAL: Final check - never overwrite if user has local edits
           if (hasLocalEditsRef.current || isRestoringVersionRef.current) {
-            console.log('ScriptEditor: Skipping polling update, user has local edits or is restoring');
             return;
           }
 
@@ -990,7 +962,6 @@ export default function ScriptEditor({
 
           const applied = applyContentToEditor(tiptapContent, 'polling-update');
           if (applied) {
-            console.log('ScriptEditor: Updated from polling');
             // Update last loaded content ref to prevent duplicate updates
             lastLoadedContentRef.current = contentHash;
           }
@@ -1008,10 +979,7 @@ export default function ScriptEditor({
     if (streamingBlocks.blocks.length > 0 && editor) {
       try {
         const tiptapContent = toTiptapJSON(streamingBlocks.blocks);
-        const applied = applyContentToEditor(tiptapContent, 'streaming-update');
-        if (applied) {
-          console.log('ScriptEditor: Integrated streaming content');
-        }
+        applyContentToEditor(tiptapContent, 'streaming-update');
       } catch (error) {
         console.error("ScriptEditor: Failed to integrate streaming content:", error);
       }
