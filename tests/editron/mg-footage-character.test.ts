@@ -6,7 +6,7 @@ import {
   FOOTAGE_STYLE,
   type FootageCharacter,
 } from '@/lib/editron/motion-graphics/codegen/style/footage-character';
-import { resolveStyle } from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
+import { resolveVideoStyle, resolveMomentStyle } from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
 
 describe('MG style resolver — footage classifier', () => {
   it('classifies from the analysis we already compute (motion / warmth / brightness)', () => {
@@ -44,27 +44,25 @@ describe('MG style resolver — footage classifier', () => {
   });
 });
 
-describe('MG style resolver — compose (brand ⊇ footage)', () => {
-  it('footage NARROWS the font base only where it has an opinion; brand identity holds', () => {
-    // Georgia = oldstyle-serif → base motion 'gentle', weight 'regular', surface 'flat'
-    const base = resolveStyle({ brandFont: 'Georgia' });
-    expect(base.motion).toBe('gentle');
+describe('MG style resolver — footage narrows the MOMENT (video identity ⊇ moment footage)', () => {
+  it('THIS moment\'s footage narrows the moment treatment; the video identity is untouched', () => {
+    // Georgia = oldstyle-serif → video identity motion 'gentle', weight 'regular', base surface 'flat'
+    const video = resolveVideoStyle({ brandFont: 'Georgia' });
+    expect(video.motion).toBe('gentle');
 
-    // high-energy footage overrides motion→pop, surface→glow, density→dense, but NOT weight/corner (font's)
-    const energetic = resolveStyle({ brandFont: 'Georgia', footage: { motionEnergy: 0.9 } });
-    expect(energetic.motion).toBe('pop'); // footage won this axis
+    const energetic = resolveMomentStyle(video, { footage: { motionEnergy: 0.9 } });
+    expect(energetic.motion).toBe('pop'); // footage won this axis, for THIS moment
     expect(energetic.surface).toBe('glow');
     expect(energetic.density).toBe('dense');
-    expect(energetic.weight).toBe(base.weight); // font identity held
-    expect(energetic.corner).toBe(base.corner);
-    expect(energetic.sources).toContain('footage:energetic-vivid');
+    expect(video.weight).toBe('regular'); // identity (weight) is not a per-moment axis
+    expect(energetic.footageCharacter).toBe('energetic-vivid');
   });
 
-  it('neutral footage leaves the font style exactly as-is', () => {
-    const base = resolveStyle({ brandFont: 'Anton' });
-    const withNeutral = resolveStyle({ brandFont: 'Anton', footage: { warmth: 0.5 } });
-    expect(withNeutral.motion).toBe(base.motion);
-    expect(withNeutral.surface).toBe(base.surface);
-    expect(withNeutral.sources).not.toContain('footage:neutral');
+  it('neutral footage leaves the moment at the video base', () => {
+    const video = resolveVideoStyle({ brandFont: 'Anton' });
+    const m = resolveMomentStyle(video, { footage: { warmth: 0.5 } });
+    expect(m.motion).toBe(video.motion);
+    expect(m.surface).toBe(video.baseSurface);
+    expect(m.footageCharacter).toBe('neutral');
   });
 });

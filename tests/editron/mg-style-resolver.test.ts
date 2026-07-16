@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveStyle, renderStyleDirection } from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
+import {
+  resolveVideoStyle,
+  resolveMomentStyle,
+  renderStyleDirection,
+  type VideoStyle,
+} from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
 import { buildCodegenPrompt, CODEGEN_STABLE_PREFIX } from '@/lib/editron/motion-graphics/codegen/codegen-service';
 import { INSTURIX } from '@/lib/editron/motion-graphics/codegen/kit/brand';
 import type { MgMomentInput } from '@/lib/editron/motion-graphics/codegen/types';
-import type { StyleBundle } from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
 
-const moment = (style?: StyleBundle): MgMomentInput => ({
+const moment = (over: Partial<MgMomentInput> = {}): MgMomentInput => ({
   momentId: 'm',
   brand: INSTURIX,
   window: { startFrame: 0, endFrame: 60, fps: 30 },
@@ -18,57 +22,76 @@ const moment = (style?: StyleBundle): MgMomentInput => ({
     scoreInputs: { structuralStrength: 0.7, salience: 0.7, evidenceStrength: 0.6, renderRisk: 0.2 },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any,
-  expressiveness: { tier: 'hero', intensity: 0.8, emphasisScale: 1.2 },
+  expressiveness: { tier: 'standard', intensity: 0.6, emphasisScale: 1 },
   placement: { region: 'full-frame', avoid: [], prefer: [] },
-  style,
+  ...over,
 });
 
-describe('MG style resolver — composer + prompt wiring', () => {
-  it('resolves a coherent bundle from the brand font', () => {
-    const anton = resolveStyle({ brandFont: 'Anton' });
-    expect(anton.styleName).toBe('kinetic-bold');
-    expect(anton.weight).toBe('heavy');
-    expect(anton.surface).toBe('glow');
-    expect(anton.motion).toBe('pop');
-    expect(anton.sources).toContain('font:display');
+describe('MG style resolver — VIDEO identity (resolved once)', () => {
+  it('font is the base; intent gets first say on name + weight', () => {
+    const editorial = resolveVideoStyle({ brandFont: 'Georgia' });
+    expect(editorial.styleName).toBe('editorial');
+    expect(editorial.weight).toBe('regular');
 
-    const mono = resolveStyle({ brandFont: 'JetBrains Mono' });
-    expect(mono.styleName).toBe('technical');
-    expect(mono.texture).toBe('grid');
+    const hype = resolveVideoStyle({ brandFont: 'Georgia', intent: 'hype reel' });
+    expect(hype.styleName).toBe('kinetic-bold'); // intent overrides the serif identity
+    expect(hype.weight).toBe('heavy');
+    expect(hype.corner).toBe(editorial.corner); // font identity holds where nothing overrode
 
-    const jakarta = resolveStyle({ brandFont: 'Plus Jakarta Sans, Inter, sans-serif' });
-    expect(jakarta.styleName).toBe('clean-modern'); // grotesque-sans
+    expect(resolveVideoStyle({ brandFont: 'X', styleOverride: 'neon' }).styleName).toBe('neon');
+  });
+});
+
+describe('MG style resolver — MOMENT treatment (resolved PER moment, the anti-monotony fix)', () => {
+  const video: VideoStyle = resolveVideoStyle({ brandFont: 'Plus Jakarta Sans, Inter, sans-serif' }); // clean-modern
+
+  it('salience + tier drive per-moment emphasis (a peak reads large, a quiet beat small)', () => {
+    expect(resolveMomentStyle(video, { tier: 'hero' }).emphasis).toBe('prominent');
+    expect(resolveMomentStyle(video, { salience: 0.9 }).emphasis).toBe('prominent');
+    expect(resolveMomentStyle(video, { tier: 'subtle' }).emphasis).toBe('quiet');
+    expect(resolveMomentStyle(video, { salience: 0.2 }).emphasis).toBe('quiet');
+    expect(resolveMomentStyle(video, { salience: 0.5 }).emphasis).toBe('balanced');
   });
 
-  it('a user style override wins the name and is recorded in sources', () => {
-    const b = resolveStyle({ brandFont: 'Anton', styleOverride: 'neon-brutalist' });
-    expect(b.styleName).toBe('neon-brutalist');
-    expect(b.sources).toContain('user:override');
-    // priors still come from the font (the override renames, does not fabricate priors)
-    expect(b.weight).toBe('heavy');
+  it('THIS moment\'s footage narrows the treatment; beats enable sync', () => {
+    const energetic = resolveMomentStyle(video, { footage: { motionEnergy: 0.9 } });
+    expect(energetic.motion).toBe('pop'); // footage of THIS moment
+    expect(energetic.surface).toBe('glow');
+    expect(resolveMomentStyle(video, { beatFrames: [10, 20, 30] }).beatSync).toBe(true);
+    expect(resolveMomentStyle(video, {}).beatSync).toBe(false);
   });
 
-  it('renderStyleDirection surfaces the style, weight number, and surface lean', () => {
-    const block = renderStyleDirection(resolveStyle({ brandFont: 'Anton' }));
-    expect(block).toMatch(/<style_direction>/);
-    expect(block).toMatch(/kinetic-bold/);
-    expect(block).toMatch(/surface="glow"/);
-    expect(block).toMatch(/~750/); // heavy → 750
+  it('TWO moments, SAME video identity, DIFFERENT treatment (monotony fix)', () => {
+    const a = resolveMomentStyle(video, { tier: 'hero', footage: { motionEnergy: 0.9 }, beatFrames: [5] });
+    const b = resolveMomentStyle(video, { tier: 'subtle', footage: { brightness: 0.2 } });
+    // same identity underneath, but the two graphics differ in emphasis, motion, surface
+    expect(a.emphasis).not.toBe(b.emphasis); // prominent vs quiet
+    expect(a.motion).not.toBe(b.motion); // pop vs smooth (cinematic-moody)
+    expect(a.surface).not.toBe(b.surface); // glow vs raised
   });
+});
 
-  it('the prompt is cache-safe: no style → byte-identical prefix, no style block', () => {
+describe('MG style resolver — prompt wiring (cache-safe, per-moment)', () => {
+  it('no videoStyle → byte-identical cached prefix, no style block', () => {
     const p = buildCodegenPrompt(moment());
     expect(p.startsWith(CODEGEN_STABLE_PREFIX)).toBe(true);
     expect(p).not.toMatch(/<style_direction>/);
   });
 
-  it('with a style: same cached prefix, the direction is VOLATILE (appended after)', () => {
-    const styled = buildCodegenPrompt(moment(resolveStyle({ brandFont: 'Anton' })));
-    // the cached prefix is byte-identical to the unstyled prompt's prefix
-    expect(styled.startsWith(CODEGEN_STABLE_PREFIX)).toBe(true);
-    expect(styled.slice(0, CODEGEN_STABLE_PREFIX.length)).toBe(CODEGEN_STABLE_PREFIX);
-    // the style block exists and lives AFTER the prefix (in the volatile tail)
-    expect(styled).toMatch(/<style_direction>/);
-    expect(styled.indexOf('<style_direction>')).toBeGreaterThan(CODEGEN_STABLE_PREFIX.length);
+  it('with videoStyle → same cached prefix, the per-moment direction appended after', () => {
+    const video = resolveVideoStyle({ brandFont: 'Anton' });
+    const p = buildCodegenPrompt(moment({ videoStyle: video, footageSignals: { motionEnergy: 0.9 } }));
+    expect(p.slice(0, CODEGEN_STABLE_PREFIX.length)).toBe(CODEGEN_STABLE_PREFIX);
+    expect(p).toMatch(/<style_direction>/);
+    expect(p).toMatch(/kinetic-bold/); // the video identity
+    expect(p.indexOf('<style_direction>')).toBeGreaterThan(CODEGEN_STABLE_PREFIX.length);
+  });
+
+  it('renderStyleDirection carries BOTH the video identity and this moment\'s treatment', () => {
+    const video = resolveVideoStyle({ brandFont: 'Anton' });
+    const block = renderStyleDirection(video, resolveMomentStyle(video, { tier: 'hero', footage: { motionEnergy: 0.9 } }));
+    expect(block).toMatch(/kinetic-bold/); // identity
+    expect(block).toMatch(/PEAK moment/); // this moment's emphasis
+    expect(block).toMatch(/surface="glow"/); // this moment's footage-driven surface
   });
 });

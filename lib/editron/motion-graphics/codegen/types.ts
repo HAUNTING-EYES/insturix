@@ -12,7 +12,8 @@
 
 import type { Brand } from './kit/brand';
 import type { SemanticMgCandidate } from '../engine/semantic-mg-candidates';
-import type { StyleBundle } from './style/style-resolver';
+import type { VideoStyle } from './style/style-resolver';
+import type { FootageSignals } from './style/footage-character';
 
 /** The clip window on the timeline, in frames at `fps`. */
 export interface MgWindow {
@@ -112,9 +113,12 @@ export interface MgMomentInput {
   visualEvidence?: MgVisualEvidence;
   /** Bounded free-text editorial direction — Layer-2 context, never an executable instruction. */
   notes?: string;
-  /** The per-video resolved style (font-family + footage + intent → named style + atom priors). Rendered as a
-   *  VOLATILE <style_direction> block after the cached prefix; the model composes toward it within brand lock. */
-  style?: StyleBundle;
+  /** The video's STYLE IDENTITY (brand font + intent → named style + base priors), resolved ONCE per video and
+   *  the same on every moment. The per-moment TREATMENT is derived at prompt-build from this + the moment's own
+   *  signals (footageSignals, anchors, salience, expressiveness) — never flattened to one per-video style. */
+  videoStyle?: VideoStyle;
+  /** THIS moment's footage character (V-JEPA + content signals for this moment's window, mapped by the seam). */
+  footageSignals?: FootageSignals;
 }
 
 export type MgProviderFailureCode =

@@ -1,51 +1,50 @@
 /**
- * MG Codegen — STYLE RESOLVER (the composer). Turns the classified input priors into ONE per-video StyleBundle,
- * and renders that bundle into a <style_direction> prompt block (VOLATILE — goes after the cached prefix).
+ * MG Codegen — STYLE RESOLVER (composer). Split into TWO granularities, on purpose:
  *
- * Architecture (the general pattern): classifiers each map a raw input → a small canonical taxonomy → treatment
- * priors; the composer BLENDS the priors (brand ⊇ footage ⊇ moment) into a coherent style. Today the FONT-family
- * classifier is the active prior (the strongest signal); footage-character + intent-genre classifiers (Phase 3)
- * are typed slots that will narrow within it. The bundle feeds BOTH the prompt (priors) and, later, the taste
- * gate (style-fidelity criterion). Priors, never locks: brand colours/fonts stay fixed, the model composes
- * toward the style.
+ *   resolveVideoStyle(brandFont, intent) → VideoStyle   — the IDENTITY, resolved ONCE per video. A video has one
+ *                                                          coherent style (a video never switches Swiss→vaporwave).
+ *   resolveMomentStyle(video, thisMoment) → MomentStyle — the TREATMENT, resolved PER MOMENT from that moment's
+ *                                                          own signals (its footage, its beats, its salience).
+ *
+ * WHY the split: the whole codegen lane is per-moment (Fable §4 "input contract, per moment"; "Claude composes
+ * fresh per moment"). Resolving ONE style for the whole video re-freezes the §9 monotony the old
+ * motion-theme-resolver hit — its own code says so (resolveTypography: "sizeScale was a video global, so every MG
+ * resolved to an identical size — the monotony root"; fixed with per-moment emphasis). So: identity is coherent
+ * (video), treatment varies (moment) — same style, a different graphic every beat.
  */
 
 import { classifyFontFamily, fontStylePriors, type FontFamily, type FontStylePriors } from './font-family';
 import { footageStyleDelta, type FootageSignals } from './footage-character';
 import { intentStyleDelta } from './intent-genre';
 
-/** The per-video resolved style — the priors composed + given a legible name. */
-export interface StyleBundle {
-  styleName: string; // legible named style (e.g. 'kinetic-bold', 'editorial') — LLM-facing + taste-gate key
+// ─── VIDEO STYLE — the identity (resolved ONCE per video: brand font + intent) ───
+
+export interface VideoStyle {
+  styleName: string; // legible named style — LLM-facing + taste-gate key. CONSISTENT across the video.
   personality: string;
+  /** Base treatment leans the moment modulates. weight/corner/alignment are the stable IDENTITY. */
   motion: FontStylePriors['motion'];
-  density: FontStylePriors['density'];
-  corner: FontStylePriors['corner'];
   weight: FontStylePriors['weight'];
-  surface: FontStylePriors['surface'];
-  texture: FontStylePriors['texture'];
+  corner: FontStylePriors['corner'];
   alignment: FontStylePriors['alignment'];
-  /** What drove the resolution (provenance for logs + debugging), e.g. ['font:display', 'user:override']. */
+  baseSurface: FontStylePriors['surface'];
+  baseTexture: FontStylePriors['texture'];
+  baseDensity: FontStylePriors['density'];
   sources: string[];
 }
 
-export interface StyleInputs {
+export interface VideoStyleInputs {
   /** The brand's PRIMARY typeface (kit Brand.fontSans) — the strongest style signal. */
   brandFont?: string | null;
+  /** The video's purpose (production-brief format / platform / editorial intent) — the strongest "why". */
+  intent?: string | null;
   /** User preference: name a style directly (chat / picker) — overrides the auto-derived styleName. */
   styleOverride?: string | null;
-  /** This video's footage analysis (V-JEPA + content signals, mapped by the seam) — narrows the font style. */
-  footage?: FootageSignals;
-  /** The video's purpose (production-brief format / platform / editorial intent). Strongest "why" — gets first
-   *  say on the style name + may push weight. A free-text string; classified to a genre internally. */
-  intent?: string | null;
 }
 
-/** Family → a legible named style. The font family is a strong style identity on its own; footage + intent
- *  (Phase 3) will modulate this (e.g. grotesque-sans + hype intent + high-energy footage → 'kinetic-bold'). */
 const FAMILY_STYLE_NAME: Record<FontFamily, string> = {
   'geometric-sans': 'minimal-premium',
-  'grotesque-sans': 'clean-modern', // Swiss / neutral
+  'grotesque-sans': 'clean-modern',
   'humanist-sans': 'friendly',
   'oldstyle-serif': 'editorial',
   'modern-serif': 'editorial-luxury',
@@ -55,48 +54,101 @@ const FAMILY_STYLE_NAME: Record<FontFamily, string> = {
   display: 'kinetic-bold',
 };
 
-/** Concrete sans headline weights for the weight lean → a number the model passes to FitHeadline weight={}. */
+/** Concrete sans headline weights → a number the model passes to FitHeadline weight={}. */
 const WEIGHT_PX: Record<FontStylePriors['weight'], number> = { light: 250, regular: 400, medium: 550, heavy: 750 };
 
-/** Compose the classified priors into a per-video StyleBundle. Today: font-family prior (+ user override). */
-export function resolveStyle(inputs: StyleInputs): StyleBundle {
+/** Resolve the video IDENTITY once: font family (base) + intent lean. Intent gets first say on the name + weight
+ *  (a hype-reel reads kinetic-bold even on a neutral font). NO footage here — footage is per-moment. */
+export function resolveVideoStyle(inputs: VideoStyleInputs): VideoStyle {
   const priors = fontStylePriors(inputs.brandFont);
-  const { character, delta: fDelta } = footageStyleDelta(inputs.footage);
   const { genre, delta: iDelta } = intentStyleDelta(inputs.intent);
   const override = inputs.styleOverride?.trim();
-  // Compose: font BASE ← footage narrows ← intent narrows. Precedence per axis is intent > footage > font
-  // (intent = the strongest "why"); intent may also push weight + set the style name. Name: user > intent > font.
   return {
     styleName: override || iDelta.styleName || FAMILY_STYLE_NAME[priors.family],
     personality: priors.personality,
-    motion: iDelta.motion ?? fDelta.motion ?? priors.motion,
-    density: iDelta.density ?? fDelta.density ?? priors.density,
-    corner: priors.corner,
+    motion: iDelta.motion ?? priors.motion,
     weight: iDelta.weight ?? priors.weight,
-    surface: iDelta.surface ?? fDelta.surface ?? priors.surface,
-    texture: iDelta.texture ?? fDelta.texture ?? priors.texture,
+    corner: priors.corner,
     alignment: priors.alignment,
+    baseSurface: iDelta.surface ?? priors.surface,
+    baseTexture: iDelta.texture ?? priors.texture,
+    baseDensity: iDelta.density ?? priors.density,
     sources: [
       `font:${classifyFontFamily(inputs.brandFont)}`,
-      ...(character !== 'neutral' ? [`footage:${character}`] : []),
       ...(genre !== 'generic' ? [`intent:${genre}`] : []),
       ...(override ? ['user:override'] : []),
     ],
   };
 }
 
-/** Render the bundle as a <style_direction> prompt block — priors the model composes TOWARD, within brand lock.
- *  VOLATILE: append AFTER the cached prefix + moment (never interpolated into CODEGEN_STABLE_PREFIX). */
-export function renderStyleDirection(b: StyleBundle): string {
-  const weightPx = WEIGHT_PX[b.weight];
-  const textureLine = b.texture !== 'none'
-    ? `A subtle "${b.texture}" Texture behind content is on-brand here.`
-    : 'Keep surfaces clean — no background texture.';
+// ─── MOMENT STYLE — the treatment (resolved PER MOMENT from this moment's own signals) ───
+
+export interface MomentSignals {
+  /** THIS moment's footage character (V-JEPA + content signals for this moment's window, mapped by the seam). */
+  footage?: FootageSignals;
+  /** This moment's audio beats + word onsets (frames) — the rhythm to sync to. */
+  beatFrames?: number[];
+  wordFrames?: number[];
+  /** This moment's claim strength / salience (0-1) — how much of a peak it is. */
+  salience?: number;
+  /** This moment's expressiveness (from MgExpressiveness). */
+  intensity?: number;
+  tier?: 'subtle' | 'standard' | 'hero';
+}
+
+export type MomentEmphasis = 'quiet' | 'balanced' | 'prominent';
+
+export interface MomentStyle {
+  motion: FontStylePriors['motion'];
+  surface: FontStylePriors['surface'];
+  texture: FontStylePriors['texture'];
+  density: FontStylePriors['density'];
+  /** Per-moment size — the anti-monotony piece (a peak reads large, a quiet beat small). */
+  emphasis: MomentEmphasis;
+  /** Whether beats/word-onsets exist to sync entrances + emphasis to. */
+  beatSync: boolean;
+  footageCharacter: string;
+}
+
+const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
+
+/** Resolve THIS moment's treatment within the video identity. Footage narrows surface/texture/motion/density;
+ *  salience + tier set emphasis (harvested from the old resolveMomentEmphasis — the fix for the §9 monotony);
+ *  beats enable sync. Two moments with different footage/salience get different graphics under the same identity. */
+export function resolveMomentStyle(video: VideoStyle, m: MomentSignals): MomentStyle {
+  const { character, delta: fDelta } = footageStyleDelta(m.footage);
+  const beatSync = (m.beatFrames?.length ?? 0) > 0 || (m.wordFrames?.length ?? 0) > 0;
+  const sal = typeof m.salience === 'number' ? clamp01(m.salience) : undefined;
+  const emphasis: MomentEmphasis =
+    m.tier === 'hero' || (sal !== undefined && sal > 0.7) ? 'prominent'
+      : m.tier === 'subtle' || (sal !== undefined && sal < 0.4) ? 'quiet'
+        : 'balanced';
+  return {
+    motion: fDelta.motion ?? video.motion,
+    surface: fDelta.surface ?? video.baseSurface,
+    texture: fDelta.texture ?? video.baseTexture,
+    density: fDelta.density ?? video.baseDensity,
+    emphasis,
+    beatSync,
+    footageCharacter: character,
+  };
+}
+
+// ─── render the <style_direction> block — video identity (stable) + this moment's treatment (varies) ───
+
+export function renderStyleDirection(video: VideoStyle, moment: MomentStyle): string {
+  const weightPx = WEIGHT_PX[video.weight];
+  const emphasisLine =
+    moment.emphasis === 'prominent' ? 'This is a PEAK moment — give it hero scale + presence.'
+      : moment.emphasis === 'quiet' ? 'This is a quiet moment — small, restrained, understated.'
+        : 'Balanced prominence — right-sized, not oversized.';
+  const beatLine = moment.beatSync ? ' Beats/word-onsets are provided in <moment> — sync entrances + emphasis to them.' : '';
+  const textureLine = moment.texture !== 'none' ? `A subtle "${moment.texture}" Texture behind content fits here.` : 'Keep surfaces clean — no background texture.';
   return `<style_direction>
-This video's style is "${b.styleName}" — ${b.personality}. Compose TOWARD it, staying inside the brand's colours and fonts (this is taste direction, not new content):
-- Motion character: ${b.motion} (choose entrances/ambient that read as ${b.motion}).
-- Headline weight: ~${weightPx} (${b.weight}); use FitHeadline face="display" for a hero/impact line.
-- Density: ${b.density}. Corners: ${b.corner}. Text alignment: ${b.alignment}.
-- Surface lean: prefer Plate surface="${b.surface}" when a surface is needed. ${textureLine}
+Video style is "${video.styleName}" — ${video.personality}. This identity is CONSISTENT across the whole video; compose toward it within the brand's colours + fonts.
+- Identity (stable): headline weight ~${weightPx} (${video.weight}), face="display" for a hero line; alignment ${video.alignment}; corners ${video.corner}.
+THIS MOMENT (varies per beat — do NOT stamp the same graphic every time):
+- Motion: ${moment.motion}${moment.beatSync ? ' (beat-synced)' : ''}. Density: ${moment.density}. Surface lean: Plate surface="${moment.surface}". ${textureLine}
+- ${emphasisLine}${beatLine}
 </style_direction>`;
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { classifyIntent, intentStyleDelta, INTENT_STYLE } from '@/lib/editron/motion-graphics/codegen/style/intent-genre';
-import { resolveStyle } from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
+import { resolveVideoStyle, resolveMomentStyle } from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
 
 describe('MG style resolver — intent classifier', () => {
   it('maps upstream format/intent strings to a genre', () => {
@@ -22,36 +22,38 @@ describe('MG style resolver — intent classifier', () => {
   });
 });
 
-describe('MG style resolver — full compose (font ⊇ footage ⊇ intent)', () => {
-  it('intent gets first say on the name + can push weight, even on a neutral serif font', () => {
-    // Georgia = oldstyle-serif → editorial base (gentle, regular weight, flat)
-    const doc = resolveStyle({ brandFont: 'Georgia' });
+describe('MG style resolver — intent sets the video IDENTITY; moments vary within it', () => {
+  it('intent gets first say on the video name + pushes weight, even on a neutral serif font', () => {
+    // Georgia = oldstyle-serif → editorial base (gentle, regular weight)
+    const doc = resolveVideoStyle({ brandFont: 'Georgia' });
     expect(doc.styleName).toBe('editorial');
     expect(doc.weight).toBe('regular');
 
-    // hype-reel intent overrides: kinetic name, heavy weight, pop motion, glow — even on the serif brand
-    const hype = resolveStyle({ brandFont: 'Georgia', intent: 'hype reel' });
+    // hype-reel intent overrides the identity: kinetic name, heavy weight, pop base motion, glow base surface
+    const hype = resolveVideoStyle({ brandFont: 'Georgia', intent: 'hype reel' });
     expect(hype.styleName).toBe('kinetic-bold');
-    expect(hype.weight).toBe('heavy'); // intent pushed weight (footage cannot)
+    expect(hype.weight).toBe('heavy');
     expect(hype.motion).toBe('pop');
-    expect(hype.surface).toBe('glow');
+    expect(hype.baseSurface).toBe('glow');
     expect(hype.corner).toBe(doc.corner); // font identity still holds where nothing overrode
     expect(hype.sources).toContain('intent:hype-reel');
   });
 
-  it('precedence is intent > footage > font on a contested axis', () => {
-    // calm-warm footage wants motion 'gentle'; hype-reel intent wants 'pop' → intent wins
-    const b = resolveStyle({ brandFont: 'Inter', footage: { warmth: 0.9 }, intent: 'reel' });
-    expect(b.motion).toBe('pop');
-    expect(b.sources).toContain('footage:calm-warm');
-    expect(b.sources).toContain('intent:hype-reel');
+  it('a calm reflective beat INSIDE a hype video reads calmer — identity holds, the moment softens', () => {
+    const video = resolveVideoStyle({ brandFont: 'Inter', intent: 'reel' }); // kinetic-bold, base motion pop
+    expect(resolveMomentStyle(video, {}).motion).toBe('pop'); // most moments ride the identity
+    const calmBeat = resolveMomentStyle(video, { footage: { warmth: 0.9 } });
+    expect(calmBeat.motion).toBe('gentle'); // THIS moment softened (calm-warm footage)
+    expect(video.styleName).toBe('kinetic-bold'); // the video is STILL kinetic-bold overall
+    expect(video.weight).toBe('heavy'); // identity weight held
   });
 
-  it('footage wins where intent is silent; font wins where both are silent', () => {
-    // documentary intent is silent on surface; cinematic-moody footage sets surface 'raised'
-    const b = resolveStyle({ brandFont: 'Inter', footage: { brightness: 0.2 }, intent: 'documentary' });
-    expect(b.surface).toBe('raised'); // footage (intent silent on surface)
-    expect(b.motion).toBe('gentle'); // documentary intent
-    expect(b.corner).toBe('medium'); // Inter/grotesque font default (both silent)
+  it('a moody beat in a documentary: footage sets this moment\'s surface, identity sets the name', () => {
+    const video = resolveVideoStyle({ brandFont: 'Inter', intent: 'documentary' }); // editorial, gentle
+    const moody = resolveMomentStyle(video, { footage: { brightness: 0.2 } }); // cinematic-moody
+    expect(video.styleName).toBe('editorial');
+    expect(video.motion).toBe('gentle'); // documentary identity
+    expect(moody.surface).toBe('raised'); // this moment's footage
+    expect(moody.motion).toBe('smooth'); // cinematic-moody footage softens this moment
   });
 });

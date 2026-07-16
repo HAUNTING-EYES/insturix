@@ -17,7 +17,7 @@
 import { createHash } from 'node:crypto';
 
 import { scanCode, type ScanResult } from './scan';
-import { renderStyleDirection } from './style/style-resolver';
+import { renderStyleDirection, resolveMomentStyle } from './style/style-resolver';
 import {
   PRIMITIVE_API,
   FOUNDATIONAL_MG_KNOWLEDGE,
@@ -205,9 +205,22 @@ ${momentData(input)}
 /** Assemble the full codegen prompt. STABLE prefix (cacheable) first; the moment LAST (Rule 35). The production
  *  writer splits on {@link CODEGEN_STABLE_PREFIX} to cache the prefix; text-only callers use the whole string. */
 export function buildCodegenPrompt(input: MgMomentInput): string {
-  // The style direction is VOLATILE (per-video) and goes AFTER the cached prefix + moment, so it never
-  // touches CODEGEN_STABLE_PREFIX (the cache holds). Absent → the prompt is byte-identical to before.
-  const style = input.style ? `\n\n${renderStyleDirection(input.style)}` : '';
+  // Video IDENTITY is set once (input.videoStyle); the per-MOMENT treatment is resolved HERE from this moment's
+  // own signals (its footage, beats, salience, expressiveness) — so every moment gets its own graphic under one
+  // coherent style, never the flattened per-video style. VOLATILE: appended AFTER the cached prefix + moment,
+  // so CODEGEN_STABLE_PREFIX stays byte-identical (cache holds). No videoStyle → prompt unchanged.
+  let style = '';
+  if (input.videoStyle) {
+    const moment = resolveMomentStyle(input.videoStyle, {
+      footage: input.footageSignals,
+      beatFrames: input.anchors?.beatFrames,
+      wordFrames: input.anchors?.wordFrames,
+      salience: input.candidate.salience,
+      intensity: input.expressiveness.intensity,
+      tier: input.expressiveness.tier,
+    });
+    style = `\n\n${renderStyleDirection(input.videoStyle, moment)}`;
+  }
   return `${CODEGEN_STABLE_PREFIX}\n\n${buildMomentBlock(input)}${style}`;
 }
 
