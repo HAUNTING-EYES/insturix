@@ -69,7 +69,7 @@ Focused ESLint passed. Full TypeScript reported only the pre-existing Avatar Vau
 
 ## Live Environment Proof
 
-The end-to-end environment contract was proven on 2026-07-16/17 with an expiring clone of `proj_iitL6e9a5ndg`. The original project was not mutated.
+The real-agent and deployed downstream environment contract was proven on 2026-07-16/17 with an expiring clone of `proj_iitL6e9a5ndg`. The Gemini agent ran locally with preview credentials; signed QStash, Storyline, timeline persistence, and Director ran through the deployed branch environment. The original project was not mutated.
 
 Fixture identifiers:
 
@@ -79,7 +79,7 @@ Fixture identifiers:
 
 Observed production trace:
 
-1. real Gemini chat inspected uploaded assets and the canonical timeline;
+1. the real Gemini agent inspected uploaded assets and the canonical timeline;
 2. `apply_editorial_intent` accepted the script-led project request;
 3. the signed QStash dispatch was persisted at `2026-07-16T18:56:48.370Z`;
 4. Storyline recomposition materialized a new canonical timeline;
@@ -96,6 +96,8 @@ Material result:
 
 The first live attempt exposed two chat-transport defects before Storyline: inactive `read_project_file` arguments were validated even in full mode, and Gemini thought signatures were lost across tool turns. `df774d74` fixed mode-scoped argument normalization and signed-part persistence. The real SDK then proved that its aggregated streaming response drops the signature even when the stream chunk contains it; `03071de7` therefore preserves exact streamed parts and uses the aggregate for usage accounting only. The regression fixture now models that lossy aggregate explicitly.
 
-Phase 3D-B is live-proven for the required path:
+Phase 3D-B is code-complete and downstream-live-proven for:
 
-`real chat -> canonical evidence -> semantic intent -> signed QStash -> Storyline -> canonical timeline save -> Director queued`
+`real Gemini agent -> canonical evidence -> semantic intent -> signed QStash -> Storyline -> canonical timeline save -> Director queued`
+
+One ingress proof remains: send the same request through the authenticated deployed `/api/services/editron/chat/stream` route or editor UI. No reusable auth header was available, and the desktop browser runtime could not connect because of a local Windows ACL failure. Therefore the authenticated HTTP/UI hop is not claimed live-proven here.
