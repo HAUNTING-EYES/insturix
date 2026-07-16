@@ -62,6 +62,14 @@ vi.mock('@google/generative-ai', () => ({
               },
             },
             response: Promise.resolve({
+              // The legacy SDK's aggregate currently drops thoughtSignature
+              // even though the streaming chunk above contains it. The agent
+              // must preserve stream parts and use this aggregate for usage only.
+              candidates: [{
+                content: {
+                  parts: ['functionCall' in part ? [{ functionCall: part.functionCall }] : [part]],
+                },
+              }],
               usageMetadata: {
                 promptTokenCount: 10,
                 candidatesTokenCount: 5,

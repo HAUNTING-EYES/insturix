@@ -865,10 +865,6 @@ export const createAgent = (userId: string, projectContext?: string) => {
             // Extract token usage from the aggregated response for billing
             try {
               const aggregatedResponse = await streamResult.response;
-              const aggregatedParts = aggregatedResponse.candidates?.[0]?.content?.parts;
-              if (Array.isArray(aggregatedParts) && aggregatedParts.length > 0) {
-                modelResponseParts = aggregatedParts;
-              }
               if (aggregatedResponse.usageMetadata && tokenTracker) {
                 tokenTracker.addUsage(aggregatedResponse.usageMetadata);
                 debugLog('Token usage:', aggregatedResponse.usageMetadata);
