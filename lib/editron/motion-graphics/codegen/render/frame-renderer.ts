@@ -22,7 +22,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { bundle } from '@remotion/bundler';
-import { renderFrames, selectComposition } from '@remotion/renderer';
+import { renderFrames, selectComposition, makeCancelSignal } from '@remotion/renderer';
 import sharp from 'sharp';
 
 import { COMPOSITION_ID, buildRootSource, ENTRY_SOURCE, workspaceId, type MgRenderInput } from './scaffold';
@@ -77,7 +77,7 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T, i: number)
  */
 export async function renderMomentToWebpFrames(
   input: MgRenderInput,
-  opts: { repoRoot?: string; workspaceRoot?: string; kitDir?: string } = {},
+  opts: { repoRoot?: string; workspaceRoot?: string; kitDir?: string; renderBudgetMs?: number } = {},
 ): Promise<MgRenderResult> {
   const repoRoot = opts.repoRoot ?? process.cwd();
   const kitDir = opts.kitDir ?? path.join(repoRoot, ...KIT_SUBPATH);
@@ -101,15 +101,31 @@ export async function renderMomentToWebpFrames(
   // 2. Bundle + render frames as ALPHA PNG (the only alpha-preserving Remotion output).
   const serveUrl = await bundle({ entryPoint: path.join(workspaceDir, 'index.ts') });
   const composition = await selectComposition({ serveUrl, id: COMPOSITION_ID });
-  await renderFrames({
-    composition,
-    serveUrl,
-    imageFormat: 'png',
-    outputDir: pngDir,
-    inputProps: {}, // brand + data are baked into the Root's defaultProps (buildRootSource)
-    onStart: () => undefined,
-    onFrameUpdate: () => undefined,
-  });
+  // RENDER BUDGET: a crashing/looping component makes Chromium retry indefinitely (a single bad line hung the
+  // pipeline 30 min). Bound it — makeCancelSignal aborts renderFrames AND tears the browser down (no orphaned
+  // Chromium). On budget-exceed we throw a clear error; the codegen service treats any render throw as a failure
+  // (fallback / no-MG), so a bad moment fails in seconds, never hangs (R18N: fail fast + loud).
+  const { cancelSignal, cancel } = makeCancelSignal();
+  const budgetMs = opts.renderBudgetMs ?? 90_000;
+  let budgetExceeded = false;
+  const budgetTimer = setTimeout(() => { budgetExceeded = true; cancel(); }, budgetMs);
+  try {
+    await renderFrames({
+      composition,
+      serveUrl,
+      imageFormat: 'png',
+      outputDir: pngDir,
+      inputProps: {}, // brand + data are baked into the Root's defaultProps (buildRootSource)
+      cancelSignal,
+      onStart: () => undefined,
+      onFrameUpdate: () => undefined,
+    });
+  } catch (err) {
+    if (budgetExceeded) throw new Error(`MG render exceeded ${budgetMs}ms budget — the component is crashing or looping the browser`);
+    throw err;
+  } finally {
+    clearTimeout(budgetTimer);
+  }
 
   // 3. Transcode png → transparent WebP with sharp (Remotion's webp drops alpha; sharp's keeps it).
   const pngs = (await fs.readdir(pngDir))

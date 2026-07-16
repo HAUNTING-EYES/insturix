@@ -168,9 +168,38 @@ has room, in the brand's voice. The fact's KIND tells you what is TRUE — not w
 proportion invites a value filling to its real fraction; a comparison invites two quantities at their real ratio;
 a magnitude invites a figure that dwarfs; a concept or term invites a spatial reveal or kinetic type; a refutation
 invites the false claim struck as the truth lands. These are directions, not a menu — compose freshly for THIS
-fact, THIS brand, THIS moment. Draw any bars/arcs/rings/marks yourself in SVG with brand tokens. No templates, no
-keyword-highlighting, no lower-thirds — a fresh composition every time.
-</composition>`;
+fact, THIS brand, THIS moment. Use the kit's Bar/Ring/Plot/Rule primitives for any chart/gauge/trend/mark — do NOT
+hand-roll SVG (the primitives are brand- and motion-correct by construction). No templates, no keyword-highlighting,
+no lower-thirds — a fresh composition every time.
+</composition>
+
+<reference_usage>
+The block below shows CORRECT KIT USAGE ONLY — the SHAPE of a valid component, so your code COMPILES and calls the
+kit right (inline Data decl, <Stage> root, a <Region> placed in the negative space, primitives fed the TRUE ratio
+read from data, choreography anchored to phases, sustained motion via ambient nested on a wrapper). Do NOT copy the
+composition — compose FRESHLY for your fact. It fixes your syntax, never your design.
+
+type Data = { from: number; to: number; fromLabel: string; toLabel: string; unit: string; label: string };
+export const MgScene: React.FC<{brand: Brand; data: Data}> = ({brand, data}) => {
+  const { durationInFrames } = useVideoConfig();
+  const frame = useCurrentFrame();
+  const ph = phases(durationInFrames, brand);
+  const from = data.from ?? 0, to = data.to ?? 0, max = Math.max(from, to, 1);
+  return (
+    <Stage brand={brand}>
+      <Region brand={brand} x={0.44} y={0.34} w={0.34} h={0.34} align="left" justify="center" gapScale={1.3}>
+        <div style={ambient(frame, ph.build, 'float', 0.6)}>
+          <FitHeadline brand={brand} text={data.label} face="display" size="m" accentWords={[data.toLabel]} startAt={ph.build}/>
+        </div>
+        <TextBlock brand={brand} text={data.fromLabel} tone="muted" size="s" startAt={ph.intro}/>
+        <Bar brand={brand} value={from / max} at={ph.intro} tone="muted"/>
+        <TextBlock brand={brand} text={data.toLabel} tone="accent" size="s" startAt={ph.intro + 6}/>
+        <Bar brand={brand} value={to / max} at={ph.intro + 6} tone="accent"/>
+      </Region>
+    </Stage>
+  );
+};
+</reference_usage>`;
 
 /** Vision-judge prompt: the transparent graphic is composited on a real footage frame; the judge rates brand
  *  craft, legibility over content, AND faithfulness to the licensed fact (fabrication is an automatic reject). */

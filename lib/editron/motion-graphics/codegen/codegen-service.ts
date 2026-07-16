@@ -134,7 +134,7 @@ function momentData(input: MgMomentInput): string {
   const lines = [
     `fact kind: ${candidate.factKind}${candidate.rhetoricalRole ? ` (${candidate.rhetoricalRole})` : ''}`,
     `data props (declare \`type Data\` for these; read from \`data\`; NEVER bake the values): ${describeDataProps(candidate.content)}`,
-    `expressiveness: ${ex.tier} (intensity ${ex.intensity.toFixed(2)}) — subtle = restrained, hero = bold and large`,
+    `expressiveness: ${ex.tier} (intensity ${ex.intensity.toFixed(2)}) — subtle = quiet & precise, hero = prominent & commanding (prominence ≠ oversized: right-sized for the moment, clear of the subject)`,
     `place the graphic in region "${pl.region}". Keep CLEAR (subject/text live here): ${describeRegions(pl.avoid)}. Room is here: ${describeRegions(pl.prefer)}.`,
     `clip length: ~${durationFrames(input)} frames @ ${window.fps}fps (read from useVideoConfig)`,
   ];
