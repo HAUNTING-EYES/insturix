@@ -12,6 +12,7 @@ import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput } from './types';
 import { z } from 'zod';
 import type { ScopeResult } from './scope-detector-agent';
+import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
 
 const DiscoveryProposalSchema = z.object({
   greeting: z.string(),
@@ -38,14 +39,7 @@ export class DiscoveryAgent extends StructuredAgent<DiscoveryProposal> {
     });
   }
 
-  buildPrompt(input: AgentInput): string {
-    const { context, userPrompt } = input;
-    const scopeData = (input as DiscoveryAgentInput).scope;
-
-    const scopeBlock = scopeData
-      ? `\n## Detected Project Scope\n- Complexity: ${scopeData.complexity}\n- Domain: ${scopeData.domain}\n- Summary: ${scopeData.summary}\n`
-      : '';
-
+  private buildTrustedInstruction(): string {
     // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
     return `<role>You are the Discovery Agent for ThinkForge, a creative production studio tool.</role>
 
@@ -60,11 +54,32 @@ Priority levels: "required", "recommended", "optional".
 JSON: { greeting: "1-2 sentences", artifacts: [{ type, label, description, priority }], followUpQuestion: "optional clarifying question" }
 </output_format>
 
-<input_data>
-${scopeBlock}
-${context.projectSummary ? `Project context: ${context.projectSummary}` : ''}
-User's description: ${userPrompt}
-</input_data>`;
+<runtime_data_contract>
+Read detected project scope, project context, and the user's description only from tf_untrusted_data.data.
+</runtime_data_contract>`;
+  }
+
+  buildPrompt(input: AgentInput): string {
+    const parts = this.buildPromptParts(input);
+    return `${parts.systemInstruction}\n\n${parts.prompt}`;
+  }
+
+  buildPromptParts(input: AgentInput): IsolatedPromptParts {
+    const { context, userPrompt } = input;
+    const scope = (input as DiscoveryAgentInput).scope;
+
+    return buildIsolatedPromptParts({
+      systemInstruction: this.applyGlobalConstraints(this.buildTrustedInstruction()),
+      data: {
+        detectedScope: scope || null,
+        projectSummary: context.projectSummary || null,
+        projectDescription: userPrompt,
+      },
+      fieldLimits: {
+        projectSummary: 12_000,
+        projectDescription: 24_000,
+      },
+    });
   }
 
   async proposeBlueprint(

@@ -13,6 +13,7 @@ import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput } from './types';
 import { z } from 'zod';
 import type { ProjectComplexity, DocumentType } from '../state/types';
+import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
 
 const ScopeResultSchema = z.object({
   complexity: z.enum(['solo_ugc', 'brand_doc', 'short_film', 'feature_film', 'epic']),
@@ -40,9 +41,7 @@ export class ScopeDetectorAgent extends StructuredAgent<ScopeResult> {
     });
   }
 
-  buildPrompt(input: AgentInput): string {
-    const { context, userPrompt } = input;
-
+  private buildTrustedInstruction(): string {
     // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
     return `<role>You are a Production Scale Analyzer for ThinkForge, a creative studio tool.</role>
 
@@ -61,10 +60,28 @@ COMPLEXITY LEVELS:
 JSON: { complexity, domain (e.g. "tech_review", "lifestyle", "corporate"), estimatedDuration, recommendedArtifacts: [{ type, label, reason }], summary: "one sentence" }
 </output_format>
 
-<input_data>
-${context.projectSummary ? `Project context: ${context.projectSummary}` : ''}
-User's project: ${userPrompt}
-</input_data>`;
+<runtime_data_contract>
+Read project context and the user's project description only from tf_untrusted_data.data.
+</runtime_data_contract>`;
+  }
+
+  buildPrompt(input: AgentInput): string {
+    const parts = this.buildPromptParts(input);
+    return `${parts.systemInstruction}\n\n${parts.prompt}`;
+  }
+
+  buildPromptParts({ context, userPrompt }: AgentInput): IsolatedPromptParts {
+    return buildIsolatedPromptParts({
+      systemInstruction: this.applyGlobalConstraints(this.buildTrustedInstruction()),
+      data: {
+        projectSummary: context.projectSummary || null,
+        projectDescription: userPrompt,
+      },
+      fieldLimits: {
+        projectSummary: 12_000,
+        projectDescription: 24_000,
+      },
+    });
   }
 
   async detectScope(
