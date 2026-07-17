@@ -301,6 +301,7 @@ export async function buildPhase0RenderedStillEvidence(
     env?: EnvLike;
     requestedSampleFrames?: number[];
     baselineProject?: Phase0FixtureProject;
+    auditedOverlayIds?: Array<string | number>;
   } = {},
 ): Promise<Phase0RenderedStillEvidence> {
   const capturedAt = options.capturedAt ?? new Date().toISOString();
@@ -487,7 +488,10 @@ export async function buildPhase0RenderedStillEvidence(
         manifest,
         artifactPack,
         { renderedFrames },
-        { readImage: options.readImage },
+        {
+          readImage: options.readImage,
+          auditedOverlayIds: options.auditedOverlayIds,
+        },
       );
       if (aestheticEvidence) {
         const phase0LiveTruth = buildPhase0LiveTruthSnapshot(project, {

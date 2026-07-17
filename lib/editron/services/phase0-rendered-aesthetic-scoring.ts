@@ -48,6 +48,7 @@ export type ReadRenderedStillImage = (url: string) => Promise<RawRenderedStillIm
 
 interface BuildRenderedAestheticEvidenceOptions {
   readImage?: ReadRenderedStillImage;
+  auditedOverlayIds?: Array<string | number>;
 }
 
 interface FrameReportLike {
@@ -80,6 +81,7 @@ export async function buildPhase0RenderedAestheticEvidence(
       still,
       sample,
       readImage,
+      auditedOverlayIds: options.auditedOverlayIds,
     }));
   }
 
@@ -119,6 +121,7 @@ async function scoreRenderedStillFrame(input: {
   still: Phase0RenderedStillFrameForScoring;
   sample: Phase0RenderSample;
   readImage: ReadRenderedStillImage;
+  auditedOverlayIds?: Array<string | number>;
 }): Promise<FrameReportLike> {
   const { artifactPack, still, sample } = input;
   let fullImage: RawRenderedStillImage | undefined;
@@ -150,6 +153,7 @@ async function scoreRenderedStillFrame(input: {
     sample,
     fullImage,
     baselineImage,
+    input.auditedOverlayIds,
   );
   const image = fullImage ? imageStats(fullImage, baselineImage) : undefined;
   const report = scoreRenderedFrameAesthetic({
@@ -183,9 +187,17 @@ function activeRenderedOverlayEvidence(
   sample: Phase0RenderSample,
   fullImage?: RawRenderedStillImage,
   baselineImage?: RawRenderedStillImage,
+  auditedOverlayIds?: Array<string | number>,
 ): RenderedOverlayEvidence[] {
+  const auditedIds = auditedOverlayIds === undefined
+    ? null
+    : new Set(auditedOverlayIds.map(String));
   return overlays
-    .filter((overlay) => isAuditedVisualOverlay(String(overlay.type ?? '')) && isActiveAtFrame(overlay, frame))
+    .filter((overlay) => (
+      isAuditedVisualOverlay(String(overlay.type ?? ''))
+      && isActiveAtFrame(overlay, frame)
+      && (auditedIds === null || auditedIds.has(String(overlay.id)))
+    ))
     .flatMap((overlay) => {
       const frameOverlay = frameAwareOverlay(overlay, frame, fps);
       if (!frameOverlay) return [];

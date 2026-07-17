@@ -290,6 +290,11 @@ async function handleChatEditRenderVerification(input: {
         ? buildPhase0RenderedStillEvidence(afterProject as any, {
             baselineProject: beforeProject as any,
             requestedSampleFrames: input.verification.sampleFrames,
+            // Before/after scoring must audit this operation's overlays. Unchanged
+            // active overlays have zero delta pixels and are not operation failures.
+            auditedOverlayIds: input.verification.targets
+              .filter((target) => target.state !== 'deleted')
+              .map((target) => target.overlayId),
             capturedAt,
           })
         : Promise.resolve(null),

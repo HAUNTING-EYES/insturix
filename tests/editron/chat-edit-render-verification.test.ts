@@ -123,6 +123,61 @@ describe('chat edit rendered verification', () => {
     });
   });
 
+  it('audits only overlays changed by the chat operation', async () => {
+    const unchangedCaption = {
+      id: 'caption_unrelated',
+      type: OverlayType.CAPTION,
+      from: 0,
+      durationInFrames: 300,
+      left: 20,
+      top: 130,
+      width: 280,
+      height: 40,
+      captions: [{ text: 'Unchanged caption', startMs: 0, endMs: 10_000 }],
+      styles: { fontSize: '24px', color: '#ffffff' },
+    };
+    const before = projectWithOverlays([unchangedCaption]);
+    const after = projectWithOverlays([
+      unchangedCaption,
+      {
+        id: 'txt_after',
+        type: OverlayType.TEXT,
+        from: 30,
+        durationInFrames: 60,
+        left: 60,
+        top: 60,
+        width: 200,
+        height: 60,
+        content: 'Verified copy',
+        styles: { fontSize: '32px', color: '#ffffff' },
+      },
+    ]);
+    const renderStill = vi.fn(async (input: any) => ({
+      estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+      url: `https://example.com/${input.inputProps.overlays.some((overlay: any) => overlay.id === 'txt_after') ? 'after' : 'before'}-f${input.frame}.png`,
+      outKey: `chat/f${input.frame}.png`,
+      bucketName: 'render-bucket',
+      renderId: `render-${input.frame}`,
+      cloudWatchLogs: 'https://logs.example.com',
+      sizeInBytes: 512,
+      artifacts: [],
+    }));
+
+    const evidence = await buildPhase0RenderedStillEvidence(after, {
+      baselineProject: before,
+      requestedSampleFrames: [45],
+      auditedOverlayIds: ['txt_after'],
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async (url) => renderedImage(url.includes('/after-')),
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.renderedAestheticReport?.frames?.[0]?.activeOverlayIds).toEqual(['txt_after']);
+    expect(evidence.renderedQualityEvidence?.renderedAestheticIssueSamples)
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ overlayId: 'caption_unrelated' })]));
+  });
+
   it('renders shortened before and after timelines on a shared absolute duration', async () => {
     const renderStill = vi.fn(async (input: any) => ({
       estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
