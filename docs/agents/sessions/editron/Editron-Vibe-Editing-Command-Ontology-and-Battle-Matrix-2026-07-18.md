@@ -126,6 +126,8 @@ The battle matrix now contains **73 journeys**. Its focused contract derives liv
 
 This proves inventory coverage only. It does **not** prove that Gemini selects the correct tool, that the tool mutates the right project, or that the rendered result looks/sounds correct.
 
+Every live handler now also has deterministic executable coverage through either an existing direct/integration contract or the focused July 18 gap-closing suites. The last previously uncovered handlers were exercised through the real `createTools(...)` factory: timeline splitting/style sync/gap closure, transcription/caption refresh, clip analysis, scene regeneration/style extraction, SFX replacement, stock search, and user-footage replacement. This proves handler behavior at mocked external boundaries. It still does not replace live model routing or rendered proof.
+
 ## 4. Confirmed Product Gaps
 
 ### 4.1 Chat Attachments
@@ -160,6 +162,13 @@ Required production contract:
 - automatic aspect-ratio reframing and platform cut-downs as first-class chat jobs;
 - complete multi-asset script/story execution through every downstream visual/audio owner;
 - a single live suite that runs all journeys on disposable fixtures.
+
+### 4.4 Confirmed Command Correctness Gaps
+
+- `analyze_clip_video` and the equivalent audio path do not yet have one canonical source-to-edited coordinate contract for moved or trimmed clips. A direct contract proves explicit asset/time targeting, while an executable expected-failure test preserves the visual moved-clip defect. Until fixed, a short clip placed later on the edited timeline can be sampled from the wrong source-media window.
+- `apply_style` currently returns a reference-derived action plan containing follow-up chat prompts. It does not itself execute those actions as one atomic, verified style transaction. It is planner-complete, not end-to-end style-application complete.
+- `use_matching_footage` is proven for pipeline-generated video overlays carrying `metadata.sceneIndex`. A generic uploaded/manual video without that metadata cannot currently be targeted by this tool's schema.
+- The older SFX/stock/user-footage handlers return legacy success shapes that the shared wrapper normalizes into a nested payload. The outer envelope is valid and mutations are proven, but these handlers should eventually adopt the canonical envelope directly to simplify model receipts and downstream inspection.
 
 ## 5. Battle Fixture Profiles
 
@@ -199,7 +208,9 @@ Read-only journeys must prove zero mutation. A tool call without its postconditi
 - Filtered legacy authority cannot satisfy the matrix.
 - Deterministic harness contract covers Mongo, UI reload, render evidence, postconditions, rollback, and isolation semantics.
 - Disposable fixture preparation maps every journey to a speech, visual/multi-asset, audio, mixed, or generated-scene source and seeds selection, multilingual timing, or asset aliases where required.
-- The full chat-focused regression suite is green: 17 files, 162 tests.
+- The full chat-focused regression suite is green: 22 files, 181 tests.
+- All 15 handlers that lacked direct literal behavioral coverage now have executable contracts through the real tool factory. Provider calls are mocked only at the external boundary; project reads, handler decisions, and mutations use the live implementations.
+- The provider/asset contracts prove SFX replacement preserves timing, stock searches are read-only across video and image branches, and user-footage swaps preserve scene timing/geometry while failing without a valid target.
 - Nested CSS-style tool arguments are normalized before schema validation, and a recovered schema retry no longer poisons an otherwise successful atomic transaction (`b610a724`).
 
 ### Not Yet Completed
@@ -207,6 +218,9 @@ Read-only journeys must prove zero mutation. A tool call without its postconditi
 - Independent failure and isolation-pair fixtures; current preparation covers five source profiles and scenario-specific failure/isolation setup still needs live orchestration.
 - Live-provider execution of all 73 journeys.
 - Rendered evidence for every mutating journey.
+- Canonical source/edited coordinate mapping for clip visual/audio analysis.
+- Atomic execution of `apply_style`, rather than returning a plan for a later model turn.
+- Generic overlay targeting for `use_matching_footage` outside pipeline-generated `sceneIndex` overlays.
 - Chat attachment contract/UI/ingestion.
 - Project-wide color-grading family.
 - Translation/dubbing/reframing/repurposing command owners.
