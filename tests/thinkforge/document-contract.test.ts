@@ -59,6 +59,22 @@ describe('ThinkForge canonical document contract', () => {
     expect(() => createThinkForgeWriterContract('carousel', { carouselSlideCount: 1 })).toThrow(/(?:greater than or equal to|>=)\s*2/i);
   });
 
+  it('preserves carousel slide count through direct and system generation intent', () => {
+    expect(resolveThinkForgeGenerationDocumentIntent(
+      'Create a 4-slide LinkedIn carousel about approval bottlenecks.',
+      undefined,
+      'user_request',
+    ).contract).toEqual(createThinkForgeWriterContract('carousel', { carouselSlideCount: 4 }));
+
+    const selectedContract = createThinkForgeWriterContract('carousel', { carouselSlideCount: 5 });
+    expect(resolveThinkForgeGenerationDocumentIntent(
+      'Create the complete first draft for this idea.',
+      'LinkedIn carousel',
+      'initial_draft_claim',
+      selectedContract,
+    ).contract).toEqual(selectedContract);
+  });
+
   it('threads the persisted carousel count into the one-pass post writer contract', () => {
     process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
     const input: PostWriterInput = {
@@ -129,6 +145,7 @@ describe('ThinkForge canonical document contract', () => {
     expect(page).toContain('contentContract');
     expect(page).toContain('resolveCarouselSlideCount');
     expect(service).toContain('sessionState.metadata.contentContract');
+    expect(service).toContain('contentContract: documentIntent.contract');
   });
 
   it('uses the selected canonical kind for system-triggered initial drafts', () => {

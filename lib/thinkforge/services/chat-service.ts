@@ -1151,6 +1151,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
               blocks: finalBlocks,
               richText: finalRichText as any,
               documentType: generatedDocumentType,
+              contentContract: documentIntent.contract,
               metadata: {
                 workflow: 'create',
                 source: 'ai',
@@ -1183,6 +1184,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
             content: finalContent,
             version: savedVersion,
             documentType: generatedDocumentType,
+            contentContract: documentIntent.contract,
             // signalTrace/briefSnapshot/writerOutput intentionally NOT emitted to the client:
             // internal reasoning the browser never reads. Still persisted server-side
             // (ReplaceDocument above) and fed to handoffs from the DB, not over the wire.

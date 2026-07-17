@@ -3,6 +3,7 @@ import {
   createThinkForgeWriterContract,
   isThinkForgePostKind,
   normalizeThinkForgeDocumentType,
+  resolveCarouselSlideCount,
   ThinkForgeDocumentContractSchema,
   type ThinkForgeDocumentContract,
   type ThinkForgeDocumentKind,
@@ -123,7 +124,17 @@ export function resolveThinkForgeDocumentIntent(
     source = 'default';
   }
 
-  const contract = createThinkForgeWriterContract(writerKind);
+  const parsedSelectedContract = selectedContract
+    ? ThinkForgeDocumentContractSchema.parse(selectedContract)
+    : null;
+  const contract = source === 'document_type' && parsedSelectedContract?.outputKind === writerKind
+    ? parsedSelectedContract
+    : createThinkForgeWriterContract(
+        writerKind,
+        writerKind === 'carousel'
+          ? { carouselSlideCount: resolveCarouselSlideCount(userPrompt) }
+          : undefined,
+      );
   const contentPath = isThinkForgePostKind(writerKind) ? 'post' : 'script';
   return {
     contentPath,
