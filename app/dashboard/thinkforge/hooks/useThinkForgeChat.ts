@@ -221,7 +221,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       selectionBlockIds?: string[]; // Selected block IDs from editor
       selectionRange?: { from: number; to: number }; // Selection range from editor
       scriptId?: string; // Active script tab id
-      onScriptUpdate?: (script: any) => void;
       onTokenStream?: (tokens: string) => void; // Callback for streaming tokens
       onScriptCreated?: (scriptId: string) => void;
       intentContext?: {
@@ -390,9 +389,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
           });
           if (typeof remoteScript.scriptId === 'string') {
             resolvedScriptId = remoteScript.scriptId;
-          }
-          if (options?.onScriptUpdate) {
-            options.onScriptUpdate(remoteScript);
           }
           if (optionsRef.current?.onRemoteScriptUpdate) {
             optionsRef.current.onRemoteScriptUpdate(remoteScript);
