@@ -89,7 +89,9 @@ describe('formatTrendBriefForPrompt', () => {
     expect(postSource).toContain("productionBrief?: ProductionBrief | null;");
     expect(postSource).toContain("import { formatTrendBriefForPrompt } from './trend-brief-context';");
     expect(postSource).toContain('const trendBriefBlock = formatTrendBriefForPrompt(productionBrief);');
-    expect(postSource).toContain('${trendBriefBlock ? `${trendBriefBlock}\\n\\n` : \'\'}${outputFormat}');
+    const trendBriefInjection = '${trendBriefBlock ? `${trendBriefBlock}\\n\\n` : \'\'}';
+    expect(postSource).toContain(trendBriefInjection);
+    expect(postSource.indexOf(trendBriefInjection)).toBeLessThan(postSource.indexOf('${outputFormat}'));
 
     expect(scriptSource).toContain("import { formatTrendBriefForPrompt } from './trend-brief-context';");
     expect(scriptSource).toContain('const trendBriefBlock = formatTrendBriefForPrompt(productionBrief);');
