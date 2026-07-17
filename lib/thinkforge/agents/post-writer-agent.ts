@@ -13,6 +13,7 @@ import { extractSignalsFromContext } from '../data/extract-signals';
 import { repairAiFillerContent } from '../services/ai-filler-repair';
 import { formatTrendBriefForPrompt } from './trend-brief-context';
 import type { ThinkForgeDocumentContract } from '../schemas/document-contract';
+import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
 
 // Flat PostWriter Output Contract
 export const PostWriterResultSchema = z.object({
@@ -134,14 +135,15 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
   }
 
   buildPrompt(input: PostWriterInput): string {
+    const parts = this.buildPromptParts(input);
+    return `${parts.systemInstruction}\n\n${parts.prompt}`;
+  }
+
+  buildPromptParts(input: PostWriterInput): IsolatedPromptParts {
     const { context, userPrompt, retrievedContext, editContext, productionBrief } = input;
     const platform = detectPlatform(userPrompt, undefined, context.projectSummary);
-    const outputFormat = buildPostOutputFormat(platform);
+    const outputFormat = buildPostOutputFormat(platform).replaceAll('<input_data>', 'tf_untrusted_data');
     const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
-    const databankBlock = facts.length > 0
-      ? facts.map((fact, i) => `[Source ${i + 1} - ${fact.title}]: ${fact.summary}`).join('\n')
-      : 'No retrieved project or global facts loaded.';
-    const brandBlock = context.systemBrief || 'No Brand DNA or memory loaded.';
 
     // Writing knowledge graph: select techniques (DO/WHY/NEVER) from the content signals so the
     // flat writers get the same craft guidance the orchestrated ScriptAuthor path gets, not just
@@ -156,30 +158,31 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
       }),
     );
     const trendBriefBlock = formatTrendBriefForPrompt(productionBrief);
+    const trendBriefForData = `${trendBriefBlock ? `${trendBriefBlock}\n\n` : ''}`;
     const carouselSlideCount = requestedCarouselSlideCount(input);
     const carouselContractBlock = carouselSlideCount === undefined
       ? ''
       : `<carousel_contract>
 - Return exactly ${carouselSlideCount} entries in clickatron.carouselPrompts, one per slide.
 - Do not return clickatron.singleImagePrompt.
-- Each slide must communicate a distinct grounded unit from <input_data>; never pad the count with invented claims.
+- Each slide must communicate a distinct grounded unit from tf_untrusted_data; never pad the count with invented claims.
 </carousel_contract>\n\n`;
 
-    return `<role>You are an elite ${platform} copywriter and content strategist.</role>
+    const systemInstruction = `<role>You are an elite ${platform} copywriter and content strategist.</role>
 <task>${editContext
       ? 'REVISE the existing post per the requested change and return the COMPLETE revised post'
       : 'Write ONE final, publishable post for the detected platform'}. Return JSON that matches the schema exactly.</task>
 
 <rules>
 SOURCE-LEDGER
-- Every factual sentence must trace to an exact phrase in <input_data>.
+- Every factual sentence must trace to an exact phrase in tf_untrusted_data.
 - Preserve supplied dates, times, prices, URLs, brand names, event names, product names, offers, and taglines verbatim.
 - Keep supplied formats when possible: "9am" stays "9am", "$40K" stays "$40K".
 - Do not invent ingredients, study results, timelines, percentages, discounts, prices, guarantees, or performance claims.
 - If proof is thin, make the writing specific through scene, audience pain, workflow friction, object detail, rhythm, and framing.
 
 HOOK
-- The first visible line must carry a grounded claim, supplied number, named entity, or concrete pain from <input_data>.
+- The first visible line must carry a grounded claim, supplied number, named entity, or concrete pain from tf_untrusted_data.
 - No cliche openers.
 
 CTA
@@ -196,42 +199,62 @@ VISUAL HANDOFF
 - Image prompts must carry the same source facts as the post and include editable overlay text when text appears.
 </rules>
 
-${editContext ? `<current_post>
-${editContext.existingContent || '(the current post is empty)'}
-</current_post>
-<edit_task>
-Requested change: ${editContext.instruction}${editContext.selection ? `\nTargeted selection: "${editContext.selection}"` : ''}${editContext.focusHint ? `\nFocus: ${editContext.focusHint}` : ''}
-Return the ENTIRE revised post in the content field (not a diff). Keep everything the change does not touch, preserve all supplied facts verbatim, and keep the platform format, hook, CTA, and hashtags.
-</edit_task>
+${editContext ? `<edit_rules>
+- Revise the existing post according to edit.instruction in tf_untrusted_data.
+- Return the ENTIRE revised post in the content field, not a diff.
+- Keep everything the change does not touch and preserve supplied facts verbatim.
+</edit_rules>
 
-` : ''}${writingBlock ? `${writingBlock}\n\n` : ''}${trendBriefBlock ? `${trendBriefBlock}\n\n` : ''}${carouselContractBlock}${outputFormat}
-
-<input_data>
-Project Summary:
-${context.projectSummary || 'No summary provided.'}
-
-Brand DNA and Memory:
-${brandBlock}
-
-DataBank Facts:
-${databankBlock}
-
-USER BRIEF:
-${userPrompt}
-</input_data>
+` : ''}${writingBlock ? `${writingBlock}\n\n` : ''}${carouselContractBlock}${outputFormat}
 
 Return your response strictly adhering to the JSON schema.`;
+
+    return buildIsolatedPromptParts({
+      systemInstruction: this.applyGlobalConstraints(systemInstruction),
+      data: {
+        projectSummary: context.projectSummary || null,
+        brandContext: context.systemBrief || null,
+        databankFacts: facts.map((fact, index) => ({
+          sourceId: `source_${index + 1}`,
+          title: fact.title,
+          summary: fact.summary,
+        })),
+        userBrief: userPrompt,
+        trendBrief: trendBriefForData || null,
+        edit: editContext
+          ? {
+              existingContent: editContext.existingContent || null,
+              instruction: editContext.instruction,
+              selection: editContext.selection || null,
+              focusHint: editContext.focusHint || null,
+            }
+          : null,
+      },
+      fieldLimits: {
+        projectSummary: 12_000,
+        brandContext: 24_000,
+        userBrief: 12_000,
+        title: 300,
+        summary: 4_000,
+        trendBrief: 16_000,
+        existingContent: 24_000,
+        instruction: 8_000,
+        selection: 8_000,
+        focusHint: 2_000,
+      },
+    });
   }
   async runStructured(
     input: PostWriterInput,
     overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
     abortSignal?: AbortSignal,
   ): Promise<AgentStructuredOutput<PostWriterResult>> {
-    const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
+    const promptParts = this.buildPromptParts(input);
     const gen = this.resolveGenConfig(overrides);
 
     const { result, cacheStatus, modelName } = await generateStructuredWithWritingContextCache({
-      prompt,
+      prompt: promptParts.prompt,
+      systemInstruction: promptParts.systemInstruction,
       schema: this.schema,
       modelName: this.config.modelName,
       temperature: gen.temperature,

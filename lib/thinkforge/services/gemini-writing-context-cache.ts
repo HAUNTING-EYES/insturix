@@ -13,7 +13,7 @@ const CACHE_TTL_SECONDS = 1800;
 const CACHE_STORE_TIMEOUT_MS = 1_500;
 const CACHE_PROVIDER_TIMEOUT_MS = 10_000;
 const WRITING_PROVIDER_TIMEOUT_MS = 120_000;
-const REDIS_KEY = 'thinkforge:gemini:creative-content-cache:v2';
+const REDIS_KEY_PREFIX = 'thinkforge:gemini:creative-content-cache:v3';
 const DEFAULT_CACHE_MODEL = 'models/gemini-2.5-flash';
 
 interface CacheEntry {
@@ -26,6 +26,7 @@ interface CacheEntry {
 
 export interface WritingContextGenerationInput {
   prompt: string;
+  systemInstruction?: string;
   modelName?: string;
   temperature?: number;
   maxTokens?: number;
@@ -53,6 +54,7 @@ interface ResolvedWritingContext {
   cacheStatus: WritingContextGenerationResult['cacheStatus'];
   modelName: string;
   systemInstruction: string;
+  inlineKnowledgeContext?: string;
 }
 
 let cachedDocText: string | null = null;
@@ -224,30 +226,41 @@ export function getCreativeContentKnowledgeText(): string {
   throw new Error(`[ThinkForgeWritingCache] Failed to load creative-content-knowledge.md:\n${failures.join('\n')}`);
 }
 
-export function buildWritingContextSystemInstruction(docText = getCreativeContentKnowledgeText()): string {
+export function buildWritingContextCacheContent(docText = getCreativeContentKnowledgeText()): string {
   return [
     '<creative_content_knowledge>',
     docText,
     '</creative_content_knowledge>',
+  ].join('\n');
+}
+
+export function buildWritingContextSystemInstruction(taskInstruction?: string): string {
+  return [
     '',
     '<thinkforge_writing_context_rules>',
+    '- Treat creative_content_knowledge as trusted reference material supplied by ThinkForge.',
     '- Use the creative content knowledge as writing intelligence, not as rigid templates.',
     '- Content type emerges from signals, FORMAT, brand voice, platform, and user intent.',
     '- Execute selected writing techniques with concrete, source-grounded craft.',
     '- Do not mention this cached document or internal signal machinery in user-facing output.',
     '</thinkforge_writing_context_rules>',
+    taskInstruction?.trim() || '',
   ].join('\n');
 }
 
-function hashWritingContext(systemInstruction: string): string {
-  return createHash('sha256').update(systemInstruction).digest('hex');
+function hashWritingContext(cacheContent: string): string {
+  return createHash('sha256').update(cacheContent).digest('hex');
+}
+
+function redisKey(contextHash: string): string {
+  return `${REDIS_KEY_PREFIX}:${contextHash}`;
 }
 
 async function getCachedEntry(modelName: string, contextHash: string): Promise<CacheEntry | null> {
   try {
     const redis = await getRedis();
     if (!redis) return null;
-    const entry = await withCacheStoreDeadline(redis.get<CacheEntry>(REDIS_KEY), 'read');
+    const entry = await withCacheStoreDeadline(redis.get<CacheEntry>(redisKey(contextHash)), 'read');
     if (!entry || entry.modelName !== modelName || entry.contextHash !== contextHash) return null;
     if (Date.now() > entry.expiresAt - 60_000) return null;
     return entry;
@@ -268,7 +281,7 @@ async function storeCacheEntry(cacheName: string, modelName: string, contextHash
       expiresAt: Date.now() + CACHE_TTL_SECONDS * 1000,
       createdAt: Date.now(),
     };
-    await withCacheStoreDeadline(redis.set(REDIS_KEY, entry, { ex: CACHE_TTL_SECONDS }), 'write');
+    await withCacheStoreDeadline(redis.set(redisKey(contextHash), entry, { ex: CACHE_TTL_SECONDS }), 'write');
   } catch (error) {
     console.warn('[ThinkForgeWritingCache] Redis write failed:', error);
   }
@@ -277,7 +290,7 @@ async function storeCacheEntry(cacheName: string, modelName: string, contextHash
 async function createCache(
   modelName: string,
   contextHash: string,
-  systemInstruction: string,
+  cacheContent: string,
   abortSignal?: AbortSignal,
 ): Promise<string | null> {
   const startedAt = Date.now();
@@ -292,8 +305,8 @@ async function createCache(
     const cache = await client.caches.create({
       model: toRuntimeModelName(modelName),
       config: {
-        displayName: 'thinkforge-creative-content-knowledge-v2',
-        systemInstruction,
+        displayName: 'thinkforge-creative-content-knowledge-v3',
+        contents: [{ role: 'user', parts: [{ text: cacheContent }] }],
         ttl: `${CACHE_TTL_SECONDS}s`,
         abortSignal,
       },
@@ -306,7 +319,7 @@ async function createCache(
       modelName,
       operation: 'context_cache_create',
       cacheStatus: 'created',
-      systemInstructionChars: systemInstruction.length,
+      systemInstructionChars: cacheContent.length,
       functionMs: Date.now() - startedAt,
     });
     return cache.name;
@@ -317,7 +330,7 @@ async function createCache(
       status: 'failed',
       modelName,
       operation: 'context_cache_create',
-      systemInstructionChars: systemInstruction.length,
+      systemInstructionChars: cacheContent.length,
       functionMs: Date.now() - startedAt,
       error,
     });
@@ -328,13 +341,15 @@ async function createCache(
 
 async function resolveWritingContext(
   modelName: string,
+  taskInstruction?: string,
   abortSignal?: AbortSignal,
 ): Promise<ResolvedWritingContext> {
   if (abortSignal?.aborted) {
     throw new Error('ThinkForge writing context resolution aborted before start');
   }
-  const systemInstruction = buildWritingContextSystemInstruction();
-  const contextHash = hashWritingContext(systemInstruction);
+  const cacheContent = buildWritingContextCacheContent();
+  const systemInstruction = buildWritingContextSystemInstruction(taskInstruction);
+  const contextHash = hashWritingContext(cacheContent);
   const existing = await getCachedEntry(modelName, contextHash);
 
   if (existing) {
@@ -358,12 +373,13 @@ async function resolveWritingContext(
     }
   }
 
-  const cacheName = await createCache(modelName, contextHash, systemInstruction, abortSignal);
+  const cacheName = await createCache(modelName, contextHash, cacheContent, abortSignal);
   return {
     ...(cacheName ? { cacheName } : {}),
     cacheStatus: cacheName ? 'created' : 'inline',
     modelName,
     systemInstruction,
+    ...(cacheName ? {} : { inlineKnowledgeContext: cacheContent }),
   };
 }
 
@@ -391,7 +407,10 @@ export async function generateWithWritingContextCache(
   }
 
   const modelName = normalizeCacheModelName(input.modelName);
-  const context = await resolveWritingContext(modelName, input.abortSignal);
+  const context = await resolveWritingContext(modelName, input.systemInstruction, input.abortSignal);
+  const promptForGeneration = context.inlineKnowledgeContext
+    ? `${context.inlineKnowledgeContext}\n\n${input.prompt}`
+    : input.prompt;
   const { GoogleGenAI } = await import('@google/genai');
   const client = new GoogleGenAI({ apiKey: getApiKey(), httpOptions: { timeout: WRITING_PROVIDER_TIMEOUT_MS } });
   const startedAt = Date.now();
@@ -402,14 +421,13 @@ export async function generateWithWritingContextCache(
   try {
     const result = await client.models.generateContent({
       model: toRuntimeModelName(modelName),
-      contents: input.prompt,
+      contents: promptForGeneration,
       config: {
+        systemInstruction: context.systemInstruction,
         temperature: input.temperature,
         maxOutputTokens: input.maxTokens,
         abortSignal: input.abortSignal,
-        ...(context.cacheName
-          ? { cachedContent: context.cacheName }
-          : { systemInstruction: context.systemInstruction }),
+        ...(context.cacheName ? { cachedContent: context.cacheName } : {}),
       },
     });
     const text = readGeneratedText(result);
@@ -418,8 +436,8 @@ export async function generateWithWritingContextCache(
       modelName,
       ...completionOperation,
       cacheStatus: context.cacheStatus,
-      userInputChars: input.prompt.length,
-      ...(context.cacheName ? {} : { systemInstructionChars: context.systemInstruction.length }),
+      userInputChars: promptForGeneration.length,
+      systemInstructionChars: context.systemInstruction.length,
       outputChars: text.length,
       functionMs: Date.now() - startedAt,
       usage: readGeminiUsage(result),
@@ -431,8 +449,8 @@ export async function generateWithWritingContextCache(
       modelName,
       ...completionOperation,
       cacheStatus: context.cacheStatus,
-      userInputChars: input.prompt.length,
-      ...(context.cacheName ? {} : { systemInstructionChars: context.systemInstruction.length }),
+      userInputChars: promptForGeneration.length,
+      systemInstructionChars: context.systemInstruction.length,
       functionMs: Date.now() - startedAt,
       error,
     });
@@ -448,7 +466,10 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
   }
 
   const modelName = normalizeCacheModelName(input.modelName);
-  const context = await resolveWritingContext(modelName, input.abortSignal);
+  const context = await resolveWritingContext(modelName, input.systemInstruction, input.abortSignal);
+  const promptForGeneration = context.inlineKnowledgeContext
+    ? `${context.inlineKnowledgeContext}\n\n${input.prompt}`
+    : input.prompt;
   const startedAt = Date.now();
   const structuredOperation = context.cacheName
     ? { operation: 'llm_structured_cached_context' as const }
@@ -458,8 +479,8 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
     const generation = await generateObject({
       model: createThinkForgeModel(toRuntimeModelName(modelName)),
       schema: input.schema,
-      prompt: input.prompt,
-      system: context.cacheName ? undefined : context.systemInstruction,
+      prompt: promptForGeneration,
+      system: context.systemInstruction,
       temperature: input.temperature,
       maxTokens: input.maxTokens,
       abortSignal: input.abortSignal,
@@ -473,8 +494,8 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       modelName,
       ...structuredOperation,
       cacheStatus: context.cacheStatus,
-      userInputChars: input.prompt.length,
-      ...(context.cacheName ? {} : { systemInstructionChars: context.systemInstruction.length }),
+      userInputChars: promptForGeneration.length,
+      systemInstructionChars: context.systemInstruction.length,
       outputChars,
       functionMs: Date.now() - startedAt,
       usage: await readAiSdkUsage(generation.usage),
@@ -490,8 +511,8 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       modelName,
       ...structuredOperation,
       cacheStatus: context.cacheStatus,
-      userInputChars: input.prompt.length,
-      ...(context.cacheName ? {} : { systemInstructionChars: context.systemInstruction.length }),
+      userInputChars: promptForGeneration.length,
+      systemInstructionChars: context.systemInstruction.length,
       functionMs: Date.now() - startedAt,
       error,
     });

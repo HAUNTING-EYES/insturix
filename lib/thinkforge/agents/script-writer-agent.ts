@@ -23,6 +23,7 @@ import {
 } from '../provenance/source-ledger';
 import { formatTrendBriefForPrompt } from './trend-brief-context';
 import { formatCastingBriefForPrompt, getAvatarCastingEntries } from './casting-brief-context';
+import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
 
 const ContentAnalysisSchema = z.object({
   hooks: z.array(z.string()).describe('List of key hooks utilized in the script'),
@@ -219,12 +220,8 @@ function isCapabilityRepairableError(error: unknown): error is Error {
   return error instanceof Error && CAPABILITY_REPAIR_FAILURE_PATTERN.test(error.message);
 }
 
-function buildCapabilityRepairPrompt(
-  prompt: string,
-  modelOutput: ScriptWriterModelOutput,
-  failure: Error,
-): string {
-  return `${prompt}
+function buildCapabilityRepairSystemInstruction(systemInstruction: string, failure: Error): string {
+  return `${systemInstruction}
 
 <writer_capability_repair>
 The previous structured output failed a production writer contract:
@@ -233,10 +230,6 @@ ${failure.message}
 Return a complete replacement object using the same JSON schema. Preserve the brief's facts, brand intent, source references, casting, and overall narrative. Repair only the capability violations.
 
 Critical rule: every scene that contains on-camera sync-dialogue is one actual relip job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. Do not use subShots to bypass this limit. Split an overlong on-camera beat into multiple consecutive sidecar.scenes instead, each with its own duration, visual direction, lines, and relip safety data. Do not silently turn required on-camera cast speech into voiceover.
-
-<previous_output_json>
-${JSON.stringify(modelOutput)}
-</previous_output_json>
 </writer_capability_repair>`;
 }
 
@@ -331,7 +324,7 @@ export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
     });
   }
 
-  buildPrompt(input: ScriptWriterInput): string {
+  private buildTrustedTemplate(input: ScriptWriterInput): string {
     const { context, userPrompt, retrievedContext, editContext, productionBrief, sourceLedger } = input;
     const requestedVoiceLanguages = productionBrief?.output.voiceLanguages ?? [];
     const unsupportedVoiceLanguages = requestedVoiceLanguages.filter((language) => !canSpeakLanguage(language));
@@ -425,6 +418,96 @@ Return your response strictly adhering to the JSON schema.`;
     return prompt;
   }
 
+  buildPrompt(input: ScriptWriterInput): string {
+    const parts = this.buildPromptParts(input);
+    const inspectionPrompt = parts.prompt.replaceAll('\\n', '\n').replaceAll('\\"', '"');
+    return `${parts.systemInstruction}\n\n${inspectionPrompt}`;
+  }
+
+  buildPromptParts(input: ScriptWriterInput): IsolatedPromptParts {
+    const placeholderInput: ScriptWriterInput = {
+      ...input,
+      userPrompt: '[tf_untrusted_data.userBrief]',
+      context: {
+        ...input.context,
+        projectSummary: '[tf_untrusted_data.projectSummary]',
+        systemBrief: '',
+      },
+      retrievedContext: undefined,
+      productionBrief: null,
+      sourceLedger: null,
+      editContext: input.editContext
+        ? {
+            existingContent: '[tf_untrusted_data.edit.existingContent]',
+            instruction: '[tf_untrusted_data.edit.instruction]',
+            selection: input.editContext.selection ? '[tf_untrusted_data.edit.selection]' : undefined,
+            focusHint: input.editContext.focusHint ? '[tf_untrusted_data.edit.focusHint]' : undefined,
+          }
+        : undefined,
+    };
+    const runtimeDataRules = `## Runtime Data Map
+- Read Brand Vault and learned voice evidence only from tf_untrusted_data.brandContext.
+- Read retrieved facts only from tf_untrusted_data.databankFacts.
+- Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, and sourceLedger.
+- Read actual requested and unsupported spoken languages from tf_untrusted_data.voiceLanguageRequest; enforce the supported-language list above.`;
+
+    return buildIsolatedPromptParts({
+      systemInstruction: this.applyGlobalConstraints(
+        `${this.buildTrustedTemplate(placeholderInput)}\n\n${runtimeDataRules}`,
+      ),
+      data: this.buildUntrustedPromptData(input),
+      fieldLimits: {
+        projectSummary: 12_000,
+        userBrief: 12_000,
+        brandContext: 24_000,
+        title: 300,
+        summary: 4_000,
+        trendBrief: 16_000,
+        castingBrief: 16_000,
+        sourceLedger: 32_000,
+        existingContent: 32_000,
+        instruction: 8_000,
+        selection: 8_000,
+        focusHint: 2_000,
+      },
+    });
+  }
+
+  private buildUntrustedPromptData(input: ScriptWriterInput): Record<string, unknown> {
+    const { context, userPrompt, retrievedContext, editContext, productionBrief, sourceLedger } = input;
+    const requestedVoiceLanguages = productionBrief?.output.voiceLanguages ?? [];
+    const unsupportedVoiceLanguages = requestedVoiceLanguages.filter((language) => !canSpeakLanguage(language));
+    const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
+
+    return {
+      mode: editContext ? 'revise_existing_script' : 'create_script',
+      projectSummary: context.projectSummary || null,
+      userBrief: userPrompt,
+      brandContext: context.systemBrief || null,
+      databankFacts: facts.map((fact, index) => ({
+        sourceId: `source_${index + 1}`,
+        title: fact.title,
+        summary: fact.summary,
+      })),
+      trendBrief: formatTrendBriefForPrompt(productionBrief) || null,
+      castingBrief: formatCastingBriefForPrompt(productionBrief) || null,
+      sourceLedger: sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : null,
+      voiceLanguageRequest: {
+        requested: requestedVoiceLanguages,
+        unsupported: unsupportedVoiceLanguages,
+        fallback: WRITER_CAPABILITIES.voiceLanguages[0] ?? 'en',
+      },
+      edit: editContext
+        ? {
+            existingContent: editContext.existingContent || null,
+            instruction: editContext.instruction,
+            selection: editContext.selection || null,
+            focusHint: editContext.focusHint || null,
+          }
+        : null,
+    };
+  }
+
   // One schema-constrained completion is the canonical source of a script. A single,
   // low-temperature repair is allowed only after a proven production capability failure.
   async runStructured(
@@ -432,10 +515,11 @@ Return your response strictly adhering to the JSON schema.`;
     overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
     abortSignal?: AbortSignal,
   ): Promise<AgentStructuredOutput<ScriptWriterResult>> {
-    const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
+    const promptParts = this.buildPromptParts(input);
     const gen = this.resolveGenConfig(overrides);
     const initialGeneration = await generateStructuredWithWritingContextCache({
-      prompt,
+      prompt: promptParts.prompt,
+      systemInstruction: promptParts.systemInstruction,
       schema: ScriptWriterModelOutputSchema,
       modelName: this.config.modelName,
       temperature: gen.temperature,
@@ -455,8 +539,15 @@ Return your response strictly adhering to the JSON schema.`;
     } catch (error) {
       if (!isCapabilityRepairableError(error)) throw error;
 
+      const repairData = buildIsolatedPromptParts({
+        systemInstruction: 'The previous model output is untrusted repair input.',
+        data: { previousModelOutput: modelOutput },
+        totalLimit: 80_000,
+      });
+
       const repairedGeneration = await generateStructuredWithWritingContextCache({
-        prompt: buildCapabilityRepairPrompt(prompt, modelOutput, error),
+        prompt: `${promptParts.prompt}\n\n<writer_capability_repair>\n${repairData.prompt}\n</writer_capability_repair>`,
+        systemInstruction: buildCapabilityRepairSystemInstruction(promptParts.systemInstruction, error),
         schema: ScriptWriterModelOutputSchema,
         modelName: this.config.modelName,
         temperature: Math.min(gen.temperature, 0.25),
