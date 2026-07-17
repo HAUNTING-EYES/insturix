@@ -31,6 +31,10 @@ function firstSourceUrl(candidate?: TrendCandidate): string {
   return candidate?.evidence.find((evidence) => evidence.sourceUrl)?.sourceUrl || "";
 }
 
+export function defaultTrendReferenceVideoUrl(candidate?: TrendCandidate): string {
+  return candidate?.nextAction === "analyze_reference_video" ? firstSourceUrl(candidate) : "";
+}
+
 async function readJsonResponse(response: Response): Promise<any> {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -68,7 +72,7 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
         const restored = payload.selectedTrend as SelectedTrend;
         setSelectedTrend(restored);
         setNiche(restored.candidate.title);
-        setReferenceVideoUrl(firstSourceUrl(restored.candidate));
+        setReferenceVideoUrl(defaultTrendReferenceVideoUrl(restored.candidate));
         setTarget(restored.target === "calendar" ? "post" : restored.target);
         setStage(restored.analysis?.status === "completed" ? "ready" : restored.analysis?.status === "queued" ? "analyzing" : "source");
       })
@@ -164,8 +168,9 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId: resolvedSessionId, candidate, target }),
       }));
-      setSelectedTrend(payload.selectedTrend as SelectedTrend);
-      setReferenceVideoUrl(firstSourceUrl(candidate));
+      const persistedTrend = payload.selectedTrend as SelectedTrend;
+      setSelectedTrend(persistedTrend);
+      setReferenceVideoUrl(defaultTrendReferenceVideoUrl(persistedTrend.candidate));
       setStage("source");
     } catch (selectError) {
       setError(selectError instanceof Error ? selectError.message : "Could not select that trend.");
@@ -233,7 +238,7 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
           {selectedTrend && stage !== "discover" && stage !== "select" && (
             <div className="space-y-4 rounded-xl border border-[#282724] bg-[#0F0F0E] p-4">
               <div className="flex items-center gap-2">{stage === "ready" ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <TrendingUp className="h-4 w-4 text-[#D4A652]" />}<div><div className="font-medium text-[#ECE9E1]">{selectedTrend.candidate.title}</div><div className="text-xs text-[#7A776E]">{stage === "ready" ? "Analyzed and ready for an original draft." : "Selected. Add a reference so ThinkForge can learn its mechanics."}</div></div></div>
-              {stage === "source" && <><label className="block text-xs text-[#A7A39A]">Public reference video URL<input value={referenceVideoUrl} onChange={(event) => setReferenceVideoUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0B0B0A] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60" /></label><button type="button" onClick={analyze} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-[#D4A652] px-4 py-2.5 text-sm font-semibold text-[#0B0B0A] disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <TrendingUp className="h-4 w-4" />}Analyze format mechanics</button></>}
+              {stage === "source" && <>{selectedTrend.candidate.nextAction === "add_reference_video" && !referenceVideoUrl && <div className="flex items-start gap-2 rounded-lg border border-[#D4A652]/25 bg-[#D4A652]/5 px-3 py-2.5 text-xs leading-relaxed text-[#C9C3B6]"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#D4A652]" />The discovered source is contextual evidence, not a playable video. Add a YouTube link or a direct public video file to analyze its timing.</div>}<label className="block text-xs text-[#A7A39A]">Public reference video URL<input value={referenceVideoUrl} onChange={(event) => setReferenceVideoUrl(event.target.value)} placeholder="YouTube or direct .mp4, .mov, .webm, .m4v URL" className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0B0B0A] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60" /></label><button type="button" onClick={analyze} disabled={busy || !referenceVideoUrl.trim()} className="inline-flex items-center gap-2 rounded-lg bg-[#D4A652] px-4 py-2.5 text-sm font-semibold text-[#0B0B0A] disabled:cursor-not-allowed disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <TrendingUp className="h-4 w-4" />}Analyze format mechanics</button></>}
               {stage === "analyzing" && <div className="flex items-center gap-2 text-sm text-[#D4A652]"><Loader2 className="h-4 w-4 animate-spin" />Analyzing timing, invariants, variables, and performance pattern...</div>}
               {stage === "ready" && <button type="button" onClick={generate} className="inline-flex items-center gap-2 rounded-lg bg-[#D4A652] px-4 py-2.5 text-sm font-semibold text-[#0B0B0A]"><CheckCircle2 className="h-4 w-4" />Draft with this analyzed trend</button>}
             </div>

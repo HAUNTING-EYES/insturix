@@ -3,6 +3,7 @@ import { Client } from '@upstash/qstash';
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { validateReferenceVideoUrlForAutoEditIntake } from '@/lib/editron/reference-video/reference-video-source';
 import * as db from '@/lib/thinkforge/services/db';
 import {
   buildFailedTrendAnalysis,
@@ -53,6 +54,14 @@ export async function POST(request: Request) {
     const referenceVideoUrl = input.referenceVideoUrl ?? selectedTrend.candidate.evidence.find((item) => item.sourceUrl)?.sourceUrl;
     if (!input.referenceAssetId && !referenceVideoUrl) {
       return NextResponse.json({ error: 'Upload a reference video or provide a public direct video URL.' }, { status: 422 });
+    }
+    if (!input.referenceAssetId && referenceVideoUrl) {
+      const validation = validateReferenceVideoUrlForAutoEditIntake(referenceVideoUrl);
+      if (!validation.ok) {
+        return NextResponse.json({
+          error: validation.diagnostics[0] ?? 'Provide a supported YouTube or direct public video URL.',
+        }, { status: 422 });
+      }
     }
 
     const sourceKind = input.referenceAssetId ? 'asset' : 'remote-url';

@@ -155,4 +155,28 @@ describe('ThinkForge trend-analysis queue route', () => {
     expect(mocks.setSessionSelectedTrendAnalysis).not.toHaveBeenCalled();
     expect(mocks.publishJSON).not.toHaveBeenCalled();
   });
+
+  it('rejects article and unsupported social-page URLs before queue persistence', async () => {
+    const response = await POST(request({
+      sessionId: 'session_1',
+      referenceVideoUrl: 'https://example.com/article-about-a-trend',
+    }));
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: expect.stringContaining('must point directly'),
+    });
+    expect(mocks.setSessionSelectedTrendAnalysis).not.toHaveBeenCalled();
+    expect(mocks.publishJSON).not.toHaveBeenCalled();
+  });
+
+  it('accepts a YouTube reference and queues the canonical analysis path', async () => {
+    const referenceVideoUrl = 'https://www.youtube.com/watch?v=abc12345678';
+    const response = await POST(request({ sessionId: 'session_1', referenceVideoUrl }));
+
+    expect(response.status).toBe(202);
+    expect(mocks.publishJSON).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.objectContaining({ referenceVideoUrl, sourceKind: 'remote-url' }),
+    }));
+  });
 });
