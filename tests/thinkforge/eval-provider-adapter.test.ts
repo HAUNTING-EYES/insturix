@@ -57,9 +57,17 @@ describe('thinkforge eval provider adapter', () => {
   it('fails a stalled provider request within the configured deadline', async () => {
     process.env.THINKFORGE_EVAL_REQUEST_TIMEOUT_MS = '10';
     process.env.THINKFORGE_EVAL_TRANSIENT_RETRY_ATTEMPTS = '1';
-    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>(() => {}));
+    let requestSignal: AbortSignal | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      requestSignal = init?.signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        requestSignal?.addEventListener('abort', () => reject(requestSignal?.reason), { once: true });
+      });
+    });
 
     await expect(runEvalPrompt(baseConfig, 'Public synthetic eval prompt.'))
       .rejects.toThrow('timed out after 10ms');
+    expect(requestSignal).not.toBeNull();
+    expect(requestSignal!.aborted).toBe(true);
   });
 });

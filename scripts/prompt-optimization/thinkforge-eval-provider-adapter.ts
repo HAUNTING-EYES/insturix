@@ -177,11 +177,11 @@ async function runProviderPromptWithRetry(
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       return await withEvalTimeout(
-        config.provider === 'gemini'
-          ? runGeminiPrompt(config, prompt)
+        (abortSignal) => config.provider === 'gemini'
+          ? runGeminiPrompt(config, prompt, abortSignal)
           : config.provider === 'anthropic'
-            ? runAnthropicPrompt(config, prompt)
-            : runOpenAICompatiblePrompt(config, prompt),
+            ? runAnthropicPrompt(config, prompt, abortSignal)
+            : runOpenAICompatiblePrompt(config, prompt, abortSignal),
         requestTimeoutMs,
         `${config.provider}/${config.model}`,
       );
@@ -214,14 +214,22 @@ function sleep(ms: number): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-export async function withEvalTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+
+export async function withEvalTimeout<T>(
+  operation: (abortSignal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      promise,
+      operation(controller.signal),
       new Promise<T>((_, reject) => {
         timer = setTimeout(() => {
-          reject(new Error(`Eval provider request timed out after ${timeoutMs}ms (${label}).`));
+          const reason = new Error(`Eval provider request timed out after ${timeoutMs}ms (${label}).`);
+          controller.abort(reason);
+          reject(reason);
         }, timeoutMs);
       }),
     ]);
@@ -256,16 +264,20 @@ function readApiKey(provider: EvalProvider): string {
 async function runGeminiPrompt(
   config: EvalProviderConfig,
   prompt: string,
+  abortSignal: AbortSignal,
 ): Promise<RawEvalRunResult> {
   const genai = new GoogleGenerativeAI(config.apiKey);
   const model = genai.getGenerativeModel({ model: config.model });
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: config.temperature,
-      maxOutputTokens: config.maxOutputTokens,
+  const result = await model.generateContent(
+    {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: config.temperature,
+        maxOutputTokens: config.maxOutputTokens,
+      },
     },
-  });
+    { signal: abortSignal },
+  );
 
   const usage = result.response.usageMetadata as
     | {
@@ -290,6 +302,7 @@ async function runGeminiPrompt(
 async function runOpenAICompatiblePrompt(
   config: EvalProviderConfig,
   prompt: string,
+  abortSignal: AbortSignal,
 ): Promise<RawEvalRunResult> {
   const baseUrl = config.provider === 'deepseek'
     ? process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com'
@@ -308,6 +321,7 @@ async function runOpenAICompatiblePrompt(
   const response = await fetch(endpoint, {
     method: 'POST',
     headers,
+    signal: abortSignal,
     body: JSON.stringify({
       model: config.model,
       messages: [{ role: 'user', content: prompt }],
@@ -353,12 +367,14 @@ interface AnthropicMessagesResponse {
 async function runAnthropicPrompt(
   config: EvalProviderConfig,
   prompt: string,
+  abortSignal: AbortSignal,
 ): Promise<RawEvalRunResult> {
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com';
   const endpoint = `${baseUrl.replace(/\/$/, '')}/v1/messages`;
 
   const response = await fetch(endpoint, {
     method: 'POST',
+    signal: abortSignal,
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': config.apiKey,
