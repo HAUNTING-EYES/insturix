@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/fetch-trends",
+      "schedule": "0 4 */3 * *"
+    },
+    {
       "path": "/api/cron/storage-overage",
       "schedule": "0 3 1 * *"
     },
