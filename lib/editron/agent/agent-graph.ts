@@ -77,8 +77,6 @@ async function loadCanonicalPostconditionProject(userId: string, projectId: stri
 }
 
 // Debug logging - ALWAYS enabled for debugging silent failure bug
-// TODO: Revert to DEBUG flag after fixing the issue
-const DEBUG = false; // process.env.DEBUG_AGENT === 'true';
 const debugLog = (...args: any[]) => { console.log('[AGENT-DEBUG]', ...args); };
 const debugWarn = (...args: any[]) => { console.warn('[AGENT-WARN]', ...args); };
 const debugError = (...args: any[]) => { console.error('[AGENT-ERROR]', ...args); }; // Errors always logged
