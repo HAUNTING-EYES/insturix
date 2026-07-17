@@ -34,8 +34,12 @@ import { z } from 'zod';
 export const MG_DESIGN_LANES = ['overlay-kit', 'illustrated-overlay', 'cutaway-scene'] as const;
 export type MgDesignLane = (typeof MG_DESIGN_LANES)[number];
 
-/** The anchor bar a moment's design aims at — self-declared by the designer, verified by the frame-armed judge. */
-export const MG_TARGET_BARS = ['vox-clarity', 'hormozi-energy', 'gadzhi-restraint'] as const;
+/** The QUALITY LENS a moment is judged through — clarity (does it read instantly), energy (is it alive), or
+ *  restraint (is it considered). LENSES, NOT STYLES (founder-corrected 2026-07-18): naming them after creators
+ *  made a 3-preset taxonomy — the exact Rule-11 failure one level up. A video's STYLE comes from its own 8-axis
+ *  style identity (the style resolver) + the brief's motif language; the lens only tells the judge which failure
+ *  mode matters most for THIS moment. Self-declared by the designer, verified by the frame-armed judge. */
+export const MG_TARGET_BARS = ['clarity', 'energy', 'restraint'] as const;
 export type MgTargetBar = (typeof MG_TARGET_BARS)[number];
 
 // ─── the element vocabulary — EXACTLY the kit's primitives (scan-safe by construction) ───

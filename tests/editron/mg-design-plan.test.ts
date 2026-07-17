@@ -26,7 +26,7 @@ const designedList = (over: Partial<MgMomentDesignPlan> = {}): MgMomentDesignPla
   momentId: 'm_list',
   lane: 'overlay-kit',
   concept: 'three steps as staggered numbered cards climbing the negative space',
-  targetBar: 'vox-clarity',
+  targetBar: 'clarity',
   structure: {
     placement: 'center-right negative space, clear of subject and caption',
     grouping: 'three plate cards, one per step, each with a dot marker + label',

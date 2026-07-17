@@ -54,17 +54,23 @@ every licensed moment. A coder renders exactly what you specify; a ruthless visu
 against genuine professional motion design. Design at that level or the work is rejected.
 </role>
 
-<the_bar>
-Every design must belong alongside professional motion design. Aim each moment at the ONE bar that fits it:
-- vox-clarity (data/explainer): editorial restraint, one purposeful accent, designed structure that reads
-  instantly — labelled maps, icon arrays, true-ratio charts, timelines. Clarity IS the aesthetic.
-- hormozi-energy (hook/hero): heavy condensed display type, one high-contrast accent word, word/beat-synced pops.
-  Alive, not merely tidy.
-- gadzhi-restraint (premium/subtle): muted premium palette, refined type, soft depth, gentle motion — small but
-  UNMISTAKABLY designed. Understatement with polish.
-The competitive floor: rival AI tools already ship polished, varied hooks. Styled text on a panel is below the
-floor everywhere.
-</the_bar>
+<quality_lenses>
+Every design must belong alongside professional motion design. Each moment declares the ONE lens it will be
+JUDGED through — a lens is a FAILURE MODE to defeat, never a style to copy:
+- clarity (data/explainer moments): does it read INSTANTLY? Designed structure — labelled scenes, icon arrays,
+  true-ratio figures, tracked timelines. Fails when it looks clever but does not read.
+- energy (hook/hero moments): is it ALIVE? Commanding type, one high-contrast accent, motion synced to the
+  speech. Fails when it is technically clean but lifeless.
+- restraint (premium/subtle moments): is it CONSIDERED? Small but unmistakably designed — refined type, soft
+  depth, deliberate negative space. Fails when it mistakes loud for good, or undesigned for quiet.
+The competitive floor under all three: rival AI tools already ship polished, varied hooks — styled text on a
+panel is below the floor everywhere.
+
+STYLE IS SOVEREIGN AND SEPARATE: the video's STYLE comes from its style identity in <video> (its position on the
+style axes — colour, type, density, surface, geometry, ornament, motion-character, composition) plus YOUR brief's
+motif language. Any style can pass any lens — a brutalist hook, a hand-drawn explainer, a neon list. Never
+converge on one aesthetic across videos; converge on the LEVEL.
+</quality_lenses>
 
 <design_rules>
 - FORM IS MANDATORY. A design whose elements are only text (headline/text/chip) with no imagery is AUTOMATICALLY
@@ -94,8 +100,8 @@ floor everywhere.
 <output_format>
 Return ONLY one JSON object, no prose, no markdown fences, exactly this shape:
 {"brief":{"styleName":string,"motifLanguage":string,"paletteMoves":string,"motionPersonality":string,"formVariety":string},
- "moments":[{"momentId":string,"lane":"overlay-kit"|"illustrated-overlay"|"cutaway-scene","concept":string,
-   "targetBar":"vox-clarity"|"hormozi-energy"|"gadzhi-restraint",
+ "moments":[{"momentId":string,"lane":${MG_DESIGN_LANES.map((l) => `"${l}"`).join('|')},"concept":string,
+   "targetBar":${MG_TARGET_BARS.map((b) => `"${b}"`).join('|')},
    "structure":{"placement":string,"grouping":string,"readingOrder":string},
    "elements":[{"kind":string,"role":string,"dataProps":[string],"hints":{string:string}?}],
    "imagery":{"scenePrompt":string,"mode":"still"|"motion","paletteDirection":string}?,
@@ -124,6 +130,52 @@ licensed moments (design EVERY one):
 ${input.moments.map(momentBlock).join('\n')}
 </video>`;
   return `${DESIGNER_STABLE_PREFIX}\n\n${video}`;
+}
+
+// ─── multimodal session parts (the director finally SEES the bar and the footage — audit fix, 2026-07-18) ───
+
+/** A provider-neutral prompt part; callers map to their provider's shape (gemini inlineData / OpenAI image_url). */
+export type MgDesignerPart = { kind: 'text'; text: string } | { kind: 'image'; mimeType: string; data: string };
+
+export interface MgDesignerSessionImages {
+  /** Professional reference stills — the LEVEL moodboard (never a style menu). */
+  moodboard?: Array<{ mimeType: string; data: string }>;
+  /** Actual frames from THIS video — the world the graphics live over/in. */
+  footageFrames?: Array<{ mimeType: string; data: string }>;
+}
+
+const MOODBOARD_FRAMING = `MOODBOARD — LEVEL REFERENCE ONLY: the following stills are genuine professional motion
+graphics. They show the LEVEL of design investment your plans must reach — structure, material, integration.
+Do NOT copy their compositions, layouts, palettes, subjects, or styles: your style comes from the video's style
+identity and your own brief. Match the LEVEL, never the look.`;
+
+const FOOTAGE_FRAMING = `FOOTAGE — THIS video's actual frames: design placements, palette harmony, and scene
+integration against what is really on screen. Do not copy incidental on-screen text or infer unlicensed facts.`;
+
+/**
+ * Assemble the full multimodal designer session: stable prefix → moodboard (level) → footage → the video context
+ * LAST. Text-only callers can keep using buildDesignerPrompt; this is the audit-corrected session — the director
+ * sees both the bar it is judged against and the footage it designs for.
+ */
+export function buildDesignerParts(input: MgDesignerInput, images: MgDesignerSessionImages = {}): MgDesignerPart[] {
+  const parts: MgDesignerPart[] = [{ kind: 'text', text: DESIGNER_STABLE_PREFIX }];
+  if (images.moodboard?.length) {
+    parts.push({ kind: 'text', text: MOODBOARD_FRAMING });
+    for (const [i, img] of images.moodboard.entries()) {
+      parts.push({ kind: 'text', text: `REFERENCE STILL ${i + 1} (level, not look)` });
+      parts.push({ kind: 'image', mimeType: img.mimeType, data: img.data });
+    }
+  }
+  if (images.footageFrames?.length) {
+    parts.push({ kind: 'text', text: FOOTAGE_FRAMING });
+    for (const [i, img] of images.footageFrames.entries()) {
+      parts.push({ kind: 'text', text: `FOOTAGE FRAME ${i + 1}` });
+      parts.push({ kind: 'image', mimeType: img.mimeType, data: img.data });
+    }
+  }
+  // The volatile video context stays LAST (Rule 35) — reuse the text builder's tail by slicing off the prefix.
+  parts.push({ kind: 'text', text: buildDesignerPrompt(input).slice(DESIGNER_STABLE_PREFIX.length) });
+  return parts;
 }
 
 /** Extract the design-plan JSON from a model response (tolerates fences/prose margins; parse errors throw —
