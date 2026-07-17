@@ -77,8 +77,13 @@ async function handler(request: NextRequest) {
       referenceAssetId: job.referenceAssetId,
       referenceVideoUrl: job.referenceVideoUrl,
       assetResolver,
+      youtubeMode: 'provider-direct',
     });
     if (!resolvedSource.ok) {
+      console.warn('[ThinkForge:TrendAnalysisWorker] Reference source rejected:', {
+        reason: resolvedSource.reason,
+        sourceKind: resolvedSource.sourceKind ?? job.sourceKind,
+      });
       return fail('source_rejected');
     }
 

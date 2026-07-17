@@ -128,6 +128,32 @@ describe('reference video source intake', () => {
     });
   });
 
+  it('lets model-native consumers use a canonical YouTube URL without invoking the asset importer', async () => {
+    const importer: ReferenceVideoYoutubeImporter = async () => {
+      throw new Error('The importer must not run in provider-direct mode.');
+    };
+
+    const result = await resolveReferenceVideoSource({
+      userId: 'user_123',
+      referenceVideoUrl: 'https://youtube.com/shorts/abc12345678?feature=share',
+      assetResolver: emptyAssetResolver(),
+      youtubeImporter: importer,
+      youtubeMode: 'provider-direct',
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      source: {
+        kind: 'remote-url',
+        referenceId: expect.stringMatching(/^ref_youtube_[a-f0-9]{16}$/),
+        videoUrl: 'https://www.youtube.com/watch?v=abc12345678',
+        sourceLabel: 'YouTube reference abc12345678',
+        sourceFingerprint: 'youtube|abc12345678',
+        asset: null,
+      },
+    });
+  });
+
   it('downloads and registers bounded YouTube references without live network calls', async () => {
     let selectedItag: number | undefined;
     let clipAttempted = false;

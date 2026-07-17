@@ -61,6 +61,7 @@ export interface ResolveReferenceVideoSourceInput {
   assetResolver: ReferenceVideoAssetResolver;
   dnsLookup?: ReferenceVideoDnsLookup;
   youtubeImporter?: ReferenceVideoYoutubeImporter;
+  youtubeMode?: 'import' | 'provider-direct';
 }
 
 export type ReferenceVideoDnsLookup = (
@@ -189,6 +190,20 @@ export async function resolveReferenceVideoSource(
   if (!validation.ok) return validation;
 
   if (validation.sourceKind === 'youtube-url') {
+    if (input.youtubeMode === 'provider-direct') {
+      return {
+        ok: true,
+        source: {
+          kind: 'remote-url',
+          referenceId: validation.referenceId,
+          videoUrl: validation.url.toString(),
+          sourceLabel: validation.sourceLabel,
+          sourceFingerprint: validation.sourceFingerprint,
+          asset: null,
+        },
+      };
+    }
+
     try {
       const imported = await (input.youtubeImporter ?? importYoutubeReferenceVideo)({
         userId: input.userId,
