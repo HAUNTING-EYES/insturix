@@ -1,14 +1,24 @@
-import { Client } from '@upstash/qstash';
-import { renderStillOnLambda, type RenderStillOnLambdaOutput } from '@remotion/lambda/client';
+import { createHash } from 'crypto';
 
-import { REMOTION_COMPOSITION_ID } from './remotion-constants';
+import { Client } from '@upstash/qstash';
+import {
+  getRenderProgress,
+  renderMediaOnLambda,
+  renderStillOnLambda,
+  type RenderStillOnLambdaOutput,
+} from '@remotion/lambda/client';
+
+import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from './remotion-constants';
 import {
   buildPhase0FixtureManifest,
   type Phase0FixtureProject,
   type Phase0RenderedAestheticReportLike,
   type Phase0RenderedQualityEvidencePayload,
 } from './phase0-fixture-manifest';
-import { buildPhase0RenderArtifactPack } from './phase0-render-artifact-pack';
+import {
+  buildPhase0RenderArtifactPack,
+  type Phase0RenderInput,
+} from './phase0-render-artifact-pack';
 import {
   buildPhase0RenderedAestheticEvidence,
   type ReadRenderedStillImage,
@@ -29,6 +39,52 @@ export interface Phase0RenderedEvidenceDispatchPayload {
   projectId: string;
   userId: string;
   requestedAt?: string;
+  chatEditVerification?: ChatEditRenderVerificationRequest;
+}
+
+export type ChatEditRenderVerificationModality = 'visual' | 'audio';
+
+export interface ChatEditRenderVerificationTarget {
+  overlayId: string;
+  overlayType: string;
+  state: 'created' | 'updated' | 'deleted';
+  from: number | null;
+  endFrame: number | null;
+}
+
+export interface ChatEditRenderVerificationRequest {
+  version: 'editron-chat-render-verification-v1';
+  operationId: string;
+  sessionId: string;
+  beforeCheckpointId: string;
+  afterCheckpointId: string;
+  requestedAt: string;
+  modalities: ChatEditRenderVerificationModality[];
+  targets: ChatEditRenderVerificationTarget[];
+  sampleFrames: number[];
+}
+
+export interface ChatEditRenderedAudioWindowEvidence {
+  startFrame: number;
+  endFrame: number;
+  beforeUrl: string | null;
+  afterUrl: string | null;
+  beforePcmSha256: string | null;
+  afterPcmSha256: string | null;
+  beforeRms: number | null;
+  afterRms: number | null;
+  beforePeak: number | null;
+  afterPeak: number | null;
+  changed: boolean;
+  error: string | null;
+}
+
+export interface ChatEditRenderedAudioEvidence {
+  version: 'editron-chat-rendered-audio-v1';
+  status: 'pass' | 'fail' | 'missing';
+  capturedAt: string;
+  windows: ChatEditRenderedAudioWindowEvidence[];
+  reason: string | null;
 }
 
 export interface Phase0RenderedEvidenceDispatchResult {
@@ -243,6 +299,8 @@ export async function buildPhase0RenderedStillEvidence(
     prepareCredentials?: () => Promise<void>;
     readImage?: ReadRenderedStillImage;
     env?: EnvLike;
+    requestedSampleFrames?: number[];
+    baselineProject?: Phase0FixtureProject;
   } = {},
 ): Promise<Phase0RenderedStillEvidence> {
   const capturedAt = options.capturedAt ?? new Date().toISOString();
@@ -255,7 +313,24 @@ export async function buildPhase0RenderedStillEvidence(
     artifactDir: `.calibration-temp/phase0-live/${safeSegment(manifest.projectId)}/${safeSegment(capturedAt)}`,
     maxSamples: config.sampleLimit,
   });
-  const requestedSampleFrames = artifactPack.samplePlan.sampledFrames.slice(0, config.sampleLimit);
+  const operationDurationInFrames = options.baselineProject
+    ? Math.max(
+        1,
+        finitePositiveNumber(project.durationInFrames) ?? 1,
+        finitePositiveNumber(options.baselineProject.durationInFrames) ?? 1,
+        ...(options.requestedSampleFrames ?? []).map((frame) => Number.isFinite(frame) ? Math.round(frame) + 1 : 1),
+      )
+    : Math.max(1, Math.round(finitePositiveNumber(project.durationInFrames) ?? 1));
+  const requestedSampleFrames = resolveRequestedSampleFrames({
+    requested: options.requestedSampleFrames,
+    fallback: artifactPack.samplePlan.sampledFrames,
+    durationInFrames: operationDurationInFrames,
+    sampleLimit: config.sampleLimit,
+  });
+  const operationRenderReady = Boolean(options.baselineProject)
+    && hasUsableOperationalRenderInput(artifactPack.renderInput);
+  const effectiveArtifactPackStatus: Phase0RenderedStillEvidence['artifactPackStatus'] = operationRenderReady
+    ? 'ready' : artifactPack.status;
 
   if (!config.configured) {
     return baseEvidence({
@@ -270,12 +345,12 @@ export async function buildPhase0RenderedStillEvidence(
     });
   }
 
-  if (artifactPack.status !== 'ready') {
+  if (effectiveArtifactPackStatus !== 'ready') {
     return baseEvidence({
       projectId: manifest.projectId,
       capturedAt,
       config,
-      artifactPackStatus: artifactPack.status,
+      artifactPackStatus: effectiveArtifactPackStatus,
       artifactPackIssues: artifactPack.issues,
       requestedSampleFrames,
       status: 'skipped',
@@ -288,24 +363,49 @@ export async function buildPhase0RenderedStillEvidence(
   const renderStill = options.renderStill ?? renderStillOnLambda;
   const renderedFrames: Phase0RenderedStillFrameEvidence[] = [];
   const failedFrames: Phase0RenderedStillEvidence['failedFrames'] = [];
-  const overlayOnlyInputProps = {
-    ...artifactPack.renderInput,
-    overlays: buildOverlayOnlyRenderOverlays(
-      artifactPack.renderInput.overlays,
-      artifactPack.renderInput.width,
-      artifactPack.renderInput.height,
-    ),
-    isRendering: true,
-  } as Record<string, unknown>;
-  const baselineInputProps = {
-    ...artifactPack.renderInput,
-    overlays: buildBaselineOverlays(
-      artifactPack.renderInput.overlays,
-      artifactPack.renderInput.width,
-      artifactPack.renderInput.height,
-    ),
-    isRendering: true,
-  } as Record<string, unknown>;
+  const operationBaselinePack = options.baselineProject
+    ? buildPhase0RenderArtifactPack(
+        options.baselineProject,
+        buildPhase0FixtureManifest(options.baselineProject, {
+          capturedAt,
+          source: 'phase0-rendered-evidence-worker',
+        }),
+        {
+          artifactDir: `.calibration-temp/phase0-live/${safeSegment(manifest.projectId)}/${safeSegment(capturedAt)}-before`,
+          maxSamples: config.sampleLimit,
+        },
+      )
+    : null;
+  const overlayOnlyInputProps = options.baselineProject
+    ? {
+        ...artifactPack.renderInput,
+        durationInFrames: operationDurationInFrames,
+        isRendering: true,
+      }
+    : {
+        ...artifactPack.renderInput,
+        overlays: buildOverlayOnlyRenderOverlays(
+          artifactPack.renderInput.overlays,
+          artifactPack.renderInput.width,
+          artifactPack.renderInput.height,
+        ),
+        isRendering: true,
+      };
+  const baselineInputProps = operationBaselinePack
+    ? {
+        ...operationBaselinePack.renderInput,
+        durationInFrames: operationDurationInFrames,
+        isRendering: true,
+      }
+    : {
+        ...artifactPack.renderInput,
+        overlays: buildBaselineOverlays(
+          artifactPack.renderInput.overlays,
+          artifactPack.renderInput.width,
+          artifactPack.renderInput.height,
+        ),
+        isRendering: true,
+      };
 
   for (const frame of requestedSampleFrames) {
     let fullStill: RenderStillOnLambdaOutput | null = null;
@@ -370,7 +470,7 @@ export async function buildPhase0RenderedStillEvidence(
       projectId: manifest.projectId,
       capturedAt,
       config,
-      artifactPackStatus: artifactPack.status,
+      artifactPackStatus: effectiveArtifactPackStatus,
       artifactPackIssues: artifactPack.issues,
       requestedSampleFrames,
       status,
@@ -423,6 +523,294 @@ export async function buildPhase0RenderedStillEvidence(
   }
 
   return evidence;
+}
+
+interface RenderedAudioArtifact {
+  url: string;
+  renderId: string;
+  bucketName: string;
+  pcmSha256: string;
+  rms: number;
+  peak: number;
+}
+
+type RenderAudioWindow = (input: {
+  inputProps: Record<string, unknown>;
+  startFrame: number;
+  endFrame: number;
+  config: ReturnType<typeof resolvePhase0RenderedEvidenceConfig>;
+}) => Promise<RenderedAudioArtifact>;
+
+export async function buildChatEditRenderedAudioEvidence(
+  project: Phase0FixtureProject,
+  baselineProject: Phase0FixtureProject,
+  request: ChatEditRenderVerificationRequest,
+  options: {
+    capturedAt?: string;
+    env?: EnvLike;
+    prepareCredentials?: () => Promise<void>;
+    renderAudioWindow?: RenderAudioWindow;
+  } = {},
+): Promise<ChatEditRenderedAudioEvidence> {
+  const capturedAt = options.capturedAt ?? new Date().toISOString();
+  const config = resolvePhase0RenderedEvidenceConfig(options.env);
+  const fps = finitePositiveNumber(project.fps) ?? 30;
+  const durationInFrames = Math.max(
+    1,
+    Math.round(finitePositiveNumber(project.durationInFrames) ?? 1),
+    Math.round(finitePositiveNumber(baselineProject.durationInFrames) ?? 1),
+    ...request.targets.map((target) => Math.max(target.from == null ? 0 : target.from + 1, target.endFrame ?? 0)),
+  );
+  const windows = buildChatEditAudioVerificationWindows({
+    targets: request.targets,
+    durationInFrames,
+    fps,
+    sampleLimit: config.sampleLimit,
+  });
+
+  if (!config.configured) {
+    return {
+      version: 'editron-chat-rendered-audio-v1',
+      status: 'missing',
+      capturedAt,
+      windows: [],
+      reason: config.reason ?? 'audio_render_not_configured',
+    };
+  }
+
+  const afterManifest = buildPhase0FixtureManifest(project, {
+    capturedAt,
+    source: 'phase0-rendered-evidence-worker',
+  });
+  const beforeManifest = buildPhase0FixtureManifest(baselineProject, {
+    capturedAt,
+    source: 'phase0-rendered-evidence-worker',
+  });
+  const afterPack = buildPhase0RenderArtifactPack(project, afterManifest, {
+    artifactDir: `.calibration-temp/chat-edit/${safeSegment(request.operationId)}/after`,
+    maxSamples: config.sampleLimit,
+  });
+  const beforePack = buildPhase0RenderArtifactPack(baselineProject, beforeManifest, {
+    artifactDir: `.calibration-temp/chat-edit/${safeSegment(request.operationId)}/before`,
+    maxSamples: config.sampleLimit,
+  });
+  if (
+    !hasUsableOperationalRenderInput(afterPack.renderInput)
+    || !hasUsableOperationalRenderInput(beforePack.renderInput)
+  ) {
+    return {
+      version: 'editron-chat-rendered-audio-v1',
+      status: 'missing',
+      capturedAt,
+      windows: [],
+      reason: `audio_artifact_pack_not_renderable:${[
+        ...afterPack.issues,
+        ...beforePack.issues,
+      ].slice(0, 4).join('|')}`,
+    };
+  }
+
+  await (options.prepareCredentials ?? setAWSCredentials)();
+  const renderAudioWindow = options.renderAudioWindow ?? renderLambdaAudioWindow;
+  const evidenceWindows: ChatEditRenderedAudioWindowEvidence[] = [];
+  for (const window of windows) {
+    try {
+      const [before, after] = await Promise.all([
+        renderAudioWindow({
+          inputProps: {
+            ...beforePack.renderInput,
+            durationInFrames,
+            isRendering: true,
+          },
+          startFrame: window.startFrame,
+          endFrame: window.endFrame,
+          config,
+        }),
+        renderAudioWindow({
+          inputProps: {
+            ...afterPack.renderInput,
+            durationInFrames,
+            isRendering: true,
+          },
+          startFrame: window.startFrame,
+          endFrame: window.endFrame,
+          config,
+        }),
+      ]);
+      evidenceWindows.push({
+        ...window,
+        beforeUrl: before.url,
+        afterUrl: after.url,
+        beforePcmSha256: before.pcmSha256,
+        afterPcmSha256: after.pcmSha256,
+        beforeRms: before.rms,
+        afterRms: after.rms,
+        beforePeak: before.peak,
+        afterPeak: after.peak,
+        changed: before.pcmSha256 !== after.pcmSha256,
+        error: null,
+      });
+    } catch (error: unknown) {
+      evidenceWindows.push({
+        ...window,
+        beforeUrl: null,
+        afterUrl: null,
+        beforePcmSha256: null,
+        afterPcmSha256: null,
+        beforeRms: null,
+        afterRms: null,
+        beforePeak: null,
+        afterPeak: null,
+        changed: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const failed = evidenceWindows.filter((window) => !window.changed || window.error);
+  return {
+    version: 'editron-chat-rendered-audio-v1',
+    status: evidenceWindows.length > 0 && failed.length === 0 ? 'pass' : 'fail',
+    capturedAt,
+    windows: evidenceWindows,
+    reason: failed.length === 0
+      ? null
+      : failed[0]?.error ?? 'rendered_audio_did_not_change_in_the_requested_window',
+  };
+}
+
+export function buildChatEditAudioVerificationWindows(input: {
+  targets: ChatEditRenderVerificationTarget[];
+  durationInFrames: number;
+  fps: number;
+  sampleLimit: number;
+}): Array<{ startFrame: number; endFrame: number }> {
+  const duration = Math.max(1, Math.round(input.durationInFrames));
+  const maxWindowFrames = Math.max(1, Math.round(input.fps * 6));
+  const candidates: Array<{ startFrame: number; endFrame: number }> = [];
+  const audioTargets = input.targets.filter((target) =>
+    ['audio', 'sound', 'video'].includes(target.overlayType.toLowerCase()),
+  );
+
+  for (const target of audioTargets) {
+    const start = clampFrame(target.from ?? 0, duration);
+    const end = Math.max(start + 1, Math.min(duration, Math.round(target.endFrame ?? duration)));
+    const length = end - start;
+    if (length <= maxWindowFrames) {
+      candidates.push({ startFrame: start, endFrame: end });
+      continue;
+    }
+    const midpoint = Math.round((start + end) / 2);
+    candidates.push(
+      { startFrame: start, endFrame: Math.min(end, start + maxWindowFrames) },
+      boundedWindowAround(midpoint, maxWindowFrames, duration),
+      { startFrame: Math.max(start, end - maxWindowFrames), endFrame: end },
+    );
+  }
+
+  if (candidates.length === 0) {
+    candidates.push({ startFrame: 0, endFrame: Math.min(duration, maxWindowFrames) });
+  }
+  const unique = new Map<string, { startFrame: number; endFrame: number }>();
+  for (const candidate of candidates) {
+    unique.set(`${candidate.startFrame}:${candidate.endFrame}`, candidate);
+  }
+  return Array.from(unique.values()).slice(0, Math.max(1, Math.min(12, input.sampleLimit)));
+}
+
+async function renderLambdaAudioWindow(input: {
+  inputProps: Record<string, unknown>;
+  startFrame: number;
+  endFrame: number;
+  config: ReturnType<typeof resolvePhase0RenderedEvidenceConfig>;
+}): Promise<RenderedAudioArtifact> {
+  const { renderId, bucketName } = await renderMediaOnLambda({
+    region: input.config.region as any,
+    functionName: input.config.functionName,
+    serveUrl: input.config.serveUrl,
+    composition: REMOTION_COMPOSITION_ID,
+    inputProps: input.inputProps,
+    codec: 'wav',
+    audioCodec: 'pcm-16',
+    privacy: 'public',
+    maxRetries: 1,
+    framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,
+    timeoutInMilliseconds: 600_000,
+    frameRange: [input.startFrame, Math.max(input.startFrame, input.endFrame - 1)],
+  });
+  const deadline = Date.now() + 8 * 60_000;
+  let outputFile = '';
+  while (Date.now() < deadline) {
+    const progress = await getRenderProgress({
+      renderId,
+      bucketName,
+      region: input.config.region as any,
+      functionName: input.config.functionName,
+      skipLambdaInvocation: true,
+    });
+    if (progress.fatalErrorEncountered) {
+      throw new Error(progress.errors?.[0]?.message ?? `Audio render ${renderId} failed.`);
+    }
+    if (progress.done) {
+      outputFile = String(progress.outputFile ?? '');
+      break;
+    }
+    await delay(1_500);
+  }
+  if (!outputFile) throw new Error(`Audio render ${renderId} did not finish before the verification deadline.`);
+
+  const response = await fetch(outputFile);
+  if (!response.ok) throw new Error(`Audio artifact download failed: ${response.status}`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const pcm = inspectPcm16Wav(bytes);
+  return {
+    url: outputFile,
+    renderId,
+    bucketName,
+    ...pcm,
+  };
+}
+
+function inspectPcm16Wav(bytes: Buffer): { pcmSha256: string; rms: number; peak: number } {
+  if (bytes.length < 44 || bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error('Rendered audio artifact is not a valid WAV file.');
+  }
+  let offset = 12;
+  let format = 0;
+  let bitsPerSample = 0;
+  let data: Buffer | null = null;
+  while (offset + 8 <= bytes.length) {
+    const id = bytes.toString('ascii', offset, offset + 4);
+    const size = bytes.readUInt32LE(offset + 4);
+    const start = offset + 8;
+    const end = Math.min(bytes.length, start + size);
+    if (id === 'fmt ' && end - start >= 16) {
+      format = bytes.readUInt16LE(start);
+      bitsPerSample = bytes.readUInt16LE(start + 14);
+    }
+    if (id === 'data') {
+      data = bytes.subarray(start, end);
+      break;
+    }
+    offset = start + size + (size % 2);
+  }
+  if (format !== 1 || bitsPerSample !== 16 || !data || data.length < 2) {
+    throw new Error('Rendered audio artifact is not PCM-16 WAV data.');
+  }
+
+  let energy = 0;
+  let peak = 0;
+  const sampleCount = Math.floor(data.length / 2);
+  for (let index = 0; index < sampleCount; index++) {
+    const normalized = data.readInt16LE(index * 2) / 32768;
+    energy += normalized * normalized;
+    peak = Math.max(peak, Math.abs(normalized));
+  }
+  return {
+    pcmSha256: createHash('sha256').update(data).digest('hex'),
+    rms: Math.sqrt(energy / sampleCount),
+    peak,
+  };
 }
 
 
@@ -652,6 +1040,49 @@ function clampSampleLimit(raw: string | undefined): number {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return 8;
   return Math.max(1, Math.min(24, Math.floor(parsed)));
+}
+
+function hasUsableOperationalRenderInput(input: Phase0RenderInput): boolean {
+  return finitePositiveNumber(input.width) !== null
+    && finitePositiveNumber(input.height) !== null
+    && finitePositiveNumber(input.fps) !== null
+    && finitePositiveNumber(input.durationInFrames) !== null
+    && Array.isArray(input.overlays);
+}
+
+function resolveRequestedSampleFrames(input: {
+  requested?: number[];
+  fallback: number[];
+  durationInFrames: number;
+  sampleLimit: number;
+}): number[] {
+  const duration = Math.max(1, Math.round(Number.isFinite(input.durationInFrames) ? input.durationInFrames : 1));
+  const source = input.requested?.length ? input.requested : input.fallback;
+  const frames = source
+    .filter((frame) => Number.isFinite(frame))
+    .map((frame) => clampFrame(frame, duration));
+  return Array.from(new Set(frames)).slice(0, input.sampleLimit);
+}
+
+function boundedWindowAround(frame: number, length: number, duration: number) {
+  const startFrame = Math.max(0, Math.min(duration - 1, Math.round(frame - length / 2)));
+  return {
+    startFrame,
+    endFrame: Math.min(duration, Math.max(startFrame + 1, startFrame + length)),
+  };
+}
+
+function clampFrame(frame: number, duration: number): number {
+  return Math.max(0, Math.min(Math.max(0, duration - 1), Math.round(frame)));
+}
+
+function finitePositiveNumber(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isExplicitlyFalse(value: string | undefined): boolean {

@@ -9,12 +9,18 @@ import {
   type ChatEditOperationUpdate,
   type RestoreProjectCheckpointResult,
 } from '@/lib/editron/services/checkpoint-service';
+import type {
+  ChatEditRenderVerificationModality,
+  ChatEditRenderVerificationRequest,
+  ChatEditRenderVerificationTarget,
+} from '@/lib/editron/services/phase0-rendered-evidence-worker';
 
 import { getChatToolMetadata } from './chat-tool-registry';
 
 export interface ChatAiToolCall {
   id?: string;
   name: string;
+  args?: unknown;
 }
 
 export interface ChatAiToolResult {
@@ -69,6 +75,7 @@ export interface ChatAiEditTransactionSummary {
   checkpointIds: string[];
   beforeCheckpointId: string;
   afterCheckpointId?: string;
+  renderVerification?: ChatEditRenderVerificationRequest;
   error?: string;
 }
 
@@ -187,12 +194,20 @@ export async function completeChatAiEditTransaction(
         afterCheckpointId: afterCheckpoint.checkpointId,
       },
     );
+    const renderVerification = buildChatEditRenderVerificationRequest({
+      transaction: input.transaction,
+      afterCheckpointId: afterCheckpoint.checkpointId,
+      project,
+      successfulCalls: batch.successfulCalls,
+    });
     return summary(
       input.transaction,
       'created',
       batch.successfulToolNames,
       [],
       afterCheckpoint.checkpointId,
+      undefined,
+      renderVerification,
     );
   } catch (error: unknown) {
     return rollbackChatAiEditTransaction({
@@ -251,6 +266,7 @@ function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiT
   const usedResults = new Set<number>();
   const successfulToolNames: string[] = [];
   const failedToolNames: string[] = [];
+  const successfulCalls: Array<{ call: ChatAiToolCall; result: ChatAiToolResult }> = [];
 
   for (const call of inferred) {
     const resultIndex = toolResults.findIndex((result, index) =>
@@ -262,8 +278,12 @@ function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiT
       continue;
     }
     usedResults.add(resultIndex);
-    const outcome = toolOutcome(toolResults[resultIndex].result);
-    if (outcome === 'success') successfulToolNames.push(call.name);
+    const matchedResult = toolResults[resultIndex];
+    const outcome = toolOutcome(matchedResult.result);
+    if (outcome === 'success') {
+      successfulToolNames.push(call.name);
+      successfulCalls.push({ call, result: matchedResult });
+    }
     if (outcome === 'failed') failedToolNames.push(call.name);
   }
 
@@ -271,7 +291,165 @@ function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiT
     attemptedToolNames: unique(inferred.map((call) => call.name)),
     successfulToolNames: unique(successfulToolNames),
     failedToolNames: unique(failedToolNames),
+    successfulCalls,
   };
+}
+
+export function buildChatEditRenderVerificationRequest(input: {
+  transaction: ChatAiEditTransaction;
+  afterCheckpointId: string;
+  project: Record<string, unknown>;
+  successfulCalls: Array<{ call: ChatAiToolCall; result: ChatAiToolResult }>;
+  requestedAt?: string;
+}): ChatEditRenderVerificationRequest {
+  const targetsByKey = new Map<string, ChatEditRenderVerificationTarget>();
+  const modalitySet = new Set<ChatEditRenderVerificationModality>();
+
+  for (const successful of input.successfulCalls) {
+    const receipt = readPassedPostconditionReceipt(successful.result.result);
+    const targets = receipt?.targets ?? [];
+    for (const target of targets) {
+      targetsByKey.set(`${target.overlayId}:${target.state}`, target);
+    }
+    for (const modality of inferMutationModalities(successful.call, targets, receipt?.modalities)) {
+      modalitySet.add(modality);
+    }
+  }
+
+  const targets = Array.from(targetsByKey.values());
+  if (modalitySet.size === 0) modalitySet.add('visual');
+  const durationInFrames = Math.max(1, Math.round(finitePositiveNumber(input.project.durationInFrames) ?? 1));
+  const sampleFrames = buildVerificationSampleFrames(targets, durationInFrames);
+
+  return {
+    version: 'editron-chat-render-verification-v1',
+    operationId: input.transaction.operationId,
+    sessionId: input.transaction.sessionId,
+    beforeCheckpointId: input.transaction.beforeCheckpointId,
+    afterCheckpointId: input.afterCheckpointId,
+    requestedAt: input.requestedAt ?? new Date().toISOString(),
+    modalities: Array.from(modalitySet),
+    targets,
+    sampleFrames,
+  };
+}
+
+function readPassedPostconditionReceipt(result: unknown): {
+  targets: ChatEditRenderVerificationTarget[];
+  modalities: ChatEditRenderVerificationModality[];
+} | null {
+  const envelope = parseToolResult(result);
+  const data = asRecord(envelope?.data);
+  const receipt = asRecord(data.postconditionVerification);
+  if (receipt.version !== 'editron-chat-postcondition-v1' || receipt.status !== 'pass') return null;
+
+  const targets = Array.isArray(receipt.affectedTargets)
+    ? receipt.affectedTargets.flatMap((value) => {
+        const target = asRecord(value);
+        const state = target.state;
+        if (!['created', 'updated', 'deleted'].includes(String(state))) return [];
+        const overlayId = String(target.overlayId ?? '').trim();
+        if (!overlayId) return [];
+        return [{
+          overlayId,
+          overlayType: String(target.overlayType ?? 'unknown'),
+          state: state as ChatEditRenderVerificationTarget['state'],
+          from: finiteNumberOrNull(target.from),
+          endFrame: finiteNumberOrNull(target.endFrame),
+        }];
+      })
+    : [];
+  const renderVerification = asRecord(receipt.renderVerification);
+  const modalities = Array.isArray(renderVerification.modalities)
+    ? renderVerification.modalities.filter(
+        (value): value is ChatEditRenderVerificationModality => value === 'visual' || value === 'audio',
+      )
+    : [];
+  return { targets, modalities };
+}
+
+function inferMutationModalities(
+  call: ChatAiToolCall,
+  targets: ChatEditRenderVerificationTarget[],
+  declared: ChatEditRenderVerificationModality[] = [],
+): ChatEditRenderVerificationModality[] {
+  const targetTypes = new Set(targets.map((target) => target.overlayType.toLowerCase()));
+  const argumentKeys = collectObjectKeys(call.args);
+  const hasExplicitAudioArgument = [...argumentKeys].some((key) => [
+    'audio', 'volume', 'muted', 'mute', 'startfromsound', 'fadein', 'fadeout',
+    'ducking', 'soundoverlayid', 'musicprompt', 'bgm', 'speed',
+  ].includes(key));
+  const hasExplicitVisualArgument = [...argumentKeys].some((key) => [
+    'x', 'y', 'left', 'top', 'width', 'height', 'scale', 'opacity', 'rotation',
+    'content', 'text', 'styles', 'fontsize', 'color', 'backgroundcolor', 'keyframes',
+  ].includes(key));
+  const isTimelineMutation = [
+    'split_overlay', 'trim_overlay', 'cut_section', 'close_gaps',
+    'auto_edit_from_script', 'apply_editorial_intent',
+  ].includes(call.name);
+  const inferred = new Set<ChatEditRenderVerificationModality>();
+
+  if ([...targetTypes].some((type) => type !== 'audio' && type !== 'sound')) inferred.add('visual');
+  if (targetTypes.has('audio') || targetTypes.has('sound')) inferred.add('audio');
+  if (targetTypes.has('video')) {
+    if (!hasExplicitAudioArgument || hasExplicitVisualArgument) inferred.add('visual');
+    if (hasExplicitAudioArgument || isTimelineMutation || !hasExplicitVisualArgument) inferred.add('audio');
+  }
+  if (targets.length === 0 || isTimelineMutation) {
+    for (const modality of declared) inferred.add(modality);
+  }
+  if (hasExplicitAudioArgument) inferred.add('audio');
+  if (hasExplicitVisualArgument) inferred.add('visual');
+  return Array.from(inferred);
+}
+
+export function buildChatEditRenderVerificationStatusMessage(result: {
+  dispatched: boolean;
+  reason?: string;
+}): string {
+  if (result.dispatched) {
+    return 'The edit was saved and its state checks passed. I am rendering the affected visual and audio regions now; I am not marking it successful until that verification finishes.';
+  }
+  const reason = String(result.reason ?? 'render verification is unavailable')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .slice(0, 240);
+  return `The edit was saved and its state checks passed, but rendered verification could not start (${reason}). I am not marking this edit as successful.`;
+}
+
+function buildVerificationSampleFrames(
+  targets: ChatEditRenderVerificationTarget[],
+  projectDurationInFrames: number,
+): number[] {
+  const targetDurationInFrames = targets.reduce((maximum, target) => Math.max(
+    maximum,
+    target.from == null ? 0 : target.from + 1,
+    target.endFrame ?? 0,
+  ), 0);
+  const durationInFrames = Math.max(1, projectDurationInFrames, targetDurationInFrames);
+  const frames: number[] = [];
+  for (const target of targets) {
+    if (target.from == null) continue;
+    const start = clampFrame(target.from, durationInFrames);
+    const end = clampFrame(Math.max(start, (target.endFrame ?? start + 1) - 1), durationInFrames);
+    frames.push(start, Math.round((start + end) / 2), end);
+  }
+  if (frames.length === 0) {
+    frames.push(0, Math.floor((durationInFrames - 1) / 2), durationInFrames - 1);
+  }
+  return Array.from(new Set(frames)).slice(0, 12);
+}
+
+function collectObjectKeys(value: unknown, output = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) {
+    for (const entry of value) collectObjectKeys(entry, output);
+    return output;
+  }
+  if (!value || typeof value !== 'object') return output;
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    output.add(key.toLowerCase());
+    collectObjectKeys(entry, output);
+  }
+  return output;
 }
 
 function toolOutcome(result: unknown): 'success' | 'advisory' | 'failed' {
@@ -290,6 +468,26 @@ function parseToolResult(result: unknown): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function finiteNumberOrNull(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function finitePositiveNumber(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function clampFrame(frame: number, durationInFrames: number): number {
+  return Math.max(0, Math.min(durationInFrames - 1, Math.round(frame)));
 }
 
 async function resolveServices(dependencies: RuntimeDependencies) {
@@ -323,6 +521,7 @@ function summary(
   failedToolNames: string[],
   afterCheckpointId?: string,
   error?: string,
+  renderVerification?: ChatEditRenderVerificationRequest,
 ): ChatAiEditTransactionSummary {
   return {
     status,
@@ -334,6 +533,7 @@ function summary(
       : [transaction.beforeCheckpointId],
     beforeCheckpointId: transaction.beforeCheckpointId,
     afterCheckpointId,
+    renderVerification,
     error,
   };
 }

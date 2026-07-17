@@ -11,11 +11,14 @@ import {
   resolveChatAiEditRestoreTarget,
 } from '@/lib/editron/agent/chat-ai-edit-transactions';
 import {
+  buildChatEditRenderVerificationStatusMessage,
   completeChatAiEditTransaction,
   prepareChatAiEditTransaction,
   rollbackChatAiEditTransaction,
   type ChatAiEditTransaction,
 } from '@/lib/editron/agent/chat-ai-edit-transaction-runtime';
+import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
+import type { ChatEditRenderVerificationRequest } from '@/lib/editron/services/phase0-rendered-evidence-worker';
 import { checkRateLimit } from '@/lib/editron/utils/rate-limiter';
 import { CreditsService } from '@/lib/services/creditsService';
 import { TokenTracker } from '@/lib/editron/utils/token-tracker';
@@ -72,6 +75,47 @@ function appendCheckpointContextForAgent(content: string, checkpointIds?: string
 
   const separator = content.trim() ? '\n\n' : '';
   return `${content}${separator}[AI edit checkpoint context: ${parts.join('; ')}. Restore beforeCheckpointId to return to the state before this assistant edit. Restore afterCheckpointId only to return to the state after this assistant edit.]`;
+}
+
+async function persistChatEditVerificationDispatch(input: {
+  projectId: string;
+  userId: string;
+  request: ChatEditRenderVerificationRequest;
+  result: { dispatched: boolean; reason?: string; messageId?: string };
+}) {
+  const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
+  const db = await getDatabase();
+  const now = new Date();
+  const record = {
+    version: 'editron-chat-render-verification-result-v1',
+    operationId: input.request.operationId,
+    sessionId: input.request.sessionId,
+    beforeCheckpointId: input.request.beforeCheckpointId,
+    afterCheckpointId: input.request.afterCheckpointId,
+    status: input.result.dispatched ? 'pending' : 'error',
+    requestedAt: input.request.requestedAt,
+    startedAt: null,
+    completedAt: input.result.dispatched ? null : now.toISOString(),
+    modalities: input.request.modalities,
+    targets: input.request.targets,
+    sampleFrames: input.request.sampleFrames,
+    visual: null,
+    audio: null,
+    reasons: input.result.dispatched ? [] : [String(input.result.reason ?? 'render_verification_dispatch_failed').slice(0, 500)],
+    dispatchMessageId: input.result.messageId ?? null,
+    notificationStatus: 'pending',
+    notificationSentAt: null,
+  };
+  await Promise.all([
+    db.collection(COLLECTIONS.CHECKPOINTS).updateOne(
+      { checkpointId: input.request.beforeCheckpointId, projectId: input.projectId, userId: input.userId },
+      { $set: { chatEditRenderVerification: record, updatedAt: now } },
+    ),
+    db.collection(COLLECTIONS.PROJECTS).updateOne(
+      { projectId: input.projectId, userId: input.userId },
+      { $set: { 'intelligence.latestChatEditRenderVerification': record } },
+    ),
+  ]);
 }
 
 export async function POST(req: NextRequest) {
@@ -283,6 +327,7 @@ export async function POST(req: NextRequest) {
     // Run agent in background with streaming
     (async () => {
       let transactionSettled = false;
+      let mutatingToolStarted = false;
       try {
         const inputs = {
           messages: [
@@ -300,8 +345,11 @@ export async function POST(req: NextRequest) {
           console.log(`[STREAM-ROUTE] Callback #${callbackInvocationCount}:`, chunk.type, chunk.type === 'token' ? chunk.data.content?.substring(0, 50) : chunk.data.tool);
           
           if (chunk.type === 'token') {
-            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: chunk.data.content })}\n\n`));
+            if (!mutatingToolStarted) {
+              await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: chunk.data.content })}\n\n`));
+            }
           } else if (chunk.type === 'tool_start') {
+            if (getChatToolMetadata(chunk.data.tool)?.mutatesProject === true) mutatingToolStarted = true;
             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_start', tool: chunk.data.tool, id: chunk.data.id, args: chunk.data.args })}\n\n`));
           } else if (chunk.type === 'tool_end') {
             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_end', tool: chunk.data.tool, id: chunk.data.id, output: chunk.data.output })}\n\n`));
@@ -396,10 +444,41 @@ export async function POST(req: NextRequest) {
           throw new Error(`AI edit was rolled back: ${editTransactionSummary.error ?? 'a mutating tool failed'}`);
         }
 
+        let renderVerificationDispatch: { dispatched: boolean; reason?: string; messageId?: string } | undefined;
+        let persistedResponse = finalResponse;
+        if (editTransactionSummary.status === 'created' && editTransactionSummary.renderVerification) {
+          try {
+            const { dispatchPhase0RenderedEvidenceJob } = await import(
+              '@/lib/editron/services/phase0-rendered-evidence-worker'
+            );
+            renderVerificationDispatch = await dispatchPhase0RenderedEvidenceJob({
+              projectId,
+              userId,
+              requestedAt: editTransactionSummary.renderVerification.requestedAt,
+              chatEditVerification: editTransactionSummary.renderVerification,
+            });
+          } catch (error: unknown) {
+            renderVerificationDispatch = {
+              dispatched: false,
+              reason: error instanceof Error ? error.message : String(error),
+            };
+          }
+          await persistChatEditVerificationDispatch({
+            projectId,
+            userId,
+            request: editTransactionSummary.renderVerification,
+            result: renderVerificationDispatch,
+          });
+          persistedResponse = buildChatEditRenderVerificationStatusMessage(renderVerificationDispatch);
+        }
+        if (mutatingToolStarted) {
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: persistedResponse })}\n\n`));
+        }
+
         // Save assistant response with tool info
         await chatService.saveMessage(actualSessionId, userId, projectId, {
           role: 'assistant',
-          content: finalResponse,
+          content: persistedResponse,
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
           toolResults: toolResults.length > 0 ? toolResults : undefined,
           checkpointIds: editTransactionSummary.checkpointIds.length > 0 ? editTransactionSummary.checkpointIds : undefined,
@@ -426,6 +505,7 @@ export async function POST(req: NextRequest) {
           type: 'done', 
           sessionId: actualSessionId,
           aiEditTransaction: editTransactionSummary,
+          renderVerificationDispatch,
           creditsConsumed: Math.round(creditsConsumed * 100) / 100,
           tokensUsed,
         })}\n\n`));

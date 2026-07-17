@@ -1,0 +1,362 @@
+import { describe, expect, it, vi } from 'vitest';
+
+vi.hoisted(() => {
+  process.env.MONGODB_URI ??= 'mongodb://localhost:27017/editron-test';
+  process.env.MONGODB_DB_NAME ??= 'editron-test';
+});
+
+vi.mock('@/lib/editron/services/asset-resolver', () => ({
+  assetResolver: {
+    stripUrlsForLLM: <T>(overlays: T[]) => structuredClone(overlays),
+    resolveProjectAssets: async <T>(overlays: T[]) => structuredClone(overlays),
+  },
+}));
+
+import { OverlayType } from '../../components/editron/editor/version-7.0.0/types';
+import {
+  buildChatEditRenderVerificationRequest,
+  buildChatEditRenderVerificationStatusMessage,
+} from '../../lib/editron/agent/chat-ai-edit-transaction-runtime';
+import {
+  buildChatEditAudioVerificationWindows,
+  buildChatEditRenderedAudioEvidence,
+  buildPhase0RenderedStillEvidence,
+  type ChatEditRenderVerificationRequest,
+} from '../../lib/editron/services/phase0-rendered-evidence-worker';
+import type { RawRenderedStillImage } from '../../lib/editron/services/phase0-rendered-aesthetic-scoring';
+
+describe('chat edit rendered verification', () => {
+  it('derives exact targets, sample frames, and visual modality from a passed state receipt', () => {
+    const request = buildRequest({
+      name: 'update_overlay',
+      args: { overlayId: 'txt_1', text: 'Verified copy' },
+      target: { overlayId: 'txt_1', overlayType: 'text', state: 'updated', from: 30, endFrame: 90 },
+      modalities: ['visual'],
+    });
+
+    expect(request.modalities).toEqual(['visual']);
+    expect(request.targets).toEqual([
+      { overlayId: 'txt_1', overlayType: 'text', state: 'updated', from: 30, endFrame: 90 },
+    ]);
+    expect(request.sampleFrames).toEqual([30, 60, 89]);
+  });
+
+  it('preserves deleted tail frames when the resulting project is shorter', () => {
+    const request = buildRequest({
+      name: 'delete_overlay',
+      args: { overlayId: 'tail_1' },
+      target: { overlayId: 'tail_1', overlayType: 'video', state: 'deleted', from: 240, endFrame: 300 },
+      modalities: ['visual', 'audio'],
+      projectDurationInFrames: 180,
+    });
+
+    expect(request.sampleFrames).toEqual([240, 270, 299]);
+  });
+
+  it('requires both visual and audio proof for timeline mutations on a video', () => {
+    const request = buildRequest({
+      name: 'trim_overlay',
+      args: { overlayId: 'video_1', startFrame: 45, endFrame: 150 },
+      target: { overlayId: 'video_1', overlayType: 'video', state: 'updated', from: 0, endFrame: 150 },
+      modalities: ['visual'],
+    });
+
+    expect(new Set(request.modalities)).toEqual(new Set(['visual', 'audio']));
+  });
+
+  it('renders the exact requested frame from immutable before and after project states', async () => {
+    const renderStill = vi.fn(async (input: any) => {
+      const isAfter = input.inputProps.overlays.some((overlay: any) => overlay.id === 'txt_after');
+      const kind = isAfter ? 'after' : 'before';
+      return {
+        estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+        url: `https://example.com/${kind}-f${input.frame}.png`,
+        outKey: `chat/${kind}-f${input.frame}.png`,
+        bucketName: 'render-bucket',
+        renderId: `${kind}-${input.frame}`,
+        cloudWatchLogs: 'https://logs.example.com',
+        sizeInBytes: 512,
+        artifacts: [],
+      };
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(afterProject(), {
+      baselineProject: beforeProject(),
+      requestedSampleFrames: [45],
+      capturedAt: '2026-07-17T00:00:00.000Z',
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async (url) => renderedImage(url.includes('/after-')),
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.status, evidence.statusReason ?? evidence.artifactPackIssues.join('|')).toBe('completed');
+    expect(evidence.requestedSampleFrames).toEqual([45]);
+    expect(renderStill).toHaveBeenCalledTimes(2);
+    expect(renderStill.mock.calls.map((call) => call[0].frame)).toEqual([45, 45]);
+    expect(evidence.renderedFrames[0]).toMatchObject({
+      frame: 45,
+      url: 'https://example.com/after-f45.png',
+      baselineUrl: 'https://example.com/before-f45.png',
+    });
+  });
+
+  it('renders shortened before and after timelines on a shared absolute duration', async () => {
+    const renderStill = vi.fn(async (input: any) => ({
+      estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+      url: `https://example.com/${input.inputProps.overlays.some((overlay: any) => overlay.id === 'tail_1') ? 'before' : 'after'}-f${input.frame}.png`,
+      outKey: `chat/f${input.frame}.png`,
+      bucketName: 'render-bucket',
+      renderId: `render-${input.frame}`,
+      cloudWatchLogs: 'https://logs.example.com',
+      sizeInBytes: 512,
+      artifacts: [],
+    }));
+    const before = projectWithOverlays([{
+      id: 'tail_1',
+      type: OverlayType.TEXT,
+      from: 240,
+      durationInFrames: 60,
+      left: 60,
+      top: 60,
+      width: 200,
+      height: 60,
+      content: 'Tail title',
+      styles: { fontSize: '32px', color: '#ffffff' },
+    }]);
+    const after = {
+      ...projectWithOverlays([]),
+      durationInFrames: 180,
+      overlays: projectWithOverlays([]).overlays.map((overlay) => ({
+        ...overlay,
+        durationInFrames: 180,
+      })),
+    };
+
+    const evidence = await buildPhase0RenderedStillEvidence(after, {
+      baselineProject: before,
+      requestedSampleFrames: [270],
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async (url) => renderedImage(url.includes('/after-')),
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.status, evidence.statusReason ?? 'no reason').toBe('completed');
+    expect(renderStill.mock.calls.map((call) => call[0].inputProps.durationInFrames)).toEqual([300, 300]);
+    expect(renderStill.mock.calls.map((call) => call[0].frame)).toEqual([270, 270]);
+  });
+
+  it('passes audio proof only when rendered PCM changes inside every requested window', async () => {
+    const request = audioRequest();
+    const renderAudioWindow = vi.fn(async (input: any) => {
+      const isAfter = input.inputProps.overlays.some((overlay: any) => overlay.id === 'sound_after');
+      return {
+        url: `https://example.com/${isAfter ? 'after' : 'before'}.wav`,
+        renderId: isAfter ? 'after-render' : 'before-render',
+        bucketName: 'render-bucket',
+        pcmSha256: isAfter ? 'after-pcm' : 'before-pcm',
+        rms: isAfter ? 0.4 : 0.1,
+        peak: isAfter ? 0.8 : 0.2,
+      };
+    });
+
+    const evidence = await buildChatEditRenderedAudioEvidence(
+      afterProject(),
+      beforeProject(),
+      request,
+      {
+        capturedAt: '2026-07-17T00:00:00.000Z',
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        renderAudioWindow,
+      },
+    );
+
+    expect(evidence.status, evidence.reason ?? 'no reason').toBe('pass');
+    expect(evidence.windows).toEqual([
+      expect.objectContaining({
+        startFrame: 30,
+        endFrame: 120,
+        beforePcmSha256: 'before-pcm',
+        afterPcmSha256: 'after-pcm',
+        changed: true,
+      }),
+    ]);
+  });
+
+  it('fails closed when the before and after audio render to identical PCM', async () => {
+    const evidence = await buildChatEditRenderedAudioEvidence(
+      afterProject(),
+      beforeProject(),
+      audioRequest(),
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        renderAudioWindow: async () => ({
+          url: 'https://example.com/same.wav',
+          renderId: 'same-render',
+          bucketName: 'render-bucket',
+          pcmSha256: 'same-pcm',
+          rms: 0.2,
+          peak: 0.5,
+        }),
+      },
+    );
+
+    expect(evidence.status, evidence.reason ?? 'no reason').toBe('fail');
+    expect(evidence.reason).toBe('rendered_audio_did_not_change_in_the_requested_window');
+  });
+
+  it('bounds long audio targets into distributed verification windows', () => {
+    expect(buildChatEditAudioVerificationWindows({
+      targets: [{ overlayId: 'sound_1', overlayType: 'sound', state: 'updated', from: 0, endFrame: 900 }],
+      durationInFrames: 900,
+      fps: 30,
+      sampleLimit: 12,
+    })).toEqual([
+      { startFrame: 0, endFrame: 180 },
+      { startFrame: 360, endFrame: 540 },
+      { startFrame: 720, endFrame: 900 },
+    ]);
+  });
+
+  it('never reports model success before the rendered job proves it', () => {
+    expect(buildChatEditRenderVerificationStatusMessage({ dispatched: true }))
+      .toContain('not marking it successful until that verification finishes');
+    expect(buildChatEditRenderVerificationStatusMessage({ dispatched: false, reason: 'missing worker' }))
+      .toContain('not marking this edit as successful');
+  });
+});
+
+function buildRequest(input: {
+  name: string;
+  args: Record<string, unknown>;
+  target: ChatEditRenderVerificationRequest['targets'][number];
+  modalities: ChatEditRenderVerificationRequest['modalities'];
+  projectDurationInFrames?: number;
+}) {
+  return buildChatEditRenderVerificationRequest({
+    transaction: {
+      operationId: 'op_render_verify_1',
+      sessionId: 'sess_render_verify_1',
+      projectId: 'proj_render_verify_1',
+      userId: 'user_render_verify_1',
+      beforeCheckpointId: 'ckpt_before_render_verify_1',
+    },
+    afterCheckpointId: 'ckpt_after_render_verify_1',
+    project: { durationInFrames: input.projectDurationInFrames ?? 300 },
+    requestedAt: '2026-07-17T00:00:00.000Z',
+    successfulCalls: [{
+      call: { id: 'call_1', name: input.name, args: input.args },
+      result: {
+        toolCallId: 'call_1',
+        toolName: input.name,
+        result: JSON.stringify({
+          status: 'success',
+          data: {
+            postconditionVerification: {
+              version: 'editron-chat-postcondition-v1',
+              status: 'pass',
+              affectedTargets: [input.target],
+              renderVerification: { modalities: input.modalities },
+            },
+          },
+        }),
+      },
+    }],
+  });
+}
+
+function audioRequest(): ChatEditRenderVerificationRequest {
+  return {
+    version: 'editron-chat-render-verification-v1',
+    operationId: 'op_audio_verify_1',
+    sessionId: 'sess_audio_verify_1',
+    beforeCheckpointId: 'ckpt_before_audio_verify_1',
+    afterCheckpointId: 'ckpt_after_audio_verify_1',
+    requestedAt: '2026-07-17T00:00:00.000Z',
+    modalities: ['audio'],
+    targets: [{ overlayId: 'sound_after', overlayType: 'sound', state: 'created', from: 30, endFrame: 120 }],
+    sampleFrames: [30, 75, 119],
+  };
+}
+
+function configuredEnv() {
+  return {
+    REMOTION_LAMBDA_FUNCTION_NAME: 'phase0-fn',
+    REMOTION_LAMBDA_SERVE_URL: 'https://remotion-site.example.com',
+    REMOTION_AWS_REGION: 'us-east-1',
+    EDITRON_PHASE0_RENDERED_EVIDENCE_MAX_SAMPLES: '12',
+  };
+}
+
+function beforeProject() {
+  return projectWithOverlays([]);
+}
+
+function afterProject() {
+  return projectWithOverlays([
+    {
+      id: 'txt_after',
+      type: OverlayType.TEXT,
+      from: 30,
+      durationInFrames: 60,
+      left: 60,
+      top: 60,
+      width: 200,
+      height: 60,
+      content: 'Verified copy',
+      styles: { fontSize: '32px', color: '#ffffff' },
+    },
+    {
+      id: 'sound_after',
+      type: OverlayType.SOUND,
+      from: 30,
+      durationInFrames: 90,
+      src: 'https://example.com/sound.mp3',
+      volume: 1,
+    },
+  ]);
+}
+
+function projectWithOverlays(extraOverlays: Record<string, unknown>[]) {
+  return {
+    projectId: 'proj_render_verify_1',
+    durationInFrames: 300,
+    fps: 30,
+    playerDimensions: { width: 320, height: 180 },
+    overlays: [
+      {
+        id: 'video_1',
+        type: OverlayType.VIDEO,
+        from: 0,
+        durationInFrames: 300,
+        left: 0,
+        top: 0,
+        width: 320,
+        height: 180,
+        src: 'https://example.com/video.mp4',
+      },
+      ...extraOverlays,
+    ],
+  };
+}
+
+function renderedImage(changed: boolean): RawRenderedStillImage {
+  const width = 320;
+  const height = 180;
+  const channels = 4;
+  const data = Buffer.alloc(width * height * channels);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const offset = (y * width + x) * channels;
+      const highlighted = changed && x >= 60 && x < 260 && y >= 60 && y < 120;
+      data[offset] = highlighted ? 240 : 12;
+      data[offset + 1] = highlighted ? 240 : 12;
+      data[offset + 2] = highlighted ? 240 : 12;
+      data[offset + 3] = 255;
+    }
+  }
+  return { width, height, channels, data };
+}
