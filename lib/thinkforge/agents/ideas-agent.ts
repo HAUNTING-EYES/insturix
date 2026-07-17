@@ -14,17 +14,12 @@
 
 import { z } from 'zod';
 import { StructuredAgent, type AgentConfig } from './base-agent';
-import type { AgentInput, AgentStructuredOutput } from './types';
+import type { AgentInput } from './types';
 import type { IdeaCardData } from '../state/types';
 
 // =============================================================================
 // SCHEMA DEFINITIONS
 // =============================================================================
-
-const VALID_PLATFORMS = [
-  'YouTube', 'Instagram', 'TikTok', 'LinkedIn', 'Twitter/X',
-  'Reddit', 'Medium', 'Blog', 'Podcast', 'Newsletter', 'Facebook', 'Pinterest',
-] as const;
 
 const IdeaSchema = z.object({
   id: z.string(),
