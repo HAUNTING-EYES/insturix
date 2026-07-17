@@ -10,6 +10,7 @@
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput } from './types';
 import { z } from 'zod';
+import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
 
 const AtomicFactSchema = z.object({
   fact: z.string(),
@@ -50,9 +51,7 @@ export class IngestorAgent extends StructuredAgent<IngestorResult> {
     });
   }
 
-  buildPrompt(input: AgentInput): string {
-    const { context, userPrompt } = input;
-
+  private buildTrustedInstruction(): string {
     // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
     return `<role>You are the Ingestor, a multi-modal research scout for a creative studio tool.</role>
 
@@ -70,11 +69,30 @@ export class IngestorAgent extends StructuredAgent<IngestorResult> {
 - Return valid JSON matching the schema.
 </rules>
 
-<input_data>
-${context.projectSummary ? `Project context: ${context.projectSummary}` : ''}
-${context.systemBrief ? `Brand/DataBank context: ${context.systemBrief}` : ''}
-Content to deconstruct: ${userPrompt}
-</input_data>`;
+<runtime_data_contract>
+Read project context, Brand Vault/DataBank context, and content to deconstruct only from tf_untrusted_data.data.
+</runtime_data_contract>`;
+  }
+
+  buildPrompt(input: AgentInput): string {
+    const parts = this.buildPromptParts(input);
+    return `${parts.systemInstruction}\n\n${parts.prompt}`;
+  }
+
+  buildPromptParts({ context, userPrompt }: AgentInput): IsolatedPromptParts {
+    return buildIsolatedPromptParts({
+      systemInstruction: this.applyGlobalConstraints(this.buildTrustedInstruction()),
+      data: {
+        projectSummary: context.projectSummary || null,
+        brandContext: context.systemBrief || null,
+        contentToDeconstruct: userPrompt,
+      },
+      fieldLimits: {
+        projectSummary: 12_000,
+        brandContext: 24_000,
+        contentToDeconstruct: 32_000,
+      },
+    });
   }
 
   async deconstruct(
