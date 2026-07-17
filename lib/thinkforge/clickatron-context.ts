@@ -128,6 +128,27 @@ function enumValue<T extends readonly string[]>(value: unknown, values: T, fallb
   return text && (values as readonly string[]).includes(text) ? text as T[number] : fallback;
 }
 
+function normalizeClickatronPlatform(value: unknown): ClickatronPlatform | undefined {
+  const platform = toNonEmptyString(value)?.toLowerCase();
+  if (!platform) return undefined;
+  if (platform.includes("instagram")) return "instagram";
+  if (platform.includes("linkedin")) return "linkedin";
+  if (platform === "x" || platform.includes("twitter")) return "x";
+  if (platform.includes("facebook")) return "facebook";
+  if (platform.includes("youtube")) return "youtube";
+  if (platform.includes("tiktok")) return "tiktok";
+  if (platform.includes("pinterest")) return "pinterest";
+  return "generic";
+}
+
+function defaultClickatronAspectRatio(platform: ClickatronPlatform): string {
+  if (platform === "instagram") return "4:5";
+  if (platform === "pinterest") return "2:3";
+  if (platform === "youtube") return "16:9";
+  if (platform === "linkedin" || platform === "facebook" || platform === "x") return "1.91:1";
+  return "1:1";
+}
+
 export function findClickatronCreativeSpecInBlocks(blocks?: ThinkForgeBlock[] | null): ClickatronCreativeSpec | undefined {
   if (!Array.isArray(blocks)) return undefined;
   for (const block of blocks) {
@@ -363,6 +384,7 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
   const choices = input.userVisualChoices || {};
   const writerOutput = toPlainRecord(input.writerOutput);
   const writerType = toNonEmptyString(writerOutput?.writerType);
+  const writerMetadata = toPlainRecord(writerOutput?.writerMetadata);
   
   const carouselPrompts = Array.isArray(visualPrompts.carouselPrompts)
     ? visualPrompts.carouselPrompts.filter((prompt): prompt is string => typeof prompt === "string" && prompt.trim().length > 0)
@@ -393,16 +415,27 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
     .filter((t: unknown): t is string => typeof t === "string" && t.trim().length > 0)
     .map((t: string) => `Do not use visible text "${t}".`);
 
-  let kind: ClickatronCreativeKind = "single_post_visual";
+  const contractKind = input.projectMeta?.contentContract?.outputKind === "carousel"
+    ? "carousel"
+    : input.projectMeta?.contentContract?.outputKind === "social_post"
+      ? "single_post_visual"
+      : undefined;
+  let kind: ClickatronCreativeKind = contractKind || "single_post_visual";
   if (choices.kind) {
     kind = enumValue(choices.kind, ["single_post_visual", "carousel"] as const, "single_post_visual");
-  } else if (hasCarousel || (hasScene && writerType !== "script")) {
+  } else if (!contractKind && (hasCarousel || (hasScene && writerType !== "script"))) {
     kind = "carousel";
   }
 
   const wantsCarousel = kind === "carousel";
-  const platform = enumValue(choices.platform, CLICKATRON_PLATFORMS, "generic");
-  const aspectRatio = toNonEmptyString(choices.aspectRatio) || toNonEmptyString(input.aspectRatio) || "1:1";
+  const platform = choices.platform
+    ? enumValue(choices.platform, CLICKATRON_PLATFORMS, "generic")
+    : normalizeClickatronPlatform(writerMetadata?.platform)
+      || normalizeClickatronPlatform(input.projectMeta?.platform)
+      || "generic";
+  const aspectRatio = toNonEmptyString(choices.aspectRatio)
+    || toNonEmptyString(input.aspectRatio)
+    || defaultClickatronAspectRatio(platform);
   const visualMode = enumValue(choices.visualMode, CLICKATRON_VISUAL_MODES, "text_forward_graphic");
   const textDensity = enumValue(choices.textDensity, CLICKATRON_TEXT_DENSITIES, "medium");
   const textPolicy: ClickatronTextPolicy = textDensity === "none" ? "no_generated_text" : "editable_text_layers";
@@ -535,9 +568,20 @@ export function buildVisibleContentClickatronCreativeSpec(input: ThinkToClickCon
   if (summary.sourceBlockIds.length === 0 || !summary.visibleText) return undefined;
 
   const choices = input.userVisualChoices || {};
-  const kind = enumValue(choices.kind, ["single_post_visual", "carousel"] as const, "single_post_visual");
-  const platform = enumValue(choices.platform, CLICKATRON_PLATFORMS, "generic");
-  const aspectRatio = toNonEmptyString(choices.aspectRatio) || toNonEmptyString(input.aspectRatio) || "1:1";
+  const contractKind = input.projectMeta?.contentContract?.outputKind === "carousel"
+    ? "carousel"
+    : input.projectMeta?.contentContract?.outputKind === "social_post"
+      ? "single_post_visual"
+      : undefined;
+  const kind = choices.kind
+    ? enumValue(choices.kind, ["single_post_visual", "carousel"] as const, "single_post_visual")
+    : contractKind || "single_post_visual";
+  const platform = choices.platform
+    ? enumValue(choices.platform, CLICKATRON_PLATFORMS, "generic")
+    : normalizeClickatronPlatform(input.projectMeta?.platform) || "generic";
+  const aspectRatio = toNonEmptyString(choices.aspectRatio)
+    || toNonEmptyString(input.aspectRatio)
+    || defaultClickatronAspectRatio(platform);
   const visualMode = enumValue(choices.visualMode, CLICKATRON_VISUAL_MODES, "text_forward_graphic");
   const textDensity = enumValue(choices.textDensity, CLICKATRON_TEXT_DENSITIES, "medium");
   const textPolicy: ClickatronTextPolicy = textDensity === "none" ? "no_generated_text" : "editable_text_layers";

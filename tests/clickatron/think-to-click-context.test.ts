@@ -419,6 +419,73 @@ describe("ThinkForge to Clickatron context", () => {
     expect((context.metadata.thinkforge as Record<string, unknown>).signalTrace).toBeUndefined();
   });
 
+  it("uses the persisted document contract for writer handoff until the user explicitly overrides it", () => {
+    const blocks: ThinkForgeBlock[] = Array.from({ length: 6 }, (_, index) => ({
+      id: `blk_carousel_${index + 1}`,
+      kind: "paragraph",
+      content: [{ type: "text", text: `Carousel slide ${index + 1} copy`, styles: {} }],
+    }));
+    const input = {
+      sessionId: "tf_instagram_carousel",
+      scriptId: "script_instagram_carousel",
+      title: "Brand consistency carousel",
+      blocks,
+      projectMeta: {
+        platform: "Instagram",
+        contentContract: {
+          version: 1,
+          documentKind: "post" as const,
+          outputKind: "carousel" as const,
+          artifactType: "carousel_deck" as const,
+        },
+      },
+      writerOutput: {
+        writerType: "post",
+        writerMetadata: { platform: "instagram" },
+        visualPrompts: {
+          carouselPrompts: Array.from(
+            { length: 6 },
+            (_, index) => `Detailed on-brand visual prompt for carousel slide ${index + 1}.`,
+          ),
+        },
+      },
+    };
+
+    const automatic = buildThinkToClickContext(input);
+    const automaticSpec = (automatic.metadata.clickatron as { creativeSpec: ClickatronCreativeSpec }).creativeSpec;
+
+    expect(automaticSpec).toMatchObject({
+      kind: "carousel",
+      platform: "instagram",
+      aspectRatio: "4:5",
+      assetIntent: "carousel",
+    });
+    expect(automaticSpec.renderPlan.slides).toHaveLength(6);
+    expect(automatic.sessionDraft).toMatchObject({
+      kind: "carousel",
+      platform: "instagram",
+      aspectRatio: "4:5",
+    });
+
+    const overridden = buildThinkToClickContext({
+      ...input,
+      userVisualChoices: {
+        kind: "single_post_visual",
+        platform: "linkedin",
+        aspectRatio: "1:1",
+      },
+    });
+    const overriddenSpec = (overridden.metadata.clickatron as { creativeSpec: ClickatronCreativeSpec }).creativeSpec;
+
+    expect(overriddenSpec).toMatchObject({
+      kind: "single_post_visual",
+      platform: "linkedin",
+      aspectRatio: "1:1",
+      assetIntent: "post_graphic",
+    });
+    expect(overriddenSpec.renderPlan.slides).toBeUndefined();
+  });
+
   it("derives review-required carousel slides when writer output only has a single image prompt", () => {
     const blocks: ThinkForgeBlock[] = [
       {

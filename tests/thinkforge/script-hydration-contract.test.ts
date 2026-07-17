@@ -122,4 +122,15 @@ describe('ThinkForge script hydration contract', () => {
     expect(exportHook).toContain('body: JSON.stringify(clickatronContextRequestBody)');
     expect(exportHook).toContain('resolvedClickatronContext?.key === clickatronContextRequestKey');
   });
+  it('treats Clickatron controls as explicit overrides instead of fake initial selections', () => {
+    const dialog = read('components/dashboard/ThinkForge/export/ClickatronHandoffDialog.tsx');
+    const panel = read('components/dashboard/ThinkForge/export/ClickatronHandoffPanel.tsx');
+
+    expect(dialog).toContain('useState<ThinkToClickUserVisualChoices>({})');
+    expect(dialog).not.toContain('DEFAULT_VISUAL_CHOICES');
+    expect(panel).toContain('const resolvedVisualChoices = display?.visualChoices');
+    expect(panel).toContain('visualChoices.kind || resolvedVisualChoices?.kind || display?.kind');
+    expect(panel).toContain('visualChoices.platform || resolvedVisualChoices?.platform || display?.platform');
+    expect(panel).toContain('visualChoices.aspectRatio || resolvedVisualChoices?.aspectRatio || display?.aspectRatio');
+  });
 });

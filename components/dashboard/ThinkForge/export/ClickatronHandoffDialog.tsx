@@ -34,14 +34,6 @@ interface ClickatronHandoffDialogProps {
   title?: string;
 }
 
-const DEFAULT_VISUAL_CHOICES: ThinkToClickUserVisualChoices = {
-  kind: "single_post_visual",
-  platform: "linkedin",
-  aspectRatio: "1:1",
-  visualMode: "text_forward_graphic",
-  textDensity: "medium",
-};
-
 export function ClickatronHandoffDialog({
   open,
   onOpenChange,
@@ -51,7 +43,7 @@ export function ClickatronHandoffDialog({
   title,
 }: ClickatronHandoffDialogProps) {
   const createClickatronSession = useClickatronStore((state) => state.createSession);
-  const [visualChoices, setVisualChoices] = useState<ThinkToClickUserVisualChoices>(DEFAULT_VISUAL_CHOICES);
+  const [visualChoices, setVisualChoices] = useState<ThinkToClickUserVisualChoices>({});
   const [resolvedContext, setResolvedContext] = useState<ThinkToClickContext | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -244,7 +236,7 @@ export function ClickatronHandoffDialog({
             {creating
               ? "Creating Session"
               : canSend
-                ? visualChoices.kind === "carousel" ? "Send Carousel" : "Send Post"
+                ? (visualChoices.kind || handoffState?.display.kind) === "carousel" ? "Send Carousel" : "Send Post"
                 : handoffState?.display.statusLabel || "Handoff unavailable"}
           </button>
         </div>
