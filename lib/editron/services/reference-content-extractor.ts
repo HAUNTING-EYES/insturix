@@ -73,6 +73,12 @@ export async function extractReferenceAnalysis(
   userId: string,
   sourceName?: string,
 ): Promise<ReferenceAnalysis> {
+  // Kick off deterministic cut detection (Modal ffmpeg worker) in PARALLEL with the Gemini upload+call
+  // below — the worker downloads the URL itself, so it OVERLAPS rather than adds latency (matters for
+  // the 120s Vercel budget). Never throws; null ⇒ keep Gemini's (fabricated) cut estimate + log loudly.
+  const sceneService = await import('./scene-detection-service');
+  const scenesPromise = sceneService.detectScenesRemote(videoUrl).catch(() => null);
+
   // Upload to Gemini Files API
   const { default: uploadVideoToGemini } = await importUploader();
   const fileUri = await uploadVideoToGemini(videoUrl);
@@ -138,6 +144,21 @@ export async function extractReferenceAnalysis(
     },
     graphicsDensity: parsed.editDNA?.graphicsDensity || 'moderate',
   };
+
+  // Override the LLM's fabricated cut rhythm with deterministic ffmpeg cuts (objective/subjective split).
+  // Gemini scores F1 0.66 on cut timing; the worker is ground truth. Degrade + log if it's unavailable.
+  const scenes = await scenesPromise;
+  const cutOverride = scenes ? sceneService.cutDetectionToCutRhythm(scenes) : null;
+  if (cutOverride) {
+    const geminiCpm = dna.cutRhythm.avgCutsPerMinute;
+    dna.cutRhythm.avgCutsPerMinute = cutOverride.avgCutsPerMinute;
+    dna.cutRhythm.avgClipDuration = cutOverride.avgClipDuration;
+    dna.pacing.overall = cutOverride.pacingOverall;
+    dna.pacing.mainSpeed = cutOverride.pacingOverall;
+    console.log(`[RefExtractor] Deterministic cuts: ${scenes!.cuts.length} → ${cutOverride.avgCutsPerMinute.toFixed(1)}/min (Gemini said ${geminiCpm.toFixed(1)}), pacing=${cutOverride.pacingOverall}`);
+  } else {
+    console.warn('[RefExtractor] ⚠️ Deterministic scene-detect unavailable — keeping Gemini cut estimate (may be fabricated)');
+  }
 
   // Normalize contentMap
   const contentMap: ReferenceScene[] = (parsed.contentMap || []).map((s: any, i: number) => ({
