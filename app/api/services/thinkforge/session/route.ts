@@ -23,12 +23,14 @@ export async function POST(req: Request) {
   }
 
   let sessionId: string | undefined;
+  let scriptId: string | undefined;
   let projectMeta: ProjectMeta | undefined;
   let claimInitialDraft = false;
 
   try {
     const body = await req.json();
     sessionId = body?.sessionId ? String(body.sessionId) : undefined;
+    scriptId = body?.scriptId ? String(body.scriptId) : undefined;
     projectMeta = body?.projectMeta;
     claimInitialDraft = body?.claimInitialDraft === true;
   } catch {
@@ -104,7 +106,7 @@ export async function POST(req: Request) {
     }
 
     // Load script for session
-    const script = await db.getScript(session._id);
+    const script = await db.getScript(session._id, scriptId);
 
     // Load chat history (last 50 messages)
     const chat = await db.getChatHistory(session._id, 50);
@@ -120,9 +122,16 @@ export async function POST(req: Request) {
       projectMeta: session.projectMeta || {},
       preferences,
       script: script ? {
+        sessionId: script.sessionId,
+        scriptId: script.scriptId || scriptId || 'default',
         title: script.title,
         content: script.content,
-        blocks: script.blocks || []
+        blocks: script.blocks || [],
+        richText: script.richText,
+        metadata: script.metadata || {},
+        version: script.version,
+        documentType: script.documentType,
+        contentContract: script.contentContract,
       } : null,
       activeGeneration: session.activeGeneration || null,
       chat

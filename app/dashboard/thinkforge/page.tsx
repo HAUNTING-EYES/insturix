@@ -130,7 +130,7 @@ export default function ThinkForgeLanding() {
 	const session = useThinkForgeSession();
 	const activeSessionId = pendingSessionId || session.sessionId;
 	const [tabsRefreshCounter, setTabsRefreshCounter] = useState(0);
-	const scriptHook = useThinkForgeScript(activeSessionId, activeScriptId);
+	const scriptHook = useThinkForgeScript(activeSessionId, activeScriptId, session.hydratedScriptSnapshot);
 
 	useEffect(() => {
 		if (activeSessionId) {
@@ -852,7 +852,7 @@ export default function ThinkForgeLanding() {
 						setLibraryOpen(false);
 						setOpeningSession(true);
 						// Hydrate backend with target session and immediately use returned data
-						const data = await session.hydrate({ sessionId: id });
+						const data = await session.hydrate({ sessionId: id, scriptId: 'default' });
 						if (!data) { setOpeningSession(false); return; }
 						const sid = data.sessionId;
 						setPendingSessionId(sid);
@@ -1001,7 +1001,7 @@ export default function ThinkForgeLanding() {
 						scriptHook.resetSessionState();
 						setOpeningSession(true);
 						// Hydrate backend with target session and immediately use returned data
-						const data = await session.hydrate({ sessionId: id });
+						const data = await session.hydrate({ sessionId: id, scriptId: 'default' });
 						if (!data) { setOpeningSession(false); return; }
 						const sid = data.sessionId;
 						setPendingSessionId(sid);
@@ -1058,7 +1058,7 @@ export default function ThinkForgeLanding() {
 						scriptHook.resetSessionState();
 
 						// Hydrate the session from content card
-						const data = await session.hydrate({ sessionId });
+						const data = await session.hydrate({ sessionId, scriptId: 'default' });
 						if (data?.sessionId) {
 							setPendingSessionId(data.sessionId);
 							scriptHook.resetSessionState();

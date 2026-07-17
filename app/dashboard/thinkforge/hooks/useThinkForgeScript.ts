@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sanitizeServerScript } from "@/lib/thinkforge/json";
-import type { ScriptModel } from "./useThinkForgeSession";
+import type { HydratedScriptSnapshot, ScriptModel } from "./useThinkForgeSession";
 import {
   matchesThinkForgeDocumentIdentity,
   stampThinkForgeDocumentIdentity,
@@ -23,7 +23,25 @@ function saveLocal(sessionId: string, scriptId: string, data: Partial<{ script: 
   }
 }
 
-export function useThinkForgeScript(sessionId: string | null, scriptId: string | null) {
+export function resolveHydratedScriptSnapshot(
+  snapshot: HydratedScriptSnapshot | null | undefined,
+  expected: { sessionId: string; scriptId: string },
+): { key: string; script: ScriptModel | null } | undefined {
+  if (!snapshot || snapshot.sessionId !== expected.sessionId || snapshot.scriptId !== expected.scriptId) {
+    return undefined;
+  }
+  if (snapshot.script && !matchesThinkForgeDocumentIdentity(snapshot.script, expected)) return undefined;
+  return {
+    key: `${snapshot.sessionId}:${snapshot.scriptId}:${snapshot.revision}`,
+    script: snapshot.script,
+  };
+}
+
+export function useThinkForgeScript(
+  sessionId: string | null,
+  scriptId: string | null,
+  hydratedScriptSnapshot?: HydratedScriptSnapshot | null,
+) {
   const [script, setScript] = useState<ScriptModel | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -37,6 +55,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
   const isSavingRef = useRef(false);
   const sessionIdRef = useRef<string | null>(sessionId);
   const scriptIdRef = useRef<string | null>(scriptId);
+  const consumedHydrationSnapshotsRef = useRef(new Set<string>());
 
   const resetPendingSaves = useCallback(() => {
     if (saveTimerRef.current) {
@@ -52,7 +71,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
     setIsSaving(false);
   }, []);
 
-  // Load script from the server when sessionId/scriptId changes; cache is offline fallback only
+  // Load the exact document identity. A fresh hydrate snapshot wins once; cache paints while the server revalidates.
   useEffect(() => {
     sessionIdRef.current = sessionId;
     scriptIdRef.current = scriptId;
@@ -72,6 +91,18 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
 
     const effectiveScriptId = scriptId || 'default';
     const activeIdentity = { sessionId, scriptId: effectiveScriptId };
+    const hydratedSnapshot = resolveHydratedScriptSnapshot(hydratedScriptSnapshot, activeIdentity);
+    if (hydratedSnapshot && !consumedHydrationSnapshotsRef.current.has(hydratedSnapshot.key)) {
+      consumedHydrationSnapshotsRef.current.add(hydratedSnapshot.key);
+      setScript(hydratedSnapshot.script);
+      setIsLoading(false);
+      lastSavedSnapshotRef.current = JSON.stringify(hydratedSnapshot.script || {});
+      if (hydratedSnapshot.script) {
+        saveLocal(sessionId, effectiveScriptId, { script: hydratedSnapshot.script });
+      }
+      return;
+    }
+
     let cachedScript: ScriptModel | null = null;
 
     try {
@@ -79,7 +110,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
       const raw = localStorage.getItem(key);
       if (raw) {
         const cached = JSON.parse(raw);
-        if (cached?.script && cached.script.title && cached.script.title !== 'Untitled Script') {
+        if (cached?.script) {
           cachedScript = stampThinkForgeDocumentIdentity(
             cached.script as Record<string, any>,
             activeIdentity,
@@ -87,7 +118,13 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
         }
       }
     } catch {
-      // Ignore cache errors. Server remains the source of truth.
+      // Ignore malformed cache entries. Server remains the source of truth.
+    }
+
+    if (cachedScript) {
+      setScript(cachedScript);
+      setIsLoading(false);
+      lastSavedSnapshotRef.current = JSON.stringify(cachedScript);
     }
 
     let cancelled = false;
@@ -122,7 +159,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
       }
     })();
     return () => { cancelled = true; };
-  }, [sessionId, scriptId, resetPendingSaves]);
+  }, [sessionId, scriptId, hydratedScriptSnapshot, resetPendingSaves]);
 
   const performSave = useCallback(async (
     scriptToSave: ScriptModel | null,

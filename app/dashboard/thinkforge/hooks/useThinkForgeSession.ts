@@ -1,17 +1,23 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
 import { sanitizeServerScript } from "@/lib/thinkforge/json";
+import { stampThinkForgeDocumentIdentity } from "@/lib/thinkforge/client-document-identity";
 
 // Canonical type definitions - single source of truth for session types
 export type Block = any;
 export type ScriptModel = {
+  sessionId?: string;
+  scriptId?: string;
   title?: string | null;
   outline?: string | null;
   content?: string | null;
   blocks?: Block[] | null;
+  richText?: Record<string, any> | null;
   version?: number;
+  documentType?: string;
+  contentContract?: Record<string, any>;
   metadata?: {
     workflow?: string;
     thoughts?: string;
@@ -41,6 +47,7 @@ const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours TTL for cached sessions
 export type HydratePayload = {
   userId?: string;
   sessionId?: string;
+  scriptId?: string;
   projectMeta?: Record<string, any>;
 };
 
@@ -51,6 +58,13 @@ export type HydrateResponse = {
   projectMeta: Record<string, any>;
   script?: ScriptModel | null;
   chat: any[];
+};
+
+export type HydratedScriptSnapshot = {
+  sessionId: string;
+  scriptId: string;
+  revision: number;
+  script: ScriptModel | null;
 };
 
 type CachedSession = Partial<HydrateResponse & { script: ScriptModel }> & {
@@ -96,6 +110,9 @@ export function useThinkForgeSession() {
   const [preferences, setPreferences] = useState<Record<string, any>>({});
   const [projectMeta, setProjectMeta] = useState<Record<string, any>>({});
   const [isHydrating, setIsHydrating] = useState(false);
+  const [hydratedScriptSnapshot, setHydratedScriptSnapshot] = useState<HydratedScriptSnapshot | null>(null);
+  const hydrationRevisionRef = useRef(0);
+  const hydrationAbortControllerRef = useRef<AbortController | null>(null);
 
   // Recover last session on mount
   useEffect(() => {
@@ -115,8 +132,16 @@ export function useThinkForgeSession() {
     }
   }, []);
 
+  useEffect(() => () => {
+    hydrationAbortControllerRef.current?.abort();
+  }, []);
+
   const hydrate = useCallback(async (payload?: HydratePayload): Promise<HydrateResponse | null> => {
+    hydrationAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    hydrationAbortControllerRef.current = controller;
     setIsHydrating(true);
+    setHydratedScriptSnapshot(null);
     const isCreateNew = !!(payload && !payload.sessionId && payload.projectMeta);
 
     // If we're explicitly creating a new session, clear any stale state before requesting
@@ -136,6 +161,7 @@ export function useThinkForgeSession() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
+        signal: controller.signal,
         body: JSON.stringify(payload || {}),
       });
       if (!res.ok) {
@@ -161,10 +187,33 @@ export function useThinkForgeSession() {
         }
         throw new Error(`Hydrate failed: ${res.status}`);
       }
-      const data: HydrateResponse = await res.json();
+      const rawData: HydrateResponse = await res.json();
+      if (controller.signal.aborted || hydrationAbortControllerRef.current !== controller) return null;
+
+      const effectiveScriptId = rawData.script?.scriptId || payload?.scriptId || 'default';
+      const sanitizedScript = rawData.script
+        ? stampThinkForgeDocumentIdentity({
+            ...sanitizeServerScript(rawData.script),
+            content: typeof rawData.script.content === 'string' ? rawData.script.content : null,
+            richText: rawData.script.richText ?? null,
+            documentType: rawData.script.documentType,
+            contentContract: rawData.script.contentContract,
+          }, {
+            sessionId: rawData.sessionId,
+            scriptId: effectiveScriptId,
+          }) as ScriptModel
+        : null;
+      const data: HydrateResponse = { ...rawData, script: sanitizedScript };
       setSessionId(data.sessionId);
       setPreferences(data.preferences || {});
       setProjectMeta(data.projectMeta || {});
+      hydrationRevisionRef.current += 1;
+      setHydratedScriptSnapshot({
+        sessionId: data.sessionId,
+        scriptId: effectiveScriptId,
+        revision: hydrationRevisionRef.current,
+        script: sanitizedScript,
+      });
       
       // Cache
       localStorage.setItem(LS_CURRENT_SESSION, data.sessionId);
@@ -175,6 +224,7 @@ export function useThinkForgeSession() {
       saveLocal(data.sessionId, cachePayload);
       return data;
     } catch (e) {
+      if (controller.signal.aborted || hydrationAbortControllerRef.current !== controller) return null;
       console.error('[useThinkForgeSession] Hydration error:', e);
       if (isCreateNew) {
         try { localStorage.removeItem(LS_CURRENT_SESSION); } catch (lsErr) { console.warn('[useThinkForgeSession] localStorage cleanup failed:', lsErr); }
@@ -194,12 +244,17 @@ export function useThinkForgeSession() {
       }
       return null;
     } finally {
-      setIsHydrating(false);
+      if (hydrationAbortControllerRef.current === controller) {
+        hydrationAbortControllerRef.current = null;
+        setIsHydrating(false);
+      }
     }
   }, [router]);
 
   const closeSession = useCallback(async () => {
     try {
+      hydrationAbortControllerRef.current?.abort();
+      hydrationAbortControllerRef.current = null;
       if (sessionId) {
         localStorage.removeItem(LS_CURRENT_SESSION);
         try { localStorage.removeItem(`${LS_SESSION_PREFIX}${sessionId}`); } catch (e) { console.warn('[useThinkForgeSession] Failed to remove session cache:', e); }
@@ -207,6 +262,8 @@ export function useThinkForgeSession() {
       setSessionId(null);
       setPreferences({});
       setProjectMeta({});
+      setHydratedScriptSnapshot(null);
+      setIsHydrating(false);
     } catch (e) {
       console.error('[useThinkForgeSession] closeSession error:', e);
     }
@@ -254,6 +311,7 @@ export function useThinkForgeSession() {
             setSessionId(null);
             setPreferences({});
             setProjectMeta({});
+            setHydratedScriptSnapshot(null);
           }
         }
         
@@ -273,6 +331,7 @@ export function useThinkForgeSession() {
     preferences,
     projectMeta,
     setProjectMeta,
+    hydratedScriptSnapshot,
     isHydrating,
     hydrate,
     closeSession,
