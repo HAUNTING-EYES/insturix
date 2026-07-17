@@ -6,20 +6,24 @@ const mocks = vi.hoisted(() => ({
   deductCredits: vi.fn(),
   deleteScript: vi.fn(),
   getChatHistory: vi.fn(),
+  getOrCreateSession: vi.fn(),
   getScript: vi.fn(),
   getSession: vi.fn(),
+  getUserPreferences: vi.fn(),
   listChatThreads: vi.fn(),
   refundCredits: vi.fn(),
   reviseDocument: vi.fn(),
   saveScriptWithVersion: vi.fn(),
 }));
 
-vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
+vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth, clerkClient: vi.fn() }));
 vi.mock('@/lib/thinkforge/services/db', () => ({
   deleteScript: mocks.deleteScript,
   getChatHistory: mocks.getChatHistory,
+  getOrCreateSession: mocks.getOrCreateSession,
   getScript: mocks.getScript,
   getSession: mocks.getSession,
+  getUserPreferences: mocks.getUserPreferences,
   listChatThreads: mocks.listChatThreads,
   saveScriptWithVersion: mocks.saveScriptWithVersion,
 }));
@@ -28,6 +32,14 @@ vi.mock('@/lib/services/creditsMiddleware', () => ({
 }));
 vi.mock('@/lib/thinkforge/services/flat-writer-edit', () => ({
   reviseDocumentViaFlatWriter: mocks.reviseDocument,
+}));
+vi.mock('@/lib/editron/services/project-service', () => ({
+  projectService: { createScriptStageProject: vi.fn() },
+}));
+vi.mock('@/lib/shared/project-links', () => ({
+  addProjectToLinkBySessionId: vi.fn(),
+  createProjectLink: vi.fn(),
+  findLinkBySessionId: vi.fn(),
 }));
 
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
@@ -111,6 +123,15 @@ async function callAiEditRoutes() {
   ]);
 }
 
+async function callSessionHydrate() {
+  const { POST } = await import('@/app/api/services/thinkforge/session/route');
+  return POST(new Request('http://localhost/api/services/thinkforge/session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sessionId: 'session_requested', scriptId: 'script_2' }),
+  }));
+}
+
 describe('ThinkForge session route authorization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -121,8 +142,16 @@ describe('ThinkForge session route authorization', () => {
       orgId: 'org_1',
     });
     mocks.getChatHistory.mockResolvedValue([]);
+    mocks.getOrCreateSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: {},
+      activeGeneration: null,
+    });
     mocks.listChatThreads.mockResolvedValue([]);
     mocks.getScript.mockResolvedValue(null);
+    mocks.getUserPreferences.mockResolvedValue({ tone: 'direct' });
     mocks.deleteScript.mockResolvedValue(true);
     mocks.checkCredits.mockResolvedValue({
       allowed: true,
@@ -186,6 +215,39 @@ describe('ThinkForge session route authorization', () => {
     expect(mocks.listChatThreads).toHaveBeenCalledWith('session_canonical');
     expect(mocks.getScript).toHaveBeenCalledWith('session_canonical');
     expect(mocks.deleteScript).toHaveBeenCalledWith('session_canonical', 'script_2');
+  });
+
+  it('loads script, chat, and preferences concurrently after canonical session resolution', async () => {
+    let releaseScript!: (value: null) => void;
+    const pendingScript = new Promise<null>((resolve) => {
+      releaseScript = resolve;
+    });
+    mocks.getScript.mockReturnValueOnce(pendingScript);
+
+    const responsePromise = callSessionHydrate();
+    await vi.waitFor(() => expect(mocks.getScript).toHaveBeenCalledOnce());
+
+    const allReadsStartedBeforeScriptCompleted =
+      mocks.getChatHistory.mock.calls.length === 1 &&
+      mocks.getUserPreferences.mock.calls.length === 1;
+    releaseScript(null);
+
+    const response = await responsePromise;
+    expect(response.status).toBe(200);
+    expect(response.headers.get('server-timing')).toMatch(
+      /^tf-session-state;dur=\d+\.\d, tf-session-total;dur=\d+\.\d$/,
+    );
+    expect(allReadsStartedBeforeScriptCompleted).toBe(true);
+    expect(mocks.getOrCreateSession).toHaveBeenCalledWith(
+      'user_1',
+      'session_requested',
+      undefined,
+      'org_1',
+      undefined,
+    );
+    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'script_2');
+    expect(mocks.getChatHistory).toHaveBeenCalledWith('session_canonical', 50);
+    expect(mocks.getUserPreferences).toHaveBeenCalledWith('user_1');
   });
 
   it('rejects foreign-session AI edits before credits or model work', async () => {

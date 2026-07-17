@@ -17,6 +17,7 @@ export const dynamic = 'force-dynamic';
  * Handles get or create session with full state loading
  */
 export async function POST(req: Request) {
+  const requestStartedAt = performance.now();
   const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -105,14 +106,16 @@ export async function POST(req: Request) {
       }
     }
 
-    // Load script for session
-    const script = await db.getScript(session._id, scriptId);
-
-    // Load chat history (last 50 messages)
-    const chat = await db.getChatHistory(session._id, 50);
-
-    // Load user preferences
-    const preferences = await db.getUserPreferences(userId);
+    // These reads share only the authorized canonical identity, so running them
+    // together keeps hydration atomic without paying their latency serially.
+    const stateReadStartedAt = performance.now();
+    const [script, chat, preferences] = await Promise.all([
+      db.getScript(session._id, scriptId),
+      db.getChatHistory(session._id, 50),
+      db.getUserPreferences(userId),
+    ]);
+    const stateReadMs = performance.now() - stateReadStartedAt;
+    const totalMs = performance.now() - requestStartedAt;
 
     return NextResponse.json({
       sessionId: session._id,
@@ -135,6 +138,10 @@ export async function POST(req: Request) {
       } : null,
       activeGeneration: session.activeGeneration || null,
       chat
+    }, {
+      headers: {
+        'Server-Timing': `tf-session-state;dur=${stateReadMs.toFixed(1)}, tf-session-total;dur=${totalMs.toFixed(1)}`,
+      },
     });
   } catch (error: any) {
     console.error('Error in session endpoint:', error);
