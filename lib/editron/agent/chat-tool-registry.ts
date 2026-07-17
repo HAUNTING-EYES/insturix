@@ -1,5 +1,6 @@
 export type ChatToolExecutionType = 'quick' | 'generative';
 export type ChatToolRiskLevel = 'read' | 'low' | 'medium' | 'high';
+export type ChatToolExposure = 'live-chat' | 'shadow-authority-filtered';
 export type ChatToolStatePostconditionKind =
   | 'project-state-changed'
   | 'overlay-created'
@@ -32,6 +33,7 @@ export interface ChatToolMetadata {
   shortLabel: string;
   iconCategory: ChatToolIconCategory;
   executionType: ChatToolExecutionType;
+  exposure: ChatToolExposure;
   mutatesProject: boolean;
   requiresProjectReload: boolean;
   riskLevel: ChatToolRiskLevel;
@@ -51,8 +53,9 @@ export interface ChatToolPostconditionContract {
   };
 }
 
-type ChatToolMetadataInput = Omit<ChatToolMetadata, 'executionType' | 'mutatesProject' | 'requiresProjectReload' | 'riskLevel' | 'postconditions'> & {
+type ChatToolMetadataInput = Omit<ChatToolMetadata, 'executionType' | 'exposure' | 'mutatesProject' | 'requiresProjectReload' | 'riskLevel' | 'postconditions'> & {
   executionType?: ChatToolExecutionType;
+  exposure?: ChatToolExposure;
   mutatesProject?: boolean;
   requiresProjectReload?: boolean;
   riskLevel?: ChatToolRiskLevel;
@@ -66,6 +69,7 @@ function defineTool(input: ChatToolMetadataInput): ChatToolMetadata {
   return {
     ...input,
     executionType: input.executionType ?? 'quick',
+    exposure: input.exposure ?? 'live-chat',
     mutatesProject,
     requiresProjectReload: input.requiresProjectReload ?? mutatesProject,
     riskLevel: input.riskLevel ?? (mutatesProject ? 'medium' : 'read'),
@@ -108,7 +112,7 @@ export const CHAT_TOOL_REGISTRY = {
   close_gaps: defineTool({ name: 'close_gaps', label: 'Closing timeline gaps', shortLabel: 'Close gaps', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Closed gaps', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']) }),
   restore_ai_edit_checkpoint: defineTool({ name: 'restore_ai_edit_checkpoint', label: 'Restoring AI edit checkpoint', shortLabel: 'Restore', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Restored checkpoint' }),
   cut_section: defineTool({ name: 'cut_section', label: 'Cutting section', shortLabel: 'Cut', iconCategory: 'trim', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Cut section', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']) }),
-  add_motion_graphic: defineTool({ name: 'add_motion_graphic', label: 'Adding motion graphic', shortLabel: 'MG', iconCategory: 'motion', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphic', postconditions: postconditions('overlay-created') }),
+  add_motion_graphic: defineTool({ name: 'add_motion_graphic', label: 'Adding motion graphic', shortLabel: 'MG', iconCategory: 'motion', executionType: 'quick', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphic', postconditions: postconditions('overlay-created') }),
   generate_html_scene: defineTool({ name: 'generate_html_scene', label: 'Creating custom scene', shortLabel: 'Scene', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Created scene', loadingMessages: ['Crafting your scene', 'Painting with code', 'Almost ready'], postconditions: postconditions('overlay-created') }),
   edit_html_scene: defineTool({ name: 'edit_html_scene', label: 'Revising custom scene', shortLabel: 'Revise scene', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Revised scene', loadingMessages: ['Reading the existing scene', 'Applying the revision', 'Checking the result'], postconditions: postconditions('overlay-updated') }),
   generate_html_sticker: defineTool({ name: 'generate_html_sticker', label: 'Creating custom sticker', shortLabel: 'Sticker', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Created sticker', loadingMessages: ['Creating sticker', 'Adding motion', 'Finishing up'], postconditions: postconditions('overlay-created') }),
@@ -134,10 +138,10 @@ export const CHAT_TOOL_REGISTRY = {
   refresh_captions: defineTool({ name: 'refresh_captions', label: 'Refreshing captions', shortLabel: 'Refresh', iconCategory: 'caption', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Refreshed captions' }),
   analyze_clip_audio: defineTool({ name: 'analyze_clip_audio', label: 'Analyzing audio', shortLabel: 'Audio', iconCategory: 'audio', executionType: 'generative', receiptLabel: 'Analyzed audio', loadingMessages: ['Listening to audio', 'Finding beats', 'Checking pauses'] }),
   analyze_clip_video: defineTool({ name: 'analyze_clip_video', label: 'Analyzing video', shortLabel: 'Video', iconCategory: 'visual', executionType: 'generative', receiptLabel: 'Analyzed video', loadingMessages: ['Inspecting video', 'Reading frames', 'Checking visuals'] }),
-  auto_edit_from_script: defineTool({ name: 'auto_edit_from_script', label: 'Auto editing from script', shortLabel: 'Auto edit', iconCategory: 'script', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Auto edited from script', loadingMessages: ['Planning edit', 'Building timeline', 'Applying cuts'], postconditions: postconditions('overlay-set-changed', ['visual', 'audio']) }),
+  auto_edit_from_script: defineTool({ name: 'auto_edit_from_script', label: 'Auto editing from script', shortLabel: 'Auto edit', iconCategory: 'script', executionType: 'generative', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Auto edited from script', loadingMessages: ['Planning edit', 'Building timeline', 'Applying cuts'], postconditions: postconditions('overlay-set-changed', ['visual', 'audio']) }),
   regenerate_scene: defineTool({ name: 'regenerate_scene', label: 'Regenerating scene', shortLabel: 'Regen', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Regenerated scene', loadingMessages: ['Regenerating scene', 'Starting render', 'Preparing update'] }),
-  add_transition: defineTool({ name: 'add_transition', label: 'Adding transition', shortLabel: 'Transition', iconCategory: 'transition', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added transition' }),
-  auto_motion_graphics: defineTool({ name: 'auto_motion_graphics', label: 'Adding motion graphics', shortLabel: 'Auto MG', iconCategory: 'motion', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphics', loadingMessages: ['Finding moments', 'Planning graphics', 'Adding motion'] }),
+  add_transition: defineTool({ name: 'add_transition', label: 'Adding transition', shortLabel: 'Transition', iconCategory: 'transition', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added transition' }),
+  auto_motion_graphics: defineTool({ name: 'auto_motion_graphics', label: 'Adding motion graphics', shortLabel: 'Auto MG', iconCategory: 'motion', executionType: 'generative', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphics', loadingMessages: ['Finding moments', 'Planning graphics', 'Adding motion'] }),
   extract_style: defineTool({ name: 'extract_style', label: 'Extracting edit style', shortLabel: 'Extract', iconCategory: 'style', executionType: 'generative', receiptLabel: 'Extracted style', loadingMessages: ['Reading style', 'Finding patterns', 'Building profile'] }),
   apply_style: defineTool({ name: 'apply_style', label: 'Applying edit style', shortLabel: 'Style', iconCategory: 'style', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied style', loadingMessages: ['Planning style', 'Applying changes', 'Checking timing'] }),
   sync_cuts_to_beats: defineTool({ name: 'sync_cuts_to_beats', label: 'Syncing cuts to beats', shortLabel: 'Beat sync', iconCategory: 'audio', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Synced cuts to beats' }),
