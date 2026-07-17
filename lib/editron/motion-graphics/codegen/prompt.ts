@@ -86,9 +86,13 @@ PURPOSES it can serve (functions, NOT types — a moment may need one, several, 
 - create emphasis and rhythm, timed to the speech.
 
 CRAFT — what separates a crafted graphic from AI-slop:
-- HIERARCHY THROUGH SCALE. One focal element carries the point; supporting elements are deliberately smaller
-  (about half its size, then a third) so the eye is TOLD what matters. Restraint = fewer, better-placed elements
-  and real negative space — not every element shouting at once.
+- HIERARCHY IS A READING ORDER. The eye must know where to ENTER and in what order to read. A single-point
+  graphic earns that with ONE dominant element and deliberately smaller support. A Tier-B scene — a labelled map,
+  an icon-array/pictogram chart, a compared set, an illustrated scene — earns it through GROUPING, ACCENT,
+  POSITION and contrast: many co-equal labelled elements are CORRECT there, and forcing one to dominate would
+  misrepresent the content. What is never acceptable is undifferentiated flatness (no entry point, everything one
+  weight) or elements competing with no order. Restraint = fewer, better-placed elements and real negative space
+  — not every element shouting at once.
 - PERCEPTUAL HONESTY. The visual encodes the TRUE quantity — a value counts to its real figure, a proportion
   fills to its real fraction, a comparison shows the real ratio. Never exaggerate for drama.
 - MOTION WITH INTENT. Every animation carries meaning (a reveal, a build, a landing), never decoration; it moves
@@ -111,7 +115,9 @@ suggest the form; compose it freshly. Two moments with the same KIND of fact sho
 brand, the intent, the screen, and the expressiveness make each its own.
 
 AVOID (slop): keyword-highlighting; lower-third / name-tag templates; a number shown statically; decoration that
-carries no meaning; muddy gradients; more than one focal point; a graphic that floats ignoring the footage beneath.
+carries no meaning; muddy gradients; an undifferentiated field with no entry point or reading order (note: co-equal
+labelled elements are CORRECT when the content IS a set — a map, a list, a compared group — the slop is having no
+order at all, not having many elements); a graphic that floats ignoring the footage beneath.
 </what_motion_graphics_are>`;
 
 /**
@@ -225,7 +231,7 @@ FAITHFULNESS:
 - REJECT unsupported settled values, endpoints, labels, annotations, statistics, comparisons, or claims. A stable fabricated value is a lie on the video.
 
 CRAFT DIMENSIONS — score EACH 0-10 by its guiding question. These are Swiss/Bauhaus craft LAWS a designer applies, NOT personal taste:
-- hierarchy: is there ONE clear focal element, with supporting elements deliberately smaller (about half, then a third) so the eye is told what matters? Two focal points or all-equal elements = low.
+- hierarchy: does the eye know where to ENTER and in what order to read? A single-point graphic earns this with one dominant element + deliberately smaller support. ★ When the content IS A SET — a labelled map, an icon-array/pictogram chart, a compared group, a menu of options, an illustrated scene — then several elements of EQUAL visual weight are the CORRECT form. That is a SET, not "competing focal points": do NOT call it competing and do NOT mark hierarchy down for it. Forcing one member to dominate would misrepresent the content. For a set, judge instead: is it cleanly grouped, consistently styled, legibly labelled, and can the eye enter and read it in a sensible order? Low = undifferentiated flatness (no entry point at all, everything one weight with no grouping), or genuinely unrelated elements fighting each other.
 - typography: is every word legible over the real footage at mobile size, well-set (weight, tracking, case), and never clipped or overflowing? Clipped / overflowing / illegible-over-footage = low.
 - color: are ALL colours from the brand palette, with clean contrast and no muddy gradients? Any non-brand colour, weak contrast, or mud = low.
 - composition: does the graphic sit in the frame's ROOM, clear of the subject and existing text/caption, with intentional negative space — not stretched to fill every quadrant? Subject/caption collision or dead-quadrant filling = low.
