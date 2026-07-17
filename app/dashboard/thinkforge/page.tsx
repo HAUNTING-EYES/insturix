@@ -93,11 +93,16 @@ const buildProjectMetaPayload = (
 const buildIdeaGenerationPayload = (
 	prompt: string,
 	projectMeta?: Record<string, unknown> | null,
+	variationIndex = 0,
+	rejectedIdeas: Array<{ title: string; purpose: string; style: string }> = [],
 ): Record<string, unknown> => {
 	const scopedMeta = pickProjectMetaPassthrough(projectMeta);
-	return Object.keys(scopedMeta).length > 0
-		? { prompt, projectMeta: scopedMeta }
-		: { prompt };
+	return {
+		prompt,
+		variationIndex,
+		rejectedIdeas,
+		...(Object.keys(scopedMeta).length > 0 ? { projectMeta: scopedMeta } : {}),
+	};
 };
 
 
@@ -125,6 +130,8 @@ export default function ThinkForgeLanding() {
 
 	const [sessions, setSessions] = useState<SessionMeta[]>([]);
 	const initialDraftRequestedRef = useRef(false);
+	const successfulIdeaVariationRef = useRef(-1);
+	const rejectedIdeasRef = useRef<Array<{ title: string; purpose: string; style: string }>>([]);
 
 	// Modular hooks
 	const session = useThinkForgeSession();
@@ -168,9 +175,18 @@ export default function ThinkForgeLanding() {
 	const panelRef = useRef<HTMLElement | null>(null);
 	const edgeHoverTimeout = useRef<NodeJS.Timeout | null>(null);
 
-	const generateIdeas = useCallback(async (promptOverride?: string) => {
+	const generateIdeas = useCallback(async (
+		promptOverride?: string,
+		options?: { variationIndex?: number; rejectedIdeas?: Array<{ title: string; purpose: string; style: string }> },
+	) => {
 		const ideaPrompt = promptOverride || prompt;
 		if (!ideaPrompt.trim()) return;
+		const variationIndex = options?.variationIndex ?? 0;
+		const rejectedIdeas = options?.rejectedIdeas || [];
+		if (variationIndex === 0 && rejectedIdeas.length === 0) {
+			successfulIdeaVariationRef.current = -1;
+			rejectedIdeasRef.current = [];
+		}
 		setIdeas([]);
 		setSelectedIdea(null);
 		setIdeationPhase('IDEAS');
@@ -180,7 +196,12 @@ export default function ThinkForgeLanding() {
 			const res = await fetch('/api/services/thinkforge/ideas', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(buildIdeaGenerationPayload(ideaPrompt, session.projectMeta))
+				body: JSON.stringify(buildIdeaGenerationPayload(
+					ideaPrompt,
+					session.projectMeta,
+					variationIndex,
+					rejectedIdeas,
+				))
 			});
 			// Handle insufficient credits (new credits system)
 			if (res.status === 402) {
@@ -210,6 +231,7 @@ export default function ThinkForgeLanding() {
 			const data = await res.json();
 			const list: IdeaCardData[] = Array.isArray(data?.ideas) ? data.ideas : (Array.isArray(data) ? data : []);
 			if (list.length !== 4) throw new Error('Idea generation returned an invalid idea set');
+			successfulIdeaVariationRef.current = variationIndex;
 			setIdeas(list.map((idea) => ({ ...idea, originalPrompt: ideaPrompt })));
 			setIdeationPhase('IDEAS');
 		} catch (error: any) {
@@ -231,7 +253,19 @@ export default function ThinkForgeLanding() {
 
 	const regenerate = () => {
 		if (loading) return;
-		generateIdeas();
+		const rejectedIdeasByTitle = new Map(
+			[...rejectedIdeasRef.current, ...ideas.map((idea) => ({
+				title: idea.idea,
+				purpose: idea.purpose,
+				style: idea.style,
+			}))].map((idea) => [idea.title.trim().toLowerCase(), idea]),
+		);
+		const rejectedIdeas = [...rejectedIdeasByTitle.values()].slice(-12);
+		rejectedIdeasRef.current = rejectedIdeas;
+		generateIdeas(undefined, {
+			variationIndex: successfulIdeaVariationRef.current + 1,
+			rejectedIdeas,
+		});
 	};
 
 	/**

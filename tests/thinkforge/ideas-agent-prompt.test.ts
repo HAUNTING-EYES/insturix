@@ -45,6 +45,104 @@ describe('IdeasAgent prompt contract', () => {
     expect(prompt).toContain("preserve the user's request with neutral category language");
   });
 
+  it('adds deterministic regeneration identity and rejected concepts to the prompt', () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+    const agent = new IdeasAgent();
+
+    const prompt = agent.buildPrompt({
+      context: { projectSummary: '', systemBrief: '' },
+      userPrompt: 'Create LinkedIn post ideas about content operations.',
+      generationIdentity: {
+        variationIndex: 2,
+        rejectedIdeas: [{
+          title: 'The Month-Ahead Content Team',
+          purpose: 'Show how agencies plan content before client deadlines.',
+          style: 'behind-the-scenes workflow',
+        }],
+      },
+    });
+
+    expect(prompt).toContain('deterministic variation 2');
+    expect(prompt).toContain('<rejected_ideas_json>');
+    expect(prompt).toContain('The Month-Ahead Content Team');
+    expect(prompt).toContain('do not repeat or lightly paraphrase');
+  });
+
+  it('repairs a regenerated set that overlaps rejected ideas', async () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+    const agent = new IdeasAgent();
+    const makeIdea = (id: string, idea: string) => ({
+      id,
+      idea,
+      purpose: `Purpose for ${idea}`,
+      style: 'operator lesson',
+      format: 'LinkedIn post',
+      platform: 'LinkedIn',
+      tone: 'blue' as const,
+    });
+    const runStructured = vi.fn()
+      .mockResolvedValueOnce({
+        result: {
+          ideas: [
+            makeIdea('idea_1', 'Building the Month-Ahead Content Team'),
+            makeIdea('idea_2', 'The Approval Bottleneck Audit'),
+            makeIdea('idea_3', 'What Monday Chaos Costs'),
+            makeIdea('idea_4', 'A Better Agency Content Handoff'),
+          ],
+        },
+        metadata: {},
+      })
+      .mockResolvedValueOnce({
+        result: {
+          ideas: [
+            makeIdea('idea_1', 'The Content Debt Balance Sheet'),
+            makeIdea('idea_2', 'Why Approvals Stall at Handoff'),
+            makeIdea('idea_3', 'Monday Chaos in Four Screenshots'),
+            makeIdea('idea_4', 'The Agency Planning Confidence Gap'),
+          ],
+        },
+        metadata: {},
+      });
+    (agent as unknown as { runStructured: typeof runStructured }).runStructured = runStructured;
+
+    const ideas = await agent.generateIdeas(
+      'Create LinkedIn post ideas about content operations.',
+      {
+        variationIndex: 1,
+        rejectedIdeas: [{ title: 'The Month-Ahead Content Team' }],
+      },
+    );
+
+    expect(runStructured).toHaveBeenCalledTimes(2);
+    expect(ideas[0].idea).toBe('The Content Debt Balance Sheet');
+  });
+
+  it('fails loudly when the bounded repair still repeats a rejected idea', async () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+    const agent = new IdeasAgent();
+    const repeatedSet = {
+      result: {
+        ideas: [
+          { id: 'idea_1', idea: 'महीने भर की कंटेंट टीम', purpose: 'A', style: 'A', format: 'LinkedIn post', platform: 'LinkedIn', tone: 'blue' as const },
+          { id: 'idea_2', idea: 'Approval Queue Audit', purpose: 'B', style: 'B', format: 'LinkedIn post', platform: 'LinkedIn', tone: 'red' as const },
+          { id: 'idea_3', idea: 'Monday Content Debt', purpose: 'C', style: 'C', format: 'LinkedIn post', platform: 'LinkedIn', tone: 'black' as const },
+          { id: 'idea_4', idea: 'Agency Handoff Map', purpose: 'D', style: 'D', format: 'LinkedIn post', platform: 'LinkedIn', tone: 'green' as const },
+        ],
+      },
+      metadata: {},
+    };
+    const runStructured = vi.fn()
+      .mockResolvedValueOnce(repeatedSet)
+      .mockResolvedValueOnce(repeatedSet);
+    (agent as unknown as { runStructured: typeof runStructured }).runStructured = runStructured;
+
+    await expect(agent.generateIdeas(
+      'हिंदी में कंटेंट ऑपरेशंस पर लिंक्डइन पोस्ट बनाएं।',
+      { variationIndex: 3, rejectedIdeas: [{ title: 'महीने भर की कंटेंट टीम' }] },
+    )).rejects.toThrow('Ideas failed grounding quality gate');
+    expect(runStructured).toHaveBeenCalledTimes(2);
+  });
+
   it('repairs ideas that leak internal labels and invented acronyms', async () => {
     process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
     const agent = new IdeasAgent();
