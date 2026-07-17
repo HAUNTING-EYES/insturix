@@ -332,8 +332,18 @@ freshness, MIME, dimensions, and payload size; and Gemini receives the image as 
 inspection and mutation calls fail without executing either action.
 
 Focused and broader Chat-to-Edit verification passed (6 frame-contract tests and 128
-broader chat tests). A real authenticated preview capture remains the required live
-proof before Phase 3F-B may be called production-proven.
+broader chat tests). Authenticated preview proof completed on 2026-07-17 against
+`proj_iitL6e9a5ndg` on deployment `dpl_9gcLRaGd6pJQ6ZmMVSrXkVNBDinr`.
+
+The first live attempt exposed a real browser incompatibility: `html2canvas@1.4.1`
+crashed while parsing Tailwind 4 `oklch()` colors before evidence reached Gemini.
+Commit `05b59342` replaced that direct dependency with `html2canvas-pro@2.2.4`, whose
+capture API supports modern CSS colors. The repeated authenticated run produced one
+`visual_inspect_frame` request, one bounded frame-evidence follow-up, and an
+image-grounded answer. It produced no browser errors on the corrected deployment, no
+repeat capture, no mutating tool call, and no `data:image` or base64 payload in visible
+chat history. Phase 3F-B is production-proven for this real-project read-only flow;
+the broader scenario matrix under the global done test still stands.
 
 #### Pinned follow-up: canonical capabilities and optional MCP adapter
 
