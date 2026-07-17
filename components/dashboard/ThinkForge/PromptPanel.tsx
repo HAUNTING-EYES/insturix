@@ -1,6 +1,5 @@
 "use client";
 import React from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
 
 /**
@@ -69,7 +68,11 @@ interface PromptPanelProps {
 }
 
 const POST_KEYWORDS = /\b(post|article|blog|essay|thread|newsletter|write|carousel|caption)\b/i;
-const PLATFORM_KEYWORDS = /\b(linkedin|twitter|tweet|instagram|tiktok|youtube|facebook|reddit|medium|pinterest|x\s+post)\b/i;
+const STATIC_POST_KEYWORDS = /\b(post|caption|carousel|slides?)\b/i;
+const CAROUSEL_KEYWORDS = /\b(carousel|slides?)\b/i;
+const SINGLE_POST_KEYWORDS = /\b(single(?:-image)?\s+post|static\s+post)\b/i;
+const CAROUSEL_COUNT_KEYWORDS = /\b[2-7]\s*(?:-\s*)?slides?\b/i;
+const PLATFORM_KEYWORDS = /\b(linkedin|twitter|tweet|instagram|tiktok|youtube|facebook|reddit|medium|pinterest|generic\s+platform|x\s+post)\b/i;
 const PLATFORM_PICKS = [
   { label: 'LinkedIn', value: 'LinkedIn' },
   { label: 'Twitter/X', value: 'Twitter/X' },
@@ -94,6 +97,8 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
 }) => {
   const formRef = React.useRef<HTMLFormElement | null>(null);
   const [showPlatformPicker, setShowPlatformPicker] = React.useState(false);
+  const [showPostTypePicker, setShowPostTypePicker] = React.useState(false);
+  const [showCarouselCountPicker, setShowCarouselCountPicker] = React.useState(false);
 
   const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -108,10 +113,24 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
     setPrompt(e.target.value);
   };
 
+  const queuePromptSubmission = (nextPrompt: string) => {
+    setPrompt(nextPrompt);
+    setTimeout(() => formRef.current?.requestSubmit(), 50);
+  };
+
   const handlePlatformPick = (platform: string) => {
     setShowPlatformPicker(false);
-    setPrompt(`${prompt.trim()} - ${platform} post`);
-    setTimeout(() => formRef.current?.requestSubmit(), 50);
+    queuePromptSubmission(`${prompt.trim()} - ${platform}`);
+  };
+
+  const handlePostTypePick = (kind: 'single' | 'carousel') => {
+    setShowPostTypePicker(false);
+    queuePromptSubmission(`${prompt.trim()} - ${kind === 'carousel' ? 'carousel' : 'single post'}`);
+  };
+
+  const handleCarouselCountPick = (slideCount: number) => {
+    setShowCarouselCountPicker(false);
+    queuePromptSubmission(`${prompt.trim()} - ${slideCount} slides`);
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -122,6 +141,14 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
       setShowPlatformPicker(true);
       return;
     }
+    if (STATIC_POST_KEYWORDS.test(prompt) && !CAROUSEL_KEYWORDS.test(prompt) && !SINGLE_POST_KEYWORDS.test(prompt)) {
+      setShowPostTypePicker(true);
+      return;
+    }
+    if (CAROUSEL_KEYWORDS.test(prompt) && !CAROUSEL_COUNT_KEYWORDS.test(prompt)) {
+      setShowCarouselCountPicker(true);
+      return;
+    }
 
     const urls = extractUrls(prompt);
     if (urls.length > 0 && onUrlSubmit) {
@@ -129,6 +156,9 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
       return;
     }
 
+    setShowPlatformPicker(false);
+    setShowPostTypePicker(false);
+    setShowCarouselCountPicker(false);
     onSubmit(e);
   };
 
@@ -222,7 +252,7 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
           ))}
           <button
             type="button"
-            onClick={() => { setShowPlatformPicker(false); onSubmit(new Event('submit') as any); }}
+            onClick={() => handlePlatformPick('generic platform')}
             style={{
               padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 500,
               background: 'transparent', border: '1px dashed rgba(255,255,255,0.1)',
@@ -231,6 +261,27 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
           >
             Skip — surprise me
           </button>
+        </div>
+      )}
+      {showPostTypePicker && (
+        <div className="platform-picker" style={{ display: 'flex', gap: '8px', padding: '12px 0' }}>
+          <span style={{ width: '100%', fontSize: '11px', color: '#7A776E', fontWeight: 600, textTransform: 'uppercase' }}>
+            Which format?
+          </span>
+          <button type="button" onClick={() => handlePostTypePick('single')} className="idea-tag">Single post</button>
+          <button type="button" onClick={() => handlePostTypePick('carousel')} className="idea-tag">Carousel</button>
+        </div>
+      )}
+      {showCarouselCountPicker && (
+        <div className="platform-picker" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px 0' }}>
+          <span style={{ width: '100%', fontSize: '11px', color: '#7A776E', fontWeight: 600, textTransform: 'uppercase' }}>
+            How many slides?
+          </span>
+          {[2, 3, 4, 5, 6, 7].map((slideCount) => (
+            <button key={slideCount} type="button" onClick={() => handleCarouselCountPick(slideCount)} className="idea-tag">
+              {slideCount}
+            </button>
+          ))}
         </div>
       )}
 

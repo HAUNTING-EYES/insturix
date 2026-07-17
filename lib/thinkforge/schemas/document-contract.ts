@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 export const THINKFORGE_DOCUMENT_CONTRACT_VERSION = 1;
+const MIN_CAROUSEL_SLIDE_COUNT = 2;
+const MAX_CAROUSEL_SLIDE_COUNT = 7;
 
 export const THINKFORGE_DOCUMENT_KINDS = ['post', 'script', 'document'] as const;
 export const THINKFORGE_OUTPUT_KINDS = [
@@ -45,6 +47,8 @@ export const ThinkForgeDocumentContractSchema = z.object({
   documentKind: ThinkForgeDocumentKindSchema,
   outputKind: ThinkForgeOutputKindSchema,
   artifactType: ThinkForgeArtifactTypeSchema,
+  // Intake intent only. The carousel visual deriver remains the final slide planner.
+  carouselSlideCount: z.number().int().min(MIN_CAROUSEL_SLIDE_COUNT).max(MAX_CAROUSEL_SLIDE_COUNT).optional(),
 }).superRefine((contract, ctx) => {
   if (contract.version !== THINKFORGE_DOCUMENT_CONTRACT_VERSION) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['version'], message: 'unsupported document contract version' });
@@ -64,6 +68,13 @@ export const ThinkForgeDocumentContractSchema = z.object({
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'document kind, output kind, and artifact type are inconsistent',
+    });
+  }
+  if (contract.carouselSlideCount !== undefined && contract.outputKind !== 'carousel') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['carouselSlideCount'],
+      message: 'carouselSlideCount is only valid for carousel output',
     });
   }
 });
@@ -86,12 +97,32 @@ function normalizeDocumentLabel(value: string): string {
   return value.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-export function createThinkForgeWriterContract(kind: ThinkForgeWriterKind): ThinkForgeDocumentContract {
+export function resolveCarouselSlideCount(value?: string | null): number | undefined {
+  if (!value?.trim()) return undefined;
+  const match = value.toLowerCase().match(/\b(\d+)\s*(?:-\s*)?slides?\b/);
+  if (!match) return undefined;
+  const slideCount = Number(match[1]);
+  if (!Number.isInteger(slideCount) || slideCount < MIN_CAROUSEL_SLIDE_COUNT || slideCount > MAX_CAROUSEL_SLIDE_COUNT) {
+    throw new Error(`carousel slide count must be between ${MIN_CAROUSEL_SLIDE_COUNT} and ${MAX_CAROUSEL_SLIDE_COUNT}`);
+  }
+  return slideCount;
+}
+
+export function createThinkForgeWriterContract(
+  kind: ThinkForgeWriterKind,
+  options?: { carouselSlideCount?: number },
+): ThinkForgeDocumentContract {
   if (kind === 'social_post') {
     return { version: THINKFORGE_DOCUMENT_CONTRACT_VERSION, documentKind: 'post', outputKind: kind, artifactType: 'social_post' };
   }
   if (kind === 'carousel') {
-    return { version: THINKFORGE_DOCUMENT_CONTRACT_VERSION, documentKind: 'post', outputKind: kind, artifactType: 'carousel_deck' };
+    return ThinkForgeDocumentContractSchema.parse({
+      version: THINKFORGE_DOCUMENT_CONTRACT_VERSION,
+      documentKind: 'post',
+      outputKind: kind,
+      artifactType: 'carousel_deck',
+      ...(options?.carouselSlideCount !== undefined ? { carouselSlideCount: options.carouselSlideCount } : {}),
+    });
   }
   return { version: THINKFORGE_DOCUMENT_CONTRACT_VERSION, documentKind: 'script', outputKind: kind, artifactType: 'screenplay' };
 }
@@ -99,6 +130,7 @@ export function createThinkForgeWriterContract(kind: ThinkForgeWriterKind): Thin
 export function normalizeThinkForgeDocumentContract(value?: string | null): ThinkForgeDocumentContract | null {
   if (!value?.trim()) return null;
 
+  const carouselSlideCount = resolveCarouselSlideCount(value);
   const normalized = normalizeDocumentLabel(value);
   const candidate = normalized.replace(/\s+/g, '_') as ThinkForgeArtifactType;
   if (TECHNICAL_ARTIFACT_TYPES.has(candidate)) {
@@ -110,7 +142,9 @@ export function normalizeThinkForgeDocumentContract(value?: string | null): Thin
     };
   }
 
-  if (/\bcarousel\b|\bslides?\b/.test(normalized)) return createThinkForgeWriterContract('carousel');
+  if (/\bcarousel\b|\bslides?\b/.test(normalized)) {
+    return createThinkForgeWriterContract('carousel', { carouselSlideCount });
+  }
   if (/\b(screenplay|video script|script|reel|short|short form|youtube|tiktok|commercial|brand film|product ad|ugc)\b/.test(normalized)) {
     return createThinkForgeWriterContract('video_script');
   }

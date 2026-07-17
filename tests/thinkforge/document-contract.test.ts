@@ -4,7 +4,9 @@ import {
   createThinkForgeWriterContract,
   normalizeThinkForgeDocumentType,
   parseThinkForgeDocumentContract,
+  resolveCarouselSlideCount,
 } from '@/lib/thinkforge/schemas/document-contract';
+import { PostWriterAgent, type PostWriterInput } from '@/lib/thinkforge/agents/post-writer-agent';
 import {
   resolveThinkForgeDocumentIntent,
   resolveThinkForgeGenerationDocumentIntent,
@@ -39,6 +41,35 @@ describe('ThinkForge canonical document contract', () => {
       outputKind: 'video_script',
       artifactType: 'screenplay',
     })).toThrow(/inconsistent/i);
+
+    expect(() => parseThinkForgeDocumentContract({
+      ...createThinkForgeWriterContract('social_post'),
+      carouselSlideCount: 5,
+    })).toThrow(/only valid for carousel/i);
+  });
+
+  it('captures and validates carousel slide count at intake', () => {
+    expect(resolveCarouselSlideCount('Create an Instagram 5-slide carousel')).toBe(5);
+    expect(normalizeThinkForgeDocumentType('Create an Instagram 5-slide carousel')).toBe('carousel');
+    expect(parseThinkForgeDocumentContract({ kind: 'LinkedIn 6 slides' })).toMatchObject({
+      outputKind: 'carousel',
+      carouselSlideCount: 6,
+    });
+    expect(() => resolveCarouselSlideCount('Create an 8-slide carousel')).toThrow(/between 2 and 7/i);
+    expect(() => createThinkForgeWriterContract('carousel', { carouselSlideCount: 1 })).toThrow(/(?:greater than or equal to|>=)\s*2/i);
+  });
+
+  it('threads the persisted carousel count into the one-pass post writer contract', () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+    const input: PostWriterInput = {
+      context: { projectSummary: 'Idea: Explain approval bottlenecks\nPlatform: LinkedIn' },
+      project: { contentContract: createThinkForgeWriterContract('carousel', { carouselSlideCount: 5 }) },
+      userPrompt: 'Create the complete first draft.',
+    };
+    const prompt = new PostWriterAgent().buildPrompt(input);
+
+    expect(prompt).toContain('Return exactly 5 entries in clickatron.carouselPrompts');
+    expect(prompt).toContain('never pad the count with invented claims');
   });
 
   it('keeps post, carousel, and video-script intent distinct', () => {
@@ -96,6 +127,7 @@ describe('ThinkForge canonical document contract', () => {
     const service = readFileSync(new URL('../../lib/thinkforge/services/chat-service.ts', import.meta.url), 'utf8');
 
     expect(page).toContain('contentContract');
+    expect(page).toContain('resolveCarouselSlideCount');
     expect(service).toContain('sessionState.metadata.contentContract');
   });
 

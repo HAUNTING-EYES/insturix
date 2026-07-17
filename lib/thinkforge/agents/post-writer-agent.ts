@@ -12,6 +12,7 @@ import { getAntiAiConstraintBundle, buildWritingKnowledgeBlock } from '../data/w
 import { extractSignalsFromContext } from '../data/extract-signals';
 import { repairAiFillerContent } from '../services/ai-filler-repair';
 import { formatTrendBriefForPrompt } from './trend-brief-context';
+import type { ThinkForgeDocumentContract } from '../schemas/document-contract';
 
 // Flat PostWriter Output Contract
 export const PostWriterResultSchema = z.object({
@@ -48,6 +49,7 @@ export interface PostWriterEditContext {
 }
 
 export interface PostWriterInput extends AgentInput {
+  project?: (NonNullable<AgentInput['project']> & { contentContract?: ThinkForgeDocumentContract }) | null;
   contentSignalProfile?: ThinkForgeContentSignalProfile;
   productionBrief?: ProductionBrief | null;
   /** When set, switches the writer into edit/revise mode (see PostWriterEditContext). */
@@ -69,6 +71,11 @@ const CACHED_POST_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((pa
   regex: new RegExp(pattern.pattern, 'i'),
   label: pattern.label,
 }));
+
+function requestedCarouselSlideCount(input: PostWriterInput): number | undefined {
+  const contract = input.project?.contentContract;
+  return contract?.outputKind === 'carousel' ? contract.carouselSlideCount : undefined;
+}
 
 function getPublishableLines(content: string): string[] {
   return content
@@ -94,6 +101,14 @@ export function assertUsablePostWriterResult(result: PostWriterResult, input: Po
   if (platform !== 'twitter' && !/#\w+/.test(content)) failures.push('missing_hashtags');
   if (!(result.clickatron?.singleImagePrompt || result.clickatron?.carouselPrompts?.length)) {
     failures.push('missing_clickatron_prompt');
+  }
+  const carouselSlideCount = requestedCarouselSlideCount(input);
+  if (carouselSlideCount !== undefined) {
+    const promptCount = result.clickatron?.carouselPrompts?.length ?? 0;
+    if (promptCount !== carouselSlideCount) {
+      failures.push(`carousel_prompt_count_mismatch:${promptCount}/${carouselSlideCount}`);
+    }
+    if (result.clickatron?.singleImagePrompt) failures.push('carousel_returned_single_image_prompt');
   }
 
   const filler = CACHED_POST_AI_FILLER.find((pattern) => pattern.regex.test(content));
@@ -141,6 +156,14 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
       }),
     );
     const trendBriefBlock = formatTrendBriefForPrompt(productionBrief);
+    const carouselSlideCount = requestedCarouselSlideCount(input);
+    const carouselContractBlock = carouselSlideCount === undefined
+      ? ''
+      : `<carousel_contract>
+- Return exactly ${carouselSlideCount} entries in clickatron.carouselPrompts, one per slide.
+- Do not return clickatron.singleImagePrompt.
+- Each slide must communicate a distinct grounded unit from <input_data>; never pad the count with invented claims.
+</carousel_contract>\n\n`;
 
     return `<role>You are an elite ${platform} copywriter and content strategist.</role>
 <task>${editContext
@@ -181,7 +204,7 @@ Requested change: ${editContext.instruction}${editContext.selection ? `\nTargete
 Return the ENTIRE revised post in the content field (not a diff). Keep everything the change does not touch, preserve all supplied facts verbatim, and keep the platform format, hook, CTA, and hashtags.
 </edit_task>
 
-` : ''}${writingBlock ? `${writingBlock}\n\n` : ''}${trendBriefBlock ? `${trendBriefBlock}\n\n` : ''}${outputFormat}
+` : ''}${writingBlock ? `${writingBlock}\n\n` : ''}${trendBriefBlock ? `${trendBriefBlock}\n\n` : ''}${carouselContractBlock}${outputFormat}
 
 <input_data>
 Project Summary:

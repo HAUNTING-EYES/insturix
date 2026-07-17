@@ -20,7 +20,10 @@ import StoryboardingMode from "@/components/dashboard/ThinkForge/StoryboardingMo
 import PlanningMode from "@/components/dashboard/ThinkForge/PlanningMode";
 import { PipelineBreadcrumb } from "@/components/dashboard/shared/PipelineBreadcrumb";
 
-import { normalizeThinkForgeDocumentContract } from "@/lib/thinkforge/schemas/document-contract";
+import {
+	normalizeThinkForgeDocumentContract,
+	resolveCarouselSlideCount,
+} from "@/lib/thinkforge/schemas/document-contract";
 import { matchesThinkForgeDocumentIdentity } from "@/lib/thinkforge/client-document-identity";
 import { resolveThinkForgeSessionOpenAction } from "@/lib/thinkforge/session-open-policy";
 const PROJECT_META_PASSTHROUGH_KEYS = [
@@ -60,9 +63,12 @@ const hasMissingProjectMetaPassthrough = (target: unknown, source: unknown): boo
 	});
 };
 
-const resolveIdeaDocumentContract = (idea: IdeaCardData | null | undefined) => (
-	normalizeThinkForgeDocumentContract(idea?.format)
-);
+const resolveIdeaDocumentContract = (idea: IdeaCardData | null | undefined) => {
+	const contract = normalizeThinkForgeDocumentContract(idea?.format);
+	if (contract?.outputKind !== 'carousel') return contract;
+	const carouselSlideCount = resolveCarouselSlideCount(idea?.originalPrompt);
+	return carouselSlideCount === undefined ? contract : { ...contract, carouselSlideCount };
+};
 
 const buildProjectMetaPayload = (
 	idea: IdeaCardData | null | undefined,
