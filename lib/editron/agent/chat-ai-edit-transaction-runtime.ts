@@ -431,7 +431,20 @@ function buildVerificationSampleFrames(
     if (target.from == null) continue;
     const start = clampFrame(target.from, durationInFrames);
     const end = clampFrame(Math.max(start, (target.endFrame ?? start + 1) - 1), durationInFrames);
-    frames.push(start, Math.round((start + end) / 2), end);
+    const span = end - start + 1;
+    if (span <= 2) {
+      frames.push(start, end);
+      continue;
+    }
+
+    // Entrance and exit frames are commonly transparent by design. Sample the
+    // interior hold instead so animation boundaries do not become false blanks.
+    const inset = Math.max(1, Math.floor(span / 4));
+    frames.push(
+      Math.min(end, start + inset),
+      Math.round((start + end) / 2),
+      Math.max(start, end - inset),
+    );
   }
   if (frames.length === 0) {
     frames.push(0, Math.floor((durationInFrames - 1) / 2), durationInFrames - 1);

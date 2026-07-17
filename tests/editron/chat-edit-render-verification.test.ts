@@ -38,7 +38,7 @@ describe('chat edit rendered verification', () => {
     expect(request.targets).toEqual([
       { overlayId: 'txt_1', overlayType: 'text', state: 'updated', from: 30, endFrame: 90 },
     ]);
-    expect(request.sampleFrames).toEqual([30, 60, 89]);
+    expect(request.sampleFrames).toEqual([45, 60, 74]);
   });
 
   it('preserves deleted tail frames when the resulting project is shorter', () => {
@@ -50,7 +50,29 @@ describe('chat edit rendered verification', () => {
       projectDurationInFrames: 180,
     });
 
-    expect(request.sampleFrames).toEqual([240, 270, 299]);
+    expect(request.sampleFrames).toEqual([255, 270, 284]);
+  });
+
+  it('uses the only interior hold frame for a three-frame animated overlay', () => {
+    const request = buildRequest({
+      name: 'update_overlay',
+      args: { overlayId: 'flash_1', opacity: 1 },
+      target: { overlayId: 'flash_1', overlayType: 'text', state: 'updated', from: 40, endFrame: 43 },
+      modalities: ['visual'],
+    });
+
+    expect(request.sampleFrames).toEqual([41]);
+  });
+
+  it('keeps both frames when an edit is too short to have an interior hold', () => {
+    const request = buildRequest({
+      name: 'update_overlay',
+      args: { overlayId: 'flash_2', opacity: 1 },
+      target: { overlayId: 'flash_2', overlayType: 'text', state: 'updated', from: 40, endFrame: 42 },
+      modalities: ['visual'],
+    });
+
+    expect(request.sampleFrames).toEqual([40, 41]);
   });
 
   it('requires both visual and audio proof for timeline mutations on a video', () => {
