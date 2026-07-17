@@ -1,8 +1,9 @@
 import { generateText } from "ai";
 import { normalizeWhitespace } from "../utils/text";
 import { suggestInsertionPoint, type PlacementProposal, type BlockNode } from "../block-graph";
-import { buildIntentClassifierPrompt } from "../prompts/intentClassifierPrompt";
+import { buildIntentClassifierSystemInstruction } from "../prompts/intentClassifierPrompt";
 import { createModelByTier, ModelTier } from "../agents/model-factory";
+import { buildIsolatedPromptParts } from "../agents/prompt-boundary";
 import { readAiSdkUsage, recordThinkForgeDirectCost } from "../services/provider-cost-telemetry";
 
 export type Intent = "chat" | "draft" | "edit" | "hybrid" | "research";
@@ -285,18 +286,32 @@ async function classifyIntentFallback(
 
   const model = createModelByTier(ModelTier.Structural);
   const modelName = "gemini-2.5-flash";
-  const promptText = buildIntentClassifierPrompt({
-    message: prompt,
-    hasScript,
-    hasSelection,
-    context,
+  const promptParts = buildIsolatedPromptParts({
+    systemInstruction: buildIntentClassifierSystemInstruction(),
+    data: {
+      message: prompt,
+      hasScript,
+      hasSelection,
+      context: {
+        editorFocused: Boolean(context?.editorFocused),
+        workspaceMode: context?.workspaceMode ?? "unknown",
+        lastUserAction: context?.lastUserAction ?? null,
+      },
+    },
+    fieldLimits: {
+      message: 8_000,
+      lastUserAction: 1_000,
+    },
+    totalLimit: 12_000,
   });
+  const promptChars = promptParts.systemInstruction.length + promptParts.prompt.length;
   const startedAt = Date.now();
 
   try {
     const aiResult = await generateText({
       model,
-      prompt: promptText,
+      system: promptParts.systemInstruction,
+      prompt: promptParts.prompt,
       maxOutputTokens: 120,
       temperature: 0,
     });
@@ -329,7 +344,7 @@ async function classifyIntentFallback(
       provider: "gemini",
       modelName,
       operation: "llm_text_direct",
-      promptChars: promptText.length,
+      promptChars,
       outputChars: text?.length,
       functionMs: Date.now() - startedAt,
       usage: await readAiSdkUsage((aiResult as { usage?: unknown }).usage),
@@ -350,7 +365,7 @@ async function classifyIntentFallback(
       provider: "gemini",
       modelName,
       operation: "llm_text_direct",
-      promptChars: promptText.length,
+      promptChars,
       functionMs: Date.now() - startedAt,
       routePurpose: "structural",
       privacyClass: "business_confidential",

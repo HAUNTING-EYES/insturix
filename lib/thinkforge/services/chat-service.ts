@@ -31,11 +31,12 @@ import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
 import { createThinkForgeModelForRoute } from '../agents/model-factory';
+import { buildIsolatedPromptParts } from '../agents/prompt-boundary';
 import { resolveThinkForgeDocumentIntent, resolveThinkForgeGenerationDocumentIntent } from '../agents/prompt-utils';
 import { resolveThinkForgeTrendContext } from './trend-context';
 import { resolveThinkForgeProductionBrief } from '../brief/resolve-production-brief';
 import { resolveThinkForgeAvatarCasting, type ThinkForgeCastingMetadata } from '../casting/resolve-casting';
-import { parsePromptUnderstanding } from '../intake/prompt-knob-parser';
+import { buildKnobParserSystemInstruction, parsePromptUnderstanding } from '../intake/prompt-knob-parser';
 import { buildThinkForgeSourceLedger } from '../provenance/source-ledger';
 import {
   resolveContentSignalProfile,
@@ -50,14 +51,21 @@ import crypto from 'crypto';
 
 const PROMPT_UNDERSTANDING_SEED = 7;
 
-async function resolveScriptPromptUnderstanding(userPrompt: string) {
-  return parsePromptUnderstanding(userPrompt, async (intakePrompt) => {
+export async function resolveScriptPromptUnderstanding(userPrompt: string) {
+  return parsePromptUnderstanding(userPrompt, async () => {
+    const promptParts = buildIsolatedPromptParts({
+      systemInstruction: buildKnobParserSystemInstruction(),
+      data: { userPrompt },
+      fieldLimits: { userPrompt: 24_000 },
+      totalLimit: 32_000,
+    });
     const { text } = await generateText({
       model: createThinkForgeModelForRoute({
         routePurpose: 'structural',
         privacyClass: 'business_confidential',
       }),
-      prompt: intakePrompt,
+      system: promptParts.systemInstruction,
+      prompt: promptParts.prompt,
       temperature: 0,
       seed: PROMPT_UNDERSTANDING_SEED,
     });
