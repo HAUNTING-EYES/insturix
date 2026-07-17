@@ -300,6 +300,28 @@ describe('chat edit battle harness', () => {
     }
   });
 
+  it('requires semantic owner dispatch for vague and family-level requests', () => {
+    const cases = [
+      ['vague-enhance', ['add_transition', 'add_motion_graphic', 'auto_motion_graphics']],
+      ['vague-transitions', ['add_transition']],
+      ['vague-motion-graphics', ['add_motion_graphic', 'auto_motion_graphics']],
+      ['motivated-zoom', ['resolve_keyframe_edit', 'set_keyframes']],
+      ['vague-sfx-beat', ['resolve_audio_edit', 'add_sfx']],
+      ['clean-captions', ['add_captions']],
+      ['bgm-explicit', ['regenerate_bgm']],
+      ['bgm-vague', ['regenerate_bgm']],
+    ] as const;
+
+    for (const [id, forbiddenTools] of cases) {
+      const scenario = getChatEditBattleScenario(id)!;
+      expect(scenario.requiredToolSequence).toEqual([
+        ['read_project_file', 'get_timeline_view'],
+        'apply_editorial_intent',
+      ]);
+      expect(scenario.forbiddenTools).toEqual(expect.arrayContaining([...forbiddenTools]));
+    }
+  });
+
   it('recognizes a queued semantic-owner result without treating ordinary successful tools as queued', () => {
     const queued = invocation('multiasset-script-chat', [{
       id: 'intent',

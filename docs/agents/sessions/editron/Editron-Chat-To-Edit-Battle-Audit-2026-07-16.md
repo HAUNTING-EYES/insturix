@@ -322,6 +322,29 @@ Absolute tests:
 - Selected range, visible timeline, playhead, selection, and spatial cursor are transmitted explicitly.
 - Stale project responses cannot update the active chat.
 
+#### Phase 3F-B status (2026-07-17)
+
+The rendered-frame transport is code-complete and regression-verified. A successful,
+isolated `visual_inspect_frame` call now ends the server round; the browser seeks to
+and captures the requested editor frame; the route validates ownership, frame bounds,
+freshness, MIME, dimensions, and payload size; and Gemini receives the image as native
+`inlineData`. Image bytes are not written into chat history or prompt text. Mixed
+inspection and mutation calls fail without executing either action.
+
+Focused and broader Chat-to-Edit verification passed (6 frame-contract tests and 128
+broader chat tests). A real authenticated preview capture remains the required live
+proof before Phase 3F-B may be called production-proven.
+
+#### Pinned follow-up: canonical capabilities and optional MCP adapter
+
+Do not add an MCP server inside the Editron-to-Gemini runtime merely to describe tools.
+First establish one provider-neutral, typed capability registry as the source of truth
+for tool schema, read/mutate classification, prerequisites and evidence, authorization,
+credits, rate limits, side effects, checkpoints, postconditions, and failure modes.
+Derive Gemini function declarations, system-prompt capability summaries, UI availability,
+and capability tests from that registry. A future MCP surface may adapt the same registry
+for external agents; it must not become a second capability authority.
+
 ### Phase 3G - Missing Operations and Safe Replacement
 
 Aim: close confirmed capability holes without shadow planners.

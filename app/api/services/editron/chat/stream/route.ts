@@ -7,15 +7,23 @@ import { projectService } from '@/lib/editron/services/project-service';
 import { generateProjectSummary, formatSummaryForPrompt } from '@/lib/editron/utils/project-summary';
 import { buildChatEditContextBundle, formatChatEditContextForPrompt } from '@/lib/editron/agent/chat-edit-context';
 import {
-  beginChatAiEditTransaction,
-  completeChatAiEditTransaction,
   formatChatAiEditRestoreTargetForPrompt,
   resolveChatAiEditRestoreTarget,
 } from '@/lib/editron/agent/chat-ai-edit-transactions';
+import {
+  completeChatAiEditTransaction,
+  prepareChatAiEditTransaction,
+  rollbackChatAiEditTransaction,
+  type ChatAiEditTransaction,
+} from '@/lib/editron/agent/chat-ai-edit-transaction-runtime';
 import { checkRateLimit } from '@/lib/editron/utils/rate-limiter';
 import { CreditsService } from '@/lib/services/creditsService';
 import { TokenTracker } from '@/lib/editron/utils/token-tracker';
 import { CHAT_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
+import {
+  formatChatFrameEvidencePrompt,
+  sanitizeChatFrameEvidence,
+} from '@/lib/editron/agent/chat-frame-evidence';
 
 // Minimum credits required to start a chat (actual cost calculated post-hoc based on tokens)
 const MINIMUM_CREDITS_REQUIRED = 1;
@@ -67,6 +75,7 @@ function appendCheckpointContextForAgent(content: string, checkpointIds?: string
 }
 
 export async function POST(req: NextRequest) {
+  let activeTransaction: ChatAiEditTransaction | undefined;
   try {
     const { userId } = await auth();
     if (!userId) {
@@ -108,10 +117,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { message, projectId, sessionId, selectedOverlayId, clientContext } = await req.json();
+    const {
+      message,
+      projectId,
+      sessionId,
+      selectedOverlayId,
+      clientContext,
+      operationId,
+      visualEvidence: rawVisualEvidence,
+    } = await req.json();
 
-    if (!message || !projectId) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    if (!message || !projectId || !operationId) {
+      return NextResponse.json(
+        { error: 'message, projectId, and operationId are required' },
+        { status: 400 },
+      );
+    }
+    const visualEvidence = rawVisualEvidence == null
+      ? undefined
+      : sanitizeChatFrameEvidence(rawVisualEvidence);
+    if (rawVisualEvidence != null && !visualEvidence) {
+      return NextResponse.json(
+        { error: 'visualEvidence must be a fresh, bounded editor-rendered JPEG or WebP frame' },
+        { status: 400 },
+      );
     }
 
     // Authorize the project before touching any chat session state.
@@ -119,6 +148,21 @@ export async function POST(req: NextRequest) {
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
+    const projectDurationInFrames = Number(project.durationInFrames);
+    if (
+      visualEvidence
+      && (!Number.isFinite(projectDurationInFrames)
+        || projectDurationInFrames <= 0
+        || visualEvidence.frame >= projectDurationInFrames)
+    ) {
+      return NextResponse.json(
+        { error: 'visualEvidence frame is outside the authorized project timeline' },
+        { status: 400 },
+      );
+    }
+    const agentMessage = visualEvidence
+      ? formatChatFrameEvidencePrompt(message, visualEvidence)
+      : message;
 
     // Get or create a session scoped to this user and project.
     const actualSessionId = await chatService.getOrCreateSession(userId, projectId, sessionId);
@@ -128,6 +172,35 @@ export async function POST(req: NextRequest) {
     if (!history) {
       throw new Error('Chat session was not created for this project');
     }
+
+    // Fail closed before invoking any mutating tool. Every turn gets a durable
+    // pre-state because mutation intent is not trustworthy until the agent has
+    // resolved and executed its tool calls.
+    const preparedTransaction = await prepareChatAiEditTransaction({
+      operationId,
+      sessionId: actualSessionId,
+      projectId,
+      userId,
+      project: project as unknown as Record<string, unknown>,
+    });
+    if (preparedTransaction.status === 'duplicate') {
+      return NextResponse.json(
+        {
+          error: preparedTransaction.message,
+          code: 'CHAT_EDIT_OPERATION_REPLAY',
+          operationId,
+          operationStatus: preparedTransaction.operationStatus,
+          beforeCheckpointId: preparedTransaction.beforeCheckpointId,
+          afterCheckpointId: preparedTransaction.afterCheckpointId,
+        },
+        { status: 409 },
+      );
+    }
+    const editTransaction = preparedTransaction.transaction;
+    if (!editTransaction) {
+      throw new Error('Chat edit transaction preflight returned no executable transaction.');
+    }
+    activeTransaction = editTransaction;
 
     // Save user message (after loading history so it's not included in history conversion)
     await chatService.saveMessage(actualSessionId, userId, projectId, {
@@ -195,12 +268,6 @@ export async function POST(req: NextRequest) {
     if (restoreTargetPrompt) {
       contextMessage += `\n\n${restoreTargetPrompt}`;
     }
-    const editTransaction = beginChatAiEditTransaction({
-      sessionId: actualSessionId,
-      projectId,
-      userId,
-      overlays: project.overlays ?? [],
-    });
 
     // Initialize agent with project context
     const agent = createAgent(userId, contextMessage);
@@ -215,11 +282,12 @@ export async function POST(req: NextRequest) {
 
     // Run agent in background with streaming
     (async () => {
+      let transactionSettled = false;
       try {
         const inputs = {
           messages: [
             ...langchainHistory,
-            new HumanMessage(message) // The new message
+            new HumanMessage(agentMessage) // The new message, optionally paired with visual evidence
           ]
         };
 
@@ -250,6 +318,7 @@ export async function POST(req: NextRequest) {
             projectId,
             streamCallback,
             tokenTracker,
+            chatFrameEvidence: visualEvidence,
           }
         });
         console.log('[STREAM-ROUTE] Agent.invoke completed. Callback was invoked', callbackInvocationCount, 'times');
@@ -315,10 +384,15 @@ export async function POST(req: NextRequest) {
         const toolResults = Array.from(toolResultsMap.values());
         const editTransactionSummary = await completeChatAiEditTransaction({
           transaction: editTransaction,
+          toolCalls,
           toolResults,
         });
+        transactionSettled = true;
         if (editTransactionSummary.status === 'failed') {
-          console.error('[STREAM-ROUTE] Failed to create AI edit transaction checkpoints:', editTransactionSummary.error);
+          throw new Error(`AI edit rollback failed: ${editTransactionSummary.error ?? 'unknown error'}`);
+        }
+        if (editTransactionSummary.status === 'rolled-back') {
+          throw new Error(`AI edit was rolled back: ${editTransactionSummary.error ?? 'a mutating tool failed'}`);
         }
 
         // Save assistant response with tool info
@@ -354,10 +428,25 @@ export async function POST(req: NextRequest) {
           creditsConsumed: Math.round(creditsConsumed * 100) / 100,
           tokensUsed,
         })}\n\n`));
-      } catch (error: any) {
-        console.error("Agent error:", error);
+      } catch (error: unknown) {
+        let errorMessage = error instanceof Error ? error.message : 'AI edit failed.';
+        if (!transactionSettled) {
+          try {
+            const rollback = await rollbackChatAiEditTransaction({
+              transaction: editTransaction,
+              reason: errorMessage,
+            });
+            transactionSettled = true;
+            if (rollback.status === 'failed') {
+              errorMessage = `${errorMessage} Rollback also failed: ${rollback.error ?? 'unknown error'}`;
+            }
+          } catch (rollbackError: unknown) {
+            errorMessage = `${errorMessage} Rollback threw: ${rollbackError instanceof Error ? rollbackError.message : 'unknown error'}`;
+          }
+        }
+        console.error('Agent error:', errorMessage);
         // No refund needed since we're using post-hoc billing
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: errorMessage })}\n\n`));
       } finally {
         await writer.close();
       }
@@ -371,10 +460,24 @@ export async function POST(req: NextRequest) {
       },
     });
 
-  } catch (error: any) {
-    console.error('Error in chat route:', error);
+  } catch (error: unknown) {
+    let errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
+    if (activeTransaction) {
+      try {
+        const rollback = await rollbackChatAiEditTransaction({
+          transaction: activeTransaction,
+          reason: `Chat stream preflight failed: ${errorMessage}`,
+        });
+        if (rollback.status === 'failed') {
+          errorMessage = `${errorMessage} Rollback also failed: ${rollback.error ?? 'unknown error'}`;
+        }
+      } catch (rollbackError: unknown) {
+        errorMessage = `${errorMessage} Rollback threw: ${rollbackError instanceof Error ? rollbackError.message : 'unknown error'}`;
+      }
+    }
+    console.error('Error in chat route:', errorMessage);
     return NextResponse.json(
-      { error: error.message || 'Internal Server Error' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

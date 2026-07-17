@@ -73,6 +73,9 @@ export const COLLECTIONS = {
   STYLE_PROFILES: 'styleProfiles',
   PROJECT_LINKS: 'project_links',
   MG_RENDER_JOBS: 'editron_mg_render_jobs',
+  LEDGER: 'ledger',
+  TREND_REQUESTS: 'trend_requests',
+  TRENDS: 'trends',
 } as const;
 
 /**
@@ -153,6 +156,8 @@ export async function initializeIndexes(): Promise<void> {
     { key: { userId: 1, storyboardIds: 1 }, name: 'userId_storyboardIds' },
     { key: { userId: 1, projectIds: 1 }, name: 'userId_projectIds' },
     { key: { userId: 1, videoIds: 1 }, name: 'userId_videoIds' },
+    { key: { userId: 1, referenceIds: 1 }, name: 'userId_referenceIds' },
+    { key: { userId: 1, briefId: 1 }, name: 'userId_briefId' },
   ]);
 
   // Isolated MG renderer jobs. `_id` is a deterministic request hash, so retries and duplicate
@@ -163,6 +168,27 @@ export async function initializeIndexes(): Promise<void> {
     { key: { status: 1, leaseExpiresAt: 1 }, name: 'status_leaseExpiresAt' },
     { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
     { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // Source Ledger — analyze-once store keyed by referenceId, deduped by platform URL/ID +
+  // chromaprint, scoped to the owner (org for agencies, else the individual user).
+  await db.collection(COLLECTIONS.LEDGER).createIndexes([
+    { key: { referenceId: 1 }, name: 'referenceId_unique', unique: true },
+    { key: { 'owner.userId': 1, dedupeKeys: 1 }, name: 'ownerUser_dedupeKeys' },
+    { key: { 'owner.orgId': 1, dedupeKeys: 1 }, name: 'ownerOrg_dedupeKeys' },
+    { key: { 'owner.userId': 1, analyzedAt: -1 }, name: 'ownerUser_analyzedAt' },
+  ]);
+
+  // Insturix Trends demand signal — one row per (trend, user). The unique index makes
+  // countDocuments({trendKey}) a DISTINCT-user count (a repeat request can't inflate demand).
+  await db.collection(COLLECTIONS.TREND_REQUESTS).createIndexes([
+    { key: { trendKey: 1, userId: 1 }, name: 'trendKey_userId_unique', unique: true },
+  ]);
+
+  // Insturix Trends — the ranked trend list the cron persists for the UI (one row per trend).
+  await db.collection(COLLECTIONS.TRENDS).createIndexes([
+    { key: { trendKey: 1 }, name: 'trendKey_unique', unique: true },
+    { key: { rankScore: -1 }, name: 'rankScore' },
   ]);
 
   console.log('Database indexes initialized successfully');

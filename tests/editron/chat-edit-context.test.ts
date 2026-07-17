@@ -3,7 +3,9 @@ import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildChatEditClientContext,
   buildChatEditContextBundle,
+  canApplyChatProjectResponse,
   formatChatEditContextForPrompt,
 } from '@/lib/editron/agent/chat-edit-context';
 import {
@@ -169,6 +171,119 @@ describe('chat edit context bundle', () => {
       { assetId: 'asset_music', types: ['sound'], overlayIds: [3] },
     ]);
     expect(bundle.resolverStatus.userMediaSearchAvailableToChat).toBe(true);
+  });
+
+  it('builds explicit editor context from selection, viewport, panel, and recent pointer', () => {
+    const nowMs = 2_000_000;
+    const clientContext = buildChatEditClientContext({
+      currentFrame: 95,
+      selectedOverlayId: 0,
+      selectedOverlay: {
+        id: 0,
+        from: 60,
+        durationInFrames: 45,
+      },
+      durationInFrames: 300,
+      overlayCount: 4,
+      activePanel: 'ai-chat',
+      canvas: { width: 1280, height: 720 },
+      playerDimensions: { width: 960, height: 540 },
+      timelineViewport: {
+        scrollLeft: 320,
+        viewportWidth: 640,
+        contentWidth: 1280,
+        zoomScale: 2,
+      },
+      spatialCursor: {
+        surface: 'preview',
+        frame: 95,
+        normalizedX: 0.25,
+        normalizedY: 0.5,
+        canvasX: 320,
+        canvasY: 360,
+        capturedAtMs: nowMs - 1_000,
+        source: 'last-editor-pointer',
+      },
+      nowMs,
+    });
+
+    expect(clientContext).toMatchObject({
+      currentFrame: 95,
+      selectedOverlayId: 0,
+      selectedRange: {
+        startFrame: 60,
+        endFrame: 105,
+        source: 'selected-overlay',
+      },
+      visibleTimeline: {
+        startFrame: 75,
+        endFrame: 225,
+        source: 'timeline-viewport',
+      },
+      activePanel: 'ai-chat',
+      spatialCursor: {
+        surface: 'preview',
+        frame: 95,
+        normalizedX: 0.25,
+        normalizedY: 0.5,
+        canvasX: 320,
+        canvasY: 360,
+      },
+    });
+
+    const bundle = buildChatEditContextBundle(project, { clientContext, contextNowMs: nowMs });
+    expect(bundle.selectedRange).toEqual({
+      startFrame: 60,
+      endFrame: 105,
+      durationInFrames: 45,
+      source: 'selected-overlay',
+    });
+    expect(bundle.visibleTimeline).toEqual({
+      startFrame: 75,
+      endFrame: 225,
+      durationInFrames: 150,
+      source: 'timeline-viewport',
+    });
+    expect(bundle.spatialCursor).toMatchObject({ surface: 'preview', frame: 95, ageMs: 1_000 });
+    expect(formatChatEditContextForPrompt(bundle)).toContain(
+      'Last editor pointer: surface=preview, frame=95',
+    );
+  });
+
+  it('expires stale pointer evidence and rejects stale or aborted project responses', () => {
+    const nowMs = 5_000_000;
+    const clientContext = buildChatEditClientContext({
+      durationInFrames: 300,
+      spatialCursor: {
+        surface: 'timeline',
+        frame: 120,
+        capturedAtMs: nowMs - 30_001,
+        source: 'last-editor-pointer',
+      },
+      nowMs,
+    });
+
+    expect(clientContext.spatialCursor).toBeUndefined();
+    expect(canApplyChatProjectResponse({ expectedProjectId: 'proj_a', activeProjectId: 'proj_a' })).toBe(true);
+    expect(canApplyChatProjectResponse({ expectedProjectId: 'proj_a', activeProjectId: 'proj_b' })).toBe(false);
+    expect(canApplyChatProjectResponse({
+      expectedProjectId: 'proj_a',
+      activeProjectId: 'proj_a',
+      aborted: true,
+    })).toBe(false);
+  });
+
+  it('funnels every chat project overlay reload through the post-await project guard', () => {
+    const source = readFileSync(join(
+      process.cwd(),
+      'components/editron/editor/version-7.0.0/components/ai-chat/ai-chat-panel.tsx',
+    ), 'utf8');
+
+    expect(source.match(/setOverlays\(/g)).toHaveLength(1);
+    expect(source).toContain('const projectData = await projectResponse.json()');
+    expect(source.indexOf('canApplyChatProjectResponse({')).toBeLessThan(
+      source.indexOf('setOverlays(projectData.project.overlays)'),
+    );
   });
 
   it('covers user asset tools with registry metadata without importing Mongo-backed tools', () => {
