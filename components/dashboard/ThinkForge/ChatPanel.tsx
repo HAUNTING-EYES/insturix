@@ -249,6 +249,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   const chat = useThinkForgeChat(sessionId || null, activeThreadId || null, initialMessages, {
     onRemoteScriptUpdate: handleScriptUpdate,
     onScriptCreated,
+    getActiveScriptId: () => scriptIdRef.current,
   });
 
   // Initialize context-aware suggestions
@@ -276,7 +277,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   // Build script payload
   const scriptPayload = useMemo(() => scriptToModel(script), [script]);
 
-  // An initial script draft is created only after an explicit Start Drafting action
+  // An initial document draft is created only after an explicit Start Drafting action
   // persists a pending intent on the session. Mounting an old session never creates one.
   useEffect(() => {
     if (!sessionId || isScriptLoading) return;
@@ -304,7 +305,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         initialDraftClaimedSessionRef.current = sessionId;
         if (claim?.initialDraftClaimed !== true) return;
 
-        const initialDraftPrompt = `Create the complete first script draft for this idea: "${selectedIdea.idea}". Keep the narrative specific to the idea, begin with a strong hook, and include a clear ending.`;
+        const initialDraftPrompt = `Create the complete first draft for this idea: "${selectedIdea.idea}". Follow the selected document format and platform. Keep the content specific to the idea, begin with a strong hook, and include a clear ending.`;
         void chat.sendMessage(initialDraftPrompt, {
           silent: true,
           script: scriptPayload,
@@ -322,7 +323,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       } catch (error) {
         console.error('[ThinkForge] Initial draft claim failed:', error);
         toast({
-          title: 'Could not start the script draft',
+          title: 'Could not start the first draft',
           description: 'Please try again from the editor.',
           variant: 'destructive',
         });
@@ -344,13 +345,10 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     workspaceMode,
   ]);
   const handleSend = useCallback(() => {
-    console.log('[ChatPanel.handleSend] called', { inputValue: inputValue.trim(), sessionId, isStreaming: chat.isStreaming });
     if (!inputValue.trim()) {
-      console.log('[ChatPanel.handleSend] No input value, returning');
       return;
     }
     if (!sessionId) {
-      console.log('[ChatPanel.handleSend] No sessionId, returning');
       toast({
         title: "Session not ready",
         description: "Please wait a moment while the session loads, then try again.",
