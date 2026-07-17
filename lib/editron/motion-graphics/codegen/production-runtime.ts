@@ -400,7 +400,7 @@ function extractJsonObject(text: string): string {
 // enforces them via responseSchema, but the ZAI path (no schema) and legacy fixtures may omit them — a missing
 // dimension is not an error. When present, a dimension below WEAK_DIMENSION_SCORE is surfaced as an actionable
 // issue so the revision loop knows WHICH craft axis to fix. The accept gate stays the disciplined holistic `score`.
-const JUDGE_DIMENSIONS = ['hierarchy', 'typography', 'color', 'composition', 'motion'] as const;
+const JUDGE_DIMENSIONS = ['hierarchy', 'typography', 'color', 'composition', 'motion', 'form'] as const;
 const WEAK_DIMENSION_SCORE = 6; // ⚠ tunable, NON-gating — only surfaces a weak axis as text; the accept gate is codegen-service's score threshold.
 
 function parseJudgeResponse(response: string): { score: number; issues: string[] } {

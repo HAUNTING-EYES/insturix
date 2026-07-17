@@ -106,6 +106,14 @@ CRAFT — what separates a crafted graphic from AI-slop:
 - BRAND by construction — colour and type come only from the brand tokens.
 - IT READS OVER FOOTAGE — the focal content sits in the frame's ROOM (the negative space named in <moment>),
   clear of the subject; use a LOCAL scrim/outline only where legibility needs it, never a field that hides footage.
+- FORM INVESTMENT — every graphic is DESIGNED, never minimum-viable text. Words alone on a panel is a slide, not
+  a motion graphic. Spend visual form matched to the moment: a list is a designed STRUCTURE (numbered/marked
+  items — a Dot or Rule per item, staggered card plates, a spatial arrangement — not bare text lines); a stat is
+  a designed FIGURE (a Ring/Bar making it felt, a display-face number with a motif — not a printed value); a
+  term is designed TYPE (accent, underline-draw, reveal — not a plain word). The kit's marks (Bar, Ring, Plot,
+  Rule, Dot, Plate, Reveal, Motif, Texture, Particles) exist to carry form — use them. Restraint changes the
+  SIZE and volume of the design, never whether there is design: a quiet moment is a small DESIGNED graphic,
+  not undesigned text.
 
 RANGE (priors, NOT a menu — never "pick one"): great graphics span a wide space — a single metric owning the
 void; kinetic type where a phrase fills the frame with one accent word; two quantities as bars or rings at their
@@ -117,7 +125,9 @@ brand, the intent, the screen, and the expressiveness make each its own.
 AVOID (slop): keyword-highlighting; lower-third / name-tag templates; a number shown statically; decoration that
 carries no meaning; muddy gradients; an undifferentiated field with no entry point or reading order (note: co-equal
 labelled elements are CORRECT when the content IS a set — a map, a list, a compared group — the slop is having no
-order at all, not having many elements); a graphic that floats ignoring the footage beneath.
+order at all, not having many elements); MINIMUM-VIABLE TEXT — bare text lines on a plain panel where the kit's
+marks could carry designed form (undesigned is not the same as restrained); a graphic that floats ignoring the
+footage beneath.
 </what_motion_graphics_are>`;
 
 /**
@@ -236,7 +246,8 @@ CRAFT DIMENSIONS — score EACH 0-10 by its guiding question. These are Swiss/Ba
 - color: are ALL colours from the brand palette, with clean contrast and no muddy gradients? Any non-brand colour, weak contrast, or mud = low.
 - composition: does the graphic sit in the frame's ROOM, clear of the subject and existing text/caption, with intentional negative space — not stretched to fill every quadrant? Subject/caption collision or dead-quadrant filling = low.
 - motion: across the three phases does it DEVELOP with intent (a real reveal / build / landing), moving on every frame and ending settled — not static, not decoration? No development across the phases, or decorative-only motion = low.
-RESTRAINT IS CRAFT, NOT TIMIDITY: a quiet, precise, small graphic at a subtle moment is CORRECT — never mark hierarchy or typography down for restraint. Size is right when it fits the moment, not when it is large. Reward deliberate negative space, one accent, and clean readability.
+- form: is there DESIGNED visual form — structure, marks, motifs, spatial composition, drawn/figurative elements — matched to the moment, or is it MINIMUM-VIABLE TEXT (bare words on a plain panel)? A designed-minimal graphic (a considered dot, rule, texture, accent — small but composed) scores HIGH. Bare text lines where a professional would design a structure (a list with no markers/cards/spatial design; a stat printed instead of made felt; a term with no typographic treatment) = low. Words alone on a rectangle is a slide, not a motion graphic.
+RESTRAINT IS CRAFT, NOT TIMIDITY: a quiet, precise, small graphic at a subtle moment is CORRECT — never mark hierarchy or typography down for restraint. Size is right when it fits the moment, not when it is large. Reward deliberate negative space, one accent, and clean readability. But restraint means a SMALLER design, never NO design — judge \`form\` on design investment, not on size.
 PROFESSIONAL BAR — the graphic must belong alongside professional motion design. Hold it to the ONE bar whose kind fits THIS moment (read the licensed fact + expressiveness), NOT a generic one:
 - a DATA / EXPLAINER moment (a stat, comparison, chart, trend) → the clarity-and-restraint bar: muted palette with one purposeful accent, medium sans, flat surface, generous whitespace, calm motion that serves comprehension. A busy graphic that looks cool but does not READ fails this bar; a clean restrained one that reads instantly is 8+.
 - a KINETIC / HERO moment (a hook, a bold claim, a punchline) → the energy-and-retention bar: heavy condensed ALL-CAPS display, one high-contrast accent keyword, word/beat-synced pop. A technically-clean but LIFELESS caption fails this bar.
@@ -244,5 +255,5 @@ PROFESSIONAL BAR — the graphic must belong alongside professional motion desig
 - ALWAYS the competitive floor: a rival AI motion-graphics tool already ships polished, varied hooks; this must not look worse.
 Ask holistically: does this belong alongside those professionals? Score against the FITTING bar — do not reward energy on a moment that needs clarity, or clarity on a moment that needs a hook.
 AUTOMATIC REJECT (forces a reject-class score, and faithful=false for fabrication): unsupported asserted content; any colour outside brand tokens; clipped/overflowing/broken text; a keyword-highlight or lower-third-template look instead of a bespoke composition; an opaque full-canvas graphic that hides the footage; subject/caption obstruction in any real-footage composite; or a graphic that cannot read over the real footage and both stress backgrounds.
-SCORING DISCIPLINE: \`score\` is a holistic 0-10 OVERALL that MUST be consistent with the dimensions and the issues — it is NOT their mean, but it can never exceed the lowest reject-class dimension. Any reject-class problem — fabrication (faithful=false), subject/caption obstruction, an opaque field hiding the footage, NO visible motion development across the three phases, clipped/broken text, or a non-brand colour — forces \`score\` to at most 4 AND the matching dimension to at most 4. Never award 8+ while any dimension is ≤4 or while you list a reject-class issue.
-Return ONLY JSON: {"faithful":boolean,"hierarchy":0-10,"typography":0-10,"color":0-10,"composition":0-10,"motion":0-10,"score":0-10,"issues":["specific fixable issue"],"reasoning":"one sentence"}. score 8+ = genuinely premium AND faithful.`;
+SCORING DISCIPLINE: \`score\` is a holistic 0-10 OVERALL that MUST be consistent with the dimensions and the issues — it is NOT their mean, but it can never exceed the lowest reject-class dimension. Any reject-class problem — fabrication (faithful=false), subject/caption obstruction, an opaque field hiding the footage, NO visible motion development across the three phases, clipped/broken text, or a non-brand colour — forces \`score\` to at most 4 AND the matching dimension to at most 4. MINIMUM-VIABLE TEXT is a quality cap: if \`form\` ≤ 4 (undesigned bare-text output), \`score\` is at most 6 — clean execution cannot rescue an undesigned graphic. Never award 8+ while any dimension is ≤4 or while you list a reject-class issue.
+Return ONLY JSON: {"faithful":boolean,"hierarchy":0-10,"typography":0-10,"color":0-10,"composition":0-10,"motion":0-10,"form":0-10,"score":0-10,"issues":["specific fixable issue"],"reasoning":"one sentence"}. score 8+ = genuinely premium AND faithful.`;

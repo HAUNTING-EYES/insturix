@@ -46,11 +46,12 @@ const GEMINI_RESPONSE_SCHEMA: ResponseSchema = {
     color: { type: SchemaType.NUMBER },
     composition: { type: SchemaType.NUMBER },
     motion: { type: SchemaType.NUMBER },
+    form: { type: SchemaType.NUMBER },
     score: { type: SchemaType.NUMBER },
     issues: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
     reasoning: { type: SchemaType.STRING },
   },
-  required: ['faithful', 'hierarchy', 'typography', 'color', 'composition', 'motion', 'score', 'issues', 'reasoning'],
+  required: ['faithful', 'hierarchy', 'typography', 'color', 'composition', 'motion', 'form', 'score', 'issues', 'reasoning'],
 };
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 const DEFAULT_ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';

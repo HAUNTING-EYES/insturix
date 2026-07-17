@@ -393,7 +393,7 @@ describe('production MG codegen runtime', () => {
     const generateContent = vi.fn().mockResolvedValue({
       response: { text: () => JSON.stringify({
         faithful: true,
-        hierarchy: 8, typography: 4, color: 9, composition: 7, motion: 5,
+        hierarchy: 8, typography: 4, color: 9, composition: 7, motion: 5, form: 3,
         score: 6.5, issues: ['tighten the ring stroke'], reasoning: 'clean but the label clips',
       }) },
     });
@@ -406,18 +406,19 @@ describe('production MG codegen runtime', () => {
     });
 
     await expect(runtime.codegen.compile('component')).resolves.toEqual({ ok: true });
-    // score = the holistic overall (6.5); weak dims (<6: typography 4, motion 5) become targeted revision feedback;
-    // strong dims (hierarchy 8, color 9, composition 7) are NOT flagged.
+    // score = the holistic overall (6.5); weak dims (<6: typography 4, motion 5, form 3) become targeted revision
+    // feedback; strong dims (hierarchy 8, color 9, composition 7) are NOT flagged.
     await expect(runtime.codegen.evaluate('component', moment())).resolves.toEqual({
       score: 6.5,
-      issues: ['tighten the ring stroke', 'weak typography (4/10)', 'weak motion (5/10)'],
+      issues: ['tighten the ring stroke', 'weak typography (4/10)', 'weak motion (5/10)', 'weak form (3/10)'],
     });
     const judgePrompt = generateContent.mock.calls[0][0].contents[0].parts[0].text;
     expect(judgePrompt).toContain('CRAFT DIMENSIONS');
     expect(judgePrompt).toContain('RESTRAINT IS CRAFT');
     expect(judgePrompt).toContain('PROFESSIONAL BAR'); // layer-3a reference-anchor bar (Vox/Hormozi/Gadzhi/competitive floor)
+    expect(judgePrompt).toContain('MINIMUM-VIABLE TEXT'); // form dimension: undesigned bare-text output caps the score
     const schema = generateContent.mock.calls[0][0].generationConfig.responseSchema;
-    expect(schema.required).toEqual(expect.arrayContaining(['hierarchy', 'typography', 'color', 'composition', 'motion', 'score']));
+    expect(schema.required).toEqual(expect.arrayContaining(['hierarchy', 'typography', 'color', 'composition', 'motion', 'form', 'score']));
     await runtime.dispose();
   });
 
