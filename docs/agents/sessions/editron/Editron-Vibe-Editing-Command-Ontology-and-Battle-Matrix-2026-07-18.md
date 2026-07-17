@@ -166,7 +166,7 @@ Required production contract:
 ### 4.4 Confirmed Command Correctness Gaps
 
 - Clip visual/audio analysis now has one source-to-edited coordinate contract (`1893189a`). Asset sampling uses source-media frames, receipts and findings use edited-timeline frames, explicit ranges are clamped to the selected clip, and ambiguous multi-clip requests fail instead of sampling the first clip. Direct regressions cover moved audio, moved/trimmed video, explicit asset/range targeting, unknown assets, and ambiguous requests.
-- `apply_style` currently returns a reference-derived action plan containing follow-up chat prompts. It does not itself execute those actions as one atomic, verified style transaction. It is planner-complete, not end-to-end style-application complete.
+- `apply_style` now executes one atomic transaction through the unified editorial planner (`b53cf024`). The reference profile supplies semantic observations and family preferences rather than renderer commands; the tool reports success only after a real project mutation and reports project-wide color grading as explicitly unapplied.
 - `use_matching_footage` now targets either an exact manual/uploaded overlay id or a unique generated scene (`00211b6c`). It owner-checks the replacement asset, requires video media, resets stale source trims, and rejects conflicting or ambiguous targets before mutation.
 - The older SFX/stock/user-footage handlers return legacy success shapes that the shared wrapper normalizes into a nested payload. The outer envelope is valid and mutations are proven, but these handlers should eventually adopt the canonical envelope directly to simplify model receipts and downstream inspection.
 
@@ -208,7 +208,7 @@ Read-only journeys must prove zero mutation. A tool call without its postconditi
 - Filtered legacy authority cannot satisfy the matrix.
 - Deterministic harness contract covers Mongo, UI reload, render evidence, postconditions, rollback, and isolation semantics.
 - Disposable fixture preparation maps every journey to a speech, visual/multi-asset, audio, mixed, or generated-scene source and seeds selection, multilingual timing, or asset aliases where required.
-- The full chat-focused regression suite is green: 22 files, 187 tests.
+- The full chat-focused regression suite is green: 22 files, 188 tests.
 - All 15 handlers that lacked direct literal behavioral coverage now have executable contracts through the real tool factory. Provider calls are mocked only at the external boundary; project reads, handler decisions, and mutations use the live implementations.
 - The provider/asset contracts prove SFX replacement preserves timing, stock searches are read-only across video and image branches, and user-footage swaps preserve scene timing/geometry while failing without a valid target.
 - Nested CSS-style tool arguments are normalized before schema validation, and a recovered schema retry no longer poisons an otherwise successful atomic transaction (`b610a724`).
@@ -218,7 +218,6 @@ Read-only journeys must prove zero mutation. A tool call without its postconditi
 - Independent failure and isolation-pair fixtures; current preparation covers five source profiles and scenario-specific failure/isolation setup still needs live orchestration.
 - Live-provider execution of all 73 journeys.
 - Rendered evidence for every mutating journey.
-- Atomic execution of `apply_style`, rather than returning a plan for a later model turn.
 - Chat attachment contract/UI/ingestion.
 - Project-wide color-grading family.
 - Translation/dubbing/reframing/repurposing command owners.
