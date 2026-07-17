@@ -98,8 +98,6 @@ export class ScriptAuthorAgent extends BaseAgent {
           ? 'CLICKATRON EXPORT OVERRIDE:\n  - The hidden Clickatron JSON must be complete. If the output risks getting long, shorten the visible post before the hidden export.\n  - For carousel handoffs, keep visible copy compact: one hook, 2-4 short paragraphs, one CTA, hashtags, then the hidden JSON.'
           : undefined,
       ].filter(Boolean).join('\n\n');
-      console.log(`[ThinkForge:Platform] Detected: ${platform} from ${resolvedPlatform ? 'resolvedPlatform' : userPrompt ? 'userPrompt' : 'docType'}`);
-
       return `<output_format>
 Write the ACTUAL publishable ${config.name} post. Not a brief. Not production notes. Not an outline ABOUT the content. The FINAL COPY.
 
@@ -258,11 +256,10 @@ VERIFY BEFORE OUTPUT:
     userRequest: string;
     contract?: NarrativeContract;
     outlineSummary: string;
-    outlineTitle?: string;
     brandBlock?: string; // XML brand context from buildBrandContextBlock()
     signalBlock?: string;
   }): string {
-    const { roleProfile, projectSummary, userRequest, contract, outlineSummary, outlineTitle, brandBlock, signalBlock } = params;
+    const { roleProfile, projectSummary, userRequest, contract, outlineSummary, brandBlock, signalBlock } = params;
 
     const contractBlock = contract
       ? `<contract>
@@ -371,7 +368,6 @@ ${outlineSummary}
       userRequest: instruction,
       contract,
       outlineSummary,
-      outlineTitle: outline?.title,
       brandBlock,
       signalBlock,
     });
@@ -459,7 +455,6 @@ Final rule: This must feel like something a professional would use immediately â
       userRequest: userPrompt,
       contract,
       outlineSummary,
-      outlineTitle: outline?.title,
       brandBlock,
       signalBlock,
     });
