@@ -108,33 +108,77 @@ function countToolCallsSinceLastHuman(
 }
 
 /**
- * Remove arguments that are irrelevant to the selected read mode before the
- * tool schema validates them. Gemini occasionally supplies `trackIds: "all"`
- * alongside `mode: "full"`; the value is not used in that mode and must not
- * prevent an otherwise valid project read. Active mode arguments remain
- * untouched and therefore retain their strict schema validation.
+ * Normalize model-generated arguments once before tool schema validation.
+ * This includes removing inactive read-mode fields and resolving frame-valued
+ * time strings with the current project's FPS.
  */
 export function normalizeAgentToolArgs(
   toolName: string,
   input: unknown,
+  options: { projectFps?: unknown } = {},
 ): Record<string, unknown> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return {};
   }
 
   const args = { ...(input as Record<string, unknown>) };
-  if (toolName !== 'read_project_file') return args;
+  if (toolName === 'read_project_file') {
+    const mode = typeof args.mode === 'string' ? args.mode : 'full';
+    if (mode === 'full') {
+      delete args.start;
+      delete args.end;
+      delete args.trackIds;
+    } else if (mode === 'slice') {
+      delete args.trackIds;
+    } else if (mode === 'byTrackIds') {
+      delete args.start;
+      delete args.end;
+    }
+  }
 
-  const mode = typeof args.mode === 'string' ? args.mode : 'full';
-  if (mode === 'full') {
-    delete args.start;
-    delete args.end;
-    delete args.trackIds;
-  } else if (mode === 'slice') {
-    delete args.trackIds;
-  } else if (mode === 'byTrackIds') {
-    delete args.start;
-    delete args.end;
+  const candidateFps = Number(options.projectFps);
+  const projectFps = Number.isFinite(candidateFps) && candidateFps > 0 ? candidateFps : 30;
+  const frameArgumentNames = new Set([
+    'start',
+    'end',
+    'from',
+    'duration',
+    'frame',
+    'startFrame',
+    'endFrame',
+    'durationInFrames',
+    'splitFrame',
+    'targetFrame',
+    'landingFrame',
+    'cutFrame',
+  ]);
+
+  for (const key of Object.keys(args)) {
+    const value = args[key];
+    if (typeof value !== 'string') continue;
+
+    const timeMatch = value.match(/^(\d+(?:\.\d+)?)\s*(s|sec|seconds?)$/i);
+    if (timeMatch && frameArgumentNames.has(key)) {
+      args[key] = Math.round(parseFloat(timeMatch[1]) * projectFps);
+    } else if (key === 'styles' && value.includes(':')) {
+      const styleObject: Record<string, unknown> = {};
+      value.split(';').forEach((pair) => {
+        const [rawKey, ...rawValueParts] = pair.split(':');
+        if (!rawKey || rawValueParts.length === 0) return;
+        const propertyName = rawKey.trim();
+        let propertyValue: string | number = rawValueParts.join(':').trim();
+        if (/^\d+px$/i.test(propertyValue)) {
+          propertyValue = parseInt(propertyValue, 10);
+        }
+        styleObject[propertyName] = propertyValue;
+      });
+      args[key] = styleObject;
+    } else if (/^-?\d+(\.\d+)?$/.test(value)) {
+      args[key] = parseFloat(value);
+    }
+
+    if (value === 'true') args[key] = true;
+    if (value === 'false') args[key] = false;
   }
 
   return args;
@@ -236,6 +280,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - "enhance this video" -> call apply_editorial_intent with project scope and no forced families, so evidence decides what is warranted.
     - "regenerate scene 2" → call regenerate_scene({ sceneIndex: 1, target: 'all' }). Do NOT ask image/video/voiceover.
     - "add motion graphics" -> call apply_editorial_intent with motionGraphics.mode="prefer". Do not name an MG form.
+    - When the user asks to change an existing generated HTML scene, call \`edit_html_scene\` with that scene's ID. Never delete and recreate it.
     If the user's selected overlay is visible in context, use it. Don't ask for overlay IDs.
 
     **SEMANTIC EDITORIAL INTENT (CRITICAL)**:
@@ -290,7 +335,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
         - Be concise, helpful, and friendly.
         - Use Markdown for formatting (bold, lists) to make your responses readable.
         - Do not be robotic.
-        - When using \`generate_html_scene\` or \`generate_html_sticker\`, do NOT output the HTML code in the chat. Just confirm you are generating it.
+        - When using \`generate_html_scene\`, \`edit_html_scene\`, or \`generate_html_sticker\`, do NOT output the HTML code in the chat. Just confirm the operation.
 </rules>
 
 <task>
@@ -307,6 +352,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - \`restore_ai_edit_checkpoint\`: Restore an exact checkpoint from a prior AI edit. Use beforeCheckpointId to undo an AI edit; use afterCheckpointId to redo it.
     - \`apply_editorial_intent\`: Ground ordinary or vague editorial outcomes in canonical transcript, visual, and audio evidence and dispatch jobs to the existing Director and family owners. It accepts no renderer form or preset fields.
     - \`generate_html_scene\`: Create FULL-SCREEN backgrounds, diagrams, or custom visual elements with AI generation (3-8s).
+    - \`edit_html_scene\`: Revise an existing generated HTML scene in place by overlay ID while preserving timing and placement.
     - \`generate_html_sticker\`: Create SMALL animated elements (emojis, badges, sparkles) with transparent backgrounds.
     - \`get_video_transcription\`: Get speech-to-text for a video (cached). Use 'timeline' mode for all clips in order.
     - \`find_transcript_moment\`: Read-only search for spoken phrase/word frame candidates. It does NOT edit the timeline.
@@ -1100,42 +1146,11 @@ export const createAgent = (userId: string, projectContext?: string) => {
             }
             // ──────────────────────────────────────────────────────────────
             // Pre-process args to handle Gemini's incorrect formats
-            // 1. Time strings: "3s" → 90 (frames at 30fps)
+            // 1. Time strings: "3s" → frame count at the project's FPS
             // 2. CSS-like strings: "fontSize: 72px; color: #FFF" → object
-            const args = normalizeAgentToolArgs(toolCall.name, toolCall.args);
-            for (const key of Object.keys(args)) {
-              const value = args[key];
-              if (typeof value === 'string') {
-                // Handle time strings for start/duration
-                const timeMatch = value.match(/^(\d+(?:\.\d+)?)\s*(s|sec|seconds?)$/i);
-                if (timeMatch) {
-                  args[key] = Math.round(parseFloat(timeMatch[1]) * 30);
-                }
-                // Handle CSS-like style strings
-                else if (key === 'styles' && value.includes(':')) {
-                  const styleObj: Record<string, any> = {};
-                  value.split(';').forEach((pair: string) => {
-                    const [k, ...vParts] = pair.split(':');
-                    if (k && vParts.length > 0) {
-                      const propName = k.trim();
-                      let propValue: any = vParts.join(':').trim();
-                      if (/^\d+px$/i.test(propValue)) {
-                        propValue = parseInt(propValue, 10);
-                      }
-                      styleObj[propName] = propValue;
-                    }
-                  });
-                  args[key] = styleObj;
-                }
-                // Coerce string numbers
-                else if (/^-?\d+(\.\d+)?$/.test(value)) {
-                  args[key] = parseFloat(value);
-                }
-              }
-              // Coerce string booleans
-              if (value === 'true') args[key] = true;
-              if (value === 'false') args[key] = false;
-            }
+            const args = normalizeAgentToolArgs(toolCall.name, toolCall.args, {
+              projectFps: config.configurable?.projectFps,
+            });
 
             // Execute tool with coerced args
             output = await (tool as any).invoke(args);

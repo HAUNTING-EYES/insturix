@@ -316,6 +316,7 @@ export async function POST(req: NextRequest) {
           recursionLimit: 50, // Allow up to 50 tool calls per request
           configurable: {
             projectId,
+            projectFps: project.fps,
             streamCallback,
             tokenTracker,
             chatFrameEvidence: visualEvidence,
