@@ -21,6 +21,8 @@ import PlanningMode from "@/components/dashboard/ThinkForge/PlanningMode";
 import { PipelineBreadcrumb } from "@/components/dashboard/shared/PipelineBreadcrumb";
 
 import { normalizeThinkForgeDocumentContract } from "@/lib/thinkforge/schemas/document-contract";
+import { matchesThinkForgeDocumentIdentity } from "@/lib/thinkforge/client-document-identity";
+import { resolveThinkForgeSessionOpenAction } from "@/lib/thinkforge/session-open-policy";
 const PROJECT_META_PASSTHROUGH_KEYS = [
 	'brandId',
 	'brandBrief',
@@ -817,6 +819,24 @@ export default function ThinkForgeLanding() {
 				// When sessions prop is omitted, component fetches via hook
 				onOpenSession={async (id) => {
 					try {
+						const openAction = resolveThinkForgeSessionOpenAction({
+							targetSessionId: id,
+							activeSessionId,
+							workspaceMode,
+							hasHydratedWorkspace: Boolean(
+								selectedIdea
+								&& matchesThinkForgeDocumentIdentity(scriptHook.script, {
+									sessionId: id,
+									scriptId: activeScriptId || 'default',
+								}),
+							),
+						});
+						if (openAction === 'focus_current') {
+							setLibraryOpen(false);
+							setWorkspaceMode('scripting');
+							return;
+						}
+
 						// Ensure current script is saved before switching sessions
 						if (scriptHook.script) {
 							await scriptHook.autosave(scriptHook.script);
