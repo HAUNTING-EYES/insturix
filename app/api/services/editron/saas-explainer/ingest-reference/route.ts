@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { nanoid } from 'nanoid';
 import { sampleReferenceVideoFrames } from '@/lib/editron/reference-video/reference-frame-sampler';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
+import { assertSafeAssetUrl } from '@/lib/shared/safe-asset-url';
 
 /**
  * POST /api/services/editron/saas-explainer/ingest-reference
@@ -56,6 +57,9 @@ export async function POST(request: NextRequest) {
       videoUrl = body.videoUrl.trim();
     }
 
+    // SSRF guard: the JSON path's videoUrl is caller-supplied and the sampler fetches it server-side. Our own
+    // uploaded signedUrl (public R2 host) passes; internal/metadata/private targets are blocked.
+    await assertSafeAssetUrl(videoUrl);
     const frames = await sampleReferenceVideoFrames({
       videoUrl,
       userId,
