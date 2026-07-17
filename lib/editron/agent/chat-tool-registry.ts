@@ -1,5 +1,12 @@
 export type ChatToolExecutionType = 'quick' | 'generative';
 export type ChatToolRiskLevel = 'read' | 'low' | 'medium' | 'high';
+export type ChatToolStatePostconditionKind =
+  | 'project-state-changed'
+  | 'overlay-created'
+  | 'overlay-updated'
+  | 'overlay-deleted'
+  | 'overlay-set-changed';
+export type ChatToolRenderEvidenceModality = 'visual' | 'audio';
 export type ChatToolIconCategory =
   | 'timeline'
   | 'add'
@@ -30,13 +37,26 @@ export interface ChatToolMetadata {
   riskLevel: ChatToolRiskLevel;
   receiptLabel: string;
   loadingMessages?: string[];
+  postconditions: ChatToolPostconditionContract | null;
 }
 
-type ChatToolMetadataInput = Omit<ChatToolMetadata, 'executionType' | 'mutatesProject' | 'requiresProjectReload' | 'riskLevel'> & {
+export interface ChatToolPostconditionContract {
+  state: {
+    kind: ChatToolStatePostconditionKind;
+    targetSource: 'tool-args-and-result';
+  };
+  render: {
+    required: true;
+    modalities: ChatToolRenderEvidenceModality[];
+  };
+}
+
+type ChatToolMetadataInput = Omit<ChatToolMetadata, 'executionType' | 'mutatesProject' | 'requiresProjectReload' | 'riskLevel' | 'postconditions'> & {
   executionType?: ChatToolExecutionType;
   mutatesProject?: boolean;
   requiresProjectReload?: boolean;
   riskLevel?: ChatToolRiskLevel;
+  postconditions?: ChatToolPostconditionContract;
 };
 
 const DEFAULT_LOADING_MESSAGES = ['Working'];
@@ -49,28 +69,49 @@ function defineTool(input: ChatToolMetadataInput): ChatToolMetadata {
     mutatesProject,
     requiresProjectReload: input.requiresProjectReload ?? mutatesProject,
     riskLevel: input.riskLevel ?? (mutatesProject ? 'medium' : 'read'),
+    postconditions: mutatesProject
+      ? input.postconditions ?? defaultPostconditions(input.iconCategory)
+      : null,
   };
+}
+
+function postconditions(
+  kind: ChatToolStatePostconditionKind,
+  modalities: ChatToolRenderEvidenceModality[] = ['visual'],
+): ChatToolPostconditionContract {
+  return {
+    state: { kind, targetSource: 'tool-args-and-result' },
+    render: { required: true, modalities },
+  };
+}
+
+function defaultPostconditions(iconCategory: ChatToolIconCategory): ChatToolPostconditionContract {
+  if (iconCategory === 'audio') return postconditions('project-state-changed', ['audio']);
+  if (iconCategory === 'timeline' || iconCategory === 'trim' || iconCategory === 'script') {
+    return postconditions('project-state-changed', ['visual', 'audio']);
+  }
+  return postconditions('project-state-changed', ['visual']);
 }
 
 export const CHAT_TOOL_REGISTRY = {
   read_project_file: defineTool({ name: 'read_project_file', label: 'Reading project data', shortLabel: 'Read', iconCategory: 'file', receiptLabel: 'Read project data' }),
   get_timeline_view: defineTool({ name: 'get_timeline_view', label: 'Reading timeline layout', shortLabel: 'Timeline', iconCategory: 'timeline', receiptLabel: 'Read timeline' }),
-  apply_editorial_intent: defineTool({ name: 'apply_editorial_intent', label: 'Grounding editorial intent', shortLabel: 'Editorial plan', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied grounded editorial intent', loadingMessages: ['Reading the edit', 'Grounding the request', 'Applying warranted changes'] }),
-  add_overlay: defineTool({ name: 'add_overlay', label: 'Adding element', shortLabel: 'Add', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added element' }),
-  update_overlay: defineTool({ name: 'update_overlay', label: 'Updating element', shortLabel: 'Update', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Updated element' }),
-  batch_update_overlays: defineTool({ name: 'batch_update_overlays', label: 'Batch updating elements', shortLabel: 'Batch', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Batch updated elements' }),
-  split_overlay: defineTool({ name: 'split_overlay', label: 'Splitting clip', shortLabel: 'Split', iconCategory: 'trim', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Split clip' }),
+  apply_editorial_intent: defineTool({ name: 'apply_editorial_intent', label: 'Grounding editorial intent', shortLabel: 'Editorial plan', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied grounded editorial intent', loadingMessages: ['Reading the edit', 'Grounding the request', 'Applying warranted changes'], postconditions: postconditions('project-state-changed', ['visual', 'audio']) }),
+  add_overlay: defineTool({ name: 'add_overlay', label: 'Adding element', shortLabel: 'Add', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added element', postconditions: postconditions('overlay-created', ['visual', 'audio']) }),
+  update_overlay: defineTool({ name: 'update_overlay', label: 'Updating element', shortLabel: 'Update', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Updated element', postconditions: postconditions('overlay-updated', ['visual', 'audio']) }),
+  batch_update_overlays: defineTool({ name: 'batch_update_overlays', label: 'Batch updating elements', shortLabel: 'Batch', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Batch updated elements', postconditions: postconditions('overlay-updated', ['visual', 'audio']) }),
+  split_overlay: defineTool({ name: 'split_overlay', label: 'Splitting clip', shortLabel: 'Split', iconCategory: 'trim', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Split clip', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']) }),
   trim_overlay: defineTool({ name: 'trim_overlay', label: 'Trimming clip', shortLabel: 'Trim', iconCategory: 'trim', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Trimmed clip' }),
-  delete_overlay: defineTool({ name: 'delete_overlay', label: 'Removing element', shortLabel: 'Remove', iconCategory: 'delete', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Removed element' }),
+  delete_overlay: defineTool({ name: 'delete_overlay', label: 'Removing element', shortLabel: 'Remove', iconCategory: 'delete', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Removed element', postconditions: postconditions('overlay-deleted', ['visual', 'audio']) }),
   sync_style: defineTool({ name: 'sync_style', label: 'Syncing styles', shortLabel: 'Sync', iconCategory: 'style', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Synced styles' }),
   visual_inspect_frame: defineTool({ name: 'visual_inspect_frame', label: 'Inspecting video frame', shortLabel: 'Inspect', iconCategory: 'visual', receiptLabel: 'Inspected frame' }),
-  close_gaps: defineTool({ name: 'close_gaps', label: 'Closing timeline gaps', shortLabel: 'Close gaps', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Closed gaps' }),
+  close_gaps: defineTool({ name: 'close_gaps', label: 'Closing timeline gaps', shortLabel: 'Close gaps', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Closed gaps', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']) }),
   restore_ai_edit_checkpoint: defineTool({ name: 'restore_ai_edit_checkpoint', label: 'Restoring AI edit checkpoint', shortLabel: 'Restore', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Restored checkpoint' }),
-  cut_section: defineTool({ name: 'cut_section', label: 'Cutting section', shortLabel: 'Cut', iconCategory: 'trim', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Cut section' }),
-  add_motion_graphic: defineTool({ name: 'add_motion_graphic', label: 'Adding motion graphic', shortLabel: 'MG', iconCategory: 'motion', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphic' }),
-  generate_html_scene: defineTool({ name: 'generate_html_scene', label: 'Creating custom scene', shortLabel: 'Scene', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Created scene', loadingMessages: ['Crafting your scene', 'Painting with code', 'Almost ready'] }),
-  edit_html_scene: defineTool({ name: 'edit_html_scene', label: 'Revising custom scene', shortLabel: 'Revise scene', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Revised scene', loadingMessages: ['Reading the existing scene', 'Applying the revision', 'Checking the result'] }),
-  generate_html_sticker: defineTool({ name: 'generate_html_sticker', label: 'Creating custom sticker', shortLabel: 'Sticker', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Created sticker', loadingMessages: ['Creating sticker', 'Adding motion', 'Finishing up'] }),
+  cut_section: defineTool({ name: 'cut_section', label: 'Cutting section', shortLabel: 'Cut', iconCategory: 'trim', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Cut section', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']) }),
+  add_motion_graphic: defineTool({ name: 'add_motion_graphic', label: 'Adding motion graphic', shortLabel: 'MG', iconCategory: 'motion', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphic', postconditions: postconditions('overlay-created') }),
+  generate_html_scene: defineTool({ name: 'generate_html_scene', label: 'Creating custom scene', shortLabel: 'Scene', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Created scene', loadingMessages: ['Crafting your scene', 'Painting with code', 'Almost ready'], postconditions: postconditions('overlay-created') }),
+  edit_html_scene: defineTool({ name: 'edit_html_scene', label: 'Revising custom scene', shortLabel: 'Revise scene', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Revised scene', loadingMessages: ['Reading the existing scene', 'Applying the revision', 'Checking the result'], postconditions: postconditions('overlay-updated') }),
+  generate_html_sticker: defineTool({ name: 'generate_html_sticker', label: 'Creating custom sticker', shortLabel: 'Sticker', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Created sticker', loadingMessages: ['Creating sticker', 'Adding motion', 'Finishing up'], postconditions: postconditions('overlay-created') }),
   get_video_transcription: defineTool({ name: 'get_video_transcription', label: 'Reading transcript', shortLabel: 'Transcript', iconCategory: 'file', receiptLabel: 'Read transcript' }),
   find_transcript_moment: defineTool({ name: 'find_transcript_moment', label: 'Finding transcript moment', shortLabel: 'Find speech', iconCategory: 'caption', receiptLabel: 'Found transcript moment' }),
   resolve_transcript_edit: defineTool({ name: 'resolve_transcript_edit', label: 'Resolving transcript edit', shortLabel: 'Speech edit', iconCategory: 'caption', receiptLabel: 'Resolved transcript edit' }),
@@ -93,7 +134,7 @@ export const CHAT_TOOL_REGISTRY = {
   refresh_captions: defineTool({ name: 'refresh_captions', label: 'Refreshing captions', shortLabel: 'Refresh', iconCategory: 'caption', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Refreshed captions' }),
   analyze_clip_audio: defineTool({ name: 'analyze_clip_audio', label: 'Analyzing audio', shortLabel: 'Audio', iconCategory: 'audio', executionType: 'generative', receiptLabel: 'Analyzed audio', loadingMessages: ['Listening to audio', 'Finding beats', 'Checking pauses'] }),
   analyze_clip_video: defineTool({ name: 'analyze_clip_video', label: 'Analyzing video', shortLabel: 'Video', iconCategory: 'visual', executionType: 'generative', receiptLabel: 'Analyzed video', loadingMessages: ['Inspecting video', 'Reading frames', 'Checking visuals'] }),
-  auto_edit_from_script: defineTool({ name: 'auto_edit_from_script', label: 'Auto editing from script', shortLabel: 'Auto edit', iconCategory: 'script', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Auto edited from script', loadingMessages: ['Planning edit', 'Building timeline', 'Applying cuts'] }),
+  auto_edit_from_script: defineTool({ name: 'auto_edit_from_script', label: 'Auto editing from script', shortLabel: 'Auto edit', iconCategory: 'script', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Auto edited from script', loadingMessages: ['Planning edit', 'Building timeline', 'Applying cuts'], postconditions: postconditions('overlay-set-changed', ['visual', 'audio']) }),
   regenerate_scene: defineTool({ name: 'regenerate_scene', label: 'Regenerating scene', shortLabel: 'Regen', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Regenerated scene', loadingMessages: ['Regenerating scene', 'Starting render', 'Preparing update'] }),
   add_transition: defineTool({ name: 'add_transition', label: 'Adding transition', shortLabel: 'Transition', iconCategory: 'transition', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added transition' }),
   auto_motion_graphics: defineTool({ name: 'auto_motion_graphics', label: 'Adding motion graphics', shortLabel: 'Auto MG', iconCategory: 'motion', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphics', loadingMessages: ['Finding moments', 'Planning graphics', 'Adding motion'] }),

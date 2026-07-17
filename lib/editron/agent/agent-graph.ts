@@ -51,6 +51,8 @@ import {
   shouldEndChatRoundForFrameCapture,
   type ChatFrameEvidence,
 } from './chat-frame-evidence';
+import { getChatToolMetadata } from './chat-tool-registry';
+import { enforceChatToolPostcondition } from './chat-edit-postconditions';
 
 // PERF FIX: Singleton GenAI client — reuse across all requests instead of
 // instantiating `new GoogleGenerativeAI(...)` on every callModel call.
@@ -67,6 +69,12 @@ function getGenAI(): GoogleGenerativeAI {
 
 // Stream callback type for real-time token streaming
 export type StreamCallback = (chunk: { type: 'token' | 'tool_start' | 'tool_end', data: any }) => void;
+type PostconditionProjectLoader = (userId: string, projectId: string) => Promise<unknown>;
+
+async function loadCanonicalPostconditionProject(userId: string, projectId: string): Promise<unknown> {
+  const { projectService } = await import('../services/project-service');
+  return projectService.loadProject(userId, projectId);
+}
 
 // Debug logging - ALWAYS enabled for debugging silent failure bug
 // TODO: Revert to DEBUG flag after fixing the issue
@@ -1151,9 +1159,35 @@ export const createAgent = (userId: string, projectContext?: string) => {
             const args = normalizeAgentToolArgs(toolCall.name, toolCall.args, {
               projectFps: config.configurable?.projectFps,
             });
+            const toolMetadata = getChatToolMetadata(toolCall.name);
+            const loadPostconditionProject: PostconditionProjectLoader =
+              config.configurable?.loadPostconditionProject
+              ?? loadCanonicalPostconditionProject;
+            const beforeProject = toolMetadata?.mutatesProject
+              ? await loadPostconditionProject(userId, projectId)
+              : null;
+            if (toolMetadata?.mutatesProject && !beforeProject) {
+              throw new Error(`Canonical project state is unavailable before ${toolCall.name}.`);
+            }
 
             // Execute tool with coerced args
             output = await (tool as any).invoke(args);
+            if (toolMetadata?.mutatesProject) {
+              const afterProject = await loadPostconditionProject(userId, projectId);
+              const enforced = enforceChatToolPostcondition({
+                toolName: toolCall.name,
+                args,
+                output,
+                beforeProject,
+                afterProject,
+              });
+              output = enforced.output;
+              if (enforced.verification?.status === 'fail') {
+                debugError(
+                  `[POSTCONDITION] ${toolCall.name} failed: ${enforced.verification.reason}`,
+                );
+              }
+            }
             debugLog('Tool output for', toolCall.name, ':', output.substring(0, 300));
           } catch (e: any) {
             output = `Error: ${e.message}`;

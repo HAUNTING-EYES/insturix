@@ -137,6 +137,11 @@ vi.mock('@/lib/editron/agent/tools', () => ({
 
 import { createAgent, normalizeAgentToolArgs } from '@/lib/editron/agent/agent-graph';
 import {
+  enforceChatToolPostcondition,
+  verifyChatToolPostcondition,
+} from '@/lib/editron/agent/chat-edit-postconditions';
+import { CHAT_TOOL_REGISTRY } from '@/lib/editron/agent/chat-tool-registry';
+import {
   CHAT_EDIT_BATTLE_SCENARIOS,
   buildChatBattleProjectSnapshot,
   buildChatEditBattleSuite,
@@ -201,6 +206,7 @@ describe('chat edit battle harness', () => {
           recursionLimit: 10,
           configurable: {
             projectId: 'proj_battle',
+            loadPostconditionProject: async () => structuredClone(fixture.project),
             streamCallback: (chunk: { type: string; data: Record<string, unknown> }) => {
               const id = String(chunk.data.id ?? '');
               if (chunk.type === 'tool_start') {
@@ -265,6 +271,87 @@ describe('chat edit battle harness', () => {
     expect(JSON.stringify(fixture.modelContents[1])).toContain('signed-read-project');
     expect(JSON.stringify(fixture.modelContents[2])).toContain('signed-add-overlay');
     expect(String(report.invocation.toolEvents[0]?.output)).toContain('"status":"success"');
+    expect(String(report.invocation.toolEvents[1]?.output)).toContain('editron-chat-postcondition-v1');
+  });
+
+  it('declares a machine-checkable postcondition for every mutating chat tool', () => {
+    const missing = Object.values(CHAT_TOOL_REGISTRY)
+      .filter((metadata) => metadata.mutatesProject && !metadata.postconditions)
+      .map((metadata) => metadata.name);
+
+    expect(missing).toEqual([]);
+  });
+
+  it('turns status-success into an error when canonical state did not change', () => {
+    const before = project([{ id: 1, type: 'text', content: 'before', from: 0, durationInFrames: 30 }]);
+    const enforced = enforceChatToolPostcondition({
+      toolName: 'update_overlay',
+      args: { id: 1, text: 'after' },
+      output: successEnvelope({ updates: { content: 'after' } }),
+      beforeProject: before,
+      afterProject: structuredClone(before),
+    });
+
+    expect(enforced.verification).toMatchObject({ status: 'fail', stateChanged: false });
+    expect(JSON.parse(enforced.output)).toMatchObject({
+      status: 'error',
+      error: { code: 'CHAT_EDIT_POSTCONDITION_FAILED' },
+      nextAction: 'stop',
+    });
+  });
+
+  it('fails a partial batch update instead of accepting one changed target', () => {
+    const before = project([
+      { id: 1, type: 'text', content: 'one', from: 0, durationInFrames: 30 },
+      { id: 2, type: 'text', content: 'two', from: 30, durationInFrames: 30 },
+    ]);
+    const after = project([
+      { id: 1, type: 'text', content: 'changed', from: 0, durationInFrames: 30 },
+      { id: 2, type: 'text', content: 'two', from: 30, durationInFrames: 30 },
+    ]);
+
+    const verification = verifyChatToolPostcondition({
+      toolName: 'batch_update_overlays',
+      args: { updates: [{ id: 1, text: 'changed' }, { id: 2, text: 'also changed' }] },
+      resultData: {},
+      beforeProject: before,
+      afterProject: after,
+    });
+
+    expect(verification).toMatchObject({
+      status: 'fail',
+      requestedTargetIds: ['1', '2'],
+      affectedTargets: [{ overlayId: '1', state: 'updated' }],
+    });
+  });
+
+  it('does not mistake expiring transport URLs for an edit', () => {
+    const before = project([{
+      id: 1,
+      type: 'video',
+      assetId: 'asset-1',
+      src: 'https://cdn.example/video?signature=old',
+      from: 0,
+      durationInFrames: 30,
+    }]);
+    const after = project([{
+      id: 1,
+      type: 'video',
+      assetId: 'asset-1',
+      src: 'https://cdn.example/video?signature=new',
+      from: 0,
+      durationInFrames: 30,
+    }]);
+
+    const verification = verifyChatToolPostcondition({
+      toolName: 'update_overlay',
+      args: { id: 1 },
+      resultData: {},
+      beforeProject: before,
+      afterProject: after,
+    });
+
+    expect(verification).toMatchObject({ status: 'fail', stateChanged: false, affectedTargets: [] });
   });
 
   it('drops only inactive read-project arguments and keeps active arguments strict', () => {
