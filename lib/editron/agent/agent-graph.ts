@@ -163,24 +163,15 @@ export function normalizeAgentToolArgs(
 
   for (const key of Object.keys(args)) {
     const value = args[key];
+    if (key === 'styles') {
+      args[key] = normalizeAgentStyleArgs(value);
+      continue;
+    }
     if (typeof value !== 'string') continue;
 
     const timeMatch = value.match(/^(\d+(?:\.\d+)?)\s*(s|sec|seconds?)$/i);
     if (timeMatch && frameArgumentNames.has(key)) {
       args[key] = Math.round(parseFloat(timeMatch[1]) * projectFps);
-    } else if (key === 'styles' && value.includes(':')) {
-      const styleObject: Record<string, unknown> = {};
-      value.split(';').forEach((pair) => {
-        const [rawKey, ...rawValueParts] = pair.split(':');
-        if (!rawKey || rawValueParts.length === 0) return;
-        const propertyName = rawKey.trim();
-        let propertyValue: string | number = rawValueParts.join(':').trim();
-        if (/^\d+px$/i.test(propertyValue)) {
-          propertyValue = parseInt(propertyValue, 10);
-        }
-        styleObject[propertyName] = propertyValue;
-      });
-      args[key] = styleObject;
     } else if (/^-?\d+(\.\d+)?$/.test(value)) {
       args[key] = parseFloat(value);
     }
@@ -190,6 +181,67 @@ export function normalizeAgentToolArgs(
   }
 
   return args;
+}
+
+const NUMERIC_STYLE_PROPERTIES = new Set([
+  'fontSize',
+  'fontWeight',
+  'opacity',
+  'strokeWidth',
+  'volume',
+]);
+
+const FONT_WEIGHT_KEYWORDS: Readonly<Record<string, number>> = {
+  thin: 100,
+  extralight: 200,
+  light: 300,
+  normal: 400,
+  regular: 400,
+  medium: 500,
+  semibold: 600,
+  bold: 700,
+  extrabold: 800,
+  black: 900,
+  heavy: 900,
+};
+
+function normalizeAgentStyleArgs(value: unknown): unknown {
+  if (typeof value === 'string') {
+    if (!value.includes(':')) return value;
+    const styleObject: Record<string, unknown> = {};
+    value.split(';').forEach((pair) => {
+      const [rawKey, ...rawValueParts] = pair.split(':');
+      if (!rawKey || rawValueParts.length === 0) return;
+      const propertyName = rawKey.trim();
+      styleObject[propertyName] = normalizeAgentStyleValue(
+        propertyName,
+        rawValueParts.join(':').trim(),
+      );
+    });
+    return styleObject;
+  }
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const normalized: Record<string, unknown> = {};
+  for (const [propertyName, propertyValue] of Object.entries(value as Record<string, unknown>)) {
+    normalized[propertyName] = normalizeAgentStyleValue(propertyName, propertyValue);
+  }
+  return normalized;
+}
+
+function normalizeAgentStyleValue(propertyName: string, value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (propertyName === 'fontWeight') {
+    const keyword = trimmed.toLowerCase().replace(/[\s_-]+/g, '');
+    if (FONT_WEIGHT_KEYWORDS[keyword] !== undefined) return FONT_WEIGHT_KEYWORDS[keyword];
+  }
+  if (!NUMERIC_STYLE_PROPERTIES.has(propertyName)) return value;
+
+  const numericMatch = trimmed.match(/^(-?\d+(?:\.\d+)?)(?:px)?$/i);
+  if (!numericMatch) return value;
+  const numericValue = Number(numericMatch[1]);
+  return Number.isFinite(numericValue) ? numericValue : value;
 }
 
 export const createAgent = (userId: string, projectContext?: string) => {

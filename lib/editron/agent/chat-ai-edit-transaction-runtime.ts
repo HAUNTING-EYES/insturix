@@ -72,6 +72,7 @@ export interface ChatAiEditTransactionSummary {
   operationId: string;
   mutatingToolNames: string[];
   failedToolNames: string[];
+  recoveredInputToolNames?: string[];
   checkpointIds: string[];
   beforeCheckpointId: string;
   afterCheckpointId?: string;
@@ -208,6 +209,7 @@ export async function completeChatAiEditTransaction(
       afterCheckpoint.checkpointId,
       undefined,
       renderVerification,
+      batch.recoveredInputToolNames,
     );
   } catch (error: unknown) {
     return rollbackChatAiEditTransaction({
@@ -264,8 +266,11 @@ function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiT
       .filter((result) => getChatToolMetadata(result.toolName)?.mutatesProject === true)
       .map((result) => ({ id: result.toolCallId, name: result.toolName }));
   const usedResults = new Set<number>();
-  const successfulToolNames: string[] = [];
-  const failedToolNames: string[] = [];
+  const classifiedCalls: Array<{
+    call: ChatAiToolCall;
+    result?: ChatAiToolResult;
+    outcome: ReturnType<typeof toolOutcome> | 'missing';
+  }> = [];
   const successfulCalls: Array<{ call: ChatAiToolCall; result: ChatAiToolResult }> = [];
 
   for (const call of inferred) {
@@ -274,23 +279,47 @@ function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiT
       && (call.id ? result.toolCallId === call.id : result.toolName === call.name),
     );
     if (resultIndex < 0) {
-      failedToolNames.push(call.name);
+      classifiedCalls.push({ call, outcome: 'missing' });
       continue;
     }
     usedResults.add(resultIndex);
     const matchedResult = toolResults[resultIndex];
     const outcome = toolOutcome(matchedResult.result);
-    if (outcome === 'success') {
-      successfulToolNames.push(call.name);
+    classifiedCalls.push({ call, result: matchedResult, outcome });
+    if (outcome.status === 'success') {
       successfulCalls.push({ call, result: matchedResult });
     }
-    if (outcome === 'failed') failedToolNames.push(call.name);
   }
+
+  const successfulToolNames = classifiedCalls
+    .filter((entry) => entry.outcome !== 'missing' && entry.outcome.status === 'success')
+    .map((entry) => entry.call.name);
+  const recoveredInputToolNames: string[] = [];
+  const failedToolNames: string[] = [];
+  classifiedCalls.forEach((entry, index) => {
+    if (entry.outcome === 'missing') {
+      failedToolNames.push(entry.call.name);
+      return;
+    }
+    if (entry.outcome.status !== 'failed') return;
+    const hasLaterSuccessfulRetry = entry.outcome.failureKind === 'input-validation'
+      && classifiedCalls.slice(index + 1).some((candidate) =>
+        candidate.call.name === entry.call.name
+        && candidate.outcome !== 'missing'
+        && candidate.outcome.status === 'success',
+      );
+    if (hasLaterSuccessfulRetry) {
+      recoveredInputToolNames.push(entry.call.name);
+      return;
+    }
+    failedToolNames.push(entry.call.name);
+  });
 
   return {
     attemptedToolNames: unique(inferred.map((call) => call.name)),
     successfulToolNames: unique(successfulToolNames),
     failedToolNames: unique(failedToolNames),
+    recoveredInputToolNames: unique(recoveredInputToolNames),
     successfulCalls,
   };
 }
@@ -465,12 +494,28 @@ function collectObjectKeys(value: unknown, output = new Set<string>()): Set<stri
   return output;
 }
 
-function toolOutcome(result: unknown): 'success' | 'advisory' | 'failed' {
+function toolOutcome(result: unknown): {
+  status: 'success' | 'advisory' | 'failed';
+  failureKind?: 'input-validation' | 'execution';
+} {
   const parsed = parseToolResult(result);
-  if (!parsed) return 'failed';
-  if (parsed.status === 'error' || parsed.error) return 'failed';
-  if (parsed.status === 'advisory') return 'advisory';
-  return parsed.status === 'success' ? 'success' : 'failed';
+  if (!parsed) return { status: 'failed', failureKind: 'execution' };
+  if (parsed.status === 'error' || parsed.error) {
+    return {
+      status: 'failed',
+      failureKind: isInputValidationFailure(parsed) ? 'input-validation' : 'execution',
+    };
+  }
+  if (parsed.status === 'advisory') return { status: 'advisory' };
+  return parsed.status === 'success'
+    ? { status: 'success' }
+    : { status: 'failed', failureKind: 'execution' };
+}
+
+function isInputValidationFailure(result: Record<string, unknown>): boolean {
+  const error = asRecord(result.error);
+  return error.code === 'TOOL_INVOKE_EXCEPTION'
+    && String(error.message ?? '').startsWith('Received tool input did not match expected schema');
 }
 
 function parseToolResult(result: unknown): Record<string, unknown> | null {
@@ -535,12 +580,14 @@ function summary(
   afterCheckpointId?: string,
   error?: string,
   renderVerification?: ChatEditRenderVerificationRequest,
+  recoveredInputToolNames: string[] = [],
 ): ChatAiEditTransactionSummary {
   return {
     status,
     operationId: transaction.operationId,
     mutatingToolNames,
     failedToolNames,
+    ...(recoveredInputToolNames.length > 0 ? { recoveredInputToolNames } : {}),
     checkpointIds: afterCheckpointId
       ? [transaction.beforeCheckpointId, afterCheckpointId]
       : [transaction.beforeCheckpointId],

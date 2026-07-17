@@ -106,6 +106,24 @@ describe('chat Phase 3G operation contracts', () => {
       styles: { fontSize: 72, color: '#FFF' },
     });
 
+    expect(normalizeAgentToolArgs('add_overlay', {
+      styles: {
+        fontSize: '72px',
+        fontWeight: 'extra bold',
+        opacity: '0.8',
+        borderRadius: '8px',
+        color: '#ffffff',
+      },
+    })).toEqual({
+      styles: {
+        fontSize: 72,
+        fontWeight: 800,
+        opacity: 0.8,
+        borderRadius: '8px',
+        color: '#ffffff',
+      },
+    });
+
     const routeSource = readFileSync(join(
       process.cwd(),
       'app/api/services/editron/chat/stream/route.ts',

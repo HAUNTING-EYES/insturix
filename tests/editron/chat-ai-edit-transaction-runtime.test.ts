@@ -234,6 +234,77 @@ describe('chat AI edit transaction runtime', () => {
     expect(store.events).toEqual(['claim', 'create:after-llm', 'status:completed']);
   });
 
+  it('commits a successful retry after a schema-rejected non-mutating attempt', async () => {
+    const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
+    const ready = await prepare(store);
+    store.project.overlays = [{ ...ORIGINAL_PROJECT.overlays[0], content: 'Launch day' }];
+
+    const result = await completeChatAiEditTransaction({
+      transaction: ready.transaction!,
+      toolCalls: [
+        { id: 'bad_input', name: 'add_overlay' },
+        { id: 'corrected_input', name: 'add_overlay' },
+      ],
+      toolResults: [
+        {
+          toolCallId: 'bad_input',
+          toolName: 'add_overlay',
+          result: JSON.stringify({
+            status: 'error',
+            error: {
+              code: 'TOOL_INVOKE_EXCEPTION',
+              message: 'Received tool input did not match expected schema\nstyles.fontSize',
+            },
+            nextAction: 'retry',
+          }),
+        },
+        {
+          toolCallId: 'corrected_input',
+          toolName: 'add_overlay',
+          result: JSON.stringify({ status: 'success', data: { id: 2 } }),
+        },
+      ],
+    }, { checkpointStore: store, loadProject: store.loadProject });
+
+    expect(result).toMatchObject({
+      status: 'created',
+      mutatingToolNames: ['add_overlay'],
+      failedToolNames: [],
+      recoveredInputToolNames: ['add_overlay'],
+    });
+    expect(store.events).toEqual(['claim', 'create:after-llm', 'status:completed']);
+  });
+
+  it('rolls back an unrecovered schema rejection and every real execution failure', async () => {
+    for (const error of [
+      {
+        code: 'TOOL_INVOKE_EXCEPTION',
+        message: 'Received tool input did not match expected schema\nstyles.fontSize',
+      },
+      {
+        code: 'TOOL_INVOKE_EXCEPTION',
+        message: 'Database write failed after tool execution began',
+      },
+    ]) {
+      const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
+      const ready = await prepare(store, `chatop_${error.message.includes('schema') ? 'schemafail' : 'runtimefail'}`);
+      store.project.overlays = [{ ...ORIGINAL_PROJECT.overlays[0], content: 'must not survive' }];
+
+      const result = await completeChatAiEditTransaction({
+        transaction: ready.transaction!,
+        toolCalls: [{ id: 'failed_call', name: 'add_overlay' }],
+        toolResults: [{
+          toolCallId: 'failed_call',
+          toolName: 'add_overlay',
+          result: JSON.stringify({ status: 'error', error }),
+        }],
+      }, { checkpointStore: store, loadProject: store.loadProject });
+
+      expect(result).toMatchObject({ status: 'rolled-back', failedToolNames: ['add_overlay'] });
+      expect(store.events).toEqual(['claim', 'restore', 'status:rolled-back']);
+    }
+  });
+
   it('restores overlays, timing, dimensions, metadata, and asset references after partial failure', async () => {
     const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
     const ready = await prepare(store);
