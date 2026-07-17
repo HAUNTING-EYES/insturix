@@ -38,7 +38,7 @@ import {
 import { useToast } from "@/hooks/editron/use-toast";
 import { ToolCallIndicator } from "./tool-call-indicator";
 import { getUserFriendlyErrorMessage } from "@/lib/editron/utils/error-handling";
-import html2canvas from "html2canvas";
+import html2canvas from "html2canvas-pro";
 import { useAIDebugStore } from "@/lib/editron/stores/ai-debug-store";
 import { useCredits } from "@/hooks/useCredits";
 import { getChatToolLabel, shouldReloadProjectAfterTool } from "@/lib/editron/agent/chat-tool-registry";
