@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  getAsset: vi.fn(),
   resolveAssetUrl: vi.fn(),
   searchStockImages: vi.fn(),
   searchStockVideos: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
   assetResolver: {
     stripUrlsForLLM: <T>(overlays: T[]) => structuredClone(overlays),
     resolveProjectAssets: async <T>(overlays: T[]) => structuredClone(overlays),
+    getAsset: mocks.getAsset,
     resolveAssetUrl: mocks.resolveAssetUrl,
   },
 }));
@@ -60,6 +62,22 @@ const PROJECT = {
       width: 1280,
       height: 720,
       metadata: { sceneIndex: 2, narrativeRole: 'proof' },
+    },
+    {
+      id: 'manual-clip',
+      type: 'video',
+      from: 330,
+      durationInFrames: 150,
+      src: 'https://cdn.example.com/manual-source.mp4',
+      assetId: 'asset-manual-old',
+      sourceStartFrame: 75,
+      videoStartTime: 75,
+      row: 0,
+      left: 64,
+      top: 36,
+      width: 1152,
+      height: 648,
+      metadata: { narrativeRole: 'b-roll' },
     },
   ],
   createdAt: new Date('2026-07-18T00:00:00.000Z'),
@@ -205,6 +223,7 @@ describe('chat provider and user-asset tool contracts', () => {
   });
 
   it('swaps a scene to resolved user footage while preserving timing and geometry', async () => {
+    mocks.getAsset.mockResolvedValue({ assetId: 'asset-user-embroidery', type: 'video' });
     mocks.resolveAssetUrl.mockResolvedValue('https://cdn.example.com/user-embroidery.mp4');
     const updateOverlay = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue(undefined as any);
 
@@ -216,7 +235,7 @@ describe('chat provider and user-asset tool contracts', () => {
     expect(result).toMatchObject({
       status: 'success',
       data: {
-        data: { sceneIndex: 2, oldAssetId: 'asset-generated', newAssetId: 'asset-user-embroidery' },
+        data: { overlayId: 20, sceneIndex: 2, oldAssetId: 'asset-generated', newAssetId: 'asset-user-embroidery' },
       },
     });
     expect(mocks.resolveAssetUrl).toHaveBeenCalledWith('asset-user-embroidery', 'user_provider_asset');
@@ -227,14 +246,84 @@ describe('chat provider and user-asset tool contracts', () => {
       {
         src: 'https://cdn.example.com/user-embroidery.mp4',
         assetId: 'asset-user-embroidery',
+        sourceStartFrame: 0,
+        videoStartTime: 0,
         metadata: {
           sceneIndex: 2,
           narrativeRole: 'proof',
           swappedFrom: 'asset-generated',
+          swappedFromSourceStartFrame: 0,
           swapSource: 'user_footage',
         },
       },
     );
+  });
+
+  it('targets a manual uploaded clip by exact overlay id and resets stale source trim', async () => {
+    mocks.getAsset.mockResolvedValue({ assetId: 'asset-user-detail', type: 'video' });
+    mocks.resolveAssetUrl.mockResolvedValue('https://cdn.example.com/user-detail.mp4');
+    const updateOverlay = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue(undefined as any);
+
+    const result = parseResult(await toolNamed('use_matching_footage').invoke({
+      overlayId: 'manual-clip',
+      assetId: 'asset-user-detail',
+      sourceStartFrame: 12,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'success',
+      data: { data: { overlayId: 'manual-clip', newAssetId: 'asset-user-detail', sourceStartFrame: 12 } },
+    });
+    expect(updateOverlay).toHaveBeenCalledWith(
+      'user_provider_asset',
+      'proj_provider_asset',
+      'manual-clip',
+      expect.objectContaining({
+        src: 'https://cdn.example.com/user-detail.mp4',
+        assetId: 'asset-user-detail',
+        sourceStartFrame: 12,
+        videoStartTime: 12,
+        metadata: expect.objectContaining({
+          swappedFrom: 'asset-manual-old',
+          swappedFromSourceStartFrame: 75,
+        }),
+      }),
+    );
+  });
+
+  it('rejects conflicting overlay and scene targets without resolving the replacement asset', async () => {
+    const updateOverlay = vi.spyOn(projectService, 'updateOverlay');
+
+    const result = parseResult(await toolNamed('use_matching_footage').invoke({
+      overlayId: 'manual-clip',
+      sceneIndex: 2,
+      assetId: 'asset-user-detail',
+    }));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: { message: 'Video overlay manual-clip does not belong to scene 2.' },
+    });
+    expect(mocks.getAsset).not.toHaveBeenCalled();
+    expect(mocks.resolveAssetUrl).not.toHaveBeenCalled();
+    expect(updateOverlay).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-video replacement assets before resolving a URL', async () => {
+    mocks.getAsset.mockResolvedValue({ assetId: 'asset-user-still', type: 'image' });
+    const updateOverlay = vi.spyOn(projectService, 'updateOverlay');
+
+    const result = parseResult(await toolNamed('use_matching_footage').invoke({
+      overlayId: 'manual-clip',
+      assetId: 'asset-user-still',
+    }));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: { message: 'Asset asset-user-still is image, not video footage.' },
+    });
+    expect(mocks.resolveAssetUrl).not.toHaveBeenCalled();
+    expect(updateOverlay).not.toHaveBeenCalled();
   });
 
   it('rejects missing scenes before resolving or mutating an asset', async () => {

@@ -5759,8 +5759,21 @@ All Pixabay content is free for commercial use.`,
 
   // ─── Mode 3: Use Matching Footage ───────────────────────────────
   const useMatchingFootageSchema = z.object({
-    sceneIndex: z.coerce.number().describe("Scene index to replace with user footage"),
+    overlayId: z.union([z.string().min(1), z.number().int().nonnegative()]).optional()
+      .describe("Exact target video overlay id. Prefer selectedOverlayId from chat context for manual/uploaded projects."),
+    sceneIndex: z.coerce.number().int().nonnegative().optional()
+      .describe("Compatibility target for pipeline-generated scenes. Use overlayId when a scene contains multiple video overlays."),
     assetId: z.string().describe("Asset ID of user footage to use (from media library)"),
+    sourceStartFrame: z.coerce.number().int().nonnegative().default(0)
+      .describe("Start frame inside the replacement asset. Use 0 unless a visual resolver selected a specific source segment."),
+  }).strict().superRefine((input, ctx) => {
+    if (input.overlayId === undefined && input.sceneIndex === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Footage replacement requires overlayId or sceneIndex.",
+        path: ["overlayId"],
+      });
+    }
   });
 
   const useMatchingFootage = tool(
@@ -5769,37 +5782,74 @@ All Pixabay content is free for commercial use.`,
         const input = coerceInput(rawInput);
         const project = await loadProject();
 
-        // Find video overlay for this scene.
-        // metadata.sceneIndex is set by scene-to-editron.ts on pipeline-generated overlays.
-        // Cast needed: base Overlay type doesn't include metadata (it's on the MongoDB doc, not the TS interface).
-        const sceneOverlays = project.overlays.filter(
-          (o: any) => o.type === 'video' && (o.metadata?.sceneIndex === input.sceneIndex)
-        );
-        if (sceneOverlays.length === 0) {
-          return JSON.stringify({ status: 'error', message: `No video overlay found for scene ${input.sceneIndex}` });
+        const videoOverlays = project.overlays.filter((overlay: any) => overlay.type === 'video');
+        const overlayById = input.overlayId === undefined
+          ? undefined
+          : videoOverlays.find((overlay: any) => String(overlay.id) === String(input.overlayId));
+        if (input.overlayId !== undefined && !overlayById) {
+          return JSON.stringify({ status: 'error', message: `Video overlay ${String(input.overlayId)} was not found.` });
         }
 
-        // Resolve new asset URL
+        // metadata.sceneIndex exists only on pipeline-generated overlays and may be
+        // shared by sub-shots. Never choose the first match when that target is ambiguous.
+        const sceneOverlays = input.sceneIndex === undefined
+          ? []
+          : videoOverlays.filter((overlay: any) => overlay.metadata?.sceneIndex === input.sceneIndex);
+        if (input.sceneIndex !== undefined && sceneOverlays.length === 0) {
+          return JSON.stringify({ status: 'error', message: `No video overlay found for scene ${input.sceneIndex}` });
+        }
+        if (input.sceneIndex !== undefined && sceneOverlays.length > 1 && input.overlayId === undefined) {
+          return JSON.stringify({
+            status: 'error',
+            message: `Scene ${input.sceneIndex} contains ${sceneOverlays.length} video overlays. Use an exact overlayId.`,
+          });
+        }
+
+        const overlay = overlayById ?? sceneOverlays[0];
+        if (overlayById && input.sceneIndex !== undefined && !sceneOverlays.some((candidate: any) => candidate.id === overlayById.id)) {
+          return JSON.stringify({
+            status: 'error',
+            message: `Video overlay ${String(input.overlayId)} does not belong to scene ${input.sceneIndex}.`,
+          });
+        }
+
+        const asset = await assetResolver.getAsset(input.assetId, userId);
+        if (!asset) {
+          return JSON.stringify({ status: 'error', message: `Asset ${input.assetId} was not found or is not accessible.` });
+        }
+        if (asset.type !== 'video') {
+          return JSON.stringify({ status: 'error', message: `Asset ${input.assetId} is ${asset.type}, not video footage.` });
+        }
+
         const newUrl = await assetResolver.resolveAssetUrl(input.assetId, userId);
         if (!newUrl) {
           return JSON.stringify({ status: 'error', message: `Asset ${input.assetId} not found or URL unresolvable` });
         }
 
-        // Swap: update overlay's src + assetId, keep timing/position
-        const overlay = sceneOverlays[0];
-        await projectService.updateOverlay(userId, projectId, overlay.id, {
+        const previousSourceStartFrame = (overlay as any).sourceStartFrame ?? (overlay as any).videoStartTime ?? 0;
+        const replacementUpdates = {
           src: newUrl,
           assetId: input.assetId,
-          metadata: { ...(overlay as any).metadata, swappedFrom: overlay.assetId, swapSource: 'user_footage' },
-        });
+          sourceStartFrame: input.sourceStartFrame,
+          videoStartTime: input.sourceStartFrame,
+          metadata: {
+            ...(overlay as any).metadata,
+            swappedFrom: overlay.assetId,
+            swappedFromSourceStartFrame: previousSourceStartFrame,
+            swapSource: 'user_footage',
+          },
+        };
+        await projectService.updateOverlay(userId, projectId, overlay.id, replacementUpdates);
 
         return JSON.stringify({
           status: 'success',
           data: {
-            sceneIndex: input.sceneIndex,
+            overlayId: overlay.id,
+            sceneIndex: (overlay as any).metadata?.sceneIndex,
             oldAssetId: overlay.assetId,
             newAssetId: input.assetId,
-            message: `Scene ${input.sceneIndex} now uses your footage (${input.assetId})`,
+            sourceStartFrame: input.sourceStartFrame,
+            message: `Video overlay ${String(overlay.id)} now uses your footage (${input.assetId}).`,
           },
         });
       } catch (e: any) {
@@ -5808,11 +5858,11 @@ All Pixabay content is free for commercial use.`,
     },
     {
       name: 'use_matching_footage',
-      description: `Replace an AI-generated video in a scene with user's own footage from the media library.
-Use when user says "use my video for scene X" or "replace scene X with my footage".
-The footage must already be uploaded to the asset library.
+      description: `Replace one exact video overlay with user's own uploaded video footage.
+Use overlayId from selectedOverlayId/chat context for "this clip" and manual uploads. sceneIndex is compatibility-only for a generated scene with exactly one video overlay.
+The asset must be an accessible video from the media library. The tool preserves timeline timing and geometry, resets the new source to frame 0 unless sourceStartFrame is explicitly supplied, and refuses ambiguous or conflicting targets.
 
-Example: use_matching_footage({ sceneIndex: 2, assetId: "a_Xk7pqR2m" })`,
+Example: use_matching_footage({ overlayId: 42, assetId: "a_Xk7pqR2m", sourceStartFrame: 0 })`,
       schema: useMatchingFootageSchema,
     },
   );
