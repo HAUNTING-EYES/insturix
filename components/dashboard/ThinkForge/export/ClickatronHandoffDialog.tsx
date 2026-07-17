@@ -14,6 +14,8 @@ import {
   buildThinkToClickContext,
   buildVisibleContentClickatronCreativeSpec,
   findClickatronCreativeSpecInBlocks,
+  MAX_CAROUSEL_SLIDES,
+  MIN_CAROUSEL_SLIDES,
   type ThinkToClickContext,
 } from "@/lib/thinkforge/clickatron-context";
 import {
@@ -91,6 +93,7 @@ export function ClickatronHandoffDialog({
     }
 
     setContextLoading(true);
+    setResolvedContext(null);
     setError("");
     try {
       const contextRes = await fetch("/api/services/thinkforge/clickatron-context", {
@@ -108,6 +111,7 @@ export function ClickatronHandoffDialog({
           vibe: visualChoices.vibe,
           imageStyle: visualChoices.imageStyle,
           notes: visualChoices.notes,
+          slideCount: visualChoices.slideCount,
         }),
       });
       const contextData = await contextRes.json().catch(() => ({}));
@@ -206,6 +210,38 @@ export function ClickatronHandoffDialog({
         </DialogHeader>
 
         <div className="space-y-3 px-4 py-4">
+          {(visualChoices.kind || handoffState?.display.kind) === "carousel" && (
+            <div className="flex items-center justify-between gap-3 border-b border-[#282724] pb-3">
+              <label htmlFor="thinkforge-carousel-slide-count" className="text-[10px] font-semibold uppercase text-[#8B887F]">
+                Slides
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="thinkforge-carousel-slide-count"
+                  type="number"
+                  min={MIN_CAROUSEL_SLIDES}
+                  max={MAX_CAROUSEL_SLIDES}
+                  step={1}
+                  value={visualChoices.slideCount ?? handoffState?.display.slideCount ?? ""}
+                  onChange={(event) => setVisualChoice("slideCount", event.target.value)}
+                  className="h-8 w-16 rounded-[4px] border border-[#34322E] bg-[#0F0F0E] px-2 text-center text-[12px] text-[#ECE9E1] outline-none focus:border-[#D4A652]"
+                  aria-label="Carousel slide count"
+                />
+                <button
+                  type="button"
+                  onClick={() => setVisualChoice("slideCount", "")}
+                  className={`h-8 rounded-[4px] border px-3 text-[10px] font-semibold uppercase transition-colors ${
+                    visualChoices.slideCount === undefined
+                      ? "border-[#D4A652] text-[#D4A652]"
+                      : "border-[#34322E] text-[#8B887F] hover:text-[#ECE9E1]"
+                  }`}
+                >
+                  Auto
+                </button>
+              </div>
+            </div>
+          )}
+
           <ClickatronHandoffPanel
             handoffState={handoffState}
             visualChoices={visualChoices}

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildThinkToClickContext, findClickatronCreativeSpecInBlocks, pickThinkForgeProjectMeta } from "@/lib/thinkforge/clickatron-context";
+import {
+  buildThinkToClickContext,
+  findClickatronCreativeSpecInBlocks,
+  normalizeRequestedCarouselSlideCount,
+  pickThinkForgeProjectMeta,
+} from "@/lib/thinkforge/clickatron-context";
 import { mergeThinkForgeProjectMetadata } from "@/lib/thinkforge/state/types";
 import type { ClickatronCreativeSpec } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
@@ -467,6 +472,19 @@ describe("ThinkForge to Clickatron context", () => {
       aspectRatio: "4:5",
     });
 
+    const compressed = buildThinkToClickContext({
+      ...input,
+      userVisualChoices: { slideCount: 3 },
+    });
+    const compressedSpec = (compressed.metadata.clickatron as { creativeSpec: ClickatronCreativeSpec }).creativeSpec;
+    expect(compressedSpec.renderPlan.slides).toHaveLength(3);
+    expect(new Set(compressedSpec.renderPlan.slides?.flatMap((slide) => slide.sourceBlockIds || []))).toEqual(
+      new Set(blocks.map((block) => block.id)),
+    );
+    expect(compressedSpec.renderPlan.slides?.flatMap((slide) => slide.textLayers || []).map((layer) => layer.text)).toEqual(
+      blocks.map((block) => `Carousel slide ${blocks.indexOf(block) + 1} copy`),
+    );
+
     const overridden = buildThinkToClickContext({
       ...input,
       userVisualChoices: {
@@ -484,6 +502,91 @@ describe("ThinkForge to Clickatron context", () => {
       assetIntent: "post_graphic",
     });
     expect(overriddenSpec.renderPlan.slides).toBeUndefined();
+  });
+
+  it("expands a carousel only from distinct grounded source units", () => {
+    const sourceSentences = [
+      "Approval requests arrive in five channels.",
+      "Owners lose the latest revision.",
+      "Launch dates slip.",
+      "A single review queue captures every decision.",
+      "Each comment keeps its source.",
+      "Teams ship with one approved version.",
+    ];
+    const blocks: ThinkForgeBlock[] = [
+      {
+        id: "blk_problem",
+        kind: "paragraph",
+        content: [{ type: "text", text: sourceSentences.slice(0, 3).join(" "), styles: {} }],
+      },
+      {
+        id: "blk_solution",
+        kind: "paragraph",
+        content: [{ type: "text", text: sourceSentences.slice(3).join(" "), styles: {} }],
+      },
+    ];
+
+    const context = buildThinkToClickContext({
+      sessionId: "tf_expand_carousel",
+      blocks,
+      writerOutput: {
+        writerType: "post",
+        visualPrompts: {
+          carouselPrompts: [
+            "Editorial visual system showing fragmented review channels.",
+            "Editorial visual system showing one controlled approval lane.",
+          ],
+        },
+      },
+      userVisualChoices: { kind: "carousel", slideCount: 5 },
+    });
+    const spec = (context.metadata.clickatron as { creativeSpec: ClickatronCreativeSpec }).creativeSpec;
+    const layers = spec.renderPlan.slides?.flatMap((slide) => slide.textLayers || []) || [];
+
+    expect(spec.renderPlan.slides).toHaveLength(5);
+    expect(layers.length).toBeGreaterThanOrEqual(5);
+    expect(layers.every((layer) => sourceSentences.includes(layer.text))).toBe(true);
+    expect(spec.renderPlan.slides?.flatMap((slide) => slide.sourceBlockIds || []).every((id) =>
+      id === "blk_problem" || id === "blk_solution",
+    )).toBe(true);
+    expect(spec.validation.status).toBe("ready");
+    expect(context.sessionDraft?.readyToGenerate).toBe(true);
+  });
+
+  it("blocks unsupported carousel expansion instead of inventing filler", () => {
+    const context = buildThinkToClickContext({
+      sessionId: "tf_thin_carousel",
+      blocks: [{
+        id: "blk_thin",
+        kind: "paragraph",
+        content: [{ type: "text", text: "One sourced claim only.", styles: {} }],
+      }],
+      writerOutput: {
+        writerType: "post",
+        visualPrompts: { singleImagePrompt: "A restrained editorial proof card." },
+      },
+      userVisualChoices: { kind: "carousel", slideCount: 5 },
+    });
+    const spec = (context.metadata.clickatron as { creativeSpec: ClickatronCreativeSpec }).creativeSpec;
+
+    expect(spec.renderPlan.slides).toHaveLength(1);
+    expect(spec.validation.status).toBe("needs_user_input");
+    expect(spec.validation.issues).toContainEqual(
+      expect.objectContaining({ code: "insufficient_grounded_carousel_units" }),
+    );
+    expect(spec.validation.needsUserInput).toContain(
+      "Add enough source content for at least 2 grounded slides before exporting a carousel.",
+    );
+    expect(context.sessionDraft?.readyToGenerate).toBe(false);
+  });
+
+  it("rejects invalid carousel counts at the contract boundary", () => {
+    expect(normalizeRequestedCarouselSlideCount(undefined)).toBeUndefined();
+    expect(normalizeRequestedCarouselSlideCount("   ")).toBeUndefined();
+    expect(normalizeRequestedCarouselSlideCount("3")).toBe(3);
+    expect(() => normalizeRequestedCarouselSlideCount(1)).toThrow("between 2 and 7");
+    expect(() => normalizeRequestedCarouselSlideCount(8)).toThrow("between 2 and 7");
+    expect(() => normalizeRequestedCarouselSlideCount(3.5)).toThrow("between 2 and 7");
   });
 
   it("derives review-required carousel slides when writer output only has a single image prompt", () => {

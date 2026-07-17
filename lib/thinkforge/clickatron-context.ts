@@ -22,7 +22,8 @@ import type { ProjectMeta } from "@/lib/thinkforge/state/types";
 // where prompts become slides — keeping the persisted spec, the session-draft
 // prompt, and the Clickatron fan-out all consistent at <= 7 slides.
 // 7 ← product requirement (P6 carousel spec). Mirrored in the clickatron session route.
-const MAX_CAROUSEL_SLIDES = 7;
+export const MIN_CAROUSEL_SLIDES = 2;
+export const MAX_CAROUSEL_SLIDES = 7;
 
 const PROJECT_META_KEYS = [
   "idea",
@@ -68,6 +69,7 @@ export interface ThinkToClickVisibleContentChoices {
   vibe?: string;
   imageStyle?: string;
   notes?: string;
+  slideCount?: number | string;
 }
 
 export interface ThinkToClickSessionDraft {
@@ -126,6 +128,17 @@ function toPlainRecord(value: unknown): Record<string, unknown> | undefined {
 function enumValue<T extends readonly string[]>(value: unknown, values: T, fallback: T[number]): T[number] {
   const text = toNonEmptyString(value);
   return text && (values as readonly string[]).includes(text) ? text as T[number] : fallback;
+}
+
+export function normalizeRequestedCarouselSlideCount(value: unknown): number | undefined {
+  if (value === undefined || value === null || (typeof value === "string" && value.trim() === "")) return undefined;
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed < MIN_CAROUSEL_SLIDES || parsed > MAX_CAROUSEL_SLIDES) {
+    throw new Error(
+      `slideCount must be an integer between ${MIN_CAROUSEL_SLIDES} and ${MAX_CAROUSEL_SLIDES}`,
+    );
+  }
+  return parsed;
 }
 
 function normalizeClickatronPlatform(value: unknown): ClickatronPlatform | undefined {
@@ -323,6 +336,160 @@ function derivedCarouselSlidesFromVisibleBlocks(
       layoutIntent: "Text-free slide background; final copy must be added as editable overlay text.",
       ...(slideTextLayers ? { textLayers: slideTextLayers } : {}),
     };
+  });
+}
+
+type CarouselSlide = NonNullable<ClickatronCreativeSpec["renderPlan"]["slides"]>[number];
+
+function partitionEvenly<T>(items: T[], count: number): T[][] {
+  return Array.from({ length: count }, (_, index) => {
+    const start = Math.floor((index * items.length) / count);
+    const end = Math.floor(((index + 1) * items.length) / count);
+    return items.slice(start, end);
+  });
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  return [...new Set(values.map(toNonEmptyString).filter((value): value is string => Boolean(value)))];
+}
+
+function reindexTextLayers(layers: ClickatronTextLayer[], slideIndex: number): ClickatronTextLayer[] {
+  return layers.map((layer, layerIndex) => ({
+    ...layer,
+    id: `slide_${slideIndex + 1}_${layer.role}_${layerIndex + 1}`,
+  }));
+}
+
+function mergeCarouselSlides(slides: CarouselSlide[], targetCount: number): CarouselSlide[] {
+  return partitionEvenly(slides, targetCount).map((group, index) => {
+    const textLayers = reindexTextLayers(group.flatMap((slide) => slide.textLayers || []), index);
+    const sourceBlockIds = uniqueStrings(group.flatMap((slide) => [
+      ...(slide.sourceBlockIds || []),
+      ...(slide.textLayers || []).map((layer) => layer.sourceBlockId),
+    ]));
+    const imagePrompt = uniqueStrings(group.map((slide) => slide.imagePrompt)).join(" ").slice(0, 4800);
+    return {
+      id: `slide_${index + 1}`,
+      index,
+      title: group.map((slide) => toNonEmptyString(slide.title)).find(Boolean),
+      ...(sourceBlockIds.length > 0 ? { sourceBlockIds } : {}),
+      imagePrompt,
+      layoutIntent: group.map((slide) => toNonEmptyString(slide.layoutIntent)).find(Boolean),
+      ...(textLayers.length > 0 ? { textLayers } : {}),
+    };
+  });
+}
+
+function semanticSegments(value: string): string[] {
+  return (value.match(/[^.!?;\n]+[.!?;]?/g) || [])
+    .map((segment) => segment.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function expandCarouselSlidesFromGroundedContent(
+  spec: ClickatronCreativeSpec,
+  summary: ReturnType<typeof summarizeVisibleBlocks>,
+  targetCount: number,
+): CarouselSlide[] | undefined {
+  const units = summary.sourceBlocks.flatMap((block) => {
+    const sourceText = toNonEmptyString(block.text || block.sceneText);
+    if (!sourceText) return [];
+    return semanticSegments(sourceText).map((text) => ({ blockId: block.id, text }));
+  });
+  if (units.length < targetCount) return undefined;
+
+  const existingSlides = spec.renderPlan.slides || [];
+  return partitionEvenly(units, targetCount).map((group, index) => {
+    const sourceText = group.map((unit) => unit.text).join(" ");
+    const sourceBlockIds = uniqueStrings(group.map((unit) => unit.blockId));
+    const styleSeed = existingSlides[Math.min(
+      Math.floor((index * existingSlides.length) / targetCount),
+      Math.max(0, existingSlides.length - 1),
+    )]?.imagePrompt || spec.renderPlan.imagePrompt;
+    const keywords = visualKeywords(sourceText);
+    const textLayers = spec.renderPlan.textPolicy === "no_generated_text"
+      ? []
+      : reindexTextLayers(group.map((unit, layerIndex) => ({
+        id: `source_${layerIndex + 1}`,
+        text: unit.text,
+        role: layerIndex === 0 ? "headline" : "body",
+        priority: Math.max(45, 95 - layerIndex * 10),
+        sourceBlockId: unit.blockId,
+        maxLines: layerIndex === 0 ? 2 : 4,
+        locked: true,
+      } satisfies ClickatronTextLayer)), index);
+
+    return {
+      id: `slide_${index + 1}`,
+      index,
+      title: textSnippet(group[0]?.text, 64) || `Slide ${index + 1}`,
+      sourceBlockIds,
+      imagePrompt: [
+        styleSeed,
+        keywords ? `Grounded concepts to interpret, not draw as text: ${keywords}.` : undefined,
+        "Keep exact source copy in editable text layers; do not invent claims.",
+      ].filter(Boolean).join(" ").slice(0, 4800),
+      layoutIntent: "Text-free slide background; source copy remains in editable overlay text.",
+      ...(textLayers.length > 0 ? { textLayers } : {}),
+    };
+  });
+}
+
+function withoutSlideRoles(
+  visualLanguage: ClickatronCreativeSpec["visualLanguage"],
+): ClickatronCreativeSpec["visualLanguage"] {
+  if (!visualLanguage) return undefined;
+  const { slideRoles: _slideRoles, ...rest } = visualLanguage;
+  return rest;
+}
+
+function applyRequestedCarouselSlideCount(
+  spec: ClickatronCreativeSpec | undefined,
+  input: ThinkToClickContextInput,
+): ClickatronCreativeSpec | undefined {
+  const requestedCount = normalizeRequestedCarouselSlideCount(input.userVisualChoices?.slideCount);
+  if (!spec || spec.kind !== "carousel" || requestedCount === undefined) return spec;
+
+  const currentSlides = spec.renderPlan.slides || [];
+  if (currentSlides.length === requestedCount) return spec;
+
+  const summary = summarizeVisibleBlocks(input.blocks);
+  const slides = currentSlides.length > requestedCount
+    ? mergeCarouselSlides(currentSlides, requestedCount)
+    : expandCarouselSlidesFromGroundedContent(spec, summary, requestedCount);
+
+  if (!slides) {
+    const issue = {
+      code: "insufficient_grounded_carousel_units",
+      message: `The requested ${requestedCount}-slide carousel is not supported by enough distinct source material; ${currentSlides.length} grounded slide${currentSlides.length === 1 ? " is" : "s are"} currently available.`,
+      severity: "warning" as const,
+    };
+    const needsUserInput = currentSlides.length >= MIN_CAROUSEL_SLIDES
+      ? `Use ${currentSlides.length} slides, or add enough source content for ${requestedCount} grounded slides.`
+      : `Add enough source content for at least ${MIN_CAROUSEL_SLIDES} grounded slides before exporting a carousel.`;
+    return normalizeClickatronCreativeSpec({
+      ...spec,
+      validation: {
+        ...spec.validation,
+        status: spec.validation.status === "stale" || spec.validation.status === "invalid"
+          ? spec.validation.status
+          : "needs_user_input",
+        issues: [
+          ...(spec.validation.issues || []).filter((entry) => entry.code !== issue.code),
+          issue,
+        ],
+        needsUserInput: uniqueStrings([...(spec.validation.needsUserInput || []), needsUserInput]),
+      },
+    });
+  }
+
+  return normalizeClickatronCreativeSpec({
+    ...spec,
+    renderPlan: {
+      ...spec.renderPlan,
+      slides,
+    },
+    ...(spec.visualLanguage ? { visualLanguage: withoutSlideRoles(spec.visualLanguage) } : {}),
   });
 }
 function readRenderPlanTextPolicy(value: unknown): ClickatronTextPolicy {
@@ -635,7 +802,7 @@ export function buildVisibleContentClickatronCreativeSpec(input: ThinkToClickCon
         : "Single-frame social graphic background with center-safe composition and room for editable overlay text.",
       ...(rootTextLayers ? { textLayers: rootTextLayers } : {}),
       ...(wantsCarousel ? {
-        slides: summary.sourceBlocks.slice(0, 8).map((block, index) => {
+        slides: summary.sourceBlocks.slice(0, MAX_CAROUSEL_SLIDES).map((block, index) => {
           const slideTextLayers = visibleTextLayers([block], textPolicy);
           const slideKeywords = visualKeywords(block.sceneText || block.text || "");
           return {
@@ -738,6 +905,8 @@ export function buildThinkToClickContext(input: ThinkToClickContextInput): Think
   if (!creativeSpec) {
     creativeSpec = buildVisibleContentClickatronCreativeSpec(input);
   }
+
+  creativeSpec = applyRequestedCarouselSlideCount(creativeSpec, input);
 
   const sourceContext = compactRecord({
     sourceService: "thinkforge",
