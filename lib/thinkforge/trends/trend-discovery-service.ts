@@ -13,6 +13,10 @@ import {
   type TrendCandidate,
   type TrendPlatform,
 } from './trend-evidence';
+import {
+  firstAnalyzableTrendVideoUrl,
+  prioritizeAnalyzableTrendEvidence,
+} from './trend-analysis-source';
 
 const FRESH_TREND_MS = 72 * 60 * 60 * 1_000;
 const STALE_TREND_MS = 14 * 24 * 60 * 60 * 1_000;
@@ -82,7 +86,9 @@ export async function discoverPublicTrendCandidates(
       evidenceCompleteness: 0,
       freshness: 'unknown',
       trendSpecEligible: false,
-      nextAction: evidence.sourceUrl ? 'analyze_reference_video' : 'add_reference_video',
+      nextAction: firstAnalyzableTrendVideoUrl([evidence])
+        ? 'analyze_reference_video'
+        : 'add_reference_video',
     });
   }
 
@@ -152,12 +158,15 @@ function normalizeTrendEvidence(input: {
 }
 
 function finalizeCandidate(candidate: TrendCandidate, now: Date): TrendCandidate {
-  const evidence = candidate.evidence.slice(0, 12);
+  const evidence = prioritizeAnalyzableTrendEvidence(candidate.evidence).slice(0, 12);
   return TrendCandidateSchema.parse({
     ...candidate,
     evidence,
     evidenceCompleteness: calculateEvidenceCompleteness(evidence),
     freshness: freshnessForEvidence(evidence, now),
+    nextAction: firstAnalyzableTrendVideoUrl(evidence)
+      ? 'analyze_reference_video'
+      : 'add_reference_video',
   });
 }
 

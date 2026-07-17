@@ -30,15 +30,15 @@ function candidate(overrides: Partial<TrendCandidate> = {}): TrendCandidate {
     candidateVersion: 1,
     title: 'Creator teardown <format>',
     summary: 'A concise proof-driven creator format.',
-    platform: 'instagram',
+    platform: 'youtube',
     evidence: [{
       evidenceId: 'evidence_1',
       evidenceVersion: 1,
       kind: 'cultural_signal',
       provider: 'public-provider',
-      platform: 'instagram',
+      platform: 'youtube',
       title: 'Creator teardown <format>',
-      sourceUrl: 'https://example.com/reel',
+      sourceUrl: 'https://www.youtube.com/watch?v=abc12345678',
       provenance: {
         purpose: 'public_trend_discovery',
         queryFingerprint: 'query_1',
@@ -112,6 +112,26 @@ describe('ThinkForge trend selection route', () => {
         source: 'public_trend',
         status: 'suggested',
       },
+    });
+  });
+
+  it('does not advertise article evidence as a video-analysis source', () => {
+    const articleCandidate = candidate({
+      evidence: [{
+        ...candidate().evidence[0]!,
+        sourceUrl: 'https://example.com/article-about-a-trend',
+      }],
+    });
+
+    const selected = buildSelectedTrend({
+      sessionId: 'session_1',
+      target: 'script',
+      candidate: articleCandidate,
+    });
+
+    expect(selected.candidate).toMatchObject({
+      trendSpecEligible: false,
+      nextAction: 'add_reference_video',
     });
   });
 

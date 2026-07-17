@@ -5,6 +5,10 @@ import {
   TrendCandidateSchema,
   type TrendCandidate,
 } from './trend-evidence';
+import {
+  firstAnalyzableTrendVideoUrl,
+  prioritizeAnalyzableTrendEvidence,
+} from './trend-analysis-source';
 
 export const SELECTED_TREND_VERSION = 1 as const;
 export const TREND_SOURCE_ANALYSIS_VERSION = 1 as const;
@@ -198,7 +202,7 @@ function normalizeSelectedCandidate(candidate: TrendCandidate): TrendCandidate {
   const title = sanitizeSelectionText(parsed.title, 240);
   if (!title) throw new SelectedTrendInputError('Selected trend title is empty after sanitization.');
 
-  const evidence = parsed.evidence.map((item) => {
+  const evidence = prioritizeAnalyzableTrendEvidence(parsed.evidence.map((item) => {
     const evidenceTitle = sanitizeSelectionText(item.title, 240);
     const provider = sanitizeSelectionText(item.provider, 80);
     if (!evidenceTitle || !provider) {
@@ -213,8 +217,8 @@ function normalizeSelectedCandidate(candidate: TrendCandidate): TrendCandidate {
       ...(summary ? { summary } : { summary: undefined }),
       ...(sourceUrl ? { sourceUrl } : { sourceUrl: undefined }),
     };
-  });
-  const hasReferenceUrl = evidence.some((item) => Boolean(item.sourceUrl));
+  }));
+  const analyzableReferenceUrl = firstAnalyzableTrendVideoUrl(evidence);
 
   return TrendCandidateSchema.parse({
     ...parsed,
@@ -223,7 +227,7 @@ function normalizeSelectedCandidate(candidate: TrendCandidate): TrendCandidate {
     evidence,
     // A browser selection is user intent, never proof that a format has been analysed.
     trendSpecEligible: false,
-    nextAction: hasReferenceUrl ? 'analyze_reference_video' : 'add_reference_video',
+    nextAction: analyzableReferenceUrl ? 'analyze_reference_video' : 'add_reference_video',
   });
 }
 

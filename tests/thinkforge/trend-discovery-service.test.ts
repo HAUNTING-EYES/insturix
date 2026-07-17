@@ -69,7 +69,7 @@ describe('ThinkForge public trend discovery', () => {
       evidenceCompleteness: 0.9,
       freshness: 'fresh',
       trendSpecEligible: false,
-      nextAction: 'analyze_reference_video',
+      nextAction: 'add_reference_video',
     });
     expect(result.candidates[0]?.evidence).toHaveLength(1);
     expect(result.candidates[0]?.evidence[0]).toMatchObject({
@@ -77,6 +77,24 @@ describe('ThinkForge public trend discovery', () => {
       provider: 'test-provider',
       sourceScore: 0.82,
       provenance: { purpose: 'public_trend_discovery' },
+    });
+  });
+
+  it('offers video analysis only when the worker can ingest the discovered source', async () => {
+    const result = await discoverPublicTrendCandidates(
+      { niche: 'B2B product demos', platforms: ['youtube'] },
+      {
+        provider: provider([{
+          title: 'Fast product reveal',
+          platform: 'youtube',
+          url: 'https://www.youtube.com/watch?v=abc12345678',
+        }]).provider,
+      },
+    );
+
+    expect(result.candidates[0]).toMatchObject({
+      nextAction: 'analyze_reference_video',
+      trendSpecEligible: false,
     });
   });
 
