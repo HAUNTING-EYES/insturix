@@ -1,5 +1,6 @@
 import { generateText } from 'ai';
 import { createThinkForgeModel } from '../agents/model-factory';
+import { buildIsolatedPromptParts } from '../agents/prompt-boundary';
 import { readAiSdkUsage, recordThinkForgeDirectCost } from '../services/provider-cost-telemetry';
 import { ScriptIntent } from './intent';
 
@@ -32,14 +33,20 @@ export async function classifyIntent(input: {
   const message = input.userMessage || '';
 
   const modelName = 'gemini-2.5-flash';
-  const prompt = `${CLASSIFIER_PROMPT}\n\nUser: ${message}`;
+  const promptParts = buildIsolatedPromptParts({
+    systemInstruction: CLASSIFIER_PROMPT,
+    data: { userMessage: message },
+    fieldLimits: { userMessage: 24_000 },
+  });
+  const promptChars = promptParts.systemInstruction.length + promptParts.prompt.length;
   const startedAt = Date.now();
 
   try {
     const result = await generateText({
       model: createThinkForgeModel(modelName),
       temperature: 0,
-      prompt,
+      system: promptParts.systemInstruction,
+      prompt: promptParts.prompt,
     });
 
     const intent = normalizeIntent(result.text || '');
@@ -50,7 +57,7 @@ export async function classifyIntent(input: {
       provider: 'gemini',
       modelName,
       operation: 'llm_text_direct',
-      promptChars: prompt.length,
+      promptChars,
       outputChars: result.text?.length,
       functionMs: Date.now() - startedAt,
       usage: await readAiSdkUsage((result as { usage?: unknown }).usage),
@@ -69,7 +76,7 @@ export async function classifyIntent(input: {
       provider: 'gemini',
       modelName,
       operation: 'llm_text_direct',
-      promptChars: prompt.length,
+      promptChars,
       functionMs: Date.now() - startedAt,
       routePurpose: 'structural',
       privacyClass: 'business_confidential',
