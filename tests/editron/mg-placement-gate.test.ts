@@ -46,6 +46,17 @@ describe('evaluateMgRenderSanity - the deterministic degenerate-render verdict (
     expect(evaluateMgRenderSanity({ coverageFrac: 1, nearOpaqueFrac: t.maxNearOpaqueFrac }).pass).toBe(true);
     expect(evaluateMgRenderSanity({ coverageFrac: 1, nearOpaqueFrac: t.maxNearOpaqueFrac + 0.01 }).pass).toBe(false);
   });
+
+  it('★ 4b-3 opaque-scene routing: expectOpaque lets a legitimately-opaque full-frame Scene PASS…', () => {
+    const r = evaluateMgRenderSanity({ coverageFrac: 1.0, nearOpaqueFrac: 1.0 }, DEFAULT_MG_RENDER_SANITY_THRESHOLDS, { expectOpaque: true });
+    expect(r.pass).toBe(true);
+    expect(r.reasons).toEqual([]);
+  });
+
+  it('…while WITHOUT the declared mode the same frame still FAILS (overlays never get an opaque pass), and an empty render fails in BOTH modes', () => {
+    expect(evaluateMgRenderSanity({ coverageFrac: 1.0, nearOpaqueFrac: 1.0 }).pass).toBe(false);
+    expect(evaluateMgRenderSanity({ coverageFrac: 0, nearOpaqueFrac: 0 }, DEFAULT_MG_RENDER_SANITY_THRESHOLDS, { expectOpaque: true }).pass).toBe(false);
+  });
 });
 
 /** Compose an RGBA PNG: transparent background + boxes at pixel coords with a given alpha. */

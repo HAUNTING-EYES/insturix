@@ -28,12 +28,19 @@ const grow = (frame: number, at: number, dur: number): number =>
 /**
  * A value BAR that grows to `value` (0..1 of its track). Compose several for a bar chart / comparison.
  * Horizontal by default; `vertical` grows from the bottom. `track` draws the faint full-length rail behind it.
+ *
+ * `label` / `valueText` are the mark's OWN readout slots (matrix autopsy 2026-07-18: the #1 unfaithful class was
+ * labels rendered WITHOUT their values — "Before s" — because composing Text beside a Bar by hand gets dropped).
+ * The mark renders its bound name + REAL figure itself, brand-typed, fading in with the fill. Still a primitive:
+ * the caller passes the strings (from `data`), the kit owns only the treatment (Rule 11).
  */
 export const Bar: React.FC<{
   brand: Brand; value: number; at?: number; dur?: number; tone?: Tone; thickness?: number; vertical?: boolean; track?: boolean; radius?: number;
-}> = ({ brand, value, at = 0, dur = 18, tone = 'accent', thickness = 14, vertical = false, track = true, radius }) => {
+  label?: string; valueText?: string;
+}> = ({ brand, value, at = 0, dur = 18, tone = 'accent', thickness = 14, vertical = false, track = true, radius, label, valueText }) => {
   const frame = useCurrentFrame();
-  const fill = grow(frame, at, dur) * clamp01(value);
+  const p = grow(frame, at, dur);
+  const fill = p * clamp01(value);
   const color = toneOf(brand, tone);
   const r = radius ?? thickness / 2;
   const rail: React.CSSProperties = vertical
@@ -42,27 +49,52 @@ export const Bar: React.FC<{
   const bar: React.CSSProperties = vertical
     ? { position: 'absolute', bottom: 0, left: 0, width: '100%', height: `${fill * 100}%`, borderRadius: r, background: color }
     : { position: 'absolute', top: 0, left: 0, height: '100%', width: `${fill * 100}%`, borderRadius: r, background: color };
-  return (
+  const railEl = (
     <div style={rail}>
       <div style={bar} />
+    </div>
+  );
+  if (!label && !valueText) return railEl;
+  // Readout treatment: label = quiet name (text tone), valueText = the figure in the bar's own tone (the claim
+  // lands WITH the mark). Sizes density-scaled ⚠ craft-tuned; tabular numerals so counts don't jitter.
+  const labelStyle: React.CSSProperties = { fontSize: dv(brand, 15, 13), color: withAlpha(brand.colors.text, 0.85), opacity: p, lineHeight: 1.2 };
+  const valueStyle: React.CSSProperties = { fontSize: dv(brand, 18, 16), fontWeight: 600, color, opacity: p, fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 };
+  if (vertical) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: dv(brand, 8, 5), height: '100%' }}>
+        {valueText ? <div style={valueStyle}>{valueText}</div> : null}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'stretch' }}>{railEl}</div>
+        {label ? <div style={labelStyle}>{label}</div> : null}
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: dv(brand, 6, 4), width: '100%' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: dv(brand, 12, 8) }}>
+        {label ? <div style={labelStyle}>{label}</div> : <div />}
+        {valueText ? <div style={valueStyle}>{valueText}</div> : null}
+      </div>
+      {railEl}
     </div>
   );
 };
 
 /**
- * A progress RING (arc gauge). Sweeps to `value` (0..1) of a full circle. Compose with a centred FitHeadline/
- * value for a "metric fills to its true fraction" moment. `gap` leaves the arc open at the bottom when < 1.
+ * A progress RING (arc gauge). Sweeps to `value` (0..1) of a full circle. `label`/`valueText` render the mark's
+ * own centred readout (name + REAL figure from `data`) — same faithfulness slots as Bar, same Rule-11 stance.
  */
 export const Ring: React.FC<{
   brand: Brand; value: number; at?: number; dur?: number; tone?: Tone; size?: number; thickness?: number; track?: boolean;
-}> = ({ brand, value, at = 0, dur = 22, tone = 'accent', size = 160, thickness = 12, track = true }) => {
+  label?: string; valueText?: string;
+}> = ({ brand, value, at = 0, dur = 22, tone = 'accent', size = 160, thickness = 12, track = true, label, valueText }) => {
   const frame = useCurrentFrame();
-  const fill = grow(frame, at, dur) * clamp01(value);
+  const p = grow(frame, at, dur);
+  const fill = p * clamp01(value);
   const color = toneOf(brand, tone);
   const r = (size - thickness) / 2;
   const c = 2 * Math.PI * r;
   const cx = size / 2;
-  return (
+  const svg = (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       {track && <circle cx={cx} cy={cx} r={r} fill="none" stroke={withAlpha(brand.colors.text, 0.12)} strokeWidth={thickness} />}
       <circle
@@ -70,6 +102,18 @@ export const Ring: React.FC<{
         strokeDasharray={c} strokeDashoffset={c * (1 - fill)} transform={`rotate(-90 ${cx} ${cx})`}
       />
     </svg>
+  );
+  if (!label && !valueText) return svg;
+  // Centred readout (the classic gauge): valueText = the figure, label = the quiet name under it. Sizes are
+  // fractions of the ring's own diameter so the readout scales WITH the mark (deterministic, ⚠ craft-tuned).
+  return (
+    <div style={{ position: 'relative', width: size, height: size }}>
+      {svg}
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: thickness * 1.5 }}>
+        {valueText ? <div style={{ fontSize: size * 0.19, fontWeight: 600, color: brand.colors.text, opacity: p, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{valueText}</div> : null}
+        {label ? <div style={{ fontSize: size * 0.1, color: withAlpha(brand.colors.text, 0.75), opacity: p, lineHeight: 1.2, marginTop: size * 0.02 }}>{label}</div> : null}
+      </div>
+    </div>
   );
 };
 

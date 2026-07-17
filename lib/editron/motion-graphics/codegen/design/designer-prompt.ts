@@ -84,8 +84,12 @@ converge on one aesthetic across videos; converge on the LEVEL.
   never repeat a family.
 - LANES. 'overlay-kit' = kit composition over footage (default). 'illustrated-overlay' = a GENERATED backdrop
   scene (no on-image text, no numbers, no logos — imagery only) with the kit's type/data layer over it — use it
-  when a moment deserves illustrated richness the kit alone cannot draw. 'cutaway-scene' = a full-frame generated
-  scene replacing footage — NEVER for a moment whose fact carries data (the system rejects it).
+  when a moment deserves illustrated richness the kit alone cannot draw; it MAY be full-frame (the scene becomes
+  the frame, kit type living inside it). 'cutaway-scene' = a PURE-IMAGERY beat: a generated scene with NO kit
+  elements at all — its elements array carries only non-binding ornament and NOTHING binds dataProps. The rule:
+  if ANY words, values, or labels must appear on screen, the lane is 'illustrated-overlay' (the kit renders every
+  word); 'cutaway-scene' is only for wordless visual beats. Data-bearing facts NEVER take a generative lane's
+  imagery as their data channel (the system rejects it).
 - GROUNDING. Elements bind real values by PROP NAME in dataProps (the coder reads data.<name>). Never write a
   literal number or quoted stat into a concept, role, or imagery prompt. Imagery prompts describe subject, mood,
   composition, palette — no text, no numbers, no logos, no real persons or brands.

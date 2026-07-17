@@ -64,17 +64,23 @@ export interface MgRenderSanityResult {
 /**
  * PURE: given measured alpha metrics, decide pass/fail. Only the two universally-degenerate cases fail; a
  * legitimate MG at any size passes. Unit-tested with synthetic metrics, no rendering needed.
+ *
+ * `expectOpaque` (4b-3 output-mode routing): a FULL-FRAME illustrated Scene renders legitimately opaque (the
+ * generated backdrop IS the frame — it lands as a video-track asset, not an overlay), so the near-opaque veto
+ * is a false positive there by construction. The mode comes from designOutputMode (declared from the PLAN,
+ * never sniffed from pixels); the rendered-nothing check still applies in both modes.
  */
 export function evaluateMgRenderSanity(
   m: MgRenderSanityMetrics,
   t: MgRenderSanityThresholds = DEFAULT_MG_RENDER_SANITY_THRESHOLDS,
+  opts: { expectOpaque?: boolean } = {},
 ): { pass: boolean; reasons: string[] } {
   const reasons: string[] = [];
   if (m.coverageFrac <= 0) {
     reasons.push('the component rendered no visible pixels');
     return { pass: false, reasons };
   }
-  if (m.nearOpaqueFrac > t.maxNearOpaqueFrac) {
+  if (!opts.expectOpaque && m.nearOpaqueFrac > t.maxNearOpaqueFrac) {
     reasons.push(
       `${Math.round(m.nearOpaqueFrac * 100)}% of the frame is a near-opaque field — it hides the footage (a full-frame MG must stay transparent)`,
     );
@@ -121,12 +127,13 @@ export async function measureMgRenderSanity(
 export async function mgRenderSanityGate(
   frame: Buffer,
   thresholds: MgRenderSanityThresholds = DEFAULT_MG_RENDER_SANITY_THRESHOLDS,
+  opts: { expectOpaque?: boolean } = {},
 ): Promise<MgRenderSanityResult> {
   const metrics = await measureMgRenderSanity(frame, {
     opaqueAlpha: thresholds.opaqueAlpha,
     faintAlpha: thresholds.faintAlpha,
   });
-  return { ...evaluateMgRenderSanity(metrics, thresholds), metrics };
+  return { ...evaluateMgRenderSanity(metrics, thresholds, opts), metrics };
 }
 
 // ─── Taste-gate deterministic floor, check 2: MOTION PRESENCE ───

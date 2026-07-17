@@ -200,3 +200,24 @@ export function validateDesignPlan(plan: MgVideoDesignPlan, moments: MgDesignPla
 export function parseMgVideoDesignPlan(value: unknown): MgVideoDesignPlan {
   return mgVideoDesignPlanSchema.parse(value);
 }
+
+// ─── output-mode routing (4b-3) ───
+
+/** How a designed moment's RENDER leaves the pipeline:
+ *  - 'alpha-overlay': transparent WebP sequence composited over footage (the default, every overlay-kit moment
+ *    and every WINDOWED illustrated scene — outside its window the frame stays transparent).
+ *  - 'opaque-scene': a FULL-FRAME illustrated Scene — the generated backdrop fills the frame, so the render is
+ *    legitimately opaque and lands as a video-track-style asset (cutaway plumbing). The alpha floor checks that
+ *    veto near-opaque OVERLAYS must not veto this. */
+export type MgDesignOutputMode = 'alpha-overlay' | 'opaque-scene';
+
+/**
+ * Derive the output mode DETERMINISTICALLY from the plan — never sniffed from rendered pixels (R18N: the
+ * expectation is declared, so an overlay that accidentally renders opaque still fails loud). `placementRegion`
+ * is the moment's resolved region (moment-input defaults it to 'full-frame' when the candidate names none).
+ */
+export function designOutputMode(plan: MgMomentDesignPlan, placementRegion?: string): MgDesignOutputMode {
+  return plan.lane === 'illustrated-overlay' && (placementRegion ?? 'full-frame') === 'full-frame'
+    ? 'opaque-scene'
+    : 'alpha-overlay';
+}

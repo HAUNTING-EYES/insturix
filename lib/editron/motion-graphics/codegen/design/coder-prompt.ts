@@ -61,9 +61,20 @@ ${ELEMENT_MAP}
   halo (textShadow built from a brand shade, e.g. shade(brand.colors.bg, 0.2) at low alpha, 2-8px blur). Thin
   marks (Rule/Dot/Plot strokes) get the same treatment or sit on the plate. A render whose text dies on the
   light stress row is REJECTED regardless of everything else.
-- For an 'illustrated-overlay' plan: implement ONLY the transparent kit layer (type/marks/data) — the generated
-  backdrop is composited by the system underneath; the legibility rule above makes the layer read over ANY
-  backdrop.
+- FAITHFUL DATA RENDERING: every dataProp an element binds MUST be VISIBLY RENDERED via {data.<name>} — a label
+  without its value ("Before" with no figure) is an INCOMPLETE CLAIM and is judged unfaithful. Bar and Ring carry
+  label/valueText slots for exactly this: bind the display value there (e.g. label="Before"
+  valueText={\`\${data.from}\${data.unit}\`}) so the mark renders its own readout. Never render a unit without its
+  number, never a name without its figure.
+- For an 'illustrated-overlay' plan: compose the ILLUSTRATED SCENE in-component — <Scene brand
+  src={data.backdropSrc} camera strength> is the root world (data.backdropSrc is the reserved system prop
+  carrying the generated backdrop; always bind it, never a literal URL). Type/marks live in <SceneLayer
+  depth={0.85..0.95}> so they share the camera (multiplane); meaning-bearing beats use <SceneReveal> anchored to
+  phases; legibility over the backdrop comes from <SceneGrade> toward the edge where the type sits — in a Scene
+  use SceneGrade, NEVER a Plate card (a card on a world is the amateur tell). When the backdrop image is shown to
+  you in this session, place the type in ITS real negative space and aim reveals at its actual regions. A
+  full-frame Scene is expected to render OPAQUE (the world replaces the frame); a windowed Scene (inside a
+  <Region>) stays a transparent overlay outside its window.
 </implementation_contract>`;
 
 export interface MgCoderInput {
@@ -86,4 +97,29 @@ style: ${input.brief.styleName} · motif: ${input.brief.motifLanguage} · palett
 ${JSON.stringify(input.plan)}
 </design>`;
   return `${CODER_STABLE_PREFIX}\n\n${brief}\n\n${design}\n\n${buildMomentBlock(input.moment)}`;
+}
+
+// ─── multimodal session parts (4b-3: the coder SEES the actual generated backdrop it composes against) ───
+
+/** Provider-neutral prompt part — same shape as the designer's (callers map to their provider). */
+export type MgCoderPart = { kind: 'text'; text: string } | { kind: 'image'; mimeType: string; data: string };
+
+const BACKDROP_FRAMING = `GENERATED BACKDROP — the following image IS this moment's scene backdrop. At render
+time it is exactly \`data.backdropSrc\`. Compose against THIS image: place the type in its REAL negative space,
+aim SceneReveal origins at its actual regions, and pick the SceneGrade edge where type would sit over busy
+detail. Do not describe or re-imagine the backdrop — build the scene layer that belongs on it.`;
+
+/**
+ * Assemble the multimodal coder session: stable prefix → the actual backdrop image (illustrated lanes) → the
+ * volatile brief/design/moment tail LAST (Rule 35). Reuses buildCoderPrompt's tail via prefix-slice — single
+ * source, no drift. Text-only callers keep using buildCoderPrompt.
+ */
+export function buildCoderParts(input: MgCoderInput, backdrop?: { mimeType: string; data: string }): MgCoderPart[] {
+  const parts: MgCoderPart[] = [{ kind: 'text', text: CODER_STABLE_PREFIX }];
+  if (backdrop) {
+    parts.push({ kind: 'text', text: BACKDROP_FRAMING });
+    parts.push({ kind: 'image', mimeType: backdrop.mimeType, data: backdrop.data });
+  }
+  parts.push({ kind: 'text', text: buildCoderPrompt(input).slice(CODER_STABLE_PREFIX.length) });
+  return parts;
 }

@@ -38,8 +38,8 @@ countUp(frame, at, dur, to, from?)              progress(frame, from, to)   trav
 useRegionSize() -> {wPx,hPx}   useStage() -> {W,H,...}
 
 NON-TEXT PRIMITIVES (brand-locked, animated from the frame — compose these into charts / gauges / trends / structure):
-<Bar brand value={0..1} at dur? tone="accent|text|muted" thickness? vertical? track?/>   // a value bar that grows; N Bars = a bar chart / comparison
-<Ring brand value={0..1} at dur? tone? size? thickness?/>                                  // a progress arc / gauge that fills to its TRUE fraction
+<Bar brand value={0..1} at dur? tone="accent|text|muted" thickness? vertical? track? label? valueText?/>   // a value bar that grows; N Bars = a bar chart / comparison. label/valueText = the mark's OWN readout (bind the REAL name+figure from data — "Before" + data.fromDisplay) so the claim is ON SCREEN, never a bare label
+<Ring brand value={0..1} at dur? tone? size? thickness? label? valueText?/>                                  // a progress arc / gauge that fills to its TRUE fraction; label/valueText = the centred readout (same slots)
 <Plot brand points={[...]} at dur? tone? area? width? height?/>                            // a line / area trend that draws on
 <Rule brand at dur? tone? thickness? vertical?/>    <Dot brand at dur? tone? size?/>       // a line (underline / divider / axis / connector); an accent dot
 <Plate brand at dur? opacity? radius? surface="flat|frosted|raised|glow">...</Plate>        // a rounded brand surface. surface = look: flat scrim · frosted glass-panel · raised (drop-shadow depth) · glow (accent halo)
@@ -47,8 +47,8 @@ NON-TEXT PRIMITIVES (brand-locked, animated from the frame — compose these int
 <Particles brand kind="dust|bokeh|sparks|confetti" count? at? tone?/>                       // deterministic emphasis field (fills its positioned parent)
 <Texture brand kind="grain|scanline|grid|dots" strength? at?/>                              // atmosphere pattern BEHIND content (grain=cinematic · scanline=retro · grid/dots=editorial); fills its positioned parent
 <Motif brand kind="chevrons|sunburst|zigzag" count? at? tone?/>                             // decorative accent ORNAMENT / flourish (retro / broadcast / editorial) — never content
-ILLUSTRATED SCENE (2.5D world — when the design specifies an illustrated backdrop; its image URL arrives with the design):
-<Scene brand src camera="push|pull|drift-l|drift-r|none" strength={0..1}>    // backdrop + ONE computed camera ALL children share
+ILLUSTRATED SCENE (2.5D world — when the design specifies an illustrated backdrop; the backdrop URL ALWAYS arrives as the reserved prop data.backdropSrc):
+<Scene brand src={data.backdropSrc} camera="push|pull|drift-l|drift-r|none" strength={0..1}>    // backdrop + ONE computed camera ALL children share
   <SceneLayer depth={0..1}>…</SceneLayer>            // multiplane parallax: 1 = far world, 0 = screen-locked; type sits ~0.9
   <SceneReveal at dur origin={{x,y}}>…</SceneReveal> // radial unmask from a design-chosen origin — meaning-motion (a region
                                                      // spreads, a highlight lands) on OUR deterministic clock

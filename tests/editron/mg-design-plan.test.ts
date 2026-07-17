@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  designOutputMode,
   mgVideoDesignPlanSchema,
   parseMgVideoDesignPlan,
   validateDesignPlan,
@@ -124,6 +125,20 @@ describe('MG design plan — grounding + lane guards', () => {
 
     const badOrder = designedList({ motion: { enterOrder: [0, 9], build: 'x', hold: 'y', syncTo: 'phases-only' } });
     expect(validateDesignPlan(plan([badOrder]), [listCtx]).problems.join(' ')).toMatch(/out of range/);
+  });
+
+  it('4b-3 output-mode routing: opaque ONLY for a full-frame illustrated scene — declared from the plan, never pixels', () => {
+    const illustrated = designedList({
+      lane: 'illustrated-overlay',
+      elements: [{ kind: 'headline', role: 'title over the scene', dataProps: ['label'] }],
+      imagery: { scenePrompt: 'a workshop scene', mode: 'still', paletteDirection: 'warm gold on charcoal' },
+      motion: { enterOrder: [0], build: 'headline rises', hold: 'breathe', syncTo: 'landing' },
+    });
+    expect(designOutputMode(illustrated, 'full-frame')).toBe('opaque-scene');
+    expect(designOutputMode(illustrated, undefined)).toBe('opaque-scene'); // moment-input defaults region to full-frame
+    expect(designOutputMode(illustrated, 'right-third')).toBe('alpha-overlay'); // windowed scene stays an overlay
+    expect(designOutputMode(designedList(), 'full-frame')).toBe('alpha-overlay'); // overlay-kit is NEVER opaque
+    expect(designOutputMode(designedList({ lane: 'cutaway-scene' }), 'full-frame')).toBe('alpha-overlay'); // cutaway has no component render
   });
 
   it('coverage: every licensed moment must be designed; invented + duplicate moments rejected', () => {

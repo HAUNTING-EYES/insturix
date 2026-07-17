@@ -77,7 +77,7 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T, i: number)
  */
 export async function renderMomentToWebpFrames(
   input: MgRenderInput,
-  opts: { repoRoot?: string; workspaceRoot?: string; kitDir?: string; renderBudgetMs?: number } = {},
+  opts: { repoRoot?: string; workspaceRoot?: string; kitDir?: string; renderBudgetMs?: number; expectOpaque?: boolean } = {},
 ): Promise<MgRenderResult> {
   const repoRoot = opts.repoRoot ?? process.cwd();
   const kitDir = opts.kitDir ?? path.join(repoRoot, ...KIT_SUBPATH);
@@ -150,10 +150,16 @@ export async function renderMomentToWebpFrames(
 
   // 4. Fail loud if the frames are NOT transparent (R18N): a mid frame must carry an alpha channel. If this
   //    ever throws, Remotion/sharp changed under us — do NOT ship opaque graphics over the footage.
-  const mid = files[Math.floor(files.length / 2)];
-  const meta = await sharp(path.join(webpDir, mid)).metadata();
-  if (!meta.hasAlpha) {
-    throw new Error('MG render: transcoded WebP frames have NO alpha channel — refusing to ship opaque motion graphics.');
+  //    EXCEPT expectOpaque (4b-3): a full-frame illustrated Scene fills the frame with its generated backdrop
+  //    BY DESIGN (it lands as a video-track asset, not an overlay) — sharp may then drop the all-opaque alpha
+  //    channel entirely, so the assert would reject a correct render. The mode is DECLARED by the caller from
+  //    the design plan (designOutputMode), never inferred here from pixels.
+  if (!opts.expectOpaque) {
+    const mid = files[Math.floor(files.length / 2)];
+    const meta = await sharp(path.join(webpDir, mid)).metadata();
+    if (!meta.hasAlpha) {
+      throw new Error('MG render: transcoded WebP frames have NO alpha channel — refusing to ship opaque motion graphics.');
+    }
   }
 
   return {
