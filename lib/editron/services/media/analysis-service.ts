@@ -604,6 +604,7 @@ export async function analyzeClipAudioService(params: {
   userId: string;
   source: "timeline" | "asset";
   assetId?: string;
+  timelineStartFrame?: number;
   startFrame: number;
   endFrame: number;
   fps: number;
@@ -644,8 +645,9 @@ export async function analyzeClipAudioService(params: {
   console.log("[ANALYZE-CLIP-AUDIO] Gemini result:", geminiResult);
 
   // 3) Convert seconds to timeline frames
+  const outputStartFrame = params.timelineStartFrame ?? params.startFrame;
   const toFrame = (sec: number) =>
-    params.startFrame + Math.round(sec * params.fps);
+    outputStartFrame + Math.round(sec * params.fps);
 
   // 4) Process silences
   const silenceGapsFrames = geminiResult.silences.map((s) => ({

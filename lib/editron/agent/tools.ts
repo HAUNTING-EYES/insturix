@@ -50,6 +50,11 @@ import { createChatAssetTools } from './chat-asset-tools';
 import { applyAudioDuckingToProject, createChatAudioTools } from './chat-audio-tools';
 import { createChatTranscriptTools } from './chat-transcript-tools';
 import { createChatVisualTools } from './chat-visual-tools';
+import {
+  resolveAnalysisWindow,
+  resolveRequestedTimelineRange,
+  selectAnalysisOverlay,
+} from './chat-analysis-coordinate-space';
 
 // PERF FIX: Module-level singleton map for ChatGoogleGenerativeAI instances.
 // OLD (in each tool):
@@ -3377,31 +3382,18 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
         const prompt = (input.prompt || input.target || "").trim();
         console.log("[AUDIO-TOOL] Search prompt:", prompt);
 
-        // 1) Parse time range from input
-        let parsedRange = null;
-        
-        // Check if startTime/endTime are provided
-        if (input.startTime && input.endTime) {
-          const parseTime = (timeStr: string): number => {
-            const parts = timeStr.split(':').map(Number);
-            if (parts.length === 2) {
-              return parts[0] * 60 + parts[1]; // mm:ss
-            } else if (parts.length === 3) {
-              return parts[0] * 3600 + parts[1] * 60 + parts[2]; // hh:mm:ss
-            }
-            return 0;
-          };
-          
-          const startSec = parseTime(input.startTime);
-          const endSec = parseTime(input.endTime);
-          
-          parsedRange = { startSec, endSec };
-          console.log("[AUDIO-TOOL] Parsed time range from input:", parsedRange);
-        } else {
-          // Try to parse from prompt
-          parsedRange = parsePromptTimeRange(prompt, projectFps, 120);
-          console.log("[AUDIO-TOOL] Parsed time range from prompt:", parsedRange);
-        }
+        // Tool requests and receipts use edited-timeline frames. Asset samplers use
+        // source-media frames; resolve both spaces only after choosing the clip.
+        const requestedTimelineRange = resolveRequestedTimelineRange({
+          startTime: input.startTime,
+          endTime: input.endTime,
+          startFrame: input.startFrame,
+          endFrame: input.endFrame,
+          prompt,
+          fps: projectFps,
+          maxDurationSeconds: 120,
+        });
+        console.log("[AUDIO-TOOL] Requested timeline range:", requestedTimelineRange);
 
         // 2) Pick audio-capable overlays
         const overlays = (project.overlays || []).filter(
@@ -3435,18 +3427,20 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           const maxFrames = 120 * projectFps;
           for (const o of overlays) {
             if (!o.assetId) continue;
-            const overlayDur = o.durationInFrames || 0;
-            const windowFrames = Math.min(maxFrames, overlayDur > 0 ? overlayDur : maxFrames);
-            const startFrame = o.from || 0;
-            const endFrame = startFrame + Math.min(windowFrames, overlayDur > 0 ? overlayDur : maxFrames);
             try {
+              const window = resolveAnalysisWindow({
+                overlay: o,
+                preferredWindowFrames: maxFrames,
+                maxWindowFrames: maxFrames,
+              });
               const result = await analyzeClipAudioService({
                 projectId,
                 userId,
                 source: "asset",
                 assetId: o.assetId,
-                startFrame,
-                endFrame,
+                startFrame: window.source.startFrame,
+                endFrame: window.source.endFrame,
+                timelineStartFrame: window.timeline.startFrame,
                 fps: projectFps,
               });
               results.push({
@@ -3463,71 +3457,13 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           return JSON.stringify({ status: "success", type: "audio", analyzeAll: true, results });
         }
 
-        // 3) Choose overlay - check if target is an assetId first
-        const chooseOverlay = () => {
-          // First check if input.assetId is provided
-          if (input.assetId) {
-            const match = overlays.find((o: any) => o.assetId === input.assetId);
-            if (match) {
-              console.log("[AUDIO-TOOL] Matched by input.assetId:", input.assetId);
-              return match;
-            }
-          }
-          
-          // Check if target/prompt looks like an asset ID or contains searchable text
-          if (prompt) {
-            const lower = prompt.toLowerCase();
-            
-            // Try exact assetId match first
-            const assetMatch = overlays.find((o: any) => o.assetId === prompt);
-            if (assetMatch) {
-              console.log("[AUDIO-TOOL] Matched by exact assetId:", prompt);
-              return assetMatch;
-            }
-            
-            // Try partial assetId match
-            const partialAssetMatch = overlays.find((o: any) => 
-              o.assetId && o.assetId.toLowerCase().includes(lower)
-            );
-            if (partialAssetMatch) {
-              console.log("[AUDIO-TOOL] Matched by partial assetId:", prompt);
-              return partialAssetMatch;
-            }
-            
-            // Try name/content match
-            const nameMatch = overlays.find(
-              (o: any) =>
-                (o.name && o.name.toLowerCase().includes(lower)) ||
-                (o.content &&
-                  typeof o.content === "string" &&
-                  o.content.toLowerCase().includes(lower)),
-            );
-            if (nameMatch) {
-              console.log("[AUDIO-TOOL] Matched by name/content:", prompt);
-              return nameMatch;
-            }
-          }
-
-          // If time range exists, find overlapping overlay
-          if (parsedRange) {
-            const startF = Math.round(parsedRange.startSec * projectFps);
-            const endF = Math.round(parsedRange.endSec * projectFps);
-            const overlap = overlays.find((o: any) => {
-              const oStart = o.from || 0;
-              const oEnd = oStart + (o.durationInFrames || 0);
-              return !(endF < oStart || startF > oEnd);
-            });
-            if (overlap) {
-              console.log("[AUDIO-TOOL] Matched by time overlap");
-              return overlap;
-            }
-          }
-
-          console.log("[AUDIO-TOOL] Using first overlay as fallback");
-          return overlays[0];
-        };
-
-        const chosen: any = chooseOverlay();
+        const chosen: any = selectAnalysisOverlay({
+          overlays,
+          assetId: input.assetId,
+          target: prompt,
+          requestedTimelineRange,
+          selectedOverlayId: (project as any).selectedOverlayId,
+        });
         console.log("[AUDIO-TOOL] Chosen overlay:", {
           id: chosen?.id,
           name: chosen?.name,
@@ -3542,46 +3478,19 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           });
         }
 
-        // 4) Determine start/end frames
-        let startFrame: number;
-        let endFrame: number;
-
-        if (parsedRange) {
-          startFrame = Math.round(parsedRange.startSec * projectFps);
-          endFrame = Math.round(parsedRange.endSec * projectFps);
-          console.log("[AUDIO-TOOL] Using parsed range for frames");
-        } else {
-          const windowMinutes = input.windowMinutes ?? 2;
-          const windowFrames = Math.round(windowMinutes * 60 * projectFps);
-          const overlayDur = chosen.durationInFrames || 0;
-
-          if (overlayDur > 0) {
-            startFrame = Math.max(
-              0,
-              chosen.from + Math.floor((overlayDur - windowFrames) / 2),
-            );
-            endFrame = Math.min(
-              chosen.from + overlayDur,
-              startFrame + windowFrames,
-            );
-          } else {
-            startFrame = chosen.from || 0;
-            endFrame = startFrame + windowFrames;
-          }
-          console.log("[AUDIO-TOOL] Using centered window for frames");
-        }
-
-        // Enforce max 2 minutes
         const maxFrames = 120 * projectFps;
-        if (endFrame - startFrame > maxFrames) {
-          endFrame = startFrame + maxFrames;
-          console.log("[AUDIO-TOOL] Clamped to max 2 minutes");
-        }
+        const preferredWindowFrames = Math.round((input.windowMinutes ?? 2) * 60 * projectFps);
+        const window = resolveAnalysisWindow({
+          overlay: chosen,
+          requestedTimelineRange,
+          preferredWindowFrames,
+          maxWindowFrames: maxFrames,
+        });
         
         console.log("[AUDIO-TOOL] Final analysis range:", { 
-          startFrame, 
-          endFrame,
-          durationSec: (endFrame - startFrame) / projectFps
+          timeline: window.timeline,
+          source: window.source,
+          durationSec: (window.timeline.endFrame - window.timeline.startFrame) / projectFps,
         });
 
         // 5) Call audio analysis service
@@ -3593,8 +3502,9 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           userId,
           source: "asset",
           assetId: chosen.assetId,
-          startFrame,
-          endFrame,
+          startFrame: window.source.startFrame,
+          endFrame: window.source.endFrame,
+          timelineStartFrame: window.timeline.startFrame,
           fps: projectFps,
         });
 
@@ -3616,14 +3526,14 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           },
           timestamps: {
             start: formatSecondsToHHMMSS(
-              framesToSeconds(startFrame, projectFps),
+              framesToSeconds(window.timeline.startFrame, projectFps),
             ),
             end: formatSecondsToHHMMSS(
-              framesToSeconds(endFrame, projectFps),
+              framesToSeconds(window.timeline.endFrame, projectFps),
             ),
           },
-          startFrame,
-          endFrame,
+          startFrame: window.timeline.startFrame,
+          endFrame: window.timeline.endFrame,
           summary: result.summary,
           silenceGapsFrames: result.silenceGapsFrames,
           fillers: result.fillers,
@@ -3646,7 +3556,7 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     {
       name: "analyze_clip_audio",
       description: `Analyze audio (max 2 min per clip) for silences, fillers, and problematic segments.
-        NEVER ask the user for asset ID or time range. Call with {} or minimal params - tool auto-selects first overlay and uses full duration up to 2 min.
+        Use assetId, a grounded target label, an exact timeline range, or the current selection. With one unambiguous clip, minimal params analyze up to 2 minutes. Never guess among multiple clips.
         When user asks to analyze audio/music, call this tool immediately. For multiple overlays, pass analyzeAll: true to analyze each (each up to 2 min).`,
       schema: analyzeClipAudioSchema,
     },
@@ -3707,8 +3617,15 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
         const projectFps = input.fps || project?.fps || 30;
         const prompt = (input.prompt || input.target || "").trim();
 
-        // 1) parse prompt for time range (seconds). If not found, we will derive from chosen overlay.
-        const parsedRange = parsePromptTimeRange(prompt, projectFps, 120); // {startSec,endSec} or null
+        const requestedTimelineRange = resolveRequestedTimelineRange({
+          startTime: input.startTime,
+          endTime: input.endTime,
+          startFrame: input.startFrame,
+          endFrame: input.endFrame,
+          prompt,
+          fps: projectFps,
+          maxDurationSeconds: 120,
+        });
 
         // 2) pick video overlay candidates (accept assetId OR src OR timeline overlay)
         const overlays = (project.overlays || []).filter(
@@ -3731,17 +3648,12 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
             const chosenAny = chosen as any;
             const hasAsset = chosenAny.assetId || (chosenAny.src && /^https?:\/\//i.test(String(chosenAny.src)));
             if (!hasAsset) continue;
-            let startFrame: number, endFrame: number;
-            const overlayDur = chosen.durationInFrames || 0;
-            if (overlayDur > 0) {
-              startFrame = Math.max(0, chosen.from + Math.floor(Math.max(0, overlayDur - windowFrames) / 2));
-              endFrame = Math.min(chosen.from + overlayDur, startFrame + windowFrames);
-            } else {
-              startFrame = chosen.from || 0;
-              endFrame = startFrame + windowFrames;
-            }
-            if (endFrame - startFrame > maxFrames) endFrame = startFrame + maxFrames;
             try {
+              const window = resolveAnalysisWindow({
+                overlay: chosen,
+                preferredWindowFrames: windowFrames,
+                maxWindowFrames: maxFrames,
+              });
               let assetUrl: string | undefined;
               if (chosenAny.assetId) {
                 assetUrl = await (assetResolver as any).resolveAssetUrl(chosenAny.assetId, userId);
@@ -3753,8 +3665,8 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
                 source: "asset",
                 assetId: chosenAny.assetId,
                 assetUrl,
-                startFrame,
-                endFrame,
+                startFrame: window.source.startFrame,
+                endFrame: window.source.endFrame,
                 fps: projectFps,
                 userId,
                 targetSampleFps: 1,
@@ -3763,7 +3675,9 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
               const sampledPath = await sampleVideoClip(sampleParams);
               const geminiResult = await sendVideoToGemini({ filePath: sampledPath, prompt: "" });
               const vision = {
-                sceneChanges: (geminiResult.sceneChanges || []).map((idx: number) => startFrame + idx * projectFps),
+                sceneChanges: (geminiResult.sceneChanges || []).map(
+                  (idx: number) => window.timeline.startFrame + idx * projectFps,
+                ),
                 summary: geminiResult.summary || "No summary available",
                 theme: geminiResult.theme || "other",
                 gestures: geminiResult.gestures || [],
@@ -3772,8 +3686,8 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
               results.push({
                 overlay: { id: chosen.id, name: chosenAny.name, from: chosen.from, durationInFrames: chosen.durationInFrames },
                 timestamps: {
-                  start: formatSecondsToHHMMSS(framesToSeconds(startFrame, projectFps)),
-                  end: formatSecondsToHHMMSS(framesToSeconds(endFrame, projectFps)),
+                  start: formatSecondsToHHMMSS(framesToSeconds(window.timeline.startFrame, projectFps)),
+                  end: formatSecondsToHHMMSS(framesToSeconds(window.timeline.endFrame, projectFps)),
                 },
                 vision,
               });
@@ -3784,76 +3698,27 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           return JSON.stringify({ status: "success", analyzeAll: true, results });
         }
 
-        // Choose overlay: if prompt mentions a name, try to match; else choose first overlay that overlaps requested range or first overall
-        const chooseOverlay = () => {
-          if (prompt) {
-            const lower = prompt.toLowerCase();
-            const match = overlays.find(
-              (o: any) =>
-                (o.name && o.name.toLowerCase().includes(lower)) ||
-                (o.assetId && o.assetId.toLowerCase().includes(lower)) ||
-                (o.content &&
-                  typeof o.content === "string" &&
-                  o.content.toLowerCase().includes(lower)) ||
-                (o.src && o.src.toLowerCase().includes(lower)),
-            );
-            if (match) return match;
-          }
-          // overlap-based fallback: if parsedRange provided, find overlay that overlaps
-          if (parsedRange) {
-            const startF = Math.round(parsedRange.startSec * projectFps);
-            const endF = Math.round(parsedRange.endSec * projectFps);
-            const overlap = overlays.find((o: any) => {
-              const oStart = o.from || 0;
-              const oEnd = oStart + (o.durationInFrames || 0);
-              return !(endF < oStart || startF > oEnd);
-            });
-            if (overlap) return overlap;
-          }
-          return overlays[0];
-        };
-
-        const chosen: any = chooseOverlay();
+        const chosen: any = selectAnalysisOverlay({
+          overlays,
+          assetId: input.assetId,
+          target: prompt,
+          requestedTimelineRange,
+          selectedOverlayId: (project as any).selectedOverlayId,
+        });
         if (!chosen)
           return JSON.stringify({
             status: "error",
             message: "Could not determine overlay to analyze.",
           });
 
-        // 3) determine start/end frames (priority: parsedRange -> overlay centered window -> overlay start)
-        let startFrame: number, endFrame: number;
-        if (parsedRange) {
-          startFrame = Math.round(parsedRange.startSec * projectFps);
-          endFrame = Math.round(parsedRange.endSec * projectFps);
-        } else {
-          // center a 2-minute window (or overlay duration if shorter)
-          const windowFrames = Math.round(120 * projectFps);
-          const overlayDur = chosen.durationInFrames || 0;
-          if (overlayDur > 0) {
-            startFrame = Math.max(
-              0,
-              chosen.from + Math.floor((overlayDur - windowFrames) / 2),
-            );
-            endFrame = Math.min(
-              chosen.from + overlayDur,
-              startFrame + windowFrames,
-            );
-          } else {
-            // fallback to beginning of overlay
-            startFrame = chosen.from || 0;
-            endFrame =
-              startFrame +
-              Math.min(
-                windowFrames,
-                Math.max(1, chosen.durationInFrames || windowFrames),
-              );
-          }
-        }
-
-        // enforce max 2 minutes
         const maxFrames = 120 * projectFps;
-        if (endFrame - startFrame > maxFrames)
-          endFrame = startFrame + maxFrames;
+        const preferredWindowFrames = Math.round((input.windowMinutes ?? 2) * 60 * projectFps);
+        const window = resolveAnalysisWindow({
+          overlay: chosen,
+          requestedTimelineRange,
+          preferredWindowFrames,
+          maxWindowFrames: maxFrames,
+        });
 
         // 4) decide sampling source: prefer assetId -> assetUrl; else use overlay.src (external) -> ffmpeg; else timeline -> Remotion
         let sampleSource: "asset" | "ffmpegUrl" | "timeline" = "timeline";
@@ -3881,8 +3746,8 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           source: sampleSource === "timeline" ? "timeline" : "asset",
           assetId: chosen.assetId,
           assetUrl,
-          startFrame,
-          endFrame,
+          startFrame: sampleSource === "timeline" ? window.timeline.startFrame : window.source.startFrame,
+          endFrame: sampleSource === "timeline" ? window.timeline.endFrame : window.source.endFrame,
           fps: projectFps,
           userId,
           targetSampleFps: 1,
@@ -3900,12 +3765,12 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
         // 7) map 1fps frame indices back to timeline frames
         const vision = {
           sceneChanges: (geminiResult.sceneChanges || []).map(
-            (idx: number) => startFrame + idx * projectFps,
+            (idx: number) => window.timeline.startFrame + idx * projectFps,
           ),
           deadVisualRanges: (geminiResult.deadVisualRanges || []).map(
             ([s, e]: any) => [
-              startFrame + s * projectFps,
-              startFrame + e * projectFps,
+              window.timeline.startFrame + s * projectFps,
+              window.timeline.startFrame + e * projectFps,
             ],
           ),
           gestures: geminiResult.gestures || [],
@@ -3924,12 +3789,12 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
           },
           timestamps: {
             start: formatSecondsToHHMMSS(
-              framesToSeconds(startFrame, projectFps),
+              framesToSeconds(window.timeline.startFrame, projectFps),
             ),
-            end: formatSecondsToHHMMSS(framesToSeconds(endFrame, projectFps)),
+            end: formatSecondsToHHMMSS(framesToSeconds(window.timeline.endFrame, projectFps)),
           },
-          startFrame,
-          endFrame,
+          startFrame: window.timeline.startFrame,
+          endFrame: window.timeline.endFrame,
           vision,
         });
       } catch (err: any) {
@@ -3943,7 +3808,7 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     {
       name: "analyze_clip_video",
       description: `Analyze video (max 2 min per clip) for scene changes, dead zones, gestures, on-screen text.
-        NEVER ask the user for video ID or time range. Call with {} or minimal params - tool auto-selects first overlay and uses full duration up to 2 min.
+        Use assetId, a grounded target label, an exact timeline range, or the current selection. With one unambiguous clip, minimal params analyze up to 2 minutes. Never guess among multiple clips.
         When user asks "read video" / "what's happening", call immediately. For multiple overlays, pass analyzeAll: true to analyze each (each up to 2 min).`,
       schema: analyzeClipVideoSchema,
     },

@@ -112,14 +112,65 @@ describe('chat deep-analysis tool contracts', () => {
       assetId: 'asset-interview',
       startFrame: 150,
       endFrame: 300,
+      timelineStartFrame: 150,
       fps: 30,
     });
   });
 
-  it.fails('samples the named visual clip and maps one-fps findings back to timeline frames', async () => {
+  it('samples moved audio from source time and returns findings in edited-timeline time', async () => {
+    loadWith([{
+      id: 3,
+      type: 'sound',
+      assetId: 'asset-moved-interview',
+      name: 'Moved interview.wav',
+      from: 300,
+      durationInFrames: 300,
+      startFromSound: 90,
+    }]);
+    mocks.analyzeClipAudioService.mockResolvedValue({
+      summary: { clarity: 'one pause' },
+      silenceGapsFrames: [{ startFrame: 330, endFrame: 360 }],
+      fillers: [],
+      problematicFrames: [{ startFrame: 330, endFrame: 360, reason: 'long silence' }],
+    });
+
+    const result = parseEnvelope(await toolNamed('analyze_clip_audio').invoke({
+      assetId: 'asset-moved-interview',
+    }));
+
+    expect(result, JSON.stringify(result)).toMatchObject({
+      status: 'success',
+      data: {
+        analyzedOverlay: { id: 3, assetId: 'asset-moved-interview' },
+        startFrame: 300,
+        endFrame: 600,
+        silenceGapsFrames: [{ startFrame: 330, endFrame: 360 }],
+      },
+    });
+    expect(mocks.analyzeClipAudioService).toHaveBeenCalledWith({
+      projectId: 'proj_analysis_tools',
+      userId: 'user_analysis_tools',
+      source: 'asset',
+      assetId: 'asset-moved-interview',
+      startFrame: 90,
+      endFrame: 390,
+      timelineStartFrame: 300,
+      fps: 30,
+    });
+  });
+
+  it('samples the named visual clip in source time and maps one-fps findings back to timeline frames', async () => {
     loadWith([
       { id: 10, type: 'video', assetId: 'asset-interview', name: 'Interview.mp4', from: 0, durationInFrames: 300 },
-      { id: 11, type: 'video', assetId: 'asset-broll', name: 'b-roll', from: 300, durationInFrames: 300 },
+      {
+        id: 11,
+        type: 'video',
+        assetId: 'asset-broll',
+        name: 'b-roll',
+        from: 300,
+        durationInFrames: 300,
+        videoStartTime: 120,
+      },
     ]);
     mocks.resolveAssetUrl.mockResolvedValue('https://cdn.example.com/b-roll.mp4');
     mocks.sampleVideoClip.mockResolvedValue('D:/tmp/sample-b-roll.mp4');
@@ -153,13 +204,44 @@ describe('chat deep-analysis tool contracts', () => {
       projectId: 'proj_analysis_tools',
       assetId: 'asset-broll',
       assetUrl: 'https://cdn.example.com/b-roll.mp4',
-      startFrame: 300,
-      endFrame: 600,
+      startFrame: 120,
+      endFrame: 420,
       targetSampleFps: 1,
     }));
     expect(mocks.sendVideoToGemini).toHaveBeenCalledWith({
       filePath: 'D:/tmp/sample-b-roll.mp4',
       prompt: '',
     });
+  });
+
+  it('does not analyze the first clip when an explicit asset ID is absent from the timeline', async () => {
+    loadWith([
+      { id: 20, type: 'video', assetId: 'asset-real', name: 'Real clip.mp4', from: 0, durationInFrames: 300 },
+    ]);
+
+    const result = parseEnvelope(await toolNamed('analyze_clip_video').invoke({ assetId: 'asset-missing' }));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: { message: 'Requested asset asset-missing is not present on this project timeline.' },
+    });
+    expect(mocks.resolveAssetUrl).not.toHaveBeenCalled();
+    expect(mocks.sampleVideoClip).not.toHaveBeenCalled();
+    expect(mocks.sendVideoToGemini).not.toHaveBeenCalled();
+  });
+
+  it('fails ambiguous multi-clip analysis instead of silently selecting the first clip', async () => {
+    loadWith([
+      { id: 30, type: 'video', assetId: 'asset-a', name: 'Angle A.mp4', from: 0, durationInFrames: 300 },
+      { id: 31, type: 'video', assetId: 'asset-b', name: 'Angle B.mp4', from: 300, durationInFrames: 300 },
+    ]);
+
+    const result = parseEnvelope(await toolNamed('analyze_clip_video').invoke({}));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: { message: 'Analysis target is ambiguous across 2 media overlays. Resolve or select one clip before analysis.' },
+    });
+    expect(mocks.sampleVideoClip).not.toHaveBeenCalled();
   });
 });
