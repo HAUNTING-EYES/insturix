@@ -54,6 +54,8 @@ export interface AgentInput {
       purpose?: string;
       style?: string;
     }>;
+    /** Server-produced quality-gate evidence for one bounded repair attempt. */
+    qualityRepairIssues?: string[];
   };
 }
 

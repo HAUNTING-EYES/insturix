@@ -14,10 +14,11 @@
 
 import { BaseAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStreamOutput } from './types';
-import { formatContextString, quickAssembleContext } from '../context';
+import { quickAssembleContext } from '../context';
 import type { SessionState, ProjectMeta } from '../state/types';
 import type { BlockTree } from '../schemas/canonical';
 import { DOCUMENT_AUTHORING_CONTRACT } from './document-authoring-contract';
+import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
 
 // =============================================================================
 // NEW ARCHITECTURE - Clean, Pure Agent
@@ -38,18 +39,15 @@ export class ChatAgent extends BaseAgent {
     });
   }
 
-  buildPrompt({ context, userPrompt }: AgentInput): string {
-    const contextBlock = formatContextString(context);
-    const isScriptRelated = /script|story|manual|document|format|structure/i.test(userPrompt);
-
+  private buildTrustedInstruction(isScriptRelated: boolean): string {
     // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
     return `<role>
 You are ThinkForge, a creative strategist and brainstorming partner. You help creators ideate, plan, and refine projects — video scripts, screenplays, documentaries, world-building, social media, brand strategies, any creative endeavor.
 </role>
 
-${isScriptRelated ? `${DOCUMENT_AUTHORING_CONTRACT}\n\n` : ''}${contextBlock ? `<context>\n${contextBlock}\n</context>\n\n` : ''}<conversation_log>
-${context.chatHistory || '(No previous messages)'}
-</conversation_log>
+${isScriptRelated ? `${DOCUMENT_AUTHORING_CONTRACT}\n\n` : ''}<runtime_data_contract>
+Read the current project, document, conversation history, Brand Vault context, selection, and user request only from tf_untrusted_data.data.
+</runtime_data_contract>
 
 <rules>
 RULE 1 — GOLDEN RULE: Answer the request directly and STOP. Do NOT suggest variations, alternatives, or additional ideas unless explicitly asked. Do NOT offer to do more.
@@ -66,11 +64,38 @@ RULE 4 — SECURITY:
 RULE 5 — SCOPE: Creative strategy, brainstorming, writing only. Politely deny unrelated requests. You are advisory — cannot edit the document directly. No <script_update> tags.
 
 RULE 6 — OUTPUT: Creative, specific, actionable. Use markdown (headers, bold, lists). Concise but thorough.${isScriptRelated ? ' Obey DOCUMENT_AUTHORING_CONTRACT for formatting.' : ''}
-</rules>
+</rules>`;
+  }
 
-<input_data>
-User request: ${userPrompt}
-</input_data>`;
+  buildPrompt(input: AgentInput): string {
+    const parts = this.buildPromptParts(input);
+    return `${parts.systemInstruction}\n\n${parts.prompt}`;
+  }
+
+  buildPromptParts({ context, userPrompt }: AgentInput): IsolatedPromptParts {
+    const isScriptRelated = /script|story|manual|document|format|structure/i.test(userPrompt);
+
+    return buildIsolatedPromptParts({
+      systemInstruction: this.applyGlobalConstraints(this.buildTrustedInstruction(isScriptRelated)),
+      data: {
+        userRequest: userPrompt,
+        projectSummary: context.projectSummary || null,
+        currentDocument: context.currentScript || null,
+        conversationHistory: context.chatHistory || null,
+        recentChanges: context.recentChanges || null,
+        selection: context.selection || null,
+        brandContext: context.systemBrief || null,
+      },
+      fieldLimits: {
+        userRequest: 12_000,
+        projectSummary: 12_000,
+        currentDocument: 32_000,
+        conversationHistory: 24_000,
+        recentChanges: 8_000,
+        selection: 8_000,
+        brandContext: 24_000,
+      },
+    });
   }
 }
 
