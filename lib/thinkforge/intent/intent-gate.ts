@@ -24,7 +24,6 @@ export interface IntentGateResult {
   executable?: boolean;
   proposal?: PlacementProposal;
   signals?: string[];
-  textSample?: string;
 }
 
 type IntentCacheEntry = {
@@ -245,8 +244,6 @@ export function classifyIntentFast(
     hasSelection,
     context,
   });
-  const textSample = prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
-
   if (result) {
     return {
       intent: result.intent,
@@ -255,7 +252,6 @@ export function classifyIntentFast(
       reason: "heuristic_rule",
       usedFallback: false,
       executable: result.intent !== "chat",
-      textSample,
       signals: ["heuristic", ...result.signals],
     };
   }
@@ -266,7 +262,6 @@ export function classifyIntentFast(
     reason: "default_chat",
     usedFallback: false,
     executable: false,
-    textSample,
     signals: [],
   };
 }
@@ -319,14 +314,12 @@ async function classifyIntentFallback(
       : "chat";
     const confidence = typeof parsed?.confidence === "number" ? Math.max(0, Math.min(1, parsed.confidence)) : 0.6;
     const scope = parsed?.scope === "selection" || parsed?.scope === "section" || parsed?.scope === "document" ? (parsed.scope as IntentScope) : undefined;
-    const textSample = prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
     const result: IntentGateResult = {
       intent,
       confidence,
       scope,
       reason: "fallback_llm",
       usedFallback: true,
-      textSample,
       signals: ["llm_fallback"],
     };
     await recordThinkForgeDirectCost({
@@ -366,13 +359,11 @@ async function classifyIntentFallback(
       sourceKind: "intent_gate_llm_fallback",
       error,
     });
-    const textSample = prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
     const result: IntentGateResult = {
       intent: "chat",
       confidence: 0.4,
       reason: "llm_failed_default_chat",
       usedFallback: true,
-      textSample,
       signals: ["llm_failure"],
     };
     setCachedIntent(cacheKey, result);
@@ -403,7 +394,6 @@ export async function classifyIntent(
       reason: "heuristic_rule",
       usedFallback: false,
       executable: heuristic.intent !== "chat",
-      textSample: prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt,
       signals: ["heuristic", ...heuristic.signals],
     };
 
@@ -419,21 +409,10 @@ export async function classifyIntent(
       }
     }
 
-    if (process.env.NODE_ENV !== "production") {
-      const sample = result.textSample || prompt;
-      console.info(`[intent] ${result.intent} (heuristic=true, conf=${result.confidence}) "${sample}"`);
-    }
-
     return result;
   }
 
   const fallback = await classifyIntentFallback(prompt, Boolean(hasScript), hasSelection, context);
-
-  if (process.env.NODE_ENV !== "production") {
-    const sample = fallback.textSample || prompt;
-    console.info(`[intent] ${fallback.intent} (heuristic=false, conf=${fallback.confidence}) "${sample}"`);
-  }
-
   return fallback;
 }
 

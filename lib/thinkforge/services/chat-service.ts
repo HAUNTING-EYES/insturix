@@ -71,25 +71,6 @@ function normalizeText(value: string | undefined | null): string {
   return (value || '').toLowerCase();
 }
 
-function blockToPlainText(block: any): string {
-  // ThinkForge block
-  if (block && Array.isArray((block as any).content)) {
-    return extractTextFromRichText((block as any).content as any);
-  }
-  const children = Array.isArray(block?.children) ? block.children : [];
-  const texts: string[] = [];
-  for (const child of children) {
-    if (child && typeof child === 'object') {
-      if (typeof (child as any).text === 'string') {
-        texts.push((child as any).text);
-      } else if (Array.isArray((child as any).children)) {
-        texts.push(blockToPlainText(child));
-      }
-    }
-  }
-  return texts.join(' ').trim();
-}
-
 function getBlockIdsFromSelectionBlocks(blocks?: ThinkForgeBlock[] | null): string[] {
   if (!Array.isArray(blocks)) return [];
   return blocks.map((b) => b?.id).filter((id): id is string => typeof id === 'string');
@@ -183,18 +164,6 @@ export interface ChatRequest {
   /** Silent generation (auto-starter draft): run the draft but do NOT persist the triggering
    *  prompt as a visible user chat message. The assistant progress + script still stream. */
   silent?: boolean;
-}
-
-function formatBlocksForPrompt(blocks: { blockId: string; text: string; type?: string }[]): string {
-  if (!Array.isArray(blocks) || blocks.length === 0) return '';
-  return blocks
-    .map((b) => {
-      const label = b.type ? `(${b.type}) ` : '';
-      const text = typeof b.text === 'string' ? b.text : '';
-      return `[${b.blockId}] ${label}${text}`.trim();
-    })
-    .filter(Boolean)
-    .join('\n');
 }
 
 function detectFullRegenerate(prompt: string): boolean {
@@ -570,7 +539,6 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               reason: 'confirmed_proposal',
               executable: true,
               signals: ['proposal_confirmed'],
-              textSample: effectivePrompt.substring(0, 50),
               usedFallback: false
             };
           }
