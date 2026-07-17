@@ -1,7 +1,7 @@
 # Editron Vibe-Editing Command Ontology And Battle Matrix
 
 **Date:** 2026-07-18
-**Status:** Production test contract; live all-command proof pending
+**Status:** Production test contract; deterministic chat suite green, live all-command proof blocked
 **Scope:** Editron chat-to-edit only
 
 ## 1. Product North Star
@@ -25,6 +25,9 @@ The command ontology below is based on current Editron capabilities plus establi
 - Adobe Generative Media accepts image/video references and places generated results into an editable timeline: <https://helpx.adobe.com/premiere/desktop/edit-projects/edit-with-generative-ai/generative-media-tool-faq.html>
 - Descript's Underlord treats natural-language requests as project-scoped editing instructions, including captions, reframing, zooms, callouts, audio cleanup, translation, and document-to-video workflows: <https://help.descript.com/hc/en-us/articles/36803785502221-Underlord-beta-Your-AI-co-editor-in-Descript>
 - Descript's filler-word workflow analyzes surrounding audio to avoid harsh cuts: <https://help.descript.com/hc/en-us/articles/10164806394509-Remove-filler-words>
+- DaVinci Resolve IntelliScript matches a supplied script against transcripts across several selected clips, including contextual matches and alternate takes: <https://documents.blackmagicdesign.com/SupportNotes/DaVinci_Resolve_20_New_Features_Guide.pdf>
+- Adobe Media Intelligence searches visual, audio, transcript, and metadata evidence together rather than treating filenames as clip understanding: <https://helpx.adobe.com/uk/premiere/desktop/organize-media/file-organization/search-for-media-using-ai-powered-media-intelligence.html>
+- Runway's reference model lets a prompt address uploaded images, videos, and audio by stable labels: <https://help.runwayml.com/hc/en-us/articles/52963720640275-Using-reference-media-to-guide-your-generations>
 
 ### 2.1 Story And Intent
 
@@ -82,6 +85,33 @@ Current Editron only exposes selected-overlay `apply_filter` plus style extracti
 ### 2.7 Delivery, Repurposing, And Accessibility
 
 Expected vibe-editing requests also include aspect-ratio reframing, social cut-downs, chapters, alternate durations, translation, dubbing, accessibility captions, and export/render verification. These are not all represented by current live chat tools and must not be reported as complete.
+
+### 2.8 The Vibe-Editing Request Grammar
+
+Users will not speak in tool names. A production system must understand combinations of these request dimensions:
+
+- **Scope:** this clip, selected overlays, visible range, current chapter, every matching shot, or the whole project.
+- **Anchor:** timestamp, playhead/cursor, spoken phrase, semantic topic, visible object/action/text, beat/downbeat, scene boundary, or attached reference.
+- **Operation:** find, explain, add, remove, replace, reorder, shorten, extend, restyle, grade, mix, synchronize, generate, repurpose, verify, undo, or compare.
+- **Outcome:** clearer, tighter, calmer, faster, premium, humorous, documentary, platform-native, brand-consistent, or reference-consistent.
+- **Constraint:** preserve words/order/product color/skin tone; do not cover faces; do not alter captions; use only uploaded media; skip if evidence or asset quality is weak.
+- **Degree:** exact numeric value, subtle/strong relative change, low/medium/high preference, or "use your judgment."
+- **Iteration:** "less than that," "keep the timing but change the look," "use the previous version," or "apply that treatment to the other shots."
+- **Proof:** show the matched moments first, explain what changed, compare before/after, render-check the result, or leave the project untouched if any step fails.
+
+The same intent can be explicit ("warm clip 12 by 300K"), semantic ("make the interview feel less clinical"), referential ("match this still"), deictic ("move this where my cursor is"), or compound ("tighten the pauses, keep the joke, then cut a 30-second vertical version"). Routing tests must cover all five forms.
+
+### 2.9 Chat Material Roles
+
+A file attached in chat is not self-describing. The user may intend it as:
+
+- a script, transcript correction, outline, factual source, or legal constraint;
+- a visual style reference, color reference, pacing reference, motion reference, or full reference edit;
+- B-roll, primary footage, alternate take, logo, product image, still, diagram, or screen recording;
+- dialogue, voice-over, room tone, music, SFX, or a beat/rhythm reference;
+- a delivery specification, brand guide, platform brief, or review note.
+
+The intake must preserve the declared role and source provenance. Analysis may suggest a role, but it must not silently reinterpret a script as on-screen copy, a reference video as footage to publish, or a supplied song as disposable analysis-only media.
 
 ## 3. Current Tool Truth
 
@@ -168,15 +198,23 @@ Read-only journeys must prove zero mutation. A tool call without its postconditi
 - All 55 live tools represented in at least one explicit battle journey.
 - Filtered legacy authority cannot satisfy the matrix.
 - Deterministic harness contract covers Mongo, UI reload, render evidence, postconditions, rollback, and isolation semantics.
-- Existing chat regression suite and focused matrix tests are green.
+- Disposable fixture preparation maps every journey to a speech, visual/multi-asset, audio, mixed, or generated-scene source and seeds selection, multilingual timing, or asset aliases where required.
+- The full chat-focused regression suite is green: 17 files, 162 tests.
+- Nested CSS-style tool arguments are normalized before schema validation, and a recovered schema retry no longer poisons an otherwise successful atomic transaction (`b610a724`).
 
 ### Not Yet Completed
 
-- Disposable fixture factory for all eight fixture profiles.
+- Independent failure and isolation-pair fixtures; current preparation covers five source profiles and scenario-specific failure/isolation setup still needs live orchestration.
 - Live-provider execution of all 73 journeys.
 - Rendered evidence for every mutating journey.
 - Chat attachment contract/UI/ingestion.
 - Project-wide color-grading family.
 - Translation/dubbing/reframing/repurposing command owners.
+
+### Current Live Blockers
+
+- The current preview Gemini key returns `429` because prepaid credits are depleted. Provider routing cannot be called live-proven while this persists.
+- The first preview deployment containing `b610a724` was killed by Vercel build OOM. Its redeploy is now `Ready`, the branch alias resolves to it, and the authenticated Editron tab has been hard-refreshed before retrying live journeys.
+- One authenticated `explicit-text` journey exposed the nested-style/retry-rollback defect. That root cause is fixed and regression-tested, but the same journey still requires fresh preview proof after the Gemini credit blocker clears.
 
 No future status report may say “the entire chat-to-edit system is battle tested” until the live journey report has zero missing scenarios and every applicable proof level above is attached.
