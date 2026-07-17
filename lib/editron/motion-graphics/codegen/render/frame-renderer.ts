@@ -121,6 +121,13 @@ export async function renderMomentToWebpFrames(
       onFrameUpdate: () => undefined,
     });
   } catch (err) {
+    // Tear down on ANY failure, not just budget-exceed. A crashing component makes Remotion kill + RELAUNCH its
+    // browser internally; when renderFrames then rejects (fast, pre-budget), that relaunched browser is orphaned
+    // with live handles — it retry-loops against a dead serve context (ERR_CONNECTION_REFUSED) and pins the node
+    // event loop forever (observed: harness wedges post-summary; in the sandbox worker it would burn the full
+    // 20-min timeout on a seconds-class failure). cancel() reuses the SAME teardown the budget path already
+    // proved (kills the render + its browser); safe to call after rejection, idempotent.
+    try { cancel(); } catch { /* teardown is best-effort — the throw below is the real signal */ }
     if (budgetExceeded) throw new Error(`MG render exceeded ${budgetMs}ms budget — the component is crashing or looping the browser`);
     throw err;
   } finally {
