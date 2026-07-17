@@ -47,6 +47,13 @@ NON-TEXT PRIMITIVES (brand-locked, animated from the frame — compose these int
 <Particles brand kind="dust|bokeh|sparks|confetti" count? at? tone?/>                       // deterministic emphasis field (fills its positioned parent)
 <Texture brand kind="grain|scanline|grid|dots" strength? at?/>                              // atmosphere pattern BEHIND content (grain=cinematic · scanline=retro · grid/dots=editorial); fills its positioned parent
 <Motif brand kind="chevrons|sunburst|zigzag" count? at? tone?/>                             // decorative accent ORNAMENT / flourish (retro / broadcast / editorial) — never content
+ILLUSTRATED SCENE (2.5D world — when the design specifies an illustrated backdrop; its image URL arrives with the design):
+<Scene brand src camera="push|pull|drift-l|drift-r|none" strength={0..1}>    // backdrop + ONE computed camera ALL children share
+  <SceneLayer depth={0..1}>…</SceneLayer>            // multiplane parallax: 1 = far world, 0 = screen-locked; type sits ~0.9
+  <SceneReveal at dur origin={{x,y}}>…</SceneReveal> // radial unmask from a design-chosen origin — meaning-motion (a region
+                                                     // spreads, a highlight lands) on OUR deterministic clock
+  <SceneGrade brand edge="bottom|top|left|right"/>   // brand-shade gradient under type — in a Scene use THIS, never a Plate card
+</Scene>
 Pass REAL values (the true 0..1 fraction, the true series — perceptual honesty). For anything these don't cover you
 MAY still hand-draw SVG/divs inside a <Region>/<Bleed>, coloured ONLY with brand.colors.*/withAlpha, animated ONLY
 from the frame — but PREFER the primitives: they are brand- and motion-correct by construction. Make numbers FELT.
@@ -65,6 +72,7 @@ import {Brand, withAlpha, dv, tint, shade, mix} from './kit/brand';
 import {Stage, Region, Corner, Bleed, useStage, useRegionSize} from './kit/stage';
 import {FitHeadline, TextBlock, Chip} from './kit/fit-text';
 import {Bar, Ring, Plot, Rule, Plate, Dot, Reveal, Particles, Texture, Motif} from './kit/marks';
+import {Scene, SceneLayer, SceneReveal, SceneGrade} from './kit/scene';
 import {phases, enter, exitOut, stagger, pulseAt, countUp, progress, travel, ambient, EASE} from './kit/choreo';`;
 
 /**
