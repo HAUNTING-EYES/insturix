@@ -53,6 +53,10 @@ import {
 } from './chat-frame-evidence';
 import { getChatToolMetadata } from './chat-tool-registry';
 import { enforceChatToolPostcondition } from './chat-edit-postconditions';
+import {
+  buildChatToolTurnLedger,
+  decideChatToolExecution,
+} from './chat-tool-execution-policy';
 
 // PERF FIX: Singleton GenAI client — reuse across all requests instead of
 // instantiating `new GoogleGenerativeAI(...)` on every callModel call.
@@ -1140,6 +1144,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
     const lastMessage = state.messages[state.messages.length - 1] as any;
     const toolCalls = lastMessage.tool_calls;
     const results: ToolMessage[] = [];
+    const turnLedger = buildChatToolTurnLedger(state.messages);
 
     if (toolCalls && toolCalls.length > 0) {
       const includesFrameCapture = toolCalls.some(
@@ -1172,8 +1177,21 @@ export const createAgent = (userId: string, projectContext?: string) => {
       for (const toolCall of toolCalls) {
         const tool = tools.find((t) => t.name === toolCall.name);
         if (tool) {
-        let output: string;
-          try {
+          let output: string;
+          const args = normalizeAgentToolArgs(toolCall.name, toolCall.args, {
+            projectFps: config.configurable?.projectFps,
+          });
+          const executionDecision = decideChatToolExecution({
+            toolName: toolCall.name,
+            args,
+            ledger: turnLedger,
+          });
+          if (executionDecision.action !== 'execute') {
+            output = executionDecision.output;
+            debugWarn(
+              `[TOOL-POLICY] ${executionDecision.action} ${toolCall.name}: ${executionDecision.reason}`,
+            );
+          } else try {
             // ── Secondary rate-limit fence (defence-in-depth) ──────────────
             // shouldContinue is the primary guard; this catches the edge case
             // where the tool call somehow reaches execution despite the limit.
@@ -1206,9 +1224,6 @@ export const createAgent = (userId: string, projectContext?: string) => {
             // Pre-process args to handle Gemini's incorrect formats
             // 1. Time strings: "3s" → frame count at the project's FPS
             // 2. CSS-like strings: "fontSize: 72px; color: #FFF" → object
-            const args = normalizeAgentToolArgs(toolCall.name, toolCall.args, {
-              projectFps: config.configurable?.projectFps,
-            });
             const toolMetadata = getChatToolMetadata(toolCall.name);
             const loadPostconditionProject: PostconditionProjectLoader =
               config.configurable?.loadPostconditionProject
@@ -1241,15 +1256,20 @@ export const createAgent = (userId: string, projectContext?: string) => {
             debugLog('Tool output for', toolCall.name, ':', output.substring(0, 300));
           } catch (e: any) {
             output = `Error: ${e.message}`;
-        }
+          }
 
-          // Create the tool message result
-        const toolMessage = new ToolMessage({
-          tool_call_id: toolCall.id,
-          name: toolCall.name,
-            content: output
-        });
-        results.push(toolMessage);
+          turnLedger.completedExecutions.push({
+            toolCallId: toolCall.id,
+            name: toolCall.name,
+            args,
+            output,
+          });
+          const toolMessage = new ToolMessage({
+            tool_call_id: toolCall.id,
+            name: toolCall.name,
+            content: output,
+          });
+          results.push(toolMessage);
 
           // Emit tool_end event immediately after this tool completes
           // This ensures proper interleaving in the AI debugger

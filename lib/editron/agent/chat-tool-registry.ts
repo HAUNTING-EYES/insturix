@@ -27,6 +27,12 @@ export type ChatToolIconCategory =
   | 'script'
   | 'sparkles';
 
+export interface ChatToolExecutionPolicy {
+  maxExecutionsPerTurn?: number;
+  replayIdenticalCalls?: boolean;
+  blockedWhenTurnRequests?: string[];
+}
+
 export interface ChatToolMetadata {
   name: string;
   label: string;
@@ -40,6 +46,7 @@ export interface ChatToolMetadata {
   receiptLabel: string;
   loadingMessages?: string[];
   postconditions: ChatToolPostconditionContract | null;
+  executionPolicy: ChatToolExecutionPolicy | null;
 }
 
 export interface ChatToolPostconditionContract {
@@ -53,13 +60,14 @@ export interface ChatToolPostconditionContract {
   };
 }
 
-type ChatToolMetadataInput = Omit<ChatToolMetadata, 'executionType' | 'exposure' | 'mutatesProject' | 'requiresProjectReload' | 'riskLevel' | 'postconditions'> & {
+type ChatToolMetadataInput = Omit<ChatToolMetadata, 'executionType' | 'exposure' | 'mutatesProject' | 'requiresProjectReload' | 'riskLevel' | 'postconditions' | 'executionPolicy'> & {
   executionType?: ChatToolExecutionType;
   exposure?: ChatToolExposure;
   mutatesProject?: boolean;
   requiresProjectReload?: boolean;
   riskLevel?: ChatToolRiskLevel;
   postconditions?: ChatToolPostconditionContract;
+  executionPolicy?: ChatToolExecutionPolicy;
 };
 
 const DEFAULT_LOADING_MESSAGES = ['Working'];
@@ -76,6 +84,7 @@ function defineTool(input: ChatToolMetadataInput): ChatToolMetadata {
     postconditions: mutatesProject
       ? input.postconditions ?? defaultPostconditions(input.iconCategory)
       : null,
+    executionPolicy: input.executionPolicy ?? null,
   };
 }
 
@@ -100,7 +109,7 @@ function defaultPostconditions(iconCategory: ChatToolIconCategory): ChatToolPost
 export const CHAT_TOOL_REGISTRY = {
   read_project_file: defineTool({ name: 'read_project_file', label: 'Reading project data', shortLabel: 'Read', iconCategory: 'file', receiptLabel: 'Read project data' }),
   get_timeline_view: defineTool({ name: 'get_timeline_view', label: 'Reading timeline layout', shortLabel: 'Timeline', iconCategory: 'timeline', receiptLabel: 'Read timeline' }),
-  apply_editorial_intent: defineTool({ name: 'apply_editorial_intent', label: 'Grounding editorial intent', shortLabel: 'Editorial plan', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied grounded editorial intent', loadingMessages: ['Reading the edit', 'Grounding the request', 'Applying warranted changes'], postconditions: postconditions('project-state-changed', ['visual', 'audio']) }),
+  apply_editorial_intent: defineTool({ name: 'apply_editorial_intent', label: 'Grounding editorial intent', shortLabel: 'Editorial plan', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied grounded editorial intent', loadingMessages: ['Reading the edit', 'Grounding the request', 'Applying warranted changes'], postconditions: postconditions('project-state-changed', ['visual', 'audio']), executionPolicy: { maxExecutionsPerTurn: 1, replayIdenticalCalls: true, blockedWhenTurnRequests: ['extract_style', 'apply_style'] } }),
   add_overlay: defineTool({ name: 'add_overlay', label: 'Adding element', shortLabel: 'Add', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added element', postconditions: postconditions('overlay-created', ['visual', 'audio']) }),
   update_overlay: defineTool({ name: 'update_overlay', label: 'Updating element', shortLabel: 'Update', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Updated element', postconditions: postconditions('overlay-updated', ['visual', 'audio']) }),
   batch_update_overlays: defineTool({ name: 'batch_update_overlays', label: 'Batch updating elements', shortLabel: 'Batch', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Batch updated elements', postconditions: postconditions('overlay-updated', ['visual', 'audio']) }),
@@ -142,8 +151,8 @@ export const CHAT_TOOL_REGISTRY = {
   regenerate_scene: defineTool({ name: 'regenerate_scene', label: 'Regenerating scene', shortLabel: 'Regen', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Regenerated scene', loadingMessages: ['Regenerating scene', 'Starting render', 'Preparing update'] }),
   add_transition: defineTool({ name: 'add_transition', label: 'Adding transition', shortLabel: 'Transition', iconCategory: 'transition', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added transition' }),
   auto_motion_graphics: defineTool({ name: 'auto_motion_graphics', label: 'Adding motion graphics', shortLabel: 'Auto MG', iconCategory: 'motion', executionType: 'generative', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphics', loadingMessages: ['Finding moments', 'Planning graphics', 'Adding motion'] }),
-  extract_style: defineTool({ name: 'extract_style', label: 'Extracting edit style', shortLabel: 'Extract', iconCategory: 'style', executionType: 'generative', receiptLabel: 'Extracted style', loadingMessages: ['Reading style', 'Finding patterns', 'Building profile'] }),
-  apply_style: defineTool({ name: 'apply_style', label: 'Applying edit style', shortLabel: 'Style', iconCategory: 'style', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied style', loadingMessages: ['Planning style', 'Applying changes', 'Checking timing'] }),
+  extract_style: defineTool({ name: 'extract_style', label: 'Extracting edit style', shortLabel: 'Extract', iconCategory: 'style', executionType: 'generative', receiptLabel: 'Extracted style', loadingMessages: ['Reading style', 'Finding patterns', 'Building profile'], executionPolicy: { maxExecutionsPerTurn: 1, replayIdenticalCalls: true } }),
+  apply_style: defineTool({ name: 'apply_style', label: 'Applying edit style', shortLabel: 'Style', iconCategory: 'style', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied style', loadingMessages: ['Planning style', 'Applying changes', 'Checking timing'], executionPolicy: { maxExecutionsPerTurn: 1, replayIdenticalCalls: true } }),
   sync_cuts_to_beats: defineTool({ name: 'sync_cuts_to_beats', label: 'Syncing cuts to beats', shortLabel: 'Beat sync', iconCategory: 'audio', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Synced cuts to beats' }),
   set_keyframes: defineTool({ name: 'set_keyframes', label: 'Setting keyframes', shortLabel: 'Keyframes', iconCategory: 'keyframe', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Set keyframes' }),
   regenerate_bgm: defineTool({ name: 'regenerate_bgm', label: 'Regenerating music', shortLabel: 'Music', iconCategory: 'audio', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Regenerated music', loadingMessages: ['Composing music', 'Matching mood', 'Adding track'] }),

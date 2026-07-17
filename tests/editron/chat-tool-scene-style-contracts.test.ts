@@ -1,4 +1,7 @@
+import { HumanMessage } from '@langchain/core/messages';
+import { tool } from '@langchain/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 const mocks = vi.hoisted(() => ({
   applyGroundedEditorialIntent: vi.fn(),
@@ -8,11 +11,78 @@ const mocks = vi.hoisted(() => ({
   loadProfile: vi.fn(),
 }));
 
+const agentFixture = vi.hoisted(() => ({
+  modelStep: 0,
+  genericIntentExecutions: 0,
+  project: {} as Record<string, unknown>,
+}));
+
 vi.hoisted(() => {
   process.env.MONGODB_URI ??= 'mongodb://localhost:27017/editron-test';
   process.env.MONGODB_DB_NAME ??= 'editron-test';
   process.env.VERCEL_URL = 'preview.example.test';
 });
+
+vi.mock('@google/generative-ai', () => ({
+  SchemaType: { OBJECT: 'object' },
+  GoogleGenerativeAI: class GoogleGenerativeAIFixture {
+    getGenerativeModel() {
+      return {
+        async generateContentStream() {
+          const step = agentFixture.modelStep++;
+          const parts = step === 0
+            ? [
+                ...Array.from({ length: 3 }, (_, index) => ({
+                  functionCall: {
+                    name: 'extract_style',
+                    args: { videoUrl: 'https://cdn.example.com/reference.mp4', sourceName: 'Reference cut' },
+                  },
+                  thoughtSignature: `signed-extract-${index}`,
+                })),
+                ...Array.from({ length: 5 }, (_, index) => ({
+                  functionCall: {
+                    name: 'apply_editorial_intent',
+                    args: { goal: 'Match the reference style.' },
+                  },
+                  thoughtSignature: `signed-generic-${index}`,
+                })),
+              ]
+            : step === 1 || step === 2
+              ? [{
+                  functionCall: {
+                    name: 'apply_style',
+                    args: { profileId: 'dna-reference-1', strength: 0.7 },
+                  },
+                  thoughtSignature: `signed-apply-${step}`,
+                }]
+              : [{ text: 'Applied the warranted parts of the reference style once.' }];
+          const chunk = { candidates: [{ content: { parts } }] };
+          return {
+            stream: {
+              async *[Symbol.asyncIterator]() {
+                yield chunk;
+              },
+            },
+            response: Promise.resolve({
+              candidates: [{
+                content: {
+                  parts: parts.map((part) => 'functionCall' in part
+                    ? { functionCall: part.functionCall }
+                    : part),
+                },
+              }],
+              usageMetadata: {
+                promptTokenCount: 10,
+                candidatesTokenCount: 5,
+                totalTokenCount: 15,
+              },
+            }),
+          };
+        },
+      };
+    }
+  },
+}));
 
 vi.mock('@/lib/editron/services/asset-resolver', () => ({
   assetResolver: {
@@ -34,9 +104,24 @@ vi.mock('@/lib/editron/services/style-transfer-service', () => ({
 
 vi.mock('@/lib/editron/agent/chat-editorial-intent-tools', () => ({
   applyGroundedEditorialIntent: mocks.applyGroundedEditorialIntent,
+  createChatEditorialIntentTools: () => [
+    tool(
+      async () => {
+        agentFixture.genericIntentExecutions += 1;
+        return JSON.stringify({ status: 'success', data: { mutated: true }, error: null });
+      },
+      {
+        name: 'apply_editorial_intent',
+        description: 'Apply generic editorial intent.',
+        schema: z.object({ goal: z.string() }),
+      },
+    ),
+  ],
+  filterChatShadowAuthorityTools: <T>(tools: T) => tools,
 }));
 
 import { createTools } from '@/lib/editron/agent/tools';
+import { createAgent } from '@/lib/editron/agent/agent-graph';
 import { projectService } from '@/lib/editron/services/project-service';
 
 const BASE_PROJECT = {
@@ -62,7 +147,7 @@ function toolNamed(name: string) {
 
 function parseEnvelope(raw: string) {
   return JSON.parse(raw) as {
-    status: 'success' | 'error';
+    status: 'success' | 'advisory' | 'error';
     data: Record<string, any> | null;
     error: { code?: string; message: string } | null;
   };
@@ -85,6 +170,9 @@ function dnaFixture() {
 describe('chat scene and style tool contracts', () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
+    agentFixture.modelStep = 0;
+    agentFixture.genericIntentExecutions = 0;
+    agentFixture.project = structuredClone(BASE_PROJECT);
     vi.spyOn(projectService, 'loadProject').mockResolvedValue(structuredClone(BASE_PROJECT) as any);
   });
 
@@ -220,11 +308,79 @@ describe('chat scene and style tool contracts', () => {
     const result = parseEnvelope(await toolNamed('apply_style').invoke({ profileId: 'dna-reference-1' }));
 
     expect(result).toMatchObject({
-      status: 'error',
-      error: {
-        code: 'STYLE_NOT_APPLIED',
+      status: 'advisory',
+      data: {
+        profileId: 'dna-reference-1',
         message: 'The unified planner did not find a safe executable style change for "Reference cut".',
       },
+      error: null,
     });
+  });
+
+  it('enforces one dedicated style workflow owner across the real agent graph', async () => {
+    mocks.extractEditDNA.mockResolvedValue(dnaFixture());
+    mocks.loadProfile.mockResolvedValue(dnaFixture());
+    mocks.applyGroundedEditorialIntent.mockImplementation(async () => {
+      agentFixture.project = {
+        ...agentFixture.project,
+        overlays: [
+          ...(agentFixture.project.overlays as unknown[]),
+          {
+            id: 'style-result-1',
+            type: 'text',
+            content: 'Reference-led title',
+            from: 30,
+            durationInFrames: 90,
+          },
+        ],
+      };
+      return {
+        status: 'success',
+        dispatch: {
+          owner: 'director-unified-planner',
+          status: 'executed',
+          mutated: true,
+          modifiedOverlays: 1,
+          reasons: [],
+        },
+      };
+    });
+    const toolEvents: Array<{ name: string; output: string }> = [];
+    const agent = createAgent('user_scene_style', 'Style transfer test project.');
+
+    await agent.invoke(
+      { messages: [new HumanMessage('Match this reference style.')] },
+      {
+        recursionLimit: 12,
+        configurable: {
+          projectId: 'proj_scene_style',
+          projectFps: 30,
+          loadPostconditionProject: async () => structuredClone(agentFixture.project),
+          streamCallback: (chunk: { type: string; data: Record<string, unknown> }) => {
+            if (chunk.type !== 'tool_end') return;
+            toolEvents.push({
+              name: String(chunk.data.tool),
+              output: String(chunk.data.output),
+            });
+          },
+        },
+      },
+    );
+
+    expect(mocks.extractEditDNA).toHaveBeenCalledTimes(1);
+    expect(mocks.applyGroundedEditorialIntent).toHaveBeenCalledTimes(1);
+    expect(agentFixture.genericIntentExecutions).toBe(0);
+    expect(toolEvents.filter((event) => event.name === 'extract_style')).toHaveLength(3);
+    expect(toolEvents.filter((event) => event.name === 'apply_editorial_intent')).toHaveLength(5);
+    expect(toolEvents.filter((event) => event.name === 'apply_style')).toHaveLength(2);
+    expect(toolEvents
+      .filter((event) => event.name === 'apply_editorial_intent')
+      .every((event) => event.output.includes('CHAT_TOOL_OWNER_CONFLICT'))).toBe(true);
+    const applyOutputs = toolEvents
+      .filter((event) => event.name === 'apply_style')
+      .map((event) => event.output);
+    expect(applyOutputs[0]).toContain('"status":"success"');
+    expect(applyOutputs[0]).toContain('"postconditionVerification":{"version":"editron-chat-postcondition-v1","status":"pass"');
+    expect(applyOutputs[1]).toBe(applyOutputs[0]);
   });
 });

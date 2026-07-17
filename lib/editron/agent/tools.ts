@@ -4630,16 +4630,17 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         });
 
         if (!result.dispatch.mutated) {
-          return errorEnvelope(
-            `The unified planner did not find a safe executable style change for "${dna.sourceName}".`,
-            'STYLE_NOT_APPLIED',
-            {
+          return JSON.stringify({
+            status: 'advisory',
+            data: {
               profileId: dna.profileId,
               dispatchStatus: result.dispatch.status,
               reasons: result.dispatch.reasons,
+              message: `The unified planner did not find a safe executable style change for "${dna.sourceName}".`,
             },
-            'ask_clarification',
-          );
+            error: null,
+            nextAction: 'Explain the safe no-change result. Do not retry apply_style in this turn.',
+          });
         }
 
         return successEnvelope({
