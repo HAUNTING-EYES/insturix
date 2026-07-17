@@ -39,17 +39,36 @@ import {PRIM_V2, FALLBACK_V2} from './grammar-v2.mjs';
 const MODEL = process.env.CRAFT_MODEL || 'glm-5v-turbo';
 const IS_GLM = /^glm/i.test(MODEL);
 const IS_GROK = /^grok/i.test(MODEL);
+const IS_GEMINI = /^gemini/i.test(MODEL);
 const IS_OPENAI_COMPAT = IS_GLM || IS_GROK;
 const GLM_ENDPOINT = 'https://api.z.ai/api/paas/v4/chat/completions';
 const GROK_ENDPOINT = 'https://api.x.ai/v1/chat/completions';
+// Gemini is the ONLY craft model that ingests VIDEO (+ audio) natively, so a reference *video* — not just frames —
+// can drive scene MOTION (pacing, transitions, easing, cut rhythm). It uses Google's native generateContent API,
+// NOT the OpenAI-compat shim (which only takes images). Two auth paths: Vertex AI (OAuth via the Cloud Run service
+// account → our GCP billing, best models, no free-tier quota wall) when GOOGLE_CLOUD_PROJECT is set; else AI Studio
+// (GEMINI_API_KEY) for local dev.
+const VERTEX_PROJECT = process.env.VERTEX_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || '';
+const VERTEX_REGION = process.env.VERTEX_REGION || 'us-central1';
+const HAS_VERTEX = !!VERTEX_PROJECT;
+// HYBRID: the reference VIDEO is watched by a video-native ANALYST model (Gemini) that emits a text MOTION BRIEF;
+// the CODER (CRAFT_MODEL, e.g. grok) then writes the Remotion .tsx from that brief + frames. Gemini watches, grok
+// builds. This split exists because Gemini ingests video but codes our primitive DSL poorly (proven: 0 valid scenes),
+// while grok codes the DSL well but is image-only — so neither alone turns a reference video into good bespoke motion.
+const ANALYST_MODEL = process.env.REFERENCE_ANALYST_MODEL || 'gemini-2.5-pro';
+let MOTION_BRIEF = '';
 // z.ai key is GLM_KEY in the glm scripts but ZAI_API_KEY in Vercel/prod — accept either. Grok uses XAI_API_KEY.
 const KEY = IS_GROK ? process.env.XAI_API_KEY
   : IS_GLM ? (process.env.GLM_KEY || process.env.ZAI_API_KEY)
+  : IS_GEMINI ? process.env.GEMINI_API_KEY
   : process.env.ANTHROPIC_API_KEY;
-// SMOKE (CRAFT_SMOKE=1) makes ZERO model calls, so it must NOT require an API key — else the free health check
-// aborts before it can prove bundle+Chromium.
-if (!KEY && process.env.CRAFT_SMOKE !== '1') {
-  console.error(`✗ ${IS_GROK ? 'XAI_API_KEY' : IS_GLM ? 'GLM_KEY / ZAI_API_KEY' : 'ANTHROPIC_API_KEY'} unset. Add it to .env.local and:  set -a; . ./.env.local; set +a`);
+// Vertex mints an OAuth token at call time (no static key), so it needs no KEY here. SMOKE (CRAFT_SMOKE=1) makes
+// ZERO model calls, so it must NOT require a key either — else the free health check aborts before proving bundle.
+const NEEDS_KEY = !(IS_GEMINI && HAS_VERTEX);
+if (!KEY && NEEDS_KEY && process.env.CRAFT_SMOKE !== '1') {
+  const want = IS_GROK ? 'XAI_API_KEY' : IS_GLM ? 'GLM_KEY / ZAI_API_KEY'
+    : IS_GEMINI ? 'GEMINI_API_KEY (or set GOOGLE_CLOUD_PROJECT to use Vertex)' : 'ANTHROPIC_API_KEY';
+  console.error(`✗ ${want} unset. Add it to .env.local and:  set -a; . ./.env.local; set +a`);
   process.exit(1);
 }
 // Cost caps — bound the blast radius so a bad scene can never run away again (what burned creds before):
@@ -86,7 +105,7 @@ const PALETTE_BLOCK = Object.entries(MODULE_EXPORTS).map(([mod, ex]) => `    ${m
 const ENTRY = 'src/proof-index.ts';
 const PROOF_ID = 'Gen-Proof';
 const PROOF_DUR = 400; // Gen-Proof composition length (frames)
-const client = IS_OPENAI_COMPAT ? null : new Anthropic({apiKey: KEY});
+const client = (IS_OPENAI_COMPAT || IS_GEMINI) ? null : new Anthropic({apiKey: KEY});
 mkdirSync('out', {recursive: true});
 mkdirSync('src/bricks/gen', {recursive: true});
 
@@ -127,6 +146,43 @@ const SHOTS = existsSync('public/product') ? readdirSync('public/product').filte
 const REFERENCE_IMAGES = existsSync('public/reference')
   ? readdirSync('public/reference').filter((f) => /\.(png|jpe?g|webp)$/i.test(f)).sort().map((f) => `public/reference/${f}`).slice(0, 5)
   : [];
+// Gemini-only: a reference VIDEO drives MOTION (pacing, transitions, easing, entrance timing, cut rhythm) — things
+// static frames can't carry. Only Gemini ingests video; other models fall back to REFERENCE_IMAGES (frames).
+const REFERENCE_VIDEO_FILE = existsSync('public/reference')
+  ? (readdirSync('public/reference').filter((f) => /\.(mp4|mov|webm|m4v)$/i.test(f)).sort()[0] || null)
+  : null;
+// When the CODER itself ingests video (gemini*), it watches the reference DIRECTLY while writing the scene — no
+// analyst, no text brief, no lossy translation. One set of eyes designs the motion. Image-only coders (grok/glm/
+// claude) can't do this, so they get the analyst's MOTION_BRIEF instead (see analyzeReferenceVideo).
+const CODER_SEES_VIDEO = IS_GEMINI && !!REFERENCE_VIDEO_FILE;
+const VID_MIME = (p) => (/\.mov$/i.test(p) ? 'video/quicktime' : /\.webm$/i.test(p) ? 'video/webm' : 'video/mp4');
+// Inline video part. Vertex/AI-Studio inline cap ≈ 20MB (base64 adds ~33%); a style-reference clip is short, so
+// inline is fine — a larger file should be a shorter/lower-res clip (fail LOUD rather than silently truncate).
+function videoPart(p) {
+  const bytes = readFileSync(p);
+  if (bytes.length > 18 * 1024 * 1024) throw new Error(`reference video ${p} is ${(bytes.length / 1e6).toFixed(1)}MB — too big to inline (>18MB). Use a shorter / lower-res clip.`);
+  return {inlineData: {mimeType: VID_MIME(p), data: bytes.toString('base64')}};
+}
+// The reference video is attached to EVERY scene write. Inlining it re-uploads multi-MB of base64 per call, which
+// made calls slow and the sockets fragile ("fetch failed" mid-craft) and blew the Cloud Run task timeout. Vertex
+// reads gs:// URIs natively, so upload ONCE and pass a URI thereafter: one upload per run instead of ~20.
+// Falls back to inline when there's no bucket/Vertex (e.g. AI Studio local dev), so behaviour is never lost.
+const REF_BUCKET = process.env.EXPLAINER_REF_BUCKET || 'insturix-v2';
+let REF_VIDEO_PART = null;
+async function buildReferenceVideoPart(p) {
+  if (!HAS_VERTEX || !REF_BUCKET) return videoPart(p);
+  try {
+    const {Storage} = await import('@google-cloud/storage');
+    const dest = `explainer-ref/${plan.videoId || 'run'}-${p.split('/').pop()}`;
+    await new Storage({projectId: VERTEX_PROJECT}).bucket(REF_BUCKET).upload(p, {destination: dest});
+    const uri = `gs://${REF_BUCKET}/${dest}`;
+    console.log(`[agent-craft] reference video → ${uri} (sent by URI, not re-uploaded per call)`);
+    return {fileData: {mimeType: VID_MIME(p), fileUri: uri}};
+  } catch (e) {
+    console.warn(`[agent-craft] GCS upload failed (${String(e).slice(0, 120)}) — falling back to inline video.`);
+    return videoPart(p);
+  }
+}
 
 // STORED USER PREFERENCES for this customer's explainers — persisted taste so repeat videos are consistent
 // with what they liked/changed last time. Schema (out/preferences.json, all optional):
@@ -201,11 +257,114 @@ const SYSTEM =
 // pull text out of a Claude message (ignore thinking blocks), strip stray ``` fences.
 const textOf = (msg) =>
   (msg.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
-const stripFences = (s) => s.replace(/^```[a-z]*\n?/i, '').replace(/\n?```\s*$/, '').trim();
+// Extract the raw .tsx from a model reply. Some models (Gemini especially) ignore "no prose" and prepend a sentence
+// ("Here is the elite scene:") or wrap the file in ```fences``` — either makes gen/_proof.tsx a syntax error at
+// line 1 ("Expected ; but found 'elite'"), which bricks the whole scene. Prefer a fenced block's CONTENTS (drops any
+// trailing prose too); else slice from the first real code token so leading prose is removed. Clean code (no fence,
+// starts with import) passes through unchanged — no regression for models that already comply.
+const stripFences = (s) => {
+  const fence = s.match(/```(?:[a-zA-Z]+)?\r?\n([\s\S]*?)```/);
+  let code = (fence ? fence[1] : s).trim();
+  const start = code.search(/^(import\b|export\b|const\b|\/\/|\/\*|"use )/m);
+  if (start > 0) code = code.slice(start);
+  return code.trim();
+};
+
+// Vertex OAuth token via google-auth-library (a direct dep) — the canonical, ADC-aware path. It resolves the Cloud
+// Run service-account token correctly (the raw metadata endpoint 404'd in-container) and refreshes it internally.
+// Dynamic import so non-Gemini runs never load it; fails LOUD if no credentials are reachable.
+let _auth = null;
+async function vertexToken() {
+  if (!_auth) {
+    const {GoogleAuth} = await import('google-auth-library');
+    _auth = new GoogleAuth({scopes: 'https://www.googleapis.com/auth/cloud-platform'});
+  }
+  const tok = await _auth.getAccessToken();
+  if (!tok) throw new Error('Vertex: GoogleAuth returned no access token (no ADC / service account on this box; set GEMINI_API_KEY to use AI Studio instead).');
+  return tok;
+}
+
+// One Gemini generateContent turn — Vertex when a GCP project is set (our billing, best models), else AI Studio
+// (GEMINI_API_KEY). `parts` are already Gemini-shaped ({text}|{inlineData}). Shared-quota 429/503 back off + retry
+// (Vertex 2.5 serves under dynamic shared quota). Used by BOTH the coder path (ask, when CRAFT_MODEL is gemini*) and
+// the reference-video analyst — so it takes `model`/`systemText` as args instead of the module globals.
+async function geminiGenerate(model, parts, systemText, maxOutputTokens) {
+  const body = {
+    contents: [{role: 'user', parts}],
+    systemInstruction: {parts: [{text: systemText}]},
+    generationConfig: {maxOutputTokens, temperature: 0.6},
+  };
+  for (let attempt = 0; ; attempt++) {
+    let url, headers;
+    if (HAS_VERTEX) {
+      const tok = await vertexToken();
+      // The newest models (gemini-3.x) are served from Vertex's GLOBAL location, which has no region host prefix —
+      // regional hosts 404 for them. Everything else uses the regional host.
+      const host = VERTEX_REGION === 'global' ? 'https://aiplatform.googleapis.com' : `https://${VERTEX_REGION}-aiplatform.googleapis.com`;
+      url = `${host}/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_REGION}/publishers/google/models/${model}:generateContent`;
+      headers = {Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json'};
+    } else {
+      url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+      headers = {'Content-Type': 'application/json'};
+    }
+    let res;
+    try {
+      res = await fetch(url, {method: 'POST', headers, body: JSON.stringify(body)});
+    } catch (e) {
+      // NETWORK-level failure (SocketError: other side closed / fetch failed) — a multi-MB inline video makes long
+      // uploads fragile, and these drops are transient. Previously they escaped the 429/503 branch and killed the
+      // whole run mid-craft. Retry them on the same backoff instead of losing every scene crafted so far.
+      if (attempt < 6) {
+        const waitMs = Math.min(60000, 2000 * 2 ** attempt) + Math.floor(Math.random() * 1000);
+        console.warn(`  Gemini network error (${String(e).slice(0, 90)}) — backoff ${(waitMs / 1000).toFixed(1)}s, retry ${attempt + 1}/6`);
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+      throw e;
+    }
+    if (res.ok) {
+      const j = await res.json();
+      return (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('').trim();
+    }
+    const errText = (await res.text()).slice(0, 400);
+    if ((res.status === 429 || res.status === 503) && attempt < 6) {
+      const waitMs = Math.min(60000, 2000 * 2 ** attempt) + Math.floor(Math.random() * 1000);
+      console.warn(`  Gemini ${res.status} (shared-quota) — backoff ${(waitMs / 1000).toFixed(1)}s, retry ${attempt + 1}/6`);
+      await new Promise((r) => setTimeout(r, waitMs));
+      continue;
+    }
+    throw new Error(`Gemini ${res.status}: ${errText}`);
+  }
+}
+
+// The video ANALYST (hybrid pre-pass): watch the reference clip ONCE and write a prescriptive MOTION BRIEF the coder
+// follows. Rules over examples; the video (the data) goes LAST in the parts array, after the instruction (Rule 35).
+async function analyzeReferenceVideo(path) {
+  const sys = 'You are a motion-design director analysing a reference video for a team that will recreate its FEEL ' +
+    '(not its content) as bespoke animated code. Report only what is actually visible in the motion — no guessing.';
+  const prompt =
+    'Watch this reference video and write a MOTION BRIEF for animators, in tight bullet form:\n' +
+    '1. PACING & tempo — fast/slow, how long beats hold, cuts per section\n' +
+    '2. ENTRANCES/EXITS — exactly how text and objects appear and leave (slide, scale, fade, mask, blur, from where)\n' +
+    '3. EASING feel — snappy / springy / smooth / linear; any signature overshoot or settle\n' +
+    '4. TRANSITIONS between shots — cut, wipe, morph, match-cut, camera push/pan\n' +
+    '5. KINETIC TYPOGRAPHY — per-word or per-letter reveals, weight/tracking shifts, emphasis\n' +
+    '6. ENERGY & rhythm — calm vs punchy; does motion sync to a musical beat?\n' +
+    '7. COLOUR/LIGHT motion — gradients, glows, background drift, flashes\n' +
+    'Be specific and prescriptive with rough frame timings (e.g. "titles scale 0.9→1 over ~8 frames with a spring ' +
+    'overshoot, hold 40 frames, exit on a 6-frame upward blur"). Output ONLY the brief — no preamble, no content summary.';
+  return geminiGenerate(ANALYST_MODEL, [{text: prompt}, videoPart(path)], sys, 8000);
+}
 
 // one Claude turn (streaming so long output / thinking never hits the request timeout).
 async function ask(userBlocks, maxTokens = 16000) {
   if (++callCount > MAX_CALLS) throw new Error(`craft model-call budget exhausted (${MAX_CALLS} calls) — aborting to avoid runaway cost. Raise CRAFT_MAX_CALLS only if intended.`);
+  if (IS_GEMINI) {
+    // Coder path (CRAFT_MODEL is gemini*). userBlocks are already Gemini parts (from img()) or {type:'text',text};
+    // normalise text blocks to {text}. maxTokens padded +8000 because 2.5-pro's thinking shares the output budget.
+    const parts = userBlocks.map((b) => (b.type === 'text' ? {text: b.text} : b));
+    return geminiGenerate(MODEL, parts, SYSTEM, maxTokens + 8000);
+  }
   if (IS_OPENAI_COMPAT) {
     // z.ai + xAI are both OpenAI-compatible chat/completions. userBlocks are already OpenAI-shaped:
     // {type:'text',text} + {type:'image_url',image_url:{url}}. `thinking` is a z.ai-only param — omit it for Grok.
@@ -221,8 +380,10 @@ async function ask(userBlocks, maxTokens = 16000) {
 }
 // Vision image block — GLM (z.ai) uses OpenAI's image_url; Anthropic uses its base64 source block. Text blocks
 // ({type:'text',text}) are identical in both, so call sites don't change.
-const img = (path) => IS_OPENAI_COMPAT
-  ? {type: 'image_url', image_url: {url: `data:image/png;base64,${readFileSync(path).toString('base64')}`}}
+const MIME_G = (p) => (/\.jpe?g$/i.test(p) ? 'image/jpeg' : /\.webp$/i.test(p) ? 'image/webp' : 'image/png');
+const img = (path) =>
+  IS_GEMINI ? {inlineData: {mimeType: MIME_G(path), data: readFileSync(path).toString('base64')}}
+  : IS_OPENAI_COMPAT ? {type: 'image_url', image_url: {url: `data:image/png;base64,${readFileSync(path).toString('base64')}`}}
   : {type: 'image', source: {type: 'base64', media_type: 'image/png', data: readFileSync(path).toString('base64')}};
 
 // ---------------------------------------------------------------------------------------------------
@@ -339,8 +500,9 @@ async function refine(best, stuck) {
 async function craftScene(scene, idx) {
   // A user chat-edit directive for THIS scene (from the "edit the video with chat" flow) — honor it strongly.
   const editDirective = scene.props && typeof scene.props.editDirective === 'string' ? scene.props.editDirective.trim() : '';
-  // Reference images as Claude vision blocks — attached to every write so the agent designs to match them.
-  const refBlocks = REFERENCE_IMAGES.map(img);
+  // Reference vision blocks, attached to every write. A video-native coder gets the VIDEO itself (it watches the
+  // motion while designing); image-only coders get stills + the analyst's MOTION_BRIEF text (injected below).
+  const refBlocks = REF_VIDEO_PART ? [REF_VIDEO_PART] : REFERENCE_IMAGES.map(img);
   // Feed the REAL product screenshots as VISION (not just filenames) so the agent can SEE the UI and recreate it
   // faithfully. SHOTS are 'product/NAME' (staticFile src paths); the actual files live under public/. Capped so
   // the vision prompt stays lean.
@@ -351,8 +513,14 @@ async function craftScene(scene, idx) {
     (editDirective
       ? `★ USER EDIT — the viewer explicitly asked for this change to THIS scene; honor it directly while keeping the scene premium and on-brand: "${editDirective}"\n`
       : '') +
-    (refBlocks.length
-      ? `★ STYLE REFERENCE — ${refBlocks.length} reference image(s) are attached below. The user wants this whole video to MATCH their look & feel. Study their composition, typography, colour, density, and energy, and design THIS scene so it belongs in the same film. Match the AESTHETIC — do NOT copy their exact text, logos, or content.\n`
+    (CODER_SEES_VIDEO
+      ? `★ STYLE REFERENCE (VIDEO) — the user's reference video is attached below. WATCH HOW IT MOVES and design THIS scene to belong in the same film: match its PACING (how long beats hold, cut rhythm), its ENTRANCES/EXITS (how text and objects appear and leave), its EASING (snappy? springy? overshoot?), its TRANSITIONS, its KINETIC TYPOGRAPHY, its ENERGY (does motion land on the beat?), and its COLOUR/LIGHT motion. Match the AESTHETIC and the ENERGY of the motion — do NOT copy its exact text, logos, or footage.\n`
+      : '') +
+    (MOTION_BRIEF
+      ? `★ MOTION REFERENCE — the user's reference video was analysed by a video model. MATCH THIS MOTION LANGUAGE — pacing, entrances/exits, easing, transitions, kinetic type, energy, and colour/light motion — so THIS scene moves like their film (do NOT copy its exact text/logos/footage):\n${MOTION_BRIEF}\n`
+      : '') +
+    (refBlocks.length && !CODER_SEES_VIDEO
+      ? `★ STYLE REFERENCE — ${refBlocks.length} reference image(s) are attached below. Study their composition, typography, colour, density, and energy, and design THIS scene so it belongs in the same film. Match the AESTHETIC — do NOT copy their exact text, logos, or content.\n`
       : '') +
     `Director notes (LOOSE guidance — improve on them, do NOT treat as a template): ${JSON.stringify(scene.props ?? {})}` +
     `${scene.form ? ` (suggested vibe only: "${scene.form}")` : ''}\n` +
@@ -453,6 +621,22 @@ function writeManifest() {
     const frames = await renderProof(code, 0);
     console.log(`[agent-craft] SMOKE OK — bundle + Chromium render succeeded (${frames.length} frames)`);
     process.exit(0);
+  }
+  // HYBRID PRE-PASS: a video-native analyst (Gemini) watches the reference video ONCE and writes a MOTION BRIEF the
+  // coder follows. Runs regardless of CRAFT_MODEL (the coder may be grok, which can't ingest video). One model call,
+  // bounded cost. Fail-soft: if analysis fails, fall through to frames-only (the prior behaviour).
+  // Video-native coder: stage the reference video ONCE (GCS URI when on Vertex), then reuse that part on every
+  // scene write — instead of re-uploading it per call.
+  if (CODER_SEES_VIDEO) {
+    REF_VIDEO_PART = await buildReferenceVideoPart(`public/reference/${REFERENCE_VIDEO_FILE}`);
+  }
+  if (REFERENCE_VIDEO_FILE && !CODER_SEES_VIDEO && (HAS_VERTEX || process.env.GEMINI_API_KEY)) {
+    try {
+      MOTION_BRIEF = await analyzeReferenceVideo(`public/reference/${REFERENCE_VIDEO_FILE}`);
+      console.log(`[agent-craft] motion brief from ${REFERENCE_VIDEO_FILE} via ${ANALYST_MODEL} (${MOTION_BRIEF.length} chars):\n${MOTION_BRIEF.slice(0, 700)}${MOTION_BRIEF.length > 700 ? ' …' : ''}`);
+    } catch (e) {
+      console.warn(`[agent-craft] reference-video analysis failed (${String(e).slice(0, 200)}) — proceeding with frames only.`);
+    }
   }
   const results = [];
   for (let i = 0; i < SCENES.length; i++) {

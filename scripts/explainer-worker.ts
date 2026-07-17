@@ -22,12 +22,17 @@ import {
   failExplainerJob,
   type ExplainerJob,
 } from '@/lib/editron/saas-explainer/explainer-job-service';
+import { assertSafeAssetUrl } from '@/lib/shared/safe-asset-url';
 
 const DIR = process.env.EXPLAINER_REMOTION_DIR ?? path.join(process.cwd(), 'explainer-remotion');
 const POLL_MS = Number(process.env.EXPLAINER_WORKER_POLL_MS ?? 5000);
 
 async function download(url: string, dest: string): Promise<void> {
-  const res = await fetch(url);
+  // SSRF guard: these URLs are caller-supplied (product screenshots / style references) and this worker runs with a
+  // privileged cloud service account, so validate before fetching. `redirect: 'error'` stops a 3xx from smuggling
+  // the request to a private/metadata host after the guard passed. Callers wrap this in try/catch (skip on failure).
+  await assertSafeAssetUrl(url);
+  const res = await fetch(url, { redirect: 'error' });
   if (!res.ok) throw new Error(`download ${url} -> HTTP ${res.status}`);
   writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
 }
@@ -45,7 +50,7 @@ async function processJob(job: ExplainerJob): Promise<void> {
     if (/^scan-\d+\.(png|jpe?g|webp)$/i.test(f)) rmSync(path.join(productDir, f));
   }
   for (const f of existsSync(referenceDir) ? readdirSync(referenceDir) : []) {
-    if (/^ref-\d+\.(png|jpe?g|webp)$/i.test(f)) rmSync(path.join(referenceDir, f));
+    if (/^ref-\d+\.(png|jpe?g|webp)$/i.test(f) || /^ref\.(mp4|mov|webm|m4v)$/i.test(f)) rmSync(path.join(referenceDir, f));
   }
   writeFileSync(path.join(outDir, 'plan.json'), JSON.stringify(job.plan));
   writeFileSync(path.join(outDir, 'product-model.json'), JSON.stringify(job.productModel));
@@ -68,6 +73,16 @@ async function processJob(job: ExplainerJob): Promise<void> {
       r += 1;
     } catch (e) {
       console.warn(`[explainer-worker] skipping unreachable reference image: ${String(e)}`);
+    }
+  }
+  // Style-reference VIDEO → only Gemini craft models ingest it (native video), driving scene MOTION, not just
+  // stills. Saved as ref.mp4; agent-craft picks it up when CRAFT_MODEL is a gemini* model.
+  if (job.referenceVideoUrl) {
+    try {
+      await download(job.referenceVideoUrl, path.join(referenceDir, 'ref.mp4'));
+      console.log('[explainer-worker] reference video downloaded → public/reference/ref.mp4');
+    } catch (e) {
+      console.warn(`[explainer-worker] skipping unreachable reference video: ${String(e)}`);
     }
   }
 

@@ -9,7 +9,8 @@ import {
   type ExplainerProductModel,
 } from '@/lib/editron/saas-explainer/director-to-plan';
 import { scriptScenesToPlan, type ScriptPlanScene } from '@/lib/editron/saas-explainer/script-plan';
-import { createExplainerJob } from '@/lib/editron/saas-explainer/explainer-job-service';
+import { createExplainerJob, deriveExplainerIdempotencyKey } from '@/lib/editron/saas-explainer/explainer-job-service';
+import { getDatabase } from '@/lib/editron/db/mongodb';
 
 /**
  * POST /api/services/editron/saas-explainer/finalize
@@ -102,14 +103,44 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: resolved.error }, { status: 400 });
   }
 
+  // Ownership: brandId/projectId are caller-supplied. Verify the user owns them before enqueuing so a render can't
+  // be attributed to another tenant's brand/project. Same {id, userId} scope the canonical brand/project routes use.
+  if (body.brandId || body.projectId) {
+    const db = await getDatabase();
+    if (body.brandId) {
+      const ownsBrand = await db.collection('brands').findOne({ brandId: body.brandId, userId }, { projection: { _id: 1 } });
+      if (!ownsBrand) {
+        return NextResponse.json({ success: false, error: 'You do not have access to that brand' }, { status: 403 });
+      }
+    }
+    if (body.projectId) {
+      const ownsProject = await db.collection('projects').findOne({ projectId: body.projectId, userId }, { projection: { _id: 1 } });
+      if (!ownsProject) {
+        return NextResponse.json({ success: false, error: 'You do not have access to that project' }, { status: 403 });
+      }
+    }
+  }
+
+  const referenceImageUrls = Array.isArray(body.referenceImageUrls)
+    ? body.referenceImageUrls.filter((u) => typeof u === 'string')
+    : undefined;
+  // Idempotency: a duplicate/replayed finalize with identical inputs must NOT enqueue a second paid render.
+  const idempotencyKey = deriveExplainerIdempotencyKey({
+    userId,
+    plan: resolved.plan,
+    productModel: resolved.productModel,
+    referenceImageUrls,
+    voice: body.voice,
+  });
   const job = await createExplainerJob({
     userId,
     projectId: body.projectId,
     brandId: body.brandId,
     plan: resolved.plan,
     productModel: resolved.productModel,
-    referenceImageUrls: Array.isArray(body.referenceImageUrls) ? body.referenceImageUrls.filter((u) => typeof u === 'string') : undefined,
+    referenceImageUrls,
     voice: body.voice,
+    idempotencyKey,
   });
 
   return NextResponse.json({
