@@ -12,12 +12,10 @@
  * Target: <2s response time
  */
 
-import { generateObject } from 'ai';
 import { z } from 'zod';
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
 import type { IdeaCardData } from '../state/types';
-import { createThinkForgeModel } from './model-factory';
 
 // =============================================================================
 // SCHEMA DEFINITIONS

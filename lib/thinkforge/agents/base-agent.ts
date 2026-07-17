@@ -14,7 +14,7 @@
 import { streamText, generateObject, generateText } from 'ai';
 import type { LanguageModel } from 'ai';
 import type { z } from 'zod';
-import { createThinkForgeModel, ModelTier, validateTierForTask } from './model-factory';
+import { createThinkForgeModel, ModelTier } from './model-factory';
 import { parseJsonLenient } from '@/lib/thinkforge/json';
 import {
   recordProviderCostEvent,
@@ -212,7 +212,6 @@ export interface AgentConfig {
 export abstract class BaseAgent {
   protected model: LanguageModel;
   protected config: Required<AgentConfig>;
-  protected modelTier?: ModelTier;
   protected abortSignal?: AbortSignal;
 
   constructor(config: AgentConfig) {
@@ -224,7 +223,6 @@ export abstract class BaseAgent {
       modelTier: config.modelTier ?? ModelTier.Reasoning,
       documentType: config.documentType ?? '',
     };
-    this.modelTier = config.modelTier;
     this.model = createThinkForgeModel(this.config.modelName);
   }
 

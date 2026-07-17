@@ -12,13 +12,11 @@
  * The agent only knows: context in → reasoning → text output
  */
 
-import { streamText } from 'ai';
 import { BaseAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStreamOutput } from './types';
 import { formatContextString, quickAssembleContext } from '../context';
 import type { SessionState, ProjectMeta } from '../state/types';
 import type { BlockTree } from '../schemas/canonical';
-import { createThinkForgeModel } from './model-factory';
 import { DOCUMENT_AUTHORING_CONTRACT } from './document-authoring-contract';
 
 // =============================================================================
