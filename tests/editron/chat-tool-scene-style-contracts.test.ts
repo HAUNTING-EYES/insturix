@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  applyEditDNA: vi.fn(),
+  applyGroundedEditorialIntent: vi.fn(),
   extractEditDNA: vi.fn(),
   getStoryboard: vi.fn(),
   getStoryboardByProjectId: vi.fn(),
@@ -28,9 +28,12 @@ vi.mock('@/lib/pipeline/storyboard-db', () => ({
 }));
 
 vi.mock('@/lib/editron/services/style-transfer-service', () => ({
-  applyEditDNA: mocks.applyEditDNA,
   extractEditDNA: mocks.extractEditDNA,
   loadProfile: mocks.loadProfile,
+}));
+
+vi.mock('@/lib/editron/agent/chat-editorial-intent-tools', () => ({
+  applyGroundedEditorialIntent: mocks.applyGroundedEditorialIntent,
 }));
 
 import { createTools } from '@/lib/editron/agent/tools';
@@ -69,13 +72,13 @@ function dnaFixture() {
   return {
     profileId: 'dna-reference-1',
     sourceName: 'Reference cut',
-    cutRhythm: { avgCutsPerMinute: 18 },
-    transitions: { dominant: 'hard-cut' },
-    colorGrade: { temperature: 'warm' },
-    textStyle: { family: 'sans-serif' },
-    musicStyle: { energy: 'restrained' },
-    pacing: { overall: 'measured' },
-    graphicsDensity: 'low',
+    cutRhythm: { avgCutsPerMinute: 18, pattern: 'steady', avgClipDuration: 3.3 },
+    transitions: { dominant: 'hard_cut', frequency: 15 },
+    colorGrade: { temperature: 'warm', saturation: 'normal', contrast: 'high', dominantColors: ['#151515'] },
+    textStyle: { fontWeight: 'bold', position: 'lower_third', animation: 'fade', frequency: 'moderate' },
+    musicStyle: { tempo: 'medium', genre: 'cinematic', energyLevel: 'low' },
+    pacing: { overall: 'medium', hookSpeed: 'fast', mainSpeed: 'medium' },
+    graphicsDensity: 'minimal',
   };
 }
 
@@ -142,7 +145,7 @@ describe('chat scene and style tool contracts', () => {
         sourceName: 'Reference cut',
         cutRhythm: { avgCutsPerMinute: 18 },
         colorGrade: { temperature: 'warm' },
-        graphicsDensity: 'low',
+        graphicsDensity: 'minimal',
       },
     });
     expect(mocks.extractEditDNA).toHaveBeenCalledWith({
@@ -154,34 +157,74 @@ describe('chat scene and style tool contracts', () => {
     });
   });
 
-  it('returns a reference-derived action plan and rejects unknown profiles', async () => {
+  it('applies reference facts once through the unified planner and rejects unknown profiles', async () => {
     const dna = dnaFixture();
     mocks.loadProfile.mockResolvedValueOnce(dna).mockResolvedValueOnce(null);
-    mocks.applyEditDNA.mockResolvedValue({
-      summary: 'Match measured pacing and warm grade.',
-      actions: [
-        { type: 'color', description: 'Warm the image', aiChatPrompt: 'Apply a subtle warm grade.' },
-        { type: 'pacing', description: 'Use measured cuts', aiChatPrompt: 'Preserve complete thoughts.' },
-      ],
+    mocks.applyGroundedEditorialIntent.mockResolvedValue({
+      status: 'success',
+      dispatch: {
+        owner: 'director-unified-planner',
+        status: 'executed',
+        mutated: true,
+        modifiedOverlays: 3,
+        reasons: [],
+      },
     });
 
-    const planned = parseEnvelope(await toolNamed('apply_style').invoke({ profileId: 'dna-reference-1' }));
+    const planned = parseEnvelope(await toolNamed('apply_style').invoke({ profileId: 'dna-reference-1', strength: 0.7 }));
     const missing = parseEnvelope(await toolNamed('apply_style').invoke({ profileId: 'dna-missing' }));
 
     expect(planned, JSON.stringify(planned)).toMatchObject({
       status: 'success',
       data: {
-        summary: 'Match measured pacing and warm grade.',
-        actions: [
-          { type: 'color', aiChatPrompt: 'Apply a subtle warm grade.' },
-          { type: 'pacing', aiChatPrompt: 'Preserve complete thoughts.' },
-        ],
+        profileId: 'dna-reference-1',
+        appliedThrough: 'unified-editorial-planner',
+        dispatch: { owner: 'director-unified-planner', mutated: true, modifiedOverlays: 3 },
+        unappliedDimensions: ['project-wide-color-grade'],
       },
     });
-    expect(mocks.applyEditDNA).toHaveBeenCalledWith('proj_scene_style', 'user_scene_style', dna);
+    expect(mocks.applyGroundedEditorialIntent).toHaveBeenCalledWith({
+      userId: 'user_scene_style',
+      projectId: 'proj_scene_style',
+      input: expect.objectContaining({
+        strength: 0.7,
+        scope: { kind: 'project' },
+        families: {
+          captions: { mode: 'prefer' },
+          motionGraphics: { mode: 'auto' },
+          transitions: { mode: 'prefer' },
+          music: { mode: 'prefer' },
+        },
+        goal: expect.stringContaining('reference observation, not a forced form'),
+      }),
+    });
     expect(missing).toMatchObject({
       status: 'error',
       error: { message: "Style profile 'dna-missing' not found. Use extract_style first to create a profile." },
+    });
+  });
+
+  it('does not claim a style was applied when the unified planner makes no mutation', async () => {
+    const dna = dnaFixture();
+    mocks.loadProfile.mockResolvedValue(dna);
+    mocks.applyGroundedEditorialIntent.mockResolvedValue({
+      status: 'advisory',
+      dispatch: {
+        owner: 'director-unified-planner',
+        status: 'advisory',
+        mutated: false,
+        reasons: ['family-planners-rejected-all-grounded-candidates'],
+      },
+    });
+
+    const result = parseEnvelope(await toolNamed('apply_style').invoke({ profileId: 'dna-reference-1' }));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: {
+        code: 'STYLE_NOT_APPLIED',
+        message: 'The unified planner did not find a safe executable style change for "Reference cut".',
+      },
     });
   });
 });

@@ -433,13 +433,13 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - \`close_gaps\`: Close all gaps between ALL clips (video, text, audio, etc.) by shifting them left. Updates project duration.
     - \`cut_section\`: **PREFERRED for cut/delete operations.** Removes a section of the timeline between two frame numbers across ALL layers. Automatically handles split, delete, shift, and duration update in one atomic operation. Use this instead of manual split→delete→close_gaps sequences.
     - \`extract_style\`: Analyze a reference video to extract its editing style ("Edit DNA") — cut rhythm, color grade, text style, transitions, music, pacing, and graphics density. Returns a profile ID.
-    - \`apply_style\`: Apply an extracted Edit DNA style profile to the current project. Takes a profile ID and generates an action plan to match the reference editing style.
+    - \`apply_style\`: Apply an extracted Edit DNA profile once through the unified editorial planner. It treats the profile as reference facts, not renderer commands, and reports dimensions that could not be applied.
 
     **STYLE TRANSFER WORKFLOW**:
     When a user wants to match the style of a reference video:
     1. \`extract_style({ videoOverlayId })\` → Analyze the reference and get a style profile ID
-    2. \`apply_style({ profileId })\` → Get a plan of actions to match the style
-    3. Execute the plan's \`aiChatPrompt\` actions one by one (trim clips, update text, suggest music, etc.)
+    2. \`apply_style({ profileId, strength })\` → Execute warranted changes as one unified planner transaction
+    3. Do not replay or invent follow-up tool prompts. Inspect the result's applied and unapplied dimensions.
     - The user must upload the reference video as an overlay first
     - For YouTube/Instagram URLs, ask the user to download and upload the video themselves
 

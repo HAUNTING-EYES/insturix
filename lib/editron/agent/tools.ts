@@ -34,7 +34,7 @@ import {
 import { assetResolver } from "../services/asset-resolver";
 import { sampleVideoClip, sendVideoToGemini } from "../services/media/analysis-service";
 import { formatSecondsToHHMMSS, framesToSeconds, parsePromptTimeRange } from "../utils/analysis";
-import { extractEditDNA, applyEditDNA, loadProfile } from "../services/style-transfer-service";
+import { extractEditDNA, loadProfile } from "../services/style-transfer-service";
 import { DEFAULT_CONFIG } from '../config/editron-config';
 import { CHAT_MODEL_NAME, getGenAI } from '../utils/gemini-model-factory';
 import { planComposition } from '../motion-graphics/engine/composition-planner';
@@ -4573,13 +4573,15 @@ NEVER ask the user which clips — default to applyToAll: true.`,
 
   const applyStyleSchema = z.object({
     profileId: z.string().describe('ID of the style profile to apply (returned from extract_style)'),
-  });
+    strength: z.coerce.number().min(0).max(1).default(0.5)
+      .describe('How strongly to pursue the reference editing language. This is creative context, not execution confidence.'),
+  }).strict();
 
   const applyStyleTool = tool(
     async (rawInput: z.infer<typeof applyStyleSchema>) => {
       try {
         const input = coerceInput(rawInput);
-        const { profileId: styleProfileId } = input;
+        const { profileId: styleProfileId, strength } = input;
 
         const dna = await loadProfile(userId, String(styleProfileId));
         if (!dna) {
@@ -4589,19 +4591,64 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           });
         }
 
-        const plan = await applyEditDNA(projectId, userId, dna);
+        const { applyGroundedEditorialIntent } = await import('./chat-editorial-intent-tools');
+        const transitionMode = dna.transitions.frequency <= 0 ? 'off' : 'prefer';
+        const graphicsMode = dna.graphicsDensity === 'heavy' ? 'prefer' : 'auto';
+        const captionMode = dna.textStyle.frequency === 'minimal' ? 'auto' : 'prefer';
+        const goal = [
+          `Match the editorial language measured from reference "${dna.sourceName}" without copying renderer forms blindly.`,
+          `Pacing is ${dna.pacing.overall}; hook ${dna.pacing.hookSpeed}; body ${dna.pacing.mainSpeed}.`,
+          `Measured cut rhythm is ${dna.cutRhythm.avgCutsPerMinute} cuts/min with ${dna.cutRhythm.avgClipDuration}s average clips and a ${dna.cutRhythm.pattern} arc.`,
+          `Transition usage is ${dna.transitions.frequency}% with ${dna.transitions.dominant} as a reference observation, not a forced form.`,
+          `Text usage is ${dna.textStyle.frequency}, ${dna.textStyle.fontWeight}, ${dna.textStyle.position}, ${dna.textStyle.animation}; family planners must resolve readable forms from the current video.`,
+          `Music language is ${dna.musicStyle.tempo} ${dna.musicStyle.genre} at ${dna.musicStyle.energyLevel} energy.`,
+          `Graphics density is ${dna.graphicsDensity}.`,
+          `Color observation is ${dna.colorGrade.temperature}, ${dna.colorGrade.saturation}, ${dna.colorGrade.contrast}; preserve skin and product colors.`,
+        ].join(' ');
+        const result = await applyGroundedEditorialIntent({
+          userId,
+          projectId,
+          input: {
+            goal,
+            scope: { kind: 'project' },
+            constraints: [
+              'Preserve complete thoughts, factual order, source continuity, and speech intelligibility.',
+              'Use current-project atoms and signals to decide where edits are warranted.',
+              'Do not force transition, caption, motion-graphic, SFX, or animation forms from reference labels.',
+            ],
+            strength,
+            uncertainty: 0,
+            families: {
+              captions: { mode: captionMode },
+              motionGraphics: { mode: graphicsMode },
+              transitions: { mode: transitionMode },
+              music: { mode: 'prefer' },
+            },
+            musicPrompt: `${dna.musicStyle.tempo} tempo ${dna.musicStyle.genre}, ${dna.musicStyle.energyLevel} energy, supporting dialogue`,
+            notes: `Reference profile ${dna.profileId}. Color observations are context only until the project-wide color owner executes them explicitly.`,
+          },
+        });
 
-        return JSON.stringify({
-          status: 'success',
-          summary: plan.summary,
-          actions: plan.actions.map((a) => ({
-            type: a.type,
-            description: a.description,
-            aiChatPrompt: a.aiChatPrompt,
-          })),
-          message: `Generated style application plan with ${plan.actions.length} action(s). ` +
-            `${plan.summary} ` +
-            `I'll now execute these actions to match the "${dna.sourceName}" editing style.`,
+        if (!result.dispatch.mutated) {
+          return errorEnvelope(
+            `The unified planner did not find a safe executable style change for "${dna.sourceName}".`,
+            'STYLE_NOT_APPLIED',
+            {
+              profileId: dna.profileId,
+              dispatchStatus: result.dispatch.status,
+              reasons: result.dispatch.reasons,
+            },
+            'ask_clarification',
+          );
+        }
+
+        return successEnvelope({
+          profileId: dna.profileId,
+          sourceName: dna.sourceName,
+          dispatch: result.dispatch,
+          appliedThrough: 'unified-editorial-planner',
+          unappliedDimensions: ['project-wide-color-grade'],
+          message: `Applied warranted reference-style changes through Editron's unified planner. Project-wide color grading remains explicitly unapplied.`,
         });
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
@@ -4609,7 +4656,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
     },
     {
       name: 'apply_style',
-      description: 'Apply a previously extracted Edit DNA style profile to the current project. Returns a plan of actions that map the reference style to Editron operations (cut rhythm, color grade, text style, music, graphics).',
+      description: 'Apply a previously extracted Edit DNA profile as semantic reference context through Editron\'s unified editorial planner. The tool performs one project transaction, requires a real mutation to report success, never replays generated prompts, and reports unsupported dimensions explicitly. Reference transition/font/MG labels are observations, not renderer commands.',
       schema: applyStyleSchema,
     },
   );
