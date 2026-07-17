@@ -13,7 +13,7 @@ const CACHE_TTL_SECONDS = 1800;
 const CACHE_STORE_TIMEOUT_MS = 1_500;
 const CACHE_PROVIDER_TIMEOUT_MS = 10_000;
 const WRITING_PROVIDER_TIMEOUT_MS = 120_000;
-const REDIS_KEY_PREFIX = 'thinkforge:gemini:creative-content-cache:v3';
+const REDIS_KEY_PREFIX = 'thinkforge:gemini:creative-content-cache:v4';
 const DEFAULT_CACHE_MODEL = 'models/gemini-2.5-flash';
 
 interface CacheEntry {
@@ -248,8 +248,12 @@ export function buildWritingContextSystemInstruction(taskInstruction?: string): 
   ].join('\n');
 }
 
-function hashWritingContext(cacheContent: string): string {
-  return createHash('sha256').update(cacheContent).digest('hex');
+function hashWritingContext(cacheContent: string, systemInstruction: string): string {
+  return createHash('sha256')
+    .update(cacheContent)
+    .update('\0')
+    .update(systemInstruction)
+    .digest('hex');
 }
 
 function redisKey(contextHash: string): string {
@@ -291,6 +295,7 @@ async function createCache(
   modelName: string,
   contextHash: string,
   cacheContent: string,
+  systemInstruction: string,
   abortSignal?: AbortSignal,
 ): Promise<string | null> {
   const startedAt = Date.now();
@@ -305,8 +310,9 @@ async function createCache(
     const cache = await client.caches.create({
       model: toRuntimeModelName(modelName),
       config: {
-        displayName: 'thinkforge-creative-content-knowledge-v3',
+        displayName: 'thinkforge-creative-content-knowledge-v4',
         contents: [{ role: 'user', parts: [{ text: cacheContent }] }],
+        systemInstruction,
         ttl: `${CACHE_TTL_SECONDS}s`,
         abortSignal,
       },
@@ -349,7 +355,7 @@ async function resolveWritingContext(
   }
   const cacheContent = buildWritingContextCacheContent();
   const systemInstruction = buildWritingContextSystemInstruction(taskInstruction);
-  const contextHash = hashWritingContext(cacheContent);
+  const contextHash = hashWritingContext(cacheContent, systemInstruction);
   const existing = await getCachedEntry(modelName, contextHash);
 
   if (existing) {
@@ -373,7 +379,13 @@ async function resolveWritingContext(
     }
   }
 
-  const cacheName = await createCache(modelName, contextHash, cacheContent, abortSignal);
+  const cacheName = await createCache(
+    modelName,
+    contextHash,
+    cacheContent,
+    systemInstruction,
+    abortSignal,
+  );
   return {
     ...(cacheName ? { cacheName } : {}),
     cacheStatus: cacheName ? 'created' : 'inline',
@@ -423,7 +435,7 @@ export async function generateWithWritingContextCache(
       model: toRuntimeModelName(modelName),
       contents: promptForGeneration,
       config: {
-        systemInstruction: context.systemInstruction,
+        ...(context.cacheName ? {} : { systemInstruction: context.systemInstruction }),
         temperature: input.temperature,
         maxOutputTokens: input.maxTokens,
         abortSignal: input.abortSignal,
@@ -480,7 +492,7 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       model: createThinkForgeModel(toRuntimeModelName(modelName)),
       schema: input.schema,
       prompt: promptForGeneration,
-      system: context.systemInstruction,
+      ...(context.cacheName ? {} : { system: context.systemInstruction }),
       temperature: input.temperature,
       maxTokens: input.maxTokens,
       abortSignal: input.abortSignal,

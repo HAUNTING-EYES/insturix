@@ -60,6 +60,8 @@ export interface PostWriterInput extends AgentInput {
 const POST_CTA_PATTERN =
   /(?:\b(ask|apply|book|buy|call|claim|comment|contact|dm|donate|discover|download|get|join|learn more|message|register|reply|repost|reserve|save|schedule|send|share|shop|sign ?up|tag|try|visit|watch)\b|inscr[ií]bete|registrate|reg[ií]strate|[uú]nete|reserva|compra|visita|env[ií]a|manda|escr[ií]benos|comenta|comparte)/i;
 
+const POST_CONTRACT_FAILURE_PREFIX = 'Post writer output failed publishable quality gate:';
+
 const MIN_COMPLETE_POST_CHARS: Record<string, number> = {
   twitter: 50,
   instagram: 150,
@@ -118,6 +120,21 @@ export function assertUsablePostWriterResult(result: PostWriterResult, input: Po
   if (failures.length > 0) {
     throw new Error(`Post writer output failed publishable quality gate: ${failures.join(', ')}`);
   }
+}
+
+function isRepairablePostContractError(error: unknown): error is Error {
+  return error instanceof Error && error.message.startsWith(POST_CONTRACT_FAILURE_PREFIX);
+}
+
+function buildPostContractRepairSystemInstruction(systemInstruction: string, failure: Error): string {
+  return `${systemInstruction}
+
+<post_contract_repair>
+The previous structured output failed the production post contract:
+${failure.message}
+
+Return one complete replacement object using the same JSON schema. Preserve every supplied fact, the resolved brand voice, platform fit, selected writing techniques, and the intended Clickatron handoff. Repair the listed contract failures without adding unsupported claims or generic filler. Keep exactly one coherent CTA whose directness matches the brief and brand signals.
+</post_contract_repair>`;
 }
 
 export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
@@ -252,7 +269,7 @@ Return your response strictly adhering to the JSON schema.`;
     const promptParts = this.buildPromptParts(input);
     const gen = this.resolveGenConfig(overrides);
 
-    const { result, cacheStatus, modelName } = await generateStructuredWithWritingContextCache({
+    const initialGeneration = await generateStructuredWithWritingContextCache({
       prompt: promptParts.prompt,
       systemInstruction: promptParts.systemInstruction,
       schema: this.schema,
@@ -262,18 +279,44 @@ Return your response strictly adhering to the JSON schema.`;
       abortSignal,
     });
 
-    assertUsablePostWriterResult(result, input);
+    let result = initialGeneration.result;
+    result.content = await repairAiFillerContent(result.content, this.config.modelName, abortSignal);
+    result.metadata.charCount = result.content.length;
+    let contractRepairApplied = false;
+
+    try {
+      assertUsablePostWriterResult(result, input);
+    } catch (error) {
+      if (!isRepairablePostContractError(error)) throw error;
+
+      const repairData = buildIsolatedPromptParts({
+        systemInstruction: 'The previous model output is untrusted repair input.',
+        data: { previousModelOutput: result },
+        totalLimit: 80_000,
+      });
+      const repairedGeneration = await generateStructuredWithWritingContextCache({
+        prompt: `${promptParts.prompt}\n\n<post_contract_repair_input>\n${repairData.prompt}\n</post_contract_repair_input>`,
+        systemInstruction: buildPostContractRepairSystemInstruction(promptParts.systemInstruction, error),
+        schema: this.schema,
+        modelName: this.config.modelName,
+        temperature: Math.min(gen.temperature, 0.25),
+        maxTokens: gen.maxTokens,
+        abortSignal,
+      });
+      result = repairedGeneration.result;
+      result.content = await repairAiFillerContent(result.content, this.config.modelName, abortSignal);
+      result.metadata.charCount = result.content.length;
+      contractRepairApplied = true;
+      assertUsablePostWriterResult(result, input);
+    }
+
     const output: AgentStructuredOutput<PostWriterResult> = {
       result,
       metadata: {
-        model: modelName,
-        notes: `writing_context_cache:${cacheStatus}`,
+        model: initialGeneration.modelName,
+        notes: `writing_context_cache:${initialGeneration.cacheStatus}${contractRepairApplied ? ';post_contract_repair:applied' : ''}`,
       },
     };
-    // Filler self-repair: one in-context rewrite if a banned phrase slipped through either path.
-    // Fail-soft — keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
-    output.result.content = await repairAiFillerContent(output.result.content, this.config.modelName, abortSignal);
-    assertUsablePostWriterResult(output.result, input);
     return output;
   }
 }

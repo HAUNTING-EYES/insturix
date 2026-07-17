@@ -1,5 +1,39 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+
+const sdkMocks = vi.hoisted(() => ({
+  createCache: vi.fn(),
+  generateContent: vi.fn(),
+  generateObject: vi.fn(),
+  getCache: vi.fn(),
+  recordProviderCostEvent: vi.fn(),
+}));
+
+vi.mock('@google/genai', () => ({
+  GoogleGenAI: class {
+    caches = {
+      create: sdkMocks.createCache,
+      get: sdkMocks.getCache,
+    };
+
+    models = {
+      generateContent: sdkMocks.generateContent,
+    };
+  },
+}));
+
+vi.mock('ai', () => ({
+  generateObject: sdkMocks.generateObject,
+}));
+
+vi.mock('@/lib/financials/provider-cost-events', () => ({
+  recordProviderCostEvent: sdkMocks.recordProviderCostEvent,
+}));
+
+vi.mock('@/lib/thinkforge/agents/model-factory', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/thinkforge/agents/model-factory')>()),
+  createThinkForgeModel: vi.fn(() => ({ modelId: 'gemini-2.5-flash' })),
+}));
 import {
   buildWritingContextCacheContent,
   buildWritingContextSystemInstruction,
@@ -12,6 +46,22 @@ import { PostWriterAgent } from '@/lib/thinkforge/agents/post-writer-agent';
 import { ScriptWriterAgent } from '@/lib/thinkforge/agents/script-writer-agent';
 
 describe('ThinkForge Gemini writing context cache helpers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv('GEMINI_API_KEY', 'test-gemini-key');
+    vi.stubEnv('UPSTASH_REDIS_REST_URL', '');
+    vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', '');
+    sdkMocks.createCache.mockResolvedValue({ name: 'cachedContents/thinkforge-test' });
+    sdkMocks.getCache.mockResolvedValue({ name: 'cachedContents/thinkforge-test' });
+    sdkMocks.generateContent.mockResolvedValue({ text: 'Generated copy' });
+    sdkMocks.generateObject.mockResolvedValue({ object: { output: 'Generated copy' } });
+    sdkMocks.recordProviderCostEvent.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('loads the complete creative content knowledge document', () => {
     const text = getCreativeContentKnowledgeText();
 
@@ -98,5 +148,38 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
         abortSignal: controller.signal,
       }),
     ).rejects.toThrow('aborted before start');
+  });
+
+  it('stores the trusted instruction in cached content and does not resend it during structured generation', async () => {
+    await generateStructuredWithWritingContextCache({
+      prompt: '<tf_untrusted_data>{"userBrief":"Write the post"}</tf_untrusted_data>',
+      systemInstruction: 'Follow the post writer contract.',
+      schema: z.object({ output: z.string() }),
+    });
+
+    expect(sdkMocks.createCache).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({
+        systemInstruction: expect.stringContaining('Follow the post writer contract.'),
+      }),
+    }));
+    const generationRequest = sdkMocks.generateObject.mock.calls[0]?.[0];
+    expect(generationRequest?.system).toBeUndefined();
+    expect(generationRequest?.providerOptions).toEqual({
+      google: { cachedContent: 'cachedContents/thinkforge-test' },
+    });
+  });
+
+  it('keeps the trusted instruction on the request when cache creation falls back inline', async () => {
+    sdkMocks.createCache.mockRejectedValueOnce(new Error('cache unavailable'));
+
+    await generateWithWritingContextCache({
+      prompt: '<tf_untrusted_data>{"userBrief":"Write the post"}</tf_untrusted_data>',
+      systemInstruction: 'Follow the post writer contract.',
+    });
+
+    const generationRequest = sdkMocks.generateContent.mock.calls[0]?.[0];
+    expect(generationRequest?.config?.cachedContent).toBeUndefined();
+    expect(generationRequest?.config?.systemInstruction).toContain('Follow the post writer contract.');
+    expect(generationRequest?.contents).toContain('<creative_content_knowledge>');
   });
 });

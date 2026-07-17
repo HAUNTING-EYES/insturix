@@ -1,8 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+const writerMocks = vi.hoisted(() => ({
+  generateStructured: vi.fn(),
+  repairAiFillerContent: vi.fn(),
+}));
+
+vi.mock('@/lib/thinkforge/services/gemini-writing-context-cache', () => ({
+  generateStructuredWithWritingContextCache: writerMocks.generateStructured,
+}));
+
+vi.mock('@/lib/thinkforge/services/ai-filler-repair', () => ({
+  repairAiFillerContent: writerMocks.repairAiFillerContent,
+}));
 import {
   assertUsablePostWriterResult,
+  PostWriterAgent,
   type PostWriterInput,
   type PostWriterResult,
 } from '@/lib/thinkforge/agents/post-writer-agent';
@@ -52,6 +66,17 @@ function makeResult(overrides: Partial<PostWriterResult> = {}): PostWriterResult
 }
 
 describe('assertUsablePostWriterResult', () => {
+  beforeEach(() => {
+    vi.stubEnv('GEMINI_API_KEY', 'test-gemini-key');
+    writerMocks.generateStructured.mockReset();
+    writerMocks.repairAiFillerContent.mockReset();
+    writerMocks.repairAiFillerContent.mockImplementation(async (content: string) => content);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('keeps the post writer source valid UTF-8 for Vercel webpack/SWC', () => {
     const source = readFileSync(resolve(process.cwd(), 'lib/thinkforge/agents/post-writer-agent.ts'));
     expect(() => new TextDecoder('utf-8', { fatal: true }).decode(source)).not.toThrow();
@@ -107,5 +132,52 @@ describe('assertUsablePostWriterResult', () => {
         twitterInput,
       ),
     ).not.toThrow();
+  });
+
+  it('repairs filler before validation without adding a second structured generation', async () => {
+    const fillerPost = completeLinkedInPost().replace('The fix is not another status meeting.', 'Leverage the next status meeting.');
+    writerMocks.generateStructured.mockResolvedValue({
+      result: makeResult({ content: fillerPost }),
+      cacheStatus: 'hit',
+      modelName: 'models/gemini-2.5-flash',
+    });
+    writerMocks.repairAiFillerContent.mockResolvedValue(completeLinkedInPost());
+
+    const output = await new PostWriterAgent().runStructured(baseInput);
+
+    expect(writerMocks.generateStructured).toHaveBeenCalledTimes(1);
+    expect(output.result.content).toBe(completeLinkedInPost());
+    expect(output.result.metadata.charCount).toBe(completeLinkedInPost().length);
+    expect(output.metadata?.notes).toBe('writing_context_cache:hit');
+  });
+
+  it('performs one schema-constrained repair after a publishability contract failure', async () => {
+    const noCta = completeLinkedInPost().replace(
+      'Try this on your next campaign: assign the approval owner before the first draft leaves the editor.',
+      'The team now has one accountable owner and one visible decision log.',
+    );
+    writerMocks.generateStructured
+      .mockResolvedValueOnce({
+        result: makeResult({ content: noCta }),
+        cacheStatus: 'hit',
+        modelName: 'models/gemini-2.5-flash',
+      })
+      .mockResolvedValueOnce({
+        result: makeResult(),
+        cacheStatus: 'created',
+        modelName: 'models/gemini-2.5-flash',
+      });
+
+    const output = await new PostWriterAgent().runStructured(baseInput, { temperature: 0.45 });
+
+    expect(writerMocks.generateStructured).toHaveBeenCalledTimes(2);
+    expect(writerMocks.generateStructured.mock.calls[1]?.[0]).toMatchObject({
+      temperature: 0.25,
+      systemInstruction: expect.stringContaining('missing_action_cta'),
+      prompt: expect.stringContaining('<post_contract_repair_input>'),
+    });
+    expect(writerMocks.generateStructured.mock.calls[1]?.[0].prompt).toContain('previousModelOutput');
+    expect(output.result.content).toBe(completeLinkedInPost());
+    expect(output.metadata?.notes).toBe('writing_context_cache:hit;post_contract_repair:applied');
   });
 });
