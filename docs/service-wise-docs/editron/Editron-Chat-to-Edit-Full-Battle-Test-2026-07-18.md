@@ -1,5 +1,7 @@
 # Editron Chat-to-Edit Full Battle Test
 
+> **Current-status note (2026-07-19):** This report records the `f8d768d` deployment and its 73-scenario result. Phase 3B execution contracts and the durable deep-analysis split landed afterward. Use [Editron-Current-Execution-Ledger-2026-07-19.md](../../agents/sessions/editron/Editron-Current-Execution-Ledger-2026-07-19.md) for current code status and remaining work; retain this document as historical live-run evidence.
+
 **Date:** 2026-07-18
 
 **Branch:** `infrastructure-improvs-+Editron`
