@@ -32,6 +32,7 @@ import {
   formatChatAttachmentsForPrompt,
   resolveAuthorizedChatAttachments,
 } from '@/lib/editron/services/chat-attachment-contract';
+import { classifyChatRequestOwner } from '@/lib/editron/agent/chat-request-owner';
 
 // Minimum credits required to start a chat (actual cost calculated post-hoc based on tokens)
 const MINIMUM_CREDITS_REQUIRED = 1;
@@ -177,7 +178,7 @@ export async function POST(req: NextRequest) {
       visualEvidence: rawVisualEvidence,
     } = await req.json();
 
-    if (!message || !projectId || !operationId) {
+    if (typeof message !== 'string' || !message.trim() || !projectId || !operationId) {
       return NextResponse.json(
         { error: 'message, projectId, and operationId are required' },
         { status: 400 },
@@ -226,6 +227,9 @@ export async function POST(req: NextRequest) {
       ? formatChatFrameEvidencePrompt(message, visualEvidence)
       : message;
     const agentMessage = formatChatAttachmentsForPrompt(messageWithFrameEvidence, attachments);
+    let contextMessage = getCachedProjectContext(project);
+    const chatEditContext = buildChatEditContextBundle(project, { clientContext, selectedOverlayId });
+    contextMessage += `\n\n${formatChatEditContextForPrompt(chatEditContext)}`;
 
     // Get or create a session scoped to this user and project.
     const actualSessionId = await chatService.getOrCreateSession(userId, projectId, sessionId);
@@ -235,6 +239,18 @@ export async function POST(req: NextRequest) {
     if (!history) {
       throw new Error('Chat session was not created for this project');
     }
+
+    const restoreTarget = resolveChatAiEditRestoreTarget(history, { userMessage: message });
+    const tokenTracker = new TokenTracker(CHAT_MODEL_NAME);
+    const requestOwnerLicense = await classifyChatRequestOwner({
+      userMessage: message,
+      restoreStatus: restoreTarget.status,
+      selectedOverlayPresent: Boolean(selectedOverlayId),
+      visualEvidencePresent: Boolean(visualEvidence),
+      attachments,
+    }, {
+      addUsage: (usage) => tokenTracker.addUsage(usage),
+    });
 
     // Fail closed before invoking any mutating tool. Every turn gets a durable
     // pre-state because mutation intent is not trustworthy until the agent has
@@ -270,6 +286,7 @@ export async function POST(req: NextRequest) {
       role: 'user',
       content: message,
       attachments,
+      requestOwnerLicense,
     });
     
     // Convert history to LangChain format
@@ -322,12 +339,6 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    // Generate project summary — cached per projectId:updatedAt (Priyank's perf fix)
-    let contextMessage = getCachedProjectContext(project);
-
-    const chatEditContext = buildChatEditContextBundle(project, { clientContext, selectedOverlayId });
-    contextMessage += `\n\n${formatChatEditContextForPrompt(chatEditContext)}`;
-    const restoreTarget = resolveChatAiEditRestoreTarget(history, { userMessage: message });
     const restoreTargetPrompt = formatChatAiEditRestoreTargetForPrompt(restoreTarget);
     if (restoreTargetPrompt) {
       contextMessage += `\n\n${restoreTargetPrompt}`;
@@ -337,6 +348,7 @@ export async function POST(req: NextRequest) {
     const agent = createAgent(userId, contextMessage, {
       sessionId: actualSessionId,
       operationId,
+      requestOwnerLicense,
     });
 
     // Create a stream
@@ -369,9 +381,6 @@ export async function POST(req: NextRequest) {
             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_end', tool: chunk.data.tool, id: chunk.data.id, output: chunk.data.output })}\n\n`));
           }
         };
-
-        // Create token tracker for billing
-        const tokenTracker = new TokenTracker(CHAT_MODEL_NAME);
 
         const result = await agent.invoke(inputs, {
           recursionLimit: 50, // Allow up to 50 tool calls per request
@@ -490,6 +499,7 @@ export async function POST(req: NextRequest) {
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
           toolResults: toolResults.length > 0 ? toolResults : undefined,
           checkpointIds: editTransactionSummary.checkpointIds.length > 0 ? editTransactionSummary.checkpointIds : undefined,
+          requestOwnerLicense,
         });
 
         // Calculate and deduct actual credits based on token usage (post-hoc billing)
@@ -512,6 +522,7 @@ export async function POST(req: NextRequest) {
           sessionId: actualSessionId,
           aiEditTransaction: editTransactionSummary,
           renderVerificationDispatch,
+          requestOwnerLicense,
           creditsConsumed: Math.round(creditsConsumed * 100) / 100,
           tokensUsed,
         })}\n\n`));

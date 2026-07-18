@@ -7,12 +7,14 @@
 import { getDatabase, COLLECTIONS } from '../db/mongodb';
 import { nanoid } from 'nanoid';
 import type { AuthorizedChatAttachment } from './chat-attachment-contract';
+import type { ChatRequestOwnerLicense } from '../agent/chat-request-owner';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'tool';
   content: string;
   timestamp: Date;
   attachments?: AuthorizedChatAttachment[];
+  requestOwnerLicense?: ChatRequestOwnerLicense;
   toolCalls?: Array<{
     id: string;
     name: string;

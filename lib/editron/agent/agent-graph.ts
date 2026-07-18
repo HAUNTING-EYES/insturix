@@ -68,6 +68,11 @@ import {
   decideChatToolExecution,
   formatChatToolInvocationError,
 } from './chat-tool-execution-policy';
+import {
+  filterChatToolsForRequestOwner,
+  formatChatRequestOwnerLicenseForPrompt,
+  type ChatRequestOwnerLicense,
+} from './chat-request-owner';
 
 // PERF FIX: Singleton GenAI client — reuse across all requests instead of
 // instantiating `new GoogleGenerativeAI(...)` on every callModel call.
@@ -226,7 +231,11 @@ function normalizeAgentStyleValue(propertyName: string, value: unknown): unknown
 export const createAgent = (
   userId: string,
   projectContext?: string,
-  turnContext?: { sessionId: string; operationId: string },
+  turnContext?: {
+    sessionId: string;
+    operationId: string;
+    requestOwnerLicense?: ChatRequestOwnerLicense;
+  },
 ) => {
   // Director and internal createTools callers retain compatibility tools. Live chat receives
   // deterministic tools plus semantic-intent and durable-analysis adapters, with legacy shadow
@@ -235,7 +244,7 @@ export const createAgent = (
     const compatibilityTools = filterChatLegacyDeepAnalysisTools(
       filterChatShadowAuthorityTools(createTools(userId, projectId)),
     );
-    return [
+    const liveChatTools = [
       ...compatibilityTools,
       ...createChatEditorialIntentTools({
         userId,
@@ -245,6 +254,9 @@ export const createAgent = (
       }),
       ...createChatDeepAnalysisTools({ userId, projectId }),
     ];
+    return turnContext?.requestOwnerLicense
+      ? filterChatToolsForRequestOwner(liveChatTools, turnContext.requestOwnerLicense)
+      : liveChatTools;
   };
 
   // PERF FIX: Cache tools and their Gemini function declarations per projectId
@@ -310,7 +322,11 @@ export const createAgent = (
       debugWarn('No messages in state');
     }
     
+    const ownerLicensePrompt = formatChatRequestOwnerLicenseForPrompt(turnContext?.requestOwnerLicense);
+    const availableToolNames = tools.map((tool) => tool.name).join(', ');
     const SYSTEM_MESSAGE = `<role>You are Editron AI, an intelligent video editing assistant integrated into the Editron web-based video editor. You assist users in editing their video projects by manipulating the timeline, adding overlays (text, images, video, audio), and adjusting styles.</role>
+
+${ownerLicensePrompt}
 
 <rules>
     GOLDEN RULE: Complete the user's request and STOP. Do NOT suggest variations, alternatives, or additional elements unless the user explicitly asks for them. If the user asks for "a sticker", create ONE sticker and confirm. Do NOT offer to create more.
@@ -381,50 +397,11 @@ export const createAgent = (
 </rules>
 
 <task>
-    **Available Tools**:
-    - \`add_overlay\`: Add any overlay type (text, image, video, sound, shape, sticker). Smart placement by default.
-    - \`update_overlay\`: Update a single overlay's properties.
-    - \`batch_update_overlays\`: Update multiple overlays at once (use for "make all X blue").
-    - \`split_overlay\`: Split an overlay at a specific frame.
-    - \`trim_overlay\`: Remove frames from start/end of an overlay.
-    - \`delete_overlay\`: Delete an overlay by ID.
-    - \`sync_style\`: Copy styles from one overlay to others.
-    - \`read_project_file\`: Read full project JSON if needed.
-    - \`get_timeline_view\`: Get ASCII timeline view.
-    - \`restore_ai_edit_checkpoint\`: Restore an exact checkpoint from a prior AI edit. Use beforeCheckpointId to undo an AI edit; use afterCheckpointId to redo it.
-    - \`apply_editorial_intent\`: Ground ordinary or vague editorial outcomes in canonical transcript, visual, and audio evidence and dispatch jobs to the existing Director and family owners. It accepts no renderer form or preset fields.
-    - \`generate_html_scene\`: Create FULL-SCREEN backgrounds, diagrams, or custom visual elements with AI generation (3-8s).
-    - \`edit_html_scene\`: Revise an existing generated HTML scene in place by overlay ID while preserving timing and placement.
-    - \`generate_html_sticker\`: Create SMALL animated elements (emojis, badges, sparkles) with transparent backgrounds.
-    - \`get_video_transcription\`: Get speech-to-text for a video (cached). Use 'timeline' mode for all clips in order.
-    - \`find_transcript_moment\`: Read-only search for spoken phrase/word frame candidates. It does NOT edit the timeline.
-    - \`resolve_transcript_edit\`: Read-only safety resolver for transcript-referenced cuts. Use it before \`cut_section\` when the user names spoken words instead of frames.
-    - \`find_visual_moment\`: Read-only search for visual frame candidates. It does NOT edit the timeline.
-    - \`resolve_visual_edit\`: Read-only safety resolver for visual-reference edits. Use its returned \`useWith\` params with the mutating tool.
-    - \`find_audio_moment\`: Read-only search for beat/silence/audio frame candidates. It does NOT edit the timeline.
-    - \`resolve_audio_edit\`: Read-only safety resolver for audio-reference edits. Use its returned \`useWith\` params with the mutating tool.
-    - \`list_user_assets\`, \`search_user_assets\`, \`inspect_user_asset\`, \`resolve_user_asset_overlay\`: Read/resolve uploaded asset references before adding or replacing media.
-    - \`visual_inspect_frame\`: Request one rendered editor frame when the edit depends on visible layout, collision, crop, legibility, or aesthetics. It is a read-only sensor request and must be the only tool in that model step.
-    - \`analyze_video_content\`: Find silences and filler words. Returns READY-TO-USE cut instructions.
-    - \`resolve_clip_analysis\`: Resolve an exact audio/video target and edited/source frame contract into durable job IDs. It does not run the provider.
-    - \`queue_resolved_clip_analysis\`: Queue exactly the job IDs returned by the resolver. It does not accept or expand targets.
-    - \`get_clip_analysis_result\`: Read durable status and completed evidence. Pending or failed jobs are not evidence.
-    - \`add_captions\`: Add regular subtitle-style captions to a full video. Per-clip styling supported.
-    - \`add_fancy_captions\`: Add kinetic typography (TikTok-style word art) for HOOKS. Use for first 3-5 seconds only.
-    - \`refresh_captions\`: Realign existing regular captions after video edits.
-    - \`refresh_fancy_captions\`: Realign existing fancy captions after video edits.
-    - \`close_gaps\`: Close all gaps between ALL clips (video, text, audio, etc.) by shifting them left. Updates project duration.
-    - \`cut_section\`: **PREFERRED for cut/delete operations.** Removes a section of the timeline between two frame numbers across ALL layers. Automatically handles split, delete, shift, and duration update in one atomic operation. Use this instead of manual split→delete→close_gaps sequences.
-    - \`extract_style\`: Analyze a reference video to extract its editing style ("Edit DNA") — cut rhythm, color grade, text style, transitions, music, pacing, and graphics density. Returns a profile ID.
-    - \`apply_style\`: Apply an extracted Edit DNA profile once through the unified editorial planner. It treats the profile as reference facts, not renderer commands, and reports dimensions that could not be applied.
-
-    **STYLE TRANSFER WORKFLOW**:
-    When a user wants to match the style of a reference video:
-    1. \`extract_style({ videoOverlayId })\` → Analyze the reference and get a style profile ID
-    2. \`apply_style({ profileId, strength })\` → Execute warranted changes as one unified planner transaction
-    3. Do not replay or invent follow-up tool prompts. Inspect the result's applied and unapplied dimensions.
-    - The user must upload the reference video as an overlay first
-    - For YouTube/Instagram URLs, ask the user to download and upload the video themselves
+    **TURN TOOL BOUNDARY**:
+    - Callable tools for this turn: ${availableToolNames}
+    - This list is generated after request-owner licensing. It is the complete callable surface for this turn.
+    - Never call or describe an undeclared compatibility tool. Never recreate a hidden family owner through generic overlays or low-level mutations.
+    - Function schemas describe exact arguments. Read each result envelope before deciding the next step.
 
     **AUTO-EDIT FROM SCRIPT**:
     When the user provides a script and asks to edit, call \`apply_editorial_intent\` with the complete script and the user goal and constraints. The tool routes to the Phase 2 multi-asset script planner. Never use the legacy single-video script editor.
@@ -460,49 +437,11 @@ export const createAgent = (
     - If exact resolution fails because the request is ambiguous, ask once for a clearer visible/audio target. Do not guess IDs or timestamps.
     - The legacy synchronous analyze_clip_audio/analyze_clip_video tools are not available to chat.
 
-    **VIDEO AUTO-EDIT WORKFLOW**:
-    When user asks to "remove silences", "clean up", or "auto-edit":
-    1. \`analyze_video_content\` → Get stats (silenceCount, segments with positions)
-    2. Based on segment positions:
-       - **position: 'end'** → \`trim_overlay({ id, trimEnd: videoEndFrame - startFrame })\`
-       - **position: 'start'** → \`trim_overlay({ id, trimStart: endFrame - videoFrom })\`
-       - **position: 'middle'** → split at startFrame, split new clip at endFrame, delete middle
-    3. After cuts: \`close_gaps\` to shift clips left
-    4. Optionally: \`add_captions\` for each resulting clip
-
-    **IMPORTANT: Caption behavior**:
-    - Captions are linked to their source video via \`sourceVideoId\`
-    - Calling \`add_captions\` on a video REPLACES existing captions for that video
-    - Different clips can have different styles (call \`add_captions\` separately per clip)
-    
-    **WHEN TO USE EACH CAPTION TOOL**:
-    - \`add_captions\`: Regular subtitle-style captions for FULL videos. Good for accessibility.
-    - \`add_fancy_captions\`: Kinetic typography (TikTok-style word art) for HOOKS only (first 3-5 seconds).
-      - DO NOT split the video first - the tool handles segment targeting internally
-      - Use segmentType='hook' (default) for first 4 seconds, or segmentType='custom' with startFrame/endFrame
-    - \`refresh_captions\` / \`refresh_fancy_captions\`: Use after trim/split/move when captions drift.
-    
-    **CONTENT-AWARE CAPTION STYLING**:
-    When user asks for "fancy caption for hook" or "kinetic typography":
-    1. \`add_fancy_captions({ videoOverlayId, segmentType: 'hook' })\` → No splitting needed!
-    
-    When user asks for different regular styles per section:
-    1. \`split_overlay\` at the boundary
-    2. \`add_captions\` with style A for first clip, style B for the rest
-    
-    
-    **HANDLING split_and_delete (mid-video cuts)**:
-    **PREFERRED**: Use \`cut_section({ startFrame, endFrame })\` — it handles all steps atomically.
-    Only use manual split→delete→close_gaps if cut_section fails or for single-overlay operations.
-    
-    **CRITICAL RULE - ALWAYS CLOSE GAPS**:
-    After ANY delete operation(s), you MUST call \`close_gaps\` to prevent timeline holes.
-    This is non-negotiable - gaps in the timeline look unprofessional.
-    
-    **CRITICAL: Using analyze_video_content correctly**:
-    - The tool returns \`cuts\` array with pre-calculated \`parameters\`
-    - For trim operations: Use exact parameters provided
-    - For split_and_delete: Follow the step-by-step instructions, noting IDs as you go
+    **AUTO-EDIT AND CAPTION OWNERSHIP**:
+    - Family creation, content-aware cleanup, script-led editing, caption generation, caption style, music, transitions, SFX, zooms, and motion graphics belong to the semantic editorial owner.
+    - Exact maintenance of an existing caption overlay may use a declared refresh, batch-edit, or update tool.
+    - \`analyze_video_content\` is evidence, not permission to invent a manual split/delete sequence.
+    - \`cut_section\` closes the gap created by its own cut. Do not call \`close_gaps\` after it. Use \`close_gaps\` only when the user explicitly asks to remove a separate, verified pre-existing timeline gap.
     
     **COMPOSITION RULES (CRITICAL)**:
     1. **NEVER leave text floating on empty canvas**. Every scene needs a background.
