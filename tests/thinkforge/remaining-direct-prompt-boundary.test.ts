@@ -21,11 +21,14 @@ const mocks = vi.hoisted(() => ({
   recordThinkForgeDirectCost: vi.fn(),
   resolveThinkForgeProviderRoute: vi.fn(),
   safeJsonLength: vi.fn(),
+  streamText: vi.fn(),
+  checkCredits: vi.fn(),
 }));
 
 vi.mock('ai', () => ({
   generateObject: mocks.generateObject,
   generateText: mocks.generateText,
+  streamText: mocks.streamText,
 }));
 vi.mock('@ai-sdk/google', () => ({
   createGoogleGenerativeAI: vi.fn(() => {
@@ -35,6 +38,7 @@ vi.mock('@ai-sdk/google', () => ({
   }),
 }));
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
+vi.mock('@/lib/services/creditsMiddleware', () => ({ checkCredits: mocks.checkCredits }));
 vi.mock('@/lib/thinkforge/agents/model-factory', () => ({
   createModelByTier: mocks.createModelByTier,
   createThinkForgeModelForRoute: mocks.createThinkForgeModelForRoute,
@@ -92,6 +96,11 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
     mocks.readAiSdkUsage.mockResolvedValue(undefined);
     mocks.recordThinkForgeDirectCost.mockResolvedValue(undefined);
     mocks.safeJsonLength.mockReturnValue(100);
+    mocks.checkCredits.mockResolvedValue({
+      allowed: true,
+      deduct: vi.fn().mockResolvedValue(undefined),
+      refund: vi.fn().mockResolvedValue(undefined),
+    });
     mocks.googleSearch.mockReturnValue({ type: 'google-search' });
     mocks.embedDataBankEntry.mockResolvedValue(undefined);
     mocks.processPendingEmbeddings.mockResolvedValue(undefined);
@@ -142,7 +151,27 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
       systemBrief: `Private brand context ${INJECTION}`,
     });
 
-    expectIsolatedCall(mocks.generateText.mock.calls.at(-1)?.[0] ?? {});
+    const call = mocks.generateText.mock.calls.at(-1)?.[0] ?? {};
+    expectIsolatedCall(call);
+    expect(call.prompt).not.toContain('Private brand context');
+    expect(call.prompt).not.toContain('Prior request');
+    expect(call.prompt).not.toContain('Launch plan');
+    expect(call.prompt).toContain('instagram');
+  });
+
+  it('isolates prompt-panel enhancement input before provider generation', async () => {
+    mocks.streamText.mockReturnValue({
+      toTextStreamResponse: () => new Response('Enhanced concept'),
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/enhance/route');
+
+    const response = await POST(new Request('http://localhost/api/services/thinkforge/enhance', {
+      method: 'POST',
+      body: JSON.stringify({ prompt: `Enhance this concept. ${INJECTION}` }),
+    }) as never);
+
+    expect(response.status).toBe(200);
+    expectIsolatedCall(mocks.streamText.mock.calls.at(-1)?.[0] ?? {});
   });
 
   it('isolates trend candidate metadata from the video-analysis instruction', async () => {

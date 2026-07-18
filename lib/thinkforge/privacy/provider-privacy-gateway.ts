@@ -27,6 +27,7 @@ export interface ProviderPromptPrivacyInput {
   model: string;
   routePurpose: ProviderRoutePurpose;
   prompt: string;
+  declaredPrivacyClass?: ProviderPrivacyClass;
   fieldsSent?: string[];
   now?: Date | string;
 }
@@ -151,7 +152,10 @@ function redactPersonalData(prompt: string): { prompt: string; redactions: strin
 
 export function prepareProviderPromptForRoute(input: ProviderPromptPrivacyInput): ProviderPromptPrivacyDecision {
   const provider = normalizeProvider(input.provider);
-  const privacyClass = classifyPromptData(input.prompt);
+  const privacyClass = mostSensitivePrivacyClass(
+    input.declaredPrivacyClass ?? 'public',
+    classifyPromptData(input.prompt),
+  );
   const sourcePromptFingerprint = fingerprintPrompt(input.prompt);
   const isApprovedPrivateProvider = APPROVED_PRIVATE_PROVIDERS.has(provider);
   const isNonApprovedExternalProvider = NON_APPROVED_EXTERNAL_PROVIDERS.has(provider) || !isApprovedPrivateProvider;
@@ -167,7 +171,9 @@ export function prepareProviderPromptForRoute(input: ProviderPromptPrivacyInput)
     canRedactPersonalData: true,
   });
 
-  if (!blockReason && isNonApprovedExternalProvider && privacyClass === 'personal') {
+  const shouldRedactPersonalData = privacyClass === 'personal'
+    && (isNonApprovedExternalProvider || input.routePurpose === 'public_trend');
+  if (!blockReason && shouldRedactPersonalData) {
     const redacted = redactPersonalData(promptToSend);
     promptToSend = redacted.prompt;
     redactions = redacted.redactions;
@@ -290,6 +296,19 @@ function resolveBlockReason(args: {
 
 function normalizeProvider(provider: string): string {
   return provider.trim().toLowerCase();
+}
+
+function mostSensitivePrivacyClass(
+  declared: ProviderPrivacyClass,
+  detected: ProviderPrivacyClass,
+): ProviderPrivacyClass {
+  const rank: Record<ProviderPrivacyClass, number> = {
+    public: 0,
+    personal: 1,
+    business_confidential: 2,
+    child_data: 3,
+  };
+  return rank[detected] > rank[declared] ? detected : declared;
 }
 
 function normalizeTimestamp(value: Date | string | undefined): string {

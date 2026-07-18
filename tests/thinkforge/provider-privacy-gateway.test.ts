@@ -67,6 +67,37 @@ describe('provider privacy gateway', () => {
     expect(JSON.stringify(decision.audit)).not.toContain('alex@example.com');
   });
 
+  it('redacts personal identifiers from public search even on an approved provider', () => {
+    const decision = prepareProviderPromptForRoute({
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      routePurpose: 'public_trend',
+      declaredPrivacyClass: 'public',
+      prompt: 'Find public coverage related to alex@example.com.',
+      fieldsSent: ['researchQuery'],
+      now: fixedNow,
+    });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.prompt).toContain('[REDACTED_EMAIL]');
+    expect(decision.prompt).not.toContain('alex@example.com');
+    expect(decision.audit.fieldsSent).toEqual(['researchQuery']);
+  });
+
+  it('honors an explicit confidential classification even when the text looks public', () => {
+    const decision = prepareProviderPromptForRoute({
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      routePurpose: 'eval',
+      declaredPrivacyClass: 'business_confidential',
+      prompt: 'Draft a launch announcement.',
+      now: fixedNow,
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.audit.privacyClass).toBe('business_confidential');
+  });
+
   it('blocks child data before any provider call', () => {
     expect(() =>
       assertProviderPromptAllowed({
