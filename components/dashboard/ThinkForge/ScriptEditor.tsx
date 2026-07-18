@@ -625,7 +625,6 @@ export default function ScriptEditor({
   }, [onEditScript, script, getEffectiveTitle, activeIdentity]);
 
   // Load blocks from API or script.blocks prop - only on initial mount or scriptId change
-  // CRITICAL: Must never overwrite user edits during load
   const initialLoadDoneRef = useRef(false);
 
   // Document identity owns reset, load, and save cancellation. This effect must
@@ -678,8 +677,6 @@ export default function ScriptEditor({
         && documentEpochRef.current === scheduledEpoch
       );
 
-      // CRITICAL: Skip if user is actively editing or has unsaved changes
-      // User input is always the source of truth
       const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
       const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
 
@@ -720,7 +717,6 @@ export default function ScriptEditor({
               return;
             }
 
-            // CRITICAL: Final check before applying - user might have typed during fetch
             if (!isCurrentLoad()) return;
             const finalCheck = Date.now() - lastUserInputTimeRef.current;
             if (!forceHydration && (isUserTypingRef.current || finalCheck < USER_TYPING_TIMEOUT || hasUnsavedChanges)) {
@@ -740,8 +736,7 @@ export default function ScriptEditor({
           }
         }
 
-        // Fallback: use script.blocks prop if available
-        // CRITICAL: Only load from prop if user isn't actively editing
+        // Fall back to the matching script prop when the API has no usable document.
         if (script?.blocks && matchesThinkForgeDocumentIdentity(script, activeIdentity)) {
           const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
           const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
@@ -1057,9 +1052,7 @@ export default function ScriptEditor({
     }
   }, [streamingBlocks.blocks, editor]);
 
-  // Convert Tiptap content back to Script format
-  // CRITICAL: TipTap JSON is the runtime truth
-  // Only convert to ThinkForgeBlocks at boundaries (saving, exporting)
+  // TipTap JSON is runtime truth; convert only at persistence/export boundaries.
   const convertEditorToScript = useCallback(async (): Promise<Script> => {
     const effectiveTitle = getEffectiveTitle();
     if (!activeIdentity) throw new Error('Cannot serialize a document without active identity');
@@ -1117,9 +1110,7 @@ export default function ScriptEditor({
     }
   }, [editor, currentVersionId, getVersionBlocks]);
 
-  // Handle content changes with debounced autosave
-  // CRITICAL: This marks user input as the source of truth
-  // CRITICAL: Autosave NEVER calls setContent - only reads current content and sends to backend
+  // Autosave reads editor state and never writes content back into TipTap.
   const handleContentChange = useCallback(() => {
     if (isSwitchingScriptRef.current) {
       return;
@@ -1168,13 +1159,8 @@ export default function ScriptEditor({
         autosaveInFlightRef.current = true;
         ownsSaveSlot = true;
 
-        // CRITICAL: Autosave only reads current editor content (TipTap JSON)
-        // Converts to ThinkForgeBlocks ONLY for backend storage
-        // NEVER calls setContent - user edits are the source of truth
         const updatedScript = await convertEditorToScript();
 
-        // CRITICAL: Update ref with CURRENT editor state to prevent polling overwrite
-        // This ensures user edits are preserved even if remote data arrives
         if (editor) {
           const tiptapJSON = editor.getJSON();
           lastLoadedContentRef.current = JSON.stringify(tiptapJSON);
