@@ -1,4 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mongoMocks = vi.hoisted(() => ({
+  findOne: vi.fn(),
+  updateOne: vi.fn(),
+}));
+
+vi.mock('@/lib/editron/db/mongodb', () => ({
+  COLLECTIONS: { MEDIA_ASSETS: 'media_assets' },
+  getDatabase: async () => ({
+    collection: () => mongoMocks,
+  }),
+}));
 
 import {
   buildInstagramReferenceAssetId,
@@ -9,6 +21,11 @@ import {
 const MP4 = Buffer.concat([Buffer.alloc(4), Buffer.from('ftyp'), Buffer.alloc(16)]);
 
 describe('Instagram reference importer', () => {
+  beforeEach(() => {
+    mongoMocks.findOne.mockReset();
+    mongoMocks.updateOne.mockReset();
+  });
+
   it('canonicalizes only supported public Instagram media URLs', () => {
     expect(parseInstagramReferenceUrl('https://instagram.com/p/C9Example_1/?igsh=secret')).toEqual({
       shortcode: 'C9Example_1',
@@ -92,5 +109,50 @@ describe('Instagram reference importer', () => {
         downloadVideo: async () => Buffer.from('not-video'),
       },
     )).rejects.toMatchObject({ reason: 'instagram_reference_ingestion_failed' });
+  });
+
+  it('registers a new reference without conflicting Mongo parent and child paths', async () => {
+    mongoMocks.updateOne.mockResolvedValue({ acknowledged: true });
+    mongoMocks.findOne.mockImplementation(async (query) => ({
+      ...query,
+      assetId: buildInstagramReferenceAssetId('user_123', 'C9Example_1'),
+      type: 'video',
+      cachedUrl: 'https://assets.example/reference.mp4',
+    }));
+
+    await importInstagramReferenceVideo(
+      {
+        userId: 'user_123',
+        instagramUrl: 'https://www.instagram.com/reel/C9Example_1/',
+        sourceFingerprint: 'instagram|C9Example_1',
+      },
+      {
+        findExistingAsset: async () => null,
+        resolveActor: async () => ({
+          videoUrl: 'https://scontent.cdninstagram.com/video.mp4',
+          sourceLabel: 'Reference caption',
+          providerRunId: 'actor_run_1',
+        }),
+        downloadVideo: async () => MP4,
+        uploadMedia: async (file, _userId, _filename, contentType, options) => ({
+          assetId: options?.customAssetId || 'missing',
+          signedUrl: 'https://assets.example/reference.mp4',
+          gcsPath: null,
+          r2Key: null,
+          urlExpiresAt: null,
+          size: file.length,
+          contentType,
+        }),
+        now: () => new Date('2026-07-18T00:00:00.000Z'),
+      },
+    );
+
+    expect(mongoMocks.updateOne).toHaveBeenCalledTimes(2);
+    const insertUpdate = mongoMocks.updateOne.mock.calls[0]?.[1];
+    expect(insertUpdate).toHaveProperty('$setOnInsert.referenceSource');
+    expect(insertUpdate).not.toHaveProperty('$set');
+    expect(mongoMocks.updateOne.mock.calls[1]?.[1]).toEqual({
+      $set: { 'referenceSource.lastUsedAt': new Date('2026-07-18T00:00:00.000Z') },
+    });
   });
 });

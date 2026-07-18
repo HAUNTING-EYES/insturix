@@ -337,7 +337,8 @@ async function uploadReferenceMedia(file: Buffer, userId: string, filename: stri
 async function registerInstagramReferenceAsset(asset: MediaAsset, metadata: InstagramReferenceMetadata): Promise<MediaAsset> {
   const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
   const db = await getDatabase();
-  await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+  const collection = db.collection(COLLECTIONS.MEDIA_ASSETS);
+  await collection.updateOne(
     { assetId: asset.assetId, userId: asset.userId },
     {
       $setOnInsert: {
@@ -345,11 +346,16 @@ async function registerInstagramReferenceAsset(asset: MediaAsset, metadata: Inst
         contentType: 'video/mp4',
         referenceSource: { provider: 'instagram', ...metadata, lastUsedAt: metadata.importedAt },
       },
-      $set: { 'referenceSource.lastUsedAt': metadata.importedAt },
     },
     { upsert: true },
   );
-  return await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne({ assetId: asset.assetId, userId: asset.userId }) as MediaAsset || asset;
+  // Keep reuse telemetry current without mixing parent and child paths in one
+  // Mongo update, which MongoDB rejects even when the upsert inserts a new row.
+  await collection.updateOne(
+    { assetId: asset.assetId, userId: asset.userId },
+    { $set: { 'referenceSource.lastUsedAt': metadata.importedAt } },
+  );
+  return await collection.findOne({ assetId: asset.assetId, userId: asset.userId }) as MediaAsset || asset;
 }
 
 function firstString(...values: unknown[]): string | undefined {
