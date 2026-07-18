@@ -4703,6 +4703,17 @@ NEVER ask the user which clips — default to applyToAll: true.`,
   const addMotionGraphic = tool(
     async (rawInput: z.infer<typeof addMotionGraphicSchema>) => {
       try {
+        // Legacy Tier-A composition is retired (MG master plan P3.5, founder decision 2026-07-18).
+        // Obeys MG_CODEGEN_ENABLED — local twin of isLiveMgCodegenEnabled (edl-executor.ts); this
+        // module must not import the executor. P5 migrates this tool to the codegen lane BEFORE
+        // the flag ever flips on, so flag-off means NO motion graphics reach production videos.
+        const mgOverride = process.env.MG_CODEGEN_ENABLED?.trim().toLowerCase();
+        if (mgOverride !== 'true' && mgOverride !== '1') {
+          return JSON.stringify({
+            status: 'disabled',
+            message: 'Motion graphics are disabled (legacy composition path retired; codegen lane not yet live). No graphic was added — continue the edit without motion graphics.',
+          });
+        }
         const input = coerceInput(rawInput);
         if (isNaN(input.start)) {
           return JSON.stringify({ status: 'error', message: `Invalid start frame: ${rawInput.start}` });
