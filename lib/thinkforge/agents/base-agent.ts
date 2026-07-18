@@ -56,11 +56,8 @@ const SCRIPT_AGENT_TYPES = new Set(['script_draft', 'script_author', 'script_ref
 // Forward declaration - actual implementation in logging.ts
 // We inline basic logging here to avoid circular dependency
 function logInvocation(event: any): void {
-  const logLevel = event.success ? 'info' : 'error';
-  if (logLevel === 'error') {
+  if (!event.success) {
     console.error('[ThinkForge AI]', `agent=${event.agent} model=${event.model} success=${event.success} error="${event.error}"`);
-  } else if (process.env.NODE_ENV === 'development') {
-    console.log('[ThinkForge AI]', `agent=${event.agent} model=${event.model} success=${event.success}${event.durationMs ? ` duration=${event.durationMs}ms` : ''}`);
   }
 }
 import type {

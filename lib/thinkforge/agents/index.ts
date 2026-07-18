@@ -56,7 +56,6 @@ export {
 export {
   IdeasAgent,
   createIdeasAgent,
-  generateIdeas,
 } from './ideas-agent';
 
 // Script Draft Agent
