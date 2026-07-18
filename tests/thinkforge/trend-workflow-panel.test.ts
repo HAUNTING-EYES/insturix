@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { defaultTrendReferenceVideoUrl } from '@/components/dashboard/ThinkForge/TrendWorkflowPanel';
@@ -27,6 +29,17 @@ function candidate(nextAction: TrendCandidate['nextAction'], sourceUrl: string):
 }
 
 describe('ThinkForge trend workflow reference defaults', () => {
+  it('rehydrates from the resolved workflow session and clears empty sessions', () => {
+    const source = readFileSync(
+      path.join(process.cwd(), 'components/dashboard/ThinkForge/TrendWorkflowPanel.tsx'),
+      'utf8',
+    );
+
+    expect(source).toContain('}, [open, workflowSessionId]);');
+    expect(source).toContain('if (!payload.selectedTrend) {');
+    expect(source).toContain('setSelectedTrend(null);');
+  });
+
   it('does not put article evidence into the video input', () => {
     expect(defaultTrendReferenceVideoUrl(
       candidate('add_reference_video', 'https://example.com/article-about-a-trend'),

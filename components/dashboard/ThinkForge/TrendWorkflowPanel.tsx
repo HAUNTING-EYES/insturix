@@ -61,16 +61,32 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (open && sessionId) setWorkflowSessionId(sessionId);
+    if (!open) return;
+    setWorkflowSessionId(sessionId || null);
+    setCandidates([]);
+    setProvider(null);
+    setError(null);
   }, [open, sessionId]);
 
   useEffect(() => {
-    if (!open || !workflowSessionId) return;
+    if (!open) return;
+    if (!workflowSessionId) {
+      setSelectedTrend(null);
+      setReferenceVideoUrl("");
+      setStage("discover");
+      return;
+    }
     let cancelled = false;
     void fetch("/api/services/thinkforge/trends/status?sessionId=" + encodeURIComponent(workflowSessionId))
       .then(readJsonResponse)
       .then((payload) => {
-        if (cancelled || !payload.selectedTrend) return;
+        if (cancelled) return;
+        if (!payload.selectedTrend) {
+          setSelectedTrend(null);
+          setReferenceVideoUrl("");
+          setStage("discover");
+          return;
+        }
         const restored = payload.selectedTrend as SelectedTrend;
         setSelectedTrend(restored);
         setNiche(restored.candidate.title);
@@ -80,7 +96,7 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [open, sessionId]);
+  }, [open, workflowSessionId]);
 
   useEffect(() => {
     if (!open || stage !== "analyzing" || !workflowSessionId) return;
