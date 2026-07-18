@@ -7,6 +7,13 @@ export const CHAT_EDIT_BATTLE_HARNESS_VERSION = 'editron-chat-battle-v1' as cons
 export type ChatBattleRuntimeMode = 'deterministic-fixture' | 'live-provider';
 export type ChatBattleMutationExpectation = 'required' | 'forbidden' | 'conditional';
 export type ChatBattleStatus = 'pass' | 'warn' | 'fail';
+export type ChatBattleFixtureRequirement =
+  | 'ai-edit-checkpoint'
+  | 'prior-idempotency-record'
+  | 'durable-reference-asset'
+  | 'bgm-provider-failure-injection'
+  | 'partial-failure-plan'
+  | 'completed-clip-analysis-job';
 
 export interface ChatBattleArgumentProhibition {
   tool: string;
@@ -27,6 +34,7 @@ export interface ChatBattleScenario {
   requireEvidenceBeforeMutation: boolean;
   requireUiReload: boolean;
   requireRenderedEvidence: boolean;
+  fixtureRequirements: readonly ChatBattleFixtureRequirement[];
 }
 
 export interface ChatBattleToolEvent {
@@ -78,6 +86,12 @@ export interface ChatBattleRenderEvidence {
   issues: Array<Record<string, unknown>>;
   jobLifecycle?: Record<string, unknown>;
   reason?: string;
+}
+
+export interface ChatBattleFixturePreconditionResult {
+  ok: boolean;
+  missing: ChatBattleFixtureRequirement[];
+  satisfied: ChatBattleFixtureRequirement[];
 }
 
 export interface ChatBattleCheck {
@@ -161,6 +175,7 @@ function scenario(
     requireEvidenceBeforeMutation: options.requireEvidenceBeforeMutation ?? true,
     requireUiReload: options.requireUiReload ?? true,
     requireRenderedEvidence: options.requireRenderedEvidence ?? true,
+    fixtureRequirements: options.fixtureRequirements ?? [],
   };
 }
 
@@ -189,12 +204,12 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('edit-html-scene', 'Edit HTML scene in place', 'Change the existing process graphic title to How it works.', { requiredToolSequence: [READ_PROJECT, 'edit_html_scene'] }),
   scenario('bgm-explicit', 'Explicit BGM intent', 'Add restrained cinematic background music with no vocals and keep speech clear.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['regenerate_bgm'] }),
   scenario('bgm-vague', 'Vague BGM intent', 'Add suitable background music for this edit.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['regenerate_bgm'] }),
-  scenario('bgm-provider-failure', 'Safe BGM replacement failure', 'Replace the current music with something calmer.', { mutationExpectation: 'conditional', requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'] }),
+  scenario('bgm-provider-failure', 'Safe BGM replacement failure', 'Replace the current music with something calmer.', { mutationExpectation: 'conditional', requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'], fixtureRequirements: ['bgm-provider-failure-injection'] }),
   scenario('mixed-multi-step', 'Mixed multi-step edit', 'Clean the captions, add one motivated zoom, and add music without covering speech.', { requiredToolSequence: [READ_PROJECT], minimumSuccessfulMutations: 2 }),
-  scenario('undo-overlay-edit', 'Undo overlay edit', 'Undo that AI edit.', { requiredToolSequence: ['restore_ai_edit_checkpoint'] }),
-  scenario('undo-full-state', 'Undo timing and project state', 'Undo the last AI edit including its timing and project duration changes.', { requiredToolSequence: ['restore_ai_edit_checkpoint'] }),
-  scenario('rollback-partial-failure', 'Rollback partial failure', 'Apply these three changes as one edit and leave everything unchanged if any step fails.', { mutationExpectation: 'conditional', requiredToolSequence: [READ_PROJECT], minimumSuccessfulMutations: 2 }),
-  scenario('retry-idempotency', 'Interrupted request retry', 'Retry my previous edit without applying anything twice.', { mutationExpectation: 'conditional', requiredToolSequence: [READ_PROJECT] }),
+  scenario('undo-overlay-edit', 'Undo overlay edit', 'Undo that AI edit.', { requiredToolSequence: ['restore_ai_edit_checkpoint'], fixtureRequirements: ['ai-edit-checkpoint'] }),
+  scenario('undo-full-state', 'Undo timing and project state', 'Undo the last AI edit including its timing and project duration changes.', { requiredToolSequence: ['restore_ai_edit_checkpoint'], fixtureRequirements: ['ai-edit-checkpoint'] }),
+  scenario('rollback-partial-failure', 'Rollback partial failure', 'Apply these three changes as one edit and leave everything unchanged if any step fails.', { mutationExpectation: 'conditional', requiredToolSequence: [READ_PROJECT], minimumSuccessfulMutations: 2, fixtureRequirements: ['partial-failure-plan'] }),
+  scenario('retry-idempotency', 'Interrupted request retry', 'Retry my previous edit without applying anything twice.', { mutationExpectation: 'conditional', requiredToolSequence: [READ_PROJECT], fixtureRequirements: ['prior-idempotency-record'] }),
   scenario('project-chat-isolation', 'Project-scoped chat isolation', 'Add a test title only to this project.', { requiredToolSequence: [READ_PROJECT, 'add_overlay'] }),
   scenario('fragmented-sse', 'Fragmented SSE transport', 'Add one title and report the completed edit.', { requiredToolSequence: [READ_PROJECT, 'add_overlay'] }),
   scenario('visible-range-reference', 'Visible timeline reference', 'Tighten this visible section without changing the rest.', { requiredToolSequence: [READ_PROJECT], minimumSuccessfulMutations: 1 }),
@@ -204,6 +219,7 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
     forbiddenTools: ['extract_style', 'apply_style'],
     minimumSuccessfulMutations: 0,
     requireEvidenceBeforeMutation: false,
+    fixtureRequirements: ['durable-reference-asset'],
   }),
   scenario('post-edit-render-proof', 'Post-edit pixel and audio proof', 'Add a title, then verify it is readable in the rendered video.', { requiredToolSequence: [READ_PROJECT, 'add_overlay'], requireRenderedEvidence: true }),
   scenario('batch-overlay-update', 'Batch update matching overlays', 'Make every existing text overlay use the same white fill without changing its wording or timing.', { requiredToolSequence: [READ_PROJECT, 'batch_update_overlays'] }),
@@ -234,7 +250,7 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('batch-caption-edit', 'Batch edit caption styling', 'Make all existing captions use sentence case and a high-contrast white style without changing their timing.', { requiredToolSequence: [READ_PROJECT, 'batch_edit_captions'] }),
   scenario('analyze-selected-audio', 'Analyze selected clip audio', 'Resolve and queue durable analysis of the selected clip audio for beats, pauses, speech, and energy. Do not edit anything and do not claim findings before the job completes.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['resolve_clip_analysis', 'queue_resolved_clip_analysis'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('analyze-selected-video', 'Analyze selected clip video', 'Resolve and queue durable analysis of the selected clip visuals for subjects, actions, shot changes, and text. Do not edit anything and do not claim findings before the job completes.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['resolve_clip_analysis', 'queue_resolved_clip_analysis'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
-  scenario('read-completed-clip-analysis', 'Read completed clip analysis', 'Read the completed deep-analysis job already referenced in this project conversation. Report only its grounded findings and do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['get_clip_analysis_result'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
+  scenario('read-completed-clip-analysis', 'Read completed clip analysis', 'Read the completed deep-analysis job already referenced in this project conversation. Report only its grounded findings and do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['get_clip_analysis_result'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false, fixtureRequirements: ['completed-clip-analysis-job'] }),
   scenario('regenerate-existing-scene', 'Regenerate existing scene', 'Regenerate scene 2 while preserving its narrative purpose and timing.', { requiredToolSequence: [READ_PROJECT, 'regenerate_scene'] }),
   scenario('beat-sync-cuts', 'Sync cuts to detected beats', 'Find the music downbeats and sync the existing montage cuts to them without changing clip order.', { requiredToolSequence: ['find_audio_moment', 'sync_cuts_to_beats'] }),
   scenario('replace-selected-sfx', 'Replace selected SFX', 'Replace the selected sound effect with a softer paper whoosh at the same time.', { requiredToolSequence: [READ_PROJECT, 'replace_sfx'] }),
@@ -260,6 +276,42 @@ export async function runChatEditBattleJourney(
   const startedAt = now().toISOString();
   const beforeProject = await runtime.loadMongoProject(input.projectId, 'before');
   const mongoBefore = buildChatBattleProjectSnapshot(beforeProject, 'mongo-before', startedAt);
+  const fixturePreconditions = evaluateChatBattleFixturePreconditions(
+    scenarioDefinition,
+    beforeProject,
+    input.clientContext,
+  );
+
+  if (!fixturePreconditions.ok) {
+    const completedAt = now().toISOString();
+    const mongoAfter = buildChatBattleProjectSnapshot(beforeProject, 'mongo-after', completedAt);
+    const invocation: ChatBattleInvocationEvidence = {
+      agentRunId: input.journeyId ?? `fixture-invalid-${input.projectId}`,
+      mode: 'live-provider',
+      prompt: scenarioDefinition.prompt,
+      responseText: '',
+      toolEvents: [],
+      refusalReason: `Fixture preconditions failed: ${fixturePreconditions.missing.join(', ')}`,
+    };
+    return evaluateChatEditBattleJourney({
+      journeyId: input.journeyId ?? invocation.agentRunId,
+      scenario: scenarioDefinition,
+      projectId: input.projectId,
+      startedAt,
+      completedAt,
+      invocation,
+      mongoBefore,
+      mongoAfter,
+      uiReload: null,
+      renderEvidence: {
+        status: 'missing',
+        artifactRefs: [],
+        issues: [],
+        reason: 'Chat battle skipped because the disposable fixture was not seeded for this scenario.',
+      },
+      fixturePreconditions,
+    });
+  }
 
   let invocation: ChatBattleInvocationEvidence;
   try {
@@ -313,6 +365,7 @@ export async function runChatEditBattleJourney(
     mongoAfter,
     uiReload,
     renderEvidence,
+    fixturePreconditions,
   });
 }
 
@@ -327,8 +380,28 @@ export function evaluateChatEditBattleJourney(input: {
   mongoAfter: ChatBattleProjectSnapshot;
   uiReload: ChatBattleProjectSnapshot | null;
   renderEvidence: ChatBattleRenderEvidence;
+  fixturePreconditions?: ChatBattleFixturePreconditionResult;
 }): ChatBattleJourneyReport {
   const checks: ChatBattleCheck[] = [];
+  const fixturePreconditions = input.fixturePreconditions
+    ?? evaluateChatBattleFixturePreconditions(input.scenario, input.mongoBefore);
+  checks.push(check(
+    'fixture.preconditions',
+    fixturePreconditions.ok ? 'pass' : 'fail',
+    true,
+    fixturePreconditions.ok
+      ? 'The disposable fixture satisfies the scenario-specific seed contract.'
+      : 'The disposable fixture is missing scenario-specific seeded state, so this journey is not valid product evidence.',
+    {
+      required: input.scenario.fixtureRequirements,
+      missing: fixturePreconditions.missing,
+      satisfied: fixturePreconditions.satisfied,
+    },
+  ));
+  if (!fixturePreconditions.ok) {
+    return buildChatBattleJourneyReport(input, checks);
+  }
+
   const events = input.invocation.toolEvents;
   const completedEvents = events.filter((event) => Boolean(event.completedAt));
   const successfulMutations = completedEvents.filter((event) => isMutatingTool(event.name) && isSuccessfulToolOutput(event.output));
@@ -432,6 +505,21 @@ export function evaluateChatEditBattleJourney(input: {
     { invalidTools: envelopeFailures.map((event) => event.name) },
   ));
 
+  return buildChatBattleJourneyReport(input, checks);
+}
+
+function buildChatBattleJourneyReport(input: {
+  journeyId: string;
+  scenario: ChatBattleScenario;
+  projectId: string;
+  startedAt: string;
+  completedAt: string;
+  invocation: ChatBattleInvocationEvidence;
+  mongoBefore: ChatBattleProjectSnapshot;
+  mongoAfter: ChatBattleProjectSnapshot;
+  uiReload: ChatBattleProjectSnapshot | null;
+  renderEvidence: ChatBattleRenderEvidence;
+}, checks: ChatBattleCheck[]): ChatBattleJourneyReport {
   const verdict = checks.some((item) => item.status === 'fail' && item.blocking)
     ? 'fail'
     : checks.some((item) => item.status === 'warn')
@@ -726,6 +814,99 @@ export function chatBattleToolEventsFromSse(
   return [...events.values()];
 }
 
+export function evaluateChatBattleFixturePreconditions(
+  scenarioDefinition: ChatBattleScenario,
+  projectValue: unknown,
+  clientContext?: Record<string, unknown>,
+): ChatBattleFixturePreconditionResult {
+  const required = [...scenarioDefinition.fixtureRequirements];
+  const satisfied = required.filter((requirement) => chatBattleFixtureRequirementSatisfied(
+    requirement,
+    projectValue,
+    clientContext,
+  ));
+  const satisfiedSet = new Set(satisfied);
+  return {
+    ok: satisfied.length === required.length,
+    missing: required.filter((requirement) => !satisfiedSet.has(requirement)),
+    satisfied,
+  };
+}
+
+function chatBattleFixtureRequirementSatisfied(
+  requirement: ChatBattleFixtureRequirement,
+  projectValue: unknown,
+  clientContext?: Record<string, unknown>,
+): boolean {
+  const project = asRecord(unwrapProject(projectValue));
+  const intelligence = asRecord(project.intelligence);
+  const fixture = mergeRecords(
+    asRecord(project.chatBattleFixture),
+    asRecord(intelligence.chatBattleFixture),
+    asRecord(clientContext?.chatBattleFixture),
+  );
+  switch (requirement) {
+    case 'ai-edit-checkpoint':
+      return truthyFixtureFlag(fixture, 'hasAiEditCheckpoint')
+        || stringValue(fixture.beforeCheckpointId) != null
+        || readStringArray(fixture.checkpointIds).length > 0;
+    case 'prior-idempotency-record':
+      return truthyFixtureFlag(fixture, 'hasPriorIdempotencyRecord')
+        || stringValue(fixture.priorOperationId) != null
+        || stringValue(fixture.idempotencyKey) != null;
+    case 'durable-reference-asset':
+      return truthyFixtureFlag(fixture, 'hasDurableReferenceAsset')
+        || stringValue(fixture.referenceAssetId) != null
+        || projectHasReferenceAsset(project);
+    case 'bgm-provider-failure-injection':
+      return truthyFixtureFlag(fixture, 'hasBgmProviderFailureInjection')
+        || truthyFixtureFlag(fixture, 'forceBgmProviderFailure');
+    case 'partial-failure-plan':
+      return truthyFixtureFlag(fixture, 'hasPartialFailurePlan')
+        || (Array.isArray(fixture.rollbackPlan) && fixture.rollbackPlan.length >= 3)
+        || (Array.isArray(fixture.partialFailureSteps) && fixture.partialFailureSteps.length >= 3);
+    case 'completed-clip-analysis-job':
+      return truthyFixtureFlag(fixture, 'hasCompletedClipAnalysisJob')
+        || stringValue(fixture.completedClipAnalysisJobId) != null
+        || projectHasCompletedClipAnalysisJob(project);
+  }
+}
+
+function mergeRecords(...records: Record<string, unknown>[]): Record<string, unknown> {
+  return Object.assign({}, ...records);
+}
+
+function truthyFixtureFlag(record: Record<string, unknown>, key: string): boolean {
+  return record[key] === true || record[key] === 'true' || record[key] === 1;
+}
+
+function projectHasReferenceAsset(project: Record<string, unknown>): boolean {
+  const assets = [
+    ...readRecordArray(project.mediaAssets),
+    ...readRecordArray(project.assets),
+    ...readRecordArray(project.sourceAssets),
+  ];
+  return assets.some((asset) => {
+    const metadata = asRecord(asset.metadata);
+    return stringValue(asset.assetId ?? asset.id) != null
+      && (stringValue(asset.role) === 'reference'
+        || stringValue(asset.purpose) === 'reference'
+        || metadata.isReference === true
+        || stringValue(metadata.role) === 'reference'
+        || stringValue(metadata.purpose) === 'reference');
+  });
+}
+
+function projectHasCompletedClipAnalysisJob(project: Record<string, unknown>): boolean {
+  const intelligence = asRecord(project.intelligence);
+  const jobs = [
+    ...readRecordArray(intelligence.chatDeepAnalysisJobs),
+    ...readRecordArray(project.chatDeepAnalysisJobs),
+  ];
+  return jobs.some((job) => stringValue(job.status) === 'completed'
+    && (stringValue(job.jobId ?? job.id) != null || Object.keys(asRecord(job.result)).length > 0));
+}
+
 function requiredSequenceResult(
   toolNames: readonly string[],
   requirements: ReadonlyArray<string | readonly string[]>,
@@ -854,6 +1035,10 @@ function readStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.map(stringValue).filter((item): item is string => Boolean(item))
     : [];
+}
+
+function readRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.map(asRecord) : [];
 }
 
 function uniqueStrings(values: string[]): string[] {

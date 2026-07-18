@@ -146,6 +146,7 @@ import {
   buildChatBattleProjectSnapshot,
   buildChatEditBattleSuite,
   evaluateChatEditBattleJourney,
+  evaluateChatBattleFixturePreconditions,
   extractPersistedChatBattleRenderEvidence,
   getChatEditBattleScenario,
   runChatEditBattleJourney,
@@ -567,6 +568,94 @@ describe('chat edit battle harness', () => {
       passedScenarioCount: 0,
     });
     expect(suite.missingScenarioIds).toHaveLength(CHAT_EDIT_BATTLE_SCENARIOS.length);
+  });
+
+  it('marks fixture-dependent scenarios invalid before blaming product behavior', async () => {
+    const runtime = {
+      loadMongoProject: vi.fn(async () => project([])),
+      invokeAgent: vi.fn(async () => invocation('undo-overlay-edit', [])),
+      reloadUiProject: vi.fn(async () => project([])),
+      captureRenderEvidence: vi.fn(async () => ({
+        status: 'pass' as const,
+        capturedAt: '2026-07-18T10:00:02.000Z',
+        artifactRefs: [],
+        issues: [],
+      })),
+    };
+
+    const report = await runChatEditBattleJourney({
+      scenarioId: 'undo-overlay-edit',
+      projectId: 'proj_fixture',
+      journeyId: 'fixture-missing',
+      now: () => new Date('2026-07-18T10:00:00.000Z'),
+    }, runtime);
+
+    expect(runtime.invokeAgent).not.toHaveBeenCalled();
+    expect(runtime.captureRenderEvidence).not.toHaveBeenCalled();
+    expect(report.verdict).toBe('fail');
+    expect(report.invocation.refusalReason).toContain('ai-edit-checkpoint');
+    expect(report.checks).toEqual([expect.objectContaining({
+      id: 'fixture.preconditions',
+      status: 'fail',
+      evidence: expect.objectContaining({
+        missing: ['ai-edit-checkpoint'],
+      }),
+    })]);
+  });
+
+  it('lets explicitly seeded fixture capability exercise the live tool path', async () => {
+    const beforeProject = project([{ id: 'clip-1', type: 'video', from: 0, durationInFrames: 90, row: 0 }]);
+    const afterProject = project([{ id: 'clip-1', type: 'video', from: 0, durationInFrames: 90, row: 0 }]);
+    const runtime = {
+      loadMongoProject: vi.fn(async (_projectId: string, phase: 'before' | 'after') => (
+        phase === 'before' ? beforeProject : afterProject
+      )),
+      invokeAgent: vi.fn(async () => invocation('undo-overlay-edit', [{
+        id: 'undo',
+        name: 'restore_ai_edit_checkpoint',
+        args: { checkpointId: 'checkpoint_before' },
+        startedAt: '2026-07-18T10:00:00.100Z',
+        completedAt: '2026-07-18T10:00:00.200Z',
+        output: successEnvelope({ checkpointId: 'checkpoint_before' }),
+      }])),
+      reloadUiProject: vi.fn(async () => afterProject),
+      captureRenderEvidence: vi.fn(async () => ({
+        status: 'pass' as const,
+        capturedAt: '2026-07-18T10:00:01.000Z',
+        artifactRefs: [],
+        issues: [],
+      })),
+    };
+
+    const report = await runChatEditBattleJourney({
+      scenarioId: 'undo-overlay-edit',
+      projectId: 'proj_fixture',
+      journeyId: 'fixture-seeded',
+      clientContext: {
+        chatBattleFixture: { beforeCheckpointId: 'checkpoint_before' },
+      },
+      now: () => new Date('2026-07-18T10:00:00.000Z'),
+    }, runtime);
+
+    expect(runtime.invokeAgent).toHaveBeenCalledTimes(1);
+    expect(report.checks.find((check) => check.id === 'fixture.preconditions')).toMatchObject({
+      status: 'pass',
+      evidence: { satisfied: ['ai-edit-checkpoint'] },
+    });
+  });
+
+  it('detects fixture capabilities from project metadata and attached reference assets', () => {
+    const referenceScenario = getChatEditBattleScenario('reference-style-transfer')!;
+    const analysisScenario = getChatEditBattleScenario('read-completed-clip-analysis')!;
+
+    expect(evaluateChatBattleFixturePreconditions(referenceScenario, {
+      ...project([]),
+      mediaAssets: [{ assetId: 'asset_ref', metadata: { role: 'reference' } }],
+    })).toMatchObject({ ok: true, satisfied: ['durable-reference-asset'] });
+    expect(evaluateChatBattleFixturePreconditions(analysisScenario, {
+      ...project([]),
+      intelligence: { chatDeepAnalysisJobs: [{ jobId: 'deep_1', status: 'completed' }] },
+    })).toMatchObject({ ok: true, satisfied: ['completed-clip-analysis-job'] });
   });
 
   it('fails a stale rendered artifact even when tools and Mongo mutation look healthy', () => {
