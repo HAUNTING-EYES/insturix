@@ -9,7 +9,7 @@ import { calosScope } from "@/lib/calos/scope";
 import { resolveEffectiveBrandWithProfile } from "@/lib/shared/brand-effective-resolver";
 import { isBrandSignalActionable, type BrandSignal, type BrandSignalProfile } from "@/lib/shared/brand-signal-profile";
 
-export const TREND_OPPORTUNITY_MATCHER_VERSION = 1;
+const TREND_OPPORTUNITY_MATCHER_VERSION = 1;
 export const MIN_TREND_OPPORTUNITY_SCORE = 0.5;
 
 const OPPORTUNITY_LEASE_MS = 10 * 60 * 1_000;
@@ -25,14 +25,14 @@ const STOP_WORDS = new Set([
   "the", "their", "them", "then", "these", "they", "this", "through", "trend", "using", "with", "your",
 ]);
 
-export type TrendOpportunityProcessResult =
+type TrendOpportunityProcessResult =
   | { status: "idle" }
   | { status: "suggested"; opportunityId: string; recommendation: CalosTrendOpportunityRecommendation }
   | { status: "not_relevant"; opportunityId: string }
   | { status: "blocked"; opportunityId: string; reasonCode: string }
   | { status: "failed"; opportunityId: string };
 
-export interface TrendOpportunityMatchDecision {
+interface TrendOpportunityMatchDecision {
   status: "suggested" | "not_relevant" | "blocked";
   relevanceScore: number | null;
   reasonCodes: string[];

@@ -7,10 +7,9 @@ import {
 } from "@/schemas/calos-trend-watch";
 import { getTrendsProvider, type Trend } from "@/lib/calos/trends";
 
-export const DEFAULT_TREND_WATCH_INTERVAL_HOURS = 72;
-export const MIN_TREND_WATCH_INTERVAL_HOURS = 24;
-export const MAX_TREND_WATCH_INTERVAL_HOURS = 168;
-export const DEFAULT_TREND_WATCH_WINDOW_DAYS = 21;
+const DEFAULT_TREND_WATCH_INTERVAL_HOURS = 72;
+const MIN_TREND_WATCH_INTERVAL_HOURS = 24;
+const MAX_TREND_WATCH_INTERVAL_HOURS = 168;
 
 const SCAN_LEASE_MS = 10 * 60 * 1_000;
 const PUBLIC_RESULT_CACHE_MS = 12 * 60 * 60 * 1_000;
@@ -18,7 +17,7 @@ const MIN_RETRY_BACKOFF_HOURS = 3;
 const MAX_RETRY_BACKOFF_HOURS = 24;
 const MAX_CANDIDATES_PER_SCAN = 12;
 
-export interface PublicTrendWatchQuery {
+interface PublicTrendWatchQuery {
   niche: string;
   platforms: string[];
   location?: string;
@@ -33,7 +32,7 @@ interface CachedTrendWatchScan {
   provider?: string;
 }
 
-export type TrendWatchProcessResult =
+type TrendWatchProcessResult =
   | { status: "idle" }
   | { status: "completed"; scanId: string; candidateCount: number; resultSource: "live" | "cached" }
   | { status: "unavailable"; scanId: string }
@@ -49,14 +48,14 @@ export function nextTrendWatchScanAt(now: Date, intervalHours: unknown): Date {
   return new Date(now.getTime() + normalizeTrendWatchIntervalHours(intervalHours) * 60 * 60 * 1_000);
 }
 
-export interface TrendWatchScope {
+interface TrendWatchScope {
   ownerUserId: string;
   orgId?: string | null;
   brandId: string;
 }
 
 /** Stable unique key for one brand's watch policy — per org when in an org, else per creator. */
-export function buildTrendWatchScopeKey(scope: TrendWatchScope): string {
+function buildTrendWatchScopeKey(scope: TrendWatchScope): string {
   return `${scope.orgId ? `org:${scope.orgId}` : `user:${scope.ownerUserId}`}:${scope.brandId}`;
 }
 
@@ -64,7 +63,7 @@ export async function getTrendWatchPolicy(scope: TrendWatchScope): Promise<ICalo
   return CalosTrendWatchPolicy.findOne({ scopeKey: buildTrendWatchScopeKey(scope) });
 }
 
-export interface UpsertTrendWatchInput extends TrendWatchScope {
+interface UpsertTrendWatchInput extends TrendWatchScope {
   enabled: boolean;
   publicNiche: string;
   platforms?: string[];
