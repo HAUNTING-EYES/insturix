@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { runVideoDesignSession, type MgDesignerGenerate } from '@/lib/editron/motion-graphics/codegen/design/design-session';
+import { buildDesignerPrompt } from '@/lib/editron/motion-graphics/codegen/design/designer-prompt';
 import type { MgDesignerInput, MgDesignerMoment } from '@/lib/editron/motion-graphics/codegen/design/designer-prompt';
 import type { MgDesignPlanMomentContext, MgVideoDesignPlan } from '@/lib/editron/motion-graphics/codegen/design/design-plan';
 import { INSTURIX } from '@/lib/editron/motion-graphics/codegen/kit/brand';
@@ -86,5 +87,14 @@ describe('MG video design session — the injected brain', () => {
     const r = await runVideoDesignSession({ designer: { ...designer, budget: { maxMoments: 1, minSpacingSec: 3, rationale: 't' } }, contexts: twoCtx }, { generate: fakeGen([JSON.stringify(overBudget)]) });
     expect(r.plan).toBeNull();
     expect(r.reason).toMatch(/budget/);
+  });
+});
+
+describe('designer prompt — the subject box reaches the designer (P5-2b)', () => {
+  it('renders a beat\'s real subject box when present, and omits the line when absent', () => {
+    const withBox = buildDesignerPrompt({ ...designer, moments: [{ ...moment, subjectBox: { x: 0.5, y: 0.15, width: 0.2, height: 0.5 } }] });
+    expect(withBox).toMatch(/subject box \(design clear of it/);
+    expect(withBox).toContain('x=0.50 y=0.15 w=0.20 h=0.50');
+    expect(buildDesignerPrompt(designer)).not.toMatch(/subject box/); // no box on the beat → no line
   });
 });

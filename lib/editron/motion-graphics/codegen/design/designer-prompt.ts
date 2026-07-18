@@ -38,6 +38,9 @@ export interface MgDesignerMoment {
   /** Where the frame has room for this moment (prose from the placement resolution). */
   room: string;
   durationFrames: number;
+  /** The REAL V-JEPA main-subject box (frame fractions) for this beat, when known (P5-2b) — the designer places
+   *  clear of the ACTUAL subject. Absent → the designer relies on the `room` prose alone. */
+  subjectBox?: { x: number; y: number; width: number; height: number };
 }
 
 export interface MgDesignerInput {
@@ -162,10 +165,13 @@ function momentBlock(m: MgDesignerMoment): string {
   const props = m.contentProps.length
     ? m.contentProps.map((p) => `${p.name}: ${p.kind}`).join('; ')
     : 'none';
+  const subject = m.subjectBox
+    ? `\n  subject box (design clear of it; frame fractions): x=${m.subjectBox.x.toFixed(2)} y=${m.subjectBox.y.toFixed(2)} w=${m.subjectBox.width.toFixed(2)} h=${m.subjectBox.height.toFixed(2)}`
+    : '';
   return `- ${m.momentId} · factKind=${m.factKind} · tier=${m.tier} · salience=${m.salience.toFixed(2)} · ~${m.durationFrames}f
   said: "${m.sourceText.slice(0, 200)}"
   data props (bind by NAME): ${props}
-  room: ${m.room.slice(0, 200)}`;
+  room: ${m.room.slice(0, 200)}${subject}`;
 }
 
 /** Assemble the full designer prompt: stable prefix first (cacheable), the video's volatile context LAST. */

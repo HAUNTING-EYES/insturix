@@ -4113,9 +4113,24 @@ async function runMgDesignPrepass(
     const salience = typeof selected.salience === 'number' ? selected.salience : (authority.relevanceScore ?? 0.5);
     const durationFrames = typeof decision.durationFrames === 'number' && decision.durationFrames > 0 ? decision.durationFrames : 90;
 
+    // P5-2(b): the real V-JEPA subject box for this beat (project-level segments — the pre-pass is pre-enrichment,
+    // so read the raw segment directly) → the designer designs clear of the ACTUAL subject. Best-effort: no segment
+    // → the `room` prose steers alone. Same box the seam feeds the coder/judge, so all three agree on the subject.
+    const beatFrameRef = resolveSourceFrame(decision.frame, overlays);
+    const beatVjepa = projectSignalContext.vjepaSegments
+      ? findTimeSegment(projectSignalContext.vjepaSegments, (beatFrameRef.sourceFrame / fps) * 1000)
+      : undefined;
+    const bsx = beatVjepa ? readNumber(beatVjepa, 'mainSubjectX', 'main_subject_x', 'subjectX', 'subject_x') : undefined;
+    const bsy = beatVjepa ? readNumber(beatVjepa, 'mainSubjectY', 'main_subject_y', 'subjectY', 'subject_y') : undefined;
+    const bsw = beatVjepa ? readNumber(beatVjepa, 'mainSubjectWidth', 'main_subject_width', 'subjectWidth', 'subject_width') : undefined;
+    const bsh = beatVjepa ? readNumber(beatVjepa, 'mainSubjectHeight', 'main_subject_height', 'subjectHeight', 'subject_height') : undefined;
+    const beatSubjectBox = bsx != null && bsy != null && bsw != null && bsh != null && bsw > 0 && bsh > 0
+      ? { x: clamp01(bsx), y: clamp01(bsy), width: clamp01(bsw), height: clamp01(bsh) }
+      : undefined;
+
     beats.push({
       key: decision,
-      moment: { momentId, factKind: selected.factKind, sourceText, contentProps, tier, salience, room: `${placementRegion ?? 'an open area'} — clear of the subject and captions`, durationFrames },
+      moment: { momentId, factKind: selected.factKind, sourceText, contentProps, tier, salience, room: `${placementRegion ?? 'an open area'} — clear of the subject and captions`, durationFrames, subjectBox: beatSubjectBox },
       context: { momentId, factKind: selected.factKind, contentProps: contentProps.map((p) => p.name), numericProps, startMs: Math.max(0, (decision.frame / fps) * 1000) },
     });
   }
