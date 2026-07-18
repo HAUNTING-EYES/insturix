@@ -14,6 +14,7 @@ import {
   parseChatBattleSse,
   runChatEditBattleJourney,
   type ChatBattleInvocationEvidence,
+  type ChatBattleRenderEvidence,
 } from '../lib/editron/services/chat-edit-battle-harness';
 
 export interface ChatBattleCliOptions {
@@ -53,6 +54,7 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  const scenario = getChatEditBattleScenario(options.scenarioId)!;
 
   const runDir = path.resolve(options.outputRoot, safeSegment(options.runId));
   await mkdir(runDir, { recursive: true });
@@ -115,7 +117,16 @@ async function main(): Promise<void> {
         return invocation;
       },
       reloadUiProject: async (projectId) => getJson(api, `/api/services/editron/projects/${encodeURIComponent(projectId)}`),
-      captureRenderEvidence: async ({ mongoAfter, startedAt }) => extractPersistedChatBattleRenderEvidence(mongoAfter, startedAt),
+      captureRenderEvidence: async ({ projectId, mongoAfter, startedAt }) => {
+        const initial = extractPersistedChatBattleRenderEvidence(mongoAfter, startedAt);
+        if (!scenario.requireRenderedEvidence || initial.status !== 'missing') return initial;
+        console.log('[chat-battle] waiting for fresh rendered evidence');
+        return waitForFreshChatBattleRenderEvidence({
+          projectId,
+          startedAt,
+          initialProject: asRecord(mongoAfter),
+        });
+      },
     },
   );
 
@@ -213,13 +224,16 @@ interface ChatBattleProjectLoaderDependencies {
   findProject(projectId: string): Promise<Record<string, unknown> | null>;
 }
 
+let chatBattleMongoClient: { close(): Promise<void> } | null = null;
+
 export async function loadChatBattleMongoProject(
   projectId: string,
   dependencies?: ChatBattleProjectLoaderDependencies,
 ): Promise<Record<string, unknown>> {
   const findProject = dependencies?.findProject ?? (async (requestedProjectId: string) => {
-    const { COLLECTIONS, getDatabase } = await import('../lib/editron/db/mongodb');
-    const db = await getDatabase();
+    const { COLLECTIONS, connectToDatabase } = await import('../lib/editron/db/mongodb');
+    const { client, db } = await connectToDatabase();
+    chatBattleMongoClient = client;
     return db.collection(COLLECTIONS.PROJECTS).findOne({ projectId: requestedProjectId }) as Promise<Record<string, unknown> | null>;
   });
   const project = await findProject(projectId);
@@ -228,6 +242,12 @@ export async function loadChatBattleMongoProject(
 }
 
 const loadMongoProject = loadChatBattleMongoProject;
+
+async function closeChatBattleMongoConnection(): Promise<void> {
+  const client = chatBattleMongoClient;
+  chatBattleMongoClient = null;
+  if (client) await client.close();
+}
 
 export function chatBattleInvocationQueuedProjectMutation(invocation: ChatBattleInvocationEvidence): boolean {
   return invocation.toolEvents.some((event) => {
@@ -280,6 +300,42 @@ export async function waitForQueuedProjectMutation(
     const digest = buildChatBattleProjectSnapshot(project, 'mongo-after').digest;
     if (digest !== input.baselineDigest) return { project, changed: true, polls };
     if (dependencies.now() >= deadline) return { project, changed: false, polls };
+    await dependencies.sleep(pollIntervalMs);
+    project = await dependencies.loadProject(input.projectId);
+  }
+}
+
+interface RenderEvidenceSettlementDependencies {
+  loadProject(projectId: string): Promise<Record<string, unknown>>;
+  now(): number;
+  sleep(milliseconds: number): Promise<void>;
+}
+
+export async function waitForFreshChatBattleRenderEvidence(
+  input: {
+    projectId: string;
+    startedAt: string;
+    initialProject: Record<string, unknown>;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  },
+  dependencies: RenderEvidenceSettlementDependencies = {
+    loadProject: loadMongoProject,
+    now: () => Date.now(),
+    sleep: async (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  },
+): Promise<ChatBattleRenderEvidence> {
+  const timeoutMs = input.timeoutMs
+    ?? boundedEnvInteger('EDITRON_CHAT_BATTLE_RENDER_TIMEOUT_MS', 3 * 60 * 1000, 10_000, 15 * 60 * 1000);
+  const pollIntervalMs = input.pollIntervalMs
+    ?? boundedEnvInteger('EDITRON_CHAT_BATTLE_RENDER_POLL_MS', 3_000, 500, 30_000);
+  const deadline = dependencies.now() + timeoutMs;
+  let project = input.initialProject;
+
+  while (true) {
+    const evidence = extractPersistedChatBattleRenderEvidence(project, input.startedAt);
+    if (evidence.status !== 'missing') return evidence;
+    if (dependencies.now() >= deadline) return evidence;
     await dependencies.sleep(pollIntervalMs);
     project = await dependencies.loadProject(input.projectId);
   }
@@ -353,8 +409,17 @@ function stringValue(value: unknown): string | null {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  main().catch((error) => {
-    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-    process.exitCode = 1;
-  });
+  void main()
+    .catch((error) => {
+      console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      try {
+        await closeChatBattleMongoConnection();
+      } catch (error) {
+        console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+        process.exitCode = 1;
+      }
+    });
 }

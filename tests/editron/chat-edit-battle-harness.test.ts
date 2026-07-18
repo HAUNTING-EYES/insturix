@@ -157,6 +157,7 @@ import {
   loadChatBattleMongoProject,
   parseChatBattleCliArgs,
   validateChatBattleCliOptions,
+  waitForFreshChatBattleRenderEvidence,
   waitForQueuedProjectMutation,
 } from '../../scripts/run-chat-edit-battle';
 
@@ -551,8 +552,8 @@ describe('chat edit battle harness', () => {
 
   it('ignores expiring URLs in reload parity but catches actual overlay changes', () => {
     const mongo = project([{ id: 'image-1', type: 'image', from: 0, durationInFrames: 90, row: 1, publicUrl: 'https://cdn/a?token=one', content: 'A' }]);
-    const reload = project([{ id: 'image-1', type: 'image', from: 0, durationInFrames: 90, row: 1, publicUrl: 'https://cdn/a?token=two', content: 'A' }]);
-    const changed = project([{ id: 'image-1', type: 'image', from: 0, durationInFrames: 90, row: 1, publicUrl: 'https://cdn/a?token=two', content: 'B' }]);
+    const reload = project([{ id: 'image-1', type: 'image', from: 0, durationInFrames: 90, row: 1, publicUrl: 'https://cdn/a?token=two', src: 'https://cdn/resolved', content: 'A' }]);
+    const changed = project([{ id: 'image-1', type: 'image', from: 0, durationInFrames: 90, row: 1, publicUrl: 'https://cdn/a?token=two', src: 'https://cdn/resolved', content: 'B' }]);
     expect(buildChatBattleProjectSnapshot(mongo, 'mongo-after').digest)
       .toBe(buildChatBattleProjectSnapshot(reload, 'ui-reload').digest);
     expect(buildChatBattleProjectSnapshot(mongo, 'mongo-after').digest)
@@ -618,5 +619,49 @@ describe('chat edit battle harness', () => {
     expect(findProject).toHaveBeenCalledTimes(2);
     expect(before.projectId).toBe('proj_fixture');
     expect(after.projectId).toBe('proj_fixture');
+  });
+
+  it('waits for asynchronous rendered evidence and returns the completed verdict', async () => {
+    let now = 1_000;
+    const pending = project([]);
+    const completed = {
+      ...project([]),
+      intelligence: {
+        latestChatEditRenderVerification: {
+          status: 'pass',
+          requestedAt: '2026-07-18T10:00:01.000Z',
+          completedAt: '2026-07-18T10:00:03.000Z',
+          visual: {
+            renderedFrames: [{ beforeUrl: 'https://cdn/before.webp', afterUrl: 'https://cdn/after.webp' }],
+            issues: [],
+          },
+          audio: {
+            windows: [{ beforeUrl: 'https://cdn/before.wav', afterUrl: 'https://cdn/after.wav' }],
+          },
+        },
+      },
+    };
+    const loadProject = vi.fn(async () => completed);
+
+    const evidence = await waitForFreshChatBattleRenderEvidence({
+      projectId: 'proj_fixture',
+      startedAt: '2026-07-18T10:00:00.000Z',
+      initialProject: pending,
+      timeoutMs: 10_000,
+      pollIntervalMs: 1_000,
+    }, {
+      loadProject,
+      now: () => now,
+      sleep: async (milliseconds) => { now += milliseconds; },
+    });
+
+    expect(loadProject).toHaveBeenCalledTimes(1);
+    expect(evidence).toMatchObject({ status: 'pass', capturedAt: '2026-07-18T10:00:03.000Z' });
+    expect(evidence.artifactRefs).toEqual([
+      'https://cdn/before.webp',
+      'https://cdn/after.webp',
+      'https://cdn/before.wav',
+      'https://cdn/after.wav',
+    ]);
   });
 });

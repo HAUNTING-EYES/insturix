@@ -526,6 +526,34 @@ export function extractPersistedChatBattleRenderEvidence(
 ): ChatBattleRenderEvidence {
   const project = asRecord(unwrapProject(projectValue));
   const intelligence = asRecord(project.intelligence);
+  const chatVerification = asRecord(intelligence.latestChatEditRenderVerification);
+  const chatRequestedAt = stringValue(chatVerification.requestedAt) ?? undefined;
+  if (isFreshTimestamp(chatRequestedAt, startedAt)) {
+    const chatStatus = stringValue(chatVerification.status);
+    const chatCapturedAt = stringValue(chatVerification.completedAt) ?? undefined;
+    const visual = asRecord(chatVerification.visual);
+    const audio = asRecord(chatVerification.audio);
+    const artifactRefs = uniqueStrings([
+      ...readStrings(visual.renderedFrames, ['beforeUrl', 'afterUrl', 'url', 'artifactUrl', 'frameUrl']),
+      ...readStrings(audio.windows, ['beforeUrl', 'afterUrl', 'url', 'artifactUrl']),
+    ]);
+    const issues = Array.isArray(visual.issues)
+      ? visual.issues.map(asRecord).slice(0, 100)
+      : [];
+    if (!chatCapturedAt || !isFreshTimestamp(chatCapturedAt, startedAt)) {
+      return { status: 'missing', capturedAt: chatCapturedAt, artifactRefs, issues, reason: 'Chat edit render verification is still pending.' };
+    }
+    if (chatStatus === 'fail' || chatStatus === 'failed' || chatStatus === 'error') {
+      return { status: 'fail', capturedAt: chatCapturedAt, artifactRefs, issues };
+    }
+    if (chatStatus === 'warn' || chatStatus === 'partial' || chatStatus === 'needs_review') {
+      return { status: 'warn', capturedAt: chatCapturedAt, artifactRefs, issues };
+    }
+    if (chatStatus === 'pass' || chatStatus === 'completed') {
+      return { status: 'pass', capturedAt: chatCapturedAt, artifactRefs, issues };
+    }
+    return { status: 'missing', capturedAt: chatCapturedAt, artifactRefs, issues, reason: `Unknown chat edit render status: ${chatStatus ?? 'missing'}.` };
+  }
   const evidence = asRecord(intelligence.phase0RenderedStillEvidence);
   const gate = asRecord(intelligence.phase0RenderedQualityGate);
   const report = asRecord(intelligence.phase0RenderedAestheticReport);
@@ -668,14 +696,15 @@ function sanitizeMaterialState(value: unknown, parentKey = ''): unknown {
   if (typeof value !== 'object') return String(value);
   const output: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) {
-    if (isEphemeralProjectKey(key, parentKey)) continue;
+    if (isEphemeralProjectKey(key, parentKey, child)) continue;
     output[key] = sanitizeMaterialState(child, key);
   }
   return output;
 }
 
-function isEphemeralProjectKey(key: string, parentKey: string): boolean {
+function isEphemeralProjectKey(key: string, parentKey: string, value: unknown): boolean {
   if (['createdAt', 'updatedAt', 'resolvedAt', 'expiresAt', 'signedUrl', 'publicUrl', 'cachedUrl', 'thumbnailUrl', 'frameUrls'].includes(key)) return true;
+  if (['src', 'url', 'mediaUrl'].includes(key) && typeof value === 'string' && /^(?:https?:|blob:|data:)/i.test(value)) return true;
   if (key === 'appliedAt' && /receipt/i.test(parentKey)) return true;
   return /^(authorization|cookie|token|apiKey|secret)$/i.test(key);
 }
