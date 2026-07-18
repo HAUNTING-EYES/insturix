@@ -113,7 +113,7 @@ export function buildAnalyzedSelectedTrend(
   selectedTrend: SelectedTrend,
   analysis: TrendSourceAnalysis,
 ): SelectedTrend {
-  const selected = SelectedTrendSchema.parse(selectedTrend);
+  const selected = parsePersistedSelectedTrend(selectedTrend);
   const parsedAnalysis = TrendSourceAnalysisSchema.parse(analysis);
 
   if (parsedAnalysis.status !== 'completed') {
@@ -138,7 +138,7 @@ export function buildQueuedTrendAnalysis(
   selectedTrend: SelectedTrend,
   input: { jobId: string; sourceKind: TrendAnalysisSourceKind; now?: Date },
 ): SelectedTrend {
-  const selected = SelectedTrendSchema.parse(selectedTrend);
+  const selected = parsePersistedSelectedTrend(selectedTrend);
   return SelectedTrendSchema.parse({
     ...selected,
     analysis: {
@@ -160,7 +160,7 @@ export function buildFailedTrendAnalysis(
     now?: Date;
   },
 ): SelectedTrend {
-  const selected = SelectedTrendSchema.parse(selectedTrend);
+  const selected = parsePersistedSelectedTrend(selectedTrend);
   return SelectedTrendSchema.parse({
     ...selected,
     analysis: {
@@ -203,32 +203,81 @@ function normalizeSelectedCandidate(candidate: TrendCandidate): TrendCandidate {
   if (!title) throw new SelectedTrendInputError('Selected trend title is empty after sanitization.');
 
   const evidence = prioritizeAnalyzableTrendEvidence(parsed.evidence.map((item) => {
+    const {
+      summary: originalSummary,
+      sourceUrl: originalSourceUrl,
+      ...evidenceWithoutOptionalText
+    } = item;
     const evidenceTitle = sanitizeSelectionText(item.title, 240);
     const provider = sanitizeSelectionText(item.provider, 80);
     if (!evidenceTitle || !provider) {
       throw new SelectedTrendInputError('Selected trend evidence is incomplete after sanitization.');
     }
-    const summary = item.summary ? sanitizeSelectionText(item.summary, 800) : undefined;
-    const sourceUrl = safeHttpUrl(item.sourceUrl);
+    const summary = originalSummary ? sanitizeSelectionText(originalSummary, 800) : undefined;
+    const sourceUrl = safeHttpUrl(originalSourceUrl);
     return {
-      ...item,
+      ...evidenceWithoutOptionalText,
       title: evidenceTitle,
       provider,
-      ...(summary ? { summary } : { summary: undefined }),
-      ...(sourceUrl ? { sourceUrl } : { sourceUrl: undefined }),
+      ...(summary ? { summary } : {}),
+      ...(sourceUrl ? { sourceUrl } : {}),
     };
   }));
   const analyzableReferenceUrl = firstAnalyzableTrendVideoUrl(evidence);
+  const { summary: originalSummary, ...candidateWithoutSummary } = parsed;
+  const summary = originalSummary ? sanitizeSelectionText(originalSummary, 800) : undefined;
 
   return TrendCandidateSchema.parse({
-    ...parsed,
+    ...candidateWithoutSummary,
     title,
-    ...(parsed.summary ? { summary: sanitizeSelectionText(parsed.summary, 800) || undefined } : {}),
+    ...(summary ? { summary } : {}),
     evidence,
     // A browser selection is user intent, never proof that a format has been analysed.
     trendSpecEligible: false,
     nextAction: analyzableReferenceUrl ? 'analyze_reference_video' : 'add_reference_video',
   });
+}
+
+const OPTIONAL_EVIDENCE_STORAGE_FIELDS = [
+  'summary',
+  'sourceUrl',
+  'sourceScore',
+  'capturedAt',
+  'location',
+  'language',
+] as const;
+
+/** Mongo Mixed arrays can materialize an explicitly undefined optional as null. */
+function parsePersistedSelectedTrend(value: unknown): SelectedTrend {
+  if (!isRecord(value) || !isRecord(value.candidate)) {
+    return SelectedTrendSchema.parse(value);
+  }
+
+  const candidate = omitNullOptionalFields(value.candidate, ['summary']);
+  const evidence = Array.isArray(candidate.evidence)
+    ? candidate.evidence.map((item) => omitNullOptionalFields(item, OPTIONAL_EVIDENCE_STORAGE_FIELDS))
+    : candidate.evidence;
+
+  return SelectedTrendSchema.parse({
+    ...value,
+    candidate: {
+      ...candidate,
+      evidence,
+    },
+  });
+}
+
+function omitNullOptionalFields(value: unknown, fields: readonly string[]): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  const normalized = { ...value };
+  for (const field of fields) {
+    if (normalized[field] === null) delete normalized[field];
+  }
+  return normalized;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function sanitizeSelectionText(value: unknown, maxChars: number): string {

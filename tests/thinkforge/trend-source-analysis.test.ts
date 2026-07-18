@@ -4,6 +4,7 @@ import type { ReferenceVideoSource } from '@/lib/editron/reference-video/referen
 import { analyzeSelectedTrendSource } from '@/lib/thinkforge/trends/trend-source-analysis';
 import {
   buildAnalyzedSelectedTrend,
+  buildQueuedTrendAnalysis,
   buildSelectedTrend,
 } from '@/lib/thinkforge/trends/selected-trend';
 
@@ -67,6 +68,27 @@ function generated(overrides: Record<string, unknown> = {}) {
 }
 
 describe('ThinkForge trend source analysis', () => {
+  it('omits absent optional evidence fields before database persistence', () => {
+    const selected = selectedTrend();
+
+    expect(selected.candidate.evidence[0]).not.toHaveProperty('summary');
+    expect(selected.candidate.evidence[0]).not.toHaveProperty('sourceUrl');
+  });
+
+  it('normalizes legacy Mongo nulls before advancing the analysis lifecycle', () => {
+    const persisted = structuredClone(selectedTrend()) as unknown as ReturnType<typeof selectedTrend>;
+    (persisted.candidate.evidence[0] as { summary?: string | null }).summary = null;
+
+    const queued = buildQueuedTrendAnalysis(persisted, {
+      jobId: 'trend_analysis_legacy_null',
+      sourceKind: 'remote-url',
+      now: new Date('2026-07-11T00:01:00.000Z'),
+    });
+
+    expect(queued.analysis?.status).toBe('queued');
+    expect(queued.candidate.evidence[0]).not.toHaveProperty('summary');
+  });
+
   it('server-owns TrendSpec identity/version and never persists the playable video URL', async () => {
     const analysis = await analyzeSelectedTrendSource({
       selectedTrend: selectedTrend(),
