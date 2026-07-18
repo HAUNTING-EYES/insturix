@@ -326,15 +326,29 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
     assumptions.push(`A ${HOUSEHOLD_SUBSTITUTIONS.fill.label.toLowerCase()} is available.`);
   }
 
-  const audioItems = eligible(profile.equipment.filter((item): item is AudioEquipment => item.category === 'audio'));
+  const requiredAudioSubjects = intent.spokenAudio ? intent.performance.length : 0;
+  const audioItems = intent.spokenAudio
+    ? eligible(profile.equipment.filter(
+      (item): item is AudioEquipment => item.category === 'audio'
+        && item.maxSubjects >= requiredAudioSubjects,
+    ))
+    : [];
   const audio = audioItems[0];
   if (audio) {
     spent += itemCost(audio);
     resources.push(equipmentResource(audio));
   } else if (intent.spokenAudio) {
+    if (requiredAudioSubjects > 1) {
+      blockers.push({
+        code: 'audio_required',
+        message: `The scene records ${requiredAudioSubjects} speaking performers, but no approved audio setup covers that many subjects.`,
+      });
+      questions.push(`Can you add an audio setup rated for at least ${requiredAudioSubjects} subjects or restage the speaking beat?`);
+      return { status: 'needs-user-input', blockers, questions };
+    }
     if (space?.noiseFloor === 'noisy') {
-      blockers.push({ code: 'audio_required', message: 'The room is marked noisy and no speech microphone is available.' });
-      questions.push('Can you add a lav/shotgun microphone or move the shoot to a quieter room?');
+      blockers.push({ code: 'audio_required', message: 'The room is marked noisy and no suitable speech microphone is available.' });
+      questions.push('Can you add a suitable lav/shotgun microphone or move the shoot to a quieter room?');
       return { status: 'needs-user-input', blockers, questions };
     }
     resources.push({ id: `builtin_audio_${camera.id}`, category: 'audio', label: `${camera.label} built-in microphone`, source: sourceForEquipment(camera), quantity: 1, equipmentId: camera.id, incrementalCost: 0, required: true, notes: ['Keep the camera within 0.8m of the speaker and record a ten-second room-tone test.'] });
