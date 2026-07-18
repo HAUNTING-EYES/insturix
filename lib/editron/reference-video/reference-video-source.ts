@@ -13,9 +13,9 @@ import {
   type YoutubeReferenceImportFailureReason,
 } from './youtube-reference-importer';
 
-export type ReferenceVideoSourceKind = 'asset' | 'remote-url' | 'youtube-url';
+type ReferenceVideoSourceKind = 'asset' | 'remote-url' | 'youtube-url';
 
-export type ReferenceVideoSourceRejectionReason =
+type ReferenceVideoSourceRejectionReason =
   | 'conflicting_reference_video_sources'
   | 'missing_reference_video_source'
   | 'reference_asset_not_found'
@@ -40,7 +40,7 @@ export interface ReferenceVideoSource {
   asset?: MediaAsset | null;
 }
 
-export type ReferenceVideoSourceResult =
+type ReferenceVideoSourceResult =
   | { ok: true; source: ReferenceVideoSource }
   | {
       ok: false;
@@ -54,7 +54,7 @@ export interface ReferenceVideoAssetResolver {
   resolveAssetUrl(assetId: string, userId: string): Promise<string | null>;
 }
 
-export interface ResolveReferenceVideoSourceInput {
+interface ResolveReferenceVideoSourceInput {
   userId: string;
   referenceAssetId?: string;
   referenceVideoUrl?: string;
@@ -64,11 +64,11 @@ export interface ResolveReferenceVideoSourceInput {
   youtubeMode?: 'import' | 'provider-direct';
 }
 
-export type ReferenceVideoDnsLookup = (
+type ReferenceVideoDnsLookup = (
   hostname: string,
 ) => Promise<readonly { address: string; family: number }[]>;
 
-export interface ReferenceVideoUrlValidationOk {
+interface ReferenceVideoUrlValidationOk {
   ok: true;
   url: URL;
   referenceId: string;
@@ -77,7 +77,7 @@ export interface ReferenceVideoUrlValidationOk {
   sourceKind: 'remote-url';
 }
 
-export interface ReferenceYoutubeVideoUrlValidationOk {
+interface ReferenceYoutubeVideoUrlValidationOk {
   ok: true;
   url: URL;
   referenceId: string;
@@ -90,7 +90,7 @@ export type ReferenceVideoYoutubeImporter = (
   input: ImportYoutubeReferenceVideoInput,
 ) => Promise<ImportedYoutubeReferenceVideo>;
 
-export type ReferenceVideoUrlValidationResult =
+type ReferenceVideoUrlValidationResult =
   | ReferenceVideoUrlValidationOk
   | {
       ok: false;
@@ -352,7 +352,7 @@ export function validateReferenceVideoUrlForAutoEditIntake(
   };
 }
 
-export function isYoutubeReferenceUrl(url: URL): boolean {
+function isYoutubeReferenceUrl(url: URL): boolean {
   const hostname = url.hostname.toLowerCase();
   return hostname === 'youtu.be'
     || hostname.endsWith('.youtu.be')
