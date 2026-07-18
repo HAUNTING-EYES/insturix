@@ -67,7 +67,7 @@ const SetupGroupSchema = z.object({
   resetMinutes: z.number().finite().min(0).default(0),
   cameraMarks: z.array(CameraMarkSchema).min(1),
   lightMarks: z.array(LightMarkSchema).default([]),
-  performerMarks: z.array(PerformerMarkSchema).min(1),
+  performerMarks: z.array(PerformerMarkSchema).default([]),
   audioMarks: z.array(AudioMarkSchema).default([]),
   instructions: z.array(z.string().min(1)).min(1),
 }).strict();
@@ -103,7 +103,7 @@ const SceneShotSchema = z.object({
     posture: z.string().min(1),
     gesture: z.string().min(1),
     movement: z.string().min(1),
-  }).strict()).min(1),
+  }).strict()).default([]),
   continuity: z.object({
     wardrobe: z.array(z.string().min(1)).default([]),
     props: z.array(z.string().min(1)).default([]),

@@ -265,7 +265,11 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
     }
   }
 
-  const leadEyeHeight = eyeHeightForStance(intent.performance[0]?.stance ?? 'standing');
+  // Performer-free B-roll and object shots target a neutral one-metre subject plane.
+  // Human scenes continue to derive the target from the lead performer's stance.
+  const leadEyeHeight = intent.performance.length > 0
+    ? eyeHeightForStance(intent.performance[0]!.stance)
+    : 1;
   if (angle === 'overhead') {
     const requiredHeight = leadEyeHeight + 0.9;
     if (!support || profile.people.cameraOperatorsAvailable < 1 || (support.maxHeightM ?? 0) < requiredHeight) {
