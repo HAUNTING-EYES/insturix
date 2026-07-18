@@ -25,8 +25,14 @@ import type { MgDesignImagery } from './design-plan';
 
 /** The default still-image model — live-verified to return inline JPEG bytes via generateContent. */
 export const DEFAULT_MG_IMAGE_MODEL = 'gemini-3.1-flash-image';
-/** The Veo motion model (Phase 4b) — recorded, not yet wired. */
+/** Veo motion model — image-to-video with true world/camera motion, BUT it drifts meaning-bearing content
+ *  (verified: houses multiplied, regions reshaped). Kept for the world-motion luxury path; NOT the default. */
 export const MG_MOTION_BACKDROP_MODEL = 'veo-3.1-fast-generate-preview';
+/** Omni motion model — image→motion enrichment (LIVE-VERIFIED 2026-07-18): a wordless still backdrop → a moving
+ *  cinematic backdrop (flowing light, drift, depth, filmic grade) in ~40s, staying WORDLESS. This is the DEFAULT
+ *  motion-backdrop path: an abstract world has no meaning to drift, so Veo's fabrication-by-drift never applies,
+ *  and the deterministic kit type still composites on top (values/text never touch the generative model). */
+export const MG_OMNI_MOTION_MODEL = 'gemini-omni-flash-preview';
 
 export interface MgBackdrop {
   bytes: Buffer;
@@ -35,8 +41,20 @@ export interface MgBackdrop {
   height: number;
 }
 
+/** A moving illustrated backdrop (Omni image→motion). Carries the base `still` too — the coder's multimodal
+ *  frame + the graceful still-lane fallback both use it. */
+export interface MgMotionBackdrop {
+  bytes: Buffer;
+  mimeType: 'video/mp4';
+  width: number;
+  height: number;
+  still: MgBackdrop;
+}
+
 /** The injected raw model call: a fully-built prompt + aspect → inline image bytes. The default hits Gemini. */
 export type MgImageGenerate = (input: { prompt: string; aspectRatio: string; model: string }) => Promise<{ mimeType: string; data: string }>;
+/** The injected Omni image→motion call: a still image + animate prompt → inline mp4 bytes. Default hits Omni. */
+export type MgVideoEnrich = (input: { image: { mimeType: string; data: string }; prompt: string; model: string }) => Promise<{ mimeType: string; data: string }>;
 
 export interface MgBackdropOptions {
   brand: Brand;
@@ -44,6 +62,9 @@ export interface MgBackdropOptions {
   model?: string;
   /** Injected for tests / provider swap; defaults to the live Gemini image call. */
   generate?: MgImageGenerate;
+  /** Motion path: injected Omni image→motion call (defaults to the live Omni call) + its model override. */
+  enrich?: MgVideoEnrich;
+  motionModel?: string;
   env?: Record<string, string | undefined>;
 }
 
@@ -69,6 +90,19 @@ export function buildBackdropPrompt(imagery: MgDesignImagery, brand: Brand): str
     imagery.scenePrompt.trim(),
     `Palette: ${imagery.paletteDirection.trim()} (brand accent ${brand.colors.accent} on a ${brand.colors.bg} base).`,
     'Cinematic, high production value, clean negative space for a graphic overlay, edges soft and uncluttered.',
+    NO_TEXT,
+  ].join(' ');
+}
+
+/** Build the Omni image→motion prompt: animate the still into a living cinematic backdrop, WORDLESS, preserving
+ *  the composition + the clear zone. No fact value ever reaches the model (grounding belt). */
+export function buildMotionBackdropPrompt(imagery: MgDesignImagery, brand: Brand): string {
+  return [
+    'Bring this abstract scene to life as a premium, living cinematic BACKDROP:',
+    'add subtle continuous motion (slow drift, flowing light, gentle parallax and depth), volumetric/rim lighting,',
+    'soft depth-of-field, atmospheric particles, and a filmic colour grade — a high-end broadcast background.',
+    `Keep the same composition, palette (${imagery.paletteDirection.trim()}; accent ${brand.colors.accent}),`,
+    'and the clear negative space for a graphic overlay. Keep it seamless and loopable.',
     NO_TEXT,
   ].join(' ');
 }
@@ -123,8 +157,64 @@ export async function generateStillBackdrop(imagery: MgDesignImagery, opts: MgBa
   return { bytes, mimeType, width: opts.canvas.width, height: opts.canvas.height };
 }
 
-/** Veo motion backdrop — Phase 4b. Recorded shape (predictLongRunning → 2-day URI → download to R2), not yet
- *  wired: fail loud rather than pretend. */
-export async function generateMotionBackdrop(): Promise<never> {
-  throw new Error(`generateMotionBackdrop: not implemented — Veo motion lane (${MG_MOTION_BACKDROP_MODEL}) is Phase 4b (predictLongRunning → download URI → persist to R2 within the 2-day retention window)`);
+/** Deep-walk an Omni interactions response for the first inline video part (tolerant to the exact response
+ *  shape — steps[].content[].data / output_video.data / inlineData.data all resolve). */
+function findOmniVideoData(node: unknown): string | null {
+  if (!node || typeof node !== 'object') return null;
+  const o = node as Record<string, unknown>;
+  const mime = (o.mime_type ?? o.mimeType) as string | undefined;
+  const data = (o.data ?? (o.inlineData as Record<string, unknown> | undefined)?.data) as string | undefined;
+  if (typeof data === 'string' && data.length > 5000 && (!mime || String(mime).startsWith('video'))) return data;
+  for (const v of Object.values(o)) {
+    const found = Array.isArray(v) ? v.map(findOmniVideoData).find(Boolean) : findOmniVideoData(v);
+    if (found) return found as string;
+  }
+  return null;
+}
+
+/** Default Omni image→motion call — the live-verified /v1beta/interactions inline shape (Method B: user_input →
+ *  image + text → an inline mp4 in the response). */
+export function defaultOmniEnrich(env: Record<string, string | undefined> = process.env): MgVideoEnrich {
+  const apiKey = env.GEMINI_API_KEY?.trim() || env.GOOGLE_API_KEY?.trim();
+  if (!apiKey) throw new Error('MG imagery: missing GEMINI_API_KEY / GOOGLE_API_KEY');
+  return async ({ image, prompt, model }) => {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/interactions?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        input: [{ type: 'user_input', content: [
+          { type: 'image', mime_type: image.mimeType, data: image.data },
+          { type: 'text', text: prompt },
+        ] }],
+      }),
+    });
+    if (!res.ok) throw new Error(`MG omni: HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const json = await res.json() as { error?: { message?: string } };
+    if (json.error) throw new Error(`MG omni: ${json.error.message?.slice(0, 200)}`);
+    const data = findOmniVideoData(json);
+    if (!data) throw new Error('MG omni: response contained no video');
+    return { mimeType: 'video/mp4', data };
+  };
+}
+
+/**
+ * Generate a MOVING illustrated backdrop for an illustrated-overlay moment via Omni image→motion (the default,
+ * no-drift motion path — proven live 2026-07-18). Pipeline: a WORDLESS still (generateStillBackdrop) → Omni
+ * animates it into a living cinematic clip. The still is carried back for the coder's multimodal frame and the
+ * graceful still-lane fallback. Fails loud (no/short/wrong-mime video → throw → the caller degrades to the still
+ * lane, never a blank frame). No fact value ever reaches either model (grounding belt).
+ */
+export async function generateMotionBackdrop(imagery: MgDesignImagery, opts: MgBackdropOptions): Promise<MgMotionBackdrop> {
+  // 1. base still — reuse the (grounded, fail-loud) still path with the mode coerced.
+  const still = await generateStillBackdrop({ ...imagery, mode: 'still' }, opts);
+  // 2. Omni image→motion.
+  const enrich = opts.enrich ?? defaultOmniEnrich(opts.env);
+  const model = opts.motionModel ?? MG_OMNI_MOTION_MODEL;
+  const prompt = buildMotionBackdropPrompt(imagery, opts.brand);
+  const { mimeType, data } = await enrich({ image: { mimeType: still.mimeType, data: still.bytes.toString('base64') }, prompt, model });
+  if (mimeType !== 'video/mp4') throw new Error(`MG omni: unexpected mime '${mimeType}' (expected video/mp4)`);
+  const bytes = Buffer.from(data, 'base64');
+  if (bytes.byteLength < 8192) throw new Error(`MG omni: motion backdrop suspiciously small (${bytes.byteLength} bytes)`);
+  return { bytes, mimeType: 'video/mp4', width: opts.canvas.width, height: opts.canvas.height, still };
 }

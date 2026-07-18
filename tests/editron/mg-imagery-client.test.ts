@@ -9,10 +9,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { INSTURIX } from '@/lib/editron/motion-graphics/codegen/kit/brand';
 import {
   buildBackdropPrompt,
+  buildMotionBackdropPrompt,
   generateStillBackdrop,
   generateMotionBackdrop,
   DEFAULT_MG_IMAGE_MODEL,
+  MG_OMNI_MOTION_MODEL,
   type MgImageGenerate,
+  type MgVideoEnrich,
 } from '@/lib/editron/motion-graphics/codegen/design/imagery-client';
 import type { MgDesignImagery } from '@/lib/editron/motion-graphics/codegen/design/design-plan';
 
@@ -80,7 +83,46 @@ describe('MG imagery — generateStillBackdrop', () => {
       .rejects.toThrow(/expected 'still'/);
   });
 
-  it('motion backdrop is honestly not-yet-implemented (fail loud, not faked)', async () => {
-    await expect(generateMotionBackdrop()).rejects.toThrow(/not implemented.*Phase 4b/);
+});
+
+// ~12000 decoded bytes clears the 8KB motion guard; TINY trips it. mp4 structure isn't validated (mime+size only).
+const BIG_VID = 'A'.repeat(16000);
+const TINY_VID = 'AAAA';
+const fakeEnrich = (mimeType = 'video/mp4', data = BIG_VID): MgVideoEnrich => vi.fn(async () => ({ mimeType, data }));
+
+describe('MG imagery — generateMotionBackdrop (Omni image→motion)', () => {
+  it('the motion prompt is WORDLESS and carries the palette (no fact value channel)', () => {
+    const p = buildMotionBackdropPrompt(imagery({ paletteDirection: 'warm gold on deep charcoal' }), INSTURIX);
+    expect(p).toMatch(/NO text/i);
+    expect(p).toMatch(/motion|living|cinematic/i);
+    expect(p).toContain(INSTURIX.colors.accent);
+    expect(p).not.toMatch(/\b\d{2,}\b/); // client introduces no numbers
+  });
+
+  it('generates a still then enriches it to an mp4, carrying the base still back', async () => {
+    const generate = fakeImage('image/jpeg');
+    const enrich = fakeEnrich();
+    const m = await generateMotionBackdrop(imagery({ mode: 'motion' }), { brand: INSTURIX, canvas: { width: 1920, height: 1080 }, generate, enrich });
+    expect(generate).toHaveBeenCalledTimes(1); // the still
+    expect(enrich).toHaveBeenCalledTimes(1);   // the Omni enrich
+    const enrichArg = (enrich as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(enrichArg.model).toBe(MG_OMNI_MOTION_MODEL);
+    expect(enrichArg.image.mimeType).toBe('image/jpeg'); // the still is passed to Omni
+    expect(enrichArg.prompt).toMatch(/NO text/i);
+    expect(m.mimeType).toBe('video/mp4');
+    expect(Buffer.isBuffer(m.bytes)).toBe(true);
+    expect(m.still.mimeType).toBe('image/jpeg'); // the still rides along for the coder frame + fallback
+    expect(m.width).toBe(1920);
+  });
+
+  it('FAILS LOUD: a wrong-mime or tiny enrich response, or a still-gen failure, all throw (caller degrades to still lane)', async () => {
+    const stillOpts = { brand: INSTURIX, canvas: { width: 1920, height: 1080 }, generate: fakeImage('image/jpeg') };
+    await expect(generateMotionBackdrop(imagery({ mode: 'motion' }), { ...stillOpts, enrich: fakeEnrich('image/gif', BIG_VID) }))
+      .rejects.toThrow(/unexpected mime/);
+    await expect(generateMotionBackdrop(imagery({ mode: 'motion' }), { ...stillOpts, enrich: fakeEnrich('video/mp4', TINY_VID) }))
+      .rejects.toThrow(/suspiciously small/);
+    // if the still can't be made, motion fails loud too (never a blank/half backdrop)
+    await expect(generateMotionBackdrop(imagery({ mode: 'motion' }), { brand: INSTURIX, canvas: { width: 1920, height: 1080 }, generate: fakeImage('image/png', TINY_IMG), enrich: fakeEnrich() }))
+      .rejects.toThrow(/suspiciously small/);
   });
 });
