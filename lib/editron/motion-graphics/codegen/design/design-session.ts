@@ -68,6 +68,32 @@ function withFeedback(parts: MgDesignerPart[], reason: string): MgDesignerPart[]
 }
 
 /**
+ * F2 (2026-07-19): when the designer over-designs (> maxMoments), TRIM to the top-N beats by salience — moving the
+ * overflow to `declined` — instead of voiding the WHOLE video's design. One over-design then forfeits only the
+ * weakest moment(s), never every design. Preserves coverage (dropped beats become declined) so the plan still
+ * validates. Salience comes from the OFFERED beats (the plan's moments don't carry it); an unknown id ranks 0.
+ */
+function trimPlanToBudget(
+  plan: MgVideoDesignPlan,
+  maxMoments: number,
+  offered: MgDesignerInput['moments'],
+): MgVideoDesignPlan {
+  if (plan.moments.length <= maxMoments) return plan;
+  const salienceById = new Map(offered.map((m) => [m.momentId, m.salience]));
+  const ranked = [...plan.moments].sort((a, b) => (salienceById.get(b.momentId) ?? 0) - (salienceById.get(a.momentId) ?? 0));
+  const keptIds = new Set(ranked.slice(0, maxMoments).map((m) => m.momentId));
+  const dropped = ranked.slice(maxMoments);
+  return {
+    ...plan,
+    moments: plan.moments.filter((m) => keptIds.has(m.momentId)), // keep original order among the survivors
+    declined: [
+      ...(plan.declined ?? []),
+      ...dropped.map((m) => ({ momentId: m.momentId, reason: 'over budget — trimmed (lowest salience)' })),
+    ],
+  };
+}
+
+/**
  * Run one video-level design session. Deterministic given the same model output; retries once on a rejected plan
  * with the reason fed back. Never throws — every failure path resolves to { plan: null, reason }.
  */
@@ -90,7 +116,9 @@ export async function runVideoDesignSession(
       continue;
     }
     try {
-      const plan = mgVideoDesignPlanSchema.parse(extractDesignPlanJson(text));
+      const parsed = mgVideoDesignPlanSchema.parse(extractDesignPlanJson(text));
+      // F2: trim an over-budget plan to the top-N by salience rather than voiding it, THEN validate.
+      const plan = budget ? trimPlanToBudget(parsed, budget.maxMoments, input.designer.moments) : parsed;
       const validation = validateDesignPlan(plan, input.contexts, budget ? { maxMoments: budget.maxMoments } : undefined);
       if (validation.ok) return { plan, attempts: attempt + 1 };
       lastReason = validation.problems.slice(0, 3).join(' | ') || 'plan failed validation';

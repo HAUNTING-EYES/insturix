@@ -78,15 +78,20 @@ describe('MG video design session — the injected brain', () => {
     expect(gen).toHaveBeenCalledTimes(2);
   });
 
-  it('★ enforces the density budget: a plan over maxMoments is rejected', async () => {
+  it('★ F2: an over-budget plan is TRIMMED to the top-N by salience, not voided', async () => {
     const overBudget = {
       ...validPlan,
       moments: [validPlan.moments[0], { ...validPlan.moments[0], momentId: 'b1' }],
     };
     const twoCtx = [...contexts, { momentId: 'b1', factKind: 'narrative', contentProps: ['line'], numericProps: [], startMs: 3000 }];
-    const r = await runVideoDesignSession({ designer: { ...designer, budget: { maxMoments: 1, minSpacingSec: 3, rationale: 't' } }, contexts: twoCtx }, { generate: fakeGen([JSON.stringify(overBudget)]) });
-    expect(r.plan).toBeNull();
-    expect(r.reason).toMatch(/budget/);
+    const twoMoments = [moment, { ...moment, momentId: 'b1', salience: 0.2 }]; // b1 lower salience → trimmed first
+    const r = await runVideoDesignSession(
+      { designer: { ...designer, moments: twoMoments, budget: { maxMoments: 1, minSpacingSec: 3, rationale: 't' } }, contexts: twoCtx },
+      { generate: fakeGen([JSON.stringify(overBudget)]) },
+    );
+    expect(r.plan).not.toBeNull();
+    expect(r.plan!.moments.map((m) => m.momentId)).toEqual(['b0']); // the higher-salience beat survives
+    expect(r.plan!.declined.some((d) => d.momentId === 'b1' && /trimmed/.test(d.reason))).toBe(true); // the rest → declined
   });
 });
 

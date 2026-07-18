@@ -85,11 +85,16 @@ describe('runDesignPrepass — video-level design pre-pass → per-decision plan
     expect(receivedParts.some((p) => p.kind === 'image' && p.data === 'Zm9vdGFnZQ==')).toBe(true); // the real frame reached the model
   });
 
-  it('honours the budget: an over-budget plan is rejected by the session → empty map (no partial attach)', async () => {
+  it('★ F2: over-budget → the session TRIMS to the top-N by salience; the survivor attaches, the rest fall back', async () => {
     const tightBudget: MgDensityBudget = { maxMoments: 1, minSpacingSec: 3, rationale: 'tight' };
+    const rankedBeats: Array<MgDesignPrepassBeat<{ id: string }>> = [
+      { key: keyA, moment: { ...mkMoment('b0'), salience: 0.8 }, context: mkContext('b0', 0) }, // higher salience → kept
+      { key: keyB, moment: { ...mkMoment('b1'), salience: 0.3 }, context: mkContext('b1', 5_000) }, // trimmed → free-form
+    ];
     const plan: MgVideoDesignPlan = { brief, moments: [designedMoment('b0'), designedMoment('b1')], declined: [] };
-    const r = await runDesignPrepass({ beats, videoStyle, brand: INSTURIX, budget: tightBudget }, { generate: fakeGen(JSON.stringify(plan)) });
-    expect(r.plans.size).toBe(0); // 2 designed > maxMoments 1 → validation rejects the whole plan → all fall back
-    expect(r.reason).toMatch(/budget/);
+    const r = await runDesignPrepass({ beats: rankedBeats, videoStyle, brand: INSTURIX, budget: tightBudget }, { generate: fakeGen(JSON.stringify(plan)) });
+    expect(r.plans.size).toBe(1);
+    expect(r.plans.has(keyA)).toBe(true);
+    expect(r.plans.has(keyB)).toBe(false);
   });
 });
