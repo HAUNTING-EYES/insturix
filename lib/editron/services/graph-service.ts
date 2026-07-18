@@ -11,6 +11,7 @@
 
 import { getSession, runCypher, isNeo4jAvailable } from '@/lib/editron/db/neo4j';
 import { generateEditronEmbedding } from './gemini-embedding';
+import neo4j from 'neo4j-driver';
 
 // ─── Write Result ───────────────────────────────────────────────
 // Every write returns this so callers (QStash workers) can handle failures
@@ -782,6 +783,7 @@ export async function searchAssets(
   } = {},
 ): Promise<AssetSearchHit[]> {
   const { moods, sceneType, brandId, limit = 5, minSemanticScore = 0.4 } = options;
+  const normalizedLimit = Number.isFinite(limit) ? Math.max(1, Math.trunc(limit)) : 5;
 
   const moodClause = moods && moods.length > 0
     ? 'AND a.mood IN $moods'
@@ -846,7 +848,7 @@ export async function searchAssets(
         searchTypes: sceneType ? [sceneType] : ['continuous', 'montage', 'logo-reveal', 'text-card'],
         brandId: brandId ?? null,
         minScore: minSemanticScore,
-        limit,
+        limit: neo4j.int(normalizedLimit),
       },
       'READ'
     );

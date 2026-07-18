@@ -70,7 +70,7 @@ export const chatEditorialIntentSchema = z.object({
   }).strict().optional(),
   musicPrompt: z.string().min(1).max(500).optional(),
   notes: z.string().min(1).max(500).optional(),
-  script: z.string().min(1).max(CHAT_SCRIPT_MAX_CHARS).optional().describe('Optional authoritative script. When present, the Phase 2 multi-asset script planner owns clip selection and ordering.'),
+  script: z.string().min(1).max(CHAT_SCRIPT_MAX_CHARS).optional().describe('Optional authoritative script supplied by the user. Omit this field when no script was provided; never send sentinel text such as "none", "null", or "N/A". When present, the Phase 2 multi-asset script planner owns clip selection and ordering.'),
 }).strict();
 
 export type ChatEditorialIntentInput = z.infer<typeof chatEditorialIntentSchema>;
@@ -161,7 +161,7 @@ export function compileGroundedEditorialIntent(input: ChatEditorialIntentInput):
     notes: [input.notes, ...input.constraints].filter(Boolean).join('\n'),
   });
   const targetReference = cleanText(input.targetReference);
-  const script = cleanText(input.script, CHAT_SCRIPT_MAX_CHARS);
+  const script = normalizeOptionalScript(input.script);
   return {
     version: CHAT_EDITORIAL_INTENT_VERSION,
     intentId: `intent_${randomUUID()}`,
@@ -175,6 +175,23 @@ export function compileGroundedEditorialIntent(input: ChatEditorialIntentInput):
     ...(script ? { script } : {}),
     evidenceQuery: targetReference ?? input.goal.trim(),
   };
+}
+
+const ABSENT_SCRIPT_SENTINELS = new Set([
+  'none',
+  '(none)',
+  'none provided',
+  '(none provided)',
+  'null',
+  'undefined',
+  'n/a',
+  'not applicable',
+]);
+
+function normalizeOptionalScript(value: string | undefined): string | undefined {
+  const script = cleanText(value, CHAT_SCRIPT_MAX_CHARS);
+  if (!script) return undefined;
+  return ABSENT_SCRIPT_SENTINELS.has(script.toLocaleLowerCase()) ? undefined : script;
 }
 
 export async function applyGroundedEditorialIntent(

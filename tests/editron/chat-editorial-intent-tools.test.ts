@@ -313,6 +313,30 @@ describe('chat semantic editorial intent', () => {
     expect(deps.executeTargetedIntent).not.toHaveBeenCalled();
   });
 
+  it.each(['none', '(none)', 'none provided', 'null', 'undefined', 'N/A', 'not applicable'])(
+    'treats optional-script sentinel %j as absent instead of activating script recomposition',
+    async (script) => {
+      const deps = dependencies();
+      const result = await applyGroundedEditorialIntent({
+        userId: 'user-1',
+        projectId: 'project-1',
+        input: {
+          goal: 'Match the restraint of the reference edit',
+          scope: { kind: 'project' },
+          constraints: [],
+          strength: 0.6,
+          uncertainty: 0,
+          script,
+        },
+      }, deps);
+
+      expect(result.intent).not.toHaveProperty('script');
+      expect(result.dispatch.owner).toBe('director-unified-planner');
+      expect(deps.executeProjectIntent).toHaveBeenCalledOnce();
+      expect(deps.dispatchScriptIntent).not.toHaveBeenCalled();
+    },
+  );
+
   it('removes hidden prompt recipes from the live chat graph', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/agent-graph.ts'), 'utf8');
     expect(source).toContain('apply_editorial_intent');
