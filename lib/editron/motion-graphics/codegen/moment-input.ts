@@ -79,6 +79,9 @@ export interface BuildMgMomentInputArgs {
   /** The video's aggregate SIGNALS (energy/formality), computed by the seam across the whole video — the PRIMARY
    *  driver of the style identity (font is only a weak fallback). Absent → falls back to intent + font. */
   videoSignals?: VideoAggregateSignals;
+  /** Resolved liveness [0.7,1] (brand×video×user, computeMgMotionIntensity) → the reserved data.motionIntensity
+   *  the coder binds for every hold/entrance. Absent → producer predates the resolver (legacy/harness). */
+  motionIntensity?: number;
 }
 
 const clamp01 = (v: number): number => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
@@ -115,7 +118,7 @@ function deriveScreen(placement: MgPlacementSource): MgScreenContext | undefined
  * zero/negative-length clip or non-positive fps is a caller bug — fail loud, do not silently "fix" it).
  */
 export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput {
-  const { momentId, candidate, brand, window, expression, placement, anchors, visualEvidence, notes, intent, footageSignals, videoSignals } = args;
+  const { momentId, candidate, brand, window, expression, placement, anchors, visualEvidence, notes, intent, footageSignals, videoSignals, motionIntensity } = args;
 
   if (!Number.isFinite(window.fps) || window.fps <= 0) {
     throw new Error(`buildMgMomentInput: fps must be positive, got ${window.fps}`);
@@ -160,6 +163,7 @@ export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput 
   // font alone gives a valid identity. footageSignals (this moment's) drives the per-moment variation when present.
   input.videoStyle = resolveVideoStyle({ brandFont: brand.fontSans, intent, videoSignals });
   if (footageSignals) input.footageSignals = footageSignals;
+  if (typeof motionIntensity === 'number' && Number.isFinite(motionIntensity)) input.motionIntensity = motionIntensity;
 
   return input;
 }

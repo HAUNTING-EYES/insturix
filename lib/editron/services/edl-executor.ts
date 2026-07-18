@@ -60,6 +60,8 @@ import type { SignalCurves } from '@/lib/editron/motion-graphics/engine/primitiv
 import type { UnifiedBrandLike } from '@/lib/editron/motion-graphics/codegen/brand-mapper';
 import type { MgAnchors, MgReceipt } from '@/lib/editron/motion-graphics/codegen/types';
 import type { FootageSignals } from '@/lib/editron/motion-graphics/codegen/style/footage-character';
+import { normalizeEditorialPreferences, type EditorialFamilyPreference } from '@/lib/editron/production-brief/editorial-preferences';
+import { computeMgMotionIntensity } from '@/lib/editron/motion-graphics/codegen/design/motion-intensity';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -424,6 +426,9 @@ interface EDLSignalContext {
   intent?: string;
   /** The video's aggregate signal character (energy/formality) — the SIGNAL-driven style identity primary. */
   videoSignals?: { energy?: number; formality?: number };
+  /** The project's motionGraphics family preference (the user's dial: mode/frequency/intensity) — feeds the
+   *  density budget + motion-intensity resolver. Absent = 'auto' (no user push). */
+  motionGraphicsPref?: EditorialFamilyPreference;
 }
 
 type ScoreAllOverlaysFn = typeof import('@/lib/editron/engine/utility-scorer').scoreAllOverlays;
@@ -797,6 +802,10 @@ export async function executeEDL(
     const mgUserIntent = typeof projectDoc?.productionBriefIntake?.userIntent === 'string' && projectDoc.productionBriefIntake.userIntent.trim()
       ? String(projectDoc.productionBriefIntake.userIntent)
       : undefined;
+    // The user's motionGraphics dial (mode/frequency/intensity) — normalized defensively (absent/garbage →
+    // undefined = 'auto'). Feeds the density budget + the motion-intensity resolver at the codegen seam.
+    const mgPrefs = normalizeEditorialPreferences(projectDoc?.productionBriefIntake?.editorialPreferences ?? projectDoc?.editorialPreferences);
+    const mgGraphicsPref = mgPrefs?.families?.motionGraphics;
     projectSignalContext = {
       codegenBrand: undefined,
       hasConfiguredBrand: Boolean(projectDoc?.brandId),
@@ -809,6 +818,7 @@ export async function executeEDL(
         : undefined,
       intent: mgUserIntent,
       videoSignals: mgEnergy !== undefined ? { energy: mgEnergy } : undefined,
+      motionGraphicsPref: mgGraphicsPref,
     };
     if (projectDoc?.brandId && userId) {
       const { resolveEffectiveBrandWithProfile } = await import('@/lib/shared/brand-effective-resolver');
@@ -4246,6 +4256,14 @@ async function applyGraphic(
         if (projectSignalContext.hasConfiguredBrand && mappedBrand.isDefault) {
           return rejectCodegenMoment('fallback', 'Configured brand could not be mapped to the MG kit');
         }
+        // Resolved liveness (brand×video×user) — deterministic, identical across this video's moments; becomes
+        // the reserved data.motionIntensity the coder binds for every hold/entrance (P5-1 Phase B: the producer
+        // for the Phase-A socket). videoEnergy = the video's real aggregate (V-JEPA motion ⊕ audio emotion).
+        const mgMotionIntensity = computeMgMotionIntensity({
+          brandMotionEnergy: mappedBrand.brand.motion.energy,
+          videoEnergy: projectSignalContext.videoSignals?.energy,
+          preference: projectSignalContext.motionGraphicsPref,
+        }).intensity;
 
         const codegenWindow = {
           startFrame: snappedFrame,
@@ -4296,6 +4314,7 @@ async function applyGraphic(
           intent: projectSignalContext.intent, // the user's stated purpose → signal-driven style identity
           videoSignals: projectSignalContext.videoSignals, // the video's aggregate energy → style identity
           footageSignals: Object.keys(mgFootage).length > 0 ? mgFootage : undefined,
+          motionIntensity: mgMotionIntensity, // brand×video×user liveness → reserved data.motionIntensity
         });
         const generated = await runDurableMgRenderJob({
           projectId,
