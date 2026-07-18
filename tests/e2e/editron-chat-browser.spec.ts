@@ -23,6 +23,11 @@ interface ProjectPayload {
   project?: JsonRecord;
 }
 
+interface BrowserFailureObserver {
+  failures: string[];
+  duringNavigation: <T>(operation: () => Promise<T>) => Promise<T>;
+}
+
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -58,9 +63,10 @@ async function installVercelBypass(
   });
 }
 
-function observeBrowserFailures(page: Page, baseUrl: string): string[] {
+function observeBrowserFailures(page: Page, baseUrl: string): BrowserFailureObserver {
   const failures: string[] = [];
   const origin = new URL(baseUrl).origin;
+  let navigationDepth = 0;
   const add = (message: string) => {
     if (!failures.includes(message)) failures.push(message);
   };
@@ -73,13 +79,15 @@ function observeBrowserFailures(page: Page, baseUrl: string): string[] {
   });
   page.on('requestfailed', (request) => {
     if (new URL(request.url()).origin !== origin) return;
+    const errorText = request.failure()?.errorText || 'unknown';
+    if (navigationDepth > 0 && errorText === 'net::ERR_ABORTED') return;
     add(
       'requestfailed: ' +
         request.method() +
         ' ' +
         request.url() +
         ' (' +
-        (request.failure()?.errorText || 'unknown') +
+        errorText +
         ')',
     );
   });
@@ -95,7 +103,17 @@ function observeBrowserFailures(page: Page, baseUrl: string): string[] {
     );
   });
 
-  return failures;
+  return {
+    failures,
+    duringNavigation: async <T,>(operation: () => Promise<T>): Promise<T> => {
+      navigationDepth += 1;
+      try {
+        return await operation();
+      } finally {
+        navigationDepth -= 1;
+      }
+    },
+  };
 }
 
 async function getJson<T>(page: Page, path: string): Promise<T> {
@@ -248,18 +266,30 @@ async function ensureChatOpen(page: Page): Promise<void> {
   await expect(page.getByText('Loading chats...')).toBeHidden();
 }
 
-async function openProject(page: Page, projectId: string): Promise<void> {
-  await waitForProjectApi(page, projectId, () =>
-    page.goto(projectPath(projectId), { waitUntil: 'domcontentloaded' }),
-  );
-  await ensureChatOpen(page);
+async function openProject(
+  page: Page,
+  projectId: string,
+  observer: BrowserFailureObserver,
+): Promise<void> {
+  await observer.duringNavigation(async () => {
+    await waitForProjectApi(page, projectId, () =>
+      page.goto(projectPath(projectId), { waitUntil: 'domcontentloaded' }),
+    );
+    await ensureChatOpen(page);
+  });
 }
 
-async function hardRefreshProject(page: Page, projectId: string): Promise<void> {
-  await waitForProjectApi(page, projectId, () =>
-    page.reload({ waitUntil: 'domcontentloaded' }),
-  );
-  await ensureChatOpen(page);
+async function hardRefreshProject(
+  page: Page,
+  projectId: string,
+  observer: BrowserFailureObserver,
+): Promise<void> {
+  await observer.duringNavigation(async () => {
+    await waitForProjectApi(page, projectId, () =>
+      page.reload({ waitUntil: 'domcontentloaded' }),
+    );
+    await ensureChatOpen(page);
+  });
 }
 
 test.describe('Editron Clerk-authenticated project isolation', () => {
@@ -278,9 +308,9 @@ test.describe('Editron Clerk-authenticated project isolation', () => {
       baseUrl,
       process.env.EDITRON_E2E_VERCEL_BYPASS_TOKEN?.trim(),
     );
-    const browserFailures = observeBrowserFailures(page, baseUrl);
+    const browserObserver = observeBrowserFailures(page, baseUrl);
 
-    await openProject(page, firstProjectId);
+    await openProject(page, firstProjectId, browserObserver);
 
     const firstProject = await loadProject(page, firstProjectId);
     const firstSessions = await loadSessions(page, firstProjectId);
@@ -300,31 +330,31 @@ test.describe('Editron Clerk-authenticated project isolation', () => {
     await expect(page.getByText(firstMarker, { exact: false }).first()).toBeVisible();
     await expect(page.getByText(secondMarker, { exact: false })).toHaveCount(0);
 
-    await hardRefreshProject(page, firstProjectId);
+    await hardRefreshProject(page, firstProjectId, browserObserver);
     expect(projectFingerprint(await loadProject(page, firstProjectId))).toBe(firstFingerprint);
     await expect(page.getByText(firstMarker, { exact: false }).first()).toBeVisible();
     await expect(page.getByText(secondMarker, { exact: false })).toHaveCount(0);
 
-    await openProject(page, secondProjectId);
+    await openProject(page, secondProjectId, browserObserver);
     const secondProject = await loadProject(page, secondProjectId);
     const secondFingerprint = projectFingerprint(secondProject);
 
     await expect(page.getByText(firstMarker, { exact: false })).toHaveCount(0);
     await expect(page.getByText(secondMarker, { exact: false }).first()).toBeVisible();
 
-    await hardRefreshProject(page, secondProjectId);
+    await hardRefreshProject(page, secondProjectId, browserObserver);
     expect(projectFingerprint(await loadProject(page, secondProjectId))).toBe(secondFingerprint);
     await expect(page.getByText(firstMarker, { exact: false })).toHaveCount(0);
     await expect(page.getByText(secondMarker, { exact: false }).first()).toBeVisible();
 
-    await openProject(page, firstProjectId);
+    await openProject(page, firstProjectId, browserObserver);
     expect(projectFingerprint(await loadProject(page, firstProjectId))).toBe(firstFingerprint);
     await expect(page.getByText(firstMarker, { exact: false }).first()).toBeVisible();
     await expect(page.getByText(secondMarker, { exact: false })).toHaveCount(0);
 
     expect(
-      browserFailures,
-      'Authenticated browser failures:\n' + browserFailures.join('\n'),
+      browserObserver.failures,
+      'Authenticated browser failures:\n' + browserObserver.failures.join('\n'),
     ).toEqual([]);
   });
 });

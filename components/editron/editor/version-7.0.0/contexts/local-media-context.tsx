@@ -88,6 +88,7 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
   // Load saved media files from server on component mount
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
 
     const loadMediaFiles = async () => {
       let nextCursor: string | null = null;
@@ -99,7 +100,9 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
         do {
           const query = new URLSearchParams({ limit: "100" });
           if (nextCursor) query.set("cursor", nextCursor);
-          const response = await fetch(`/api/services/editron/media/list?${query.toString()}`);
+          const response = await fetch(`/api/services/editron/media/list?${query.toString()}`, {
+            signal: controller.signal,
+          });
           const data = await response.json().catch(() => null);
           if (!response.ok || !data?.success || !Array.isArray(data.assets)) {
             throw new Error(data?.error || `Media list failed with HTTP ${response.status}`);
@@ -125,6 +128,7 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
           nextCursor = continuation;
         } while (nextCursor && !cancelled);
       } catch (error) {
+        if (cancelled || controller.signal.aborted) return;
         console.error("Error loading media files from server:", error);
         if (!cancelled && !receivedPage) setLocalMediaFiles([]);
       } finally {
@@ -135,6 +139,7 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
     void loadMediaFiles();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [userId]);
 
