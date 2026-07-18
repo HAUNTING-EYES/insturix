@@ -6,10 +6,11 @@ import {
   type CalosTrendOpportunityRecommendation,
 } from "@/schemas/calos-trend-opportunity";
 import { calosScope } from "@/lib/calos/scope";
+import { scoreTrendBrandConcepts } from "@/lib/calos/trend-brand-fit";
 import { resolveEffectiveBrandWithProfile } from "@/lib/shared/brand-effective-resolver";
 import { isBrandSignalActionable, type BrandSignal, type BrandSignalProfile } from "@/lib/shared/brand-signal-profile";
 
-const TREND_OPPORTUNITY_MATCHER_VERSION = 1;
+const TREND_OPPORTUNITY_MATCHER_VERSION = 2;
 export const MIN_TREND_OPPORTUNITY_SCORE = 0.5;
 
 const OPPORTUNITY_LEASE_MS = 10 * 60 * 1_000;
@@ -120,8 +121,13 @@ export function evaluateTrendCandidate(candidate: CalosTrendWatchCandidate, prof
   let hasDirectMatch = false;
   const reasonCodes: string[] = [];
   const matchedSignalPaths: string[] = [];
+  const conceptMatches = scoreTrendBrandConcepts(candidateText, groups);
   for (const group of groups) {
-    const match = scoreGroupMatch(group, candidateText, candidateTokens);
+    const lexicalMatch = scoreGroupMatch(group, candidateText, candidateTokens);
+    const conceptMatch = conceptMatches.get(group.code);
+    const match = conceptMatch && conceptMatch.coverage > lexicalMatch.coverage
+      ? { ...conceptMatch, direct: false }
+      : lexicalMatch;
     if (match.coverage <= 0) continue;
     weightedCoverage += group.weight * match.coverage;
     hasDirectMatch ||= match.direct;
@@ -138,8 +144,9 @@ export function evaluateTrendCandidate(candidate: CalosTrendWatchCandidate, prof
     };
   }
 
-  const momentum = clamp01(typeof candidate.score === "number" ? candidate.score : 0.5);
-  const relevanceScore = clamp01(0.55 * weightedCoverage + 0.25 * momentum + (hasDirectMatch ? 0.2 : 0));
+  const momentum = typeof candidate.score === "number" ? clamp01(candidate.score) : null;
+  const brandFitScore = clamp01(weightedCoverage + (hasDirectMatch ? 0.2 : 0));
+  const relevanceScore = clamp01(brandFitScore + (momentum === null ? 0 : 0.15 * (momentum - 0.5)));
   if (relevanceScore < MIN_TREND_OPPORTUNITY_SCORE) {
     return {
       status: "not_relevant",
@@ -149,7 +156,7 @@ export function evaluateTrendCandidate(candidate: CalosTrendWatchCandidate, prof
     };
   }
 
-  if (momentum >= 0.7) reasonCodes.push("trend_momentum");
+  if (momentum !== null && momentum >= 0.7) reasonCodes.push("trend_momentum");
   return {
     status: "suggested",
     relevanceScore,
@@ -161,7 +168,7 @@ export function evaluateTrendCandidate(candidate: CalosTrendWatchCandidate, prof
 /** Claims one public candidate or an abandoned private match, then evaluates it inside the service boundary. */
 export async function processNextTrendOpportunity(now = new Date()): Promise<TrendOpportunityProcessResult> {
   await markAbandonedMatches(now);
-  const work = await claimRetry(now) ?? await claimFreshCandidate(now);
+  const work = await claimRetry(now) ?? await claimPriorMatcherRejection(now) ?? await claimFreshCandidate(now);
   if (!work) return { status: "idle" };
   return evaluateClaimedOpportunity(work, now);
 }
@@ -249,6 +256,29 @@ async function claimRetry(now: Date): Promise<OpportunityWorkItem | null> {
       $inc: { attempts: 1 },
     },
     { sort: { nextAttemptAt: 1 }, new: true },
+  ).lean() as unknown as OpportunityWorkItem | null;
+}
+
+async function claimPriorMatcherRejection(now: Date): Promise<OpportunityWorkItem | null> {
+  const leaseId = newLeaseId();
+  return await CalosTrendOpportunity.findOneAndUpdate(
+    {
+      status: "not_relevant",
+      matcherVersion: { $lt: TREND_OPPORTUNITY_MATCHER_VERSION },
+      expiresAt: { $gt: now },
+    },
+    {
+      $set: {
+        status: "processing",
+        matcherVersion: TREND_OPPORTUNITY_MATCHER_VERSION,
+        leaseId,
+        leaseExpiresAt: new Date(now.getTime() + OPPORTUNITY_LEASE_MS),
+        nextAttemptAt: now,
+        failureCode: null,
+      },
+      $inc: { attempts: 1 },
+    },
+    { sort: { evaluatedAt: -1 }, new: true },
   ).lean() as unknown as OpportunityWorkItem | null;
 }
 
@@ -538,7 +568,7 @@ function tokenize(value: string): Set<string> {
 
 function phraseMatches(text: string, term: string): boolean {
   const normalized = normalizeText(term);
-  return normalized.length >= 3 && text.includes(normalized);
+  return normalized.length >= 3 && (` ${text} `).includes(` ${normalized} `);
 }
 
 function sharedTokenScore(left: Set<string>, right: Set<string>): number {

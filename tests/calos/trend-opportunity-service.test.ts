@@ -39,6 +39,23 @@ function profile(): BrandSignalProfile {
   } as unknown as BrandSignalProfile;
 }
 
+function creativePlatformProfile(): BrandSignalProfile {
+  const result = profile();
+  result.identity.brandName = signal("Example Creative Platform");
+  result.identity.category = signal("automated content production platform");
+  result.identity.industry = signal("SaaS software");
+  result.identity.audience = signal(["creator houses", "agencies", "filmmakers", "content teams"]);
+  result.identity.productServices = signal([
+    "scriptwriting",
+    "video editing",
+    "image design",
+    "automated content production",
+    "multi-channel distribution",
+  ]);
+  result.identity.audiencePsychographics = undefined;
+  return result;
+}
+
 describe("CalOS Trend Opportunity private matcher", () => {
   it("suggests a high-fit public trend from accepted product and audience signals", () => {
     const decision = evaluateTrendCandidate({
@@ -69,14 +86,30 @@ describe("CalOS Trend Opportunity private matcher", () => {
     });
   });
 
-  it("records only the accepted signal path that actually matched", () => {
+  it("matches brand constraints on phrase boundaries instead of substrings", () => {
+    const boundaryProfile = profile();
+    boundaryProfile.voice.killList = signal(["war"]);
+    const decision = evaluateTrendCandidate({
+      title: "Workflow software automation for operations teams",
+      platform: "linkedin",
+      score: 0.9,
+    }, boundaryProfile);
+
+    expect(decision.status).toBe("suggested");
+    expect(decision.reasonCodes).not.toContain("brand_constraint");
+  });
+
+  it("records every accepted signal path that contributed to the decision", () => {
     const decision = evaluateTrendCandidate({
       title: "Workflow automation templates",
       platform: "linkedin",
       score: 0.9,
     }, profile());
 
-    expect(decision).toMatchObject({ status: "suggested", matchedSignalPaths: ["identity.productServices"] });
+    expect(decision).toMatchObject({
+      status: "suggested",
+      matchedSignalPaths: ["identity.category", "identity.productServices"],
+    });
   });
 
   it("rejects unrelated public noise instead of forcing it into a brand calendar", () => {
@@ -86,6 +119,68 @@ describe("CalOS Trend Opportunity private matcher", () => {
       platform: "instagram",
       score: 0.95,
     }, profile());
+
+    expect(decision).toMatchObject({ status: "not_relevant", reasonCodes: ["insufficient_brand_fit"] });
+  });
+
+  it("recognizes concept-level fit when a real trend uses different words than the accepted brand profile", () => {
+    const decision = evaluateTrendCandidate({
+      title: "AI-powered localized video variants at scale",
+      summary: "Brands are producing multilingual campaign videos without rebuilding every creative by hand.",
+      platform: "instagram",
+      score: 0.88,
+    }, creativePlatformProfile());
+
+    expect(decision.status).toBe("suggested");
+    expect(decision.relevanceScore).toBeGreaterThanOrEqual(MIN_TREND_OPPORTUNITY_SCORE);
+    expect(decision.reasonCodes).toEqual(expect.arrayContaining(["industry_or_category", "product_or_service"]));
+    expect(decision.matchedSignalPaths).toEqual(expect.arrayContaining([
+      "identity.category",
+      "identity.productServices",
+    ]));
+  });
+
+  it("recognizes character-consistent AI video as a creative-production opportunity", () => {
+    const decision = evaluateTrendCandidate({
+      title: "Character-consistent AI video is becoming usable for brands",
+      summary: "New generation models keep a presenter visually consistent across campaign scenes.",
+      platform: "youtube",
+      score: 0.82,
+    }, creativePlatformProfile());
+
+    expect(decision.status).toBe("suggested");
+    expect(decision.matchedSignalPaths).toContain("identity.productServices");
+  });
+
+  it("uses brand fit without inventing momentum when a provider did not supply a score", () => {
+    const decision = evaluateTrendCandidate({
+      title: "AI-powered localized video variants at scale",
+      summary: "Brands produce multilingual video variants without rebuilding every creative.",
+      platform: "instagram",
+    }, creativePlatformProfile());
+
+    expect(decision.status).toBe("suggested");
+    expect(decision.reasonCodes).not.toContain("trend_momentum");
+  });
+
+  it("does not treat generic AI momentum as brand fit without a shared business domain", () => {
+    const decision = evaluateTrendCandidate({
+      title: "AI stock-trading alerts surge among retail investors",
+      summary: "Automated portfolios and options signals dominate finance communities this week.",
+      platform: "youtube",
+      score: 0.98,
+    }, creativePlatformProfile());
+
+    expect(decision).toMatchObject({ status: "not_relevant", reasonCodes: ["insufficient_brand_fit"] });
+  });
+
+  it("does not force a weak audience-only overlap into the review queue", () => {
+    const decision = evaluateTrendCandidate({
+      title: "Agency founders share their favorite airport lounges",
+      summary: "A travel carousel comparing hospitality perks for business travelers.",
+      platform: "instagram",
+      score: 0.96,
+    }, creativePlatformProfile());
 
     expect(decision).toMatchObject({ status: "not_relevant", reasonCodes: ["insufficient_brand_fit"] });
   });
