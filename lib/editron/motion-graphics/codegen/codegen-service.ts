@@ -35,7 +35,7 @@ import type {
 } from './types';
 
 /** Bumped when the kit or prompt changes — part of the cache key so stale code never gets reused. */
-export const KIT_VERSION = 'e1.3'; // e1.3: Bar/Ring label+valueText readout slots + data.backdropSrc reserved prop in the API (4b-3)
+export const KIT_VERSION = 'e1.4'; // e1.4: Plate surface axis = derived material depth (gradient/frosted/raised/glow + emphasis/grain) via materialSurface
 const DEFAULT_JUDGE_THRESHOLD = 7.5; // ← ship at 7.5, tune on the first 50 real moments
 const MAX_MODEL_ATTEMPTS = 3;
 const MAX_COMPILE_FEEDBACK_CHARS = 1_200;
