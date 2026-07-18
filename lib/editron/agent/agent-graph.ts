@@ -87,8 +87,6 @@ async function loadCanonicalPostconditionProject(userId: string, projectId: stri
   return projectService.loadProject(userId, projectId);
 }
 
-// Debug logging - ALWAYS enabled for debugging silent failure bug
-const debugLog = (...args: any[]) => { console.log('[AGENT-DEBUG]', ...args); };
 const debugWarn = (...args: any[]) => { console.warn('[AGENT-WARN]', ...args); };
 const debugError = (...args: any[]) => { console.error('[AGENT-ERROR]', ...args); }; // Errors always logged
 
@@ -271,27 +269,13 @@ export const createAgent = (
     // PERF FIX: Use cached tools instead of creating a new set every call.
     // Previously: const tools = createToolsWithProject(projectId);  [every call]
     const tools = getOrCreateTools(projectId);
-    debugLog('Tools bound:', tools.map(t => t.name));
     
     let messages = state.messages || [];
-    
-    debugLog('Number of messages in state:', messages.length);
-    
-    // Debug: Log each message structure
+
+    // Reject malformed history before converting it for Gemini.
     messages.forEach((msg, idx) => {
-      const msgType = msg.constructor?.name || typeof msg;
-      const msgContent = typeof msg.content === 'string' 
-        ? msg.content.substring(0, 100) 
-        : JSON.stringify(msg.content)?.substring(0, 100);
-      const hasToolCalls = (msg as any).tool_calls?.length > 0;
-      debugLog(`Message ${idx}: type=${msgType}, content=${msgContent}..., hasToolCalls=${hasToolCalls}`);
-      
-      // Check for malformed messages
       if (msg.content === undefined || msg.content === null) {
         debugError(`WARNING: Message ${idx} has undefined/null content!`);
-      }
-      if ((msg as any).tool_calls) {
-        debugLog(`Message ${idx} tool_calls:`, JSON.stringify((msg as any).tool_calls).substring(0, 200));
       }
     });
     
@@ -302,7 +286,6 @@ export const createAgent = (
       const m = msg as any;
       // If content is an array (happens with AIMessageChunk from tool calls), normalize it
       if (Array.isArray(m.content)) {
-        debugLog('Normalizing message with array content to empty string');
         // Create a new message with string content but preserve tool_calls
         return new AIMessage({
           content: '', // Convert array to empty string
@@ -619,9 +602,6 @@ export const createAgent = (
 </input_data>`;
 
     const systemMessage = new SystemMessage(SYSTEM_MESSAGE);
-    
-    debugLog('System message length:', SYSTEM_MESSAGE.length);
-    debugLog('About to invoke model with', messages.length + 1, 'messages (including system)');
 
     // Use direct Google SDK instead of LangChain due to LangChain's broken response parser
     try {
@@ -725,8 +705,6 @@ export const createAgent = (
         }
       }
       
-      debugLog('Calling Gemini directly with', geminiContents.length, 'messages');
-      
       // The Gemini API requires contents to not be empty.
       // If messages somehow failed to parse or were empty, provide a fallback.
       if (geminiContents.length === 0) {
@@ -770,8 +748,6 @@ export const createAgent = (
       
       // Use streaming if callback is provided
       if (streamCallback) {
-        debugLog('Using streaming mode');
-        
         // Auto-retry logic for empty responses (max 3 attempts)
         const MAX_RETRIES = 3;
         let attempt = 0;
@@ -783,12 +759,9 @@ export const createAgent = (
           toolCalls.length = 0; // Clear any previous attempts
           modelResponseParts = [];
           
-          debugLog(`Attempt ${attempt}/${MAX_RETRIES}: Calling generateContentStream...`);
-          
           // On retry, add a hint to help the model understand
           let contentsToSend = geminiContents;
           if (attempt > 1) {
-            debugLog('Adding retry hint to help model respond');
             contentsToSend = [
               ...geminiContents,
               {
@@ -801,23 +774,12 @@ export const createAgent = (
           }
           
           const streamResult = await directModel.generateContentStream({ contents: contentsToSend });
-          debugLog('Got streamResult, starting iteration...');
           
           let chunkCount = 0;
           for await (const chunk of streamResult.stream) {
             chunkCount++;
-            debugLog(`Processing chunk #${chunkCount}:`, JSON.stringify(chunk).substring(0, 500));
-            
-            // Check for safety ratings or blocked content
-            if (chunk.candidates?.[0]?.finishReason) {
-              debugLog('Chunk finishReason:', chunk.candidates[0].finishReason);
-            }
-            if (chunk.candidates?.[0]?.safetyRatings) {
-              debugLog('Safety ratings:', JSON.stringify(chunk.candidates[0].safetyRatings));
-            }
             
             const parts = chunk.candidates?.[0]?.content?.parts || [];
-            debugLog(`Chunk #${chunkCount} has ${parts.length} parts`);
             
             if (parts.length === 0) {
               debugWarn('Empty parts in chunk, checking candidate content:', JSON.stringify(chunk.candidates?.[0]?.content));
@@ -826,12 +788,10 @@ export const createAgent = (
             for (const part of parts) {
               modelResponseParts.push(part);
               if (part.text) {
-                debugLog('Got text part:', part.text.substring(0, 100));
                 textContent += part.text;
                 // Stream token to callback
                 streamCallback({ type: 'token', data: { content: part.text } });
               } else if (part.functionCall) {
-                debugLog('Got functionCall part:', part.functionCall.name, part.functionCall.args);
                 const toolCall = {
                   type: 'tool_call',
                   id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -846,19 +806,16 @@ export const createAgent = (
               }
             }
           }
-          debugLog(`Stream iteration complete. Total chunks: ${chunkCount}, text length: ${textContent.length}, tool calls: ${toolCalls.length}`);
           
           // Check if we got a valid response
           if (chunkCount > 0 && (textContent.length > 0 || toolCalls.length > 0)) {
             needsRetry = false; // Success!
-            debugLog(`Attempt ${attempt} succeeded`);
             
             // Extract token usage from the aggregated response for billing
             try {
               const aggregatedResponse = await streamResult.response;
               if (aggregatedResponse.usageMetadata && tokenTracker) {
                 tokenTracker.addUsage(aggregatedResponse.usageMetadata);
-                debugLog('Token usage:', aggregatedResponse.usageMetadata);
               }
             } catch (usageError) {
               debugWarn('Could not extract token usage:', usageError);
@@ -884,7 +841,6 @@ export const createAgent = (
         }
       } else {
         // Non-streaming fallback
-        debugLog('Using non-streaming mode');
         const result = await directModel.generateContent({ contents: geminiContents });
         const response = result.response;
         
@@ -913,11 +869,8 @@ export const createAgent = (
         // Extract token usage for non-streaming mode
         if (response.usageMetadata && tokenTracker) {
           tokenTracker.addUsage(response.usageMetadata);
-          debugLog('Token usage (non-streaming):', response.usageMetadata);
         }
       }
-      
-      debugLog('Parsed response - text:', textContent.substring(0, 100), 'toolCalls:', toolCalls.length);
       
       // Return as AIMessage for LangGraph compatibility
       return processResponse({
@@ -935,12 +888,6 @@ export const createAgent = (
   
   // Separate function to process response (extracted for cleaner try/catch)
   function processResponse(responseData: { content: string, tool_calls?: any[], geminiParts?: any[] }) {
-    
-    // DEBUG: Log what the model is returning
-    debugLog('Model response content length:', responseData.content?.length || 0);
-    debugLog('Model response preview:', responseData.content?.substring(0, 200));
-    debugLog('Tool calls:', responseData.tool_calls);
-    
     // Create an AIMessage with the response
     const aiMessage = new AIMessage({
       content: responseData.content || '',
@@ -1080,7 +1027,6 @@ export const createAgent = (
               projectId,
               projectRevision,
             });
-            debugLog('Tool output for', toolCall.name, ':', output.substring(0, 300));
           } catch (e: any) {
             output = formatChatToolInvocationError(toolCall.name, e);
           }
