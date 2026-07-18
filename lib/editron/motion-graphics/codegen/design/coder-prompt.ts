@@ -73,6 +73,11 @@ ${ELEMENT_MAP}
   framed fragment — a plate element or hint in the plan says so); never add a card just because footage is
   busy. Thin marks (Rule/Dot/Plot strokes) get the same halo treatment. A render whose text dies on the light
   stress row is REJECTED regardless of everything else.
+- NARRATIVE TEXT CHANNEL: for factKind 'narrative', data.line carries the beat's VERBATIM spoken words — the
+  only licensed on-screen words for that moment. Render data.line, or a verbatim phrase from it derived IN CODE
+  with a runtime guard (e.g. const phrase = /fake money/i.exec(String(data.line))?.[0] ?? String(data.line) —
+  the literal is licensed ONLY because the guard verifies it against data.line at render time; unguarded
+  hardcoded words remain forbidden). If the design demands words that are NOT verbatim in data.line, DECLINE.
 - FAITHFUL DATA RENDERING: every dataProp an element binds MUST be VISIBLY RENDERED via {data.<name>} — a label
   without its value ("Before" with no figure) is an INCOMPLETE CLAIM and is judged unfaithful. Bar and Ring carry
   label/valueText slots for exactly this: bind the display value there (e.g. label="Before"

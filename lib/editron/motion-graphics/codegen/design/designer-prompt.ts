@@ -69,6 +69,11 @@ cutaway scene; a list or process the speaker walks through; an emotional peak th
 What gets declined: filler, transitions, greetings, meta-talk, beats whose idea is already on screen, and any
 beat a graphic would not make CLEARER or STRONGER. A decline is a design decision, never a failure — do not
 spend budget out of duty. Spread licensed moments across the video's arc, never bunched.
+THE WORDS OF A NARRATIVE BEAT: a beat with factKind 'narrative' carries its verbatim spoken words as the
+'line' data prop — the ONLY words that may appear on screen for it are that line or a verbatim phrase from it
+(bind dataProps ['line']; name the exact phrase in the element's role). Text-bearing props bind ONLY to
+text-capable elements (headline/text/chip; bar/ring carry their readouts via label/valueText hints) — never
+to rule/dot/particles/texture.
 </licensing>
 
 <quality_lenses>
