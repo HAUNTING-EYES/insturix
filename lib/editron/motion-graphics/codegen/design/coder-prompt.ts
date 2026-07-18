@@ -49,8 +49,10 @@ ${ELEMENT_MAP}
 - BUILD ORDER: motion.enterOrder lists element indices in entrance order — anchor entrances to phases (ph.intro,
   then stagger(brand, i) offsets in that order). motion.build describes the build phase; motion.hold is the
   settled hold's ambient life (nest ambient() on a wrapper — the graphic never freezes). End settled via exitOut.
-- SYNC: syncTo='word-onsets' → align reveals to the word anchors named in <moment>; 'beats' → the beat/landing
-  anchors; 'landing' → land the key reveal on the landing beat; 'phases-only' → phases + stagger alone.
+- SYNC: syncTo='word-onsets' → the spoken phrase uses FitHeadline kinetic="words" wordsAt={data.wordFrames}
+  (the reserved system prop carrying the moment's word-onset frames) so each word PUNCHES in as it is spoken;
+  other elements may still stagger from phases. 'beats' → the beat/landing anchors; 'landing' → land the key
+  reveal on the landing beat; 'phases-only' → phases + stagger alone.
 - STRUCTURE: structure.placement/grouping/readingOrder describe the layout inside the SAFE region given in
   <moment> — compose the elements to realize that structure (grouped, aligned, deliberate negative space).
 - The video brief's motifLanguage/paletteMoves/motionPersonality apply WITHIN this component (the recurring

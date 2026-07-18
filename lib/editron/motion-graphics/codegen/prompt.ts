@@ -25,7 +25,7 @@ LAYOUT (positions are FRACTIONS of the title-safe region; px positioning is forb
 <Bleed>...</Bleed>                              // full-frame layer for IMAGERY/SHAPES only — text is rejected inside
 
 TEXT (the only way words render — size & colour COMPUTED, never passed):
-<FitHeadline brand text accentWords={["word"]} face="sans|display" weight={100..900} size="display|xl|l|m|s" kinetic="rise|chars|none" startAt align/>  // face="display" = heavy CONDENSED ALL-CAPS impact (bold-statement/kinetic-punch); "sans"=brand sans (default). weight = sans thickness (light-editorial↔heavy); display is single-weight (ignores it)
+<FitHeadline brand text accentWords={["word"]} face="sans|display" weight={100..900} size="display|xl|l|m|s" kinetic="rise|chars|words|none" wordsAt={data.wordFrames} startAt align/>  // face="display" = heavy CONDENSED ALL-CAPS impact (bold-statement/kinetic-punch); "sans"=brand sans (default). weight = sans thickness (light-editorial↔heavy); display is single-weight (ignores it). kinetic="words" = the KINETIC CAPTION: each word PUNCHES in on its own speech-onset frame — ALWAYS bind wordsAt={data.wordFrames} (the reserved system prop carrying the moment's word-onset frames); pair with face="display" + one accentWord for the retention-caption look
 <TextBlock brand text tone="text|muted|accent" size="m|s" startAt align/>
 <Chip brand text tone="ghost|accent" startAt/>
 

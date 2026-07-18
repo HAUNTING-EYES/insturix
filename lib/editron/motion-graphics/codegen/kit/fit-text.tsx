@@ -75,7 +75,13 @@ const SIZE_CAP: Record<'display' | 'xl' | 'l' | 'm' | 's', { frac: number; lines
 const clean = (w: string) => w.replace(/[.,!?;:]/g, '').toLowerCase();
 
 /** Headline that fits itself to its Region. Per-word (or per-char) kinetic reveal, choreography from
- *  brand.motion. `accentWords` are the ONLY route to gold. */
+ *  brand.motion. `accentWords` are the ONLY route to gold.
+ *
+ *  kinetic='words' (P2, the kinetic-caption capability): each word PUNCHES in on its OWN frame from `wordsAt`
+ *  — the speech word-onset frames, delivered as the reserved data prop `data.wordFrames` (Law 5: a timing edit
+ *  re-renders, never re-prompts). Scale-pop entrance (overshoot from brand.motion) instead of the rise — the
+ *  word lands when it is SPOKEN. Words beyond wordsAt.length continue on the brand stagger; non-finite frames
+ *  degrade to the stagger (never NaN). Any phrase, any count, any brand — a capability, not a template. */
 export const FitHeadline: React.FC<{
   brand: Brand;
   text: string;
@@ -84,12 +90,14 @@ export const FitHeadline: React.FC<{
   size?: keyof typeof SIZE_CAP;
   maxLines?: number;
   startAt?: number;
-  kinetic?: 'rise' | 'chars' | 'none';
+  kinetic?: 'rise' | 'chars' | 'words' | 'none';
+  /** Absolute moment-frames for each word's entrance (reading order) — bind data.wordFrames with kinetic='words'. */
+  wordsAt?: number[];
   align?: 'left' | 'center' | 'right';
   /** 100..900 — override the SANS headline weight (the type-weight axis: light-editorial ↔ heavy-punchy).
    *  The display face is single-weight (Anton) and ignores this — face='display' IS the heavy anchor. */
   weight?: number;
-}> = ({ brand, text, accentWords = [], face = 'sans', size = 'xl', maxLines, startAt = 0, kinetic = 'rise', align = 'left', weight: weightProp }) => {
+}> = ({ brand, text, accentWords = [], face = 'sans', size = 'xl', maxLines, startAt = 0, kinetic = 'rise', wordsAt, align = 'left', weight: weightProp }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const { wPx } = useRegionSize();
@@ -125,7 +133,10 @@ export const FitHeadline: React.FC<{
           {line.split(' ').map((w, wi) => {
             const isAccent = accents.has(clean(w));
             const units = kinetic === 'chars' ? Array.from(w) : [w];
-            const wordStart = startAt + idx * stg;
+            // 'words' = onset-timed: this word's OWN frame from wordsAt (reading order). Beyond the provided
+            // frames (or on a non-finite entry) the word degrades to the brand stagger — deterministic, no NaN.
+            const onset = kinetic === 'words' && wordsAt && Number.isFinite(wordsAt[idx]) ? wordsAt[idx] : undefined;
+            const wordStart = onset !== undefined ? startAt + onset : startAt + idx * stg;
             idx += 1;
             return (
               <span key={`${li}-${wi}`} style={{ display: 'inline-block', whiteSpace: 'pre', marginRight: px * 0.26 }}>
@@ -136,6 +147,11 @@ export const FitHeadline: React.FC<{
                       ? 1
                       : spring({ frame: frame - at, fps, config: { damping, mass: 0.6, stiffness: 165 + brand.motion.energy * 55 } });
                   const o = Math.max(0, Math.min(1, s));
+                  // 'words' = the kinetic PUNCH: scale pops through 100% on the raw spring (overshoot comes from
+                  // brand.motion.overshoot via damping) — the word hits when it is spoken. Other modes rise.
+                  const xform = kinetic === 'words'
+                    ? `scale(${(0.6 + 0.4 * s).toFixed(4)})`
+                    : `translateY(${(1 - o) * px * 0.45}px)`;
                   return (
                     <span
                       key={ui}
@@ -143,7 +159,7 @@ export const FitHeadline: React.FC<{
                         display: 'inline-block',
                         color: isAccent ? brand.colors.accent : brand.colors.text,
                         opacity: o,
-                        transform: `translateY(${(1 - o) * px * 0.45}px)`,
+                        transform: xform,
                       }}
                     >
                       {u}
