@@ -19,6 +19,11 @@ export interface MgRenderInput {
   /** The fact's data — the component's own emergent props, baked in as the `data` prop (Law 5: a value edit
    *  re-renders from the same source). Shape is per-component (the model declares its own `Data`). */
   data: Record<string, unknown>;
+  /** Binary ASSETS delivered into the render workspace's `public/` dir (P1: generated backdrops — jpg stills,
+   *  Omni mp4 motion clips). The component references them BY NAME via a data prop (e.g.
+   *  data.backdropSrc='backdrop.mp4'); the Scene primitive resolves the name through staticFile at render time.
+   *  Law 5 holds: a backdrop regen = new asset bytes + same component. Retires the 1MB+ data-URL delivery. */
+  assets?: Record<string, Uint8Array>;
   width: number;
   height: number;
   fps: number;
@@ -54,11 +59,15 @@ import { Root } from './Root';
 registerRoot(Root);
 `;
 
-/** Deterministic workspace id — same inputs reuse the same folder name (no Math.random in the pipeline). */
+/** Deterministic workspace id — same inputs reuse the same folder name (no Math.random in the pipeline).
+ *  Assets are content-addressed into the hash (sorted by name, raw bytes): the same component with a
+ *  regenerated backdrop is a DIFFERENT workspace, never a stale-frame collision. */
 export function workspaceId(input: MgRenderInput): string {
-  return createHash('sha256')
+  const h = createHash('sha256')
     .update(input.componentSource)
-    .update(JSON.stringify({ b: input.brand, d: input.data, w: input.width, h: input.height, f: input.fps, n: input.durationInFrames }))
-    .digest('hex')
-    .slice(0, 16);
+    .update(JSON.stringify({ b: input.brand, d: input.data, w: input.width, h: input.height, f: input.fps, n: input.durationInFrames }));
+  for (const name of Object.keys(input.assets ?? {}).sort()) {
+    h.update(name).update(input.assets![name]);
+  }
+  return h.digest('hex').slice(0, 16);
 }

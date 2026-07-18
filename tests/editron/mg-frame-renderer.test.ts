@@ -65,4 +65,16 @@ describe('workspaceId - deterministic cache folder', () => {
     expect(workspaceId(input({ durationInFrames: 60 }))).not.toBe(a);
     expect(workspaceId(input({ componentSource: 'export const MgScene = () => 1;' }))).not.toBe(a);
   });
+
+  it('P1 assets are content-addressed: a regenerated backdrop = a different workspace; no assets = the legacy id', () => {
+    const a = workspaceId(input());
+    expect(workspaceId(input({ assets: {} }))).toBe(a); // empty map ≡ absent (legacy ids stay valid)
+    const b1 = workspaceId(input({ assets: { 'backdrop.jpg': new Uint8Array([1, 2, 3]) } }));
+    const b2 = workspaceId(input({ assets: { 'backdrop.jpg': new Uint8Array([1, 2, 4]) } }));
+    const b3 = workspaceId(input({ assets: { 'other.jpg': new Uint8Array([1, 2, 3]) } }));
+    expect(b1).not.toBe(a);       // an asset changes the id
+    expect(b1).not.toBe(b2);      // different BYTES → different workspace (stale-frame collision impossible)
+    expect(b1).not.toBe(b3);      // different NAME → different workspace
+    expect(workspaceId(input({ assets: { 'backdrop.jpg': new Uint8Array([1, 2, 3]) } }))).toBe(b1); // deterministic
+  });
 });

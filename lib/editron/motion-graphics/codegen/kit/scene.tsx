@@ -31,7 +31,7 @@
  */
 
 import React, { createContext, useContext } from 'react';
-import { Easing, Img, useCurrentFrame, useVideoConfig } from 'remotion';
+import { Easing, Img, OffthreadVideo, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 
 import { withAlpha, shade, type Brand } from './brand';
 import { EASE } from './choreo';
@@ -79,7 +79,10 @@ function overscanFor(brand: Brand, move: SceneCameraMove, strength: number): num
 
 export interface SceneProps {
   brand: Brand;
-  /** The generated illustrated backdrop (URL or data URL). Omit for a scene built purely from layers. */
+  /** The generated illustrated backdrop: an asset NAME from the render workspace (e.g. 'backdrop.jpg' /
+   *  'backdrop.mp4' — resolved through staticFile), or a full data:/https: URL. A video backdrop (.mp4/.webm/
+   *  .mov) renders as a muted looping OffthreadVideo — the Omni image→motion clip: ambient WORLD motion under
+   *  OUR camera; meaning-motion stays deterministic (SceneReveal). Omit for a scene built purely from layers. */
   src?: string;
   camera?: SceneCameraMove;
   /** 0..1 — how far toward the camera ceilings this scene travels. */
@@ -87,21 +90,32 @@ export interface SceneProps {
   children?: React.ReactNode;
 }
 
+const isVideoSrc = (src: string): boolean => /\.(mp4|webm|mov)(\?.*)?$/i.test(src);
+/** Asset NAMES resolve through staticFile (the workspace public dir); full URLs pass through unchanged. */
+const resolveSrc = (src: string): string => (/^(data:|https?:|blob:)/.test(src) ? src : staticFile(src));
+
 /**
  * The illustrated world. Renders the backdrop (auto-overscanned) under its children, all inside ONE computed
- * camera. Children read the camera via <SceneLayer depth>; the backdrop rides at depth 1.
+ * camera. Children read the camera via <SceneLayer depth>; the backdrop rides at depth 1. A video backdrop
+ * loops muted (its clock is ambient — the moment's duration and every meaning-beat stay on OUR frames).
  */
 export const Scene: React.FC<SceneProps> = ({ brand, src, camera = 'push', strength = 0.5, children }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   const cam = cameraAt(frame, durationInFrames, brand, camera, strength);
   const overscan = overscanFor(brand, camera, strength);
+  const fill: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' };
   return (
     <SceneContext.Provider value={cam}>
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
         {src ? (
           <div style={{ position: 'absolute', inset: 0, transform: `scale(${cam.scale * overscan}) translate(${cam.xPct}%, ${cam.yPct}%)` }}>
-            <Img src={src} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            {isVideoSrc(src)
+              // No `loop` — OffthreadVideo (this Remotion version) has no loop prop; a clip shorter than the
+              // moment holds its last frame (ambient world settles — acceptable; real looping needs the clip's
+              // measured duration and lands with the seam's asset metadata).
+              ? <OffthreadVideo src={resolveSrc(src)} muted style={fill} />
+              : <Img src={resolveSrc(src)} style={fill} />}
           </div>
         ) : null}
         {children}

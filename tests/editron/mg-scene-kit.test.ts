@@ -16,6 +16,9 @@ vi.mock('remotion', async (importOriginal) => ({
   useVideoConfig: () => ({ durationInFrames: 60, fps: 30, width: 1280, height: 720 }),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   Img: (props: any) => React.createElement('img', props),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  OffthreadVideo: (props: any) => React.createElement('video', props),
+  staticFile: (name: string) => `/static/${name}`,
 }));
 
 import { Scene, SceneLayer, SceneReveal, SceneGrade } from '@/lib/editron/motion-graphics/codegen/kit/scene';
@@ -55,6 +58,25 @@ describe('Scene — the computed camera', () => {
     const html = at(45, React.createElement(Scene, { brand: INSTURIX, src: 'data:x', camera: 'none' }));
     expect(scaleOf(html)).toBe(1);
     expect(html).toContain('translate(0%, 0%)');
+  });
+});
+
+describe('Scene — backdrop source resolution (P1: still OR moving world, same contract)', () => {
+  it('a .mp4 asset name renders a muted video through staticFile, under the SAME camera transform', () => {
+    const html = at(30, React.createElement(Scene, { brand: INSTURIX, src: 'backdrop.mp4', camera: 'push', strength: 0.6 }));
+    expect(html).toContain('<video');
+    expect(html).toContain('src="/static/backdrop.mp4"'); // asset NAME → staticFile resolution
+    expect(html).toMatch(/muted/);
+    expect(scaleOf(html)).toBeGreaterThan(1); // the camera drives the video exactly like a still
+    expect(html).not.toContain('<img');
+  });
+
+  it('a .jpg asset name renders an <img> through staticFile; a data URL passes through UNRESOLVED (4b-3 compat)', () => {
+    const still = at(30, React.createElement(Scene, { brand: INSTURIX, src: 'backdrop.jpg' }));
+    expect(still).toContain('<img');
+    expect(still).toContain('src="/static/backdrop.jpg"');
+    const dataUrl = at(30, React.createElement(Scene, { brand: INSTURIX, src: 'data:image/jpeg;base64,xyz' }));
+    expect(dataUrl).toContain('src="data:image/jpeg;base64,xyz"'); // no /static/ prefix — passthrough
   });
 });
 

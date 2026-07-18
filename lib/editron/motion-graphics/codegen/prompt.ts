@@ -47,8 +47,8 @@ NON-TEXT PRIMITIVES (brand-locked, animated from the frame — compose these int
 <Particles brand kind="dust|bokeh|sparks|confetti" count? at? tone?/>                       // deterministic emphasis field (fills its positioned parent)
 <Texture brand kind="grain|scanline|grid|dots" strength? at?/>                              // atmosphere pattern BEHIND content (grain=cinematic · scanline=retro · grid/dots=editorial); fills its positioned parent
 <Motif brand kind="chevrons|sunburst|zigzag" count? at? tone?/>                             // decorative accent ORNAMENT / flourish (retro / broadcast / editorial) — never content
-ILLUSTRATED SCENE (2.5D world — when the design specifies an illustrated backdrop; the backdrop URL ALWAYS arrives as the reserved prop data.backdropSrc):
-<Scene brand src={data.backdropSrc} camera="push|pull|drift-l|drift-r|none" strength={0..1}>    // backdrop + ONE computed camera ALL children share
+ILLUSTRATED SCENE (2.5D world — when the design specifies an illustrated backdrop; the backdrop ALWAYS arrives as the reserved prop data.backdropSrc — it may be a STILL image or a LOOPING VIDEO clip, same contract either way; the kit detects and handles both):
+<Scene brand src={data.backdropSrc} camera="push|pull|drift-l|drift-r|none" strength={0..1}>    // backdrop (still or living/moving world) + ONE computed camera ALL children share
   <SceneLayer depth={0..1}>…</SceneLayer>            // multiplane parallax: 1 = far world, 0 = screen-locked; type sits ~0.9
   <SceneReveal at dur origin={{x,y}}>…</SceneReveal> // radial unmask from a design-chosen origin — meaning-motion (a region
                                                      // spreads, a highlight lands) on OUR deterministic clock

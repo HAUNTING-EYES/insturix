@@ -84,6 +84,7 @@ export async function renderMomentToWebpFrames(
   const root = opts.workspaceRoot ?? path.join(repoRoot, '.mg-render-tmp');
   const workspaceDir = path.join(root, workspaceId(input));
   const kitOut = path.join(workspaceDir, 'kit');
+  const publicDir = path.join(workspaceDir, 'public');
   const pngDir = path.join(workspaceDir, 'png');
   const webpDir = path.join(workspaceDir, 'webp');
   const started = Date.now();
@@ -91,15 +92,25 @@ export async function renderMomentToWebpFrames(
   // 1. Scaffold an isolated Remotion project INSIDE the tree (so node_modules resolves by walking up).
   await fs.rm(workspaceDir, { recursive: true, force: true });
   await fs.mkdir(kitOut, { recursive: true });
+  await fs.mkdir(publicDir, { recursive: true });
   await fs.mkdir(pngDir, { recursive: true });
   await fs.mkdir(webpDir, { recursive: true });
   await Promise.all(KIT_FILES.map((f) => fs.copyFile(path.join(kitDir, f), path.join(kitOut, f))));
+  // Binary assets (generated backdrops: jpg stills / Omni mp4 clips) land in the workspace's public dir and are
+  // referenced BY NAME via staticFile (the Scene primitive resolves). Guard the names: a path separator would
+  // escape the workspace (R18N — fail loud, never write outside).
+  for (const [name, bytes] of Object.entries(input.assets ?? {})) {
+    if (!/^[\w.-]+$/.test(name)) throw new Error(`MG render: illegal asset name '${name}' (plain filenames only)`);
+    await fs.writeFile(path.join(publicDir, name), bytes);
+  }
   await fs.writeFile(path.join(workspaceDir, 'MgScene.tsx'), input.componentSource, 'utf8');
   await fs.writeFile(path.join(workspaceDir, 'Root.tsx'), buildRootSource(input), 'utf8');
   await fs.writeFile(path.join(workspaceDir, 'index.ts'), ENTRY_SOURCE, 'utf8');
 
-  // 2. Bundle + render frames as ALPHA PNG (the only alpha-preserving Remotion output).
-  const serveUrl = await bundle({ entryPoint: path.join(workspaceDir, 'index.ts') });
+  // 2. Bundle + render frames as ALPHA PNG (the only alpha-preserving Remotion output). publicDir is ALWAYS the
+  //    workspace's own (hermetic): without it, Remotion defaults to <cwd>/public — the whole app's static folder
+  //    would ride into every MG bundle.
+  const serveUrl = await bundle({ entryPoint: path.join(workspaceDir, 'index.ts'), publicDir });
   const composition = await selectComposition({ serveUrl, id: COMPOSITION_ID });
   // RENDER BUDGET: a crashing/looping component makes Chromium retry indefinitely (a single bad line hung the
   // pipeline 30 min). Bound it — makeCancelSignal aborts renderFrames AND tears the browser down (no orphaned
