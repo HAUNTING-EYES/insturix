@@ -76,6 +76,9 @@ text-capable elements (headline/text/chip; bar/ring carry their readouts via lab
 to rule/dot/particles/texture. A licensed phrase must be a COMPLETE spoken thought exactly as said — never a
 chopped fragment ("Creating Content Acquire" is a broken chop; "creating content to acquire new subscribers"
 is a licensed phrase). If no complete phrase serves the design, use the full line or decline the beat.
+QUANTITATIVE MARKS NEED QUANTITIES: bar/ring/plot are DATA marks — design one ONLY when the beat carries a
+numeric prop to bind (a plot for a qualitative idea forces fabricated points and is a validation reject).
+Qualitative beats take typographic and structural treatments: type, rule, dot, motif, texture, reveal.
 THE LOOK: every moment declares its look. 'integrated' (THE DEFAULT AND THE BAR — the anchors are boxless):
 type lives IN the footage via text halo, local grade darkening and scene-anchored marks, and the design may
 not contain a plate element at all. 'panel': a surfaced card, licensed ONLY with a stated panelReason (a

@@ -157,6 +157,10 @@ export interface MgDesignPlanMomentContext {
   factKind: string;
   /** The candidate's visualizable content prop names — every element dataProp must exist here. */
   contentProps: string[];
+  /** Names of the NUMERIC content props. When provided, quantitative elements (bar/ring/plot) must bind
+   *  one — the designer-overreach class (a plot on a qualitative beat) becomes a plan-time reject instead
+   *  of a wasted coder decline (3× live 2026-07-18). Absent → the rule is skipped (legacy callers). */
+  numericProps?: string[];
 }
 
 export interface MgDesignPlanValidation {
@@ -230,6 +234,16 @@ export function validateDesignPlan(
     for (const e of mp.elements) {
       for (const p of e.dataProps) {
         if (!props.has(p)) problems.push(`${mp.momentId}: element '${e.role}' binds unknown data prop '${p}' (fabrication-by-reference)`);
+      }
+    }
+    // Quantitative marks need quantities (P4): bar/ring/plot on a beat with no numeric prop is designer
+    // overreach — the coder would honestly decline ("cannot fabricate points"), wasting a full cycle.
+    if (ctx.numericProps) {
+      const numeric = new Set(ctx.numericProps);
+      for (const e of mp.elements) {
+        if ((e.kind === 'bar' || e.kind === 'ring' || e.kind === 'plot') && !e.dataProps.some((p) => numeric.has(p))) {
+          problems.push(`${mp.momentId}: '${e.kind}' element '${e.role}' binds no numeric data prop — quantitative marks need real numbers; use type/rule/dot/motif for qualitative beats`);
+        }
       }
     }
     for (const idx of mp.motion.enterOrder) {

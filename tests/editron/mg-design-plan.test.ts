@@ -214,6 +214,31 @@ describe('P4 — the structural look axis', () => {
     expect(validateDesignPlan(plan([designedList()]), [listCtx]).ok).toBe(true);
   });
 
+  it('★ quantitative mark (bar/ring/plot) with no numeric prop bound is REJECTED when numericProps is known', () => {
+    const overreach = designedList({
+      elements: [
+        { kind: 'plot', role: 'quality outweighing quantity', dataProps: ['label'] },
+        { kind: 'headline', role: 'title', dataProps: ['label'] },
+      ],
+      look: 'integrated' as const, panelReason: undefined,
+      motion: { enterOrder: [0, 1], build: 'plot draws', hold: 'settle', syncTo: 'phases-only' },
+    });
+    const ctx = { ...listCtx, numericProps: [] };
+    expect(validateDesignPlan(plan([overreach]), [ctx]).problems.join(' ')).toMatch(/binds no numeric data prop/);
+    // bound to a real numeric prop → passes; legacy caller (no numericProps) → rule skipped
+    const grounded = { ...ctx, contentProps: ['label', 'value'], numericProps: ['value'] };
+    const bar = designedList({
+      elements: [
+        { kind: 'bar', role: 'the true ratio', dataProps: ['value'] },
+        { kind: 'headline', role: 'title', dataProps: ['label'] },
+      ],
+      look: 'integrated' as const, panelReason: undefined,
+      motion: { enterOrder: [0, 1], build: 'bar grows', hold: 'settle', syncTo: 'beats' },
+    });
+    expect(validateDesignPlan(plan([bar]), [grounded]).ok).toBe(true);
+    expect(validateDesignPlan(plan([overreach]), [listCtx]).ok).toBe(true);
+  });
+
   it('look defaults to integrated when the designer omits it (the mandate is the default)', () => {
     const parsed = parseMgVideoDesignPlan(plan([designedList({ elements: [
       { kind: 'headline', role: 'title', dataProps: ['label'] },
