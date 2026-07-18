@@ -343,11 +343,17 @@ async function handleChatEditRenderVerification(input: {
       visual: visualSummary,
       audio: audioEvidence,
     });
+    const issues = collectVerificationIssues({
+      requestedModalities: input.verification.modalities,
+      visual: visualSummary,
+      audio: audioEvidence,
+    });
     const finalRecord = markChatEditRenderVerificationTerminal(runningRecord, {
       status: reasons.length === 0 ? 'pass' : 'fail',
       visual: visualSummary,
       audio: audioEvidence,
       reasons,
+      issues,
     });
     await persistChatEditVerificationResult({
       db: input.db,
@@ -385,6 +391,12 @@ async function handleChatEditRenderVerification(input: {
       visual: runningRecord.visual,
       audio: runningRecord.audio,
       reasons: [boundedText(reason, 500) || 'render_verification_worker_error'],
+      issues: [{
+        modality: 'system',
+        severity: 'error',
+        code: 'render_verification_worker_error',
+        message: boundedText(reason, 500) || 'render_verification_worker_error',
+      }],
     });
     await persistChatEditVerificationResult({
       db: input.db,
@@ -613,6 +625,102 @@ function collectVerificationFailureReasons(input: {
     else if (input.audio.status !== 'pass') reasons.push(`audio_render_${input.audio.status}:${input.audio.reason ?? 'unknown'}`);
   }
   return reasons.map((reason) => boundedText(reason, 500) || 'unknown_verification_failure');
+}
+
+function collectVerificationIssues(input: {
+  requestedModalities: ChatEditRenderVerificationRequest['modalities'];
+  visual: ReturnType<typeof summarizeVisualEvidence> | null;
+  audio: ChatEditRenderedAudioEvidence | null;
+}): Array<Record<string, unknown>> {
+  const issues: Array<Record<string, unknown>> = [];
+  if (input.requestedModalities.includes('visual')) {
+    if (!input.visual) {
+      issues.push(renderIssue('visual', 'visual_evidence_missing', 'Visual rendered evidence was not produced.'));
+    } else {
+      if (input.visual.status !== 'completed') {
+        issues.push(renderIssue(
+          'visual',
+          `visual_render_${input.visual.status}`,
+          `Visual render evidence status was ${input.visual.status}.`,
+          { statusReason: input.visual.statusReason ?? null, failedFrames: input.visual.failedFrames },
+        ));
+      }
+      if (input.visual.gateStatus !== 'pass') {
+        const gateIssues = Array.isArray(input.visual.issues) ? input.visual.issues : [];
+        if (gateIssues.length > 0) {
+          for (const issue of gateIssues.slice(0, 50)) {
+            const record = asRecord(issue);
+            issues.push({
+              ...record,
+              modality: 'visual',
+              severity: boundedText(record.severity, 40) ?? 'error',
+              code: boundedText(record.code ?? record.dimension ?? record.message, 120) ?? 'visual_quality_gate_failed',
+              message: boundedText(record.message, 500) ?? `Visual quality gate failed with status ${input.visual.gateStatus}.`,
+              source: boundedText(record.source, 120) ?? 'rendered-aesthetic-gate',
+            });
+          }
+        } else {
+          issues.push(renderIssue(
+            'visual',
+            `visual_gate_${input.visual.gateStatus}`,
+            `Visual quality gate failed with status ${input.visual.gateStatus}.`,
+            { qualityScore: input.visual.qualityScore },
+          ));
+        }
+      }
+    }
+  }
+
+  if (input.requestedModalities.includes('audio')) {
+    if (!input.audio) {
+      issues.push(renderIssue('audio', 'audio_evidence_missing', 'Audio rendered evidence was not produced.'));
+    } else if (input.audio.status !== 'pass') {
+      const failedWindows = input.audio.windows.filter((window) => window.error || !window.changed);
+      if (failedWindows.length > 0) {
+        for (const window of failedWindows.slice(0, 24)) {
+          issues.push(renderIssue(
+            'audio',
+            window.error ? 'audio_window_render_error' : 'audio_window_unchanged',
+            window.error
+              ? `Audio verification window failed to render: ${window.error}`
+              : 'Rendered audio did not change inside the requested verification window.',
+            {
+              startFrame: window.startFrame,
+              endFrame: window.endFrame,
+              beforeUrl: window.beforeUrl,
+              afterUrl: window.afterUrl,
+              beforeRms: window.beforeRms,
+              afterRms: window.afterRms,
+            },
+          ));
+        }
+      } else {
+        issues.push(renderIssue(
+          'audio',
+          `audio_render_${input.audio.status}`,
+          boundedText(input.audio.reason, 500) ?? `Audio render evidence status was ${input.audio.status}.`,
+        ));
+      }
+    }
+  }
+
+  return issues.slice(0, 100);
+}
+
+function renderIssue(
+  modality: 'visual' | 'audio' | 'system',
+  code: string,
+  message: string,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    ...extra,
+    modality,
+    severity: 'error',
+    code: boundedText(code, 120) ?? 'render_verification_issue',
+    message: boundedText(message, 500) ?? 'Rendered verification failed.',
+    source: 'chat-edit-render-verification',
+  };
 }
 
 async function persistChatEditVerificationResult(input: {

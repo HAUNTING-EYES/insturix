@@ -541,9 +541,7 @@ export function extractPersistedChatBattleRenderEvidence(
       ...readStrings(visual.renderedFrames, ['beforeUrl', 'afterUrl', 'url', 'artifactUrl', 'frameUrl']),
       ...readStrings(audio.windows, ['beforeUrl', 'afterUrl', 'url', 'artifactUrl']),
     ]);
-    const issues = Array.isArray(visual.issues)
-      ? visual.issues.map(asRecord).slice(0, 100)
-      : [];
+    const issues = collectRenderVerificationIssues({ chatVerification, visual, audio });
     if (!chatCapturedAt || !isFreshTimestamp(chatCapturedAt, startedAt)) {
       return {
         status: 'missing',
@@ -555,7 +553,14 @@ export function extractPersistedChatBattleRenderEvidence(
       };
     }
     if (chatStatus === 'fail' || chatStatus === 'failed' || chatStatus === 'error') {
-      return { status: 'fail', capturedAt: chatCapturedAt, artifactRefs, issues, jobLifecycle };
+      return {
+        status: 'fail',
+        capturedAt: chatCapturedAt,
+        artifactRefs,
+        issues,
+        jobLifecycle,
+        reason: issues.length === 0 ? readStringArray(chatVerification.reasons).join('; ') || undefined : undefined,
+      };
     }
     if (chatStatus === 'warn' || chatStatus === 'partial' || chatStatus === 'needs_review') {
       return { status: 'warn', capturedAt: chatCapturedAt, artifactRefs, issues, jobLifecycle };
@@ -595,6 +600,85 @@ export function extractPersistedChatBattleRenderEvidence(
   if (evidenceStatus === 'partial' || reportStatus === 'warn') return { status: 'warn', capturedAt, artifactRefs, issues };
   if (evidenceStatus === 'completed' && reportStatus === 'pass') return { status: 'pass', capturedAt, artifactRefs, issues };
   return { status: 'missing', capturedAt, artifactRefs, issues, reason: 'Rendered evidence did not contain a completed aesthetic verdict.' };
+}
+
+function collectRenderVerificationIssues(input: {
+  chatVerification: Record<string, unknown>;
+  visual: Record<string, unknown>;
+  audio: Record<string, unknown>;
+}): Array<Record<string, unknown>> {
+  const persistedIssues = Array.isArray(input.chatVerification.issues)
+    ? input.chatVerification.issues.map(asRecord)
+    : [];
+  const visualIssues = Array.isArray(input.visual.issues)
+    ? input.visual.issues.map((issue) => ({
+        ...asRecord(issue),
+        modality: stringValue(asRecord(issue).modality) ?? 'visual',
+      }))
+    : [];
+  const audioIssues = inferAudioRenderIssues(input.audio);
+  const structuredIssues = [
+    ...persistedIssues,
+    ...visualIssues,
+    ...audioIssues,
+  ];
+  const reasonIssues = structuredIssues.length === 0
+    ? readStringArray(input.chatVerification.reasons).map((reason) => ({
+        modality: reason.startsWith('audio_') ? 'audio' : reason.startsWith('visual_') ? 'visual' : 'system',
+        severity: 'error',
+        code: reason.split(':')[0] || 'render_verification_failed',
+        message: reason,
+        source: 'chat-edit-render-verification-reason',
+      }))
+    : [];
+  return uniqueIssueRecords([
+    ...structuredIssues,
+    ...reasonIssues,
+  ]).slice(0, 100);
+}
+
+function inferAudioRenderIssues(audio: Record<string, unknown>): Array<Record<string, unknown>> {
+  const windows = Array.isArray(audio.windows) ? audio.windows.map(asRecord) : [];
+  const issues: Array<Record<string, unknown>> = windows
+    .filter((window) => Boolean(window.error) || window.changed === false)
+    .map((window) => ({
+      modality: 'audio',
+      severity: 'error',
+      code: window.error ? 'audio_window_render_error' : 'audio_window_unchanged',
+      message: stringValue(window.error) ?? 'Rendered audio did not change inside the requested verification window.',
+      startFrame: finiteNumber(window.startFrame),
+      endFrame: finiteNumber(window.endFrame),
+      beforeUrl: stringValue(window.beforeUrl),
+      afterUrl: stringValue(window.afterUrl),
+      source: 'chat-edit-render-verification-audio-window',
+    }));
+  const status = stringValue(audio.status);
+  const reason = stringValue(audio.reason);
+  if (issues.length === 0 && status && status !== 'pass') {
+    issues.push({
+      modality: 'audio',
+      severity: 'error',
+      code: `audio_render_${status}`,
+      message: reason ?? `Audio render evidence status was ${status}.`,
+      source: 'chat-edit-render-verification-audio',
+    });
+  }
+  return issues;
+}
+
+function uniqueIssueRecords(issues: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const seen = new Set<string>();
+  const unique: Array<Record<string, unknown>> = [];
+  for (const issue of issues) {
+    const code = stringValue(issue.code) ?? stringValue(issue.message) ?? 'render_verification_issue';
+    const modality = stringValue(issue.modality) ?? 'system';
+    const frame = stringValue(issue.frame ?? issue.startFrame) ?? '';
+    const key = `${modality}:${code}:${frame}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(issue);
+  }
+  return unique;
 }
 
 export function parseChatBattleSse(text: string): Array<Record<string, unknown>> {
@@ -764,6 +848,12 @@ function readStrings(value: unknown, keys: string[]): string[] {
   if (Array.isArray(value)) return value.flatMap((item) => readStrings(item, keys));
   const record = asRecord(value);
   return keys.map((key) => stringValue(record[key])).filter((item): item is string => Boolean(item));
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map(stringValue).filter((item): item is string => Boolean(item))
+    : [];
 }
 
 function uniqueStrings(values: string[]): string[] {

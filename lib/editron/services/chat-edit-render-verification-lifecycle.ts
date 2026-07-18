@@ -43,6 +43,13 @@ export interface ChatEditRenderVerificationLifecycle {
   updatedAt: string;
 }
 
+export interface ChatEditRenderVerificationIssue extends Record<string, unknown> {
+  modality: 'visual' | 'audio' | 'system';
+  severity: 'info' | 'warn' | 'error' | 'critical';
+  code: string;
+  message: string;
+}
+
 export interface ChatEditRenderVerificationRecord<Visual = unknown, Audio = ChatEditRenderedAudioEvidence> {
   version: 'editron-chat-render-verification-result-v1';
   operationId: string;
@@ -59,6 +66,7 @@ export interface ChatEditRenderVerificationRecord<Visual = unknown, Audio = Chat
   visual: Visual | null;
   audio: Audio | null;
   reasons: string[];
+  issues: ChatEditRenderVerificationIssue[];
   dispatchMessageId: string | null;
   notificationStatus: 'pending' | 'sending' | 'sent';
   notificationSentAt: string | null;
@@ -66,8 +74,9 @@ export interface ChatEditRenderVerificationRecord<Visual = unknown, Audio = Chat
 }
 
 export type PersistedChatEditRenderVerificationRecord<Visual = unknown, Audio = ChatEditRenderedAudioEvidence> =
-  Omit<ChatEditRenderVerificationRecord<Visual, Audio>, 'lifecycle'> & {
+  Omit<ChatEditRenderVerificationRecord<Visual, Audio>, 'lifecycle' | 'issues'> & {
     lifecycle?: ChatEditRenderVerificationLifecycle;
+    issues?: ChatEditRenderVerificationIssue[];
   };
 
 export function buildRequestedChatEditRenderVerification(
@@ -91,6 +100,7 @@ export function buildRequestedChatEditRenderVerification(
     visual: null,
     audio: null,
     reasons: [],
+    issues: [],
     dispatchMessageId: null,
     notificationStatus: 'pending',
     notificationSentAt: null,
@@ -133,6 +143,7 @@ export function ensureChatEditRenderVerificationLifecycle<Visual, Audio>(
           : 'requested';
   return {
     ...record,
+    issues: sanitizeIssues((record as { issues?: unknown }).issues),
     lifecycle: {
       version: CHAT_EDIT_RENDER_VERIFICATION_LIFECYCLE_VERSION,
       state,
@@ -171,6 +182,12 @@ export function markChatEditRenderVerificationDispatched<Visual, Audio>(
       status: 'error',
       completedAt: updatedAt,
       reasons: [reason],
+      issues: [{
+        modality: 'system',
+        severity: 'error',
+        code: 'render_verification_dispatch_failed',
+        message: reason,
+      }],
       dispatchMessageId: messageId,
       lifecycle: {
         ...record.lifecycle,
@@ -221,6 +238,7 @@ export function markChatEditRenderVerificationDelivered<Visual, Audio>(
     status: 'pending',
     completedAt: null,
     reasons: [],
+    issues: [],
     lifecycle: {
       ...record.lifecycle,
       state: 'delivered',
@@ -247,6 +265,7 @@ export function markChatEditRenderVerificationRendering<Visual, Audio>(
     startedAt: record.startedAt ?? updatedAt,
     completedAt: null,
     reasons: [],
+    issues: [],
     lifecycle: {
       ...record.lifecycle,
       state: 'rendering',
@@ -266,11 +285,13 @@ export function markChatEditRenderVerificationTerminal<Visual, Audio>(
     visual: Visual | null;
     audio: Audio | null;
     reasons: string[];
+    issues?: unknown;
     now?: Date | string;
   },
 ): ChatEditRenderVerificationRecord<Visual, Audio> {
   const updatedAt = toIso(input.now ?? new Date());
   const reasons = input.reasons.map((reason) => cleanText(reason, 500)).filter((reason): reason is string => Boolean(reason));
+  const issues = sanitizeIssues(input.issues);
   const isSystemError = input.status === 'error';
   return {
     ...record,
@@ -279,6 +300,7 @@ export function markChatEditRenderVerificationTerminal<Visual, Audio>(
     visual: input.visual,
     audio: input.audio,
     reasons,
+    issues: issues.length > 0 ? issues : reasonsToIssues(reasons, isSystemError ? 'system' : 'visual'),
     notificationStatus: 'pending',
     lifecycle: {
       ...record.lifecycle,
@@ -312,6 +334,12 @@ export function markChatEditRenderVerificationDeliveryFailed<Visual, Audio>(
     status: 'error',
     completedAt: updatedAt,
     reasons: [reason],
+    issues: [{
+      modality: 'system',
+      severity: 'error',
+      code: 'render_verification_delivery_failed',
+      message: reason,
+    }],
     notificationStatus: 'pending',
     lifecycle: {
       ...record.lifecycle,
@@ -337,6 +365,49 @@ function cleanText(value: unknown, maxLength: number): string | null {
   if (typeof value !== 'string') return null;
   const text = value.trim();
   return text ? text.slice(0, maxLength) : null;
+}
+
+function sanitizeIssues(value: unknown): ChatEditRenderVerificationIssue[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => {
+    const issue = isRecord(entry) ? entry : {};
+    const modality = normalizeEnum(issue.modality, ['visual', 'audio', 'system'] as const) ?? 'system';
+    const severity = normalizeEnum(issue.severity, ['info', 'warn', 'error', 'critical'] as const) ?? 'error';
+    const code = cleanText(issue.code, 120)
+      ?? cleanText(issue.reason, 120)
+      ?? cleanText(issue.message, 120)
+      ?? 'render_verification_issue';
+    const message = cleanText(issue.message, 500)
+      ?? cleanText(issue.reason, 500)
+      ?? code;
+    return {
+      ...issue,
+      modality,
+      severity,
+      code,
+      message,
+    };
+  }).slice(0, 100);
+}
+
+function reasonsToIssues(
+  reasons: string[],
+  modality: ChatEditRenderVerificationIssue['modality'],
+): ChatEditRenderVerificationIssue[] {
+  return reasons.slice(0, 20).map((reason) => ({
+    modality,
+    severity: 'error',
+    code: reason.split(':')[0]?.slice(0, 120) || 'render_verification_failed',
+    message: reason,
+  }));
+}
+
+function normalizeEnum<T extends readonly string[]>(value: unknown, allowed: T): T[number] | null {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value) ? value as T[number] : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function toIso(value: Date | string): string {

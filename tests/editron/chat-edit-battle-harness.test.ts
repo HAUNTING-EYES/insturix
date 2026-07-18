@@ -802,6 +802,12 @@ describe('chat edit battle harness', () => {
       status: 'error',
       completedAt: '2026-07-18T10:05:01.000Z',
       reasons: ['qstash_delivery_failed:timeout:request timed out'],
+      issues: [{
+        modality: 'system',
+        severity: 'error',
+        code: 'render_verification_delivery_failed',
+        message: 'qstash_delivery_failed:timeout:request timed out',
+      }],
       lifecycle: {
         state: 'failed',
         terminalStatus: 'system-error',
@@ -878,11 +884,88 @@ describe('chat edit battle harness', () => {
 
     expect(evidence.status).toBe('fail');
     expect(evidence.artifactRefs).toEqual(['https://cdn/before.webp']);
-    expect(evidence.issues).toEqual([{ family: 'caption', severity: 'critical' }]);
+    expect(evidence.issues).toEqual(expect.arrayContaining([expect.objectContaining({
+      modality: 'visual',
+      severity: 'error',
+      code: 'caption_contrast_too_low',
+      message: 'caption_contrast_too_low',
+    })]));
     expect(evidence.jobLifecycle).toMatchObject({
       state: 'completed',
       terminalStatus: 'quality-fail',
       attemptCount: 3,
     });
+  });
+
+  it('keeps audio render failures queryable instead of reporting fail with empty issues', () => {
+    const evidence = extractPersistedChatBattleRenderEvidence({
+      projectId: 'proj_battle',
+      intelligence: {
+        latestChatEditRenderVerification: {
+          status: 'fail',
+          requestedAt: '2026-07-18T10:00:01.000Z',
+          completedAt: '2026-07-18T10:00:04.000Z',
+          reasons: ['audio_render_fail:rendered_audio_did_not_change_in_the_requested_window'],
+          visual: null,
+          audio: {
+            version: 'editron-chat-rendered-audio-v1',
+            status: 'fail',
+            capturedAt: '2026-07-18T10:00:04.000Z',
+            windows: [{
+              startFrame: 30,
+              endFrame: 120,
+              beforeUrl: 'https://cdn/before.wav',
+              afterUrl: 'https://cdn/after.wav',
+              beforePcmSha256: 'same',
+              afterPcmSha256: 'same',
+              beforeRms: 0.1,
+              afterRms: 0.1,
+              beforePeak: 0.2,
+              afterPeak: 0.2,
+              changed: false,
+              error: null,
+            }],
+            reason: 'rendered_audio_did_not_change_in_the_requested_window',
+          },
+          lifecycle: { state: 'completed', terminalStatus: 'quality-fail' },
+        },
+      },
+    }, '2026-07-18T10:00:00.000Z');
+
+    expect(evidence.status).toBe('fail');
+    expect(evidence.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        modality: 'audio',
+        code: 'audio_window_unchanged',
+        message: 'Rendered audio did not change inside the requested verification window.',
+        startFrame: 30,
+        endFrame: 120,
+      }),
+    ]));
+  });
+
+  it('surfaces legacy failed chat verification reasons as structured issues', () => {
+    const evidence = extractPersistedChatBattleRenderEvidence({
+      projectId: 'proj_battle',
+      intelligence: {
+        latestChatEditRenderVerification: {
+          status: 'error',
+          requestedAt: '2026-07-18T10:00:01.000Z',
+          completedAt: '2026-07-18T10:05:01.000Z',
+          reasons: ['qstash_delivery_failed:timeout'],
+          visual: null,
+          audio: null,
+          lifecycle: { state: 'failed', terminalStatus: 'system-error' },
+        },
+      },
+    }, '2026-07-18T10:00:00.000Z');
+
+    expect(evidence.status).toBe('fail');
+    expect(evidence.issues).toEqual([expect.objectContaining({
+      modality: 'system',
+      severity: 'error',
+      code: 'qstash_delivery_failed',
+      message: 'qstash_delivery_failed:timeout',
+    })]);
   });
 });
