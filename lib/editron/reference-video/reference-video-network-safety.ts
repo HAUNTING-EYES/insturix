@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import ipaddr from 'ipaddr.js';
 
 export type ReferenceVideoDnsLookup = (
   hostname: string,
@@ -51,24 +52,13 @@ async function defaultDnsLookup(hostname: string): Promise<readonly { address: s
 
 function isUnsafeIpAddress(address: string): boolean {
   const clean = cleanHostname(address);
-  const ipKind = isIP(clean);
-  if (ipKind === 4) return isUnsafeIpv4(clean);
-  if (ipKind === 6) return true;
-  return false;
-}
+  if (!ipaddr.isValid(clean)) return true;
 
-function isUnsafeIpv4(address: string): boolean {
-  const parts = address.split('.').map((part) => Number.parseInt(part, 10));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
-  const [a, b] = parts;
-  if (a === 0 || a === 10 || a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 192 && b === 0) return true;
-  if (a === 198 && (b === 18 || b === 19)) return true;
-  return a >= 224;
+  const parsed = ipaddr.parse(clean);
+  if (parsed.kind() === 'ipv4') return parsed.range() !== 'unicast';
+  const ipv6 = parsed as ipaddr.IPv6;
+  if (ipv6.isIPv4MappedAddress()) return ipv6.toIPv4Address().range() !== 'unicast';
+  return ipv6.range() !== 'unicast';
 }
 
 function cleanHostname(hostname: string): string {
