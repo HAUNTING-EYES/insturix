@@ -65,6 +65,7 @@ export const COLLECTIONS = {
   PROJECTS: 'projects',
   CHECKPOINTS: 'checkpoints',
   CHAT_SESSIONS: 'chatSessions',
+  CHAT_REFERENCE_ATTACHMENTS: 'editron_chat_reference_attachments',
   MEDIA_ASSETS: 'mediaAssets',
   MEDIA_UPLOADS: 'mediaUploads',
   MEDIA_UPLOAD_BATCHES: 'mediaUploadBatches',
@@ -169,6 +170,14 @@ export async function initializeIndexes(): Promise<void> {
     { key: { status: 1, leaseExpiresAt: 1 }, name: 'status_leaseExpiresAt' },
     { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
     { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // Project-scoped documents and public URLs attached to AI chat. The extracted content is persisted
+  // once so later turns never need to trust a caller URL or re-parse an upload.
+  await db.collection(COLLECTIONS.CHAT_REFERENCE_ATTACHMENTS).createIndexes([
+    { key: { referenceId: 1 }, name: 'referenceId_unique', unique: true },
+    { key: { projectId: 1, updatedAt: -1 }, name: 'projectId_updatedAt' },
+    { key: { projectId: 1, status: 1, leaseExpiresAt: 1 }, name: 'project_status_lease' },
   ]);
 
   // Durable chat reference-style workflows. A deterministic idempotency key prevents

@@ -27,6 +27,11 @@ import {
   formatChatFrameEvidencePrompt,
   sanitizeChatFrameEvidence,
 } from '@/lib/editron/agent/chat-frame-evidence';
+import {
+  ChatAttachmentContractError,
+  formatChatAttachmentsForPrompt,
+  resolveAuthorizedChatAttachments,
+} from '@/lib/editron/services/chat-attachment-contract';
 
 // Minimum credits required to start a chat (actual cost calculated post-hoc based on tokens)
 const MINIMUM_CREDITS_REQUIRED = 1;
@@ -168,6 +173,7 @@ export async function POST(req: NextRequest) {
       selectedOverlayId,
       clientContext,
       operationId,
+      attachments: rawAttachments,
       visualEvidence: rawVisualEvidence,
     } = await req.json();
 
@@ -192,6 +198,18 @@ export async function POST(req: NextRequest) {
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
+    let attachments;
+    try {
+      attachments = await resolveAuthorizedChatAttachments(rawAttachments, userId, projectId);
+    } catch (error) {
+      if (error instanceof ChatAttachmentContractError) {
+        return NextResponse.json(
+          { error: error.message, code: error.code },
+          { status: error.status },
+        );
+      }
+      throw error;
+    }
     const projectDurationInFrames = Number(project.durationInFrames);
     if (
       visualEvidence
@@ -204,9 +222,10 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    const agentMessage = visualEvidence
+    const messageWithFrameEvidence = visualEvidence
       ? formatChatFrameEvidencePrompt(message, visualEvidence)
       : message;
+    const agentMessage = formatChatAttachmentsForPrompt(messageWithFrameEvidence, attachments);
 
     // Get or create a session scoped to this user and project.
     const actualSessionId = await chatService.getOrCreateSession(userId, projectId, sessionId);
@@ -250,6 +269,7 @@ export async function POST(req: NextRequest) {
     await chatService.saveMessage(actualSessionId, userId, projectId, {
       role: 'user',
       content: message,
+      attachments,
     });
     
     // Convert history to LangChain format
@@ -258,7 +278,7 @@ export async function POST(req: NextRequest) {
     history.forEach(msg => {
       if (msg.role === 'user') {
         // Ensure content is never empty/undefined
-        langchainHistory.push(new HumanMessage(msg.content || ''));
+        langchainHistory.push(new HumanMessage(formatChatAttachmentsForPrompt(msg.content || '', msg.attachments)));
       } else if (msg.role === 'assistant') {
         // Check if we have tool calls AND corresponding tool results
         // If tool calls exist but results are missing/incomplete, skip the tool_calls
@@ -314,7 +334,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Initialize agent with project context
-    const agent = createAgent(userId, contextMessage);
+    const agent = createAgent(userId, contextMessage, {
+      sessionId: actualSessionId,
+      operationId,
+    });
 
     // Create a stream
     const stream = new TransformStream();

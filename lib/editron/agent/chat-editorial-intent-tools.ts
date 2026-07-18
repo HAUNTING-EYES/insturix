@@ -16,6 +16,10 @@ import {
   CHAT_SCRIPT_RECOMPOSITION_VERSION,
   queueChatScriptRecomposition,
 } from '@/lib/editron/services/chat-script-recomposition';
+import {
+  queueChatReferenceStyleJob,
+  type QueueChatReferenceStyleJobResult,
+} from '@/lib/editron/services/chat-reference-style-job';
 import type {
   CanonicalChatEvidenceCandidate,
   SearchCanonicalChatEvidenceResult,
@@ -38,6 +42,8 @@ export const CHAT_SHADOW_AUTHORITY_TOOLS = new Set([
   'auto_motion_graphics',
   'add_transition',
   'auto_edit_from_script',
+  'extract_style',
+  'apply_style',
 ]);
 
 const familyPreferenceSchema = z.object({
@@ -51,6 +57,11 @@ const scopeSchema = z.object({
   startFrame: z.coerce.number().int().min(0).optional(),
   endFrame: z.coerce.number().int().positive().optional(),
   overlayIds: z.array(z.union([z.string(), z.number()])).max(24).optional(),
+}).strict();
+
+export const chatReferenceStyleSchema = z.object({
+  referenceAssetId: z.string().min(1).max(200).describe('The exact ID of an uploaded video asset owned by this user. Resolve the asset first; never pass a URL.'),
+  strength: z.coerce.number().min(0).max(1).default(0.5).describe('How strongly to inherit the reference edit language while preserving target content and brand constraints.'),
 }).strict();
 
 export const chatEditorialIntentSchema = z.object({
@@ -148,6 +159,14 @@ export interface ChatEditorialIntentDependencies {
 interface CreateChatEditorialIntentToolsOptions {
   userId: string;
   projectId: string;
+  sessionId?: string;
+  operationId?: string;
+}
+
+export interface ChatReferenceStyleToolDependencies {
+  queueReferenceStyleJob(
+    request: Parameters<typeof queueChatReferenceStyleJob>[0],
+  ): Promise<QueueChatReferenceStyleJobResult>;
 }
 
 export function filterChatShadowAuthorityTools<T extends { name: string }>(tools: T[]): T[] {
@@ -269,8 +288,9 @@ export async function applyGroundedEditorialIntent(
 }
 
 export function createChatEditorialIntentTools(
-  { userId, projectId }: CreateChatEditorialIntentToolsOptions,
+  { userId, projectId, sessionId, operationId }: CreateChatEditorialIntentToolsOptions,
   dependencies?: Partial<ChatEditorialIntentDependencies>,
+  referenceStyleDependencies?: Partial<ChatReferenceStyleToolDependencies>,
 ) {
   const applyEditorialIntent = tool(
     async (input: ChatEditorialIntentInput) => {
@@ -301,7 +321,72 @@ export function createChatEditorialIntentTools(
       schema: chatEditorialIntentSchema,
     },
   );
-  return [applyEditorialIntent];
+
+  const applyReferenceStyle = tool(
+    async (input: z.infer<typeof chatReferenceStyleSchema>) => {
+      if (!sessionId || !operationId) {
+        return JSON.stringify({
+          status: 'error',
+          data: null,
+          error: 'Durable reference-style context is unavailable for this chat turn.',
+          nextAction: 'Do not use the legacy extract_style or apply_style tools. Ask the user to retry from the project chat.',
+        });
+      }
+      try {
+        const queue = referenceStyleDependencies?.queueReferenceStyleJob ?? queueChatReferenceStyleJob;
+        const result = await queue({
+          projectId,
+          userId,
+          sessionId,
+          operationId,
+          referenceAssetId: input.referenceAssetId,
+          strength: input.strength,
+        });
+        if (result.status === 'failed') {
+          return JSON.stringify({
+            status: 'error',
+            data: { jobId: result.jobId, queueStatus: result.status },
+            error: result.reason ?? 'Reference-style job could not be queued.',
+            nextAction: 'Do not claim the style was applied. Explain the failure and let the user retry.',
+          });
+        }
+        if (result.status === 'declined') {
+          return JSON.stringify({
+            status: 'advisory',
+            data: { jobId: result.jobId, queueStatus: result.status },
+            error: null,
+            nextAction: 'Explain that the reference was inspected but no faithful style transfer was warranted.',
+          });
+        }
+        return JSON.stringify({
+          status: 'success',
+          data: {
+            jobId: result.jobId,
+            queueStatus: result.status,
+            messageId: result.messageId ?? null,
+          },
+          error: null,
+          nextAction: result.status === 'completed'
+            ? 'Tell the user the reference style application completed and reload the project.'
+            : 'Tell the user the reference style is processing. Do not claim the timeline has changed yet.',
+        });
+      } catch (error) {
+        return JSON.stringify({
+          status: 'error',
+          data: null,
+          error: error instanceof Error ? error.message : 'Reference-style dispatch failed.',
+          nextAction: 'Do not claim success. Explain the failure and let the user retry.',
+        });
+      }
+    },
+    {
+      name: 'apply_reference_style',
+      description: 'Durably analyze an uploaded reference video and apply only its grounded editorial language to the current project through Editron\'s unified planner. Use this for requests such as "edit mine like this reference." The input is an owned uploaded video asset ID, never a URL. This queues an idempotent worker with checkpoint, rollback, and rendered verification; it does not directly choose presets or renderer forms.',
+      schema: chatReferenceStyleSchema,
+    },
+  );
+
+  return [applyEditorialIntent, applyReferenceStyle];
 }
 
 async function resolveDependencies(

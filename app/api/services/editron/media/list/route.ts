@@ -115,6 +115,7 @@ export async function GET(request: NextRequest) {
             thumbnail: asset.thumbnail,
             duration: asset.duration,
             dimensions: asset.dimensions,
+            analysisStatus: (asset as MediaAsset & { analysisStatus?: string }).analysisStatus,
             uploadBatchId: (asset as MediaAsset & { uploadBatchId?: string }).uploadBatchId,
             pinned: asset.pinned === true, // reference/protected from eviction
           };
@@ -132,6 +133,7 @@ export async function GET(request: NextRequest) {
             thumbnail: asset.thumbnail,
             duration: asset.duration,
             dimensions: asset.dimensions,
+            analysisStatus: (asset as MediaAsset & { analysisStatus?: string }).analysisStatus,
             uploadBatchId: (asset as MediaAsset & { uploadBatchId?: string }).uploadBatchId,
           };
         }

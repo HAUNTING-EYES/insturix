@@ -246,13 +246,22 @@ function normalizeAgentStyleValue(propertyName: string, value: unknown): unknown
   return Number.isFinite(numericValue) ? numericValue : value;
 }
 
-export const createAgent = (userId: string, projectContext?: string) => {
+export const createAgent = (
+  userId: string,
+  projectContext?: string,
+  turnContext?: { sessionId: string; operationId: string },
+) => {
   // Chat receives shared deterministic tools plus one semantic-intent adapter. Director and
   // internal createTools callers keep the compatibility tools, but chat cannot use them as
   // shadow MG/transition/script authority.
   const createToolsWithProject = (projectId: string) => [
     ...filterChatShadowAuthorityTools(createTools(userId, projectId)),
-    ...createChatEditorialIntentTools({ userId, projectId }),
+    ...createChatEditorialIntentTools({
+      userId,
+      projectId,
+      sessionId: turnContext?.sessionId,
+      operationId: turnContext?.operationId,
+    }),
   ];
 
   // PERF FIX: Cache tools and their Gemini function declarations per projectId

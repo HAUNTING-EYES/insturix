@@ -55,6 +55,11 @@ import {
   sanitizeChatFrameEvidence,
   type ChatFrameEvidence,
 } from "@/lib/editron/agent/chat-frame-evidence";
+import {
+  ChatAttachmentPicker,
+  toChatAttachmentInput,
+  type ChatAttachmentDraft,
+} from "./chat-attachment-picker";
 
 const clampUnit = (value: number) => Math.max(0, Math.min(value, 1));
 
@@ -107,6 +112,7 @@ interface ChatMessage {
   role: "user" | "assistant" | "tool";
   content: string;
   timestamp: Date;
+  attachments?: ChatAttachmentDraft[];
   toolCalls?: Array<{
     id: string;
     name: string;
@@ -145,6 +151,7 @@ export function AIChatPanel() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachmentDraft[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
@@ -228,6 +235,7 @@ export function AIChatPanel() {
     setSessions([]);
     setCurrentSessionId(null);
     setMessages([]);
+    setPendingAttachments([]);
     setShowHistory(false);
     setIsProcessing(false);
     setIsAIProcessing(false);
@@ -243,6 +251,7 @@ export function AIChatPanel() {
   // Load messages only for the active project/session pair.
   useEffect(() => {
     activeSessionIdRef.current = currentSessionId;
+    setPendingAttachments([]);
     if (currentSessionId && projectId) {
       void loadSessionMessages(currentSessionId, projectId);
     } else {
@@ -502,6 +511,7 @@ export function AIChatPanel() {
     ) return;
     const requestSessionId = currentSessionId;
     const operationId = crypto.randomUUID();
+    const attachmentsForTurn = [...pendingAttachments];
     let pendingVisualFollowup: { message: string; evidence: ChatFrameEvidence } | null = null;
 
     setIsProcessing(true);
@@ -528,6 +538,7 @@ export function AIChatPanel() {
       role: "user",
       content: messageToSend,
       timestamp: new Date(),
+      attachments: attachmentsForTurn,
     };
     setMessages((prev) => [...prev, userMsg]);
 
@@ -592,6 +603,7 @@ export function AIChatPanel() {
           sessionId: requestSessionId,
           selectedOverlayId: selectedOverlayId ?? undefined,
           clientContext,
+          attachments: attachmentsForTurn.map(toChatAttachmentInput),
           visualEvidence: options.visualEvidence,
         }),
         signal: controller.signal,
@@ -645,11 +657,13 @@ export function AIChatPanel() {
           operationId,
           operationStatus: replay.operationStatus,
         });
+        setPendingAttachments([]);
         return;
       }
 
       if (!response.ok) throw new Error('Failed to start stream');
       if (!response.body) throw new Error('No response body');
+      setPendingAttachments([]);
 
       const reader = response.body.getReader();
       const sseParser = new ChatSseJsonParser<Record<string, any>>();
@@ -1165,6 +1179,16 @@ export function AIChatPanel() {
                         </div>
                       )}
                       {/* User messages: just show content */}
+                      {msg.role === "user" && msg.attachments && msg.attachments.length > 0 && (
+                        <div className="mb-2 space-y-1 border-b border-primary-foreground/20 pb-2">
+                          {msg.attachments.map((attachment) => (
+                            <div key={`${attachment.attachmentId}:${attachment.role}`} className="flex min-w-0 items-center gap-2 text-[10px]">
+                              <span className="min-w-0 flex-1 truncate font-medium">{attachment.name}</span>
+                              <span className="shrink-0 opacity-70">{attachment.role.replaceAll('-', ' ')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {msg.role === "user" && msg.content.trim() && (
                         <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
                       )}
@@ -1278,6 +1302,12 @@ export function AIChatPanel() {
 
           {/* Input Area */}
           <div className="border-t bg-background p-4 space-y-3">
+            <ChatAttachmentPicker
+              projectId={projectId}
+              attachments={pendingAttachments}
+              disabled={isProcessing}
+              onChange={setPendingAttachments}
+            />
             <div className="flex gap-2">
               <Textarea
                 value={inputMessage}

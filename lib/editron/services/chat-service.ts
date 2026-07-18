@@ -6,11 +6,13 @@
 
 import { getDatabase, COLLECTIONS } from '../db/mongodb';
 import { nanoid } from 'nanoid';
+import type { AuthorizedChatAttachment } from './chat-attachment-contract';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'tool';
   content: string;
   timestamp: Date;
+  attachments?: AuthorizedChatAttachment[];
   toolCalls?: Array<{
     id: string;
     name: string;

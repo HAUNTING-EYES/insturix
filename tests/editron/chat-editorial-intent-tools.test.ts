@@ -7,6 +7,7 @@ import {
   applyGroundedEditorialIntent,
   buildTargetedSignalDecisions,
   compileGroundedEditorialIntent,
+  createChatEditorialIntentTools,
   filterChatShadowAuthorityTools,
   type ChatEditorialIntentDependencies,
   type GroundedEditorialIntent,
@@ -156,13 +157,58 @@ describe('chat semantic editorial intent', () => {
       { name: 'auto_motion_graphics' },
       { name: 'add_transition' },
       { name: 'auto_edit_from_script' },
+      { name: 'extract_style' },
+      { name: 'apply_style' },
       { name: 'cut_section' },
     ];
     expect(filterChatShadowAuthorityTools(tools).map((entry) => entry.name)).toEqual([
       'read_project_file',
       'cut_section',
     ]);
-    expect(tools).toHaveLength(6);
+    expect(tools).toHaveLength(8);
+  });
+
+  it('queues reference video style through the durable worker using server-owned turn identity', async () => {
+    const queueReferenceStyleJob = vi.fn(async () => ({
+      status: 'queued' as const,
+      jobId: 'chat_style_123',
+      messageId: 'qstash-123',
+    }));
+    const tools = createChatEditorialIntentTools(
+      {
+        userId: 'user-1',
+        projectId: 'project-1',
+        sessionId: 'session-123',
+        operationId: 'operation-123',
+      },
+      undefined,
+      { queueReferenceStyleJob },
+    );
+    const referenceTool = tools.find((candidate) => candidate.name === 'apply_reference_style');
+    expect(referenceTool).toBeDefined();
+
+    const output = JSON.parse(await referenceTool!.invoke({
+      referenceAssetId: 'asset-reference-video',
+      strength: 0.72,
+    }) as string);
+
+    expect(queueReferenceStyleJob).toHaveBeenCalledWith({
+      projectId: 'project-1',
+      userId: 'user-1',
+      sessionId: 'session-123',
+      operationId: 'operation-123',
+      referenceAssetId: 'asset-reference-video',
+      strength: 0.72,
+    });
+    expect(output).toMatchObject({
+      status: 'success',
+      data: {
+        jobId: 'chat_style_123',
+        queueStatus: 'queued',
+        messageId: 'qstash-123',
+      },
+    });
+    expect(output.nextAction).toContain('processing');
   });
 
   it('routes project-wide outcomes to Director with canonical retrieval recorded', async () => {

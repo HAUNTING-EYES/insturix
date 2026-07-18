@@ -899,4 +899,5 @@ export interface LocalMediaFile {
   thumbnail?: string;
   duration?: number;
   dimensions?: { width: number; height: number };
+  analysisStatus?: string;
 }
