@@ -129,18 +129,14 @@ export class ProviderPrivacyGateError extends Error {
   }
 }
 
-export function isProviderPrivacyGateError(error: unknown): error is ProviderPrivacyGateError {
-  return error instanceof ProviderPrivacyGateError;
-}
-
-export function classifyPromptData(prompt: string): ProviderPrivacyClass {
+function classifyPromptData(prompt: string): ProviderPrivacyClass {
   if (matchesAny(prompt, CHILD_DATA_PATTERNS)) return 'child_data';
   if (matchesAny(prompt, BUSINESS_CONFIDENTIAL_PATTERNS)) return 'business_confidential';
   if (matchesAny(prompt, PERSONAL_PATTERNS)) return 'personal';
   return 'public';
 }
 
-export function redactPersonalData(prompt: string): { prompt: string; redactions: string[] } {
+function redactPersonalData(prompt: string): { prompt: string; redactions: string[] } {
   let redacted = prompt;
   const redactions: string[] = [];
 
