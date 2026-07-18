@@ -35,7 +35,7 @@ import type {
 } from './types';
 
 /** Bumped when the kit or prompt changes — part of the cache key so stale code never gets reused. */
-export const KIT_VERSION = 'e1.6'; // e1.6: FitHeadline kinetic="words" + wordsAt (onset-timed kinetic captions, data.wordFrames reserved prop) — P2
+export const KIT_VERSION = 'e1.7'; // e1.7: widthFrac nested-width contract on FitHeadline/TextBlock + exact-region-bounds coder rule + frame-edge clip reject (P3 clipping root cause)
 const DEFAULT_JUDGE_THRESHOLD = 7.5; // ← ship at 7.5, tune on the first 50 real moments
 const MAX_MODEL_ATTEMPTS = 3;
 const MAX_COMPILE_FEEDBACK_CHARS = 1_200;

@@ -69,4 +69,18 @@ describe('FitHeadline kinetic="words" — onset-timed word landing', () => {
     expect(rise).toMatch(/translateY\(/);
     expect(rise).not.toMatch(/transform:scale\(/);
   });
+
+  it('P3 widthFrac (the nested-width contract): a narrower declared container fits a SMALLER font; junk values degrade to full width, never NaN', () => {
+    const sizeOf = (html: string): number => {
+      const m = html.match(/font-size:(\d+(?:\.\d+)?)px/);
+      return m ? Number(m[1]) : NaN;
+    };
+    const full = sizeOf(at(70, caption()));
+    const nested = sizeOf(at(70, caption({ widthFrac: 0.5 })));
+    expect(full).toBeGreaterThan(0);
+    expect(nested).toBeGreaterThan(0);
+    expect(nested).toBeLessThan(full); // half the container → smaller fitted type (no overflow possible)
+    expect(at(70, caption({ widthFrac: Number.NaN }))).not.toMatch(/NaN/);
+    expect(sizeOf(at(70, caption({ widthFrac: Number.NaN })))).toBe(full); // junk → default full width
+  });
 });

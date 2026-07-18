@@ -55,6 +55,14 @@ ${ELEMENT_MAP}
   reveal on the landing beat; 'phases-only' → phases + stagger alone.
 - STRUCTURE: structure.placement/grouping/readingOrder describe the layout inside the SAFE region given in
   <moment> — compose the elements to realize that structure (grouped, aligned, deliberate negative space).
+- REGION BOUNDS ARE EXACT: the primary <Region> uses EXACTLY the SAFE PLACEMENT coords given in <moment> —
+  never widen, shift, or extend them (a wider region runs off-frame and over the subject; that render is
+  auto-rejected).
+- NESTED TEXT WIDTH (the clipping killer): FitHeadline/TextBlock fit themselves to the REGION width. If you
+  nest one inside padding, columns, or beside a rail, its real container is NARROWER — you MUST pass
+  widthFrac={fraction of region width the text container occupies} or the text overflows and clips.
+  Worked example: Plate padding 6% each side + a rail column ~12% wide + 6% gap → the text column is
+  ~1−0.12−0.12−0.06 ≈ 0.70 → widthFrac={0.7}. A direct region child needs no widthFrac.
 - The video brief's motifLanguage/paletteMoves/motionPersonality apply WITHIN this component (the recurring
   motif element is part of the design; palette moves use tint/shade/mix on brand colours only).
 - LEGIBILITY IS MANDATORY, EVERY LANE: the judge stress-tests every render over PURE LIGHT and PURE DARK

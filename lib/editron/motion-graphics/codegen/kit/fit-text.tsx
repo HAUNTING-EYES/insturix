@@ -97,10 +97,17 @@ export const FitHeadline: React.FC<{
   /** 100..900 — override the SANS headline weight (the type-weight axis: light-editorial ↔ heavy-punchy).
    *  The display face is single-weight (Anton) and ignores this — face='display' IS the heavy anchor. */
   weight?: number;
-}> = ({ brand, text, accentWords = [], face = 'sans', size = 'xl', maxLines, startAt = 0, kinetic = 'rise', wordsAt, align = 'left', weight: weightProp }) => {
+  /** THE NESTED-WIDTH CONTRACT (P3 clipping root cause): FitHeadline fits itself to the REGION width — if it
+   *  is nested inside padding/columns/rails, the region is WIDER than its real container and the text overflows
+   *  (the Iman card clipped off-frame exactly this way). Declare the fraction of the region width the text's
+   *  container actually occupies (e.g. 6% plate padding each side + a 12% rail column → widthFrac={0.76}).
+   *  Clamped 0.2..1, NaN-safe. Default 1 = direct region child. */
+  widthFrac?: number;
+}> = ({ brand, text, accentWords = [], face = 'sans', size = 'xl', maxLines, startAt = 0, kinetic = 'rise', wordsAt, align = 'left', weight: weightProp, widthFrac }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const { wPx } = useRegionSize();
+  const { wPx: wRegion } = useRegionSize();
+  const wPx = wRegion * (Number.isFinite(widthFrac as number) ? Math.max(0.2, Math.min(1, widthFrac as number)) : 1);
   const cap = SIZE_CAP[size];
   const lines = maxLines ?? cap.lines;
   // face='display' = the heavy CONDENSED impact face (brand.fontDisplay / Anton), rendered ALL-CAPS — the
@@ -184,10 +191,13 @@ export const TextBlock: React.FC<{
   maxLines?: number;
   startAt?: number;
   align?: 'left' | 'center' | 'right';
-}> = ({ brand, text, tone = 'muted', size = 's', maxLines, startAt = 0, align = 'left' }) => {
+  /** Same nested-width contract as FitHeadline: fraction of the region width this block's container occupies. */
+  widthFrac?: number;
+}> = ({ brand, text, tone = 'muted', size = 's', maxLines, startAt = 0, align = 'left', widthFrac }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const { wPx } = useRegionSize();
+  const { wPx: wRegion } = useRegionSize();
+  const wPx = wRegion * (Number.isFinite(widthFrac as number) ? Math.max(0.2, Math.min(1, widthFrac as number)) : 1);
   const cap = SIZE_CAP[size];
   const px = fitSize(text, wPx, maxLines ?? cap.lines, cap.frac * (wPx / 0.9), 500, 0, false);
   const s = spring({ frame: frame - startAt, fps, config: { damping: 24, mass: 0.7, stiffness: 140 } });
