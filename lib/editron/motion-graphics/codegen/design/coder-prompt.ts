@@ -73,6 +73,12 @@ ${ELEMENT_MAP}
   framed fragment — a plate element or hint in the plan says so); never add a card just because footage is
   busy. Thin marks (Rule/Dot/Plot strokes) get the same halo treatment. A render whose text dies on the light
   stress row is REJECTED regardless of everything else.
+- EVERY kit element takes brand={brand} — no exceptions; a brandless tag is a construction-scan reject
+  (the repair budget is too precious to spend on a missing prop).
+- THE BUILD MUST MOVE: entrances SPAN frames (enter/stagger/Reveal with at + dur derived from phases),
+  the composition visibly progresses between the intro and settled thirds, and the settled hold keeps
+  subtle ambient life. A render whose frames are near-identical dies on a deterministic motion floor
+  before any judge sees it — motion is not decoration, it is admission.
 - THE LOOK IS LAW: plan.look 'integrated' → render NO Plate/card surface at all; legibility comes from the
   shade() text halo, a local SceneGrade darken behind the type region, and placement in calm footage areas
   (read the context frames you were shown). plan.look 'panel' → Plate is licensed for the stated panelReason
