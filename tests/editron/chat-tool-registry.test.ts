@@ -17,6 +17,7 @@ const CHAT_TOOL_SOURCE_FILES = [
   'lib/editron/agent/chat-audio-tools.ts',
   'lib/editron/agent/chat-asset-tools.ts',
   'lib/editron/agent/chat-editorial-intent-tools.ts',
+  'lib/editron/agent/chat-deep-analysis-tools.ts',
 ];
 
 function extractDeclaredChatToolNames(): string[] {
@@ -90,6 +91,10 @@ describe('chat tool registry', () => {
 
     expect(agentSource).not.toContain('RATE_LIMITED_TOOLS');
     expect(agentSource).not.toContain('countToolCallsSinceLastHuman');
+    expect(agentSource).toContain('resolve_clip_analysis');
+    expect(agentSource).toContain('queue_resolved_clip_analysis');
+    expect(agentSource).toContain('get_clip_analysis_result');
+    expect(agentSource).toContain('legacy synchronous analyze_clip_audio/analyze_clip_video tools are not available');
   });
 
   it('has labels and receipt text for registered tools', () => {

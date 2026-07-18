@@ -34,6 +34,8 @@ describe('Editron vibe-editing command matrix', () => {
     expect(shadowAuthority).toEqual([
       'add_motion_graphic',
       'add_transition',
+      'analyze_clip_audio',
+      'analyze_clip_video',
       'apply_style',
       'auto_edit_from_script',
       'auto_motion_graphics',

@@ -37,6 +37,10 @@ import {
   createChatEditorialIntentTools,
   filterChatShadowAuthorityTools,
 } from './chat-editorial-intent-tools';
+import {
+  createChatDeepAnalysisTools,
+  filterChatLegacyDeepAnalysisTools,
+} from './chat-deep-analysis-tools';
 import { TokenTracker } from '../utils/token-tracker';
 
 // PERF FIX: Hoist Google SDK imports to module level.
@@ -224,18 +228,24 @@ export const createAgent = (
   projectContext?: string,
   turnContext?: { sessionId: string; operationId: string },
 ) => {
-  // Chat receives shared deterministic tools plus one semantic-intent adapter. Director and
-  // internal createTools callers keep the compatibility tools, but chat cannot use them as
-  // shadow MG/transition/script authority.
-  const createToolsWithProject = (projectId: string) => [
-    ...filterChatShadowAuthorityTools(createTools(userId, projectId)),
-    ...createChatEditorialIntentTools({
-      userId,
-      projectId,
-      sessionId: turnContext?.sessionId,
-      operationId: turnContext?.operationId,
-    }),
-  ];
+  // Director and internal createTools callers retain compatibility tools. Live chat receives
+  // deterministic tools plus semantic-intent and durable-analysis adapters, with legacy shadow
+  // authorities and synchronous provider analyzers removed from its callable declaration set.
+  const createToolsWithProject = (projectId: string) => {
+    const compatibilityTools = filterChatLegacyDeepAnalysisTools(
+      filterChatShadowAuthorityTools(createTools(userId, projectId)),
+    );
+    return [
+      ...compatibilityTools,
+      ...createChatEditorialIntentTools({
+        userId,
+        projectId,
+        sessionId: turnContext?.sessionId,
+        operationId: turnContext?.operationId,
+      }),
+      ...createChatDeepAnalysisTools({ userId, projectId }),
+    ];
+  };
 
   // PERF FIX: Cache tools and their Gemini function declarations per projectId
   // within a single agent instance lifetime. Previously, both callModel AND
@@ -396,8 +406,9 @@ export const createAgent = (
     - \`list_user_assets\`, \`search_user_assets\`, \`inspect_user_asset\`, \`resolve_user_asset_overlay\`: Read/resolve uploaded asset references before adding or replacing media.
     - \`visual_inspect_frame\`: Request one rendered editor frame when the edit depends on visible layout, collision, crop, legibility, or aesthetics. It is a read-only sensor request and must be the only tool in that model step.
     - \`analyze_video_content\`: Find silences and filler words. Returns READY-TO-USE cut instructions.
-    - \`analyze_clip_audio\`: Deep audio analysis with Gemini AI. Detects silences, fillers, problematic segments with timeline frames.
-    - \`analyze_clip_video\`: Deep visual analysis with Gemini AI. Detects scene changes, gestures, dead zones, on-screen text.
+    - \`resolve_clip_analysis\`: Resolve an exact audio/video target and edited/source frame contract into durable job IDs. It does not run the provider.
+    - \`queue_resolved_clip_analysis\`: Queue exactly the job IDs returned by the resolver. It does not accept or expand targets.
+    - \`get_clip_analysis_result\`: Read durable status and completed evidence. Pending or failed jobs are not evidence.
     - \`add_captions\`: Add regular subtitle-style captions to a full video. Per-clip styling supported.
     - \`add_fancy_captions\`: Add kinetic typography (TikTok-style word art) for HOOKS. Use for first 3-5 seconds only.
     - \`refresh_captions\`: Realign existing regular captions after video edits.
@@ -438,78 +449,16 @@ export const createAgent = (
     - If the user asks to redo a restored edit, use the afterCheckpointId when it is available.
     - Do NOT manually reverse edits by adding/removing overlays. If no checkpoint ID is available in the conversation, ask for the checkpoint ID instead of guessing.
 
-    IMPORTANT TOOL USAGE RULE (COST-AWARE + ZERO-FRICTION):
-
-    analyze_clip_audio and analyze_clip_video are advanced AI tools with higher computational cost.
-    Use them intelligently, without unnecessary user confirmations.
-
-    GENERAL PRINCIPLES:
-    - DO NOT repeatedly ask the user for confirmation if their intent to analyze is already clear.
-    - DO NOT block the user flow with confirmations unless the cost or scope is unusually high.
-    - Always prefer cheaper or cached tools when they can satisfy the request.
-
-    COST & TOOL SELECTION STRATEGY:
-
-    1) Prefer CHEAPER / CACHED tools FIRST:
-      - For speech → use 'get_video_transcription'
-      - For silence detection / filler cleanup → use 'analyze_video_content'
-      - For short clips (< 30 seconds) → 'analyze_clip_audio' is generally acceptable
-      - Only use 'analyze_clip_video' when VISUAL understanding is required
-
-    2) Use analyze_clip_audio WHEN:
-      - User asks about:
-        - speech meaning
-        - audio quality
-        - tone / emotion
-        - fillers / silences
-        - sound issues
-      - OR when no cheaper tool can reliably answer the question
-
-    3) Use analyze_clip_video WHEN:
-      - User asks about:
-        - gestures
-        - scene changes
-        - on-screen text
-        - visual actions
-        - screen recordings
-        - object or person movement
-      - OR when visual understanding is REQUIRED to complete the task
-
-    **QUICK INTENT MAPPING** (user phrasing → tool):
-    - "read vid", "read video", "analysis vid", "analysis video" → \`analyze_clip_video\`
-    - "read aud", "read audio", "read music", "analysis aud", "analysis audio" → \`analyze_clip_audio\`
-    When the user uses these phrases, use the mapped tool directly.
-
-    **CRITICAL - NEVER ASK FOR ID OR TIME**:
-    - NEVER ask the user for video/audio ID, asset ID, or time range (e.g. "which video?", "provide start/end times").
-    - Call \`analyze_clip_video\` or \`analyze_clip_audio\` with {} or minimal params. The tool auto-selects the first overlay and uses full duration up to 2 min.
-    - If user has multiple clips and wants "all" or "everything", pass \`analyzeAll: true\`.
-
-    4) Confirmation rules:
-      - DO NOT ask for confirmation when:
-          - The user explicitly requests video/audio analysis
-          - The clip duration is short
-          - The analysis is necessary to fulfill the request
-      - ONLY ask for confirmation when:
-          - The clip is long (e.g., > 2–3 minutes)
-          - The cost impact is significant
-          - A cheaper alternative might reasonably satisfy the request
-
-    5) If confirmation is required:
-      - Briefly explain:
-          - That this is a higher-cost operation
-          - That frame-level video analysis is being performed
-          - That audio is deeply processed
-          - That processing may take time
-      - Ask ONCE only.
-      - If user declines, stop and suggest the cheaper alternative.
-
-    6) If user intent is CLEAR:
-      - Proceed directly.
-      - NEVER ask again for the same request.
-
-    NEVER block execution with confirmation loops.
-    NEVER re-ask if the user already said "analyze", "check", "review", "inspect", or similar.
+    **DURABLE DEEP ANALYSIS PROTOCOL (COST-AWARE + REVISION-SAFE)**:
+    - Prefer cached evidence first: transcript tools for speech, analyze_video_content for existing silence/filler evidence, and visual/audio moment tools for indexed evidence.
+    - When deeper provider evidence is genuinely required, call resolve_clip_analysis first. Resolve one exact target from the current selection, durable asset, edited-time window, semantic search, or an explicit user request for all clips.
+    - Never default to the first clip. Never use targetMode="all" unless the user explicitly asked for every eligible clip.
+    - On the next model step, call queue_resolved_clip_analysis once with exactly the returned job IDs. Never invent IDs or widen the batch.
+    - Queued analysis is processing, not completed. Tell the user it is processing and stop; do not invent findings or mutate from pending evidence.
+    - On a later turn, call get_clip_analysis_result with those job IDs. Only status="success" with completed jobs is usable evidence.
+    - Keep findings inside each returned target frame range. A result for one clip or window says nothing about another.
+    - If exact resolution fails because the request is ambiguous, ask once for a clearer visible/audio target. Do not guess IDs or timestamps.
+    - The legacy synchronous analyze_clip_audio/analyze_clip_video tools are not available to chat.
 
     **VIDEO AUTO-EDIT WORKFLOW**:
     When user asks to "remove silences", "clean up", or "auto-edit":
