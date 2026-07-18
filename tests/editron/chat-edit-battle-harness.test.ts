@@ -154,6 +154,7 @@ import {
 import {
   buildLiveChatRequestBody,
   chatBattleInvocationQueuedProjectMutation,
+  loadChatBattleMongoProject,
   parseChatBattleCliArgs,
   validateChatBattleCliOptions,
   waitForQueuedProjectMutation,
@@ -602,5 +603,20 @@ describe('chat edit battle harness', () => {
       projectId: 'proj_chatbattle_contract',
       runId: 'run 2026/07/18 #1',
     }).operationId).toBe(request.operationId);
+  });
+
+  it('reuses the process-owned Mongo connection across before and after snapshots', async () => {
+    const findProject = vi.fn(async (projectId: string) => ({
+      projectId,
+      overlays: [],
+      durationInFrames: 300,
+    }));
+
+    const before = await loadChatBattleMongoProject('proj_fixture', { findProject });
+    const after = await loadChatBattleMongoProject('proj_fixture', { findProject });
+
+    expect(findProject).toHaveBeenCalledTimes(2);
+    expect(before.projectId).toBe('proj_fixture');
+    expect(after.projectId).toBe('proj_fixture');
   });
 });

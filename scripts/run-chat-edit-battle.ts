@@ -209,17 +209,25 @@ export function buildLiveChatRequestBody(input: {
   };
 }
 
-async function loadMongoProject(projectId: string): Promise<Record<string, unknown>> {
-  const { COLLECTIONS, connectToDatabase } = await import('../lib/editron/db/mongodb');
-  const { client, db } = await connectToDatabase();
-  try {
-    const project = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId });
-    if (!project) throw new Error(`Project not found in Mongo: ${projectId}`);
-    return project as Record<string, unknown>;
-  } finally {
-    await client.close();
-  }
+interface ChatBattleProjectLoaderDependencies {
+  findProject(projectId: string): Promise<Record<string, unknown> | null>;
 }
+
+export async function loadChatBattleMongoProject(
+  projectId: string,
+  dependencies?: ChatBattleProjectLoaderDependencies,
+): Promise<Record<string, unknown>> {
+  const findProject = dependencies?.findProject ?? (async (requestedProjectId: string) => {
+    const { COLLECTIONS, getDatabase } = await import('../lib/editron/db/mongodb');
+    const db = await getDatabase();
+    return db.collection(COLLECTIONS.PROJECTS).findOne({ projectId: requestedProjectId }) as Promise<Record<string, unknown> | null>;
+  });
+  const project = await findProject(projectId);
+  if (!project) throw new Error(`Project not found in Mongo: ${projectId}`);
+  return project;
+}
+
+const loadMongoProject = loadChatBattleMongoProject;
 
 export function chatBattleInvocationQueuedProjectMutation(invocation: ChatBattleInvocationEvidence): boolean {
   return invocation.toolEvents.some((event) => {
