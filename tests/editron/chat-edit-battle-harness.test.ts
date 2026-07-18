@@ -155,6 +155,7 @@ import {
 import {
   buildRequestedChatEditRenderVerification,
   markChatEditRenderVerificationDelivered,
+  markChatEditRenderVerificationDeliveryFailed,
   markChatEditRenderVerificationDispatched,
   markChatEditRenderVerificationRendering,
   markChatEditRenderVerificationTerminal,
@@ -757,6 +758,61 @@ describe('chat edit battle harness', () => {
       terminalStatus: 'pass',
       attemptCount: 2,
       terminalAt: '2026-07-18T10:00:04.000Z',
+    });
+  });
+
+  it('marks exhausted render verification deliveries as terminal system errors', () => {
+    const requested = buildRequestedChatEditRenderVerification(
+      renderVerificationRequest(),
+      '2026-07-18T10:00:01.100Z',
+    );
+    const failed = markChatEditRenderVerificationDeliveryFailed(requested, {
+      reason: 'qstash_delivery_failed:timeout:request timed out',
+      attemptCount: 3,
+      qstashMessageId: 'msg_failed',
+      now: '2026-07-18T10:05:01.000Z',
+    });
+    const alreadyCompleted = markChatEditRenderVerificationDeliveryFailed(
+      markChatEditRenderVerificationTerminal(
+        markChatEditRenderVerificationRendering(
+          markChatEditRenderVerificationDelivered(requested, {
+            attemptCount: 1,
+            workerRequestId: 'worker_done',
+            now: '2026-07-18T10:00:02.000Z',
+          }),
+          '2026-07-18T10:00:03.000Z',
+        ),
+        {
+          status: 'pass',
+          visual: { renderedFrames: [], issues: [] },
+          audio: renderedAudioEvidence(),
+          reasons: [],
+          now: '2026-07-18T10:00:04.000Z',
+        },
+      ),
+      {
+        reason: 'late_qstash_callback',
+        attemptCount: 4,
+        qstashMessageId: 'msg_late',
+        now: '2026-07-18T10:06:00.000Z',
+      },
+    );
+
+    expect(failed).toMatchObject({
+      status: 'error',
+      completedAt: '2026-07-18T10:05:01.000Z',
+      reasons: ['qstash_delivery_failed:timeout:request timed out'],
+      lifecycle: {
+        state: 'failed',
+        terminalStatus: 'system-error',
+        attemptCount: 3,
+        qstashMessageId: 'msg_failed',
+      },
+    });
+    expect(alreadyCompleted.lifecycle).toMatchObject({
+      state: 'completed',
+      terminalStatus: 'pass',
+      qstashMessageId: null,
     });
   });
 

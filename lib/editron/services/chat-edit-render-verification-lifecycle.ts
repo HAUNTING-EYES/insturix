@@ -295,6 +295,40 @@ export function markChatEditRenderVerificationTerminal<Visual, Audio>(
   };
 }
 
+export function markChatEditRenderVerificationDeliveryFailed<Visual, Audio>(
+  record: ChatEditRenderVerificationRecord<Visual, Audio>,
+  input: {
+    reason: string;
+    attemptCount?: number;
+    qstashMessageId?: string | null;
+    now?: Date | string;
+  },
+): ChatEditRenderVerificationRecord<Visual, Audio> {
+  if (record.lifecycle.state === 'completed') return record;
+  const updatedAt = toIso(input.now ?? new Date());
+  const reason = cleanText(input.reason, 500) ?? 'render_verification_delivery_failed';
+  return {
+    ...record,
+    status: 'error',
+    completedAt: updatedAt,
+    reasons: [reason],
+    notificationStatus: 'pending',
+    lifecycle: {
+      ...record.lifecycle,
+      state: 'failed',
+      terminalStatus: 'system-error',
+      attemptCount: Math.max(
+        record.lifecycle.attemptCount,
+        input.attemptCount !== undefined ? normalizeAttempt(input.attemptCount) : 1,
+      ),
+      qstashMessageId: cleanText(input.qstashMessageId, 240) ?? record.lifecycle.qstashMessageId,
+      reason,
+      terminalAt: updatedAt,
+      updatedAt,
+    },
+  };
+}
+
 function normalizeAttempt(value: number): number {
   return Number.isSafeInteger(value) && value > 0 ? Math.min(value, 100) : 1;
 }

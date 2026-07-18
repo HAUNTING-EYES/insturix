@@ -32,6 +32,7 @@ import {
   buildRequestedChatEditRenderVerification,
   ensureChatEditRenderVerificationLifecycle,
   markChatEditRenderVerificationDelivered,
+  markChatEditRenderVerificationDeliveryFailed,
   markChatEditRenderVerificationRendering,
   markChatEditRenderVerificationTerminal,
   type ChatEditRenderVerificationRecord,
@@ -64,7 +65,12 @@ interface VerificationCheckpoint extends Checkpoint {
 
 async function handler(request: NextRequest) {
   const startedAt = Date.now();
-  const body = await request.json().catch(() => ({})) as Phase0RenderedEvidencePayload;
+  const rawBody = await request.json().catch(() => ({}));
+  if (request.nextUrl.searchParams.get('qstashFailure') === '1') {
+    return handleQstashFailureCallback({ body: rawBody, startedAt });
+  }
+
+  const body = rawBody as Phase0RenderedEvidencePayload;
   const projectId = String(body.projectId ?? '').trim();
   const userId = String(body.userId ?? '').trim();
 
@@ -395,6 +401,100 @@ async function handleChatEditRenderVerification(input: {
   }
 }
 
+async function handleQstashFailureCallback(input: {
+  body: unknown;
+  startedAt: number;
+}) {
+  const failure = parseQstashFailureCallback(input.body);
+  const payload = failure.payload;
+  const projectId = String(payload.projectId ?? '').trim();
+  const userId = String(payload.userId ?? '').trim();
+  const verification = validateChatEditVerificationRequest(payload.chatEditVerification);
+
+  if (!projectId || !userId || !verification) {
+    return NextResponse.json(
+      { success: false, error: 'Invalid QStash failure callback payload' },
+      { status: 400 },
+    );
+  }
+
+  const db = await getDatabase();
+  const project = await db.collection('projects').findOne({ projectId });
+  if (!project) {
+    return NextResponse.json(
+      { success: false, error: 'Project not found' },
+      { status: 404 },
+    );
+  }
+  if (project.userId && project.userId !== userId) {
+    return NextResponse.json(
+      { success: false, error: 'Project/user mismatch' },
+      { status: 403 },
+    );
+  }
+
+  const checkpoints = db.collection<VerificationCheckpoint>(COLLECTIONS.CHECKPOINTS);
+  const beforeCheckpoint = await checkpoints.findOne({
+    checkpointId: verification.beforeCheckpointId,
+    projectId,
+    userId,
+    sessionId: verification.sessionId,
+    operationId: verification.operationId,
+  });
+  if (!beforeCheckpoint) {
+    return NextResponse.json(
+      { success: false, error: 'Chat edit verification checkpoint not found' },
+      { status: 404 },
+    );
+  }
+
+  const existingRecord = beforeCheckpoint.chatEditRenderVerification
+    ? ensureChatEditRenderVerificationLifecycle(beforeCheckpoint.chatEditRenderVerification)
+    : buildRequestedChatEditRenderVerification(verification) as RenderVerificationRecord;
+  if (existingRecord.lifecycle.state === 'completed') {
+    return NextResponse.json({
+      success: true,
+      projectId,
+      operationId: verification.operationId,
+      skipped: 'already-completed',
+      status: existingRecord.status,
+    });
+  }
+
+  const failedRecord = markChatEditRenderVerificationDeliveryFailed(existingRecord, {
+    reason: failure.reason,
+    attemptCount: failure.attemptCount,
+    qstashMessageId: failure.sourceMessageId,
+  });
+  await persistChatEditVerificationResult({
+    db,
+    projectId,
+    userId,
+    checkpointId: verification.beforeCheckpointId,
+    record: failedRecord,
+  });
+  await ensureVerificationNotification({
+    db,
+    projectId,
+    userId,
+    checkpointId: verification.beforeCheckpointId,
+    record: failedRecord,
+  });
+
+  console.error(
+    `[ChatEditRenderVerification] ${projectId}/${verification.operationId}: `
+    + `qstash failure callback status=${failedRecord.status}, reason=${failedRecord.reasons.join('|')}, `
+    + `ms=${Date.now() - input.startedAt}`,
+  );
+  return NextResponse.json({
+    success: true,
+    projectId,
+    operationId: verification.operationId,
+    status: failedRecord.status,
+    reasons: failedRecord.reasons,
+  });
+}
+
 function validateChatEditVerificationRequest(
   value: unknown,
 ): ChatEditRenderVerificationRequest | null {
@@ -636,6 +736,74 @@ function resolveQstashAttemptCount(request: NextRequest): number {
 
 function resolveWorkerRequestId(request: NextRequest): string {
   return boundedText(request.headers.get('x-vercel-id'), 240) ?? `local:${randomUUID()}`;
+}
+
+function parseQstashFailureCallback(value: unknown): {
+  payload: Phase0RenderedEvidencePayload;
+  reason: string;
+  attemptCount: number;
+  sourceMessageId: string | null;
+} {
+  const body = asRecord(value);
+  const sourceBody = parseEmbeddedJson(body.sourceBody)
+    ?? parseEmbeddedJson(body.body)
+    ?? parseEmbeddedJson(body.requestBody)
+    ?? parseEmbeddedJson(body.payload)
+    ?? body;
+  const reasonParts = [
+    boundedText(body.error, 200),
+    boundedText(body.message, 300),
+    boundedText(body.status, 120),
+  ].filter((part): part is string => Boolean(part));
+  const sourceMessageId = boundedText(
+    body.sourceMessageId ?? body.messageId ?? body.dlqId,
+    240,
+  );
+  return {
+    payload: asRecord(sourceBody) as Phase0RenderedEvidencePayload,
+    reason: reasonParts.length > 0
+      ? `qstash_delivery_failed:${reasonParts.join(':')}`
+      : 'qstash_delivery_failed',
+    attemptCount: resolveQstashFailureAttemptCount(body),
+    sourceMessageId,
+  };
+}
+
+function parseEmbeddedJson(value: unknown): unknown | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!text) return null;
+  const direct = parseJson(text);
+  if (direct) return direct;
+  try {
+    return parseJson(Buffer.from(text, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function parseJson(value: string): unknown | null {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function resolveQstashFailureAttemptCount(body: Record<string, unknown>): number {
+  const retried = numericValue(body.retried ?? body.sourceRetried);
+  const maxRetries = numericValue(body.maxRetries ?? body.sourceMaxRetries);
+  const attempts = [
+    retried !== null ? retried + 1 : null,
+    maxRetries !== null ? maxRetries + 1 : null,
+  ].filter((value): value is number => value !== null);
+  return attempts.length > 0 ? Math.min(Math.max(...attempts), 100) : 1;
+}
+
+function numericValue(value: unknown): number | null {
+  const numberValue = Number(value);
+  return Number.isSafeInteger(numberValue) && numberValue >= 0 ? numberValue : null;
 }
 
 function boundedIdentifier(value: unknown, min: number, max: number): string | null {

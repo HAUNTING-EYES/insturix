@@ -365,6 +365,18 @@ describe('phase0 rendered evidence worker service', () => {
     });
   });
 
+  it('wires QStash failure callbacks so async rendered evidence jobs cannot hang silently', () => {
+    const serviceSource = readFileSync('lib/editron/services/phase0-rendered-evidence-worker.ts', 'utf8');
+    const routeSource = readFileSync('app/api/internal/workers/phase0-rendered-evidence/route.ts', 'utf8');
+
+    expect(serviceSource).toContain('failureCallback');
+    expect(serviceSource).toContain('/api/internal/workers/phase0-rendered-evidence');
+    expect(serviceSource).toContain('?qstashFailure=1');
+    expect(routeSource).toContain("request.nextUrl.searchParams.get('qstashFailure') === '1'");
+    expect(routeSource).toContain('markChatEditRenderVerificationDeliveryFailed');
+    expect(routeSource).toContain('qstash_delivery_failed');
+  });
+
   it('builds a project-level claim for the expensive rendered-evidence worker', () => {
     const now = new Date('2026-07-03T12:00:00.000Z');
 

@@ -244,9 +244,11 @@ export async function dispatchPhase0RenderedEvidenceJob(
     ? `https://${env.VERCEL_URL}`
     : env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
   const url = `${baseUrl}/api/internal/workers/phase0-rendered-evidence`;
+  const failureCallback = `${url}?qstashFailure=1`;
   const qstash = new Client({ token, baseUrl: env.QSTASH_URL || undefined });
   const result = await qstash.publishJSON({
     url,
+    failureCallback,
     body: {
       ...payload,
       requestedAt: payload.requestedAt ?? new Date().toISOString(),
