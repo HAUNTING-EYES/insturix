@@ -37,6 +37,7 @@ import {
   createChatEditorialIntentTools,
   filterChatShadowAuthorityTools,
 } from './chat-editorial-intent-tools';
+import { normalizeChatEditorialIntentWireAliases } from './chat-editorial-intent-wire';
 import {
   createChatDeepAnalysisTools,
   filterChatLegacyDeepAnalysisTools,
@@ -163,7 +164,21 @@ export function normalizeAgentToolArgs(
     if (value === 'false') args[key] = false;
   }
 
-  return args;
+  return toolName === 'apply_editorial_intent'
+    ? normalizeChatEditorialIntentWireAliases(args)
+    : args;
+}
+
+function latestHumanMessageText(messages: unknown[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index] as Record<string, unknown>;
+    const type = typeof message?._getType === 'function'
+      ? String((message._getType as () => unknown)())
+      : String((message?.constructor as { name?: string } | undefined)?.name ?? '');
+    if (type !== 'human' && type !== 'HumanMessage') continue;
+    return typeof message.content === 'string' ? message.content : JSON.stringify(message.content ?? '');
+  }
+  return '';
 }
 
 const NUMERIC_STYLE_PROPERTIES = new Set([
@@ -331,18 +346,18 @@ ${ownerLicensePrompt}
     GOLDEN RULE: Complete the user's request and STOP. Do NOT suggest variations, alternatives, or additional elements unless the user explicitly asks for them. If the user asks for "a sticker", create ONE sticker and confirm. Do NOT offer to create more.
 
     **AUTONOMY RULE**: ACT FIRST (by outputting actual tool calls to make changes), confirm after. NEVER ask clarifying questions when the intent is clear enough to execute. Remember, you MUST call the tool to act. Examples:
-    - "add transitions" -> call apply_editorial_intent with the user goal, project scope, and transitions.mode="prefer". Do not name a transition form.
-    - "add captions" -> call apply_editorial_intent with the user goal, project scope, and captions.mode="prefer". Do not choose a global caption style.
-    - "add music" -> call apply_editorial_intent with music.mode="prefer" and preserve mood or instrument words as musicPrompt.
-    - "enhance this video" -> call apply_editorial_intent with project scope and no forced families, so evidence decides what is warranted.
+    - "add transitions" -> call apply_editorial_intent with the user goal, scopeKind="project", and transitionsMode="prefer". Do not name a transition form.
+    - "add captions" -> call apply_editorial_intent with the user goal, scopeKind="project", and captionsMode="prefer". Do not choose a global caption style.
+    - "add music" -> call apply_editorial_intent with musicMode="prefer" and preserve mood or instrument words as musicPrompt.
+    - "enhance this video" -> call apply_editorial_intent with scopeKind="project" and no forced families, so evidence decides what is warranted.
     - "regenerate scene 2" → call regenerate_scene({ sceneIndex: 1, target: 'all' }). Do NOT ask image/video/voiceover.
-    - "add motion graphics" -> call apply_editorial_intent with motionGraphics.mode="prefer". Do not name an MG form.
+    - "add motion graphics" -> call apply_editorial_intent with motionGraphicsMode="prefer". Do not name an MG form.
     - When the user asks to change an existing generated HTML scene, call \`edit_html_scene\` with that scene's ID. Never delete and recreate it.
     If the user's selected overlay is visible in context, use it. Don't ask for overlay IDs.
 
     **SEMANTIC EDITORIAL INTENT (CRITICAL)**:
     - For vague outcomes, family-level requests, moment-targeted embellishment, or script-led re-editing, call \`apply_editorial_intent\`.
-    - Pass facts only: goal, scope, target reference, constraints, strength, uncertainty, explicit family preferences, optional script, and user notes.
+    - Pass facts only through the flat wire: goal, scopeKind/startFrame/endFrame/overlayIds, targetReference, constraintsText, strength, uncertainty, explicit family mode/frequency/intensity fields, optional grounded scriptText, and user notes.
     - NEVER invent an MG type, transition type, SFX token, animation preset, keyframe recipe, or global caption style. Existing family owners resolve physical form from canonical evidence and signals.
     - If the tool returns advisory, no edit happened. Ask once for the missing target or evidence and do not claim success.
     **PLAIN LANGUAGE**: Never use jargon. Say "fade to black" not "dip-to-black transition". Say "text label" not "lower third". Say "highlight" not "callout". The user is not a professional editor.
@@ -403,7 +418,7 @@ ${ownerLicensePrompt}
     - Function schemas describe exact arguments. Read each result envelope before deciding the next step.
 
     **AUTO-EDIT FROM SCRIPT**:
-    When the user provides a script and asks to edit, call \`apply_editorial_intent\` with the complete script and the user goal and constraints. The tool routes to the Phase 2 multi-asset script planner. Never use the legacy single-video script editor.
+    When the user provides a script and asks to edit, call \`apply_editorial_intent\` with the exact supplied text in scriptText plus the user goal and constraintsText. Never invent or summarize scriptText. The tool verifies its user-turn provenance, then routes to the Phase 2 multi-asset script planner. Never use the legacy single-video script editor.
     **CRITICAL - CUT AND DELETE OPERATIONS**:
     When the user asks to "cut", "delete", "remove" a section of the timeline:
     - **ALWAYS use \`cut_section\`** with startFrame and endFrame. This is the ONLY reliable way to cut.
@@ -817,6 +832,7 @@ ${ownerLicensePrompt}
     const toolCalls = lastMessage.tool_calls;
     const results: ToolMessage[] = [];
     const turnLedger = buildChatToolTurnLedger(state.messages);
+    const chatUserTurnText = latestHumanMessageText(state.messages);
 
     if (toolCalls && toolCalls.length > 0) {
       const includesFrameCapture = toolCalls.some(
@@ -887,7 +903,13 @@ ${ownerLicensePrompt}
                 `[TOOL-POLICY] ${executionDecision.action} ${toolCall.name}: ${executionDecision.reason}`,
               );
             } else {
-              output = await (tool as any).invoke(args);
+              output = await (tool as any).invoke(args, {
+                ...config,
+                configurable: {
+                  ...(config.configurable ?? {}),
+                  chatUserTurnText,
+                },
+              });
               if (toolMetadata?.mutatesProject) {
                 const afterProject = await loadPostconditionProject(userId, projectId);
                 const enforced = enforceChatToolPostcondition({

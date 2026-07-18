@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { tool } from '@langchain/core/tools';
+import { tool, type ToolRunnableConfig } from '@langchain/core/tools';
 import { z } from 'zod';
 
 import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
@@ -24,6 +24,12 @@ import type {
   CanonicalChatEvidenceCandidate,
   SearchCanonicalChatEvidenceResult,
 } from '@/lib/editron/services/chat-multimodal-evidence';
+import {
+  chatEditorialIntentWireSchema,
+  compileChatEditorialIntentWire,
+  normalizeOptionalChatScript,
+  type ChatEditorialIntentWireInput,
+} from './chat-editorial-intent-wire';
 
 export const CHAT_EDITORIAL_INTENT_VERSION = 'chat-editorial-intent-v1' as const;
 export const CHAT_INTENT_AUDIT_COLLECTION = 'editron_chat_intent_audits';
@@ -180,7 +186,7 @@ export function compileGroundedEditorialIntent(input: ChatEditorialIntentInput):
     notes: [input.notes, ...input.constraints].filter(Boolean).join('\n'),
   });
   const targetReference = cleanText(input.targetReference);
-  const script = normalizeOptionalScript(input.script);
+  const script = normalizeOptionalChatScript(input.script);
   return {
     version: CHAT_EDITORIAL_INTENT_VERSION,
     intentId: `intent_${randomUUID()}`,
@@ -194,23 +200,6 @@ export function compileGroundedEditorialIntent(input: ChatEditorialIntentInput):
     ...(script ? { script } : {}),
     evidenceQuery: targetReference ?? input.goal.trim(),
   };
-}
-
-const ABSENT_SCRIPT_SENTINELS = new Set([
-  'none',
-  '(none)',
-  'none provided',
-  '(none provided)',
-  'null',
-  'undefined',
-  'n/a',
-  'not applicable',
-]);
-
-function normalizeOptionalScript(value: string | undefined): string | undefined {
-  const script = cleanText(value, CHAT_SCRIPT_MAX_CHARS);
-  if (!script) return undefined;
-  return ABSENT_SCRIPT_SENTINELS.has(script.toLocaleLowerCase()) ? undefined : script;
 }
 
 export async function applyGroundedEditorialIntent(
@@ -293,7 +282,13 @@ export function createChatEditorialIntentTools(
   referenceStyleDependencies?: Partial<ChatReferenceStyleToolDependencies>,
 ) {
   const applyEditorialIntent = tool(
-    async (input: ChatEditorialIntentInput) => {
+    async (wireInput: ChatEditorialIntentWireInput, config: ToolRunnableConfig) => {
+      const userTurnText = typeof config.configurable?.chatUserTurnText === 'string'
+        ? config.configurable.chatUserTurnText
+        : undefined;
+      const input = chatEditorialIntentSchema.parse(
+        compileChatEditorialIntentWire(wireInput, { userTurnText }),
+      );
       try {
         const result = await applyGroundedEditorialIntent({ userId, projectId, input }, dependencies);
         return JSON.stringify({
@@ -317,8 +312,8 @@ export function createChatEditorialIntentTools(
     },
     {
       name: 'apply_editorial_intent',
-      description: 'Ground a vague, project-wide, moment-specific, or script-led editing request in canonical transcript/visual/audio evidence, then dispatch semantic jobs to Editron\'s existing unified Director and family planners. This tool never accepts MG forms, transition types, SFX tokens, caption styles, keyframes, or renderer presets. Use it when the user asks for an editorial outcome rather than an exact mechanical property change.',
-      schema: chatEditorialIntentSchema,
+      description: 'Ground a vague, project-wide, moment-specific, or script-led editing request in canonical transcript/visual/audio evidence, then dispatch semantic jobs to Editron\'s existing unified Director and family planners. This flat wire accepts facts and user preferences only. It never accepts MG forms, transition types, SFX tokens, caption styles, keyframes, or renderer presets. scriptText must be copied from the current user turn or an attachment explicitly marked as script.',
+      schema: chatEditorialIntentWireSchema,
     },
   );
 

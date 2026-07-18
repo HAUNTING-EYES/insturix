@@ -13,6 +13,11 @@ import {
   type GroundedEditorialIntent,
 } from '@/lib/editron/agent/chat-editorial-intent-tools';
 import {
+  chatEditorialIntentWireSchema,
+  compileChatEditorialIntentWire,
+  normalizeChatEditorialIntentWireAliases,
+} from '@/lib/editron/agent/chat-editorial-intent-wire';
+import {
   CHAT_EVIDENCE_RANKING_POLICY,
   type CanonicalChatEvidenceCandidate,
 } from '@/lib/editron/services/chat-multimodal-evidence';
@@ -209,6 +214,134 @@ describe('chat semantic editorial intent', () => {
       },
     });
     expect(output.nextAction).toContain('processing');
+  });
+
+  it('normalizes only unambiguous legacy intent aliases into the flat wire', () => {
+    const normalized = normalizeChatEditorialIntentWireAliases({
+      goal: 'Make the proof land',
+      scope: { kind: 'moment', startFrame: '100', endFrame: '220', overlayIds: ['video-1'] },
+      constraints: ['Keep the speaker visible', 'Do not cover the chart'],
+      strength: '0.72',
+      uncertainty: '0.08',
+      families: {
+        motionGraphics: { mode: 'prefer', frequency: '0.45', intensity: 0.72 },
+        transitions: 'off',
+      },
+      script: 'none',
+    });
+
+    expect(normalized).toMatchObject({
+      scopeKind: 'moment',
+      startFrame: 100,
+      endFrame: 220,
+      constraintsText: 'Keep the speaker visible\nDo not cover the chart',
+      strength: 0.72,
+      uncertainty: 0.08,
+      motionGraphicsMode: 'prefer',
+      motionGraphicsFrequency: 0.45,
+      motionGraphicsIntensity: 0.72,
+      transitionsMode: 'off',
+      scriptText: 'none',
+    });
+    const compiled = compileChatEditorialIntentWire(
+      chatEditorialIntentWireSchema.parse(normalized),
+      { userTurnText: 'Make the proof land' },
+    );
+    expect(compiled).toMatchObject({
+      scope: { kind: 'moment', startFrame: 100, endFrame: 220, overlayIds: ['video-1'] },
+      constraints: ['Keep the speaker visible', 'Do not cover the chart'],
+      families: {
+        motionGraphics: { mode: 'prefer', frequency: 0.45, intensity: 0.72 },
+        transitions: { mode: 'off' },
+      },
+    });
+    expect(compiled).not.toHaveProperty('script');
+  });
+
+  it('rejects semantic-invalid aliases instead of inventing numeric meaning', () => {
+    const namedStrength = normalizeChatEditorialIntentWireAliases({
+      goal: 'Make this stronger',
+      scope: 'project',
+      constraints: 'Keep it tasteful',
+      families: ['motionGraphics'],
+      strength: 'high',
+      uncertainty: 'low',
+    });
+
+    const parsed = chatEditorialIntentWireSchema.safeParse(namedStrength);
+    expect(parsed.success).toBe(false);
+    if (parsed.success) throw new Error('named semantic values unexpectedly parsed');
+    expect(parsed.error.issues.map((issue) => issue.path.join('.'))).toEqual(
+      expect.arrayContaining(['strength', 'uncertainty']),
+    );
+  });
+
+  it('allows a grounded inline script and rejects a model-invented script', async () => {
+    const deps = dependencies();
+    const intentTool = createChatEditorialIntentTools(
+      { userId: 'user-1', projectId: 'project-1' },
+      deps,
+    ).find((candidate) => candidate.name === 'apply_editorial_intent');
+    expect(intentTool).toBeDefined();
+    const script = 'First show the problem. Then reveal the chart. End with the proof.';
+
+    const accepted = JSON.parse(await intentTool!.invoke({
+      goal: 'Reorder the uploaded clips to this script',
+      scopeKind: 'project',
+      scriptText: script,
+    }, {
+      configurable: { chatUserTurnText: `Please follow this script exactly:\n${script}` },
+    }) as string);
+    expect(accepted).toMatchObject({
+      status: 'success',
+      data: { dispatch: { owner: 'phase2-script-planner', status: 'queued' } },
+    });
+
+    await expect(intentTool!.invoke({
+      goal: 'Improve this video',
+      scopeKind: 'project',
+      scriptText: 'An invented script that never appeared in the user request.',
+    }, {
+      configurable: { chatUserTurnText: 'Please improve this video.' },
+    })).rejects.toThrow(/scriptText must be copied from the current user message/);
+  });
+
+  it('accepts script-role attachment evidence but not an ordinary reference attachment', async () => {
+    const intentTool = createChatEditorialIntentTools(
+      { userId: 'user-1', projectId: 'project-1' },
+      dependencies(),
+    ).find((candidate) => candidate.name === 'apply_editorial_intent');
+    expect(intentTool).toBeDefined();
+    const script = 'Open on the sketch. Move to stitching. End on the finished garment.';
+    const attachmentTurn = (role: 'script' | 'context') => [
+      'Use the attached material to reorder the footage.',
+      '<authorized_chat_attachments>',
+      JSON.stringify({ attachmentId: 'reference:script-1', role }),
+      '</authorized_chat_attachments>',
+      '<untrusted_reference_content>',
+      JSON.stringify({ attachmentId: 'reference:script-1', contentExcerpt: script }),
+      '</untrusted_reference_content>',
+    ].join('\n');
+
+    const accepted = JSON.parse(await intentTool!.invoke({
+      goal: 'Reorder the uploaded clips to the attached script',
+      scopeKind: 'project',
+      scriptText: script,
+    }, {
+      configurable: { chatUserTurnText: attachmentTurn('script') },
+    }) as string);
+    expect(accepted).toMatchObject({
+      status: 'success',
+      data: { dispatch: { owner: 'phase2-script-planner', status: 'queued' } },
+    });
+
+    await expect(intentTool!.invoke({
+      goal: 'Reorder the uploaded clips to the reference',
+      scopeKind: 'project',
+      scriptText: script,
+    }, {
+      configurable: { chatUserTurnText: attachmentTurn('context') },
+    })).rejects.toThrow(/scriptText must be copied from the current user message/);
   });
 
   it('routes project-wide outcomes to Director with canonical retrieval recorded', async () => {

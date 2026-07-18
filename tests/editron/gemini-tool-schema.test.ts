@@ -7,9 +7,9 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import {
-  chatEditorialIntentSchema,
   chatReferenceStyleSchema,
 } from '@/lib/editron/agent/chat-editorial-intent-tools';
+import { chatEditorialIntentWireSchema } from '@/lib/editron/agent/chat-editorial-intent-wire';
 import { buildGeminiFunctionDeclarations } from '@/lib/editron/agent/gemini-tool-schema';
 
 function declaration(name: string, schema: Parameters<typeof buildGeminiFunctionDeclarations>[0][number]['schema']) {
@@ -25,8 +25,8 @@ function property(schema: Schema | FunctionDeclarationSchema, key: string): Sche
 }
 
 describe('Gemini tool schema adapter', () => {
-  it('preserves the real editorial-intent hierarchy while keeping defaults optional', () => {
-    const result = declaration('apply_editorial_intent', chatEditorialIntentSchema);
+  it('exposes a flat editorial-intent wire while keeping defaults optional', () => {
+    const result = declaration('apply_editorial_intent', chatEditorialIntentWireSchema);
     expect(result.parameters?.type).toBe(SchemaType.OBJECT);
     expect(result.parameters?.required).toEqual(['goal']);
     if (!result.parameters) throw new Error('missing parameters');
@@ -35,40 +35,33 @@ describe('Gemini tool schema adapter', () => {
     expect(goal).toMatchObject({ type: SchemaType.STRING });
     expect(goal.description).toContain('Maximum length: 1200');
 
-    const scope = property(result.parameters, 'scope');
-    expect(scope.description).toContain('Default: {"kind":"project"}');
-    expect(scope.type).toBe(SchemaType.OBJECT);
-    if (scope.type !== SchemaType.OBJECT) throw new Error('scope is not an object');
-    expect(scope.required).toBeUndefined();
-    expect(scope.properties.kind).toMatchObject({
+    expect(result.parameters.properties.scopeKind).toMatchObject({
       type: SchemaType.STRING,
       format: 'enum',
       enum: ['project', 'selection', 'moment'],
     });
-    expect(scope.properties.startFrame.type).toBe(SchemaType.INTEGER);
-    const overlayIds = scope.properties.overlayIds;
+    expect(result.parameters.properties.scopeKind.description).toContain('Default: "project"');
+    expect(result.parameters.properties.startFrame.type).toBe(SchemaType.INTEGER);
+    const overlayIds = result.parameters.properties.overlayIds;
     expect(overlayIds.type).toBe(SchemaType.ARRAY);
     if (overlayIds.type !== SchemaType.ARRAY) throw new Error('overlayIds is not an array');
     expect(overlayIds.maxItems).toBe(24);
     expect(overlayIds.items).toMatchObject({ type: SchemaType.STRING });
     expect(overlayIds.items.description).toContain('Accepts text or a number');
 
-    const families = property(result.parameters, 'families');
-    const motionGraphics = property(families, 'motionGraphics');
-    const mode = property(motionGraphics, 'mode');
-    expect(mode).toMatchObject({
+    expect(result.parameters.properties.motionGraphicsMode).toMatchObject({
       type: SchemaType.STRING,
       format: 'enum',
-      enum: ['auto', 'off', 'prefer'],
+      enum: ['off', 'prefer'],
     });
-    expect(property(motionGraphics, 'frequency').type).toBe(SchemaType.NUMBER);
-    expect(property(motionGraphics, 'intensity').type).toBe(SchemaType.NUMBER);
+    expect(result.parameters.properties.motionGraphicsFrequency.type).toBe(SchemaType.NUMBER);
+    expect(result.parameters.properties.motionGraphicsIntensity.type).toBe(SchemaType.NUMBER);
 
-    expect(result.parameters.properties.constraints).toMatchObject({
-      type: SchemaType.ARRAY,
-      maxItems: 20,
-    });
-    expect(result.parameters.properties.script.type).toBe(SchemaType.STRING);
+    expect(result.parameters.properties.constraintsText.type).toBe(SchemaType.STRING);
+    expect(result.parameters.properties.scriptText.type).toBe(SchemaType.STRING);
+    expect(result.parameters.properties).not.toHaveProperty('scope');
+    expect(result.parameters.properties).not.toHaveProperty('families');
+    expect(result.parameters.properties).not.toHaveProperty('script');
   });
 
   it('keeps reference strength optional while requiring the owned asset id', () => {
