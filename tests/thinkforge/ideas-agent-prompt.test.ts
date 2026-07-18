@@ -149,7 +149,9 @@ describe('IdeasAgent prompt contract', () => {
 
   it('repairs a regenerated set that overlaps rejected ideas', async () => {
     process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
-    const agent = new IdeasAgent();
+    const agent = new IdeasAgent(undefined, {
+      embeddingProvider: async () => null,
+    });
     const makeIdea = (id: string, idea: string) => ({
       id,
       idea,
@@ -193,6 +195,8 @@ describe('IdeasAgent prompt contract', () => {
     );
 
     expect(runStructured).toHaveBeenCalledTimes(2);
+    expect(runStructured.mock.calls[0]?.[1]?.seed).not.toBe(42);
+    expect(runStructured.mock.calls[1]?.[1]?.seed).not.toBe(runStructured.mock.calls[0]?.[1]?.seed);
     expect(runStructured.mock.calls[1]?.[0].generationIdentity.qualityRepairIssues).toEqual(
       expect.arrayContaining([expect.stringContaining('Repeated a rejected idea angle')]),
     );
@@ -201,7 +205,9 @@ describe('IdeasAgent prompt contract', () => {
 
   it('fails loudly when the bounded repair still repeats a rejected idea', async () => {
     process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
-    const agent = new IdeasAgent();
+    const agent = new IdeasAgent(undefined, {
+      embeddingProvider: async () => null,
+    });
     const repeatedSet = {
       result: {
         ideas: [

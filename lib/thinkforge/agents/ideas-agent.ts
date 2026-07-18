@@ -17,6 +17,12 @@ import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput } from './types';
 import type { IdeaCardData } from '../state/types';
 import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
+import {
+  assessIdeaDiversity,
+  deriveIdeaGenerationSeed,
+  type IdeaConceptEvidence,
+  type IdeaEmbeddingProvider,
+} from '../ideas/idea-diversity';
 
 // =============================================================================
 // SCHEMA DEFINITIONS
@@ -132,67 +138,6 @@ function findGroundingQualityIssues(
   return [...new Set(issues)].slice(0, 6);
 }
 
-const IDEA_TITLE_STOP_WORDS = new Set([
-  'a', 'an', 'and', 'for', 'from', 'in', 'of', 'on', 'the', 'to', 'with', 'your',
-]);
-
-function normalizedIdeaTitleTokens(value: string): Set<string> {
-  return new Set(
-    value
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-      .split(/\s+/)
-      .filter((token) => token.length > 1 && !IDEA_TITLE_STOP_WORDS.has(token)),
-  );
-}
-
-function ideaTitleSimilarity(left: string, right: string): number {
-  const leftTokens = normalizedIdeaTitleTokens(left);
-  const rightTokens = normalizedIdeaTitleTokens(right);
-  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
-
-  let intersection = 0;
-  for (const token of leftTokens) {
-    if (rightTokens.has(token)) intersection += 1;
-  }
-  const union = leftTokens.size + rightTokens.size - intersection;
-  return union === 0 ? 0 : intersection / union;
-}
-
-function findIdeaDiversityIssues(
-  ideas: IdeasOutput['ideas'],
-  rejectedIdeas: NonNullable<IdeasGroundingContext['rejectedIdeas']>,
-): string[] {
-  const issues: string[] = [];
-
-  for (let index = 0; index < ideas.length; index += 1) {
-    const idea = ideas[index];
-    const concept = [idea.idea, idea.purpose, idea.style].join(' ');
-    for (const priorIdea of rejectedIdeas) {
-      const priorConcept = [priorIdea.title, priorIdea.purpose, priorIdea.style].filter(Boolean).join(' ');
-      const repeatsTitle = ideaTitleSimilarity(idea.idea, priorIdea.title) >= 0.67;
-      const repeatsConcept = ideaTitleSimilarity(concept, priorConcept) >= 0.72;
-      if (repeatsTitle || repeatsConcept) {
-        issues.push(`Repeated a rejected idea angle: "${idea.idea}" resembles "${priorIdea.title}"`);
-        break;
-      }
-    }
-
-    for (let otherIndex = 0; otherIndex < index; otherIndex += 1) {
-      const otherIdea = ideas[otherIndex];
-      const otherConcept = [otherIdea.idea, otherIdea.purpose, otherIdea.style].join(' ');
-      const overlapsTitle = ideaTitleSimilarity(idea.idea, otherIdea.idea) >= 0.67;
-      const overlapsConcept = ideaTitleSimilarity(concept, otherConcept) >= 0.72;
-      if (overlapsTitle || overlapsConcept) {
-        issues.push(`Generated overlapping ideas in one set: "${idea.idea}" resembles "${otherIdea.idea}"`);
-        break;
-      }
-    }
-  }
-
-  return [...new Set(issues)].slice(0, 6);
-}
-
 // Deterministic floor behind the no-placeholder prompt rule: strip bracketed template
 // tokens the model leaves when context is thin (e.g. "The [Problem] Solution") and tidy
 // the seams. Only touches [...] tokens, so "X thread" / "Twitter/X" survive untouched.
@@ -217,14 +162,19 @@ function stripPlaceholders(text: string): string {
  */
 export class IdeasAgent extends StructuredAgent<IdeasOutput> {
   protected schema = IdeasResponseSchema;
+  private readonly embeddingProvider?: IdeaEmbeddingProvider;
 
-  constructor(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
+  constructor(
+    config?: Partial<Omit<AgentConfig, 'agentType'>>,
+    options?: { embeddingProvider?: IdeaEmbeddingProvider },
+  ) {
     super({
       ...config,
       agentType: 'ideas',
       temperature: config?.temperature ?? 0.9,
       maxTokens: config?.maxTokens ?? 2000,
     });
+    this.embeddingProvider = options?.embeddingProvider;
   }
 
   // ─── Prompt: restored from stable aa1f258e ────────────────────────
@@ -328,11 +278,24 @@ Generate 4 ideas now.`;
       },
     };
 
-    const { result } = await this.runStructured(input);
+    const toConceptEvidence = (ideas: IdeasOutput['ideas']): IdeaConceptEvidence[] => ideas.map((idea) => ({
+      title: idea.idea,
+      purpose: idea.purpose,
+      style: idea.style,
+    }));
+    const { result } = await this.runStructured(input, {
+      seed: deriveIdeaGenerationSeed(variationIndex, 0),
+    });
+    const initialDiversity = await assessIdeaDiversity({
+      ideas: toConceptEvidence(result.ideas),
+      rejectedIdeas,
+      variationIndex,
+      embeddingProvider: this.embeddingProvider,
+    });
     let finalResult = result;
     const initialIssues = [
       ...findGroundingQualityIssues(result.ideas, prompt, grounding),
-      ...findIdeaDiversityIssues(result.ideas, rejectedIdeas),
+      ...initialDiversity.issues,
     ];
 
     if (initialIssues.length > 0) {
@@ -345,10 +308,17 @@ Generate 4 ideas now.`;
       };
       const repaired = await this.runStructured(repairInput, {
         temperature: Math.min(this.config.temperature, 0.35),
+        seed: deriveIdeaGenerationSeed(variationIndex, 1),
+      });
+      const repairedDiversity = await assessIdeaDiversity({
+        ideas: toConceptEvidence(repaired.result.ideas),
+        rejectedIdeas,
+        variationIndex,
+        embeddingProvider: this.embeddingProvider,
       });
       const repairedIssues = [
         ...findGroundingQualityIssues(repaired.result.ideas, prompt, grounding),
-        ...findIdeaDiversityIssues(repaired.result.ideas, rejectedIdeas),
+        ...repairedDiversity.issues,
       ];
       if (repairedIssues.length > 0) {
         throw new Error(`Ideas failed grounding quality gate: ${repairedIssues.join('; ')}`);

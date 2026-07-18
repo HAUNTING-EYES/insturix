@@ -76,6 +76,10 @@ type ThinkForgeUsage = {
 
 type ThinkForgeCostOperation = 'llm_stream' | 'llm_structured' | 'llm_structured_fallback';
 
+type AgentGenerationOverrides = Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>> & {
+  seed?: number;
+};
+
 async function recordThinkForgeAgentCost(input: {
   status: ProviderCostEventStatus;
   agentType: AgentType;
@@ -170,6 +174,11 @@ function sumOptional(a?: number, b?: number): number | undefined {
   return (a ?? 0) + (b ?? 0);
 }
 
+function normalizeGenerationSeed(seed?: number): number {
+  if (typeof seed !== 'number' || !Number.isFinite(seed)) return 42;
+  return Math.max(0, Math.min(0xffffffff, Math.trunc(seed)));
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -246,10 +255,11 @@ export abstract class BaseAgent {
    * Optional per-invocation overrides for token/temperature budgets
    * to allow orchestration layers to tune stages independently.
    */
-  protected resolveGenConfig(overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>) {
+  protected resolveGenConfig(overrides?: AgentGenerationOverrides) {
     return {
       maxTokens: overrides?.maxTokens ?? this.config.maxTokens,
       temperature: overrides?.temperature ?? this.config.temperature,
+      seed: normalizeGenerationSeed(overrides?.seed),
     } as const;
   }
 
@@ -278,7 +288,7 @@ export abstract class BaseAgent {
 
   async run(
     input: AgentInput,
-    overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
+    overrides?: AgentGenerationOverrides,
     abortSignal?: AbortSignal
   ): Promise<AgentStreamOutput> {
     const startTime = Date.now();
@@ -297,7 +307,7 @@ export abstract class BaseAgent {
         temperature: gen.temperature,
         // @ts-ignore - Vercel AI SDK version mismatch on maxTokens
         maxTokens: gen.maxTokens,
-        seed: 42,
+        seed: gen.seed,
         abortSignal: signal,
       });
 
@@ -396,7 +406,7 @@ export abstract class BaseAgent {
    */
   async runComplete(
     input: AgentInput,
-    overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
+    overrides?: AgentGenerationOverrides,
     abortSignal?: AbortSignal
   ): Promise<{ text: string; metadata?: AgentMetadata }> {
     const { stream, metadata } = await this.run(input, overrides, abortSignal);
@@ -427,7 +437,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
    */
   async runStructured(
     input: AgentInput,
-    overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
+    overrides?: AgentGenerationOverrides,
     abortSignal?: AbortSignal
   ): Promise<AgentStructuredOutput<TOutput>> {
     const startTime = Date.now();
@@ -447,7 +457,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         temperature: gen.temperature,
         // @ts-ignore
         maxTokens: gen.maxTokens,
-        seed: 42,
+        seed: gen.seed,
         abortSignal: signal,
       });
 
@@ -514,7 +524,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
             temperature: gen.temperature,
             // @ts-ignore
             maxTokens: gen.maxTokens,
-            seed: 42,
+            seed: gen.seed,
             abortSignal: signal,
           });
         } catch (fallbackError) {
