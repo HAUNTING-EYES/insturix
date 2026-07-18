@@ -448,6 +448,19 @@ describe('generateMoment - design-then-code prompt switch (P5-1 Phase C)', () =>
     expect(ref.prompt).not.toContain('<design>');
   });
 
+  it('★ an illustrated-overlay design falls back to free-form until backdrop persistence exists (P5-3)', async () => {
+    // illustrated-overlay binds data.backdropSrc; nothing produces it yet → coder-routing it would render blank.
+    const illustrated: MgMomentDesignPlan = {
+      ...overlayPlan, lane: 'illustrated-overlay',
+      imagery: { scenePrompt: 'abstract charcoal field, soft gold light', mode: 'still', paletteDirection: 'charcoal + gold' },
+    };
+    const { ref, deps: d } = capturing();
+    const r = await generateMoment(input({ design: { plan: illustrated, brief } }), d);
+    expect(r.status).toBe('declined'); // did not throw; free-form path taken
+    expect(ref.prompt).toContain('designer-engineer'); // free-form, NOT the coder
+    expect(ref.prompt).not.toContain('<design>');
+  });
+
   it('promptHash keys on the design: present → different, identical designs → equal, design-less → unchanged', () => {
     const base = promptHash(input());
     const withDesign = promptHash(input({ design: { plan: overlayPlan, brief } }));

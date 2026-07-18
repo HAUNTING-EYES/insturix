@@ -230,9 +230,13 @@ export function buildCodegenPrompt(input: MgMomentInput): string {
 /**
  * Choose this moment's prompt. With an APPROVED design plan (P5-1 design-then-code), render THAT plan via the
  * coder prompt — a constrained, mechanical implementation task (which is why cheap models become viable again at
- * this step). Without one, the free-form codegen prompt (today's path, unchanged). A 'cutaway-scene' plan carries
- * NO component (buildCoderPrompt throws), so it falls back to free-form — a mis-attached cutaway can never crash
- * the worker (R18N: fail safe, deterministically).
+ * this step). Without one, the free-form codegen prompt (today's path, unchanged).
+ *
+ * ONLY the 'overlay-kit' lane takes the coder path today. 'illustrated-overlay' binds data.backdropSrc (a generated
+ * scene backdrop) which nothing produces until backdrop persistence lands (P5-3) — routing it to the coder now
+ * would render a blank Scene and waste the whole design+render cycle before falling back. 'cutaway-scene' has NO
+ * component at all (buildCoderPrompt throws). So both non-overlay lanes fall back to free-form here until their
+ * rendering path exists — honest, and a mis-attached design can never crash the worker (R18N: fail safe).
  *
  * DYNAMIC IMPORT (not static) breaks a real require cycle: coder-prompt imports buildMomentBlock from THIS module,
  * so a static import back would form codegen-service ↔ coder-prompt. The coder is only needed on the design path,
@@ -241,7 +245,7 @@ export function buildCodegenPrompt(input: MgMomentInput): string {
  */
 async function resolveMomentPrompt(input: MgMomentInput): Promise<string> {
   const design = input.design;
-  if (design && design.plan.lane !== 'cutaway-scene') {
+  if (design && design.plan.lane === 'overlay-kit') {
     const { buildCoderPrompt } = await import('./design/coder-prompt');
     return buildCoderPrompt({ plan: design.plan, brief: design.brief, moment: input });
   }
