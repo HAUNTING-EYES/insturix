@@ -119,6 +119,10 @@ export interface MgMomentInput {
   videoStyle?: VideoStyle;
   /** THIS moment's footage character (V-JEPA + content signals for this moment's window, mapped by the seam). */
   footageSignals?: FootageSignals;
+  /** Resolved liveness (brand×video×user, computeMgMotionIntensity, range [0.7,1]) — injected into the render
+   *  `data` as the reserved `data.motionIntensity` the coder binds for every hold/entrance (P5-1: closes the
+   *  dead path where the prop existed only in harnesses). Absent = producer predates the resolver. */
+  motionIntensity?: number;
 }
 
 export type MgProviderFailureCode =

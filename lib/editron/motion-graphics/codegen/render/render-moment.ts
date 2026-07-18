@@ -151,10 +151,17 @@ export async function renderMgMoment(input: MgMomentInput, deps: RenderMomentDep
   }
 
   // 2. Render the validated component to alpha WebP frames (Law 5: the fact's values flow as `data`, never baked).
+  // Reserved system props merge AFTER the fact content so model-authored content can never shadow them
+  // (P5-1: closes the dead path where data.wordFrames / data.motionIntensity existed only in harnesses —
+  // the coder contract binds both; production anchors already carry wordFrames).
   const renderInput: MgRenderInput = {
     componentSource: gen.code,
     brand: input.brand,
-    data: input.candidate.content,
+    data: {
+      ...input.candidate.content,
+      ...(input.anchors?.wordFrames?.length ? { wordFrames: input.anchors.wordFrames } : {}),
+      ...(typeof input.motionIntensity === 'number' ? { motionIntensity: input.motionIntensity } : {}),
+    },
     width: deps.canvas.width,
     height: deps.canvas.height,
     fps: input.window.fps,

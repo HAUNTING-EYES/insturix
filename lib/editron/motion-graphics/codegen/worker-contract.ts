@@ -229,6 +229,8 @@ export const mgMomentInputSchema = z.object({
   notes: z.string().max(2_000).optional(),
   videoStyle: videoStyleSchema.optional(),
   footageSignals: footageSignalsSchema.optional(),
+  /** Resolved liveness [0.7,1] (brand×video×user) — becomes the reserved data.motionIntensity at render. */
+  motionIntensity: z.number().min(0).max(1).optional(),
 }).strict().superRefine((moment, context) => {
   if (!moment.visualEvidence) return;
   for (const [index, frame] of moment.visualEvidence.frames.entries()) {

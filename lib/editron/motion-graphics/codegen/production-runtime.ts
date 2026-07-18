@@ -542,7 +542,12 @@ export function createProductionMgRuntime(
     const result = await renderFrames({
       componentSource: code,
       brand: moment.brand,
-      data: moment.candidate.content,
+      // Reserved system props AFTER content (never shadowed) — same merge as render-moment.ts (P5-1).
+      data: {
+        ...moment.candidate.content,
+        ...(moment.anchors?.wordFrames?.length ? { wordFrames: moment.anchors.wordFrames } : {}),
+        ...(typeof moment.motionIntensity === 'number' ? { motionIntensity: moment.motionIntensity } : {}),
+      },
       width: canvas.width,
       height: canvas.height,
       fps: moment.window.fps,
