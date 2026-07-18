@@ -1,5 +1,4 @@
 import { createHash } from 'crypto';
-import { isIP } from 'net';
 
 import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
 import {
@@ -12,6 +11,11 @@ import {
   type ImportYoutubeReferenceVideoInput,
   type YoutubeReferenceImportFailureReason,
 } from './youtube-reference-importer';
+import {
+  assertPublicReferenceDnsResolution,
+  isUnsafeReferenceHostname,
+  type ReferenceVideoDnsLookup,
+} from './reference-video-network-safety';
 
 type ReferenceVideoSourceKind = 'asset' | 'remote-url' | 'youtube-url';
 
@@ -63,10 +67,6 @@ interface ResolveReferenceVideoSourceInput {
   youtubeImporter?: ReferenceVideoYoutubeImporter;
   youtubeMode?: 'import' | 'provider-direct';
 }
-
-type ReferenceVideoDnsLookup = (
-  hostname: string,
-) => Promise<readonly { address: string; family: number }[]>;
 
 interface ReferenceVideoUrlValidationOk {
   ok: true;
@@ -233,7 +233,7 @@ export async function resolveReferenceVideoSource(
     }
   }
 
-  const dnsCheck = await assertPublicDnsResolution(validation.url.hostname, input.dnsLookup);
+  const dnsCheck = await assertPublicReferenceDnsResolution(validation.url.hostname, input.dnsLookup);
   if (!dnsCheck.ok) {
     return {
       ok: false,
@@ -283,7 +283,7 @@ export function validateReferenceVideoUrlForIntake(
     };
   }
 
-  if (isUnsafeHostname(url.hostname)) {
+  if (isUnsafeReferenceHostname(url.hostname)) {
     return {
       ok: false,
       reason: 'unsafe_reference_video_url',
@@ -364,38 +364,6 @@ function isYoutubeReferenceUrl(url: URL): boolean {
     || hostname.endsWith('.googlevideo.com');
 }
 
-async function assertPublicDnsResolution(
-  hostname: string,
-  dnsLookup?: ReferenceVideoDnsLookup,
-): Promise<{ ok: true } | { ok: false; diagnostics: string[] }> {
-  if (isIP(cleanHostname(hostname)) !== 0) return { ok: true };
-
-  try {
-    const addresses = await (dnsLookup ?? defaultDnsLookup)(hostname);
-    if (addresses.length === 0) {
-      return { ok: false, diagnostics: [`referenceVideoUrl host ${hostname} did not resolve.`] };
-    }
-    const unsafe = addresses.filter((entry) => isUnsafeIpAddress(entry.address));
-    if (unsafe.length > 0) {
-      return {
-        ok: false,
-        diagnostics: [`referenceVideoUrl host ${hostname} resolves to unsafe address(es): ${unsafe.map((entry) => entry.address).join(', ')}.`],
-      };
-    }
-    return { ok: true };
-  } catch (error) {
-    return {
-      ok: false,
-      diagnostics: [`Could not verify public DNS for referenceVideoUrl host ${hostname}: ${error instanceof Error ? error.message : String(error)}.`],
-    };
-  }
-}
-
-async function defaultDnsLookup(hostname: string): Promise<readonly { address: string; family: number }[]> {
-  const { lookup } = await import('dns/promises');
-  return lookup(hostname, { all: true, verbatim: true });
-}
-
 function parseHttpReferenceVideoUrl(rawUrl?: string): ReferenceVideoUrlValidationResult {
   const trimmed = rawUrl?.trim();
   if (!trimmed) {
@@ -463,37 +431,6 @@ function normalizeYoutubeReferenceImportError(
   };
 }
 
-function isUnsafeHostname(hostname: string): boolean {
-  const clean = cleanHostname(hostname);
-  if (!clean) return true;
-  if (clean === 'localhost' || clean.endsWith('.localhost')) return true;
-  if (clean.endsWith('.local') || clean.endsWith('.internal') || clean.endsWith('.lan')) return true;
-  const ipKind = isIP(clean);
-  return ipKind !== 0 ? isUnsafeIpAddress(clean) : false;
-}
-
-function isUnsafeIpAddress(address: string): boolean {
-  const clean = cleanHostname(address);
-  const ipKind = isIP(clean);
-  if (ipKind === 4) return isUnsafeIpv4(clean);
-  if (ipKind === 6) return true;
-  return false;
-}
-
-function isUnsafeIpv4(address: string): boolean {
-  const parts = address.split('.').map((part) => Number.parseInt(part, 10));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
-  const [a, b] = parts;
-  if (a === 0 || a === 10 || a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 192 && b === 0) return true;
-  if (a === 198 && (b === 18 || b === 19)) return true;
-  return a >= 224;
-}
-
 function hasAllowedVideoExtension(pathname: string): boolean {
   const lowerPath = pathname.toLowerCase();
   return Array.from(ALLOWED_DIRECT_REFERENCE_VIDEO_EXTENSIONS).some((extension) => lowerPath.endsWith(extension));
@@ -531,10 +468,6 @@ function normalizeDate(value: unknown): string {
   if (!value) return '';
   const date = value instanceof Date ? value : new Date(String(value));
   return Number.isFinite(date.getTime()) ? date.toISOString() : String(value);
-}
-
-function cleanHostname(hostname: string): string {
-  return hostname.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
 }
 
 function shortHash(value: string): string {
