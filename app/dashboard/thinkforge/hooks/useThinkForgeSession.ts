@@ -5,7 +5,6 @@ import { toast } from "@/hooks/use-toast";
 import { sanitizeServerScript } from "@/lib/thinkforge/json";
 import { stampThinkForgeDocumentIdentity } from "@/lib/thinkforge/client-document-identity";
 
-// Canonical type definitions - single source of truth for session types
 export type Block = any;
 export type ScriptModel = {
   sessionId?: string;
@@ -75,7 +74,6 @@ function saveLocal(sessionId: string, data: Partial<HydrateResponse & { script: 
   try {
     const key = `${LS_SESSION_PREFIX}${sessionId}`;
     const prev = JSON.parse(localStorage.getItem(key) || "{}");
-    // STEP 2: Add cachedAt timestamp for TTL validation
     localStorage.setItem(key, JSON.stringify({ ...prev, ...data, cachedAt: Date.now() }));
   } catch (e) {
     console.error('[useThinkForgeSession] saveLocal failed:', e);
@@ -90,7 +88,6 @@ function getLocal(sessionId: string): Partial<HydrateResponse & { script: Script
     
     const cached: CachedSession = JSON.parse(raw);
     
-    // STEP 2: TTL validation - discard stale sessions older than 24 hours
     if (cached.cachedAt && Date.now() - cached.cachedAt > SESSION_TTL_MS) {
       console.warn(`[useThinkForgeSession] Discarding stale cached session ${sessionId} (expired after 24h)`);
       localStorage.removeItem(key);
@@ -114,7 +111,6 @@ export function useThinkForgeSession() {
   const hydrationRevisionRef = useRef(0);
   const hydrationAbortControllerRef = useRef<AbortController | null>(null);
 
-  // Recover last session on mount
   useEffect(() => {
     try {
       const last = localStorage.getItem(LS_CURRENT_SESSION);
@@ -127,7 +123,6 @@ export function useThinkForgeSession() {
         }
       }
     } catch (err) {
-      // STEP 7: Log localStorage errors instead of silent swallow
       console.error('[useThinkForgeSession] Failed to recover session from localStorage:', err);
     }
   }, []);
@@ -215,7 +210,6 @@ export function useThinkForgeSession() {
         script: sanitizedScript,
       });
       
-      // Cache
       localStorage.setItem(LS_CURRENT_SESSION, data.sessionId);
       const cachePayload: Partial<HydrateResponse & { script: ScriptModel }> = {
         ...data,
@@ -281,7 +275,6 @@ export function useThinkForgeSession() {
     return res.json();
   }, []);
 
-  // STEP 4: Session verification handshake - verify session exists on backend
   const verifySession = useCallback(async (sid?: string): Promise<{ valid: boolean; error?: string }> => {
     const targetSessionId = sid || sessionId;
     if (!targetSessionId) {

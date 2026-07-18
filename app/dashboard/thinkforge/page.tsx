@@ -595,8 +595,8 @@ export default function ThinkForgeLanding() {
 	// Hydrate backend session when entering SCRIPTING mode
 	const hasHydratedRef = useRef(false);
 	const creationTimerRef = useRef<NodeJS.Timeout | null>(null);
-	const isMountedRef = useRef(true); // Track mount state to prevent post-unmount execution
-	const hydratingRef = useRef(false); // STEP 1: Hydration mutex - prevents overlapping hydration calls
+	const isMountedRef = useRef(true);
+	const hydratingRef = useRef(false);
 
 	// Track mounted state for cleanup
 	useEffect(() => {
@@ -611,14 +611,12 @@ export default function ThinkForgeLanding() {
 		};
 	}, []);
 
-	// Cache stable primitive values to avoid effect retriggers (STEP 4)
 	const currentSessionId = session.sessionId;
 	const selectedIdeaId = selectedIdea?.id;
 	const selectedIdeaText = selectedIdea?.idea;
 	const selectedIdeaTone = selectedIdea?.tone;
 
 	useEffect(() => {
-		// STEP 2: Strengthened guard - all conditions must pass
 		if (workspaceMode !== 'scripting') return;
 		if (!selectedIdea) return;
 		if (currentSessionId || pendingSessionId) return;
@@ -636,7 +634,6 @@ export default function ThinkForgeLanding() {
 				console.warn('[ThinkForge] Hydration aborted - component unmounted');
 				return;
 			}
-			// Re-check ALL conditions at execution time (STEP 2)
 			if (workspaceMode !== 'scripting' || !selectedIdea) return;
 			if (currentSessionId || pendingSessionId) return;
 			if (hasHydratedRef.current) return;
@@ -645,9 +642,7 @@ export default function ThinkForgeLanding() {
 				return;
 			}
 
-			// STEP 1: Acquire mutex
 			hydratingRef.current = true;
-			console.log('[ThinkForge] Hydration start');
 
 			try {
 				if (!isMountedRef.current) return;
@@ -667,13 +662,10 @@ export default function ThinkForgeLanding() {
 					return;
 				}
 				if (created?.sessionId) {
-					// STEP 3: Immediately persist sessionId - hydration is now complete
-					// hasHydratedRef stays true to prevent any future hydration until idea resets
 					hasHydratedRef.current = true;
 					initialDraftRequestedRef.current = false;
 					setPendingSessionId(created.sessionId);
 					scriptHook.resetSessionState();
-					console.log('[ThinkForge] Hydration success', created.sessionId);
 				} else {
 					// Hydration returned null - allow retry by NOT setting hasHydratedRef
 					console.error('[ThinkForge] Hydration returned null, allowing retry');
@@ -695,14 +687,13 @@ export default function ThinkForgeLanding() {
 				}
 			}
 			finally {
-				// STEP 1: Release mutex in finally block
 				hydratingRef.current = false;
 				if (isMountedRef.current) {
 					setOpeningSession(false);
 				}
 			}
 		}, 220);
-	}, [workspaceMode, selectedIdeaId, currentSessionId, pendingSessionId]); // STEP 4: Stable primitives only
+	}, [workspaceMode, selectedIdeaId, currentSessionId, pendingSessionId]);
 
 	// Clear temporary pendingSessionId once the hook has the active sessionId
 	useEffect(() => {

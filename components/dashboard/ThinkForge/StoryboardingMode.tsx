@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useRef } from "react";
 import clsx from "clsx";
-import { FileText, MessageSquare, X, Video } from "lucide-react";
+import { FileText, X } from "lucide-react";
 import { ChatPanel } from "@/components/dashboard/ThinkForge/ChatPanel";
 import { ScriptPanel } from "@/components/dashboard/ThinkForge/ScriptPanel";
 import { KnowledgePanel } from "@/components/dashboard/ThinkForge/KnowledgePanel";
