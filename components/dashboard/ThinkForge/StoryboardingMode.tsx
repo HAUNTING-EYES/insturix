@@ -2,12 +2,13 @@
 
 import React, { useState, useRef } from "react";
 import clsx from "clsx";
-import { FileText, X } from "lucide-react";
+import { Clapperboard, FileText, X } from "lucide-react";
 import { ChatPanel } from "@/components/dashboard/ThinkForge/ChatPanel";
 import { ScriptPanel } from "@/components/dashboard/ThinkForge/ScriptPanel";
 import { KnowledgePanel } from "@/components/dashboard/ThinkForge/KnowledgePanel";
 import { ExportToEditronDialog } from "@/components/dashboard/ThinkForge/export/ExportToEditronDialog";
 import { ClickatronHandoffDialog } from "@/components/dashboard/ThinkForge/export/ClickatronHandoffDialog";
+import { ShootKitDialog } from "@/components/dashboard/ThinkForge/production/ShootKitDialog";
 import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
 import { Script } from "@/app/dashboard/thinkforge/types";
@@ -63,6 +64,7 @@ export default function StoryboardingMode({
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showClickatronDialog, setShowClickatronDialog] = useState(false);
+  const [showShootKit, setShowShootKit] = useState(false);
 
   // Selection editing state
   const [editingSelection, setEditingSelection] = useState<{ text: string, range: { from: number, to: number }, blocks: any[] } | null>(null);
@@ -147,6 +149,20 @@ export default function StoryboardingMode({
               <button className="sidebar-item active">Current Session</button>
               <button className="sidebar-item" onClick={onGoToIdeation}>+ New Session</button>
               <button className="sidebar-item" onClick={() => setShowSettings(true)}>Settings</button>
+            </div>
+          </div>
+          <div className="sidebar-section">
+            <div className="mono sidebar-label" style={{ color: 'var(--text-muted)' }}>production</div>
+            <div className="sidebar-items">
+              <button
+                className="sidebar-item"
+                onClick={() => setShowShootKit(true)}
+                disabled={!script || !sessionId}
+                title="Turn this script into a capability-aware shot plan"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Clapperboard size={13} className="shrink-0" /> Shoot Kit
+              </button>
             </div>
           </div>
           <div className="sidebar-section">
@@ -260,6 +276,13 @@ export default function StoryboardingMode({
         sessionId={sessionId || undefined}
         scriptId={scriptId || undefined}
         title={script?.title || selectedIdea.idea}
+      />
+
+      <ShootKitDialog
+        open={showShootKit}
+        onOpenChange={setShowShootKit}
+        sessionId={sessionId || undefined}
+        scriptId={scriptId || undefined}
       />
 
       <AnimatePresence>
