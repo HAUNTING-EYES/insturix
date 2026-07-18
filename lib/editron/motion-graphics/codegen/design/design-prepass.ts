@@ -18,7 +18,7 @@
  */
 
 import { runVideoDesignSession, type MgDesignerGenerate } from './design-session';
-import type { MgDesignerMoment } from './designer-prompt';
+import type { MgDesignerMoment, MgDesignerSessionImages } from './designer-prompt';
 import type { MgDesignPlanMomentContext, MgVideoDesignBrief } from './design-plan';
 import type { MgDensityBudget } from './density-budget';
 import type { Brand } from '../kit/brand';
@@ -43,6 +43,9 @@ export interface MgDesignPrepassInput<K> {
   brand: Brand;
   /** The density budget (computeMgDensityBudget) — the designer licenses AT MOST maxMoments of the beats. */
   budget: MgDensityBudget;
+  /** Multimodal session images (P5-1 Phase D): footage frames sampled across the video so the designer designs
+   *  for the real palette/negative-space. Best-effort — absent → a valid text-only design session. */
+  images?: MgDesignerSessionImages;
 }
 
 export interface MgDesignPrepassResult<K> {
@@ -74,6 +77,7 @@ export async function runDesignPrepass<K>(
     {
       designer: { intent: input.intent, videoStyle: input.videoStyle, brand: input.brand, moments, budget: input.budget },
       contexts,
+      images: input.images,
     },
     { generate: deps.generate, maxAttempts: deps.maxAttempts },
   );

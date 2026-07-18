@@ -76,6 +76,15 @@ describe('runDesignPrepass — video-level design pre-pass → per-decision plan
     expect(gen).not.toHaveBeenCalled();
   });
 
+  it('★ passes sampled footage frames through to the designer session (multimodal, Phase D)', async () => {
+    const plan: MgVideoDesignPlan = { brief, moments: [designedMoment('b0'), designedMoment('b1')], declined: [] };
+    let receivedParts: Array<{ kind: string; data?: string }> = [];
+    const gen: MgDesignerGenerate = vi.fn(async (parts) => { receivedParts = parts; return JSON.stringify(plan); });
+    const images = { footageFrames: [{ mimeType: 'image/webp', data: 'Zm9vdGFnZQ==' }] };
+    await runDesignPrepass({ beats, videoStyle, brand: INSTURIX, budget, images }, { generate: gen });
+    expect(receivedParts.some((p) => p.kind === 'image' && p.data === 'Zm9vdGFnZQ==')).toBe(true); // the real frame reached the model
+  });
+
   it('honours the budget: an over-budget plan is rejected by the session → empty map (no partial attach)', async () => {
     const tightBudget: MgDensityBudget = { maxMoments: 1, minSpacingSec: 3, rationale: 'tight' };
     const plan: MgVideoDesignPlan = { brief, moments: [designedMoment('b0'), designedMoment('b1')], declined: [] };

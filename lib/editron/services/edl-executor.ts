@@ -968,7 +968,7 @@ export async function executeEDL(
   // of free-form codegen. Fail-safe: any failure leaves mgDesignPlans undefined → every decision free-forms.
   if (isLiveMgCodegenEnabled()) {
     try {
-      projectSignalContext.mgDesignPlans = await runMgDesignPrepass(actionable, overlays, projectSignalContext, graphicsDensity);
+      projectSignalContext.mgDesignPlans = await runMgDesignPrepass(actionable, overlays, projectSignalContext, graphicsDensity, canvasDimensions);
     } catch (designPrepassErr) {
       console.warn(`[EDL-MG-Design] pre-pass failed (non-fatal, free-form fallback): ${designPrepassErr instanceof Error ? designPrepassErr.message : designPrepassErr}`);
     }
@@ -4051,6 +4051,7 @@ async function runMgDesignPrepass(
   overlays: Overlay[],
   projectSignalContext: EDLSignalContext,
   graphicsDensity: 'heavy' | 'moderate' | 'minimal' | undefined,
+  canvas: { width: number; height: number },
 ): Promise<Map<EditDecision, MgMomentDesign> | undefined> {
   const { brandToKit } = await import('@/lib/editron/motion-graphics/codegen/brand-mapper');
   const mappedBrand = brandToKit(projectSignalContext.codegenBrand);
@@ -4144,8 +4145,20 @@ async function runMgDesignPrepass(
     intent: projectSignalContext.intent,
     videoSignals: projectSignalContext.videoSignals,
   });
+
+  // P5-1 Phase D: sample a few real footage frames across the video so the designer designs for the ACTUAL palette
+  // and negative space (buildDesignerParts.footageFrames). Best-effort — any failure → a valid text-only session.
+  let images: { footageFrames: Array<{ mimeType: string; data: string }> } | undefined;
+  try {
+    const { captureMgDesignerFootageFrames } = await import('@/lib/editron/motion-graphics/codegen/visual-evidence');
+    const footageFrames = await captureMgDesignerFootageFrames({ overlays, canvas, fps, count: 4 });
+    if (footageFrames.length > 0) images = { footageFrames };
+  } catch (frameErr) {
+    console.warn(`[EDL-MG-Design] footage frame capture failed (non-fatal, text-only design): ${frameErr instanceof Error ? frameErr.message : frameErr}`);
+  }
+
   const result = await runDesignPrepass(
-    { beats, intent: projectSignalContext.intent, videoStyle, brand: mappedBrand.brand, budget },
+    { beats, intent: projectSignalContext.intent, videoStyle, brand: mappedBrand.brand, budget, images },
     { generate },
   );
   console.log(`[EDL-MG-Design] pre-pass: ${beats.length} beats offered, budget ${budget.maxMoments}, ${result.plans.size} designed${result.reason ? ` (session: ${result.reason})` : ''}`);
