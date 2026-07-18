@@ -33,6 +33,11 @@ import {
   resolveAuthorizedChatAttachments,
 } from '@/lib/editron/services/chat-attachment-contract';
 import { classifyChatRequestOwner } from '@/lib/editron/agent/chat-request-owner';
+import {
+  buildRequestedChatEditRenderVerification,
+  markChatEditRenderVerificationDispatched,
+  type ChatEditRenderVerificationRecord,
+} from '@/lib/editron/services/chat-edit-render-verification-lifecycle';
 
 // Minimum credits required to start a chat (actual cost calculated post-hoc based on tokens)
 const MINIMUM_CREDITS_REQUIRED = 1;
@@ -83,42 +88,81 @@ function appendCheckpointContextForAgent(content: string, checkpointIds?: string
   return `${content}${separator}[AI edit checkpoint context: ${parts.join('; ')}. Restore beforeCheckpointId to return to the state before this assistant edit. Restore afterCheckpointId only to return to the state after this assistant edit.]`;
 }
 
-async function persistChatEditVerificationDispatch(input: {
+async function persistChatEditVerificationRequested(input: {
   projectId: string;
   userId: string;
   request: ChatEditRenderVerificationRequest;
-  result: { dispatched: boolean; reason?: string; messageId?: string };
-}) {
+}): Promise<ChatEditRenderVerificationRecord> {
   const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
   const db = await getDatabase();
   const now = new Date();
-  const record = {
-    version: 'editron-chat-render-verification-result-v1',
-    operationId: input.request.operationId,
-    sessionId: input.request.sessionId,
-    beforeCheckpointId: input.request.beforeCheckpointId,
-    afterCheckpointId: input.request.afterCheckpointId,
-    status: input.result.dispatched ? 'pending' : 'error',
-    requestedAt: input.request.requestedAt,
-    startedAt: null,
-    completedAt: input.result.dispatched ? null : now.toISOString(),
-    modalities: input.request.modalities,
-    targets: input.request.targets,
-    sampleFrames: input.request.sampleFrames,
-    visual: null,
-    audio: null,
-    reasons: input.result.dispatched ? [] : [String(input.result.reason ?? 'render_verification_dispatch_failed').slice(0, 500)],
-    dispatchMessageId: input.result.messageId ?? null,
-    notificationStatus: 'pending',
-    notificationSentAt: null,
-  };
-  await Promise.all([
+  const record = buildRequestedChatEditRenderVerification(input.request, now);
+  const [checkpointWrite, projectWrite] = await Promise.all([
     db.collection(COLLECTIONS.CHECKPOINTS).updateOne(
       { checkpointId: input.request.beforeCheckpointId, projectId: input.projectId, userId: input.userId },
       { $set: { chatEditRenderVerification: record, updatedAt: now } },
     ),
     db.collection(COLLECTIONS.PROJECTS).updateOne(
       { projectId: input.projectId, userId: input.userId },
+      { $set: { 'intelligence.latestChatEditRenderVerification': record } },
+    ),
+  ]);
+  if (checkpointWrite.matchedCount !== 1 || projectWrite.matchedCount !== 1) {
+    throw new Error('Unable to persist the requested chat render-verification job.');
+  }
+  return record;
+}
+
+async function persistChatEditVerificationDispatch(input: {
+  projectId: string;
+  userId: string;
+  request: ChatEditRenderVerificationRequest;
+  requestedRecord: ChatEditRenderVerificationRecord;
+  result: { dispatched: boolean; reason?: string; messageId?: string };
+}) {
+  const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
+  const db = await getDatabase();
+  const now = new Date();
+  const record = markChatEditRenderVerificationDispatched(input.requestedRecord, input.result, now);
+  const checkpointBase = {
+    checkpointId: input.request.beforeCheckpointId,
+    projectId: input.projectId,
+    userId: input.userId,
+    'chatEditRenderVerification.operationId': input.request.operationId,
+  };
+  const projectBase = {
+    projectId: input.projectId,
+    userId: input.userId,
+    'intelligence.latestChatEditRenderVerification.operationId': input.request.operationId,
+  };
+
+  await Promise.all([
+    db.collection(COLLECTIONS.CHECKPOINTS).updateOne(checkpointBase, {
+      $set: {
+        'chatEditRenderVerification.dispatchMessageId': record.dispatchMessageId,
+        'chatEditRenderVerification.lifecycle.qstashMessageId': record.lifecycle.qstashMessageId,
+        'chatEditRenderVerification.lifecycle.dispatchedAt': record.lifecycle.dispatchedAt,
+        'chatEditRenderVerification.lifecycle.updatedAt': record.lifecycle.updatedAt,
+        updatedAt: now,
+      },
+    }),
+    db.collection(COLLECTIONS.PROJECTS).updateOne(projectBase, {
+      $set: {
+        'intelligence.latestChatEditRenderVerification.dispatchMessageId': record.dispatchMessageId,
+        'intelligence.latestChatEditRenderVerification.lifecycle.qstashMessageId': record.lifecycle.qstashMessageId,
+        'intelligence.latestChatEditRenderVerification.lifecycle.dispatchedAt': record.lifecycle.dispatchedAt,
+        'intelligence.latestChatEditRenderVerification.lifecycle.updatedAt': record.lifecycle.updatedAt,
+      },
+    }),
+  ]);
+
+  await Promise.all([
+    db.collection(COLLECTIONS.CHECKPOINTS).updateOne(
+      { ...checkpointBase, 'chatEditRenderVerification.lifecycle.state': 'requested' },
+      { $set: { chatEditRenderVerification: record, updatedAt: now } },
+    ),
+    db.collection(COLLECTIONS.PROJECTS).updateOne(
+      { ...projectBase, 'intelligence.latestChatEditRenderVerification.lifecycle.state': 'requested' },
       { $set: { 'intelligence.latestChatEditRenderVerification': record } },
     ),
   ]);
@@ -464,7 +508,13 @@ export async function POST(req: NextRequest) {
         let renderVerificationDispatch: { dispatched: boolean; reason?: string; messageId?: string } | undefined;
         let persistedResponse = finalResponse;
         if (editTransactionSummary.status === 'created' && editTransactionSummary.renderVerification) {
+          let requestedRecord: ChatEditRenderVerificationRecord | undefined;
           try {
+            requestedRecord = await persistChatEditVerificationRequested({
+              projectId,
+              userId,
+              request: editTransactionSummary.renderVerification,
+            });
             const { dispatchPhase0RenderedEvidenceJob } = await import(
               '@/lib/editron/services/phase0-rendered-evidence-worker'
             );
@@ -480,12 +530,15 @@ export async function POST(req: NextRequest) {
               reason: error instanceof Error ? error.message : String(error),
             };
           }
-          await persistChatEditVerificationDispatch({
-            projectId,
-            userId,
-            request: editTransactionSummary.renderVerification,
-            result: renderVerificationDispatch,
-          });
+          if (requestedRecord) {
+            await persistChatEditVerificationDispatch({
+              projectId,
+              userId,
+              request: editTransactionSummary.renderVerification,
+              requestedRecord,
+              result: renderVerificationDispatch,
+            });
+          }
           persistedResponse = buildChatEditRenderVerificationStatusMessage(renderVerificationDispatch);
         }
         if (mutatingToolStarted) {

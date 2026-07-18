@@ -6,6 +6,8 @@
  * expensive Remotion Lambda still renders after the edit is already saved.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 
@@ -26,6 +28,15 @@ import {
   type Phase0RenderedStillEvidence,
 } from '@/lib/editron/services/phase0-rendered-evidence-worker';
 import type { Checkpoint, RestorableProjectState } from '@/lib/editron/services/checkpoint-service';
+import {
+  buildRequestedChatEditRenderVerification,
+  ensureChatEditRenderVerificationLifecycle,
+  markChatEditRenderVerificationDelivered,
+  markChatEditRenderVerificationRendering,
+  markChatEditRenderVerificationTerminal,
+  type ChatEditRenderVerificationRecord,
+  type PersistedChatEditRenderVerificationRecord,
+} from '@/lib/editron/services/chat-edit-render-verification-lifecycle';
 
 export const runtime = 'nodejs';
 export const maxDuration = 800;
@@ -38,31 +49,17 @@ interface Phase0RenderedEvidencePayload {
 }
 
 type EditronDatabase = Awaited<ReturnType<typeof getDatabase>>;
-type ChatEditRenderVerificationStatus = 'pending' | 'running' | 'pass' | 'fail' | 'error';
-
-interface ChatEditRenderVerificationRecord {
-  version: 'editron-chat-render-verification-result-v1';
-  operationId: string;
-  sessionId: string;
-  beforeCheckpointId: string;
-  afterCheckpointId: string;
-  status: ChatEditRenderVerificationStatus;
-  requestedAt: string;
-  startedAt: string | null;
-  completedAt: string | null;
-  modalities: ChatEditRenderVerificationRequest['modalities'];
-  targets: ChatEditRenderVerificationRequest['targets'];
-  sampleFrames: number[];
-  visual: ReturnType<typeof summarizeVisualEvidence> | null;
-  audio: ChatEditRenderedAudioEvidence | null;
-  reasons: string[];
-  dispatchMessageId?: string | null;
-  notificationStatus?: 'pending' | 'sending' | 'sent';
-  notificationSentAt?: string | null;
-}
+type RenderVerificationRecord = ChatEditRenderVerificationRecord<
+  ReturnType<typeof summarizeVisualEvidence>,
+  ChatEditRenderedAudioEvidence
+>;
+type PersistedRenderVerificationRecord = PersistedChatEditRenderVerificationRecord<
+  ReturnType<typeof summarizeVisualEvidence>,
+  ChatEditRenderedAudioEvidence
+>;
 
 interface VerificationCheckpoint extends Checkpoint {
-  chatEditRenderVerification?: ChatEditRenderVerificationRecord;
+  chatEditRenderVerification?: PersistedRenderVerificationRecord;
 }
 
 async function handler(request: NextRequest) {
@@ -107,6 +104,8 @@ async function handler(request: NextRequest) {
       userId,
       verification,
       startedAt,
+      attemptCount: resolveQstashAttemptCount(request),
+      workerRequestId: resolveWorkerRequestId(request),
     });
   }
 
@@ -189,6 +188,8 @@ async function handleChatEditRenderVerification(input: {
   userId: string;
   verification: ChatEditRenderVerificationRequest;
   startedAt: number;
+  attemptCount: number;
+  workerRequestId: string;
 }) {
   const checkpoints = input.db.collection<VerificationCheckpoint>(COLLECTIONS.CHECKPOINTS);
   const checkpointFilter = (checkpointId: string) => ({
@@ -222,27 +223,22 @@ async function handleChatEditRenderVerification(input: {
 
   const now = new Date();
   const staleBefore = new Date(now.getTime() - 20 * 60_000).toISOString();
-  const existing = beforeCheckpoint.chatEditRenderVerification;
-  const runningRecord: ChatEditRenderVerificationRecord = {
-    ...existing,
-    version: 'editron-chat-render-verification-result-v1',
-    operationId: input.verification.operationId,
-    sessionId: input.verification.sessionId,
-    beforeCheckpointId: input.verification.beforeCheckpointId,
-    afterCheckpointId: input.verification.afterCheckpointId,
-    status: 'running',
-    requestedAt: input.verification.requestedAt,
-    startedAt: now.toISOString(),
-    completedAt: null,
-    modalities: input.verification.modalities,
-    targets: input.verification.targets,
-    sampleFrames: input.verification.sampleFrames,
-    visual: null,
-    audio: null,
-    reasons: [],
-    notificationStatus: 'pending',
-    notificationSentAt: null,
-  };
+  const requestedRecord = beforeCheckpoint.chatEditRenderVerification
+    ? ensureChatEditRenderVerificationLifecycle(beforeCheckpoint.chatEditRenderVerification, now)
+    : buildRequestedChatEditRenderVerification(input.verification, now) as RenderVerificationRecord;
+  const deliveredRecord = markChatEditRenderVerificationDelivered(requestedRecord, {
+    attemptCount: input.attemptCount,
+    workerRequestId: input.workerRequestId,
+    now,
+  });
+  await persistChatEditVerificationProgress({
+    db: input.db,
+    projectId: input.projectId,
+    userId: input.userId,
+    checkpointId: input.verification.beforeCheckpointId,
+    record: deliveredRecord,
+  });
+  const runningRecord = markChatEditRenderVerificationRendering(deliveredRecord, now);
   const claim = await checkpoints.updateOne(
     {
       ...checkpointFilter(input.verification.beforeCheckpointId),
@@ -260,7 +256,9 @@ async function handleChatEditRenderVerification(input: {
 
   if (claim.matchedCount === 0) {
     const current = await checkpoints.findOne(checkpointFilter(input.verification.beforeCheckpointId));
-    const record = current?.chatEditRenderVerification;
+    const record = current?.chatEditRenderVerification
+      ? ensureChatEditRenderVerificationLifecycle(current.chatEditRenderVerification)
+      : undefined;
     if (record && (record.status === 'pass' || record.status === 'fail')) {
       await ensureVerificationNotification({
         db: input.db,
@@ -278,6 +276,15 @@ async function handleChatEditRenderVerification(input: {
       status: record?.status ?? 'running',
     });
   }
+
+  await input.db.collection(COLLECTIONS.PROJECTS).updateOne(
+    {
+      projectId: input.projectId,
+      userId: input.userId,
+      'intelligence.latestChatEditRenderVerification.operationId': input.verification.operationId,
+    },
+    { $set: { 'intelligence.latestChatEditRenderVerification': runningRecord } },
+  );
 
   try {
     const [beforeProject, afterProject] = await Promise.all([
@@ -330,15 +337,12 @@ async function handleChatEditRenderVerification(input: {
       visual: visualSummary,
       audio: audioEvidence,
     });
-    const finalRecord: ChatEditRenderVerificationRecord = {
-      ...runningRecord,
+    const finalRecord = markChatEditRenderVerificationTerminal(runningRecord, {
       status: reasons.length === 0 ? 'pass' : 'fail',
-      completedAt: new Date().toISOString(),
       visual: visualSummary,
       audio: audioEvidence,
       reasons,
-      notificationStatus: 'pending',
-    };
+    });
     await persistChatEditVerificationResult({
       db: input.db,
       projectId: input.projectId,
@@ -370,13 +374,12 @@ async function handleChatEditRenderVerification(input: {
     });
   } catch (error: unknown) {
     const reason = error instanceof Error ? error.message : String(error);
-    const failedRecord: ChatEditRenderVerificationRecord = {
-      ...runningRecord,
+    const failedRecord = markChatEditRenderVerificationTerminal(runningRecord, {
       status: 'error',
-      completedAt: new Date().toISOString(),
+      visual: runningRecord.visual,
+      audio: runningRecord.audio,
       reasons: [boundedText(reason, 500) || 'render_verification_worker_error'],
-      notificationStatus: 'pending',
-    };
+    });
     await persistChatEditVerificationResult({
       db: input.db,
       projectId: input.projectId,
@@ -517,7 +520,7 @@ async function persistChatEditVerificationResult(input: {
   projectId: string;
   userId: string;
   checkpointId: string;
-  record: ChatEditRenderVerificationRecord;
+  record: RenderVerificationRecord;
 }) {
   await Promise.all([
     input.db.collection<VerificationCheckpoint>(COLLECTIONS.CHECKPOINTS).updateOne(
@@ -537,6 +540,34 @@ async function persistChatEditVerificationResult(input: {
           },
         } as any,
       },
+    ),
+  ]);
+}
+
+async function persistChatEditVerificationProgress(input: {
+  db: EditronDatabase;
+  projectId: string;
+  userId: string;
+  checkpointId: string;
+  record: RenderVerificationRecord;
+}) {
+  await Promise.all([
+    input.db.collection<VerificationCheckpoint>(COLLECTIONS.CHECKPOINTS).updateOne(
+      {
+        checkpointId: input.checkpointId,
+        projectId: input.projectId,
+        userId: input.userId,
+        'chatEditRenderVerification.operationId': input.record.operationId,
+      },
+      { $set: { chatEditRenderVerification: input.record, updatedAt: new Date() } },
+    ),
+    input.db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId: input.projectId,
+        userId: input.userId,
+        'intelligence.latestChatEditRenderVerification.operationId': input.record.operationId,
+      },
+      { $set: { 'intelligence.latestChatEditRenderVerification': input.record } },
     ),
   ]);
 }
@@ -594,6 +625,17 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function resolveQstashAttemptCount(request: NextRequest): number {
+  const retried = Number(request.headers.get('upstash-retried'));
+  return Number.isSafeInteger(retried) && retried >= 0
+    ? Math.min(retried + 1, 100)
+    : 1;
+}
+
+function resolveWorkerRequestId(request: NextRequest): string {
+  return boundedText(request.headers.get('x-vercel-id'), 240) ?? `local:${randomUUID()}`;
 }
 
 function boundedIdentifier(value: unknown, min: number, max: number): string | null {

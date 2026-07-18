@@ -76,6 +76,7 @@ export interface ChatBattleRenderEvidence {
   capturedAt?: string;
   artifactRefs: string[];
   issues: Array<Record<string, unknown>>;
+  jobLifecycle?: Record<string, unknown>;
   reason?: string;
 }
 
@@ -528,10 +529,12 @@ export function extractPersistedChatBattleRenderEvidence(
   const project = asRecord(unwrapProject(projectValue));
   const intelligence = asRecord(project.intelligence);
   const chatVerification = asRecord(intelligence.latestChatEditRenderVerification);
+  const jobLifecycle = asRecord(chatVerification.lifecycle);
   const chatRequestedAt = stringValue(chatVerification.requestedAt) ?? undefined;
   if (isFreshTimestamp(chatRequestedAt, startedAt)) {
     const chatStatus = stringValue(chatVerification.status);
     const chatCapturedAt = stringValue(chatVerification.completedAt) ?? undefined;
+    const lifecycleState = stringValue(jobLifecycle.state);
     const visual = asRecord(chatVerification.visual);
     const audio = asRecord(chatVerification.audio);
     const artifactRefs = uniqueStrings([
@@ -542,18 +545,32 @@ export function extractPersistedChatBattleRenderEvidence(
       ? visual.issues.map(asRecord).slice(0, 100)
       : [];
     if (!chatCapturedAt || !isFreshTimestamp(chatCapturedAt, startedAt)) {
-      return { status: 'missing', capturedAt: chatCapturedAt, artifactRefs, issues, reason: 'Chat edit render verification is still pending.' };
+      return {
+        status: 'missing',
+        capturedAt: chatCapturedAt,
+        artifactRefs,
+        issues,
+        jobLifecycle,
+        reason: `Chat edit render verification is still pending (${lifecycleState ?? 'unknown'}).`,
+      };
     }
     if (chatStatus === 'fail' || chatStatus === 'failed' || chatStatus === 'error') {
-      return { status: 'fail', capturedAt: chatCapturedAt, artifactRefs, issues };
+      return { status: 'fail', capturedAt: chatCapturedAt, artifactRefs, issues, jobLifecycle };
     }
     if (chatStatus === 'warn' || chatStatus === 'partial' || chatStatus === 'needs_review') {
-      return { status: 'warn', capturedAt: chatCapturedAt, artifactRefs, issues };
+      return { status: 'warn', capturedAt: chatCapturedAt, artifactRefs, issues, jobLifecycle };
     }
     if (chatStatus === 'pass' || chatStatus === 'completed') {
-      return { status: 'pass', capturedAt: chatCapturedAt, artifactRefs, issues };
+      return { status: 'pass', capturedAt: chatCapturedAt, artifactRefs, issues, jobLifecycle };
     }
-    return { status: 'missing', capturedAt: chatCapturedAt, artifactRefs, issues, reason: `Unknown chat edit render status: ${chatStatus ?? 'missing'}.` };
+    return {
+      status: 'missing',
+      capturedAt: chatCapturedAt,
+      artifactRefs,
+      issues,
+      jobLifecycle,
+      reason: `Unknown chat edit render status: ${chatStatus ?? 'missing'}.`,
+    };
   }
   const evidence = asRecord(intelligence.phase0RenderedStillEvidence);
   const gate = asRecord(intelligence.phase0RenderedQualityGate);

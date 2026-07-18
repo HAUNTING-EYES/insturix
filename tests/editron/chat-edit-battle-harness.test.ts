@@ -146,11 +146,24 @@ import {
   buildChatBattleProjectSnapshot,
   buildChatEditBattleSuite,
   evaluateChatEditBattleJourney,
+  extractPersistedChatBattleRenderEvidence,
   getChatEditBattleScenario,
   runChatEditBattleJourney,
   type ChatBattleInvocationEvidence,
   type ChatBattleToolEvent,
 } from '@/lib/editron/services/chat-edit-battle-harness';
+import {
+  buildRequestedChatEditRenderVerification,
+  markChatEditRenderVerificationDelivered,
+  markChatEditRenderVerificationDispatched,
+  markChatEditRenderVerificationRendering,
+  markChatEditRenderVerificationTerminal,
+} from '@/lib/editron/services/chat-edit-render-verification-lifecycle';
+import type {
+  ChatEditRenderedAudioEvidence,
+  ChatEditRenderedAudioWindowEvidence,
+  ChatEditRenderVerificationRequest,
+} from '@/lib/editron/services/phase0-rendered-evidence-worker';
 import {
   buildLiveChatRequestBody,
   chatBattleInvocationQueuedProjectMutation,
@@ -174,6 +187,41 @@ function project(overlays: Record<string, unknown>[] = []) {
 
 function successEnvelope(data: Record<string, unknown> = {}) {
   return JSON.stringify({ status: 'success', data, error: null, nextAction: null });
+}
+
+function renderVerificationRequest(
+  overrides: Partial<ChatEditRenderVerificationRequest> = {},
+): ChatEditRenderVerificationRequest {
+  return {
+    version: 'editron-chat-render-verification-v1',
+    operationId: 'op_render_lifecycle',
+    sessionId: 'session_battle',
+    beforeCheckpointId: 'checkpoint_before',
+    afterCheckpointId: 'checkpoint_after',
+    requestedAt: '2026-07-18T10:00:01.000Z',
+    modalities: ['visual', 'audio'],
+    targets: [{
+      overlayId: 'txt_after',
+      overlayType: 'text',
+      state: 'created',
+      from: 30,
+      endFrame: 90,
+    }],
+    sampleFrames: [0, 30, 60],
+    ...overrides,
+  };
+}
+
+function renderedAudioEvidence(
+  windows: ChatEditRenderedAudioWindowEvidence[] = [],
+): ChatEditRenderedAudioEvidence {
+  return {
+    version: 'editron-chat-rendered-audio-v1' as const,
+    status: 'pass' as const,
+    capturedAt: '2026-07-18T10:00:04.000Z',
+    windows,
+    reason: null,
+  };
 }
 
 function invocation(
@@ -663,5 +711,122 @@ describe('chat edit battle harness', () => {
       'https://cdn/before.wav',
       'https://cdn/after.wav',
     ]);
+  });
+
+  it('tracks render verification lifecycle without regressing a delivered job to dispatched', () => {
+    const requested = buildRequestedChatEditRenderVerification(
+      renderVerificationRequest(),
+      '2026-07-18T10:00:01.100Z',
+    );
+    const dispatched = markChatEditRenderVerificationDispatched(
+      requested,
+      { dispatched: true, messageId: 'msg_123' },
+      '2026-07-18T10:00:01.200Z',
+    );
+    const delivered = markChatEditRenderVerificationDelivered(dispatched, {
+      attemptCount: 2,
+      workerRequestId: 'worker_req_123',
+      now: '2026-07-18T10:00:02.000Z',
+    });
+    const lateDispatch = markChatEditRenderVerificationDispatched(
+      delivered,
+      { dispatched: true, messageId: 'msg_123' },
+      '2026-07-18T10:00:02.500Z',
+    );
+    const rendering = markChatEditRenderVerificationRendering(lateDispatch, '2026-07-18T10:00:03.000Z');
+    const completed = markChatEditRenderVerificationTerminal(rendering, {
+      status: 'pass',
+      visual: { renderedFrames: [], issues: [] },
+      audio: renderedAudioEvidence(),
+      reasons: [],
+      now: '2026-07-18T10:00:04.000Z',
+    });
+
+    expect(dispatched.lifecycle).toMatchObject({
+      state: 'dispatched',
+      qstashMessageId: 'msg_123',
+      dispatchedAt: '2026-07-18T10:00:01.200Z',
+    });
+    expect(lateDispatch.lifecycle).toMatchObject({
+      state: 'delivered',
+      attemptCount: 2,
+      workerRequestId: 'worker_req_123',
+    });
+    expect(completed.lifecycle).toMatchObject({
+      state: 'completed',
+      terminalStatus: 'pass',
+      attemptCount: 2,
+      terminalAt: '2026-07-18T10:00:04.000Z',
+    });
+  });
+
+  it('surfaces pending chat render verification lifecycle in battle evidence reports', () => {
+    const pending = markChatEditRenderVerificationDelivered(
+      markChatEditRenderVerificationDispatched(
+        buildRequestedChatEditRenderVerification(renderVerificationRequest()),
+        { dispatched: true, messageId: 'msg_pending' },
+        '2026-07-18T10:00:01.200Z',
+      ),
+      {
+        attemptCount: 1,
+        workerRequestId: 'worker_pending',
+        now: '2026-07-18T10:00:02.000Z',
+      },
+    );
+    const evidence = extractPersistedChatBattleRenderEvidence({
+      projectId: 'proj_battle',
+      intelligence: { latestChatEditRenderVerification: pending },
+    }, '2026-07-18T10:00:00.000Z');
+
+    expect(evidence.status).toBe('missing');
+    expect(evidence.reason).toBe('Chat edit render verification is still pending (delivered).');
+    expect(evidence.jobLifecycle).toMatchObject({
+      state: 'delivered',
+      qstashMessageId: 'msg_pending',
+      workerRequestId: 'worker_pending',
+    });
+  });
+
+  it('carries completed chat render verification lifecycle into battle evidence reports', () => {
+    const completed = markChatEditRenderVerificationTerminal(
+      markChatEditRenderVerificationRendering(
+        markChatEditRenderVerificationDelivered(
+          markChatEditRenderVerificationDispatched(
+            buildRequestedChatEditRenderVerification(renderVerificationRequest()),
+            { dispatched: true, messageId: 'msg_done' },
+            '2026-07-18T10:00:01.200Z',
+          ),
+          {
+            attemptCount: 3,
+            workerRequestId: 'worker_done',
+            now: '2026-07-18T10:00:02.000Z',
+          },
+        ),
+        '2026-07-18T10:00:03.000Z',
+      ),
+      {
+        status: 'fail',
+        visual: {
+          renderedFrames: [{ beforeUrl: 'https://cdn/before.webp' }],
+          issues: [{ family: 'caption', severity: 'critical' }],
+        },
+        audio: renderedAudioEvidence(),
+        reasons: ['caption_contrast_too_low'],
+        now: '2026-07-18T10:00:04.000Z',
+      },
+    );
+    const evidence = extractPersistedChatBattleRenderEvidence({
+      projectId: 'proj_battle',
+      intelligence: { latestChatEditRenderVerification: completed },
+    }, '2026-07-18T10:00:00.000Z');
+
+    expect(evidence.status).toBe('fail');
+    expect(evidence.artifactRefs).toEqual(['https://cdn/before.webp']);
+    expect(evidence.issues).toEqual([{ family: 'caption', severity: 'critical' }]);
+    expect(evidence.jobLifecycle).toMatchObject({
+      state: 'completed',
+      terminalStatus: 'quality-fail',
+      attemptCount: 3,
+    });
   });
 });
