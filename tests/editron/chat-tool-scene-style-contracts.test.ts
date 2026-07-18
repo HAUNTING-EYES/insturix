@@ -237,12 +237,62 @@ describe('chat scene and style tool contracts', () => {
       },
     });
     expect(mocks.extractEditDNA).toHaveBeenCalledWith({
+      assetId: undefined,
       videoOverlayId: '1',
       videoUrl: undefined,
       sourceName: 'Reference cut',
       userId: 'user_scene_style',
       projectId: 'proj_scene_style',
     });
+  });
+
+  it('passes an owned media-library asset directly to the style extraction owner', async () => {
+    mocks.extractEditDNA.mockResolvedValue({
+      ...dnaFixture(),
+      sourceAssetId: 'asset-reference-library',
+    });
+
+    const result = parseEnvelope(await toolNamed('extract_style').invoke({
+      assetId: 'asset-reference-library',
+      sourceName: 'Uploaded reference',
+    }));
+
+    expect(result, JSON.stringify(result)).toMatchObject({
+      status: 'success',
+      data: {
+        profileId: 'dna-reference-1',
+        sourceAssetId: 'asset-reference-library',
+      },
+    });
+    expect(mocks.extractEditDNA).toHaveBeenCalledWith({
+      assetId: 'asset-reference-library',
+      videoOverlayId: undefined,
+      videoUrl: undefined,
+      sourceName: 'Uploaded reference',
+      userId: 'user_scene_style',
+      projectId: 'proj_scene_style',
+    });
+  });
+
+  it('refuses to guess a reference when a project has multiple videos', async () => {
+    vi.mocked(projectService.loadProject).mockResolvedValue({
+      ...BASE_PROJECT,
+      overlays: [
+        ...BASE_PROJECT.overlays,
+        { id: 2, type: 'video', assetId: 'asset-other', from: 600, durationInFrames: 300 },
+      ],
+    } as any);
+
+    const result = parseEnvelope(await toolNamed('extract_style').invoke({}));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: {
+        code: 'REFERENCE_VIDEO_AMBIGUOUS',
+        details: { projectVideoCount: 2 },
+      },
+    });
+    expect(mocks.extractEditDNA).not.toHaveBeenCalled();
   });
 
   it('applies reference facts once through the unified planner and rejects unknown profiles', async () => {

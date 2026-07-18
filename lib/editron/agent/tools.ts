@@ -4514,7 +4514,8 @@ NEVER ask the user which clips — default to applyToAll: true.`,
   // --- STYLE TRANSFER TOOLS ---
 
   const extractStyleSchema = z.object({
-    videoOverlayId: z.string().optional().describe('ID of a video overlay in the current project to analyze. If not provided, analyzes the first video overlay.'),
+    assetId: z.string().optional().describe('Owned video asset ID returned by search_user_assets or list_user_assets. Prefer this for an uploaded reference video, including one not present on the timeline.'),
+    videoOverlayId: z.string().optional().describe('ID of a video overlay in the current project to analyze.'),
     videoUrl: z.string().optional().describe('Direct URL to a video file for style extraction. Use this for uploaded reference videos.'),
     sourceName: z.string().optional().describe('Name for this style profile (e.g., "Apple ad style", "MrBeast format")'),
   });
@@ -4524,19 +4525,31 @@ NEVER ask the user which clips — default to applyToAll: true.`,
       try {
         const input = coerceInput(rawInput);
 
-        // If no videoOverlayId or videoUrl, use first video in project
-        let { videoOverlayId, videoUrl, sourceName } = input;
-        if (!videoOverlayId && !videoUrl) {
+        let { assetId, videoOverlayId, videoUrl, sourceName } = input;
+        if (!assetId && !videoOverlayId && !videoUrl) {
           const project = await loadProject();
-          const firstVideo = project.overlays.find((o: any) => o.type === 'video');
-          if (firstVideo) {
-            videoOverlayId = String(firstVideo.id);
+          const projectVideos = project.overlays.filter((overlay: any) => overlay.type === 'video');
+          if (projectVideos.length === 1) {
+            videoOverlayId = String(projectVideos[0].id);
+          } else if (projectVideos.length === 0) {
+            return errorEnvelope(
+              'No video was found to extract style from. Upload a reference video first.',
+              'REFERENCE_VIDEO_NOT_FOUND',
+              undefined,
+              'ask_clarification',
+            );
           } else {
-            return JSON.stringify({ status: 'error', message: 'No video found to extract style from. Upload a reference video or add one to the project.' });
+            return errorEnvelope(
+              'This project contains multiple videos, so Editron will not guess which one is the reference. Search the media library and pass its assetId to extract_style.',
+              'REFERENCE_VIDEO_AMBIGUOUS',
+              { projectVideoCount: projectVideos.length },
+              'ask_clarification',
+            );
           }
         }
 
         const dna = await extractEditDNA({
+          assetId: assetId ? String(assetId) : undefined,
           videoOverlayId: videoOverlayId ? String(videoOverlayId) : undefined,
           videoUrl: videoUrl || undefined,
           sourceName: sourceName || undefined,
@@ -4548,6 +4561,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           status: 'success',
           profileId: dna.profileId,
           sourceName: dna.sourceName,
+          sourceAssetId: dna.sourceAssetId,
           cutRhythm: dna.cutRhythm,
           transitions: dna.transitions,
           colorGrade: dna.colorGrade,
@@ -4566,7 +4580,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
     },
     {
       name: 'extract_style',
-      description: 'Extract the editing style ("Edit DNA") from a reference video. Analyzes cut rhythm, transitions, color grade, text style, music, and pacing. Returns a style profile ID that can be applied to the current project with apply_style.',
+      description: 'Extract the editing style ("Edit DNA") from one exact reference video. For the user\'s uploaded media, search first and pass the owned assetId; do not invent an overlay ID or guess among multiple videos. Analyzes cut rhythm, transitions, color grade, text style, music, and pacing. Returns a style profile ID that can be applied to the current project with apply_style.',
       schema: extractStyleSchema,
     },
   );
