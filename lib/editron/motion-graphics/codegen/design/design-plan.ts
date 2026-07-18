@@ -121,9 +121,20 @@ export const mgVideoDesignBriefSchema = z.object({
 }).strict();
 export type MgVideoDesignBrief = z.infer<typeof mgVideoDesignBriefSchema>;
 
+/** A beat the designer chose NOT to design (the licensing half of the P3.5 door, founder decision 2026-07-18).
+ *  Every undesigned beat must be declined WITH a reason — silence is a contract violation, not a decline. */
+export const mgDesignDeclineSchema = z.object({
+  momentId: boundedString(240),
+  reason: boundedString(240),
+}).strict();
+export type MgDesignDecline = z.infer<typeof mgDesignDeclineSchema>;
+
 export const mgVideoDesignPlanSchema = z.object({
   brief: mgVideoDesignBriefSchema,
-  moments: z.array(mgMomentDesignPlanSchema).min(1).max(24),
+  /** min(0): a designer may honestly decline every beat — no-MG beats a forced bad one. */
+  moments: z.array(mgMomentDesignPlanSchema).min(0).max(24),
+  /** Beats licensed away. Empty/absent under pre-licensed legacy input (every moment then needs a design). */
+  declined: z.array(mgDesignDeclineSchema).max(48).default([]),
 }).strict();
 export type MgVideoDesignPlan = z.infer<typeof mgVideoDesignPlanSchema>;
 
@@ -147,17 +158,37 @@ export interface MgDesignPlanValidation {
   problems: string[];
 }
 
+/** The licensing envelope (P3.5 door): the designer designs AT MOST maxMoments of the offered beats. */
+export interface MgDesignPlanBudget {
+  maxMoments: number;
+}
+
 /**
- * Validate a video design plan against the licensed moments it claims to design. Deterministic REJECT (never a
+ * Validate a video design plan against the moments/beats it was offered. Deterministic REJECT (never a
  * judge's call) for: a moment the plan missed / invented; a text-only design with no imagery (the lazy-list
  * killer — form is MANDATORY); a generative lane on a data-bearing fact (grounding); a dataProp that does not
  * exist on the candidate (fabrication-by-reference); a cutaway that binds data at all; enterOrder indices out of
- * range; duplicate moment plans.
+ * range; duplicate moment plans. With a `budget` (beat-licensing input): every offered beat must be designed
+ * XOR declined-with-reason, and the designed count must not exceed the budget.
  */
-export function validateDesignPlan(plan: MgVideoDesignPlan, moments: MgDesignPlanMomentContext[]): MgDesignPlanValidation {
+export function validateDesignPlan(
+  plan: MgVideoDesignPlan,
+  moments: MgDesignPlanMomentContext[],
+  budget?: MgDesignPlanBudget,
+): MgDesignPlanValidation {
   const problems: string[] = [];
   const byId = new Map(moments.map((m) => [m.momentId, m]));
   const seen = new Set<string>();
+
+  const declined = new Set<string>();
+  for (const d of plan.declined ?? []) {
+    if (!byId.has(d.momentId)) { problems.push(`${d.momentId}: declines a beat that does not exist`); continue; }
+    if (declined.has(d.momentId)) { problems.push(`${d.momentId}: duplicate decline`); continue; }
+    declined.add(d.momentId);
+  }
+  if (budget && plan.moments.length > budget.maxMoments) {
+    problems.push(`plan designs ${plan.moments.length} moments — over the density budget of ${budget.maxMoments}`);
+  }
 
   for (const mp of plan.moments) {
     const ctx = byId.get(mp.momentId);
@@ -191,8 +222,13 @@ export function validateDesignPlan(plan: MgVideoDesignPlan, moments: MgDesignPla
       if (idx >= mp.elements.length) problems.push(`${mp.momentId}: motion.enterOrder index ${idx} out of range (${mp.elements.length} elements)`);
     }
   }
+  for (const mp of plan.moments) {
+    if (declined.has(mp.momentId)) problems.push(`${mp.momentId}: both designed AND declined — pick one`);
+  }
   for (const m of moments) {
-    if (!seen.has(m.momentId)) problems.push(`${m.momentId}: moment has NO design plan (every licensed moment must be designed or explicitly declined upstream)`);
+    if (!seen.has(m.momentId) && !declined.has(m.momentId)) {
+      problems.push(`${m.momentId}: beat has NO design and NO decline (every offered beat must be designed or declined with a reason)`);
+    }
   }
   return { ok: problems.length === 0, problems };
 }

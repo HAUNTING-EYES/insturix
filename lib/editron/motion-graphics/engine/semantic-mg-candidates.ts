@@ -11,7 +11,10 @@ export type SemanticMgFactKind =
   | 'identity'
   | 'concept'
   | 'refutation'
-  | 'list';
+  | 'list'
+  /** P3.5 door (2026-07-18): a plain transcript beat with no extracted fact — licensed by the DESIGNER within
+   *  the density budget, never by this ledger. Carries no data props; data-lane guards ignore it by design. */
+  | 'narrative';
 
 export type SemanticMgLicense =
   | 'bounded-proportion'

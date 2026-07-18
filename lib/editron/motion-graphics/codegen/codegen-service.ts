@@ -35,7 +35,7 @@ import type {
 } from './types';
 
 /** Bumped when the kit or prompt changes — part of the cache key so stale code never gets reused. */
-export const KIT_VERSION = 'e1.7'; // e1.7: widthFrac nested-width contract on FitHeadline/TextBlock + exact-region-bounds coder rule + frame-edge clip reject (P3 clipping root cause)
+export const KIT_VERSION = 'e1.8'; // e1.8: P3.5 door — beat licensing w/ density budget (designer declines within budget) + BOXLESS-FIRST legibility order (halo/SceneGrade default, Plate = justified exception) in coder + judge. e1.7: widthFrac nested-width contract + exact-region-bounds + frame-edge clip reject
 const DEFAULT_JUDGE_THRESHOLD = 7.5; // ← ship at 7.5, tune on the first 50 real moments
 const MAX_MODEL_ATTEMPTS = 3;
 const MAX_COMPILE_FEEDBACK_CHARS = 1_200;

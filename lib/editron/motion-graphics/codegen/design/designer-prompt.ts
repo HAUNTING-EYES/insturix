@@ -22,6 +22,7 @@
 
 import type { Brand } from '../kit/brand';
 import type { VideoStyle } from '../style/style-resolver';
+import type { MgDensityBudget } from './density-budget';
 import { MG_DESIGN_LANES, MG_ELEMENT_KINDS, MG_FORM_ELEMENTS, MG_TARGET_BARS } from './design-plan';
 
 /** The per-moment context the designer needs — minimal + structural (R33), assembled by the caller/seam. */
@@ -43,7 +44,11 @@ export interface MgDesignerInput {
   intent?: string | null;
   videoStyle: VideoStyle;
   brand: Brand;
+  /** With a budget: ALL transcript beats (narrative beats carry factKind 'narrative' and no contentProps) —
+   *  the designer licenses within the budget. Without: pre-licensed moments (legacy), all must be designed. */
   moments: MgDesignerMoment[];
+  /** The density budget (P3.5 door) — deterministic, from computeMgDensityBudget. Absent = legacy input. */
+  budget?: MgDensityBudget;
 }
 
 /** STABLE prefix — byte-identical across videos (provider prompt-cache prefix, same discipline as codegen). */
@@ -53,6 +58,18 @@ package as ONE strict-JSON design plan: a video-level BRIEF (the coherent graphi
 every licensed moment. A coder renders exactly what you specify; a ruthless visual judge then compares the result
 against genuine professional motion design. Design at that level or the work is rejected.
 </role>
+
+<licensing>
+You receive EVERY beat of the transcript, not a pre-filtered list. When <video> states a license budget, you
+choose: design AT MOST that many beats; every other beat goes in "declined" with a one-line reason. When no
+budget is stated, every listed moment is pre-licensed — design them all.
+What earns a license: a hook or thesis line; a verified number or comparison (dataProps present); a concrete,
+imageable idea — a plain spoken sentence (a memory, a metaphor, a named thing) can carry an illustrated or
+cutaway scene; a list or process the speaker walks through; an emotional peak the footage cannot carry alone.
+What gets declined: filler, transitions, greetings, meta-talk, beats whose idea is already on screen, and any
+beat a graphic would not make CLEARER or STRONGER. A decline is a design decision, never a failure — do not
+spend budget out of duty. Spread licensed moments across the video's arc, never bunched.
+</licensing>
 
 <quality_lenses>
 Every design must belong alongside professional motion design. Each moment declares the ONE lens it will be
@@ -90,6 +107,11 @@ converge on one aesthetic across videos; converge on the LEVEL.
   if ANY words, values, or labels must appear on screen, the lane is 'illustrated-overlay' (the kit renders every
   word); 'cutaway-scene' is only for wordless visual beats. Data-bearing facts NEVER take a generative lane's
   imagery as their data channel (the system rejects it).
+- SCENE-INTEGRATED FIRST (boxless). Type living directly IN the footage or scene — a soft halo shadow, a local
+  grade of that region, deliberate negative space — is the DEFAULT treatment; professional on-footage graphics
+  are boxless more often than not. A plate/card is a deliberate exception that needs a stated reason in the
+  design (a scorecard, a data panel, a framed UI fragment). Never reach for a panel just because footage is
+  busy — grade or shade the region instead.
 - GROUNDING. Elements bind real values by PROP NAME in dataProps (the coder reads data.<name>). Never write a
   literal number or quoted stat into a concept, role, or imagery prompt. Imagery prompts describe subject, mood,
   composition, palette — no text, no numbers, no logos, no real persons or brands.
@@ -109,8 +131,10 @@ Return ONLY one JSON object, no prose, no markdown fences, exactly this shape:
    "structure":{"placement":string,"grouping":string,"readingOrder":string},
    "elements":[{"kind":string,"role":string,"dataProps":[string],"hints":{string:string}?}],
    "imagery":{"scenePrompt":string,"mode":"still"|"motion","paletteDirection":string}?,
-   "motion":{"enterOrder":[int],"build":string,"hold":string,"syncTo":"word-onsets"|"beats"|"landing"|"phases-only"}}]}
-Every licensed moment MUST have exactly one design. Strings are bounded — keep concepts one sentence.
+   "motion":{"enterOrder":[int],"build":string,"hold":string,"syncTo":"word-onsets"|"beats"|"landing"|"phases-only"}}],
+ "declined":[{"momentId":string,"reason":string}]}
+Every offered beat appears EXACTLY ONCE — either as a designed moment or in "declined" (with a budget, design
+at most the budgeted count). Strings are bounded — keep concepts and reasons one sentence.
 </output_format>`;
 
 function momentBlock(m: MgDesignerMoment): string {
@@ -130,7 +154,10 @@ export function buildDesignerPrompt(input: MgDesignerInput): string {
 intent: ${input.intent?.trim() || 'unspecified'}
 style identity: "${input.videoStyle.styleName}" — ${input.videoStyle.personality}; motion ${input.videoStyle.motion}; weight ${input.videoStyle.weight}; density ${input.videoStyle.baseDensity}
 brand: accent ${b.colors.accent} on ${b.colors.bg}; text ${b.colors.text}; sans "${b.fontSans.split(',')[0]}"; display "${(b.fontDisplay ?? 'Anton').split(',')[0]}"; corners ${b.shape.radius}px; motion energy ${b.motion.energy}
-licensed moments (design EVERY one):
+${input.budget
+    ? `license budget: design AT MOST ${input.budget.maxMoments} of the beats below; decline every other beat with a reason (${input.budget.rationale})${input.budget.expressiveIntensity !== undefined ? `; user expressive strength ${input.budget.expressiveIntensity.toFixed(2)}` : ''}
+beats (license within the budget):`
+    : 'licensed moments (design EVERY one):'}
 ${input.moments.map(momentBlock).join('\n')}
 </video>`;
   return `${DESIGNER_STABLE_PREFIX}\n\n${video}`;

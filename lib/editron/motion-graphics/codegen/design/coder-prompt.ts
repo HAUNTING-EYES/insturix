@@ -65,12 +65,14 @@ ${ELEMENT_MAP}
   ~1−0.12−0.12−0.06 ≈ 0.70 → widthFrac={0.7}. A direct region child needs no widthFrac.
 - The video brief's motifLanguage/paletteMoves/motionPersonality apply WITHIN this component (the recurring
   motif element is part of the design; palette moves use tint/shade/mix on brand colours only).
-- LEGIBILITY IS MANDATORY, EVERY LANE: the judge stress-tests every render over PURE LIGHT and PURE DARK
-  backgrounds — never assume the footage is dark. EVERY text element carries local protection BY CONSTRUCTION:
-  either sit it on a compact Plate scrim (surface="flat"/"frosted", tight to the text block), or wrap it with a
-  halo (textShadow built from a brand shade, e.g. shade(brand.colors.bg, 0.2) at low alpha, 2-8px blur). Thin
-  marks (Rule/Dot/Plot strokes) get the same treatment or sit on the plate. A render whose text dies on the
-  light stress row is REJECTED regardless of everything else.
+- LEGIBILITY IS MANDATORY, EVERY LANE — BOXLESS FIRST: the judge stress-tests every render over PURE LIGHT and
+  PURE DARK backgrounds — never assume the footage is dark. EVERY text element carries local protection BY
+  CONSTRUCTION, and the DEFAULT is scene-integrated type: a halo (textShadow built from a brand shade, e.g.
+  shade(brand.colors.bg, 0.2) at low alpha, 2-8px blur), strong enough to survive both stress rows. A Plate
+  scrim is the EXCEPTION, used only when the plan's design calls for a surface (a scorecard, a data panel, a
+  framed fragment — a plate element or hint in the plan says so); never add a card just because footage is
+  busy. Thin marks (Rule/Dot/Plot strokes) get the same halo treatment. A render whose text dies on the light
+  stress row is REJECTED regardless of everything else.
 - FAITHFUL DATA RENDERING: every dataProp an element binds MUST be VISIBLY RENDERED via {data.<name>} — a label
   without its value ("Before" with no figure) is an INCOMPLETE CLAIM and is judged unfaithful. Bar and Ring carry
   label/valueText slots for exactly this: bind the display value there (e.g. label="Before"

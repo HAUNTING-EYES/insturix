@@ -46,7 +46,8 @@ const designedList = (over: Partial<MgMomentDesignPlan> = {}): MgMomentDesignPla
 
 const listCtx: MgDesignPlanMomentContext = { momentId: 'm_list', factKind: 'list', contentProps: ['items', 'label'] };
 
-const plan = (moments: MgMomentDesignPlan[]): MgVideoDesignPlan => ({ brief, moments });
+const plan = (moments: MgMomentDesignPlan[], declined: MgVideoDesignPlan['declined'] = []): MgVideoDesignPlan =>
+  ({ brief, moments, declined });
 
 describe('MG design plan — schema strictness', () => {
   it('parses a valid designed plan; rejects unknown keys and >24 moments', () => {
@@ -144,12 +145,71 @@ describe('MG design plan — grounding + lane guards', () => {
   it('coverage: every licensed moment must be designed; invented + duplicate moments rejected', () => {
     const other: MgDesignPlanMomentContext = { momentId: 'm_stat', factKind: 'magnitude-stat', contentProps: ['value', 'unit', 'label'] };
     const missing = validateDesignPlan(plan([designedList()]), [listCtx, other]);
-    expect(missing.problems.join(' ')).toMatch(/m_stat: moment has NO design plan/);
+    expect(missing.problems.join(' ')).toMatch(/m_stat: beat has NO design and NO decline/);
 
     const invented = validateDesignPlan(plan([designedList({ momentId: 'm_ghost' })]), [listCtx]);
     expect(invented.problems.join(' ')).toMatch(/does not exist/);
 
     const dup = validateDesignPlan(plan([designedList(), designedList()]), [listCtx]);
     expect(dup.problems.join(' ')).toMatch(/duplicate design plan/);
+  });
+});
+
+describe('MG design plan — beat licensing (the P3.5 door)', () => {
+  const narrativeCtx: MgDesignPlanMomentContext = { momentId: 'b_cat', factKind: 'narrative', contentProps: [] };
+
+  it('a declined beat with a reason satisfies coverage — designed XOR declined', () => {
+    const v = validateDesignPlan(
+      plan([designedList()], [{ momentId: 'b_cat', reason: 'greeting filler, nothing to visualize' }]),
+      [listCtx, narrativeCtx],
+    );
+    expect(v.ok).toBe(true);
+  });
+
+  it('designing over the density budget is a deterministic reject', () => {
+    const two = [designedList(), designedList({ momentId: 'b_cat', lane: 'cutaway-scene', imagery: { scenePrompt: 'a small cat curled on a windowsill, soft morning light', mode: 'still', paletteDirection: 'warm gold on deep charcoal' }, elements: [{ kind: 'texture', role: 'ornament grain', dataProps: [] }], motion: { enterOrder: [0], build: 'scene breathes', hold: 'slow drift', syncTo: 'phases-only' } })];
+    const v = validateDesignPlan(plan(two), [listCtx, narrativeCtx], { maxMoments: 1 });
+    expect(v.ok).toBe(false);
+    expect(v.problems.join(' ')).toMatch(/over the density budget/);
+  });
+
+  it('declining a beat that does not exist / declining a designed beat / duplicate declines are rejected', () => {
+    const ghost = validateDesignPlan(plan([designedList()], [{ momentId: 'b_ghost', reason: 'x' }]), [listCtx]);
+    expect(ghost.problems.join(' ')).toMatch(/declines a beat that does not exist/);
+
+    const both = validateDesignPlan(plan([designedList()], [{ momentId: 'm_list', reason: 'x' }]), [listCtx]);
+    expect(both.problems.join(' ')).toMatch(/both designed AND declined/);
+
+    const dup = validateDesignPlan(
+      plan([designedList()], [{ momentId: 'b_cat', reason: 'x' }, { momentId: 'b_cat', reason: 'y' }]),
+      [listCtx, narrativeCtx],
+    );
+    expect(dup.problems.join(' ')).toMatch(/duplicate decline/);
+  });
+
+  it('declining EVERY beat is an honest, valid plan (no-MG beats a forced bad one)', () => {
+    const v = validateDesignPlan(
+      plan([], [{ momentId: 'm_list', reason: 'idea already on screen' }, { momentId: 'b_cat', reason: 'filler' }]),
+      [listCtx, narrativeCtx],
+      { maxMoments: 2 },
+    );
+    expect(v.ok).toBe(true);
+  });
+});
+
+describe('P3.5 door — prompt contract snapshot (KIT e1.8)', () => {
+  it('coder mandates boxless-first, designer licenses within budget, judge penalizes unmotivated boxes', async () => {
+    const { CODER_STABLE_PREFIX } = await import('@/lib/editron/motion-graphics/codegen/design/coder-prompt');
+    const { DESIGNER_STABLE_PREFIX } = await import('@/lib/editron/motion-graphics/codegen/design/designer-prompt');
+    const { JUDGE_PROMPT } = await import('@/lib/editron/motion-graphics/codegen/prompt');
+    const { KIT_VERSION } = await import('@/lib/editron/motion-graphics/codegen/codegen-service');
+
+    expect(KIT_VERSION).toBe('e1.8');
+    expect(CODER_STABLE_PREFIX).toMatch(/BOXLESS FIRST/);
+    expect(CODER_STABLE_PREFIX).toMatch(/Plate\s+scrim is the EXCEPTION/);
+    expect(DESIGNER_STABLE_PREFIX).toMatch(/<licensing>/);
+    expect(DESIGNER_STABLE_PREFIX).toMatch(/SCENE-INTEGRATED FIRST \(boxless\)/);
+    expect(DESIGNER_STABLE_PREFIX).toMatch(/"declined"/);
+    expect(JUDGE_PROMPT).toMatch(/BOXLESS IS THE PROFESSIONAL DEFAULT/);
   });
 });
