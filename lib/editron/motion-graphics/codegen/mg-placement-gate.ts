@@ -166,15 +166,18 @@ export function evaluateMgMotionPresence(
   return { pass: true, reasons: [] };
 }
 
-/** PURE: a render is ANIMATED (not frozen/broken) if it sustains motion (mean ≥ minMean) OR it built at least
- *  once (peak ≥ minBuild). Only a render that is calm-everywhere AND never built is rejected. */
+/** PURE: a render is ANIMATED (not frozen/broken) if it SUSTAINS motion (median interval delta ≥ minMean —
+ *  a single spike cannot carry a median, so a frozen clip with one exit flash reads 0) OR it BUILT at least
+ *  once inside the build window (peak ≥ minBuild). Only calm-everywhere AND never-built is rejected.
+ *  `sustained` falls back to `mean` for legacy callers that only measured a mean. */
 export function evaluateMgMotionProfile(
-  profile: { mean: number; peak: number },
+  profile: { mean: number; peak: number; sustained?: number },
   minMean: number = MIN_MG_MOTION_PRESENCE,
   minBuild: number = MIN_MG_MOTION_BUILD,
 ): { pass: boolean; reasons: string[] } {
-  if (profile.mean >= minMean || profile.peak >= minBuild) return { pass: true, reasons: [] };
-  return { pass: false, reasons: [`the graphic never moves (mean ${profile.mean.toFixed(4)} < ${minMean} and peak build ${profile.peak.toFixed(4)} < ${minBuild}) — a static/frozen render; give it a real entrance/build`] };
+  const sustained = profile.sustained ?? profile.mean;
+  if (sustained >= minMean || profile.peak >= minBuild) return { pass: true, reasons: [] };
+  return { pass: false, reasons: [`the graphic never moves (sustained ${sustained.toFixed(4)} < ${minMean} and peak build ${profile.peak.toFixed(4)} < ${minBuild}) — a static/frozen render; give it a real entrance/build`] };
 }
 
 /**
@@ -186,8 +189,8 @@ export function evaluateMgMotionProfile(
 export async function measureMgMotionProfile(
   frames: Buffer[],
   opts: { maxSamples?: number; sampleWidth?: number } = {},
-): Promise<{ mean: number; peak: number }> {
-  if (frames.length < 2) return { mean: 0, peak: 0 };
+): Promise<{ mean: number; peak: number; sustained: number }> {
+  if (frames.length < 2) return { mean: 0, peak: 0, sustained: 0 };
   const width = opts.sampleWidth ?? 48;
   const n = Math.min(Math.max(2, opts.maxSamples ?? 6), frames.length);
   const idxs = Array.from({ length: n }, (_, k) => Math.round((k / (n - 1)) * (frames.length - 1)));
@@ -196,9 +199,14 @@ export async function measureMgMotionProfile(
     const { data } = await sharp(frames[i]).ensureAlpha().resize({ width, fit: 'fill', kernel: 'nearest' }).raw().toBuffer({ resolveWithObject: true });
     thumbs.push(data);
   }
+  // The BUILD peak only counts intervals ending before the exit segment begins (choreo: resolve = durF×0.84,
+  // the scene releases after it). Without this cut, a frozen render with ONLY a fade-out spikes the final
+  // interval and games the build credit (external audit repro, 2026-07-19: 5 identical frames + 1 transparent
+  // exit frame → peak 1.0 → wrongly passed). An exit is a departure, not a build.
+  const buildCutoff = 0.84 * (frames.length - 1);
   let total = 0;
-  let comparisons = 0;
   let peak = 0;
+  const deltas: number[] = [];
   for (let k = 1; k < thumbs.length; k += 1) {
     const a = thumbs[k - 1];
     const b = thumbs[k];
@@ -208,10 +216,14 @@ export async function measureMgMotionProfile(
     for (let j = 0; j < len; j += 1) sum += Math.abs(a[j] - b[j]);
     const delta = sum / len / 255;
     total += delta;
-    comparisons += 1;
-    if (delta > peak) peak = delta;
+    deltas.push(delta);
+    if (idxs[k] <= buildCutoff && delta > peak) peak = delta;
   }
-  return { mean: comparisons ? total / comparisons : 0, peak };
+  // sustained = MEDIAN interval delta: one big flash (an exit fade on an otherwise frozen clip) cannot carry
+  // a median the way it inflates the mean (audit repro 2026-07-19: frozen+exit read mean 0.15, median 0).
+  const sorted = [...deltas].sort((x, y) => x - y);
+  const sustained = sorted.length ? sorted[Math.floor((sorted.length - 1) / 2)] : 0;
+  return { mean: deltas.length ? total / deltas.length : 0, peak, sustained };
 }
 
 /** IMPURE (mean-only, retained for existing callers/tests): the MEAN interval change across the sequence. */

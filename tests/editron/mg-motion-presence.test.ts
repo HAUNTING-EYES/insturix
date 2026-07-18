@@ -65,9 +65,22 @@ describe('taste-gate floor — motion presence', () => {
     const black = await solid(0, 0, 0, 1);
     const clear = await solid(0, 0, 0, 0);
     const white = await solid(255, 255, 255, 1);
-    expect(await measureMgMotionProfile([black, black, black])).toEqual({ mean: expect.closeTo(0, 5), peak: expect.closeTo(0, 5) });
+    expect(await measureMgMotionProfile([black, black, black])).toEqual({ mean: expect.closeTo(0, 5), peak: expect.closeTo(0, 5), sustained: expect.closeTo(0, 5) });
     const built = await measureMgMotionProfile([clear, white, white, white]); // appear once, then hold
     expect(built.peak).toBeGreaterThan(built.mean); // the single build spike exceeds the whole-clip mean
     expect(built.peak).toBeGreaterThan(0.1);
+  });
+
+  it('★ EXIT-ONLY movement earns NO build credit (audit repro: frozen clip + fade-out must FAIL)', async () => {
+    const white = await solid(255, 255, 255, 1);
+    const clear = await solid(0, 0, 0, 0);
+    // 5 identical frames, then one transparent exit frame — the only change is the departure
+    const exitOnly = await measureMgMotionProfile([white, white, white, white, white, clear]);
+    expect(exitOnly.peak).toBeCloseTo(0, 5); // the final interval is past the build cutoff — no credit
+    const gate = await mgMotionPresenceGate([white, white, white, white, white, clear]);
+    expect(gate.pass).toBe(false); // frozen-with-exit is still a frozen render
+    // and an EARLY build still earns its credit (entrance in the build window)
+    const earlyBuild = await measureMgMotionProfile([clear, white, white, white, white, white]);
+    expect(earlyBuild.peak).toBeGreaterThan(0.1);
   });
 });
