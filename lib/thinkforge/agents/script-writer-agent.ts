@@ -112,7 +112,7 @@ const SCHEMA_ARTIFACT_PATTERNS = [
 
 const RELIP_UNSAFE_OCCLUSION_PATTERN = /\b(masked|mask covering|face covered|covered face|hidden face|occluded face|heavy occlusion|silhouette|back turned|turned away|profile only)\b/i;
 const RELIP_UNSAFE_MOTION_PATTERN = /\b(rapid|chaotic|whip pan|spinning|running|shaky|handheld chase|fast motion)\b/i;
-const CAPABILITY_REPAIR_FAILURE_PATTERN = /\b(?:relip_safe_not_true|relip_face_visibility_undeclared|relip_occlusion_unsafe|relip_motion_unsafe|relip_unsafe_occlusion|relip_unsafe_motion|on_camera_scene_exceeds_relip_limit|on_camera_ratio_exceeded|unsupported_voice_language)\b/;
+const CAPABILITY_REPAIR_FAILURE_PATTERN = /\b(?:relip_safe_not_true|relip_face_visibility_undeclared|relip_occlusion_unsafe|relip_motion_unsafe|relip_unsafe_occlusion|relip_unsafe_motion|on_camera_scene_exceeds_relip_limit|on_camera_ratio_exceeded|unsupported_voice_language|missing_shot_intent|shot_intent_[a-z_]+)\b/;
 
 function narrationForScene(scene: ScriptSidecar['scenes'][number]): string {
   const narration = scene.narration.trim();
@@ -164,6 +164,10 @@ function validateWriterCapabilityCompliance(
   sidecar: ReturnType<typeof parseScriptSidecar>,
   failures: string[],
 ): void {
+  sidecar.scenes.forEach((scene, sceneIndex) => {
+    if (!scene.shotIntent) failures.push(`missing_shot_intent:scene_${sceneIndex + 1}`);
+  });
+
   const voiceLanguage = result.metadata.voiceLanguage || WRITER_CAPABILITIES.voiceLanguages[0] || 'en';
   if (!canSpeakLanguage(voiceLanguage)) {
     failures.push(`unsupported_voice_language:${voiceLanguage}`);
@@ -227,9 +231,11 @@ function buildCapabilityRepairSystemInstruction(systemInstruction: string, failu
 The previous structured output failed a production writer contract:
 ${failure.message}
 
-Return a complete replacement object using the same JSON schema. Preserve the brief's facts, brand intent, source references, casting, and overall narrative. Repair only the capability violations.
+Return a complete replacement object using the same JSON schema. Preserve the brief's facts, brand intent, source references, casting, and overall narrative. Repair only the capability or shot-intent violations.
 
-Critical rule: every scene that contains on-camera sync-dialogue is one actual relip job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. Do not use subShots to bypass this limit. Split an overlong on-camera beat into multiple consecutive sidecar.scenes instead, each with its own duration, visual direction, lines, and relip safety data. Do not silently turn required on-camera cast speech into voiceover.
+Critical rules:
+- Every scene requires a complete shotIntent that matches its visible performers and sync-dialogue lines. shotIntent.spokenAudio means speech captured on set; it is false for voiceover-only scenes.
+- Every scene that contains on-camera sync-dialogue is one actual relip job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. Do not use subShots to bypass this limit. Split an overlong on-camera beat into multiple consecutive sidecar.scenes instead, each with its own duration, visual direction, lines, relip safety data, and shot intent. Do not silently turn required on-camera cast speech into voiceover.
 </writer_capability_repair>`;
 }
 
@@ -404,6 +410,7 @@ Your task is to write a high-retention, engaging video script.
    - Include \`characters\`. Always include \`{ "id": "narrator", "name": "Narrator", "role": "narrator" }\`. Add one \`host\` character only if someone speaks on camera.
    - Each scene includes required parser fields: \`title\`, \`narration\`, \`visualDescription\`, \`videoMotionPrompt\`, \`audioDescription\`, \`musicDescription\`, \`sfxDescription\`, \`durationSeconds\`, \`mood\`, \`imageQualityTokens\`, \`videoQualityTokens\`, \`generationUnitId\`, \`primaryVisualForUnit\`, \`sceneType\`, and \`assetRecommendation\`.
    - Each scene includes \`lines\` with \`text\`, \`speakerId\`, \`onCamera\`, and \`delivery\`. Use \`delivery: "voiceover"\` for narrator voiceover and \`delivery: "sync-dialogue"\` only for visible on-camera speech.
+   - Each scene includes one complete \`shotIntent\` authored from that same scene. It expresses creative intent only; never invent equipment, room dimensions, coordinates, costs, or setup instructions.
    - If any line has \`onCamera: true\` and \`delivery: "sync-dialogue"\`, set that scene's \`relipSafe: true\` and \`relipSafety: { "faceVisibility": "visible", "occlusion": "none" or "light", "motion": "still" or "moderate" }\`. The object must match the visual description. Otherwise set \`relipSafe: false\` and omit \`relipSafety\`.
    - \`sourceRefs\` are provenance IDs only. If a Source Ledger is present, use ONLY referenceId values listed there (\`brief_user\`, \`source_1\`, etc.). Every numeric/date/price/URL/proof/testimonial claim must carry sourceRefs on the line and scene. A line or scene \`sourceRefs\` value must also appear in top-level \`sidecar.sourceRefs\`. If no factual sources are used, use empty arrays.
 7. **Writer capability limits:** Author only what the downstream avatar/video rig can produce:
@@ -412,6 +419,12 @@ Your task is to write a high-retention, engaging video script.
    - On-camera sync dialogue is expensive. Keep on-camera sync dialogue to about ${Math.round(DEFAULT_ON_CAMERA_RATIO * 100)}% of spoken lines; use voiceover over visuals for the rest.
    - For every on-camera sync-dialogue scene, make \`visualDescription\` match its structured \`relipSafety\`: visible face, front/on-camera framing, no more than light occlusion, and still/moderate motion.
    - Every on-camera sync-dialogue scene is one actual lip-sync job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. When a spoken beat runs longer, split it into multiple consecutive \`sidecar.scenes\`; do not use \`subShots\` to bypass this limit.
+8. **Production shot intent:** For every sidecar scene, author \`shotIntent\` in the same response:
+   - State \`narrativePurpose\`, \`emotionalBeat\`, \`energy\` from 0 to 1, and the concrete \`visualPriority\` that must remain readable.
+   - Select \`action\`, \`desiredFraming\`, \`desiredAngle\`, and \`desiredMovement\` from the schema. Any movement other than \`static\` requires \`movementMotivation\` explaining the story reason for moving the camera.
+   - \`performance\` contains only characters physically visible in the shot. Use each visible character once, copy its exact \`characterId\`, and describe stance, emotion, intensity, gaze, posture, gesture, and movement. Set \`simultaneousPerformers\` to the number of these unique visible characters. Use an empty array and 0 for object/B-roll/graphics scenes with no visible character.
+   - Set \`spokenAudio: true\` only when the scene captures on-camera sync dialogue. Set it false for voiceover, music, ambient sound, on-screen text, and silent B-roll.
+   - Use \`continuity\` only for wardrobe, props, screen direction, and links to earlier scenes. Do not turn creative preferences into claimed physical capabilities; the deterministic production resolver will adapt or block infeasible intent later.
 
 Return your response strictly adhering to the JSON schema.`;
 
@@ -509,7 +522,7 @@ Return your response strictly adhering to the JSON schema.`;
   }
 
   // One schema-constrained completion is the canonical source of a script. A single,
-  // low-temperature repair is allowed only after a proven production capability failure.
+  // low-temperature replacement is allowed after a proven capability or shot-intent failure.
   async runStructured(
     input: ScriptWriterInput,
     overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,

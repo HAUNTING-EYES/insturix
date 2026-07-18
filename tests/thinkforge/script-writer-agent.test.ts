@@ -31,6 +31,26 @@ const canonicalScript = `## Scene 1: The stalled launch
 
 const hostCharacter = { id: 'host', name: 'Host', role: 'host' as const };
 
+function makeShotIntent(
+  overrides: Partial<NonNullable<SidecarScene['shotIntent']>> = {},
+): NonNullable<SidecarScene['shotIntent']> {
+  return {
+    narrativePurpose: 'Make the operational problem immediately visible.',
+    emotionalBeat: 'Recognition followed by controlled relief.',
+    energy: 0.55,
+    visualPriority: 'The single approval owner remains readable.',
+    action: 'still',
+    desiredFraming: 'medium',
+    desiredAngle: 'eye-level',
+    desiredMovement: 'static',
+    simultaneousPerformers: 0,
+    spokenAudio: false,
+    performance: [],
+    continuity: { wardrobe: [], props: ['approval board'], previousSceneIds: [] },
+    ...overrides,
+  };
+}
+
 function makeOnCameraScene(overrides: Partial<SidecarScene> = {}): SidecarScene {
   return {
     title: 'Host explains the fix',
@@ -58,6 +78,24 @@ function makeOnCameraScene(overrides: Partial<SidecarScene> = {}): SidecarScene 
       },
     ],
     charactersPresent: ['host'],
+    shotIntent: makeShotIntent({
+      narrativePurpose: 'Deliver the corrective action directly to the viewer.',
+      emotionalBeat: 'Calm authority.',
+      action: 'talking',
+      desiredFraming: 'medium-close-up',
+      simultaneousPerformers: 1,
+      spokenAudio: true,
+      performance: [{
+        characterId: 'host',
+        stance: 'seated',
+        emotion: 'confident',
+        intensity: 0.45,
+        gaze: 'into camera',
+        posture: 'upright and open',
+        gesture: 'one measured hand gesture',
+        movement: 'mostly still',
+      }],
+    }),
     relipSafe: true,
     relipSafety: { faceVisibility: 'visible', occlusion: 'light', motion: 'moderate' },
     sourceRefs: [],
@@ -102,6 +140,10 @@ function makeSidecar(overrides: Partial<ScriptSidecar> = {}): ScriptSidecar {
           },
         ],
         charactersPresent: ['narrator'],
+        shotIntent: makeShotIntent({
+          desiredMovement: 'push-in',
+          movementMotivation: 'Move closer as the hidden approval cost becomes clear.',
+        }),
         relipSafe: false,
         sourceRefs: [],
       },
@@ -131,6 +173,17 @@ function makeSidecar(overrides: Partial<ScriptSidecar> = {}): ScriptSidecar {
           },
         ],
         charactersPresent: ['narrator'],
+        shotIntent: makeShotIntent({
+          narrativePurpose: 'Show the simpler operating model.',
+          emotionalBeat: 'Relief and control.',
+          desiredMovement: 'pan',
+          movementMotivation: 'Reveal the named owner after showing the clean workflow.',
+          continuity: {
+            wardrobe: [],
+            props: ['approval board'],
+            previousSceneIds: ['scene_1'],
+          },
+        }),
         relipSafe: false,
         sourceRefs: [],
       },
@@ -220,6 +273,8 @@ describe('ScriptWriterAgent prompt contract', () => {
     expect(prompt).toContain('Avatar Vault profile "avatar_profile_primary"');
     expect(prompt).toContain('delivery: "sync-dialogue"');
     expect(prompt).toContain('face visible');
+    expect(prompt).toContain('Production shot intent');
+    expect(prompt).toContain('never invent equipment');
   });
 });
 
@@ -393,6 +448,38 @@ describe('assertUsableScriptWriterResult', () => {
     ).toThrow(/invalid_sidecar/);
   });
 
+  it('rejects new writer output when any canonical scene omits shot intent', () => {
+    const sceneWithoutIntent = { ...makeSidecar().scenes[0]!, shotIntent: undefined };
+
+    expect(() => assertUsableScriptWriterResult(makeResult({
+      sidecar: makeSidecar({ scenes: [sceneWithoutIntent, makeSidecar().scenes[1]!] }),
+    }))).toThrow(/missing_shot_intent:scene_1/);
+  });
+
+  it('rejects shot intent that invents a visible character outside the sidecar cast', () => {
+    const scene = {
+      ...makeSidecar().scenes[0]!,
+      charactersPresent: ['narrator', 'invented_host'],
+      shotIntent: makeShotIntent({
+        simultaneousPerformers: 1,
+        performance: [{
+          characterId: 'invented_host',
+          stance: 'standing',
+          emotion: 'confident',
+          intensity: 0.6,
+          gaze: 'into camera',
+          posture: 'upright',
+          gesture: 'open hands',
+          movement: 'still',
+        }],
+      }),
+    };
+
+    expect(() => assertUsableScriptWriterResult(makeResult({
+      sidecar: makeSidecar({ scenes: [scene, makeSidecar().scenes[1]!] }),
+    }))).toThrow(/shot_intent_character_unknown:invented_host/);
+  });
+
   it('rejects sidecars whose scene count does not match the visible script', () => {
     expect(() =>
       assertUsableScriptWriterResult(
@@ -528,6 +615,22 @@ describe('assertUsableScriptWriterResult', () => {
             scenes: [
               makeOnCameraScene({
                 relipSafe: false,
+                shotIntent: makeShotIntent({
+                  action: 'talking',
+                  desiredFraming: 'medium-close-up',
+                  simultaneousPerformers: 1,
+                  performance: [{
+                    characterId: 'host',
+                    stance: 'seated',
+                    emotion: 'confident',
+                    intensity: 0.45,
+                    gaze: 'into camera',
+                    posture: 'upright and open',
+                    gesture: 'one measured hand gesture',
+                    movement: 'mostly still',
+                  }],
+                  spokenAudio: false,
+                }),
                 lines: [
                   {
                     text: 'Put one accountable owner between draft and publish.',

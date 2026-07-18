@@ -17,6 +17,10 @@ import {
   type CameraMovement,
   type ShotFraming,
 } from './production-knowledge';
+import {
+  addSceneShotIntentIssues,
+  SceneShotIntentObjectSchema,
+} from './scene-shot-intent';
 import { parseShotPlan, SHOT_PLAN_VERSION, type ShotPlan } from './shot-plan';
 
 type CameraEquipment = Extract<ProductionEquipment, { category: 'camera' }>;
@@ -26,57 +30,14 @@ type AudioEquipment = Extract<ProductionEquipment, { category: 'audio' }>;
 type ModifierEquipment = Extract<ProductionEquipment, { category: 'modifier' }>;
 type PlanResource = ShotPlan['resources'][number];
 
-const PerformanceIntentSchema = z.object({
-  characterId: z.string().min(1),
-  stance: z.enum(['seated', 'standing', 'walking', 'floor', 'custom']),
-  emotion: z.string().min(1),
-  intensity: z.number().min(0).max(1),
-  gaze: z.string().min(1),
-  posture: z.string().min(1),
-  gesture: z.string().min(1),
-  movement: z.string().min(1),
-}).strict();
-
 export const SceneProductionIntentSchema = z.object({
   sceneId: z.string().min(1),
   sidecarSceneIndex: z.number().int().min(0),
   generationUnitId: z.string().min(1),
   durationSec: z.number().finite().positive(),
   aspectRatio: z.enum(['16:9', '9:16', '1:1', '4:5']),
-  narrativePurpose: z.string().min(1),
-  emotionalBeat: z.string().min(1),
-  energy: z.number().min(0).max(1),
-  visualPriority: z.string().min(1),
-  action: z.enum(['talking', 'walking', 'gesturing', 'demonstrating', 'still', 'interacting-with-object', 'other']),
-  desiredFraming: z.enum(['extreme-close-up', 'close-up', 'medium-close-up', 'medium', 'medium-wide', 'wide', 'extreme-wide', 'over-shoulder', 'insert']),
-  desiredAngle: z.enum(['eye-level', 'high', 'low', 'overhead', 'dutch']),
-  desiredMovement: z.enum(['static', 'pan', 'tilt', 'push-in', 'pull-out', 'dolly', 'orbit', 'handheld', 'tracking']),
-  movementMotivation: z.string().min(1).optional(),
-  simultaneousPerformers: z.number().int().min(1).max(20),
-  spokenAudio: z.boolean(),
-  performance: z.array(PerformanceIntentSchema).min(1),
-  continuity: z.object({
-    wardrobe: z.array(z.string().min(1)).default([]),
-    props: z.array(z.string().min(1)).default([]),
-    screenDirection: z.string().optional(),
-    previousSceneIds: z.array(z.string().min(1)).default([]),
-  }).strict().default({ wardrobe: [], props: [], previousSceneIds: [] }),
-}).strict().superRefine((intent, ctx) => {
-  if (intent.desiredMovement !== 'static' && !intent.movementMotivation) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['movementMotivation'],
-      message: 'moving-camera intent requires an explicit narrative motivation',
-    });
-  }
-  if (new Set(intent.performance.map((entry) => entry.characterId)).size < intent.simultaneousPerformers) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['simultaneousPerformers'],
-      message: 'simultaneousPerformers exceeds the declared performance cast',
-    });
-  }
-});
+  ...SceneShotIntentObjectSchema.shape,
+}).strict().superRefine(addSceneShotIntentIssues);
 
 export type SceneProductionIntent = z.infer<typeof SceneProductionIntentSchema>;
 

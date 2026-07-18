@@ -4,6 +4,10 @@ import type { LLMParseResult, ParsedScene } from '@/lib/pipeline/llm-scene-parse
 import { ThinkForgeBlockZodSchema } from './route-validation';
 import type { ThinkForgeBlock } from './thinkforge-block';
 import { SourceLedgerSchema, type SourceLedger } from '../provenance/source-ledger';
+import {
+  SceneShotIntentSchema,
+  type SceneShotIntent,
+} from '../production/scene-shot-intent';
 
 export const SCRIPT_SIDECAR_VERSION = 1 as const;
 export type ScriptSidecarVersion = typeof SCRIPT_SIDECAR_VERSION;
@@ -50,6 +54,7 @@ export interface SidecarScene extends ParsedScene {
   lines: SidecarLine[];
   sourceRefs: string[];
   charactersPresent: string[];
+  shotIntent?: SceneShotIntent;
   relipSafe?: boolean;
   relipSafety?: RelipSafety;
 }
@@ -148,6 +153,7 @@ export const SidecarSceneSchema: z.ZodType<SidecarScene> = z.object({
   lines: z.array(SidecarLineSchema).min(1),
   sourceRefs: StringArraySchema,
   charactersPresent: StringArraySchema,
+  shotIntent: SceneShotIntentSchema.optional(),
   relipSafe: z.boolean().optional(),
   relipSafety: RelipSafetySchema.optional(),
 }).passthrough() as z.ZodType<SidecarScene>;
@@ -196,6 +202,49 @@ export const ScriptSidecarSchema: z.ZodType<ScriptSidecar> = z.object({
     const hasOnCameraSpeakingLine = scene.lines.some(
       (line) => line.onCamera && line.delivery === 'sync-dialogue',
     );
+
+    if (scene.shotIntent) {
+      const visiblePerformerIds = new Set(
+        scene.shotIntent.performance.map((entry) => entry.characterId),
+      );
+      scene.shotIntent.performance.forEach((entry, performanceIndex) => {
+        if (!characterIds.has(entry.characterId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['scenes', sceneIndex, 'shotIntent', 'performance', performanceIndex, 'characterId'],
+            message: `shot_intent_character_unknown:${entry.characterId}`,
+          });
+        }
+        if (!scene.charactersPresent.includes(entry.characterId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['scenes', sceneIndex, 'shotIntent', 'performance', performanceIndex, 'characterId'],
+            message: `shot_intent_character_not_present:${entry.characterId}`,
+          });
+        }
+      });
+
+      scene.lines.forEach((line, lineIndex) => {
+        if (line.onCamera
+          && line.delivery === 'sync-dialogue'
+          && !visiblePerformerIds.has(line.speakerId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['scenes', sceneIndex, 'lines', lineIndex, 'speakerId'],
+            message: `shot_intent_missing_sync_speaker:${line.speakerId}`,
+          });
+        }
+      });
+
+      if (scene.shotIntent.spokenAudio !== hasOnCameraSpeakingLine) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['scenes', sceneIndex, 'shotIntent', 'spokenAudio'],
+          message: 'shot_intent_spoken_audio_mismatch:spokenAudio means speech captured on set, not voiceover',
+        });
+      }
+    }
+
     if (hasOnCameraSpeakingLine && typeof scene.relipSafe !== 'boolean') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
