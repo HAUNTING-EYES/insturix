@@ -152,6 +152,7 @@ import {
   type ChatBattleToolEvent,
 } from '@/lib/editron/services/chat-edit-battle-harness';
 import {
+  buildLiveChatRequestBody,
   chatBattleInvocationQueuedProjectMutation,
   parseChatBattleCliArgs,
   validateChatBattleCliOptions,
@@ -426,9 +427,28 @@ describe('chat edit battle harness', () => {
       completedAt: '2026-07-16T10:00:00.200Z',
       output: successEnvelope({ overlayId: 'title-1' }),
     }]);
+    const referenceStyle = invocation('reference-style-transfer', [{
+      id: 'style',
+      name: 'apply_reference_style',
+      args: { referenceAssetId: 'asset-reference' },
+      startedAt: '2026-07-16T10:00:00.100Z',
+      completedAt: '2026-07-16T10:00:00.200Z',
+      output: successEnvelope({ jobId: 'chat_style_123', queueStatus: 'queued' }),
+    }]);
 
     expect(chatBattleInvocationQueuedProjectMutation(queued)).toBe(true);
+    expect(chatBattleInvocationQueuedProjectMutation(referenceStyle)).toBe(true);
     expect(chatBattleInvocationQueuedProjectMutation(immediate)).toBe(false);
+  });
+
+  it('tests reference style through the durable owner and forbids legacy style authority', () => {
+    const scenario = getChatEditBattleScenario('reference-style-transfer')!;
+    expect(scenario.requiredToolSequence).toEqual(['apply_reference_style']);
+    expect(scenario.forbiddenTools).toEqual(expect.arrayContaining(['extract_style', 'apply_style']));
+    expect(scenario.minimumSuccessfulMutations).toBe(0);
+    expect(scenario.requireEvidenceBeforeMutation).toBe(false);
+    expect(scenario.requireUiReload).toBe(true);
+    expect(scenario.requireRenderedEvidence).toBe(true);
   });
 
   it('waits for material project state after a queued edit and reports timeout honestly', async () => {
@@ -559,5 +579,28 @@ describe('chat edit battle harness', () => {
       scenarioId: 'not-a-case',
       allowLiveWrite: true,
     })).toBe('Unknown chat battle case: not-a-case');
+  });
+
+  it('sends the deployed chat route a stable operation id and exact fixture context', () => {
+    const request = buildLiveChatRequestBody({
+      scenarioPrompt: 'Add a title.',
+      projectId: 'proj_chatbattle_contract',
+      selectedOverlayId: 'overlay-title-1',
+      clientContext: { currentFrame: 45 },
+      runId: 'run 2026/07/18 #1',
+    });
+
+    expect(request).toEqual({
+      message: 'Add a title.',
+      projectId: 'proj_chatbattle_contract',
+      operationId: 'chat-battle:run-2026-07-18-1',
+      selectedOverlayId: 'overlay-title-1',
+      clientContext: { currentFrame: 45 },
+    });
+    expect(buildLiveChatRequestBody({
+      scenarioPrompt: 'Add a title.',
+      projectId: 'proj_chatbattle_contract',
+      runId: 'run 2026/07/18 #1',
+    }).operationId).toBe(request.operationId);
   });
 });

@@ -166,15 +166,11 @@ async function invokeLiveChatAgent(input: {
   runId: string;
   startedAt: string;
 }): Promise<ChatBattleInvocationEvidence> {
+  const requestBody = buildLiveChatRequestBody(input);
   const response = await fetch(`${input.api.baseUrl}/api/services/editron/chat/stream`, {
     method: 'POST',
     headers: { ...input.api.headers, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      message: input.scenarioPrompt,
-      projectId: input.projectId,
-      selectedOverlayId: input.selectedOverlayId,
-      clientContext: input.clientContext,
-    }),
+    body: JSON.stringify(requestBody),
   });
   const raw = await response.text();
   if (!response.ok) throw new Error(`Chat route failed HTTP ${response.status}: ${raw.slice(0, 1_000)}`);
@@ -197,6 +193,22 @@ async function invokeLiveChatAgent(input: {
   };
 }
 
+export function buildLiveChatRequestBody(input: {
+  scenarioPrompt: string;
+  projectId: string;
+  selectedOverlayId?: string;
+  clientContext?: Record<string, unknown>;
+  runId: string;
+}): Record<string, unknown> {
+  return {
+    message: input.scenarioPrompt,
+    projectId: input.projectId,
+    operationId: `chat-battle:${safeSegment(input.runId)}`,
+    ...(input.selectedOverlayId ? { selectedOverlayId: input.selectedOverlayId } : {}),
+    ...(input.clientContext ? { clientContext: input.clientContext } : {}),
+  };
+}
+
 async function loadMongoProject(projectId: string): Promise<Record<string, unknown>> {
   const { COLLECTIONS, connectToDatabase } = await import('../lib/editron/db/mongodb');
   const { client, db } = await connectToDatabase();
@@ -213,7 +225,12 @@ export function chatBattleInvocationQueuedProjectMutation(invocation: ChatBattle
   return invocation.toolEvents.some((event) => {
     const output = parseToolOutputRecord(event.output);
     if (output.status !== 'success') return false;
-    return asRecord(asRecord(output.data).dispatch).status === 'queued';
+    const data = asRecord(output.data);
+    const dispatchStatus = asRecord(data.dispatch).status;
+    const queueStatus = data.queueStatus;
+    return dispatchStatus === 'queued'
+      || queueStatus === 'queued'
+      || queueStatus === 'already-queued';
   });
 }
 

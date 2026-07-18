@@ -198,7 +198,12 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('fragmented-sse', 'Fragmented SSE transport', 'Add one title and report the completed edit.', { requiredToolSequence: [READ_PROJECT, 'add_overlay'] }),
   scenario('visible-range-reference', 'Visible timeline reference', 'Tighten this visible section without changing the rest.', { requiredToolSequence: [READ_PROJECT], minimumSuccessfulMutations: 1 }),
   scenario('spatial-cursor-reference', 'Spatial cursor reference', 'Put a small label where my cursor is right now.', { requiredToolSequence: [READ_PROJECT, 'add_overlay'] }),
-  scenario('reference-style-transfer', 'Reference style transfer', 'Match the pacing and graphic restraint of my reference video.', { requiredToolSequence: ['extract_style', 'apply_style'], minimumSuccessfulMutations: 1 }),
+  scenario('reference-style-transfer', 'Reference style transfer', 'Match the pacing and graphic restraint of my uploaded reference video asset.', {
+    requiredToolSequence: ['apply_reference_style'],
+    forbiddenTools: ['extract_style', 'apply_style'],
+    minimumSuccessfulMutations: 0,
+    requireEvidenceBeforeMutation: false,
+  }),
   scenario('post-edit-render-proof', 'Post-edit pixel and audio proof', 'Add a title, then verify it is readable in the rendered video.', { requiredToolSequence: [READ_PROJECT, 'add_overlay'], requireRenderedEvidence: true }),
   scenario('batch-overlay-update', 'Batch update matching overlays', 'Make every existing text overlay use the same white fill without changing its wording or timing.', { requiredToolSequence: [READ_PROJECT, 'batch_update_overlays'] }),
   scenario('split-selected-overlay', 'Split selected clip', 'Split the selected clip exactly at the playhead.', { requiredToolSequence: [READ_PROJECT, 'split_overlay'] }),
