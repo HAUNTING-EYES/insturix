@@ -7,6 +7,7 @@ import type { TrendCandidate, TrendPlatform } from "@/lib/thinkforge/trends/tren
 
 export type TrendTarget = "post" | "script";
 type WorkflowStage = "discover" | "select" | "source" | "analyzing" | "ready";
+type TrendIntakeMode = "discover" | "link";
 
 interface TrendWorkflowPanelProps {
   open: boolean;
@@ -45,6 +46,7 @@ async function readJsonResponse(response: Response): Promise<any> {
 
 export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", onClose, onEnsureSession, onGenerate }: TrendWorkflowPanelProps) {
   const [niche, setNiche] = useState("");
+  const [intakeMode, setIntakeMode] = useState<TrendIntakeMode>("discover");
   const [platform, setPlatform] = useState<"all" | TrendPlatform>("all");
   const [target, setTarget] = useState<TrendTarget>(initialTarget);
   const [referenceVideoUrl, setReferenceVideoUrl] = useState("");
@@ -179,6 +181,60 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
     }
   };
 
+  const queueAnalysis = async (resolvedSessionId: string, videoUrl: string) => {
+    await readJsonResponse(await fetch("/api/services/thinkforge/trends/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: resolvedSessionId, referenceVideoUrl: videoUrl }),
+    }));
+    pollStartedAtRef.current = Date.now();
+    setStage("analyzing");
+  };
+
+  const selectDirectReference = async () => {
+    const videoUrl = referenceVideoUrl.trim();
+    if (!videoUrl) {
+      setError("Add a YouTube link or direct public video URL.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    let selectionPersisted = false;
+    try {
+      const referencePayload = await readJsonResponse(await fetch("/api/services/thinkforge/trends/reference", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          referenceVideoUrl: videoUrl,
+          ...(platform !== "all" ? { platform } : {}),
+        }),
+      }));
+      const candidate = referencePayload.candidate as TrendCandidate;
+      const resolvedSessionId = workflowSessionId || await onEnsureSession?.(candidate, target) || null;
+      if (!resolvedSessionId) {
+        setError("ThinkForge could not create a session for this trend. Please try again.");
+        return;
+      }
+      setWorkflowSessionId(resolvedSessionId);
+      const payload = await readJsonResponse(await fetch("/api/services/thinkforge/trends/select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: resolvedSessionId, candidate, target }),
+      }));
+      const persistedTrend = payload.selectedTrend as SelectedTrend;
+      setSelectedTrend(persistedTrend);
+      selectionPersisted = true;
+      const canonicalVideoUrl = defaultTrendReferenceVideoUrl(persistedTrend.candidate);
+      setReferenceVideoUrl(canonicalVideoUrl);
+      await queueAnalysis(resolvedSessionId, canonicalVideoUrl);
+    } catch (directError) {
+      setStage(selectionPersisted ? "source" : "discover");
+      setError(directError instanceof Error ? directError.message : "Could not analyze that trend reference.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const analyze = async () => {
     if (!workflowSessionId || !selectedTrend) return;
     if (!referenceVideoUrl.trim()) {
@@ -188,13 +244,7 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
     setBusy(true);
     setError(null);
     try {
-      await readJsonResponse(await fetch("/api/services/thinkforge/trends/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: workflowSessionId, referenceVideoUrl: referenceVideoUrl.trim() }),
-      }));
-      pollStartedAtRef.current = Date.now();
-      setStage("analyzing");
+      await queueAnalysis(workflowSessionId, referenceVideoUrl.trim());
     } catch (analyzeError) {
       setError(analyzeError instanceof Error ? analyzeError.message : "Could not start trend analysis.");
     } finally {
@@ -219,12 +269,22 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
           <button type="button" onClick={onClose} className="rounded-full p-2 text-[#7A776E] hover:bg-[#1C1B19] hover:text-[#ECE9E1]" aria-label="Close trend workflow"><X className="h-5 w-5" /></button>
         </div>
         <div className="space-y-5 p-5">
-          <div className="grid gap-3 sm:grid-cols-[1fr_170px_150px]">
-            <label className="text-xs text-[#A7A39A]">Public niche<input value={niche} onChange={(event) => setNiche(event.target.value)} placeholder="e.g. B2B SaaS marketing" className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60" /></label>
-            <label className="text-xs text-[#A7A39A]">Platform<select value={platform} onChange={(event) => setPlatform(event.target.value as typeof platform)} className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60">{PLATFORM_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-            <label className="text-xs text-[#A7A39A]">Draft type<select value={target} onChange={(event) => setTarget(event.target.value as TrendTarget)} className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60"><option value="script">Script</option><option value="post">Post</option></select></label>
-          </div>
-          <button type="button" onClick={discover} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-[#D4A652] px-4 py-2.5 text-sm font-semibold text-[#0B0B0A] disabled:cursor-not-allowed disabled:opacity-50">{busy && stage === "discover" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}Find public trends</button>
+          {!selectedTrend && <>
+            <div className="inline-flex rounded-lg border border-[#282724] bg-[#0F0F0E] p-1" role="group" aria-label="Trend source">
+              <button type="button" onClick={() => { setIntakeMode("discover"); setError(null); }} aria-pressed={intakeMode === "discover"} className={`rounded-md px-3 py-1.5 text-xs font-medium ${intakeMode === "discover" ? "bg-[#282724] text-[#ECE9E1]" : "text-[#7A776E] hover:text-[#ECE9E1]"}`}>Find trends</button>
+              <button type="button" onClick={() => { setIntakeMode("link"); setError(null); }} aria-pressed={intakeMode === "link"} className={`rounded-md px-3 py-1.5 text-xs font-medium ${intakeMode === "link" ? "bg-[#282724] text-[#ECE9E1]" : "text-[#7A776E] hover:text-[#ECE9E1]"}`}>Use video link</button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[1fr_170px_150px]">
+              {intakeMode === "discover"
+                ? <label className="text-xs text-[#A7A39A]">Public niche<input value={niche} onChange={(event) => setNiche(event.target.value)} placeholder="e.g. B2B SaaS marketing" className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60" /></label>
+                : <label className="text-xs text-[#A7A39A]">Trend video URL<input value={referenceVideoUrl} onChange={(event) => setReferenceVideoUrl(event.target.value)} placeholder="YouTube or direct public video URL" className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60" /></label>}
+              <label className="text-xs text-[#A7A39A]">Platform<select value={platform} onChange={(event) => setPlatform(event.target.value as typeof platform)} className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60">{PLATFORM_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+              <label className="text-xs text-[#A7A39A]">Draft type<select value={target} onChange={(event) => setTarget(event.target.value as TrendTarget)} className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60"><option value="script">Script</option><option value="post">Post</option></select></label>
+            </div>
+            {intakeMode === "discover"
+              ? <button type="button" onClick={discover} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-[#D4A652] px-4 py-2.5 text-sm font-semibold text-[#0B0B0A] disabled:cursor-not-allowed disabled:opacity-50">{busy && stage === "discover" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}Find public trends</button>
+              : <button type="button" onClick={selectDirectReference} disabled={busy || !referenceVideoUrl.trim()} className="inline-flex items-center gap-2 rounded-lg bg-[#D4A652] px-4 py-2.5 text-sm font-semibold text-[#0B0B0A] disabled:cursor-not-allowed disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <TrendingUp className="h-4 w-4" />}Analyze video link</button>}
+          </>}
           {provider && <p className="text-xs text-[#7A776E]">Public evidence supplied by {provider}. Brand Vault data is not sent for discovery.</p>}
           {candidates.length > 0 && (
             <div className="space-y-2">
