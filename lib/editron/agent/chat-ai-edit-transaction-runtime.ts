@@ -73,6 +73,7 @@ export interface ChatAiEditTransactionSummary {
   mutatingToolNames: string[];
   failedToolNames: string[];
   recoveredInputToolNames?: string[];
+  recoveredPreconditionToolNames?: string[];
   checkpointIds: string[];
   beforeCheckpointId: string;
   afterCheckpointId?: string;
@@ -210,6 +211,7 @@ export async function completeChatAiEditTransaction(
       undefined,
       renderVerification,
       batch.recoveredInputToolNames,
+      batch.recoveredPreconditionToolNames,
     );
   } catch (error: unknown) {
     return rollbackChatAiEditTransaction({
@@ -295,6 +297,7 @@ function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiT
     .filter((entry) => entry.outcome !== 'missing' && entry.outcome.status === 'success')
     .map((entry) => entry.call.name);
   const recoveredInputToolNames: string[] = [];
+  const recoveredPreconditionToolNames: string[] = [];
   const failedToolNames: string[] = [];
   classifiedCalls.forEach((entry, index) => {
     if (entry.outcome === 'missing') {
@@ -302,14 +305,21 @@ function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiT
       return;
     }
     if (entry.outcome.status !== 'failed') return;
-    const hasLaterSuccessfulRetry = entry.outcome.failureKind === 'input-validation'
+    const hasLaterSuccessfulRetry = (
+      entry.outcome.failureKind === 'input-validation'
+      || entry.outcome.failureKind === 'precondition'
+    )
       && classifiedCalls.slice(index + 1).some((candidate) =>
         candidate.call.name === entry.call.name
         && candidate.outcome !== 'missing'
         && candidate.outcome.status === 'success',
       );
     if (hasLaterSuccessfulRetry) {
-      recoveredInputToolNames.push(entry.call.name);
+      if (entry.outcome.failureKind === 'precondition') {
+        recoveredPreconditionToolNames.push(entry.call.name);
+      } else {
+        recoveredInputToolNames.push(entry.call.name);
+      }
       return;
     }
     failedToolNames.push(entry.call.name);
@@ -320,6 +330,7 @@ function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiT
     successfulToolNames: unique(successfulToolNames),
     failedToolNames: unique(failedToolNames),
     recoveredInputToolNames: unique(recoveredInputToolNames),
+    recoveredPreconditionToolNames: unique(recoveredPreconditionToolNames),
     successfulCalls,
   };
 }
@@ -496,14 +507,19 @@ function collectObjectKeys(value: unknown, output = new Set<string>()): Set<stri
 
 function toolOutcome(result: unknown): {
   status: 'success' | 'advisory' | 'failed';
-  failureKind?: 'input-validation' | 'execution';
+  failureKind?: 'input-validation' | 'precondition' | 'execution';
 } {
   const parsed = parseToolResult(result);
   if (!parsed) return { status: 'failed', failureKind: 'execution' };
   if (parsed.status === 'error' || parsed.error) {
+    const errorCode = String(asRecord(parsed.error).code ?? '');
     return {
       status: 'failed',
-      failureKind: isInputValidationFailure(parsed) ? 'input-validation' : 'execution',
+      failureKind: isInputValidationFailure(parsed)
+        ? 'input-validation'
+        : errorCode === 'CHAT_TOOL_EVIDENCE_REQUIRED' || errorCode === 'CHAT_TOOL_EVIDENCE_STALE'
+          ? 'precondition'
+          : 'execution',
     };
   }
   if (parsed.status === 'advisory') return { status: 'advisory' };
@@ -581,6 +597,7 @@ function summary(
   error?: string,
   renderVerification?: ChatEditRenderVerificationRequest,
   recoveredInputToolNames: string[] = [],
+  recoveredPreconditionToolNames: string[] = [],
 ): ChatAiEditTransactionSummary {
   return {
     status,
@@ -588,6 +605,7 @@ function summary(
     mutatingToolNames,
     failedToolNames,
     ...(recoveredInputToolNames.length > 0 ? { recoveredInputToolNames } : {}),
+    ...(recoveredPreconditionToolNames.length > 0 ? { recoveredPreconditionToolNames } : {}),
     checkpointIds: afterCheckpointId
       ? [transaction.beforeCheckpointId, afterCheckpointId]
       : [transaction.beforeCheckpointId],

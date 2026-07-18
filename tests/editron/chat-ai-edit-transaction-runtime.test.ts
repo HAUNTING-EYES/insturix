@@ -322,6 +322,47 @@ describe('chat AI edit transaction runtime', () => {
     expect(store.events).toEqual(['claim', 'create:after-llm', 'status:completed']);
   });
 
+  it('commits a successful retry after a policy-blocked precondition attempt', async () => {
+    const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
+    const ready = await prepare(store, 'chatop_precondition_retry');
+    store.project.overlays = [{ ...ORIGINAL_PROJECT.overlays[0], content: 'Launch day' }];
+
+    const result = await completeChatAiEditTransaction({
+      transaction: ready.transaction!,
+      toolCalls: [
+        { id: 'blocked', name: 'add_overlay' },
+        { id: 'grounded', name: 'add_overlay' },
+      ],
+      toolResults: [
+        {
+          toolCallId: 'blocked',
+          toolName: 'add_overlay',
+          result: JSON.stringify({
+            status: 'error',
+            error: {
+              code: 'CHAT_TOOL_EVIDENCE_REQUIRED',
+              message: 'add_overlay requires current project-state evidence before mutation.',
+            },
+            nextAction: 'Call read_project_file, then retry this target once.',
+          }),
+        },
+        {
+          toolCallId: 'grounded',
+          toolName: 'add_overlay',
+          result: JSON.stringify({ status: 'success', data: { id: 2 } }),
+        },
+      ],
+    }, { checkpointStore: store, loadProject: store.loadProject });
+
+    expect(result).toMatchObject({
+      status: 'created',
+      mutatingToolNames: ['add_overlay'],
+      failedToolNames: [],
+      recoveredPreconditionToolNames: ['add_overlay'],
+    });
+    expect(store.events).toEqual(['claim', 'create:after-llm', 'status:completed']);
+  });
+
   it('rolls back an unrecovered schema rejection and every real execution failure', async () => {
     for (const error of [
       {

@@ -97,6 +97,45 @@ export function buildChatToolTurnLedger(messages: unknown[]): ChatToolTurnLedger
   return { requestedToolNames, completedExecutions };
 }
 
+export function scheduleChatToolCalls<T extends { name: string }>(
+  toolCalls: T[],
+  availableEvidence: Iterable<ChatToolEvidenceClass> = [],
+): T[] {
+  const pending = toolCalls.map((call, index) => ({ call, index }));
+  const scheduled: T[] = [];
+  const available = new Set(availableEvidence);
+
+  while (pending.length > 0) {
+    const producedByPending = new Set<ChatToolEvidenceClass>();
+    for (const item of pending) {
+      for (const evidenceClass of getChatToolMetadata(item.call.name)?.turnContract.producesEvidence ?? []) {
+        producedByPending.add(evidenceClass);
+      }
+    }
+
+    const runnableIndex = pending.findIndex(({ call }) =>
+      (getChatToolMetadata(call.name)?.turnContract.requiredEvidence ?? []).every(
+        (evidenceClass) => available.has(evidenceClass) || !producedByPending.has(evidenceClass),
+      ),
+    );
+
+    if (runnableIndex < 0) {
+      pending
+        .sort((left, right) => left.index - right.index)
+        .forEach(({ call }) => scheduled.push(call));
+      break;
+    }
+
+    const [{ call }] = pending.splice(runnableIndex, 1);
+    scheduled.push(call);
+    for (const evidenceClass of getChatToolMetadata(call.name)?.turnContract.producesEvidence ?? []) {
+      available.add(evidenceClass);
+    }
+  }
+
+  return scheduled;
+}
+
 export function decideChatToolExecution(input: {
   toolName: string;
   args: Record<string, unknown>;
@@ -138,14 +177,6 @@ export function decideChatToolExecution(input: {
   });
   if (satisfiedEffectDecision) return satisfiedEffectDecision;
 
-  const evidenceDecision = enforceEvidenceContract({
-    toolName: input.toolName,
-    projectId: input.projectId,
-    projectRevision: input.projectRevision,
-    ledger: input.ledger,
-  });
-  if (evidenceDecision) return evidenceDecision;
-
   if (!policy) return { action: 'execute' };
 
   const sameToolExecutions = input.ledger.completedExecutions.filter(
@@ -170,6 +201,14 @@ export function decideChatToolExecution(input: {
   ) {
     return { action: 'replay', output: identicalExecution.output, reason: 'identical-call' };
   }
+
+  const evidenceDecision = enforceEvidenceContract({
+    toolName: input.toolName,
+    projectId: input.projectId,
+    projectRevision: input.projectRevision,
+    ledger: input.ledger,
+  });
+  if (evidenceDecision) return evidenceDecision;
 
   if (policy.cardinality === 'once-per-turn' && completedOwnerExecutions.length >= 1) {
     return blockedDecision({

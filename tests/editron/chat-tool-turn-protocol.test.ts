@@ -7,6 +7,7 @@ import {
   classifyChatToolExecutionOutcome,
   decideChatToolExecution,
   formatChatToolInvocationError,
+  scheduleChatToolCalls,
   type ChatToolEvidenceReceipt,
   type ChatToolTurnLedger,
   type CompletedChatToolExecution,
@@ -77,6 +78,28 @@ function project(overrides: Record<string, unknown> = {}) {
 }
 
 describe('chat tool turn protocol', () => {
+  it('schedules same-step evidence before dependent mutations without hardcoded tool names', () => {
+    const calls = [
+      { id: 'add-1', name: 'add_overlay' },
+      { id: 'read', name: 'read_project_file' },
+      { id: 'add-2', name: 'add_overlay' },
+      { id: 'timeline', name: 'get_timeline_view' },
+    ];
+
+    expect(scheduleChatToolCalls(calls).map((call) => call.id)).toEqual([
+      'read',
+      'add-1',
+      'add-2',
+      'timeline',
+    ]);
+    expect(scheduleChatToolCalls(calls, ['project-state']).map((call) => call.id)).toEqual([
+      'add-1',
+      'read',
+      'add-2',
+      'timeline',
+    ]);
+  });
+
   it('gives every mutating tool one explicit owner and an evidence strategy', () => {
     const mutations = Object.values(CHAT_TOOL_REGISTRY).filter((metadata) => metadata.mutatesProject);
     expect(mutations.length).toBeGreaterThan(0);
@@ -266,6 +289,23 @@ describe('chat tool turn protocol', () => {
       projectId: PROJECT_ID,
       projectRevision: 'newer-revision',
     })).not.toMatchObject({ action: 'replay' });
+  });
+
+  it('replays an identical successful mutation before rejecting its original read as stale', () => {
+    const originalRead = currentProjectRead('revision-before-add');
+    const successfulAdd = execution(
+      'add_overlay',
+      successfulMutationOutput({ overlayId: 'text-1' }, REVISION),
+      { args: { text: 'Launch day', startFrame: 0, durationFrames: 90 } },
+    );
+
+    expect(decideChatToolExecution({
+      toolName: 'add_overlay',
+      args: { text: 'Launch day', startFrame: 0, durationFrames: 90 },
+      ledger: ledger([originalRead, successfulAdd]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({ action: 'replay', reason: 'identical-call' });
   });
 
   it('blocks a second mutation of one target but permits a different target in the same turn', () => {

@@ -67,6 +67,7 @@ import {
   classifyChatToolExecutionOutcome,
   decideChatToolExecution,
   formatChatToolInvocationError,
+  scheduleChatToolCalls,
 } from './chat-tool-execution-policy';
 import {
   filterChatToolsForRequestOwner,
@@ -88,7 +89,14 @@ function getGenAI(): GoogleGenerativeAI {
 // We use the default MessagesAnnotation which just has 'messages'
 
 // Stream callback type for real-time token streaming
-export type StreamCallback = (chunk: { type: 'token' | 'tool_start' | 'tool_end', data: any }) => void;
+export type StreamCallback = (
+  chunk: { type: 'token' | 'tool_start' | 'tool_end'; data: any },
+) => void | Promise<void>;
+interface AgentToolCall {
+  id: string;
+  name: string;
+  args: unknown;
+}
 type PostconditionProjectLoader = (userId: string, projectId: string) => Promise<unknown>;
 
 async function loadCanonicalPostconditionProject(userId: string, projectId: string): Promise<unknown> {
@@ -690,7 +698,7 @@ ${ownerLicensePrompt}
               if (part.text) {
                 textContent += part.text;
                 // Stream token to callback
-                streamCallback({ type: 'token', data: { content: part.text } });
+                await streamCallback({ type: 'token', data: { content: part.text } });
               } else if (part.functionCall) {
                 const toolCall = {
                   type: 'tool_call',
@@ -699,8 +707,6 @@ ${ownerLicensePrompt}
                   args: parseArgs(part.functionCall.args || {})
                 };
                 toolCalls.push(toolCall);
-                // Emit tool_start event
-                streamCallback({ type: 'tool_start', data: { tool: toolCall.name, id: toolCall.id, args: toolCall.args } });
               } else {
                 debugWarn('Unknown part type:', JSON.stringify(part));
               }
@@ -737,7 +743,7 @@ ${ownerLicensePrompt}
           debugError('All retry attempts failed - generating fallback response');
           const fallbackMessage = "I'm having trouble understanding your request. Could you try rephrasing it? For example:\n- \"Remove silences from the video\"\n- \"Add captions to my video\"\n- \"Show me what's on the timeline\"";
           textContent = fallbackMessage;
-          streamCallback({ type: 'token', data: { content: fallbackMessage } });
+          await streamCallback({ type: 'token', data: { content: fallbackMessage } });
         }
       } else {
         // Non-streaming fallback
@@ -829,17 +835,23 @@ ${ownerLicensePrompt}
     const tools = getOrCreateTools(projectId);
     
     const lastMessage = state.messages[state.messages.length - 1] as any;
-    const toolCalls = lastMessage.tool_calls;
+    const toolCalls: AgentToolCall[] = Array.isArray(lastMessage.tool_calls)
+      ? lastMessage.tool_calls
+      : [];
     const results: ToolMessage[] = [];
     const turnLedger = buildChatToolTurnLedger(state.messages);
     const chatUserTurnText = latestHumanMessageText(state.messages);
 
-    if (toolCalls && toolCalls.length > 0) {
+    if (toolCalls.length > 0) {
       const includesFrameCapture = toolCalls.some(
         (toolCall: any) => toolCall.name === 'visual_inspect_frame',
       );
       if (includesFrameCapture && toolCalls.length !== 1) {
         for (const toolCall of toolCalls) {
+          await streamCallback?.({
+            type: 'tool_start',
+            data: { tool: toolCall.name, id: toolCall.id, args: toolCall.args },
+          });
           const output = JSON.stringify({
             status: 'error',
             data: null,
@@ -854,7 +866,7 @@ ${ownerLicensePrompt}
             name: toolCall.name,
             content: output,
           }));
-          streamCallback?.({
+          await streamCallback?.({
             type: 'tool_end',
             data: { tool: toolCall.name, id: toolCall.id, output },
           });
@@ -862,14 +874,40 @@ ${ownerLicensePrompt}
         return { messages: results };
       }
 
-      for (const toolCall of toolCalls) {
+      const schedulingProject = await (
+        config.configurable?.loadPostconditionProject ?? loadCanonicalPostconditionProject
+      )(userId, projectId);
+      const schedulingRevision = buildChatProjectRevision(schedulingProject);
+      const availableEvidence = turnLedger.completedExecutions
+        .flatMap((execution) => execution.evidenceReceipts)
+        .filter((receipt) =>
+          receipt.projectId === projectId && receipt.projectRevision === schedulingRevision,
+        )
+        .map((receipt) => receipt.evidenceClass);
+      const scheduledToolCalls = scheduleChatToolCalls(toolCalls, availableEvidence);
+
+      for (const toolCall of scheduledToolCalls) {
+        await streamCallback?.({
+          type: 'tool_start',
+          data: { tool: toolCall.name, id: toolCall.id, args: toolCall.args },
+        });
         const tool = tools.find((t) => t.name === toolCall.name);
-        if (tool) {
-          let output: string;
-          let evidenceReceipts: ReturnType<typeof buildChatEvidenceReceipts> = [];
-          const args = normalizeAgentToolArgs(toolCall.name, toolCall.args, {
-            projectFps: config.configurable?.projectFps,
+        let output: string;
+        let evidenceReceipts: ReturnType<typeof buildChatEvidenceReceipts> = [];
+        const args = normalizeAgentToolArgs(toolCall.name, toolCall.args, {
+          projectFps: config.configurable?.projectFps,
+        });
+        if (!tool) {
+          output = JSON.stringify({
+            status: 'error',
+            data: null,
+            error: {
+              code: 'CHAT_TOOL_NOT_AVAILABLE',
+              message: `Tool ${toolCall.name} is not available for this request owner.`,
+            },
+            nextAction: 'Stop and choose one of the tools exposed for this request.',
           });
+        } else {
           try {
             // Pre-process args to handle Gemini's incorrect formats
             // 1. Time strings: "3s" → frame count at the project's FPS
@@ -937,37 +975,35 @@ ${ownerLicensePrompt}
           } catch (e: any) {
             output = formatChatToolInvocationError(toolCall.name, e);
           }
+        }
 
-          turnLedger.completedExecutions.push({
-            toolCallId: toolCall.id,
-            name: toolCall.name,
-            args,
-            output,
-            outcome: classifyChatToolExecutionOutcome(output),
-            evidenceReceipts,
-          });
-          const toolMessage = new ToolMessage({
-            tool_call_id: toolCall.id,
-            name: toolCall.name,
-            content: output,
-            additional_kwargs: evidenceReceipts.length > 0
-              ? { chatEvidenceReceipts: evidenceReceipts }
-              : {},
-          });
-          results.push(toolMessage);
+        turnLedger.completedExecutions.push({
+          toolCallId: toolCall.id,
+          name: toolCall.name,
+          args,
+          output,
+          outcome: classifyChatToolExecutionOutcome(output),
+          evidenceReceipts,
+        });
+        const toolMessage = new ToolMessage({
+          tool_call_id: toolCall.id,
+          name: toolCall.name,
+          content: output,
+          additional_kwargs: evidenceReceipts.length > 0
+            ? { chatEvidenceReceipts: evidenceReceipts }
+            : {},
+        });
+        results.push(toolMessage);
 
-          // Emit tool_end event immediately after this tool completes
-          // This ensures proper interleaving in the AI debugger
         if (streamCallback) {
-          streamCallback({
+          await streamCallback({
             type: 'tool_end',
             data: {
               tool: toolCall.name,
               id: toolCall.id,
-                output: output 
-              } 
+              output,
+            },
           });
-          }
         }
       }
     }
