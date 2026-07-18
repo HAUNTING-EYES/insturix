@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Sparkles, ChevronDown, ChevronUp, Play, Zap, Film, Music, Type, Palette } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { bindAbortToPageLifecycle } from '../../utils/request-lifecycle';
 
 interface EDLSuggestion {
   type: string;
@@ -44,11 +45,15 @@ export function EDLSuggestions({ projectId, onSuggestionClick }: EDLSuggestionsP
   useEffect(() => {
     if (!projectId || projectId === 'default') return;
     const controller = new AbortController();
+    const detachPageLifecycle = bindAbortToPageLifecycle(controller);
     setSuggestions([]);
     setLoaded(false);
     setError(null);
     void loadSuggestions(controller.signal);
-    return () => controller.abort();
+    return () => {
+      detachPageLifecycle();
+      controller.abort();
+    };
   }, [projectId]);
 
   const loadSuggestions = async (signal: AbortSignal) => {

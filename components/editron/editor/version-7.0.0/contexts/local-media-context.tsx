@@ -19,6 +19,7 @@ import {
   uploadMediaFiles,
   type UploadedMedia,
 } from "../utils/media-upload";
+import { bindAbortToPageLifecycle } from "../utils/request-lifecycle";
 
 interface AddMediaFilesResult {
   uploadBatchId: string;
@@ -89,6 +90,7 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
+    const detachPageLifecycle = bindAbortToPageLifecycle(controller);
 
     const loadMediaFiles = async () => {
       let nextCursor: string | null = null;
@@ -107,7 +109,7 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
           if (!response.ok || !data?.success || !Array.isArray(data.assets)) {
             throw new Error(data?.error || `Media list failed with HTTP ${response.status}`);
           }
-          if (cancelled) return;
+          if (cancelled || controller.signal.aborted) return;
 
           setLocalMediaFiles((previous) =>
             receivedPage ? mergeLocalMediaFiles(previous, data.assets) : data.assets,
@@ -132,13 +134,14 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Error loading media files from server:", error);
         if (!cancelled && !receivedPage) setLocalMediaFiles([]);
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled && !controller.signal.aborted) setIsLoading(false);
       }
     };
 
     void loadMediaFiles();
     return () => {
       cancelled = true;
+      detachPageLifecycle();
       controller.abort();
     };
   }, [userId]);
