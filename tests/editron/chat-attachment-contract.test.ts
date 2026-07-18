@@ -173,7 +173,9 @@ describe('chat attachment contract', () => {
     expect(authorizationIndex).toBeGreaterThan(-1);
     expect(sessionMutationIndex).toBeGreaterThan(authorizationIndex);
     expect(route).toContain('formatChatAttachmentsForPrompt(messageWithFrameEvidence, attachments)');
-    expect(route).toContain('attachments,\n    });');
+    expect(route).toMatch(
+      /chatService\.saveMessage\(actualSessionId,\s*userId,\s*projectId,\s*\{[\s\S]*?role:\s*'user',[\s\S]*?attachments,/,
+    );
     expect(route).toContain("formatChatAttachmentsForPrompt(msg.content || '', msg.attachments)");
   });
 });

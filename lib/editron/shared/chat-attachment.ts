@@ -10,7 +10,7 @@ export const CHAT_ATTACHMENT_ROLES = [
 ] as const;
 
 export type ChatAttachmentRole = (typeof CHAT_ATTACHMENT_ROLES)[number];
-export type ChatAttachmentMediaType = 'video' | 'image' | 'audio' | 'sequence';
+export type ChatAttachmentMediaType = 'video' | 'image' | 'audio';
 export type ChatAttachmentAnalysisReadiness = 'ready' | 'processing' | 'failed' | 'unknown';
 
 export interface AuthorizedMediaChatAttachment {
