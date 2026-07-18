@@ -54,6 +54,7 @@ describe("PerplexityTrendsProvider", () => {
 
     const trends = await provider.getTrends({
       niche: "B2B SaaS founders",
+      platforms: [],
       location: "United States",
       limit: 3,
     });
@@ -81,6 +82,9 @@ describe("PerplexityTrendsProvider", () => {
     });
     expect(body.messages[1].content).toContain("<niche>B2B SaaS founders</niche>");
     expect(body.messages[1].content).toContain("<region>United States</region>");
+    expect(body.messages[1].content).toContain(
+      "platform must be one of: reddit, twitter, youtube, tiktok, linkedin, instagram, web",
+    );
   });
 });
 

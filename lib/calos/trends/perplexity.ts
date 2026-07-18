@@ -36,6 +36,7 @@ const DEFAULT_BASE_URL = "https://api.perplexity.ai";
 const DEFAULT_MODEL = "sonar";
 const DEFAULT_TIMEOUT_MS = 12_000;
 const DEFAULT_MAX_TOKENS = 1600;
+const DEFAULT_TREND_PLATFORMS = ["reddit", "twitter", "youtube", "tiktok", "linkedin", "instagram", "web"];
 
 /**
  * Perplexity Sonar trends provider. Sonar is search-native, so CalOS uses it only for current
@@ -72,7 +73,7 @@ export class PerplexityTrendsProvider implements TrendsProvider {
     if (!niche) return [];
 
     const limit = Math.min(Math.max(query.limit ?? 10, 1), 25);
-    const platforms = (query.platforms ?? ["reddit", "twitter", "youtube", "tiktok", "linkedin", "instagram", "web"])
+    const platforms = (query.platforms?.length ? query.platforms : DEFAULT_TREND_PLATFORMS)
       .slice(0, 8)
       .map((platform) => String(platform).slice(0, 40));
     const location = String(query.location ?? "").slice(0, 120).trim();
