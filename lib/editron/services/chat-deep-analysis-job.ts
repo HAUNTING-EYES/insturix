@@ -25,6 +25,7 @@ export type ChatDeepAnalysisJobStatus =
   | 'dispatching'
   | 'queued'
   | 'running'
+  | 'retry_wait'
   | 'completed'
   | 'dispatch_failed'
   | 'failed'
@@ -47,8 +48,7 @@ export interface ResolveChatDeepAnalysisRequest {
 export interface ChatDeepAnalysisCoordinateContract {
   overlayId: string;
   overlayType: string;
-  assetId: string | null;
-  sourceKind: 'asset' | 'timeline';
+  assetId: string;
   displayName: string | null;
   fps: number;
   timeline: AnalysisFrameRange;
@@ -96,7 +96,7 @@ export interface QueueChatDeepAnalysisResult {
 }
 
 export interface RunChatDeepAnalysisResult {
-  status: 'completed' | 'failed' | 'stale' | 'skipped';
+  status: 'completed' | 'retrying' | 'failed' | 'stale' | 'skipped';
   jobId: string;
   result?: Record<string, unknown>;
   reason?: string;
@@ -115,6 +115,7 @@ export interface ChatDeepAnalysisJobStore {
   markDispatchFailed(jobId: string, userId: string, error: string, now: Date): Promise<void>;
   claimRun(jobId: string, userId: string, leaseId: string, now: Date): Promise<ChatDeepAnalysisJob | null>;
   markCompleted(jobId: string, userId: string, result: Record<string, unknown>, now: Date): Promise<void>;
+  markRetry(jobId: string, userId: string, error: string, now: Date): Promise<void>;
   markFailed(jobId: string, userId: string, status: 'failed' | 'stale', error: string, now: Date): Promise<void>;
 }
 
@@ -228,9 +229,8 @@ export async function queueChatDeepAnalysisJob(
 
 export async function runChatDeepAnalysisJob(
   input: { jobId: string; projectId: string; userId: string },
-  overrides: Partial<RunDependencies>,
+  overrides: Partial<RunDependencies> = {},
 ): Promise<RunChatDeepAnalysisResult> {
-  if (!overrides.execute) throw new Error('Chat deep-analysis provider executor is not configured.');
   const deps = await resolveRunDependencies(overrides);
   const leaseId = randomUUID();
   const job = await deps.store.claimRun(input.jobId, input.userId, leaseId, deps.now());
@@ -252,9 +252,81 @@ export async function runChatDeepAnalysisJob(
     return { status: 'completed', jobId: job._id, result };
   } catch (error) {
     const message = errorMessage(error);
+    if (job.attemptCount < CHAT_DEEP_ANALYSIS_MAX_ATTEMPTS) {
+      await deps.store.markRetry(job._id, job.userId, message, deps.now());
+      return { status: 'retrying', jobId: job._id, reason: message };
+    }
     await deps.store.markFailed(job._id, job.userId, 'failed', message, deps.now());
     return { status: 'failed', jobId: job._id, reason: message };
   }
+}
+
+export async function executeChatDeepAnalysisProvider(job: ChatDeepAnalysisJob): Promise<Record<string, unknown>> {
+  const target = job.target;
+  if (job.modality === 'audio') {
+    const { analyzeClipAudioService } = await import('@/lib/editron/services/media');
+    const result = await analyzeClipAudioService({
+      projectId: job.projectId,
+      userId: job.userId,
+      source: 'asset',
+      assetId: target.assetId,
+      startFrame: target.source.startFrame,
+      endFrame: target.source.endFrame,
+      timelineStartFrame: target.timeline.startFrame,
+      fps: target.fps,
+    });
+    return {
+      modality: 'audio',
+      target,
+      summary: result.summary,
+      silenceGapsFrames: result.silenceGapsFrames,
+      fillers: result.fillers,
+      problematicFrames: result.problematicFrames,
+    };
+  }
+
+  const { sampleVideoClip, sendVideoToGemini } = await import('@/lib/editron/services/media/analysis-service');
+  const sampledPath = await sampleVideoClip({
+    projectId: job.projectId,
+    userId: job.userId,
+    source: 'asset',
+    assetId: target.assetId,
+    startFrame: target.source.startFrame,
+    endFrame: target.source.endFrame,
+    fps: target.fps,
+    targetSampleFps: 1,
+    maxDurationSec: MAX_ANALYSIS_SECONDS,
+  });
+  const provider = await sendVideoToGemini({ filePath: sampledPath, prompt: '' });
+  const maximumSampleIndex = Math.ceil((target.timeline.endFrame - target.timeline.startFrame) / target.fps);
+  const mapIndex = (value: unknown) => {
+    const index = Number(value);
+    if (!Number.isFinite(index) || index < 0 || index > maximumSampleIndex) return null;
+    return target.timeline.startFrame + Math.round(index * target.fps);
+  };
+  const sceneChanges = provider.sceneChanges
+    .map(mapIndex)
+    .filter((frame): frame is number => frame !== null);
+  const deadVisualRanges = provider.deadVisualRanges.flatMap((range) => {
+    if (!Array.isArray(range) || range.length !== 2) return [];
+    const startFrame = mapIndex(range[0]);
+    const endFrame = mapIndex(range[1]);
+    return startFrame !== null && endFrame !== null && endFrame > startFrame
+      ? [[startFrame, endFrame]]
+      : [];
+  });
+  return {
+    modality: 'video',
+    target,
+    vision: {
+      sceneChanges,
+      deadVisualRanges,
+      gestures: provider.gestures.filter((value): value is string => typeof value === 'string'),
+      onScreenText: provider.onScreenText.filter((value): value is string => typeof value === 'string'),
+      summary: provider.summary,
+      theme: provider.theme,
+    },
+  };
 }
 
 export class MongoChatDeepAnalysisJobStore implements ChatDeepAnalysisJobStore {
@@ -299,6 +371,7 @@ export class MongoChatDeepAnalysisJobStore implements ChatDeepAnalysisJobStore {
         userId,
         $or: [
           { status: 'queued' },
+          { status: 'retry_wait' },
           { status: 'running', leaseExpiresAt: { $lt: now } },
         ],
         attemptCount: { $lt: CHAT_DEEP_ANALYSIS_MAX_ATTEMPTS },
@@ -322,6 +395,16 @@ export class MongoChatDeepAnalysisJobStore implements ChatDeepAnalysisJobStore {
       {
         $set: { status: 'completed', result, completedAt: now, updatedAt: now },
         $unset: { leaseId: '', leaseExpiresAt: '', error: '' },
+      },
+    );
+  }
+
+  async markRetry(jobId: string, userId: string, error: string, now: Date) {
+    await (await jobsCollection()).updateOne(
+      { _id: jobId, userId, status: 'running' },
+      {
+        $set: { status: 'retry_wait', error, updatedAt: now },
+        $unset: { leaseId: '', leaseExpiresAt: '' },
       },
     );
   }
@@ -390,7 +473,7 @@ function analyzableOverlays(project: AnalysisProject, modality: ChatDeepAnalysis
   return (project.overlays ?? []).filter((overlay) => {
     const type = overlay.type?.toLowerCase();
     const typeMatches = modality === 'video' ? type === 'video' : ['audio', 'sound', 'video'].includes(type ?? '');
-    return typeMatches && Boolean(overlay.assetId || (typeof overlay.src === 'string' && overlay.src.trim()));
+    return typeMatches && Boolean(cleanString(overlay.assetId));
   });
 }
 
@@ -453,11 +536,12 @@ function buildCoordinateContract(
     preferredWindowFrames: preferredFrames,
     maxWindowFrames: maximumFrames,
   });
+  const assetId = cleanString(overlay.assetId);
+  if (!assetId) throw new Error(`Overlay ${String(overlay.id)} has no durable assetId for deep analysis.`);
   return {
     overlayId: String(overlay.id ?? ''),
     overlayType: String(overlay.type ?? ''),
-    assetId: cleanString(overlay.assetId),
-    sourceKind: cleanString(overlay.assetId) ? 'asset' : 'timeline',
+    assetId,
     displayName: cleanString(overlay.name),
     fps,
     timeline: window.timeline,
@@ -516,7 +600,7 @@ async function resolveRunDependencies(overrides: Partial<RunDependencies>): Prom
   return {
     ...shared,
     store: overrides.store ?? new MongoChatDeepAnalysisJobStore(),
-    execute: overrides.execute as RunDependencies['execute'],
+    execute: overrides.execute ?? executeChatDeepAnalysisProvider,
   };
 }
 

@@ -1,9 +1,25 @@
 import { describe, expect, it, vi } from 'vitest';
 
+const providerMocks = vi.hoisted(() => ({
+  analyzeClipAudioService: vi.fn(),
+  sampleVideoClip: vi.fn(),
+  sendVideoToGemini: vi.fn(),
+}));
+
+vi.mock('@/lib/editron/services/media', () => ({
+  analyzeClipAudioService: providerMocks.analyzeClipAudioService,
+}));
+
+vi.mock('@/lib/editron/services/media/analysis-service', () => ({
+  sampleVideoClip: providerMocks.sampleVideoClip,
+  sendVideoToGemini: providerMocks.sendVideoToGemini,
+}));
+
 import {
   queueChatDeepAnalysisJob,
   resolveChatDeepAnalysisJobs,
   runChatDeepAnalysisJob,
+  executeChatDeepAnalysisProvider,
   type ChatDeepAnalysisJob,
   type ChatDeepAnalysisJobStore,
 } from '@/lib/editron/services/chat-deep-analysis-job';
@@ -68,7 +84,12 @@ class MemoryStore implements ChatDeepAnalysisJobStore {
   async claimRun(jobId: string, userId: string, leaseId: string, now: Date) {
     const job = this.jobs.get(jobId);
     const staleLease = job?.status === 'running' && Boolean(job.leaseExpiresAt && job.leaseExpiresAt < now);
-    if (!job || job.userId !== userId || (job.status !== 'queued' && !staleLease) || job.attemptCount >= 2) return null;
+    if (
+      !job
+      || job.userId !== userId
+      || (!['queued', 'retry_wait'].includes(job.status) && !staleLease)
+      || job.attemptCount >= 2
+    ) return null;
     job.status = 'running';
     job.attemptCount += 1;
     job.leaseId = leaseId;
@@ -82,6 +103,13 @@ class MemoryStore implements ChatDeepAnalysisJobStore {
     job.status = 'completed';
     job.result = structuredClone(result);
     job.completedAt = now;
+    job.updatedAt = now;
+  }
+
+  async markRetry(jobId: string, userId: string, error: string, now: Date) {
+    const job = this.require(jobId, userId);
+    job.status = 'retry_wait';
+    job.error = error;
     job.updatedAt = now;
   }
 
@@ -139,7 +167,6 @@ describe('durable chat deep-analysis contracts', () => {
         target: {
           overlayId: 'clip-b',
           assetId: 'asset-b',
-          sourceKind: 'asset',
           timeline: { startFrame: 300, endFrame: 600 },
           source: { startFrame: 120, endFrame: 420 },
         },
@@ -276,5 +303,60 @@ describe('durable chat deep-analysis contracts', () => {
     expect(first).toMatchObject({ status: 'completed', result: { summary: 'one bounded provider result' } });
     expect(duplicate).toMatchObject({ status: 'skipped', reason: 'job-not-claimable' });
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries one provider failure and then completes from the same immutable contract', async () => {
+    const { store, jobId } = await resolvedJob();
+    await queueChatDeepAnalysisJob({ jobId, projectId: 'proj-analysis', userId: 'user-analysis' }, {
+      ...resolutionDeps(store),
+      publish: async () => ({ messageId: 'qstash-message-1' }),
+    });
+    const execute = vi.fn()
+      .mockRejectedValueOnce(new Error('provider temporarily unavailable'))
+      .mockResolvedValueOnce({ summary: 'recovered' });
+    const deps = { ...resolutionDeps(store), execute };
+
+    const first = await runChatDeepAnalysisJob({ jobId, projectId: 'proj-analysis', userId: 'user-analysis' }, deps);
+    const second = await runChatDeepAnalysisJob({ jobId, projectId: 'proj-analysis', userId: 'user-analysis' }, deps);
+
+    expect(first).toMatchObject({ status: 'retrying', reason: 'provider temporarily unavailable' });
+    expect(second).toMatchObject({ status: 'completed', result: { summary: 'recovered' } });
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('maps a provider video result back to edited-timeline frames', async () => {
+    const { store, jobId } = await resolvedJob();
+    const job = store.jobs.get(jobId)!;
+    providerMocks.sampleVideoClip.mockResolvedValueOnce('D:/tmp/sample.mp4');
+    providerMocks.sendVideoToGemini.mockResolvedValueOnce({
+      sceneChanges: [1, 4, 99],
+      deadVisualRanges: [[2, 3], [7, 6]],
+      gestures: ['hand moves at frame 2'],
+      onScreenText: ['SALE at frame 3'],
+      summary: 'A product demonstration.',
+      theme: 'demo',
+    });
+
+    const result = await executeChatDeepAnalysisProvider(job);
+
+    expect(providerMocks.sampleVideoClip).toHaveBeenCalledWith({
+      projectId: 'proj-analysis',
+      userId: 'user-analysis',
+      source: 'asset',
+      assetId: 'asset-b',
+      startFrame: 120,
+      endFrame: 420,
+      fps: 30,
+      targetSampleFps: 1,
+      maxDurationSec: 120,
+    });
+    expect(result).toMatchObject({
+      modality: 'video',
+      vision: {
+        sceneChanges: [330, 420],
+        deadVisualRanges: [[360, 390]],
+        summary: 'A product demonstration.',
+      },
+    });
   });
 });

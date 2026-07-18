@@ -489,11 +489,7 @@ RULE 9 — If nothing found, return empty arrays but always provide a summary.
       statusText: error?.statusText,
     });
 
-    return {
-      silences: [],
-      fillers: [],
-      summary: `Error analyzing audio: ${error?.message || "Unknown error"}`,
-    };
+    throw new Error(`Gemini audio analysis failed: ${error?.message || 'Unknown error'}`, { cause: error });
   }
 }
 
@@ -584,14 +580,7 @@ RULE 9 — Return ONLY valid JSON (no markdown, no explanation).
     };
   } catch (error: any) {
     console.error("[GEMINI-VIDEO] Error:", error);
-    return {
-      sceneChanges: [],
-      deadVisualRanges: [],
-      gestures: [],
-      onScreenText: [],
-      summary: "Error analyzing video",
-      theme: "other",
-    };
+    throw new Error(`Gemini video analysis failed: ${error?.message || 'Unknown error'}`, { cause: error });
   }
 }
 
