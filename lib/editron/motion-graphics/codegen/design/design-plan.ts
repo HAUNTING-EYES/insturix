@@ -111,6 +111,11 @@ export const mgMomentDesignPlanSchema = z.object({
    *  panel is the justified exception — enforced by validateDesignPlan, not by judge opinion. */
   look: z.enum(['integrated', 'panel']).default('integrated'),
   panelReason: boundedString(200).optional(),
+  /** CUTAWAY ATTESTATION (founder-approved 2026-07-19): a cutaway-scene design must state why the footage
+   *  does not already show this subject — cutting away to what's on screen is redundant B-roll. The designer
+   *  demonstrably CAN judge this (live decline: "footage already contains a hardcoded lower-third"); this
+   *  field forces the judgment to be explicit. VLM verification of the claim lands at P5. */
+  footageRedundancy: boundedString(200).optional(),
 }).strict();
 export type MgMomentDesignPlan = z.infer<typeof mgMomentDesignPlanSchema>;
 
@@ -161,6 +166,9 @@ export interface MgDesignPlanMomentContext {
    *  one — the designer-overreach class (a plot on a qualitative beat) becomes a plan-time reject instead
    *  of a wasted coder decline (3× live 2026-07-18). Absent → the rule is skipped (legacy callers). */
   numericProps?: string[];
+  /** The beat's start on the timeline (ms). When provided, cutaway spacing is enforced (see validator).
+   *  Absent → spacing rule skipped (legacy callers). */
+  startMs?: number;
 }
 
 export interface MgDesignPlanValidation {
@@ -222,6 +230,11 @@ export function validateDesignPlan(
     if (mp.lane === 'cutaway-scene' && mp.elements.some((e) => e.dataProps.length > 0)) {
       problems.push(`${mp.momentId}: cutaway-scene elements must not bind data props`);
     }
+    // CUTAWAY ATTESTATION (founder-approved 2026-07-19): a cutaway must state why footage doesn't already
+    // show its subject — redundant B-roll is a decline, not a design.
+    if (mp.lane === 'cutaway-scene' && !mp.footageRedundancy) {
+      problems.push(`${mp.momentId}: cutaway-scene without footageRedundancy — state why the footage does not already show this subject, or decline the beat`);
+    }
     // The look axis has TEETH (P4): an integrated design may not even CONTAIN a plate element, and a
     // panel look must state its design reason — the boxless mandate is a contract, not a judge's opinion.
     if (mp.look === 'panel' && !mp.panelReason) {
@@ -248,6 +261,20 @@ export function validateDesignPlan(
     }
     for (const idx of mp.motion.enterOrder) {
       if (idx >= mp.elements.length) problems.push(`${mp.momentId}: motion.enterOrder index ${idx} out of range (${mp.elements.length} elements)`);
+    }
+  }
+  // CUTAWAY SPACING (founder-approved 2026-07-19: "max 1 cutaway per minute, never back-to-back" — direction
+  // from B-roll pacing practice; cutaways interrupt the speaker, so they are spaced like scene changes, not
+  // like overlays whose 3s spacing the density budget already carries). Enforced only when beats carry startMs.
+  const CUTAWAY_MIN_SPACING_MS = 60_000;
+  const cutaways = plan.moments
+    .filter((mp) => mp.lane === 'cutaway-scene')
+    .map((mp) => ({ id: mp.momentId, startMs: byId.get(mp.momentId)?.startMs }))
+    .filter((c): c is { id: string; startMs: number } => typeof c.startMs === 'number')
+    .sort((a, b) => a.startMs - b.startMs);
+  for (let i = 1; i < cutaways.length; i += 1) {
+    if (cutaways[i].startMs - cutaways[i - 1].startMs < CUTAWAY_MIN_SPACING_MS) {
+      problems.push(`${cutaways[i].id}: cutaway within ${Math.round((cutaways[i].startMs - cutaways[i - 1].startMs) / 1000)}s of cutaway ${cutaways[i - 1].id} — cutaways are spaced ≥${CUTAWAY_MIN_SPACING_MS / 1000}s apart (one per minute, never adjacent)`);
     }
   }
   for (const mp of plan.moments) {

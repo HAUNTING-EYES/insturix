@@ -260,6 +260,36 @@ describe('P4 — the structural look axis', () => {
     expect(validateDesignPlan(plan([plot]), [seriesCtx]).ok).toBe(true);
   });
 
+  it('★ cutaway without footageRedundancy attestation → reject; with it → pass (founder-approved 2026-07-19)', () => {
+    const cutaway = (over: Partial<MgMomentDesignPlan> = {}) => designedList({
+      momentId: 'b_cat', lane: 'cutaway-scene',
+      elements: [{ kind: 'texture', role: 'grain', dataProps: [] }],
+      imagery: { scenePrompt: 'a cat curled on a windowsill, soft light', mode: 'still', paletteDirection: 'warm gold on charcoal' },
+      motion: { enterOrder: [0], build: 'scene breathes', hold: 'drift', syncTo: 'phases-only' },
+      look: 'integrated' as const, panelReason: undefined,
+      ...over,
+    });
+    const catCtx: MgDesignPlanMomentContext = { momentId: 'b_cat', factKind: 'narrative', contentProps: ['line'] };
+    expect(validateDesignPlan(plan([cutaway()]), [catCtx]).problems.join(' ')).toMatch(/footageRedundancy/);
+    expect(validateDesignPlan(plan([cutaway({ footageRedundancy: 'speaker on camera throughout; no cat ever visible' })]), [catCtx]).ok).toBe(true);
+  });
+
+  it('★ two cutaways within 60s → reject; spaced or untimed → pass', () => {
+    const mk = (id: string) => designedList({
+      momentId: id, lane: 'cutaway-scene',
+      elements: [{ kind: 'texture', role: 'grain', dataProps: [] }],
+      imagery: { scenePrompt: 'scene', mode: 'still', paletteDirection: 'gold' },
+      motion: { enterOrder: [0], build: 'breathes', hold: 'drift', syncTo: 'phases-only' },
+      look: 'integrated' as const, panelReason: undefined,
+      footageRedundancy: 'not shown in footage',
+    });
+    const ctx = (id: string, startMs?: number): MgDesignPlanMomentContext => ({ momentId: id, factKind: 'narrative', contentProps: ['line'], ...(startMs !== undefined ? { startMs } : {}) });
+    const close = validateDesignPlan(plan([mk('c1'), mk('c2')]), [ctx('c1', 5_000), ctx('c2', 40_000)]);
+    expect(close.problems.join(' ')).toMatch(/spaced/);
+    expect(validateDesignPlan(plan([mk('c1'), mk('c2')]), [ctx('c1', 5_000), ctx('c2', 70_000)]).ok).toBe(true);
+    expect(validateDesignPlan(plan([mk('c1'), mk('c2')]), [ctx('c1'), ctx('c2')]).ok).toBe(true); // legacy: no startMs → skipped
+  });
+
   it('look defaults to integrated when the designer omits it (the mandate is the default)', () => {
     const parsed = parseMgVideoDesignPlan(plan([designedList({ elements: [
       { kind: 'headline', role: 'title', dataProps: ['label'] },

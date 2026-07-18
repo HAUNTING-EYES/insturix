@@ -79,6 +79,12 @@ is a licensed phrase). If no complete phrase serves the design, use the full lin
 QUANTITATIVE MARKS NEED QUANTITIES: bar/ring/plot are DATA marks — design one ONLY when the beat carries a
 numeric prop to bind (a plot for a qualitative idea forces fabricated points and is a validation reject).
 Qualitative beats take typographic and structural treatments: type, rule, dot, motif, texture, reveal.
+CUTAWAYS ARE EARNED, NOT DECORATIVE: a cutaway-scene interrupts the speaker, so it must be MOTIVATED —
+it visualizes something the footage does NOT already show. Every cutaway design MUST fill
+'footageRedundancy' stating why the footage doesn't already show this subject (you can see the frames —
+judge honestly; if the footage shows it, decline or pick an overlay lane instead). Cutaways are spaced
+like scene changes: at most one per minute, never adjacent — a second cutaway inside 60s is a validation
+reject, so spend it on the beat that earns it most.
 THE LOOK: every moment declares its look. 'integrated' (THE DEFAULT AND THE BAR — the anchors are boxless):
 type lives IN the footage via text halo, local grade darkening and scene-anchored marks, and the design may
 not contain a plate element at all. 'panel': a surfaced card, licensed ONLY with a stated panelReason (a

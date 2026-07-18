@@ -131,6 +131,13 @@ export const MgScene: React.FC<{brand: Brand}> = ({brand}) => {
     expect(scanCode(VALID.replace('<FitHeadline brand={brand} text={String(n) + \'%\'} size="display" />', '<Reveal at={ph.intro}><FitHeadline brand={brand} text={String(n) + \'%\'} size="display" /></Reveal>')).ok).toBe(true);
   });
 
+  it('★ hardcoded ambient() strength literal → reject; bound intensity passes (founder law: liveness is resolved)', () => {
+    expect(scanCode(withLine("const h = ambient(frame, ph.intro, 'float', 0.5);")).ok).toBe(false);
+    expect(scanCode(withLine("const h = ambient(frame, ph.intro, 'float', 0.5);")).reason).toMatch(/motionIntensity/);
+    expect(scanCode(withLine("const h = ambient(frame, ph.intro, 'float', data.motionIntensity);")).ok).toBe(true);
+    expect(scanCode(withLine("const h = ambient(frame, ph.intro, 'drift');")).ok).toBe(true); // no 4th arg = default, allowed
+  });
+
   it('empty / non-string → reject, never throws', () => {
     expect(scanCode('').ok).toBe(false);
     expect(scanCode('   ').ok).toBe(false);
