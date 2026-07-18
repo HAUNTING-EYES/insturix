@@ -141,11 +141,21 @@ export async function mgRenderSanityGate(
 // failure). This is the objective, no-taste check across the SEQUENCE: if consecutive frames are ~identical,
 // nothing is animating. Motion presence ≠ good motion (that's the judge's job), but a frozen render is broken.
 
-/** Minimum mean frame-to-frame change (0-1, all channels incl alpha) for the render to count as ANIMATED. Below
- *  this the graphic is effectively frozen. ⚠ craft-tuned — calibrate on real static-vs-animated renders. */
+/** Minimum MEAN frame-to-frame change (0-1) for the render to count as continuously animated. ⚠ craft-tuned. */
 export const MIN_MG_MOTION_PRESENCE = 0.004;
 
-/** PURE: given a measured motion score, decide pass/fail. Unit-testable with a synthetic number, no rendering. */
+/** Minimum PEAK single-interval change proving a real BUILD occurred (an entrance/assembly). A build-then-hold
+ *  render (professional restraint: elements enter, then hold calm) can land its MEAN just under
+ *  MIN_MG_MOTION_PRESENCE because the calm hold dominates the sampled intervals — yet it is NOT frozen; it
+ *  built, and whether the hold is TOO calm is the judge's taste call, not the floor's. A render clearing this
+ *  peak passes the floor and goes to the judge; a truly frozen render has ~0 in EVERY interval, so it clears
+ *  neither. Calibrated on REAL renders (calibrate-motion, 2026-07-18): frozen control peak = 0.0000; intended
+ *  build-then-hold control peak = 0.0154; modest-but-real coder builds = 0.0069–0.0080; timid/under-built =
+ *  0.0038. 0.006 sits above the timid floor and below the modest real builds — only genuine builds pass. */
+export const MIN_MG_MOTION_BUILD = 0.006;
+
+/** PURE (mean-only, retained): decide pass/fail from a single mean score. Kept for callers/tests that only have
+ *  the mean. Prefer evaluateMgMotionProfile, which also credits a build peak. */
 export function evaluateMgMotionPresence(
   motion: number,
   min: number = MIN_MG_MOTION_PRESENCE,
@@ -156,17 +166,28 @@ export function evaluateMgMotionPresence(
   return { pass: true, reasons: [] };
 }
 
+/** PURE: a render is ANIMATED (not frozen/broken) if it sustains motion (mean ≥ minMean) OR it built at least
+ *  once (peak ≥ minBuild). Only a render that is calm-everywhere AND never built is rejected. */
+export function evaluateMgMotionProfile(
+  profile: { mean: number; peak: number },
+  minMean: number = MIN_MG_MOTION_PRESENCE,
+  minBuild: number = MIN_MG_MOTION_BUILD,
+): { pass: boolean; reasons: string[] } {
+  if (profile.mean >= minMean || profile.peak >= minBuild) return { pass: true, reasons: [] };
+  return { pass: false, reasons: [`the graphic never moves (mean ${profile.mean.toFixed(4)} < ${minMean} and peak build ${profile.peak.toFixed(4)} < ${minBuild}) — a static/frozen render; give it a real entrance/build`] };
+}
+
 /**
- * IMPURE: mean frame-to-frame change across the sequence (0-1). Samples up to `maxSamples` evenly-spaced frames,
- * downscales each to a tiny RGBA thumbnail, and averages the mean absolute per-channel delta between consecutive
- * samples (alpha included, so a fade counts as motion). Near-0 = the frames are ~identical = nothing animates.
- * Needs >= 2 frames; returns 0 for fewer (a single-frame "sequence" can't be judged for motion).
+ * IMPURE: motion profile across the sequence — { mean, peak } of the per-interval mean-absolute per-channel
+ * delta (0-1, alpha included so a fade counts). Samples up to `maxSamples` evenly-spaced frames, downscales
+ * each to a tiny RGBA thumbnail, and compares consecutive samples. `mean` = continuous-motion signal; `peak` =
+ * the single biggest interval, the "did it ever build" signal. Needs >= 2 frames; {0,0} for fewer.
  */
-export async function measureMgMotionPresence(
+export async function measureMgMotionProfile(
   frames: Buffer[],
   opts: { maxSamples?: number; sampleWidth?: number } = {},
-): Promise<number> {
-  if (frames.length < 2) return 0;
+): Promise<{ mean: number; peak: number }> {
+  if (frames.length < 2) return { mean: 0, peak: 0 };
   const width = opts.sampleWidth ?? 48;
   const n = Math.min(Math.max(2, opts.maxSamples ?? 6), frames.length);
   const idxs = Array.from({ length: n }, (_, k) => Math.round((k / (n - 1)) * (frames.length - 1)));
@@ -177,6 +198,7 @@ export async function measureMgMotionPresence(
   }
   let total = 0;
   let comparisons = 0;
+  let peak = 0;
   for (let k = 1; k < thumbs.length; k += 1) {
     const a = thumbs[k - 1];
     const b = thumbs[k];
@@ -184,17 +206,27 @@ export async function measureMgMotionPresence(
     if (!len) continue;
     let sum = 0;
     for (let j = 0; j < len; j += 1) sum += Math.abs(a[j] - b[j]);
-    total += sum / len / 255;
+    const delta = sum / len / 255;
+    total += delta;
     comparisons += 1;
+    if (delta > peak) peak = delta;
   }
-  return comparisons ? total / comparisons : 0;
+  return { mean: comparisons ? total / comparisons : 0, peak };
 }
 
-/** Measure motion across the rendered sequence + apply the floor check. */
+/** IMPURE (mean-only, retained for existing callers/tests): the MEAN interval change across the sequence. */
+export async function measureMgMotionPresence(
+  frames: Buffer[],
+  opts: { maxSamples?: number; sampleWidth?: number } = {},
+): Promise<number> {
+  return (await measureMgMotionProfile(frames, opts)).mean;
+}
+
+/** Measure motion across the rendered sequence + apply the floor check (sustained OR a real build). */
 export async function mgMotionPresenceGate(
   frames: Buffer[],
   min: number = MIN_MG_MOTION_PRESENCE,
-): Promise<{ pass: boolean; reasons: string[]; motion: number }> {
-  const motion = await measureMgMotionPresence(frames);
-  return { ...evaluateMgMotionPresence(motion, min), motion };
+): Promise<{ pass: boolean; reasons: string[]; motion: number; peak: number }> {
+  const profile = await measureMgMotionProfile(frames);
+  return { ...evaluateMgMotionProfile(profile, min), motion: profile.mean, peak: profile.peak };
 }
