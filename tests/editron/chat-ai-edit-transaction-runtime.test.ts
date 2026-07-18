@@ -234,6 +234,53 @@ describe('chat AI edit transaction runtime', () => {
     expect(store.events).toEqual(['claim', 'create:after-llm', 'status:completed']);
   });
 
+  it('commits an atomic cut when a redundant close_gaps follow-up is shadowed', async () => {
+    const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
+    const ready = await prepare(store, 'chatop_cut_shadow');
+    store.project.durationInFrames = 270;
+
+    const result = await completeChatAiEditTransaction({
+      transaction: ready.transaction!,
+      toolCalls: [
+        { id: 'cut', name: 'cut_section', args: { startFrame: 30, endFrame: 60 } },
+        { id: 'gaps', name: 'close_gaps', args: { preserveCaptions: true } },
+      ],
+      toolResults: [
+        {
+          toolCallId: 'cut',
+          toolName: 'cut_section',
+          result: JSON.stringify({ status: 'success', data: { framesCut: 30 }, error: null }),
+        },
+        {
+          toolCallId: 'gaps',
+          toolName: 'close_gaps',
+          result: JSON.stringify({
+            status: 'advisory',
+            data: {
+              executionPolicy: {
+                code: 'CHAT_TOOL_EFFECT_ALREADY_SATISFIED',
+                shadowedTool: 'close_gaps',
+                producerTools: ['cut_section'],
+                satisfiedEffects: ['cut-gap-closed'],
+              },
+            },
+            error: null,
+          }),
+        },
+      ],
+    }, { checkpointStore: store, loadProject: store.loadProject });
+
+    expect(result).toMatchObject({
+      status: 'created',
+      mutatingToolNames: ['cut_section'],
+      failedToolNames: [],
+    });
+    const afterCheckpoint = Array.from(store.checkpoints.values())
+      .find((checkpoint) => checkpoint.type === 'after-llm');
+    expect(afterCheckpoint?.projectState?.fields.durationInFrames).toBe(270);
+    expect(store.events).toEqual(['claim', 'create:after-llm', 'status:completed']);
+  });
+
   it('commits a successful retry after a schema-rejected non-mutating attempt', async () => {
     const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
     const ready = await prepare(store);

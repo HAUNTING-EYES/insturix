@@ -8,6 +8,21 @@ export type ChatToolStatePostconditionKind =
   | 'overlay-deleted'
   | 'overlay-set-changed';
 export type ChatToolRenderEvidenceModality = 'visual' | 'audio';
+export type ChatToolEvidenceClass =
+  | 'project-state'
+  | 'timeline-state'
+  | 'render-frame'
+  | 'transcript-target'
+  | 'visual-target'
+  | 'audio-target'
+  | 'asset-target';
+export type ChatToolOwnerClass =
+  | 'mechanical-editor'
+  | 'semantic-editorial-planner'
+  | 'checkpoint-restorer';
+export type ChatToolEffect =
+  | 'cut-gap-closed'
+  | 'timeline-gaps-closed';
 export type ChatToolIconCategory =
   | 'timeline'
   | 'add'
@@ -29,8 +44,21 @@ export type ChatToolIconCategory =
 
 export interface ChatToolExecutionPolicy {
   maxExecutionsPerTurn?: number;
+  maxValidationCorrectionsPerTurn?: number;
   replayIdenticalCalls?: boolean;
   blockedWhenTurnRequests?: string[];
+}
+
+export interface ChatToolTurnContract {
+  owner: ChatToolOwnerClass | null;
+  evidenceStrategy: 'preflight' | 'owner-internal' | 'none';
+  requiredEvidence: ChatToolEvidenceClass[];
+  producesEvidence: ChatToolEvidenceClass[];
+}
+
+export interface ChatToolEffectContract {
+  produces: ChatToolEffect[];
+  redundantAfter: ChatToolEffect[];
 }
 
 export interface ChatToolMetadata {
@@ -47,6 +75,8 @@ export interface ChatToolMetadata {
   loadingMessages?: string[];
   postconditions: ChatToolPostconditionContract | null;
   executionPolicy: ChatToolExecutionPolicy | null;
+  turnContract: ChatToolTurnContract;
+  effectContract: ChatToolEffectContract;
 }
 
 export interface ChatToolPostconditionContract {
@@ -60,7 +90,7 @@ export interface ChatToolPostconditionContract {
   };
 }
 
-type ChatToolMetadataInput = Omit<ChatToolMetadata, 'executionType' | 'exposure' | 'mutatesProject' | 'requiresProjectReload' | 'riskLevel' | 'postconditions' | 'executionPolicy'> & {
+type ChatToolMetadataInput = Omit<ChatToolMetadata, 'executionType' | 'exposure' | 'mutatesProject' | 'requiresProjectReload' | 'riskLevel' | 'postconditions' | 'executionPolicy' | 'turnContract' | 'effectContract'> & {
   executionType?: ChatToolExecutionType;
   exposure?: ChatToolExposure;
   mutatesProject?: boolean;
@@ -68,6 +98,8 @@ type ChatToolMetadataInput = Omit<ChatToolMetadata, 'executionType' | 'exposure'
   riskLevel?: ChatToolRiskLevel;
   postconditions?: ChatToolPostconditionContract;
   executionPolicy?: ChatToolExecutionPolicy;
+  turnContract?: ChatToolTurnContract;
+  effectContract?: ChatToolEffectContract;
 };
 
 const DEFAULT_LOADING_MESSAGES = ['Working'];
@@ -85,8 +117,39 @@ function defineTool(input: ChatToolMetadataInput): ChatToolMetadata {
       ? input.postconditions ?? defaultPostconditions(input.iconCategory)
       : null,
     executionPolicy: input.executionPolicy ?? null,
+    turnContract: input.turnContract ?? defaultTurnContract(input.name, mutatesProject),
+    effectContract: input.effectContract ?? { produces: [], redundantAfter: [] },
   };
 }
+
+function defaultTurnContract(name: string, mutatesProject: boolean): ChatToolTurnContract {
+  if (mutatesProject) {
+    return {
+      owner: 'mechanical-editor',
+      evidenceStrategy: 'preflight',
+      requiredEvidence: ['project-state'],
+      producesEvidence: [],
+    };
+  }
+
+  const producesEvidence = EVIDENCE_PRODUCERS[name] ?? [];
+  return {
+    owner: null,
+    evidenceStrategy: 'none',
+    requiredEvidence: [],
+    producesEvidence,
+  };
+}
+
+const EVIDENCE_PRODUCERS: Readonly<Record<string, ChatToolEvidenceClass[]>> = {
+  read_project_file: ['project-state'],
+  get_timeline_view: ['timeline-state'],
+  visual_inspect_frame: ['render-frame'],
+  resolve_transcript_edit: ['transcript-target'],
+  resolve_visual_edit: ['visual-target'],
+  resolve_audio_edit: ['audio-target'],
+  resolve_user_asset_overlay: ['asset-target'],
+};
 
 function postconditions(
   kind: ChatToolStatePostconditionKind,
@@ -109,7 +172,7 @@ function defaultPostconditions(iconCategory: ChatToolIconCategory): ChatToolPost
 export const CHAT_TOOL_REGISTRY = {
   read_project_file: defineTool({ name: 'read_project_file', label: 'Reading project data', shortLabel: 'Read', iconCategory: 'file', receiptLabel: 'Read project data' }),
   get_timeline_view: defineTool({ name: 'get_timeline_view', label: 'Reading timeline layout', shortLabel: 'Timeline', iconCategory: 'timeline', receiptLabel: 'Read timeline' }),
-  apply_editorial_intent: defineTool({ name: 'apply_editorial_intent', label: 'Grounding editorial intent', shortLabel: 'Editorial plan', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied grounded editorial intent', loadingMessages: ['Reading the edit', 'Grounding the request', 'Applying warranted changes'], postconditions: postconditions('project-state-changed', ['visual', 'audio']), executionPolicy: { maxExecutionsPerTurn: 1, replayIdenticalCalls: true, blockedWhenTurnRequests: ['extract_style', 'apply_style', 'apply_reference_style'] } }),
+  apply_editorial_intent: defineTool({ name: 'apply_editorial_intent', label: 'Grounding editorial intent', shortLabel: 'Editorial plan', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied grounded editorial intent', loadingMessages: ['Reading the edit', 'Grounding the request', 'Applying warranted changes'], postconditions: postconditions('project-state-changed', ['visual', 'audio']), executionPolicy: { maxExecutionsPerTurn: 1, maxValidationCorrectionsPerTurn: 1, replayIdenticalCalls: true, blockedWhenTurnRequests: ['extract_style', 'apply_style', 'apply_reference_style'] }, turnContract: { owner: 'semantic-editorial-planner', evidenceStrategy: 'owner-internal', requiredEvidence: [], producesEvidence: [] } }),
   apply_reference_style: defineTool({ name: 'apply_reference_style', label: 'Applying reference style', shortLabel: 'Reference style', iconCategory: 'style', executionType: 'generative', receiptLabel: 'Queued reference style', loadingMessages: ['Inspecting the reference', 'Extracting edit language', 'Planning faithful changes'], executionPolicy: { maxExecutionsPerTurn: 1, replayIdenticalCalls: true, blockedWhenTurnRequests: ['apply_editorial_intent'] } }),
   add_overlay: defineTool({ name: 'add_overlay', label: 'Adding element', shortLabel: 'Add', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added element', postconditions: postconditions('overlay-created', ['visual', 'audio']) }),
   update_overlay: defineTool({ name: 'update_overlay', label: 'Updating element', shortLabel: 'Update', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Updated element', postconditions: postconditions('overlay-updated', ['visual', 'audio']) }),
@@ -119,9 +182,9 @@ export const CHAT_TOOL_REGISTRY = {
   delete_overlay: defineTool({ name: 'delete_overlay', label: 'Removing element', shortLabel: 'Remove', iconCategory: 'delete', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Removed element', postconditions: postconditions('overlay-deleted', ['visual', 'audio']) }),
   sync_style: defineTool({ name: 'sync_style', label: 'Syncing styles', shortLabel: 'Sync', iconCategory: 'style', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Synced styles' }),
   visual_inspect_frame: defineTool({ name: 'visual_inspect_frame', label: 'Inspecting video frame', shortLabel: 'Inspect', iconCategory: 'visual', receiptLabel: 'Inspected frame' }),
-  close_gaps: defineTool({ name: 'close_gaps', label: 'Closing timeline gaps', shortLabel: 'Close gaps', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Closed gaps', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']) }),
-  restore_ai_edit_checkpoint: defineTool({ name: 'restore_ai_edit_checkpoint', label: 'Restoring AI edit checkpoint', shortLabel: 'Restore', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Restored checkpoint' }),
-  cut_section: defineTool({ name: 'cut_section', label: 'Cutting section', shortLabel: 'Cut', iconCategory: 'trim', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Cut section', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']) }),
+  close_gaps: defineTool({ name: 'close_gaps', label: 'Closing timeline gaps', shortLabel: 'Close gaps', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Closed gaps', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']), effectContract: { produces: ['timeline-gaps-closed'], redundantAfter: ['cut-gap-closed', 'timeline-gaps-closed'] } }),
+  restore_ai_edit_checkpoint: defineTool({ name: 'restore_ai_edit_checkpoint', label: 'Restoring AI edit checkpoint', shortLabel: 'Restore', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Restored checkpoint', turnContract: { owner: 'checkpoint-restorer', evidenceStrategy: 'owner-internal', requiredEvidence: [], producesEvidence: [] } }),
+  cut_section: defineTool({ name: 'cut_section', label: 'Cutting section', shortLabel: 'Cut', iconCategory: 'trim', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Cut section', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']), effectContract: { produces: ['cut-gap-closed'], redundantAfter: [] } }),
   add_motion_graphic: defineTool({ name: 'add_motion_graphic', label: 'Adding motion graphic', shortLabel: 'MG', iconCategory: 'motion', executionType: 'quick', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphic', postconditions: postconditions('overlay-created') }),
   generate_html_scene: defineTool({ name: 'generate_html_scene', label: 'Creating custom scene', shortLabel: 'Scene', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Created scene', loadingMessages: ['Crafting your scene', 'Painting with code', 'Almost ready'], postconditions: postconditions('overlay-created') }),
   edit_html_scene: defineTool({ name: 'edit_html_scene', label: 'Revising custom scene', shortLabel: 'Revise scene', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Revised scene', loadingMessages: ['Reading the existing scene', 'Applying the revision', 'Checking the result'], postconditions: postconditions('overlay-updated') }),
@@ -153,7 +216,7 @@ export const CHAT_TOOL_REGISTRY = {
   add_transition: defineTool({ name: 'add_transition', label: 'Adding transition', shortLabel: 'Transition', iconCategory: 'transition', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added transition' }),
   auto_motion_graphics: defineTool({ name: 'auto_motion_graphics', label: 'Adding motion graphics', shortLabel: 'Auto MG', iconCategory: 'motion', executionType: 'generative', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphics', loadingMessages: ['Finding moments', 'Planning graphics', 'Adding motion'] }),
   extract_style: defineTool({ name: 'extract_style', label: 'Extracting edit style', shortLabel: 'Extract', iconCategory: 'style', executionType: 'generative', exposure: 'shadow-authority-filtered', receiptLabel: 'Extracted style', loadingMessages: ['Reading style', 'Finding patterns', 'Building profile'], executionPolicy: { maxExecutionsPerTurn: 1, replayIdenticalCalls: true } }),
-  apply_style: defineTool({ name: 'apply_style', label: 'Applying edit style', shortLabel: 'Style', iconCategory: 'style', executionType: 'generative', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied style', loadingMessages: ['Planning style', 'Applying changes', 'Checking timing'], executionPolicy: { maxExecutionsPerTurn: 1, replayIdenticalCalls: true } }),
+  apply_style: defineTool({ name: 'apply_style', label: 'Applying edit style', shortLabel: 'Style', iconCategory: 'style', executionType: 'generative', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied style', loadingMessages: ['Planning style', 'Applying changes', 'Checking timing'], executionPolicy: { maxExecutionsPerTurn: 1, replayIdenticalCalls: true }, turnContract: { owner: 'semantic-editorial-planner', evidenceStrategy: 'owner-internal', requiredEvidence: [], producesEvidence: [] } }),
   sync_cuts_to_beats: defineTool({ name: 'sync_cuts_to_beats', label: 'Syncing cuts to beats', shortLabel: 'Beat sync', iconCategory: 'audio', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Synced cuts to beats' }),
   set_keyframes: defineTool({ name: 'set_keyframes', label: 'Setting keyframes', shortLabel: 'Keyframes', iconCategory: 'keyframe', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Set keyframes' }),
   regenerate_bgm: defineTool({ name: 'regenerate_bgm', label: 'Regenerating music', shortLabel: 'Music', iconCategory: 'audio', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Regenerated music', loadingMessages: ['Composing music', 'Matching mood', 'Adding track'] }),

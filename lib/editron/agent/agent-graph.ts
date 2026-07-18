@@ -43,8 +43,9 @@ import { TokenTracker } from '../utils/token-tracker';
 // Previously these were `await import(...)` inside callModel, which re-resolved
 // the module on EVERY agent invocation (adds ~10-30ms cold overhead each call).
 // Moving them here means the module is loaded once at startup.
-import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CHAT_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
+import { buildGeminiFunctionDeclarations } from './gemini-tool-schema';
 import {
   buildGeminiHumanParts,
   extractChatFrameCaptureRequest,
@@ -52,10 +53,16 @@ import {
   type ChatFrameEvidence,
 } from './chat-frame-evidence';
 import { getChatToolMetadata } from './chat-tool-registry';
-import { enforceChatToolPostcondition } from './chat-edit-postconditions';
 import {
+  buildChatProjectRevision,
+  enforceChatToolPostcondition,
+} from './chat-edit-postconditions';
+import {
+  buildChatEvidenceReceipts,
   buildChatToolTurnLedger,
+  classifyChatToolExecutionOutcome,
   decideChatToolExecution,
+  formatChatToolInvocationError,
 } from './chat-tool-execution-policy';
 
 // PERF FIX: Singleton GenAI client — reuse across all requests instead of
@@ -273,7 +280,10 @@ export const createAgent = (
   //      sequentialToolNode → createToolsWithProject(projectId)  [duplicate]
   // NEW: both nodes read from _toolsCache[projectId]
   const _toolsCache: Record<string, ReturnType<typeof createToolsWithProject>> = {};
-  const _functionDeclarationsCache: Record<string, any[]> = {};
+  const _functionDeclarationsCache: Record<
+    string,
+    ReturnType<typeof buildGeminiFunctionDeclarations>
+  > = {};
 
   function getOrCreateTools(projectId: string) {
     if (!_toolsCache[projectId]) {
@@ -654,100 +664,6 @@ export const createAgent = (
       // Now we use the module-level singleton `getGenAI()` which reuses one client instance.
       const genAI = getGenAI();
       
-      // Recursive helper to convert Zod schema to Gemini schema format
-      // Handles: ZodNumber, ZodString, ZodBoolean, ZodEnum, ZodArray, ZodObject,
-      //          ZodOptional, ZodDefault, ZodEffects (for z.coerce), ZodUnion
-      const convertZodToGemini = (zodDef: any, depth = 0): { type: string; description?: string; properties?: any; items?: any; enum?: string[]; required?: string[] } => {
-        if (!zodDef) return { type: 'string' };
-        
-        const typeName = zodDef.typeName;
-        const description = zodDef.description || '';
-        
-        // Primitive types
-        if (typeName === 'ZodString') return { type: 'string', description };
-        if (typeName === 'ZodNumber') return { type: 'number', description };
-        if (typeName === 'ZodBoolean') return { type: 'boolean', description };
-        
-        // Enum - extract values for better Gemini understanding
-        if (typeName === 'ZodEnum') {
-          return { type: 'string', description, enum: zodDef.values };
-        }
-        
-        // Union - simplify to string (common for number|string unions like position)
-        if (typeName === 'ZodUnion') {
-          // Check if any option is a number
-          const options = zodDef.options || [];
-          const hasNumber = options.some((opt: any) => {
-            const optType = opt?._def?.typeName;
-            return optType === 'ZodNumber' || 
-                   (optType === 'ZodEffects' && opt?._def?.schema?._def?.typeName === 'ZodNumber');
-          });
-          // If union includes number, describe it as such
-          return { type: hasNumber ? 'string' : 'string', description: description || 'Number or string value' };
-        }
-        
-        // Optional - unwrap and recurse
-        if (typeName === 'ZodOptional') {
-          const inner = convertZodToGemini(zodDef.innerType?._def, depth);
-          return { ...inner, description: description || inner.description };
-        }
-        
-        // Default - unwrap and recurse
-        if (typeName === 'ZodDefault') {
-          const inner = convertZodToGemini(zodDef.innerType?._def, depth);
-          return { ...inner, description: description || inner.description };
-        }
-        
-        // Effects (used by z.coerce.number(), z.coerce.boolean(), etc.)
-        if (typeName === 'ZodEffects') {
-          // The actual schema is in zodDef.schema
-          const inner = convertZodToGemini(zodDef.schema?._def, depth);
-          return { ...inner, description: description || inner.description };
-        }
-        
-        // Array - recurse into item type
-        if (typeName === 'ZodArray') {
-          const itemSchema = convertZodToGemini(zodDef.type?._def, depth + 1);
-          return { type: 'array', description, items: itemSchema };
-        }
-        
-        // Object - recurse into properties (but limit depth to prevent infinite recursion)
-        if (typeName === 'ZodObject' && depth < 3) {
-          const shape = typeof zodDef.shape === 'function' ? zodDef.shape() : zodDef.shape;
-          const properties: any = {};
-          const required: string[] = [];
-          
-          if (shape) {
-            for (const [key, value] of Object.entries(shape)) {
-              const fieldDef = (value as any)._def;
-              const converted = convertZodToGemini(fieldDef, depth + 1);
-              properties[key] = converted;
-              
-              // Check if required (not optional and not default)
-              const fieldTypeName = fieldDef?.typeName;
-              if (fieldTypeName !== 'ZodOptional' && fieldTypeName !== 'ZodDefault') {
-                required.push(key);
-              }
-            }
-          }
-          
-          return { 
-            type: 'object', 
-            description, 
-            properties: Object.keys(properties).length > 0 ? properties : undefined,
-            required: required.length > 0 ? required : undefined
-          };
-        }
-        
-        // Fallback for ZodObject at max depth or unknown types
-        if (typeName === 'ZodObject') {
-          return { type: 'object', description };
-        }
-        
-        // Fallback
-        return { type: 'string', description };
-      };
-      
       // PERF FIX: Cache the converted function declarations per projectId.
       // The Zod→Gemini schema conversion loop ran on EVERY LLM call (even mid-conversation).
       // Tools don't change between calls for the same project, so we only build this once.
@@ -755,39 +671,7 @@ export const createAgent = (
       // OLD: functionDeclarations = tools.map(tool => { convertZodToGemini(...) }) [every call]
       // NEW: build once per projectId, reuse from _functionDeclarationsCache
       if (!_functionDeclarationsCache[projectId]) {
-        _functionDeclarationsCache[projectId] = tools.map(tool => {
-          const zodSchema = (tool as any).schema;
-          let properties: any = {};
-          let required: string[] = [];
-          
-          if (zodSchema && zodSchema._def && zodSchema._def.shape) {
-            const shape = typeof zodSchema._def.shape === 'function' 
-              ? zodSchema._def.shape() 
-              : zodSchema._def.shape;
-            
-            for (const [key, value] of Object.entries(shape)) {
-              const fieldDef = (value as any)._def;
-              const converted = convertZodToGemini(fieldDef, 0);
-              properties[key] = converted;
-              
-              // Check if required
-              const typeName = fieldDef?.typeName;
-              if (typeName !== 'ZodOptional' && typeName !== 'ZodDefault') {
-                required.push(key);
-              }
-            }
-          }
-          
-          return {
-            name: tool.name,
-            description: tool.description,
-            parameters: {
-              type: SchemaType.OBJECT,
-              properties,
-              required: required.length > 0 ? required : undefined,
-            }
-          };
-        });
+        _functionDeclarationsCache[projectId] = buildGeminiFunctionDeclarations(tools);
       }
       const functionDeclarations = _functionDeclarationsCache[projectId];
       
@@ -1187,20 +1071,11 @@ export const createAgent = (
         const tool = tools.find((t) => t.name === toolCall.name);
         if (tool) {
           let output: string;
+          let evidenceReceipts: ReturnType<typeof buildChatEvidenceReceipts> = [];
           const args = normalizeAgentToolArgs(toolCall.name, toolCall.args, {
             projectFps: config.configurable?.projectFps,
           });
-          const executionDecision = decideChatToolExecution({
-            toolName: toolCall.name,
-            args,
-            ledger: turnLedger,
-          });
-          if (executionDecision.action !== 'execute') {
-            output = executionDecision.output;
-            debugWarn(
-              `[TOOL-POLICY] ${executionDecision.action} ${toolCall.name}: ${executionDecision.reason}`,
-            );
-          } else try {
+          try {
             // ── Secondary rate-limit fence (defence-in-depth) ──────────────
             // shouldContinue is the primary guard; this catches the edge case
             // where the tool call somehow reaches execution despite the limit.
@@ -1237,34 +1112,59 @@ export const createAgent = (
             const loadPostconditionProject: PostconditionProjectLoader =
               config.configurable?.loadPostconditionProject
               ?? loadCanonicalPostconditionProject;
-            const beforeProject = toolMetadata?.mutatesProject
+            const needsCanonicalProject = Boolean(
+              toolMetadata?.mutatesProject
+              || toolMetadata?.turnContract.producesEvidence.length,
+            );
+            const beforeProject = needsCanonicalProject
               ? await loadPostconditionProject(userId, projectId)
               : null;
-            if (toolMetadata?.mutatesProject && !beforeProject) {
+            if (needsCanonicalProject && !beforeProject) {
               throw new Error(`Canonical project state is unavailable before ${toolCall.name}.`);
             }
+            const projectRevision = buildChatProjectRevision(beforeProject);
+            const executionDecision = decideChatToolExecution({
+              toolName: toolCall.name,
+              args,
+              ledger: turnLedger,
+              projectId,
+              projectRevision,
+            });
 
-            // Execute tool with coerced args
-            output = await (tool as any).invoke(args);
-            if (toolMetadata?.mutatesProject) {
-              const afterProject = await loadPostconditionProject(userId, projectId);
-              const enforced = enforceChatToolPostcondition({
-                toolName: toolCall.name,
-                args,
-                output,
-                beforeProject,
-                afterProject,
-              });
-              output = enforced.output;
-              if (enforced.verification?.status === 'fail') {
-                debugError(
-                  `[POSTCONDITION] ${toolCall.name} failed: ${enforced.verification.reason}`,
-                );
+            if (executionDecision.action !== 'execute') {
+              output = executionDecision.output;
+              debugWarn(
+                `[TOOL-POLICY] ${executionDecision.action} ${toolCall.name}: ${executionDecision.reason}`,
+              );
+            } else {
+              output = await (tool as any).invoke(args);
+              if (toolMetadata?.mutatesProject) {
+                const afterProject = await loadPostconditionProject(userId, projectId);
+                const enforced = enforceChatToolPostcondition({
+                  toolName: toolCall.name,
+                  args,
+                  output,
+                  beforeProject,
+                  afterProject,
+                });
+                output = enforced.output;
+                if (enforced.verification?.status === 'fail') {
+                  debugError(
+                    `[POSTCONDITION] ${toolCall.name} failed: ${enforced.verification.reason}`,
+                  );
+                }
               }
             }
+            evidenceReceipts = buildChatEvidenceReceipts({
+              toolName: toolCall.name,
+              args,
+              output,
+              projectId,
+              projectRevision,
+            });
             debugLog('Tool output for', toolCall.name, ':', output.substring(0, 300));
           } catch (e: any) {
-            output = `Error: ${e.message}`;
+            output = formatChatToolInvocationError(toolCall.name, e);
           }
 
           turnLedger.completedExecutions.push({
@@ -1272,11 +1172,16 @@ export const createAgent = (
             name: toolCall.name,
             args,
             output,
+            outcome: classifyChatToolExecutionOutcome(output),
+            evidenceReceipts,
           });
           const toolMessage = new ToolMessage({
             tool_call_id: toolCall.id,
             name: toolCall.name,
             content: output,
+            additional_kwargs: evidenceReceipts.length > 0
+              ? { chatEvidenceReceipts: evidenceReceipts }
+              : {},
           });
           results.push(toolMessage);
 

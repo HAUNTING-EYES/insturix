@@ -135,6 +135,10 @@ interface ProjectSnapshot {
   overlays: Map<string, JsonRecord>;
 }
 
+export function buildChatProjectRevision(value: unknown): string | null {
+  return projectSnapshot(value)?.stateHash ?? null;
+}
+
 function projectSnapshot(value: unknown): ProjectSnapshot | null {
   const project = asRecord(value);
   if (Object.keys(project).length === 0) return null;
