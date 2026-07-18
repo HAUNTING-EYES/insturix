@@ -682,6 +682,49 @@ describe('chat edit battle harness', () => {
     expect(report.checks.find((check) => check.id === 'render.fresh-evidence')).toMatchObject({ status: 'fail' });
   });
 
+  it('does not misreport a policy-blocked tool attempt as a mutation before evidence', () => {
+    const scenario = getChatEditBattleScenario('explicit-text')!;
+    const beforeProject = project([]);
+    const afterProject = project([{ id: 'title-1', type: 'text', content: 'Launch day', from: 0, durationInFrames: 90, row: 0 }]);
+    const report = evaluateChatEditBattleJourney({
+      journeyId: 'blocked-before-evidence',
+      scenario,
+      projectId: 'proj_battle',
+      startedAt: '2026-07-16T10:00:00.000Z',
+      completedAt: '2026-07-16T10:00:01.000Z',
+      invocation: invocation('explicit-text', [
+        {
+          id: 'blocked-add',
+          name: 'add_overlay',
+          args: { type: 'text' },
+          startedAt: '2026-07-16T10:00:00.100Z',
+          completedAt: '2026-07-16T10:00:00.200Z',
+          output: JSON.stringify({
+            status: 'error',
+            data: null,
+            error: { code: 'CHAT_TOOL_EVIDENCE_REQUIRED', message: 'Read project state first.' },
+            nextAction: 'Call read_project_file and retry.',
+          }),
+        },
+        { id: 'read', name: 'read_project_file', args: {}, startedAt: '2026-07-16T10:00:00.300Z', completedAt: '2026-07-16T10:00:00.400Z', output: successEnvelope() },
+        { id: 'add', name: 'add_overlay', args: { type: 'text' }, startedAt: '2026-07-16T10:00:00.500Z', completedAt: '2026-07-16T10:00:00.600Z', output: successEnvelope() },
+      ]),
+      mongoBefore: buildChatBattleProjectSnapshot(beforeProject, 'mongo-before', '2026-07-16T10:00:00.000Z'),
+      mongoAfter: buildChatBattleProjectSnapshot(afterProject, 'mongo-after', '2026-07-16T10:00:01.000Z'),
+      uiReload: buildChatBattleProjectSnapshot(afterProject, 'ui-reload', '2026-07-16T10:00:01.000Z'),
+      renderEvidence: { status: 'pass', capturedAt: '2026-07-16T10:00:00.900Z', artifactRefs: ['artifact://title.png'], issues: [] },
+    });
+
+    expect(report.checks.find((check) => check.id === 'agent.evidence-before-mutation')).toMatchObject({
+      status: 'pass',
+      evidence: {
+        firstMutationIndex: 2,
+        priorEvidenceTools: ['read_project_file'],
+        blockedMutationAttempts: ['add_overlay'],
+      },
+    });
+  });
+
   it('rejects the legacy apply-to-all transition recipe even if it changed Mongo', () => {
     const scenario = getChatEditBattleScenario('vague-transitions')!;
     const beforeProject = project([{ id: 'clip-a', type: 'video', from: 0, durationInFrames: 150, row: 0 }]);

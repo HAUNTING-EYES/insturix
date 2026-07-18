@@ -112,6 +112,42 @@ describe('phase0 rendered evidence worker service', () => {
     expect(evidence.phase0LiveTruth?.failureClasses.map((item) => item.id)).not.toContain('render.artifact_pack_missing');
   });
 
+  it('renders independent frame pairs concurrently with a bounded worker count', async () => {
+    let activeRenders = 0;
+    let maximumActiveRenders = 0;
+    const renderStill = vi.fn(async (input: any) => {
+      activeRenders += 1;
+      maximumActiveRenders = Math.max(maximumActiveRenders, activeRenders);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      activeRenders -= 1;
+      const overlayIds = (input.inputProps.overlays ?? []).map((overlay: any) => overlay.id);
+      const kind = overlayIds.includes(1) ? 'full' : 'baseline';
+      return {
+        estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+        url: `https://example.com/${kind}-f${input.frame}.png`,
+        outKey: `phase0/${kind}-f${input.frame}.png`,
+        bucketName: 'remotion-bucket',
+        renderId: `${kind}-render-${input.frame}`,
+        cloudWatchLogs: 'https://logs.example.com',
+        sizeInBytes: 512,
+        artifacts: [],
+      };
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(projectFixture(), {
+      capturedAt: '2026-06-30T00:00:00.000Z',
+      env: configuredEnv({ EDITRON_PHASE0_RENDERED_EVIDENCE_MAX_SAMPLES: '3' }),
+      renderStill: renderStill as any,
+      readImage: visibleImageReader(),
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.status).toBe('completed');
+    expect(renderStill).toHaveBeenCalledTimes(6);
+    expect(maximumActiveRenders).toBe(6);
+    expect(evidence.renderedFrames.map((frame) => frame.frame)).toEqual(evidence.requestedSampleFrames);
+  });
+
   it('fails rendered quality evidence when full and baseline stills are visually unchanged', async () => {
     const renderStill = vi.fn(async (input: any) => {
       const overlayIds = (input.inputProps.overlays ?? []).map((overlay: any) => overlay.id);

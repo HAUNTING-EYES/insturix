@@ -410,50 +410,57 @@ export async function buildPhase0RenderedStillEvidence(
         isRendering: true,
       };
 
-  for (const frame of requestedSampleFrames) {
-    let fullStill: RenderStillOnLambdaOutput | null = null;
-    try {
-      fullStill = await renderStill({
-        region: config.region as any,
-        functionName: config.functionName,
-        serveUrl: config.serveUrl,
-        composition: REMOTION_COMPOSITION_ID,
-        inputProps: overlayOnlyInputProps,
-        imageFormat: 'png',
-        privacy: 'public',
-        frame,
-        maxRetries: 1,
-      });
-    } catch (err: unknown) {
+  const frameResults = await mapWithConcurrency(
+    requestedSampleFrames,
+    3,
+    async (frame) => {
+      const [fullResult, baselineResult] = await Promise.allSettled([
+        renderStill({
+          region: config.region as any,
+          functionName: config.functionName,
+          serveUrl: config.serveUrl,
+          composition: REMOTION_COMPOSITION_ID,
+          inputProps: overlayOnlyInputProps,
+          imageFormat: 'png',
+          privacy: 'public',
+          frame,
+          maxRetries: 1,
+        }),
+        renderStill({
+          region: config.region as any,
+          functionName: config.functionName,
+          serveUrl: config.serveUrl,
+          composition: REMOTION_COMPOSITION_ID,
+          inputProps: baselineInputProps,
+          imageFormat: 'png',
+          privacy: 'public',
+          frame,
+          maxRetries: 1,
+        }),
+      ]);
+      return { frame, fullResult, baselineResult };
+    },
+  );
+
+  for (const { frame, fullResult, baselineResult } of frameResults) {
+    if (fullResult.status === 'rejected') {
       failedFrames.push({
         frame,
         renderKind: 'full',
-        error: err instanceof Error ? err.message : String(err),
+        error: settledError(fullResult.reason),
       });
       continue;
     }
-
-    try {
-      const baselineStill = await renderStill({
-        region: config.region as any,
-        functionName: config.functionName,
-        serveUrl: config.serveUrl,
-        composition: REMOTION_COMPOSITION_ID,
-        inputProps: baselineInputProps,
-        imageFormat: 'png',
-        privacy: 'public',
-        frame,
-        maxRetries: 1,
-      });
-      renderedFrames.push(toFrameEvidence(frame, fullStill, baselineStill));
-    } catch (err: unknown) {
-      failedFrames.push({
-        frame,
-        renderKind: 'baseline',
-        error: err instanceof Error ? err.message : String(err),
-      });
-      renderedFrames.push(toFrameEvidence(frame, fullStill));
+    if (baselineResult.status === 'fulfilled') {
+      renderedFrames.push(toFrameEvidence(frame, fullResult.value, baselineResult.value));
+      continue;
     }
+    failedFrames.push({
+      frame,
+      renderKind: 'baseline',
+      error: settledError(baselineResult.reason),
+    });
+    renderedFrames.push(toFrameEvidence(frame, fullResult.value));
   }
 
   const pairedFrameCount = renderedFrames.filter((frame) => frame.baselineUrl).length;
@@ -529,6 +536,31 @@ export async function buildPhase0RenderedStillEvidence(
   }
 
   return evidence;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  maximumConcurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  const workerCount = Math.max(1, Math.min(items.length, Math.floor(maximumConcurrency)));
+  let nextIndex = 0;
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index] as T, index);
+    }
+  }));
+  return results;
+}
+
+function settledError(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
 }
 
 interface RenderedAudioArtifact {

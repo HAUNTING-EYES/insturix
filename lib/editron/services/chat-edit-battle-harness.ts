@@ -445,17 +445,28 @@ export function evaluateChatEditBattleJourney(input: {
     { forbiddenTools: forbiddenTools.map((event) => event.name), forbiddenArguments },
   ));
 
-  const firstMutationIndex = events.findIndex((event) => isMutatingTool(event.name));
+  const firstMutationIndex = events.findIndex(
+    (event) => isMutatingTool(event.name) && isSuccessfulToolOutput(event.output),
+  );
   const priorEvidenceReads = firstMutationIndex > 0
     ? events.slice(0, firstMutationIndex).filter((event) => !isMutatingTool(event.name) && isSuccessfulToolOutput(event.output))
     : [];
-  const evidenceSatisfied = !input.scenario.requireEvidenceBeforeMutation || priorEvidenceReads.length > 0;
+  const blockedMutationAttempts = firstMutationIndex > 0
+    ? events.slice(0, firstMutationIndex).filter((event) => isMutatingTool(event.name) && !isSuccessfulToolOutput(event.output))
+    : [];
+  const evidenceSatisfied = !input.scenario.requireEvidenceBeforeMutation
+    || firstMutationIndex < 0
+    || priorEvidenceReads.length > 0;
   checks.push(check(
     'agent.evidence-before-mutation',
     evidenceSatisfied ? 'pass' : 'fail',
     true,
     'Grounding evidence must be read before the first mutation.',
-    { firstMutationIndex, priorEvidenceTools: priorEvidenceReads.map((event) => event.name) },
+    {
+      firstMutationIndex,
+      priorEvidenceTools: priorEvidenceReads.map((event) => event.name),
+      blockedMutationAttempts: blockedMutationAttempts.map((event) => event.name),
+    },
   ));
 
   const mutationStatus = mutationCheckStatus(input.scenario, successfulMutations.length, failedMutations.length, stateChanged);
