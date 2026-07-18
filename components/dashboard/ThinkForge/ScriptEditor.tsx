@@ -66,6 +66,10 @@ import {
   stampThinkForgeDocumentIdentity,
   type ThinkForgeDocumentIdentity,
 } from '@/lib/thinkforge/client-document-identity';
+import {
+  enqueueThinkForgeDocumentSave,
+  type ThinkForgeDocumentSaveRequest,
+} from '@/lib/thinkforge/client-document-save-queue';
 
 // Import FormatToolbar
 import { FormatToolbar } from "./FormatToolbar";
@@ -86,6 +90,12 @@ import { serializeSelectionToThinkForgeBlocks, applyAIEditToSelection, isSelecti
 type BlockId = string;
 interface CursorPosition {
   pos: number;
+}
+
+interface PendingDocumentSave {
+  documentKey: string;
+  request: ThinkForgeDocumentSaveRequest;
+  updatedScript: Script;
 }
 
 /**
@@ -165,13 +175,11 @@ export default function ScriptEditor({
   const lastLoadedContentRef = useRef<string>(''); // Track last loaded content to avoid unnecessary reloads
   const isProgrammaticUpdateRef = useRef(false);
   const lastAutosaveHashRef = useRef<string>('');
-  const lastAutosaveAtRef = useRef<number>(0);
-  const autosaveInFlightRef = useRef(false);
-  const MIN_AUTOSAVE_INTERVAL_MS = 4000;
   const autosavePausedRef = useRef(false);
   const scriptVersionRef = useRef<number>(0);
   const loadAbortControllerRef = useRef<AbortController | null>(null);
-  const saveAbortControllerRef = useRef<AbortController | null>(null);
+  const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
+  const flushPendingDocumentSaveRef = useRef<((documentKey?: string) => Promise<void>) | null>(null);
   const prevScriptBlocksRef = useRef<string>('');
   const prevMetadataRef = useRef<string>('');
   const isSwitchingScriptRef = useRef(false);
@@ -630,13 +638,14 @@ export default function ScriptEditor({
   // Document identity owns reset, load, and save cancellation. This effect must
   // run before the loader below whenever the active session/document changes.
   useLayoutEffect(() => {
+    const previousDocumentKey = activeDocumentKeyRef.current;
+    if (previousDocumentKey && previousDocumentKey !== activeDocumentKey) {
+      void flushPendingDocumentSaveRef.current?.(previousDocumentKey);
+    }
     activeDocumentKeyRef.current = activeDocumentKey;
     documentEpochRef.current += 1;
     loadAbortControllerRef.current?.abort();
     loadAbortControllerRef.current = null;
-    saveAbortControllerRef.current?.abort();
-    saveAbortControllerRef.current = null;
-    autosaveInFlightRef.current = false;
 
     isSwitchingScriptRef.current = true;
     initialLoadDoneRef.current = false;
@@ -1053,7 +1062,7 @@ export default function ScriptEditor({
   }, [streamingBlocks.blocks, editor]);
 
   // TipTap JSON is runtime truth; convert only at persistence/export boundaries.
-  const convertEditorToScript = useCallback(async (): Promise<Script> => {
+  const convertEditorToScript = useCallback((): Script => {
     const effectiveTitle = getEffectiveTitle();
     if (!activeIdentity) throw new Error('Cannot serialize a document without active identity');
     if (!editor) {
@@ -1095,6 +1104,45 @@ export default function ScriptEditor({
     }, activeIdentity) as any;
   }, [editor, script, storeCursorPosition, getEffectiveTitle, activeIdentity]);
 
+  const flushPendingDocumentSave = useCallback(async (documentKey?: string): Promise<void> => {
+    const pending = pendingDocumentSaveRef.current;
+    if (!pending || (documentKey && pending.documentKey !== documentKey)) return;
+    pendingDocumentSaveRef.current = null;
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+
+    try {
+      let result = await enqueueThinkForgeDocumentSave(pending.request);
+      if (result.status === 'conflict') {
+        result = await enqueueThinkForgeDocumentSave({
+          ...pending.request,
+          baseVersion: result.currentVersion,
+        });
+      }
+      if (result.status !== 'saved' || activeDocumentKeyRef.current !== pending.documentKey) return;
+
+      scriptVersionRef.current = result.version;
+      const activeHash = editor ? JSON.stringify(editor.getJSON()) : '';
+      if (activeHash !== pending.request.contentHash) return;
+
+      (pending.updatedScript as any).version = result.version;
+      lastLoadedContentRef.current = pending.request.contentHash;
+      lastAutosaveHashRef.current = pending.request.contentHash;
+      setHasUnsavedChanges(false);
+      hasLocalEditsRef.current = false;
+      isUserTypingRef.current = false;
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2000);
+      onEditScript(pending.updatedScript);
+    } catch (error) {
+      if (activeDocumentKeyRef.current === pending.documentKey) setHasUnsavedChanges(true);
+      console.error('ScriptEditor: Document save queue failed', error);
+    }
+  }, [editor, onEditScript]);
+  flushPendingDocumentSaveRef.current = flushPendingDocumentSave;
+
   // Sync last version hash when the version manager updates its current version
   useEffect(() => {
     if (!editor || !currentVersionId) return;
@@ -1119,9 +1167,7 @@ export default function ScriptEditor({
       return;
     }
     if (!activeIdentity || !activeDocumentKey) return;
-    const scheduledIdentity = activeIdentity;
     const scheduledDocumentKey = activeDocumentKey;
-
 
     // Mark that user is actively typing - this prevents remote updates from overwriting
     isUserTypingRef.current = true;
@@ -1134,132 +1180,44 @@ export default function ScriptEditor({
       clearTimeout(autosaveTimerRef.current);
     }
 
-    const scheduledTimer = setTimeout(async () => {
-      let saveController: AbortController | null = null;
-      let ownsSaveSlot = false;
-      if (activeDocumentKeyRef.current !== scheduledDocumentKey) return;
+    if (!editor) return;
+    const currentJSON = editor.getJSON() as TiptapJSON;
+    const currentHash = JSON.stringify(currentJSON);
+    if (currentHash === lastAutosaveHashRef.current) return;
 
-      try {
-        if (!editor) return;
-        if (autosavePausedRef.current) return;
-        if (autosaveInFlightRef.current) return;
+    const updatedScript = convertEditorToScript();
+    pendingDocumentSaveRef.current = {
+      documentKey: scheduledDocumentKey,
+      request: {
+        sessionId: activeIdentity.sessionId,
+        scriptId: activeIdentity.scriptId,
+        baseVersion: scriptVersionRef.current,
+        title: updatedScript.title || 'Untitled Script',
+        content: updatedScript.content || '',
+        richText: currentJSON as unknown as Record<string, unknown>,
+        contentHash: currentHash,
+      },
+      updatedScript,
+    };
 
-        const now = Date.now();
-        if (now - lastAutosaveAtRef.current < MIN_AUTOSAVE_INTERVAL_MS) {
-          return;
-        }
-
-        const currentJSON = editor.getJSON() as TiptapJSON;
-        const currentHash = JSON.stringify(currentJSON);
-
-        if (currentHash === lastAutosaveHashRef.current) {
-          return;
-        }
-
-        autosaveInFlightRef.current = true;
-        ownsSaveSlot = true;
-
-        const updatedScript = await convertEditorToScript();
-
-        if (editor) {
-          const tiptapJSON = editor.getJSON();
-          lastLoadedContentRef.current = JSON.stringify(tiptapJSON);
-        }
-
-        // Send to backend (converting TipTap JSON → ThinkForgeBlocks only for storage)
-        if (updatedScript.blocks) {
-          try {
-            saveAbortControllerRef.current?.abort();
-            saveController = new AbortController();
-            saveAbortControllerRef.current = saveController;
-            const response = await fetch(`/api/commands`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                type: 'ReplaceDocument',
-                sessionId: scheduledIdentity.sessionId,
-                baseVersion: scriptVersionRef.current,
-                source: 'user',
-                payload: {
-                  scriptId: scheduledIdentity.scriptId,
-                  richText: (updatedScript as any).richText, // Send TipTap JSON as richText
-                  content: updatedScript.content,
-                  title: updatedScript.title
-                }
-              }),
-              signal: saveController.signal,
-            });
-
-            if (activeDocumentKeyRef.current !== scheduledDocumentKey) return;
-
-            if (response.ok) {
-              const data = await response.json();
-              if (activeDocumentKeyRef.current !== scheduledDocumentKey) return;
-              if (data?.script && typeof data.script.version === 'number') {
-                scriptVersionRef.current = data.script.version;
-                (updatedScript as any).version = data.script.version;
-              }
-              setHasUnsavedChanges(false);
-              setJustSaved(true);
-              setTimeout(() => setJustSaved(false), 2000);
-              // Mark that user is no longer actively typing after successful save
-              isUserTypingRef.current = false;
-              lastAutosaveHashRef.current = currentHash;
-              lastAutosaveAtRef.current = Date.now();
-            } else if (response.status === 409) {
-              try {
-                const data = await response.json();
-                if (typeof data?.currentVersion === 'number') {
-                  scriptVersionRef.current = data.currentVersion;
-                }
-              } catch { }
-              // Keep unsaved changes; back off to avoid tight retry loop
-              lastAutosaveAtRef.current = Date.now();
-            } else {
-              console.error('Failed to save to backend');
-            }
-          } catch (error) {
-            if (error instanceof DOMException && error.name === 'AbortError') return;
-            console.error('Error saving to backend:', error);
-          }
-        }
-
-        // Notify parent (but don't trigger setContent - parent should not rehydrate)
-        if (activeDocumentKeyRef.current !== scheduledDocumentKey) return;
-        onEditScript(updatedScript);
-      } catch (error) {
-        console.error('Autosave failed:', error);
-      } finally {
-        if (saveAbortControllerRef.current === saveController) {
-          saveAbortControllerRef.current = null;
-        }
-        if (ownsSaveSlot && activeDocumentKeyRef.current === scheduledDocumentKey) {
-          autosaveInFlightRef.current = false;
-        }
-        if (autosaveTimerRef.current === scheduledTimer) {
-          autosaveTimerRef.current = null;
-        }
-      }
+    const scheduledTimer = setTimeout(() => {
+      void flushPendingDocumentSaveRef.current?.(scheduledDocumentKey);
     }, 1200);
     autosaveTimerRef.current = scheduledTimer;
-  }, [convertEditorToScript, onEditScript, editor, activeIdentity, activeDocumentKey]);
+  }, [convertEditorToScript, editor, activeIdentity, activeDocumentKey]);
 
   // Pause autosave when tab/window is not active to avoid stale saves on return
   useEffect(() => {
     const handleVisibility = () => {
       const hidden = typeof document !== 'undefined' && document.hidden;
       autosavePausedRef.current = !!hidden;
-      if (hidden && autosaveTimerRef.current) {
-        clearTimeout(autosaveTimerRef.current);
-        autosaveTimerRef.current = null;
+      if (hidden) {
+        void flushPendingDocumentSaveRef.current?.(activeDocumentKeyRef.current || undefined);
       }
     };
     const handleBlur = () => {
       autosavePausedRef.current = true;
-      if (autosaveTimerRef.current) {
-        clearTimeout(autosaveTimerRef.current);
-        autosaveTimerRef.current = null;
-      }
+      void flushPendingDocumentSaveRef.current?.(activeDocumentKeyRef.current || undefined);
     };
     const handleFocus = () => {
       autosavePausedRef.current = false;
@@ -1417,11 +1375,11 @@ export default function ScriptEditor({
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
+      void flushPendingDocumentSaveRef.current?.(activeDocumentKeyRef.current || undefined);
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
       if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current);
       if (observerTimerRef.current) clearTimeout(observerTimerRef.current);
       loadAbortControllerRef.current?.abort();
-      saveAbortControllerRef.current?.abort();
     };
   }, []);
 
