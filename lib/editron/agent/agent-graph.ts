@@ -24,13 +24,13 @@
  * 
  * WHAT WE STILL USE FROM LANGCHAIN:
  * - LangGraph (StateGraph, MessagesAnnotation) - for agent orchestration and tool execution
- * - Message types (AIMessage, HumanMessage, ToolMessage, SystemMessage) - for state management
+ * - Message types (AIMessage, HumanMessage, ToolMessage) - for state management
  * - tool() function from @langchain/core/tools - for defining tools with Zod schemas
  * 
  * The result: Reliable model calls with streaming support, while keeping LangGraph benefits.
  */
 
-import { SystemMessage, ToolMessage, AIMessage } from '@langchain/core/messages';
+import { ToolMessage, AIMessage } from '@langchain/core/messages';
 import { StateGraph, MessagesAnnotation } from '@langchain/langgraph';
 import { createTools } from './tools';
 import {
@@ -52,7 +52,6 @@ import { CHAT_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
 import { buildGeminiFunctionDeclarations } from './gemini-tool-schema';
 import {
   buildGeminiHumanParts,
-  extractChatFrameCaptureRequest,
   shouldEndChatRoundForFrameCapture,
   type ChatFrameEvidence,
 } from './chat-frame-evidence';
@@ -488,8 +487,6 @@ ${ownerLicensePrompt}
 <input_data>
     ${projectContext ? `Current Project State:\n${projectContext}` : ''}
 </input_data>`;
-
-    const systemMessage = new SystemMessage(SYSTEM_MESSAGE);
 
     // Use direct Google SDK instead of LangChain due to LangChain's broken response parser
     try {
