@@ -73,6 +73,11 @@ ${ELEMENT_MAP}
   framed fragment — a plate element or hint in the plan says so); never add a card just because footage is
   busy. Thin marks (Rule/Dot/Plot strokes) get the same halo treatment. A render whose text dies on the light
   stress row is REJECTED regardless of everything else.
+- THE LOOK IS LAW: plan.look 'integrated' → render NO Plate/card surface at all; legibility comes from the
+  shade() text halo, a local SceneGrade darken behind the type region, and placement in calm footage areas
+  (read the context frames you were shown). plan.look 'panel' → Plate is licensed for the stated panelReason
+  only. Over BRIGHT or busy footage, integrated type raises its defence: shade() at double strength or a
+  SceneGrade of strength ≥ 0.6 behind the text region — weak contrast over a bright area is a judge reject.
 - NARRATIVE TEXT CHANNEL: for factKind 'narrative', data.line carries the beat's VERBATIM spoken words — the
   only licensed on-screen words for that moment. Render data.line, or a verbatim phrase from it derived IN CODE
   with a runtime guard (e.g. const phrase = /fake money/i.exec(String(data.line))?.[0] ?? String(data.line) —

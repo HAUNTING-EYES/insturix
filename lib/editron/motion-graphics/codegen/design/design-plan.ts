@@ -105,6 +105,12 @@ export const mgMomentDesignPlanSchema = z.object({
   elements: z.array(mgDesignElementSchema).min(1).max(12),
   imagery: mgDesignImagerySchema.optional(),
   motion: mgDesignMotionSchema,
+  /** THE LOOK AXIS (P4, founder mandate made structural): 'integrated' = type lives IN the footage
+   *  (shade()/halo, SceneGrade, scene-anchored marks — NO Plate cards); 'panel' = a surfaced card, allowed
+   *  ONLY with a stated design reason (scorecard, data panel). Default integrated: boxless is the law,
+   *  panel is the justified exception — enforced by validateDesignPlan, not by judge opinion. */
+  look: z.enum(['integrated', 'panel']).default('integrated'),
+  panelReason: boundedString(200).optional(),
 }).strict();
 export type MgMomentDesignPlan = z.infer<typeof mgMomentDesignPlanSchema>;
 
@@ -211,6 +217,14 @@ export function validateDesignPlan(
     }
     if (mp.lane === 'cutaway-scene' && mp.elements.some((e) => e.dataProps.length > 0)) {
       problems.push(`${mp.momentId}: cutaway-scene elements must not bind data props`);
+    }
+    // The look axis has TEETH (P4): an integrated design may not even CONTAIN a plate element, and a
+    // panel look must state its design reason — the boxless mandate is a contract, not a judge's opinion.
+    if (mp.look === 'panel' && !mp.panelReason) {
+      problems.push(`${mp.momentId}: look 'panel' without panelReason — a card is the exception and needs its design reason stated`);
+    }
+    if (mp.look === 'integrated' && mp.elements.some((e) => e.kind === 'plate')) {
+      problems.push(`${mp.momentId}: look 'integrated' cannot contain a 'plate' element — either design scene-integrated (shade/halo/SceneGrade) or declare look 'panel' with a reason`);
     }
     const props = new Set(ctx.contentProps);
     for (const e of mp.elements) {

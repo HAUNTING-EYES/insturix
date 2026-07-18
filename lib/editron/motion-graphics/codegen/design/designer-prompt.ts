@@ -73,7 +73,14 @@ THE WORDS OF A NARRATIVE BEAT: a beat with factKind 'narrative' carries its verb
 'line' data prop — the ONLY words that may appear on screen for it are that line or a verbatim phrase from it
 (bind dataProps ['line']; name the exact phrase in the element's role). Text-bearing props bind ONLY to
 text-capable elements (headline/text/chip; bar/ring carry their readouts via label/valueText hints) — never
-to rule/dot/particles/texture.
+to rule/dot/particles/texture. A licensed phrase must be a COMPLETE spoken thought exactly as said — never a
+chopped fragment ("Creating Content Acquire" is a broken chop; "creating content to acquire new subscribers"
+is a licensed phrase). If no complete phrase serves the design, use the full line or decline the beat.
+THE LOOK: every moment declares its look. 'integrated' (THE DEFAULT AND THE BAR — the anchors are boxless):
+type lives IN the footage via text halo, local grade darkening and scene-anchored marks, and the design may
+not contain a plate element at all. 'panel': a surfaced card, licensed ONLY with a stated panelReason (a
+scorecard, a data readout that must sit on a surface). An unreasoned panel is a validation reject, not a
+style choice.
 </licensing>
 
 <quality_lenses>

@@ -35,7 +35,7 @@ import type {
 } from './types';
 
 /** Bumped when the kit or prompt changes — part of the cache key so stale code never gets reused. */
-export const KIT_VERSION = 'e1.8'; // e1.8: P3.5 door — beat licensing w/ density budget (designer declines within budget) + BOXLESS-FIRST legibility order (halo/SceneGrade default, Plate = justified exception) in coder + judge. e1.7: widthFrac nested-width contract + exact-region-bounds + frame-edge clip reject
+export const KIT_VERSION = 'e1.9'; // e1.9: P4 quality floor — structural LOOK axis (integrated default, plate banned unless look 'panel' + panelReason), narrative complete-phrase discipline, brand-prop scan rule (undefined-density crash class), surgical keep-what-worked revision. e1.8: P3.5 door — beat licensing w/ density budget + boxless-first legibility order
 const DEFAULT_JUDGE_THRESHOLD = 7.5; // ← ship at 7.5, tune on the first 50 real moments
 const MAX_MODEL_ATTEMPTS = 3;
 const MAX_COMPILE_FEEDBACK_CHARS = 1_200;
@@ -408,7 +408,15 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     if (receipt.attempts >= MAX_MODEL_ATTEMPTS) {
       return fallback(`judge ${ev.score} < ${threshold}; model attempt budget exhausted`);
     }
-    const rev = await attempt(`A design reviewer scored your output ${ev.score}/10. Issues: ${ev.issues.join('; ')}. Revise to fix them; return the full component.`);
+    // Keep-what-worked revision discipline: the dominant live failure of naive "revise to fix" was
+    // regression on UNNAMED dimensions — most often a frozen animation timeline after fixing a visual
+    // issue (motion-floor kills, 3× observed 2026-07-18). The revision is a surgical diff, not a redo.
+    const rev = await attempt([
+      `A design reviewer scored your output ${ev.score}/10. Issues: ${ev.issues.join('; ')}.`,
+      'Revise SURGICALLY: change ONLY what the issues name and keep everything else byte-identical where possible.',
+      'PRESERVE the animation timeline (entrances, word-sync, settle, ambient drift) unless an issue names it —',
+      'a static/frozen render is an automatic rejection. Return the full corrected component.',
+    ].join(' '));
     if (rev.providerFailure) return fallback(`revision: ${rev.scan.reason}`, rev.providerFailure);
     if (!rev.scan.ok) return fallback(`revision scan: ${rev.scan.reason}`);
     let revCode = applyImportPreamble(rev.code);

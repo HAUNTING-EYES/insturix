@@ -81,8 +81,30 @@ export function scanCode(code: string): ScanResult {
   // 6. Determinism + safety (Lambda render bundle).
   for (const u of UNSAFE) if (u.re.test(code)) return fail(`Forbidden non-deterministic/unsafe call: ${u.why}.`);
 
+  // 7. Brand by construction, structurally: every brand-requiring kit element must pass brand= in its
+  //    open tag. A brandless tag compiles (esbuild strips types) and then crashes mid-render on the kit's
+  //    internal dv(brand) → "Cannot read properties of undefined (reading 'density')" — live class caught
+  //    2026-07-18: generated `<Region x y w h>` without brand. Reveal/Bleed/SceneLayer/SceneReveal take no
+  //    brand and are exempt.
+  for (const name of BRAND_REQUIRED) {
+    const tag = new RegExp(`<${name}\\b([^>]*)>`, 'g');
+    let m: RegExpExecArray | null;
+    while ((m = tag.exec(code)) !== null) {
+      if (!/\bbrand\s*=/.test(m[1])) {
+        return fail(`<${name}> without brand= — every brand-requiring kit element takes brand={brand}; a brandless <${name}> crashes at render.`);
+      }
+    }
+  }
+
   return { ok: true };
 }
+
+/** Kit components whose props REQUIRE brand (verified against kit signatures 2026-07-18). */
+const BRAND_REQUIRED = [
+  'Stage', 'Region', 'Corner', 'FitHeadline', 'TextBlock', 'Chip',
+  'Bar', 'Ring', 'Plot', 'Rule', 'Plate', 'Dot', 'Particles', 'Texture', 'Motif',
+  'Scene', 'SceneGrade',
+] as const;
 
 function fail(reason: string): ScanResult {
   return { ok: false, reason };

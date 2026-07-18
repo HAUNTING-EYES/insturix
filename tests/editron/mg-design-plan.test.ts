@@ -41,6 +41,9 @@ const designedList = (over: Partial<MgMomentDesignPlan> = {}): MgMomentDesignPla
     { kind: 'rule', role: 'the motif underline beneath the headline', dataProps: [] },
   ],
   motion: { enterOrder: [0, 4, 1, 2, 3], build: 'cards stagger in 4f apart, rising', hold: 'gentle float on the card stack', syncTo: 'word-onsets' },
+  // the P4 look axis: this design USES plates, so it must declare the panel look with its reason
+  look: 'panel',
+  panelReason: 'a stepped scorecard: three data-bearing cards need a surfaced readout',
   ...over,
 });
 
@@ -197,14 +200,40 @@ describe('MG design plan — beat licensing (the P3.5 door)', () => {
   });
 });
 
-describe('P3.5 door — prompt contract snapshot (KIT e1.8)', () => {
+describe('P4 — the structural look axis', () => {
+  it("★ an 'integrated' design containing a plate is REJECTED (boxless has teeth, not opinions)", () => {
+    const boxed = designedList({ look: 'integrated', panelReason: undefined });
+    const v = validateDesignPlan(plan([boxed]), [listCtx]);
+    expect(v.ok).toBe(false);
+    expect(v.problems.join(' ')).toMatch(/integrated' cannot contain a 'plate'/);
+  });
+
+  it("★ look 'panel' without panelReason is REJECTED; with a reason it passes", () => {
+    const unreasoned = designedList({ panelReason: undefined });
+    expect(validateDesignPlan(plan([unreasoned]), [listCtx]).problems.join(' ')).toMatch(/panel' without panelReason/);
+    expect(validateDesignPlan(plan([designedList()]), [listCtx]).ok).toBe(true);
+  });
+
+  it('look defaults to integrated when the designer omits it (the mandate is the default)', () => {
+    const parsed = parseMgVideoDesignPlan(plan([designedList({ elements: [
+      { kind: 'headline', role: 'title', dataProps: ['label'] },
+      { kind: 'rule', role: 'motif underline', dataProps: [] },
+    ], look: undefined as never, panelReason: undefined })]));
+    expect(parsed.moments[0]!.look).toBe('integrated');
+  });
+});
+
+describe('P3.5 door — prompt contract snapshot (KIT e1.9)', () => {
   it('coder mandates boxless-first, designer licenses within budget, judge penalizes unmotivated boxes', async () => {
     const { CODER_STABLE_PREFIX } = await import('@/lib/editron/motion-graphics/codegen/design/coder-prompt');
     const { DESIGNER_STABLE_PREFIX } = await import('@/lib/editron/motion-graphics/codegen/design/designer-prompt');
     const { JUDGE_PROMPT } = await import('@/lib/editron/motion-graphics/codegen/prompt');
     const { KIT_VERSION } = await import('@/lib/editron/motion-graphics/codegen/codegen-service');
 
-    expect(KIT_VERSION).toBe('e1.8');
+    expect(KIT_VERSION).toBe('e1.9');
+    expect(CODER_STABLE_PREFIX).toMatch(/THE LOOK IS LAW/);
+    expect(DESIGNER_STABLE_PREFIX).toMatch(/THE LOOK/);
+    expect(DESIGNER_STABLE_PREFIX).toMatch(/COMPLETE spoken thought/);
     expect(CODER_STABLE_PREFIX).toMatch(/BOXLESS FIRST/);
     expect(CODER_STABLE_PREFIX).toMatch(/Plate\s+scrim is the EXCEPTION/);
     expect(DESIGNER_STABLE_PREFIX).toMatch(/<licensing>/);

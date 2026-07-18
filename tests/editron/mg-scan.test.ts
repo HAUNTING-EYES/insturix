@@ -118,6 +118,19 @@ export const MgScene: React.FC<{brand: Brand}> = ({brand}) => {
     }
   });
 
+  it('★ brandless brand-requiring kit tag → reject (the undefined-density crash class, live 2026-07-18)', () => {
+    // the exact live specimen shape: <Region> without brand crashed dv(brand) mid-render
+    const r = scanCode(VALID.replace('<Region brand={brand} x={0.08}', '<Region x={0.08}'));
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/Region.*brand/);
+    // multiline open tag without brand is also caught
+    const multi = scanCode(VALID.replace('<FitHeadline brand={brand} text=', '<FitHeadline\n        text='));
+    expect(multi.ok).toBe(false);
+    expect(multi.reason).toMatch(/FitHeadline.*brand/);
+    // Reveal takes no brand — exempt, must still pass
+    expect(scanCode(VALID.replace('<FitHeadline brand={brand} text={String(n) + \'%\'} size="display" />', '<Reveal at={ph.intro}><FitHeadline brand={brand} text={String(n) + \'%\'} size="display" /></Reveal>')).ok).toBe(true);
+  });
+
   it('empty / non-string → reject, never throws', () => {
     expect(scanCode('').ok).toBe(false);
     expect(scanCode('   ').ok).toBe(false);
