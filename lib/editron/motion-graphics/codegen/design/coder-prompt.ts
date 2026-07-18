@@ -77,8 +77,13 @@ ${ELEMENT_MAP}
   (the repair budget is too precious to spend on a missing prop).
 - THE BUILD MUST MOVE: entrances SPAN frames (enter/stagger/Reveal with at + dur derived from phases),
   the composition visibly progresses between the intro and settled thirds, and the settled hold keeps
-  subtle ambient life. A render whose frames are near-identical dies on a deterministic motion floor
-  before any judge sees it — motion is not decoration, it is admission.
+  ambient life. A render whose frames are near-identical dies on a deterministic motion floor before any
+  judge sees it — motion is not decoration, it is admission.
+- MOTION INTENSITY IS RESOLVED, NEVER HARDCODED: data.motionIntensity is the reserved system prop — the
+  brand×video×user liveness (a number in [0.7, 1.0]). EVERY ambient() hold takes it as its strength arg
+  (ambient(frame, ph.intro, kind, data.motionIntensity)), and entrance amplitude scales with it. Never pass
+  a literal strength like 0.5 — a calm brand still reads alive at 0.7, a punchy one at 1.0, and both clear
+  the floor by construction. The value already encodes how much life THIS video wants; honour it.
 - THE LOOK IS LAW: plan.look 'integrated' → render NO Plate/card surface at all; legibility comes from the
   shade() text halo, a local SceneGrade darken behind the type region, and placement in calm footage areas
   (read the context frames you were shown). plan.look 'panel' → Plate is licensed for the stated panelReason
