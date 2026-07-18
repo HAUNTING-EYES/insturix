@@ -55,6 +55,7 @@ import {
   resolveRequestedTimelineRange,
   selectAnalysisOverlay,
 } from './chat-analysis-coordinate-space';
+import { buildChatProjectReadModel } from './chat-project-read-model';
 
 // PERF FIX: Module-level singleton map for ChatGoogleGenerativeAI instances.
 // OLD (in each tool):
@@ -658,29 +659,10 @@ export const createTools = (userId: string, projectId: string) => {
         const { mode, start, end, trackIds } = input;
         const project = await loadProject();
 
-        // Strip bloated fields that waste LLM tokens (base64 thumbnails, signed URLs)
-        const sanitizeForLLM = (proj: any) => {
-          const sanitized = { ...proj };
-          if (sanitized.overlays) {
-            sanitized.overlays = sanitized.overlays.map((o: any) => {
-              const clean = { ...o };
-              // Remove base64 thumbnail data
-              if (clean.content?.startsWith('data:image')) {
-                clean.content = '[thumbnail:base64]';
-              }
-              // Remove long signed GCS URLs, keep just the filename
-              if (clean.src?.includes('storage.googleapis.com')) {
-                const match = clean.src.match(/\/([^\/\?]+)\?/);
-                clean.src = match ? `[gcs:${decodeURIComponent(match[1])}]` : '[gcs:url]';
-              }
-              return clean;
-            });
-          }
-          return sanitized;
-        };
-
-        const sanitizedProject = sanitizeForLLM(project);
-        const canonical = JSON.stringify(sanitizedProject, null, 2);
+        const projectedProject = buildChatProjectReadModel(project, {
+          ...(mode === 'byTrackIds' && trackIds ? { overlayIds: trackIds } : {}),
+        });
+        const canonical = JSON.stringify(projectedProject, null, 2);
         const canvas = getCanvasDimensions(project);
 
         // Calculate duration if missing
@@ -704,11 +686,7 @@ export const createTools = (userId: string, projectId: string) => {
           return JSON.stringify({ jsonText: canonical.substring(start, end), meta: { totalLength: canonical.length } });
         } else if (mode === 'byTrackIds') {
           if (!trackIds) return "Error: trackIds required";
-          const filtered = {
-            ...project,
-            overlays: project.overlays.filter((o: any) => trackIds.includes(String(o.id)))
-          };
-          return JSON.stringify({ jsonText: JSON.stringify(filtered, Object.keys(filtered).sort(), 2), meta });
+          return JSON.stringify({ jsonText: canonical, meta });
         }
         return "Error: Invalid mode";
       } catch (e: any) {
