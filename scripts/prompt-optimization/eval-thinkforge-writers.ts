@@ -921,14 +921,6 @@ async function main() {
     process.exit(1);
   }
 
-  const judgeConfig = judgeProvider
-    ? buildEvalProviderConfig({
-        provider: judgeProvider,
-        temperature: 0,
-        maxOutputTokens: 2000,
-      })
-    : null;
-
   if (cases.length === 0) {
     console.error(`No test cases match (test-case=${testCaseFilter}, writer=${writerFilter}, suite=${suiteFilter}).`);
     process.exit(1);
@@ -943,6 +935,14 @@ async function main() {
     if (mismatches.length > 0) process.exit(1);
     return;
   }
+
+  const judgeConfig = judgeProvider
+    ? buildEvalProviderConfig({
+        provider: judgeProvider,
+        temperature: 0,
+        maxOutputTokens: 2000,
+      })
+    : null;
 
   const seeds = multiSeed ? [1, 2, 3, 5, 8, 13, 21, 34, 42, 55] : [seed];
   let regressionFailed = false;
