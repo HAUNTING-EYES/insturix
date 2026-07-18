@@ -80,11 +80,7 @@ export async function extractReferenceAnalysis(
   const scenesPromise = sceneService.detectScenesRemote(videoUrl).catch(() => null);
 
   // Upload to Gemini Files API
-  const { default: uploadVideoToGemini } = await importUploader();
-  const fileUri = await uploadVideoToGemini(videoUrl);
-  if (!fileUri) {
-    throw new Error('Failed to upload reference video to Gemini Files API');
-  }
+  const fileUri = await uploadReferenceVideoToGemini(videoUrl);
 
   const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
   const model = await getAnalysisModel();
@@ -176,55 +172,80 @@ export async function extractReferenceAnalysis(
   return { dna, contentMap };
 }
 
-// Lazy import to avoid circular deps
-async function importUploader() {
-  const mod = await import('./video-understanding-service');
-  // Re-export the upload function — it's not directly exported, so we
-  // recreate it using the same logic (download → Gemini Files API)
-  return {
-    default: async (videoUrl: string): Promise<string | null> => {
-      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-      if (!apiKey) return null;
+const MAX_GEMINI_REFERENCE_BYTES = 2 * 1024 * 1024 * 1024;
 
-      try {
-        const response = await fetch(videoUrl);
-        if (!response.ok) return null;
-        const buffer = Buffer.from(await response.arrayBuffer());
-        if (buffer.length > 2 * 1024 * 1024 * 1024) return null; // Gemini Files API 2GB limit
+export async function uploadReferenceVideoToGemini(videoUrl: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error('Gemini API key is not configured');
 
-        const { GoogleAIFileManager } = await import('@google/generative-ai/server');
-        const fileManager = new GoogleAIFileManager(apiKey);
-        const os = await import('os');
-        const path = await import('path');
-        const fs = await import('fs');
-        const tmpPath = path.join(os.tmpdir(), `ref_${Date.now()}.mp4`);
+  const response = await fetch(videoUrl);
+  if (!response.ok || !response.body) {
+    throw new Error(`Reference video download failed with HTTP ${response.status}`);
+  }
 
-        try {
-          fs.writeFileSync(tmpPath, buffer);
-          const uploadResult = await fileManager.uploadFile(tmpPath, {
-            mimeType: 'video/mp4',
-            displayName: `reference-${Date.now()}.mp4`,
-          });
-          const fileUri = uploadResult?.file?.uri;
-          if (!fileUri) return null;
+  const declaredSize = Number(response.headers.get('content-length') ?? 0);
+  if (Number.isFinite(declaredSize) && declaredSize > MAX_GEMINI_REFERENCE_BYTES) {
+    throw new Error('Reference video exceeds the Gemini Files API 2GB limit');
+  }
 
-          const activation = await waitForGeminiFileActive({
-            fileManager,
-            fileName: uploadResult?.file?.name,
-            initialState: uploadResult?.file?.state,
-            label: 'RefExtractor',
-            fileSizeBytes: buffer.length,
-          });
-          if (!activation.active) {
-            console.warn(`[RefExtractor] Gemini file not ACTIVE after ${Math.round(activation.waitedMs / 1000)}s (state=${activation.state ?? 'unknown'}, attempts=${activation.attempts}, reason=${activation.reason})`);
-            return null;
-          }
-          return fileUri;
-        } finally {
-          try { fs.unlinkSync(tmpPath); } catch (err: unknown) { console.warn('[RefExtractor] tmp cleanup failed:', err instanceof Error ? err.message : err); }
-        }
-      } catch (err: unknown) { console.warn('[RefExtractor] video upload failed:', err instanceof Error ? err.message : err); return null;
+  const [{ GoogleAIFileManager }, { randomUUID }, fs, os, path, stream, streamPromises] = await Promise.all([
+    import('@google/generative-ai/server'),
+    import('node:crypto'),
+    import('node:fs'),
+    import('node:os'),
+    import('node:path'),
+    import('node:stream'),
+    import('node:stream/promises'),
+  ]);
+  const tmpPath = path.join(os.tmpdir(), `editron-reference-${randomUUID()}.mp4`);
+  let downloadedBytes = 0;
+  const sizeGuard = new stream.Transform({
+    transform(chunk, _encoding, callback) {
+      downloadedBytes += chunk.length;
+      if (downloadedBytes > MAX_GEMINI_REFERENCE_BYTES) {
+        callback(new Error('Reference video exceeds the Gemini Files API 2GB limit'));
+        return;
       }
+      callback(null, chunk);
     },
-  };
+  });
+
+  try {
+    await streamPromises.pipeline(
+      stream.Readable.fromWeb(response.body as never),
+      sizeGuard,
+      fs.createWriteStream(tmpPath, { flags: 'wx' }),
+    );
+    if (downloadedBytes === 0) throw new Error('Reference video download was empty');
+
+    const fileManager = new GoogleAIFileManager(apiKey);
+    const uploadResult = await fileManager.uploadFile(tmpPath, {
+      mimeType: 'video/mp4',
+      displayName: `editron-reference-${Date.now()}.mp4`,
+    });
+    const fileUri = uploadResult?.file?.uri;
+    if (!fileUri) throw new Error('Gemini Files API returned no file URI');
+
+    const activation = await waitForGeminiFileActive({
+      fileManager,
+      fileName: uploadResult?.file?.name,
+      initialState: uploadResult?.file?.state,
+      label: 'RefExtractor',
+      fileSizeBytes: downloadedBytes,
+    });
+    if (!activation.active) {
+      throw new Error(
+        `Gemini reference file did not become ACTIVE (state=${activation.state ?? 'unknown'}, reason=${activation.reason ?? 'unknown'})`,
+      );
+    }
+    return fileUri;
+  } finally {
+    try {
+      await fs.promises.unlink(tmpPath);
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        console.warn('[RefExtractor] tmp cleanup failed:', error instanceof Error ? error.message : error);
+      }
+    }
+  }
 }

@@ -260,7 +260,9 @@ export async function extractEditDNA(params: {
     throw new Error("projectId is required when using videoOverlayId");
   }
 
-  // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory.
+  const { uploadReferenceVideoToGemini } = await import('./reference-content-extractor');
+  const fileUri = await uploadReferenceVideoToGemini(resolvedUrl);
+
   const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
   const model = await getAnalysisModel();
 
@@ -270,7 +272,7 @@ export async function extractEditDNA(params: {
     {
       fileData: {
         mimeType: "video/mp4",
-        fileUri: resolvedUrl,
+        fileUri,
       },
     },
     { text: EDIT_DNA_PROMPT },
