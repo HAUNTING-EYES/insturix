@@ -2,50 +2,30 @@ import { z } from 'zod';
 
 import type { MediaAsset } from './asset-resolver';
 import {
+  CHAT_ATTACHMENT_MAX_COUNT,
+  CHAT_ATTACHMENT_ROLES,
+  type AuthorizedChatAttachment,
+  type AuthorizedMediaChatAttachment,
+  type AuthorizedReferenceChatAttachment,
+  type ChatAttachmentAnalysisReadiness,
+  type ChatAttachmentMediaType,
+  type ChatAttachmentRole,
+} from '../shared/chat-attachment';
+import {
   getChatReferenceAttachment,
   type ChatReferenceAttachmentRecord,
 } from './chat-reference-attachment-service';
 
-export const CHAT_ATTACHMENT_MAX_COUNT = 8;
-
-export const CHAT_ATTACHMENT_ROLES = [
-  'source',
-  'style-reference',
-  'music-reference',
-  'brand-evidence',
-  'context',
-  'script',
-] as const;
-
-export type ChatAttachmentRole = (typeof CHAT_ATTACHMENT_ROLES)[number];
-export type ChatAttachmentMediaType = MediaAsset['type'];
-export type ChatAttachmentAnalysisReadiness = 'ready' | 'processing' | 'failed' | 'unknown';
-
-export interface AuthorizedMediaChatAttachment {
-  attachmentId: string;
-  kind: 'media-asset';
-  role: ChatAttachmentRole;
-  assetId: string;
-  name: string;
-  mediaType: ChatAttachmentMediaType;
-  analysisReadiness: ChatAttachmentAnalysisReadiness;
-  durationSec?: number;
-  dimensions?: { width: number; height: number };
-}
-
-export interface AuthorizedReferenceChatAttachment {
-  attachmentId: string;
-  kind: 'reference';
-  role: ChatAttachmentRole;
-  referenceId: string;
-  name: string;
-  referenceType: ChatReferenceAttachmentRecord['sourceType'];
-  analysisReadiness: ChatAttachmentAnalysisReadiness;
-  contentDigest?: string;
-  contentExcerpt?: string;
-}
-
-export type AuthorizedChatAttachment = AuthorizedMediaChatAttachment | AuthorizedReferenceChatAttachment;
+export {
+  CHAT_ATTACHMENT_MAX_COUNT,
+  CHAT_ATTACHMENT_ROLES,
+  type AuthorizedChatAttachment,
+  type AuthorizedMediaChatAttachment,
+  type AuthorizedReferenceChatAttachment,
+  type ChatAttachmentAnalysisReadiness,
+  type ChatAttachmentMediaType,
+  type ChatAttachmentRole,
+} from '../shared/chat-attachment';
 
 interface ResolveChatAttachmentsDependencies {
   loadAsset(assetId: string, userId: string): Promise<MediaAsset | null>;

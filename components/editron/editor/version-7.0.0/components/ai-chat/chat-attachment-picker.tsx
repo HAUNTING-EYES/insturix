@@ -14,7 +14,7 @@ import {
   type AuthorizedReferenceChatAttachment,
   type ChatAttachmentAnalysisReadiness,
   type ChatAttachmentRole,
-} from '@/lib/editron/services/chat-attachment-contract';
+} from '@/lib/editron/shared/chat-attachment';
 import { useLocalMedia } from '../../contexts/local-media-context';
 import type { LocalMediaFile } from '../../types';
 import {
