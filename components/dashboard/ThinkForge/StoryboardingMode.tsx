@@ -22,6 +22,7 @@ interface StoryboardingModeProps {
   tabsRefreshTrigger?: number;
   script: Script | null;
   isScriptLoading?: boolean;
+  initialChatMessages?: any[];
   isSaving: boolean;
   onApplyEdit: (updated: Script) => void;
   onRunEdit: (instruction: string, selection?: string) => Promise<any>;
@@ -44,6 +45,7 @@ export default function StoryboardingMode({
   tabsRefreshTrigger,
   script,
   isScriptLoading,
+  initialChatMessages,
   isSaving,
   onApplyEdit,
   onRunEdit,
@@ -215,6 +217,7 @@ export default function StoryboardingMode({
             script={script}
             scriptId={scriptId}
             isScriptLoading={isScriptLoading}
+            initialMessages={initialChatMessages}
             onApplyEdit={onApplyEdit}
             onRunEdit={onRunEdit}
             sessionId={sessionId}

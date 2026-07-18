@@ -111,7 +111,7 @@ export async function POST(req: Request) {
     const stateReadStartedAt = performance.now();
     const [script, chat, preferences] = await Promise.all([
       db.getScript(session._id, scriptId),
-      db.getChatHistory(session._id, 50),
+      db.getChatHistory(session._id, 50, 'default'),
       db.getUserPreferences(userId),
     ]);
     const stateReadMs = performance.now() - stateReadStartedAt;

@@ -246,7 +246,7 @@ describe('ThinkForge session route authorization', () => {
       undefined,
     );
     expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'script_2');
-    expect(mocks.getChatHistory).toHaveBeenCalledWith('session_canonical', 50);
+    expect(mocks.getChatHistory).toHaveBeenCalledWith('session_canonical', 50, 'default');
     expect(mocks.getUserPreferences).toHaveBeenCalledWith('user_1');
   });
 

@@ -159,7 +159,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
     }
 
     // Use initial messages if provided
-    if (Array.isArray(initialMessages) && initialMessages.length > 0) {
+    if (Array.isArray(initialMessages)) {
       const normalized = initialMessages.map(normalizeMessage);
       setMessages(normalized);
       saveLocal(sessionId, threadId, { chat: normalized } as any);

@@ -66,6 +66,12 @@ export type HydratedScriptSnapshot = {
   script: ScriptModel | null;
 };
 
+export type HydratedChatSnapshot = {
+  sessionId: string;
+  threadId: 'default';
+  messages: any[];
+};
+
 type CachedSession = Partial<HydrateResponse & { script: ScriptModel }> & {
   cachedAt?: number;
 };
@@ -108,6 +114,7 @@ export function useThinkForgeSession() {
   const [projectMeta, setProjectMeta] = useState<Record<string, any>>({});
   const [isHydrating, setIsHydrating] = useState(false);
   const [hydratedScriptSnapshot, setHydratedScriptSnapshot] = useState<HydratedScriptSnapshot | null>(null);
+  const [hydratedChatSnapshot, setHydratedChatSnapshot] = useState<HydratedChatSnapshot | null>(null);
   const hydrationRevisionRef = useRef(0);
   const hydrationAbortControllerRef = useRef<AbortController | null>(null);
 
@@ -120,6 +127,9 @@ export function useThinkForgeSession() {
           setSessionId(last);
           setPreferences(cached.preferences || {});
           setProjectMeta(cached.projectMeta || {});
+          if (Array.isArray(cached.chat)) {
+            setHydratedChatSnapshot({ sessionId: last, threadId: 'default', messages: cached.chat });
+          }
         }
       }
     } catch (err) {
@@ -149,6 +159,7 @@ export function useThinkForgeSession() {
       setSessionId(null);
       setPreferences({});
       setProjectMeta({});
+      setHydratedChatSnapshot(null);
     }
 
     try {
@@ -209,6 +220,11 @@ export function useThinkForgeSession() {
         revision: hydrationRevisionRef.current,
         script: sanitizedScript,
       });
+      setHydratedChatSnapshot({
+        sessionId: data.sessionId,
+        threadId: 'default',
+        messages: Array.isArray(data.chat) ? data.chat : [],
+      });
       
       localStorage.setItem(LS_CURRENT_SESSION, data.sessionId);
       const cachePayload: Partial<HydrateResponse & { script: ScriptModel }> = {
@@ -232,6 +248,9 @@ export function useThinkForgeSession() {
         const cached = getLocal(sid);
         if (cached) {
           setSessionId(sid);
+          if (Array.isArray(cached.chat)) {
+            setHydratedChatSnapshot({ sessionId: sid, threadId: 'default', messages: cached.chat });
+          }
           setPreferences(cached.preferences || {});
           setProjectMeta(cached.projectMeta || {});
         }
@@ -257,6 +276,7 @@ export function useThinkForgeSession() {
       setPreferences({});
       setProjectMeta({});
       setHydratedScriptSnapshot(null);
+      setHydratedChatSnapshot(null);
       setIsHydrating(false);
     } catch (e) {
       console.error('[useThinkForgeSession] closeSession error:', e);
@@ -305,6 +325,7 @@ export function useThinkForgeSession() {
             setPreferences({});
             setProjectMeta({});
             setHydratedScriptSnapshot(null);
+            setHydratedChatSnapshot(null);
           }
         }
         
@@ -325,6 +346,7 @@ export function useThinkForgeSession() {
     projectMeta,
     setProjectMeta,
     hydratedScriptSnapshot,
+    hydratedChatSnapshot,
     isHydrating,
     hydrate,
     closeSession,
