@@ -14,6 +14,7 @@ import type { Brand } from './kit/brand';
 import type { SemanticMgCandidate } from '../engine/semantic-mg-candidates';
 import type { VideoStyle } from './style/style-resolver';
 import type { FootageSignals } from './style/footage-character';
+import type { MgMomentDesignPlan, MgVideoDesignBrief } from './design/design-plan';
 
 /** The clip window on the timeline, in frames at `fps`. */
 export interface MgWindow {
@@ -97,6 +98,16 @@ export interface MgVisualEvidence {
   ];
 }
 
+/** An APPROVED video-level design for THIS moment (P5-1 Phase C — the design-then-code path). `plan` is this
+ *  moment's design; `brief` is the video-level brief every moment shares (one motif/palette/motion language →
+ *  broadcast-package coherence). When present, the worker's generateMoment renders the plan via the coder prompt
+ *  (buildCoderPrompt) instead of free-form codegen. The seam attaches this only for lanes the coder renders —
+ *  never 'cutaway-scene', which has no component (buildCoderPrompt throws); generateMoment also guards that lane. */
+export interface MgMomentDesign {
+  plan: MgMomentDesignPlan;
+  brief: MgVideoDesignBrief;
+}
+
 /** The full per-moment input: the licensed FACT + its context. No MG type. */
 export interface MgMomentInput {
   momentId: string;
@@ -123,6 +134,9 @@ export interface MgMomentInput {
    *  `data` as the reserved `data.motionIntensity` the coder binds for every hold/entrance (P5-1: closes the
    *  dead path where the prop existed only in harnesses). Absent = producer predates the resolver. */
   motionIntensity?: number;
+  /** An approved video-level design for this moment (P5-1 Phase C). Present → generateMoment renders THIS design
+   *  via the coder prompt (design-then-code); absent → today's free-form codegen path. */
+  design?: MgMomentDesign;
 }
 
 export type MgProviderFailureCode =

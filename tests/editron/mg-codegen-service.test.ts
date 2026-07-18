@@ -12,6 +12,7 @@ import {
   type CodegenDeps,
 } from '@/lib/editron/motion-graphics/codegen/codegen-service';
 import type { MgMomentInput } from '@/lib/editron/motion-graphics/codegen/types';
+import type { MgMomentDesignPlan, MgVideoDesignBrief } from '@/lib/editron/motion-graphics/codegen/design/design-plan';
 import {
   MG_RENDER_WORKER_CONTRACT_VERSION,
   mgRenderWorkerResultSchema,
@@ -395,6 +396,64 @@ describe('promptHash - Law 5 caching (keys on the fact SHAPE + register, not val
         ],
       },
     }))).not.toBe(a);
+  });
+});
+
+describe('generateMoment - design-then-code prompt switch (P5-1 Phase C)', () => {
+  const brief: MgVideoDesignBrief = {
+    styleName: 'clean', motifLanguage: 'thin gold rule under key terms', paletteMoves: 'charcoal + gold',
+    motionPersonality: 'snappy', formVariety: 'type then structure',
+  };
+  const overlayPlan: MgMomentDesignPlan = {
+    momentId: 'm1', lane: 'overlay-kit', concept: 'kinetic figure, growth dominates', targetBar: 'energy',
+    structure: { placement: 'center-right', grouping: 'figure + underline', readingOrder: 'figure then rule' },
+    elements: [
+      { kind: 'headline', role: 'the growth figure', dataProps: ['value'] },
+      { kind: 'rule', role: 'motif underline', dataProps: [] },
+    ],
+    motion: { enterOrder: [0, 1], build: 'figure enters, rule draws', hold: 'gentle float', syncTo: 'phases-only' },
+    look: 'integrated',
+  };
+  // capture the prompt, then DECLINE to short-circuit the pipeline right after the prompt is built.
+  const capturing = () => {
+    const ref = { prompt: '' };
+    return { ref, deps: deps({ writeComponent: async (p) => { ref.prompt = p; return 'DECLINE: capture'; } }) };
+  };
+
+  it('★ with an approved design → the CODER prompt (implementation), carrying the plan', async () => {
+    const { ref, deps: d } = capturing();
+    const r = await generateMoment(input({ design: { plan: overlayPlan, brief } }), d);
+    expect(r.status).toBe('declined'); // the capture decline, proving the prompt was built and sent
+    expect(ref.prompt).toContain('IMPLEMENTATION engineer'); // the coder role, not the free-form designer role
+    expect(ref.prompt).toContain('<design>'); // the approved plan crossed into the prompt
+    expect(ref.prompt).toContain('growth dominates'); // ...the plan's own concept text
+  });
+
+  it('without a design → the free-form codegen prompt (today\'s path, unchanged)', async () => {
+    const { ref, deps: d } = capturing();
+    await generateMoment(input(), d);
+    expect(ref.prompt).toContain('designer-engineer'); // the free-form role
+    expect(ref.prompt).not.toContain('IMPLEMENTATION engineer');
+    expect(ref.prompt).not.toContain('<design>');
+  });
+
+  it('★ a cutaway-scene design has no component → falls back to free-form, never throws', async () => {
+    const cutaway: MgMomentDesignPlan = {
+      ...overlayPlan, lane: 'cutaway-scene', elements: [{ kind: 'texture', role: 'ambient grain', dataProps: [] }],
+    };
+    const { ref, deps: d } = capturing();
+    const r = await generateMoment(input({ design: { plan: cutaway, brief } }), d);
+    expect(r.status).toBe('declined'); // did NOT throw on the component-less lane
+    expect(ref.prompt).toContain('designer-engineer'); // fell back to free-form
+    expect(ref.prompt).not.toContain('<design>');
+  });
+
+  it('promptHash keys on the design: present → different, identical designs → equal, design-less → unchanged', () => {
+    const base = promptHash(input());
+    const withDesign = promptHash(input({ design: { plan: overlayPlan, brief } }));
+    expect(withDesign).not.toBe(base);
+    expect(promptHash(input({ design: { plan: overlayPlan, brief } }))).toBe(withDesign); // deterministic
+    expect(promptHash(input())).toBe(base); // the new field leaves the free-form hash byte-identical
   });
 });
 

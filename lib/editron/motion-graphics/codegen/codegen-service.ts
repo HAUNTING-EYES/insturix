@@ -228,6 +228,27 @@ export function buildCodegenPrompt(input: MgMomentInput): string {
 }
 
 /**
+ * Choose this moment's prompt. With an APPROVED design plan (P5-1 design-then-code), render THAT plan via the
+ * coder prompt — a constrained, mechanical implementation task (which is why cheap models become viable again at
+ * this step). Without one, the free-form codegen prompt (today's path, unchanged). A 'cutaway-scene' plan carries
+ * NO component (buildCoderPrompt throws), so it falls back to free-form — a mis-attached cutaway can never crash
+ * the worker (R18N: fail safe, deterministically).
+ *
+ * DYNAMIC IMPORT (not static) breaks a real require cycle: coder-prompt imports buildMomentBlock from THIS module,
+ * so a static import back would form codegen-service ↔ coder-prompt. The coder is only needed on the design path,
+ * and the worker executes `tsx` over a filesystem snapshot (no tree-shaking — verified in sandbox-render-worker.ts),
+ * so lazy-loading the coder module is always resolvable there, not a bundler dodge.
+ */
+async function resolveMomentPrompt(input: MgMomentInput): Promise<string> {
+  const design = input.design;
+  if (design && design.plan.lane !== 'cutaway-scene') {
+    const { buildCoderPrompt } = await import('./design/coder-prompt');
+    return buildCoderPrompt({ plan: design.plan, brief: design.brief, moment: input });
+  }
+  return buildCodegenPrompt(input);
+}
+
+/**
  * Make the component's imports deterministic. The model is told not to write imports, but it omits/mangles
  * them ~half the time, and an import-less component fails to compile → needless fallback. So: STRIP any import
  * lines the model wrote, then PREPEND the canonical kit block. Runs AFTER the scan (which sees the raw output,
@@ -281,6 +302,9 @@ export function promptHash(input: MgMomentInput): string {
     motion: input.brand.motion,
     visualEvidence,
     kit: KIT_VERSION,
+    // The approved design fully determines the authored component on the design-then-code path, so it belongs in
+    // the key. Conditional so a design-LESS (free-form) moment keeps a byte-identical hash to before this field.
+    ...(input.design ? { design: { plan: input.design.plan, brief: input.design.brief } } : {}),
   };
   return createHash('sha256').update(JSON.stringify(salient)).digest('hex');
 }
@@ -299,7 +323,7 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     compiled: false,
     outcome: 'fallback',
   };
-  const basePrompt = buildCodegenPrompt(input);
+  const basePrompt = await resolveMomentPrompt(input);
 
   const attempt = async (note?: string): Promise<{
     code: string;

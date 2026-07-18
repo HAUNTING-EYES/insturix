@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import type { MgSequenceOutput } from './render/render-moment';
 import type { MgMomentInput, MgReceipt, MgVisualEvidenceRole } from './types';
+import { mgMomentDesignPlanSchema, mgVideoDesignBriefSchema } from './design/design-plan';
 
 export const MG_RENDER_WORKER_CONTRACT_VERSION = 'editron-mg-render-worker-v2' as const;
 
@@ -231,6 +232,13 @@ export const mgMomentInputSchema = z.object({
   footageSignals: footageSignalsSchema.optional(),
   /** Resolved liveness [0.7,1] (brand×video×user) — becomes the reserved data.motionIntensity at render. */
   motionIntensity: z.number().min(0).max(1).optional(),
+  /** An approved video-level design for this moment (P5-1 Phase C — design-then-code). Present → the worker's
+   *  generateMoment renders THIS design via the coder prompt. The SAME plan/brief schemas the design session
+   *  validates against, so a plan that cleared design-time validation crosses this strict boundary unchanged. */
+  design: z.object({
+    plan: mgMomentDesignPlanSchema,
+    brief: mgVideoDesignBriefSchema,
+  }).strict().optional(),
 }).strict().superRefine((moment, context) => {
   if (!moment.visualEvidence) return;
   for (const [index, frame] of moment.visualEvidence.frames.entries()) {
