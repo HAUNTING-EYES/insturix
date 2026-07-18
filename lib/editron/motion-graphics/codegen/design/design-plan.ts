@@ -265,6 +265,20 @@ export function parseMgVideoDesignPlan(value: unknown): MgVideoDesignPlan {
   return mgVideoDesignPlanSchema.parse(value);
 }
 
+/**
+ * The single source of truth for MgDesignPlanMomentContext.numericProps: a content prop is NUMERIC (a valid
+ * bind target for a bar/ring/plot) when its value is a scalar number OR an all-number array — a series's
+ * `values: [12,34,58,91]` is legitimately plottable. Deriving this from a lossy 'list'|'number'|'text' kind
+ * wrongly excludes numeric arrays and false-rejects a correct plot (caught in the P4 matrix, 2026-07-18);
+ * always derive from the raw content values through this helper so every caller (harnesses + the P5 seam)
+ * agrees.
+ */
+export function deriveNumericProps(content: Record<string, unknown>): string[] {
+  const isNumeric = (v: unknown): boolean =>
+    typeof v === 'number' || (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'number'));
+  return Object.entries(content).filter(([, v]) => isNumeric(v)).map(([k]) => k);
+}
+
 // ─── output-mode routing (4b-3) ───
 
 /** How a designed moment's RENDER leaves the pipeline:

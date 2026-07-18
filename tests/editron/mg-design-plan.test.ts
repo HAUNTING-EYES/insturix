@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   designOutputMode,
+  deriveNumericProps,
   mgVideoDesignPlanSchema,
   parseMgVideoDesignPlan,
   validateDesignPlan,
@@ -237,6 +238,26 @@ describe('P4 — the structural look axis', () => {
     });
     expect(validateDesignPlan(plan([bar]), [grounded]).ok).toBe(true);
     expect(validateDesignPlan(plan([overreach]), [listCtx]).ok).toBe(true);
+  });
+
+  it('★ deriveNumericProps: a series values-array counts as numeric; a plot bound to it PASSES (P4 matrix false-positive fix)', () => {
+    // the exact matrix case that false-rejected: series values is an all-number array → plottable
+    expect(deriveNumericProps({ values: [12, 34, 58, 91], unit: 'k', label: 'signups' })).toEqual(['values']);
+    expect(deriveNumericProps({ value: 73, unit: '%', label: 'x' })).toEqual(['value']);
+    expect(deriveNumericProps({ items: ['a', 'b'], label: 'steps' })).toEqual([]); // string list is NOT numeric
+    expect(deriveNumericProps({ line: 'a spoken sentence' })).toEqual([]);
+
+    const seriesCtx = { momentId: 'm_series', factKind: 'series', contentProps: ['values', 'unit', 'label'], numericProps: deriveNumericProps({ values: [12, 34, 58, 91], unit: 'k', label: 'signups' }) };
+    const plot = designedList({
+      momentId: 'm_series',
+      elements: [
+        { kind: 'plot', role: 'the growth trajectory', dataProps: ['values'] },
+        { kind: 'headline', role: 'label', dataProps: ['label'] },
+      ],
+      look: 'integrated' as const, panelReason: undefined,
+      motion: { enterOrder: [0, 1], build: 'plot draws point by point', hold: 'settle', syncTo: 'beats' },
+    });
+    expect(validateDesignPlan(plan([plot]), [seriesCtx]).ok).toBe(true);
   });
 
   it('look defaults to integrated when the designer omits it (the mandate is the default)', () => {
