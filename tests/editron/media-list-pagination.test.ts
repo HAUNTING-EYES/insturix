@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   find: vi.fn(),
   getDatabase: vi.fn(),
   getOrRefreshUrl: vi.fn(),
+  refreshSignedUrl: vi.fn(),
+  updateOne: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
@@ -14,6 +16,9 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
 }));
 vi.mock('@/lib/editron/services/asset-resolver', () => ({
   assetResolver: { getOrRefreshUrl: mocks.getOrRefreshUrl },
+}));
+vi.mock('@/lib/editron/services/gcs-service', () => ({
+  refreshSignedUrl: mocks.refreshSignedUrl,
 }));
 
 function asset(index: number, uploadedAt = new Date(2026, 6, 13, 10, 0, 0, index)): Record<string, unknown> {
@@ -50,6 +55,10 @@ describe('Editron media-list pagination', () => {
     for (const mock of Object.values(mocks)) mock.mockReset();
     mocks.auth.mockResolvedValue({ userId: 'user_1' });
     mocks.getOrRefreshUrl.mockImplementation(async (entry: { assetId: string }) => `https://cdn.test/${entry.assetId}`);
+    mocks.refreshSignedUrl.mockResolvedValue({
+      url: 'https://thumbs.test/refreshed.webp',
+      expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+    });
   });
 
   it('uses a bounded projected query and returns a stable continuation cursor', async () => {
@@ -140,5 +149,62 @@ describe('Editron media-list pagination', () => {
       expect.any(Object),
     );
   });
-});
 
+  it('never returns legacy data thumbnails and keeps the original asset URL independent', async () => {
+    const legacyAsset = {
+      ...asset(1),
+      thumbnail: `data:image/png;base64,${'A'.repeat(20_000)}`,
+    };
+    const cloudAsset = {
+      ...asset(2),
+      thumbnail: 'https://thumbs.test/asset_002.webp',
+    };
+    const cursor = mockCursor([legacyAsset, cloudAsset]);
+    mocks.find.mockReturnValue(cursor);
+    mocks.getDatabase.mockResolvedValue({
+      collection: vi.fn(() => ({ find: mocks.find, updateOne: mocks.updateOne })),
+    });
+
+    const { GET } = await import('@/app/api/services/editron/media/list/route');
+    const response = await GET(new Request('http://localhost/api/services/editron/media/list') as never);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.assets[0].thumbnail).toBeUndefined();
+    expect(body.assets[0].path).toBe('https://cdn.test/asset_001');
+    expect(body.assets[1].thumbnail).toBe('https://thumbs.test/asset_002.webp');
+    expect(JSON.stringify(body)).not.toContain('data:image');
+    expect(mocks.refreshSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it('refreshes an expired GCS thumbnail without changing the source URL', async () => {
+    const expiredAsset = {
+      ...asset(3),
+      thumbnail: 'https://thumbs.test/expired.webp',
+      thumbnailGcsPath: 'users/user_1/thumbnails/asset_003.webp',
+      thumbnailUrlExpiresAt: new Date('2020-01-01T00:00:00.000Z'),
+    };
+    const cursor = mockCursor([expiredAsset]);
+    mocks.find.mockReturnValue(cursor);
+    mocks.getDatabase.mockResolvedValue({
+      collection: vi.fn(() => ({ find: mocks.find, updateOne: mocks.updateOne })),
+    });
+
+    const { GET } = await import('@/app/api/services/editron/media/list/route');
+    const response = await GET(new Request('http://localhost/api/services/editron/media/list') as never);
+    const body = await response.json();
+
+    expect(body.assets[0].thumbnail).toBe('https://thumbs.test/refreshed.webp');
+    expect(body.assets[0].path).toBe('https://cdn.test/asset_003');
+    expect(mocks.refreshSignedUrl).toHaveBeenCalledWith('users/user_1/thumbnails/asset_003.webp');
+    expect(mocks.updateOne).toHaveBeenCalledWith(
+      { assetId: 'asset_003', userId: 'user_1' },
+      {
+        $set: {
+          thumbnail: 'https://thumbs.test/refreshed.webp',
+          thumbnailUrlExpiresAt: new Date('2099-01-01T00:00:00.000Z'),
+        },
+      },
+    );
+  });
+});

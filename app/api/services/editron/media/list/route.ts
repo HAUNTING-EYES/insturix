@@ -8,6 +8,7 @@ import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { auth } from '@clerk/nextjs/server';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
+import { refreshSignedUrl } from '@/lib/editron/services/gcs-service';
 
 export const runtime = 'nodejs';
 
@@ -18,6 +19,50 @@ type MediaListCursor = {
   uploadedAt: Date;
   assetId: string;
 };
+
+type ThumbnailBackedMediaAsset = MediaAsset & {
+  thumbnailGcsPath?: string;
+  thumbnailUrlExpiresAt?: Date;
+};
+
+function safeThumbnailReference(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > 2_048) return undefined;
+  return /^https?:\/\//i.test(value) ? value : undefined;
+}
+
+async function resolveThumbnailReference(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  asset: ThumbnailBackedMediaAsset,
+): Promise<string | undefined> {
+  const current = safeThumbnailReference(asset.thumbnail);
+  if (!asset.thumbnailGcsPath) return current;
+
+  const expiresAt = asset.thumbnailUrlExpiresAt
+    ? new Date(asset.thumbnailUrlExpiresAt).getTime()
+    : 0;
+  const refreshThreshold = Date.now() + 3 * 24 * 60 * 60 * 1000;
+  if (current && expiresAt > refreshThreshold) return current;
+
+  try {
+    const refreshed = await refreshSignedUrl(asset.thumbnailGcsPath);
+    await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+      { assetId: asset.assetId, userId: asset.userId },
+      {
+        $set: {
+          thumbnail: refreshed.url,
+          thumbnailUrlExpiresAt: refreshed.expiresAt,
+        },
+      },
+    );
+    return refreshed.url;
+  } catch (error: unknown) {
+    console.warn(
+      `[media/list] Thumbnail refresh failed for ${asset.assetId}:`,
+      error instanceof Error ? error.message : error,
+    );
+    return current && expiresAt > Date.now() ? current : undefined;
+  }
+}
 
 function mediaListPageSize(searchParams: URLSearchParams): number {
   const rawLimit = searchParams.get('limit');
@@ -101,6 +146,7 @@ export async function GET(request: NextRequest) {
     // Resolve assets to get fresh signed URLs if needed
     const resolvedAssets = await Promise.all(
       mediaAssets.map(async (asset) => {
+        const thumbnail = await resolveThumbnailReference(db, asset as ThumbnailBackedMediaAsset);
         try {
           // Use AssetResolver to get fresh URL
           const resolvedUrl = await (assetResolver as any).getOrRefreshUrl(asset);
@@ -112,7 +158,7 @@ export async function GET(request: NextRequest) {
             path: resolvedUrl, // Fresh signed URL
             size: asset.size,
             lastModified: new Date(asset.uploadedAt).getTime(),
-            thumbnail: asset.thumbnail,
+            thumbnail,
             duration: asset.duration,
             dimensions: asset.dimensions,
             analysisStatus: (asset as MediaAsset & { analysisStatus?: string }).analysisStatus,
@@ -130,11 +176,12 @@ export async function GET(request: NextRequest) {
             path: asset.cachedUrl || '',
             size: asset.size,
             lastModified: new Date(asset.uploadedAt).getTime(),
-            thumbnail: asset.thumbnail,
+            thumbnail,
             duration: asset.duration,
             dimensions: asset.dimensions,
             analysisStatus: (asset as MediaAsset & { analysisStatus?: string }).analysisStatus,
             uploadBatchId: (asset as MediaAsset & { uploadBatchId?: string }).uploadBatchId,
+            pinned: asset.pinned === true,
           };
         }
       })

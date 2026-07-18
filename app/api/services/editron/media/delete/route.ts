@@ -53,6 +53,14 @@ export async function DELETE(request: NextRequest) {
       storageUsageRecordedAt: { $exists: true },
     });
 
+    // Delete the derivative first. If storage is temporarily unavailable, the
+    // source and Mongo row remain intact so the whole operation can be retried.
+    if (asset.thumbnailR2Key) {
+      await deleteFromR2(asset.thumbnailR2Key);
+    } else if (asset.thumbnailGcsPath) {
+      await deleteFromGCS(asset.thumbnailGcsPath);
+    }
+
     if (asset.type === 'sequence') {
       if (!asset.r2Prefix) {
         throw new Error(`Sequence asset ${asset.assetId} is missing r2Prefix`);
@@ -75,8 +83,12 @@ export async function DELETE(request: NextRequest) {
       .deleteOne({ assetId, userId });
 
     const assetBytes = Number(asset.size) || 0;
+    const thumbnailBytes = Number(asset.thumbnailSize) || 0;
     const completedMultipartBytes = Number(completedMultipartUpload?.storageUsageBytes ?? completedMultipartUpload?.totalSize) || 0;
     await recordStorageUsage(resolveStorageOwner(userId, orgId), -(assetBytes + completedMultipartBytes));
+    if (thumbnailBytes > 0) {
+      await recordStorageUsage(resolveStorageOwner(userId, orgId), -thumbnailBytes);
+    }
 
     return NextResponse.json({
       success: true,
