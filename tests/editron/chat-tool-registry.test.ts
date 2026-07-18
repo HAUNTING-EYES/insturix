@@ -84,6 +84,14 @@ describe('chat tool registry', () => {
     expect(agentSource).toContain('cut_section');
     expect(agentSource).toContain('A successful edit turn must include at least one mutating tool call');
   });
+
+  it('keeps cardinality in the tool contract instead of a second hardcoded analyzer limiter', () => {
+    const agentSource = readFileSync(join(process.cwd(), 'lib/editron/agent/agent-graph.ts'), 'utf8');
+
+    expect(agentSource).not.toContain('RATE_LIMITED_TOOLS');
+    expect(agentSource).not.toContain('countToolCallsSinceLastHuman');
+  });
+
   it('has labels and receipt text for registered tools', () => {
     const incomplete = Object.values(CHAT_TOOL_REGISTRY)
       .filter((metadata) => !metadata.label || !metadata.shortLabel || !formatChatToolReceipt(metadata.name))

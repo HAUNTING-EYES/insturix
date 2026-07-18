@@ -93,38 +93,6 @@ const debugWarn = (...args: any[]) => { console.warn('[AGENT-WARN]', ...args); }
 const debugError = (...args: any[]) => { console.error('[AGENT-ERROR]', ...args); }; // Errors always logged
 
 /**
- * Expensive analysis tools that must be rate-limited per agent turn.
- * Each tool in this map may be called at most MAX_ANALYSIS_CALLS_PER_TOOL times
- * within a single user→agent turn (i.e. since the last HumanMessage).
- * Exceeding the limit short-circuits execution and surfaces an error to the user.
- */
-const RATE_LIMITED_TOOLS: Record<string, number> = {
-  analyze_clip_audio: 3,
-  analyze_clip_video: 3,
-};
-
-/**
- * Count how many times a tool has been called since the last HumanMessage.
- * We scan backwards through state.messages until we hit a HumanMessage,
- * counting AIMessages that contain tool_calls for the named tool.
- */
-function countToolCallsSinceLastHuman(
-  messages: typeof MessagesAnnotation.State['messages'],
-  toolName: string,
-): number {
-  let count = 0;
-  // Walk from the end backwards; stop when we reach the last HumanMessage
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i] as any;
-    if (msg.constructor?.name === 'HumanMessage') break;
-    if (msg.tool_calls?.length) {
-      count += (msg.tool_calls as any[]).filter((tc: any) => tc.name === toolName).length;
-    }
-  }
-  return count;
-}
-
-/**
  * Normalize model-generated arguments once before tool schema validation.
  * This includes removing inactive read-mode fields and resolving frame-valued
  * time strings with the current project's FPS.
@@ -996,27 +964,6 @@ export const createAgent = (
       return "__end__";
     }
 
-    // ─── Per-turn rate-limit guard ─────────────────────────────────────────
-    // Prevent infinite loops on expensive analysis tools.
-    // If a rate-limited tool has already been called >= its limit this turn,
-    // force __end__ so the model surfaces a user-facing error instead of looping.
-    for (const tc of lastMsg.tool_calls as any[]) {
-      const limit = RATE_LIMITED_TOOLS[tc.name];
-      if (limit !== undefined) {
-        // Count how many times this tool appears in AIMessages since the last HumanMessage
-        const callsSoFar = countToolCallsSinceLastHuman(messages, tc.name);
-        // callsSoFar counts previous turns; +1 accounts for this pending call
-        if (callsSoFar + 1 > limit) {
-          debugError(
-            `[RATE-LIMIT] ${tc.name} would exceed limit of ${limit} calls/turn ` +
-            `(already called ${callsSoFar} times). Forcing __end__.`
-          );
-          return "__end__";
-        }
-      }
-    }
-    // ──────────────────────────────────────────────────────────────────────
-
     return "tools";
   }
 
@@ -1076,35 +1023,6 @@ export const createAgent = (
             projectFps: config.configurable?.projectFps,
           });
           try {
-            // ── Secondary rate-limit fence (defence-in-depth) ──────────────
-            // shouldContinue is the primary guard; this catches the edge case
-            // where the tool call somehow reaches execution despite the limit.
-            const rateLimit = RATE_LIMITED_TOOLS[toolCall.name];
-            if (rateLimit !== undefined) {
-              // At this point the current call IS already in state (the AIMessage
-              // that triggered this node), so we compare against the full count.
-              const callsSoFar = countToolCallsSinceLastHuman(state.messages, toolCall.name);
-              if (callsSoFar > rateLimit) {
-                output = JSON.stringify({
-                  status: "error",
-                  error: "rate_limit_exceeded",
-                  message:
-                    `${toolCall.name} has been called ${callsSoFar} times this turn, ` +
-                    `which exceeds the limit of ${rateLimit}. ` +
-                    `Stop calling this tool and inform the user that the analysis ` +
-                    `failed after multiple attempts. Describe what you found so far ` +
-                    `(if anything) and suggest they try again or rephrase their request.`,
-                });
-                debugError(`[RATE-LIMIT-FENCE] Blocked execution of ${toolCall.name} (${callsSoFar}/${rateLimit})`);
-                // Emit tool_end so the debug panel shows the blocked call
-                if (streamCallback) {
-                  streamCallback({ type: 'tool_end', data: { tool: toolCall.name, id: toolCall.id, output } });
-                }
-                results.push(new ToolMessage({ tool_call_id: toolCall.id, name: toolCall.name, content: output }));
-                continue;
-              }
-            }
-            // ──────────────────────────────────────────────────────────────
             // Pre-process args to handle Gemini's incorrect formats
             // 1. Time strings: "3s" → frame count at the project's FPS
             // 2. CSS-like strings: "fontSize: 72px; color: #FFF" → object

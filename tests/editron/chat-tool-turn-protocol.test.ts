@@ -36,6 +36,28 @@ function ledger(executions: CompletedChatToolExecution[] = []): ChatToolTurnLedg
   return { requestedToolNames: executions.map((entry) => entry.name), completedExecutions: executions };
 }
 
+function successfulMutationOutput(data: Record<string, unknown> = {}, revision = REVISION): string {
+  return JSON.stringify({
+    status: 'success',
+    data: {
+      ...data,
+      postconditionVerification: { status: 'pass', afterStateHash: revision },
+    },
+    error: null,
+  });
+}
+
+function currentProjectRead(revision = REVISION): CompletedChatToolExecution {
+  const evidenceReceipts = buildChatEvidenceReceipts({
+    toolName: 'read_project_file',
+    args: { mode: 'full' },
+    output: JSON.stringify({ jsonText: '{}' }),
+    projectId: PROJECT_ID,
+    projectRevision: revision,
+  });
+  return execution('read_project_file', JSON.stringify({ jsonText: '{}' }), { evidenceReceipts });
+}
+
 function project(overrides: Record<string, unknown> = {}) {
   return {
     projectId: PROJECT_ID,
@@ -71,6 +93,23 @@ describe('chat tool turn protocol', () => {
     for (const metadata of Object.values(CHAT_TOOL_REGISTRY)) {
       expect(Array.isArray(metadata.effectContract.produces), metadata.name).toBe(true);
       expect(Array.isArray(metadata.effectContract.redundantAfter), metadata.name).toBe(true);
+    }
+  });
+
+  it('gives every tool an explicit cardinality, replay, batch-safety, and target contract', () => {
+    for (const metadata of Object.values(CHAT_TOOL_REGISTRY)) {
+      expect(metadata.executionPolicy, metadata.name).not.toBeNull();
+      expect(metadata.executionPolicy?.cardinality, metadata.name).toMatch(
+        /^(repeatable|once-per-turn|once-per-target)$/,
+      );
+      expect(metadata.executionPolicy?.replayBehavior, metadata.name).toMatch(
+        /^(never|same-project-revision)$/,
+      );
+      expect(metadata.executionPolicy?.batchSafety, metadata.name).toMatch(
+        /^(parallel-read|sequential|isolated|explicit-batch)$/,
+      );
+      expect(Array.isArray(metadata.executionPolicy?.targetKeys), metadata.name).toBe(true);
+      expect(Array.isArray(metadata.executionPolicy?.blockedWhenTurnRequests), metadata.name).toBe(true);
     }
   });
 
@@ -185,7 +224,7 @@ describe('chat tool turn protocol', () => {
   it('replays identical successful owner calls and blocks different second executions', () => {
     const success = execution(
       'apply_editorial_intent',
-      JSON.stringify({ status: 'success', data: { intentId: 'intent-1' }, error: null }),
+      successfulMutationOutput({ intentId: 'intent-1' }),
       { args: { goal: 'add captions' } },
     );
     expect(decideChatToolExecution({
@@ -202,6 +241,100 @@ describe('chat tool turn protocol', () => {
       projectId: PROJECT_ID,
       projectRevision: REVISION,
     })).toMatchObject({ action: 'block', reason: 'turn-limit' });
+  });
+
+  it('replays only an identical mutation whose successful postcondition matches the current revision', () => {
+    const success = execution(
+      'use_matching_footage',
+      successfulMutationOutput({ overlayId: 'video-1' }),
+      { args: { overlayId: 'video-1', assetId: 'asset-a' } },
+    );
+    const baseLedger = ledger([currentProjectRead(), success]);
+
+    expect(decideChatToolExecution({
+      toolName: 'use_matching_footage',
+      args: { overlayId: 'video-1', assetId: 'asset-a' },
+      ledger: baseLedger,
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({ action: 'replay', reason: 'identical-call' });
+
+    expect(decideChatToolExecution({
+      toolName: 'use_matching_footage',
+      args: { overlayId: 'video-1', assetId: 'asset-a' },
+      ledger: baseLedger,
+      projectId: PROJECT_ID,
+      projectRevision: 'newer-revision',
+    })).not.toMatchObject({ action: 'replay' });
+  });
+
+  it('blocks a second mutation of one target but permits a different target in the same turn', () => {
+    const first = execution(
+      'use_matching_footage',
+      successfulMutationOutput({ overlayId: 'video-1' }),
+      { args: { overlayId: 'video-1', assetId: 'asset-a' } },
+    );
+    const baseLedger = ledger([currentProjectRead(), first]);
+
+    expect(decideChatToolExecution({
+      toolName: 'use_matching_footage',
+      args: { overlayId: 'video-1', assetId: 'asset-b' },
+      ledger: baseLedger,
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({ action: 'block', reason: 'target-limit' });
+
+    expect(decideChatToolExecution({
+      toolName: 'use_matching_footage',
+      args: { overlayId: 'video-2', assetId: 'asset-b' },
+      ledger: baseLedger,
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toEqual({ action: 'execute' });
+  });
+
+  it('replays identical additive requests but permits distinct creates and SFX moments', () => {
+    const read = currentProjectRead();
+    const addedOverlay = execution('add_overlay', successfulMutationOutput({ overlayId: 'shape-1' }), {
+      args: { type: 'shape', from: 120 },
+    });
+    const addedSfx = execution(
+      'add_sfx',
+      successfulMutationOutput({ overlayId: 'sfx-1' }),
+      { args: { query: 'impact', startFrame: 120 } },
+    );
+
+    expect(decideChatToolExecution({
+      toolName: 'add_overlay',
+      args: { type: 'shape', from: 120 },
+      ledger: ledger([read, addedOverlay]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({ action: 'replay', reason: 'identical-call' });
+
+    expect(decideChatToolExecution({
+      toolName: 'add_overlay',
+      args: { type: 'shape', from: 240 },
+      ledger: ledger([read, addedOverlay]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toEqual({ action: 'execute' });
+
+    expect(decideChatToolExecution({
+      toolName: 'add_sfx',
+      args: { query: 'whoosh', startFrame: 120 },
+      ledger: ledger([read, addedSfx]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({ action: 'block', reason: 'target-limit' });
+
+    expect(decideChatToolExecution({
+      toolName: 'add_sfx',
+      args: { query: 'whoosh', startFrame: 240 },
+      ledger: ledger([read, addedSfx]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toEqual({ action: 'execute' });
   });
 
   it('shadows a redundant close_gaps after the atomic cut already closed its gap', () => {

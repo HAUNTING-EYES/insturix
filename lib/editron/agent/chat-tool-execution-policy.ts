@@ -2,6 +2,7 @@ import {
   getChatToolMetadata,
   type ChatToolEffect,
   type ChatToolEvidenceClass,
+  type ChatToolExecutionPolicy,
   type ChatToolOwnerClass,
 } from './chat-tool-registry';
 
@@ -53,6 +54,7 @@ export type ChatToolExecutionDecision =
       output: string;
       reason:
         | 'turn-limit'
+        | 'target-limit'
         | 'validation-retry-limit'
         | 'owner-conflict'
         | 'missing-evidence'
@@ -105,7 +107,7 @@ export function decideChatToolExecution(input: {
   const metadata = getChatToolMetadata(input.toolName);
   const policy = metadata?.executionPolicy;
 
-  const blockingOwner = policy?.blockedWhenTurnRequests?.find((toolName) =>
+  const blockingOwner = policy?.blockedWhenTurnRequests.find((toolName) =>
     input.ledger.requestedToolNames.includes(toolName),
   );
   if (blockingOwner) {
@@ -150,17 +152,26 @@ export function decideChatToolExecution(input: {
     (execution) => execution.name === input.toolName,
   );
   const completedOwnerExecutions = sameToolExecutions.filter(isCompletedOwnerExecution);
-  const identicalExecution = completedOwnerExecutions.find(
+  const targetKey = policy.cardinality === 'once-per-target'
+    ? resolveExecutionTargetKey(policy, input.args)
+    : null;
+  const scopedExecutions = targetKey === null
+    ? completedOwnerExecutions
+    : completedOwnerExecutions.filter(
+      (execution) => resolveExecutionTargetKey(policy, execution.args) === targetKey,
+    );
+  const identicalExecution = scopedExecutions.find(
     (execution) => stableStringify(execution.args) === stableStringify(input.args),
   );
-  if (policy.replayIdenticalCalls && identicalExecution) {
+  if (
+    policy.replayBehavior === 'same-project-revision'
+    && identicalExecution
+    && isReplaySafeForRevision(identicalExecution, input.projectRevision)
+  ) {
     return { action: 'replay', output: identicalExecution.output, reason: 'identical-call' };
   }
 
-  if (
-    policy.maxExecutionsPerTurn !== undefined
-    && completedOwnerExecutions.length >= policy.maxExecutionsPerTurn
-  ) {
+  if (policy.cardinality === 'once-per-turn' && completedOwnerExecutions.length >= 1) {
     return blockedDecision({
       reason: 'turn-limit',
       code: 'CHAT_TOOL_TURN_LIMIT',
@@ -170,19 +181,27 @@ export function decideChatToolExecution(input: {
     });
   }
 
-  if (policy.maxValidationCorrectionsPerTurn !== undefined) {
-    const validationFailures = sameToolExecutions.filter(
-      (execution) => execution.outcome === 'validation-error',
-    ).length;
-    if (validationFailures > policy.maxValidationCorrectionsPerTurn) {
-      return blockedDecision({
-        reason: 'validation-retry-limit',
-        code: 'CHAT_TOOL_VALIDATION_RETRY_LIMIT',
-        toolName: input.toolName,
-        message: `${input.toolName} exhausted its one deterministic schema-correction retry.`,
-        nextAction: 'Stop retrying. Explain which fields were invalid and ask for a new user turn.',
-      });
-    }
+  if (policy.cardinality === 'once-per-target' && scopedExecutions.length >= 1) {
+    return blockedDecision({
+      reason: 'target-limit',
+      code: 'CHAT_TOOL_TARGET_LIMIT',
+      toolName: input.toolName,
+      message: `${input.toolName} already completed for target ${targetKey ?? 'project'} in this turn.`,
+      nextAction: 'Use the completed result, choose a different target, or start a new user turn.',
+    });
+  }
+
+  const validationFailures = sameToolExecutions.filter(
+    (execution) => execution.outcome === 'validation-error',
+  ).length;
+  if (validationFailures > policy.maxValidationCorrectionsPerTurn) {
+    return blockedDecision({
+      reason: 'validation-retry-limit',
+      code: 'CHAT_TOOL_VALIDATION_RETRY_LIMIT',
+      toolName: input.toolName,
+      message: `${input.toolName} exhausted its one deterministic schema-correction retry.`,
+      nextAction: 'Stop retrying. Explain which fields were invalid and ask for a new user turn.',
+    });
   }
 
   return { action: 'execute' };
@@ -365,6 +384,26 @@ function isCompletedOwnerExecution(execution: CompletedChatToolExecution): boole
 
 function isCompletedOwnerOutcome(outcome: ChatToolExecutionOutcome): boolean {
   return outcome === 'success' || outcome === 'advisory';
+}
+
+function resolveExecutionTargetKey(
+  policy: ChatToolExecutionPolicy,
+  args: Record<string, unknown>,
+): string {
+  const targetParts = policy.targetKeys.flatMap((key) =>
+    collectNamedStrings(args, new Set([key])).map((value) => `${key}:${value}`),
+  ).sort();
+  return targetParts.length > 0 ? targetParts.join('|') : 'project';
+}
+
+function isReplaySafeForRevision(
+  execution: CompletedChatToolExecution,
+  projectRevision: string | null | undefined,
+): boolean {
+  if (!projectRevision || execution.outcome !== 'success') return false;
+  const envelope = parseJsonRecord(execution.output);
+  const verification = asRecord(asRecord(envelope?.data).postconditionVerification);
+  return verification.status === 'pass' && verification.afterStateHash === projectRevision;
 }
 
 function blockedDecision(input: {
