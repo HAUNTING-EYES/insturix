@@ -34,15 +34,23 @@ export async function POST(request: Request) {
     const validation = validateReferenceVideoUrlForAutoEditIntake(input.referenceVideoUrl);
     if (!validation.ok) {
       return NextResponse.json({
-        error: validation.diagnostics[0] ?? 'Provide a supported YouTube or direct public video URL.',
+        error: validation.diagnostics[0] ?? 'Provide a supported YouTube, Instagram, or direct public video URL.',
       }, { status: 422 });
     }
 
     const canonicalUrl = validation.url.toString();
     const fingerprint = createHash('sha256').update(canonicalUrl).digest('hex');
-    const sourcePlatform = validation.sourceKind === 'youtube-url' ? 'youtube' : 'unknown';
+    const sourcePlatform = validation.sourceKind === 'youtube-url'
+      ? 'youtube'
+      : validation.sourceKind === 'instagram-url'
+        ? 'instagram'
+        : 'unknown';
     const platform = input.platform ?? sourcePlatform;
-    const title = sourcePlatform === 'youtube' ? 'YouTube trend reference' : 'Video trend reference';
+    const title = sourcePlatform === 'youtube'
+      ? 'YouTube trend reference'
+      : sourcePlatform === 'instagram'
+        ? 'Instagram trend reference'
+        : 'Video trend reference';
     const candidate = TrendCandidateSchema.parse({
       candidateId: `candidate_user_${fingerprint.slice(0, 24)}`,
       candidateVersion: TREND_CANDIDATE_VERSION,

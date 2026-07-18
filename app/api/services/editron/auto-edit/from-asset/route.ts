@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
 
     const trimmedReferenceVideoUrl = referenceVideoUrl?.trim();
     let normalizedReferenceVideoUrl: string | undefined;
-    let referenceVideoUrlMetadata: { kind: 'remote-url' | 'youtube-url'; sourceLabel: string; sourceFingerprint: string } | undefined;
+    let referenceVideoUrlMetadata: { kind: 'remote-url' | 'youtube-url' | 'instagram-url'; sourceLabel: string; sourceFingerprint: string } | undefined;
 
     if (referenceAssetId && trimmedReferenceVideoUrl) {
       return NextResponse.json({

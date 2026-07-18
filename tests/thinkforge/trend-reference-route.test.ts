@@ -52,6 +52,24 @@ describe('ThinkForge direct trend reference intake', () => {
     });
   });
 
+  it('returns canonical Instagram evidence without persisting share parameters', async () => {
+    const response = await POST(request({
+      referenceVideoUrl: 'https://www.instagram.com/p/C9Example_1/?igsh=ephemeral',
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      candidate: {
+        title: 'Instagram trend reference',
+        platform: 'instagram',
+        evidence: [expect.objectContaining({
+          platform: 'instagram',
+          sourceUrl: 'https://www.instagram.com/reel/C9Example_1/',
+        })],
+      },
+    });
+  });
+
   it('rejects article URLs before the UI creates a ThinkForge session', async () => {
     const response = await POST(request({
       referenceVideoUrl: 'https://example.com/article-about-a-trend',

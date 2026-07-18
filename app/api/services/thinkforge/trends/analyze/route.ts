@@ -59,7 +59,7 @@ export async function POST(request: Request) {
       const validation = validateReferenceVideoUrlForAutoEditIntake(referenceVideoUrl);
       if (!validation.ok) {
         return NextResponse.json({
-          error: validation.diagnostics[0] ?? 'Provide a supported YouTube or direct public video URL.',
+          error: validation.diagnostics[0] ?? 'Provide a supported YouTube, Instagram, or direct public video URL.',
         }, { status: 422 });
       }
     }

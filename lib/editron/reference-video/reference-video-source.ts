@@ -16,8 +16,17 @@ import {
   isUnsafeReferenceHostname,
   type ReferenceVideoDnsLookup,
 } from './reference-video-network-safety';
+import {
+  buildInstagramReferenceFingerprint,
+  importInstagramReferenceVideo,
+  InstagramReferenceImportError,
+  parseInstagramReferenceUrl,
+  type ImportedInstagramReferenceVideo,
+  type ImportInstagramReferenceVideoInput,
+  type InstagramReferenceImportFailureReason,
+} from './instagram-reference-importer';
 
-type ReferenceVideoSourceKind = 'asset' | 'remote-url' | 'youtube-url';
+type ReferenceVideoSourceKind = 'asset' | 'remote-url' | 'youtube-url' | 'instagram-url';
 
 type ReferenceVideoSourceRejectionReason =
   | 'conflicting_reference_video_sources'
@@ -32,10 +41,12 @@ type ReferenceVideoSourceRejectionReason =
   | 'youtube_reference_download_timeout'
   | 'youtube_reference_clip_timeout'
   | 'youtube_reference_ingestion_failed'
-  | 'youtube_reference_ingestion_not_supported';
+  | 'youtube_reference_ingestion_not_supported'
+  | InstagramReferenceImportFailureReason
+  | 'instagram_reference_ingestion_not_supported';
 
 export interface ReferenceVideoSource {
-  kind: Exclude<ReferenceVideoSourceKind, 'youtube-url'>;
+  kind: Exclude<ReferenceVideoSourceKind, 'youtube-url' | 'instagram-url'>;
   referenceId: string;
   videoUrl: string;
   durationSec?: number;
@@ -66,6 +77,7 @@ interface ResolveReferenceVideoSourceInput {
   dnsLookup?: ReferenceVideoDnsLookup;
   youtubeImporter?: ReferenceVideoYoutubeImporter;
   youtubeMode?: 'import' | 'provider-direct';
+  instagramImporter?: ReferenceVideoInstagramImporter;
 }
 
 interface ReferenceVideoUrlValidationOk {
@@ -86,9 +98,22 @@ interface ReferenceYoutubeVideoUrlValidationOk {
   sourceKind: 'youtube-url';
 }
 
+interface ReferenceInstagramVideoUrlValidationOk {
+  ok: true;
+  url: URL;
+  referenceId: string;
+  sourceLabel: string;
+  sourceFingerprint: string;
+  sourceKind: 'instagram-url';
+}
+
 export type ReferenceVideoYoutubeImporter = (
   input: ImportYoutubeReferenceVideoInput,
 ) => Promise<ImportedYoutubeReferenceVideo>;
+
+export type ReferenceVideoInstagramImporter = (
+  input: ImportInstagramReferenceVideoInput,
+) => Promise<ImportedInstagramReferenceVideo>;
 
 type ReferenceVideoUrlValidationResult =
   | ReferenceVideoUrlValidationOk
@@ -102,6 +127,7 @@ type ReferenceVideoUrlValidationResult =
 export type ReferenceVideoAutoEditUrlValidationResult =
   | ReferenceVideoUrlValidationOk
   | ReferenceYoutubeVideoUrlValidationOk
+  | ReferenceInstagramVideoUrlValidationOk
   | {
       ok: false;
       reason: ReferenceVideoSourceRejectionReason;
@@ -233,6 +259,36 @@ export async function resolveReferenceVideoSource(
     }
   }
 
+  if (validation.sourceKind === 'instagram-url') {
+    try {
+      const imported = await (input.instagramImporter ?? importInstagramReferenceVideo)({
+        userId: input.userId,
+        instagramUrl: validation.url.toString(),
+        sourceFingerprint: validation.sourceFingerprint,
+      });
+      return {
+        ok: true,
+        source: {
+          kind: 'asset',
+          referenceId: imported.asset.assetId,
+          videoUrl: imported.videoUrl,
+          durationSec: imported.durationSec ?? imported.asset.duration ?? undefined,
+          sourceLabel: imported.sourceLabel || imported.asset.filename || validation.sourceLabel,
+          sourceFingerprint: imported.sourceFingerprint,
+          asset: imported.asset,
+        },
+      };
+    } catch (error) {
+      const normalized = normalizeInstagramReferenceImportError(error);
+      return {
+        ok: false,
+        reason: normalized.reason,
+        diagnostics: normalized.diagnostics,
+        sourceKind: 'instagram-url',
+      };
+    }
+  }
+
   const dnsCheck = await assertPublicReferenceDnsResolution(validation.url.hostname, input.dnsLookup);
   if (!dnsCheck.ok) {
     return {
@@ -271,6 +327,17 @@ export function validateReferenceVideoUrlForIntake(
         'YouTube reference URLs are recognized, but must be imported to a media asset before GLM video analysis.',
       ],
       sourceKind: 'youtube-url',
+    };
+  }
+
+  if (isInstagramReferenceHost(url)) {
+    return {
+      ok: false,
+      reason: parseInstagramReferenceUrl(url)
+        ? 'instagram_reference_ingestion_not_supported'
+        : 'unsupported_reference_video_url',
+      diagnostics: ['Instagram references must use a public reel, post, or TV URL with a shortcode.'],
+      sourceKind: 'instagram-url',
     };
   }
 
@@ -325,12 +392,26 @@ export function validateReferenceVideoUrlForAutoEditIntake(
   rawUrl?: string,
 ): ReferenceVideoAutoEditUrlValidationResult {
   const directValidation = validateReferenceVideoUrlForIntake(rawUrl);
-  if (directValidation.ok || directValidation.sourceKind !== 'youtube-url') {
+  if (directValidation.ok) {
     return directValidation;
   }
 
   const parsed = parseHttpReferenceVideoUrl(rawUrl);
   if (!parsed.ok) return parsed;
+  if (directValidation.sourceKind === 'instagram-url') {
+    const instagram = parseInstagramReferenceUrl(parsed.url);
+    if (!instagram) return directValidation;
+    return {
+      ok: true,
+      url: new URL(instagram.canonicalUrl),
+      referenceId: `ref_instagram_${shortHash(instagram.shortcode)}`,
+      sourceLabel: `Instagram reference ${instagram.shortcode}`,
+      sourceFingerprint: buildInstagramReferenceFingerprint(instagram.shortcode),
+      sourceKind: 'instagram-url',
+    };
+  }
+  if (directValidation.sourceKind !== 'youtube-url') return directValidation;
+
   const videoId = parseYouTubeVideoId(parsed.url);
   if (!videoId) {
     return {
@@ -350,6 +431,11 @@ export function validateReferenceVideoUrlForAutoEditIntake(
     sourceFingerprint: buildYoutubeReferenceFingerprint(videoId),
     sourceKind: 'youtube-url',
   };
+}
+
+function isInstagramReferenceHost(url: URL): boolean {
+  const hostname = url.hostname.toLowerCase();
+  return hostname === 'instagram.com' || hostname === 'www.instagram.com';
 }
 
 function isYoutubeReferenceUrl(url: URL): boolean {
@@ -427,6 +513,18 @@ function normalizeYoutubeReferenceImportError(
   }
   return {
     reason: 'youtube_reference_ingestion_failed',
+    diagnostics: [error instanceof Error ? error.message : String(error)],
+  };
+}
+
+function normalizeInstagramReferenceImportError(
+  error: unknown,
+): { reason: InstagramReferenceImportFailureReason; diagnostics: string[] } {
+  if (error instanceof InstagramReferenceImportError) {
+    return { reason: error.reason, diagnostics: error.diagnostics };
+  }
+  return {
+    reason: 'instagram_reference_ingestion_failed',
     diagnostics: [error instanceof Error ? error.message : String(error)],
   };
 }
