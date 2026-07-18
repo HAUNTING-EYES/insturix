@@ -171,6 +171,7 @@ export function isReusableTrendWatchScan(
 
 /** Collects public evidence only. Private matching and calendar mutation are separate stages. */
 export async function processNextDueTrendWatch(now = new Date()): Promise<TrendWatchProcessResult> {
+  await markAbandonedTrendWatchScans(now);
   const leaseId = `trend_watch_${randomUUID().replace(/-/g, "")}`;
   const policy = await CalosTrendWatchPolicy.findOneAndUpdate(
     {
@@ -247,6 +248,23 @@ export async function processNextDueTrendWatch(now = new Date()): Promise<TrendW
     await completeScan({ policy, leaseId, scanId, now, provider: "unknown", status: "failed", failureCode: "provider_request_failed" });
     return { status: "failed", scanId, failureCode: "provider_request_failed" };
   }
+}
+
+async function markAbandonedTrendWatchScans(now: Date): Promise<void> {
+  await CalosTrendWatchScan.updateMany(
+    {
+      status: "running",
+      startedAt: { $lte: new Date(now.getTime() - SCAN_LEASE_MS) },
+    },
+    {
+      $set: {
+        status: "failed",
+        provider: "unknown",
+        completedAt: now,
+        failureCode: "scan_abandoned",
+      },
+    },
+  );
 }
 
 async function recordInvalidQueryScan(policy: ICalosTrendWatchPolicy, leaseId: string, now: Date): Promise<string> {

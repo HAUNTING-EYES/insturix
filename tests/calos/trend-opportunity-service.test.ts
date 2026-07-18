@@ -103,9 +103,23 @@ describe("CalOS Trend Opportunity private matcher", () => {
     expect(decision).toMatchObject({ status: "blocked", reasonCodes: ["accepted_relevance_signals_required"] });
   });
 
-  it("derives an idempotent source key per scan candidate", () => {
-    const candidate = { title: "Workflow automation templates", platform: "linkedin" };
-    expect(buildTrendOpportunitySourceKey("scan_1", 0, candidate)).toBe(buildTrendOpportunitySourceKey("scan_1", 0, candidate));
-    expect(buildTrendOpportunitySourceKey("scan_1", 0, candidate)).not.toBe(buildTrendOpportunitySourceKey("scan_1", 1, candidate));
+  it("deduplicates one canonical trend per brand and seven-day window", () => {
+    const first = {
+      title: "Workflow automation templates",
+      platform: "linkedin",
+      url: "https://www.example.com/trend/?utm_source=feed&b=2&a=1",
+    };
+    const repeated = {
+      ...first,
+      url: "https://example.com/trend?a=1&b=2#comments",
+    };
+    const observedAt = new Date("2026-07-12T00:00:00.000Z");
+
+    expect(buildTrendOpportunitySourceKey("user:user_1:brand_1", first, observedAt))
+      .toBe(buildTrendOpportunitySourceKey("user:user_1:brand_1", repeated, observedAt));
+    expect(buildTrendOpportunitySourceKey("user:user_1:brand_1", first, observedAt))
+      .not.toBe(buildTrendOpportunitySourceKey("user:user_2:brand_1", first, observedAt));
+    expect(buildTrendOpportunitySourceKey("user:user_1:brand_1", first, observedAt))
+      .not.toBe(buildTrendOpportunitySourceKey("user:user_1:brand_1", first, new Date("2026-07-20T00:00:00.000Z")));
   });
 });

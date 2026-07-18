@@ -18,6 +18,7 @@ const RETRY_DELAY_MS = 60 * 60 * 1_000;
 const MAX_MATCH_ATTEMPTS = 3;
 const MAX_SOURCE_SCANS_PER_TICK = 24;
 const MAX_ADAPT_CARDS = 40;
+const TREND_DEDUPE_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000;
 
 const STOP_WORDS = new Set([
   "about", "after", "again", "against", "along", "among", "and", "are", "around", "because", "been", "being", "between",
@@ -79,9 +80,15 @@ interface BrandTerm {
   signalPath: string;
 }
 
-export function buildTrendOpportunitySourceKey(scanId: string, candidateIndex: number, candidate: Pick<CalosTrendWatchCandidate, "title" | "platform">): string {
+export function buildTrendOpportunitySourceKey(
+  scopeKey: string,
+  candidate: Pick<CalosTrendWatchCandidate, "title" | "platform" | "url">,
+  observedAt: Date | string,
+): string {
+  const timestamp = observedAt instanceof Date ? observedAt.getTime() : Date.parse(observedAt);
+  const windowId = Math.floor((Number.isFinite(timestamp) ? timestamp : 0) / TREND_DEDUPE_WINDOW_MS);
   return createHash("sha256")
-    .update(`${scanId}|${candidateIndex}|${normalizeText(candidate.title)}|${normalizeText(candidate.platform)}`)
+    .update(`${scopeKey}|${canonicalTrendIdentity(candidate)}|${windowId}`)
     .digest("hex");
 }
 
@@ -259,7 +266,11 @@ async function claimFreshCandidate(now: Date): Promise<OpportunityWorkItem | nul
     for (const [index, rawCandidate] of (scan.candidates ?? []).entries()) {
       const candidate = readCandidate(rawCandidate);
       if (!candidate || !isCurrentCandidate(candidate, now)) continue;
-      const sourceKey = buildTrendOpportunitySourceKey(scan.scanId, index, candidate);
+      const sourceKey = buildTrendOpportunitySourceKey(
+        scan.scopeKey,
+        candidate,
+        candidate.capturedAt ?? scan.completedAt ?? now,
+      );
       try {
         const created = await CalosTrendOpportunity.create({
           opportunityId: `trend_opportunity_${randomUUID().replace(/-/g, "")}`,
@@ -489,6 +500,26 @@ function safeUrl(value: unknown): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function canonicalTrendIdentity(candidate: Pick<CalosTrendWatchCandidate, "title" | "platform" | "url">): string {
+  const canonicalUrl = canonicalTrendUrl(candidate.url);
+  if (canonicalUrl) return `url:${canonicalUrl}`;
+  return `text:${normalizeText(candidate.platform)}|${normalizeText(candidate.title)}`;
+}
+
+function canonicalTrendUrl(value: unknown): string | undefined {
+  const safe = safeUrl(value);
+  if (!safe) return undefined;
+  const url = new URL(safe);
+  url.hash = "";
+  url.hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+  for (const key of [...url.searchParams.keys()]) {
+    if (/^(?:utm_.+|fbclid|gclid|igsh|si|feature)$/i.test(key)) url.searchParams.delete(key);
+  }
+  url.searchParams.sort();
+  if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, "");
+  return url.toString();
 }
 
 function safeIsoDate(value: unknown): string | undefined {

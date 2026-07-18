@@ -48,7 +48,7 @@ export interface ICalosTrendWatchScan extends Document {
   candidateCount: number;
   startedAt: Date;
   completedAt?: Date | null;
-  failureCode?: "provider_unavailable" | "provider_request_failed" | "invalid_public_query" | null;
+  failureCode?: "provider_unavailable" | "provider_request_failed" | "invalid_public_query" | "scan_abandoned" | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -119,7 +119,7 @@ const CalosTrendWatchScanSchema = new Schema<ICalosTrendWatchScan>(
     failureCode: {
       type: String,
       default: null,
-      enum: [null, "provider_unavailable", "provider_request_failed", "invalid_public_query"],
+      enum: [null, "provider_unavailable", "provider_request_failed", "invalid_public_query", "scan_abandoned"],
     },
   },
   { timestamps: true },
@@ -127,6 +127,7 @@ const CalosTrendWatchScanSchema = new Schema<ICalosTrendWatchScan>(
 
 CalosTrendWatchScanSchema.index({ queryFingerprint: 1, status: 1, completedAt: -1 });
 CalosTrendWatchScanSchema.index({ scopeKey: 1, startedAt: -1 });
+CalosTrendWatchScanSchema.index({ status: 1, startedAt: 1 });
 
 export const CalosTrendWatchPolicy =
   mongoose.models.CalosTrendWatchPolicy ||

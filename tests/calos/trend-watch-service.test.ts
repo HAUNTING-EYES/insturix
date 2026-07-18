@@ -75,6 +75,29 @@ describe("CalOS Trend Watcher public scan contract", () => {
 
     expect(scan.validateSync()).toBeUndefined();
   });
+
+  it("accepts an explicit abandoned-scan failure for lease recovery", () => {
+    const scan = new CalosTrendWatchScan({
+      scanId: "trend_scan_abandoned",
+      policyId: "policy_1",
+      scopeKey: "user:user_1:brand_1",
+      ownerUserId: "user_1",
+      brandId: "brand_1",
+      queryFingerprint: "fingerprint_1",
+      query: { niche: "creator tools", platforms: ["instagram"] },
+      status: "failed",
+      provider: "unknown",
+      resultSource: "live",
+      candidates: [],
+      candidateCount: 0,
+      startedAt: new Date("2026-07-12T00:00:00.000Z"),
+      completedAt: new Date("2026-07-12T00:11:00.000Z"),
+      failureCode: "scan_abandoned",
+    });
+
+    expect(scan.validateSync()).toBeUndefined();
+  });
+
   it("reuses only fresh completed scans for the same public query", () => {
     const query = buildPublicTrendWatchQuery({ publicNiche: "creator economy", platforms: ["instagram"] } as never);
     const now = new Date("2026-07-12T12:00:00.000Z");
