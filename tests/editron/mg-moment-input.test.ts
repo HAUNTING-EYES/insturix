@@ -58,6 +58,24 @@ describe('buildMgMomentInput - fuses the seam context into one validated input',
     expect(mi.screen?.negativeSpace).toEqual({ region: 'bottom-center', strength: 1 });
   });
 
+  it('★ P5-2(b): a real V-JEPA subjectBox OVERRIDES the coarse region-derived subject; negativeSpace still derives', () => {
+    const mi = buildMgMomentInput(args({ subjectBox: { x: 0.55, y: 0.18, width: 0.22, height: 0.5 } }));
+    expect(mi.screen?.subject).toEqual({ x: 0.55, y: 0.18, width: 0.22, height: 0.5 }); // the real box wins
+    expect(mi.screen?.negativeSpace).toEqual({ region: 'bottom-center', strength: 1 });
+  });
+
+  it('P5-2(b): a degenerate subjectBox (zero area / non-finite) is ignored → the coarse subject holds', () => {
+    const zero = buildMgMomentInput(args({ subjectBox: { x: 0.5, y: 0.5, width: 0, height: 0.3 } }));
+    expect(zero.screen?.subject).toEqual({ x: 0.3, y: 0.1, width: 0.4, height: 0.6 });
+    const nan = buildMgMomentInput(args({ subjectBox: { x: Number.NaN, y: 0.2, width: 0.3, height: 0.4 } }));
+    expect(nan.screen?.subject).toEqual({ x: 0.3, y: 0.1, width: 0.4, height: 0.6 });
+  });
+
+  it('P5-2(b): subjectBox fractions clamp to [0,1]', () => {
+    const mi = buildMgMomentInput(args({ subjectBox: { x: 1.4, y: -0.2, width: 0.3, height: 0.5 } }));
+    expect(mi.screen?.subject).toEqual({ x: 1, y: 0, width: 0.3, height: 0.5 });
+  });
+
   it('★ resolves the video STYLE IDENTITY from the brand font (always), intent overrides, footageSignals pass through', () => {
     // INSTURIX.fontSans = Plus Jakarta Sans → grotesque-sans → clean-modern identity
     const base = buildMgMomentInput(args());

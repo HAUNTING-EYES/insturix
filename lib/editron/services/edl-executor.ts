@@ -4466,6 +4466,16 @@ async function applyGraphic(
         if (mgFace) mgFootage.faceEmotion = mgFace;
         const mgArousal = mgWav2vec ? readNumber(mgWav2vec, 'emotionIntensity', 'emotion_intensity') : undefined;
         if (mgArousal != null) mgFootage.arousal = clamp01(mgArousal);
+        // P5-2(b): the REAL V-JEPA main-subject box (frame fractions) for this moment. Feeds screen.subject so the
+        // coder places clear of the ACTUAL subject and the judge checks obstruction against real coordinates (a SOFT
+        // strengthening — the judge that sees the composite stays the owner, no deterministic veto). Absent → coarse.
+        const mgSubjectX = mgVjepa ? readNumber(mgVjepa, 'mainSubjectX', 'main_subject_x', 'subjectX', 'subject_x') : undefined;
+        const mgSubjectY = mgVjepa ? readNumber(mgVjepa, 'mainSubjectY', 'main_subject_y', 'subjectY', 'subject_y') : undefined;
+        const mgSubjectW = mgVjepa ? readNumber(mgVjepa, 'mainSubjectWidth', 'main_subject_width', 'subjectWidth', 'subject_width') : undefined;
+        const mgSubjectH = mgVjepa ? readNumber(mgVjepa, 'mainSubjectHeight', 'main_subject_height', 'subjectHeight', 'subject_height') : undefined;
+        const mgSubjectBox = mgSubjectX != null && mgSubjectY != null && mgSubjectW != null && mgSubjectH != null && mgSubjectW > 0 && mgSubjectH > 0
+          ? { x: mgSubjectX, y: mgSubjectY, width: mgSubjectW, height: mgSubjectH }
+          : undefined;
         const momentInput = buildMgMomentInput({
           momentId: `${projectId}:${snappedFrame}:${selectedCandidate.id}`,
           candidate: selectedCandidate,
@@ -4483,6 +4493,7 @@ async function applyGraphic(
           // P5-1 Phase C 2/2: this decision's approved design (design-then-code) — keyed by the SAME decision the
           // pre-pass saw. Present → the worker renders via the coder prompt; absent → free-form codegen (unchanged).
           design: projectSignalContext.mgDesignPlans?.get(decision),
+          subjectBox: mgSubjectBox, // P5-2(b): real V-JEPA subject box → screen.subject (coder + judge context)
         });
         const generated = await runDurableMgRenderJob({
           projectId,

@@ -471,6 +471,9 @@ async function defaultJudgeRendered(
     content: moment.candidate.content,
     sourceText: moment.candidate.sourceSpan.text,
     placement: moment.placement,
+    // P5-2(b): the REAL V-JEPA subject box (frame fractions), when known — the judge checks obstruction against these
+    // coordinates instead of eyeballing. Absent → the judge falls back to reading the composite alone (unchanged).
+    subject: moment.screen?.subject,
   }).slice(0, 6000);
   const prompt = `${JUDGE_PROMPT}
 

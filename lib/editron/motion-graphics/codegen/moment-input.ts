@@ -86,6 +86,10 @@ export interface BuildMgMomentInputArgs {
   /** This moment's approved video-level design (P5-1 Phase C). Present → the worker renders it via the coder
    *  prompt (design-then-code). Absent → free-form codegen. Set by the seam from projectSignalContext.mgDesignPlans. */
   design?: MgMomentDesign;
+  /** The REAL V-JEPA main-subject box (frame fractions) for this moment's window, when the seam read it (P5-2b).
+   *  Overrides the coarse region-derived subject on `screen.subject` so the coder places clear of the ACTUAL
+   *  subject and the judge verifies obstruction against real coordinates. Absent → the coarse derivation holds. */
+  subjectBox?: { x: number; y: number; width: number; height: number };
 }
 
 const clamp01 = (v: number): number => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
@@ -122,7 +126,7 @@ function deriveScreen(placement: MgPlacementSource): MgScreenContext | undefined
  * zero/negative-length clip or non-positive fps is a caller bug — fail loud, do not silently "fix" it).
  */
 export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput {
-  const { momentId, candidate, brand, window, expression, placement, anchors, visualEvidence, notes, intent, footageSignals, videoSignals, motionIntensity, design } = args;
+  const { momentId, candidate, brand, window, expression, placement, anchors, visualEvidence, notes, intent, footageSignals, videoSignals, motionIntensity, design, subjectBox } = args;
 
   if (!Number.isFinite(window.fps) || window.fps <= 0) {
     throw new Error(`buildMgMomentInput: fps must be positive, got ${window.fps}`);
@@ -157,6 +161,18 @@ export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput 
 
   const screen = deriveScreen(placement);
   if (screen) input.screen = screen;
+  // P5-2(b): the REAL V-JEPA subject box (when the seam read it) overrides the coarse region-derived subject, so the
+  // coder places clear of the ACTUAL subject and the judge verifies obstruction against real coordinates. Soft path
+  // (context, not a veto): the judge that SEES the composite stays the owner of the collision call.
+  if (subjectBox
+    && Number.isFinite(subjectBox.x) && Number.isFinite(subjectBox.y)
+    && Number.isFinite(subjectBox.width) && Number.isFinite(subjectBox.height)
+    && subjectBox.width > 0 && subjectBox.height > 0) {
+    input.screen = {
+      ...(input.screen ?? {}),
+      subject: { x: clamp01(subjectBox.x), y: clamp01(subjectBox.y), width: clamp01(subjectBox.width), height: clamp01(subjectBox.height) },
+    };
+  }
   if (visualEvidence) input.visualEvidence = visualEvidence;
   if (anchors) input.anchors = anchors;
   const trimmedNotes = notes?.trim();
