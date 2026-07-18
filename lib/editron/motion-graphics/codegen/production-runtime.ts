@@ -401,9 +401,15 @@ function extractJsonObject(text: string): string {
 // dimension is not an error. When present, a dimension below WEAK_DIMENSION_SCORE is surfaced as an actionable
 // issue so the revision loop knows WHICH craft axis to fix. The accept gate stays the disciplined holistic `score`.
 const JUDGE_DIMENSIONS = ['hierarchy', 'typography', 'color', 'composition', 'motion', 'form'] as const;
-const WEAK_DIMENSION_SCORE = 6; // ⚠ tunable, NON-gating — only surfaces a weak axis as text; the accept gate is codegen-service's score threshold.
+const WEAK_DIMENSION_SCORE = 6; // ⚠ tunable — surfaces a weak axis as text (revision hint); the CAPS below are the code-enforced gate.
+// The rubric's OWN documented score caps, enforced in code (P5-1 Phase D-2) so a model that overstates a holistic
+// score while a craft axis is failing cannot slip past the accept gate. Each value ← a stated JUDGE_PROMPT rule:
+const JUDGE_DIMENSION_CAP = 4;       // ← "never award 8+ while any dimension is ≤4"
+const JUDGE_DIMENSION_CAP_SCORE = 7; // ← the "not 8+" ceiling (7 < the 7.5 accept threshold → a ≤4 dimension blocks acceptance)
+const JUDGE_FORM_CAP = 4;            // ← "if form ≤ 4 (undesigned bare-text output)"
+const JUDGE_FORM_CAP_SCORE = 6;      // ← "...score is at most 6"
 
-function parseJudgeResponse(response: string): { score: number; issues: string[] } {
+export function parseJudgeResponse(response: string): { score: number; issues: string[] } {
   const parsed = JSON.parse(extractJsonObject(response)) as Record<string, unknown>;
   if (typeof parsed.faithful !== 'boolean') throw new Error('faithful must be a boolean');
   if (typeof parsed.score !== 'number' || !Number.isFinite(parsed.score)) throw new Error('score must be a finite number');
@@ -411,18 +417,39 @@ function parseJudgeResponse(response: string): { score: number; issues: string[]
     throw new Error('issues must be an array of strings');
   }
   const issues = (parsed.issues as string[]).slice(0, 20);
+
+  // Read the craft-dimension scores that are PRESENT (the ZAI/legacy path may omit them — a missing dimension is
+  // not an error, and caps only bind on dimensions the judge actually reported).
+  const dims = new Map<string, number>();
   const weak: string[] = [];
   for (const dim of JUDGE_DIMENSIONS) {
     const value = parsed[dim];
-    if (typeof value === 'number' && Number.isFinite(value) && value < WEAK_DIMENSION_SCORE) {
-      weak.push(`weak ${dim} (${Math.max(0, Math.min(10, value))}/10)`);
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const clamped = Math.max(0, Math.min(10, value));
+      dims.set(dim, clamped);
+      if (clamped < WEAK_DIMENSION_SCORE) weak.push(`weak ${dim} (${clamped}/10)`);
     }
   }
-  const allIssues = [...issues, ...weak].slice(0, 25);
+
   if (!parsed.faithful) {
-    return { score: 0, issues: allIssues.length ? allIssues : ['render is not faithful to the licensed fact'] };
+    const unfaithful = [...issues, ...weak].slice(0, 25);
+    return { score: 0, issues: unfaithful.length ? unfaithful : ['render is not faithful to the licensed fact'] };
   }
-  return { score: Math.max(0, Math.min(10, parsed.score)), issues: allIssues };
+
+  let score = Math.max(0, Math.min(10, parsed.score));
+  const capNotes: string[] = [];
+  const minDim = dims.size ? Math.min(...dims.values()) : undefined;
+  if (minDim !== undefined && minDim <= JUDGE_DIMENSION_CAP && score > JUDGE_DIMENSION_CAP_SCORE) {
+    score = JUDGE_DIMENSION_CAP_SCORE;
+    capNotes.push(`score capped at ${JUDGE_DIMENSION_CAP_SCORE}: a craft dimension scored ${minDim}/10 (≤${JUDGE_DIMENSION_CAP}) — the rubric forbids 8+ with any dimension that low`);
+  }
+  const form = dims.get('form');
+  if (form !== undefined && form <= JUDGE_FORM_CAP && score > JUDGE_FORM_CAP_SCORE) {
+    score = JUDGE_FORM_CAP_SCORE;
+    capNotes.push(`score capped at ${JUDGE_FORM_CAP_SCORE}: form ${form}/10 (≤${JUDGE_FORM_CAP}) — undesigned/minimum-viable text cannot score above ${JUDGE_FORM_CAP_SCORE}`);
+  }
+
+  return { score, issues: [...issues, ...weak, ...capNotes].slice(0, 25) };
 }
 
 async function defaultJudgeRendered(

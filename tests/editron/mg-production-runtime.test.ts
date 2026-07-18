@@ -9,7 +9,7 @@ vi.mock('@/lib/editron/utils/gemini-model-factory', () => ({
   getAnalysisModel: vi.fn(),
 }));
 
-import { createProductionMgRuntime } from '@/lib/editron/motion-graphics/codegen/production-runtime';
+import { createProductionMgRuntime, parseJudgeResponse } from '@/lib/editron/motion-graphics/codegen/production-runtime';
 import { INSTURIX } from '@/lib/editron/motion-graphics/codegen/kit/brand';
 import type { MgMomentInput } from '@/lib/editron/motion-graphics/codegen/types';
 import { getAnalysisModel } from '@/lib/editron/utils/gemini-model-factory';
@@ -406,12 +406,15 @@ describe('production MG codegen runtime', () => {
     });
 
     await expect(runtime.codegen.compile('component')).resolves.toEqual({ ok: true });
-    // score = the holistic overall (6.5); weak dims (<6: typography 4, motion 5, form 3) become targeted revision
-    // feedback; strong dims (hierarchy 8, color 9, composition 7) are NOT flagged.
-    await expect(runtime.codegen.evaluate('component', moment())).resolves.toEqual({
-      score: 6.5,
-      issues: ['tighten the ring stroke', 'weak typography (4/10)', 'weak motion (5/10)', 'weak form (3/10)'],
-    });
+    // weak dims (<6: typography 4, motion 5, form 3) become targeted revision feedback; strong dims (hierarchy 8,
+    // color 9, composition 7) are NOT flagged. AND (D-2) the rubric's own cap binds in code: form 3 (≤4) caps the
+    // holistic 6.5 at 6 — an undesigned graphic cannot pass on clean execution.
+    const layer2 = await runtime.codegen.evaluate('component', moment());
+    expect(layer2.score).toBe(6);
+    expect(layer2.issues).toEqual(expect.arrayContaining([
+      'tighten the ring stroke', 'weak typography (4/10)', 'weak motion (5/10)', 'weak form (3/10)',
+    ]));
+    expect(layer2.issues.some((i) => /capped at 6.*form 3\/10/.test(i))).toBe(true);
     const judgePrompt = generateContent.mock.calls[0][0].contents[0].parts[0].text;
     expect(judgePrompt).toContain('CRAFT DIMENSIONS');
     expect(judgePrompt).toContain('RESTRAINT IS CRAFT');
@@ -442,5 +445,41 @@ describe('production MG codegen runtime', () => {
     await expect(runtime.codegen.evaluate('component', moment())).rejects.toThrow(/failed after 2 attempts:.*finishReason=STOP/);
     expect(generateContent).toHaveBeenCalledTimes(2);
     await runtime.dispose();
+  });
+});
+
+describe('parseJudgeResponse — rubric score caps enforced in code (Phase D-2)', () => {
+  const dims = { hierarchy: 8, typography: 8, color: 8, composition: 8, motion: 8, form: 8 };
+
+  it('leaves a clean high score untouched when every dimension is strong', () => {
+    const r = parseJudgeResponse(JSON.stringify({ faithful: true, score: 8.6, ...dims, issues: [] }));
+    expect(r.score).toBe(8.6);
+  });
+
+  it('is backward-compatible: no dimensions present → holistic score passes through (ZAI/legacy path)', () => {
+    const r = parseJudgeResponse(JSON.stringify({ faithful: true, score: 8.4, issues: [] }));
+    expect(r.score).toBe(8.4);
+  });
+
+  it('★ any dimension ≤4 caps the score at 7 (below the 7.5 accept gate) even if the model says 9', () => {
+    const r = parseJudgeResponse(JSON.stringify({ faithful: true, score: 9, ...dims, composition: 4, issues: [] }));
+    expect(r.score).toBe(7);
+    expect(r.issues.some((i) => /capped at 7/.test(i))).toBe(true);
+  });
+
+  it('★ form ≤4 caps the score at 6 (undesigned bare-text cannot be rescued by clean execution)', () => {
+    const r = parseJudgeResponse(JSON.stringify({ faithful: true, score: 9, ...dims, form: 3, issues: [] }));
+    expect(r.score).toBe(6); // form cap (6) beats the generic dimension cap (7)
+    expect(r.issues.some((i) => /form 3\/10/.test(i))).toBe(true);
+  });
+
+  it('faithful=false forces 0 regardless of a high holistic score or strong dimensions', () => {
+    const r = parseJudgeResponse(JSON.stringify({ faithful: false, score: 9, ...dims, issues: [] }));
+    expect(r.score).toBe(0);
+  });
+
+  it('does not over-cap: a score already at/below the cap is left as-is', () => {
+    const r = parseJudgeResponse(JSON.stringify({ faithful: true, score: 6.5, ...dims, motion: 4, issues: [] }));
+    expect(r.score).toBe(6.5); // 6.5 < 7 cap → untouched
   });
 });
