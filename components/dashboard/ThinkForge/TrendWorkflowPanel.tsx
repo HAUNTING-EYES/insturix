@@ -274,6 +274,18 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
     onClose();
   };
 
+  const chooseAnotherTrend = () => {
+    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    pollTimerRef.current = null;
+    pollStartedAtRef.current = null;
+    setSelectedTrend(null);
+    setReferenceVideoUrl("");
+    setCandidates([]);
+    setProvider(null);
+    setError(null);
+    setStage("discover");
+  };
+
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="trend-workflow-title">
       <div className="max-h-[min(760px,calc(100vh-48px))] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[#282724] bg-[#0B0B0A] shadow-2xl">
@@ -316,7 +328,7 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
               <div className="flex items-center gap-2">{stage === "ready" ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <TrendingUp className="h-4 w-4 text-[#D4A652]" />}<div><div className="font-medium text-[#ECE9E1]">{selectedTrend.candidate.title}</div><div className="text-xs text-[#7A776E]">{stage === "ready" ? "Analyzed and ready for an original draft." : "Selected. Add a reference so ThinkForge can learn its mechanics."}</div></div></div>
               {stage === "source" && <>{selectedTrend.candidate.nextAction === "add_reference_video" && !referenceVideoUrl && <div className="flex items-start gap-2 rounded-lg border border-[#D4A652]/25 bg-[#D4A652]/5 px-3 py-2.5 text-xs leading-relaxed text-[#C9C3B6]"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#D4A652]" />The discovered source is contextual evidence, not a playable video. Add a YouTube link or a direct public video file to analyze its timing.</div>}<label className="block text-xs text-[#A7A39A]">Public reference video URL<input value={referenceVideoUrl} onChange={(event) => setReferenceVideoUrl(event.target.value)} placeholder="YouTube or direct .mp4, .mov, .webm, .m4v URL" className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0B0B0A] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60" /></label><button type="button" onClick={analyze} disabled={busy || !referenceVideoUrl.trim()} className="inline-flex items-center gap-2 rounded-lg bg-[#D4A652] px-4 py-2.5 text-sm font-semibold text-[#0B0B0A] disabled:cursor-not-allowed disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <TrendingUp className="h-4 w-4" />}Analyze format mechanics</button></>}
               {stage === "analyzing" && <div className="flex items-center gap-2 text-sm text-[#D4A652]"><Loader2 className="h-4 w-4 animate-spin" />Analyzing timing, invariants, variables, and performance pattern...</div>}
-              {stage === "ready" && <button type="button" onClick={generate} className="inline-flex items-center gap-2 rounded-lg bg-[#D4A652] px-4 py-2.5 text-sm font-semibold text-[#0B0B0A]"><CheckCircle2 className="h-4 w-4" />Draft with this analyzed trend</button>}
+              {stage === "ready" && <div className="flex flex-wrap gap-2"><button type="button" onClick={generate} className="inline-flex items-center gap-2 rounded-lg bg-[#D4A652] px-4 py-2.5 text-sm font-semibold text-[#0B0B0A]"><CheckCircle2 className="h-4 w-4" />Draft with this analyzed trend</button><button type="button" onClick={chooseAnotherTrend} className="inline-flex items-center gap-2 rounded-lg border border-[#3A3935] px-4 py-2.5 text-sm font-semibold text-[#C9C3B6] hover:border-[#D4A652]/60 hover:text-[#ECE9E1]"><TrendingUp className="h-4 w-4" />Choose another trend</button></div>}
             </div>
           )}
           {error && <div className="flex items-start gap-2 rounded-lg border border-red-400/30 bg-red-400/5 px-3 py-2.5 text-sm text-red-200"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}

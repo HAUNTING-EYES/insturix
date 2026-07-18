@@ -40,6 +40,17 @@ describe('ThinkForge trend workflow reference defaults', () => {
     expect(source).toContain('setSelectedTrend(null);');
   });
 
+  it('lets the user replace a restored trend without creating another document', () => {
+    const source = readFileSync(
+      path.join(process.cwd(), 'components/dashboard/ThinkForge/TrendWorkflowPanel.tsx'),
+      'utf8',
+    );
+
+    expect(source).toContain('const chooseAnotherTrend = () => {');
+    expect(source).toContain('Choose another trend');
+    expect(source).toContain('setStage("discover");');
+  });
+
   it('does not put article evidence into the video input', () => {
     expect(defaultTrendReferenceVideoUrl(
       candidate('add_reference_video', 'https://example.com/article-about-a-trend'),
