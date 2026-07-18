@@ -58,10 +58,17 @@ import {
 import type { OverlayCategory, OverlayDefinition, ScoringResult } from '@/lib/editron/engine/utility-types';
 import type { SignalCurves } from '@/lib/editron/motion-graphics/engine/primitive-renderers';
 import type { UnifiedBrandLike } from '@/lib/editron/motion-graphics/codegen/brand-mapper';
-import type { MgAnchors, MgReceipt } from '@/lib/editron/motion-graphics/codegen/types';
+import type { MgAnchors, MgMomentDesign, MgReceipt } from '@/lib/editron/motion-graphics/codegen/types';
 import type { FootageSignals } from '@/lib/editron/motion-graphics/codegen/style/footage-character';
 import { normalizeEditorialPreferences, type EditorialFamilyPreference } from '@/lib/editron/production-brief/editorial-preferences';
 import { computeMgMotionIntensity } from '@/lib/editron/motion-graphics/codegen/design/motion-intensity';
+// P5-1 Phase C 2/2 — the video-level DESIGN pre-pass (design-then-code producer). Dark until the flag flips.
+import { computeMgDensityBudget } from '@/lib/editron/motion-graphics/codegen/design/density-budget';
+import { resolveVideoStyle } from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
+import { runDesignPrepass, type MgDesignPrepassBeat } from '@/lib/editron/motion-graphics/codegen/design/design-prepass';
+import { defaultGeminiDesignerGenerate } from '@/lib/editron/motion-graphics/codegen/design/designer-client';
+import type { MgDesignerMoment } from '@/lib/editron/motion-graphics/codegen/design/designer-prompt';
+import type { MgDesignPlanMomentContext } from '@/lib/editron/motion-graphics/codegen/design/design-plan';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -429,6 +436,10 @@ interface EDLSignalContext {
   /** The project's motionGraphics family preference (the user's dial: mode/frequency/intensity) — feeds the
    *  density budget + motion-intensity resolver. Absent = 'auto' (no user push). */
   motionGraphicsPref?: EditorialFamilyPreference;
+  /** P5-1 Phase C 2/2: per-decision approved designs from the video-level design pre-pass, keyed by the decision
+   *  object (by reference). applyGraphic looks its plan up here → renders via the coder prompt. Absent for a
+   *  decision (or the whole map) → free-form codegen (today's path). Dark until isLiveMgCodegenEnabled. */
+  mgDesignPlans?: Map<EditDecision, MgMomentDesign>;
 }
 
 type ScoreAllOverlaysFn = typeof import('@/lib/editron/engine/utility-scorer').scoreAllOverlays;
@@ -951,6 +962,17 @@ export async function executeEDL(
   let budgetRejected = 0;
   let decisionIndex = 0;
   const usedGraphicTemplateIds = new Set<string>();
+
+  // P5-1 Phase C 2/2: author the video's coherent MgVideoDesignPlan ONCE before the loop (dark until the flag
+  // flips). Each per-moment design is keyed by its decision; applyGraphic renders it via the coder prompt instead
+  // of free-form codegen. Fail-safe: any failure leaves mgDesignPlans undefined → every decision free-forms.
+  if (isLiveMgCodegenEnabled()) {
+    try {
+      projectSignalContext.mgDesignPlans = await runMgDesignPrepass(actionable, overlays, projectSignalContext, graphicsDensity);
+    } catch (designPrepassErr) {
+      console.warn(`[EDL-MG-Design] pre-pass failed (non-fatal, free-form fallback): ${designPrepassErr instanceof Error ? designPrepassErr.message : designPrepassErr}`);
+    }
+  }
 
   for (const decision of actionable) {
     const currentDecisionIndex = decisionIndex++;
@@ -4000,6 +4022,136 @@ function mgCodegenNotes(decision: EditDecision): string | undefined {
   return notes.length ? notes.join(' | ').slice(0, 400) : undefined;
 }
 
+// META content keys that are not visualizable data props (mirrors codegen-service.META_CONTENT_KEYS).
+const MG_DESIGN_META_KEYS = new Set(['sourceSpan', 'semanticAtoms', 'salience', 'evidencePhrase', 'contextStartMs', 'contextEndMs']);
+
+/** Classify a content value into a coarse data-prop KIND for the designer (never the literal value). */
+function classifyDesignPropKind(value: unknown): string {
+  if (typeof value === 'number') return 'number';
+  if (Array.isArray(value)) return 'list';
+  if (value && typeof value === 'object') return 'object';
+  if (typeof value === 'string') return /^-?\d+(?:\.\d+)?$/.test(value.trim()) ? 'number' : 'text';
+  return 'text';
+}
+
+/**
+ * P5-1 Phase C 2/2 — the video-level DESIGN pre-pass. Runs ONCE before the decision loop (dark until
+ * isLiveMgCodegenEnabled). For every graphic decision it derives the DESIGNER's view of the moment — reusing the
+ * SAME pure derivation applyGraphic runs (content normalize → ledger gate → candidate select → expression
+ * authority → placement; none of it touches overlay state) — then runs one design session and returns the approved
+ * per-moment designs keyed by their DECISION (by reference), so applyGraphic can render each via the coder prompt.
+ *
+ * DUPLICATION IS DELIBERATE (R33 over R3 here): the derivation mirrors applyGraphic's pure prefix rather than
+ * refactoring that live free-form path. Divergence is BOUNDED — a mismatched beat only wastes a design or falls
+ * back to free-form, NEVER a wrong render (the render uses applyGraphic's own momentInput; the pre-pass feeds only
+ * the designer's view). Fail-safe: any throw is caught by the caller → free-form fallback for every decision.
+ */
+async function runMgDesignPrepass(
+  decisions: EditDecision[],
+  overlays: Overlay[],
+  projectSignalContext: EDLSignalContext,
+  graphicsDensity: 'heavy' | 'moderate' | 'minimal' | undefined,
+): Promise<Map<EditDecision, MgMomentDesign> | undefined> {
+  const { brandToKit } = await import('@/lib/editron/motion-graphics/codegen/brand-mapper');
+  const mappedBrand = brandToKit(projectSignalContext.codegenBrand);
+  if (projectSignalContext.hasConfiguredBrand && mappedBrand.isDefault) return undefined; // same guard as applyGraphic
+
+  const fps = DEFAULT_CONFIG.timing.fps;
+  const beats: MgDesignPrepassBeat<EditDecision>[] = [];
+  let numericEvidenceCount = 0;
+  let beatIndex = 0;
+
+  for (const decision of decisions) {
+    if (decision.type !== 'graphic') continue; // caption-emphasis promotions build a NEW decision object → free-form
+
+    // ── mirror applyGraphic's PURE derivation prefix (decision-only; no overlay/loop-state dependency) ──
+    const requestedPlacementAdjustment = readPlacementAdjustment(decision.params.placementAdjustment);
+    const requestedPlacementRegion = requestedPlacementAdjustment?.candidateRegion ?? normalizePlacementRegion(decision.params.position);
+    const atomicPlacement = resolveAtomicPlacement({
+      family: 'graphic',
+      momentBundle: decisionMomentBundle(decision),
+      signals: decisionSignals(decision),
+      requestedRegion: requestedPlacementRegion,
+    });
+    const placementRegion = atomicPlacement.candidateRegion ?? requestedPlacementRegion;
+    const {
+      brand: _b, signals: _s, mgOverlayScores: _m, graphicType: _g, creativeDecisionType: _c,
+      placementAdjustment: _p, position: _pos, ...contentParams
+    } = decision.params;
+    const signalSalience = contentSalienceFromDecisionSignals(decision);
+    if (contentParams.salience == null && signalSalience != null) contentParams.salience = signalSalience;
+    const normalized = normalizeMotionGraphicContent(contentParams);
+    const contentMap = normalized.content;
+    if (!hasRenderableGraphicContent(contentMap)) continue;
+    if (!resolveSemanticMgLedgerGate(normalized.semanticMgCandidateLedger).allow) continue;
+    const selected = selectSemanticMgCandidate(normalized.semanticMgCandidateLedger).selectedCandidate;
+    if (!selected) continue;
+    const authority = resolveMgExpressionAuthority({
+      content: contentMap,
+      structure: normalized.structure,
+      semanticAtoms: normalized.semanticAtoms,
+      signals: buildMotionGraphicSignalSnapshot(decision),
+      momentBundle: decisionMomentBundle(decision),
+      placementRegion,
+      graphicsDensity,
+      semanticCandidate: selected,
+    });
+    if (!authority.allowMotionGraphic) continue;
+
+    // ── the designer's VIEW of the moment (design INPUT only; applyGraphic re-resolves the real render window) ──
+    const props = Object.entries((selected.content ?? {}) as Record<string, unknown>)
+      .filter(([key, value]) => value != null && !MG_DESIGN_META_KEYS.has(key));
+    const contentProps = props.map(([name, value]) => ({ name, kind: classifyDesignPropKind(value) }));
+    const numericProps = props.filter(([, value]) => classifyDesignPropKind(value) === 'number').map(([name]) => name);
+    if (numericProps.length > 0) numericEvidenceCount += 1;
+    const momentId = `beat-${beatIndex++}`;
+    const tier: MgDesignerMoment['tier'] = authority.qualityTier === 'suppressed' ? 'subtle' : authority.qualityTier;
+    const sourceText = String(
+      selected.sourceSpan?.text ?? contentMap.text ?? contentMap.keyword ?? contentMap.title ?? '',
+    ).trim();
+    const salience = typeof selected.salience === 'number' ? selected.salience : (authority.relevanceScore ?? 0.5);
+    const durationFrames = typeof decision.durationFrames === 'number' && decision.durationFrames > 0 ? decision.durationFrames : 90;
+
+    beats.push({
+      key: decision,
+      moment: { momentId, factKind: selected.factKind, sourceText, contentProps, tier, salience, room: `${placementRegion ?? 'an open area'} — clear of the subject and captions`, durationFrames },
+      context: { momentId, factKind: selected.factKind, contentProps: contentProps.map((p) => p.name), numericProps, startMs: Math.max(0, (decision.frame / fps) * 1000) },
+    });
+  }
+
+  if (beats.length === 0) return undefined;
+
+  const durationSec = Math.max(1, overlays.reduce((max, o) => Math.max(max, o.from + o.durationInFrames), 0) / fps);
+  const budget = computeMgDensityBudget({
+    durationSec,
+    beatCount: beats.length,
+    numericEvidenceCount,
+    brandMotionEnergy: mappedBrand.brand.motion.energy,
+    preference: projectSignalContext.motionGraphicsPref,
+  });
+  if (budget.maxMoments === 0) return undefined; // user veto / no license — every decision free-forms
+
+  let generate: ReturnType<typeof defaultGeminiDesignerGenerate>;
+  try {
+    generate = defaultGeminiDesignerGenerate();
+  } catch (keyErr) {
+    console.warn(`[EDL-MG-Design] designer model unavailable (${keyErr instanceof Error ? keyErr.message : keyErr}) — free-form fallback`);
+    return undefined;
+  }
+
+  const videoStyle = resolveVideoStyle({
+    brandFont: mappedBrand.brand.fontSans,
+    intent: projectSignalContext.intent,
+    videoSignals: projectSignalContext.videoSignals,
+  });
+  const result = await runDesignPrepass(
+    { beats, intent: projectSignalContext.intent, videoStyle, brand: mappedBrand.brand, budget },
+    { generate },
+  );
+  console.log(`[EDL-MG-Design] pre-pass: ${beats.length} beats offered, budget ${budget.maxMoments}, ${result.plans.size} designed${result.reason ? ` (session: ${result.reason})` : ''}`);
+  return result.plans.size > 0 ? result.plans : undefined;
+}
+
 async function applyGraphic(
   decision: EditDecision,
   overlays: Overlay[],
@@ -4315,6 +4467,9 @@ async function applyGraphic(
           videoSignals: projectSignalContext.videoSignals, // the video's aggregate energy → style identity
           footageSignals: Object.keys(mgFootage).length > 0 ? mgFootage : undefined,
           motionIntensity: mgMotionIntensity, // brand×video×user liveness → reserved data.motionIntensity
+          // P5-1 Phase C 2/2: this decision's approved design (design-then-code) — keyed by the SAME decision the
+          // pre-pass saw. Present → the worker renders via the coder prompt; absent → free-form codegen (unchanged).
+          design: projectSignalContext.mgDesignPlans?.get(decision),
         });
         const generated = await runDurableMgRenderJob({
           projectId,

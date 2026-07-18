@@ -20,6 +20,7 @@ import type { SemanticMgCandidate } from '../engine/semantic-mg-candidates';
 import type {
   MgAnchors,
   MgExpressiveness,
+  MgMomentDesign,
   MgMomentInput,
   MgPlacementContext,
   MgRegionBox,
@@ -82,6 +83,9 @@ export interface BuildMgMomentInputArgs {
   /** Resolved liveness [0.7,1] (brand×video×user, computeMgMotionIntensity) → the reserved data.motionIntensity
    *  the coder binds for every hold/entrance. Absent → producer predates the resolver (legacy/harness). */
   motionIntensity?: number;
+  /** This moment's approved video-level design (P5-1 Phase C). Present → the worker renders it via the coder
+   *  prompt (design-then-code). Absent → free-form codegen. Set by the seam from projectSignalContext.mgDesignPlans. */
+  design?: MgMomentDesign;
 }
 
 const clamp01 = (v: number): number => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
@@ -118,7 +122,7 @@ function deriveScreen(placement: MgPlacementSource): MgScreenContext | undefined
  * zero/negative-length clip or non-positive fps is a caller bug — fail loud, do not silently "fix" it).
  */
 export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput {
-  const { momentId, candidate, brand, window, expression, placement, anchors, visualEvidence, notes, intent, footageSignals, videoSignals, motionIntensity } = args;
+  const { momentId, candidate, brand, window, expression, placement, anchors, visualEvidence, notes, intent, footageSignals, videoSignals, motionIntensity, design } = args;
 
   if (!Number.isFinite(window.fps) || window.fps <= 0) {
     throw new Error(`buildMgMomentInput: fps must be positive, got ${window.fps}`);
@@ -164,6 +168,7 @@ export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput 
   input.videoStyle = resolveVideoStyle({ brandFont: brand.fontSans, intent, videoSignals });
   if (footageSignals) input.footageSignals = footageSignals;
   if (typeof motionIntensity === 'number' && Number.isFinite(motionIntensity)) input.motionIntensity = motionIntensity;
+  if (design) input.design = design;
 
   return input;
 }
