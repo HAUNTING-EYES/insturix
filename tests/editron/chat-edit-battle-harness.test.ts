@@ -377,6 +377,26 @@ describe('chat edit battle harness', () => {
     });
   });
 
+  it('derives render modalities from affected overlay families instead of broad registry defaults', () => {
+    const textVerification = verifyChatToolPostcondition({
+      toolName: 'update_overlay',
+      args: { id: 1, text: 'after' },
+      resultData: {},
+      beforeProject: project([{ id: 1, type: 'text', content: 'before', from: 0, durationInFrames: 30 }]),
+      afterProject: project([{ id: 1, type: 'text', content: 'after', from: 0, durationInFrames: 30 }]),
+    });
+    const soundVerification = verifyChatToolPostcondition({
+      toolName: 'update_overlay',
+      args: { id: 2, volume: 0.5 },
+      resultData: {},
+      beforeProject: project([{ id: 2, type: 'sound', volume: 1, from: 0, durationInFrames: 30 }]),
+      afterProject: project([{ id: 2, type: 'sound', volume: 0.5, from: 0, durationInFrames: 30 }]),
+    });
+
+    expect(textVerification.renderVerification.modalities).toEqual(['visual']);
+    expect(soundVerification.renderVerification.modalities).toEqual(['audio']);
+  });
+
   it('does not mistake expiring transport URLs for an edit', () => {
     const before = project([{
       id: 1,

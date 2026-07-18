@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import {
   getChatToolMetadata,
   type ChatToolPostconditionContract,
+  type ChatToolRenderEvidenceModality,
   type ChatToolStatePostconditionKind,
 } from './chat-tool-registry';
 
@@ -125,9 +126,33 @@ export function verifyChatToolPostcondition(input: {
     renderVerification: {
       status: 'pending',
       required: true,
-      modalities: contract?.render.modalities ?? ['visual', 'audio'],
+      modalities: resolveRenderVerificationModalities(
+        affectedTargets,
+        contract?.render.modalities ?? ['visual', 'audio'],
+      ),
     },
   };
+}
+
+function resolveRenderVerificationModalities(
+  affectedTargets: ChatEditPostconditionTarget[],
+  declared: ChatToolRenderEvidenceModality[],
+): ChatToolRenderEvidenceModality[] {
+  if (affectedTargets.length === 0) return declared;
+  const modalities = new Set<ChatToolRenderEvidenceModality>();
+  for (const target of affectedTargets) {
+    const type = target.overlayType.toLowerCase();
+    if (type === 'audio' || type === 'sound') {
+      modalities.add('audio');
+      continue;
+    }
+    if (type === 'video') {
+      for (const modality of declared) modalities.add(modality);
+      continue;
+    }
+    modalities.add('visual');
+  }
+  return Array.from(modalities);
 }
 
 interface ProjectSnapshot {
