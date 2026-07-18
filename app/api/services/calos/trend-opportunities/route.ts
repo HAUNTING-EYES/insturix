@@ -31,13 +31,13 @@ type OpportunityView = {
 
 class TrendDraftUnavailableError extends Error {}
 
-export function parseReviewAction(value: unknown): ReviewAction | null {
+function parseReviewAction(value: unknown): ReviewAction | null {
   return typeof value === "string" && (REVIEW_ACTIONS as readonly string[]).includes(value)
     ? value as ReviewAction
     : null;
 }
 
-export function normalizeSnoozeDays(value: unknown): number | null {
+function normalizeSnoozeDays(value: unknown): number | null {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= MAX_SNOOZE_DAYS ? parsed : null;
 }
