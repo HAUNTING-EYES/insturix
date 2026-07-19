@@ -27,6 +27,7 @@ import path from 'node:path';
 import type { CodegenDeps } from '../codegen-service';
 import { generateMoment } from '../codegen-service';
 import type { MgGenerateResult, MgMomentInput, MgReceipt } from '../types';
+import type { MgImageGenerate } from '../design/imagery-client';
 import type { MgRenderResult } from './frame-renderer';
 import type { MgRenderInput } from './scaffold';
 import { workspaceId } from './scaffold';
@@ -82,6 +83,9 @@ export interface RenderMomentDeps {
   frameSize?: (webpDir: string, files: string[]) => Promise<number>;
   /** Authorize exact rendered bytes before any frame reaches durable storage. */
   authorizeStorage?: (sizeBytes: number) => Promise<void>;
+  /** P5-3: injected backdrop image generator for illustrated-overlay lanes. Default (undefined) → imagery-client's
+   *  live Gemini image call; tests inject a fake. */
+  generateBackdrop?: MgImageGenerate;
   /** Tenant/owner namespace. Required by the live seam so identical outputs never share deletable R2 keys. */
   sequenceNamespace?: string;
 }
@@ -150,10 +154,32 @@ export async function renderMgMoment(input: MgMomentInput, deps: RenderMomentDep
     return { status: 'fallback', reason, receipt: { ...gen.receipt, outcome: 'fallback', reason } };
   }
 
-  // 2. Render the validated component to alpha WebP frames (Law 5: the fact's values flow as `data`, never baked).
+  // 2a. P5-3: illustrated-overlay lanes composite a GENERATED backdrop. Produce it HERE (worker-side: Gemini image
+  // → bytes → base64 data URI) so the coder's <Scene src={data.backdropSrc}> renders it with NO sandbox network
+  // round-trip and no allowlist widening (Gemini image generation is already permitted in the sandbox; the R2 CDN
+  // host is not). A backdrop failure → fallback: an illustrated design cannot render without its backdrop, and we
+  // never ship a blank Scene (R18N/R2N). overlay-kit / free-form paths never enter here (no imagery).
+  let backdropSrc: string | undefined;
+  const designPlan = input.design?.plan;
+  if (designPlan?.lane === 'illustrated-overlay' && designPlan.imagery) {
+    try {
+      const { generateStillBackdrop } = await import('../design/imagery-client');
+      const backdrop = await generateStillBackdrop(
+        { ...designPlan.imagery, mode: 'still' },
+        { brand: input.brand, canvas: deps.canvas, generate: deps.generateBackdrop },
+      );
+      backdropSrc = `data:${backdrop.mimeType};base64,${backdrop.bytes.toString('base64')}`;
+    } catch (error) {
+      const reason = `illustrated backdrop generation failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 200);
+      return { status: 'fallback', reason, receipt: { ...gen.receipt, outcome: 'fallback', reason } };
+    }
+  }
+
+  // 2b. Render the validated component to alpha WebP frames (Law 5: the fact's values flow as `data`, never baked).
   // Reserved system props merge AFTER the fact content so model-authored content can never shadow them
   // (P5-1: closes the dead path where data.wordFrames / data.motionIntensity existed only in harnesses —
-  // the coder contract binds both; production anchors already carry wordFrames).
+  // the coder contract binds both; production anchors already carry wordFrames). data.backdropSrc (P5-3) is the
+  // reserved illustrated-overlay backdrop the coder binds on <Scene src>.
   const renderInput: MgRenderInput = {
     componentSource: gen.code,
     brand: input.brand,
@@ -161,6 +187,7 @@ export async function renderMgMoment(input: MgMomentInput, deps: RenderMomentDep
       ...input.candidate.content,
       ...(input.anchors?.wordFrames?.length ? { wordFrames: input.anchors.wordFrames } : {}),
       ...(typeof input.motionIntensity === 'number' ? { motionIntensity: input.motionIntensity } : {}),
+      ...(backdropSrc ? { backdropSrc } : {}),
     },
     width: deps.canvas.width,
     height: deps.canvas.height,

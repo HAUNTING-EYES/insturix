@@ -7,6 +7,7 @@ import type { MgRenderInput } from '@/lib/editron/motion-graphics/codegen/render
 import { workspaceId } from '@/lib/editron/motion-graphics/codegen/render/scaffold';
 import { sequenceFrameKey } from '@/lib/editron/motion-graphics/codegen/render/sequence-playback';
 import type { MgGenerateResult, MgMomentInput, MgReceipt } from '@/lib/editron/motion-graphics/codegen/types';
+import type { MgMomentDesignPlan, MgVideoDesignBrief } from '@/lib/editron/motion-graphics/codegen/design/design-plan';
 import type { SemanticMgCandidate } from '@/lib/editron/motion-graphics/engine/semantic-mg-candidates';
 
 const CANVAS = { width: 1080, height: 1920 };
@@ -186,5 +187,59 @@ describe('renderMgMoment - the seam entry (generate → render → ingest → co
     if (res.status !== 'generated') throw new Error();
     expect(() => sequenceFrameKey(res.sequence.address.sequenceId, 0)).not.toThrow();
     expect(res.sequence.address.sequenceId).toMatch(/^[A-Za-z0-9_-]+$/);
+  });
+});
+
+describe('renderMgMoment - illustrated-overlay backdrop (P5-3)', () => {
+  const brief: MgVideoDesignBrief = {
+    styleName: 'clean', motifLanguage: 'thin gold rule', paletteMoves: 'charcoal + gold',
+    motionPersonality: 'snappy', formVariety: 'type over scene',
+  };
+  const illustratedPlan: MgMomentDesignPlan = {
+    momentId: 'm1', lane: 'illustrated-overlay', concept: 'charcoal field with the figure', targetBar: 'restraint',
+    structure: { placement: 'center', grouping: 'headline over scene', readingOrder: 'headline' },
+    elements: [{ kind: 'headline', role: 'the line', dataProps: ['label'] }],
+    imagery: { scenePrompt: 'abstract charcoal field, soft gold light', mode: 'still', paletteDirection: 'charcoal + gold' },
+    motion: { enterOrder: [0], build: 'fade in', hold: 'gentle drift', syncTo: 'phases-only' },
+    look: 'integrated',
+  };
+
+  it('★ generates the backdrop → a base64 data URI reaches the render as data.backdropSrc', async () => {
+    let captured: MgRenderInput | undefined;
+    const generateBackdrop = vi.fn(async () => ({ mimeType: 'image/jpeg', data: Buffer.alloc(2000, 1).toString('base64') }));
+    const res = await renderMgMoment(input({ design: { plan: illustratedPlan, brief } }), deps({
+      generateBackdrop,
+      render: async (ri) => { captured = ri; return fakeRender(); },
+    }));
+    expect(res.status).toBe('generated');
+    expect(generateBackdrop).toHaveBeenCalledOnce();
+    expect(String(captured?.data.backdropSrc)).toMatch(/^data:image\/jpeg;base64,/); // embedded, no network fetch
+  });
+
+  it('★ a backdrop failure → fallback (never a blank Scene); render NEVER called', async () => {
+    const render = vi.fn();
+    const res = await renderMgMoment(input({ design: { plan: illustratedPlan, brief } }), deps({
+      generateBackdrop: async () => { throw new Error('gemini 500'); },
+      render,
+    }));
+    expect(res.status).toBe('fallback');
+    if (res.status !== 'fallback') throw new Error();
+    expect(res.reason).toMatch(/backdrop/);
+    expect(render).not.toHaveBeenCalled();
+  });
+
+  it('an overlay-kit design (no imagery) generates no backdrop and sets no data.backdropSrc', async () => {
+    let captured: MgRenderInput | undefined;
+    const generateBackdrop = vi.fn();
+    const overlayKit: MgMomentDesignPlan = {
+      ...illustratedPlan, lane: 'overlay-kit', imagery: undefined,
+      elements: [{ kind: 'headline', role: 'x', dataProps: ['label'] }, { kind: 'rule', role: 'underline', dataProps: [] }],
+    };
+    const res = await renderMgMoment(input({ design: { plan: overlayKit, brief } }), deps({
+      generateBackdrop, render: async (ri) => { captured = ri; return fakeRender(); },
+    }));
+    expect(res.status).toBe('generated');
+    expect(generateBackdrop).not.toHaveBeenCalled();
+    expect(captured?.data.backdropSrc).toBeUndefined();
   });
 });
