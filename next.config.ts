@@ -44,7 +44,15 @@ const nextConfig: NextConfig = {
   // CANNOT be bundled by Next's webpack — that is "bundling webpack with webpack" and fails the build. This was
   // the 67fc4fe6 regression: the MG codegen seam pulled frame-renderer into the Director route graph. Keep them
   // external so the build is green; the actual rendering must run in an isolated worker, never a Vercel function.
-  serverExternalPackages: ['@remotion/bundler', '@remotion/renderer', 'sharp'],
+  // The Lambda packages are also Node-only AWS streaming clients. Bundling them into a Route Handler can leave
+  // renderStillOnLambda waiting forever for a stream event even though the same request succeeds natively.
+  serverExternalPackages: [
+    '@remotion/bundler',
+    '@remotion/lambda',
+    '@remotion/lambda-client',
+    '@remotion/renderer',
+    'sharp',
+  ],
   // Performance optimizations
   experimental: {
     optimizePackageImports: [
