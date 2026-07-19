@@ -144,8 +144,14 @@ export const mgVideoDesignPlanSchema = z.object({
   brief: mgVideoDesignBriefSchema,
   /** min(0): a designer may honestly decline every beat — no-MG beats a forced bad one. */
   moments: z.array(mgMomentDesignPlanSchema).min(0).max(24),
-  /** Beats licensed away. Empty/absent under pre-licensed legacy input (every moment then needs a design). */
-  declined: z.array(mgDesignDeclineSchema).max(48).default([]),
+  /** Beats licensed away. Empty/absent under pre-licensed legacy input (every moment then needs a design).
+   *  Cap ≤1000, not 48: the P3.5 door's coverage rule puts EVERY non-licensed beat here, so this must hold ~all
+   *  beats a single-call video feeds. 48 rejected the designer's own valid plan for any video over ~4 min (found
+   *  by the 8-min Hormozi stress test: 109 beats → 19 licensed + 90 declined → parse threw). 1000 ≈ ~70 min of
+   *  dense speech at the measured ~14 beats/min; a genuinely long video (a 2h talk ≈ 1600 beats) exceeds this BY
+   *  DESIGN and MUST window the design session per segment — the single designer call does not scale to feature
+   *  length (context + cost). The cap still fails loud on runaway output (R18N). */
+  declined: z.array(mgDesignDeclineSchema).max(1000).default([]),
 }).strict();
 export type MgVideoDesignPlan = z.infer<typeof mgVideoDesignPlanSchema>;
 
@@ -286,6 +292,56 @@ export function validateDesignPlan(
     }
   }
   return { ok: problems.length === 0, problems };
+}
+
+/**
+ * SALVAGE a plan that failed validation instead of throwing the whole video's design away (finding #3 from the
+ * 2026-07-19 Hormozi stress run: one bad moment — e.g. a ring bound to no number — aborted a 33-beat plan, and
+ * production then fell back to free-form for EVERY decided graphic). A studio drops the one bad board and keeps
+ * the rest; so do we. Every validator problem is prefixed `momentId:` (moment-attributable) or is the plan-level
+ * budget overflow — so we can map problems to the moments that caused them, DECLINE those, keep the clean ones,
+ * decline any budget overflow + coverage gaps, and re-validate. Returns null only when NOTHING survives (then the
+ * caller degrades to free-form, exactly as before — never a regression).
+ */
+export function salvageDesignPlan(
+  plan: MgVideoDesignPlan,
+  moments: MgDesignPlanMomentContext[],
+  budget?: MgDesignPlanBudget,
+): { plan: MgVideoDesignPlan; dropped: string[] } | null {
+  if (validateDesignPlan(plan, moments, budget).ok) return { plan, dropped: [] };
+
+  const knownIds = new Set(moments.map((m) => m.momentId));
+  // Map each problem to the moment that caused it (prefix before the first ':'), keeping the first reason seen.
+  const bad = new Map<string, string>();
+  for (const p of validateDesignPlan(plan, moments, budget).problems) {
+    const colon = p.indexOf(':');
+    if (colon < 0) continue; // plan-level (budget) — handled by the budget trim below
+    const id = p.slice(0, colon).trim();
+    if (knownIds.has(id) && !bad.has(id)) bad.set(id, p.slice(colon + 1).trim());
+  }
+
+  let kept = plan.moments.filter((m) => !bad.has(m.momentId));
+  const overBudget: string[] = [];
+  if (budget && kept.length > budget.maxMoments) {
+    overBudget.push(...kept.slice(budget.maxMoments).map((m) => m.momentId));
+    kept = kept.slice(0, budget.maxMoments);
+  }
+
+  const keptIds = new Set(kept.map((m) => m.momentId));
+  const declines = new Map<string, string>();
+  for (const d of plan.declined ?? []) if (knownIds.has(d.momentId) && !keptIds.has(d.momentId)) declines.set(d.momentId, d.reason);
+  for (const [id, reason] of bad) if (!keptIds.has(id)) declines.set(id, `salvage: ${reason}`);
+  for (const id of overBudget) declines.set(id, 'salvage: over the density budget');
+  for (const m of moments) if (!keptIds.has(m.momentId) && !declines.has(m.momentId)) declines.set(m.momentId, 'salvage: not designed');
+
+  const salvaged: MgVideoDesignPlan = {
+    ...plan,
+    moments: kept,
+    declined: Array.from(declines, ([momentId, reason]) => ({ momentId, reason: reason.slice(0, 240) })),
+  };
+  return validateDesignPlan(salvaged, moments, budget).ok
+    ? { plan: salvaged, dropped: [...bad.keys(), ...overBudget] }
+    : null;
 }
 
 export function parseMgVideoDesignPlan(value: unknown): MgVideoDesignPlan {

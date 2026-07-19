@@ -28,6 +28,7 @@ import {
 import {
   mgVideoDesignPlanSchema,
   validateDesignPlan,
+  salvageDesignPlan,
   type MgDesignPlanMomentContext,
   type MgVideoDesignPlan,
 } from './design-plan';
@@ -105,6 +106,7 @@ export async function runVideoDesignSession(
   const budget = input.designer.budget;
   const baseParts = buildDesignerParts(input.designer, input.images ?? {});
   let lastReason = 'no attempt made';
+  let lastPlan: MgVideoDesignPlan | null = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const parts = attempt === 0 ? baseParts : withFeedback(baseParts, lastReason);
@@ -119,11 +121,27 @@ export async function runVideoDesignSession(
       const parsed = mgVideoDesignPlanSchema.parse(extractDesignPlanJson(text));
       // F2: trim an over-budget plan to the top-N by salience rather than voiding it, THEN validate.
       const plan = budget ? trimPlanToBudget(parsed, budget.maxMoments, input.designer.moments) : parsed;
+      lastPlan = plan;
       const validation = validateDesignPlan(plan, input.contexts, budget ? { maxMoments: budget.maxMoments } : undefined);
       if (validation.ok) return { plan, attempts: attempt + 1 };
       lastReason = validation.problems.slice(0, 3).join(' | ') || 'plan failed validation';
     } catch (error) {
       lastReason = `plan parse/validation error: ${error instanceof Error ? error.message : String(error)}`.slice(0, 180);
+    }
+  }
+
+  // Fix A (2026-07-19): every attempt failed validation. Rather than forfeit the WHOLE video's design — which the
+  // Hormozi stress run showed drops ALL decided graphics to free-form over one bad moment (e.g. a ring bound to no
+  // number) — SALVAGE the last plan: keep the valid moments, decline the invalid ones. Only when NOTHING valid
+  // survives do we return null and let the caller degrade to free-form (never worse than before this fix).
+  if (lastPlan) {
+    const salvaged = salvageDesignPlan(lastPlan, input.contexts, budget ? { maxMoments: budget.maxMoments } : undefined);
+    if (salvaged && salvaged.plan.moments.length > 0) {
+      return {
+        plan: salvaged.plan,
+        attempts: maxAttempts,
+        reason: `salvaged: kept ${salvaged.plan.moments.length}, dropped ${salvaged.dropped.length}${salvaged.dropped.length ? ` [${salvaged.dropped.slice(0, 5).join(', ')}]` : ''}`,
+      };
     }
   }
 

@@ -11,6 +11,7 @@ import {
   mgVideoDesignPlanSchema,
   parseMgVideoDesignPlan,
   validateDesignPlan,
+  salvageDesignPlan,
   type MgDesignPlanMomentContext,
   type MgMomentDesignPlan,
   type MgVideoDesignPlan,
@@ -52,6 +53,45 @@ const listCtx: MgDesignPlanMomentContext = { momentId: 'm_list', factKind: 'list
 
 const plan = (moments: MgMomentDesignPlan[], declined: MgVideoDesignPlan['declined'] = []): MgVideoDesignPlan =>
   ({ brief, moments, declined });
+
+describe('salvageDesignPlan — keep the valid moments, decline the bad ones (Fix A, 2026-07-19)', () => {
+  const statCtx: MgDesignPlanMomentContext = { momentId: 'm_stat', factKind: 'bounded-stat', contentProps: ['value'], numericProps: ['value'], startMs: 5000 };
+  // The exact failure the Hormozi stress run hit: a ring (quantitative mark) bound to no numeric prop.
+  const badRing: MgMomentDesignPlan = {
+    momentId: 'm_stat', lane: 'overlay-kit', concept: 'a ring bound to nothing', targetBar: 'clarity',
+    structure: { placement: 'center', grouping: 'ring', readingOrder: 'ring' },
+    elements: [{ kind: 'ring', role: 'progress indicator', dataProps: [] }],
+    motion: { enterOrder: [0], build: 'ring draws', hold: 'still', syncTo: 'phases-only' },
+    look: 'integrated',
+  };
+
+  it('★ one bad moment no longer voids the whole plan — it is dropped, the valid moment survives', () => {
+    const p = plan([designedList(), badRing]);
+    const ctx = [listCtx, statCtx];
+    expect(validateDesignPlan(p, ctx).ok).toBe(false); // the ring triggers the grounding problem
+    const s = salvageDesignPlan(p, ctx);
+    expect(s).not.toBeNull();
+    expect(s!.plan.moments.map((m) => m.momentId)).toEqual(['m_list']); // valid moment kept
+    expect(s!.dropped).toContain('m_stat');
+    expect(s!.plan.declined.some((d) => d.momentId === 'm_stat')).toBe(true); // bad moment declined with a reason
+    expect(validateDesignPlan(s!.plan, ctx).ok).toBe(true); // the salvaged plan is fully valid — every beat covered
+  });
+
+  it('an already-valid plan passes through untouched (dropped: [])', () => {
+    const p = plan([designedList()]);
+    const s = salvageDesignPlan(p, [listCtx]);
+    expect(s).not.toBeNull();
+    expect(s!.dropped).toEqual([]);
+    expect(s!.plan).toBe(p);
+  });
+
+  it('when ALL moments are bad, salvage yields a 0-moment plan (the session then returns null → free-form)', () => {
+    const s = salvageDesignPlan(plan([badRing]), [statCtx]);
+    expect(s).not.toBeNull();
+    expect(s!.plan.moments.length).toBe(0);
+    expect(s!.plan.declined.some((d) => d.momentId === 'm_stat')).toBe(true);
+  });
+});
 
 describe('MG design plan — schema strictness', () => {
   it('parses a valid designed plan; rejects unknown keys and >24 moments', () => {
