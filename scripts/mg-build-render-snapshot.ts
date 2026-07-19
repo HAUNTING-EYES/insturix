@@ -64,16 +64,49 @@ async function main(): Promise<void> {
   const githubToken = requiredEnv('GITHUB_TOKEN');
   const commit = (process.argv[2]?.trim() || execSync('git rev-parse HEAD').toString().trim()).toLowerCase();
   if (!/^[a-f0-9]{7,40}$/.test(commit)) throw new Error(`invalid commit sha: ${commit}`);
+  // The sandbox clones the DEFAULT branch (main) then checks out `revision`. A SHA that lives only on a
+  // feature branch is absent from that clone → checkout exit 128. So clone by BRANCH (its tip IS the commit);
+  // `commit` still drives APP_COMMIT + the in-sandbox verify below.
+  const branch = process.env.MG_SNAPSHOT_BRANCH?.trim() || execSync('git rev-parse --abbrev-ref HEAD').toString().trim();
 
-  console.log(`MG render snapshot build\n  repo:   ${GIT_URL}\n  commit: ${commit}\n`);
+  console.log(`MG render snapshot build\n  repo:   ${GIT_URL}\n  branch: ${branch}\n  commit: ${commit}\n`);
 
   const { Sandbox } = await import('@vercel/sandbox');
-  const sandbox = await Sandbox.create({
-    source: { type: 'git', url: GIT_URL, revision: commit, username: 'x-access-token', password: githubToken },
-    timeout: BUILD_TIMEOUT_MS,
-    resources: { vcpus: 4 },
-    tags: { app: 'editron', workload: 'mg-render-snapshot-build', commit: commit.slice(0, 12) },
-  });
+  let sandbox: Awaited<ReturnType<typeof Sandbox.create>>;
+  try {
+    sandbox = await Sandbox.create({
+      // depth:1 — a FULL clone of this repo's huge history 128s inside the sandbox; a shallow clone of the branch
+      // tip (which IS `commit`) is what the snapshot needs and clones instantly (verified 2026-07-19).
+      source: { type: 'git', url: GIT_URL, revision: branch, username: 'x-access-token', password: githubToken, depth: 1 },
+      timeout: BUILD_TIMEOUT_MS,
+      resources: { vcpus: 4 },
+      tags: { app: 'editron', workload: 'mg-render-snapshot-build', commit: commit.slice(0, 12) },
+      // Explicit Vercel creds when provided (so the build runs from any shell, not only a fresh-OIDC one).
+      ...(process.env.VERCEL_TOKEN ? { token: process.env.VERCEL_TOKEN, teamId: process.env.VERCEL_TEAM_ID, projectId: process.env.VERCEL_PROJECT_ID } : {}),
+    } as unknown as Parameters<typeof Sandbox.create>[0]);
+  } catch (createError) {
+    // The SDK collapses a non-2xx into "Status code N is not ok" and hides the reason — surface EVERYTHING.
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const e = createError as any;
+    console.error('\n[snapshot-build] Sandbox.create FAILED — diagnostics:');
+    console.error('  message:', e?.message);
+    for (const k of ['name', 'status', 'statusCode', 'code', 'url', 'method']) {
+      if (e?.[k] !== undefined) console.error(`  ${k}:`, e[k]);
+    }
+    const resp = e?.response;
+    if (resp) {
+      console.error('  response.status:', resp.status, resp.statusText ?? '');
+      try {
+        const body = typeof resp.text === 'function' ? await resp.text() : (resp.body ?? resp.data ?? resp);
+        console.error('  response.body:', (typeof body === 'string' ? body : JSON.stringify(body)).slice(0, 3000));
+      } catch (readErr) {
+        console.error('  (response body already consumed):', (readErr as any)?.message);
+      }
+    }
+    try { console.error('  ownProps:', JSON.stringify(e, Object.getOwnPropertyNames(e ?? {})).slice(0, 3000)); } catch { /* ignore */ }
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+    throw createError;
+  }
 
   try {
     const checkedOut = await runStep(sandbox, 'verify checkout commit', 'git', ['rev-parse', 'HEAD']);
