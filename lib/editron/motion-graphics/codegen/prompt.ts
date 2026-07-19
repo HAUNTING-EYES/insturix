@@ -30,7 +30,7 @@ TEXT (the only way words render — size & colour COMPUTED, never passed):
 <Chip brand text tone="ghost|accent" startAt/>
 
 CHOREOGRAPHY (numbers are DERIVED — anchor to phases, never hand-type frame windows):
-const ph = phases(durationInFrames, brand)      // {intro, build, resolve, durF}
+const ph = phases(durationInFrames, brand)      // ph.intro, ph.build, ph.resolve, ph.durF are PLAIN FRAME NUMBERS (integers), NOT objects. Use directly: ph.intro, ph.intro + 6, [ph.intro, ph.intro + 15]. NEVER ph.intro.start / ph.intro.end — those are undefined and throw "inputRange must contain only numbers" at render.
 enter(brand, frame, at, fps, "rise|scale|pop|fade|blurIn|zoomBlur|sweepL|sweepR", unit?) -> style   // entrance verb
 ambient(frame, at, "float|pulse|breathe|glow|drift", strength?) -> style   // SUSTAINED hold-phase life — nest on a WRAPPER so the graphic keeps MOVING, not frozen after its entrance
 exitOut(frame, ph, "fade|rise") -> style        stagger(brand, i)   pulseAt(frame, at, strength)
