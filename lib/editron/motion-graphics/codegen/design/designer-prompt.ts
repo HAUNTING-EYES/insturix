@@ -165,12 +165,20 @@ function momentBlock(m: MgDesignerMoment): string {
   const props = m.contentProps.length
     ? m.contentProps.map((p) => `${p.name}: ${p.kind}`).join('; ')
     : 'none';
+  // Fix B (2026-07-19): state per-beat whether a data mark is even possible, RIGHT AT THE DATA. The stress run
+  // showed the designer reaching for a ring/bar 'progress indicator' on qualitative beats that carry no number —
+  // a validation reject. Spelling out "NONE — no bar/ring/plot" next to the beat's props kills that at the source.
+  const numeric = m.contentProps.filter((p) => p.kind === 'number').map((p) => p.name);
+  const quant = numeric.length
+    ? `quantitative marks (bar/ring/plot) MAY bind: ${numeric.join(', ')}`
+    : `quantitative marks (bar/ring/plot): NONE — this beat has no numeric data; a bar/ring/plot here is a validation REJECT. Treat it qualitatively (type/rule/dot/motif/reveal/texture).`;
   const subject = m.subjectBox
     ? `\n  subject box (design clear of it; frame fractions): x=${m.subjectBox.x.toFixed(2)} y=${m.subjectBox.y.toFixed(2)} w=${m.subjectBox.width.toFixed(2)} h=${m.subjectBox.height.toFixed(2)}`
     : '';
   return `- ${m.momentId} · factKind=${m.factKind} · tier=${m.tier} · salience=${m.salience.toFixed(2)} · ~${m.durationFrames}f
   said: "${m.sourceText.slice(0, 200)}"
   data props (bind by NAME): ${props}
+  ${quant}
   room: ${m.room.slice(0, 200)}${subject}`;
 }
 
