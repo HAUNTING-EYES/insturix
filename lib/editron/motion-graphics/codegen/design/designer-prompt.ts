@@ -118,7 +118,9 @@ converge on one aesthetic across videos; converge on the LEVEL.
   REJECTED by the system. Every moment gets designed structure: form elements (${MG_FORM_ELEMENTS.join(', ')})
   and/or generated imagery. A list is a designed structure (marked, carded, spatially arranged) — never text
   lines. A stat is a designed figure — never a printed value. Restraint changes the SIZE of the design, never
-  whether there is one.
+  whether there is one. A LONE dot or rule beside a text block is NOT designed structure — that is the bare-caption
+  failure (a bullet + a subtitle is a slide, not a motion graphic). Restraint means refined type + a considered
+  mark SYSTEM + deliberate negative space — small, but unmistakably composed.
 - ONE GRAPHIC LANGUAGE PER VIDEO. The brief's motifLanguage is a recurring device (an underline that draws, a
   dot marker system, a corner tick) present across moments; paletteMoves stays in-brand (tint/shade/mix leans).
   Coherence in language, VARIETY in form: state in formVariety how forms are distributed so adjacent moments
@@ -141,9 +143,11 @@ converge on one aesthetic across videos; converge on the LEVEL.
   composition, palette — no text, no numbers, no logos, no real persons or brands.
 - PLACEMENT. Each moment lists its ROOM — design inside it, clear of the subject and captions. Reading order is
   a deliberate choice; motion.enterOrder indexes into your elements array in build order.
-- MOTION IS DESIGNED. entrances staggered with intent, a build that develops, a hold that stays alive (never
-  frozen), sync chosen per moment (word-onsets for spoken lists/kinetic type, beats for rhythmic reveals,
-  landing for one decisive hit, phases-only when quiet).
+- MOTION IS DESIGNED. entrances staggered with intent, a build that develops, and a hold that stays alive — the
+  hold MUST describe CONTINUING motion (float / drift / pulse / breathe / slow parallax). A hold of "static",
+  "frozen", "none", or "still" is FORBIDDEN: a frozen graphic dies on the deterministic motion floor before any
+  judge sees it. Sync chosen per moment (word-onsets for spoken lists/kinetic type, beats for rhythmic reveals,
+  landing for one decisive hit, phases-only when quiet — phases-only still MOVES via the entrance + ambient hold).
 - ELEMENT VOCABULARY (the coder's kit — nothing else exists): ${MG_ELEMENT_KINDS.join(', ')}. Lanes: ${MG_DESIGN_LANES.join(' | ')}. Bars: ${MG_TARGET_BARS.join(' | ')}.
 </design_rules>
 
