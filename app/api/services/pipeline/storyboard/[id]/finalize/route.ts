@@ -1116,11 +1116,13 @@ export async function POST(
             src: bgm.audioUrl,
             assetId: bgm.audioAssetId,
             styles: {
-              volume: 0.75,
+              // CKG-compliant levels (bgm-mix-levels.ts, from CKG music_solo/under_speech dB ranges). Were 0.75/0.20,
+              // ~9dB/~5dB hotter than the CKG's own ranges (the "BGM too loud" defect).
+              volume: 0.355,
               opacity: 1,
               duckingConfig: {
                 enabled: true,
-                duckLevel: 0.20,
+                duckLevel: 0.089,
                 rampDownMs: 300,
                 rampUpMs: 600,
                 lookAheadMs: 200,

@@ -18,6 +18,7 @@ import { generateSFXForScenes } from '@/lib/pipeline/sfx-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { createPipelineWarnings } from '@/lib/editron/services/pipeline-warnings';
 import { analyzeBeatsFull } from '@/lib/editron/services/media/beat-detection-service';
+import { DEFAULT_BGM_MIX_LEVELS } from '@/lib/editron/services/bgm-mix-levels';
 
 /**
  * Persist pipeline warnings from this worker run to the project doc.
@@ -58,6 +59,9 @@ interface AudioWorkerPayload {
   totalDurationSec?: number;
   totalFrames?: number;
   fps?: number;
+  // Signal-driven BGM mix levels (bgm-mix-levels.ts, CKG-bounded). Absent → DEFAULT_BGM_MIX_LEVELS.
+  bgmBaseVolume?: number;
+  bgmDuckLevel?: number;
   // SFX fields
   sfxInputs?: Array<{
     sceneIndex: number;
@@ -97,7 +101,7 @@ async function handler(request: NextRequest) {
     }
 
     if (type === 'bgm') {
-      const { musicPrompt, totalDurationSec, totalFrames, fps } = payload;
+      const { musicPrompt, totalDurationSec, totalFrames, fps, bgmBaseVolume, bgmDuckLevel } = payload;
       if (!musicPrompt || !totalDurationSec || !totalFrames || !fps) {
         console.error('[AudioWorker] BGM: missing required fields');
         warnings.add({ severity: 'error', phase: 'bgm', message: 'Missing required fields for BGM generation', details: { hasPrompt: !!musicPrompt, totalDurationSec, totalFrames, fps } });
@@ -128,12 +132,14 @@ async function handler(request: NextRequest) {
         src: bgm.audioUrl,
         assetId: bgm.audioAssetId,
         styles: {
-          volume: 0.75,
+          // Signal-driven levels from the director (CKG solo/under-speech dB ranges); CKG-compliant default when
+          // dispatched without them (finalize/storyboard). Replaces the old fixed 0.75/0.20 (music too loud in gaps).
+          volume: typeof bgmBaseVolume === 'number' ? bgmBaseVolume : DEFAULT_BGM_MIX_LEVELS.baseVolume,
           opacity: 1,
           animation: { exit: 'fade', duration: 1 },
           duckingConfig: {
             enabled: true,
-            duckLevel: 0.20,
+            duckLevel: typeof bgmDuckLevel === 'number' ? bgmDuckLevel : DEFAULT_BGM_MIX_LEVELS.duckLevel,
             rampDownMs: 300,
             rampUpMs: 600,
             lookAheadMs: 200,

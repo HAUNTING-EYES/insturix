@@ -1833,6 +1833,10 @@ export async function executeDirectorPlan(
                   ? `${signalMusicPrompt}. User direction: ${requestedMusicPrompt}`
                   : signalMusicPrompt;
                 const { dispatchAudioJob } = await import('@/lib/editron/services/audio-worker-dispatch');
+                const { resolveBgmMixLevels } = await import('@/lib/editron/services/bgm-mix-levels');
+                // Signal-driven BGM levels, bounded by the CKG solo/under-speech dB ranges, from THIS video's
+                // energy_baseline — replaces the fixed 0.75/0.20 literals (music was ~9dB too hot in gaps).
+                const bgmMix = resolveBgmMixLevels({ energyBaseline: bgmEnergy });
                 const dispatchResult = await dispatchAudioJob({
                   type: 'bgm',
                   projectId,
@@ -1842,6 +1846,8 @@ export async function executeDirectorPlan(
                   totalDurationSec: bgmDurationSec,
                   totalFrames: bgmTotalFrames,
                   fps: bgmFps,
+                  bgmBaseVolume: bgmMix.baseVolume,
+                  bgmDuckLevel: bgmMix.duckLevel,
                 }, 'BGM(auto-edit)');
                 const evidence = await persistAutoBgmEvidence({
                   providerAvailable,

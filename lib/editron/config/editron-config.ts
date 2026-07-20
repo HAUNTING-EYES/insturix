@@ -14,6 +14,7 @@
  */
 
 import type { EditProfile } from '@/lib/editron/data/edit-profile-types';
+import { DEFAULT_BGM_MIX_LEVELS } from '@/lib/editron/services/bgm-mix-levels';
 
 // ─── Timing & Frame Constants ──────────────────────────────────────
 
@@ -391,11 +392,14 @@ export const DEFAULT_CONFIG: EditronConfig = {
     },
   },
   audio: {
-    duckLevel: 0.20,
+    // CKG-compliant fallback levels (bgm-mix-levels.ts, from CKG music_under_speech/solo dB ranges). The director
+    // path overrides these with per-video signal-driven levels; these are the no-signal defaults (were 0.20/0.75,
+    // which were ~5dB/~9dB hotter than the CKG's own ranges — the "BGM too loud" defect).
+    duckLevel: DEFAULT_BGM_MIX_LEVELS.duckLevel,
     rampDownMs: 300,
     rampUpMs: 600,
     lookAheadMs: 200,
-    defaultBgmVolume: 0.75,
+    defaultBgmVolume: DEFAULT_BGM_MIX_LEVELS.baseVolume,
     defaultSfxVolume: 0.3,
   },
   music: {

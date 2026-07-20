@@ -4747,7 +4747,8 @@ function applyAudioDuck(
   // Already has ducking? Skip.
   if (bgm.styles?.duckingConfig?.enabled) return null;
 
-  const { duckLevel = 0.20, rampDownMs = 300, rampUpMs = 600 } = decision.params;
+  // Default ~-21 dB, CKG music_under_speech_level_range (bgm-mix-levels.ts). Was 0.20 (~-14dB, too hot under speech).
+  const { duckLevel = 0.089, rampDownMs = 300, rampUpMs = 600 } = decision.params;
 
   if (!bgm.styles) bgm.styles = {};
   bgm.styles.duckingConfig = {

@@ -11,11 +11,13 @@ export const AUDIO_LEVELS = {
   /** Voiceover target peak volume */
   VO_PEAK: 1.0, // 0 dBFS reference
 
-  /** BGM volume when voiceover is active (ducked) — ~-14 dB */
-  BGM_WITH_VO: 0.20,
+  /** BGM volume when voiceover is active (ducked) — ~-21 dB, CKG music_under_speech_level_range (-24..-18).
+   *  Signal-driven per-video levels come from bgm-mix-levels.ts; this is the static chat-tool fallback. */
+  BGM_WITH_VO: 0.089,
 
-  /** BGM volume when no voiceover is playing — ~-2.5 dB */
-  BGM_WITHOUT_VO: 0.75,
+  /** BGM volume when no voiceover is playing — ~-9 dB, CKG music_solo_level_range (-12..-6).
+   *  Was 0.75 (~-2.5dB), ~9dB hotter than the CKG's own ceiling (the "music too loud" defect). */
+  BGM_WITHOUT_VO: 0.355,
 
   /** SFX peak volume — ~-3.7 dB */
   SFX_PEAK: 0.65,
@@ -29,8 +31,8 @@ export const AUDIO_LEVELS = {
 
 /** Ducking ramp timing (milliseconds) */
 export const DUCKING_DEFAULTS = {
-  /** Volume level when ducked (0-1) */
-  duckLevel: 0.20,
+  /** Volume level when ducked (0-1) — ~-21 dB, CKG music_under_speech_level_range (bgm-mix-levels.ts). Was 0.20. */
+  duckLevel: 0.089,
 
   /** How quickly BGM ramps down when VO starts (ms) */
   rampDownMs: 300,
