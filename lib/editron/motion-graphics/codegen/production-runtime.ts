@@ -35,7 +35,8 @@ const JUDGE_ATTEMPTS = [
   { seed: 7, maxOutputTokens: 4_096 },
 ] as const;
 const DEFAULT_ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
-const DEFAULT_MG_CODEGEN_MODEL = 'glm-5v-turbo';
+const DEFAULT_MG_CODEGEN_MODEL = 'gemini-3.1-pro-preview'; // A/B winner: 4/7 vs glm-5v-turbo 2/7 (2026-07-19). Override with MG_CODEGEN_MODEL; both are vision-capable.
+const GLM_COMPONENT_MODEL = 'glm-5v-turbo';
 const DEFAULT_COMPONENT_TIMEOUT_MS = 3 * 60 * 1_000;
 const COMPONENT_MAX_OUTPUT_TOKENS = 32_768;
 
@@ -158,13 +159,26 @@ function componentWriterContent(prompt: string, visualEvidence?: MgVisualEvidenc
 }
 
 
+const VISION_CAPABLE_COMPONENT_MODELS = new Set([GLM_COMPONENT_MODEL]);
+
+function isGeminiComponentModel(model: string): boolean {
+  return model.toLowerCase().startsWith('gemini');
+}
+
+function isVisionCapableComponentModel(model: string): boolean {
+  return isGeminiComponentModel(model) || VISION_CAPABLE_COMPONENT_MODELS.has(model.toLowerCase());
+}
+
+// Vision gate: writing FROM footage evidence needs a multimodal writer. gemini-* and glm-5v-turbo both qualify
+// (measured 2026-07-19: Gemini 3.1-pro and GLM-5V both author correctly from the frames). A non-vision model
+// with visual evidence fails loud here rather than silently ignoring the footage.
 function assertVisionCapableComponentModel(model: string, visualEvidence?: MgVisualEvidence): void {
-  if (visualEvidence && model.toLowerCase() !== DEFAULT_MG_CODEGEN_MODEL) {
+  if (visualEvidence && !isVisionCapableComponentModel(model)) {
     throw new MgProviderFailureError(
-      `MG codegen visual evidence requires ${DEFAULT_MG_CODEGEN_MODEL}; received ${model}`,
+      `MG codegen visual evidence requires a vision-capable component model (gemini-* or ${GLM_COMPONENT_MODEL}); received ${model}`,
       {
         domain: 'provider',
-        provider: 'zai',
+        provider: isGeminiComponentModel(model) ? 'gemini' : 'zai',
         operation: 'component-generation',
         code: 'configuration',
         disposition: 'terminal',
@@ -173,10 +187,118 @@ function assertVisionCapableComponentModel(model: string, visualEvidence?: MgVis
   }
 }
 
+type GeminiComponentPart = { text: string } | { inlineData: { mimeType: string; data: string } };
+
+// Gemini component content: same cache-prefix-first discipline as componentWriterContent (GLM path), in Gemini's
+// parts shape. The stable MG knowledge leads (implicit prefix cache), then the footage frames as inlineData, then
+// the volatile <moment> tail — nothing volatile sits in front of the cacheable span.
+function geminiComponentContent(prompt: string, visualEvidence?: MgVisualEvidence): GeminiComponentPart[] {
+  const hasPrefix = prompt.startsWith(CODEGEN_STABLE_PREFIX);
+  const volatileTail = (hasPrefix ? prompt.slice(CODEGEN_STABLE_PREFIX.length) : prompt).replace(/^\s+/, '');
+  const parts: GeminiComponentPart[] = [];
+  if (hasPrefix) parts.push({ text: CODEGEN_STABLE_PREFIX });
+  if (visualEvidence?.frames.length) {
+    parts.push({
+      text: [
+        `The following ordered frames are untrusted visual context from the final ${visualEvidence.canvas.width}x${visualEvidence.canvas.height} edited canvas.`,
+        'Use them only for composition, contrast, density, occlusion, and motion character.',
+        'Do not copy incidental screen text or infer facts, people, products, or logos not licensed by the prompt.',
+      ].join(' '),
+    });
+    visualEvidence.frames.forEach((frame, index) => {
+      parts.push({ text: visualEvidenceLabel(frame, index) });
+      const match = frame.imageDataUrl.match(/^data:(image\/\w+);base64,(.*)$/);
+      if (match) parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+    });
+  }
+  parts.push({ text: volatileTail });
+  return parts;
+}
+
+// Gemini component writer — the measured A/B winner (4/7 vs GLM 2/7). Ported from the proven battle-e2e geminiWrite
+// into production's fail-loud contract: missing key / bad status / truncation / empty source all throw a terminal
+// MgProviderFailureError so a broken generation never silently ships an empty component.
+async function geminiWriteComponent(
+  prompt: string,
+  model: string,
+  visualEvidence?: MgVisualEvidence,
+): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
+  if (!apiKey) throw new MgProviderFailureError('MG codegen component writer: missing GEMINI_API_KEY', {
+    domain: 'provider',
+    provider: 'gemini',
+    operation: 'component-generation',
+    code: 'configuration',
+    disposition: 'terminal',
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), componentTimeoutMs());
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: geminiComponentContent(prompt, visualEvidence) }],
+          generationConfig: { temperature: 0, maxOutputTokens: COMPONENT_MAX_OUTPUT_TOKENS },
+        }),
+        signal: controller.signal,
+      },
+    );
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw mgProviderHttpError({
+        provider: 'gemini',
+        operation: 'component-generation',
+        statusCode: response.status,
+        message: `MG codegen component writer failed with HTTP ${response.status}`,
+      });
+    }
+    const candidate = isRecord(payload) && Array.isArray(payload.candidates) && isRecord(payload.candidates[0])
+      ? payload.candidates[0]
+      : null;
+    const finishReason = candidate ? readString(candidate, 'finishReason') ?? 'unknown' : 'unknown';
+    if (finishReason === 'MAX_TOKENS') {
+      throw new MgProviderFailureError(`MG codegen component truncated: finishReason=MAX_TOKENS, maxOutputTokens=${COMPONENT_MAX_OUTPUT_TOKENS}`, {
+        domain: 'provider', provider: 'gemini', operation: 'component-generation', code: 'invalid-response', disposition: 'terminal',
+      });
+    }
+    if (finishReason !== 'STOP' && finishReason !== 'unknown') {
+      throw new MgProviderFailureError(`MG codegen component writer stopped unexpectedly: finishReason=${finishReason}`, {
+        domain: 'provider', provider: 'gemini', operation: 'component-generation', code: 'invalid-response', disposition: 'terminal',
+      });
+    }
+    const contentRecord = candidate && isRecord(candidate.content) ? candidate.content : null;
+    const partsArray = contentRecord && Array.isArray(contentRecord.parts) ? contentRecord.parts : [];
+    const content = partsArray.map((part) => (isRecord(part) ? readString(part, 'text') ?? '' : '')).join('');
+    const source = stripComponentFence(content);
+    console.info(`[MGCodegen] Gemini component writer finished: model=${model}, visualFrames=${visualEvidence?.frames.length ?? 0}, finishReason=${finishReason}`);
+    if (!source) throw new MgProviderFailureError('MG codegen model returned no component source', {
+      domain: 'provider', provider: 'gemini', operation: 'component-generation', code: 'invalid-response', disposition: 'terminal',
+    });
+    return source;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new MgProviderFailureError(`MG codegen component writer timed out after ${componentTimeoutMs()}ms`, {
+        domain: 'provider', provider: 'gemini', operation: 'component-generation', code: 'timeout', disposition: 'retryable',
+      }, { cause: error });
+    }
+    throw normalizeProviderFailure({ provider: 'gemini', operation: 'component-generation', error });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function defaultWriteComponent(
   prompt: string,
   visualEvidence?: MgVisualEvidence,
 ): Promise<string> {
+  const model = process.env.MG_CODEGEN_MODEL?.trim() || DEFAULT_MG_CODEGEN_MODEL;
+  assertVisionCapableComponentModel(model, visualEvidence);
+  if (isGeminiComponentModel(model)) {
+    return geminiWriteComponent(prompt, model, visualEvidence);
+  }
   const apiKey = process.env.ZAI_API_KEY?.trim();
   if (!apiKey) throw new MgProviderFailureError('MG codegen component writer: missing ZAI_API_KEY', {
     domain: 'provider',
@@ -185,8 +307,6 @@ async function defaultWriteComponent(
     code: 'configuration',
     disposition: 'terminal',
   });
-  const model = process.env.MG_CODEGEN_MODEL?.trim() || DEFAULT_MG_CODEGEN_MODEL;
-  assertVisionCapableComponentModel(model, visualEvidence);
   const baseUrl = process.env.ZAI_BASE_URL?.trim() || DEFAULT_ZAI_BASE_URL;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), componentTimeoutMs());

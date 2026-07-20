@@ -42,7 +42,7 @@ import {
 // Minimum credits required to start a chat (actual cost calculated post-hoc based on tokens)
 const MINIMUM_CREDITS_REQUIRED = 1;
 
-export const maxDuration = 60; // Allow longer timeout for agent execution
+export const maxDuration = 300; // Agent execution: apply_editorial_intent runs the director plan; 60s truncated it (stopgap — the project path is being moved to the QStash queue like script-recomposition)
 
 // PERF FIX: Cache project context summaries keyed by `${projectId}:${updatedAt}`.
 // generateProjectSummary + formatSummaryForPrompt ran on every POST request even
