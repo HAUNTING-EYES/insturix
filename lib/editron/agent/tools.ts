@@ -5236,7 +5236,8 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           assetId: bgm.audioAssetId,
           styles: {
             ...(bgmOverlays[0]?.styles || {}),
-            volume: typeof bgmOverlays[0]?.styles?.volume === 'number' ? bgmOverlays[0].styles.volume : 0.75,
+            // Preserve the replaced BGM's own level; else CKG-compliant base (~-9dB, bgm-mix-levels.ts). Was 0.75 (too hot).
+            volume: typeof bgmOverlays[0]?.styles?.volume === 'number' ? bgmOverlays[0].styles.volume : 0.355,
             opacity: 1,
             animation: { exit: 'fade', duration: 1 },
           },
