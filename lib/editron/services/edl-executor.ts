@@ -3943,7 +3943,8 @@ interface MgCodegenDecisionOutcome {
   receipt?: MgReceipt;
 }
 
-function isLiveMgCodegenEnabled(): boolean {
+// Exported for the narrative beat producer gate (director-agent) — ONE definition of the flag semantics.
+export function isLiveMgCodegenEnabled(): boolean {
   const override = process.env.MG_CODEGEN_ENABLED?.trim().toLowerCase();
   if (override === 'false' || override === '0') return false;
   if (override === 'true' || override === '1') return true;

@@ -1664,6 +1664,41 @@ export async function executeDirectorPlan(
         );
       }
 
+      // ── P3.5 Phase B2: narrative beat producer ─────────────────────────────────────────────────────────
+      // Offer the video's factless transcript beats (edited-time words → sentence/pause beats) to the MG
+      // designer alongside the fact graphics. The designer's approved plan within the density budget is a
+      // beat's ONLY render license — executeEDL enforces plan-or-skip, so a declined beat renders nothing
+      // (never free-form). Additive after bundle planning; provenance = decision.source. Beats overlapping a
+      // fact graphic are skipped; the offer is capped by the design-plan contract (24 moments + 48 declined).
+      if (unifiedDecisionBundle && editedTimelineContext) {
+        try {
+          const [{ produceNarrativeBeatDecisions }, { isLiveMgCodegenEnabled }] = await Promise.all([
+            import('@/lib/editron/services/narrative-beat-producer'),
+            import('@/lib/editron/services/edl-executor'),
+          ]);
+          if (isLiveMgCodegenEnabled()) {
+            const narrativeBeatDecisions = produceNarrativeBeatDecisions({
+              words: editedTimelineContext.transcription,
+              fps: editedTimelineContext.fps,
+              existingDecisions: unifiedDecisionBundle.edl.decisions,
+            });
+            if (narrativeBeatDecisions.length > 0) {
+              unifiedDecisionBundle.edl.decisions.push(...narrativeBeatDecisions);
+              unifiedDecisionBundle.edl.totalDecisions += narrativeBeatDecisions.length;
+              unifiedDecisionBundle.edl.stats.graphicCount += narrativeBeatDecisions.length;
+              console.log(
+                `[Director] Narrative beat producer (P3.5): +${narrativeBeatDecisions.length} factless beats ` +
+                'offered to the MG designer (designer license, plan-or-skip)',
+              );
+            } else {
+              console.log('[Director] Narrative beat producer (P3.5): no free beats to offer');
+            }
+          }
+        } catch (narrativeErr: any) {
+          console.warn(`[Director] Narrative beat producer failed (non-fatal): ${narrativeErr?.message ?? narrativeErr}`);
+        }
+      }
+
       if (unifiedDecisionBundle) {
         try {
           const canvas = project.playerDimensions || { width: 1920, height: 1080 };
