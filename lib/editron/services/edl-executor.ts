@@ -3764,6 +3764,7 @@ function hasRenderableGraphicContent(params: Record<string, unknown>): boolean {
     'avatar',
     'mediaUrl',
     'imageUrl',
+    'line', // P3.5 narrative beat: the verbatim spoken words (designer-licensed; see narrative discipline below)
   ];
 
   if (renderableKeys.some((key) => hasNonEmptyValue(params[key]))) return true;
@@ -4097,7 +4098,9 @@ async function runMgDesignPrepass(
       graphicsDensity,
       semanticCandidate: selected,
     });
-    if (!authority.allowMotionGraphic) continue;
+    // P3.5: authority is a DATA-relevance gate — it cannot judge a factless beat. Narrative beats are always
+    // OFFERED to the designer, whose approved plan (within the density budget) is their only render license.
+    if (!authority.allowMotionGraphic && selected.factKind !== 'narrative') continue;
 
     // ── the designer's VIEW of the moment (design INPUT only; applyGraphic re-resolves the real render window) ──
     const props = Object.entries((selected.content ?? {}) as Record<string, unknown>)
@@ -4300,6 +4303,24 @@ async function applyGraphic(
   }
   const semanticMgCandidateSelection = selectSemanticMgCandidate(normalizedGraphicContent.semanticMgCandidateLedger);
 
+  // ── P3.5 narrative discipline ──────────────────────────────────────────────────────────────────────────
+  // A factless beat has exactly ONE render license: the DESIGNER's approved plan from the video-level design
+  // pre-pass (within the density budget). No plan (declined, session failed, or codegen disabled) → skip.
+  // NEVER free-form and NEVER the legacy card path — a fabricated graphic for a factless moment is precisely
+  // what the ledger exists to prevent (fail honest, R2N).
+  const narrativeBeat = semanticMgCandidateSelection.selectedCandidate?.factKind === 'narrative';
+  const approvedNarrativeDesign = narrativeBeat ? projectSignalContext.mgDesignPlans?.get(decision) : undefined;
+  if (narrativeBeat && !(isLiveMgCodegenEnabled() && approvedNarrativeDesign)) {
+    console.log(
+      `[EDL-MG] Narrative beat at frame ${decision.frame}: SKIPPED — ` +
+      (isLiveMgCodegenEnabled()
+        ? 'designer declined it (or no design session)'
+        : 'MG codegen disabled') +
+      '; narrative renders ONLY via a designer-approved plan (P3.5), never free-form',
+    );
+    return null;
+  }
+
   // Type-specific durations (CRG-verified at 30fps)
   const GRAPHIC_DURATIONS: Record<string, number> = {
     'stat-counter': 102,      // 3.4s ← constant:animation.stat_counter midpoint (2.2-3.8s)
@@ -4371,7 +4392,9 @@ async function applyGraphic(
         ? { semanticCandidate: semanticMgCandidateSelection.selectedCandidate }
         : {}),
     });
-    if (!mgExpressionAuthority.allowMotionGraphic) {
+    // P3.5: authority is a DATA-relevance gate; a narrative beat that reaches here carries a designer-approved
+    // plan (the discipline check above) — the designer's license stands, authority still shapes duration/scores.
+    if (!mgExpressionAuthority.allowMotionGraphic && !narrativeBeat) {
       console.log(
         `[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: SKIPPED by MG expression authority - ` +
         mgExpressionAuthority.reasons.join(', '),

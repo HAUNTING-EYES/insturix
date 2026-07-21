@@ -56,6 +56,9 @@ const semanticCandidateSchema = z.object({
   factKind: z.enum([
     'weak-stat', 'bounded-stat', 'magnitude-stat', 'series', 'comparison',
     'quote', 'identity', 'concept', 'refutation', 'list',
+    // P3.5 door: a factless transcript beat, licensed by the DESIGNER's approved plan (edl-executor enforces
+    // plan-or-skip; never free-form). data.line carries the verbatim spoken words (coder-prompt.ts).
+    'narrative',
   ]),
   sourceSpan: sourceSpanSchema,
   content: z.record(z.string(), jsonValueSchema),

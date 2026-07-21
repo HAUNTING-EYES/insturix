@@ -60,6 +60,8 @@ vi.mock('@/lib/editron/motion-graphics/codegen/mg-render-job-runner', () => ({
 
 vi.mock('@/lib/editron/motion-graphics/codegen/visual-evidence', () => ({
   captureMgVisualEvidence: mocks.captureMgVisualEvidence,
+  // Designer footage frames are best-effort (absent → text-only design session); empty keeps the test hermetic.
+  captureMgDesignerFootageFrames: vi.fn(async () => ({})),
 }));
 
 vi.mock('@/lib/services/storage-quota-service', () => ({
@@ -72,6 +74,20 @@ vi.mock('@/lib/services/storage-quota-service', () => ({
 vi.mock('@/lib/editron/services/r2-service', () => ({
   deleteR2Prefix: mocks.deleteR2Prefix,
   uploadToR2: vi.fn(),
+}));
+
+// The DESIGNER model boundary (same treatment as the render worker): the video-level design session approves
+// every offered beat, echoing the prepass momentIds. This is what licenses a narrative beat (P3.5) — with this
+// mock REMOVED, the narrative test must fail again (no plan → plan-or-skip discipline → 0 overlays).
+vi.mock('@/lib/editron/motion-graphics/codegen/design/design-session', () => ({
+  runVideoDesignSession: vi.fn(async (input: { designer: { moments: Array<{ momentId: string }> } }) => ({
+    attempts: 1,
+    plan: {
+      brief: { concept: 'test-brief', arc: 'steady', palette: 'brand' },
+      moments: input.designer.moments.map((m) => ({ momentId: m.momentId })),
+      declined: [],
+    },
+  })),
 }));
 
 import { OverlayType, type Overlay } from '@/components/editron/editor/version-7.0.0/types';
@@ -184,6 +200,10 @@ function narrativeBeatEdl(): EditDecisionList {
 
 beforeEach(() => {
   process.env.MG_CODEGEN_ENABLED = 'true';
+  // Dummy key satisfies the prepass availability guard; the actual designer model call is MOCKED above
+  // (design-session), so nothing leaves the process. Without a key the prepass bails pre-mock → no design
+  // session → the narrative plan-or-skip discipline correctly yields 0 (that scenario = "designer unavailable").
+  process.env.GEMINI_API_KEY = 'test-designer-key';
   vi.clearAllMocks();
   mocks.assetsFindOne.mockResolvedValue(null);
   mocks.assetsUpdateOne.mockResolvedValue({ upsertedCount: 1 });
@@ -209,6 +229,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.MG_CODEGEN_ENABLED;
+  delete process.env.GEMINI_API_KEY;
 });
 
 async function runAndCountMg(edl: EditDecisionList): Promise<{ created: number; mgOverlays: number }> {
@@ -235,10 +256,7 @@ describe('live MG seam — REAL content (not lab-perfect fixtures)', () => {
     expect(created).toBeGreaterThan(0);
   });
 
-  // TODO(Phase B — narrative lane): flip `it.fails` → `it` when the narrative producer + contract land.
-  // `it.fails` = expected failure: the suite stays green while the gap exists, and BREAKS the moment the
-  // narrative lane works — forcing this marker's removal. Do not delete the test.
-  it.fails('renders a graphic for a factless narrative beat (P3.5 door)', async () => {
+  it('renders a graphic for a factless narrative beat (P3.5 door)', async () => {
     const { created, mgOverlays } = await runAndCountMg(narrativeBeatEdl());
 
     // The P3.5 door (KIT e1.8) says a plain transcript beat with no extracted fact is "licensed by the DESIGNER
