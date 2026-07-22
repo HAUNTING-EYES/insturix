@@ -12,7 +12,7 @@
 
 import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
 import { DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
-import { OverlayType, type MgSequenceOverlay, type Overlay, type Keyframe, type KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
+import { OverlayType, type Overlay, type Keyframe, type KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult, type SFXLibrarySearchReport } from '@/lib/pipeline/sfx-library-service';
@@ -4549,63 +4549,25 @@ async function applyGraphic(
         }
 
         const sequence = generated.sequence;
-        const assetId = `mgseq_${sequence.address.sequenceId}`;
-        const now = new Date();
-        const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
-        const db = await getDatabase();
-        const assets = db.collection(COLLECTIONS.MEDIA_ASSETS);
-        let inserted = false;
+        // Async-MG Phase 1 (2026-07-22): persistence extracted VERBATIM to sequence-artifacts.ts so the
+        // mg-render worker (Phase 2) persists IDENTICAL artifacts when it completes a job after the director
+        // has returned. Same failure semantics: persist failure → 'fallback' outcome, sequence retained.
+        const { upsertMgSequenceAsset, buildMgSequenceOverlay } = await import('@/lib/editron/motion-graphics/codegen/sequence-artifacts');
+        let assetId: string;
         try {
-          const write = await assets.updateOne(
-            { assetId, userId },
-            {
-              $set: { lastUsedAt: now },
-              $setOnInsert: {
-                assetId,
-                userId,
-                ...(projectSignalContext.orgId ? { orgId: projectSignalContext.orgId } : {}),
-                projectId,
-                type: 'sequence',
-                source: 'generated',
-                filename: `${selectedCandidate.id}.mg-sequence`,
-                gcsPath: null,
-                cachedUrl: sequence.address.cdnBaseUrl,
-                publicUrl: sequence.address.cdnBaseUrl,
-                urlExpiresAt: new Date('2100-01-01T00:00:00.000Z'),
-                size: sequence.sizeBytes,
-                dimensions: { width: sequence.width, height: sequence.height },
-                uploadedAt: now,
-                pinned: false,
-                sequenceId: sequence.address.sequenceId,
-                frameCount: sequence.address.frameCount,
-                fps: sequence.fps,
-                frameFormat: sequence.frameFormat,
-                transparent: sequence.transparent,
-                status: 'ready',
-                r2Prefix: sequence.r2Prefix,
-                cdnBaseUrl: sequence.address.cdnBaseUrl,
-                address: sequence.address,
-                codegen: {
-                  candidateId: selectedCandidate.id,
-                  factKind: selectedCandidate.factKind,
-                  receipt: generated.receipt,
-                  window: momentInput.window,
-                  expressiveness: momentInput.expressiveness,
-                  placement: momentInput.placement,
-                  renderMs: sequence.renderMs,
-                },
-              },
+          ({ assetId } = await upsertMgSequenceAsset({
+            sequence,
+            receipt: generated.receipt,
+            candidate: { id: selectedCandidate.id, factKind: selectedCandidate.factKind },
+            userId,
+            projectId,
+            orgId: projectSignalContext.orgId ?? null,
+            codegenContext: {
+              window: momentInput.window,
+              expressiveness: momentInput.expressiveness,
+              placement: momentInput.placement,
             },
-            { upsert: true },
-          );
-          inserted = write.upsertedCount > 0;
-          if (inserted) {
-            const { recordStorageUsage, resolveStorageOwner } = await import('@/lib/services/storage-quota-service');
-            await recordStorageUsage(
-              resolveStorageOwner(userId, projectSignalContext.orgId),
-              sequence.sizeBytes,
-            );
-          }
+          }));
         } catch (persistError) {
           console.error(`[EDL-MG-Codegen] retaining completed sequence ${sequence.address.sequenceId} for persistence retry via job ${generated.jobId}`);
           return rejectCodegenMoment(
@@ -4615,42 +4577,21 @@ async function applyGraphic(
           );
         }
 
-        const sequenceOverlay: MgSequenceOverlay & { metadata: Record<string, unknown> } = {
-          id: deterministicOverlayId(idEpoch, 'mg-sequence', decision.frame, decisionIndex),
-          type: OverlayType.MG_SEQUENCE,
+        const sequenceOverlay = buildMgSequenceOverlay({
+          sequence,
+          receipt: generated.receipt,
+          candidate: { id: selectedCandidate.id, factKind: selectedCandidate.factKind },
           assetId,
-          from: snappedFrame,
-          durationInFrames: sequence.address.frameCount,
-          row: ROW.MOTION_GRAPHICS,
-          left: 0,
-          top: 0,
-          width: canvas.width,
-          height: canvas.height,
-          isDragging: false,
-          rotation: 0,
-          _workerAdded: true,
-          styles: { opacity: 1 },
-          sequence: {
-            sequenceId: sequence.address.sequenceId,
-            frameCount: sequence.address.frameCount,
-            fps: sequence.fps,
-            width: sequence.width,
-            height: sequence.height,
-            transparent: true,
-            frameFormat: 'webp',
-            cdnBaseUrl: sequence.address.cdnBaseUrl,
-          },
+          overlayId: deterministicOverlayId(idEpoch, 'mg-sequence', decision.frame, decisionIndex),
+          snappedFrame,
+          canvas,
           metadata: {
-            sourceType: 'edl-mg-codegen',
-            candidateId: selectedCandidate.id,
-            factKind: selectedCandidate.factKind,
             atomicPlacement,
             mgExpressionAuthority,
-            receipt: generated.receipt,
             edlSource: decision.source,
             edlReason: decision.reason,
           },
-        };
+        });
         const outcome: MgCodegenDecisionOutcome = {
           ...outcomeBase,
           status: 'generated',
