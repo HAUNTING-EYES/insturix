@@ -53,6 +53,57 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
   const set = <K extends keyof AvatarVaultDraftFormState>(k: K, v: AvatarVaultDraftFormState[K]) =>
     setF((s) => ({ ...s, [k]: v }));
 
+  // Infer appearance from the uploaded photos instead of interrogating the user. Runs once
+  // the portrait is in, fills ONLY empty fields (never overwrites what you typed), and
+  // surfaces a photo-quality check. Fail-soft — a dead vision call just leaves fields blank.
+  const [inferState, setInferState] = useState<'idle' | 'running' | 'done' | 'failed'>('idle');
+  const [detected, setDetected] = useState<string[]>([]);
+  const [photoIssues, setPhotoIssues] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (inferState !== 'idle' || !f.portraitImageUrl) return;
+    const imageUrls = [f.portraitImageUrl, f.fullBodyImageUrl, f.sideProfileImageUrl].filter(Boolean);
+    setInferState('running');
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/avatar-vault/infer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageUrls }),
+        });
+        const data = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!data?.ok) { setInferState('failed'); return; }
+        const patch = data.patch ?? {};
+        const quality = data.attributes?.quality;
+        const det: string[] = [];
+        setF((cur) => {
+          const next = { ...cur };
+          if (!next.hair.trim() && patch.bodyProfile?.hair) { next.hair = patch.bodyProfile.hair; det.push('hair'); }
+          if (!next.notableTraits.trim() && patch.bodyProfile?.notableTraits?.length) {
+            next.notableTraits = patch.bodyProfile.notableTraits.join(', '); det.push('traits');
+          }
+          if (!next.bodyDescription.trim() && (patch.identityDescription || patch.bodyProfile?.build)) {
+            next.bodyDescription = [patch.identityDescription, patch.bodyProfile?.build && `build: ${patch.bodyProfile.build}`, patch.bodyProfile?.skinTone && `skin: ${patch.bodyProfile.skinTone}`].filter(Boolean).join('. ');
+            det.push('body');
+          }
+          if (!next.portraitDescription.trim() && patch.identityDescription) { next.portraitDescription = patch.identityDescription; det.push('face'); }
+          if (!next.defaultLook.trim() && patch.defaultLook) { next.defaultLook = patch.defaultLook; det.push('look'); }
+          return next;
+        });
+        setDetected(det);
+        setPhotoIssues(quality && (!quality.usable || (quality.issues?.length ?? 0) > 0)
+          ? (quality.issues?.length ? quality.issues : ['These photos may not be a clear solo portrait.'])
+          : []);
+        setInferState('done');
+      } catch {
+        if (!cancelled) setInferState('failed');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [f.portraitImageUrl, f.fullBodyImageUrl, f.sideProfileImageUrl, inferState]);
+
   // Brand list for binding (multi-brand is core) — same source the rest of the app uses.
   useEffect(() => {
     let active = true;
@@ -158,6 +209,9 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
                   <Btn size="sm" disabled={uploadingRole === 'expression'} onClick={() => pickFile('expression')}>{uploadingRole === 'expression' ? '…' : '+ Add expression'}</Btn>
                 </div>
               </div>
+              {inferState === 'running' && <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 2 }}>✨ Reading your photos…</Mono>}
+              {inferState === 'done' && detected.length > 0 && <Mono s={9} c={C.gold} st={{ display: 'block', marginBottom: 2 }}>✨ Filled {detected.join(', ')} from your photos — edit anything that&rsquo;s off.</Mono>}
+              {photoIssues.length > 0 && <Mono s={9} c={C.coral} st={{ display: 'block', marginBottom: 2 }}>⚠ Photo check: {photoIssues.join('; ')}</Mono>}
               <Field label="Portrait description" hint="text · optional"><textarea value={f.portraitDescription} onChange={(e) => set('portraitDescription', e.target.value)} rows={2} placeholder="Describe the face in words (supplements the image)…" style={{ ...inp, resize: 'vertical' }} /></Field>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <Field label="Hair"><input value={f.hair} onChange={(e) => set('hair', e.target.value)} placeholder="e.g. shoulder-length, dark" style={inp} /></Field>
