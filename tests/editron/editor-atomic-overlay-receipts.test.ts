@@ -170,6 +170,7 @@ describe("editor atomic overlay receipts", () => {
       src: "https://cdn.example.com/hit.wav",
       assetId: "sfx-hit-1",
       startFromSound: 12,
+      playbackRate: 1.15,
       styles: { volume: 0.42 },
     };
 
@@ -252,6 +253,7 @@ describe("editor atomic overlay receipts", () => {
       expect.objectContaining({ kind: "media-source", key: "media.src", value: sound.src }),
       expect.objectContaining({ kind: "asset-id", key: "media.asset_id", value: "sfx-hit-1" }),
       expect.objectContaining({ kind: "media-start-frame", key: "media.start_frame", value: 12 }),
+      expect.objectContaining({ kind: "playback-speed", key: "audio.playback_rate", value: 1.15 }),
       expect.objectContaining({ kind: "volume", key: "audio.volume", value: 0.42 }),
     ]));
   });

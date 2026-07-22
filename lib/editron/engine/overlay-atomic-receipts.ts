@@ -264,6 +264,9 @@ function overlayAtoms(
   if ("audioEndFrame" in overlay && overlay.audioEndFrame !== undefined) {
     atoms.push(overlayAtom("end-frame", "media.audio_end_frame", overlay.audioEndFrame, 1, "decision-param"));
   }
+  if ("playbackRate" in overlay && typeof overlay.playbackRate === "number") {
+    atoms.push(overlayAtom("playback-speed", "audio.playback_rate", overlay.playbackRate, Math.min(Math.abs(overlay.playbackRate - 1), 1), "decision-param"));
+  }
   if ("videoStartTime" in overlay && overlay.videoStartTime !== undefined) {
     atoms.push(overlayAtom("media-start-frame", "media.start_frame", overlay.videoStartTime, 1, "decision-param"));
   }

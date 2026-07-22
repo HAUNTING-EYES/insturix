@@ -171,6 +171,8 @@ export type SoundOverlay = BaseOverlay & {
   content: string;
   src?: string; // Optional - resolved from assetId
   assetId?: string; // Reference to mediaAsset
+  /** Source-audio playback rate. Used for bounded phrase timing alignment. */
+  playbackRate?: number;
   /** @deprecated Use audioStartFrame instead. Kept for backward compatibility. */
   startFromSound?: number;
   /** J-cut: audioStartFrame < overlay.from � audio begins before the video */

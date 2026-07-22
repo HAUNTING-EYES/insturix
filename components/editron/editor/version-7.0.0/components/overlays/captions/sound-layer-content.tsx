@@ -12,6 +12,11 @@ const LEGACY_VOICEOVER_ROW = 4;
 type DuckSourceRange = { from: number; durationInFrames: number };
 type VolumeValue = number | ((frame: number) => number);
 
+export function resolveSoundPlaybackRate(value: unknown): number {
+  const rate = Number(value);
+  return Number.isFinite(rate) && rate >= 0.0625 && rate <= 16 ? rate : 1;
+}
+
 function resolveFadeOutFrames(styles: SoundOverlay["styles"] | undefined, durationInFrames: number, fps: number): number | null {
   const animation = (styles as { animation?: { exit?: string; duration?: number } } | undefined)?.animation;
   if (animation?.exit !== 'fade') return null;
@@ -109,6 +114,7 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
   const resolvedVolume = volumeCallback && typeof volumeCallback === 'function'
     ? volumeCallback
     : baseVolume;
+  const playbackRate = resolveSoundPlaybackRate(overlay.playbackRate);
 
   if (hasDecoupledAudio) {
     // audioStartFrame/audioEndFrame are ABSOLUTE global frame numbers (set by finalize.ts),
@@ -123,6 +129,7 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
         <Audio
           src={audioSrc}
           startFrom={audioSourceOffset}
+          playbackRate={playbackRate}
           volume={applyTailFade(resolvedVolume, overlay.styles, audioDuration, fps)}
         />
       </Sequence>
@@ -133,6 +140,7 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
     <Audio
       src={audioSrc}
       startFrom={audioSourceOffset}
+      playbackRate={playbackRate}
       volume={applyTailFade(resolvedVolume, overlay.styles, overlay.durationInFrames, fps)}
     />
   );
