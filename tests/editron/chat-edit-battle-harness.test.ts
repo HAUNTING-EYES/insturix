@@ -822,7 +822,15 @@ describe('chat edit battle harness', () => {
       scenarioId: 'explicit-text',
       baseUrl: 'https://preview.example',
       allowLiveWrite: false,
+      cleanupFixture: true,
     });
+    expect(parseChatBattleCliArgs([
+      '--project=proj_battle',
+      '--case=explicit-text',
+      '--base-url=https://preview.example/',
+      '--auth-header-file=C:\\tmp\\editron-auth.json',
+      '--keep-fixture',
+    ])).toMatchObject({ cleanupFixture: false });
     expect(validateChatBattleCliOptions(options!)).toContain('--allow-live-write');
     expect(validateChatBattleCliOptions({ ...options!, allowLiveWrite: true })).toBeNull();
     expect(validateChatBattleCliOptions({

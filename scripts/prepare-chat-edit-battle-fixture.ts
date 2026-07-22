@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 
 import { config as loadEnv } from 'dotenv';
 
+import { cleanupDisposableChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-cleanup';
 import { getChatEditBattleScenario } from '../lib/editron/services/chat-edit-battle-harness';
 import { planChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-plan';
 import {
@@ -36,8 +37,8 @@ async function main(): Promise<void> {
   loadEnv({ path: '.env', override: false });
   const options = parseArgs(process.argv.slice(2));
   if (options.cleanupProjectId) {
-    await cleanupFixture(options.cleanupProjectId);
-    console.log(`[chat-battle-fixture] deleted ${options.cleanupProjectId}`);
+    const result = await cleanupDisposableChatBattleFixture(options.cleanupProjectId);
+    console.log(`[chat-battle-fixture] cleanup ${JSON.stringify(result)}`);
     return;
   }
   if (!options.scenarioId) throw new Error(usage());
@@ -145,26 +146,6 @@ async function ensureImageAssetAlias(input: {
   const sourceAssetIds = new Set(asArray(input.project.sourceAssetIds).filter((value): value is string => typeof value === 'string'));
   sourceAssetIds.add('a_logo123');
   input.project.sourceAssetIds = [...sourceAssetIds];
-}
-
-async function cleanupFixture(projectId: string): Promise<void> {
-  if (!/^proj_chatbattle_[a-z0-9_-]+$/i.test(projectId)) {
-    throw new Error('Refusing cleanup: project id is not a disposable proj_chatbattle_* fixture.');
-  }
-  loadEnv({ path: '.env.local', override: false });
-  const { COLLECTIONS, connectToDatabase } = await import('../lib/editron/db/mongodb');
-  const { client, db } = await connectToDatabase();
-  try {
-    await Promise.all([
-      db.collection(COLLECTIONS.PROJECTS).deleteOne({ projectId, 'metadata.battleTest.disposable': true }),
-      db.collection(COLLECTIONS.PROJECT_ASSET_ANALYSES).deleteMany({ projectId }),
-      db.collection(COLLECTIONS.CHAT_SESSIONS).deleteMany({ projectId }),
-      db.collection(COLLECTIONS.CHECKPOINTS).deleteMany({ projectId }),
-      db.collection(COLLECTIONS.MG_RENDER_JOBS).deleteMany({ projectId }),
-    ]);
-  } finally {
-    await client.close();
-  }
 }
 
 function parseArgs(argv: string[]): PrepareFixtureOptions {

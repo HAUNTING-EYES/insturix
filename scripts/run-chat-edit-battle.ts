@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 
 import { config as loadEnv } from 'dotenv';
 
+import { cleanupDisposableChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-cleanup';
 import {
   CHAT_EDIT_BATTLE_SCENARIOS,
   buildChatBattleProjectSnapshot,
@@ -27,12 +28,15 @@ export interface ChatBattleCliOptions {
   selectedOverlayId?: string;
   clientContextPath?: string;
   allowLiveWrite: boolean;
+  cleanupFixture: boolean;
 }
 
 interface ApiClient {
   baseUrl: string;
   headers: Record<string, string>;
 }
+
+let cleanupFixtureProjectId: string | null = null;
 
 async function main(): Promise<void> {
   loadEnv({ path: '.env.local', override: false });
@@ -55,6 +59,7 @@ async function main(): Promise<void> {
     return;
   }
   const scenario = getChatEditBattleScenario(options.scenarioId)!;
+  cleanupFixtureProjectId = options.cleanupFixture ? options.projectId : null;
 
   const runDir = path.resolve(options.outputRoot, safeSegment(options.runId));
   await mkdir(runDir, { recursive: true });
@@ -145,9 +150,11 @@ export function parseChatBattleCliArgs(argv: string[]): ChatBattleCliOptions | n
     outputRoot: '.calibration-temp/chat-edit-battle',
     runId: `chat-battle-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`,
     allowLiveWrite: false,
+    cleanupFixture: true,
   };
   for (const arg of argv) {
     if (arg === '--allow-live-write') options.allowLiveWrite = true;
+    else if (arg === '--keep-fixture') options.cleanupFixture = false;
     else if (arg.startsWith('--project=')) options.projectId = valueAfterEquals(arg);
     else if (arg.startsWith('--case=')) options.scenarioId = valueAfterEquals(arg);
     else if (arg.startsWith('--base-url=')) options.baseUrl = valueAfterEquals(arg).replace(/\/$/, '');
@@ -388,7 +395,7 @@ function usage(): string {
     'List cases:',
     '  npx tsx scripts/run-chat-edit-battle.ts --list',
     '',
-    'The runner records Mongo before/after, selected tools and arguments, API reload parity, and fresh rendered evidence. It fails when rendered evidence is missing or stale.',
+    'The runner records Mongo before/after, selected tools and arguments, API reload parity, and fresh rendered evidence. Disposable fixtures are cleaned after the run; pass --keep-fixture only for deliberate debugging.',
   ].join('\n');
 }
 
@@ -416,6 +423,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     })
     .finally(async () => {
       try {
+        if (cleanupFixtureProjectId) {
+          const cleanup = await cleanupDisposableChatBattleFixture(cleanupFixtureProjectId);
+          console.log(`[chat-battle] fixture-cleanup=${JSON.stringify(cleanup)}`);
+        }
         await closeChatBattleMongoConnection();
       } catch (error) {
         console.error(error instanceof Error ? error.stack ?? error.message : String(error));
