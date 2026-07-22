@@ -17,6 +17,8 @@ describe('chat edit battle fixtures', () => {
     expect(plan('replace-selected-sfx')).toMatchObject({ profile: 'audio', selectedOverlayType: 'sound' });
     expect(plan('edit-html-scene')).toMatchObject({ profile: 'generated-scene', selectedOverlayType: 'html-scene' });
     expect(plan('explicit-asset')).toMatchObject({ requiresImageAssetAlias: true });
+    expect(plan('selected-dialogue-dubbing')).toMatchObject({ profile: 'speech', selectedOverlayType: 'video', seedTranscript: true });
+    expect(plan('vertical-subject-reframe')).toMatchObject({ profile: 'visual-multi-asset' });
   });
 
   it('clones without mutating source truth and removes stale render verdicts', () => {

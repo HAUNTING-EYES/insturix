@@ -38,6 +38,7 @@ const SPEECH_SCENARIOS = new Set([
   'semantic-transcript-topic', 'roman-hinglish-phrase', 'transcript-overview',
   'transcript-moment-search', 'speech-anchored-sticker', 'content-analysis',
   'clean-captions', 'refresh-plain-captions', 'refresh-fancy-captions', 'batch-caption-edit',
+  'selected-dialogue-dubbing',
 ]);
 
 const VISUAL_SCENARIOS = new Set([
@@ -45,6 +46,7 @@ const VISUAL_SCENARIOS = new Set([
   'multiasset-script-intake', 'multiasset-script-chat', 'visual-moment-search',
   'visual-speed-ramp', 'list-uploaded-assets', 'search-uploaded-assets',
   'inspect-uploaded-asset', 'place-uploaded-asset', 'replace-with-uploaded-footage',
+  'vertical-subject-reframe',
 ]);
 
 const AUDIO_SCENARIOS = new Set([
@@ -59,6 +61,7 @@ const ADD_CAPTION_SCENARIOS = new Set(['plain-caption-track', 'fancy-caption-tra
 const VIDEO_SELECTED_SCENARIOS = new Set([
   'split-selected-overlay', 'trim-selected-overlay', 'manual-keyframe-zoom',
   'selected-clip-filter', 'analyze-selected-audio', 'analyze-selected-video',
+  'selected-dialogue-dubbing',
 ]);
 
 const TEXT_SELECTED_SCENARIOS = new Set([

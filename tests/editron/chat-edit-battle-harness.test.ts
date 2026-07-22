@@ -534,6 +534,21 @@ describe('chat edit battle harness', () => {
     expect(chatBattleInvocationQueuedProjectMutation(immediate)).toBe(false);
   });
 
+  it('keeps dubbing and reframing as outcome probes until live ownership is proven', () => {
+    const dubbing = getChatEditBattleScenario('selected-dialogue-dubbing')!;
+    const reframing = getChatEditBattleScenario('vertical-subject-reframe')!;
+
+    for (const scenario of [dubbing, reframing]) {
+      expect(scenario.mutationExpectation).toBe('required');
+      expect(scenario.minimumSuccessfulMutations).toBe(1);
+      expect(scenario.requiredToolSequence).toEqual([['read_project_file', 'get_timeline_view']]);
+      expect(scenario.requireUiReload).toBe(true);
+      expect(scenario.requireRenderedEvidence).toBe(true);
+    }
+    expect(dubbing.prompt).toContain('Preserve the original speech timing');
+    expect(reframing.prompt).toContain('keep the main subject visible');
+  });
+
   it('tests reference style through the durable owner and forbids legacy style authority', () => {
     const scenario = getChatEditBattleScenario('reference-style-transfer')!;
     expect(scenario.requiredToolSequence).toEqual(['apply_reference_style']);
