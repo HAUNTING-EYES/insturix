@@ -13,6 +13,9 @@ import {
   DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT,
 } from '../../lib/editron/services/media-upload-batch';
 import { buildDeepAnalysisFailureUpdate } from '../../lib/editron/services/semantic-visual-retry';
+import type { ProductionBrief } from '../../lib/editron/production-brief/production-brief';
+import { planStorylineFromScript } from '../../lib/editron/storyline/script-beat-planner';
+import { makeScene } from '../../lib/editron/storyline/scene';
 
 
 const mocks = vi.hoisted(() => ({
@@ -23,6 +26,8 @@ const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
   getDatabase: vi.fn(),
   findProject: vi.fn(),
+  getAnalysisModel: vi.fn(),
+  coverageGenerateContent: vi.fn(),
   getCreativeDocCachedModel: vi.fn(),
   hydrateStorylineAnalysesForBatch: vi.fn(),
   intakeSignalsFromProject: vi.fn(),
@@ -94,7 +99,8 @@ vi.mock('@/lib/editron/storyline/multi-asset-compose', () => ({
 vi.mock('@/lib/editron/storyline/image-scene', () => ({
   synthesizeImageScenes: mocks.synthesizeImageScenes,
 }));
-vi.mock('@/lib/editron/storyline/scene-embedding', () => ({
+vi.mock('@/lib/editron/storyline/scene-embedding', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/editron/storyline/scene-embedding')>(),
   embedScenes: mocks.embedScenes,
   makeEmbeddingScorer: mocks.makeEmbeddingScorer,
 }));
@@ -103,6 +109,9 @@ vi.mock('@/lib/editron/services/gemini-embedding', () => ({
 }));
 vi.mock('@/lib/editron/services/gemini-context-cache', () => ({
   getCreativeDocCachedModel: mocks.getCreativeDocCachedModel,
+}));
+vi.mock('@/lib/editron/utils/gemini-model-factory', () => ({
+  getAnalysisModel: mocks.getAnalysisModel,
 }));
 vi.mock('@/lib/editron/services/signal-registry', () => ({
   buildSignalTimeline: mocks.buildSignalTimeline,
@@ -214,6 +223,85 @@ function mockDb() {
   };
 }
 
+describe('vision-verified script grounding', () => {
+  const scriptBrief: ProductionBrief = {
+    output: { platform: 'youtube', format: 'auto-edit', count: 1, aspectRatio: '16:9', targetDurationSec: null },
+    brand: null,
+    entryPoint: 'upload',
+    resolution: { fieldConfidence: {}, confirmed: [], inferred: [] },
+  };
+  const proofScene = makeScene({
+    source: 'https://cdn.test/proof.mp4',
+    startTime: 4,
+    endTime: 7,
+    objects: ['garment'],
+    faces: [],
+    detectedText: [],
+    transcription: '',
+    description: 'hands embroidering a garment',
+    embedding: [1, 0],
+  });
+
+  function scriptLlm() {
+    return vi.fn()
+      .mockResolvedValueOnce(JSON.stringify({
+        beats: [{ unitRefs: ['u0'], visualIntent: 'visible embroidery work', relationFromPrevious: null }],
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        assignments: [{ beatId: 'b0', coverage: 'covered', sceneRefs: ['c0'], evidence: 'hands embroidering' }],
+      }));
+  }
+
+  it('does not execute an embedding/LLM match that visual verification rejects', async () => {
+    const result = await planStorylineFromScript({
+      scenes: [proofScene],
+      script: 'Show the embroidery being made.',
+      brief: scriptBrief,
+      llm: scriptLlm(),
+      queryEmbed: async () => [1, 0],
+      coverageVerify: async () => ({ confirmed: false, note: 'finished garment only' }),
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.failureKind).toBe('coverage_gap');
+    expect(result.selectedSceneIds).toEqual([]);
+    expect(result.assignments[0]).toEqual(expect.objectContaining({
+      coverage: 'partial',
+      verification: expect.objectContaining({ status: 'unconfirmed' }),
+    }));
+  });
+
+  it('classifies verifier transport failures as retryable provider errors', async () => {
+    const result = await planStorylineFromScript({
+      scenes: [proofScene],
+      script: 'Show the embroidery being made.',
+      brief: scriptBrief,
+      llm: scriptLlm(),
+      queryEmbed: async () => [1, 0],
+      coverageVerify: async () => { throw Object.assign(new Error('vision provider unavailable'), { status: 503 }); },
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.failureKind).toBe('provider_error');
+    expect(result.assignments[0]?.verification?.status).toBe('unavailable');
+  });
+
+  it('classifies malformed verifier output as a terminal invalid response', async () => {
+    const result = await planStorylineFromScript({
+      scenes: [proofScene],
+      script: 'Show the embroidery being made.',
+      brief: scriptBrief,
+      llm: scriptLlm(),
+      queryEmbed: async () => [1, 0],
+      coverageVerify: async () => { throw new Error('Coverage verifier response omitted boolean confirmed'); },
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.failureKind).toBe('invalid_response');
+    expect(result.assignments[0]?.verification?.status).toBe('unavailable');
+  });
+});
+
 describe('from-batch storyline route handoff', () => {
   const oldEnv = { ...process.env };
 
@@ -262,6 +350,10 @@ describe('from-batch storyline route handoff', () => {
     mocks.embedScenes.mockImplementation(async (scenes: unknown) => scenes);
     mocks.makeEmbeddingScorer.mockReturnValue('semantic-scorer');
     mocks.generateEditronEmbedding.mockResolvedValue([1, 0, 0]);
+    mocks.coverageGenerateContent.mockResolvedValue({
+      response: { text: () => JSON.stringify({ confirmed: true, note: 'visible proof' }) },
+    });
+    mocks.getAnalysisModel.mockResolvedValue({ generateContent: mocks.coverageGenerateContent });
     mocks.buildSignalTimeline.mockReturnValue({ eventSignals: [{ timestampMs: 1000, signal: 'entity.name', value: 'Proof', context: 'Proof' }], gridSignals: new Map(), globalSignals: {}, fps: 30, totalFrames: 240, gridInterval: 15 });
     mocks.buildSignalTimelineFromAnalysis.mockReturnValue({ eventSignals: [], gridSignals: new Map(), globalSignals: {}, fps: 30, totalFrames: 240, gridInterval: 15 });
     mocks.bulkWriteAssets.mockImplementation(async (operations: Array<any>) => {
@@ -625,11 +717,37 @@ describe('from-batch storyline route handoff', () => {
         hasScript: true,
         script: 'Show the proof, then the result.',
         scriptQueryEmbed: expect.any(Function),
+        scriptCoverageVerify: expect.any(Function),
       }),
     );
 
     const orderOptions = mocks.orderStorylineWithLLM.mock.calls[0][3];
     expect(orderOptions.narrativeSources.get('video_1')).toEqual(expect.objectContaining({ durationMs: 8000 }));
+    const verified = await orderOptions.scriptCoverageVerify(
+      { text: 'show the visible proof' },
+      makeScene({
+        source: 'https://cdn.test/video_1.mp4',
+        startTime: 1,
+        endTime: 3,
+        objects: [],
+        faces: [],
+        detectedText: [],
+        transcription: '',
+      }),
+    );
+    expect(verified).toEqual({ confirmed: true, note: 'visible proof' });
+    expect(mocks.coverageGenerateContent).toHaveBeenCalledWith(expect.objectContaining({
+      contents: [expect.objectContaining({
+        parts: [
+          {
+            fileData: { fileUri: 'https://cdn.test/video_1.mp4', mimeType: 'video/mp4' },
+            videoMetadata: { startOffset: '1.000s', endOffset: '3.000s' },
+          },
+          expect.objectContaining({ text: expect.stringContaining('1.00s-3.00s') }),
+        ],
+      })],
+      generationConfig: expect.objectContaining({ responseMimeType: 'application/json', maxOutputTokens: 256 }),
+    }));
     expect(mocks.generateEditronEmbedding).toHaveBeenCalledWith(
       'make a concise product proof cut\n\nShow the proof, then the result.',
       { taskType: 'RETRIEVAL_QUERY' },
@@ -712,7 +830,62 @@ describe('from-batch storyline route handoff', () => {
     );
   });
 
-  it('does not save or dispatch an unrelated fallback when authoritative script grounding fails', async () => {
+  it.each(['coverage_gap', 'invalid_response'] as const)(
+    'does not save, retry, or dispatch when authoritative script grounding has terminal %s',
+    async (failureKind) => {
+      const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+      batchDocument = {
+        ...batchDocument,
+        projectId: 'proj_batch_1',
+        orchestrationStatus: 'requested',
+        orchestrationRequestedAt: new Date(),
+      };
+      mocks.orderStorylineWithLLM.mockResolvedValueOnce({
+        planApplied: false,
+        fallbackReason: 'script_plan_failed',
+        scriptPlan: {
+          status: 'failed',
+          failureKind,
+          units: [],
+          beats: [],
+          assignments: [],
+          selectedSceneIds: [],
+          errors: ['no grounded scenes selected for the script'],
+          attempts: 3,
+        },
+        storyline: {
+          clips: [],
+          renderTarget: { aspectRatio: '16:9', fps: 30, width: 1920, height: 1080, container: 'mp4', videoCodec: 'h264', audioCodec: 'aac' },
+          totalDurationSec: 0,
+          condensationRatio: 0,
+          targetDurationSec: null,
+        },
+      });
+
+      const response = await POST(request({
+        uploadBatchId: 'batch_1',
+        _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 0, failureCount: 0 },
+      }, true) as never);
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload).toEqual(expect.objectContaining({ success: false, status: 'failed' }));
+      expect(mocks.saveProject).not.toHaveBeenCalled();
+      expect(mocks.refundCredits).toHaveBeenCalledOnce();
+      expect(mocks.updateBatch).toHaveBeenCalledWith(
+        { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            orchestrationStatus: 'failed',
+            orchestrationError: expect.stringContaining('could not be grounded'),
+          }),
+        }),
+      );
+      expect(mocks.fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it('retries transient script-grounding provider failures without dispatching Director', async () => {
     const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
     batchDocument = {
       ...batchDocument,
@@ -725,11 +898,12 @@ describe('from-batch storyline route handoff', () => {
       fallbackReason: 'script_plan_failed',
       scriptPlan: {
         status: 'failed',
+        failureKind: 'provider_error',
         units: [],
         beats: [],
         assignments: [],
         selectedSceneIds: [],
-        errors: ['no grounded scenes selected for the script'],
+        errors: ['visual coverage verification failed: provider unavailable'],
         attempts: 3,
       },
       storyline: {
@@ -749,16 +923,9 @@ describe('from-batch storyline route handoff', () => {
 
     expect(response.status).toBe(202);
     expect(payload).toEqual(expect.objectContaining({ success: true, retryScheduled: true }));
-    expect(mocks.saveProject).not.toHaveBeenCalled();
-    expect(mocks.refundCredits).toHaveBeenCalledOnce();
     expect(mocks.updateBatch).toHaveBeenCalledWith(
       { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },
-      expect.objectContaining({
-        $set: expect.objectContaining({
-          orchestrationStatus: 'retryable_error',
-          orchestrationError: expect.stringContaining('could not be grounded'),
-        }),
-      }),
+      expect.objectContaining({ $set: expect.objectContaining({ orchestrationStatus: 'retryable_error' }) }),
     );
     expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes('/api/internal/workers/director'))).toBe(false);
   });

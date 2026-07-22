@@ -20,6 +20,7 @@
 import type { ProductionBrief } from '../production-brief/production-brief';
 import { type AnalysisReadDb, readComposableAssetAnalyses } from './asset-analysis-reader';
 import { type ComposeOptions, composeStoryline, selectAndFitScenes } from './compose';
+import type { CoverageVerify } from './coverage';
 import { scenesFromAssetAnalyses } from './multi-asset-compose';
 import { buildOrderingDigest } from './ordering-digest';
 import { type OrderingValidation, validateOrderingPlan } from './ordering-plan';
@@ -63,6 +64,8 @@ export interface OrderStorylineOptions {
   script?: string | null;
   /** Query embedder for beat-to-scene retrieval. Required when `script` is authoritative. */
   scriptQueryEmbed?: SceneEmbed;
+  /** Exact-window visual verifier. Required when `script` is authoritative. */
+  scriptCoverageVerify?: CoverageVerify;
 }
 
 export interface OrderStorylineResult {
@@ -125,7 +128,7 @@ export async function orderStorylineWithLLM(
 
   const script = opts?.script?.trim();
   if (script) {
-    if (!opts?.scriptQueryEmbed) {
+    if (!opts?.scriptQueryEmbed || !opts.scriptCoverageVerify) {
       return deterministic(enriched, brief, opts, 'script_planner_unavailable', undefined, policy);
     }
     const scriptPlan = await planStorylineFromScript({
@@ -134,6 +137,7 @@ export async function orderStorylineWithLLM(
       brief,
       llm,
       queryEmbed: opts.scriptQueryEmbed,
+      coverageVerify: opts.scriptCoverageVerify,
       language: opts.ctx?.language,
       minClipDurationSec: opts.compose?.minClipDurationSec,
     });

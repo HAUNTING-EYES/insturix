@@ -1,4 +1,5 @@
 import type { ProductionBrief } from '../production-brief/production-brief';
+import { PARTIAL_SIMILARITY, type CoverageVerify } from './coverage';
 import { buildOrderingDigest, type ClipDigest } from './ordering-digest';
 import {
   SEAM_LINKS,
@@ -14,6 +15,7 @@ type CompletePrompt = (prompt: string) => Promise<string>;
 
 export type ScriptBeatCoverage = 'covered' | 'partial' | 'missing';
 export type ScriptBeatPlanStatus = 'planned' | 'partial' | 'failed';
+export type ScriptBeatFailureKind = 'coverage_gap' | 'provider_error' | 'invalid_response' | 'invalid_request';
 
 export interface ScriptUnit {
   id: string;
@@ -35,6 +37,11 @@ export interface ScriptBeatAssignment {
   evidence?: string;
   candidateCount: number;
   highestSimilarity: number | null;
+  verification?: {
+    status: 'confirmed' | 'unconfirmed' | 'unavailable';
+    sceneIds: string[];
+    notes: string[];
+  };
 }
 
 export interface ScriptBeatPlanResult {
@@ -48,6 +55,7 @@ export interface ScriptBeatPlanResult {
   rationale?: string;
   errors: string[];
   attempts: number;
+  failureKind?: ScriptBeatFailureKind;
   retrieval?: {
     beatCount: number;
     embeddedBeatCount: number;
@@ -63,6 +71,8 @@ export interface PlanStorylineFromScriptArgs {
   brief: ProductionBrief;
   llm: CompletePrompt;
   queryEmbed: SceneEmbed;
+  /** Exact-window visual authority. Live script execution must provide this. */
+  coverageVerify?: CoverageVerify;
   language?: string | null;
   minClipDurationSec?: number;
 }
@@ -97,6 +107,8 @@ interface ParsedAssignments {
 /** Operational prompt-size protection, not an editorial threshold. */
 const MAPPING_PROMPT_CHAR_BUDGET = 60_000;
 const MAX_AUDIT_TEXT = 600;
+/** Provider-concurrency protection only; it does not affect editorial selection. */
+const COVERAGE_VERIFY_CONCURRENCY = 3;
 
 type SentenceSegmenter = {
   segment(input: string): Iterable<{ segment: string }>;
@@ -421,7 +433,6 @@ function parseAssignments(
     });
   }
   if (rawByBeat.size !== beats.length) return { errors: ['response contains unknown beat assignments'] };
-  if (plan.order.length === 0) return { errors: ['no grounded scenes selected for the script'] };
 
   const selectedScenes = plan.order
     .map((item) => selectedById.get(item.sourceRef))
@@ -438,6 +449,156 @@ function parseAssignments(
   return { parsed: { assignments, plan, validation, rationale }, errors: [] };
 }
 
+type SceneVerification = {
+  beatId: string;
+  sceneId: string;
+  similarity: number;
+  confirmed: boolean;
+  note?: string;
+};
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (cursor < values.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await mapper(values[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function verifyParsedAssignments(args: {
+  parsed: ParsedAssignments;
+  beats: readonly ScriptBeat[];
+  candidates: ReadonlyMap<string, CandidateRow[]>;
+  scenes: readonly Scene[];
+  brief: ProductionBrief;
+  minClipDurationSec?: number;
+  verify: CoverageVerify;
+}): Promise<{ parsed?: ParsedAssignments; assignments: ScriptBeatAssignment[]; failureKind?: ScriptBeatFailureKind; errors: string[] }> {
+  const beatById = new Map(args.beats.map((beat) => [beat.id, beat]));
+  const sceneById = new Map(args.scenes.map((scene) => [scene.id, scene]));
+  const jobs = args.parsed.assignments.flatMap((assignment) => {
+    const rows = new Map((args.candidates.get(assignment.beatId) ?? []).map((row) => [row.sceneId, row]));
+    return assignment.sceneIds.map((sceneId) => ({ assignment, sceneId, row: rows.get(sceneId) }));
+  });
+
+  let checks: SceneVerification[];
+  try {
+    checks = await mapWithConcurrency(jobs, COVERAGE_VERIFY_CONCURRENCY, async ({ assignment, sceneId, row }) => {
+      const beat = beatById.get(assignment.beatId);
+      const scene = sceneById.get(sceneId);
+      if (!beat || !scene || !row) throw new Error(`verification input missing for ${assignment.beatId}/${sceneId}`);
+      const result = await args.verify({
+        text: `${beat.scriptText}\nVisible evidence required: ${beat.visualIntent}`,
+      }, scene);
+      return {
+        beatId: assignment.beatId,
+        sceneId,
+        similarity: row.similarity,
+        confirmed: result.confirmed,
+        note: cleanText(result.note, 240),
+      };
+    });
+  } catch (error) {
+    return {
+      assignments: args.parsed.assignments.map((assignment) => ({
+        ...assignment,
+        verification: {
+          status: 'unavailable',
+          sceneIds: assignment.sceneIds,
+          notes: [cleanText(error instanceof Error ? error.message : String(error), 240) ?? 'verification unavailable'],
+        },
+      })),
+      failureKind: thrownFailureKind(error),
+      errors: [`visual coverage verification failed: ${error instanceof Error ? error.message : String(error)}`],
+    };
+  }
+
+  const checksByBeat = new Map<string, SceneVerification[]>();
+  for (const check of checks) {
+    const rows = checksByBeat.get(check.beatId) ?? [];
+    rows.push(check);
+    checksByBeat.set(check.beatId, rows);
+  }
+
+  const executableSceneIds = new Set<string>();
+  const assignments = args.parsed.assignments.map((assignment): ScriptBeatAssignment => {
+    if (assignment.coverage === 'missing') return assignment;
+    const beatChecks = checksByBeat.get(assignment.beatId) ?? [];
+    const confirmed = beatChecks.filter((check) => check.confirmed);
+    for (const check of confirmed) executableSceneIds.add(check.sceneId);
+    const partial = beatChecks.filter((check) => !check.confirmed && check.similarity >= PARTIAL_SIMILARITY);
+    const notes = beatChecks.map((check) => check.note).filter((note): note is string => Boolean(note));
+
+    if (confirmed.length > 0) {
+      return {
+        ...assignment,
+        coverage: 'covered',
+        sceneIds: confirmed.map((check) => check.sceneId),
+        evidence: confirmed.map((check) => check.note).filter(Boolean).join('; ') || assignment.evidence,
+        verification: { status: 'confirmed', sceneIds: confirmed.map((check) => check.sceneId), notes },
+      };
+    }
+    if (partial.length > 0) {
+      return {
+        ...assignment,
+        coverage: 'partial',
+        sceneIds: partial.map((check) => check.sceneId),
+        verification: { status: 'unconfirmed', sceneIds: beatChecks.map((check) => check.sceneId), notes },
+      };
+    }
+    return {
+      ...assignment,
+      coverage: 'missing',
+      sceneIds: [],
+      verification: { status: 'unconfirmed', sceneIds: beatChecks.map((check) => check.sceneId), notes },
+    };
+  });
+
+  const order = args.parsed.plan.order
+    .filter((item) => executableSceneIds.has(item.sourceRef))
+    .map((item, index) => index === 0 ? { sourceRef: item.sourceRef, reason: item.reason } : { ...item });
+  if (order.length === 0) {
+    return {
+      assignments,
+      failureKind: 'coverage_gap',
+      errors: ['no VLM-confirmed scenes are available for the script'],
+    };
+  }
+
+  const plan: OrderingPlan = { ...args.parsed.plan, order };
+  if (plan.hookRef && !executableSceneIds.has(plan.hookRef)) delete plan.hookRef;
+  const selectedScenes = order
+    .map((item) => sceneById.get(item.sourceRef))
+    .filter((scene): scene is Scene => Boolean(scene));
+  const validation = validateOrderingPlan(plan, selectedScenes, {
+    targetDurationSec: args.brief.output.targetDurationSec,
+    durationToleranceSec: 0,
+    minClipDurationSec: args.minClipDurationSec,
+  });
+  if (!validation.valid) {
+    return {
+      assignments,
+      failureKind: 'invalid_response',
+      errors: validation.issues.map((issue) => `${issue.code}: ${issue.message}`),
+    };
+  }
+  return {
+    parsed: { ...args.parsed, assignments, plan, validation },
+    assignments,
+    errors: [],
+  };
+}
+
 function repairPrompt(stage: 'beat extraction' | 'scene assignment', original: string, errors: readonly string[], prior: string): string {
   return `${original}\n\n<repair>
 Your previous ${stage} response was invalid.
@@ -452,8 +613,29 @@ function failed(
   beats: ScriptBeat[],
   errors: string[],
   attempts: number,
+  failureKind: ScriptBeatFailureKind = 'invalid_response',
+  assignments: ScriptBeatAssignment[] = [],
 ): ScriptBeatPlanResult {
-  return { status: 'failed', units, beats, assignments: [], selectedSceneIds: [], errors, attempts };
+  return { status: 'failed', units, beats, assignments, selectedSceneIds: [], errors, attempts, failureKind };
+}
+
+function thrownFailureKind(error: unknown): ScriptBeatFailureKind {
+  const candidate = error as { status?: unknown; statusCode?: unknown; code?: unknown; name?: unknown } | null;
+  const rawStatus = candidate?.status ?? candidate?.statusCode;
+  const status = typeof rawStatus === 'number' ? rawStatus : Number(rawStatus);
+  if (status === 408 || status === 425 || status === 429 || (status >= 500 && status <= 599)) {
+    return 'provider_error';
+  }
+  const code = String(candidate?.code ?? '').toUpperCase();
+  if (['ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENETDOWN', 'ENETUNREACH', 'ETIMEDOUT'].includes(code)) {
+    return 'provider_error';
+  }
+  const name = String(candidate?.name ?? '');
+  const message = error instanceof Error ? error.message : String(error);
+  if (name === 'AbortError' || /\b(?:timeout|timed out|socket hang up|temporarily unavailable)\b/iu.test(message)) {
+    return 'provider_error';
+  }
+  return 'invalid_response';
 }
 
 /**
@@ -463,8 +645,8 @@ function failed(
  */
 export async function planStorylineFromScript(args: PlanStorylineFromScriptArgs): Promise<ScriptBeatPlanResult> {
   const units = segmentScriptUnits(args.script, args.language);
-  if (units.length === 0) return failed([], [], ['script is empty'], 0);
-  if (args.scenes.length === 0) return failed(units, [], ['no analyzed scenes are available'], 0);
+  if (units.length === 0) return failed([], [], ['script is empty'], 0, 'invalid_request');
+  if (args.scenes.length === 0) return failed(units, [], ['no analyzed scenes are available'], 0, 'coverage_gap');
 
   let attempts = 0;
   const beatPrompt = extractionPrompt(units, args.language);
@@ -473,7 +655,7 @@ export async function planStorylineFromScript(args: PlanStorylineFromScriptArgs)
     attempts += 1;
     beatRaw = await args.llm(beatPrompt);
   } catch (error) {
-    return failed(units, [], [`beat extraction failed: ${error instanceof Error ? error.message : String(error)}`], attempts);
+    return failed(units, [], [`beat extraction failed: ${error instanceof Error ? error.message : String(error)}`], attempts, thrownFailureKind(error));
   }
   let parsedBeats = parseBeats(beatRaw, units);
   if (!parsedBeats.beats) {
@@ -482,7 +664,7 @@ export async function planStorylineFromScript(args: PlanStorylineFromScriptArgs)
       beatRaw = await args.llm(repairPrompt('beat extraction', beatPrompt, parsedBeats.errors, beatRaw));
       parsedBeats = parseBeats(beatRaw, units);
     } catch (error) {
-      return failed(units, [], [`beat extraction repair failed: ${error instanceof Error ? error.message : String(error)}`], attempts);
+      return failed(units, [], [`beat extraction repair failed: ${error instanceof Error ? error.message : String(error)}`], attempts, thrownFailureKind(error));
     }
   }
   if (!parsedBeats.beats) return failed(units, [], parsedBeats.errors, attempts);
@@ -496,7 +678,7 @@ export async function planStorylineFromScript(args: PlanStorylineFromScriptArgs)
     attempts += 1;
     assignmentRaw = await args.llm(mapPrompt);
   } catch (error) {
-    return failed(units, beats, [`scene assignment failed: ${error instanceof Error ? error.message : String(error)}`], attempts);
+    return failed(units, beats, [`scene assignment failed: ${error instanceof Error ? error.message : String(error)}`], attempts, thrownFailureKind(error));
   }
   let parsedAssignments = parseAssignments(
     assignmentRaw,
@@ -519,12 +701,34 @@ export async function planStorylineFromScript(args: PlanStorylineFromScriptArgs)
         args.minClipDurationSec,
       );
     } catch (error) {
-      return failed(units, beats, [`scene assignment repair failed: ${error instanceof Error ? error.message : String(error)}`], attempts);
+      return failed(units, beats, [`scene assignment repair failed: ${error instanceof Error ? error.message : String(error)}`], attempts, thrownFailureKind(error));
     }
   }
   if (!parsedAssignments.parsed) return failed(units, beats, parsedAssignments.errors, attempts);
 
-  const result = parsedAssignments.parsed;
+  let result = parsedAssignments.parsed;
+  if (args.coverageVerify) {
+    const verified = await verifyParsedAssignments({
+      parsed: result,
+      beats,
+      candidates: packed,
+      scenes: args.scenes,
+      brief: args.brief,
+      minClipDurationSec: args.minClipDurationSec,
+      verify: args.coverageVerify,
+    });
+    if (!verified.parsed) {
+      return failed(
+        units,
+        beats,
+        verified.errors,
+        attempts,
+        verified.failureKind ?? 'invalid_response',
+        verified.assignments,
+      );
+    }
+    result = verified.parsed;
+  }
   const status: ScriptBeatPlanStatus = result.assignments.every((assignment) => assignment.coverage === 'covered')
     ? 'planned'
     : 'partial';

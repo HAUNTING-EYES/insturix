@@ -35,6 +35,8 @@ import { buildSignalTimeline, buildSignalTimelineFromAnalysis, type RawFootageAn
 import type { SegmentAnalysis } from '@/lib/editron/types/segment-analysis';
 import { resolveEffectiveBrandWithProfile } from '@/lib/shared/brand-effective-resolver';
 import { normalizeEditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
+import type { CoverageVerify } from '@/lib/editron/storyline/coverage';
+import type { Scene } from '@/lib/editron/storyline/scene';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -177,6 +179,17 @@ type BatchCaller = {
   pollAttempt: number;
   failureCount: number;
 };
+
+class ScriptGroundingError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+    readonly coverageAudit: Record<string, unknown> | null,
+  ) {
+    super(message);
+    this.name = 'ScriptGroundingError';
+  }
+}
 
 const DEFAULT_ORCHESTRATION_DELAY_SECONDS = 10;
 const DEFAULT_ORCHESTRATION_DEADLINE_MS = 30 * 60 * 1000;
@@ -619,6 +632,7 @@ function storylineScriptPlanAudit(result: OrderStorylineResult): Record<string, 
   if (!scriptPlan) return null;
   return {
     status: scriptPlan.status,
+    failureKind: scriptPlan.failureKind,
     attempts: scriptPlan.attempts,
     unitCount: scriptPlan.units.length,
     retrieval: scriptPlan.retrieval,
@@ -642,14 +656,14 @@ function storylineScriptPlanAudit(result: OrderStorylineResult): Record<string, 
   };
 }
 
-function imageSceneInputs(assets: readonly BatchMediaAsset[]): ImageAssetInput[] {
-  return assets
+async function imageSceneInputs(assets: readonly BatchMediaAsset[], userId: string): Promise<ImageAssetInput[]> {
+  return await Promise.all(assets
     .filter((asset) => asset.type === 'image')
-    .map((asset) => ({
+    .map(async (asset) => ({
       assetId: asset.assetId,
-      source: asset.assetId,
+      source: await resolveOverlayUrl(asset, userId),
       createdAt: assetCreatedAtMs(asset),
-    }));
+    })));
 }
 
 function hasFullSegmentAnalysis(value: unknown): value is SegmentAnalysis {
@@ -735,6 +749,58 @@ function buildStatusInput(asset: BatchMediaAsset): MediaUploadBatchAssetStatusIn
     deepAnalysisRetryVersion: asset.deepAnalysisRetryVersion,
     deepAnalysisRetryCount: asset.deepAnalysisRetryCount,
     deepAnalysisDiagnostics: asset.deepAnalysisDiagnostics,
+  };
+}
+
+function coverageMimeType(source: string): string {
+  const path = source.toLowerCase().split('?')[0];
+  if (path.endsWith('.png')) return 'image/png';
+  if (path.endsWith('.webp')) return 'image/webp';
+  if (path.endsWith('.jpg') || path.endsWith('.jpeg')) return 'image/jpeg';
+  if (path.endsWith('.mov')) return 'video/quicktime';
+  return 'video/mp4';
+}
+
+function createBatchScriptCoverageVerifier(): CoverageVerify {
+  let modelPromise: ReturnType<typeof import('@/lib/editron/utils/gemini-model-factory')['getAnalysisModel']> | undefined;
+  return async (query, scene: Scene) => {
+    if (!/^(?:https?:\/\/|gs:\/\/)/iu.test(scene.source)) {
+      return { confirmed: false, note: 'scene_source_not_remotely_readable' };
+    }
+    const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
+    modelPromise ??= getAnalysisModel();
+    const model = await modelPromise;
+    const mimeType = coverageMimeType(scene.source);
+    const mediaPart: {
+      fileData: { fileUri: string; mimeType: string };
+      videoMetadata?: { startOffset: string; endOffset: string };
+    } = { fileData: { fileUri: scene.source, mimeType } };
+    if (!mimeType.startsWith('image/')) {
+      const startSec = Math.max(0, scene.startTime);
+      const endSec = Math.max(startSec + 0.001, scene.endTime);
+      mediaPart.videoMetadata = {
+        startOffset: `${startSec.toFixed(3)}s`,
+        endOffset: `${endSec.toFixed(3)}s`,
+      };
+    }
+    const visualScope = mimeType.startsWith('image/')
+      ? 'Inspect this image.'
+      : `Inspect only ${scene.startTime.toFixed(2)}s-${scene.endTime.toFixed(2)}s of this source.`;
+    const result = await model.generateContent({
+      contents: [{
+        role: 'user',
+        parts: [
+          mediaPart,
+          { text: `${visualScope}\nDetermine whether the pixels visibly depict this requested moment. Transcript, filename, tags, and the request itself are not proof. Return JSON only.\n${JSON.stringify({ requestedMoment: query.text, responseSchema: { confirmed: 'boolean', note: 'short visible evidence' } })}` },
+        ],
+      }],
+      generationConfig: { temperature: 0, seed: 42, responseMimeType: 'application/json', maxOutputTokens: 256 },
+    });
+    const parsed = parseJsonObject(result.response.text());
+    if (!parsed || typeof parsed.confirmed !== 'boolean') {
+      throw new Error('Coverage verifier response omitted boolean confirmed');
+    }
+    return { confirmed: parsed.confirmed, note: cleanString(parsed.note, 240) };
   };
 }
 
@@ -1440,7 +1506,7 @@ export async function POST(request: NextRequest) {
     const videoScenes = scenesFromAssetAnalyses(analyses, { assetContexts });
     const imageAssetsById = new Map(visualAssets.filter((asset) => asset.type === 'image').map((asset) => [asset.assetId, asset]));
     const imageScenes = await synthesizeImageScenes(
-      imageSceneInputs(visualAssets),
+      await imageSceneInputs(visualAssets, userId),
       (image) => analyzeImageFacts(image, imageAssetsById, userId),
     );
     const scenes = [...videoScenes, ...imageScenes];
@@ -1460,10 +1526,17 @@ export async function POST(request: NextRequest) {
       hasScript: Boolean(script),
       script,
       scriptQueryEmbed: async (text) => await embedStorylineIntent(text) ?? [],
+      scriptCoverageVerify: createBatchScriptCoverageVerifier(),
     });
     if (script && (ordering.fallbackReason === 'script_planner_unavailable' || ordering.fallbackReason === 'script_plan_failed')) {
       const errors = ordering.scriptPlan?.errors.join('; ') || ordering.fallbackReason;
-      throw new Error(`Authoritative script could not be grounded to uploaded footage: ${errors}`);
+      const failureKind = ordering.scriptPlan?.failureKind;
+      const retryable = failureKind === 'provider_error';
+      throw new ScriptGroundingError(
+        `Authoritative script could not be grounded to uploaded footage: ${errors}`,
+        retryable,
+        storylineScriptPlanAudit(ordering),
+      );
     }
     const storylineTimeline = await materializeStoryline(ordering, visualAssets, userId, uploadBatchId, dims);
     const timeline = storylineTimeline ?? await materializeChronologicalFallback(visualAssets, userId, uploadBatchId, dims);
@@ -1605,6 +1678,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const terminalScriptGrounding = error instanceof ScriptGroundingError && !error.retryable;
     if (creditCheck && creditsDeducted && !queuedOrRanDirector) {
       await creditCheck.refund('Multi-upload auto-edit failed before Director dispatch').catch((refundError) => {
         console.error('[auto-edit/from-batch] credit refund failed:', refundError);
@@ -1614,6 +1688,39 @@ export async function POST(request: NextRequest) {
     if (caller?.internal && body && uploadBatchId && activeProjectId) {
       try {
         const db = await getDatabase();
+        if (terminalScriptGrounding) {
+          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+            { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
+            {
+              $set: {
+                orchestrationStatus: 'failed',
+                orchestrationError: message,
+                scriptCoverage: error.coverageAudit,
+                updatedAt: new Date(),
+              },
+              $unset: { orchestrationLeaseUntil: '' },
+            },
+          );
+          await db.collection(COLLECTIONS.PROJECTS).updateOne(
+            { projectId: activeProjectId },
+            {
+              $set: {
+                autoEditStatus: 'failed',
+                autoEditError: message,
+                'storylinePlan.scriptCoverage': error.coverageAudit,
+                updatedAt: new Date(),
+              },
+            },
+          );
+          console.warn(`[auto-edit/from-batch] terminal script grounding failure: ${message}`);
+          return NextResponse.json({
+            success: false,
+            projectId: activeProjectId,
+            status: 'failed',
+            error: message,
+            scriptCoverage: error.coverageAudit,
+          });
+        }
         const nextFailureCount = caller.failureCount + 1;
         if (nextFailureCount < orchestrationFailureLimit()) {
           await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(

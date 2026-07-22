@@ -110,6 +110,10 @@ describe('script-beat planner - grounded multi-asset authority', () => {
       script,
       hasScript: true,
       scriptQueryEmbed: async (text) => vectorFor(text),
+      scriptCoverageVerify: async (_query, candidate) => ({
+        confirmed: true,
+        note: candidate.description ?? 'visible scene evidence',
+      }),
       ctx: { language: 'hi' },
     });
 
