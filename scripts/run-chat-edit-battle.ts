@@ -33,7 +33,7 @@ export interface ChatBattleCliOptions {
 
 interface ApiClient {
   baseUrl: string;
-  headers: Record<string, string>;
+  authHeaderFile: string;
 }
 
 let cleanupFixtureProjectId: string | null = null;
@@ -185,9 +185,10 @@ async function invokeLiveChatAgent(input: {
   startedAt: string;
 }): Promise<ChatBattleInvocationEvidence> {
   const requestBody = buildLiveChatRequestBody(input);
+  const headers = await readChatBattleAuthHeaders(input.api.authHeaderFile);
   const response = await fetch(`${input.api.baseUrl}/api/services/editron/chat/stream`, {
     method: 'POST',
-    headers: { ...input.api.headers, 'content-type': 'application/json' },
+    headers: { ...headers, 'content-type': 'application/json' },
     body: JSON.stringify(requestBody),
   });
   const raw = await response.text();
@@ -364,14 +365,13 @@ function boundedEnvInteger(name: string, fallback: number, min: number, max: num
 }
 
 async function buildApiClient(baseUrl: string, headerFile: string): Promise<ApiClient> {
-  const raw = await readJsonRecord(headerFile);
-  const headers = Object.fromEntries(Object.entries(raw).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
-  if (!headers.cookie && !headers.authorization) throw new Error('Auth header file must contain cookie or authorization.');
-  return { baseUrl, headers };
+  await readChatBattleAuthHeaders(headerFile);
+  return { baseUrl, authHeaderFile: path.resolve(headerFile) };
 }
 
 async function getJson(api: ApiClient, route: string): Promise<Record<string, unknown>> {
-  const response = await fetch(`${api.baseUrl}${route}`, { headers: api.headers });
+  const headers = await readChatBattleAuthHeaders(api.authHeaderFile);
+  const response = await fetch(`${api.baseUrl}${route}`, { headers });
   const text = await response.text();
   let payload: Record<string, unknown> = {};
   try {
@@ -381,6 +381,17 @@ async function getJson(api: ApiClient, route: string): Promise<Record<string, un
   }
   if (!response.ok) throw new Error(`GET ${route} failed HTTP ${response.status}: ${stringValue(payload.error) ?? text.slice(0, 500)}`);
   return payload;
+}
+
+export async function readChatBattleAuthHeaders(headerFile: string): Promise<Record<string, string>> {
+  const raw = await readJsonRecord(headerFile);
+  const headers = Object.fromEntries(
+    Object.entries(raw).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  );
+  if (!headers.cookie && !headers.authorization) {
+    throw new Error('Auth header file must contain cookie or authorization.');
+  }
+  return headers;
 }
 
 async function readJsonRecord(filePath: string): Promise<Record<string, unknown>> {

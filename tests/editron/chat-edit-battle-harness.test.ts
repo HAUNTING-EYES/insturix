@@ -1,5 +1,8 @@
 import { AIMessage, HumanMessage } from '@langchain/core/messages';
 import { tool } from '@langchain/core/tools';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
@@ -174,6 +177,7 @@ import {
   validateChatBattleCliOptions,
   waitForFreshChatBattleRenderEvidence,
   waitForQueuedProjectMutation,
+  readChatBattleAuthHeaders,
 } from '../../scripts/run-chat-edit-battle';
 
 function project(overlays: Record<string, unknown>[] = []) {
@@ -189,6 +193,10 @@ function project(overlays: Record<string, unknown>[] = []) {
 
 function successEnvelope(data: Record<string, unknown> = {}) {
   return JSON.stringify({ status: 'success', data, error: null, nextAction: null });
+}
+
+function advisoryEnvelope(data: Record<string, unknown> = {}) {
+  return JSON.stringify({ status: 'advisory', data, error: null, nextAction: 'ask_clarification' });
 }
 
 function successEnvelopeWithCanonicalPreflight(data: Record<string, unknown> = {}) {
@@ -693,6 +701,47 @@ describe('chat edit battle harness', () => {
     });
     expect(report.verdict).toBe('fail');
     expect(report.checks.find((check) => check.id === 'render.fresh-evidence')).toMatchObject({ status: 'fail' });
+  });
+
+  it('recognizes advisory tool results as deterministic envelopes without treating them as mutations', () => {
+    const scenario = getChatEditBattleScenario('selected-overlay-edit')!;
+    const unchangedProject = project([{ id: 'title-1', type: 'text', content: 'Title', from: 0, durationInFrames: 90 }]);
+    const report = evaluateChatEditBattleJourney({
+      journeyId: 'advisory-envelope',
+      scenario,
+      projectId: 'proj_battle',
+      startedAt: '2026-07-16T10:00:00.000Z',
+      completedAt: '2026-07-16T10:00:01.000Z',
+      invocation: invocation('selected-overlay-edit', [{
+        id: 'advisory',
+        name: 'apply_editorial_intent',
+        args: { goal: 'Make the selected title larger.' },
+        startedAt: '2026-07-16T10:00:00.100Z',
+        completedAt: '2026-07-16T10:00:00.200Z',
+        output: advisoryEnvelope({ reason: 'target-needs-clarification' }),
+      }]),
+      mongoBefore: buildChatBattleProjectSnapshot(unchangedProject, 'mongo-before'),
+      mongoAfter: buildChatBattleProjectSnapshot(unchangedProject, 'mongo-after'),
+      uiReload: buildChatBattleProjectSnapshot(unchangedProject, 'ui-reload'),
+      renderEvidence: { status: 'missing', artifactRefs: [], issues: [] },
+    });
+
+    expect(report.checks.find((check) => check.id === 'agent.tool-envelope')).toMatchObject({ status: 'pass' });
+    expect(report.checks.find((check) => check.id === 'mongo.mutation-truth')).toMatchObject({ status: 'fail' });
+  });
+
+  it('rereads the rotatable auth file instead of caching an expired bearer', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'editron-chat-auth-'));
+    const authFile = path.join(directory, 'headers.json');
+    try {
+      await writeFile(authFile, JSON.stringify({ authorization: 'Bearer first' }), 'utf8');
+      expect(await readChatBattleAuthHeaders(authFile)).toEqual({ authorization: 'Bearer first' });
+
+      await writeFile(authFile, JSON.stringify({ authorization: 'Bearer refreshed' }), 'utf8');
+      expect(await readChatBattleAuthHeaders(authFile)).toEqual({ authorization: 'Bearer refreshed' });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('does not misreport a policy-blocked tool attempt as a mutation before evidence', () => {

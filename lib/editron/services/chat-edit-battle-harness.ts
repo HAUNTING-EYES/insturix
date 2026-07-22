@@ -977,7 +977,7 @@ function isSuccessfulToolOutput(output: unknown): boolean {
 function hasDeterministicToolEnvelope(output: unknown): boolean {
   const parsed = parseToolOutput(output);
   return parsed != null
-    && (parsed.status === 'success' || parsed.status === 'error')
+    && (parsed.status === 'success' || parsed.status === 'advisory' || parsed.status === 'error')
     && Object.prototype.hasOwnProperty.call(parsed, 'data')
     && Object.prototype.hasOwnProperty.call(parsed, 'error')
     && Object.prototype.hasOwnProperty.call(parsed, 'nextAction');
