@@ -18,6 +18,12 @@
  * are partitioned out as degraded (per-asset retry re-admits them).
  */
 import { positiveDurationSec, type MaterializableAsset } from '@/lib/editron/services/timeline-materializer';
+import {
+  buildMultiAssetDirectorContext,
+  isCanonicalAnalysisComplete,
+  type MultiAssetTimelineOverlay,
+} from '@/lib/editron/services/multi-asset-director-context';
+import type { ProjectAssetAnalysisDoc } from '@/lib/editron/storyline/asset-analysis-reader';
 
 export const EDIT_MODES = ['auto', 'assist'] as const;
 export type EditMode = (typeof EDIT_MODES)[number];
@@ -41,8 +47,11 @@ export function isAssistIntakeEnabled(env: NodeJS.ProcessEnv = process.env): boo
  * Consulted at: from-batch compose, video-analysis worker (:executeDirectorPlan site),
  * from-asset route inline director path.
  */
-export function isAssistProject(project: { editMode?: unknown } | null | undefined): boolean {
-  return parseEditMode(project?.editMode) === 'assist';
+export function isAssistProject(project: unknown): boolean {
+  const editMode = project && typeof project === 'object'
+    ? (project as { editMode?: unknown }).editMode
+    : undefined;
+  return parseEditMode(editMode) === 'assist';
 }
 
 export type AssistAssetPartition = {
@@ -71,4 +80,91 @@ export function partitionAssistAssets(
     usableAssets.push(asset);
   }
   return { usableAssets, excludedNoDurationAssetIds };
+}
+
+/** The seven project-level analysis fields chat evidence grounds in (tools.ts reads these). */
+const HYDRATION_FIELDS = [
+  'rawFootageAnalysis',
+  'segmentAnalysis',
+  'multiAssetDirectorContext',
+  'vjepaAnalysis',
+  'wav2vecAnalysis',
+  'momentWeightMap',
+  'musicAnalysis',
+] as const;
+
+export type AssistHydrationPlan = {
+  /** $set payload for the project doc. */
+  set: Record<string, unknown>;
+  /** $unset payload for the project doc (fields with no evidence — never left stale). */
+  unset: Record<string, ''>;
+  /** Video assets whose canonical analysis backs the hydrated map. */
+  hydratedVideoAssetIds: string[];
+  /** Video assets ON the timeline but OUT of the canonical map (degraded; retry re-hydrates). */
+  degradedVideoAssetIds: string[];
+};
+
+/**
+ * Assist hydration (CEO plan REV 5 #1-2). Chat chips/moment resolvers read
+ * PROJECT-level analysis fields that only auto's compose step used to write.
+ * The assist lay-down ends with this: build the same canonical context and
+ * return the exact $set/$unset the route applies — but pre-filtered to
+ * canonical-complete assets so degraded clips stay on the timeline without
+ * tripping the builder's all-or-nothing throw. Analysis writes are NOT edits;
+ * the zero-edit invariant is untouched.
+ */
+export function buildAssistHydration(args: {
+  analyses: readonly ProjectAssetAnalysisDoc[];
+  overlays: readonly MultiAssetTimelineOverlay[];
+  fps: number;
+  durationInFrames: number;
+}): AssistHydrationPlan {
+  const analysisByAsset = new Map(args.analyses.map((doc) => [doc.assetId, doc]));
+  const hydrated = new Set<string>();
+  const degraded = new Set<string>();
+  for (const overlay of args.overlays) {
+    if (overlay.type !== 'video') continue;
+    const assetId = typeof overlay.assetId === 'string' ? overlay.assetId : undefined;
+    if (assetId && isCanonicalAnalysisComplete(analysisByAsset.get(assetId))) hydrated.add(assetId);
+    else degraded.add(assetId ?? 'unknown-asset');
+  }
+
+  const plan: AssistHydrationPlan = {
+    set: {},
+    unset: {},
+    hydratedVideoAssetIds: Array.from(hydrated).sort(),
+    degradedVideoAssetIds: Array.from(degraded).sort(),
+  };
+
+  if (hydrated.size === 0) {
+    // Image-only or fully-degraded lay-down: no canonical map. Explicitly clear
+    // every hydration field so nothing stale can masquerade as evidence.
+    for (const field of HYDRATION_FIELDS) plan.unset[field] = '';
+    return plan;
+  }
+
+  const contextOverlays = args.overlays.filter(
+    (overlay) => overlay.type !== 'video' || (typeof overlay.assetId === 'string' && hydrated.has(overlay.assetId)),
+  );
+  const context = buildMultiAssetDirectorContext({
+    analyses: args.analyses,
+    overlays: contextOverlays,
+    fps: args.fps,
+    durationInFrames: args.durationInFrames,
+  });
+
+  plan.set.rawFootageAnalysis = context.rawFootageAnalysis;
+  plan.set.segmentAnalysis = context.segmentAnalysis;
+  plan.set.multiAssetDirectorContext = context.provenance;
+  const optional: Record<string, unknown> = {
+    vjepaAnalysis: context.vjepaAnalysis,
+    wav2vecAnalysis: context.wav2vecAnalysis,
+    momentWeightMap: context.momentWeightMap,
+    musicAnalysis: context.musicAnalysis,
+  };
+  for (const [field, value] of Object.entries(optional)) {
+    if (value != null) plan.set[field] = value;
+    else plan.unset[field] = '';
+  }
+  return plan;
 }

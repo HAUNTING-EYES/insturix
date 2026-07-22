@@ -767,3 +767,12 @@ function combinedModelVersion(values: readonly string[]): string {
   const unique = Array.from(new Set(values.filter(Boolean))).sort();
   return unique.length > 0 ? `multi-asset:${unique.join('+')}` : 'multi-asset:unknown';
 }
+
+/**
+ * The exact per-asset validity rule buildMultiAssetDirectorContext enforces before
+ * throwing (see invalidAssets above). Exported so the assist lane can PRE-FILTER
+ * degraded assets into partial hydration instead of tripping the throw.
+ */
+export function isCanonicalAnalysisComplete(doc: ProjectAssetAnalysisDoc | null | undefined): boolean {
+  return Boolean(doc && asRecord(doc.rawFootageAnalysis) && asSegmentAnalysis(doc.segmentAnalysis));
+}

@@ -39,12 +39,23 @@ import { normalizeEditorialPreferences } from '@/lib/editron/production-brief/ed
 import type { CoverageVerify } from '@/lib/editron/storyline/coverage';
 import type { Scene } from '@/lib/editron/storyline/scene';
 import type { ScriptBeatFailureKind } from '@/lib/editron/storyline/script-beat-planner';
+import {
+  DEFAULT_IMAGE_HOLD_SEC,
+  FPS,
+  materializeChronologicalFallback,
+  positiveDurationSec,
+  resolveOverlayUrl,
+  type MaterializedTimeline,
+} from '@/lib/editron/services/timeline-materializer';
+import {
+  ASSIST_STATUS_READY,
+  buildAssistHydration,
+  isAssistProject,
+  partitionAssistAssets,
+} from '@/lib/editron/services/assist-lane';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
-
-const FPS = 30;
-const DEFAULT_IMAGE_HOLD_SEC = 4;
 const BATCH_ANALYSIS_REQUIREMENTS: MediaUploadAnalysisRequirements = {
   semanticVisual: {
     version: ASSET_DEEP_ANALYSIS_VERSION,
@@ -57,7 +68,7 @@ type BatchDocument = {
   userId: string;
   orgId?: string | null;
   projectId?: string;
-  orchestrationStatus?: 'initializing' | 'requested' | 'waiting_analysis' | 'composing' | 'retryable_error' | 'needs_input' | 'director_queued' | 'failed';
+  orchestrationStatus?: 'initializing' | 'requested' | 'waiting_analysis' | 'composing' | 'retryable_error' | 'needs_input' | 'director_queued' | 'assist_ready' | 'failed';
   orchestrationRequestedAt?: Date | string;
   orchestrationLeaseUntil?: Date | string;
   orchestrationLastDispatchedAt?: Date | string;
@@ -123,13 +134,6 @@ type FromBatchRequest = MediaUploadBatchIntake & {
   };
 };
 
-type MaterializedTimeline = {
-  overlays: Array<Record<string, unknown>>;
-  durationInFrames: number;
-  source: 'storyline' | 'chronological-fallback';
-  clipCount: number;
-};
-
 function cleanString(value: unknown, limit = 4000): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
@@ -139,10 +143,6 @@ function cleanString(value: unknown, limit = 4000): string | undefined {
 function positiveNumber(value: unknown): number | undefined {
   const n = typeof value === 'string' ? Number(value) : value;
   return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : undefined;
-}
-
-function positiveDurationSec(asset: Pick<BatchMediaAsset, 'duration'>): number | undefined {
-  return positiveNumber(asset.duration);
 }
 
 function normalizeAspectRatio(value: unknown): AspectRatio | undefined {
@@ -532,18 +532,6 @@ async function completeStorylinePrompt(prompt: string): Promise<string> {
   return completeStorylineJsonPrompt(prompt, (request) => model.generateContent(request));
 }
 
-async function resolveOverlayUrl(asset: BatchMediaAsset, userId: string): Promise<string> {
-  try {
-    const { isR2Available, getR2PublicUrl } = await import('@/lib/editron/services/r2-service');
-    if (isR2Available()) return getR2PublicUrl(asset.assetId);
-  } catch (error) {
-    console.warn('[auto-edit/from-batch] R2 public URL failed:', error instanceof Error ? error.message : error);
-  }
-
-  const resolved = await assetResolver.resolveAssetUrl(asset.assetId, userId).catch(() => null);
-  return resolved || asset.publicUrl || asset.cachedUrl || '';
-}
-
 function parseJsonObject(text: string): Record<string, any> | null {
   const cleaned = text.replace(/```json|```/g, '').trim();
   const match = cleaned.match(/\{[\s\S]*\}/);
@@ -877,59 +865,6 @@ async function materializeStoryline(
 
   if (overlays.length === 0) return null;
   return { overlays, durationInFrames: cursor, source: 'storyline', clipCount: overlays.length };
-}
-
-async function materializeChronologicalFallback(
-  assets: readonly BatchMediaAsset[],
-  userId: string,
-  uploadBatchId: string,
-  dims: { width: number; height: number },
-): Promise<MaterializedTimeline> {
-  const visualAssets = [...assets]
-    .filter((asset) => asset.type === 'video' || asset.type === 'image')
-    .sort((a, b) => new Date(a.uploadedAt ?? 0).getTime() - new Date(b.uploadedAt ?? 0).getTime());
-
-  const overlays: Array<Record<string, unknown>> = [];
-  let cursor = 0;
-  let overlayId = Date.now();
-
-  for (const [index, asset] of visualAssets.entries()) {
-    const durationSec = asset.type === 'video'
-      ? (positiveDurationSec(asset) ?? DEFAULT_IMAGE_HOLD_SEC)
-      : DEFAULT_IMAGE_HOLD_SEC;
-    const durationFrames = Math.max(1, Math.round(durationSec * FPS));
-    const src = await resolveOverlayUrl(asset, userId);
-    const base = {
-      id: overlayId++,
-      type: asset.type,
-      from: cursor,
-      durationInFrames: durationFrames,
-      row: ROW.VIDEO,
-      left: 0,
-      top: 0,
-      width: dims.width,
-      height: dims.height,
-      isDragging: false,
-      rotation: 0,
-      content: asset.type === 'image' ? src : (asset.thumbnail || ''),
-      src,
-      assetId: asset.assetId,
-      styles: { opacity: 1, objectFit: 'cover' },
-      storyline: {
-        uploadBatchId,
-        source: 'chronological-fallback',
-        order: index,
-        role: index === 0 ? 'hook' : index === visualAssets.length - 1 ? 'outro' : 'body',
-      },
-    };
-
-    overlays.push(asset.type === 'video'
-      ? { ...base, videoStartTime: 0, sourceStartFrame: 0 }
-      : { ...base, styles: { objectFit: 'cover', animation: { enter: 'fadeIn', exit: 'fadeOut' } } });
-    cursor += durationFrames;
-  }
-
-  return { overlays, durationInFrames: cursor, source: 'chronological-fallback', clipCount: overlays.length };
 }
 
 function getBillableAutoEditMinutes(assets: readonly BatchMediaAsset[]): number {
@@ -1630,6 +1565,65 @@ export async function POST(request: NextRequest) {
     const analyses = await readProjectAssetAnalyses(db as any, activeProjectId);
     const brief = await buildBrief(analyses, visualAssets, intake, body, caller);
     const dims = dimensionsForAspect(brief.output.aspectRatio ?? '16:9');
+
+    // Director Mode (assist lane): scans are done and credits are deducted — lay the
+    // clips down chronologically, hydrate the project-level analysis fields chat
+    // grounds in, and hand the pen to the user. NO storyline, NO director, NO edits.
+    const laneOwner = await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId: activeProjectId },
+      { projection: { editMode: 1 } },
+    );
+    if (isAssistProject(laneOwner)) {
+      const { usableAssets, excludedNoDurationAssetIds } = partitionAssistAssets(visualAssets);
+      const timeline = await materializeChronologicalFallback(usableAssets, userId, uploadBatchId, dims);
+      if (timeline.overlays.length === 0) throw new Error('No usable clips could be materialized from this batch.');
+      const hydration = buildAssistHydration({
+        analyses,
+        overlays: timeline.overlays,
+        fps: FPS,
+        durationInFrames: timeline.durationInFrames,
+      });
+      await projectService.saveProject(userId, activeProjectId, {
+        overlays: timeline.overlays as any,
+        aspectRatio: brief.output.aspectRatio ?? '16:9',
+        playerDimensions: dims,
+        fps: FPS,
+        durationInFrames: timeline.durationInFrames,
+      });
+      const degradedAssetIds = Array.from(new Set([
+        ...excludedNoDurationAssetIds,
+        ...hydration.degradedVideoAssetIds,
+      ])).sort();
+      await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        { projectId: activeProjectId },
+        {
+          $set: {
+            ...hydration.set,
+            autoEditStatus: ASSIST_STATUS_READY,
+            assistDegradedAssetIds: degradedAssetIds,
+            updatedAt: new Date(),
+          },
+          ...(Object.keys(hydration.unset).length > 0 ? { $unset: hydration.unset } : {}),
+        },
+      );
+      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+        { uploadBatchId, userId, projectId: activeProjectId },
+        {
+          $set: { orchestrationStatus: 'assist_ready', updatedAt: new Date() },
+          $unset: { orchestrationLeaseUntil: '' },
+        },
+      );
+      console.log(`[DirectorMode] Assist lay-down complete: ${timeline.clipCount} clips, ${hydration.hydratedVideoAssetIds.length} hydrated, ${degradedAssetIds.length} degraded (project ${activeProjectId}).`);
+      return NextResponse.json({
+        success: true,
+        projectId: activeProjectId,
+        status: ASSIST_STATUS_READY,
+        clipCount: timeline.clipCount,
+        degradedAssetIds,
+        batch: summary.counts,
+      });
+    }
+
     const assetContexts = buildAssetContextMap(visualAssets.map((asset) => ({
       assetId: asset.assetId,
       cachedUrl: asset.cachedUrl,

@@ -85,6 +85,10 @@ vi.mock('@/lib/editron/services/batch-storyline-analysis-bridge', () => ({
 }));
 vi.mock('@/lib/editron/services/multi-asset-director-context', () => ({
   buildMultiAssetDirectorContext: mocks.buildMultiAssetDirectorContext,
+  // assist-lane's per-asset validity predicate; fixture docs are "complete" when
+  // they carry a rawFootageAnalysis (mirrors the real rule closely enough here).
+  isCanonicalAnalysisComplete: (doc: unknown) =>
+    Boolean((doc as { rawFootageAnalysis?: unknown } | null | undefined)?.rawFootageAnalysis),
 }));
 vi.mock('@/lib/editron/storyline/asset-analysis-reader', () => ({
   readProjectAssetAnalyses: mocks.readProjectAssetAnalyses,
@@ -589,6 +593,66 @@ describe('from-batch storyline route handoff', () => {
         $set: expect.objectContaining({ sourceAssetIds: ['image_1'] }),
       }),
     );
+  });
+
+  it('assist lane: chronological lay-down + evidence hydration, storyline and director never run', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'waiting_analysis',
+      orchestrationRequestedAt: new Date(),
+    };
+    mocks.findProject.mockResolvedValue({ editMode: 'assist' });
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 1, failureCount: 0 },
+    }, true) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual(expect.objectContaining({
+      success: true,
+      projectId: 'proj_batch_1',
+      status: 'ready_for_chat',
+      clipCount: 2,
+      degradedAssetIds: [],
+    }));
+
+    // Zero-edit invariant: both assets laid down in uploadedAt order, video untrimmed at full 8s.
+    expect(mocks.saveProject).toHaveBeenCalledOnce();
+    const overlays = mocks.saveProject.mock.calls[0][2].overlays as Array<Record<string, unknown>>;
+    expect(overlays.map((o) => o.assetId)).toEqual(['video_1', 'image_1']);
+    expect(overlays[0]).toMatchObject({ type: 'video', sourceStartFrame: 0, videoStartTime: 0, durationInFrames: 240 });
+
+    // The load-bearing negatives: NO storyline machinery, NO director handoff.
+    expect(mocks.orderStorylineWithLLM).not.toHaveBeenCalled();
+    expect(mocks.scenesFromAssetAnalyses).not.toHaveBeenCalled();
+    expect(mocks.synthesizeImageScenes).not.toHaveBeenCalled();
+    expect(mocks.embedScenes).not.toHaveBeenCalled();
+
+    // Hydration wrote the project-level evidence fields chat grounds in + the lane status.
+    expect(mocks.buildMultiAssetDirectorContext).toHaveBeenCalledOnce();
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      { projectId: 'proj_batch_1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          autoEditStatus: 'ready_for_chat',
+          assistDegradedAssetIds: [],
+          rawFootageAnalysis: expect.anything(),
+          segmentAnalysis: expect.anything(),
+          multiAssetDirectorContext: expect.anything(),
+        }),
+      }),
+    );
+    expect(mocks.updateBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ uploadBatchId: 'batch_1' }),
+      expect.objectContaining({ $set: expect.objectContaining({ orchestrationStatus: 'assist_ready' }) }),
+    );
+
+    // Assist deducts at lay-down (REV 5 #5) — the deduction that precedes the divergence fired.
+    expect(mocks.deductCredits).toHaveBeenCalledOnce();
   });
 
   it('persists the request, then composes exactly once from a signed durable callback', async () => {
