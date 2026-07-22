@@ -47,10 +47,15 @@ const STATUS_TO_STAGE: Record<string, number> = {
   editing: 3,
   needs_review: TOTAL_STAGES - 1,
   complete: TOTAL_STAGES - 1,
+  // Director Mode (assist lane): scans done, user directs via chat.
+  ready_for_chat: TOTAL_STAGES - 1,
 };
 
 export const isTerminalStatus = (status: string): boolean =>
-  status === 'complete' || status === 'needs_review' || status === 'failed';
+  status === 'complete' || status === 'needs_review' || status === 'failed'
+  // Director Mode terminals: ready_for_chat opens the editor; scan_failed is a
+  // refunded dead-end (the processing page branches on it BEFORE the editor push).
+  || status === 'ready_for_chat' || status === 'scan_failed';
 
 /** Map a raw status to a stage index (0..7). Unknown → 0. */
 export function statusToStageIndex(status: string | null | undefined): number {

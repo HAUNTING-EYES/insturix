@@ -175,6 +175,13 @@ export default function NewProjectFlow() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Director Mode (assist lane): the toggle renders only when the deploy flag is
+  // on. The intake routes enforce the same flag server-side — hiding the toggle
+  // alone is never the gate.
+  const assistAvailable = process.env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED === 'true'
+    || process.env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED === '1';
+  const [laneMode, setLaneMode] = useState<'auto' | 'assist'>('auto');
+
   // Beta notice — dismissible, remembered per browser. Starts hidden until the
   // effect confirms it wasn't dismissed (SSR-safe: no localStorage read on render).
   const [betaBar, setBetaBar] = useState(false);
@@ -244,8 +251,11 @@ export default function NewProjectFlow() {
     setError(null);
     setProjName(files.length === 1 ? files[0].name : `${files.length} files`);
     setScreen('onair');
-    footage.startMany(files, options);
-  }, [footage]);
+    footage.startMany(files, {
+      ...options,
+      ...(assistAvailable && laneMode === 'assist' ? { editMode: 'assist' as const } : {}),
+    });
+  }, [footage, assistAvailable, laneMode]);
   const cancelPendingFootage = useCallback(() => {
     setPendingFootageFiles([]);
     setScreen('upload');
@@ -368,6 +378,21 @@ export default function NewProjectFlow() {
 
             {/* upload — inline footage auto-edit */}
             <div className={screen === 'upload' ? 'panel on' : 'panel'}>
+              {assistAvailable ? (
+                <label className="fld" style={{ marginBottom: 10 }}>
+                  <span className="l">Editing mode</span>
+                  <Seg
+                    options={['Auto edit', 'Director']}
+                    value={laneMode === 'assist' ? 'Director' : 'Auto edit'}
+                    onChange={(v) => setLaneMode(v === 'Director' ? 'assist' : 'auto')}
+                  />
+                  {laneMode === 'assist' ? (
+                    <span className="s" style={{ marginTop: 4 }}>
+                      Scans everything, edits nothing — you direct every cut via chat.
+                    </span>
+                  ) : null}
+                </label>
+              ) : null}
               <input
                 ref={fileRef}
                 type="file"

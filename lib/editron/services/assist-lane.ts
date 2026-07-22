@@ -36,9 +36,13 @@ export function parseEditMode(value: unknown): EditMode | undefined {
   return value === 'auto' || value === 'assist' ? value : undefined;
 }
 
-/** Server-side feature gate. UI hiding alone is not "dark" — both intake routes check this. */
+/**
+ * Server-side feature gate. UI hiding alone is not "dark" — both intake routes
+ * check this. NEXT_PUBLIC_DIRECTOR_MODE_ENABLED is accepted as a fallback so a
+ * single deploy variable can drive both the client toggle and the server gate.
+ */
 export function isAssistIntakeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const v = env.DIRECTOR_MODE_ENABLED;
+  const v = env.DIRECTOR_MODE_ENABLED ?? env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED;
   return v === 'true' || v === '1';
 }
 

@@ -72,6 +72,13 @@ export default function AutoEditProcessingPage() {
             stopped.current = true;
             return;
           }
+          if (s === 'scan_failed') {
+            // Director Mode: the scan failed and the charge was refunded. This
+            // project never opens — render the refunded dead-end card below.
+            setDone(false);
+            stopped.current = true;
+            return;
+          }
           if (s && isTerminalStatus(s)) {
             setDone(true);
             stopped.current = true;
@@ -177,6 +184,27 @@ export default function AutoEditProcessingPage() {
       setNeedsInputFeedback({ error: 'Clipboard access failed. Please allow clipboard access and try again.' });
     }
   };
+
+  if (status === 'scan_failed') {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-black px-6 text-center">
+        <span className="text-xs uppercase tracking-widest text-red-400">Scan failed</span>
+        <h1 className="max-w-md text-xl font-semibold text-white">
+          We couldn&apos;t scan this footage — your credits were refunded.
+        </h1>
+        <p className="max-w-md text-sm text-neutral-400">
+          This project can&apos;t be opened. Start a new project to try the footage again — nothing was charged.
+        </p>
+        <button
+          type="button"
+          onClick={() => router.push('/dashboard/editron')}
+          className="mt-3 rounded-full border border-neutral-700 px-5 py-2 text-sm text-white hover:bg-neutral-900"
+        >
+          Back to Editron
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>

@@ -37,6 +37,8 @@ export interface FootageAutoEditOptions {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
+  /** Director Mode (assist lane): 'assist' = scans only, zero AI edits, user directs via chat. */
+  editMode?: 'auto' | 'assist';
 }
 
 export interface FootageAutoEditState {
