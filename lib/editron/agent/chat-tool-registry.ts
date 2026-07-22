@@ -176,6 +176,7 @@ export const CHAT_TOOL_EXECUTION_CONTRACTS = {
   search_stock_footage: targetedRead(['query'], 'sequential'),
   use_matching_footage: targetedMutation(['overlayId', 'sceneIndex']),
   apply_filter: targetedMutation(['overlayId', 'targetFrame']),
+  reframe_project: oncePerTurnMutation('isolated'),
 } satisfies Record<string, ChatToolExecutionPolicy>;
 
 export type ChatToolName = keyof typeof CHAT_TOOL_EXECUTION_CONTRACTS;
@@ -365,6 +366,7 @@ export const CHAT_TOOL_REGISTRY = {
   use_matching_footage: defineTool({ name: 'use_matching_footage', label: 'Using matching footage', shortLabel: 'Use footage', iconCategory: 'stock', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Used matching footage' }),
 
   apply_filter: defineTool({ name: 'apply_filter', label: 'Applying filter', shortLabel: 'Filter', iconCategory: 'style', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied filter' }),
+  reframe_project: defineTool({ name: 'reframe_project', label: 'Reframing project', shortLabel: 'Reframe', iconCategory: 'visual', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Reframed project', loadingMessages: ['Reading subject positions', 'Reframing the timeline', 'Checking focal tracks'], postconditions: postconditions('project-state-changed', ['visual']), turnContract: { owner: 'mechanical-editor', evidenceStrategy: 'owner-internal', requiredEvidence: [], producesEvidence: [] } }),
 } satisfies Record<ChatToolName, ChatToolMetadata>;
 
 export function getChatToolMetadata(toolName: string): ChatToolMetadata | undefined {

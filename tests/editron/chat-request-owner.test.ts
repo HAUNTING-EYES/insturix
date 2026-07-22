@@ -141,6 +141,17 @@ describe('chat request owner classification', () => {
     expect(prompt).toContain('Give the whole video a cinematic color grade');
   });
 
+  it('defines explicit subject-aware reframing as a direct project transform', () => {
+    const prompt = buildChatRequestOwnerPrompt({
+      ...baseInput,
+      userMessage: 'Make the project 9:16 and keep the subject visible.',
+    });
+
+    expect(prompt).toContain('whole-project reframe to an explicit aspect ratio');
+    expect(prompt).toContain('requiresContentLocalization=false');
+    expect(prompt).toContain('targetFullySpecified=true');
+  });
+
   it('derives mechanical ownership from a fully specified literal timeline edit', async () => {
     const generate = vi.fn(async () => ({
       text: JSON.stringify({
@@ -237,6 +248,7 @@ describe('chat request owner capability filtering', () => {
     'sync_cuts_to_beats',
     'add_sfx',
     'refresh_captions',
+    'reframe_project',
     'restore_ai_edit_checkpoint',
     'unknown_tool',
   ].map((name) => ({ name }));
@@ -289,6 +301,7 @@ describe('chat request owner capability filtering', () => {
       'set_keyframes',
       'add_sfx',
       'refresh_captions',
+      'reframe_project',
     ]);
     expect(names).not.toEqual(expect.arrayContaining([
       'apply_editorial_intent',

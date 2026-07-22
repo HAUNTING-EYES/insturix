@@ -6,6 +6,11 @@ import {
   searchCanonicalChatEvidence,
   type CanonicalChatEvidenceCandidate,
 } from "../services/chat-multimodal-evidence";
+import { PROJECT_ASSET_ANALYSES_COLLECTION } from "../services/project-analysis-storage";
+import {
+  buildSubjectAwareReframePlan,
+  type SubjectReframePlan,
+} from "../services/subject-reframe-plan";
 
 type OverlayId = string | number;
 
@@ -70,6 +75,14 @@ export interface VisualMomentCandidate {
 interface CreateChatVisualToolsOptions {
   userId: string;
   projectId: string;
+  subjectReframeDependencies?: SubjectReframeDependencies;
+}
+
+export interface SubjectReframeDependencies {
+  loadProject(userId: string, projectId: string): Promise<Record<string, any> | null>;
+  loadAnalyses(projectId: string, assetIds: string[]): Promise<unknown[]>;
+  saveProject(userId: string, projectId: string, project: Record<string, any>): Promise<void>;
+  updateProject(userId: string, projectId: string, updates: Record<string, unknown>): Promise<void>;
 }
 
 interface VisualMomentOptions {
@@ -460,6 +473,10 @@ const filterSchema = z.object({
   allowBrandFilter: z.boolean().default(false).describe("Allow filtering likely logo/brand/watermark overlays. Keep false unless the brand element was explicitly targeted."),
 });
 
+const subjectReframeSchema = z.object({
+  targetAspectRatio: z.enum(["16:9", "9:16", "1:1", "4:5"]).describe("Required output aspect ratio. Use the ratio explicitly requested by the user."),
+});
+
 const PROJECT_VISUAL_ROOT_KEYS = [
   "analysis",
   "rawFootageAnalysis",
@@ -639,7 +656,11 @@ const STOP_WORDS = new Set([
   "with",
 ]);
 
-export function createChatVisualTools({ userId, projectId }: CreateChatVisualToolsOptions) {
+export function createChatVisualTools({
+  userId,
+  projectId,
+  subjectReframeDependencies,
+}: CreateChatVisualToolsOptions) {
   const findVisualMoment = tool(
     async (input: z.infer<typeof visualMomentSchema>) => {
       const { projectService } = await import("../services/project-service");
@@ -967,7 +988,106 @@ Writes only overlay.styles.filter, which is already consumed by the renderer. It
     },
   );
 
-  return [findVisualMoment, resolveVisualEdit, resolveKeyframeEdit, applyCameraShake, applySpeedRamp, applyFade, reorderLayer, moveRetimeOverlay, applyFilter];
+  const reframeProject = tool(
+    async (input: z.infer<typeof subjectReframeSchema>) => {
+      try {
+        const dependencies = subjectReframeDependencies ?? await createSubjectReframeDependencies();
+        const project = await dependencies.loadProject(userId, projectId);
+        if (!project) {
+          return JSON.stringify({ status: "error", message: `Project ${projectId} was not found or is not accessible.` });
+        }
+
+        const assetIds = Array.from(new Set(
+          (Array.isArray(project.overlays) ? project.overlays : [])
+            .filter((overlay: any) => overlay?.type === "video" || overlay?.type === "image")
+            .map((overlay: any) => typeof overlay.assetId === "string" ? overlay.assetId.trim() : "")
+            .filter(Boolean),
+        ));
+        const analyses = await dependencies.loadAnalyses(projectId, assetIds);
+        const plan = await applySubjectReframeMutation({
+          userId,
+          projectId,
+          project,
+          analyses,
+          targetAspectRatio: input.targetAspectRatio,
+        }, dependencies);
+
+        return JSON.stringify({
+          status: plan.status === "changed" ? "success" : "error",
+          data: plan,
+          message: plan.message,
+        });
+      } catch (error: any) {
+        return JSON.stringify({ status: "error", message: error?.message ?? "Failed to reframe the project." });
+      }
+    },
+    {
+      name: "reframe_project",
+      description: `Reframe the full edited project to an explicitly requested aspect ratio while keeping grounded subjects visible.
+Uses persisted per-asset spatial evidence to build subject-following focal tracks. Full-canvas media without usable subject evidence is safely contained; authored picture-in-picture and other non-full-canvas layouts are preserved.
+Use for direct requests such as "make this 9:16 and keep the subject in frame". This tool owns its evidence lookup and mutation; do not route the request through apply_editorial_intent.`,
+      schema: subjectReframeSchema,
+    },
+  );
+
+  return [findVisualMoment, resolveVisualEdit, resolveKeyframeEdit, applyCameraShake, applySpeedRamp, applyFade, reorderLayer, moveRetimeOverlay, applyFilter, reframeProject];
+}
+
+export async function applySubjectReframeMutation(
+  input: {
+    userId: string;
+    projectId: string;
+    project: Record<string, any>;
+    analyses: unknown[];
+    targetAspectRatio: "16:9" | "9:16" | "1:1" | "4:5";
+  },
+  dependencies: SubjectReframeDependencies,
+): Promise<SubjectReframePlan> {
+  const plan = buildSubjectAwareReframePlan({
+    project: input.project,
+    analyses: input.analyses,
+    targetAspectRatio: input.targetAspectRatio,
+  });
+  if (plan.status !== "changed") return plan;
+
+  const updatesById = new Map(plan.overlayUpdates.map((update) => [update.overlayId, update.updates]));
+  const overlays = (Array.isArray(input.project.overlays) ? input.project.overlays : []).map((overlay: any) => {
+    const updates = updatesById.get(Number(overlay?.id));
+    return updates ? { ...overlay, ...updates } : overlay;
+  });
+  const auditReceipt = plan.projectUpdates["intelligence.lastSubjectReframe"];
+  await dependencies.saveProject(input.userId, input.projectId, {
+    ...input.project,
+    overlays,
+    aspectRatio: plan.projectUpdates.aspectRatio,
+    playerDimensions: plan.projectUpdates.playerDimensions,
+  });
+  if (auditReceipt) {
+    await dependencies.updateProject(input.userId, input.projectId, {
+      "intelligence.lastSubjectReframe": auditReceipt,
+    });
+  }
+  return plan;
+}
+
+async function createSubjectReframeDependencies(): Promise<SubjectReframeDependencies> {
+  const [{ projectService }, { getDatabase }] = await Promise.all([
+    import("../services/project-service"),
+    import("../db/mongodb"),
+  ]);
+  const db = await getDatabase();
+  return {
+    loadProject: (userId, projectId) => projectService.loadProject(userId, projectId) as Promise<Record<string, any> | null>,
+    loadAnalyses: async (projectId, assetIds) => {
+      if (assetIds.length === 0) return [];
+      return db.collection(PROJECT_ASSET_ANALYSES_COLLECTION).find({
+        projectId,
+        assetId: { $in: assetIds },
+      }).toArray();
+    },
+    saveProject: (userId, projectId, project) => projectService.saveProject(userId, projectId, project as any),
+    updateProject: (userId, projectId, updates) => projectService.updateProject(userId, projectId, updates),
+  };
 }
 
 async function enrichVisualCandidatesWithCanonicalEvidence(input: {

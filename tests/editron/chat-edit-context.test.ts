@@ -24,6 +24,7 @@ import {
   type TranscriptSearchWord,
 } from '@/lib/editron/agent/chat-transcript-tools';
 import {
+  applySubjectReframeMutation,
   applyCameraShakeToProject,
   applyFadeToProject,
   applyFilterToProject,
@@ -403,7 +404,7 @@ describe('chat edit context bundle', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-visual-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_visual_moment', 'resolve_visual_edit', 'resolve_keyframe_edit', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer', 'move_retime_overlay', 'apply_filter']);
+    expect(toolNames).toEqual(['find_visual_moment', 'resolve_visual_edit', 'resolve_keyframe_edit', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer', 'move_retime_overlay', 'apply_filter', 'reframe_project']);
     expect(getChatToolMetadata('find_visual_moment')).toMatchObject({
       label: 'Finding visual moment',
       shortLabel: 'Find visual',
@@ -473,6 +474,86 @@ describe('chat edit context bundle', () => {
       requiresProjectReload: true,
       riskLevel: 'medium',
     });
+    expect(getChatToolMetadata('reframe_project')).toMatchObject({
+      label: 'Reframing project',
+      shortLabel: 'Reframe',
+      receiptLabel: 'Reframed project',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'high',
+      turnContract: { owner: 'mechanical-editor', evidenceStrategy: 'owner-internal' },
+    });
+  });
+
+  it('persists one subject-aware reframe mutation with focal tracks and its audit receipt', async () => {
+    const saveProject = async (_userId: string, _projectId: string, state: Record<string, any>) => {
+      savedProject = state;
+    };
+    const updateProject = async (_userId: string, _projectId: string, updates: Record<string, unknown>) => {
+      savedAudit = updates;
+    };
+    let savedProject: Record<string, any> | null = null;
+    let savedAudit: Record<string, unknown> | null = null;
+    const reframeProject = {
+      projectId: 'proj-chat-reframe',
+      fps: 30,
+      durationInFrames: 90,
+      aspectRatio: '16:9',
+      playerDimensions: { width: 1920, height: 1080 },
+      overlays: [{
+        id: 41,
+        type: 'video',
+        assetId: 'asset-subject',
+        from: 0,
+        durationInFrames: 90,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        styles: { objectFit: 'cover' },
+      }],
+    };
+
+    const plan = await applySubjectReframeMutation({
+      userId: 'user-1',
+      projectId: reframeProject.projectId,
+      project: reframeProject,
+      analyses: [{
+        projectId: reframeProject.projectId,
+        assetId: 'asset-subject',
+        segmentAnalysis: {
+          segments: [{
+            startMs: 0,
+            endMs: 3_000,
+            transcript: { text: '' },
+            visual: { mainSubject: { x: 0.65, y: 0.2, width: 0.2, height: 0.5 } },
+            weight: { finalWeight: 0.8 },
+          }],
+        },
+      }],
+      targetAspectRatio: '9:16',
+    }, {
+      loadProject: async () => reframeProject,
+      loadAnalyses: async () => [],
+      saveProject,
+      updateProject,
+    });
+
+    expect(plan).toMatchObject({ status: 'changed', subjectTrackedOverlayIds: [41] });
+    expect(savedProject).toMatchObject({
+      aspectRatio: '9:16',
+      playerDimensions: { width: 1080, height: 1920 },
+      overlays: [expect.objectContaining({
+        id: 41,
+        width: 1080,
+        height: 1920,
+        keyframeTracks: expect.arrayContaining([
+          expect.objectContaining({ property: 'objectPositionX' }),
+          expect.objectContaining({ property: 'objectPositionY' }),
+        ]),
+      })],
+    });
+    expect(savedAudit).toHaveProperty('intelligence.lastSubjectReframe');
   });
 
   it('covers audio moment search with registry metadata without importing Mongo-backed tools', () => {
