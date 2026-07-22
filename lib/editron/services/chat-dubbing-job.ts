@@ -227,6 +227,9 @@ export async function queueChatDubbingJob(
   const job = await deps.store.find(requiredIdentifier(input.jobId, 'jobId'), input.userId);
   if (!job || job.projectId !== input.projectId) return { status: 'failed', jobId: input.jobId, reason: 'dubbing-job-not-found-or-not-owned' };
   if (job.status === 'completed') return { status: 'completed', jobId: job._id };
+  if (job.status === 'failed' || job.status === 'stale') {
+    return { status: job.status, jobId: job._id, reason: job.error ?? `dubbing-job-${job.status}` };
+  }
   if (['queued', 'dispatching', 'running'].includes(job.status)) {
     return { status: 'already-queued', jobId: job._id, ...(job.dispatchMessageId ? { messageId: job.dispatchMessageId } : {}) };
   }

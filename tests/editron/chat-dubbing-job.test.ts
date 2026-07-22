@@ -92,6 +92,22 @@ describe('durable chat dubbing job', () => {
     expect(publish).toHaveBeenCalledTimes(2);
   });
 
+  it('reports terminal queue state instead of pretending dead work is queued', async () => {
+    const store = new MemoryStore();
+    const { jobId } = await resolved(store);
+    Object.assign(store.jobs.get(jobId)!, { status: 'failed', error: 'no-spoken-dialogue' });
+    const publish = vi.fn();
+    const result = await queueChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
+      store,
+      loadProject: vi.fn(async () => project),
+      buildProjectRevision: vi.fn(() => 'revision-1'),
+      now: () => now,
+      publish,
+    });
+    expect(result).toEqual({ status: 'failed', jobId, reason: 'no-spoken-dialogue' });
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it('retries transient provider failures but terminal failures clean up and stop', async () => {
     const transientStore = new MemoryStore();
     const { jobId } = await resolved(transientStore);
