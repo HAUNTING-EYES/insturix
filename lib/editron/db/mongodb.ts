@@ -76,6 +76,7 @@ export const COLLECTIONS = {
   MG_RENDER_JOBS: 'editron_mg_render_jobs',
   CHAT_REFERENCE_STYLE_JOBS: 'editron_chat_reference_style_jobs',
   CHAT_DEEP_ANALYSIS_JOBS: 'editron_chat_deep_analysis_jobs',
+  CHAT_DUBBING_JOBS: 'editron_chat_dubbing_jobs',
   LEDGER: 'ledger',
   TREND_REQUESTS: 'trend_requests',
   TRENDS: 'trends',
@@ -193,6 +194,15 @@ export async function initializeIndexes(): Promise<void> {
   // Chat subclip analysis is resolved against an immutable project revision, then executed by a
   // leased worker. TTL cleanup keeps completed and abandoned read-only jobs bounded.
   await db.collection(COLLECTIONS.CHAT_DEEP_ANALYSIS_JOBS).createIndexes([
+    { key: { status: 1, leaseExpiresAt: 1 }, name: 'status_leaseExpiresAt' },
+    { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
+    { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // Dialogue dubbing can span translation, source separation and multiple TTS requests.
+  // Leases plus TTL make every stage resumable without keeping a Vercel request open.
+  await db.collection(COLLECTIONS.CHAT_DUBBING_JOBS).createIndexes([
+    { key: { idempotencyKey: 1 }, name: 'idempotencyKey_unique', unique: true },
     { key: { status: 1, leaseExpiresAt: 1 }, name: 'status_leaseExpiresAt' },
     { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
     { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
