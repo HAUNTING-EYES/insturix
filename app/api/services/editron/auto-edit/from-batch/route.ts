@@ -37,6 +37,7 @@ import { resolveEffectiveBrandWithProfile } from '@/lib/shared/brand-effective-r
 import { normalizeEditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
 import type { CoverageVerify } from '@/lib/editron/storyline/coverage';
 import type { Scene } from '@/lib/editron/storyline/scene';
+import type { ScriptBeatFailureKind } from '@/lib/editron/storyline/script-beat-planner';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -55,7 +56,7 @@ type BatchDocument = {
   userId: string;
   orgId?: string | null;
   projectId?: string;
-  orchestrationStatus?: 'initializing' | 'requested' | 'waiting_analysis' | 'composing' | 'retryable_error' | 'director_queued' | 'failed';
+  orchestrationStatus?: 'initializing' | 'requested' | 'waiting_analysis' | 'composing' | 'retryable_error' | 'needs_input' | 'director_queued' | 'failed';
   orchestrationRequestedAt?: Date | string;
   orchestrationLeaseUntil?: Date | string;
   orchestrationLastDispatchedAt?: Date | string;
@@ -65,6 +66,7 @@ type BatchDocument = {
   assetIds?: string[];
   productionBriefIntake?: MediaUploadBatchIntake & Record<string, unknown>;
   autoEditRequest?: { title?: string; brandId?: string | null; targetDurationSec?: number | string | null };
+  scriptCoverage?: Record<string, unknown> | null;
 };
 
 type BatchMediaAsset = {
@@ -111,6 +113,7 @@ type FromBatchRequest = MediaUploadBatchIntake & {
   title?: string;
   brandId?: string;
   targetDurationSec?: number | string | null;
+  resumeCoverage?: boolean;
   _orchestration?: {
     userId?: string;
     orgId?: string | null;
@@ -185,6 +188,7 @@ class ScriptGroundingError extends Error {
     message: string,
     readonly retryable: boolean,
     readonly coverageAudit: Record<string, unknown> | null,
+    readonly failureKind: ScriptBeatFailureKind,
   ) {
     super(message);
     this.name = 'ScriptGroundingError';
@@ -1030,7 +1034,8 @@ export async function POST(request: NextRequest) {
         error: 'Editron creates exactly one video per request. Choose one output specification.',
       }, { status: 400 });
     }
-    if (!caller.internal && batch.projectId) {
+    const resumeCoverage = !caller.internal && body.resumeCoverage === true;
+    if (!caller.internal && batch.projectId && !resumeCoverage) {
       return recoverStaleExistingBatch({ db, batch, body, caller, baseUrl });
     }
 
@@ -1191,6 +1196,141 @@ export async function POST(request: NextRequest) {
       creditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', creditOptions);
       if (!creditCheck.allowed) return creditCheck.errorResponse!;
 
+      if (resumeCoverage) {
+        activeProjectId = batch.projectId ?? null;
+        if (!activeProjectId || batch.orchestrationStatus !== 'needs_input') {
+          return NextResponse.json({
+            success: false,
+            error: 'This batch is not waiting for additional footage.',
+          }, { status: 409 });
+        }
+
+        const project = await db.collection(COLLECTIONS.PROJECTS).findOne({
+          projectId: activeProjectId,
+          userId,
+          sourceUploadBatchId: uploadBatchId,
+          autoEditStatus: 'needs_input',
+        }, { projection: { _id: 0, projectId: 1 } });
+        if (!project) {
+          return NextResponse.json({ success: false, error: 'Recoverable auto-edit project not found.' }, { status: 404 });
+        }
+
+        const assetIdsAtFailure = Array.isArray(batch.scriptCoverage?.assetIdsAtFailure)
+          ? batch.scriptCoverage.assetIdsAtFailure.filter((assetId): assetId is string => typeof assetId === 'string')
+          : [];
+        const priorAssetIds = new Set(assetIdsAtFailure);
+        const addedVisualAssetIds = visualAssets
+          .map((asset) => asset.assetId)
+          .filter((assetId) => !priorAssetIds.has(assetId));
+        if (assetIdsAtFailure.length === 0 || addedVisualAssetIds.length === 0) {
+          return NextResponse.json({
+            success: false,
+            projectId: activeProjectId,
+            error: 'Upload new video or image footage before resuming this edit.',
+          }, { status: 409 });
+        }
+
+        const claimNow = new Date();
+        const intake = mergeIntake(batch.productionBriefIntake, body);
+        const claim = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+          {
+            uploadBatchId,
+            userId,
+            projectId: activeProjectId,
+            orchestrationStatus: 'needs_input',
+          },
+          {
+            $set: {
+              orchestrationStatus: 'requested',
+              orchestrationRequestedAt: claimNow,
+              orchestrationAttempt: 0,
+              productionBriefIntake: intake,
+              updatedAt: claimNow,
+            },
+            $unset: {
+              orchestrationError: '',
+              orchestrationLeaseUntil: '',
+              orchestrationFailureCount: '',
+              orchestrationMessageId: '',
+              scriptCoverage: '',
+            },
+          },
+        );
+        if (claim.matchedCount === 0) {
+          return NextResponse.json({ success: false, error: 'Coverage recovery is already in progress.' }, { status: 409 });
+        }
+
+        await db.collection(COLLECTIONS.PROJECTS).updateOne(
+          { projectId: activeProjectId, userId, sourceUploadBatchId: uploadBatchId },
+          {
+            $set: {
+              autoEditStatus: 'analyzing',
+              autoEditStageDesc: 'Analyzing additional footage',
+              sourceAssetIds: visualAssets.map((asset) => asset.assetId),
+              'storylinePlan.previousScriptCoverage': batch.scriptCoverage ?? null,
+              updatedAt: claimNow,
+            },
+            $unset: {
+              autoEditError: '',
+              autoEditFailedAt: '',
+              'storylinePlan.scriptCoverage': '',
+            },
+          },
+        );
+
+        try {
+          const messageId = await dispatchBatchOrchestration({
+            baseUrl,
+            body,
+            caller: { ...caller, pollAttempt: 0, failureCount: 0 },
+          });
+          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+            { uploadBatchId, userId, projectId: activeProjectId, orchestrationStatus: 'requested' },
+            {
+              $set: {
+                orchestrationLastDispatchedAt: new Date(),
+                ...(messageId ? { orchestrationMessageId: messageId } : {}),
+                updatedAt: new Date(),
+              },
+            },
+          );
+          return NextResponse.json({
+            success: true,
+            projectId: activeProjectId,
+            status: 'processing',
+            orchestrationStatus: 'requested',
+            resumedCoverage: true,
+            addedVisualAssetIds,
+            messageId,
+          }, { status: 202 });
+        } catch (dispatchError) {
+          const dispatchMessage = dispatchError instanceof Error ? dispatchError.message : String(dispatchError);
+          await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+            { uploadBatchId, userId, projectId: activeProjectId, orchestrationStatus: 'requested' },
+            {
+              $set: {
+                orchestrationStatus: 'needs_input',
+                orchestrationError: dispatchMessage,
+                scriptCoverage: batch.scriptCoverage ?? null,
+                updatedAt: new Date(),
+              },
+            },
+          );
+          await db.collection(COLLECTIONS.PROJECTS).updateOne(
+            { projectId: activeProjectId, userId, sourceUploadBatchId: uploadBatchId },
+            {
+              $set: {
+                autoEditStatus: 'needs_input',
+                autoEditError: dispatchMessage,
+                'storylinePlan.scriptCoverage': batch.scriptCoverage ?? null,
+                updatedAt: new Date(),
+              },
+            },
+          );
+          return NextResponse.json({ success: false, projectId: activeProjectId, error: dispatchMessage }, { status: 503 });
+        }
+      }
+
       const claimNow = new Date();
       const claim = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
         {
@@ -1293,6 +1433,9 @@ export async function POST(request: NextRequest) {
     }
     if (batch.orchestrationStatus === 'director_queued') {
       return NextResponse.json({ success: true, projectId: activeProjectId, status: 'processing', skipped: 'director-already-queued' });
+    }
+    if (batch.orchestrationStatus === 'needs_input') {
+      return NextResponse.json({ success: false, projectId: activeProjectId, status: 'needs_input' });
     }
     if (batch.orchestrationStatus === 'failed') {
       return NextResponse.json({ success: false, projectId: activeProjectId, status: 'failed' }, { status: 409 });
@@ -1528,14 +1671,24 @@ export async function POST(request: NextRequest) {
       scriptQueryEmbed: async (text) => await embedStorylineIntent(text) ?? [],
       scriptCoverageVerify: createBatchScriptCoverageVerifier(),
     });
+    if (script && ordering.scriptPlan?.status === 'partial') {
+      const uncoveredCount = ordering.scriptPlan.assignments.filter((assignment) => assignment.coverage !== 'covered').length;
+      throw new ScriptGroundingError(
+        `Uploaded footage does not visibly cover ${uncoveredCount} required script ${uncoveredCount === 1 ? 'beat' : 'beats'}.`,
+        false,
+        storylineScriptPlanAudit(ordering),
+        'coverage_gap',
+      );
+    }
     if (script && (ordering.fallbackReason === 'script_planner_unavailable' || ordering.fallbackReason === 'script_plan_failed')) {
       const errors = ordering.scriptPlan?.errors.join('; ') || ordering.fallbackReason;
-      const failureKind = ordering.scriptPlan?.failureKind;
+      const failureKind = ordering.scriptPlan?.failureKind ?? 'invalid_response';
       const retryable = failureKind === 'provider_error';
       throw new ScriptGroundingError(
         `Authoritative script could not be grounded to uploaded footage: ${errors}`,
         retryable,
         storylineScriptPlanAudit(ordering),
+        failureKind,
       );
     }
     const storylineTimeline = await materializeStoryline(ordering, visualAssets, userId, uploadBatchId, dims);
@@ -1689,25 +1842,36 @@ export async function POST(request: NextRequest) {
       try {
         const db = await getDatabase();
         if (terminalScriptGrounding) {
+          const failedBatch = await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).findOne(
+            { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
+            { projection: { _id: 0, assetIds: 1 } },
+          ) as Pick<BatchDocument, 'assetIds'> | null;
+          const coverageAudit = {
+            ...(error.coverageAudit ?? {}),
+            assetIdsAtFailure: Array.isArray(failedBatch?.assetIds) ? failedBatch.assetIds.filter(Boolean) : [],
+          };
+          const coverageGap = error.failureKind === 'coverage_gap';
+          const terminalStatus = coverageGap ? 'needs_input' : 'failed';
           await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
             { uploadBatchId, userId: caller.userId, projectId: activeProjectId },
             {
               $set: {
-                orchestrationStatus: 'failed',
+                orchestrationStatus: terminalStatus,
                 orchestrationError: message,
-                scriptCoverage: error.coverageAudit,
+                scriptCoverage: coverageAudit,
                 updatedAt: new Date(),
               },
               $unset: { orchestrationLeaseUntil: '' },
             },
           );
           await db.collection(COLLECTIONS.PROJECTS).updateOne(
-            { projectId: activeProjectId },
+            { projectId: activeProjectId, userId: caller.userId },
             {
               $set: {
-                autoEditStatus: 'failed',
+                autoEditStatus: terminalStatus,
                 autoEditError: message,
-                'storylinePlan.scriptCoverage': error.coverageAudit,
+                autoEditStageDesc: coverageGap ? 'More footage needed' : 'Script grounding failed',
+                'storylinePlan.scriptCoverage': coverageAudit,
                 updatedAt: new Date(),
               },
             },
@@ -1716,9 +1880,9 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({
             success: false,
             projectId: activeProjectId,
-            status: 'failed',
+            status: terminalStatus,
             error: message,
-            scriptCoverage: error.coverageAudit,
+            scriptCoverage: coverageAudit,
           });
         }
         const nextFailureCount = caller.failureCount + 1;

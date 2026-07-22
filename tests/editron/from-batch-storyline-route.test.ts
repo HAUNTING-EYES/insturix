@@ -830,9 +830,12 @@ describe('from-batch storyline route handoff', () => {
     );
   });
 
-  it.each(['coverage_gap', 'invalid_response'] as const)(
-    'does not save, retry, or dispatch when authoritative script grounding has terminal %s',
-    async (failureKind) => {
+  it.each([
+    { failureKind: 'coverage_gap' as const, expectedStatus: 'needs_input' },
+    { failureKind: 'invalid_response' as const, expectedStatus: 'failed' },
+  ])(
+    'does not save, retry, or dispatch when authoritative script grounding has terminal $failureKind',
+    async ({ failureKind, expectedStatus }) => {
       const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
       batchDocument = {
         ...batchDocument,
@@ -869,21 +872,207 @@ describe('from-batch storyline route handoff', () => {
       const payload = await response.json();
 
       expect(response.status).toBe(200);
-      expect(payload).toEqual(expect.objectContaining({ success: false, status: 'failed' }));
+      expect(payload).toEqual(expect.objectContaining({
+        success: false,
+        status: expectedStatus,
+        scriptCoverage: expect.objectContaining({ assetIdsAtFailure: ['video_1', 'image_1'] }),
+      }));
       expect(mocks.saveProject).not.toHaveBeenCalled();
       expect(mocks.refundCredits).toHaveBeenCalledOnce();
       expect(mocks.updateBatch).toHaveBeenCalledWith(
         { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },
         expect.objectContaining({
           $set: expect.objectContaining({
-            orchestrationStatus: 'failed',
+            orchestrationStatus: expectedStatus,
             orchestrationError: expect.stringContaining('could not be grounded'),
+            scriptCoverage: expect.objectContaining({ assetIdsAtFailure: ['video_1', 'image_1'] }),
           }),
         }),
       );
       expect(mocks.fetch).not.toHaveBeenCalled();
     },
   );
+
+  it('pauses a partially grounded authoritative script and persists each missing beat', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'requested',
+      orchestrationRequestedAt: new Date(),
+    };
+    mocks.orderStorylineWithLLM.mockResolvedValueOnce({
+      planApplied: true,
+      scriptPlan: {
+        status: 'partial',
+        units: [{ id: 'unit_1', text: 'Show the proof' }, { id: 'unit_2', text: 'Show the result' }],
+        beats: [
+          { id: 'beat_1', unitIds: ['unit_1'], scriptText: 'Show the proof', visualIntent: 'Hands demonstrate the proof' },
+          { id: 'beat_2', unitIds: ['unit_2'], scriptText: 'Show the result', visualIntent: 'Finished result in use' },
+        ],
+        assignments: [
+          { beatId: 'beat_1', coverage: 'covered', sceneIds: ['scene_video'], candidateCount: 1, highestSimilarity: 0.9 },
+          {
+            beatId: 'beat_2',
+            coverage: 'missing',
+            sceneIds: [],
+            candidateCount: 0,
+            highestSimilarity: null,
+            verification: { status: 'unconfirmed', sceneIds: [], notes: ['No uploaded shot shows the finished result.'] },
+          },
+        ],
+        selectedSceneIds: ['scene_video'],
+        errors: [],
+        attempts: 1,
+        failureKind: 'coverage_gap',
+      },
+      storyline: {
+        clips: [{ order: 0, sourceRef: 'scene_video', source: 'video_1', in: 1, out: 3, durationSec: 2, role: 'proof', fit: 'cover' }],
+        renderTarget: { aspectRatio: '16:9', fps: 30, width: 1920, height: 1080, container: 'mp4', videoCodec: 'h264', audioCodec: 'aac' },
+        totalDurationSec: 2,
+        condensationRatio: 0.5,
+        targetDurationSec: null,
+      },
+    });
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 0, failureCount: 0 },
+    }, true) as never);
+    const payload = await response.json();
+
+    expect(payload).toEqual(expect.objectContaining({
+      success: false,
+      status: 'needs_input',
+      scriptCoverage: expect.objectContaining({
+        assetIdsAtFailure: ['video_1', 'image_1'],
+        beats: expect.arrayContaining([expect.objectContaining({ id: 'beat_2', visualIntent: 'Finished result in use' })]),
+        assignments: expect.arrayContaining([expect.objectContaining({ beatId: 'beat_2', coverage: 'missing' })]),
+      }),
+    }));
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes('/api/internal/workers/director'))).toBe(false);
+  });
+
+  it('resumes a needs-input batch on the same project after new footage is uploaded', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'needs_input',
+      assetIds: ['video_1', 'image_1', 'video_2'],
+      scriptCoverage: { assetIdsAtFailure: ['video_1', 'image_1'], beats: [], assignments: [] },
+    };
+    mediaAssets.push({
+      assetId: 'video_2',
+      userId: 'user_1',
+      orgId: 'org_1',
+      filename: 'missing-result.mp4',
+      type: 'video',
+      size: 900,
+      duration: 5,
+      cachedUrl: 'cached-result.mp4',
+      uploadedAt: new Date('2026-07-10T00:00:02.000Z'),
+      analysisStatus: 'complete',
+      deepAnalysisStatus: 'complete',
+      deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
+      deepAnalysisDiagnostics: { semanticVisualWindowCount: 1, providers: { semanticVisual: 'complete' } },
+    });
+    mocks.findProject.mockResolvedValueOnce({ projectId: 'proj_batch_1' });
+
+    const response = await POST(request({ uploadBatchId: 'batch_1', resumeCoverage: true }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(payload).toEqual(expect.objectContaining({
+      success: true,
+      projectId: 'proj_batch_1',
+      resumedCoverage: true,
+      addedVisualAssetIds: ['video_2'],
+    }));
+    expect(mocks.createProject).not.toHaveBeenCalled();
+    expect(mocks.findProject).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'proj_batch_1',
+      userId: 'user_1',
+      sourceUploadBatchId: 'batch_1',
+      autoEditStatus: 'needs_input',
+    }), expect.any(Object));
+    expect(mocks.updateBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'proj_batch_1', orchestrationStatus: 'needs_input' }),
+      expect.objectContaining({ $set: expect.objectContaining({ orchestrationStatus: 'requested' }) }),
+    );
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'proj_batch_1', userId: 'user_1' }),
+      expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'analyzing' }) }),
+    );
+  });
+
+  it('does not resume coverage until the batch contains a newly uploaded visual asset', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'needs_input',
+      scriptCoverage: { assetIdsAtFailure: ['video_1', 'image_1'], beats: [], assignments: [] },
+    };
+    mocks.findProject.mockResolvedValueOnce({ projectId: 'proj_batch_1' });
+
+    const response = await POST(request({ uploadBatchId: 'batch_1', resumeCoverage: true }) as never);
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual(expect.objectContaining({
+      success: false,
+      error: expect.stringContaining('Upload new video or image footage'),
+    }));
+    expect(mocks.createProject).not.toHaveBeenCalled();
+    expect(mocks.updateBatch).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it('restores needs-input state when durable recovery dispatch fails', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'needs_input',
+      assetIds: ['video_1', 'image_1', 'video_2'],
+      scriptCoverage: { assetIdsAtFailure: ['video_1', 'image_1'], beats: [], assignments: [] },
+    };
+    mediaAssets.push({
+      assetId: 'video_2',
+      userId: 'user_1',
+      filename: 'new-footage.mp4',
+      type: 'video',
+      size: 800,
+      duration: 4,
+      cachedUrl: 'new-footage.mp4',
+      uploadedAt: new Date('2026-07-10T00:00:02.000Z'),
+      analysisStatus: 'complete',
+      deepAnalysisStatus: 'complete',
+      deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
+      deepAnalysisDiagnostics: { semanticVisualWindowCount: 1, providers: { semanticVisual: 'complete' } },
+    });
+    mocks.findProject.mockResolvedValueOnce({ projectId: 'proj_batch_1' });
+    mocks.fetch.mockRejectedValueOnce(new Error('QStash unavailable'));
+
+    const response = await POST(request({ uploadBatchId: 'batch_1', resumeCoverage: true }) as never);
+
+    expect(response.status).toBe(503);
+    expect(mocks.updateBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'proj_batch_1', orchestrationStatus: 'requested' }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          orchestrationStatus: 'needs_input',
+          orchestrationError: 'QStash unavailable',
+          scriptCoverage: expect.objectContaining({ assetIdsAtFailure: ['video_1', 'image_1'] }),
+        }),
+      }),
+    );
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'proj_batch_1', userId: 'user_1' }),
+      expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'needs_input' }) }),
+    );
+  });
 
   it('retries transient script-grounding provider failures without dispatching Director', async () => {
     const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');

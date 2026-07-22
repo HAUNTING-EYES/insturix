@@ -1,7 +1,9 @@
 'use client';
 
+import React from 'react';
 import { cn } from '@/lib/utils';
 import { Mono, Track, Clip } from '@/components/primitives';
+import { Clapperboard, Copy, Upload, WandSparkles } from 'lucide-react';
 import { AUTO_EDIT_STAGES, TOTAL_STAGES } from './auto-edit-stages';
 
 /* ═══ Editron · auto-edit processing screen ══════════════════════════
@@ -20,6 +22,60 @@ const DEADAIR = [{ l: 17, w: 6 }, { l: 46, w: 5 }, { l: 79, w: 4 }];
 const CAP_WORDS = ['every', 'cut', 'shaped', 'for', 'its', 'channel', 'made', 'to', 'watch', 'silent', 'or', 'loud'];
 const MARKERS = [{ f: 0, l: 'INTRO' }, { f: 40, l: 'CUT' }, { f: 76, l: 'OUTRO' }];
 
+export interface MissingFootageBeat {
+  id: string;
+  scriptText: string;
+  visualIntent: string;
+  coverage: 'partial' | 'missing';
+  notes: string[];
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function boundedText(value: unknown, limit: number): string {
+  return typeof value === 'string' ? value.trim().slice(0, limit) : '';
+}
+
+export function missingFootageBeatsFromScriptCoverage(value: unknown): MissingFootageBeat[] {
+  const audit = asRecord(value);
+  if (!audit) return [];
+  const beats = Array.isArray(audit.beats) ? audit.beats : [];
+  const assignments = Array.isArray(audit.assignments) ? audit.assignments : [];
+  const assignmentByBeat = new Map<string, Record<string, unknown>>();
+  for (const candidate of assignments) {
+    const assignment = asRecord(candidate);
+    const beatId = boundedText(assignment?.beatId, 128);
+    if (assignment && beatId) assignmentByBeat.set(beatId, assignment);
+  }
+
+  return beats.flatMap((candidate, index) => {
+    const beat = asRecord(candidate);
+    if (!beat) return [];
+    const id = boundedText(beat.id, 128) || `beat_${index + 1}`;
+    const assignment = assignmentByBeat.get(id);
+    const rawCoverage = boundedText(assignment?.coverage, 16);
+    if (rawCoverage === 'covered') return [];
+    const verification = asRecord(assignment?.verification);
+    const notes = Array.isArray(verification?.notes)
+      ? verification.notes
+        .map((note) => boundedText(note, 240))
+        .filter(Boolean)
+        .slice(0, 3)
+      : [];
+    return [{
+      id,
+      scriptText: boundedText(beat.scriptText, 500),
+      visualIntent: boundedText(beat.visualIntent, 500),
+      coverage: rawCoverage === 'partial' ? 'partial' as const : 'missing' as const,
+      notes,
+    }];
+  });
+}
+
 export interface AutoEditProcessingProps {
   filename: string;
   stageIndex: number;
@@ -30,11 +86,33 @@ export interface AutoEditProcessingProps {
   onSkip?: () => void;
   onReplay?: () => void;
   onOpenEditor?: () => void;
+  needsInput?: {
+    beats: MissingFootageBeat[];
+    error?: string | null;
+    busy?: boolean;
+    actionMessage?: string | null;
+  };
+  onUploadFootage?: () => void;
+  onCopyFilmBrief?: (beat: MissingFootageBeat) => void;
+  onCopyGenerationPrompt?: (beat: MissingFootageBeat) => void;
 }
 
 export function AutoEditProcessing({
   filename, stageIndex, percent, done, logLines, onSkip, onReplay, onOpenEditor,
+  needsInput, onUploadFootage, onCopyFilmBrief, onCopyGenerationPrompt,
 }: AutoEditProcessingProps) {
+  if (needsInput) {
+    return (
+      <NeedsFootage
+        filename={filename}
+        state={needsInput}
+        onUpload={onUploadFootage}
+        onCopyFilmBrief={onCopyFilmBrief}
+        onCopyGenerationPrompt={onCopyGenerationPrompt}
+      />
+    );
+  }
+
   const idx = Math.max(0, Math.min(TOTAL_STAGES - 1, stageIndex));
   const stage = AUTO_EDIT_STAGES[idx];
   const word = done ? 'READY' : stage.word;
@@ -195,6 +273,100 @@ export function AutoEditProcessing({
         </div>
       </div>
     </div>
+  );
+}
+
+function NeedsFootage({
+  filename,
+  state,
+  onUpload,
+  onCopyFilmBrief,
+  onCopyGenerationPrompt,
+}: {
+  filename: string;
+  state: NonNullable<AutoEditProcessingProps['needsInput']>;
+  onUpload?: () => void;
+  onCopyFilmBrief?: (beat: MissingFootageBeat) => void;
+  onCopyGenerationPrompt?: (beat: MissingFootageBeat) => void;
+}) {
+  return (
+    <main className="min-h-screen bg-surface-canvas px-[clamp(20px,5vw,72px)] py-8 font-sans text-ds-primary">
+      <div className="mx-auto max-w-[1040px]">
+        <header className="mb-8 flex items-center justify-between gap-4 border-b border-ds-subtle pb-5">
+          <div>
+            <Mono size="10" className="mb-2 block font-bold tracking-[0.18em] text-gold">EDITRON / FOOTAGE NEEDED</Mono>
+            <h1 className="max-w-[760px] text-[clamp(30px,5vw,58px)] font-extrabold leading-[1.02]">The script asks for shots we cannot verify.</h1>
+          </div>
+          <Mono size="9" className="max-w-[220px] text-right text-ds-dim">{filename}</Mono>
+        </header>
+
+        <div className="mb-7 flex flex-wrap items-center justify-between gap-4">
+          <p className="max-w-[700px] text-[15px] leading-6 text-ds-secondary">
+            Upload footage that visibly covers these beats. Editron will analyze it and resume this same edit.
+          </p>
+          <button
+            type="button"
+            onClick={onUpload}
+            disabled={state.busy}
+            className="inline-flex min-h-11 items-center gap-2 rounded-button border border-gold bg-gold px-5 py-2.5 text-[13px] font-extrabold text-[#241B08] hover:bg-[#E0B86A] disabled:cursor-wait disabled:opacity-55"
+          >
+            <Upload aria-hidden="true" className="h-4 w-4" />
+            {state.busy ? 'Uploading footage...' : 'Upload footage'}
+          </button>
+        </div>
+
+        {state.error && <p role="alert" className="mb-5 border-l-2 border-status-danger pl-3 text-[13px] leading-5 text-status-danger">{state.error}</p>}
+        {state.actionMessage && <p role="status" className="mb-5 border-l-2 border-gold pl-3 text-[13px] leading-5 text-ds-secondary">{state.actionMessage}</p>}
+
+        {state.beats.length > 0 ? (
+          <ol className="grid gap-3">
+            {state.beats.map((beat, index) => (
+              <li key={beat.id} className="rounded-card border border-ds-subtle bg-surface-raised p-5">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <Mono size="8" className="text-gold">MISSING BEAT {String(index + 1).padStart(2, '0')}</Mono>
+                  <Mono size="8" className="text-ds-dim">{beat.coverage.toUpperCase()}</Mono>
+                </div>
+                {beat.scriptText && <p className="mb-3 text-[17px] font-semibold leading-6 text-ds-primary">{beat.scriptText}</p>}
+                {beat.visualIntent && (
+                  <div className="mb-4 border-l-2 border-ds-faint pl-3">
+                    <Mono size="8" className="mb-1 block text-ds-dim">VISUAL EVIDENCE REQUIRED</Mono>
+                    <p className="text-[14px] leading-5 text-ds-secondary">{beat.visualIntent}</p>
+                  </div>
+                )}
+                {beat.notes.length > 0 && <p className="mb-4 text-[12px] leading-5 text-ds-muted">Checked: {beat.notes.join(' ')}</p>}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onCopyFilmBrief?.(beat)}
+                    className="inline-flex min-h-9 items-center gap-2 rounded-button border border-ds-subtle bg-surface-deeper px-3 py-2 text-[12px] font-bold text-ds-secondary hover:border-ds-faint"
+                  >
+                    <Clapperboard aria-hidden="true" className="h-3.5 w-3.5" />
+                    Copy film brief
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onCopyGenerationPrompt?.(beat)}
+                    className="inline-flex min-h-9 items-center gap-2 rounded-button border border-ds-subtle bg-surface-deeper px-3 py-2 text-[12px] font-bold text-ds-secondary hover:border-ds-faint"
+                  >
+                    <WandSparkles aria-hidden="true" className="h-3.5 w-3.5" />
+                    Copy generation prompt
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div className="rounded-card border border-ds-subtle bg-surface-raised p-5 text-[14px] leading-6 text-ds-secondary">
+            The grounding audit could not identify a specific beat. Upload the missing supporting footage, then resume the edit.
+          </div>
+        )}
+
+        <footer className="mt-6 flex items-center gap-2 text-[11px] text-ds-dim">
+          <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+          Film and generation actions copy a precise brief; upload the resulting shot here to continue.
+        </footer>
+      </div>
+    </main>
   );
 }
 
