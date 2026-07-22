@@ -226,6 +226,20 @@ export const createTools = (userId: string, projectId: string) => {
     return JSON.stringify(envelope);
   }
 
+  function legacySuccessData(parsed: Record<string, any>): Record<string, any> {
+    const { status: _status, error: _error, nextAction: _nextAction, data, message, ...rest } = parsed;
+    const payload = data && typeof data === "object" && !Array.isArray(data)
+      ? data as Record<string, any>
+      : data == null
+        ? {}
+        : { value: data };
+    return {
+      ...rest,
+      ...payload,
+      ...(typeof message === "string" && payload.message === undefined ? { message } : {}),
+    };
+  }
+
   function normalizeToolOutput(rawOutput: unknown): string {
     if (typeof rawOutput === "string") {
       const trimmed = rawOutput.trim();
@@ -260,8 +274,7 @@ export const createTools = (userId: string, projectId: string) => {
         }
 
         if (parsed.status === "success") {
-          const { status, error, nextAction, ...rest } = parsed;
-          return successEnvelope(rest, nextAction || "continue");
+          return successEnvelope(legacySuccessData(parsed), parsed.nextAction || "continue");
         }
 
         return successEnvelope(parsed, "continue");
@@ -289,8 +302,7 @@ export const createTools = (userId: string, projectId: string) => {
       }
 
       if (parsed.status === "success") {
-        const { status, error, nextAction, ...rest } = parsed;
-        return successEnvelope(rest, nextAction || "continue");
+        return successEnvelope(legacySuccessData(parsed), parsed.nextAction || "continue");
       }
 
       return successEnvelope(parsed, "continue");

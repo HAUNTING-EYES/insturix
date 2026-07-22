@@ -181,6 +181,44 @@ describe('chat speech and caption tool contracts', () => {
     expect(result.data).not.toHaveProperty('instructions');
   });
 
+  it('keeps resolver useWith authorization at the top level of the tool envelope data', async () => {
+    loadWith([{
+      id: 20,
+      type: 'caption',
+      from: 0,
+      durationInFrames: 180,
+      words: [
+        { word: 'this', startFrame: 30, endFrame: 36 },
+        { word: 'is', startFrame: 36, endFrame: 42 },
+        { word: 'the', startFrame: 42, endFrame: 48 },
+        { word: 'key', startFrame: 48, endFrame: 54 },
+        { word: 'point', startFrame: 54, endFrame: 60 },
+      ],
+    }]);
+
+    const result = parseEnvelope(await toolNamed('resolve_sticker_overlay').invoke({
+      query: 'this is the key point',
+      description: 'small animated lightbulb sticker',
+      durationFrames: 30,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'success',
+      data: {
+        status: 'ready',
+        useWith: {
+          generate_html_sticker: {
+            start: 30,
+            duration: 30,
+            description: 'small animated lightbulb sticker',
+          },
+        },
+      },
+      error: null,
+    });
+    expect(result.data).not.toHaveProperty('data');
+  });
+
   it('regenerates regular captions against the linked video timing and chosen style', async () => {
     const video = { id: 30, type: 'video', assetId: 'asset-caption', from: 90, durationInFrames: 180 };
     const caption = {
