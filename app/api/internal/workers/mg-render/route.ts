@@ -71,6 +71,17 @@ async function handler(request: NextRequest): Promise<NextResponse> {
 }
 
 // Fail closed outside local development. Missing QStash signing keys must never expose the worker publicly.
-export const POST = process.env.NODE_ENV === 'development'
-  ? handler
-  : verifySignatureAppRouter(handler);
+// Gate on signing-key PRESENCE, not NODE_ENV: calling verifySignatureAppRouter at module load with absent
+// keys can break the build/import (memory: qstash-route-build-gate-pitfall). Mirrors the audio worker.
+const isDev = process.env.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
+const hasSigningKeys = !!process.env.QSTASH_CURRENT_SIGNING_KEY && !!process.env.QSTASH_NEXT_SIGNING_KEY;
+
+async function secureHandler(request: NextRequest): Promise<NextResponse> {
+  if (!isDev && !hasSigningKeys) {
+    console.error('[MGRenderWorker] SECURITY: QSTASH signing keys not set in production. Rejecting.');
+    return NextResponse.json({ success: false, error: 'Worker not configured' }, { status: 500 });
+  }
+  return handler(request);
+}
+
+export const POST = isDev ? handler : (hasSigningKeys ? verifySignatureAppRouter(handler) : secureHandler);
