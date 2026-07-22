@@ -155,6 +155,7 @@ export interface ChatBattleSuiteReport {
   failedScenarioIds: string[];
 }
 
+const SERVER_CANONICAL_PROJECT_STATE = 'server-canonical-project-state' as const;
 const READ_PROJECT = ['read_project_file', 'get_timeline_view'] as const;
 
 function scenario(
@@ -424,13 +425,16 @@ export function evaluateChatEditBattleJourney(input: {
   ));
 
   const toolNames = events.map((event) => event.name);
-  const sequenceResult = requiredSequenceResult(toolNames, input.scenario.requiredToolSequence);
+  const ownerPath = events.flatMap((event) => hasCanonicalProjectPreflight(event)
+    ? [SERVER_CANONICAL_PROJECT_STATE, event.name]
+    : [event.name]);
+  const sequenceResult = requiredSequenceResult(ownerPath, input.scenario.requiredToolSequence);
   checks.push(check(
     'agent.required-owner-path',
     sequenceResult.ok ? 'pass' : 'fail',
     true,
     sequenceResult.ok ? 'The required evidence/owner tool path executed in order.' : 'The required evidence/owner tool path did not execute in order.',
-    { toolNames, missingRequirement: sequenceResult.missing },
+    { toolNames, ownerPath, missingRequirement: sequenceResult.missing },
   ));
 
   const forbiddenTools = events.filter((event) => input.scenario.forbiddenTools.includes(event.name));
@@ -454,9 +458,12 @@ export function evaluateChatEditBattleJourney(input: {
   const blockedMutationAttempts = firstMutationIndex > 0
     ? events.slice(0, firstMutationIndex).filter((event) => isMutatingTool(event.name) && !isSuccessfulToolOutput(event.output))
     : [];
+  const serverCanonicalPreflight = firstMutationIndex >= 0
+    && hasCanonicalProjectPreflight(events[firstMutationIndex]);
   const evidenceSatisfied = !input.scenario.requireEvidenceBeforeMutation
     || firstMutationIndex < 0
-    || priorEvidenceReads.length > 0;
+    || priorEvidenceReads.length > 0
+    || serverCanonicalPreflight;
   checks.push(check(
     'agent.evidence-before-mutation',
     evidenceSatisfied ? 'pass' : 'fail',
@@ -465,6 +472,7 @@ export function evaluateChatEditBattleJourney(input: {
     {
       firstMutationIndex,
       priorEvidenceTools: priorEvidenceReads.map((event) => event.name),
+      serverCanonicalPreflight,
       blockedMutationAttempts: blockedMutationAttempts.map((event) => event.name),
     },
   ));
@@ -927,7 +935,10 @@ function requiredSequenceResult(
     const accepted = Array.isArray(requirement) ? requirement : [requirement];
     let match = -1;
     for (let index = cursor; index < toolNames.length; index += 1) {
-      if (accepted.includes(toolNames[index])) {
+      const toolName = toolNames[index];
+      const acceptsCanonicalServerPreflight = toolName === SERVER_CANONICAL_PROJECT_STATE
+        && accepted.some((name) => name === 'read_project_file' || name === 'get_timeline_view');
+      if (accepted.includes(toolName) || acceptsCanonicalServerPreflight) {
         match = index;
         break;
       }
@@ -994,6 +1005,17 @@ function sanitizeMaterialState(value: unknown, parentKey = ''): unknown {
     output[key] = sanitizeMaterialState(child, key);
   }
   return output;
+}
+
+function hasCanonicalProjectPreflight(event: ChatBattleToolEvent | undefined): boolean {
+  if (!event || !isMutatingTool(event.name) || !isSuccessfulToolOutput(event.output)) return false;
+  const parsed = parseToolOutput(event.output);
+  const data = asRecord(parsed?.data);
+  const verification = asRecord(data.postconditionVerification);
+  return verification.version === 'editron-chat-postcondition-v1'
+    && verification.status === 'pass'
+    && typeof verification.beforeStateHash === 'string'
+    && verification.beforeStateHash.length > 0;
 }
 
 function isEphemeralProjectKey(key: string, parentKey: string, value: unknown): boolean {

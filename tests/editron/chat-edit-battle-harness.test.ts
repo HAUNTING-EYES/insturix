@@ -191,6 +191,19 @@ function successEnvelope(data: Record<string, unknown> = {}) {
   return JSON.stringify({ status: 'success', data, error: null, nextAction: null });
 }
 
+function successEnvelopeWithCanonicalPreflight(data: Record<string, unknown> = {}) {
+  return successEnvelope({
+    ...data,
+    postconditionVerification: {
+      version: 'editron-chat-postcondition-v1',
+      status: 'pass',
+      beforeStateHash: 'before-hash',
+      afterStateHash: 'after-hash',
+      stateChanged: true,
+    },
+  });
+}
+
 function renderVerificationRequest(
   overrides: Partial<ChatEditRenderVerificationRequest> = {},
 ): ChatEditRenderVerificationRequest {
@@ -722,6 +735,41 @@ describe('chat edit battle harness', () => {
         priorEvidenceTools: ['read_project_file'],
         blockedMutationAttempts: ['add_overlay'],
       },
+    });
+  });
+
+  it('accepts server-attested canonical state as preflight evidence without a redundant model read', () => {
+    const scenario = getChatEditBattleScenario('explicit-text')!;
+    const beforeProject = project([]);
+    const afterProject = project([{ id: 'title-1', type: 'text', content: 'Launch day', from: 0, durationInFrames: 90, row: 0 }]);
+    const report = evaluateChatEditBattleJourney({
+      journeyId: 'server-canonical-preflight',
+      scenario,
+      projectId: 'proj_battle',
+      startedAt: '2026-07-16T10:00:00.000Z',
+      completedAt: '2026-07-16T10:00:01.000Z',
+      invocation: invocation('explicit-text', [{
+        id: 'add',
+        name: 'add_overlay',
+        args: { type: 'text' },
+        startedAt: '2026-07-16T10:00:00.100Z',
+        completedAt: '2026-07-16T10:00:00.200Z',
+        output: successEnvelopeWithCanonicalPreflight({ overlayId: 'title-1' }),
+      }]),
+      mongoBefore: buildChatBattleProjectSnapshot(beforeProject, 'mongo-before', '2026-07-16T10:00:00.000Z'),
+      mongoAfter: buildChatBattleProjectSnapshot(afterProject, 'mongo-after', '2026-07-16T10:00:01.000Z'),
+      uiReload: buildChatBattleProjectSnapshot(afterProject, 'ui-reload', '2026-07-16T10:00:01.000Z'),
+      renderEvidence: { status: 'pass', capturedAt: '2026-07-16T10:00:00.900Z', artifactRefs: ['artifact://title.png'], issues: [] },
+    });
+
+    expect(report.verdict).toBe('pass');
+    expect(report.checks.find((check) => check.id === 'agent.required-owner-path')).toMatchObject({
+      status: 'pass',
+      evidence: { ownerPath: ['server-canonical-project-state', 'add_overlay'] },
+    });
+    expect(report.checks.find((check) => check.id === 'agent.evidence-before-mutation')).toMatchObject({
+      status: 'pass',
+      evidence: { serverCanonicalPreflight: true, priorEvidenceTools: [] },
     });
   });
 
