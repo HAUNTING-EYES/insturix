@@ -30,6 +30,8 @@ import { resolveRemotionSiteFreshness } from './remotion-site-version';
 
 export const PHASE0_RENDERED_STILL_EVIDENCE_VERSION = 'editron-phase0-rendered-still-evidence-v1' as const;
 const DEFAULT_PHASE0_RENDERED_EVIDENCE_LOCK_STALE_MS = 20 * 60 * 1000;
+const PHASE0_RENDER_STILL_TIMEOUT_MS = 90_000;
+const PHASE0_RENDER_STILL_TRANSIENT_RETRIES = 1;
 
 type Phase0RenderedStillEvidenceStatus = 'completed' | 'partial' | 'failed' | 'skipped';
 
@@ -415,7 +417,7 @@ export async function buildPhase0RenderedStillEvidence(
     3,
     async (frame) => {
       const [fullResult, baselineResult] = await Promise.allSettled([
-        renderStill({
+        renderStillForEvidence(renderStill, {
           region: config.region as any,
           functionName: config.functionName,
           serveUrl: config.serveUrl,
@@ -426,7 +428,7 @@ export async function buildPhase0RenderedStillEvidence(
           frame,
           maxRetries: 1,
         }),
-        renderStill({
+        renderStillForEvidence(renderStill, {
           region: config.region as any,
           functionName: config.functionName,
           serveUrl: config.serveUrl,
@@ -561,6 +563,42 @@ async function mapWithConcurrency<T, R>(
 
 function settledError(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);
+}
+
+async function renderStillForEvidence(
+  renderStill: RenderStill,
+  input: Parameters<RenderStill>[0],
+): Promise<RenderStillOnLambdaOutput> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await renderStill({
+        ...input,
+        timeoutInMilliseconds: PHASE0_RENDER_STILL_TIMEOUT_MS,
+      });
+    } catch (error: unknown) {
+      if (
+        attempt >= PHASE0_RENDER_STILL_TRANSIENT_RETRIES
+        || !isTransientRenderedStillFailure(error)
+      ) {
+        throw error;
+      }
+    }
+  }
+}
+
+function isTransientRenderedStillFailure(error: unknown): boolean {
+  const message = settledError(error).toLowerCase();
+  return [
+    'timeout',
+    'timed out',
+    'econnreset',
+    'etimedout',
+    'socket hang up',
+    'stream prematurely closed',
+    'service unavailable',
+    'internal server error',
+    'throttl',
+  ].some((token) => message.includes(token));
 }
 
 interface RenderedAudioArtifact {

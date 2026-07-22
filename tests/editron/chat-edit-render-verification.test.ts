@@ -137,6 +137,41 @@ describe('chat edit rendered verification', () => {
     });
   });
 
+  it('retries only a transient still failure before declaring rendered evidence partial', async () => {
+    let afterAttempts = 0;
+    const renderStill = vi.fn(async (input: any) => {
+      const isAfter = input.inputProps.overlays.some((overlay: any) => overlay.id === 'txt_after');
+      if (isAfter && afterAttempts++ === 0) {
+        throw new Error('waiting for the page to render the React component failed: timeout 33000ms exceeded');
+      }
+      const kind = isAfter ? 'after' : 'before';
+      return {
+        estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+        url: `https://example.com/${kind}-f${input.frame}.png`,
+        outKey: `chat/${kind}-f${input.frame}.png`,
+        bucketName: 'render-bucket',
+        renderId: `${kind}-${input.frame}`,
+        cloudWatchLogs: 'https://logs.example.com',
+        sizeInBytes: 512,
+        artifacts: [],
+      };
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(afterProject(), {
+      baselineProject: beforeProject(),
+      requestedSampleFrames: [45],
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async (url) => renderedImage(url.includes('/after-')),
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.status, evidence.statusReason ?? 'no reason').toBe('completed');
+    expect(evidence.failedFrames).toEqual([]);
+    expect(renderStill).toHaveBeenCalledTimes(3);
+    expect(renderStill.mock.calls.every((call) => call[0].timeoutInMilliseconds === 90_000)).toBe(true);
+  });
+
   it('audits only overlays changed by the chat operation', async () => {
     const unchangedCaption = {
       id: 'caption_unrelated',
