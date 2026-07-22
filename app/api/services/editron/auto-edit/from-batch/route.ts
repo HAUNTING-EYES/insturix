@@ -22,6 +22,7 @@ import { intakeSignalsFromProject } from '@/lib/editron/production-brief/intake-
 import { resolveProductionBrief } from '@/lib/editron/production-brief/intake-resolver';
 import { brandDefaultsFromProfile } from '@/lib/editron/production-brief/brand-adapter';
 import type { AspectRatio, Platform, ProductionBrief } from '@/lib/editron/production-brief/production-brief';
+import { completeStorylineJsonPrompt } from '@/lib/editron/storyline/storyline-llm';
 import { readProjectAssetAnalyses } from '@/lib/editron/storyline/asset-analysis-reader';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
@@ -528,15 +529,7 @@ function dimensionsForAspect(aspectRatio: AspectRatio): { width: number; height:
 async function completeStorylinePrompt(prompt: string): Promise<string> {
   const { getGeneralModel } = await import('@/lib/editron/utils/gemini-model-factory');
   const model = await getGeneralModel();
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0,
-      seed: 42,
-      responseMimeType: 'application/json',
-    },
-  });
-  return result.response.text();
+  return completeStorylineJsonPrompt(prompt, (request) => model.generateContent(request));
 }
 
 async function resolveOverlayUrl(asset: BatchMediaAsset, userId: string): Promise<string> {
