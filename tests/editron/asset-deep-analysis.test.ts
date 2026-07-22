@@ -1,11 +1,29 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  ASSET_DEEP_ANALYSIS_VERSION,
+  buildAssetDeepAnalysisClaimFilter,
   buildAssetDeepAnalysisTimeline,
   runAssetDeepAnalysis,
   type AssetDeepAnalysisDependencies,
 } from '@/lib/editron/services/asset-deep-analysis';
+import { sceneFromSegment } from '@/lib/editron/storyline/scene-adapter';
+import { buildOrderingDigest, formatDigestForPrompt } from '@/lib/editron/storyline/ordering-digest';
 
 describe('asset deep analysis', () => {
+  it('reclaims terminal analyses produced by an older capability version', () => {
+    expect(buildAssetDeepAnalysisClaimFilter('asset-1', 'user-1')).toEqual({
+      assetId: 'asset-1',
+      userId: 'user-1',
+      $or: [
+        { deepAnalysisStatus: { $nin: ['analyzing', 'complete', 'degraded'] } },
+        {
+          deepAnalysisStatus: { $in: ['complete', 'degraded'] },
+          deepAnalysisVersion: { $ne: ASSET_DEEP_ANALYSIS_VERSION },
+        },
+      ],
+    });
+  });
+
   it('creates full-duration visual evidence for footage with no speech', () => {
     const timeline = buildAssetDeepAnalysisTimeline({
       videoUrl: 'https://cdn.example/visual-only.mp4',
@@ -26,7 +44,7 @@ describe('asset deep analysis', () => {
         ...window,
         visualSignificance: index === 0 ? 0.8 : 0.6,
         motionIntensity: 0.4,
-        actionType: 'speaking',
+        actionType: 'other',
       })),
       requestedSegmentCount: windows.length,
       analyzedSegmentCount: windows.length,
@@ -53,7 +71,44 @@ describe('asset deep analysis', () => {
       musicPresence: 0.8,
       processingTimeMs: 10,
     }) as any);
-    const dependencies: AssetDeepAnalysisDependencies = { analyzeVjepa, analyzeWav2vec, analyzeMusic };
+    const analyzeSemanticVisual = vi.fn(async () => ({
+      sourceVideoUrl: 'https://cdn.example/mixed.mp4',
+      contentType: 'product-demo',
+      platform: 'general',
+      title: 'Garment construction',
+      overallMusicPrompt: '',
+      globalEditDirections: {
+        colorGrade: 'neutral',
+        pacing: 'medium',
+        graphicsDensity: 'minimal',
+        musicMood: '',
+        narrativeArc: 'three-act',
+      },
+      visualPerceptionWindows: [{
+        startSec: 0,
+        endSec: 4,
+        visualMode: 'product-demo',
+        subjects: ['embroidery frame', 'black fabric'],
+        actions: ['hands stitch beads into fabric'],
+        visibleStateChanges: ['bead pattern becomes denser'],
+        ocrText: [],
+        visuallyExplains: true,
+        visualExplainability: 'high',
+        screenClutter: 0.4,
+        salience: 0.9,
+        confidence: 0.95,
+        negativeSpacePreference: 'right',
+        issues: [],
+      }],
+      scenes: [],
+      analyzedAt: new Date().toISOString(),
+    }) as any);
+    const dependencies: AssetDeepAnalysisDependencies = {
+      analyzeSemanticVisual,
+      analyzeVjepa,
+      analyzeWav2vec,
+      analyzeMusic,
+    };
 
     const result = await runAssetDeepAnalysis({
       videoUrl: 'https://cdn.example/mixed.mp4',
@@ -67,6 +122,7 @@ describe('asset deep analysis', () => {
       },
     }, dependencies);
 
+    expect(analyzeSemanticVisual).toHaveBeenCalledWith('https://cdn.example/mixed.mp4', 8);
     expect(analyzeVjepa).toHaveBeenCalledOnce();
     expect(analyzeWav2vec).toHaveBeenCalledWith(
       'https://cdn.example/mixed.mp4',
@@ -74,13 +130,30 @@ describe('asset deep analysis', () => {
     );
     expect(analyzeMusic).toHaveBeenCalledOnce();
     expect(result.diagnostics).toMatchObject({
+      version: ASSET_DEEP_ANALYSIS_VERSION,
       status: 'complete',
       speechWindowCount: 2,
-      providers: { vjepa: 'complete', wav2vec: 'complete', music: 'complete' },
+      semanticVisualWindowCount: 1,
+      providers: { semanticVisual: 'complete', vjepa: 'complete', wav2vec: 'complete', music: 'complete' },
     });
     expect(result.momentWeightMap.weights.some((weight) => weight.sources.vjepa !== null)).toBe(true);
     expect(result.momentWeightMap.weights.some((weight) => weight.sources.wav2vec !== null)).toBe(true);
     expect(result.segmentAnalysis?.meta).toMatchObject({ hasVjepa: true, hasWav2vec: true });
+
+    const firstSegment = result.segmentAnalysis?.segments[0];
+    expect(firstSegment?.semanticVisual).toEqual(expect.objectContaining({
+      primaryVisualMode: 'product-demo',
+      visuallyExplains: true,
+      salience: 0.9,
+    }));
+
+    const scene = sceneFromSegment(firstSegment!, { assetId: 'asset-garment' });
+    expect(scene.objects).toEqual(['embroidery frame', 'black fabric']);
+    expect(scene.actionType).toBe('hands stitch beads into fabric');
+    expect(scene.description).toContain('bead pattern becomes denser');
+    const promptDigest = formatDigestForPrompt(buildOrderingDigest([scene]));
+    expect(promptDigest).toContain('visual: subjects: embroidery frame, black fabric');
+    expect(promptDigest).toContain('subjects: embroidery frame, black fabric');
   });
 
   it('records provider degradation instead of inventing visual confidence', async () => {
@@ -89,16 +162,55 @@ describe('asset deep analysis', () => {
       durationMs: 5_000,
       sourceAnalysis: { durationMs: 5_000, speechSegments: [] },
     }, {
+      analyzeSemanticVisual: vi.fn().mockResolvedValue(null),
       analyzeVjepa: vi.fn().mockRejectedValue(new Error('modal unavailable')),
       analyzeWav2vec: vi.fn(),
       analyzeMusic: vi.fn().mockResolvedValue(null),
     });
 
     expect(result.diagnostics).toMatchObject({
+      version: ASSET_DEEP_ANALYSIS_VERSION,
       status: 'degraded',
-      providers: { vjepa: 'failed', wav2vec: 'not-applicable', music: 'missing' },
+      semanticVisualWindowCount: 0,
+      providers: { semanticVisual: 'missing', vjepa: 'failed', wav2vec: 'not-applicable', music: 'missing' },
     });
     expect(result.diagnostics.errors).toContain('vjepa: modal unavailable');
     expect(result.momentWeightMap.weights.every((weight) => weight.sources.vjepa === null)).toBe(true);
+  });
+
+  it('does not call a storyboard with no perception windows semantically complete', async () => {
+    const result = await runAssetDeepAnalysis({
+      videoUrl: 'https://cdn.example/empty-semantics.mp4',
+      durationMs: 5_000,
+      sourceAnalysis: { durationMs: 5_000, speechSegments: [] },
+    }, {
+      analyzeSemanticVisual: vi.fn().mockResolvedValue({
+        sourceVideoUrl: 'https://cdn.example/empty-semantics.mp4',
+        contentType: 'video',
+        platform: 'general',
+        title: 'Empty semantic output',
+        overallMusicPrompt: '',
+        globalEditDirections: {
+          colorGrade: 'neutral',
+          pacing: 'medium',
+          graphicsDensity: 'minimal',
+          musicMood: '',
+          narrativeArc: 'three-act',
+        },
+        visualPerceptionWindows: [],
+        scenes: [],
+        analyzedAt: new Date().toISOString(),
+      }),
+      analyzeVjepa: vi.fn().mockResolvedValue({ segments: [] }),
+      analyzeWav2vec: vi.fn(),
+      analyzeMusic: vi.fn().mockResolvedValue(null),
+    } as unknown as AssetDeepAnalysisDependencies);
+
+    expect(result.diagnostics).toMatchObject({
+      status: 'degraded',
+      semanticVisualWindowCount: 0,
+      providers: { semanticVisual: 'missing' },
+    });
+    expect(result.segmentAnalysis?.segments.every((segment) => segment.semanticVisual === null)).toBe(true);
   });
 });

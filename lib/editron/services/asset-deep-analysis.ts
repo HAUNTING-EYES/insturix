@@ -23,10 +23,16 @@ import {
 import { buildSegmentAnalysis } from './segment-analysis-builder';
 import type { SegmentAnalysis } from '../types/segment-analysis';
 import { DEFAULT_CONFIG } from '../config/editron-config';
+import {
+  analyzeVideo,
+  type SyntheticStoryboard,
+} from './video-understanding-service';
 
 type SourceSpeechSegment = { startMs?: number; endMs?: number; text?: string };
 type SourceWord = { word?: string; startMs?: number; endMs?: number; confidence?: number; speaker?: number };
 type CanonicalSourceWord = { word: string; startMs: number; endMs: number; confidence: number; speaker?: number };
+
+export const ASSET_DEEP_ANALYSIS_VERSION = 2;
 
 export type AssetDeepAnalysisSource = {
   durationMs?: number;
@@ -46,10 +52,13 @@ export type AssetDeepAnalysisInput = {
 };
 
 export type AssetDeepAnalysisDiagnostics = {
+  version: typeof ASSET_DEEP_ANALYSIS_VERSION;
   status: 'complete' | 'degraded';
   canonicalWindowCount: number;
   speechWindowCount: number;
+  semanticVisualWindowCount: number;
   providers: {
+    semanticVisual: 'complete' | 'missing' | 'failed';
     vjepa: 'complete' | 'missing' | 'failed';
     wav2vec: 'complete' | 'not-applicable' | 'missing' | 'failed';
     music: 'complete' | 'missing' | 'failed';
@@ -59,6 +68,7 @@ export type AssetDeepAnalysisDiagnostics = {
 
 export type AssetDeepAnalysisResult = {
   rawFootageAnalysis: RawFootageAnalysis;
+  syntheticStoryboard: SyntheticStoryboard | null;
   vjepaAnalysis: VjepaAnalysisResult | null;
   wav2vecAnalysis: Wav2VecAnalysisResult | null;
   musicAnalysis: MusicAnalysisResult | null;
@@ -68,12 +78,28 @@ export type AssetDeepAnalysisResult = {
 };
 
 export type AssetDeepAnalysisDependencies = {
+  analyzeSemanticVisual(videoUrl: string, durationSec: number): Promise<SyntheticStoryboard | null>;
   analyzeVjepa(videoUrl: string, segments: VjepaSegmentInput[]): Promise<VjepaAnalysisResult | null>;
   analyzeWav2vec(audioUrl: string, segments: Wav2VecSegmentInput[]): Promise<Wav2VecAnalysisResult | null>;
   analyzeMusic(videoUrl: string): Promise<MusicAnalysisResult | null>;
 };
 
+export function buildAssetDeepAnalysisClaimFilter(assetId: string, userId: string): Record<string, unknown> {
+  return {
+    assetId,
+    userId,
+    $or: [
+      { deepAnalysisStatus: { $nin: ['analyzing', 'complete', 'degraded'] } },
+      {
+        deepAnalysisStatus: { $in: ['complete', 'degraded'] },
+        deepAnalysisVersion: { $ne: ASSET_DEEP_ANALYSIS_VERSION },
+      },
+    ],
+  };
+}
+
 const DEFAULT_DEPENDENCIES: AssetDeepAnalysisDependencies = {
+  analyzeSemanticVisual: (videoUrl, durationSec) => analyzeVideo(videoUrl, durationSec),
   analyzeVjepa: analyzeVideoWithVjepa,
   analyzeWav2vec: analyzeAudioWithWav2Vec,
   analyzeMusic: analyzeMusicContent,
@@ -256,13 +282,18 @@ export async function runAssetDeepAnalysis(
   dependencies: AssetDeepAnalysisDependencies = DEFAULT_DEPENDENCIES,
 ): Promise<AssetDeepAnalysisResult> {
   const timeline = buildAssetDeepAnalysisTimeline(input);
-  const [vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
+  const durationSec = timeline.rawFootageAnalysis.originalDurationMs / 1000;
+  const [semanticVisualResult, vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
+    dependencies.analyzeSemanticVisual(input.videoUrl, durationSec),
     dependencies.analyzeVjepa(input.videoUrl, timeline.visualWindows),
     timeline.speechWindows.length > 0
       ? dependencies.analyzeWav2vec(input.videoUrl, timeline.speechWindows)
       : Promise.resolve(null),
     dependencies.analyzeMusic(input.videoUrl),
   ]);
+  const syntheticStoryboard = semanticVisualResult.status === 'fulfilled' ? semanticVisualResult.value : null;
+  const semanticVisualWindowCount = syntheticStoryboard?.visualPerceptionWindows?.length ?? 0;
+  const hasSemanticVisualEvidence = semanticVisualWindowCount > 0;
   const vjepaAnalysis = vjepaResult.status === 'fulfilled' ? vjepaResult.value : null;
   const wav2vecAnalysis = wav2vecResult.status === 'fulfilled' ? wav2vecResult.value : null;
   const musicAnalysis = musicResult.status === 'fulfilled' ? musicResult.value : null;
@@ -281,12 +312,13 @@ export async function runAssetDeepAnalysis(
 
   const segmentAnalysis = buildSegmentAnalysis(
     timeline.rawFootageAnalysis,
-    null,
+    syntheticStoryboard,
     vjepaAnalysis,
     wav2vecAnalysis,
     momentWeightMap,
   );
   const errors = [
+    errorMessage(semanticVisualResult, 'semantic-visual'),
     errorMessage(vjepaResult, 'vjepa'),
     errorMessage(wav2vecResult, 'wav2vec'),
     errorMessage(musicResult, 'music'),
@@ -294,16 +326,22 @@ export async function runAssetDeepAnalysis(
 
   return {
     rawFootageAnalysis: timeline.rawFootageAnalysis,
+    syntheticStoryboard,
     vjepaAnalysis,
     wav2vecAnalysis,
     musicAnalysis,
     momentWeightMap,
     segmentAnalysis,
     diagnostics: {
-      status: !vjepaAnalysis || errors.length > 0 ? 'degraded' : 'complete',
+      version: ASSET_DEEP_ANALYSIS_VERSION,
+      status: !hasSemanticVisualEvidence || !vjepaAnalysis || errors.length > 0 ? 'degraded' : 'complete',
       canonicalWindowCount: timeline.visualWindows.length,
       speechWindowCount: timeline.speechWindows.length,
+      semanticVisualWindowCount,
       providers: {
+        semanticVisual: semanticVisualResult.status === 'rejected'
+          ? 'failed'
+          : hasSemanticVisualEvidence ? 'complete' : 'missing',
         vjepa: vjepaResult.status === 'rejected' ? 'failed' : vjepaAnalysis ? 'complete' : 'missing',
         wav2vec: timeline.speechWindows.length === 0
           ? 'not-applicable'

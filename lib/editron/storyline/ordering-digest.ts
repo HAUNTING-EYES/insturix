@@ -32,6 +32,8 @@ export interface ClipDigest {
   vocalArousal?: number;
   vocalValence?: string;
   onScreenText?: string[];
+  visualDescription?: string;
+  subjects?: string[];
   // --- narrative structure (from the signal-enricher; drives the SEQUENCING_MOVES) ---
   phase?: NarrativePhase;
   pressure?: number;
@@ -68,6 +70,8 @@ export function buildClipDigest(scene: Scene, ref: string): ClipDigest {
   if (typeof scene.vocalArousal === 'number') d.vocalArousal = round2(scene.vocalArousal);
   if (scene.vocalValence) d.vocalValence = scene.vocalValence;
   if (scene.detectedText.length > 0) d.onScreenText = scene.detectedText.slice();
+  if (scene.description?.trim()) d.visualDescription = scene.description.trim().slice(0, 600);
+  if (scene.objects.length > 0) d.subjects = scene.objects.slice(0, 12);
 
   const n = scene.narrative;
   if (n) {
@@ -143,6 +147,8 @@ export function formatDigestForPrompt(digests: readonly ClipDigest[]): string {
       const lines = [`[${d.ref}] ${sig.join(' | ')}`];
       const narrative = narrativeLine(d);
       if (narrative) lines.push(narrative);
+      if (d.visualDescription) lines.push(`visual: ${d.visualDescription}`);
+      if (d.subjects && d.subjects.length > 0) lines.push(`subjects: ${d.subjects.join(', ')}`);
       if (d.onScreenText && d.onScreenText.length > 0) lines.push(`on-screen: ${d.onScreenText.join(', ')}`);
       lines.push(`transcript: ${d.transcript || '(no speech)'}`);
       return lines.join('\n');

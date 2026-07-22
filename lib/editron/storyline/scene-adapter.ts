@@ -61,6 +61,11 @@ export interface EditronSemanticVisual {
   primaryVisualMode?: string | null;
   salience?: number | null;
   visuallyExplains?: boolean | null;
+  windows?: Array<{
+    subjects?: string[] | null;
+    actions?: string[] | null;
+    visibleStateChanges?: string[] | null;
+  }> | null;
 }
 
 /** Subset of `SegmentRecord.weight` (moment-weight map) - the fused importance channel
@@ -165,6 +170,26 @@ function cleanText(list: readonly string[] | null | undefined): string[] {
   return list.map((s) => (typeof s === 'string' ? s.trim() : '')).filter((s) => s.length > 0);
 }
 
+function uniqueSemanticFacts(
+  semantic: EditronSemanticVisual | null | undefined,
+  key: 'subjects' | 'actions' | 'visibleStateChanges',
+): string[] {
+  const values = semantic?.windows?.flatMap((window) => cleanText(window[key])) ?? [];
+  return Array.from(new Set(values)).slice(0, 12);
+}
+
+function describeSemanticVisual(semantic: EditronSemanticVisual | null | undefined): string | undefined {
+  const subjects = uniqueSemanticFacts(semantic, 'subjects');
+  const actions = uniqueSemanticFacts(semantic, 'actions');
+  const stateChanges = uniqueSemanticFacts(semantic, 'visibleStateChanges');
+  const parts = [
+    subjects.length > 0 ? `subjects: ${subjects.join(', ')}` : null,
+    actions.length > 0 ? `actions: ${actions.join(', ')}` : null,
+    stateChanges.length > 0 ? `visible changes: ${stateChanges.join(', ')}` : null,
+  ].filter((part): part is string => part !== null);
+  return parts.length > 0 ? parts.join('; ').slice(0, 600) : undefined;
+}
+
 /**
  * Map one Editron segment (+ asset context + the asset's words) to one Scene.
  * Pure; never throws. Callers should pre-filter invalid windows, but a non-positive
@@ -179,13 +204,16 @@ export function sceneFromSegment(
   const endTime = segment.endMs / MS_PER_SEC;
   const transcription = (segment.transcript?.text ?? '').trim();
   const source = asset.source && asset.source.length > 0 ? asset.source : asset.assetId;
+  const semanticSubjects = uniqueSemanticFacts(segment.semanticVisual, 'subjects');
+  const semanticActions = uniqueSemanticFacts(segment.semanticVisual, 'actions');
+  const coarseAction = segment.visual?.actionType;
 
   return makeScene({
     source,
     startTime,
     endTime,
-    // objectCount/faceCount are counts, not labels -> honest empty (R2N), never faked.
-    objects: [],
+    // V-JEPA only has counts; labels come exclusively from bounded semantic-VLM facts.
+    objects: semanticSubjects,
     faces: [],
     detectedText: cleanText(segment.semanticVisual?.ocrText),
     transcription,
@@ -197,8 +225,8 @@ export function sceneFromSegment(
     aspectRatio: asset.aspectRatio ?? undefined,
     thumbnailUrl: asset.thumbnailUrl ?? undefined,
     createdAt: typeof asset.createdAt === 'number' ? asset.createdAt : undefined,
-    // --- analysis signals (the report card). No SegmentRecord NL caption exists, so
-    //     `description` is honestly left unset; primaryVisualMode is a real enum -> visualMode.
+    // Deterministic wording over observed facts; no prose inference or object fabrication.
+    description: describeSemanticVisual(segment.semanticVisual),
     importance: num01(segment.weight?.finalWeight),
     importanceConfidence: segment.weight?.confidence ?? undefined,
     visualMode: segment.semanticVisual?.primaryVisualMode ?? undefined,
@@ -207,7 +235,9 @@ export function sceneFromSegment(
       typeof segment.semanticVisual?.visuallyExplains === 'boolean'
         ? segment.semanticVisual.visuallyExplains
         : undefined,
-    actionType: segment.visual?.actionType ?? undefined,
+    actionType: coarseAction && coarseAction !== 'other'
+      ? coarseAction
+      : semanticActions[0] ?? coarseAction ?? undefined,
     motionIntensity: num01(segment.visual?.motionIntensity),
     vocalEnergy: num01(segment.vocal?.energy),
     vocalArousal: num01(segment.vocal?.emotionIntensity),

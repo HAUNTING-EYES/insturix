@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
-import { runAssetDeepAnalysis, type AssetDeepAnalysisSource } from '@/lib/editron/services/asset-deep-analysis';
+import {
+  ASSET_DEEP_ANALYSIS_VERSION,
+  buildAssetDeepAnalysisClaimFilter,
+  runAssetDeepAnalysis,
+  type AssetDeepAnalysisSource,
+} from '@/lib/editron/services/asset-deep-analysis';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -26,11 +31,12 @@ async function handler(request: NextRequest) {
     const db = await getDatabase();
     const claimedAt = new Date();
     const claim = await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-      { assetId, userId, deepAnalysisStatus: { $nin: ['analyzing', 'complete', 'degraded'] } },
+      buildAssetDeepAnalysisClaimFilter(assetId, userId),
       {
         $set: {
           analysisStatus: 'analyzing',
           deepAnalysisStatus: 'analyzing',
+          deepAnalysisTargetVersion: ASSET_DEEP_ANALYSIS_VERSION,
           deepAnalysisStartedAt: claimedAt,
         },
         $unset: { deepAnalysisError: '' },
@@ -39,13 +45,14 @@ async function handler(request: NextRequest) {
     if (claim.matchedCount === 0) {
       const current = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne(
         { assetId, userId },
-        { projection: { deepAnalysisStatus: 1, analysisStatus: 1 } },
+        { projection: { deepAnalysisStatus: 1, deepAnalysisVersion: 1, analysisStatus: 1 } },
       );
       return NextResponse.json({
         success: true,
         assetId,
         skipped: 'duplicate-or-complete',
         deepAnalysisStatus: current?.deepAnalysisStatus ?? null,
+        deepAnalysisVersion: current?.deepAnalysisVersion ?? null,
       });
     }
 
@@ -65,12 +72,14 @@ async function handler(request: NextRequest) {
           assetId,
           userId,
           rawFootageAnalysis: result.rawFootageAnalysis,
+          syntheticStoryboard: result.syntheticStoryboard,
           vjepaAnalysis: result.vjepaAnalysis,
           wav2vecAnalysis: result.wav2vecAnalysis,
           musicAnalysis: result.musicAnalysis,
           momentWeightMap: result.momentWeightMap,
           segmentAnalysis: result.segmentAnalysis,
           deepAnalysis: result.diagnostics,
+          deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
           deepAnalysisUpdatedAt: completedAt,
         },
         $setOnInsert: { createdAt: completedAt },
@@ -84,9 +93,11 @@ async function handler(request: NextRequest) {
           analysisStatus: 'complete',
           analysisCompletedAt: completedAt,
           deepAnalysisStatus: result.diagnostics.status,
+          deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
           deepAnalysisCompletedAt: completedAt,
           deepAnalysisDiagnostics: result.diagnostics,
         },
+        $unset: { deepAnalysisTargetVersion: '' },
       },
     );
 
@@ -94,6 +105,7 @@ async function handler(request: NextRequest) {
       success: true,
       assetId,
       deepAnalysisStatus: result.diagnostics.status,
+      deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
       diagnostics: result.diagnostics,
     });
   } catch (error) {
@@ -112,6 +124,7 @@ async function handler(request: NextRequest) {
               deepAnalysisError: message.slice(0, 500),
               deepAnalysisCompletedAt: new Date(),
             },
+            $unset: { deepAnalysisTargetVersion: '' },
           },
         );
       } catch (persistError) {
