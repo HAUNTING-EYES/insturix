@@ -3,11 +3,21 @@ import { auth } from '@clerk/nextjs/server';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import {
   buildMediaUploadBatchSummary,
+  DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT,
   normalizeUploadBatchId,
+  type MediaUploadAnalysisRequirements,
   type MediaUploadBatchAssetStatusInput,
 } from '@/lib/editron/services/media-upload-batch';
+import { ASSET_DEEP_ANALYSIS_VERSION } from '@/lib/editron/services/asset-deep-analysis';
 
 export const runtime = 'nodejs';
+
+const BATCH_STATUS_ANALYSIS_REQUIREMENTS: MediaUploadAnalysisRequirements = {
+  semanticVisual: {
+    version: ASSET_DEEP_ANALYSIS_VERSION,
+    maxRetries: DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT,
+  },
+};
 
 type BatchDocument = {
   uploadBatchId: string;
@@ -34,6 +44,15 @@ type BatchMediaAsset = {
   analysisQueuedAt?: Date | null;
   analysisStartedAt?: Date | null;
   analysisCompletedAt?: Date | null;
+  deepAnalysisStatus?: string | null;
+  deepAnalysisVersion?: number | null;
+  deepAnalysisTargetVersion?: number | null;
+  deepAnalysisRetryVersion?: number | null;
+  deepAnalysisRetryCount?: number | null;
+  deepAnalysisDiagnostics?: {
+    semanticVisualWindowCount?: number | null;
+    providers?: { semanticVisual?: string | null } | null;
+  } | null;
 };
 
 export async function GET(
@@ -81,6 +100,12 @@ export async function GET(
           analysisQueuedAt: 1,
           analysisStartedAt: 1,
           analysisCompletedAt: 1,
+          deepAnalysisStatus: 1,
+          deepAnalysisVersion: 1,
+          deepAnalysisTargetVersion: 1,
+          deepAnalysisRetryVersion: 1,
+          deepAnalysisRetryCount: 1,
+          deepAnalysisDiagnostics: 1,
         },
       })
       .sort({ uploadedAt: 1 })
@@ -101,7 +126,13 @@ export async function GET(
       analysisQueuedAt: asset.analysisQueuedAt,
       analysisStartedAt: asset.analysisStartedAt,
       analysisCompletedAt: asset.analysisCompletedAt,
-    })));
+      deepAnalysisStatus: asset.deepAnalysisStatus,
+      deepAnalysisVersion: asset.deepAnalysisVersion,
+      deepAnalysisTargetVersion: asset.deepAnalysisTargetVersion,
+      deepAnalysisRetryVersion: asset.deepAnalysisRetryVersion,
+      deepAnalysisRetryCount: asset.deepAnalysisRetryCount,
+      deepAnalysisDiagnostics: asset.deepAnalysisDiagnostics,
+    })), BATCH_STATUS_ANALYSIS_REQUIREMENTS);
 
     return NextResponse.json({
       success: true,

@@ -20,6 +20,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+function formatBatchAssetReadiness(asset: MediaUploadBatchStatus["assets"][number]): string {
+  switch (asset.semanticVisualReadiness) {
+    case "pending":
+      return "analyzing visuals";
+    case "retryable":
+      return "visual analysis required";
+    case "failed":
+      return "visual analysis unavailable";
+    default:
+      return asset.readiness.replace(/_/g, " ");
+  }
+}
+
 /**
  * User Media Gallery Component
  *
@@ -445,7 +458,12 @@ export function LocalMediaGallery({
               {uploadBatchStatus.assets.slice(0, 5).map((asset) => (
                 <div key={asset.assetId} className="flex items-center justify-between gap-2 text-muted-foreground">
                   <span className="min-w-0 truncate">{asset.filename}</span>
-                  <span className="shrink-0 capitalize text-foreground">{asset.readiness.replace(/_/g, " ")}</span>
+                  <span
+                    className="shrink-0 capitalize text-foreground"
+                    title={asset.blockingReason ?? undefined}
+                  >
+                    {formatBatchAssetReadiness(asset)}
+                  </span>
                 </div>
               ))}
               {uploadBatchStatus.assets.length > 5 && (

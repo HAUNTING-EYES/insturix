@@ -62,6 +62,13 @@ export type MediaUploadBatchReadiness =
   | 'ready'
   | 'needs_attention';
 
+export type SemanticVisualReadiness =
+  | 'not-required'
+  | 'ready'
+  | 'pending'
+  | 'retryable'
+  | 'failed';
+
 export interface MediaUploadBatchAssetStatus {
   assetId: string;
   filename: string;
@@ -74,6 +81,12 @@ export interface MediaUploadBatchAssetStatus {
   analysisStatus?: string | null;
   analysisError?: string | null;
   analysisSkipReason?: string | null;
+  deepAnalysisStatus?: string | null;
+  deepAnalysisVersion?: number | null;
+  deepAnalysisTargetVersion?: number | null;
+  deepAnalysisRetryVersion?: number | null;
+  deepAnalysisRetryCount?: number | null;
+  semanticVisualReadiness: SemanticVisualReadiness;
   readiness: MediaUploadAssetReadiness;
   blockingReason: string | null;
   needsAttention: boolean;

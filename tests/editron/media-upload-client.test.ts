@@ -26,6 +26,7 @@ function batchResponse(overrides: Record<string, unknown> = {}) {
         filename: 'clip.mp4',
         type: 'video',
         size: 123,
+        semanticVisualReadiness: 'ready',
         readiness: 'ready',
         blockingReason: null,
         needsAttention: false,
@@ -52,6 +53,7 @@ describe('media upload batch client', () => {
     expect(status.canCreateProject).toBe(true);
     expect(status.counts.ready).toBe(1);
     expect(status.assets[0]?.readiness).toBe('ready');
+    expect(status.assets[0]?.semanticVisualReadiness).toBe('ready');
   });
 
 
