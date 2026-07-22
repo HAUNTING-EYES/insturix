@@ -7,10 +7,13 @@ import {
   buildChatRequestOwnerPrompt,
   classifyChatRequestOwner,
   deriveChatRequestOwner,
+  deriveChatSemanticWorkflow,
   filterChatToolsForRequestOwner,
+  filterPromptForCallableChatTools,
   formatChatRequestOwnerLicenseForPrompt,
   type ChatRequestOwner,
   type ChatRequestOwnerLicense,
+  type ChatSemanticWorkflow,
 } from '@/lib/editron/agent/chat-request-owner';
 
 const baseInput = {
@@ -21,7 +24,7 @@ const baseInput = {
   attachments: [],
 };
 
-function license(owner: ChatRequestOwner): ChatRequestOwnerLicense {
+function license(owner: ChatRequestOwner, semanticWorkflow?: ChatSemanticWorkflow): ChatRequestOwnerLicense {
   return {
     version: 'editron-chat-request-owner-v1',
     owner,
@@ -29,6 +32,7 @@ function license(owner: ChatRequestOwner): ChatRequestOwnerLicense {
     reason: 'Test owner.',
     requestDigest: 'digest',
     decidedBy: 'gemini',
+    semanticWorkflow,
   };
 }
 
@@ -62,6 +66,7 @@ describe('chat request owner classification', () => {
           requestsAnalysis: false,
           requiresContentLocalization: false,
           requiresEditorialJudgment: true,
+          requestsReferenceStyle: false,
           operationFullySpecified: false,
           targetFullySpecified: false,
         },
@@ -74,6 +79,7 @@ describe('chat request owner classification', () => {
     const result = await classifyChatRequestOwner(baseInput, { generate, addUsage });
 
     expect(result.owner).toBe('semantic-editorial-planner');
+    expect(result.semanticWorkflow).toBe('editorial-plan');
     expect(result.routingFacts?.requiresEditorialJudgment).toBe(true);
     expect(result.decidedBy).toBe('gemini');
     expect(generate).toHaveBeenCalledTimes(1);
@@ -131,6 +137,7 @@ describe('chat request owner classification', () => {
           requestsAnalysis: false,
           requiresContentLocalization: false,
           requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
           operationFullySpecified: true,
           targetFullySpecified: true,
         },
@@ -157,6 +164,7 @@ describe('chat request owner classification', () => {
       requestsAnalysis: false,
       requiresContentLocalization: true,
       requiresEditorialJudgment: false,
+      requestsReferenceStyle: false,
       operationFullySpecified: true,
       targetFullySpecified: false,
     })).toBe('semantic-editorial-planner');
@@ -166,9 +174,36 @@ describe('chat request owner classification', () => {
       requestsAnalysis: true,
       requiresContentLocalization: false,
       requiresEditorialJudgment: false,
+      requestsReferenceStyle: false,
       operationFullySpecified: true,
       targetFullySpecified: true,
     })).toBe('semantic-editorial-planner');
+  });
+
+  it('derives exactly one semantic workflow from routing facts', () => {
+    const baseFacts = {
+      requestsMutation: true,
+      requestsAnalysis: false,
+      requiresContentLocalization: false,
+      requiresEditorialJudgment: false,
+      requestsReferenceStyle: false,
+      operationFullySpecified: true,
+      targetFullySpecified: false,
+    };
+
+    expect(deriveChatSemanticWorkflow({
+      ...baseFacts,
+      requiresContentLocalization: true,
+    })).toBe('localized-mutation');
+    expect(deriveChatSemanticWorkflow({
+      ...baseFacts,
+      requestsReferenceStyle: true,
+      requiresEditorialJudgment: true,
+    })).toBe('reference-style');
+    expect(deriveChatSemanticWorkflow({
+      ...baseFacts,
+      requiresEditorialJudgment: true,
+    })).toBe('editorial-plan');
   });
 });
 
@@ -181,6 +216,9 @@ describe('chat request owner capability filtering', () => {
     'apply_editorial_intent',
     'apply_reference_style',
     'add_overlay',
+    'cut_section',
+    'generate_html_sticker',
+    'set_keyframes',
     'add_captions',
     'add_fancy_captions',
     'regenerate_bgm',
@@ -191,8 +229,8 @@ describe('chat request owner capability filtering', () => {
     'unknown_tool',
   ].map((name) => ({ name }));
 
-  const namesFor = (owner: ChatRequestOwner) => (
-    filterChatToolsForRequestOwner(tools, license(owner)).map((tool) => tool.name)
+  const namesFor = (owner: ChatRequestOwner, semanticWorkflow?: ChatSemanticWorkflow) => (
+    filterChatToolsForRequestOwner(tools, license(owner, semanticWorkflow)).map((tool) => tool.name)
   );
 
   it('gives the semantic owner evidence readers and semantic producers only', () => {
@@ -202,7 +240,27 @@ describe('chat request owner capability filtering', () => {
       'resolve_visual_edit',
       'queue_resolved_clip_analysis',
       'apply_editorial_intent',
+    ]);
+  });
+
+  it('gives reference-style and localized requests non-overlapping mutation surfaces', () => {
+    expect(namesFor('semantic-editorial-planner', 'reference-style')).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'resolve_visual_edit',
+      'queue_resolved_clip_analysis',
       'apply_reference_style',
+    ]);
+    expect(namesFor('semantic-editorial-planner', 'localized-mutation')).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'resolve_visual_edit',
+      'queue_resolved_clip_analysis',
+      'add_overlay',
+      'cut_section',
+      'generate_html_sticker',
+      'set_keyframes',
+      'add_sfx',
     ]);
   });
 
@@ -214,6 +272,9 @@ describe('chat request owner capability filtering', () => {
       'resolve_visual_edit',
       'queue_resolved_clip_analysis',
       'add_overlay',
+      'cut_section',
+      'generate_html_sticker',
+      'set_keyframes',
       'add_sfx',
       'refresh_captions',
     ]);
@@ -245,7 +306,28 @@ describe('chat request owner capability filtering', () => {
     expect(formatChatRequestOwnerLicenseForPrompt(license('mechanical-editor'))).toContain(
       'owner=mechanical-editor',
     );
+    expect(formatChatRequestOwnerLicenseForPrompt(
+      license('semantic-editorial-planner', 'localized-mutation'),
+    )).toContain('semanticWorkflow=localized-mutation');
     expect(formatChatRequestOwnerLicenseForPrompt(undefined)).toBe('');
+  });
+
+  it('mechanically removes prompt instructions for registered but hidden tools', () => {
+    const prompt = [
+      'Use apply_editorial_intent for the project-level edit.',
+      'Resolve the moment with resolve_visual_edit.',
+      'Never invent project state.',
+      'Do not call add_overlay when it is hidden.',
+    ].join('\n');
+
+    expect(filterPromptForCallableChatTools(prompt, [
+      'apply_editorial_intent',
+      'resolve_visual_edit',
+    ])).toBe([
+      'Use apply_editorial_intent for the project-level edit.',
+      'Resolve the moment with resolve_visual_edit.',
+      'Never invent project state.',
+    ].join('\n'));
   });
 });
 

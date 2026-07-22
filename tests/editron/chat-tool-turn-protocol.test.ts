@@ -13,9 +13,19 @@ import {
   type CompletedChatToolExecution,
 } from '@/lib/editron/agent/chat-tool-execution-policy';
 import { CHAT_TOOL_REGISTRY } from '@/lib/editron/agent/chat-tool-registry';
+import type { ChatRequestOwnerLicense } from '@/lib/editron/agent/chat-request-owner';
 
 const PROJECT_ID = 'project-1';
 const REVISION = 'revision-1';
+const LOCALIZED_LICENSE: ChatRequestOwnerLicense = {
+  version: 'editron-chat-request-owner-v1',
+  owner: 'semantic-editorial-planner',
+  confidence: 1,
+  reason: 'The operation is explicit but its media target must be localized.',
+  requestDigest: 'localized-request',
+  decidedBy: 'gemini',
+  semanticWorkflow: 'localized-mutation',
+};
 
 function execution(
   name: string,
@@ -187,6 +197,100 @@ describe('chat tool turn protocol', () => {
       projectId: 'project-2',
       projectRevision: REVISION,
     })).toMatchObject({ action: 'block', reason: 'missing-evidence' });
+  });
+
+  it('uses the server-loaded canonical project as project-state evidence', () => {
+    expect(decideChatToolExecution({
+      toolName: 'add_overlay',
+      args: { type: 'text' },
+      ledger: ledger(),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+    })).toEqual({ action: 'execute' });
+  });
+
+  it('authorizes only the exact localized mutation returned by a current resolver', () => {
+    const resolvedArgs = {
+      type: 'image',
+      assetId: 'asset-1',
+      start: 90,
+      duration: 30,
+      x: 120,
+      y: 80,
+    };
+    const resolverOutput = JSON.stringify({
+      status: 'success',
+      data: { useWith: { add_overlay: resolvedArgs } },
+      error: null,
+    });
+    const evidenceReceipts = buildChatEvidenceReceipts({
+      toolName: 'resolve_visual_edit',
+      args: { query: 'the bird', action: 'highlight' },
+      output: resolverOutput,
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    });
+    const resolved = execution('resolve_visual_edit', resolverOutput, { evidenceReceipts });
+
+    expect(evidenceReceipts[0]?.authorizedMutations).toEqual([{
+      toolName: 'add_overlay',
+      args: resolvedArgs,
+    }]);
+    expect(decideChatToolExecution({
+      toolName: 'add_overlay',
+      args: resolvedArgs,
+      ledger: ledger([resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toEqual({ action: 'execute' });
+
+    const altered = decideChatToolExecution({
+      toolName: 'add_overlay',
+      args: { ...resolvedArgs, assetId: 'asset-2' },
+      ledger: ledger([resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    });
+    expect(altered).toMatchObject({ action: 'block', reason: 'missing-evidence' });
+    expect(JSON.parse(altered.action === 'block' ? altered.output : '{}')).toMatchObject({
+      error: { code: 'CHAT_TOOL_TARGET_EVIDENCE_REQUIRED' },
+    });
+  });
+
+  it('normalizes resolver frame aliases without weakening localized SFX authorization', () => {
+    const resolverOutput = JSON.stringify({
+      status: 'success',
+      data: {
+        useWith: {
+          add_sfx: { query: 'soft impact', frame: 120, sync: 'audio-anchor', note: 'beat hit' },
+        },
+      },
+      error: null,
+    });
+    const resolved = execution('resolve_audio_edit', resolverOutput, {
+      evidenceReceipts: buildChatEvidenceReceipts({
+        toolName: 'resolve_audio_edit',
+        args: { query: 'first beat', action: 'add_sfx' },
+        output: resolverOutput,
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      }),
+    });
+
+    expect(decideChatToolExecution({
+      toolName: 'add_sfx',
+      args: { query: 'soft impact', startFrame: 120 },
+      ledger: ledger([resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toEqual({ action: 'execute' });
   });
 
   it('persists evidence receipts through tool-message ledger reconstruction', () => {

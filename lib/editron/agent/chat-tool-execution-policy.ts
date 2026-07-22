@@ -5,6 +5,7 @@ import {
   type ChatToolExecutionPolicy,
   type ChatToolOwnerClass,
 } from './chat-tool-registry';
+import type { ChatRequestOwnerLicense } from './chat-request-owner';
 
 export const CHAT_TOOL_EVIDENCE_RECEIPT_VERSION = 'editron-chat-evidence-v1' as const;
 
@@ -29,6 +30,10 @@ export interface ChatToolEvidenceReceipt {
     startFrame: number | null;
     endFrame: number | null;
   };
+  authorizedMutations?: Array<{
+    toolName: string;
+    args: Record<string, unknown>;
+  }>;
 }
 
 export interface CompletedChatToolExecution {
@@ -142,6 +147,8 @@ export function decideChatToolExecution(input: {
   ledger: ChatToolTurnLedger;
   projectId?: string;
   projectRevision?: string | null;
+  canonicalProjectEvidence?: boolean;
+  requestOwnerLicense?: ChatRequestOwnerLicense;
 }): ChatToolExecutionDecision {
   const metadata = getChatToolMetadata(input.toolName);
   const policy = metadata?.executionPolicy;
@@ -207,8 +214,19 @@ export function decideChatToolExecution(input: {
     projectId: input.projectId,
     projectRevision: input.projectRevision,
     ledger: input.ledger,
+    canonicalProjectEvidence: input.canonicalProjectEvidence,
   });
   if (evidenceDecision) return evidenceDecision;
+
+  const localizedMutationDecision = enforceLocalizedMutationAuthorization({
+    toolName: input.toolName,
+    args: input.args,
+    projectId: input.projectId,
+    projectRevision: input.projectRevision,
+    ledger: input.ledger,
+    requestOwnerLicense: input.requestOwnerLicense,
+  });
+  if (localizedMutationDecision) return localizedMutationDecision;
 
   if (policy.cardinality === 'once-per-turn' && completedOwnerExecutions.length >= 1) {
     return blockedDecision({
@@ -303,6 +321,7 @@ export function buildChatEvidenceReceipts(input: {
   }
 
   const target = resolveEvidenceTarget(input.args, input.output);
+  const authorizedMutations = extractAuthorizedMutations(input.output);
   return metadata.turnContract.producesEvidence.map((evidenceClass) => ({
     version: CHAT_TOOL_EVIDENCE_RECEIPT_VERSION,
     evidenceClass,
@@ -312,6 +331,9 @@ export function buildChatEvidenceReceipts(input: {
     target: evidenceClass === 'project-state'
       ? { scope: 'project', overlayIds: [], startFrame: null, endFrame: null }
       : target,
+    ...(evidenceClass !== 'project-state' && authorizedMutations.length > 0
+      ? { authorizedMutations }
+      : {}),
   }));
 }
 
@@ -373,6 +395,7 @@ function enforceEvidenceContract(input: {
   projectId?: string;
   projectRevision?: string | null;
   ledger: ChatToolTurnLedger;
+  canonicalProjectEvidence?: boolean;
 }): ChatToolExecutionDecision | null {
   const contract = getChatToolMetadata(input.toolName)?.turnContract;
   if (!contract || contract.evidenceStrategy !== 'preflight' || contract.requiredEvidence.length === 0) {
@@ -387,7 +410,12 @@ function enforceEvidenceContract(input: {
     (receipt) => receipt.projectRevision === input.projectRevision,
   );
   const missing = contract.requiredEvidence.filter(
-    (evidenceClass) => !validReceipts.some((receipt) => receipt.evidenceClass === evidenceClass),
+    (evidenceClass) => !(
+      evidenceClass === 'project-state'
+      && input.canonicalProjectEvidence
+      && input.projectId
+      && input.projectRevision
+    ) && !validReceipts.some((receipt) => receipt.evidenceClass === evidenceClass),
   );
   if (missing.length === 0) return null;
 
@@ -405,6 +433,51 @@ function enforceEvidenceContract(input: {
       ? `Canonical evidence for ${input.toolName} belongs to an older project revision.`
       : `${input.toolName} requires current ${missing.join(', ')} evidence before mutation.`,
     nextAction: 'Call read_project_file as the only next tool, then retry this exact target once.',
+  });
+}
+
+function enforceLocalizedMutationAuthorization(input: {
+  toolName: string;
+  args: Record<string, unknown>;
+  projectId?: string;
+  projectRevision?: string | null;
+  ledger: ChatToolTurnLedger;
+  requestOwnerLicense?: ChatRequestOwnerLicense;
+}): ChatToolExecutionDecision | null {
+  if (
+    input.requestOwnerLicense?.owner !== 'semantic-editorial-planner'
+    || input.requestOwnerLicense.semanticWorkflow !== 'localized-mutation'
+    || !getChatToolMetadata(input.toolName)?.mutatesProject
+  ) {
+    return null;
+  }
+
+  const receipts = input.ledger.completedExecutions
+    .flatMap((execution) => execution.evidenceReceipts)
+    .filter((receipt) => receipt.projectId === input.projectId);
+  const validReceipts = receipts.filter(
+    (receipt) => receipt.projectRevision === input.projectRevision,
+  );
+  const authorized = validReceipts.some((receipt) =>
+    (receipt.authorizedMutations ?? []).some((mutation) =>
+      mutation.toolName === input.toolName
+      && authorizedArgsMatch(input.toolName, mutation.args, input.args),
+    ),
+  );
+  if (authorized) return null;
+
+  const hasStaleAuthorization = receipts.some((receipt) =>
+    receipt.projectRevision !== input.projectRevision
+    && (receipt.authorizedMutations ?? []).some((mutation) => mutation.toolName === input.toolName),
+  );
+  return blockedDecision({
+    reason: hasStaleAuthorization ? 'stale-evidence' : 'missing-evidence',
+    code: hasStaleAuthorization ? 'CHAT_TOOL_EVIDENCE_STALE' : 'CHAT_TOOL_TARGET_EVIDENCE_REQUIRED',
+    toolName: input.toolName,
+    message: hasStaleAuthorization
+      ? `The grounded ${input.toolName} authorization belongs to an older project revision.`
+      : `${input.toolName} is not authorized by a current resolver result for these exact arguments.`,
+    nextAction: 'Call the matching transcript, visual, audio, or asset resolver, then use its data.useWith operation unchanged.',
   });
 }
 
@@ -484,6 +557,58 @@ function resolveEvidenceTarget(
   const startFrame = firstFinite(searchable, ['startFrame', 'fromFrame', 'from', 'frame']);
   const endFrame = firstFinite(searchable, ['endFrame', 'toFrame', 'end']);
   return { scope: 'target', overlayIds, startFrame, endFrame };
+}
+
+function extractAuthorizedMutations(
+  output: string,
+): NonNullable<ChatToolEvidenceReceipt['authorizedMutations']> {
+  const envelope = parseJsonRecord(output);
+  const useWith = asRecord(asRecord(envelope?.data).useWith);
+  return Object.entries(useWith).flatMap(([toolName, rawArgs]) => {
+    const metadata = getChatToolMetadata(toolName);
+    if (!metadata?.mutatesProject || !rawArgs || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) {
+      return [];
+    }
+    return [{ toolName, args: rawArgs as Record<string, unknown> }];
+  });
+}
+
+function authorizedArgsMatch(
+  toolName: string,
+  expectedArgs: Record<string, unknown>,
+  actualArgs: Record<string, unknown>,
+): boolean {
+  const expected = normalizeAuthorizedArgs(toolName, expectedArgs);
+  const actual = normalizeAuthorizedArgs(toolName, actualArgs);
+  return isDeepSubset(expected, actual);
+}
+
+function normalizeAuthorizedArgs(
+  toolName: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const normalized = { ...args };
+  if (toolName === 'add_sfx' && normalized.startFrame === undefined && normalized.frame !== undefined) {
+    normalized.startFrame = normalized.frame;
+  }
+  delete normalized.frame;
+  delete normalized.note;
+  delete normalized.sync;
+  return normalized;
+}
+
+function isDeepSubset(expected: unknown, actual: unknown): boolean {
+  if (Array.isArray(expected)) {
+    return Array.isArray(actual)
+      && expected.length === actual.length
+      && expected.every((entry, index) => isDeepSubset(entry, actual[index]));
+  }
+  if (expected && typeof expected === 'object') {
+    if (!actual || typeof actual !== 'object' || Array.isArray(actual)) return false;
+    return Object.entries(expected as Record<string, unknown>)
+      .every(([key, value]) => isDeepSubset(value, (actual as Record<string, unknown>)[key]));
+  }
+  return Object.is(expected, actual);
 }
 
 function collectNamedStrings(value: unknown, keys: Set<string>, currentKey?: string): string[] {

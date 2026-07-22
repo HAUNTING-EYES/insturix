@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { AuthorizedChatAttachment } from '../services/chat-attachment-contract';
 import { CHAT_MODEL_NAME, getGenAI } from '../utils/gemini-model-factory';
 import type { TokenUsageMetadata } from '../utils/token-tracker';
-import { getChatToolMetadata } from './chat-tool-registry';
+import { CHAT_TOOL_REGISTRY, getChatToolMetadata } from './chat-tool-registry';
 
 export const CHAT_REQUEST_OWNERS = [
   'semantic-editorial-planner',
@@ -18,12 +18,14 @@ export const CHAT_REQUEST_OWNERS = [
 
 export type ChatRequestOwner = (typeof CHAT_REQUEST_OWNERS)[number];
 export type ChatRestoreResolutionStatus = 'ready' | 'no-intent' | 'no-checkpoint' | 'missing-target';
+export type ChatSemanticWorkflow = 'editorial-plan' | 'reference-style' | 'localized-mutation';
 
 export interface ChatRequestRoutingFacts {
   requestsMutation: boolean;
   requestsAnalysis: boolean;
   requiresContentLocalization: boolean;
   requiresEditorialJudgment: boolean;
+  requestsReferenceStyle: boolean;
   operationFullySpecified: boolean;
   targetFullySpecified: boolean;
 }
@@ -36,6 +38,7 @@ export interface ChatRequestOwnerLicense {
   requestDigest: string;
   decidedBy: 'checkpoint-resolver' | 'gemini';
   routingFacts?: ChatRequestRoutingFacts;
+  semanticWorkflow?: ChatSemanticWorkflow;
 }
 
 export interface ClassifyChatRequestOwnerInput {
@@ -61,6 +64,7 @@ const routingFactsSchema = z.object({
   requestsAnalysis: z.boolean(),
   requiresContentLocalization: z.boolean(),
   requiresEditorialJudgment: z.boolean(),
+  requestsReferenceStyle: z.boolean(),
   operationFullySpecified: z.boolean(),
   targetFullySpecified: z.boolean(),
 }).strict();
@@ -81,6 +85,7 @@ const GEMINI_OWNER_RESPONSE_SCHEMA: ResponseSchema = {
         requestsAnalysis: { type: SchemaType.BOOLEAN },
         requiresContentLocalization: { type: SchemaType.BOOLEAN },
         requiresEditorialJudgment: { type: SchemaType.BOOLEAN },
+        requestsReferenceStyle: { type: SchemaType.BOOLEAN },
         operationFullySpecified: { type: SchemaType.BOOLEAN },
         targetFullySpecified: { type: SchemaType.BOOLEAN },
       },
@@ -89,6 +94,7 @@ const GEMINI_OWNER_RESPONSE_SCHEMA: ResponseSchema = {
         'requestsAnalysis',
         'requiresContentLocalization',
         'requiresEditorialJudgment',
+        'requestsReferenceStyle',
         'operationFullySpecified',
         'targetFullySpecified',
       ],
@@ -107,6 +113,16 @@ const MINIMAL_READ_TOOLS = new Set([
 const SEMANTIC_OWNER_TOOLS = new Set([
   'apply_editorial_intent',
   'apply_reference_style',
+]);
+
+// These tools are not alternate editorial owners. They are operation adapters that may
+// execute only after a resolver has issued an exact, revision-bound useWith receipt.
+const LOCALIZED_MUTATION_TOOLS = new Set([
+  'add_overlay',
+  'add_sfx',
+  'cut_section',
+  'generate_html_sticker',
+  'set_keyframes',
 ]);
 
 // These compatibility tools create family output directly. They stay available to
@@ -163,14 +179,18 @@ export async function classifyChatRequestOwner(
     }
 
     const routingFacts = parsedOwner.data.facts;
+    const owner = deriveChatRequestOwner(routingFacts);
     return {
       version: 'editron-chat-request-owner-v1',
-      owner: deriveChatRequestOwner(routingFacts),
+      owner,
       confidence: parsedOwner.data.confidence,
       reason: parsedOwner.data.reason,
       requestDigest,
       decidedBy: 'gemini',
       routingFacts,
+      ...(owner === 'semantic-editorial-planner'
+        ? { semanticWorkflow: deriveChatSemanticWorkflow(routingFacts) }
+        : {}),
     };
   }
 
@@ -196,6 +216,7 @@ requestsMutation: true only when the user asks to change the project.
 requestsAnalysis: true when the user asks to inspect, find, compare, transcribe, diagnose, or analyze project content.
 requiresContentLocalization: true when execution must find a spoken phrase, visible event, audio event, semantic moment, script section, or reference match inside media.
 requiresEditorialJudgment: true when execution must decide what belongs, when it belongs, or how it should feel. Family-wide requests such as choosing captions, music, transitions, SFX, motion graphics, pacing, color mood, or reference style normally require this judgment.
+requestsReferenceStyle: true only when the user asks to imitate, transfer, or apply the editing language of a supplied or named reference. An attachment by itself is not a request to apply its style.
 operationFullySpecified: true when the requested operation and all values needed to perform it are supplied. Literal text, a named color, bold/italic, relative placement such as top/center, and a duration such as first 3 seconds count as supplied values.
 targetFullySpecified: true when the existing target is selected/identified or, for a new element, its timeline window and placement are supplied. A new element never needs an existing overlay ID.
 </fact_contract>
@@ -223,7 +244,7 @@ ${JSON.stringify({
 ${boundedRequest(input.userMessage)}
 </untrusted_user_request>
 
-Return exactly {"facts":{"requestsMutation":boolean,"requestsAnalysis":boolean,"requiresContentLocalization":boolean,"requiresEditorialJudgment":boolean,"operationFullySpecified":boolean,"targetFullySpecified":boolean},"confidence":0..1,"reason":"one short factual sentence"}.`;
+Return exactly {"facts":{"requestsMutation":boolean,"requestsAnalysis":boolean,"requiresContentLocalization":boolean,"requiresEditorialJudgment":boolean,"requestsReferenceStyle":boolean,"operationFullySpecified":boolean,"targetFullySpecified":boolean},"confidence":0..1,"reason":"one short factual sentence"}.`;
 }
 
 export function deriveChatRequestOwner(facts: ChatRequestRoutingFacts): ChatRequestOwner {
@@ -236,6 +257,18 @@ export function deriveChatRequestOwner(facts: ChatRequestRoutingFacts): ChatRequ
     return needsSemanticOwner ? 'semantic-editorial-planner' : 'mechanical-editor';
   }
   return facts.requestsAnalysis ? 'analysis-reader' : 'conversation';
+}
+
+export function deriveChatSemanticWorkflow(facts: ChatRequestRoutingFacts): ChatSemanticWorkflow {
+  if (facts.requestsReferenceStyle) return 'reference-style';
+  if (
+    facts.requiresContentLocalization
+    && facts.operationFullySpecified
+    && !facts.requiresEditorialJudgment
+  ) {
+    return 'localized-mutation';
+  }
+  return 'editorial-plan';
 }
 
 export function filterChatToolsForRequestOwner<T extends { name: string }>(
@@ -254,7 +287,15 @@ export function filterChatToolsForRequestOwner<T extends { name: string }>(
       return !metadata.mutatesProject && !SEMANTIC_OWNER_TOOLS.has(tool.name);
     }
     if (license.owner === 'semantic-editorial-planner') {
-      return !metadata.mutatesProject || SEMANTIC_OWNER_TOOLS.has(tool.name);
+      const workflow = resolveSemanticWorkflow(license);
+      if (!metadata.mutatesProject) {
+        return workflow === 'reference-style'
+          ? tool.name === 'apply_reference_style' || !SEMANTIC_OWNER_TOOLS.has(tool.name)
+          : !SEMANTIC_OWNER_TOOLS.has(tool.name);
+      }
+      if (workflow === 'editorial-plan') return tool.name === 'apply_editorial_intent';
+      if (workflow === 'localized-mutation') return LOCALIZED_MUTATION_TOOLS.has(tool.name);
+      return false;
     }
 
     if (!metadata.mutatesProject) return !SEMANTIC_OWNER_TOOLS.has(tool.name);
@@ -265,11 +306,46 @@ export function filterChatToolsForRequestOwner<T extends { name: string }>(
 
 export function formatChatRequestOwnerLicenseForPrompt(license?: ChatRequestOwnerLicense): string {
   if (!license) return '';
+  const semanticWorkflow = license.owner === 'semantic-editorial-planner'
+    ? resolveSemanticWorkflow(license)
+    : undefined;
+  const workflowRule = semanticWorkflow === 'editorial-plan'
+    ? 'Use apply_editorial_intent as the sole mutation owner. Resolvers may provide evidence, but do not call low-level mutation tools.'
+    : semanticWorkflow === 'reference-style'
+      ? 'Use apply_reference_style as the sole semantic workflow. Do not invoke another semantic workflow in this turn.'
+      : semanticWorkflow === 'localized-mutation'
+        ? 'Resolve the requested media moment first, then call only the exact mutation and arguments returned in data.useWith. The server rejects ungrounded or altered continuations.'
+        : 'Use only tools declared for this owner.';
   return `<turn_capability_license>
 version=${license.version}
 owner=${license.owner}
+${semanticWorkflow ? `semanticWorkflow=${semanticWorkflow}\n` : ''}${workflowRule}
 Only the function declarations attached to this turn are callable. Do not name, request, or simulate hidden tools. Do not use generic overlays or low-level mutations to bypass the licensed owner. Complete the turn through this owner only.
 </turn_capability_license>`;
+}
+
+export function filterPromptForCallableChatTools(
+  prompt: string,
+  callableToolNames: Iterable<string>,
+): string {
+  const callable = new Set(callableToolNames);
+  const knownToolNames = Object.keys(CHAT_TOOL_REGISTRY);
+  return prompt
+    .split('\n')
+    .filter((line) => knownToolNames.every((toolName) =>
+      callable.has(toolName) || !containsWholeToolName(line, toolName),
+    ))
+    .join('\n');
+}
+
+function resolveSemanticWorkflow(license: ChatRequestOwnerLicense): ChatSemanticWorkflow {
+  if (license.semanticWorkflow) return license.semanticWorkflow;
+  return license.routingFacts ? deriveChatSemanticWorkflow(license.routingFacts) : 'editorial-plan';
+}
+
+function containsWholeToolName(line: string, toolName: string): boolean {
+  const escaped = toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^A-Za-z0-9_])${escaped}([^A-Za-z0-9_]|$)`).test(line);
 }
 
 async function generateOwnerClassification(prompt: string): Promise<ChatOwnerGenerationResult> {
