@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   assetsUpdateOne: vi.fn(async () => ({ upsertedCount: 1 })),
   projectsFindOne: vi.fn(async () => ({ projectId: 'mg-live-project', orgId: 'org-1' })),
   projectsUpdateOne: vi.fn(async () => ({ matchedCount: 1 })),
-  runDurableMgRenderJob: vi.fn(),
+  enqueueDurableMgRenderJob: vi.fn(),
   captureMgVisualEvidence: vi.fn(),
   recordStorageUsage: vi.fn(async () => undefined),
   deleteR2Prefix: vi.fn(async () => 0),
@@ -28,7 +28,7 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
 
 vi.mock('@/lib/editron/motion-graphics/codegen/mg-render-job-runner', () => ({
   resolveMgRenderAppCommit: vi.fn(() => '350b04ccb037ce3ae018627a1b6df0d3f959e2b8'),
-  runDurableMgRenderJob: mocks.runDurableMgRenderJob,
+  enqueueDurableMgRenderJob: mocks.enqueueDurableMgRenderJob,
 }));
 
 vi.mock('@/lib/editron/motion-graphics/codegen/visual-evidence', () => ({
@@ -140,20 +140,10 @@ beforeEach(() => {
   mocks.projectsFindOne.mockResolvedValue({ projectId: 'mg-live-project', orgId: 'org-1' });
   mocks.projectsUpdateOne.mockResolvedValue({ matchedCount: 1 });
   mocks.captureMgVisualEvidence.mockResolvedValue(VISUAL_EVIDENCE);
-  mocks.runDurableMgRenderJob.mockResolvedValue({
-      status: 'generated',
-      sequence: {
-        address: { sequenceId: 'tenant-seq-1', frameCount: 90, cdnBaseUrl: 'https://cdn.example.com' },
-        r2Prefix: 'mgseq_tenant-seq-1_',
-        fps: 30,
-        width: 1920,
-        height: 1080,
-        frameFormat: 'webp',
-        transparent: true,
-        sizeBytes: 1200,
-        renderMs: 45,
-      },
-      receipt: RECEIPT,
+  mocks.enqueueDurableMgRenderJob.mockResolvedValue({
+    jobId: 'mgr_0123456789abcdef0123456789abcdef',
+    status: 'queued',
+    messageId: 'qstash-message-1',
   });
 });
 
@@ -162,7 +152,7 @@ afterEach(() => {
 });
 
 describe('live MG codegen seam', () => {
-  it('drives a real graphic decision through one selected candidate into a durable full-frame sequence', async () => {
+  it('queues one selected candidate without blocking Director or inserting an inline sequence', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const overlays = sourceOverlays();
@@ -175,23 +165,11 @@ describe('live MG codegen seam', () => {
       { width: 1920, height: 1080 },
     );
 
-    expect(result.overlaysCreated).toBe(1);
-    const sequence = overlays.find((overlay) => overlay.type === OverlayType.MG_SEQUENCE);
-    expect(sequence).toMatchObject({
-      type: OverlayType.MG_SEQUENCE,
-      assetId: 'mgseq_tenant-seq-1',
-      from: 30,
-      durationInFrames: 90,
-      row: 6,
-      left: 0,
-      top: 0,
-      width: 1920,
-      height: 1080,
-      _workerAdded: true,
-    });
+    expect(result.overlaysCreated).toBe(0);
+    expect(overlays).toHaveLength(1);
     expect(overlays.some((overlay) => overlay.type === OverlayType.MOTION_GRAPHIC)).toBe(false);
 
-    const [jobInput] = mocks.runDurableMgRenderJob.mock.calls[0];
+    const [jobInput] = mocks.enqueueDurableMgRenderJob.mock.calls[0];
     expect(mocks.captureMgVisualEvidence).toHaveBeenCalledWith(expect.objectContaining({
       overlays: expect.arrayContaining([expect.objectContaining({ type: OverlayType.VIDEO })]),
       window: expect.objectContaining({ startFrame: 30, fps: 30 }),
@@ -201,39 +179,25 @@ describe('live MG codegen seam', () => {
     expect(jobInput.input.candidate).toMatchObject({ factKind: 'bounded-stat', content: expect.objectContaining({ label: 'conversion lift' }) });
     expect(jobInput.input.window).toMatchObject({ startFrame: 30, fps: 30 });
     expect(jobInput).toMatchObject({ projectId: 'mg-live-project', userId: 'user-1', orgId: 'org-1', sequenceNamespace: 'user-1' });
-    expect(mocks.recordStorageUsage).toHaveBeenCalledWith({ id: 'org-1', type: 'org' }, 1200);
-
-    const assetCall = mocks.assetsUpdateOne.mock.calls[0] as unknown as [unknown, { $setOnInsert: Record<string, unknown> }];
-    const assetWrite = assetCall[1].$setOnInsert;
-    expect(assetWrite).toMatchObject({
-      assetId: 'mgseq_tenant-seq-1',
-      type: 'sequence',
-      source: 'generated',
-      frameCount: 90,
-      fps: 30,
-      r2Prefix: 'mgseq_tenant-seq-1_',
-      status: 'ready',
-      codegen: expect.objectContaining({ factKind: 'bounded-stat', receipt: RECEIPT }),
-    });
+    expect(mocks.assetsUpdateOne).not.toHaveBeenCalled();
+    expect(mocks.recordStorageUsage).not.toHaveBeenCalled();
     expect(mocks.projectsUpdateOne).toHaveBeenCalledWith(
       { projectId: 'mg-live-project', userId: 'user-1' },
       expect.objectContaining({
         $set: expect.objectContaining({
-          'intelligence.mgCodegenRun': expect.objectContaining({ generatedCount: 1, failedCount: 0 }),
+          'intelligence.mgCodegenRun.queuedCount': 1,
+          'intelligence.mgCodegenRun.generatedCount': 0,
+          'intelligence.mgCodegenRun.failedCount': 0,
         }),
       }),
     );
   });
 
-  it('does not fall back to a legacy card when codegen honestly declines', async () => {
+  it('does not fall back to a legacy card when durable dispatch fails', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    mocks.runDurableMgRenderJob.mockResolvedValue({
-      status: 'declined',
-      reason: 'the moment has no faithful visual explanation',
-      receipt: { ...RECEIPT, outcome: 'declined', reason: 'the moment has no faithful visual explanation' },
-    });
+    mocks.enqueueDurableMgRenderJob.mockRejectedValue(new Error('QSTASH_TOKEN is required'));
     const overlays = sourceOverlays();
 
     const result = await executeEDL(
@@ -253,9 +217,15 @@ describe('live MG codegen seam', () => {
     const projectCall = mocks.projectsUpdateOne.mock.calls.at(-1) as unknown as
       | [unknown, { $set: Record<string, any> }]
       | undefined;
-    const runEvidence = projectCall?.[1].$set['intelligence.mgCodegenRun'];
-    expect(runEvidence).toMatchObject({ generatedCount: 0, failedCount: 1 });
-    expect(runEvidence.outcomes[0]).toMatchObject({ status: 'declined', reason: expect.stringContaining('no faithful visual') });
+    const runEvidence = projectCall?.[1].$set;
+    expect(runEvidence).toMatchObject({
+      'intelligence.mgCodegenRun.generatedCount': 0,
+      'intelligence.mgCodegenRun.failedCount': 1,
+    });
+    expect(runEvidence?.['intelligence.mgCodegenRun.outcomes'][0]).toMatchObject({
+      status: 'fallback',
+      reason: expect.stringContaining('QSTASH_TOKEN'),
+    });
   });
 
   it('fails closed before the durable render job when edited-canvas evidence cannot be captured', async () => {
@@ -274,7 +244,7 @@ describe('live MG codegen seam', () => {
     );
 
     expect(result.overlaysCreated).toBe(0);
-    expect(mocks.runDurableMgRenderJob).not.toHaveBeenCalled();
+    expect(mocks.enqueueDurableMgRenderJob).not.toHaveBeenCalled();
     expect(overlays).toHaveLength(1);
     expect(overlays.some((overlay) => (
       overlay.type === OverlayType.MG_SEQUENCE || overlay.type === OverlayType.MOTION_GRAPHIC

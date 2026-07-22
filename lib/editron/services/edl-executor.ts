@@ -1145,7 +1145,7 @@ export async function executeEDL(
     .filter((outcome): outcome is MgCodegenDecisionOutcome => (
       Boolean(outcome)
       && typeof outcome === 'object'
-      && ['generated', 'declined', 'fallback'].includes((outcome as MgCodegenDecisionOutcome).status)
+      && ['queued', 'generated', 'declined', 'fallback'].includes((outcome as MgCodegenDecisionOutcome).status)
     ));
   if (mgCodegenOutcomes.length > 0) {
     try {
@@ -1154,14 +1154,13 @@ export async function executeEDL(
         { projectId, userId },
         {
           $set: {
-            'intelligence.mgCodegenRun': {
-              version: 'mg-codegen-run-v1',
-              generatedCount: mgCodegenOutcomes.filter((outcome) => outcome.status === 'generated').length,
-              failedCount: mgCodegenOutcomes.filter((outcome) => outcome.status !== 'generated').length,
-              outcomes: mgCodegenOutcomes.slice(0, 100),
-              truncated: mgCodegenOutcomes.length > 100,
-              completedAt: new Date(),
-            },
+            'intelligence.mgCodegenRun.version': 'mg-codegen-run-v2',
+            'intelligence.mgCodegenRun.queuedCount': mgCodegenOutcomes.filter((outcome) => outcome.status === 'queued').length,
+            'intelligence.mgCodegenRun.generatedCount': mgCodegenOutcomes.filter((outcome) => outcome.status === 'generated').length,
+            'intelligence.mgCodegenRun.failedCount': mgCodegenOutcomes.filter((outcome) => outcome.status === 'declined' || outcome.status === 'fallback').length,
+            'intelligence.mgCodegenRun.outcomes': mgCodegenOutcomes.slice(0, 100),
+            'intelligence.mgCodegenRun.truncated': mgCodegenOutcomes.length > 100,
+            'intelligence.mgCodegenRun.completedAt': new Date(),
           },
         },
       );
@@ -3933,11 +3932,13 @@ function normalizeGraphicDedupeToken(value: unknown): string {
 }
 
 interface MgCodegenDecisionOutcome {
-  status: 'generated' | 'declined' | 'fallback';
+  status: 'queued' | 'generated' | 'declined' | 'fallback';
   frame: number;
   candidateId: string;
   factKind: string;
   reason?: string;
+  jobId?: string;
+  messageId?: string | null;
   assetId?: string;
   sequenceId?: string;
   receipt?: MgReceipt;
@@ -4449,7 +4450,7 @@ async function applyGraphic(
           { brandToKit },
           { buildMgMomentInput },
           { captureMgVisualEvidence },
-          { resolveMgRenderAppCommit, runDurableMgRenderJob },
+          { enqueueDurableMgRenderJob, resolveMgRenderAppCommit },
         ] = await Promise.all([
           import('@/lib/editron/motion-graphics/codegen/brand-mapper'),
           import('@/lib/editron/motion-graphics/codegen/moment-input'),
@@ -4534,7 +4535,7 @@ async function applyGraphic(
           design: projectSignalContext.mgDesignPlans?.get(decision),
           subjectBox: mgSubjectBox, // P5-2(b): real V-JEPA subject box → screen.subject (coder + judge context)
         });
-        const generated = await runDurableMgRenderJob({
+        const enqueued = await enqueueDurableMgRenderJob({
           projectId,
           userId,
           orgId: projectSignalContext.orgId ?? null,
@@ -4544,65 +4545,42 @@ async function applyGraphic(
           sequenceNamespace: userId,
         });
 
+        if (enqueued.status !== 'completed') {
+          const outcome: MgCodegenDecisionOutcome = {
+            ...outcomeBase,
+            status: 'queued',
+            jobId: enqueued.jobId,
+            messageId: enqueued.messageId,
+            reason: enqueued.status === 'running'
+              ? 'MG render job is already running in the isolated worker'
+              : 'MG render job queued for the isolated worker',
+          };
+          decision.params.mgCodegenOutcome = outcome;
+          console.log(`[EDL-MG-Codegen] QUEUED ${selectedCandidate.id} @${snappedFrame}: ${enqueued.jobId}`);
+          return { created: 0, modified: 0 };
+        }
+
+        const generated = enqueued.result;
+        if (!generated) {
+          return rejectCodegenMoment('fallback', `Completed MG render job ${enqueued.jobId} has no result`);
+        }
         if (generated.status !== 'generated') {
           return rejectCodegenMoment(generated.status, generated.reason, generated.receipt);
         }
 
         const sequence = generated.sequence;
-        // Async-MG Phase 1 (2026-07-22): persistence extracted VERBATIM to sequence-artifacts.ts so the
-        // mg-render worker (Phase 2) persists IDENTICAL artifacts when it completes a job after the director
-        // has returned. Same failure semantics: persist failure → 'fallback' outcome, sequence retained.
-        const { upsertMgSequenceAsset, buildMgSequenceOverlay } = await import('@/lib/editron/motion-graphics/codegen/sequence-artifacts');
-        let assetId: string;
-        try {
-          ({ assetId } = await upsertMgSequenceAsset({
-            sequence,
-            receipt: generated.receipt,
-            candidate: { id: selectedCandidate.id, factKind: selectedCandidate.factKind },
-            userId,
-            projectId,
-            orgId: projectSignalContext.orgId ?? null,
-            codegenContext: {
-              window: momentInput.window,
-              expressiveness: momentInput.expressiveness,
-              placement: momentInput.placement,
-            },
-          }));
-        } catch (persistError) {
-          console.error(`[EDL-MG-Codegen] retaining completed sequence ${sequence.address.sequenceId} for persistence retry via job ${generated.jobId}`);
-          return rejectCodegenMoment(
-            'fallback',
-            `MG sequence persistence failed: ${persistError instanceof Error ? persistError.message : String(persistError)}`,
-            generated.receipt,
-          );
-        }
-
-        const sequenceOverlay = buildMgSequenceOverlay({
-          sequence,
-          receipt: generated.receipt,
-          candidate: { id: selectedCandidate.id, factKind: selectedCandidate.factKind },
-          assetId,
-          overlayId: deterministicOverlayId(idEpoch, 'mg-sequence', decision.frame, decisionIndex),
-          snappedFrame,
-          canvas,
-          metadata: {
-            atomicPlacement,
-            mgExpressionAuthority,
-            edlSource: decision.source,
-            edlReason: decision.reason,
-          },
-        });
+        // A completed idempotent job was already delivered by the worker. Report it without inserting twice.
         const outcome: MgCodegenDecisionOutcome = {
           ...outcomeBase,
           status: 'generated',
-          assetId,
+          jobId: enqueued.jobId,
+          assetId: `mgseq_${sequence.address.sequenceId}`,
           sequenceId: sequence.address.sequenceId,
           receipt: generated.receipt,
+          reason: 'Idempotent render job was already completed and delivered',
         };
         decision.params.mgCodegenOutcome = outcome;
-        overlays.push(sequenceOverlay);
-        console.log(`[EDL-MG-Codegen] GENERATED ${selectedCandidate.id} @${snappedFrame}: ${assetId} (${sequence.address.frameCount} frames)`);
-        return { created: 1, modified: 0 };
+        return { created: 0, modified: 0 };
       } catch (error) {
         return rejectCodegenMoment(
           'fallback',

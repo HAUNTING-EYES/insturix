@@ -1,8 +1,11 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 
+import { Client } from '@upstash/qstash';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
+import { COLLECTIONS, getDatabase } from '@/lib/editron/db/mongodb';
 import {
   claimMgRenderJob,
   completeMgRenderJob,
@@ -11,8 +14,10 @@ import {
   getMgRenderJobForOwner,
   type CreateMgRenderJobInput,
   type MgRenderJob,
+  type MgRenderJobStatus,
 } from './mg-render-job-service';
 import { executeMgRenderInSandbox } from './sandbox-render-worker';
+import { buildMgSequenceOverlay, upsertMgSequenceAsset } from './sequence-artifacts';
 import type { MgRenderWorkerResult } from './worker-contract';
 
 type EnvLike = Record<string, string | undefined>;
@@ -35,6 +40,9 @@ const MAX_SANDBOX_TIMEOUT_MS = 45 * 60 * 1_000;
 const LEASE_GRACE_MS = 5 * 60 * 1_000;
 const MIN_AUTH_TTL_MS = 5 * 60 * 1_000;
 const MAX_AUTH_TTL_MS = 60 * 60 * 1_000;
+const DEFAULT_DIRECTOR_SAVE_BARRIER_TIMEOUT_MS = 90 * 1_000;
+const MAX_DIRECTOR_SAVE_BARRIER_TIMEOUT_MS = 3 * 60 * 1_000;
+const DIRECTOR_SAVE_BARRIER_POLL_MS = 2 * 1_000;
 
 function required(env: EnvLike, name: string): string {
   const value = env[name]?.trim();
@@ -134,16 +142,358 @@ function isRetryableMgRenderResult(result: MgRenderWorkerResult): boolean {
 function retryableSandboxFailure(error: unknown): boolean {
   if (error instanceof RetryableMgRenderResultError) return true;
   const message = error instanceof Error ? error.message : String(error);
-  return !/missing MG_RENDER_|missing (?:its )?executable request|commit mismatch|does not match snapshot commit|storage_full|authorization denied|invalid MG storage/i.test(message);
+  return !/missing MG_RENDER_|missing (?:its )?executable request|commit mismatch|does not match snapshot commit|storage_full|authorization denied|invalid MG storage|project missing|ownership mismatch/i.test(message);
 }
 
-interface MgRenderJobRunnerDependencies {
+export interface MgRenderJobRunnerDependencies {
   createOrGetJob?: typeof createOrGetMgRenderJob;
   claimJob?: typeof claimMgRenderJob;
   completeJob?: typeof completeMgRenderJob;
   failJob?: typeof failMgRenderJob;
   getJob?: typeof getMgRenderJobForOwner;
   executeSandbox?: typeof executeMgRenderInSandbox;
+  dispatchJob?: typeof dispatchMgRenderJob;
+  deliverResult?: typeof deliverMgRenderJobResult;
+  getJobState?: typeof getMgRenderJobState;
+  waitForProjectReady?: typeof waitForDirectorSaveBarrier;
+}
+
+export class MgRenderJobExecutionError extends Error {
+  readonly disposition: 'queued' | 'failed' | 'stale-lease';
+
+  constructor(jobId: string, disposition: 'queued' | 'failed' | 'stale-lease', error: unknown) {
+    super(
+      `MG render job ${jobId} failed (${disposition}): ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+    this.name = 'MgRenderJobExecutionError';
+    this.disposition = disposition;
+  }
+}
+
+function renderWorkerUrl(env: EnvLike): string {
+  return new URL('/api/internal/workers/mg-render', resolveMgStorageAuthorizationUrl(env)).toString();
+}
+
+export async function dispatchMgRenderJob(
+  job: MgRenderJob,
+  env: EnvLike = process.env,
+): Promise<{ messageId: string | null }> {
+  const token = required(env, 'QSTASH_TOKEN');
+  const now = Date.now();
+  const delaySeconds = Math.max(0, Math.ceil((job.nextAttemptAt.getTime() - now) / 1_000));
+  const qstash = new Client({ token, baseUrl: env.QSTASH_URL?.trim() || undefined });
+  const published = await qstash.publishJSON({
+    url: renderWorkerUrl(env),
+    body: { jobId: job._id },
+    retries: 4,
+    deduplicationId: `${job._id}:attempt:${job.attemptCount}`,
+    ...(delaySeconds > 0 ? { delay: delaySeconds } : {}),
+  });
+  return { messageId: published.messageId ?? null };
+}
+
+export interface EnqueuedMgRenderJob {
+  jobId: string;
+  status: 'queued' | 'running' | 'completed';
+  messageId: string | null;
+  result?: MgRenderWorkerResult;
+}
+
+/** Persist the job and dispatch only its id. Director never executes Chromium/Sandbox work. */
+export async function enqueueDurableMgRenderJob(
+  input: CreateMgRenderJobInput,
+  options: {
+    env?: EnvLike;
+    now?: Date;
+    dependencies?: Pick<MgRenderJobRunnerDependencies, 'createOrGetJob' | 'dispatchJob'>;
+  } = {},
+): Promise<EnqueuedMgRenderJob> {
+  const env = options.env ?? process.env;
+  const now = options.now ?? new Date();
+  const createOrGetJob = options.dependencies?.createOrGetJob ?? createOrGetMgRenderJob;
+  const dispatchJob = options.dependencies?.dispatchJob ?? dispatchMgRenderJob;
+  const stored = await createOrGetJob(input, { now });
+
+  if (stored.status === 'completed' && stored.result) {
+    return { jobId: stored._id, status: 'completed', messageId: null, result: stored.result };
+  }
+  if (stored.status === 'failed') {
+    throw new Error(`MG render job ${stored._id} is terminal: ${stored.lastError ?? 'unknown failure'}`);
+  }
+  if (stored.status === 'running' && stored.leaseExpiresAt && stored.leaseExpiresAt > now) {
+    return { jobId: stored._id, status: 'running', messageId: null };
+  }
+
+  const dispatch = await dispatchJob(stored, env);
+  return { jobId: stored._id, status: 'queued', messageId: dispatch.messageId };
+}
+
+async function getMgRenderJobState(jobId: string): Promise<{
+  status: MgRenderJobStatus | 'missing';
+  leaseExpiresAt: Date | null;
+  nextAttemptAt: Date | null;
+  projectId: string | null;
+  userId: string | null;
+}> {
+  const job = await (await getDatabase()).collection<MgRenderJob>(COLLECTIONS.MG_RENDER_JOBS).findOne(
+    { _id: jobId },
+    { projection: { status: 1, leaseExpiresAt: 1, nextAttemptAt: 1, projectId: 1, userId: 1 } },
+  );
+  return job
+    ? {
+      status: job.status,
+      leaseExpiresAt: job.leaseExpiresAt,
+      nextAttemptAt: job.nextAttemptAt,
+      projectId: job.projectId,
+      userId: job.userId,
+    }
+    : { status: 'missing', leaseExpiresAt: null, nextAttemptAt: null, projectId: null, userId: null };
+}
+
+function directorSaveBarrierTimeoutMs(env: EnvLike): number {
+  const parsed = Number(env.MG_RENDER_DIRECTOR_SAVE_BARRIER_TIMEOUT_MS);
+  return Number.isInteger(parsed) && parsed > 0
+    ? Math.min(parsed, MAX_DIRECTOR_SAVE_BARRIER_TIMEOUT_MS)
+    : DEFAULT_DIRECTOR_SAVE_BARRIER_TIMEOUT_MS;
+}
+
+/**
+ * Director still performs one final whole-overlay save after executeEDL. Starting or delivering an
+ * async sequence before that save can erase the worker's overlay, so paid work waits for the
+ * project's `directing` lock to clear. This is a persistence barrier, not an editorial decision.
+ */
+async function waitForDirectorSaveBarrier(
+  projectId: string,
+  userId: string,
+  env: EnvLike = process.env,
+): Promise<boolean> {
+  const deadline = Date.now() + directorSaveBarrierTimeoutMs(env);
+  const projects = (await getDatabase()).collection(COLLECTIONS.PROJECTS);
+  while (Date.now() < deadline) {
+    const project = await projects.findOne(
+      { projectId, userId },
+      { projection: { autoEditStatus: 1 } },
+    ) as { autoEditStatus?: string } | null;
+    if (!project) throw new Error('MG render execution: project missing or ownership mismatch');
+    if (project.autoEditStatus !== 'directing') return true;
+    await delay(DIRECTOR_SAVE_BARRIER_POLL_MS);
+  }
+  return false;
+}
+
+function asyncOverlayId(jobId: string): number {
+  const hash = jobId.replace(/^mgr_/, '').slice(0, 12);
+  if (!/^[a-f0-9]{12}$/.test(hash)) throw new Error(`MG render delivery: invalid job id ${jobId}`);
+  return 8_000_000_000_000_000 + Number.parseInt(hash, 16);
+}
+
+async function deliverMgRenderJobResult(job: MgRenderJob, result: MgRenderWorkerResult): Promise<void> {
+  if (!job.request) throw new Error(`MG render job ${job._id} is missing its executable request`);
+  const request = job.request;
+  const candidate = request.input.candidate;
+  const outcome = {
+    jobId: job._id,
+    status: result.status,
+    candidateId: candidate.id,
+    factKind: candidate.factKind,
+    frame: request.input.window.startFrame,
+    ...(result.status === 'generated'
+      ? { sequenceId: result.sequence.address.sequenceId }
+      : { reason: result.reason }),
+    completedAt: new Date(result.completedAt),
+  };
+  const db = await getDatabase();
+  const projects = db.collection(COLLECTIONS.PROJECTS);
+
+  if (result.status !== 'generated') {
+    const write = await projects.updateOne(
+      {
+        projectId: job.projectId,
+        userId: job.userId,
+        'intelligence.mgCodegenRun.asyncOutcomes.jobId': { $ne: job._id },
+      },
+      {
+        $push: {
+          'intelligence.mgCodegenRun.asyncOutcomes': { $each: [outcome], $slice: -100 } as never,
+        },
+        $set: { updatedAt: new Date() },
+      },
+    );
+    if (write.matchedCount === 0) {
+      const project = await projects.findOne({ projectId: job.projectId, userId: job.userId }, { projection: { _id: 1 } });
+      if (!project) throw new Error('MG render delivery: project missing or ownership mismatch');
+    }
+    return;
+  }
+
+  const { assetId } = await upsertMgSequenceAsset({
+    sequence: result.sequence,
+    receipt: result.receipt,
+    candidate: { id: candidate.id, factKind: candidate.factKind },
+    userId: job.userId,
+    projectId: job.projectId,
+    orgId: job.orgId,
+    codegenContext: {
+      window: request.input.window,
+      expressiveness: request.input.expressiveness,
+      placement: request.input.placement,
+    },
+  });
+  const overlay = buildMgSequenceOverlay({
+    sequence: result.sequence,
+    receipt: result.receipt,
+    candidate: { id: candidate.id, factKind: candidate.factKind },
+    assetId,
+    overlayId: asyncOverlayId(job._id),
+    snappedFrame: request.input.window.startFrame,
+    canvas: request.canvas,
+    metadata: {
+      atomicPlacement: request.input.placement,
+      mgExpressionAuthority: request.input.expressiveness,
+      edlSource: 'async-mg-render-worker',
+      edlReason: job._id,
+    },
+  });
+  overlay.metadata = { ...overlay.metadata, mgRenderJobId: job._id };
+
+  const write = await projects.updateOne(
+    {
+      projectId: job.projectId,
+      userId: job.userId,
+      'overlays.metadata.mgRenderJobId': { $ne: job._id },
+    },
+    {
+      $push: {
+        overlays: overlay as never,
+        'intelligence.mgCodegenRun.asyncOutcomes': { $each: [outcome], $slice: -100 } as never,
+      },
+      $set: { updatedAt: new Date() },
+    },
+  );
+  if (write.matchedCount === 0) {
+    const project = await projects.findOne(
+      { projectId: job.projectId, userId: job.userId },
+      { projection: { 'overlays.metadata.mgRenderJobId': 1 } },
+    ) as { overlays?: Array<{ metadata?: { mgRenderJobId?: string } }> } | null;
+    if (!project) throw new Error('MG render delivery: project missing or ownership mismatch');
+    if (!project.overlays?.some((entry) => entry.metadata?.mgRenderJobId === job._id)) {
+      throw new Error(`MG render delivery: project ${job.projectId} rejected overlay ${overlay.id}`);
+    }
+  }
+}
+
+async function executeClaimedMgRenderJob(
+  claimed: MgRenderJob,
+  leaseId: string,
+  env: EnvLike,
+  now: Date,
+  dependencies: MgRenderJobRunnerDependencies,
+  deliver: boolean,
+): Promise<MgRenderWorkerResult> {
+  const completeJob = dependencies.completeJob ?? completeMgRenderJob;
+  const failJob = dependencies.failJob ?? failMgRenderJob;
+  const executeSandbox = dependencies.executeSandbox ?? executeMgRenderInSandbox;
+  const deliverResult = dependencies.deliverResult ?? deliverMgRenderJobResult;
+
+  try {
+    if (!claimed.request) throw new Error(`MG render job ${claimed._id} is missing its executable request`);
+    const leaseMs = sandboxTimeoutMs(env) + LEASE_GRACE_MS;
+    const authorizationClaims: MgStorageAuthorizationClaims = {
+      version: 1,
+      jobId: claimed._id,
+      leaseId,
+      projectId: claimed.projectId,
+      userId: claimed.userId,
+      orgId: claimed.orgId,
+      expiresAtMs: now.getTime() + authTtlMs(env, leaseMs),
+    };
+    const result = await executeSandbox({
+      request: claimed.request,
+      executionId: leaseId,
+      storageAuthorization: {
+        url: resolveMgStorageAuthorizationUrl(env),
+        token: createMgStorageAuthorizationToken(authorizationClaims, env),
+      },
+      env,
+    });
+    if (isRetryableMgRenderResult(result)) throw new RetryableMgRenderResultError(result);
+    if (deliver) await deliverResult(claimed, result);
+    const completed = await completeJob({ jobId: claimed._id, leaseId, result });
+    if (!completed) throw new Error(`MG render job ${claimed._id} lost its lease before completion`);
+    return result;
+  } catch (error) {
+    const disposition = await failJob({
+      jobId: claimed._id,
+      leaseId,
+      error,
+      retryable: retryableSandboxFailure(error),
+    });
+    throw new MgRenderJobExecutionError(claimed._id, disposition, error);
+  }
+}
+
+export async function executeQueuedMgRenderJob(
+  jobId: string,
+  options: {
+    env?: EnvLike;
+    now?: Date;
+    dependencies?: MgRenderJobRunnerDependencies;
+  } = {},
+): Promise<
+  | { status: 'completed'; result: MgRenderWorkerResult }
+  | {
+    status: 'not-claimed';
+    jobStatus: MgRenderJobStatus | 'missing';
+    leaseExpiresAt: Date | null;
+    nextAttemptAt: Date | null;
+  }
+> {
+  const env = options.env ?? process.env;
+  const dependencies = options.dependencies ?? {};
+  const state = await (dependencies.getJobState ?? getMgRenderJobState)(jobId);
+  if (state.status === 'missing' || !state.projectId || !state.userId) {
+    return {
+      status: 'not-claimed',
+      jobStatus: state.status,
+      leaseExpiresAt: state.leaseExpiresAt,
+      nextAttemptAt: state.nextAttemptAt,
+    };
+  }
+  if (state.status === 'queued') {
+    const ready = await (dependencies.waitForProjectReady ?? waitForDirectorSaveBarrier)(
+      state.projectId,
+      state.userId,
+      env,
+    );
+    if (!ready) {
+      return {
+        status: 'not-claimed',
+        jobStatus: state.status,
+        leaseExpiresAt: state.leaseExpiresAt,
+        nextAttemptAt: state.nextAttemptAt,
+      };
+    }
+  }
+  const executionNow = options.now ?? new Date();
+  const leaseId = `mgl_${nanoid(20)}`;
+  const claimed = await (dependencies.claimJob ?? claimMgRenderJob)({
+    jobId,
+    leaseId,
+    leaseMs: sandboxTimeoutMs(env) + LEASE_GRACE_MS,
+    now: executionNow,
+  });
+  if (!claimed) {
+    const latestState = await (dependencies.getJobState ?? getMgRenderJobState)(jobId);
+    return {
+      status: 'not-claimed',
+      jobStatus: latestState.status,
+      leaseExpiresAt: latestState.leaseExpiresAt,
+      nextAttemptAt: latestState.nextAttemptAt,
+    };
+  }
+  const result = await executeClaimedMgRenderJob(claimed, leaseId, env, executionNow, dependencies, true);
+  return { status: 'completed', result };
 }
 
 export async function runDurableMgRenderJob(
@@ -162,7 +512,6 @@ export async function runDurableMgRenderJob(
   const completeJob = dependencies.completeJob ?? completeMgRenderJob;
   const failJob = dependencies.failJob ?? failMgRenderJob;
   const getJob = dependencies.getJob ?? getMgRenderJobForOwner;
-  const executeSandbox = dependencies.executeSandbox ?? executeMgRenderInSandbox;
 
   const stored = await createOrGetJob(input, { now });
   if (stored.status === 'completed' && stored.result) return stored.result;
@@ -177,45 +526,11 @@ export async function runDurableMgRenderJob(
     throw new Error(`MG render job ${stored._id} is already running or waiting for retry`);
   }
 
-  try {
-    if (!claimed.request) {
-      throw new Error(`MG render job ${claimed._id} is missing its executable request`);
-    }
-    const authorizationClaims: MgStorageAuthorizationClaims = {
-      version: 1,
-      jobId: claimed._id,
-      leaseId,
-      projectId: claimed.projectId,
-      userId: claimed.userId,
-      orgId: claimed.orgId,
-      expiresAtMs: now.getTime() + authTtlMs(env, leaseMs),
-    };
-    const storageAuthorization = {
-      url: resolveMgStorageAuthorizationUrl(env),
-      token: createMgStorageAuthorizationToken(authorizationClaims, env),
-    };
-    const result = await executeSandbox({
-      request: claimed.request,
-      executionId: leaseId,
-      storageAuthorization,
-      env,
-    });
-    if (isRetryableMgRenderResult(result)) throw new RetryableMgRenderResultError(result);
-    const completed = await completeJob({ jobId: claimed._id, leaseId, result });
-    if (!completed) throw new Error(`MG render job ${claimed._id} lost its lease before completion`);
-    return result;
-  } catch (error) {
-    const disposition = await failJob({
-      jobId: claimed._id,
-      leaseId,
-      error,
-      retryable: retryableSandboxFailure(error),
-    });
-    throw new Error(
-      `MG render job ${claimed._id} failed (${disposition}): ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
-  }
+  return executeClaimedMgRenderJob(claimed, leaseId, env, now, {
+    ...dependencies,
+    completeJob,
+    failJob,
+  }, false);
 }
 
 export function isOwnedRunningMgRenderJob(job: MgRenderJob | null, claims: MgStorageAuthorizationClaims): boolean {

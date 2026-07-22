@@ -23,6 +23,8 @@ import { POST } from '@/app/api/internal/workers/mg-render/storage-authorize/rou
 import { INSTURIX } from '@/lib/editron/motion-graphics/codegen/kit/brand';
 import {
   createMgStorageAuthorizationToken,
+  enqueueDurableMgRenderJob,
+  executeQueuedMgRenderJob,
   runDurableMgRenderJob,
   verifyMgStorageAuthorizationToken,
 } from '@/lib/editron/motion-graphics/codegen/mg-render-job-runner';
@@ -140,6 +142,23 @@ function generatedResult(jobId: string) {
   };
 }
 
+function queuedJobState(overrides: Partial<{
+  status: MgRenderJob['status'] | 'missing';
+  leaseExpiresAt: Date | null;
+  nextAttemptAt: Date | null;
+  projectId: string | null;
+  userId: string | null;
+}> = {}) {
+  return {
+    status: 'queued' as const,
+    leaseExpiresAt: null,
+    nextAttemptAt: NOW,
+    projectId: 'project-1',
+    userId: 'user-1',
+    ...overrides,
+  };
+}
+
 function providerFallbackResult(
   jobId: string,
   disposition: 'retryable' | 'terminal',
@@ -171,6 +190,108 @@ function providerFallbackResult(
 }
 
 describe('durable MG render job runner', () => {
+  it('persists and dispatches a job id without executing Sandbox in the caller', async () => {
+    const queued = job();
+    const createOrGetJob = vi.fn(async () => queued);
+    const dispatchJob = vi.fn(async () => ({ messageId: 'qstash-mg-1' }));
+
+    await expect(enqueueDurableMgRenderJob(input(), {
+      env: ENV,
+      now: NOW,
+      dependencies: { createOrGetJob, dispatchJob },
+    })).resolves.toEqual({
+      jobId: queued._id,
+      status: 'queued',
+      messageId: 'qstash-mg-1',
+    });
+
+    expect(createOrGetJob).toHaveBeenCalledWith(input(), { now: NOW });
+    expect(dispatchJob).toHaveBeenCalledWith(queued, ENV);
+  });
+
+  it('lets the worker claim, render, deliver, and only then complete the durable job', async () => {
+    const queued = job();
+    const running = { ...queued, status: 'running' as const, leaseId: 'mgl_worker' };
+    const result = generatedResult(queued._id);
+    const deliverResult = vi.fn(async () => undefined);
+    const completeJob = vi.fn(async () => true);
+
+    await expect(executeQueuedMgRenderJob(queued._id, {
+      env: ENV,
+      now: NOW,
+      dependencies: {
+        getJobState: vi.fn(async () => queuedJobState()),
+        waitForProjectReady: vi.fn(async () => true),
+        claimJob: vi.fn(async () => running),
+        executeSandbox: vi.fn(async () => result),
+        deliverResult,
+        completeJob,
+        failJob: vi.fn(),
+      },
+    })).resolves.toEqual({ status: 'completed', result });
+
+    expect(deliverResult).toHaveBeenCalledWith(running, result);
+    expect(completeJob).toHaveBeenCalledWith(expect.objectContaining({
+      jobId: queued._id,
+      result,
+    }));
+    expect(deliverResult.mock.invocationCallOrder[0]).toBeLessThan(completeJob.mock.invocationCallOrder[0]);
+  });
+
+  it('does no paid or persistence work when another worker owns the lease', async () => {
+    const executeSandbox = vi.fn();
+    const deliverResult = vi.fn();
+    await expect(executeQueuedMgRenderJob(job()._id, {
+      env: ENV,
+      now: NOW,
+      dependencies: {
+        claimJob: vi.fn(async () => null),
+        getJobState: vi.fn(async () => ({
+          status: 'running' as const,
+          leaseExpiresAt: new Date(NOW.getTime() + 60_000),
+          nextAttemptAt: NOW,
+          projectId: 'project-1',
+          userId: 'user-1',
+        })),
+        executeSandbox,
+        deliverResult,
+      },
+    })).resolves.toEqual({
+      status: 'not-claimed',
+      jobStatus: 'running',
+      leaseExpiresAt: new Date(NOW.getTime() + 60_000),
+      nextAttemptAt: NOW,
+    });
+    expect(executeSandbox).not.toHaveBeenCalled();
+    expect(deliverResult).not.toHaveBeenCalled();
+  });
+
+  it('does not claim or launch paid work before Director completes its final overlay save', async () => {
+    const claimJob = vi.fn();
+    const executeSandbox = vi.fn();
+    const waitForProjectReady = vi.fn(async () => false);
+
+    await expect(executeQueuedMgRenderJob(job()._id, {
+      env: ENV,
+      now: NOW,
+      dependencies: {
+        getJobState: vi.fn(async () => queuedJobState()),
+        waitForProjectReady,
+        claimJob,
+        executeSandbox,
+      },
+    })).resolves.toEqual({
+      status: 'not-claimed',
+      jobStatus: 'queued',
+      leaseExpiresAt: null,
+      nextAttemptAt: NOW,
+    });
+
+    expect(waitForProjectReady).toHaveBeenCalledWith('project-1', 'user-1', ENV);
+    expect(claimJob).not.toHaveBeenCalled();
+    expect(executeSandbox).not.toHaveBeenCalled();
+  });
+
   it('leases beyond Sandbox timeout, signs exact owner scope, and completes once', async () => {
     const queued = job();
     const result = generatedResult(queued._id);
