@@ -256,6 +256,8 @@ describe("editor atomic overlay receipts", () => {
       expect.objectContaining({ kind: "playback-speed", key: "audio.playback_rate", value: 1.15 }),
       expect.objectContaining({ kind: "volume", key: "audio.volume", value: 0.42 }),
     ]));
+    expect(isAtomicOverlayReceiptCurrent(stampedSound)).toBe(true);
+    expect(isAtomicOverlayReceiptCurrent({ ...stampedSound, playbackRate: 0.9 })).toBe(false);
   });
 
   it("derives caption text color, font, and row atoms from signals plus brand theme inputs", () => {

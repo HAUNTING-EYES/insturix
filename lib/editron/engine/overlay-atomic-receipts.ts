@@ -86,6 +86,7 @@ export function isAtomicOverlayReceiptCurrent(overlay: Overlay): boolean {
     && optionalAtomMatches(receipt, "text-content", "content.text", text ? text.slice(0, 240) : undefined)
     && optionalAtomMatches(receipt, "opacity", "overlay.opacity", styleLike.opacity)
     && optionalAtomMatches(receipt, "volume", "audio.volume", styleLike.volume)
+    && optionalAtomMatches(receipt, "playback-speed", "audio.playback_rate", "playbackRate" in overlay ? overlay.playbackRate : undefined)
     && optionalAtomMatches(receipt, "font-family", "text.font_family", styleLike.fontFamily)
     && optionalAtomMatches(receipt, "font-size", "text.font_size", styleLike.fontSize)
     && optionalAtomMatches(receipt, "font-weight", "text.font_weight", styleLike.fontWeight)
