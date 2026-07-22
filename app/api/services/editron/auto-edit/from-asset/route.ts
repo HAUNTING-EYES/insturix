@@ -268,7 +268,15 @@ export async function POST(request: NextRequest) {
     if (requestedEditMode === 'assist') {
       await db.collection('projects').updateOne(
         { projectId },
-        { $set: { editMode: 'assist' } },
+        {
+          $set: {
+            editMode: 'assist',
+            // Persisted so the worker (and any future cancel flow) can refund by
+            // transaction if the scan fails — from-asset deducted at intake.
+            assistCreditTransactionId: autoEditCreditTransactionId ?? null,
+            assistChargedCredits: autoEditChargedCredits ?? null,
+          },
+        },
       );
       console.log(`[DirectorMode] Assist intake accepted for project ${projectId} (asset ${assetId}).`);
     }

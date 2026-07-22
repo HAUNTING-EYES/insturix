@@ -1203,10 +1203,46 @@ async function handler(request: NextRequest) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
+        const laneDoc = await db.collection('projects').findOne(
+          { projectId: trackedProjectId },
+          { projection: { editMode: 1, assistCreditTransactionId: 1, assistChargedCredits: 1, userId: 1 } },
+        );
+        const { isAssistProject: isAssistLane } = await import('@/lib/editron/services/assist-lane');
+        const assistLane = isAssistLane(laneDoc);
         await db.collection('projects').updateOne(
           { projectId: trackedProjectId },
-          { $set: { autoEditStatus: 'failed', autoEditError: msg } },
+          // Assist lane surfaces scan_failed — the user never received a product.
+          { $set: { autoEditStatus: assistLane ? 'scan_failed' : 'failed', autoEditError: msg } },
         );
+        if (assistLane) {
+          const txId = typeof laneDoc?.assistCreditTransactionId === 'string' ? laneDoc.assistCreditTransactionId : null;
+          const charged = typeof laneDoc?.assistChargedCredits === 'number' ? laneDoc.assistChargedCredits : null;
+          if (txId && charged !== null) {
+            try {
+              const { CreditsService } = await import('@/lib/services/creditsService');
+              await CreditsService.refundCredits(
+                String(laneDoc?.userId ?? ''),
+                charged,
+                'Director Mode scan failed — full refund (assist lane)',
+                { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: txId },
+              );
+              console.log(`[DirectorMode] Refunded ${charged} credits for failed assist scan (project ${trackedProjectId}).`);
+            } catch (refundErr: unknown) {
+              // Plan REV 5: refund failure is LOUD and support-visible — never silent.
+              console.error('[DirectorMode][REFUND-FAILED][MONEY] assist scan refund threw — flagging project for support:', refundErr instanceof Error ? refundErr.message : refundErr);
+              await db.collection('projects').updateOne(
+                { projectId: trackedProjectId },
+                { $set: { assistRefundPending: true } },
+              ).catch(() => {});
+            }
+          } else {
+            console.error('[DirectorMode][REFUND-SKIPPED][MONEY] assist scan failed but no persisted transaction/charge — refund did NOT run:', { projectId: trackedProjectId, txId, charged });
+            await db.collection('projects').updateOne(
+              { projectId: trackedProjectId },
+              { $set: { assistRefundPending: true } },
+            ).catch(() => {});
+          }
+        }
       } catch (err: unknown) { console.warn('[VideoAnalysisWorker] best-effort status update failed:', err instanceof Error ? err.message : err); }
     }
 

@@ -935,6 +935,7 @@ async function dispatchDirector(params: {
 export async function POST(request: NextRequest) {
   let creditCheck: CreditCheckResult | null = null;
   let creditsDeducted = false;
+  let assistLaneActive = false;
   let queuedOrRanDirector = false;
   let caller: BatchCaller | null = null;
   let body: FromBatchRequest | null = null;
@@ -1589,6 +1590,7 @@ export async function POST(request: NextRequest) {
       { projection: { editMode: 1 } },
     );
     if (isAssistProject(laneOwner)) {
+      assistLaneActive = true;
       const { usableAssets, excludedNoDurationAssetIds } = partitionAssistAssets(visualAssets);
       const timeline = await materializeChronologicalFallback(usableAssets, userId, uploadBatchId, dims);
       if (timeline.overlays.length === 0) throw new Error('No usable clips could be materialized from this batch.');
@@ -1616,6 +1618,8 @@ export async function POST(request: NextRequest) {
             ...hydration.set,
             autoEditStatus: ASSIST_STATUS_READY,
             assistDegradedAssetIds: degradedAssetIds,
+            // Persisted so a future cancel/support flow can refund by transaction.
+            assistCreditTransactionId: deduction.transactionId,
             updatedAt: new Date(),
           },
           ...(Object.keys(hydration.unset).length > 0 ? { $unset: hydration.unset } : {}),
@@ -1917,7 +1921,8 @@ export async function POST(request: NextRequest) {
         );
         await db.collection(COLLECTIONS.PROJECTS).updateOne(
           { projectId: activeProjectId },
-          { $set: { autoEditStatus: 'failed', autoEditError: message, updatedAt: new Date() } },
+          // Assist lane surfaces scan_failed (refund already issued above) — never auto's 'failed'.
+          { $set: { autoEditStatus: assistLaneActive ? 'scan_failed' : 'failed', autoEditError: message, updatedAt: new Date() } },
         );
       } catch (recoveryError) {
         console.error('[auto-edit/from-batch] orchestration recovery failed:', recoveryError);

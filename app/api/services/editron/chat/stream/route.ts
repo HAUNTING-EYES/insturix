@@ -243,6 +243,16 @@ export async function POST(req: NextRequest) {
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
+    // Director Mode (assist lane): a refunded scan_failed project must never open
+    // into chat — the user was refunded because they never received the product
+    // (CEO plan REV 4 #5, cancel-refund loophole).
+    if ((project as { editMode?: unknown }).editMode === 'assist'
+      && (project as { autoEditStatus?: unknown }).autoEditStatus === 'scan_failed') {
+      return NextResponse.json(
+        { error: 'This project\'s scan failed and its credits were refunded. Start a new project to edit this footage.', code: 'assist_scan_failed' },
+        { status: 403 },
+      );
+    }
     let attachments;
     try {
       attachments = await resolveAuthorizedChatAttachments(rawAttachments, userId, projectId);

@@ -655,6 +655,32 @@ describe('from-batch storyline route handoff', () => {
     expect(mocks.deductCredits).toHaveBeenCalledOnce();
   });
 
+  it('assist lane: a terminal compose failure refunds and surfaces scan_failed, never auto failed', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'waiting_analysis',
+      orchestrationRequestedAt: new Date(),
+    };
+    mocks.findProject.mockResolvedValue({ editMode: 'assist' });
+    mocks.saveProject.mockRejectedValue(new Error('storage write exploded'));
+
+    await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 1, failureCount: 99 },
+    }, true) as never);
+
+    // The deduction preceded the failure and no director was dispatched → full refund.
+    expect(mocks.refundCredits).toHaveBeenCalledOnce();
+    // The user-facing truth is the lane's failure state, not auto's.
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      { projectId: 'proj_batch_1' },
+      expect.objectContaining({ $set: expect.objectContaining({ autoEditStatus: 'scan_failed' }) }),
+    );
+    expect(mocks.orderStorylineWithLLM).not.toHaveBeenCalled();
+  });
+
   it('persists the request, then composes exactly once from a signed durable callback', async () => {
     const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
     const editorialPreferences = {
