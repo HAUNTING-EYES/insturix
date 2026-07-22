@@ -7,6 +7,12 @@ import {
   buildDirectorDeliveryFailureAudit,
   parseDirectorDeliveryFailure,
 } from '../../lib/editron/services/director-delivery-failure';
+import { ASSET_DEEP_ANALYSIS_VERSION } from '../../lib/editron/services/asset-deep-analysis';
+import {
+  buildMediaUploadBatchSummary,
+  DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT,
+} from '../../lib/editron/services/media-upload-batch';
+import { buildDeepAnalysisFailureUpdate } from '../../lib/editron/services/semantic-visual-retry';
 
 
 const mocks = vi.hoisted(() => ({
@@ -27,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   buildMultiAssetDirectorContext: vi.fn(),
   buildSignalTimelineFromAnalysis: vi.fn(),
   bulkWriteAssets: vi.fn(),
+  updateAsset: vi.fn(),
   narrativeSourceFromTimeline: vi.fn(),
   makeEmbeddingScorer: vi.fn(),
   orderStorylineWithLLM: vi.fn(),
@@ -154,6 +161,12 @@ function mockDb() {
       cachedUrl: 'cached-video.mp4',
       uploadedAt: new Date('2026-07-10T00:00:00.000Z'),
       analysisStatus: 'complete',
+      deepAnalysisStatus: 'complete',
+      deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
+      deepAnalysisDiagnostics: {
+        semanticVisualWindowCount: 2,
+        providers: { semanticVisual: 'complete' },
+      },
       transcription: { language: 'hi-en' },
     },
     {
@@ -190,6 +203,7 @@ function mockDb() {
             return cursor;
           }),
           bulkWrite: mocks.bulkWriteAssets,
+          updateOne: mocks.updateAsset,
         };
       }
       if (name === 'projects') {
@@ -260,6 +274,13 @@ describe('from-batch storyline route handoff', () => {
       }
       return { acknowledged: true, modifiedCount };
     });
+    mocks.updateAsset.mockImplementation(async (filter: Record<string, any>, update: Record<string, any>) => {
+      const asset = mediaAssets.find((entry) => entry.assetId === filter.assetId);
+      if (!asset) return { acknowledged: true, matchedCount: 0, modifiedCount: 0 };
+      if (update.$set) Object.assign(asset, update.$set);
+      for (const key of Object.keys(update.$unset ?? {})) delete asset[key];
+      return { acknowledged: true, matchedCount: 1, modifiedCount: 1 };
+    });
     mocks.narrativeSourceFromTimeline.mockReturnValue({ events: [{ timestampMs: 1000, kind: 'name', context: 'Proof' }], durationMs: 8000 });
     mocks.intakeSignalsFromProject.mockReturnValue({ requested: {} });
     mocks.resolveProductionBrief.mockReturnValue({
@@ -302,6 +323,180 @@ describe('from-batch storyline route handoff', () => {
   afterEach(() => {
     process.env = oldEnv;
     vi.unstubAllGlobals();
+  });
+
+  it('derives video readiness from semantic capability evidence instead of aggregate completion', () => {
+    const requirements = {
+      semanticVisual: {
+        version: ASSET_DEEP_ANALYSIS_VERSION,
+        maxRetries: DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT,
+      },
+    };
+    const summary = buildMediaUploadBatchSummary([
+      {
+        assetId: 'semantic-ready', filename: 'ready.mp4', type: 'video', size: 1, analysisStatus: 'complete',
+        deepAnalysisStatus: 'complete', deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
+        deepAnalysisDiagnostics: { semanticVisualWindowCount: 2, providers: { semanticVisual: 'complete' } },
+      },
+      {
+        assetId: 'stale', filename: 'stale.mp4', type: 'video', size: 1, analysisStatus: 'complete',
+        deepAnalysisStatus: 'complete', deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION - 1,
+      },
+      {
+        assetId: 'pending', filename: 'pending.mp4', type: 'video', size: 1, analysisStatus: 'complete',
+        deepAnalysisStatus: 'queued', deepAnalysisTargetVersion: ASSET_DEEP_ANALYSIS_VERSION,
+      },
+      {
+        assetId: 'exhausted', filename: 'exhausted.mp4', type: 'video', size: 1, analysisStatus: 'complete',
+        deepAnalysisStatus: 'degraded', deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
+        deepAnalysisRetryVersion: ASSET_DEEP_ANALYSIS_VERSION,
+        deepAnalysisRetryCount: DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT,
+        deepAnalysisDiagnostics: { semanticVisualWindowCount: 0, providers: { semanticVisual: 'missing' } },
+      },
+      { assetId: 'image', filename: 'proof.png', type: 'image', size: 1, analysisStatus: 'complete' },
+    ], requirements);
+
+    expect(summary.counts).toMatchObject({ total: 5, ready: 2, queued: 2, failed: 1 });
+    expect(summary.assets.find((asset) => asset.assetId === 'semantic-ready')).toMatchObject({
+      readiness: 'ready', semanticVisualReadiness: 'ready', blockingReason: null,
+    });
+    expect(summary.assets.find((asset) => asset.assetId === 'stale')).toMatchObject({
+      readiness: 'queued', semanticVisualReadiness: 'retryable', blockingReason: 'semantic_visual_analysis_required',
+    });
+    expect(summary.assets.find((asset) => asset.assetId === 'exhausted')).toMatchObject({
+      readiness: 'failed', semanticVisualReadiness: 'failed', needsAttention: true,
+    });
+
+    const completedAt = new Date('2026-07-22T00:00:00.000Z');
+    expect(buildDeepAnalysisFailureUpdate('provider failed', completedAt)).toEqual({
+      $set: {
+        analysisStatus: 'complete',
+        deepAnalysisStatus: 'failed',
+        deepAnalysisError: 'provider failed',
+        deepAnalysisCompletedAt: completedAt,
+      },
+      $unset: { analysisError: '', deepAnalysisTargetVersion: '' },
+    });
+  });
+
+  it('atomically requeues degraded semantic video analysis before composition', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    Object.assign(mediaAssets[0], {
+      deepAnalysisStatus: 'degraded',
+      deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
+      deepAnalysisDiagnostics: { semanticVisualWindowCount: 0, providers: { semanticVisual: 'missing' } },
+    });
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'waiting_analysis',
+      orchestrationRequestedAt: new Date(),
+    };
+
+    const response = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 1, failureCount: 0 },
+    }, true) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(payload).toEqual(expect.objectContaining({ orchestrationStatus: 'waiting_analysis' }));
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.updateAsset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assetId: 'video_1',
+        deepAnalysisStatus: { $nin: ['queued', 'analyzing'] },
+        deepAnalysisTargetVersion: { $ne: ASSET_DEEP_ANALYSIS_VERSION },
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          analysisStatus: 'analyzing',
+          deepAnalysisStatus: 'queued',
+          deepAnalysisRetryCount: 1,
+        }),
+      }),
+    );
+    const deepDispatch = mocks.fetch.mock.calls.find(
+      ([url]) => String(url).includes('/api/internal/workers/asset-deep-analysis'),
+    );
+    expect(deepDispatch).toBeDefined();
+    expect(JSON.parse(String((deepDispatch?.[1] as RequestInit).body))).toEqual({
+      assetId: 'video_1',
+      userId: 'user_1',
+      url: 'https://cdn.test/video_1',
+      duration: 8,
+    });
+    expect(mocks.updateBatch).toHaveBeenCalledWith(
+      { uploadBatchId: 'batch_1', userId: 'user_1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          orchestrationSemanticRetryAssetIds: ['video_1'],
+          orchestrationSemanticRetryOutcomes: [
+            { assetId: 'video_1', status: 'queued', retryCount: 1 },
+          ],
+        }),
+      }),
+    );
+  });
+
+  it('bounds semantic dispatch retries and composes from truthful survivors', async () => {
+    const { POST } = await import('@/app/api/services/editron/auto-edit/from-batch/route');
+    Object.assign(mediaAssets[0], {
+      deepAnalysisStatus: 'degraded',
+      deepAnalysisVersion: ASSET_DEEP_ANALYSIS_VERSION,
+      deepAnalysisDiagnostics: { semanticVisualWindowCount: 0, providers: { semanticVisual: 'missing' } },
+    });
+    batchDocument = {
+      ...batchDocument,
+      projectId: 'proj_batch_1',
+      orchestrationStatus: 'waiting_analysis',
+      orchestrationRequestedAt: new Date(),
+    };
+    let semanticDispatchAttempts = 0;
+    mocks.fetch.mockImplementation(async (url: string) => {
+      if (!url.includes('/api/internal/workers/asset-deep-analysis')) {
+        return new Response(JSON.stringify({ messageId: 'msg_1' }), { status: 200 });
+      }
+      semanticDispatchAttempts += 1;
+      if (semanticDispatchAttempts === 1) throw new Error('network unavailable');
+      return new Response('provider unavailable', { status: 503 });
+    });
+
+    const first = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 1, failureCount: 0 },
+    }, true) as never);
+    expect(first.status).toBe(202);
+    expect(mediaAssets[0]).toMatchObject({
+      analysisStatus: 'complete',
+      deepAnalysisStatus: 'dispatch_failed',
+      deepAnalysisRetryCount: 1,
+    });
+
+    const second = await POST(request({
+      uploadBatchId: 'batch_1',
+      _orchestration: { userId: 'user_1', orgId: 'org_1', pollAttempt: 2, failureCount: 0 },
+    }, true) as never);
+
+    expect(second.status).toBe(200);
+    expect(mediaAssets[0]).toMatchObject({
+      analysisStatus: 'complete',
+      deepAnalysisStatus: 'dispatch_failed',
+      deepAnalysisRetryCount: DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT,
+    });
+    expect(mocks.fetch.mock.calls.filter(
+      ([url]) => String(url).includes('/api/internal/workers/asset-deep-analysis'),
+    )).toHaveLength(DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT);
+    expect(mocks.saveProject).toHaveBeenCalledOnce();
+    expect(mocks.saveProject.mock.calls[0][2].overlays).toEqual([
+      expect.objectContaining({ type: 'image', assetId: 'image_1' }),
+    ]);
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      { projectId: 'proj_batch_1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({ sourceAssetIds: ['image_1'] }),
+      }),
+    );
   });
 
   it('persists the request, then composes exactly once from a signed durable callback', async () => {

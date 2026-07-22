@@ -7,6 +7,7 @@ import {
   runAssetDeepAnalysis,
   type AssetDeepAnalysisSource,
 } from '@/lib/editron/services/asset-deep-analysis';
+import { buildDeepAnalysisFailureUpdate } from '@/lib/editron/services/semantic-visual-retry';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -116,16 +117,7 @@ async function handler(request: NextRequest) {
         const db = await getDatabase();
         await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
           { assetId: payload.assetId, userId: payload.userId },
-          {
-            $set: {
-              analysisStatus: 'failed',
-              analysisError: message.slice(0, 500),
-              deepAnalysisStatus: 'failed',
-              deepAnalysisError: message.slice(0, 500),
-              deepAnalysisCompletedAt: new Date(),
-            },
-            $unset: { deepAnalysisTargetVersion: '' },
-          },
+          buildDeepAnalysisFailureUpdate(message, new Date()),
         );
       } catch (persistError) {
         console.warn('[AssetDeepAnalysis] Could not persist failure:', persistError);

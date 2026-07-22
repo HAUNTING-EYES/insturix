@@ -6,11 +6,15 @@ import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import {
   buildMediaUploadBatchSummary,
+  DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT,
   normalizeUploadBatchId,
+  type MediaUploadAnalysisRequirements,
   type MediaUploadBatchAssetStatus,
   type MediaUploadBatchAssetStatusInput,
   type MediaUploadBatchIntake,
 } from '@/lib/editron/services/media-upload-batch';
+import { ASSET_DEEP_ANALYSIS_VERSION } from '@/lib/editron/services/asset-deep-analysis';
+import { queueSemanticVisualRetries } from '@/lib/editron/services/semantic-visual-retry';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { orderStorylineWithLLM, type OrderStorylineResult } from '@/lib/editron/storyline/order-storyline-service';
 import { buildAssetContextMap, scenesFromAssetAnalyses } from '@/lib/editron/storyline/multi-asset-compose';
@@ -37,6 +41,12 @@ export const maxDuration = 300;
 
 const FPS = 30;
 const DEFAULT_IMAGE_HOLD_SEC = 4;
+const BATCH_ANALYSIS_REQUIREMENTS: MediaUploadAnalysisRequirements = {
+  semanticVisual: {
+    version: ASSET_DEEP_ANALYSIS_VERSION,
+    maxRetries: DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT,
+  },
+};
 
 type BatchDocument = {
   uploadBatchId: string;
@@ -79,6 +89,15 @@ type BatchMediaAsset = {
   analysisQueuedAt?: Date | string | null;
   analysisStartedAt?: Date | string | null;
   analysisCompletedAt?: Date | string | null;
+  deepAnalysisStatus?: string | null;
+  deepAnalysisVersion?: number | null;
+  deepAnalysisTargetVersion?: number | null;
+  deepAnalysisRetryVersion?: number | null;
+  deepAnalysisRetryCount?: number | null;
+  deepAnalysisDiagnostics?: {
+    semanticVisualWindowCount?: number | null;
+    providers?: { semanticVisual?: string | null } | null;
+  } | null;
   batchTranscriptionStatus?: string | null;
   batchTranscriptionError?: string | null;
   batchTranscriptionStartedAt?: Date | string | null;
@@ -251,6 +270,7 @@ async function dispatchBatchOrchestration(params: {
   const json = await response.json().catch(() => ({}));
   return typeof json.messageId === 'string' ? json.messageId : undefined;
 }
+
 const RECOVERABLE_ORCHESTRATION_STATUSES = new Set<NonNullable<BatchDocument['orchestrationStatus']>>([
   'requested',
   'waiting_analysis',
@@ -709,12 +729,18 @@ function buildStatusInput(asset: BatchMediaAsset): MediaUploadBatchAssetStatusIn
     analysisQueuedAt: asset.analysisQueuedAt,
     analysisStartedAt: asset.analysisStartedAt,
     analysisCompletedAt: asset.analysisCompletedAt,
+    deepAnalysisStatus: asset.deepAnalysisStatus,
+    deepAnalysisVersion: asset.deepAnalysisVersion,
+    deepAnalysisTargetVersion: asset.deepAnalysisTargetVersion,
+    deepAnalysisRetryVersion: asset.deepAnalysisRetryVersion,
+    deepAnalysisRetryCount: asset.deepAnalysisRetryCount,
+    deepAnalysisDiagnostics: asset.deepAnalysisDiagnostics,
   };
 }
 
 function isUsableVisualAsset(asset: BatchMediaAsset, readiness?: MediaUploadBatchAssetStatus): boolean {
   if (asset.type !== 'video' && asset.type !== 'image') return false;
-  if (readiness?.readiness === 'failed') return false;
+  if (readiness?.readiness === 'failed' || readiness?.readiness === 'skipped') return false;
   return true;
 }
 
@@ -973,6 +999,12 @@ export async function POST(request: NextRequest) {
           analysisQueuedAt: 1,
           analysisStartedAt: 1,
           analysisCompletedAt: 1,
+          deepAnalysisStatus: 1,
+          deepAnalysisVersion: 1,
+          deepAnalysisTargetVersion: 1,
+          deepAnalysisRetryVersion: 1,
+          deepAnalysisRetryCount: 1,
+          deepAnalysisDiagnostics: 1,
           batchTranscriptionStatus: 1,
           batchTranscriptionError: 1,
           batchTranscriptionStartedAt: 1,
@@ -982,7 +1014,85 @@ export async function POST(request: NextRequest) {
       .sort({ uploadedAt: 1 })
       .toArray() as unknown as BatchMediaAsset[];
 
-    let summary = buildMediaUploadBatchSummary(mediaAssets.map(buildStatusInput));
+    const initialReadiness = buildMediaUploadBatchSummary(
+      mediaAssets.map(buildStatusInput),
+      BATCH_ANALYSIS_REQUIREMENTS,
+    );
+    const retryableSemanticIds = new Set(
+      initialReadiness.assets
+        .filter((asset) => (
+          asset.type === 'video'
+          && asset.semanticVisualReadiness === 'retryable'
+          && ['complete', 'failed', 'dispatch_failed'].includes(asset.analysisStatus ?? '')
+        ))
+        .map((asset) => asset.assetId),
+    );
+    const semanticRetryCandidates = mediaAssets.filter((asset) => retryableSemanticIds.has(asset.assetId));
+    const semanticRetryOutcomes = semanticRetryCandidates.length > 0
+      ? await queueSemanticVisualRetries({
+          assets: semanticRetryCandidates.map((asset) => ({
+            assetId: asset.assetId,
+            analysisStatus: asset.analysisStatus,
+            deepAnalysisStatus: asset.deepAnalysisStatus,
+            deepAnalysisTargetVersion: asset.deepAnalysisTargetVersion,
+            deepAnalysisRetryVersion: asset.deepAnalysisRetryVersion,
+            deepAnalysisRetryCount: asset.deepAnalysisRetryCount,
+            durationSec: positiveDurationSec(asset),
+          })),
+          userId,
+          workerBaseUrl: baseUrl,
+          qstashToken: process.env.QSTASH_TOKEN || '',
+          qstashBaseUrl: process.env.QSTASH_URL,
+          collection: db.collection(COLLECTIONS.MEDIA_ASSETS),
+          resolveMediaUrl: async (candidate) => {
+            const asset = mediaAssets.find((item) => item.assetId === candidate.assetId);
+            return asset ? resolveOverlayUrl(asset, userId) : '';
+          },
+        })
+      : [];
+    for (const outcome of semanticRetryOutcomes) {
+      const asset = mediaAssets.find((item) => item.assetId === outcome.assetId);
+      if (!asset) continue;
+      Object.assign(asset, outcome.status === 'queued'
+        ? {
+            analysisStatus: 'analyzing',
+            deepAnalysisStatus: 'queued',
+            deepAnalysisTargetVersion: ASSET_DEEP_ANALYSIS_VERSION,
+            deepAnalysisRetryVersion: ASSET_DEEP_ANALYSIS_VERSION,
+            deepAnalysisRetryCount: outcome.retryCount,
+            analysisError: null,
+          }
+        : outcome.status === 'dispatch-failed'
+          ? {
+              analysisStatus: 'complete',
+              deepAnalysisStatus: 'dispatch_failed',
+              deepAnalysisTargetVersion: null,
+              deepAnalysisRetryVersion: ASSET_DEEP_ANALYSIS_VERSION,
+              deepAnalysisRetryCount: outcome.retryCount,
+            }
+          : {});
+    }
+    const semanticRequeuedAssetIds = semanticRetryOutcomes
+      .filter((outcome) => outcome.status === 'queued')
+      .map((outcome) => outcome.assetId);
+    if (semanticRetryOutcomes.length > 0) {
+      await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
+        { uploadBatchId, userId },
+        {
+          $set: {
+            orchestrationSemanticRetryAssetIds: semanticRequeuedAssetIds,
+            orchestrationSemanticRetryOutcomes: semanticRetryOutcomes,
+            orchestrationSemanticRetryAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+      );
+    }
+
+    let summary = buildMediaUploadBatchSummary(
+      mediaAssets.map(buildStatusInput),
+      BATCH_ANALYSIS_REQUIREMENTS,
+    );
     let readinessByAsset = new Map(summary.assets.map((asset) => [asset.assetId, asset]));
     let visualAssets = mediaAssets.filter((asset) => isUsableVisualAsset(asset, readinessByAsset.get(asset.assetId)));
     if (visualAssets.length === 0) {
@@ -1192,7 +1302,10 @@ export async function POST(request: NextRequest) {
         const timedOutAssetIds = timeoutCandidates
           .filter((asset) => asset.analysisStatus === 'orchestration_timed_out')
           .map((asset) => asset.assetId);
-        summary = buildMediaUploadBatchSummary(mediaAssets.map(buildStatusInput));
+        summary = buildMediaUploadBatchSummary(
+          mediaAssets.map(buildStatusInput),
+          BATCH_ANALYSIS_REQUIREMENTS,
+        );
         readinessByAsset = new Map(summary.assets.map((asset) => [asset.assetId, asset]));
         visualAssets = mediaAssets.filter((asset) => isUsableVisualAsset(asset, readinessByAsset.get(asset.assetId)));
         creditOptions = {
@@ -1558,7 +1671,9 @@ export async function POST(request: NextRequest) {
     }
 
     console.error('[auto-edit/from-batch] failed:', message);
-    const status = message === 'Unauthorized' || message.includes('signature') ? 401 : 500;
+    const status = message === 'Unauthorized' || message.includes('signature')
+      ? 401
+      : message.includes('QSTASH_TOKEN') ? 503 : 500;
     return NextResponse.json({ success: false, error: message }, { status });
   }
 }
