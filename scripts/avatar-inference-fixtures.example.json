@@ -1,0 +1,25 @@
+[
+  {
+    "name": "nimit-front-portrait",
+    "images": [
+      { "path": "D:/google downloads/Front-End-main/avatar-ready/nimit/06_chest_up_office.png", "label": "front portrait" }
+    ],
+    "expected": {
+      "hair": "short black",
+      "build": "average",
+      "notableTraits": [],
+      "wardrobe": "office shirt",
+      "quality": { "faceDetected": true, "singlePerson": true, "usable": true }
+    }
+  },
+  {
+    "name": "adversarial-back-to-camera",
+    "images": [
+      { "path": "D:/google downloads/Front-End-main/avatar-ready/nimit/04_speech_usecase.png", "label": "back to camera" }
+    ],
+    "expected": {
+      "quality": { "faceDetected": false, "usable": false },
+      "mustBeEmpty": ["hair", "skinTone"]
+    }
+  }
+]

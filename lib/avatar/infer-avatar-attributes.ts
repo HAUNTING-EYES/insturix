@@ -147,3 +147,68 @@ export function inferredAttributesToProfilePatch(attrs: InferredAvatarAttributes
     inferredFields,
   };
 }
+
+// ─── Request handler (thin route wraps this) ────────────────────────────────────
+
+export interface InferAvatarAttributesRequestInput {
+  userId: string;
+  body: unknown;
+  env?: Record<string, string | undefined>;
+}
+
+export type InferAvatarAttributesApiBody =
+  | { ok: true; attributes: InferredAvatarAttributes; patch: InferredProfilePatch }
+  | { ok: false; error: { code: string; message: string } };
+
+/**
+ * Validate + run inference for an API request. SSRF guard: only images hosted in Avatar
+ * Vault storage are fetched — never an arbitrary URL from the request body. Inference
+ * failure returns 200 with ok:false (fail-soft) so the forge degrades to manual entry
+ * instead of erroring.
+ */
+export async function inferAvatarAttributesFromRequest(
+  input: InferAvatarAttributesRequestInput,
+  deps: ExtractStructuredDeps = {},
+): Promise<{ status: number; body: InferAvatarAttributesApiBody }> {
+  const env = input.env ?? process.env;
+  const rawUrls = parseImageUrls(input.body);
+  if (rawUrls.length === 0) {
+    return { status: 400, body: { ok: false, error: { code: 'no_images', message: 'Provide at least one reference image URL.' } } };
+  }
+
+  const base = resolveAvatarImageBase(env);
+  const imageUrls = rawUrls.filter((url) => isAllowedImageUrl(url, base));
+  if (imageUrls.length === 0) {
+    return {
+      status: 400,
+      body: { ok: false, error: { code: 'untrusted_image_host', message: 'Reference images must be hosted in Avatar Vault storage.' } },
+    };
+  }
+
+  const result = await inferAvatarAttributesFromImages(
+    imageUrls.map((url, index) => ({ imageUrl: url, label: `reference ${index + 1}` })),
+    deps,
+  );
+  if (!result.ok) {
+    return { status: 200, body: { ok: false, error: { code: 'inference_unavailable', message: result.error } } };
+  }
+  return { status: 200, body: { ok: true, attributes: result.data, patch: inferredAttributesToProfilePatch(result.data) } };
+}
+
+function parseImageUrls(body: unknown): string[] {
+  const urls = (body as { imageUrls?: unknown } | null)?.imageUrls;
+  if (!Array.isArray(urls)) return [];
+  return urls
+    .filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+    .map((u) => u.trim());
+}
+
+function resolveAvatarImageBase(env: Record<string, string | undefined>): string | null {
+  const base = (env.AVATAR_VAULT_R2_PUBLIC_BASE_URL || env.R2_PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  return base || null;
+}
+
+function isAllowedImageUrl(url: string, base: string | null): boolean {
+  if (!base || !url.startsWith('https://')) return false;
+  return url === base || url.startsWith(`${base}/`);
+}

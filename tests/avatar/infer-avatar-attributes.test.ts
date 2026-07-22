@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AVATAR_ATTRIBUTE_GUIDANCE,
   inferAvatarAttributesFromImages,
+  inferAvatarAttributesFromRequest,
   inferredAttributesToProfilePatch,
   type InferredAvatarAttributes,
 } from '../../lib/avatar/infer-avatar-attributes';
@@ -72,5 +73,54 @@ describe('inferredAttributesToProfilePatch', () => {
     expect(paths).toContain('identityPack.bodyProfile.notableTraits');
     expect(paths).toContain('stylePack.defaultLook');
     expect(paths).not.toContain('identityPack.bodyProfile.hair'); // empty → no evidence
+  });
+});
+
+describe('inferAvatarAttributesFromRequest', () => {
+  const ENV = { AVATAR_VAULT_R2_PUBLIC_BASE_URL: 'https://cdn.example.test' };
+  const trusted = 'https://cdn.example.test/avatar-vault/user_1/face_front/asset.png';
+
+  it('infers from trusted storage URLs and returns attributes + a profile patch', async () => {
+    const result = await inferAvatarAttributesFromRequest(
+      { userId: 'user_1', body: { imageUrls: [trusted] }, env: ENV },
+      { fetchImage: async () => ({ data: Buffer.from('img'), mimeType: 'image/png' }), generate: async () => ({ text: VALID }) },
+    );
+    expect(result.status).toBe(200);
+    expect(result.body.ok).toBe(true);
+    if (!result.body.ok) throw new Error('expected ok');
+    expect(result.body.attributes.hair).toBe('short black');
+    expect(result.body.patch.bodyProfile.build).toBe('average');
+  });
+
+  it('SSRF guard: rejects image URLs not hosted in Avatar Vault storage', async () => {
+    let fetched = false;
+    const result = await inferAvatarAttributesFromRequest(
+      { userId: 'user_1', body: { imageUrls: ['https://evil.example.test/internal.png'] }, env: ENV },
+      { fetchImage: async () => { fetched = true; return { data: Buffer.from('x'), mimeType: 'image/png' }; }, generate: async () => ({ text: VALID }) },
+    );
+    expect(result.status).toBe(400);
+    expect(result.body.ok).toBe(false);
+    if (result.body.ok) throw new Error('expected rejection');
+    expect(result.body.error.code).toBe('untrusted_image_host');
+    expect(fetched).toBe(false); // never fetched the untrusted URL
+  });
+
+  it('rejects when no image URLs are supplied', async () => {
+    const result = await inferAvatarAttributesFromRequest({ userId: 'user_1', body: {}, env: ENV }, {});
+    expect(result.status).toBe(400);
+    expect(result.body.ok).toBe(false);
+    if (result.body.ok) throw new Error('expected rejection');
+    expect(result.body.error.code).toBe('no_images');
+  });
+
+  it('fails soft (200, ok:false) when inference is unavailable — forge falls back to manual', async () => {
+    const result = await inferAvatarAttributesFromRequest(
+      { userId: 'user_1', body: { imageUrls: [trusted] }, env: ENV },
+      { fetchImage: async () => ({ data: Buffer.from('img'), mimeType: 'image/png' }), generate: async () => { throw new Error('gemini down'); } },
+    );
+    expect(result.status).toBe(200);
+    expect(result.body.ok).toBe(false);
+    if (result.body.ok) throw new Error('expected soft failure');
+    expect(result.body.error.code).toBe('inference_unavailable');
   });
 });
