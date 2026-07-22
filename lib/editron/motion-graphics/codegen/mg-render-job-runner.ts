@@ -176,8 +176,12 @@ function renderWorkerUrl(env: EnvLike): string {
 }
 
 export async function dispatchMgRenderJob(
-  job: MgRenderJob,
+  job: Pick<MgRenderJob, '_id' | 'attemptCount' | 'nextAttemptAt'>,
   env: EnvLike = process.env,
+  // The sweeper (cron/sweep-mg-render-jobs) passes a per-lease-window salt so re-dispatching a stalled job at
+  // the SAME attemptCount reaches QStash instead of being deduped against the original (lost) dispatch. Absent
+  // → the director's original behavior: one message per (job, attempt), idempotent against director retries.
+  dedupSalt?: string,
 ): Promise<{ messageId: string | null }> {
   const token = required(env, 'QSTASH_TOKEN');
   const now = Date.now();
@@ -187,7 +191,9 @@ export async function dispatchMgRenderJob(
     url: renderWorkerUrl(env),
     body: { jobId: job._id },
     retries: 4,
-    deduplicationId: `${job._id}:attempt:${job.attemptCount}`,
+    deduplicationId: dedupSalt
+      ? `${job._id}:attempt:${job.attemptCount}:${dedupSalt}`
+      : `${job._id}:attempt:${job.attemptCount}`,
     ...(delaySeconds > 0 ? { delay: delaySeconds } : {}),
   });
   return { messageId: published.messageId ?? null };

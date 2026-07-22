@@ -323,3 +323,32 @@ export async function getMgRenderJobForOwner(input: {
     projectId: input.projectId,
   });
 }
+
+/** A stalled render job the sweeper should re-dispatch: still has attempts left, and is either queued past its
+ *  nextAttemptAt (its dispatch was lost) or running past an expired lease (its worker died). This is the exact
+ *  set claimMgRenderJob can re-claim — the sweeper only re-triggers the worker so that claim can happen. */
+export type StaleMgRenderJob = Pick<MgRenderJob, '_id' | 'attemptCount' | 'maxAttempts' | 'nextAttemptAt' | 'status'>;
+
+export async function findStaleMgRenderJobs(input: {
+  now?: Date;
+  limit?: number;
+  collection?: Collection<MgRenderJob>;
+} = {}): Promise<StaleMgRenderJob[]> {
+  const now = input.now ?? new Date();
+  const jobs = await collection(input.collection);
+  return jobs.find(
+    {
+      status: { $in: ['queued', 'running'] },
+      $expr: { $lt: ['$attemptCount', '$maxAttempts'] },
+      $or: [
+        { status: 'queued', nextAttemptAt: { $lte: now } },
+        { status: 'running', leaseExpiresAt: { $lte: now } },
+      ],
+    },
+    {
+      projection: { _id: 1, attemptCount: 1, maxAttempts: 1, nextAttemptAt: 1, status: 1 },
+      sort: { nextAttemptAt: 1 },
+      limit: Math.max(1, Math.min(input.limit ?? 50, 200)),
+    },
+  ).toArray() as Promise<StaleMgRenderJob[]>;
+}

@@ -13,6 +13,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/sweep-mg-render-jobs",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/check-plan-expiration",
       "schedule": "0 0 * * *"
     },
