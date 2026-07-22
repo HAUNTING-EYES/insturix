@@ -10,6 +10,7 @@ import {
   type EditorialPreferences,
 } from '@/lib/editron/production-brief/editorial-preferences';
 import type { EditDecision, EditDecisionList } from '@/lib/editron/services/reactive-edit-engine';
+import { isAssistProject } from '@/lib/editron/services/assist-lane';
 import { extractMotionGraphicSemanticFacts } from '@/lib/editron/services/mg-semantic-fact-extractor';
 import {
   CHAT_SCRIPT_MAX_CHARS,
@@ -88,6 +89,7 @@ export const chatEditorialIntentSchema = z.object({
   musicPrompt: z.string().min(1).max(500).optional(),
   notes: z.string().min(1).max(500).optional(),
   script: z.string().min(1).max(CHAT_SCRIPT_MAX_CHARS).optional().describe('Optional authoritative script supplied by the user. Omit this field when no script was provided; never send sentinel text such as "none", "null", or "N/A". When present, the Phase 2 multi-asset script planner owns clip selection and ordering.'),
+  autoDirectorConfirmed: z.coerce.boolean().optional(),
 }).strict();
 
 export type ChatEditorialIntentInput = z.infer<typeof chatEditorialIntentSchema>;
@@ -224,7 +226,19 @@ export async function applyGroundedEditorialIntent(
   const safeCandidates = scopedCandidates.filter((candidate) => candidate.safeForAutomaticMutation);
 
   let dispatch: EditorialOwnerDispatchResult;
-  if (intent.script) {
+  // Director Mode (assist lane): script-led and project-wide intents hand the
+  // edit to the full Auto-Director — the engine this lane exists to route
+  // around. FOUNDER RULING (plan REV 5 #3): confirm-gated, never silent. The
+  // gate never touches targeted moment-scoped edits (normal chat ownership).
+  const handsProjectToAutoDirector = Boolean(intent.script) || intent.scope.kind === 'project';
+  if (handsProjectToAutoDirector && isAssistProject(project) && !args.input.autoDirectorConfirmed) {
+    dispatch = {
+      owner: intent.script ? 'phase2-script-planner' : 'director-unified-planner',
+      status: 'advisory',
+      mutated: false,
+      reasons: ['assist-auto-director-needs-confirmation'],
+    };
+  } else if (intent.script) {
     dispatch = await deps.dispatchScriptIntent({
       projectId: args.projectId,
       userId: args.userId,
@@ -295,11 +309,13 @@ export function createChatEditorialIntentTools(
           status: result.status,
           data: result,
           error: result.status === 'error' ? result.dispatch.reasons.join(', ') : null,
-          nextAction: result.status === 'advisory'
-            ? 'Ask once for a clearer target or narrower constraint. Do not claim an edit was made.'
-            : result.dispatch.status === 'queued'
-              ? 'Tell the user the script-led re-edit is processing. Do not claim the timeline has changed yet.'
-              : 'Reload the project and verify the requested outcome.',
+          nextAction: result.dispatch.reasons.includes('assist-auto-director-needs-confirmation')
+            ? 'This is a Director Mode project. Ask the user explicitly: this request hands the edit to Auto-Director, which will re-edit the timeline automatically — do they want to proceed? ONLY after a clear yes in their next message, call apply_editorial_intent again with autoDirectorConfirmed: true. Do not claim any edit was made.'
+            : result.status === 'advisory'
+              ? 'Ask once for a clearer target or narrower constraint. Do not claim an edit was made.'
+              : result.dispatch.status === 'queued'
+                ? 'Tell the user the script-led re-edit is processing. Do not claim the timeline has changed yet.'
+                : 'Reload the project and verify the requested outcome.',
         });
       } catch (error) {
         return JSON.stringify({

@@ -526,3 +526,111 @@ describe('chat semantic editorial intent', () => {
     expect(source).not.toContain('Use `auto_edit_from_script` with the script text');
   });
 });
+
+describe('Director Mode confirm-gate (assist lane)', () => {
+  const assistProject = () => ({ ...project(), editMode: 'assist' });
+
+  it('gates a project-wide intent on an assist project until the user confirms', async () => {
+    const deps = dependencies({ loadProject: vi.fn(async () => assistProject()) });
+    const result = await applyGroundedEditorialIntent({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: {
+        goal: 'Make the edit feel more engaging but still restrained',
+        scope: { kind: 'project' },
+        constraints: [],
+        strength: 0.55,
+        uncertainty: 0.12,
+      },
+    }, deps);
+
+    expect(result.status).toBe('advisory');
+    expect(result.dispatch.reasons).toEqual(['assist-auto-director-needs-confirmation']);
+    expect(result.dispatch.mutated).toBe(false);
+    expect(deps.executeProjectIntent).not.toHaveBeenCalled();
+    expect(deps.dispatchScriptIntent).not.toHaveBeenCalled();
+    expect(deps.executeTargetedIntent).not.toHaveBeenCalled();
+  });
+
+  it('gates a script-led intent the same way', async () => {
+    const deps = dependencies({ loadProject: vi.fn(async () => assistProject()) });
+    const result = await applyGroundedEditorialIntent({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: {
+        goal: 'Reorder every uploaded clip to follow this script',
+        scope: { kind: 'project' },
+        constraints: [],
+        strength: 0.5,
+        uncertainty: 0,
+        script: 'First show the problem. Then the proof.',
+      },
+    }, deps);
+
+    expect(result.status).toBe('advisory');
+    expect(result.dispatch.reasons).toEqual(['assist-auto-director-needs-confirmation']);
+    expect(deps.dispatchScriptIntent).not.toHaveBeenCalled();
+  });
+
+  it('executes after explicit confirmation', async () => {
+    const deps = dependencies({ loadProject: vi.fn(async () => assistProject()) });
+    const result = await applyGroundedEditorialIntent({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: {
+        goal: 'Make the edit feel more engaging but still restrained',
+        scope: { kind: 'project' },
+        constraints: [],
+        strength: 0.55,
+        uncertainty: 0.12,
+        autoDirectorConfirmed: true,
+      },
+    }, deps);
+
+    expect(deps.executeProjectIntent).toHaveBeenCalledOnce();
+    expect(result.status).toBe('success');
+  });
+
+  it('never gates targeted moment-scoped edits — normal chat ownership stays instant', async () => {
+    const deps = dependencies({ loadProject: vi.fn(async () => assistProject()) });
+    await applyGroundedEditorialIntent({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: {
+        goal: 'Make that part pop',
+        scope: { kind: 'moment' },
+        targetReference: 'that part',
+        constraints: [],
+        strength: 0.8,
+        uncertainty: 0.2,
+      },
+    }, deps);
+
+    expect(deps.executeTargetedIntent).toHaveBeenCalledOnce();
+    expect(deps.executeProjectIntent).not.toHaveBeenCalled();
+  });
+
+  it('auto projects are untouched by the gate', async () => {
+    const deps = dependencies();
+    await applyGroundedEditorialIntent({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: {
+        goal: 'Make the edit feel more engaging but still restrained',
+        scope: { kind: 'project' },
+        constraints: [],
+        strength: 0.55,
+        uncertainty: 0.12,
+      },
+    }, deps);
+
+    expect(deps.executeProjectIntent).toHaveBeenCalledOnce();
+  });
+
+  it('wire schema carries the confirmation flag through compilation', () => {
+    const wire = chatEditorialIntentWireSchema.parse({ goal: 'redo it all', scopeKind: 'project' });
+    expect(wire.autoDirectorConfirmed).toBe(false);
+    const compiled = compileChatEditorialIntentWire({ ...wire, autoDirectorConfirmed: true });
+    expect(compiled.autoDirectorConfirmed).toBe(true);
+  });
+});

@@ -13,7 +13,6 @@
  * The assist lane's stricter duration handling lives in assist-lane.ts as a
  * PRE-materializer partition — this module never trims differently per lane.
  */
-import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 
 export const FPS = 30;
@@ -57,6 +56,9 @@ export async function resolveOverlayUrl(
     console.warn('[timeline-materializer] R2 public URL failed:', error instanceof Error ? error.message : error);
   }
 
+  // Dynamic import: the resolver pulls in the mongodb client at module load,
+  // and this module must stay import-safe for env-less consumers (chat tools, tests).
+  const { assetResolver } = await import('@/lib/editron/services/asset-resolver');
   const resolved = await assetResolver.resolveAssetUrl(asset.assetId, userId).catch(() => null);
   return resolved || asset.publicUrl || asset.cachedUrl || '';
 }

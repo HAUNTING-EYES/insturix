@@ -51,6 +51,8 @@ export const chatEditorialIntentWireSchema = z.object({
   notes: z.string().min(1).max(500).optional(),
   scriptText: z.string().min(1).max(CHAT_SCRIPT_MAX_CHARS).optional()
     .describe('Exact user-supplied script text. Omit when the user supplied no script.'),
+  autoDirectorConfirmed: z.boolean().default(false)
+    .describe('Director Mode (assist) projects only: set true ONLY after the user, in this conversation, explicitly confirmed handing this request to Auto-Director. Never set it on the first call.'),
 }).strict();
 
 export type ChatEditorialIntentWireInput = z.infer<typeof chatEditorialIntentWireSchema>;
@@ -125,6 +127,7 @@ export function compileChatEditorialIntentWire(
     ...(input.musicPrompt ? { musicPrompt: input.musicPrompt } : {}),
     ...(input.notes ? { notes: input.notes } : {}),
     ...(script ? { script } : {}),
+    autoDirectorConfirmed: input.autoDirectorConfirmed,
   };
 }
 
