@@ -42,6 +42,7 @@ import {
   createChatDeepAnalysisTools,
   filterChatLegacyDeepAnalysisTools,
 } from './chat-deep-analysis-tools';
+import { createChatDubbingTools } from './chat-dubbing-tools';
 import { TokenTracker } from '../utils/token-tracker';
 
 // PERF FIX: Hoist Google SDK imports to module level.
@@ -276,6 +277,7 @@ export const createAgent = (
         operationId: turnContext?.operationId,
       }),
       ...createChatDeepAnalysisTools({ userId, projectId }),
+      ...createChatDubbingTools({ userId, projectId }),
     ];
     return turnContext?.requestOwnerLicense
       ? filterChatToolsForRequestOwner(liveChatTools, turnContext.requestOwnerLicense)
@@ -381,6 +383,12 @@ export const createAgent = (
     - Resolve one exact target with resolve_clip_analysis, then queue exactly its returned job IDs once.
     - Queued work is processing, not evidence. On a later turn, use only completed get_clip_analysis_result jobs and keep findings inside their target range.`
       : '';
+    const dubbingGuidance = callableToolNames.has('dub_selected_dialogue')
+      && callableToolNames.has('get_dubbing_job_result')
+      ? `**DURABLE SELECTED-CLIP DUBBING**:
+    - For an explicit request to dub the selected video overlay to English, call dub_selected_dialogue once. Do not use a generic voiceover, mute the source manually, or call apply_editorial_intent for the same request.
+    - A queued job is processing, not completion. On a later turn, call get_dubbing_job_result with its exact jobId. Only a completed result means translated dialogue and the preserved background stem were committed.`
+      : '';
     const SYSTEM_MESSAGE = `<role>You are Editron AI, an intelligent video editing assistant integrated into the Editron web-based video editor. You assist users in editing their video projects by manipulating the timeline, adding overlays (text, images, video, audio), and adjusting styles.</role>
 
 ${ownerLicensePrompt}
@@ -394,6 +402,7 @@ ${ownerLicensePrompt}
 
     ${semanticIntentGuidance}
     ${localizedMutationGuidance}
+    ${dubbingGuidance}
     **PLAIN LANGUAGE**: Never use jargon. Say "fade to black" not "dip-to-black transition". Say "text label" not "lower third". Say "highlight" not "callout". The user is not a professional editor.
     
     **Critical Guidelines**:

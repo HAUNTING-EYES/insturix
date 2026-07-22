@@ -1,6 +1,9 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+import { createChatDubbingTools } from '@/lib/editron/agent/chat-dubbing-tools';
+import type { ChatDubbingJob } from '@/lib/editron/services/chat-dubbing-job';
 
 import {
   CHAT_TOOL_REGISTRY,
@@ -18,6 +21,7 @@ const CHAT_TOOL_SOURCE_FILES = [
   'lib/editron/agent/chat-asset-tools.ts',
   'lib/editron/agent/chat-editorial-intent-tools.ts',
   'lib/editron/agent/chat-deep-analysis-tools.ts',
+  'lib/editron/agent/chat-dubbing-tools.ts',
 ];
 
 function extractDeclaredChatToolNames(): string[] {
@@ -65,6 +69,12 @@ describe('chat tool registry', () => {
       requiresProjectReload: true,
       riskLevel: 'high',
     });
+    expect(getChatToolMetadata('dub_selected_dialogue')).toMatchObject({
+      mutatesProject: false,
+      executionType: 'generative',
+      riskLevel: 'medium',
+    });
+    expect(shouldReloadProjectAfterTool('get_dubbing_job_result')).toBe(true);
   });
 
   it('uses honest completion labels for read-only versus mutating tools', () => {
@@ -78,12 +88,43 @@ describe('chat tool registry', () => {
   it('keeps the live agent prompt wired to resolver-to-mutator workflows', () => {
     const agentSource = readFileSync(join(process.cwd(), 'lib/editron/agent/agent-graph.ts'), 'utf8');
 
-    expect(agentSource).toContain('MANDATORY MOMENT-RESOLUTION WORKFLOWS');
-    expect(agentSource).toContain('Never stop after only read-only tools when the user asked for an edit');
-    expect(agentSource).toContain('resolve_transcript_edit({ query: "X", action: "cut_after_phrase" })');
-    expect(agentSource).toContain('immediately call');
+    expect(agentSource).toContain('GROUNDED LOCALIZED MUTATION');
+    expect(agentSource).toContain('Read-only resolvers do not edit');
+    expect(agentSource).toContain('call only the mutating tool named in data.useWith');
     expect(agentSource).toContain('cut_section');
-    expect(agentSource).toContain('A successful edit turn must include at least one mutating tool call');
+    expect(agentSource).toContain('A successful edit turn must include a declared mutating tool call');
+    expect(agentSource).toContain('DURABLE SELECTED-CLIP DUBBING');
+    expect(agentSource).toContain('Do not use a generic voiceover');
+  });
+
+  it('queues revision-bound dubbing and scopes result reads to the current project', async () => {
+    const resolveJob = vi.fn(async () => ({ jobId: 'chat_dub_1', created: true, status: 'resolved' as const }));
+    const queueJob = vi.fn(async () => ({ status: 'queued' as const, jobId: 'chat_dub_1', messageId: 'msg-1' }));
+    const findJob = vi.fn(async () => ({
+      _id: 'chat_dub_1',
+      projectId: 'another-project',
+      status: 'completed',
+      progress: { stage: 'commit' },
+    } as ChatDubbingJob));
+    const tools = createChatDubbingTools(
+      { userId: 'user-1', projectId: 'project-1' },
+      { resolveJob, queueJob, findJob },
+    );
+    const dubTool = tools.find((candidate) => candidate.name === 'dub_selected_dialogue');
+    const resultTool = tools.find((candidate) => candidate.name === 'get_dubbing_job_result');
+    if (!dubTool || !resultTool) throw new Error('Dubbing tools were not declared.');
+
+    const queued = JSON.parse(String(await dubTool.invoke({ overlayId: 17, targetLanguage: 'English' })));
+    expect(queued).toMatchObject({ status: 'success', data: { jobId: 'chat_dub_1', status: 'queued' } });
+    expect(resolveJob).toHaveBeenCalledWith(expect.objectContaining({
+      overlayId: 17,
+      userId: 'user-1',
+      projectId: 'project-1',
+    }));
+    expect(queueJob).toHaveBeenCalledWith({ jobId: 'chat_dub_1', userId: 'user-1', projectId: 'project-1' });
+
+    const crossProject = JSON.parse(String(await resultTool.invoke({ jobId: 'chat_dub_1' })));
+    expect(crossProject).toMatchObject({ status: 'error', error: expect.stringContaining('not found') });
   });
 
   it('keeps cardinality in the tool contract instead of a second hardcoded analyzer limiter', () => {
