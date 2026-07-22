@@ -61,6 +61,7 @@ export type ChatToolExecutionDecision =
         | 'turn-limit'
         | 'target-limit'
         | 'validation-retry-limit'
+        | 'policy-retry-limit'
         | 'owner-conflict'
         | 'missing-evidence'
         | 'stale-evidence';
@@ -465,6 +466,21 @@ function enforceLocalizedMutationAuthorization(input: {
     ),
   );
   if (authorized) return null;
+
+  const repeatedDeniedCall = input.ledger.completedExecutions.some((execution) =>
+    execution.name === input.toolName
+    && execution.outcome === 'policy-blocked'
+    && stableStringify(execution.args) === stableStringify(input.args),
+  );
+  if (repeatedDeniedCall) {
+    return blockedDecision({
+      reason: 'policy-retry-limit',
+      code: 'CHAT_TOOL_POLICY_RETRY_LIMIT',
+      toolName: input.toolName,
+      message: `${input.toolName} repeated the same unauthorized arguments after a deterministic policy denial.`,
+      nextAction: 'Stop retrying this mutation. Resolve the target again or ask the user for clarification in a new turn.',
+    });
+  }
 
   const hasStaleAuthorization = receipts.some((receipt) =>
     receipt.projectRevision !== input.projectRevision

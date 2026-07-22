@@ -276,6 +276,7 @@ const EVIDENCE_PRODUCERS: Readonly<Record<string, ChatToolEvidenceClass[]>> = {
   get_timeline_view: ['timeline-state'],
   visual_inspect_frame: ['render-frame'],
   resolve_transcript_edit: ['transcript-target'],
+  resolve_sticker_overlay: ['transcript-target'],
   resolve_visual_edit: ['visual-target'],
   resolve_audio_edit: ['audio-target'],
   resolve_user_asset_overlay: ['asset-target'],

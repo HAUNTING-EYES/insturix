@@ -262,6 +262,91 @@ describe('chat tool turn protocol', () => {
     });
   });
 
+  it('turns a sticker resolver result into exact revision-bound mutation authority', () => {
+    const resolvedArgs = {
+      start: 283,
+      duration: 30,
+      description: 'small animated lightbulb sticker',
+      x: '78%',
+      y: '14%',
+      width: 140,
+      height: 140,
+      enterAnimation: 'pop',
+      exitAnimation: 'fade',
+    };
+    const resolverOutput = JSON.stringify({
+      status: 'success',
+      data: { useWith: { generate_html_sticker: resolvedArgs } },
+      error: null,
+    });
+    const evidenceReceipts = buildChatEvidenceReceipts({
+      toolName: 'resolve_sticker_overlay',
+      args: { query: 'this is the key point' },
+      output: resolverOutput,
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    });
+
+    expect(evidenceReceipts).toHaveLength(1);
+    expect(decideChatToolExecution({
+      toolName: 'generate_html_sticker',
+      args: resolvedArgs,
+      ledger: ledger([execution('resolve_sticker_overlay', resolverOutput, { evidenceReceipts })]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toEqual({ action: 'execute' });
+  });
+
+  it('stops repeated identical policy-denied mutations without weakening later resolver authorization', () => {
+    const args = { start: 283, duration: 30, description: 'lightbulb' };
+    const deniedOutput = JSON.stringify({
+      status: 'error',
+      data: null,
+      error: { code: 'CHAT_TOOL_TARGET_EVIDENCE_REQUIRED' },
+    });
+    const denied = execution('generate_html_sticker', deniedOutput, { args });
+
+    const repeated = decideChatToolExecution({
+      toolName: 'generate_html_sticker',
+      args,
+      ledger: ledger([denied]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    });
+    expect(repeated).toMatchObject({ action: 'block', reason: 'policy-retry-limit' });
+    expect(JSON.parse(repeated.action === 'block' ? repeated.output : '{}')).toMatchObject({
+      error: { code: 'CHAT_TOOL_POLICY_RETRY_LIMIT' },
+    });
+
+    const resolverOutput = JSON.stringify({
+      status: 'success',
+      data: { useWith: { generate_html_sticker: args } },
+      error: null,
+    });
+    const resolved = execution('resolve_sticker_overlay', resolverOutput, {
+      evidenceReceipts: buildChatEvidenceReceipts({
+        toolName: 'resolve_sticker_overlay',
+        args: { query: 'lightbulb moment' },
+        output: resolverOutput,
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      }),
+    });
+    expect(decideChatToolExecution({
+      toolName: 'generate_html_sticker',
+      args,
+      ledger: ledger([denied, resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toEqual({ action: 'execute' });
+  });
+
   it('normalizes resolver frame aliases without weakening localized SFX authorization', () => {
     const resolverOutput = JSON.stringify({
       status: 'success',
