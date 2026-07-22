@@ -28,7 +28,7 @@ class MemoryStore implements ChatDubbingJobStore {
   async markDispatchFailed(jobId: string, _userId: string, error: string, now: Date) { Object.assign(this.jobs.get(jobId)!, { status: 'dispatch_failed', error, updatedAt: now }); }
   async claimRun(jobId: string, userId: string, leaseId: string, now: Date) {
     const job = this.jobs.get(jobId);
-    if (!job || job.userId !== userId || !['queued', 'retry_wait'].includes(job.status)) return null;
+    if (!job || job.userId !== userId || !['queued', 'retry_wait', 'dispatch_failed'].includes(job.status)) return null;
     Object.assign(job, { status: 'running', leaseId, runCount: job.runCount + 1, updatedAt: now }); return structuredClone(job);
   }
   async markProgress(jobId: string, _userId: string, progress: ChatDubbingProgress, now: Date) { Object.assign(this.jobs.get(jobId)!, { status: 'resolved', progress, updatedAt: now }); }
@@ -158,5 +158,16 @@ describe('durable chat dubbing job', () => {
       progress: { stage: 'separate', generatedAssetIds: ['generated-1'] },
       failureCount: 0,
     });
+
+    const retry = await runChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
+      store,
+      loadProject,
+      buildProjectRevision,
+      now: () => now,
+      publish,
+      execute: vi.fn(async () => ({ status: 'completed' as const, result: { committed: true } })),
+      cleanup: vi.fn(),
+    });
+    expect(retry).toMatchObject({ status: 'completed', result: { committed: true } });
   });
 });

@@ -327,6 +327,7 @@ export class MongoChatDubbingJobStore implements ChatDubbingJobStore {
         $or: [
           { status: 'queued' },
           { status: 'retry_wait' },
+          { status: 'dispatch_failed' },
           { status: 'running', leaseExpiresAt: { $lt: now } },
         ],
       },
@@ -414,7 +415,7 @@ async function publishChatDubbingJob(payload: { jobId: string; projectId: string
   const result = await client.publishJSON({
     url: `${baseUrl}/api/internal/workers/chat-dubbing`,
     body: payload,
-    retries: 0,
+    retries: 3,
     headers: { 'Upstash-Timeout': '280s' },
   });
   return { messageId: (result as { messageId?: string }).messageId };
