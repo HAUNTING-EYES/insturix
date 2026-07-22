@@ -140,10 +140,10 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <Field label="Display name"><input value={f.displayName} onChange={(e) => set('displayName', e.target.value)} placeholder="e.g. Maya Chen" style={inp} /></Field>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Portrait · required</Mono><Drop label="Drop face" big filled={!!f.portraitImageUrl} busy={uploadingRole === 'face_front'} onClick={() => pickFile('face_front')} /></div>
+                <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Portrait · required</Mono><Drop label="Drop face" big filled={!!f.portraitImageUrl} imageUrl={f.portraitImageUrl || undefined} busy={uploadingRole === 'face_front'} onClick={() => pickFile('face_front')} /></div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Full body · required</Mono><Drop label="Optional" filled={!!f.fullBodyImageUrl} busy={uploadingRole === 'full_body_front'} onClick={() => pickFile('full_body_front')} /></div>
-                  <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Side profile</Mono><Drop label="Optional" filled={!!f.sideProfileImageUrl} busy={uploadingRole === 'face_side'} onClick={() => pickFile('face_side')} /></div>
+                  <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Full body · required</Mono><Drop label="Optional" filled={!!f.fullBodyImageUrl} imageUrl={f.fullBodyImageUrl || undefined} busy={uploadingRole === 'full_body_front'} onClick={() => pickFile('full_body_front')} /></div>
+                  <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Side profile</Mono><Drop label="Optional" filled={!!f.sideProfileImageUrl} imageUrl={f.sideProfileImageUrl || undefined} busy={uploadingRole === 'face_side'} onClick={() => pickFile('face_side')} /></div>
                 </div>
               </div>
               <div>
@@ -214,8 +214,12 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
                       }}
                     />
                   </Field>
-                  <Field label="Voice sample URL" hint="saved voice reference"><input value={f.voiceSampleUrl} onChange={(e) => set('voiceSampleUrl', e.target.value)} placeholder="https://" style={inp} /></Field>
-                  <Field label="Voice sample asset ID" hint="optional storage id"><input value={f.voiceSampleAssetId} onChange={(e) => set('voiceSampleAssetId', e.target.value)} placeholder="asset_..." style={inp} /></Field>
+                  {f.voiceSampleUrl.trim()
+                    ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: C.bg, border: '1px solid rgba(94,201,126,.35)', borderRadius: 8 }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: C.green }}>✓ Voice sample saved</span>
+                        <button type="button" onClick={() => { set('voiceSampleUrl', ''); set('voiceSampleAssetId', ''); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.muted, fontSize: 11, textDecoration: 'underline' }}>Replace</button>
+                      </div>
+                    : <Field label="Voice sample URL" hint="or paste a saved reference"><input value={f.voiceSampleUrl} onChange={(e) => set('voiceSampleUrl', e.target.value)} placeholder="https://" style={inp} /></Field>}
                 </div>
               )}
               {f.voiceMode === 'selected_tts_voice' && (
@@ -255,7 +259,7 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
                 <Field label="Brand">
                   {brands.length > 0
                     ? <select value={f.brandId} onChange={(e) => set('brandId', e.target.value)} style={inp}><option value="">Select a brand…</option>{brands.map((b) => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}</select>
-                    : <input value={f.brandId} onChange={(e) => set('brandId', e.target.value)} placeholder="brand id" style={inp} />}
+                    : <Mono s={9} c={C.muted}>No brands yet — create one in Brand Vault first, then it appears here.</Mono>}
                 </Field>
               )}
               <Field label="Rights notes" hint="optional"><textarea value={f.rightsNotes} onChange={(e) => set('rightsNotes', e.target.value)} rows={2} placeholder="Any usage limits, expiry, territory…" style={{ ...inp, resize: 'vertical' }} /></Field>

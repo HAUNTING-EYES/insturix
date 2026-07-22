@@ -114,6 +114,9 @@ export function AvatarRenderPlanner({ record }: { record: AvatarProfileRecord })
 
   const set = <K extends keyof PlannerState>(k: K, v: PlannerState[K]) => { setS((cur) => ({ ...cur, [k]: v })); setClientError(null); };
   const useCaseOpts = useMemo(() => renderUseCaseOptions(record).map((o) => [o.id, o.label] as [PlannerState['useCase'], string]), [record]);
+  // Full body (lane B) is capped at the 10s relip budget; talking head can run longer.
+  const secondsBase = s.renderModality === 'body_motion' ? ['5', '10'] : ['8', '15', '30'];
+  const secondsChoices = secondsBase.includes(s.durationSeconds) ? secondsBase : [s.durationSeconds, ...secondsBase];
 
   const job = jobQuery.data ?? generate.data?.job;
   const composition = job?.stages.find((st) => st.id === 'composition_remotion');
@@ -157,7 +160,7 @@ export function AvatarRenderPlanner({ record }: { record: AvatarProfileRecord })
             {isSpeechUseCase(s.useCase) && (
               <div style={{ marginTop: 16 }}>
                 <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 10 }}>Motion</Mono>
-                <Seg opts={MODALITY_OPTIONS} val={s.renderModality} on={(v) => set('renderModality', v)} />
+                <Seg opts={MODALITY_OPTIONS} val={s.renderModality} on={(v) => { set('renderModality', v); if (v === 'body_motion' && Number(s.durationSeconds) > 10) set('durationSeconds', '10'); }} />
                 {s.renderModality === 'body_motion' && (
                   <Mono s={8} c={C.muted} st={{ display: 'block', marginTop: 8 }}>Full-body shots are capped at 10s per shot — keep the script short, or use talking head for longer takes.</Mono>
                 )}
@@ -199,7 +202,7 @@ export function AvatarRenderPlanner({ record }: { record: AvatarProfileRecord })
               <Field label="Aspect"><Seg opts={[['9:16', '9:16'], ['16:9', '16:9'], ['1:1', '1:1'], ['4:5', '4:5']]} val={s.aspectRatio} on={(v) => set('aspectRatio', v)} /></Field>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <Field label="Resolution"><select value={s.resolution} onChange={(e) => set('resolution', e.target.value)} style={inp}><option value="720p">720p</option><option value="1080p">1080p</option></select></Field>
-                <Field label="Seconds"><input inputMode="decimal" value={s.durationSeconds} onChange={(e) => set('durationSeconds', e.target.value)} style={inp} /></Field>
+                <Field label="Seconds"><select value={s.durationSeconds} onChange={(e) => set('durationSeconds', e.target.value)} style={inp}>{secondsChoices.map((sec) => <option key={sec} value={sec}>{sec}</option>)}</select></Field>
               </div>
             </div>
           </div>
