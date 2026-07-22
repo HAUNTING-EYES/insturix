@@ -24,6 +24,7 @@ import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { validateReferenceVideoUrlForAutoEditIntake } from '@/lib/editron/reference-video/reference-video-source';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 import { normalizeEditorialPreferences, type EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
+import { ASSIST_STATUS_READY, isAssistIntakeEnabled, parseEditMode } from '@/lib/editron/services/assist-lane';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -48,6 +49,7 @@ interface FromAssetRequest {
   pacingFeel?: string;
   musicPreference?: string;
   editorialPreferences?: EditorialPreferences;
+  editMode?: string;         // Director Mode (assist lane): 'assist' = scans only, user directs via chat
 }
 
 export async function POST(request: NextRequest) {
@@ -69,6 +71,13 @@ export async function POST(request: NextRequest) {
 
     if (!assetId) {
       return NextResponse.json({ success: false, error: 'assetId is required' }, { status: 400 });
+    }
+
+    // Director Mode (assist lane): enum-validated, server-side flag enforced —
+    // hiding the toggle in the UI alone would not make the lane dark.
+    const requestedEditMode = parseEditMode(body.editMode) ?? 'auto';
+    if (requestedEditMode === 'assist' && !isAssistIntakeEnabled()) {
+      return NextResponse.json({ success: false, error: 'Director Mode is not available.' }, { status: 403 });
     }
 
     const trimmedReferenceVideoUrl = referenceVideoUrl?.trim();
@@ -253,6 +262,17 @@ export async function POST(request: NextRequest) {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
 
+    // Persist the lane BEFORE any worker dispatch — the video-analysis worker
+    // consults project.editMode at its director-invocation site and must never
+    // race an unset flag.
+    if (requestedEditMode === 'assist') {
+      await db.collection('projects').updateOne(
+        { projectId },
+        { $set: { editMode: 'assist' } },
+      );
+      console.log(`[DirectorMode] Assist intake accepted for project ${projectId} (asset ${assetId}).`);
+    }
+
     await db.collection('projects').updateOne(
       { projectId },
       {
@@ -342,15 +362,25 @@ export async function POST(request: NextRequest) {
       if (ssb) {
         await db.collection('projects').updateOne(
           { projectId },
-          { $set: { syntheticStoryboard: ssb, autoEditStatus: 'editing' } },
+          { $set: { syntheticStoryboard: ssb, autoEditStatus: requestedEditMode === 'assist' ? ASSIST_STATUS_READY : 'editing' } },
         );
       }
-      const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
-      await executeDirectorPlan(projectId, userId, 'A-01');
-      await db.collection('projects').updateOne(
-        { projectId },
-        { $set: { autoEditStatus: 'complete' } },
-      );
+      if (requestedEditMode === 'assist') {
+        // Director Mode: the single clip already IS the timeline (saved at create).
+        // Scans persisted above — hand the pen to the user, never run the Director.
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { autoEditStatus: ASSIST_STATUS_READY } },
+        );
+        console.log(`[DirectorMode] Assist scan complete inline — director skipped (project ${projectId}).`);
+      } else {
+        const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
+        await executeDirectorPlan(projectId, userId, 'A-01');
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { autoEditStatus: 'complete' } },
+        );
+      }
     }
 
     const totalMs = Date.now() - startMs;

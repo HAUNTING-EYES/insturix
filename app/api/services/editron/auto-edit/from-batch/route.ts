@@ -50,7 +50,9 @@ import {
 import {
   ASSIST_STATUS_READY,
   buildAssistHydration,
+  isAssistIntakeEnabled,
   isAssistProject,
+  parseEditMode,
   partitionAssistAssets,
 } from '@/lib/editron/services/assist-lane';
 
@@ -1285,6 +1287,11 @@ export async function POST(request: NextRequest) {
       }
 
       const intake = mergeIntake(batch.productionBriefIntake, body);
+      // Director Mode (assist lane): enum-validated, server-side flag enforced.
+      const requestedEditMode = parseEditMode((body as { editMode?: unknown }).editMode) ?? 'auto';
+      if (requestedEditMode === 'assist' && !isAssistIntakeEnabled()) {
+        return NextResponse.json({ success: false, error: 'Director Mode is not available.' }, { status: 403 });
+      }
       const projectName = cleanString(body.title, 160)
         || cleanString(intake.userIntent, 80)
         || `Auto-Edit Batch: ${uploadBatchId}`;
@@ -1293,6 +1300,14 @@ export async function POST(request: NextRequest) {
         orgId: orgId ?? batch.orgId ?? null,
       });
       activeProjectId = project.projectId;
+      if (requestedEditMode === 'assist') {
+        // Persisted BEFORE orchestration dispatch — compose consults project.editMode.
+        await db.collection(COLLECTIONS.PROJECTS).updateOne(
+          { projectId: activeProjectId },
+          { $set: { editMode: 'assist' } },
+        );
+        console.log(`[DirectorMode] Assist intake accepted for project ${activeProjectId} (batch ${uploadBatchId}).`);
+      }
       const initialAspectRatio = normalizeAspectRatio(intake.aspectRatio) ?? '16:9';
       const initialPlayerDimensions = dimensionsForAspect(initialAspectRatio);
 

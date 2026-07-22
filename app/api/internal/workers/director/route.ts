@@ -86,6 +86,19 @@ async function handler(request: NextRequest) {
       throw new Error(`Project ${projectId} not found`);
     }
 
+    // Director Mode (assist lane): scans are complete — hand the pen to the user.
+    // The Director never runs, and post-director bookkeeping (quality review,
+    // learning gate, bandit) evaluates Director output, so it is skipped with it.
+    const { isAssistProject, ASSIST_STATUS_READY } = await import('@/lib/editron/services/assist-lane');
+    if (isAssistProject(projectDoc)) {
+      await db.collection('projects').updateOne(
+        { projectId },
+        { $set: { autoEditStatus: ASSIST_STATUS_READY, autoEditCompletedAt: new Date() } },
+      );
+      console.log(`[DirectorMode] Assist scan complete — director skipped (project ${projectId}).`);
+      return NextResponse.json({ success: true, projectId, status: ASSIST_STATUS_READY, directorSkipped: true });
+    }
+
     const rawFootageAnalysis = projectDoc.rawFootageAnalysis;
     const syntheticStoryboard = projectDoc.syntheticStoryboard;
 

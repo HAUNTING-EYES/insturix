@@ -1073,6 +1073,23 @@ async function handler(request: NextRequest) {
       }
     }
 
+    // Director Mode (assist lane): scans are complete and persisted — hand the
+    // pen to the user instead of running the inline Director (dev path). The
+    // production Stage-3 director worker carries the same guard.
+    const { isAssistProject: isAssistLaneProject, ASSIST_STATUS_READY: assistReadyStatus } = await import('@/lib/editron/services/assist-lane');
+    const assistLaneOwner = await db.collection('projects').findOne(
+      { projectId },
+      { projection: { editMode: 1 } },
+    );
+    if (isAssistLaneProject(assistLaneOwner)) {
+      await db.collection('projects').updateOne(
+        { projectId },
+        { $set: { autoEditStatus: assistReadyStatus, autoEditCompletedAt: new Date() } },
+      );
+      console.log(`[DirectorMode] Assist scan complete — inline director skipped (project ${projectId}).`);
+      return NextResponse.json({ success: true, projectId, status: assistReadyStatus, directorSkipped: true });
+    }
+
     // Run Director inline
     await db.collection('projects').updateOne(
       { projectId },
