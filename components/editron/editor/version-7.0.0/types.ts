@@ -43,8 +43,9 @@ export interface KeyframeTrack {
    * - opacity: 0.0 (invisible) to 1.0 (fully visible)
    * - rotation: degrees
    * - speed: playback rate multiplier (0.25 to 4.0)
+   * - objectPositionX/Y: video focal point in percent (0 to 100)
    */
-  property: 'x' | 'y' | 'scale' | 'opacity' | 'rotation' | 'speed';
+  property: 'x' | 'y' | 'scale' | 'opacity' | 'rotation' | 'speed' | 'objectPositionX' | 'objectPositionY';
   keyframes: Keyframe[];
 }
 

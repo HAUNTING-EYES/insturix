@@ -1,7 +1,7 @@
 import { OffthreadVideo, Video, Sequence, useCurrentFrame } from "remotion";
 import { useMemo } from "react";
 import { ClipOverlay } from "../../../types";
-import { computeSpeedSegments } from "../../../utils/keyframe-evaluator";
+import { computeSpeedSegments, evaluateAllTracks } from "../../../utils/keyframe-evaluator";
 import { animationTemplates } from "../../../templates/animation-templates";
 import { toAbsoluteUrl } from "../../../utils/url-helper";
 import { useIsRendering, useAllOverlays } from "../../../contexts/rendering-context";
@@ -9,6 +9,10 @@ import { createDuckingVolume } from "../../../utils/audio-ducking";
 
 const CANONICAL_VOICEOVER_ROW = 3;
 const LEGACY_VOICEOVER_ROW = 4;
+
+function clampFocalPercent(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
 
 /**
  * Interface defining the props for the VideoLayerContent component
@@ -115,10 +119,20 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
         )
       : {};
 
+  const keyframedValues = overlay.keyframeTracks?.length
+    ? evaluateAllTracks(overlay.keyframeTracks, frame)
+    : {};
+  const hasKeyframedFocalPoint = keyframedValues.objectPositionX !== undefined
+    || keyframedValues.objectPositionY !== undefined;
+  const objectPosition = hasKeyframedFocalPoint
+    ? `${clampFocalPercent(keyframedValues.objectPositionX ?? 50)}% ${clampFocalPercent(keyframedValues.objectPositionY ?? 50)}%`
+    : overlay.styles.objectPosition;
+
   const videoStyle: React.CSSProperties = {
     width: "100%",
     height: "100%",
     objectFit: overlay.styles.objectFit || "cover",
+    objectPosition: objectPosition || "50% 50%",
     opacity: overlay.styles.opacity,
     transform: overlay.styles.transform || "none",
     borderRadius: overlay.styles.borderRadius || "0px",
