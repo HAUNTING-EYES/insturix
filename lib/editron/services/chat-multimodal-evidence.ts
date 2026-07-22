@@ -759,7 +759,11 @@ function collectAudioFacts(
 function buildEvidenceDescriptor(input: { transcriptText: string; visualFacts: ReturnType<typeof collectVisualFacts>; audioFacts: ReturnType<typeof collectAudioFacts> }): string {
   return truncate([
     input.transcriptText ? `spoken: ${input.transcriptText}` : '',
-    input.visualFacts.text ? `shown: ${input.visualFacts.text}` : '',
+    input.visualFacts.text
+      ? `shown: ${input.visualFacts.text}`
+      : input.visualFacts.hasSpatial
+        ? 'shown: localized visual subject'
+        : '',
     input.audioFacts.text ? `heard: ${input.audioFacts.text}` : '',
   ].filter(Boolean).join(' | '), MAX_DESCRIPTOR_CHARS);
 }
