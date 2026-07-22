@@ -129,6 +129,18 @@ describe('chat request owner classification', () => {
     expect(prompt).toContain('"role":"style-reference"');
   });
 
+  it('distinguishes a selected color adjustment from an editorial project-wide grade', () => {
+    const prompt = buildChatRequestOwnerPrompt({
+      ...baseInput,
+      userMessage: 'Warm the selected video clip slightly and add a little contrast.',
+      selectedOverlayPresent: true,
+    });
+
+    expect(prompt).toContain('A selected visual target with explicit adjustments');
+    expect(prompt).toContain('requiresEditorialJudgment=false, operationFullySpecified=true, targetFullySpecified=true');
+    expect(prompt).toContain('Give the whole video a cinematic color grade');
+  });
+
   it('derives mechanical ownership from a fully specified literal timeline edit', async () => {
     const generate = vi.fn(async () => ({
       text: JSON.stringify({
