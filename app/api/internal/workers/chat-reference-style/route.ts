@@ -15,7 +15,7 @@ interface ChatReferenceStyleWorkerPayload {
   userId?: string;
 }
 
-export async function handleChatReferenceStyleWorker(request: NextRequest) {
+async function handleChatReferenceStyleWorker(request: NextRequest) {
   const payload = await request.json().catch(() => ({})) as ChatReferenceStyleWorkerPayload;
   if (!payload.jobId || !payload.projectId || !payload.userId) {
     return NextResponse.json({ success: false, error: 'Invalid reference-style worker payload' }, { status: 400 });
