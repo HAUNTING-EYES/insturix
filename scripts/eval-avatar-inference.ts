@@ -117,6 +117,12 @@ async function main() {
     const result = await inferAvatarAttributesFromImages(images);
     console.log(`\n=== ${fx.name} ===`);
     if (!result.ok) { console.log(`  FAILED: ${result.error}`); fixtureScores.push(0); continue; }
+    const d = result.data;
+    console.log('  extracted:');
+    console.log(`    identity : ${d.identityDescription}`);
+    console.log(`    build    : ${d.build}   hair: ${d.hair}   skin: ${d.skinTone}`);
+    console.log(`    traits   : [${d.notableTraits.join(', ')}]   wardrobe: ${d.wardrobe}`);
+    console.log(`    quality  : usable=${d.quality.usable} face=${d.quality.faceDetected} solo=${d.quality.singlePerson}${d.quality.issues.length ? `   issues: ${d.quality.issues.join('; ')}` : ''}`);
     const { lines, score, hallucinated } = scoreFixture(fx, result.data);
     lines.forEach((l) => console.log(l));
     console.log(`  → score ${(score * 100).toFixed(0)}%`);

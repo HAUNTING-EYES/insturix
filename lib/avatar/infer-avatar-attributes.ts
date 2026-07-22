@@ -80,6 +80,7 @@ export const AVATAR_ATTRIBUTE_GUIDANCE = [
   '- identityDescription: ONE clear sentence capturing the stable, recognisable features.',
   '- If a field is not visible in any photo, return an empty string (or [] for lists). Do NOT guess.',
   '- notableTraits: only clearly-visible, stable features (glasses, beard, distinctive marks). Skip anything transient.',
+  '- Do NOT report eye colour — lighting and reflections make it unreliable from a photo, and a wrong eye colour is a jarring miss. The reference photo itself carries the eyes; the text does not need them.',
   '- quality.usable is true ONLY if at least one photo clearly shows this person\'s face, in focus, as the only person in frame.',
   '- quality.issues: concrete problems, e.g. "face partially cropped", "heavy backlight", "sunglasses hide the eyes", "multiple people in frame", "low resolution / blurry".',
   '- Do NOT infer profession, personality, mood, or "tone" — a photo cannot show those. Leave them out entirely.',
