@@ -512,6 +512,24 @@ function AttentionZone() {
       .catch(() => {});
   }, []);
 
+  // Clear = dismiss (soft) so it stops showing. Optimistic: drop from the list, then persist.
+  const dismiss = (id: string) => {
+    setItems((prev) => prev.filter((it) => it.id !== id));
+    fetch("/api/dashboard/attention", {
+      method: "DELETE", credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    }).catch(() => {});
+  };
+  const clearAll = () => {
+    setItems([]);
+    fetch("/api/dashboard/attention", {
+      method: "DELETE", credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ all: true }),
+    }).catch(() => {});
+  };
+
   return (
     <section style={{ marginBottom: 24 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -521,6 +539,20 @@ function AttentionZone() {
         </span>
         {items.length > 0 && (
           <span style={{ fontSize: 11, color: C.red, fontFamily: "'JetBrains Mono', monospace" }}>{items.length}</span>
+        )}
+        {items.length > 0 && (
+          <button
+            type="button"
+            onClick={clearAll}
+            className="dh-mono"
+            style={{
+              marginLeft: "auto", fontSize: 10, letterSpacing: "0.06em", color: C.dim,
+              background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6,
+              padding: "3px 9px", cursor: "pointer",
+            }}
+          >
+            CLEAR ALL
+          </button>
         )}
       </div>
       {items.length === 0 ? (
@@ -536,15 +568,31 @@ function AttentionZone() {
             <div key={item.id} style={{
               padding: "12px 16px", background: C.raised,
               border: `1px solid ${item.severity === "high" ? `${C.red}30` : C.border}`,
-              borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center",
+              borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
             }}>
-              <div>
+              <div style={{ minWidth: 0 }}>
                 <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>{item.title}</span>
                 <span style={{ fontSize: 11, color: C.muted, display: "block", marginTop: 2 }}>{item.detail}</span>
               </div>
-              <span className="dh-mono" style={{ fontSize: 10, color: C.dim, whiteSpace: "nowrap" }}>
-                {new Date(item.time).toLocaleDateString()}
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+                <span className="dh-mono" style={{ fontSize: 10, color: C.dim, whiteSpace: "nowrap" }}>
+                  {new Date(item.time).toLocaleDateString()}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => dismiss(item.id)}
+                  aria-label={`Clear ${item.title}`}
+                  title="Clear"
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 22, height: 22, borderRadius: 6, color: C.dim,
+                    background: "transparent", border: `1px solid ${C.border}`,
+                    cursor: "pointer", fontSize: 14, lineHeight: 1,
+                  }}
+                >
+                  &times;
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -586,8 +634,8 @@ function BoardView({ groups }: { groups: { key: string; label: string; color: st
               </div>
               <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>{group.projects.length}</span>
             </div>
-            {/* Cards */}
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+            {/* Cards — each column scrolls on its own so a busy stage doesn't stretch the whole board. */}
+            <div className="dh-scroll" style={{ flex: 1, minHeight: 0, maxHeight: "62vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
               {group.projects.map((project) => (
                 <BoardCard key={project.id} project={project} stageColor={group.color} />
               ))}
