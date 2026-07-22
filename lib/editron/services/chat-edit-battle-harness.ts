@@ -425,9 +425,10 @@ export function evaluateChatEditBattleJourney(input: {
   ));
 
   const toolNames = events.map((event) => event.name);
-  const ownerPath = events.flatMap((event) => hasCanonicalProjectPreflight(event)
-    ? [SERVER_CANONICAL_PROJECT_STATE, event.name]
-    : [event.name]);
+  const ownerPath = [
+    ...(events.some(hasCanonicalProjectPreflight) ? [SERVER_CANONICAL_PROJECT_STATE] : []),
+    ...toolNames,
+  ];
   const sequenceResult = requiredSequenceResult(ownerPath, input.scenario.requiredToolSequence);
   checks.push(check(
     'agent.required-owner-path',

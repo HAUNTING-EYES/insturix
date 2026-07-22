@@ -822,6 +822,51 @@ describe('chat edit battle harness', () => {
     });
   });
 
+  it('places server canonical preflight before resolver evidence in the logical owner path', () => {
+    const scenario = getChatEditBattleScenario('manual-keyframe-zoom')!;
+    const beforeProject = project([{ id: 'clip-1', type: 'video', from: 0, durationInFrames: 120, row: 0 }]);
+    const afterProject = project([{
+      ...beforeProject.overlays[0],
+      keyframeTracks: [{ property: 'scale', keyframes: [{ frame: 0, value: 1 }, { frame: 60, value: 1.08 }] }],
+    }]);
+    const report = evaluateChatEditBattleJourney({
+      journeyId: 'resolver-with-server-preflight',
+      scenario,
+      projectId: 'proj_battle',
+      startedAt: '2026-07-16T10:00:00.000Z',
+      completedAt: '2026-07-16T10:00:01.000Z',
+      invocation: invocation('manual-keyframe-zoom', [
+        {
+          id: 'resolve',
+          name: 'resolve_keyframe_edit',
+          args: { overlayId: 'clip-1' },
+          startedAt: '2026-07-16T10:00:00.100Z',
+          completedAt: '2026-07-16T10:00:00.200Z',
+          output: successEnvelope({ useWith: { set_keyframes: { overlayId: 'clip-1', property: 'scale' } } }),
+        },
+        {
+          id: 'mutate',
+          name: 'set_keyframes',
+          args: { overlayId: 'clip-1', property: 'scale' },
+          startedAt: '2026-07-16T10:00:00.300Z',
+          completedAt: '2026-07-16T10:00:00.400Z',
+          output: successEnvelopeWithCanonicalPreflight({ overlayId: 'clip-1' }),
+        },
+      ]),
+      mongoBefore: buildChatBattleProjectSnapshot(beforeProject, 'mongo-before'),
+      mongoAfter: buildChatBattleProjectSnapshot(afterProject, 'mongo-after'),
+      uiReload: buildChatBattleProjectSnapshot(afterProject, 'ui-reload'),
+      renderEvidence: { status: 'pass', capturedAt: '2026-07-16T10:00:00.900Z', artifactRefs: ['artifact://zoom.png'], issues: [] },
+    });
+
+    expect(report.checks.find((check) => check.id === 'agent.required-owner-path')).toMatchObject({
+      status: 'pass',
+      evidence: {
+        ownerPath: ['server-canonical-project-state', 'resolve_keyframe_edit', 'set_keyframes'],
+      },
+    });
+  });
+
   it('rejects the legacy apply-to-all transition recipe even if it changed Mongo', () => {
     const scenario = getChatEditBattleScenario('vague-transitions')!;
     const beforeProject = project([{ id: 'clip-a', type: 'video', from: 0, durationInFrames: 150, row: 0 }]);
