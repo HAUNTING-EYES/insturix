@@ -18,7 +18,6 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import { useAcceptedBrandVaultBrands } from '@/components/dashboard/BrandVault/useBrandVault';
@@ -165,9 +164,6 @@ function Seg({ options, value, onChange }: { options: string[]; value: string; o
 
 const DUR_SEC: Record<string, number> = { '15s': 15, '30s': 30, '60s': 60 };
 
-// Varied clip widths for the working filmstrip (a real, if approximate, timeline — not 5 dummy boxes).
-const CLIP_FLEX = [3, 1.4, 2.6, 1, 1.8, 2.2, 1.3];
-
 export default function NewProjectFlow() {
   const router = useRouter();
   const brandsQuery = useAcceptedBrandVaultBrands();
@@ -178,12 +174,6 @@ export default function NewProjectFlow() {
   const [screen, setScreen] = useState<Screen>('idle');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  // Portal-mount guard: the auto-edit processing overlay must escape the `.enp`
-  // console (whose `.panel` transform makes `position:fixed` anchor to the framed
-  // box, not the viewport — collapsing the full-screen screen). Portal to body.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
 
   // Beta notice — dismissible, remembered per browser. Starts hidden until the
   // effect confirms it wasn't dismissed (SSR-safe: no localStorage read on render).
@@ -196,15 +186,6 @@ export default function NewProjectFlow() {
     setBetaBar(false);
     try { localStorage.setItem('editron_beta_dismissed', '1'); } catch { /* ignore */ }
   }, []);
-
-  const working = busy || footage.running;
-
-  // Elapsed timer while a create/generate/auto-edit is in flight.
-  useEffect(() => {
-    if (!working) { setElapsed(0); return; }
-    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
-    return () => clearInterval(t);
-  }, [working]);
 
   // Footage auto-edit failed → drop back to the upload panel with the error.
   useEffect(() => {
@@ -229,9 +210,7 @@ export default function NewProjectFlow() {
   const [brandId, setBrandId] = useState('');
 
   const [projName, setProjName] = useState('untitled');
-  const [projType, setProjType] = useState('—');
   const [pendingFootageFiles, setPendingFootageFiles] = useState<File[]>([]);
-  const [batchCount, setBatchCount] = useState(0);
 
   const go = useCallback((s: Screen) => { setError(null); setScreen(s); }, []);
 
@@ -240,7 +219,7 @@ export default function NewProjectFlow() {
     if (busy) return;
     const name = scriptName.trim() || 'untitled_script';
     setBusy(true); setError(null);
-    setProjName(name); setProjType('Script → video'); setScreen('onair');
+    setProjName(name); setScreen('onair');
     try {
       const res = await fetch('/api/services/editron/projects/create', {
         method: 'POST',
@@ -264,8 +243,6 @@ export default function NewProjectFlow() {
     setPendingFootageFiles([]);
     setError(null);
     setProjName(files.length === 1 ? files[0].name : `${files.length} files`);
-    setProjType(files.length === 1 ? 'Edit footage' : 'Upload batch');
-    setBatchCount(files.length);
     setScreen('onair');
     footage.startMany(files, options);
   }, [footage]);
@@ -301,6 +278,24 @@ export default function NewProjectFlow() {
       ? pendingFootageFiles[0]
       : null;
   const pendingBatchFiles = pendingSingleVideo ? [] : pendingFootageFiles;
+
+  // When the edit is on air, THIS screen is the auto-edit processing view — render it as
+  // the page (same as /dashboard/editron/auto-edit/[projectId] does), NOT as a fixed overlay
+  // on top of the console. Overlaying failed at the root: <body> is `position:relative` +
+  // `overflow-x:clip`, so a portaled `fixed inset-0` never anchored to the viewport and the
+  // console bled through underneath. One screen, normal flow — no overlap, no flash.
+  if (screen === 'onair') {
+    return (
+      <AutoEditProcessing
+        filename={projName}
+        stageIndex={0}
+        percent={/(analy|edit)/i.test(footage.progress) ? 20 : /regist/i.test(footage.progress) ? 14 : /upload/i.test(footage.progress) ? 8 : 4}
+        done={false}
+        logLines={footage.progress ? [footage.progress] : []}
+        onSkip={goProjects}
+      />
+    );
+  }
 
   return (
     <div className="enp">
@@ -431,60 +426,13 @@ export default function NewProjectFlow() {
               </div>
             </div>
 
-            {/* on air — commit / generating */}
-            <div className={screen === 'onair' ? 'panel on' : 'panel'}>
-              <div className="onair">
-                <div className="nowbar">
-                  <div className="l">
-                    <span className="m" style={{ fontSize: 9, letterSpacing: '.1em', color: 'var(--red)' }}>{working ? 'WORKING' : 'NOW EDITING'}</span>
-                    <span className="m" style={{ fontSize: 12, color: 'var(--text)' }}>{projName}</span>
-                  </div>
-                  <span className="m" style={{ fontSize: 9, color: 'var(--muted)' }}>{projType}</span>
-                </div>
-                <div className="monitor">
-                  <div className="rec">
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', display: 'inline-block', animation: 'enpPl 1.4s infinite' }} />
-                    <span className="m" style={{ fontSize: 9, color: 'var(--red)' }}>{working ? `WORKING · ${elapsed}s` : 'READY'}</span>
-                  </div>
-                  <div className="core">
-                    {working ? <span className="ring" /> : null}
-                    <span className="pt">{footage.progress || (working ? 'Starting up…' : 'Ready to edit.')}</span>
-                    {batchCount > 1 ? <span className="sub">{batchCount} files</span> : null}
-                  </div>
-                  <div className="tl">
-                    <div className={working ? 'clips live' : 'clips'}>
-                      {Array.from({ length: Math.max(3, Math.min(batchCount || 5, 12)) }, (_, i) => (
-                        <i key={i} style={{ flex: CLIP_FLEX[i % CLIP_FLEX.length], ...(i === 1 ? { borderColor: 'var(--gold)' } : {}) }} />
-                      ))}
-                    </div>
-                    <div className="ph"><i /></div>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
-        {screen !== 'idle' && screen !== 'onair' ? (
+        {screen !== 'idle' ? (
           <button type="button" className="back" onClick={() => go(BACK[screen])}>&#9666; Back</button>
         ) : null}
       </div>
-      {/* Auto-edit processing screen (single OR multi-source). Upload/analyze
-          maps to the analyze stage; the hook then navigates to /auto-edit/[id]
-          for the real director stages. */}
-      {screen === 'onair' && mounted && createPortal(
-        <div className="fixed inset-0 z-[9999]">
-          <AutoEditProcessing
-            filename={projName}
-            stageIndex={0}
-            percent={/(analy|edit)/i.test(footage.progress) ? 20 : /regist/i.test(footage.progress) ? 14 : /upload/i.test(footage.progress) ? 8 : 4}
-            done={false}
-            logLines={footage.progress ? [footage.progress] : []}
-            onSkip={goProjects}
-          />
-        </div>,
-        document.body,
-      )}
       <AutoEditDialog
         file={pendingSingleVideo}
         onConfirm={onSingleFootageConfirm}
