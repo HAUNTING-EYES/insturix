@@ -413,6 +413,19 @@ function inferMutationModalities(
   targets: ChatEditRenderVerificationTarget[],
   declared: ChatEditRenderVerificationModality[] = [],
 ): ChatEditRenderVerificationModality[] {
+  const isTimelineMutation = [
+    'split_overlay', 'trim_overlay', 'cut_section', 'close_gaps',
+    'auto_edit_from_script', 'apply_editorial_intent',
+  ].includes(call.name);
+
+  // A passed postcondition receipt is the family owner's explicit contract.
+  // Do not broaden a visual-only video edit into audio verification merely
+  // because the target video may contain an audio stream. Timeline mutations
+  // remain the exception because they can change picture and sound together.
+  if (declared.length > 0 && !isTimelineMutation) {
+    return Array.from(new Set(declared));
+  }
+
   const targetTypes = new Set(targets.map((target) => target.overlayType.toLowerCase()));
   const argumentKeys = collectObjectKeys(call.args);
   const hasExplicitAudioArgument = [...argumentKeys].some((key) => [
@@ -423,10 +436,6 @@ function inferMutationModalities(
     'x', 'y', 'left', 'top', 'width', 'height', 'scale', 'opacity', 'rotation',
     'content', 'text', 'styles', 'fontsize', 'color', 'backgroundcolor', 'keyframes',
   ].includes(key));
-  const isTimelineMutation = [
-    'split_overlay', 'trim_overlay', 'cut_section', 'close_gaps',
-    'auto_edit_from_script', 'apply_editorial_intent',
-  ].includes(call.name);
   const inferred = new Set<ChatEditRenderVerificationModality>();
 
   if ([...targetTypes].some((type) => type !== 'audio' && type !== 'sound')) inferred.add('visual');
@@ -448,7 +457,7 @@ export function buildChatEditRenderVerificationStatusMessage(result: {
   reason?: string;
 }): string {
   if (result.dispatched) {
-    return 'The edit was saved and its state checks passed. I am rendering the affected visual and audio regions now; I am not marking it successful until that verification finishes.';
+    return 'The edit was saved and its state checks passed. I am rendering the affected output now; I am not marking it successful until that verification finishes.';
   }
   const reason = String(result.reason ?? 'render verification is unavailable')
     .replace(/[\u0000-\u001F\u007F]/g, ' ')

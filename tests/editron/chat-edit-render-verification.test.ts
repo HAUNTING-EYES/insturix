@@ -86,6 +86,20 @@ describe('chat edit rendered verification', () => {
     expect(new Set(request.modalities)).toEqual(new Set(['visual', 'audio']));
   });
 
+  it('does not broaden an explicitly visual video mutation into audio verification', () => {
+    const request = buildRequest({
+      name: 'apply_filter',
+      args: {
+        overlayId: 'video_1',
+        filterCss: 'brightness(1.05) contrast(1.1)',
+      },
+      target: { overlayId: 'video_1', overlayType: 'video', state: 'updated', from: 0, endFrame: 150 },
+      modalities: ['visual'],
+    });
+
+    expect(request.modalities).toEqual(['visual']);
+  });
+
   it('renders the exact requested frame from immutable before and after project states', async () => {
     const renderStill = vi.fn(async (input: any) => {
       const isAfter = input.inputProps.overlays.some((overlay: any) => overlay.id === 'txt_after');
