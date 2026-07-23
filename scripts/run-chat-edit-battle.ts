@@ -370,6 +370,14 @@ interface QueuedProjectSettlementDependencies {
 }
 
 const QUEUED_MUTATION_FAILURE_STATUSES = new Set(['failed', 'needs_input', 'scan_failed'] as const);
+const QUEUED_MUTATION_ACTIVE_STATUSES: ReadonlySet<string> = new Set([
+  'analyzing',
+  'analyzing_deep',
+  'analyzing_visual_cuts',
+  'analysis_complete',
+  'directing_queued',
+  'directing',
+] as const);
 
 function queuedMutationTerminalFailure(
   project: Record<string, unknown>,
@@ -384,6 +392,11 @@ function queuedMutationTerminalFailure(
     terminalStatus,
     ...(error ? { terminalError: error } : {}),
   };
+}
+
+function queuedMutationIsActive(project: Record<string, unknown>): boolean {
+  const status = stringValue(project.autoEditStatus);
+  return status != null && QUEUED_MUTATION_ACTIVE_STATUSES.has(status);
 }
 
 export async function waitForQueuedProjectMutation(
@@ -414,7 +427,9 @@ export async function waitForQueuedProjectMutation(
       return { project, changed: false, polls, ...terminalFailure };
     }
     const digest = buildChatBattleProjectSnapshot(project, 'mongo-after').digest;
-    if (digest !== input.baselineDigest) return { project, changed: true, polls };
+    if (digest !== input.baselineDigest && !queuedMutationIsActive(project)) {
+      return { project, changed: true, polls };
+    }
     if (dependencies.now() >= deadline) return { project, changed: false, polls };
     await dependencies.sleep(pollIntervalMs);
     project = await dependencies.loadProject(input.projectId);

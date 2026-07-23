@@ -672,12 +672,22 @@ describe('chat edit battle harness', () => {
 
   it('waits for material project state after a queued edit and reports timeout honestly', async () => {
     const unchanged = project([]);
-    const changed = project([{ id: 'video-2', type: 'video', from: 0, durationInFrames: 300, row: 0 }]);
+    const changedWhileRunning = {
+      ...project([{ id: 'video-2', type: 'video', from: 0, durationInFrames: 300, row: 0 }]),
+      autoEditStatus: 'directing',
+    };
+    const changed = {
+      ...project([
+        { id: 'video-2', type: 'video', from: 0, durationInFrames: 300, row: 0 },
+        { id: 'caption-1', type: 'caption', from: 0, durationInFrames: 300, row: 1 },
+      ]),
+      autoEditStatus: 'complete',
+    };
     const baselineDigest = buildChatBattleProjectSnapshot(unchanged, 'mongo-before').digest;
     let clock = 0;
     const loadProject = vi.fn()
       .mockResolvedValueOnce(unchanged)
-      .mockResolvedValueOnce(unchanged)
+      .mockResolvedValueOnce(changedWhileRunning)
       .mockResolvedValueOnce(changed);
     const settled = await waitForQueuedProjectMutation({
       projectId: 'proj_battle',
