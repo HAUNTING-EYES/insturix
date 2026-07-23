@@ -114,6 +114,21 @@ describe('assist cancel route', () => {
       'Director Mode scan cancelled — full refund',
       { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: 'tx_9' },
     );
+    // MONEY: the transaction is consumed after refund so no other path can refund it again.
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      { projectId: 'proj_1', userId: 'user_1' },
+      expect.objectContaining({ $unset: { assistCreditTransactionId: '', assistChargedCredits: '' } }),
+    );
+  });
+
+  it('ATTACK: NoSQL-injection projectId shapes are rejected before any query runs', async () => {
+    const res = await POST(request({ projectId: { $ne: null } }));
+    expect(res.status).toBe(400);
+    expect(mocks.findProject).not.toHaveBeenCalled();
+
+    const res2 = await POST(request({ projectId: ['proj_1'] }));
+    expect(res2.status).toBe(400);
+    expect(mocks.findProject).not.toHaveBeenCalled();
   });
 
   it('a lost transition race never refunds (the winner already did the accounting)', async () => {

@@ -126,12 +126,30 @@ export function buildAssistHydration(args: {
   const analysisByAsset = new Map(args.analyses.map((doc) => [doc.assetId, doc]));
   const hydrated = new Set<string>();
   const degraded = new Set<string>();
+  const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  // Mirrors selectedVideoClips' validity rule (multi-asset-director-context.ts) —
+  // a video overlay the builder would THROW on is degraded instead. Battle-lane
+  // finding: rescue/edited timelines can carry malformed overlays; hydration must
+  // never detonate the whole lane on one bad clip.
+  const isContextReadyVideoOverlay = (overlay: MultiAssetTimelineOverlay): boolean => {
+    const assetId = typeof overlay.assetId === 'string' && overlay.assetId.trim() ? overlay.assetId : null;
+    const shape = overlay as { from?: unknown; durationInFrames?: unknown; sourceStartFrame?: unknown; videoStartTime?: unknown };
+    return Boolean(
+      assetId
+      && isCanonicalAnalysisComplete(analysisByAsset.get(assetId))
+      && isFiniteNumber(shape.from)
+      && isFiniteNumber(shape.durationInFrames) && (shape.durationInFrames as number) > 0
+      && (isFiniteNumber(shape.sourceStartFrame) || isFiniteNumber(shape.videoStartTime)),
+    );
+  };
   for (const overlay of args.overlays) {
     if (overlay.type !== 'video') continue;
     const assetId = typeof overlay.assetId === 'string' ? overlay.assetId : undefined;
-    if (assetId && isCanonicalAnalysisComplete(analysisByAsset.get(assetId))) hydrated.add(assetId);
+    if (isContextReadyVideoOverlay(overlay)) hydrated.add(assetId as string);
     else degraded.add(assetId ?? 'unknown-asset');
   }
+  // An asset with at least one context-ready overlay is hydrated; don't double-report it.
+  for (const id of hydrated) degraded.delete(id);
 
   const plan: AssistHydrationPlan = {
     set: {},
@@ -148,7 +166,7 @@ export function buildAssistHydration(args: {
   }
 
   const contextOverlays = args.overlays.filter(
-    (overlay) => overlay.type !== 'video' || (typeof overlay.assetId === 'string' && hydrated.has(overlay.assetId)),
+    (overlay) => overlay.type !== 'video' || isContextReadyVideoOverlay(overlay),
   );
   const context = buildMultiAssetDirectorContext({
     analyses: args.analyses,

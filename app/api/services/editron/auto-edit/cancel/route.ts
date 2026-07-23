@@ -110,6 +110,13 @@ export async function POST(request: NextRequest) {
           { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: txId },
         );
         refunded = true;
+        // Consume the transaction so no other path (e.g. a late worker failure)
+        // can ever refund it again — the atomic transition already guards this,
+        // but money paths get belt AND braces.
+        await db.collection(COLLECTIONS.PROJECTS).updateOne(
+          { projectId, userId },
+          { $set: { assistRefundedAt: new Date() }, $unset: { assistCreditTransactionId: '', assistChargedCredits: '' } },
+        ).catch(() => {});
         console.log(`[DirectorMode] Cancelled + refunded ${charged} credits (project ${projectId}).`);
       } catch (refundErr: unknown) {
         // Plan REV 5: refund failure is LOUD and support-visible — never silent.
