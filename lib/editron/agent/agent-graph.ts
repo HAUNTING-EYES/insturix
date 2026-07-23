@@ -259,6 +259,9 @@ export const createAgent = (
     sessionId: string;
     operationId: string;
     requestOwnerLicense?: ChatRequestOwnerLicense;
+    // Director Mode (assist lane): the user is the editorial director, so
+    // family-level directives license the direct tools instead of Auto-Director.
+    assistLane?: boolean;
   },
 ) => {
   // Director and internal createTools callers retain compatibility tools. Live chat receives
@@ -280,7 +283,7 @@ export const createAgent = (
       ...createChatDubbingTools({ userId, projectId }),
     ];
     return turnContext?.requestOwnerLicense
-      ? filterChatToolsForRequestOwner(liveChatTools, turnContext.requestOwnerLicense)
+      ? filterChatToolsForRequestOwner(liveChatTools, turnContext.requestOwnerLicense, { assistLane: turnContext.assistLane })
       : liveChatTools;
   };
 
@@ -383,6 +386,14 @@ export const createAgent = (
     - Resolve one exact target with resolve_clip_analysis, then queue exactly its returned job IDs once.
     - Queued work is processing, not evidence. On a later turn, use only completed get_clip_analysis_result jobs and keep findings inside their target range.`
       : '';
+    const directorModeGuidance = turnContext?.assistLane
+      ? `**DIRECTOR MODE (the user is the editorial director)**:
+    - This project was scanned but never auto-edited. The user directs each change; nothing was decided for them.
+    - For a SPECIFIC directive, use the direct tool and execute it now — do NOT route it to apply_editorial_intent:
+      "add captions" → add_captions; "add/replace music" → regenerate_bgm; "cut the silences"/"remove the dead air" → the grounded transcript/silence resolver then cut_section.
+    - Use apply_editorial_intent ONLY for a genuinely vague whole-project request like "edit this for me" or "make it good" — that hands the timeline to Auto-Director and is confirmed separately.
+    - Never re-edit, re-cut, or re-pace the whole timeline to satisfy a single additive directive.`
+      : '';
     const dubbingGuidance = callableToolNames.has('dub_selected_dialogue')
       && callableToolNames.has('get_dubbing_job_result')
       ? `**DURABLE SELECTED-CLIP DUBBING**:
@@ -400,6 +411,7 @@ ${ownerLicensePrompt}
     ${htmlSceneGuidance}
     If the user's selected overlay is visible in context, use it. Don't ask for overlay IDs.
 
+    ${directorModeGuidance}
     ${semanticIntentGuidance}
     ${localizedMutationGuidance}
     ${dubbingGuidance}

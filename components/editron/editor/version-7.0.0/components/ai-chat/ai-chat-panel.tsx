@@ -1190,11 +1190,10 @@ export function AIChatPanel() {
                               key={chip.id}
                               type="button"
                               disabled={isProcessing}
-                              // Starter prompts (like EDL suggestions): fill the box,
-                              // let the user review and send through the normal chat
-                              // flow. Never auto-send — the request routes through the
-                              // editorial planner and the user stays in control.
-                              onClick={() => setInputMessage(chip.prompt)}
+                              // Director Mode exposes the direct tools (add_captions /
+                              // regenerate_bgm / cut_section), so a chip directive
+                              // executes on the specific tool — not the full Director.
+                              onClick={() => void handleSendMessage(chip.prompt)}
                               className="rounded-full border px-3 py-1 text-xs hover:bg-muted disabled:opacity-50"
                             >
                               {chip.label}

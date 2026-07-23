@@ -149,6 +149,20 @@ const MECHANICAL_SHADOW_FAMILY_TOOLS = new Set([
   'sync_cuts_to_beats',
 ]);
 
+// Director Mode (assist lane): the USER is the editorial director. A specific
+// directive ("add captions", "add music", "cut the silences") is a decision the
+// user already made — not a request for the AI to exercise editorial judgment —
+// so it executes on the direct family/localized tools instead of handing the
+// whole timeline to Auto-Director. These are the SAME hardened tools auto uses
+// internally; the assist license just exposes them because ownership moved to
+// the user. The full-reedit planner (apply_editorial_intent) stays available for
+// genuinely vague "edit the whole thing for me" requests, behind a confirm.
+const DIRECTOR_MODE_DIRECT_TOOLS = new Set<string>([
+  ...MECHANICAL_SHADOW_FAMILY_TOOLS,
+  ...LOCALIZED_MUTATION_TOOLS,
+  'apply_editorial_intent',
+]);
+
 export async function classifyChatRequestOwner(
   input: ClassifyChatRequestOwnerInput,
   dependencies: ChatRequestOwnerClassifierDependencies = {},
@@ -294,6 +308,7 @@ export function deriveChatSemanticWorkflow(facts: ChatRequestRoutingFacts): Chat
 export function filterChatToolsForRequestOwner<T extends { name: string }>(
   tools: readonly T[],
   license: ChatRequestOwnerLicense,
+  options: { assistLane?: boolean } = {},
 ): T[] {
   return tools.filter((tool) => {
     const metadata = getChatToolMetadata(tool.name);
@@ -318,7 +333,14 @@ export function filterChatToolsForRequestOwner<T extends { name: string }>(
           ? tool.name === 'apply_reference_style' || !SEMANTIC_OWNER_TOOLS.has(tool.name)
           : !SEMANTIC_OWNER_TOOLS.has(tool.name);
       }
-      if (workflow === 'editorial-plan') return tool.name === 'apply_editorial_intent';
+      if (workflow === 'editorial-plan') {
+        // Director Mode: the user is the director. A family-level directive runs
+        // on the direct tools; only a vague whole-project re-edit falls through
+        // to apply_editorial_intent (which is confirm-gated for assist).
+        return options.assistLane
+          ? DIRECTOR_MODE_DIRECT_TOOLS.has(tool.name)
+          : tool.name === 'apply_editorial_intent';
+      }
       if (workflow === 'localized-mutation') return LOCALIZED_MUTATION_TOOLS.has(tool.name);
       return false;
     }

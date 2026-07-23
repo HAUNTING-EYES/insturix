@@ -308,6 +308,33 @@ describe('chat request owner capability filtering', () => {
     ]);
   });
 
+  it('DIRECTOR MODE: an editorial-plan turn exposes the direct family + localized tools, not just Auto-Director', () => {
+    const assistNames = filterChatToolsForRequestOwner(
+      tools, license('semantic-editorial-planner', 'editorial-plan'), { assistLane: true },
+    ).map((t) => t.name);
+    // The chip directives now execute on their own hardened tools:
+    for (const direct of ['add_captions', 'regenerate_bgm', 'cut_section', 'add_fancy_captions', 'sync_cuts_to_beats', 'add_overlay', 'add_sfx']) {
+      expect(assistNames).toContain(direct);
+    }
+    // Auto-Director stays available for a genuinely vague whole-project request:
+    expect(assistNames).toContain('apply_editorial_intent');
+    // But NOT other semantic owners' tools:
+    expect(assistNames).not.toContain('apply_reference_style');
+    expect(assistNames).not.toContain('dub_selected_dialogue');
+  });
+
+  it('AUTO projects are unchanged: an editorial-plan turn still exposes only apply_editorial_intent', () => {
+    const autoNames = filterChatToolsForRequestOwner(
+      tools, license('semantic-editorial-planner', 'editorial-plan'),
+    ).map((t) => t.name);
+    // The shadow-family tools remain banned for auto (the Director owns those choices):
+    for (const shadow of ['add_captions', 'regenerate_bgm', 'add_fancy_captions', 'sync_cuts_to_beats']) {
+      expect(autoNames).not.toContain(shadow);
+    }
+    const autoMutators = autoNames.filter((n) => ['apply_editorial_intent', 'cut_section', 'add_overlay', 'add_sfx', 'set_keyframes', 'generate_html_sticker'].includes(n));
+    expect(autoMutators).toEqual(['apply_editorial_intent']);
+  });
+
   it('licenses selected dialogue dubbing as one non-overlapping durable workflow', () => {
     expect(namesFor('semantic-editorial-planner', 'selected-dialogue-dubbing')).toEqual([
       'read_project_file',
@@ -402,9 +429,15 @@ describe('live chat owner wiring', () => {
 
     expect(classifyIndex).toBeGreaterThan(0);
     expect(transactionIndex).toBeGreaterThan(classifyIndex);
-    expect(routeSource).toContain('requestOwnerLicense,\n    });');
     expect(routeSource).toContain('createAgent(userId, contextMessage');
-    expect(routeSource).toContain('requestOwnerLicense,\n    });\n\n    // Create a stream');
+    // createAgent receives the license and the Director Mode lane flag, and the
+    // block precedes stream creation.
+    const createAgentIndex = routeSource.indexOf('createAgent(userId, contextMessage');
+    const streamIndex = routeSource.indexOf('// Create a stream');
+    expect(streamIndex).toBeGreaterThan(createAgentIndex);
+    const createAgentBlock = routeSource.slice(createAgentIndex, streamIndex);
+    expect(createAgentBlock).toContain('requestOwnerLicense,');
+    expect(createAgentBlock).toContain("assistLane: (project as { editMode?: unknown }).editMode === 'assist',");
   });
 
   it('builds declarations from licensed tools and removes stale shadow instructions', () => {

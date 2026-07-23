@@ -404,6 +404,9 @@ export async function POST(req: NextRequest) {
       sessionId: actualSessionId,
       operationId,
       requestOwnerLicense,
+      // Director Mode: in the assist lane the user is the editorial director, so
+      // family directives license the direct tools instead of Auto-Director.
+      assistLane: (project as { editMode?: unknown }).editMode === 'assist',
     });
 
     // Create a stream

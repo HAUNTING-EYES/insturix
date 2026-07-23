@@ -5,18 +5,17 @@
  * and must never drag server chains (db, resolvers) with it. Every number is a
  * `.length` of persisted scan evidence — nothing is invented, nothing calls a model.
  *
- * CHIPS ARE STARTER PROMPTS, not a direct tool contract. Battle-lane finding:
- * chat's mutation licensing exposes only `apply_editorial_intent` for editorial
- * turns (add_captions / regenerate_bgm are shadow-family tools, unreachable from
- * chat), so a chip cannot "call add_captions directly." Instead each chip loads a
- * plain-English request into the input box; the user reviews and sends it through
- * the normal, already-hardened chat editorial flow. No new mutation owners (C5),
- * no over-promise of "instant." Scenes stays info-only until the Lane D panel ships.
- *
- * KNOWN (needs a founder call): on an assist project a project-wide request routes
- * through the editorial planner → Auto-Director and trips the A3 confirm-gate,
- * whose confirmation turn currently dead-ends (the owner classifier sees only the
- * latest message, so a bare "yes" isn't recognized). Tracked as an open item.
+ * CHIP → TOOL (Director Mode direct-tool lane, chat-request-owner.ts):
+ * in the assist lane the USER is the editorial director, so a specific directive
+ * executes on the direct hardened tool instead of the full Auto-Director:
+ *   captions → add_captions        (installCanonicalCaptionTrack)
+ *   silences → grounded resolver → cut_section (per-cut, evidence-attached)
+ *   music    → regenerate_bgm
+ *   scenes   → info-only until the Lane D scan panel ships
+ * These are the SAME tools auto uses internally; the assist license exposes them
+ * because ownership moved to the user (no new mutation owner — C5 holds). Only a
+ * genuinely vague "edit the whole thing for me" routes to apply_editorial_intent
+ * → Auto-Director, which is confirmed separately.
  */
 
 export interface AssistBriefingChip {
