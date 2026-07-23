@@ -5,12 +5,18 @@
  * and must never drag server chains (db, resolvers) with it. Every number is a
  * `.length` of persisted scan evidence — nothing is invented, nothing calls a model.
  *
- * CHIP → TOOL CONTRACT (CEO plan, C5: no new mutation owners — chips send ONE
- * prepared chat message; the agent routes it to the EXISTING tool):
- *   captions → add_captions (installCanonicalCaptionTrack)
- *   silences → evidence-attached confirm loop (cut_section / close_gaps)
- *   music    → regenerate_bgm
- *   scenes   → scan report panel navigation (Lane D) — info-only until the panel ships
+ * CHIPS ARE STARTER PROMPTS, not a direct tool contract. Battle-lane finding:
+ * chat's mutation licensing exposes only `apply_editorial_intent` for editorial
+ * turns (add_captions / regenerate_bgm are shadow-family tools, unreachable from
+ * chat), so a chip cannot "call add_captions directly." Instead each chip loads a
+ * plain-English request into the input box; the user reviews and sends it through
+ * the normal, already-hardened chat editorial flow. No new mutation owners (C5),
+ * no over-promise of "instant." Scenes stays info-only until the Lane D panel ships.
+ *
+ * KNOWN (needs a founder call): on an assist project a project-wide request routes
+ * through the editorial planner → Auto-Director and trips the A3 confirm-gate,
+ * whose confirmation turn currently dead-ends (the owner classifier sees only the
+ * latest message, so a bare "yes" isn't recognized). Tracked as an open item.
  */
 
 export interface AssistBriefingChip {

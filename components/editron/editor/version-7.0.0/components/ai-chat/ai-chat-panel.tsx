@@ -162,6 +162,11 @@ export function AIChatPanel() {
   // Director Mode (assist lane): the scan briefing rendered as chat's first
   // message. Computed from persisted analyses — zero model calls, zero billing.
   const [assistBriefing, setAssistBriefing] = useState<AssistBriefing | null>(null);
+  // True only when WE auto-created the very first session (genuine first open).
+  // Reloading an already-chatted project loads existing sessions → stays false →
+  // the briefing never reappears claiming "nothing has been edited" (battle-lane P2).
+  const [assistFirstOpen, setAssistFirstOpen] = useState(false);
+  const assistSessionBootstrappedRef = useRef<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     if (!editorProjectId) { setAssistBriefing(null); return; }
@@ -171,6 +176,26 @@ export function AIChatPanel() {
       .catch(() => { /* no briefing — the plain empty state renders */ });
     return () => { cancelled = true; };
   }, [editorProjectId]);
+
+  // Battle-lane P0: a fresh assist project has NO chat session, so the briefing
+  // (which lives inside the has-session branch) never rendered — the user hit a
+  // generic "Start a new chat" wall. Silently bootstrap the first session so the
+  // briefing + its starter chips appear on open. Fires once per project.
+  useEffect(() => {
+    if (!assistBriefing || !editorProjectId || currentSessionId || isLoadingSessions) return;
+    if (assistSessionBootstrappedRef.current === editorProjectId) return;
+    assistSessionBootstrappedRef.current = editorProjectId;
+    let cancelled = false;
+    fetch('/api/services/editron/chat/sessions/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: editorProjectId }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.success && d.sessionId) { setCurrentSessionId(d.sessionId); setMessages([]); setAssistFirstOpen(true); } })
+      .catch(() => { assistSessionBootstrappedRef.current = null; /* allow a retry */ });
+    return () => { cancelled = true; };
+  }, [assistBriefing, editorProjectId, currentSessionId, isLoadingSessions]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -1148,7 +1173,7 @@ export function AIChatPanel() {
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-6">
               {messages.length === 0 ? (
-                assistBriefing ? (
+                (assistBriefing && assistFirstOpen) ? (
                   <div className="flex gap-3">
                     <div className="h-8 w-8 rounded-full flex items-center justify-center shrink-0 bg-muted border">
                       <Bot className="h-4 w-4" />
@@ -1165,7 +1190,11 @@ export function AIChatPanel() {
                               key={chip.id}
                               type="button"
                               disabled={isProcessing}
-                              onClick={() => void handleSendMessage(chip.prompt)}
+                              // Starter prompts (like EDL suggestions): fill the box,
+                              // let the user review and send through the normal chat
+                              // flow. Never auto-send — the request routes through the
+                              // editorial planner and the user stays in control.
+                              onClick={() => setInputMessage(chip.prompt)}
                               className="rounded-full border px-3 py-1 text-xs hover:bg-muted disabled:opacity-50"
                             >
                               {chip.label}
@@ -1174,7 +1203,7 @@ export function AIChatPanel() {
                         </div>
                       ) : null}
                       <p className="text-[11px] text-muted-foreground">
-                        Tap a chip or just tell me what you want — each instruction bills as a chat message.
+                        Tap a suggestion to load it, or just type what you want. Each instruction you send bills as a chat message.
                       </p>
                     </div>
                   </div>

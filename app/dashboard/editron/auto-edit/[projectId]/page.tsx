@@ -62,6 +62,10 @@ export default function AutoEditProcessingPage() {
       if (res.ok && data?.success) {
         stopped.current = true;
         setStatus('scan_failed');
+      } else if (res.status === 409 || data?.code === 'already_ready') {
+        // The scan finished a beat before cancel landed — it's ready, not cancelled.
+        // Let the poll open the editor instead of silently doing nothing.
+        setStatus('ready_for_chat');
       }
     } finally {
       setCancelling(false);
