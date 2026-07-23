@@ -880,6 +880,7 @@ describe('from-batch storyline route handoff', () => {
           },
           required: ['confirmed', 'note'],
         },
+        thinkingConfig: { thinkingBudget: 0 },
         maxOutputTokens: 256,
       }),
     }));

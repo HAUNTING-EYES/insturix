@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SchemaType } from '@google/generative-ai';
+import { SchemaType, type GenerationConfig } from '@google/generative-ai';
 import { auth } from '@clerk/nextjs/server';
 import { Receiver } from '@upstash/qstash';
 import { projectService } from '@/lib/editron/services/project-service';
@@ -784,6 +784,26 @@ function createBatchScriptCoverageVerifier(): CoverageVerify {
     const visualScope = mimeType.startsWith('image/')
       ? 'Inspect this image.'
       : `Inspect only ${scene.startTime.toFixed(2)}s-${scene.endTime.toFixed(2)}s of this source.`;
+    const generationConfig: GenerationConfig & {
+      seed: number;
+      thinkingConfig: { thinkingBudget: number };
+    } = {
+      temperature: 0,
+      seed: 42,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: SchemaType.OBJECT,
+        properties: {
+          confirmed: { type: SchemaType.BOOLEAN },
+          note: { type: SchemaType.STRING },
+        },
+        required: ['confirmed', 'note'],
+      },
+      // This is a binary pixel-grounding check. Gemini 2.5 Flash's default
+      // thinking can consume the output budget and truncate otherwise-valid JSON.
+      thinkingConfig: { thinkingBudget: 0 },
+      maxOutputTokens: 256,
+    };
     const result = await model.generateContent({
       contents: [{
         role: 'user',
@@ -792,21 +812,12 @@ function createBatchScriptCoverageVerifier(): CoverageVerify {
           { text: `${visualScope}\nDetermine whether the pixels visibly depict this requested moment. Transcript, filename, tags, and the request itself are not proof. Return JSON only.\n${JSON.stringify({ requestedMoment: query.text, responseSchema: { confirmed: 'boolean', note: 'short visible evidence' } })}` },
         ],
       }],
-      generationConfig: {
-        temperature: 0,
-        seed: 42,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: SchemaType.OBJECT,
-          properties: {
-            confirmed: { type: SchemaType.BOOLEAN },
-            note: { type: SchemaType.STRING },
-          },
-          required: ['confirmed', 'note'],
-        },
-        maxOutputTokens: 256,
-      },
+      generationConfig,
     });
+    const finishReason = result.response.candidates?.[0]?.finishReason;
+    if (finishReason && finishReason !== 'STOP') {
+      throw new Error(`Coverage verifier response did not finish cleanly (${finishReason})`);
+    }
     const parsed = parseJsonObject(result.response.text());
     if (!parsed || typeof parsed.confirmed !== 'boolean') {
       throw new Error('Coverage verifier response omitted boolean confirmed');
