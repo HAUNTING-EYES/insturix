@@ -160,9 +160,13 @@ async function handler(request: NextRequest) {
       if (pct === lastStagePct && desc === lastStageDesc) return;
       lastStagePct = pct;
       lastStageDesc = desc;
+      // Ownership-guarded (see the completion write below): only touch the project
+      // while we still hold the 'directing' lock. If it was recovered/rescued
+      // mid-run, this progress write no-ops instead of writing stale stage fields
+      // onto a project we no longer own.
       void db.collection('projects')
         .updateOne(
-          { projectId },
+          { projectId, autoEditStatus: 'directing' },
           { $set: { autoEditStagePercent: pct, autoEditStageDesc: desc, updatedAt: new Date() } },
         )
         .catch(() => {});
@@ -204,7 +208,23 @@ async function handler(request: NextRequest) {
       completionUpdate.$unset = { autoEditHealth: '', autoEditWarning: '' };
     }
 
-    await db.collection('projects').updateOne({ projectId }, completionUpdate);
+    // Ownership guard (Director Mode rescue seam): the director owns this project
+    // ONLY while autoEditStatus === 'directing' — the lock it claimed at the top,
+    // which executeDirectorPlan never moves off 'directing'. If the stuck-recovery
+    // cron declared this (still-running) worker failed and the user RESCUED the
+    // project into Director Mode (editMode=assist, ready_for_chat) before we
+    // finished, resurrecting it to 'complete' would apply a full auto-edit to a
+    // project the user chose to hand-direct — violating the assist lane's zero-edit
+    // invariant AND giving away a free edit. Commit only while still 'directing';
+    // if we lost ownership, skip the completion AND the post-director bookkeeping.
+    const completionWrite = await db.collection('projects').updateOne(
+      { projectId, autoEditStatus: 'directing' },
+      completionUpdate,
+    );
+    if (completionWrite.matchedCount !== 1) {
+      console.warn(`[DirectorWorker] ${projectId}: completion skipped — no longer 'directing' (recovered/rescued/cancelled mid-run). Not resurrecting.`);
+      return NextResponse.json({ success: true, projectId, skipped: true, reason: 'ownership_lost' });
+    }
 
     if (directorDecisionAuthority) {
       const signalAuditTotal = directorDecisionAuthority.signalAudit?.totalCount ?? 0;
