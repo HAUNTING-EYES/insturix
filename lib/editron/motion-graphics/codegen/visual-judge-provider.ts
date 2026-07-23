@@ -47,11 +47,36 @@ const GEMINI_RESPONSE_SCHEMA: ResponseSchema = {
     composition: { type: SchemaType.NUMBER },
     motion: { type: SchemaType.NUMBER },
     form: { type: SchemaType.NUMBER },
+    hardFailures: {
+      type: SchemaType.OBJECT,
+      properties: {
+        fabrication: { type: SchemaType.BOOLEAN },
+        nonBrandColor: { type: SchemaType.BOOLEAN },
+        clippedOrOverflowing: { type: SchemaType.BOOLEAN },
+        subjectInterference: { type: SchemaType.BOOLEAN },
+        captionOrExistingTextInterference: { type: SchemaType.BOOLEAN },
+        unreadableContrast: { type: SchemaType.BOOLEAN },
+        opaqueFootageOcclusion: { type: SchemaType.BOOLEAN },
+        missingMotionDevelopment: { type: SchemaType.BOOLEAN },
+        templateLikeForm: { type: SchemaType.BOOLEAN },
+      },
+      required: [
+        'fabrication',
+        'nonBrandColor',
+        'clippedOrOverflowing',
+        'subjectInterference',
+        'captionOrExistingTextInterference',
+        'unreadableContrast',
+        'opaqueFootageOcclusion',
+        'missingMotionDevelopment',
+        'templateLikeForm',
+      ],
+    },
     score: { type: SchemaType.NUMBER },
     issues: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
     reasoning: { type: SchemaType.STRING },
   },
-  required: ['faithful', 'hierarchy', 'typography', 'color', 'composition', 'motion', 'form', 'score', 'issues', 'reasoning'],
+  required: ['faithful', 'hierarchy', 'typography', 'color', 'composition', 'motion', 'form', 'hardFailures', 'score', 'issues', 'reasoning'],
 };
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 const DEFAULT_ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';

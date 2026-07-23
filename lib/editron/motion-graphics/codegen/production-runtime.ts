@@ -535,6 +535,17 @@ function extractJsonObject(text: string): string {
 // dimension is not an error. When present, a dimension below WEAK_DIMENSION_SCORE is surfaced as an actionable
 // issue so the revision loop knows WHICH craft axis to fix. The accept gate stays the disciplined holistic `score`.
 const JUDGE_DIMENSIONS = ['hierarchy', 'typography', 'color', 'composition', 'motion', 'form'] as const;
+const JUDGE_HARD_FAILURES = [
+  'fabrication',
+  'nonBrandColor',
+  'clippedOrOverflowing',
+  'subjectInterference',
+  'captionOrExistingTextInterference',
+  'unreadableContrast',
+  'opaqueFootageOcclusion',
+  'missingMotionDevelopment',
+  'templateLikeForm',
+] as const;
 const WEAK_DIMENSION_SCORE = 6; // ⚠ tunable — surfaces a weak axis as text (revision hint); the CAPS below are the code-enforced gate.
 // The rubric's OWN documented score caps, enforced in code (P5-1 Phase D-2) so a model that overstates a holistic
 // score while a craft axis is failing cannot slip past the accept gate. Each value ← a stated JUDGE_PROMPT rule:
@@ -552,17 +563,24 @@ export function parseJudgeResponse(response: string): { score: number; issues: s
   }
   const issues = (parsed.issues as string[]).slice(0, 20);
 
-  // Read the craft-dimension scores that are PRESENT (the ZAI/legacy path may omit them — a missing dimension is
-  // not an error, and caps only bind on dimensions the judge actually reported).
+  // Both providers must honor the same verdict contract. Accepting a score-only response lets a provider omit
+  // the exact evidence that makes the score enforceable, which is how a detected subject collision previously
+  // shipped as an 8/10 render.
   const dims = new Map<string, number>();
   const weak: string[] = [];
   for (const dim of JUDGE_DIMENSIONS) {
     const value = parsed[dim];
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      const clamped = Math.max(0, Math.min(10, value));
-      dims.set(dim, clamped);
-      if (clamped < WEAK_DIMENSION_SCORE) weak.push(`weak ${dim} (${clamped}/10)`);
-    }
+    if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${dim} must be a finite number`);
+    const clamped = Math.max(0, Math.min(10, value));
+    dims.set(dim, clamped);
+    if (clamped < WEAK_DIMENSION_SCORE) weak.push(`weak ${dim} (${clamped}/10)`);
+  }
+  if (!isRecord(parsed.hardFailures)) throw new Error('hardFailures must be an object');
+  const activeHardFailures: string[] = [];
+  for (const failure of JUDGE_HARD_FAILURES) {
+    const value = parsed.hardFailures[failure];
+    if (typeof value !== 'boolean') throw new Error(`hardFailures.${failure} must be a boolean`);
+    if (value) activeHardFailures.push(failure);
   }
 
   if (!parsed.faithful) {
@@ -572,6 +590,10 @@ export function parseJudgeResponse(response: string): { score: number; issues: s
 
   let score = Math.max(0, Math.min(10, parsed.score));
   const capNotes: string[] = [];
+  if (activeHardFailures.length > 0 && score > 4) {
+    score = 4;
+    capNotes.push(`score capped at 4: hard visual failure(s): ${activeHardFailures.join(', ')}`);
+  }
   const minDim = dims.size ? Math.min(...dims.values()) : undefined;
   if (minDim !== undefined && minDim <= JUDGE_DIMENSION_CAP && score > JUDGE_DIMENSION_CAP_SCORE) {
     score = JUDGE_DIMENSION_CAP_SCORE;

@@ -16,6 +16,27 @@ import { getAnalysisModel } from '@/lib/editron/utils/gemini-model-factory';
 
 const tempDirs: string[] = [];
 const TINY_WEBP_DATA_URL = 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAUAAAAdQiirUo/+BiOh/AAA=';
+const JUDGE_DIMS = { hierarchy: 8, typography: 8, color: 8, composition: 8, motion: 8, form: 8 };
+const NO_HARD_FAILURES = {
+  fabrication: false,
+  nonBrandColor: false,
+  clippedOrOverflowing: false,
+  subjectInterference: false,
+  captionOrExistingTextInterference: false,
+  unreadableContrast: false,
+  opaqueFootageOcclusion: false,
+  missingMotionDevelopment: false,
+  templateLikeForm: false,
+};
+const validJudgeVerdict = (overrides: Record<string, unknown> = {}) => ({
+  faithful: true,
+  ...JUDGE_DIMS,
+  hardFailures: NO_HARD_FAILURES,
+  score: 8.4,
+  issues: [],
+  reasoning: 'faithful and readable',
+  ...overrides,
+});
 
 
 afterEach(async () => {
@@ -306,7 +327,7 @@ describe('production MG codegen runtime', () => {
 
   it('judges full-resolution phase composites separately from contrast-only stress evidence', async () => {
     const generateContent = vi.fn().mockResolvedValue({
-      response: { text: () => JSON.stringify({ faithful: true, score: 8.4, issues: [], reasoning: 'phase samples are readable' }) },
+      response: { text: () => JSON.stringify(validJudgeVerdict({ reasoning: 'phase samples are readable' })) },
     });
     vi.mocked(getAnalysisModel).mockResolvedValue({ generateContent } as never);
     const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
@@ -394,7 +415,7 @@ describe('production MG codegen runtime', () => {
           usageMetadata: { totalTokenCount: 1_200, thoughtsTokenCount: 1_100 },
         },
       })
-      .mockResolvedValueOnce({ response: { text: () => JSON.stringify({ faithful: true, score: 8.4, issues: [], reasoning: 'faithful and readable' }) } });
+      .mockResolvedValueOnce({ response: { text: () => JSON.stringify(validJudgeVerdict()) } });
     vi.mocked(getAnalysisModel).mockResolvedValue({ generateContent } as never);
     const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 }, {
       render: phaseSampleRender,
@@ -419,7 +440,7 @@ describe('production MG codegen runtime', () => {
   it('★ layer-2 rubric: surfaces weak craft dimensions as targeted issues; the gate score is the disciplined overall', async () => {
     const generateContent = vi.fn().mockResolvedValue({
       response: { text: () => JSON.stringify({
-        faithful: true,
+        ...validJudgeVerdict(),
         hierarchy: 8, typography: 4, color: 9, composition: 7, motion: 5, form: 3,
         score: 6.5, issues: ['tighten the ring stroke'], reasoning: 'clean but the label clips',
       }) },
@@ -476,37 +497,53 @@ describe('production MG codegen runtime', () => {
 });
 
 describe('parseJudgeResponse — rubric score caps enforced in code (Phase D-2)', () => {
-  const dims = { hierarchy: 8, typography: 8, color: 8, composition: 8, motion: 8, form: 8 };
-
   it('leaves a clean high score untouched when every dimension is strong', () => {
-    const r = parseJudgeResponse(JSON.stringify({ faithful: true, score: 8.6, ...dims, issues: [] }));
+    const r = parseJudgeResponse(JSON.stringify(validJudgeVerdict({ score: 8.6 })));
     expect(r.score).toBe(8.6);
   });
 
-  it('is backward-compatible: no dimensions present → holistic score passes through (ZAI/legacy path)', () => {
-    const r = parseJudgeResponse(JSON.stringify({ faithful: true, score: 8.4, issues: [] }));
-    expect(r.score).toBe(8.4);
+  it('fails closed when a provider omits the enforceable verdict fields', () => {
+    expect(() => parseJudgeResponse(JSON.stringify({ faithful: true, score: 8.4, issues: [] })))
+      .toThrow(/hierarchy must be a finite number/);
   });
 
   it('★ any dimension ≤4 caps the score at 7 (below the 7.5 accept gate) even if the model says 9', () => {
-    const r = parseJudgeResponse(JSON.stringify({ faithful: true, score: 9, ...dims, composition: 4, issues: [] }));
+    const r = parseJudgeResponse(JSON.stringify(validJudgeVerdict({ score: 9, composition: 4 })));
     expect(r.score).toBe(7);
     expect(r.issues.some((i) => /capped at 7/.test(i))).toBe(true);
   });
 
   it('★ form ≤4 caps the score at 6 (undesigned bare-text cannot be rescued by clean execution)', () => {
-    const r = parseJudgeResponse(JSON.stringify({ faithful: true, score: 9, ...dims, form: 3, issues: [] }));
+    const r = parseJudgeResponse(JSON.stringify(validJudgeVerdict({ score: 9, form: 3 })));
     expect(r.score).toBe(6); // form cap (6) beats the generic dimension cap (7)
     expect(r.issues.some((i) => /form 3\/10/.test(i))).toBe(true);
   });
 
   it('faithful=false forces 0 regardless of a high holistic score or strong dimensions', () => {
-    const r = parseJudgeResponse(JSON.stringify({ faithful: false, score: 9, ...dims, issues: [] }));
+    const r = parseJudgeResponse(JSON.stringify(validJudgeVerdict({ faithful: false, score: 9 })));
     expect(r.score).toBe(0);
   });
 
   it('does not over-cap: a score already at/below the cap is left as-is', () => {
-    const r = parseJudgeResponse(JSON.stringify({ faithful: true, score: 6.5, ...dims, motion: 4, issues: [] }));
+    const r = parseJudgeResponse(JSON.stringify(validJudgeVerdict({ score: 6.5, motion: 4 })));
     expect(r.score).toBe(6.5); // 6.5 < 7 cap → untouched
+  });
+
+  it('caps a declared subject or caption interference even when the provider inflates the score', () => {
+    const r = parseJudgeResponse(JSON.stringify(validJudgeVerdict({
+      score: 9,
+      composition: 8,
+      hardFailures: {
+        ...NO_HARD_FAILURES,
+        subjectInterference: true,
+        captionOrExistingTextInterference: true,
+      },
+      issues: ['type crosses the speaker and crowds the active caption'],
+    })));
+    expect(r.score).toBe(4);
+    expect(r.issues).toEqual(expect.arrayContaining([
+      'type crosses the speaker and crowds the active caption',
+      expect.stringMatching(/hard visual failure.*subjectInterference.*captionOrExistingTextInterference/),
+    ]));
   });
 });
