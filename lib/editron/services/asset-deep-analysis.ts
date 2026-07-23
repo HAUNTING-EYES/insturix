@@ -34,6 +34,10 @@ type CanonicalSourceWord = { word: string; startMs: number; endMs: number; confi
 
 export const ASSET_DEEP_ANALYSIS_VERSION = 2;
 
+const DEFAULT_ASSET_DEEP_ANALYSIS_PROVIDER_TIMEOUT_MS = 240_000;
+const MAX_ASSET_DEEP_ANALYSIS_PROVIDER_TIMEOUT_MS = 240_000;
+const DEFAULT_ASSET_DEEP_ANALYSIS_CLAIM_STALE_MS = 5 * 60 * 1000;
+
 export type AssetDeepAnalysisSource = {
   durationMs?: number;
   speechSegments?: SourceSpeechSegment[];
@@ -84,12 +88,24 @@ export type AssetDeepAnalysisDependencies = {
   analyzeMusic(videoUrl: string): Promise<MusicAnalysisResult | null>;
 };
 
-export function buildAssetDeepAnalysisClaimFilter(assetId: string, userId: string): Record<string, unknown> {
+export type AssetDeepAnalysisOptions = {
+  providerTimeoutMs?: number;
+};
+
+export function buildAssetDeepAnalysisClaimFilter(
+  assetId: string,
+  userId: string,
+  options: { now?: Date; staleMs?: number } = {},
+): Record<string, unknown> {
+  const now = options.now ?? new Date();
+  const staleMs = Math.max(1, options.staleMs ?? DEFAULT_ASSET_DEEP_ANALYSIS_CLAIM_STALE_MS);
+  const staleBefore = new Date(now.getTime() - staleMs);
   return {
     assetId,
     userId,
     $or: [
       { deepAnalysisStatus: { $nin: ['analyzing', 'complete', 'degraded'] } },
+      { deepAnalysisStatus: 'analyzing', deepAnalysisStartedAt: { $lt: staleBefore } },
       {
         deepAnalysisStatus: { $in: ['complete', 'degraded'] },
         deepAnalysisVersion: { $ne: ASSET_DEEP_ANALYSIS_VERSION },
@@ -104,6 +120,37 @@ const DEFAULT_DEPENDENCIES: AssetDeepAnalysisDependencies = {
   analyzeWav2vec: analyzeAudioWithWav2Vec,
   analyzeMusic: analyzeMusicContent,
 };
+
+function resolveProviderTimeoutMs(options: AssetDeepAnalysisOptions): number {
+  if (typeof options.providerTimeoutMs === 'number' && Number.isFinite(options.providerTimeoutMs)) {
+    return Math.max(1, Math.min(MAX_ASSET_DEEP_ANALYSIS_PROVIDER_TIMEOUT_MS, Math.round(options.providerTimeoutMs)));
+  }
+  const configured = Number(process.env.EDITRON_ASSET_DEEP_ANALYSIS_PROVIDER_TIMEOUT_MS);
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.min(MAX_ASSET_DEEP_ANALYSIS_PROVIDER_TIMEOUT_MS, Math.round(configured));
+  }
+  return DEFAULT_ASSET_DEEP_ANALYSIS_PROVIDER_TIMEOUT_MS;
+}
+
+async function settleProviderWithin<T>(
+  provider: string,
+  operation: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(
+      () => reject(new Error(`${provider} timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    timeout.unref?.();
+  });
+  try {
+    return await Promise.race([operation, deadline]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
 
 function finiteMs(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
@@ -280,16 +327,34 @@ function projectWav2vecScoresToCanonicalWindows(
 export async function runAssetDeepAnalysis(
   input: AssetDeepAnalysisInput,
   dependencies: AssetDeepAnalysisDependencies = DEFAULT_DEPENDENCIES,
+  options: AssetDeepAnalysisOptions = {},
 ): Promise<AssetDeepAnalysisResult> {
   const timeline = buildAssetDeepAnalysisTimeline(input);
   const durationSec = timeline.rawFootageAnalysis.originalDurationMs / 1000;
+  const providerTimeoutMs = resolveProviderTimeoutMs(options);
   const [semanticVisualResult, vjepaResult, wav2vecResult, musicResult] = await Promise.allSettled([
-    dependencies.analyzeSemanticVisual(input.videoUrl, durationSec),
-    dependencies.analyzeVjepa(input.videoUrl, timeline.visualWindows),
+    settleProviderWithin(
+      'semantic-visual',
+      dependencies.analyzeSemanticVisual(input.videoUrl, durationSec),
+      providerTimeoutMs,
+    ),
+    settleProviderWithin(
+      'vjepa',
+      dependencies.analyzeVjepa(input.videoUrl, timeline.visualWindows),
+      providerTimeoutMs,
+    ),
     timeline.speechWindows.length > 0
-      ? dependencies.analyzeWav2vec(input.videoUrl, timeline.speechWindows)
+      ? settleProviderWithin(
+          'wav2vec',
+          dependencies.analyzeWav2vec(input.videoUrl, timeline.speechWindows),
+          providerTimeoutMs,
+        )
       : Promise.resolve(null),
-    dependencies.analyzeMusic(input.videoUrl),
+    settleProviderWithin(
+      'music',
+      dependencies.analyzeMusic(input.videoUrl),
+      providerTimeoutMs,
+    ),
   ]);
   const syntheticStoryboard = semanticVisualResult.status === 'fulfilled' ? semanticVisualResult.value : null;
   const semanticVisualWindowCount = syntheticStoryboard?.visualPerceptionWindows?.length ?? 0;

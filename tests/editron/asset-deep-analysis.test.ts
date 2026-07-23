@@ -11,11 +11,16 @@ import { buildOrderingDigest, formatDigestForPrompt } from '@/lib/editron/storyl
 
 describe('asset deep analysis', () => {
   it('reclaims terminal analyses produced by an older capability version', () => {
-    expect(buildAssetDeepAnalysisClaimFilter('asset-1', 'user-1')).toEqual({
+    const now = new Date('2026-07-23T10:00:00.000Z');
+    expect(buildAssetDeepAnalysisClaimFilter('asset-1', 'user-1', { now })).toEqual({
       assetId: 'asset-1',
       userId: 'user-1',
       $or: [
         { deepAnalysisStatus: { $nin: ['analyzing', 'complete', 'degraded'] } },
+        {
+          deepAnalysisStatus: 'analyzing',
+          deepAnalysisStartedAt: { $lt: new Date('2026-07-23T09:55:00.000Z') },
+        },
         {
           deepAnalysisStatus: { $in: ['complete', 'degraded'] },
           deepAnalysisVersion: { $ne: ASSET_DEEP_ANALYSIS_VERSION },
@@ -176,6 +181,26 @@ describe('asset deep analysis', () => {
     });
     expect(result.diagnostics.errors).toContain('vjepa: modal unavailable');
     expect(result.momentWeightMap.weights.every((weight) => weight.sources.vjepa === null)).toBe(true);
+  });
+
+  it('degrades a provider that does not settle before the worker deadline', async () => {
+    const neverSettles = new Promise<never>(() => undefined);
+    const result = await runAssetDeepAnalysis({
+      videoUrl: 'https://cdn.example/wedged-provider.mp4',
+      durationMs: 5_000,
+      sourceAnalysis: { durationMs: 5_000, speechSegments: [] },
+    }, {
+      analyzeSemanticVisual: vi.fn(() => neverSettles),
+      analyzeVjepa: vi.fn().mockResolvedValue({ segments: [] }),
+      analyzeWav2vec: vi.fn(),
+      analyzeMusic: vi.fn().mockResolvedValue(null),
+    } as unknown as AssetDeepAnalysisDependencies, { providerTimeoutMs: 10 });
+
+    expect(result.diagnostics).toMatchObject({
+      status: 'degraded',
+      providers: { semanticVisual: 'failed' },
+    });
+    expect(result.diagnostics.errors).toContain('semantic-visual: semantic-visual timed out after 10ms');
   });
 
   it('does not call a storyboard with no perception windows semantically complete', async () => {
