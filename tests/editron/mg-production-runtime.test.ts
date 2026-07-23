@@ -202,6 +202,7 @@ describe('production MG codegen runtime', () => {
 
   it('sends ordered real-frame evidence to GLM-5V-Turbo with deterministic sampling disabled', async () => {
     vi.stubEnv('ZAI_API_KEY', 'zai-secret');
+    vi.stubEnv('MG_CODEGEN_MODEL', 'glm-5v-turbo');
     const completion = {
       choices: [{ message: { content: '```tsx\ncomponent\n```' }, finish_reason: 'stop' }],
       usage: { prompt_tokens: 2_100, completion_tokens: 9_100, total_tokens: 11_200 },
@@ -250,6 +251,31 @@ describe('production MG codegen runtime', () => {
     await runtime.dispose();
   });
 
+  it('treats depleted Gemini prepayment credits as terminal instead of retrying the durable job', async () => {
+    vi.stubEnv('GEMINI_API_KEY', 'gemini-secret');
+    vi.stubEnv('MG_CODEGEN_MODEL', 'gemini-3.1-pro-preview');
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: {
+        code: 429,
+        status: 'RESOURCE_EXHAUSTED',
+        message: 'Your prepayment credits are depleted. Please manage billing.',
+      },
+    }), { status: 429, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const runtime = createProductionMgRuntime(moment(), { width: 1920, height: 1080 });
+
+    await expect(runtime.codegen.writeComponent('initial prompt')).rejects.toMatchObject({
+      failure: {
+        provider: 'gemini',
+        code: 'configuration',
+        disposition: 'terminal',
+        statusCode: 429,
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await runtime.dispose();
+  });
+
   it('refuses visual evidence when the component model is not the approved vision model', async () => {
     vi.stubEnv('ZAI_API_KEY', 'zai-secret');
     vi.stubEnv('MG_CODEGEN_MODEL', 'glm-4.5');
@@ -257,13 +283,14 @@ describe('production MG codegen runtime', () => {
     vi.stubGlobal('fetch', fetchMock);
     const runtime = createProductionMgRuntime(moment(), { width: 1_920, height: 1_080 });
 
-    await expect(runtime.codegen.writeComponent('initial prompt')).rejects.toThrow(/requires glm-5v-turbo/);
+    await expect(runtime.codegen.writeComponent('initial prompt')).rejects.toThrow(/requires .*glm-5v-turbo/);
     expect(fetchMock).not.toHaveBeenCalled();
     await runtime.dispose();
   });
 
   it('rejects a length-truncated GLM component before scanner or compiler can accept JSX', async () => {
     vi.stubEnv('ZAI_API_KEY', 'zai-secret');
+    vi.stubEnv('MG_CODEGEN_MODEL', 'glm-5v-turbo');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: 'export const MgScene = (' }, finish_reason: 'length' }],
       usage: { prompt_tokens: 2_500, completion_tokens: 32_768, total_tokens: 35_268 },

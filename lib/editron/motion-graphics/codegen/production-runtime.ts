@@ -248,11 +248,25 @@ async function geminiWriteComponent(
     );
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) {
+      const detail = providerError(payload);
+      if (response.status === 429 && /prepayment credits? (?:are )?depleted/i.test(detail ?? '')) {
+        throw new MgProviderFailureError(
+          `MG codegen component writer cannot run because Gemini prepayment credits are depleted${detail ? `: ${detail}` : ''}`,
+          {
+            domain: 'provider',
+            provider: 'gemini',
+            operation: 'component-generation',
+            code: 'configuration',
+            disposition: 'terminal',
+            statusCode: response.status,
+          },
+        );
+      }
       throw mgProviderHttpError({
         provider: 'gemini',
         operation: 'component-generation',
         statusCode: response.status,
-        message: `MG codegen component writer failed with HTTP ${response.status}`,
+        message: `MG codegen component writer failed with HTTP ${response.status}${detail ? `: ${detail}` : ''}`,
       });
     }
     const candidate = isRecord(payload) && Array.isArray(payload.candidates) && isRecord(payload.candidates[0])

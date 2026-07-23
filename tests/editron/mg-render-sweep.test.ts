@@ -5,6 +5,8 @@
  *   2. dispatchMgRenderJob's dedupSalt changes the QStash deduplicationId, so re-dispatching a stalled job at
  *      the SAME attemptCount reaches the worker instead of being swallowed by content-dedup.
  */
+import { createHash } from 'node:crypto';
+
 import { describe, expect, it, vi } from 'vitest';
 
 const qstashMock = vi.hoisted(() => ({ publishJSON: vi.fn(async () => ({ messageId: 'msg_1' })) }));
@@ -35,9 +37,14 @@ describe('dispatchMgRenderJob dedup salt', () => {
     type Published = { deduplicationId: string; body: unknown };
     const [original] = qstashMock.publishJSON.mock.calls[0] as unknown as [Published];
     const [swept] = qstashMock.publishJSON.mock.calls[1] as unknown as [Published];
-    expect(original.deduplicationId).toBe('mgr_00000000000000000000000000000abc:attempt:1');
-    expect(swept.deduplicationId).toBe('mgr_00000000000000000000000000000abc:attempt:1:sweep:42');
+    const expected = (salt: string | null) => createHash('sha256')
+      .update(JSON.stringify([job._id, job.attemptCount, salt]))
+      .digest('hex');
+    expect(original.deduplicationId).toBe(expected(null));
+    expect(swept.deduplicationId).toBe(expected('sweep:42'));
     expect(swept.deduplicationId).not.toBe(original.deduplicationId);
+    expect(original.deduplicationId).toMatch(/^[a-f0-9]{64}$/);
+    expect(swept.deduplicationId).toMatch(/^[a-f0-9]{64}$/);
     expect(swept.body).toEqual({ jobId: job._id });
   });
 });

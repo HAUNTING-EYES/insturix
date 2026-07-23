@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { Client } from '@upstash/qstash';
@@ -187,13 +187,16 @@ export async function dispatchMgRenderJob(
   const now = Date.now();
   const delaySeconds = Math.max(0, Math.ceil((job.nextAttemptAt.getTime() - now) / 1_000));
   const qstash = new Client({ token, baseUrl: env.QSTASH_URL?.trim() || undefined });
+  // QStash rejects punctuation such as `:` in deduplication IDs. Hash the structured identity instead of
+  // sanitizing it so arbitrary sweeper salts remain safe and distinct while retries stay deterministic.
+  const deduplicationId = createHash('sha256')
+    .update(JSON.stringify([job._id, job.attemptCount, dedupSalt ?? null]))
+    .digest('hex');
   const published = await qstash.publishJSON({
     url: renderWorkerUrl(env),
     body: { jobId: job._id },
     retries: 4,
-    deduplicationId: dedupSalt
-      ? `${job._id}:attempt:${job.attemptCount}:${dedupSalt}`
-      : `${job._id}:attempt:${job.attemptCount}`,
+    deduplicationId,
     ...(delaySeconds > 0 ? { delay: delaySeconds } : {}),
   });
   return { messageId: published.messageId ?? null };
