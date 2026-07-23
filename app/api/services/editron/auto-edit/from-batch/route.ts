@@ -1612,7 +1612,8 @@ export async function POST(request: NextRequest) {
         ...hydration.degradedVideoAssetIds,
       ])).sort();
       await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        { projectId: activeProjectId },
+        // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
+        { projectId: activeProjectId, autoEditStatus: { $ne: 'scan_failed' } },
         {
           $set: {
             ...hydration.set,

@@ -92,7 +92,8 @@ async function handler(request: NextRequest) {
     const { isAssistProject, ASSIST_STATUS_READY } = await import('@/lib/editron/services/assist-lane');
     if (isAssistProject(projectDoc)) {
       await db.collection('projects').updateOne(
-        { projectId },
+        // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
+        { projectId, autoEditStatus: { $ne: 'scan_failed' } },
         { $set: { autoEditStatus: ASSIST_STATUS_READY, autoEditCompletedAt: new Date() } },
       );
       console.log(`[DirectorMode] Assist scan complete — director skipped (project ${projectId}).`);

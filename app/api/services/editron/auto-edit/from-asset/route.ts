@@ -369,7 +369,8 @@ export async function POST(request: NextRequest) {
       const ssb = await analyzeVideo(serverVideoUrl, durationSec, userIntent || projectName);
       if (ssb) {
         await db.collection('projects').updateOne(
-          { projectId },
+          // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
+          { projectId, ...(requestedEditMode === 'assist' ? { autoEditStatus: { $ne: 'scan_failed' } } : {}) },
           { $set: { syntheticStoryboard: ssb, autoEditStatus: requestedEditMode === 'assist' ? ASSIST_STATUS_READY : 'editing' } },
         );
       }
@@ -377,7 +378,7 @@ export async function POST(request: NextRequest) {
         // Director Mode: the single clip already IS the timeline (saved at create).
         // Scans persisted above — hand the pen to the user, never run the Director.
         await db.collection('projects').updateOne(
-          { projectId },
+          { projectId, autoEditStatus: { $ne: 'scan_failed' } },
           { $set: { autoEditStatus: ASSIST_STATUS_READY } },
         );
         console.log(`[DirectorMode] Assist scan complete inline — director skipped (project ${projectId}).`);

@@ -1083,7 +1083,8 @@ async function handler(request: NextRequest) {
     );
     if (isAssistLaneProject(assistLaneOwner)) {
       await db.collection('projects').updateOne(
-        { projectId },
+        // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
+        { projectId, autoEditStatus: { $ne: 'scan_failed' } },
         { $set: { autoEditStatus: assistReadyStatus, autoEditCompletedAt: new Date() } },
       );
       console.log(`[DirectorMode] Assist scan complete — inline director skipped (project ${projectId}).`);

@@ -45,6 +45,29 @@ export default function AutoEditProcessingPage() {
   const stopped = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Director Mode (assist lane): scans are cancellable with a refund of any charge.
+  const [assistLane, setAssistLane] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const cancelScan = async () => {
+    if (!projectId || cancelling) return;
+    if (!window.confirm('Cancel this scan? Any charge is refunded and the project closes.')) return;
+    setCancelling(true);
+    try {
+      const res = await fetch('/api/services/editron/auto-edit/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.success) {
+        stopped.current = true;
+        setStatus('scan_failed');
+      }
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   useEffect(() => {
     if (!projectId) return;
     stopped.current = false;
@@ -61,6 +84,7 @@ export default function AutoEditProcessingPage() {
           if (typeof proj?.sourceUploadBatchId === 'string') setSourceUploadBatchId(proj.sourceUploadBatchId);
           const s: string | null = proj?.autoEditStatus ?? null;
           if (s) setStatus(s);
+          if (proj?.editMode === 'assist') setAssistLane(true);
           setStageDesc(typeof proj?.autoEditStageDesc === 'string' ? proj.autoEditStageDesc : null);
           setStagePct(typeof proj?.autoEditStagePercent === 'number' ? proj.autoEditStagePercent : null);
           if (s === 'needs_input') {
@@ -229,6 +253,16 @@ export default function AutoEditProcessingPage() {
         onCopyFilmBrief={(beat) => void copyBeatText(beat, 'film')}
         onCopyGenerationPrompt={(beat) => void copyBeatText(beat, 'generate')}
       />
+      {assistLane && !done && !needsInput ? (
+        <button
+          type="button"
+          onClick={() => void cancelScan()}
+          disabled={cancelling}
+          className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full border border-neutral-700 bg-black/70 px-4 py-1.5 text-xs text-neutral-300 backdrop-blur hover:bg-neutral-900 disabled:opacity-50"
+        >
+          {cancelling ? 'Cancelling…' : 'Cancel scan (refunds any charge)'}
+        </button>
+      ) : null}
     </>
   );
 }

@@ -633,9 +633,10 @@ describe('from-batch storyline route handoff', () => {
     expect(mocks.embedScenes).not.toHaveBeenCalled();
 
     // Hydration wrote the project-level evidence fields chat grounds in + the lane status.
+    // Filter carries the cancel-wins guard: a cancelled project is never resurrected.
     expect(mocks.buildMultiAssetDirectorContext).toHaveBeenCalledOnce();
     expect(mocks.updateProject).toHaveBeenCalledWith(
-      { projectId: 'proj_batch_1' },
+      { projectId: 'proj_batch_1', autoEditStatus: { $ne: 'scan_failed' } },
       expect.objectContaining({
         $set: expect.objectContaining({
           autoEditStatus: 'ready_for_chat',
