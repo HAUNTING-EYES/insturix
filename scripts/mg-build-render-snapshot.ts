@@ -152,7 +152,7 @@ async function main(): Promise<void> {
     );
     // CRITICAL: bake the Remotion headless browser — the job sandbox's network policy can never fetch it.
     await runStep(sandbox, 'bake Remotion headless browser', 'node', ['-e', "require('@remotion/renderer').ensureBrowser().then(() => console.log('BROWSER_OK')).catch((e) => { console.error(e); process.exit(1); })"]);
-    await runStep(sandbox, 'smoke: Remotion browser launches', 'node', ['-e', "require('@remotion/renderer').openBrowser('chrome').then(async (browser) => { console.log('BROWSER_LAUNCH_OK'); await browser.close(); }).catch((e) => { console.error(e); process.exit(1); })"]);
+    await runStep(sandbox, 'smoke: Remotion browser launches', 'node', ['-e', "require('@remotion/renderer').openBrowser('chrome').then(async (browser) => { console.log('BROWSER_LAUNCH_OK'); await browser.close({silent: true}); }).catch((e) => { console.error(e); process.exit(1); })"]);
     await runStep(sandbox, 'smoke: sharp loads', 'node', ['-e', "require('sharp'); console.log('SHARP_OK')"]);
     await runStep(sandbox, 'smoke: tsx binary present', 'bash', ['-lc', 'test -x node_modules/.bin/tsx && echo TSX_OK']);
 
