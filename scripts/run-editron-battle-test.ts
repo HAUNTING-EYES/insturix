@@ -61,7 +61,7 @@ interface CommandEvidence {
 
 interface ApiClient {
   baseUrl: string;
-  headers: Record<string, string>;
+  authHeaderFile: string;
 }
 
 interface LocalMediaProbe {
@@ -359,7 +359,7 @@ async function pollBatch(api: ApiClient, uploadBatchId: string, timeoutMs: numbe
 async function pollProject(api: ApiClient, projectId: string, timeoutMs: number, pollMs: number, event: (stage: string, status: string, detail?: Record<string, unknown>) => Promise<void>): Promise<{ project: Record<string, unknown>; httpStatus: number }> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const result = await requestJson(api, `/api/services/editron/projects/${encodeURIComponent(projectId)}`);
+    const result = await requestBattleJson(api, `/api/services/editron/projects/${encodeURIComponent(projectId)}`);
     const project = asRecord(result.data.project);
     const status = stringField(project, 'autoEditStatus');
     await event('director', status ?? 'unknown', { projectId, overlayCount: Array.isArray(project.overlays) ? project.overlays.length : 0 });
@@ -513,7 +513,7 @@ async function exerciseChatIsolation(api: ApiClient, projectId: string, comparis
     const comparison = await getJson(api, `/api/services/editron/chat/sessions/list?projectId=${encodeURIComponent(comparisonProjectId)}`);
     const inPrimary = asRecords(primary.sessions).some((item) => stringField(item, 'sessionId') === sessionId || stringField(item, 'id') === sessionId);
     const leaked = asRecords(comparison.sessions).some((item) => stringField(item, 'sessionId') === sessionId || stringField(item, 'id') === sessionId);
-    const deleted = await requestJson(api, `/api/services/editron/chat/sessions/${encodeURIComponent(sessionId)}/delete`, { method: 'DELETE' });
+    const deleted = await requestBattleJson(api, `/api/services/editron/chat/sessions/${encodeURIComponent(sessionId)}/delete`, { method: 'DELETE' });
     cleanupSucceeded = deleted.status >= 200 && deleted.status < 300;
     const status = inPrimary && !leaked && cleanupSucceeded ? 'passed' : 'failed';
     await event('chat', status, { sessionId, inPrimary, leaked, cleanupSucceeded });
@@ -521,7 +521,7 @@ async function exerciseChatIsolation(api: ApiClient, projectId: string, comparis
   } catch (error) {
     if (sessionId && !cleanupSucceeded) {
       try {
-        const deleted = await requestJson(api, `/api/services/editron/chat/sessions/${encodeURIComponent(sessionId)}/delete`, { method: 'DELETE' });
+        const deleted = await requestBattleJson(api, `/api/services/editron/chat/sessions/${encodeURIComponent(sessionId)}/delete`, { method: 'DELETE' });
         cleanupSucceeded = deleted.status >= 200 && deleted.status < 300;
       } catch {
         cleanupSucceeded = false;
@@ -532,22 +532,28 @@ async function exerciseChatIsolation(api: ApiClient, projectId: string, comparis
 }
 
 async function buildApiClient(baseUrl: string, headerFile: string): Promise<ApiClient> {
+  await readBattleAuthHeaders(headerFile);
+  return { baseUrl, authHeaderFile: path.resolve(headerFile) };
+}
+
+export async function readBattleAuthHeaders(headerFile: string): Promise<Record<string, string>> {
   const raw = await readJsonRecord(headerFile);
   const headers = Object.fromEntries(Object.entries(raw).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
   if (!headers.cookie && !headers.authorization) throw new Error('Auth header file must contain cookie or authorization');
-  return { baseUrl, headers };
+  return headers;
 }
 
 async function getJson(api: ApiClient, route: string): Promise<Record<string, unknown>> {
-  return (await requestJson(api, route)).data;
+  return (await requestBattleJson(api, route)).data;
 }
 
 async function postJson(api: ApiClient, route: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return (await requestJson(api, route, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } })).data;
+  return (await requestBattleJson(api, route, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } })).data;
 }
 
-async function requestJson(api: ApiClient, route: string, init: RequestInit = {}): Promise<{ status: number; data: Record<string, unknown> }> {
-  const response = await fetch(`${api.baseUrl}${route}`, { ...init, headers: { ...api.headers, ...headersRecord(init.headers) } });
+export async function requestBattleJson(api: ApiClient, route: string, init: RequestInit = {}): Promise<{ status: number; data: Record<string, unknown> }> {
+  const authHeaders = await readBattleAuthHeaders(api.authHeaderFile);
+  const response = await fetch(`${api.baseUrl}${route}`, { ...init, headers: { ...authHeaders, ...headersRecord(init.headers) } });
   const text = await response.text();
   let data: Record<string, unknown> = {};
   try { data = text ? asRecord(JSON.parse(text)) : {}; } catch { data = { raw: text.slice(0, 2_000) }; }

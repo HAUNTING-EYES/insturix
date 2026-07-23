@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   battleContractInvocation,
@@ -11,6 +11,7 @@ import {
   isProductionMgRenderJobForProject,
   resolveBattleUploadBatchId,
   parseBattleCliArgs,
+  requestBattleJson,
   validateOptions,
 } from '../../scripts/run-editron-battle-test';
 
@@ -36,7 +37,25 @@ describe('run-editron-battle-test cli', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllGlobals();
     await rm(fixtureDir, { recursive: true, force: true });
+  });
+
+  it('reloads rotating Clerk authorization before every durable API request', async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = { baseUrl: 'https://preview.example.test', authHeaderFile: authPath };
+
+    await writeFile(authPath, JSON.stringify({ authorization: 'Bearer first' }));
+    await requestBattleJson(api, '/api/first');
+    await writeFile(authPath, JSON.stringify({ authorization: 'Bearer refreshed' }));
+    await requestBattleJson(api, '/api/second');
+
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({ authorization: 'Bearer first' });
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({ authorization: 'Bearer refreshed' });
   });
 
   it('keeps an existing-project audit read-only while enabling contracts and rendered truth', () => {
