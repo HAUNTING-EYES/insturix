@@ -74,6 +74,15 @@ export async function POST(req: NextRequest) {
     if (!project) {
       return NextResponse.json({ status: 'error', message: 'Project not found' }, { status: 404 });
     }
+    // Director Mode: a refunded scan_failed assist project is inert to mutation
+    // — the same gate chat/stream enforces (battle-lane P1-6, loophole closed).
+    const { isRefundedAssistProject } = await import('@/lib/editron/services/assist-lane');
+    if (isRefundedAssistProject(project)) {
+      return NextResponse.json(
+        { status: 'error', message: 'This project\'s scan failed and its credits were refunded.', code: 'assist_scan_failed' },
+        { status: 403 },
+      );
+    }
 
     const tools = createTools(userId, projectId);
     const targetTool = tools.find((tool: { name: string }) => tool.name === toolName);

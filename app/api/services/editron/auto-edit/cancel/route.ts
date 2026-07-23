@@ -103,21 +103,32 @@ export async function POST(request: NextRequest) {
     if (txId && charged !== null) {
       try {
         const { CreditsService } = await import('@/lib/services/creditsService');
-        await CreditsService.refundCredits(
+        const result = await CreditsService.refundCredits(
           userId,
           charged,
           'Director Mode scan cancelled — full refund',
           { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: txId },
         );
-        refunded = true;
-        // Consume the transaction so no other path (e.g. a late worker failure)
-        // can ever refund it again — the atomic transition already guards this,
-        // but money paths get belt AND braces.
-        await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          { projectId, userId },
-          { $set: { assistRefundedAt: new Date() }, $unset: { assistCreditTransactionId: '', assistChargedCredits: '' } },
-        ).catch(() => {});
-        console.log(`[DirectorMode] Cancelled + refunded ${charged} credits (project ${projectId}).`);
+        // MONEY (battle-lane P1): refundCredits reports failure by RETURN VALUE
+        // (user-not-found, txn-not-found, invalid split), not only by throwing.
+        // Treat success:false as a failure — do NOT claim refunded, do NOT consume
+        // the transaction (that would destroy the only pointer support could use).
+        if (result && (result as { success?: boolean }).success === false) {
+          console.error('[DirectorMode][REFUND-FAILED][MONEY] cancel refundCredits returned failure — flagging for support:', { projectId, error: (result as { error?: unknown }).error });
+          await db.collection(COLLECTIONS.PROJECTS).updateOne(
+            { projectId, userId },
+            { $set: { assistRefundPending: true } },
+          ).catch(() => {});
+        } else {
+          refunded = true;
+          // Consume the transaction ONLY after a confirmed refund so no other path
+          // (e.g. a late worker failure) can ever refund it again.
+          await db.collection(COLLECTIONS.PROJECTS).updateOne(
+            { projectId, userId },
+            { $set: { assistRefundedAt: new Date() }, $unset: { assistCreditTransactionId: '', assistChargedCredits: '' } },
+          ).catch(() => {});
+          console.log(`[DirectorMode] Cancelled + refunded ${charged} credits (project ${projectId}).`);
+        }
       } catch (refundErr: unknown) {
         // Plan REV 5: refund failure is LOUD and support-visible — never silent.
         console.error('[DirectorMode][REFUND-FAILED][MONEY] cancel refund threw — flagging for support:', refundErr instanceof Error ? refundErr.message : refundErr);

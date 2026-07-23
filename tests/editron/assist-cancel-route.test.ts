@@ -147,7 +147,7 @@ describe('assist cancel route', () => {
     expect(mocks.refundCredits).not.toHaveBeenCalled();
   });
 
-  it('a refund failure is loud: cancel succeeds, refunded=false, support flag set', async () => {
+  it('a refund THROW is loud: cancel succeeds, refunded=false, support flag set', async () => {
     mocks.findProject.mockResolvedValue(assistScanning({ assistCreditTransactionId: 'tx_9', assistChargedCredits: 12 }));
     mocks.refundCredits.mockRejectedValue(new Error('credits service down'));
 
@@ -157,5 +157,23 @@ describe('assist cancel route', () => {
       { projectId: 'proj_1', userId: 'user_1' },
       { $set: { assistRefundPending: true } },
     );
+  });
+
+  it('ATTACK: refundCredits returning success:false (not throwing) is treated as failure — tx NOT consumed', async () => {
+    mocks.findProject.mockResolvedValue(assistScanning({ assistCreditTransactionId: 'tx_9', assistChargedCredits: 12 }));
+    mocks.refundCredits.mockResolvedValue({ success: false, error: 'Original credit transaction not found' });
+
+    const payload = await (await POST(request({ projectId: 'proj_1' }))).json();
+    expect(payload).toMatchObject({ success: true, refunded: false });
+    // support-flagged
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      { projectId: 'proj_1', userId: 'user_1' },
+      { $set: { assistRefundPending: true } },
+    );
+    // the tx pointer is NEVER destroyed on a failed refund — support can still recover it
+    const consumed = mocks.updateProject.mock.calls.some(
+      ([, update]) => (update as { $unset?: Record<string, unknown> })?.$unset?.assistCreditTransactionId !== undefined,
+    );
+    expect(consumed).toBe(false);
   });
 });

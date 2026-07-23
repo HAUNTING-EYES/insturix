@@ -1591,6 +1591,17 @@ export async function POST(request: NextRequest) {
     );
     if (isAssistProject(laneOwner)) {
       assistLaneActive = true;
+      // MONEY (battle-lane P0): the deduction happened at compose above, but the
+      // txId used to be persisted only on the ready-write — which a user cancel
+      // mid-compose beats, stranding the charge. Persist the refund handle FIRST,
+      // BEFORE the multi-second lay-down, so cancel can always find and refund it.
+      const { getCreditCost } = await import('@/lib/config/creditCosts');
+      const assistCharged = getCreditCost('editron', 'auto_edit_analysis', creditOptions);
+      await db.collection(COLLECTIONS.PROJECTS).updateOne(
+        { projectId: activeProjectId },
+        { $set: { assistCreditTransactionId: deduction.transactionId, assistChargedCredits: assistCharged } },
+      );
+
       const { usableAssets, excludedNoDurationAssetIds } = partitionAssistAssets(visualAssets);
       const timeline = await materializeChronologicalFallback(usableAssets, userId, uploadBatchId, dims);
       if (timeline.overlays.length === 0) throw new Error('No usable clips could be materialized from this batch.');
@@ -1611,7 +1622,7 @@ export async function POST(request: NextRequest) {
         ...excludedNoDurationAssetIds,
         ...hydration.degradedVideoAssetIds,
       ])).sort();
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      const readyWrite = await db.collection(COLLECTIONS.PROJECTS).updateOne(
         // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
         { projectId: activeProjectId, autoEditStatus: { $ne: 'scan_failed' } },
         {
@@ -1619,15 +1630,32 @@ export async function POST(request: NextRequest) {
             ...hydration.set,
             autoEditStatus: ASSIST_STATUS_READY,
             assistDegradedAssetIds: degradedAssetIds,
-            // Persisted so a future cancel/support flow can refund by transaction.
-            assistCreditTransactionId: deduction.transactionId,
             updatedAt: new Date(),
           },
           ...(Object.keys(hydration.unset).length > 0 ? { $unset: hydration.unset } : {}),
         },
       );
+      if (readyWrite.matchedCount === 0) {
+        // Cancelled mid-compose. Cancel already flipped scan_failed; ensure the
+        // deduction is refunded (idempotent at the service via originalTransactionId)
+        // and never mark the batch ready.
+        const { CreditsService } = await import('@/lib/services/creditsService');
+        await CreditsService.refundCredits(
+          userId, assistCharged, 'Director Mode scan cancelled during lay-down — full refund',
+          { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: deduction.transactionId },
+        ).then(() => db.collection(COLLECTIONS.PROJECTS).updateOne(
+          { projectId: activeProjectId },
+          { $set: { assistRefundedAt: new Date() }, $unset: { assistCreditTransactionId: '', assistChargedCredits: '' } },
+        )).catch((e) => {
+          console.error('[DirectorMode][REFUND-FAILED][MONEY] mid-compose cancel refund failed — flagging for support:', e instanceof Error ? e.message : e);
+          return db.collection(COLLECTIONS.PROJECTS).updateOne({ projectId: activeProjectId }, { $set: { assistRefundPending: true } });
+        });
+        console.warn(`[DirectorMode] Assist lay-down lost to a mid-compose cancel — refund settled, batch left failed (project ${activeProjectId}).`);
+        return NextResponse.json({ success: true, projectId: activeProjectId, status: 'scan_failed', cancelledDuringLaydown: true });
+      }
       await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
-        { uploadBatchId, userId, projectId: activeProjectId },
+        // Never resurrect a cancelled batch (its orchestrationStatus is 'failed').
+        { uploadBatchId, userId, projectId: activeProjectId, orchestrationStatus: { $ne: 'failed' } },
         {
           $set: { orchestrationStatus: 'assist_ready', updatedAt: new Date() },
           $unset: { orchestrationLeaseUntil: '' },

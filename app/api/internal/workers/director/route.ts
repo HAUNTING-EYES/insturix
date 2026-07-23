@@ -260,10 +260,15 @@ async function handler(request: NextRequest) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
-        await db.collection('projects').updateOne(
-          { projectId: trackedProjectId },
-          { $set: { autoEditStatus: 'failed', autoEditError: `Director: ${msg}` } },
-        );
+        const { settleAssistScanFailure } = await import('@/lib/editron/services/assist-lane');
+        // Assist lane: scan_failed + refund-where-deducted; auto → plain 'failed'.
+        const settlement = await settleAssistScanFailure(db, trackedProjectId, `Director: ${msg}`);
+        if (settlement === 'not-assist') {
+          await db.collection('projects').updateOne(
+            { projectId: trackedProjectId },
+            { $set: { autoEditStatus: 'failed', autoEditError: `Director: ${msg}` } },
+          );
+        }
       } catch (err: unknown) { console.warn('[DirectorWorker] best-effort status update failed:', err instanceof Error ? err.message : err); }
     }
 

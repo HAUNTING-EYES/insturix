@@ -58,6 +58,96 @@ export function isAssistProject(project: unknown): boolean {
   return parseEditMode(editMode) === 'assist';
 }
 
+/**
+ * A refunded assist project (scan_failed) must be inert to EVERY mutation and
+ * open surface — the user was refunded because they never received a product.
+ * Battle-lane finding: the 403 lived only on chat/stream; sibling mutation
+ * routes (chat/tool-call, …) must consult this too.
+ */
+export function isRefundedAssistProject(project: unknown): boolean {
+  if (!isAssistProject(project)) return false;
+  const status = project && typeof project === 'object'
+    ? (project as { autoEditStatus?: unknown }).autoEditStatus
+    : undefined;
+  return status === ASSIST_STATUS_SCAN_FAILED;
+}
+
+/**
+ * Settle a failed assist scan: atomic terminal transition + refund-where-deducted.
+ * ONE implementation for all three workers (video-analysis, tribe-analysis,
+ * director) — battle-lane finding: stage-2/3 failures previously kept the charge.
+ *
+ * Money rules enforced here:
+ * - Refund fires ONLY when THIS call performs the scanning→scan_failed transition
+ *   (QStash redelivery / cancel races refund exactly once).
+ * - The transaction is consumed ($unset) ONLY on a confirmed successful refund —
+ *   refundCredits reports failure by return value, not only by throwing.
+ * - Every non-refunded outcome that should have refunded flags assistRefundPending.
+ *
+ * `db` is passed in and CreditsService is imported lazily so this module stays
+ * import-safe for env-less consumers.
+ */
+export async function settleAssistScanFailure(
+  db: { collection: (name: string) => any },
+  projectId: string,
+  reason: string,
+): Promise<'refunded' | 'transition-lost' | 'refund-pending' | 'not-assist'> {
+  const laneDoc = await db.collection('projects').findOne(
+    { projectId },
+    { projection: { editMode: 1, assistCreditTransactionId: 1, assistChargedCredits: 1, userId: 1 } },
+  );
+  if (!isAssistProject(laneDoc)) return 'not-assist';
+
+  const transition = await db.collection('projects').updateOne(
+    { projectId, autoEditStatus: { $nin: [ASSIST_STATUS_SCAN_FAILED, ASSIST_STATUS_READY, 'complete'] } },
+    { $set: { autoEditStatus: ASSIST_STATUS_SCAN_FAILED, autoEditError: reason } },
+  );
+  if (transition.modifiedCount !== 1) {
+    console.log(`[DirectorMode] Assist failure after a terminal status — settlement already owned elsewhere (project ${projectId}).`);
+    return 'transition-lost';
+  }
+
+  const txId = typeof laneDoc?.assistCreditTransactionId === 'string' ? laneDoc.assistCreditTransactionId : null;
+  const charged = typeof laneDoc?.assistChargedCredits === 'number' ? laneDoc.assistChargedCredits : null;
+  const flagForSupport = async () => {
+    await db.collection('projects').updateOne(
+      { projectId },
+      { $set: { assistRefundPending: true } },
+    ).catch(() => {});
+  };
+
+  if (!txId || charged === null) {
+    console.error('[DirectorMode][REFUND-SKIPPED][MONEY] assist scan failed but no persisted transaction/charge — refund did NOT run:', { projectId, txId, charged });
+    await flagForSupport();
+    return 'refund-pending';
+  }
+  try {
+    const { CreditsService } = await import('@/lib/services/creditsService');
+    const result = await CreditsService.refundCredits(
+      String(laneDoc?.userId ?? ''),
+      charged,
+      reason,
+      { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: txId },
+    );
+    if (result && result.success === false) {
+      console.error('[DirectorMode][REFUND-FAILED][MONEY] refundCredits returned failure — flagging for support:', { projectId, error: (result as { error?: unknown }).error });
+      await flagForSupport();
+      return 'refund-pending';
+    }
+    // Consume the transaction ONLY after a confirmed refund.
+    await db.collection('projects').updateOne(
+      { projectId },
+      { $set: { assistRefundedAt: new Date() }, $unset: { assistCreditTransactionId: '', assistChargedCredits: '' } },
+    ).catch(() => {});
+    console.log(`[DirectorMode] Refunded ${charged} credits for failed assist scan (project ${projectId}).`);
+    return 'refunded';
+  } catch (refundErr: unknown) {
+    console.error('[DirectorMode][REFUND-FAILED][MONEY] assist scan refund threw — flagging for support:', refundErr instanceof Error ? refundErr.message : refundErr);
+    await flagForSupport();
+    return 'refund-pending';
+  }
+}
+
 export type AssistAssetPartition = {
   /** Safe to materialize: images, and videos with a positive probed duration. */
   usableAssets: MaterializableAsset[];

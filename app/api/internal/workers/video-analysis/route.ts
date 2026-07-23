@@ -86,6 +86,17 @@ async function handler(request: NextRequest) {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
 
+    // Director Mode (assist lane): scans run, but NOTHING is cut. Read the lane
+    // once up front so the destructive stage (silence removal) is skipped — the
+    // battle lane found this path was trimming footage before the pen was laid
+    // down, violating the zero-edit invariant on the primary single-video path.
+    const scanLaneDoc = await db.collection('projects').findOne(
+      { projectId },
+      { projection: { editMode: 1 } },
+    );
+    const { isAssistProject: isAssistScanLane } = await import('@/lib/editron/services/assist-lane');
+    const isAssistScan = isAssistScanLane(scanLaneDoc);
+
     // Mark project as analyzing
     await db.collection('projects').updateOne(
       { projectId },
@@ -555,7 +566,10 @@ async function handler(request: NextRequest) {
       }
     }
     // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1.6: Execute Silence Removal (BEFORE Director) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    if (rawFootageAnalysis?.silenceRemovalPlan?.length > 0) {
+    // ZERO-EDIT: assist projects are scanned, never cut. The silence plan is still
+    // computed and persisted above (so chat can offer "cut N silences"), but it is
+    // NOT executed here — the user directs each cut later.
+    if (!isAssistScan && rawFootageAnalysis?.silenceRemovalPlan?.length > 0) {
       try {
         await db.collection('projects').updateOne(
           { projectId },
@@ -1204,58 +1218,11 @@ async function handler(request: NextRequest) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
-        const laneDoc = await db.collection('projects').findOne(
-          { projectId: trackedProjectId },
-          { projection: { editMode: 1, assistCreditTransactionId: 1, assistChargedCredits: 1, userId: 1 } },
-        );
-        const { isAssistProject: isAssistLane } = await import('@/lib/editron/services/assist-lane');
-        const assistLane = isAssistLane(laneDoc);
-        if (assistLane) {
-          // MONEY: QStash delivery is at-least-once — a redelivered failed call
-          // re-enters this catch. The refund is therefore tied to the ATOMIC
-          // terminal transition: only the request that flips the status refunds.
-          // (This also loses cleanly to a user cancel, which refunds on its own.)
-          const transition = await db.collection('projects').updateOne(
-            { projectId: trackedProjectId, autoEditStatus: { $nin: ['scan_failed', 'ready_for_chat', 'complete'] } },
-            { $set: { autoEditStatus: 'scan_failed', autoEditError: msg } },
-          );
-          if (transition.modifiedCount !== 1) {
-            console.log(`[DirectorMode] Assist failure after a terminal status — refund already settled by the transition owner (project ${trackedProjectId}).`);
-          } else {
-            const txId = typeof laneDoc?.assistCreditTransactionId === 'string' ? laneDoc.assistCreditTransactionId : null;
-            const charged = typeof laneDoc?.assistChargedCredits === 'number' ? laneDoc.assistChargedCredits : null;
-            if (txId && charged !== null) {
-              try {
-                const { CreditsService } = await import('@/lib/services/creditsService');
-                await CreditsService.refundCredits(
-                  String(laneDoc?.userId ?? ''),
-                  charged,
-                  'Director Mode scan failed — full refund (assist lane)',
-                  { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: txId },
-                );
-                // Consume the transaction so no other path can ever refund it again.
-                await db.collection('projects').updateOne(
-                  { projectId: trackedProjectId },
-                  { $set: { assistRefundedAt: new Date() }, $unset: { assistCreditTransactionId: '', assistChargedCredits: '' } },
-                ).catch(() => {});
-                console.log(`[DirectorMode] Refunded ${charged} credits for failed assist scan (project ${trackedProjectId}).`);
-              } catch (refundErr: unknown) {
-                // Plan REV 5: refund failure is LOUD and support-visible — never silent.
-                console.error('[DirectorMode][REFUND-FAILED][MONEY] assist scan refund threw — flagging project for support:', refundErr instanceof Error ? refundErr.message : refundErr);
-                await db.collection('projects').updateOne(
-                  { projectId: trackedProjectId },
-                  { $set: { assistRefundPending: true } },
-                ).catch(() => {});
-              }
-            } else {
-              console.error('[DirectorMode][REFUND-SKIPPED][MONEY] assist scan failed but no persisted transaction/charge — refund did NOT run:', { projectId: trackedProjectId, txId, charged });
-              await db.collection('projects').updateOne(
-                { projectId: trackedProjectId },
-                { $set: { assistRefundPending: true } },
-              ).catch(() => {});
-            }
-          }
-        } else {
+        const { settleAssistScanFailure } = await import('@/lib/editron/services/assist-lane');
+        // Assist lane: atomic scan_failed + refund-where-deducted (handles QStash
+        // redelivery + cancel races). Returns 'not-assist' for auto → fall through.
+        const settlement = await settleAssistScanFailure(db, trackedProjectId, msg);
+        if (settlement === 'not-assist') {
           await db.collection('projects').updateOne(
             { projectId: trackedProjectId },
             { $set: { autoEditStatus: 'failed', autoEditError: msg } },
