@@ -143,6 +143,9 @@ describe('MG Sandbox render worker', () => {
       r2AccountId: 'account123',
       zaiApiUrl: 'https://api.z.ai/api/paas/v4',
     }));
+    if (typeof config.networkPolicy === 'string') {
+      throw new Error('MG Sandbox must use an explicit least-privilege network policy');
+    }
     expect(config.networkPolicy.allow).toContain('fonts.gstatic.com');
     expect(config.networkPolicy.allow).not.toContain('fonts.googleapis.com');
     expect(() => resolveMgSandboxRuntimeConfig({

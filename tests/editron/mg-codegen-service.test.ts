@@ -168,9 +168,25 @@ describe('generateMoment - the pipeline (decline / scan→repair→compile→jud
       compile: async () => ({ ok: false, error: 'still malformed' }),
     }));
     expect(r.status).toBe('fallback');
-    expect(r.receipt.attempts).toBe(2);
+    expect(r.receipt.attempts).toBe(3);
     expect(r.receipt.compiled).toBe(false);
     expect(r.reason).toMatch(/compile repair failed/);
+  });
+
+  it('uses the remaining bounded attempt when a compiler repair fails the safety scan', async () => {
+    let compileCalls = 0;
+    const r = await generateMoment(input(), deps({
+      writeComponent: queue([NO_IMPORT_CODE, INVALID_CODE, NO_IMPORT_CODE]),
+      compile: async () => (++compileCalls === 1
+        ? { ok: false, error: 'MgScene.tsx:37:12 ERROR: baseStanger is not defined' }
+        : { ok: true }),
+    }));
+
+    expect(r.status).toBe('generated');
+    expect(r.receipt.attempts).toBe(3);
+    expect(r.receipt.scans.map((entry) => entry.passed)).toEqual([true, false, true]);
+    expect(r.receipt.compiled).toBe(true);
+    expect(compileCalls).toBe(2);
   });
 
   it('low judge score → 1 revision → generated', async () => {
