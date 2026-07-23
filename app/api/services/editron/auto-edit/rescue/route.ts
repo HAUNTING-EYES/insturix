@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     const db = await getDatabase();
     const project = await db.collection(COLLECTIONS.PROJECTS).findOne(
       { projectId, userId },
-      { projection: { editMode: 1, autoEditStatus: 1, overlays: 1, rawFootageAnalysis: 1, segmentAnalysis: 1 } },
+      { projection: { editMode: 1, autoEditStatus: 1, overlays: 1, rawFootageAnalysis: 1, segmentAnalysis: 1, autoEditRefunded: 1 } },
     );
     if (!project) {
       return NextResponse.json({ success: false, error: 'Project not found' }, { status: 404 });
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     // Atomic: only the request that still sees a rescuable failure status performs
     // the flip. FREE — the scans were already paid for on the original auto edit.
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId, userId, autoEditStatus: { $in: ['failed', 'needs_input'] } },
+      { projectId, userId, autoEditStatus: { $in: ['failed', 'needs_input'] }, autoEditRefunded: { $ne: true } },
       {
         $set: {
           editMode: 'assist',

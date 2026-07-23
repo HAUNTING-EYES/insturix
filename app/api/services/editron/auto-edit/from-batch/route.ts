@@ -1811,6 +1811,9 @@ export async function POST(request: NextRequest) {
         $set: {
           autoEditMode: 'batch',
           autoEditStatus: 'directing_queued',
+          // Fresh (re-)deduct happened this compose — clear any refund mark from a
+          // prior failed dispatch so a re-charged edit stays rescuable if it fails.
+          autoEditRefunded: false,
           sourceUploadBatchId: uploadBatchId,
           sourceAssetIds: visualAssets.map((asset) => asset.assetId),
           ...directorAnalysisSet,
@@ -1906,6 +1909,22 @@ export async function POST(request: NextRequest) {
       await creditCheck.refund('Multi-upload auto-edit failed before Director dispatch').catch((refundError) => {
         console.error('[auto-edit/from-batch] credit refund failed:', refundError);
       });
+      // MONEY (battle-lane P0): the timeline + analysis may already be persisted at
+      // this point (saveProject + hydration run before the director dispatch), which
+      // would make this REFUNDED project pass canRescueToDirectorMode → a free
+      // reopen of an edit the user was refunded for. Mark it so the rescue gate
+      // excludes it.
+      if (activeProjectId) {
+        try {
+          const refundDb = await getDatabase();
+          await refundDb.collection(COLLECTIONS.PROJECTS).updateOne(
+            { projectId: activeProjectId },
+            { $set: { autoEditRefunded: true } },
+          );
+        } catch (markError) {
+          console.error('[auto-edit/from-batch] failed to mark project refunded:', markError instanceof Error ? markError.message : markError);
+        }
+      }
     }
 
     if (caller?.internal && body && uploadBatchId && activeProjectId) {

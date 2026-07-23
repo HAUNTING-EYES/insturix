@@ -51,9 +51,14 @@ export function canRescueToDirectorMode(project: unknown): boolean {
   if (!project || typeof project !== 'object') return false;
   const p = project as {
     editMode?: unknown; autoEditStatus?: unknown; overlays?: unknown;
-    rawFootageAnalysis?: unknown; segmentAnalysis?: unknown;
+    rawFootageAnalysis?: unknown; segmentAnalysis?: unknown; autoEditRefunded?: unknown;
   };
   if (parseEditMode(p.editMode) === 'assist') return false; // already Director Mode
+  // MONEY (battle-lane P0): a failure can persist the timeline + analysis and STILL
+  // refund (from-batch refunds if the director dispatch throws AFTER hydration), so
+  // "has substrate" alone does not prove "was charged". Never free-rescue a project
+  // whose charge was explicitly refunded.
+  if (p.autoEditRefunded === true) return false;
   if (typeof p.autoEditStatus !== 'string' || !RESCUABLE_AUTO_FAILURE_STATUSES.has(p.autoEditStatus)) return false;
   const hasTimeline = Array.isArray(p.overlays) && p.overlays.some((o) => {
     const t = o && typeof o === 'object' ? (o as { type?: unknown }).type : undefined;

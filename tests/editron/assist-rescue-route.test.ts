@@ -37,6 +37,15 @@ describe('canRescueToDirectorMode (the shared gate)', () => {
     expect(canRescueToDirectorMode(null)).toBe(false);
     expect(canRescueToDirectorMode('x')).toBe(false);
   });
+
+  it('P0: a REFUNDED failure with a full substrate is NOT free-rescuable (from-batch dispatch-fail window)', () => {
+    // from-batch persists overlays + rawFootageAnalysis, THEN the director dispatch
+    // throws → the catch refunds AND marks autoEditRefunded. The project looks
+    // rescuable but the user already got their money back — must be refused.
+    expect(canRescueToDirectorMode(failedAuto({ autoEditRefunded: true }))).toBe(false);
+    // Belt: a re-charged retry clears the mark (autoEditRefunded:false) → rescuable again.
+    expect(canRescueToDirectorMode(failedAuto({ autoEditRefunded: false }))).toBe(true);
+  });
 });
 
 const mocks = vi.hoisted(() => ({
@@ -89,12 +98,19 @@ describe('rescue route handler', () => {
     expect(mocks.updateOne).not.toHaveBeenCalled();
   });
 
+  it('P0: the server refuses a refunded-but-full-substrate project — no free giveaway', async () => {
+    mocks.findOne.mockResolvedValue(failedAuto({ autoEditRefunded: true }));
+    const res = await POST(request({ projectId: 'p' }));
+    expect(res.status).toBe(409);
+    expect(mocks.updateOne).not.toHaveBeenCalled();
+  });
+
   it('rescues atomically: flips to assist ready_for_chat, free, only from a failure status', async () => {
     mocks.findOne.mockResolvedValue(failedAuto());
     const payload = await (await POST(request({ projectId: 'p' }))).json();
     expect(payload).toMatchObject({ success: true, status: 'ready_for_chat' });
     expect(mocks.updateOne).toHaveBeenCalledWith(
-      { projectId: 'p', userId: 'user_1', autoEditStatus: { $in: ['failed', 'needs_input'] } },
+      { projectId: 'p', userId: 'user_1', autoEditStatus: { $in: ['failed', 'needs_input'] }, autoEditRefunded: { $ne: true } },
       expect.objectContaining({ $set: expect.objectContaining({ editMode: 'assist', autoEditStatus: 'ready_for_chat' }) }),
     );
   });
