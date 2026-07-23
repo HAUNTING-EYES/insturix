@@ -3,6 +3,7 @@ export type ChatToolRiskLevel = 'read' | 'low' | 'medium' | 'high';
 export type ChatToolExposure = 'live-chat' | 'shadow-authority-filtered';
 export type ChatToolStatePostconditionKind =
   | 'project-state-changed'
+  | 'project-state-changed-or-durable-operation-queued'
   | 'overlay-created'
   | 'overlay-updated'
   | 'overlay-deleted'
@@ -306,7 +307,7 @@ function defaultPostconditions(iconCategory: ChatToolIconCategory): ChatToolPost
 export const CHAT_TOOL_REGISTRY = {
   read_project_file: defineTool({ name: 'read_project_file', label: 'Reading project data', shortLabel: 'Read', iconCategory: 'file', receiptLabel: 'Read project data' }),
   get_timeline_view: defineTool({ name: 'get_timeline_view', label: 'Reading timeline layout', shortLabel: 'Timeline', iconCategory: 'timeline', receiptLabel: 'Read timeline' }),
-  apply_editorial_intent: defineTool({ name: 'apply_editorial_intent', label: 'Grounding editorial intent', shortLabel: 'Editorial plan', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied grounded editorial intent', loadingMessages: ['Reading the edit', 'Grounding the request', 'Applying warranted changes'], postconditions: postconditions('project-state-changed', ['visual', 'audio']), turnContract: { owner: 'semantic-editorial-planner', evidenceStrategy: 'owner-internal', requiredEvidence: [], producesEvidence: [] } }),
+  apply_editorial_intent: defineTool({ name: 'apply_editorial_intent', label: 'Grounding editorial intent', shortLabel: 'Editorial plan', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied grounded editorial intent', loadingMessages: ['Reading the edit', 'Grounding the request', 'Applying warranted changes'], postconditions: postconditions('project-state-changed-or-durable-operation-queued', ['visual', 'audio']), turnContract: { owner: 'semantic-editorial-planner', evidenceStrategy: 'owner-internal', requiredEvidence: [], producesEvidence: [] } }),
   apply_reference_style: defineTool({ name: 'apply_reference_style', label: 'Applying reference style', shortLabel: 'Reference style', iconCategory: 'style', executionType: 'generative', receiptLabel: 'Queued reference style', loadingMessages: ['Inspecting the reference', 'Extracting edit language', 'Planning faithful changes'] }),
   add_overlay: defineTool({ name: 'add_overlay', label: 'Adding element', shortLabel: 'Add', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added element', postconditions: postconditions('overlay-created', ['visual', 'audio']) }),
   update_overlay: defineTool({ name: 'update_overlay', label: 'Updating element', shortLabel: 'Update', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Updated element', postconditions: postconditions('overlay-updated', ['visual', 'audio']) }),

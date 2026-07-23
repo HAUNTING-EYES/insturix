@@ -377,6 +377,74 @@ describe('chat edit battle harness', () => {
     });
   });
 
+  it('accepts a durable editorial queue receipt without pretending the timeline already changed', () => {
+    const before = project([{ id: 1, type: 'video', from: 0, durationInFrames: 300 }]);
+    const enforced = enforceChatToolPostcondition({
+      toolName: 'apply_editorial_intent',
+      args: { goal: 'Rebuild this edit from my script.' },
+      output: successEnvelope({
+        dispatch: {
+          owner: 'phase2-script-planner',
+          status: 'queued',
+          mutated: false,
+          authority: {
+            queueStatus: 'queued',
+            uploadBatchId: 'upload_batch_123',
+            messageId: 'qstash_123',
+          },
+        },
+      }),
+      beforeProject: before,
+      afterProject: structuredClone(before),
+    });
+
+    expect(enforced.verification).toMatchObject({
+      status: 'pass',
+      stateChanged: false,
+      renderVerification: {
+        status: 'deferred',
+        required: false,
+        modalities: [],
+      },
+    });
+    expect(JSON.parse(enforced.output)).toMatchObject({
+      status: 'success',
+      data: {
+        postconditionVerification: {
+          status: 'pass',
+          renderVerification: { status: 'deferred', required: false },
+        },
+      },
+    });
+  });
+
+  it('fails closed when an editorial queue claim lacks a durable batch receipt', () => {
+    const before = project([{ id: 1, type: 'video', from: 0, durationInFrames: 300 }]);
+    const enforced = enforceChatToolPostcondition({
+      toolName: 'apply_editorial_intent',
+      args: { goal: 'Rebuild this edit from my script.' },
+      output: successEnvelope({
+        dispatch: {
+          owner: 'phase2-script-planner',
+          status: 'queued',
+          mutated: false,
+          authority: { queueStatus: 'queued' },
+        },
+      }),
+      beforeProject: before,
+      afterProject: structuredClone(before),
+    });
+
+    expect(enforced.verification).toMatchObject({
+      status: 'fail',
+      stateChanged: false,
+    });
+    expect(JSON.parse(enforced.output)).toMatchObject({
+      status: 'error',
+      error: { code: 'CHAT_EDIT_POSTCONDITION_FAILED' },
+    });
+  });
+
   it('fails a partial batch update instead of accepting one changed target', () => {
     const before = project([
       { id: 1, type: 'text', content: 'one', from: 0, durationInFrames: 30 },

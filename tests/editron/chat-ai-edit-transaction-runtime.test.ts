@@ -684,6 +684,58 @@ describe('chat AI edit transaction runtime', () => {
     expect(Array.from(store.checkpoints.values()).filter((checkpoint) => checkpoint.type === 'after-llm')).toHaveLength(0);
   });
 
+  it('does not request immediate rendered verification for a deferred durable mutation', async () => {
+    const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
+    const ready = await prepare(store, 'chatop_deferred1');
+    const deferredVerification = {
+      version: 'editron-chat-postcondition-v1',
+      status: 'pass',
+      toolName: 'apply_editorial_intent',
+      stateExpectation: 'project-state-changed-or-durable-operation-queued',
+      reason: 'The durable editorial operation was queued.',
+      beforeStateHash: 'same',
+      afterStateHash: 'same',
+      stateChanged: false,
+      requestedTargetIds: [],
+      affectedTargets: [],
+      renderVerification: {
+        status: 'deferred',
+        required: false,
+        modalities: [],
+      },
+    };
+
+    const result = await completeChatAiEditTransaction({
+      transaction: ready.transaction!,
+      toolCalls: [{ id: 'intent', name: 'apply_editorial_intent' }],
+      toolResults: [{
+        toolCallId: 'intent',
+        toolName: 'apply_editorial_intent',
+        result: JSON.stringify({
+          status: 'success',
+          data: {
+            dispatch: {
+              owner: 'phase2-script-planner',
+              status: 'queued',
+              authority: {
+                queueStatus: 'queued',
+                uploadBatchId: 'upload_batch_123',
+                messageId: 'qstash_123',
+              },
+            },
+            postconditionVerification: deferredVerification,
+          },
+        }),
+      }],
+    }, { checkpointStore: store, loadProject: store.loadProject });
+
+    expect(result).toMatchObject({
+      status: 'created',
+      mutatingToolNames: ['apply_editorial_intent'],
+    });
+    expect(result.renderVerification).toBeUndefined();
+  });
+
   it('keeps the live route and client ordered around durable preflight and stable operation IDs', () => {
     const route = readFileSync(join(process.cwd(), 'app/api/services/editron/chat/stream/route.ts'), 'utf8');
     const panel = readFileSync(join(

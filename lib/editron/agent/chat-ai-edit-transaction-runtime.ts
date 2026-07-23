@@ -196,12 +196,14 @@ export async function completeChatAiEditTransaction(
         afterCheckpointId: afterCheckpoint.checkpointId,
       },
     );
-    const renderVerification = buildChatEditRenderVerificationRequest({
-      transaction: input.transaction,
-      afterCheckpointId: afterCheckpoint.checkpointId,
-      project,
-      successfulCalls: batch.successfulCalls,
-    });
+    const renderVerification = batch.successfulCalls.some(requiresImmediateRenderVerification)
+      ? buildChatEditRenderVerificationRequest({
+          transaction: input.transaction,
+          afterCheckpointId: afterCheckpoint.checkpointId,
+          project,
+          successfulCalls: batch.successfulCalls,
+        })
+      : undefined;
     return summary(
       input.transaction,
       'created',
@@ -347,6 +349,7 @@ export function buildChatEditRenderVerificationRequest(input: {
 
   for (const successful of input.successfulCalls) {
     const receipt = readPassedPostconditionReceipt(successful.result.result);
+    if (receipt?.required === false) continue;
     const targets = receipt?.targets ?? [];
     for (const target of targets) {
       targetsByKey.set(`${target.overlayId}:${target.state}`, target);
@@ -377,6 +380,7 @@ export function buildChatEditRenderVerificationRequest(input: {
 function readPassedPostconditionReceipt(result: unknown): {
   targets: ChatEditRenderVerificationTarget[];
   modalities: ChatEditRenderVerificationModality[];
+  required: boolean;
 } | null {
   const envelope = parseToolResult(result);
   const data = asRecord(envelope?.data);
@@ -405,7 +409,17 @@ function readPassedPostconditionReceipt(result: unknown): {
         (value): value is ChatEditRenderVerificationModality => value === 'visual' || value === 'audio',
       )
     : [];
-  return { targets, modalities };
+  return {
+    targets,
+    modalities,
+    required: renderVerification.required !== false,
+  };
+}
+
+function requiresImmediateRenderVerification(
+  successful: { result: ChatAiToolResult },
+): boolean {
+  return readPassedPostconditionReceipt(successful.result.result)?.required !== false;
 }
 
 function inferMutationModalities(

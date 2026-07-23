@@ -31,8 +31,8 @@ export interface ChatEditPostconditionVerification {
   requestedTargetIds: string[];
   affectedTargets: ChatEditPostconditionTarget[];
   renderVerification: {
-    status: 'pending';
-    required: true;
+    status: 'pending' | 'deferred';
+    required: boolean;
     modalities: ChatToolPostconditionContract['render']['modalities'];
   };
 }
@@ -110,6 +110,7 @@ export function verifyChatToolPostcondition(input: {
     stateChanged,
     requestedTargetIds,
     affectedTargets,
+    resultData: input.resultData,
   });
 
   return {
@@ -124,12 +125,14 @@ export function verifyChatToolPostcondition(input: {
     requestedTargetIds,
     affectedTargets,
     renderVerification: {
-      status: 'pending',
-      required: true,
-      modalities: resolveRenderVerificationModalities(
-        affectedTargets,
-        contract?.render.modalities ?? ['visual', 'audio'],
-      ),
+      status: outcome.deferred ? 'deferred' : 'pending',
+      required: !outcome.deferred,
+      modalities: outcome.deferred
+        ? []
+        : resolveRenderVerificationModalities(
+            affectedTargets,
+            contract?.render.modalities ?? ['visual', 'audio'],
+          ),
     },
   };
 }
@@ -182,9 +185,18 @@ function evaluateStateExpectation(input: {
   stateChanged: boolean;
   requestedTargetIds: string[];
   affectedTargets: ChatEditPostconditionTarget[];
-}): { pass: boolean; reason: string } {
-  if (!input.contract) return { pass: false, reason: 'Mutating tool has no declared postcondition contract.' };
-  if (!input.before || !input.after) return { pass: false, reason: 'Canonical project state could not be loaded before and after the mutation.' };
+  resultData: unknown;
+}): { pass: boolean; reason: string; deferred: boolean } {
+  if (!input.contract) {
+    return { pass: false, reason: 'Mutating tool has no declared postcondition contract.', deferred: false };
+  }
+  if (!input.before || !input.after) {
+    return {
+      pass: false,
+      reason: 'Canonical project state could not be loaded before and after the mutation.',
+      deferred: false,
+    };
+  }
 
   const affectedIds = new Set(input.affectedTargets.map((target) => target.overlayId));
   const createdIds = new Set(input.affectedTargets.filter((target) => target.state === 'created').map((target) => target.overlayId));
@@ -202,6 +214,7 @@ function evaluateStateExpectation(input: {
         reason: pass
           ? 'The created overlay exists in canonical project state.'
           : 'Tool reported success, but the requested overlay was not created in canonical project state.',
+        deferred: false,
       };
     }
     case 'overlay-updated': {
@@ -213,6 +226,7 @@ function evaluateStateExpectation(input: {
         reason: pass
           ? 'The requested overlay mutation is present in canonical project state.'
           : 'Tool reported success, but the requested overlay did not change in canonical project state.',
+        deferred: false,
       };
     }
     case 'overlay-deleted': {
@@ -224,6 +238,7 @@ function evaluateStateExpectation(input: {
         reason: pass
           ? 'The requested overlay is absent from canonical project state.'
           : 'Tool reported success, but the requested overlay still exists in canonical project state.',
+        deferred: false,
       };
     }
     case 'overlay-set-changed': {
@@ -233,6 +248,18 @@ function evaluateStateExpectation(input: {
         reason: pass
           ? 'The canonical overlay set changed.'
           : 'Tool reported success, but the canonical overlay set did not change.',
+        deferred: false,
+      };
+    }
+    case 'project-state-changed-or-durable-operation-queued': {
+      const queue = verifyDurableEditorialQueue(input.resultData);
+      if (queue.matched) return queue;
+      return {
+        pass: input.stateChanged,
+        reason: input.stateChanged
+          ? 'Canonical project state changed.'
+          : 'Tool reported success, but canonical project state did not change and no durable operation was queued.',
+        deferred: false,
       };
     }
     case 'project-state-changed':
@@ -242,8 +269,36 @@ function evaluateStateExpectation(input: {
         reason: input.stateChanged
           ? 'Canonical project state changed.'
           : 'Tool reported success, but canonical project state did not change.',
+        deferred: false,
       };
   }
+}
+
+function verifyDurableEditorialQueue(
+  resultData: unknown,
+): { matched: boolean; pass: boolean; reason: string; deferred: boolean } {
+  const result = asRecord(resultData);
+  const dispatch = asRecord(result.dispatch);
+  if (dispatch.status !== 'queued') {
+    return { matched: false, pass: false, reason: 'No durable operation was queued.', deferred: false };
+  }
+
+  const authority = asRecord(dispatch.authority);
+  const queueStatus = authority.queueStatus;
+  const uploadBatchId = typeof authority.uploadBatchId === 'string'
+    ? authority.uploadBatchId.trim()
+    : '';
+  const pass = dispatch.owner === 'phase2-script-planner'
+    && (queueStatus === 'queued' || queueStatus === 'already-queued')
+    && uploadBatchId.length > 0;
+  return {
+    matched: true,
+    pass,
+    reason: pass
+      ? 'The durable editorial operation was accepted by the script recomposition queue.'
+      : 'Tool reported a queued editorial operation without a valid durable batch receipt.',
+    deferred: pass,
+  };
 }
 
 function resolveRequestedTargetIds(
