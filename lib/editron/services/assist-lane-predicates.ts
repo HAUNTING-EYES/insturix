@@ -36,8 +36,17 @@ export function isRefundedAssistProject(project: unknown): boolean {
   return status === ASSIST_STATUS_SCAN_FAILED;
 }
 
-/** Auto-edit statuses from which a failed project can be rescued into Director Mode. */
-const RESCUABLE_AUTO_FAILURE_STATUSES = new Set(['failed', 'needs_input']);
+/**
+ * Auto-edit statuses from which a failed project can be rescued into Director Mode.
+ * Only 'failed': a director-stage failure keeps the laid-down timeline + scans chat
+ * grounds in. 'needs_input' (coverage gap) is NOT rescuable — every needs_input write
+ * happens before any timeline exists (the ScriptGroundingError throws before the
+ * compose lay-down), so canRescueToDirectorMode already rejects it for lack of a
+ * timeline and the page shows the upload UI, not the rescue CTA. Keeping predicate +
+ * rescue-route filter both 'failed' removes a latent trap where a future
+ * needs_input-with-substrate would silently become free-rescuable.
+ */
+const RESCUABLE_AUTO_FAILURE_STATUSES = new Set(['failed']);
 
 /**
  * Can a FAILED auto-edit be reopened in Director Mode? (CEO plan: rescue CTA.)

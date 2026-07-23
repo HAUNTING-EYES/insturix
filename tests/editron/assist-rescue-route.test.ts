@@ -19,7 +19,6 @@ const failedAuto = (over: Record<string, unknown> = {}) => ({
 describe('canRescueToDirectorMode (the shared gate)', () => {
   it('rescues a director-stage failure that kept a timeline + scan evidence', () => {
     expect(canRescueToDirectorMode(failedAuto())).toBe(true);
-    expect(canRescueToDirectorMode(failedAuto({ autoEditStatus: 'needs_input' }))).toBe(true);
     expect(canRescueToDirectorMode(failedAuto({ rawFootageAnalysis: undefined, segmentAnalysis: { segments: [] } }))).toBe(true);
   });
 
@@ -32,6 +31,7 @@ describe('canRescueToDirectorMode (the shared gate)', () => {
   it('refuses non-failure statuses, already-assist, refunded, and garbage', () => {
     expect(canRescueToDirectorMode(failedAuto({ autoEditStatus: 'complete' }))).toBe(false);
     expect(canRescueToDirectorMode(failedAuto({ autoEditStatus: 'directing' }))).toBe(false);
+    expect(canRescueToDirectorMode(failedAuto({ autoEditStatus: 'needs_input' }))).toBe(false); // coverage gap has no timeline — upload UI, not rescue
     expect(canRescueToDirectorMode(failedAuto({ editMode: 'assist' }))).toBe(false);       // already Director Mode
     expect(canRescueToDirectorMode(failedAuto({ editMode: 'assist', autoEditStatus: 'scan_failed' }))).toBe(false); // refunded
     expect(canRescueToDirectorMode(null)).toBe(false);
@@ -110,7 +110,7 @@ describe('rescue route handler', () => {
     const payload = await (await POST(request({ projectId: 'p' }))).json();
     expect(payload).toMatchObject({ success: true, status: 'ready_for_chat' });
     expect(mocks.updateOne).toHaveBeenCalledWith(
-      { projectId: 'p', userId: 'user_1', autoEditStatus: { $in: ['failed', 'needs_input'] }, autoEditRefunded: { $ne: true } },
+      { projectId: 'p', userId: 'user_1', autoEditStatus: 'failed', autoEditRefunded: { $ne: true } },
       expect.objectContaining({ $set: expect.objectContaining({ editMode: 'assist', autoEditStatus: 'ready_for_chat' }) }),
     );
   });

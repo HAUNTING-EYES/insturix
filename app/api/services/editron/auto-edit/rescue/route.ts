@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     // Atomic: only the request that still sees a rescuable failure status performs
     // the flip. FREE — the scans were already paid for on the original auto edit.
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId, userId, autoEditStatus: { $in: ['failed', 'needs_input'] }, autoEditRefunded: { $ne: true } },
+      { projectId, userId, autoEditStatus: 'failed', autoEditRefunded: { $ne: true } },
       {
         $set: {
           editMode: 'assist',
@@ -69,7 +69,15 @@ export async function POST(request: NextRequest) {
           assistRescuedAt: new Date(),
           updatedAt: new Date(),
         },
-        $unset: { autoEditError: '' },
+        // Clear stale director-failure telemetry (set by workers/director/failure)
+        // so a rescued project carries none of the failure metadata a natively
+        // laid-down assist project never has.
+        $unset: {
+          autoEditError: '',
+          autoEditFailedAt: '',
+          autoEditStageDesc: '',
+          'intelligence.directorDeliveryFailure': '',
+        },
       },
     );
     if (result.modifiedCount !== 1) {
