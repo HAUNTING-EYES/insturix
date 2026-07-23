@@ -33,6 +33,7 @@ import {
   resolveAuthorizedChatAttachments,
 } from '@/lib/editron/services/chat-attachment-contract';
 import { classifyChatRequestOwner } from '@/lib/editron/agent/chat-request-owner';
+import { classifyChatProviderFailure } from '@/lib/editron/agent/chat-provider-failure';
 import {
   buildRequestedChatEditRenderVerification,
   markChatEditRenderVerificationDispatched,
@@ -590,6 +591,7 @@ export async function POST(req: NextRequest) {
           tokensUsed,
         })}\n\n`));
       } catch (error: unknown) {
+        const providerFailure = classifyChatProviderFailure(error);
         let errorMessage = error instanceof Error ? error.message : 'AI edit failed.';
         if (!transactionSettled) {
           try {
@@ -607,7 +609,11 @@ export async function POST(req: NextRequest) {
         }
         console.error('Agent error:', errorMessage);
         // No refund needed since we're using post-hoc billing
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: errorMessage })}\n\n`));
+        await writer.write(encoder.encode(`data: ${JSON.stringify({
+          type: 'error',
+          error: providerFailure?.message ?? errorMessage,
+          ...(providerFailure ? { code: providerFailure.code, retryable: providerFailure.retryable } : {}),
+        })}\n\n`));
       } finally {
         await writer.close();
       }
@@ -622,6 +628,7 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error: unknown) {
+    const providerFailure = classifyChatProviderFailure(error);
     let errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
     if (activeTransaction) {
       try {
@@ -638,8 +645,16 @@ export async function POST(req: NextRequest) {
     }
     console.error('Error in chat route:', errorMessage);
     return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
+      {
+        error: providerFailure?.message ?? errorMessage,
+        ...(providerFailure ? { code: providerFailure.code, retryable: providerFailure.retryable } : {}),
+      },
+      {
+        status: providerFailure?.httpStatus ?? 500,
+        headers: providerFailure?.retryAfterSeconds
+          ? { 'Retry-After': String(providerFailure.retryAfterSeconds) }
+          : undefined,
+      },
     );
   }
 }
