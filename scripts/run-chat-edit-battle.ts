@@ -71,6 +71,7 @@ async function main(): Promise<void> {
   const startedAtHolder = { value: '' };
   let baselineMaterialDigest: string | null = null;
   let latestInvocation: ChatBattleInvocationEvidence | null = null;
+  let latestDurableMutationFailure: string | null = null;
 
   const report = await runChatEditBattleJourney(
     {
@@ -95,6 +96,7 @@ async function main(): Promise<void> {
         if (
           baselineMaterialDigest
           && latestInvocation
+          && !latestDurableMutationFailure
           && chatBattleInvocationQueuedProjectMutation(latestInvocation)
         ) {
           console.log('[chat-battle] queued edit detected; waiting for material project state to change');
@@ -142,6 +144,9 @@ async function main(): Promise<void> {
             ? `[chat-battle] dubbing committed after ${terminal.polls} poll(s)`
             : `[chat-battle] dubbing reached ${terminal.status} after ${terminal.polls} poll(s): ${terminal.error ?? 'no error detail'}`,
         );
+        latestDurableMutationFailure = terminal.status === 'completed'
+          ? null
+          : `dubbing-${terminal.status}:${terminal.error ?? 'no error detail'}`;
 
         try {
           const followUp = await invokeLiveChatAgent({
@@ -172,7 +177,7 @@ async function main(): Promise<void> {
         if (!shouldPollForFreshChatBattleRenderEvidence({
           requiresRenderedEvidence: scenario.requireRenderedEvidence,
           initialStatus: initial.status,
-          invocationError: latestInvocation?.error,
+          invocationError: latestInvocation?.error ?? latestDurableMutationFailure,
         })) return initial;
         console.log('[chat-battle] waiting for fresh rendered evidence');
         return waitForFreshChatBattleRenderEvidence({
