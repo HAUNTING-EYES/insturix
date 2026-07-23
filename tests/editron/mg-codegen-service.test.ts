@@ -200,6 +200,22 @@ describe('generateMoment - the pipeline (decline / scan→repair→compile→jud
     expect(r.receipt.attempts).toBe(2);
   });
 
+  it('uses the remaining bounded attempt when a visual revision fails the safety scan', async () => {
+    let judgeCalls = 0;
+    const r = await generateMoment(input(), deps({
+      writeComponent: queue([VALID_CODE, INVALID_CODE, VALID_CODE]),
+      evaluate: async () => (++judgeCalls === 1
+        ? { score: 7, issues: ['form lacks designed structure'] }
+        : { score: 8.4, issues: [] }),
+    }));
+
+    expect(r.status).toBe('generated');
+    expect(r.receipt.attempts).toBe(3);
+    expect(r.receipt.scans.map((entry) => entry.passed)).toEqual([true, false, true]);
+    expect(r.receipt.judgeScore).toBe(8.4);
+    expect(judgeCalls).toBe(2);
+  });
+
   it('repairs a compiler-invalid visual revision with the remaining bounded attempt', async () => {
     let compileCalls = 0;
     let judgeCalls = 0;

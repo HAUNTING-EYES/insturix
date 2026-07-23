@@ -447,13 +447,23 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     // Keep-what-worked revision discipline: the dominant live failure of naive "revise to fix" was
     // regression on UNNAMED dimensions — most often a frozen animation timeline after fixing a visual
     // issue (motion-floor kills, 3× observed 2026-07-18). The revision is a surgical diff, not a redo.
-    const rev = await attempt([
+    let rev = await attempt([
       `A design reviewer scored your output ${ev.score}/10. Issues: ${ev.issues.join('; ')}.`,
       'Revise SURGICALLY: change ONLY what the issues name and keep everything else byte-identical where possible.',
       'PRESERVE the animation timeline (entrances, word-sync, settle, ambient drift) unless an issue names it —',
       'a static/frozen render is an automatic rejection. Return the full corrected component.',
     ].join(' '));
-    if (rev.providerFailure) return fallback(`revision: ${rev.scan.reason}`, rev.providerFailure);
+    while (true) {
+      const revisionDecline = detectDecline(rev.code);
+      if (revisionDecline) return declined(revisionDecline);
+      if (rev.providerFailure) return fallback(`revision: ${rev.scan.reason}`, rev.providerFailure);
+      if (rev.scan.ok || receipt.attempts >= MAX_MODEL_ATTEMPTS) break;
+      rev = await attempt([
+        `Your visual revision was rejected by the safety scan: ${rev.scan.reason}`,
+        'Preserve the reviewer-requested visual fixes and the existing animation timeline.',
+        'Fix ONLY the safety violation and return the full corrected component.',
+      ].join(' '));
+    }
     if (!rev.scan.ok) return fallback(`revision scan: ${rev.scan.reason}`);
     let revCode = applyImportPreamble(rev.code);
     let revisionCompile = await compile(revCode);
