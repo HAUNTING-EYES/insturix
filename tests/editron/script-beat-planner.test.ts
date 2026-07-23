@@ -1,9 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import { orderStorylineWithLLM } from '@/lib/editron/storyline/order-storyline-service';
 import { makeScene, type Scene, type SceneInput } from '@/lib/editron/storyline/scene';
 import { planStorylineFromScript } from '@/lib/editron/storyline/script-beat-planner';
+import {
+  completeStorylineJsonPrompt,
+  type StorylineResponseSchema,
+} from '@/lib/editron/storyline/storyline-llm';
 
 function scene(overrides: Partial<SceneInput>): Scene {
   return makeScene({
@@ -35,11 +39,14 @@ function brief(targetDurationSec: number | null = null): ProductionBrief {
 
 function queuedLlm(...responses: string[]) {
   const prompts: string[] = [];
+  const schemas: Array<StorylineResponseSchema | undefined> = [];
   let index = 0;
   return {
     prompts,
-    llm: async (prompt: string) => {
+    schemas,
+    llm: async (prompt: string, responseSchema?: StorylineResponseSchema) => {
       prompts.push(prompt);
+      schemas.push(responseSchema);
       const response = responses[index];
       index += 1;
       if (response === undefined) throw new Error(`unexpected LLM call ${index}`);
@@ -129,6 +136,54 @@ describe('script-beat planner - grounded multi-asset authority', () => {
       degraded: false,
     });
     expect(model.prompts[1]).toContain('Designer arranges reference swatches');
+    expect(model.prompts[0]).toContain('"relationFromPrevious":null');
+    expect(model.schemas[0]).toMatchObject({
+      type: 'object',
+      required: ['beats'],
+      properties: {
+        beats: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['unitRefs', 'visualIntent', 'relationFromPrevious'],
+            properties: {
+              relationFromPrevious: { type: 'string', nullable: true },
+            },
+          },
+        },
+      },
+    });
+    expect(model.schemas[1]).toMatchObject({
+      type: 'object',
+      required: ['assignments'],
+      properties: {
+        assignments: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['beatId', 'coverage', 'sceneRefs', 'evidence'],
+          },
+        },
+      },
+    });
+  });
+
+  it('forwards a stage response schema through the Gemini provider edge', async () => {
+    const generate = vi.fn().mockResolvedValue({
+      response: {
+        text: () => '{"beats":[]}',
+        candidates: [{ finishReason: 'STOP' }],
+      },
+    });
+    const schema = {
+      type: 'object',
+      properties: { beats: { type: 'array', items: { type: 'string' } } },
+      required: ['beats'],
+    } as unknown as StorylineResponseSchema;
+
+    await expect(completeStorylineJsonPrompt('extract beats', generate, schema))
+      .resolves.toBe('{"beats":[]}');
+    expect(generate.mock.calls[0][0].generationConfig.responseSchema).toBe(schema);
   });
 
   it('rejects reversed chronology from one source and applies one structured repair', async () => {

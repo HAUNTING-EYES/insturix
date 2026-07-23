@@ -102,9 +102,13 @@ async function main(): Promise<void> {
             projectId,
             baselineDigest: baselineMaterialDigest,
           });
-          console.log(settled.changed
-            ? `[chat-battle] queued edit settled after ${settled.polls} poll(s)`
-            : `[chat-battle] queued edit did not change material state within the settlement deadline (${settled.polls} poll(s))`);
+          console.log(
+            settled.terminalStatus
+              ? `[chat-battle] queued edit reached ${settled.terminalStatus} after ${settled.polls} poll(s): ${settled.terminalError ?? 'no error detail'}`
+              : settled.changed
+                ? `[chat-battle] queued edit settled after ${settled.polls} poll(s)`
+                : `[chat-battle] queued edit did not change material state within the settlement deadline (${settled.polls} poll(s))`,
+          );
           return settled.project;
         }
         return loadMongoProject(projectId);
@@ -345,6 +349,8 @@ export interface QueuedProjectSettlementResult {
   project: Record<string, unknown>;
   changed: boolean;
   polls: number;
+  terminalStatus?: 'failed' | 'needs_input' | 'scan_failed';
+  terminalError?: string;
 }
 
 export function shouldPollForFreshChatBattleRenderEvidence(input: {
@@ -361,6 +367,23 @@ interface QueuedProjectSettlementDependencies {
   loadProject(projectId: string): Promise<Record<string, unknown>>;
   now(): number;
   sleep(milliseconds: number): Promise<void>;
+}
+
+const QUEUED_MUTATION_FAILURE_STATUSES = new Set(['failed', 'needs_input', 'scan_failed'] as const);
+
+function queuedMutationTerminalFailure(
+  project: Record<string, unknown>,
+): Pick<QueuedProjectSettlementResult, 'terminalStatus' | 'terminalError'> | null {
+  const status = stringValue(project.autoEditStatus);
+  if (!status || !QUEUED_MUTATION_FAILURE_STATUSES.has(status as 'failed' | 'needs_input' | 'scan_failed')) {
+    return null;
+  }
+  const terminalStatus = status as 'failed' | 'needs_input' | 'scan_failed';
+  const error = stringValue(project.autoEditError);
+  return {
+    terminalStatus,
+    ...(error ? { terminalError: error } : {}),
+  };
 }
 
 export async function waitForQueuedProjectMutation(
@@ -386,6 +409,10 @@ export async function waitForQueuedProjectMutation(
 
   while (true) {
     polls += 1;
+    const terminalFailure = queuedMutationTerminalFailure(project);
+    if (terminalFailure) {
+      return { project, changed: false, polls, ...terminalFailure };
+    }
     const digest = buildChatBattleProjectSnapshot(project, 'mongo-after').digest;
     if (digest !== input.baselineDigest) return { project, changed: true, polls };
     if (dependencies.now() >= deadline) return { project, changed: false, polls };

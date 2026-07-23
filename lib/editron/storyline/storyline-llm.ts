@@ -1,4 +1,11 @@
+import type { ResponseSchema } from '@google/generative-ai';
+
 export const STORYLINE_MAX_OUTPUT_TOKENS = 16_384;
+export type StorylineResponseSchema = ResponseSchema;
+export type StorylinePromptComplete = (
+  prompt: string,
+  responseSchema?: StorylineResponseSchema,
+) => Promise<string>;
 
 export interface StorylineGenerationRequest {
   contents: Array<{
@@ -10,6 +17,7 @@ export interface StorylineGenerationRequest {
     seed: number;
     responseMimeType: 'application/json';
     maxOutputTokens: number;
+    responseSchema?: StorylineResponseSchema;
   };
 }
 
@@ -30,15 +38,18 @@ export type StorylineJsonGenerator = (
 export async function completeStorylineJsonPrompt(
   prompt: string,
   generate: StorylineJsonGenerator,
+  responseSchema?: StorylineResponseSchema,
 ): Promise<string> {
+  const generationConfig: StorylineGenerationRequest['generationConfig'] = {
+    temperature: 0,
+    seed: 42,
+    responseMimeType: 'application/json',
+    maxOutputTokens: STORYLINE_MAX_OUTPUT_TOKENS,
+    ...(responseSchema ? { responseSchema } : {}),
+  };
   const result = await generate({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0,
-      seed: 42,
-      responseMimeType: 'application/json',
-      maxOutputTokens: STORYLINE_MAX_OUTPUT_TOKENS,
-    },
+    generationConfig,
   });
 
   const finishReason = result.response.candidates?.[0]?.finishReason;

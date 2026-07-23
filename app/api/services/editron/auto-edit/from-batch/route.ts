@@ -22,7 +22,10 @@ import { intakeSignalsFromProject } from '@/lib/editron/production-brief/intake-
 import { resolveProductionBrief } from '@/lib/editron/production-brief/intake-resolver';
 import { brandDefaultsFromProfile } from '@/lib/editron/production-brief/brand-adapter';
 import type { AspectRatio, Platform, ProductionBrief } from '@/lib/editron/production-brief/production-brief';
-import { completeStorylineJsonPrompt } from '@/lib/editron/storyline/storyline-llm';
+import {
+  completeStorylineJsonPrompt,
+  type StorylineResponseSchema,
+} from '@/lib/editron/storyline/storyline-llm';
 import { readProjectAssetAnalyses } from '@/lib/editron/storyline/asset-analysis-reader';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
@@ -528,10 +531,17 @@ function dimensionsForAspect(aspectRatio: AspectRatio): { width: number; height:
   return { width: 1920, height: 1080 };
 }
 
-async function completeStorylinePrompt(prompt: string): Promise<string> {
+async function completeStorylinePrompt(
+  prompt: string,
+  responseSchema?: StorylineResponseSchema,
+): Promise<string> {
   const { getGeneralModel } = await import('@/lib/editron/utils/gemini-model-factory');
   const model = await getGeneralModel();
-  return completeStorylineJsonPrompt(prompt, (request) => model.generateContent(request));
+  return completeStorylineJsonPrompt(
+    prompt,
+    (request) => model.generateContent(request),
+    responseSchema,
+  );
 }
 
 function parseJsonObject(text: string): Record<string, any> | null {

@@ -703,6 +703,31 @@ describe('chat edit battle harness', () => {
       sleep: vi.fn(async () => undefined),
     });
     expect(timedOut).toMatchObject({ project: unchanged, changed: false, polls: 1 });
+
+    const terminalFailure = {
+      ...unchanged,
+      autoEditStatus: 'failed',
+      autoEditError: 'Script grounding failed',
+    };
+    const sleep = vi.fn(async () => undefined);
+    const failed = await waitForQueuedProjectMutation({
+      projectId: 'proj_battle',
+      baselineDigest,
+      timeoutMs: 100,
+      pollIntervalMs: 10,
+    }, {
+      loadProject: vi.fn(async () => terminalFailure),
+      now: () => 0,
+      sleep,
+    });
+    expect(failed).toMatchObject({
+      project: terminalFailure,
+      changed: false,
+      polls: 1,
+      terminalStatus: 'failed',
+      terminalError: 'Script grounding failed',
+    });
+    expect(sleep).not.toHaveBeenCalled();
   });
 
   it('does not let the static scenario registry count as battle evidence', () => {

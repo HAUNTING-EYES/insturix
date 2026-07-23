@@ -32,9 +32,10 @@ import type { SceneEmbed } from './scene-embedding';
 import { planStorylineFromScript, type ScriptBeatPlanResult } from './script-beat-planner';
 import { enrichScenes, type NarrativeSignalSource } from './signal-enricher';
 import type { Storyline } from './storyline';
+import type { StorylinePromptComplete } from './storyline-llm';
 
 /** Complete a prompt with an LLM. Inject the app's Gemini client in prod; grok in the eval. */
-export type LLMComplete = (prompt: string) => Promise<string>;
+export type LLMComplete = StorylinePromptComplete;
 
 export type FallbackReason =
   | 'too_few_clips'

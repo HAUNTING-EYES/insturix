@@ -1,3 +1,5 @@
+import { SchemaType } from '@google/generative-ai';
+
 import type { ProductionBrief } from '../production-brief/production-brief';
 import { PARTIAL_SIMILARITY, type CoverageVerify } from './coverage';
 import { buildOrderingDigest, type ClipDigest } from './ordering-digest';
@@ -10,8 +12,12 @@ import {
 } from './ordering-plan';
 import type { Scene } from './scene';
 import { cosineSimilarity, type SceneEmbed } from './scene-embedding';
+import type {
+  StorylinePromptComplete,
+  StorylineResponseSchema,
+} from './storyline-llm';
 
-type CompletePrompt = (prompt: string) => Promise<string>;
+type CompletePrompt = StorylinePromptComplete;
 
 export type ScriptBeatCoverage = 'covered' | 'partial' | 'missing';
 export type ScriptBeatPlanStatus = 'planned' | 'partial' | 'failed';
@@ -109,6 +115,62 @@ const MAPPING_PROMPT_CHAR_BUDGET = 60_000;
 const MAX_AUDIT_TEXT = 600;
 /** Provider-concurrency protection only; it does not affect editorial selection. */
 const COVERAGE_VERIFY_CONCURRENCY = 3;
+const SCRIPT_BEAT_RESPONSE_SCHEMA: StorylineResponseSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    beats: {
+      type: SchemaType.ARRAY,
+      minItems: 1,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          unitRefs: {
+            type: SchemaType.ARRAY,
+            minItems: 1,
+            items: { type: SchemaType.STRING },
+          },
+          visualIntent: { type: SchemaType.STRING },
+          relationFromPrevious: {
+            type: SchemaType.STRING,
+            format: 'enum',
+            enum: [...SEAM_LINKS],
+            nullable: true,
+          },
+        },
+        required: ['unitRefs', 'visualIntent', 'relationFromPrevious'],
+      },
+    },
+  },
+  required: ['beats'],
+};
+const SCRIPT_ASSIGNMENT_RESPONSE_SCHEMA: StorylineResponseSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    assignments: {
+      type: SchemaType.ARRAY,
+      minItems: 1,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          beatId: { type: SchemaType.STRING },
+          coverage: {
+            type: SchemaType.STRING,
+            format: 'enum',
+            enum: ['covered', 'partial', 'missing'],
+          },
+          sceneRefs: {
+            type: SchemaType.ARRAY,
+            items: { type: SchemaType.STRING },
+          },
+          evidence: { type: SchemaType.STRING },
+        },
+        required: ['beatId', 'coverage', 'sceneRefs', 'evidence'],
+      },
+    },
+    rationale: { type: SchemaType.STRING, nullable: true },
+  },
+  required: ['assignments'],
+};
 
 type SentenceSegmenter = {
   segment(input: string): Iterable<{ segment: string }>;
@@ -174,7 +236,7 @@ function extractionPrompt(units: readonly ScriptUnit[], language?: string | null
   return `<role>You are a factual video-planning analyst. Group an exact script into ordered semantic beats. You do not choose graphics, edits, transitions, or templates.</role>
 
 <output_schema>
-{"beats":[{"unitRefs":["u0"],"visualIntent":"observable footage evidence that could express this beat","relationFromPrevious":"therefore|but|and-then|meanwhile|null"}]}
+{"beats":[{"unitRefs":["u0"],"visualIntent":"observable footage evidence that could express this beat","relationFromPrevious":null}]}
 </output_schema>
 
 <rules>
@@ -653,7 +715,7 @@ export async function planStorylineFromScript(args: PlanStorylineFromScriptArgs)
   let beatRaw: string;
   try {
     attempts += 1;
-    beatRaw = await args.llm(beatPrompt);
+    beatRaw = await args.llm(beatPrompt, SCRIPT_BEAT_RESPONSE_SCHEMA);
   } catch (error) {
     return failed(units, [], [`beat extraction failed: ${error instanceof Error ? error.message : String(error)}`], attempts, thrownFailureKind(error));
   }
@@ -661,7 +723,10 @@ export async function planStorylineFromScript(args: PlanStorylineFromScriptArgs)
   if (!parsedBeats.beats) {
     try {
       attempts += 1;
-      beatRaw = await args.llm(repairPrompt('beat extraction', beatPrompt, parsedBeats.errors, beatRaw));
+      beatRaw = await args.llm(
+        repairPrompt('beat extraction', beatPrompt, parsedBeats.errors, beatRaw),
+        SCRIPT_BEAT_RESPONSE_SCHEMA,
+      );
       parsedBeats = parseBeats(beatRaw, units);
     } catch (error) {
       return failed(units, [], [`beat extraction repair failed: ${error instanceof Error ? error.message : String(error)}`], attempts, thrownFailureKind(error));
@@ -676,7 +741,7 @@ export async function planStorylineFromScript(args: PlanStorylineFromScriptArgs)
   let assignmentRaw: string;
   try {
     attempts += 1;
-    assignmentRaw = await args.llm(mapPrompt);
+    assignmentRaw = await args.llm(mapPrompt, SCRIPT_ASSIGNMENT_RESPONSE_SCHEMA);
   } catch (error) {
     return failed(units, beats, [`scene assignment failed: ${error instanceof Error ? error.message : String(error)}`], attempts, thrownFailureKind(error));
   }
@@ -691,7 +756,10 @@ export async function planStorylineFromScript(args: PlanStorylineFromScriptArgs)
   if (!parsedAssignments.parsed) {
     try {
       attempts += 1;
-      assignmentRaw = await args.llm(repairPrompt('scene assignment', mapPrompt, parsedAssignments.errors, assignmentRaw));
+      assignmentRaw = await args.llm(
+        repairPrompt('scene assignment', mapPrompt, parsedAssignments.errors, assignmentRaw),
+        SCRIPT_ASSIGNMENT_RESPONSE_SCHEMA,
+      );
       parsedAssignments = parseAssignments(
         assignmentRaw,
         beats,
