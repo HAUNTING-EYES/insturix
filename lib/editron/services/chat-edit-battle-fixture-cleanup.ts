@@ -22,7 +22,8 @@ export interface ChatBattleFixtureCleanupResult {
   };
 }
 
-const DISPOSABLE_FIXTURE_ID = /^proj_chatbattle_[a-z0-9_-]+$/i;
+const DISPOSABLE_FIXTURE_ID = /^proj_(?:chatbattle|cb)_[a-z0-9_-]+$/i;
+const DISPOSABLE_FIXTURE_PREFIX = /^proj_(?:chatbattle|cb)_/i;
 
 export async function cleanupDisposableChatBattleFixture(
   projectId: string,
@@ -49,7 +50,7 @@ export async function cleanupDisposableChatBattleFixtureInDatabase(
   collections: ChatBattleFixtureCleanupCollections,
 ): Promise<ChatBattleFixtureCleanupResult> {
   if (!DISPOSABLE_FIXTURE_ID.test(projectId)) {
-    throw new Error('Refusing cleanup: project id is not a disposable proj_chatbattle_* fixture.');
+    throw new Error('Refusing cleanup: project id is not a disposable chat-battle fixture.');
   }
 
   const projects = db.collection(collections.projects);
@@ -70,7 +71,7 @@ export async function cleanupDisposableChatBattleFixtureInDatabase(
     'metadata.battleTest.disposable': true,
   });
   const remainingFixtures = await projects.countDocuments({
-    projectId: { $regex: '^proj_chatbattle_' },
+    projectId: { $regex: DISPOSABLE_FIXTURE_PREFIX },
     'metadata.battleTest.disposable': true,
   }, { limit: 1 });
   const aliasDelete = remainingFixtures === 0

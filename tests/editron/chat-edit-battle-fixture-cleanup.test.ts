@@ -44,8 +44,18 @@ describe('chat battle fixture cleanup', () => {
   it('refuses any project outside the disposable fixture namespace', async () => {
     const { db, calls } = fakeDatabase({ fixtureExists: true });
     await expect(cleanupDisposableChatBattleFixtureInDatabase(db, 'proj_customer_123', COLLECTIONS))
-      .rejects.toThrow('not a disposable proj_chatbattle_* fixture');
+      .rejects.toThrow('not a disposable chat-battle fixture');
     expect(calls).toEqual([]);
+  });
+
+  it('accepts the compact namespace used by the full live matrix', async () => {
+    const { db } = fakeDatabase({ fixtureExists: true, remainingFixtures: 1 });
+    const result = await cleanupDisposableChatBattleFixtureInDatabase(
+      db,
+      'proj_cb_7820260723054624_01',
+      COLLECTIONS,
+    );
+    expect(result).toMatchObject({ skipped: false, deleted: { projects: 1 } });
   });
 
   it('does not delete dependent records unless Mongo confirms the disposable marker', async () => {

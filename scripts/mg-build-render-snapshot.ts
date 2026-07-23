@@ -28,6 +28,28 @@ import { execSync } from 'node:child_process';
 
 const GIT_URL = process.env.MG_SNAPSHOT_GIT_URL?.trim() || 'https://github.com/Insturix/Front-End.git';
 const BUILD_TIMEOUT_MS = 40 * 60 * 1_000;
+const CHROMIUM_SYSTEM_PACKAGES = [
+  'alsa-lib',
+  'at-spi2-atk',
+  'at-spi2-core',
+  'atk',
+  'dbus-libs',
+  'fontconfig',
+  'google-noto-emoji-color-fonts',
+  'google-noto-sans-devanagari-fonts',
+  'google-noto-sans-fonts',
+  'libX11',
+  'libXcomposite',
+  'libXdamage',
+  'libXext',
+  'libXfixes',
+  'libXrandr',
+  'libxcb',
+  'libxkbcommon',
+  'mesa-libgbm',
+  'nspr',
+  'nss',
+] as const;
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -42,14 +64,17 @@ interface FinishedCommand {
 }
 
 async function runStep(
-  sandbox: { runCommand(params: { cmd: string; args?: string[]; cwd?: string }): Promise<FinishedCommand> },
+  sandbox: {
+    runCommand(params: { cmd: string; args?: string[]; cwd?: string; sudo?: boolean }): Promise<FinishedCommand>;
+  },
   label: string,
   cmd: string,
   args: string[],
+  options: { sudo?: boolean } = {},
 ): Promise<string> {
   process.stdout.write(`→ ${label} ... `);
   const started = Date.now();
-  const command = await sandbox.runCommand({ cmd, args, cwd: '/vercel/sandbox' });
+  const command = await sandbox.runCommand({ cmd, args, cwd: '/vercel/sandbox', sudo: options.sudo });
   const stdout = (await command.stdout()).trim();
   if (command.exitCode !== 0) {
     const stderr = (await command.stderr()).trim();
@@ -115,8 +140,19 @@ async function main(): Promise<void> {
     }
     // packageManager pin in package.json drives the exact pnpm version via corepack.
     await runStep(sandbox, 'pnpm install (frozen lockfile)', 'bash', ['-lc', 'corepack enable && pnpm install --frozen-lockfile']);
+    // Vercel Sandbox is Amazon Linux 2023. Remotion downloads Chromium itself, but Chromium's native
+    // libraries are not part of the base image. Bake the exact `ldd`-verified RPMs into the snapshot;
+    // job sandboxes have a locked network policy and must never install packages at render time.
+    await runStep(
+      sandbox,
+      'install Chromium system libraries and deterministic fonts',
+      'dnf',
+      ['install', '-y', ...CHROMIUM_SYSTEM_PACKAGES],
+      { sudo: true },
+    );
     // CRITICAL: bake the Remotion headless browser — the job sandbox's network policy can never fetch it.
     await runStep(sandbox, 'bake Remotion headless browser', 'node', ['-e', "require('@remotion/renderer').ensureBrowser().then(() => console.log('BROWSER_OK')).catch((e) => { console.error(e); process.exit(1); })"]);
+    await runStep(sandbox, 'smoke: Remotion browser launches', 'node', ['-e', "require('@remotion/renderer').openBrowser('chrome').then(async (browser) => { console.log('BROWSER_LAUNCH_OK'); await browser.close(); }).catch((e) => { console.error(e); process.exit(1); })"]);
     await runStep(sandbox, 'smoke: sharp loads', 'node', ['-e', "require('sharp'); console.log('SHARP_OK')"]);
     await runStep(sandbox, 'smoke: tsx binary present', 'bash', ['-lc', 'test -x node_modules/.bin/tsx && echo TSX_OK']);
 
