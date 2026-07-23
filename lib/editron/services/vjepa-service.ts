@@ -37,6 +37,7 @@ export type VjepaFaceEmotion =
   | 'fearful' | 'disgusted' | 'neutral' | 'contempt';
 
 export interface VjepaPrimitiveBox {
+  /** Normalized top-left coordinates in edited/source frame space. */
   x: number;
   y: number;
   width: number;

@@ -782,7 +782,7 @@ export function buildAtomicPlacementHints(ctx: AtomicVisualContext): AtomicPlace
   const prefer: AtomicPlacementBox[] = [];
 
   if (ctx.mainSubjectWidth > 0 && ctx.mainSubjectHeight > 0) {
-    const subject = rectFromCenter(
+    const subject = rectFromTopLeft(
       ctx.mainSubjectX,
       ctx.mainSubjectY,
       Math.max(ctx.mainSubjectWidth, ctx.facePresent ? 0.22 : 0.12),
@@ -921,9 +921,9 @@ function placementBox(
   };
 }
 
-function rectFromCenter(
-  centerX: number,
-  centerY: number,
+function rectFromTopLeft(
+  x: number,
+  y: number,
   width: number,
   height: number,
   padding: number,
@@ -931,8 +931,8 @@ function rectFromCenter(
   const paddedWidth = clamp01(width + padding * 2);
   const paddedHeight = clamp01(height + padding * 2);
   return {
-    x: clamp01(centerX - paddedWidth / 2),
-    y: clamp01(centerY - paddedHeight / 2),
+    x: clamp01(x - padding),
+    y: clamp01(y - padding),
     width: paddedWidth,
     height: paddedHeight,
   };
