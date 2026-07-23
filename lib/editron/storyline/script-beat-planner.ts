@@ -1,5 +1,6 @@
 import { SchemaType } from '@google/generative-ai';
 
+import { geminiRetry, isTransientGeminiError } from '../../pipeline/gemini-retry';
 import type { ProductionBrief } from '../production-brief/production-brief';
 import { PARTIAL_SIMILARITY, type CoverageVerify } from './coverage';
 import { buildOrderingDigest, type ClipDigest } from './ordering-digest';
@@ -519,6 +520,8 @@ type SceneVerification = {
   note?: string;
 };
 
+const COVERAGE_VERIFY_MAX_RETRIES = 2;
+
 async function mapWithConcurrency<T, R>(
   values: readonly T[],
   concurrency: number,
@@ -559,9 +562,15 @@ async function verifyParsedAssignments(args: {
       const beat = beatById.get(assignment.beatId);
       const scene = sceneById.get(sceneId);
       if (!beat || !scene || !row) throw new Error(`verification input missing for ${assignment.beatId}/${sceneId}`);
-      const result = await args.verify({
-        text: `${beat.scriptText}\nVisible evidence required: ${beat.visualIntent}`,
-      }, scene);
+      const result = await geminiRetry(
+        () => args.verify({
+          text: `${beat.scriptText}\nVisible evidence required: ${beat.visualIntent}`,
+        }, scene),
+        {
+          maxRetries: COVERAGE_VERIFY_MAX_RETRIES,
+          label: `script coverage ${assignment.beatId}/${sceneId}`,
+        },
+      );
       return {
         beatId: assignment.beatId,
         sceneId,
@@ -682,6 +691,7 @@ function failed(
 }
 
 function thrownFailureKind(error: unknown): ScriptBeatFailureKind {
+  if (isTransientGeminiError(error)) return 'provider_error';
   const candidate = error as { status?: unknown; statusCode?: unknown; code?: unknown; name?: unknown } | null;
   const rawStatus = candidate?.status ?? candidate?.statusCode;
   const status = typeof rawStatus === 'number' ? rawStatus : Number(rawStatus);

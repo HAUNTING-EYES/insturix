@@ -276,18 +276,51 @@ describe('vision-verified script grounding', () => {
   });
 
   it('classifies verifier transport failures as retryable provider errors', async () => {
-    const result = await planStorylineFromScript({
+    vi.useFakeTimers();
+    const coverageVerify = vi.fn()
+      .mockRejectedValue(Object.assign(new Error('vision provider unavailable'), { status: 503 }));
+    const pending = planStorylineFromScript({
       scenes: [proofScene],
       script: 'Show the embroidery being made.',
       brief: scriptBrief,
       llm: scriptLlm(),
       queryEmbed: async () => [1, 0],
-      coverageVerify: async () => { throw Object.assign(new Error('vision provider unavailable'), { status: 503 }); },
+      coverageVerify,
     });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    vi.useRealTimers();
 
+    expect(coverageVerify).toHaveBeenCalledTimes(3);
     expect(result.status).toBe('failed');
     expect(result.failureKind).toBe('provider_error');
     expect(result.assignments[0]?.verification?.status).toBe('unavailable');
+  });
+
+  it('retries a message-encoded Gemini 500 and keeps the confirmed scene', async () => {
+    vi.useFakeTimers();
+    const coverageVerify = vi.fn()
+      .mockRejectedValueOnce(new Error(
+        '[GoogleGenerativeAI Error]: Error fetching from Gemini: [500 Internal Server Error] Internal error encountered.',
+      ))
+      .mockResolvedValueOnce({ confirmed: true, note: 'hands visibly embroidering a garment' });
+    const pending = planStorylineFromScript({
+      scenes: [proofScene],
+      script: 'Show the embroidery being made.',
+      brief: scriptBrief,
+      llm: scriptLlm(),
+      queryEmbed: async () => [1, 0],
+      coverageVerify,
+    });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    vi.useRealTimers();
+
+    expect(coverageVerify).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe('planned');
+    expect(result.failureKind).toBeUndefined();
+    expect(result.selectedSceneIds).toEqual([proofScene.id]);
+    expect(result.assignments[0]?.verification?.status).toBe('confirmed');
   });
 
   it('classifies malformed verifier output as a terminal invalid response', async () => {
