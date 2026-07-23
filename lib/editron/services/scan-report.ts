@@ -50,6 +50,10 @@ function get(obj: unknown, key: string): unknown {
 function len(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
 }
+/** A finite number or the fallback — rejects NaN and Infinity (typeof both is 'number'). */
+function num(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
 function msToLabel(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));
   return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `0:${String(s).padStart(2, '0')}`;
@@ -68,8 +72,9 @@ export function buildScanReport(project: unknown): ScanReport | null {
   const clipCount = Array.isArray(overlays)
     ? overlays.filter((o) => get(o, 'type') === 'video' || get(o, 'type') === 'image').length
     : 0;
-  const fps = typeof get(project, 'fps') === 'number' && (get(project, 'fps') as number) > 0 ? (get(project, 'fps') as number) : 30;
-  const durationInFrames = typeof get(project, 'durationInFrames') === 'number' ? (get(project, 'durationInFrames') as number) : 0;
+  const fpsRaw = num(get(project, 'fps'), 30);
+  const fps = fpsRaw > 0 ? fpsRaw : 30;
+  const durationInFrames = Math.max(0, num(get(project, 'durationInFrames'), 0));
 
   const raw = get(project, 'rawFootageAnalysis');
   const wordCount = len(get(get(raw, 'transcription'), 'words'));
@@ -81,12 +86,12 @@ export function buildScanReport(project: unknown): ScanReport | null {
   const segments = get(get(project, 'segmentAnalysis'), 'segments');
   const scenes: ScanReportScene[] = (Array.isArray(segments) ? segments : []).map((seg, index) => ({
     index,
-    startMs: typeof get(seg, 'startMs') === 'number' ? (get(seg, 'startMs') as number) : 0,
-    endMs: typeof get(seg, 'endMs') === 'number' ? (get(seg, 'endMs') as number) : 0,
+    startMs: num(get(seg, 'startMs'), 0),
+    endMs: num(get(seg, 'endMs'), 0),
   }));
 
   const music = get(project, 'musicAnalysis');
-  const bpm = typeof get(music, 'bpm') === 'number' ? (get(music, 'bpm') as number) : null;
+  const bpm = Number.isFinite(num(get(music, 'bpm'), NaN)) ? num(get(music, 'bpm'), 0) : null;
 
   const degradedAssetIds = (Array.isArray(get(project, 'assistDegradedAssetIds')) ? get(project, 'assistDegradedAssetIds') : []) as string[];
 
@@ -141,10 +146,11 @@ export function buildScanMarkers(project: unknown, fpsInput = 30): ScanMarkers |
   if (get(project, 'editMode') !== 'assist') return null;
   if (get(project, 'autoEditStatus') !== 'ready_for_chat') return null;
 
-  const fps = typeof get(project, 'fps') === 'number' && (get(project, 'fps') as number) > 0 ? (get(project, 'fps') as number) : fpsInput;
-  const durationInFrames = typeof get(project, 'durationInFrames') === 'number' ? (get(project, 'durationInFrames') as number) : 0;
-  const totalMs = (durationInFrames / (fps > 0 ? fps : 30)) * 1000;
-  if (totalMs <= 0) return { markers: [], clustered: false };
+  const fpsRaw = num(get(project, 'fps'), fpsInput);
+  const fps = fpsRaw > 0 ? fpsRaw : (fpsInput > 0 ? fpsInput : 30);
+  const durationInFrames = Math.max(0, num(get(project, 'durationInFrames'), 0));
+  const totalMs = (durationInFrames / fps) * 1000;
+  if (!Number.isFinite(totalMs) || totalMs <= 0) return { markers: [], clustered: false };
 
   const pct = (ms: number) => Math.max(0, Math.min(100, (ms / totalMs) * 100));
 
@@ -156,13 +162,15 @@ export function buildScanMarkers(project: unknown, fpsInput = 30): ScanMarkers |
   const sceneSrc = downsample(rawSegments, MAX_MARKERS_PER_KIND);
 
   const silences: ScanMarker[] = silenceSrc.kept.map((g) => {
-    const startMs = typeof get(g, 'startMs') === 'number' ? (get(g, 'startMs') as number) : 0;
-    const endMs = typeof get(g, 'endMs') === 'number' ? (get(g, 'endMs') as number) : startMs;
+    const startMs = num(get(g, 'startMs'), 0);
+    const endMs = num(get(g, 'endMs'), startMs);
     const left = pct(startMs);
-    return { kind: 'silence', startMs, leftPct: left, widthPct: Math.max(0.15, pct(endMs) - left) };
+    // Clamp the span so a backwards/overlong silence can't push past 100% or go negative.
+    const width = Math.min(100 - left, Math.max(0.15, pct(endMs) - left));
+    return { kind: 'silence', startMs, leftPct: left, widthPct: width };
   });
   const scenes: ScanMarker[] = sceneSrc.kept.map((s) => {
-    const startMs = typeof get(s, 'startMs') === 'number' ? (get(s, 'startMs') as number) : 0;
+    const startMs = num(get(s, 'startMs'), 0);
     return { kind: 'scene', startMs, leftPct: pct(startMs), widthPct: 0 };
   });
 
