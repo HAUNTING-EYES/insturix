@@ -323,6 +323,54 @@ describe('vision-verified script grounding', () => {
     expect(result.assignments[0]?.verification?.status).toBe('confirmed');
   });
 
+  it('does not discard a confirmed scene when a sibling scene exhausts provider retries', async () => {
+    vi.useFakeTimers();
+    const alternateScene = makeScene({
+      source: 'https://cdn.test/alternate-proof.mp4',
+      startTime: 8,
+      endTime: 11,
+      objects: ['garment'],
+      faces: [],
+      detectedText: [],
+      transcription: '',
+      description: 'hands visibly embroidering a garment',
+      embedding: [0.99, 0.01],
+    });
+    const llm = vi.fn()
+      .mockResolvedValueOnce(JSON.stringify({
+        beats: [{ unitRefs: ['u0'], visualIntent: 'visible embroidery work', relationFromPrevious: null }],
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        assignments: [{ beatId: 'b0', coverage: 'covered', sceneRefs: ['c0', 'c1'], evidence: 'embroidery work' }],
+      }));
+    const coverageVerify = vi.fn(async (_query, scene) => {
+      if (scene.id === proofScene.id) {
+        throw Object.assign(new Error('vision provider unavailable'), { status: 503 });
+      }
+      return { confirmed: true, note: 'hands visibly embroidering a garment' };
+    });
+    const pending = planStorylineFromScript({
+      scenes: [proofScene, alternateScene],
+      script: 'Show the embroidery being made.',
+      brief: scriptBrief,
+      llm,
+      queryEmbed: async () => [1, 0],
+      coverageVerify,
+    });
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    vi.useRealTimers();
+
+    expect(coverageVerify).toHaveBeenCalledTimes(4);
+    expect(result.status).toBe('planned');
+    expect(result.failureKind).toBeUndefined();
+    expect(result.selectedSceneIds).toEqual([alternateScene.id]);
+    expect(result.assignments[0]?.verification).toEqual(expect.objectContaining({
+      status: 'confirmed',
+      sceneIds: [alternateScene.id],
+    }));
+  });
+
   it('classifies malformed verifier output as a terminal invalid response', async () => {
     const result = await planStorylineFromScript({
       scenes: [proofScene],

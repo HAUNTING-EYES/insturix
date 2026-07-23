@@ -516,7 +516,9 @@ type SceneVerification = {
   beatId: string;
   sceneId: string;
   similarity: number;
+  availability: 'verified' | 'unavailable';
   confirmed: boolean;
+  failureKind?: ScriptBeatFailureKind;
   note?: string;
 };
 
@@ -556,12 +558,25 @@ async function verifyParsedAssignments(args: {
     return assignment.sceneIds.map((sceneId) => ({ assignment, sceneId, row: rows.get(sceneId) }));
   });
 
-  let checks: SceneVerification[];
-  try {
-    checks = await mapWithConcurrency(jobs, COVERAGE_VERIFY_CONCURRENCY, async ({ assignment, sceneId, row }) => {
-      const beat = beatById.get(assignment.beatId);
-      const scene = sceneById.get(sceneId);
-      if (!beat || !scene || !row) throw new Error(`verification input missing for ${assignment.beatId}/${sceneId}`);
+  const checks = await mapWithConcurrency(jobs, COVERAGE_VERIFY_CONCURRENCY, async ({
+    assignment,
+    sceneId,
+    row,
+  }): Promise<SceneVerification> => {
+    const beat = beatById.get(assignment.beatId);
+    const scene = sceneById.get(sceneId);
+    if (!beat || !scene || !row) {
+      return {
+        beatId: assignment.beatId,
+        sceneId,
+        similarity: row?.similarity ?? 0,
+        availability: 'unavailable',
+        confirmed: false,
+        failureKind: 'invalid_response',
+        note: `verification input missing for ${assignment.beatId}/${sceneId}`,
+      };
+    }
+    try {
       const result = await geminiRetry(
         () => args.verify({
           text: `${beat.scriptText}\nVisible evidence required: ${beat.visualIntent}`,
@@ -575,24 +590,22 @@ async function verifyParsedAssignments(args: {
         beatId: assignment.beatId,
         sceneId,
         similarity: row.similarity,
+        availability: 'verified',
         confirmed: result.confirmed,
         note: cleanText(result.note, 240),
       };
-    });
-  } catch (error) {
-    return {
-      assignments: args.parsed.assignments.map((assignment) => ({
-        ...assignment,
-        verification: {
-          status: 'unavailable',
-          sceneIds: assignment.sceneIds,
-          notes: [cleanText(error instanceof Error ? error.message : String(error), 240) ?? 'verification unavailable'],
-        },
-      })),
-      failureKind: thrownFailureKind(error),
-      errors: [`visual coverage verification failed: ${error instanceof Error ? error.message : String(error)}`],
-    };
-  }
+    } catch (error) {
+      return {
+        beatId: assignment.beatId,
+        sceneId,
+        similarity: row.similarity,
+        availability: 'unavailable',
+        confirmed: false,
+        failureKind: thrownFailureKind(error),
+        note: cleanText(error instanceof Error ? error.message : String(error), 240) ?? 'verification unavailable',
+      };
+    }
+  });
 
   const checksByBeat = new Map<string, SceneVerification[]>();
   for (const check of checks) {
@@ -605,9 +618,11 @@ async function verifyParsedAssignments(args: {
   const assignments = args.parsed.assignments.map((assignment): ScriptBeatAssignment => {
     if (assignment.coverage === 'missing') return assignment;
     const beatChecks = checksByBeat.get(assignment.beatId) ?? [];
-    const confirmed = beatChecks.filter((check) => check.confirmed);
+    const verified = beatChecks.filter((check) => check.availability === 'verified');
+    const unavailable = beatChecks.filter((check) => check.availability === 'unavailable');
+    const confirmed = verified.filter((check) => check.confirmed);
     for (const check of confirmed) executableSceneIds.add(check.sceneId);
-    const partial = beatChecks.filter((check) => !check.confirmed && check.similarity >= PARTIAL_SIMILARITY);
+    const partial = verified.filter((check) => !check.confirmed && check.similarity >= PARTIAL_SIMILARITY);
     const notes = beatChecks.map((check) => check.note).filter((note): note is string => Boolean(note));
 
     if (confirmed.length > 0) {
@@ -617,6 +632,14 @@ async function verifyParsedAssignments(args: {
         sceneIds: confirmed.map((check) => check.sceneId),
         evidence: confirmed.map((check) => check.note).filter(Boolean).join('; ') || assignment.evidence,
         verification: { status: 'confirmed', sceneIds: confirmed.map((check) => check.sceneId), notes },
+      };
+    }
+    if (unavailable.length > 0) {
+      return {
+        ...assignment,
+        coverage: 'partial',
+        sceneIds: [],
+        verification: { status: 'unavailable', sceneIds: unavailable.map((check) => check.sceneId), notes },
       };
     }
     if (partial.length > 0) {
@@ -634,6 +657,25 @@ async function verifyParsedAssignments(args: {
       verification: { status: 'unconfirmed', sceneIds: beatChecks.map((check) => check.sceneId), notes },
     };
   });
+
+  const unavailableBeatIds = assignments
+    .filter((assignment) => assignment.verification?.status === 'unavailable')
+    .map((assignment) => assignment.beatId);
+  if (unavailableBeatIds.length > 0) {
+    const unavailableChecks = checks.filter((check) => (
+      check.availability === 'unavailable' && unavailableBeatIds.includes(check.beatId)
+    ));
+    const failureKind = unavailableChecks.some((check) => check.failureKind === 'provider_error')
+      ? 'provider_error'
+      : 'invalid_response';
+    return {
+      assignments,
+      failureKind,
+      errors: unavailableChecks.map((check) => (
+        `visual coverage verification failed for ${check.beatId}/${check.sceneId}: ${check.note ?? 'verification unavailable'}`
+      )),
+    };
+  }
 
   const order = args.parsed.plan.order
     .filter((item) => executableSceneIds.has(item.sourceRef))
