@@ -15,6 +15,7 @@ export enum OverlayType {
   HTML_STICKER = "html-sticker", // HTML generated stickers (transparent, animated elements)
   AI_SUGGESTIONS = "ai-suggestions", // AI Suggestions panel
   QUALITY_REVIEW = "quality-review", // Quality Review panel
+  SCAN_REPORT = "scan-report",       // Director Mode scan report panel (sidebar)
   TRANSITIONS = "transitions",       // Transition browser panel (sidebar)
   SFX_LIBRARY = "sfx-library",       // SFX library browse panel (sidebar)
   LOTTIE = "lottie",                 // LottieFiles motion graphics panel (sidebar)
