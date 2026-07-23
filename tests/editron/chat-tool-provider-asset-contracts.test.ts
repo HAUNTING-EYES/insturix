@@ -128,7 +128,10 @@ describe('chat provider and user-asset tool contracts', () => {
     expect(result).toMatchObject({
       status: 'success',
       data: {
-        data: { overlayId: 10, title: 'Soft paper whoosh', duration: 1.2, source: 'freesound' },
+        overlayId: 10,
+        title: 'Soft paper whoosh',
+        duration: 1.2,
+        source: 'freesound',
       },
     });
     expect(fetchMock).toHaveBeenCalledWith(
@@ -186,9 +189,7 @@ describe('chat provider and user-asset tool contracts', () => {
     expect(result).toMatchObject({
       status: 'success',
       data: {
-        data: {
-          results: [{ id: 701, duration: 8, tags: ['embroidery', 'hands', 'craft', 'needle', 'textile'] }],
-        },
+        results: [{ id: 701, duration: 8, tags: ['embroidery', 'hands', 'craft', 'needle', 'textile'] }],
       },
     });
     expect(mocks.searchStockVideos).toHaveBeenCalledWith('hand embroidery close up', {
@@ -217,7 +218,7 @@ describe('chat provider and user-asset tool contracts', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      data: { data: { results: [{ id: 801, width: 1920, height: 1080 }] } },
+      data: { results: [{ id: 801, width: 1920, height: 1080 }] },
     });
     expect(mocks.searchStockImages).toHaveBeenCalledWith('fashion moodboard', { limit: 2 });
   });
@@ -235,7 +236,10 @@ describe('chat provider and user-asset tool contracts', () => {
     expect(result).toMatchObject({
       status: 'success',
       data: {
-        data: { overlayId: 20, sceneIndex: 2, oldAssetId: 'asset-generated', newAssetId: 'asset-user-embroidery' },
+        overlayId: 20,
+        sceneIndex: 2,
+        oldAssetId: 'asset-generated',
+        newAssetId: 'asset-user-embroidery',
       },
     });
     expect(mocks.resolveAssetUrl).toHaveBeenCalledWith('asset-user-embroidery', 'user_provider_asset');
@@ -272,7 +276,7 @@ describe('chat provider and user-asset tool contracts', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      data: { data: { overlayId: 'manual-clip', newAssetId: 'asset-user-detail', sourceStartFrame: 12 } },
+      data: { overlayId: 'manual-clip', newAssetId: 'asset-user-detail', sourceStartFrame: 12 },
     });
     expect(updateOverlay).toHaveBeenCalledWith(
       'user_provider_asset',

@@ -36,6 +36,7 @@ import {
   resolveVisualEditPlacement,
 } from '@/lib/editron/agent/chat-visual-tools';
 import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
+import { AUDIO_LEVELS } from '@/lib/editron/constants/audio-standards';
 
 describe('chat edit context bundle', () => {
   const project = {
@@ -613,7 +614,7 @@ describe('chat edit context bundle', () => {
     expect(plan.updates[0]).toMatchObject({
       overlayId: 10,
       nextStyles: {
-        volume: 0.75,
+        volume: AUDIO_LEVELS.BGM_WITHOUT_VO,
         duckingConfig: {
           enabled: true,
           duckLevel: 0.18,

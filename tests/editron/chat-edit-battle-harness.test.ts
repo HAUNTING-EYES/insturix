@@ -534,17 +534,25 @@ describe('chat edit battle harness', () => {
     expect(chatBattleInvocationQueuedProjectMutation(immediate)).toBe(false);
   });
 
-  it('keeps dubbing and reframing as outcome probes until live ownership is proven', () => {
+  it('requires the dedicated durable dubbing and subject-aware reframing owners', () => {
     const dubbing = getChatEditBattleScenario('selected-dialogue-dubbing')!;
     const reframing = getChatEditBattleScenario('vertical-subject-reframe')!;
 
     for (const scenario of [dubbing, reframing]) {
       expect(scenario.mutationExpectation).toBe('required');
       expect(scenario.minimumSuccessfulMutations).toBe(1);
-      expect(scenario.requiredToolSequence).toEqual([['read_project_file', 'get_timeline_view']]);
       expect(scenario.requireUiReload).toBe(true);
       expect(scenario.requireRenderedEvidence).toBe(true);
     }
+    expect(dubbing.requiredToolSequence).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'dub_selected_dialogue',
+      'get_dubbing_job_result',
+    ]);
+    expect(reframing.requiredToolSequence).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'reframe_project',
+    ]);
     expect(dubbing.prompt).toContain('Preserve the original speech timing');
     expect(reframing.prompt).toContain('keep the main subject visible');
   });
