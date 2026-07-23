@@ -6,6 +6,7 @@ export interface ChatBattleFixtureCleanupCollections {
   chats: string;
   checkpoints: string;
   deepAnalysisJobs: string;
+  dubbingJobs: string;
   mgRenderJobs: string;
   uploadBatches: string;
   mediaAssets: string;
@@ -20,6 +21,7 @@ export interface ChatBattleFixtureCleanupResult {
     chats: number;
     checkpoints: number;
     deepAnalysisJobs: number;
+    dubbingJobs: number;
     mgRenderJobs: number;
     uploadBatches: number;
     assetAliases: number;
@@ -41,6 +43,7 @@ export async function cleanupDisposableChatBattleFixture(
       chats: COLLECTIONS.CHAT_SESSIONS,
       checkpoints: COLLECTIONS.CHECKPOINTS,
       deepAnalysisJobs: COLLECTIONS.CHAT_DEEP_ANALYSIS_JOBS,
+      dubbingJobs: COLLECTIONS.CHAT_DUBBING_JOBS,
       mgRenderJobs: COLLECTIONS.MG_RENDER_JOBS,
       uploadBatches: COLLECTIONS.MEDIA_UPLOAD_BATCHES,
       mediaAssets: COLLECTIONS.MEDIA_ASSETS,
@@ -66,11 +69,20 @@ export async function cleanupDisposableChatBattleFixtureInDatabase(
   );
   if (!fixture) return emptyCleanupResult(projectId, true);
 
-  const [analyses, chats, checkpoints, deepAnalysisJobs, mgRenderJobs, uploadBatches] = await Promise.all([
+  const [
+    analyses,
+    chats,
+    checkpoints,
+    deepAnalysisJobs,
+    dubbingJobs,
+    mgRenderJobs,
+    uploadBatches,
+  ] = await Promise.all([
     db.collection(collections.analyses).deleteMany({ projectId }),
     db.collection(collections.chats).deleteMany({ projectId }),
     db.collection(collections.checkpoints).deleteMany({ projectId }),
     db.collection(collections.deepAnalysisJobs).deleteMany({ projectId }),
+    db.collection(collections.dubbingJobs).deleteMany({ projectId }),
     db.collection(collections.mgRenderJobs).deleteMany({ projectId }),
     db.collection(collections.uploadBatches).deleteMany({ projectId }),
   ]);
@@ -95,6 +107,7 @@ export async function cleanupDisposableChatBattleFixtureInDatabase(
       chats: chats.deletedCount,
       checkpoints: checkpoints.deletedCount,
       deepAnalysisJobs: deepAnalysisJobs.deletedCount,
+      dubbingJobs: dubbingJobs.deletedCount,
       mgRenderJobs: mgRenderJobs.deletedCount,
       uploadBatches: uploadBatches.deletedCount,
       assetAliases: aliasDelete.deletedCount,
@@ -112,6 +125,7 @@ function emptyCleanupResult(projectId: string, skipped: boolean): ChatBattleFixt
       chats: 0,
       checkpoints: 0,
       deepAnalysisJobs: 0,
+      dubbingJobs: 0,
       mgRenderJobs: 0,
       uploadBatches: 0,
       assetAliases: 0,

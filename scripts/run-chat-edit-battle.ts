@@ -132,14 +132,16 @@ async function main(): Promise<void> {
           return invocation;
         }
 
-        console.log(`[chat-battle] waiting for dubbing job ${dubbingJobId} to commit`);
-        const settled = await waitForQueuedProjectMutation({
+        console.log(`[chat-battle] waiting for dubbing job ${dubbingJobId} to settle`);
+        const terminal = await waitForDubbingJobTerminal({
+          jobId: dubbingJobId,
           projectId,
-          baselineDigest: baselineMaterialDigest,
         });
-        console.log(settled.changed
-          ? `[chat-battle] dubbing committed after ${settled.polls} poll(s)`
-          : `[chat-battle] dubbing did not commit within the settlement deadline (${settled.polls} poll(s))`);
+        console.log(
+          terminal.status === 'completed'
+            ? `[chat-battle] dubbing committed after ${terminal.polls} poll(s)`
+            : `[chat-battle] dubbing reached ${terminal.status} after ${terminal.polls} poll(s): ${terminal.error ?? 'no error detail'}`,
+        );
 
         try {
           const followUp = await invokeLiveChatAgent({
@@ -351,6 +353,68 @@ export interface QueuedProjectSettlementResult {
   polls: number;
   terminalStatus?: 'failed' | 'needs_input' | 'scan_failed';
   terminalError?: string;
+}
+
+type DubbingJobTerminalStatus = 'completed' | 'failed' | 'stale' | 'dispatch_failed' | 'timeout' | 'missing';
+
+export interface DubbingJobSettlementResult {
+  status: DubbingJobTerminalStatus;
+  polls: number;
+  error?: string;
+}
+
+interface DubbingJobSettlementDependencies {
+  loadJob(jobId: string, projectId: string): Promise<Record<string, unknown> | null>;
+  now(): number;
+  sleep(milliseconds: number): Promise<void>;
+}
+
+export async function waitForDubbingJobTerminal(
+  input: {
+    jobId: string;
+    projectId: string;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  },
+  dependencies: DubbingJobSettlementDependencies = {
+    loadJob: loadChatBattleDubbingJob,
+    now: () => Date.now(),
+    sleep: async (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  },
+): Promise<DubbingJobSettlementResult> {
+  const timeoutMs = input.timeoutMs
+    ?? boundedEnvInteger('EDITRON_CHAT_BATTLE_DUBBING_TIMEOUT_MS', 15 * 60 * 1000, 30_000, 30 * 60 * 1000);
+  const pollIntervalMs = input.pollIntervalMs
+    ?? boundedEnvInteger('EDITRON_CHAT_BATTLE_SETTLEMENT_POLL_MS', 5_000, 500, 30_000);
+  const deadline = dependencies.now() + timeoutMs;
+  let polls = 0;
+
+  while (true) {
+    polls += 1;
+    const job = await dependencies.loadJob(input.jobId, input.projectId);
+    if (!job) return { status: 'missing', polls, error: 'dubbing-job-not-found' };
+    const status = stringValue(job.status);
+    if (status === 'completed') return { status, polls };
+    if (status === 'failed' || status === 'stale' || status === 'dispatch_failed') {
+      const error = stringValue(job.error);
+      return { status, polls, ...(error ? { error } : {}) };
+    }
+    if (dependencies.now() >= deadline) {
+      return { status: 'timeout', polls, error: `dubbing-job-timeout:${status ?? 'unknown'}` };
+    }
+    await dependencies.sleep(pollIntervalMs);
+  }
+}
+
+async function loadChatBattleDubbingJob(
+  jobId: string,
+  projectId: string,
+): Promise<Record<string, unknown> | null> {
+  const { COLLECTIONS, connectToDatabase } = await import('../lib/editron/db/mongodb');
+  const { client, db } = await connectToDatabase();
+  chatBattleMongoClient = client;
+  return db.collection(COLLECTIONS.CHAT_DUBBING_JOBS)
+    .findOne({ _id: jobId, projectId }) as Promise<Record<string, unknown> | null>;
 }
 
 export function shouldPollForFreshChatBattleRenderEvidence(input: {

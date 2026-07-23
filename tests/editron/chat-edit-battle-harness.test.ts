@@ -178,6 +178,7 @@ import {
   parseChatBattleCliArgs,
   shouldPollForFreshChatBattleRenderEvidence,
   validateChatBattleCliOptions,
+  waitForDubbingJobTerminal,
   waitForFreshChatBattleRenderEvidence,
   waitForQueuedProjectMutation,
   readChatBattleAuthHeaders,
@@ -657,6 +658,40 @@ describe('chat edit battle harness', () => {
         { name: 'dub_selected_dialogue' },
         { name: 'get_dubbing_job_result' },
       ],
+    });
+  });
+
+  it('settles durable dubbing from the job source of truth instead of waiting for project mutation', async () => {
+    let clock = 0;
+    const loadCompleted = vi.fn()
+      .mockResolvedValueOnce({ status: 'running' })
+      .mockResolvedValueOnce({ status: 'completed' });
+    const completed = await waitForDubbingJobTerminal({
+      jobId: 'chat_dub_123',
+      projectId: 'proj_battle',
+      timeoutMs: 100,
+      pollIntervalMs: 10,
+    }, {
+      loadJob: loadCompleted,
+      now: () => clock,
+      sleep: async (milliseconds) => { clock += milliseconds; },
+    });
+    expect(completed).toEqual({ status: 'completed', polls: 2 });
+
+    const failed = await waitForDubbingJobTerminal({
+      jobId: 'chat_dub_failed',
+      projectId: 'proj_battle',
+      timeoutMs: 100,
+      pollIntervalMs: 10,
+    }, {
+      loadJob: vi.fn().mockResolvedValue({ status: 'failed', error: 'unnatural-phrase-fit' }),
+      now: () => 0,
+      sleep: async () => undefined,
+    });
+    expect(failed).toEqual({
+      status: 'failed',
+      polls: 1,
+      error: 'unnatural-phrase-fit',
     });
   });
 
