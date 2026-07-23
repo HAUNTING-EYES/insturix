@@ -90,6 +90,42 @@ export function cloneChatBattleAnalysisDocuments(
   });
 }
 
+export function cloneChatBattleUploadBatch(
+  sourceBatch: Record<string, unknown>,
+  fixtureProjectId: string,
+  fixtureUploadBatchId: string,
+  now: Date = new Date(),
+): Record<string, unknown> {
+  const clone = structuredClone(sourceBatch);
+  delete clone._id;
+  for (const key of [
+    'lastChatScriptIntentId',
+    'chatScriptRecompositionQueuedAt',
+    'orchestrationLeaseUntil',
+    'orchestrationRecoveryLeaseUntil',
+    'orchestrationRecoveryClaimedAt',
+    'orchestrationMessageId',
+    'orchestrationError',
+    'orchestrationRecoveryError',
+    'directorFailure',
+    'directorMessageId',
+    'deliverables',
+    'projectIds',
+  ]) {
+    delete clone[key];
+  }
+  clone.uploadBatchId = fixtureUploadBatchId;
+  clone.projectId = fixtureProjectId;
+  clone.orchestrationStatus = 'ready';
+  clone.createdAt = now;
+  clone.updatedAt = now;
+  clone.metadata = {
+    ...asRecord(clone.metadata),
+    battleFixture: true,
+  };
+  return clone;
+}
+
 function seedTranscriptOverlay(
   overlays: Record<string, unknown>[],
   project: Record<string, unknown>,

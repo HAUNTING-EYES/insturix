@@ -23,6 +23,7 @@ export interface ChatBattleFixturePlan {
   seedTranscript: boolean;
   removeCaptionTrack: boolean;
   requiresImageAssetAlias: boolean;
+  requiresUploadBatchClone: boolean;
 }
 
 export const DEFAULT_CHAT_BATTLE_FIXTURE_SOURCES: ChatBattleFixtureSources = {
@@ -82,6 +83,8 @@ export function planChatBattleFixture(
     seedTranscript: SPEECH_SCENARIOS.has(scenario.id) || scenario.id === 'manual-impact-sfx',
     removeCaptionTrack: ADD_CAPTION_SCENARIOS.has(scenario.id),
     requiresImageAssetAlias: scenario.id === 'explicit-asset',
+    requiresUploadBatchClone: scenario.id === 'multiasset-script-intake'
+      || scenario.id === 'multiasset-script-chat',
   };
 }
 

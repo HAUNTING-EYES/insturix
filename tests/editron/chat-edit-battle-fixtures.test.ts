@@ -4,6 +4,7 @@ import { getChatEditBattleScenario } from '@/lib/editron/services/chat-edit-batt
 import { planChatBattleFixture } from '@/lib/editron/services/chat-edit-battle-fixture-plan';
 import {
   cloneChatBattleAnalysisDocuments,
+  cloneChatBattleUploadBatch,
   prepareChatBattleFixture,
 } from '@/lib/editron/services/chat-edit-battle-fixtures';
 
@@ -19,6 +20,7 @@ describe('chat edit battle fixtures', () => {
     expect(plan('explicit-asset')).toMatchObject({ requiresImageAssetAlias: true });
     expect(plan('selected-dialogue-dubbing')).toMatchObject({ profile: 'speech', selectedOverlayType: 'video', seedTranscript: true });
     expect(plan('vertical-subject-reframe')).toMatchObject({ profile: 'visual-multi-asset' });
+    expect(plan('multiasset-script-chat')).toMatchObject({ requiresUploadBatchClone: true });
   });
 
   it('clones without mutating source truth and removes stale render verdicts', () => {
@@ -96,6 +98,43 @@ describe('chat edit battle fixtures', () => {
       createdAt: NOW,
       updatedAt: NOW,
     }]);
+  });
+
+  it('clones upload batches under fixture ownership without stale orchestration output', () => {
+    const source = {
+      _id: 'mongo-batch-id',
+      uploadBatchId: 'source-batch',
+      projectId: 'source-project',
+      userId: 'user-1',
+      assetIds: ['asset-1'],
+      assetsById: { YXNzZXQtMQ: { assetId: 'asset-1', analysisStatus: 'complete' } },
+      lastChatScriptIntentId: 'old-intent',
+      orchestrationLeaseUntil: NOW,
+      orchestrationMessageId: 'old-message',
+      deliverables: [{ projectId: 'old-output' }],
+    };
+    const snapshot = structuredClone(source);
+    const clone = cloneChatBattleUploadBatch(
+      source,
+      'proj_chatbattle_script1',
+      'upload_batch_cb_script1',
+      NOW,
+    );
+
+    expect(source).toEqual(snapshot);
+    expect(clone).toMatchObject({
+      uploadBatchId: 'upload_batch_cb_script1',
+      projectId: 'proj_chatbattle_script1',
+      userId: 'user-1',
+      assetIds: ['asset-1'],
+      orchestrationStatus: 'ready',
+      metadata: { battleFixture: true },
+    });
+    expect(clone).not.toHaveProperty('_id');
+    expect(clone).not.toHaveProperty('lastChatScriptIntentId');
+    expect(clone).not.toHaveProperty('orchestrationLeaseUntil');
+    expect(clone).not.toHaveProperty('orchestrationMessageId');
+    expect(clone).not.toHaveProperty('deliverables');
   });
 
   it('adds fresh cursor evidence only for the cursor scenario', () => {

@@ -10,6 +10,7 @@ import { getChatEditBattleScenario } from '../lib/editron/services/chat-edit-bat
 import { planChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-plan';
 import {
   cloneChatBattleAnalysisDocuments,
+  cloneChatBattleUploadBatch,
   prepareChatBattleFixture,
 } from '../lib/editron/services/chat-edit-battle-fixtures';
 
@@ -27,6 +28,7 @@ interface FixtureManifest {
   sourceProjectId: string;
   profile: string;
   selectedOverlayId?: string | number;
+  sessionId?: string;
   clientContextPath: string;
   editorUrlPath: string;
   expiresAt: string;
@@ -59,6 +61,16 @@ async function main(): Promise<void> {
     const sourceAnalyses = await db.collection(COLLECTIONS.PROJECT_ASSET_ANALYSES)
       .find({ projectId: plan.sourceProjectId })
       .toArray();
+    const sourceUploadBatchId = stringValue(sourceProject.sourceUploadBatchId);
+    const sourceUploadBatch = plan.requiresUploadBatchClone && sourceUploadBatchId
+      ? await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).findOne({
+          uploadBatchId: sourceUploadBatchId,
+          userId: sourceProject.userId,
+        })
+      : null;
+    if (plan.requiresUploadBatchClone && !sourceUploadBatch) {
+      throw new Error(`Fixture source upload batch not found for ${plan.sourceProjectId}.`);
+    }
     const prepared = prepareChatBattleFixture({
       sourceProject: sourceProject as Record<string, unknown>,
       fixtureProjectId,
@@ -66,11 +78,24 @@ async function main(): Promise<void> {
       now,
       expiresInMs: expiresAt.getTime() - now.getTime(),
     });
+    const fixtureUploadBatchId = `upload_batch_cb_${fixtureProjectId.replace(/^proj_/, '').slice(0, 80)}`;
+    const uploadBatch = sourceUploadBatch
+      ? cloneChatBattleUploadBatch(
+          sourceUploadBatch as Record<string, unknown>,
+          fixtureProjectId,
+          fixtureUploadBatchId,
+          now,
+        )
+      : null;
+    if (uploadBatch) prepared.project.sourceUploadBatchId = fixtureUploadBatchId;
     const analysisDocuments = cloneChatBattleAnalysisDocuments(
       sourceAnalyses as Record<string, unknown>[],
       fixtureProjectId,
       now,
     );
+    const completedAnalysisSeed = scenario.fixtureRequirements.includes('completed-clip-analysis-job')
+      ? buildCompletedAnalysisSeed(prepared.project, now, expiresAt)
+      : null;
 
     await session.withTransaction(async () => {
       if (plan.requiresImageAssetAlias) {
@@ -84,8 +109,15 @@ async function main(): Promise<void> {
         });
       }
       await db.collection(COLLECTIONS.PROJECTS).insertOne(prepared.project, { session });
+      if (uploadBatch) {
+        await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).insertOne(uploadBatch, { session });
+      }
       if (analysisDocuments.length > 0) {
         await db.collection(COLLECTIONS.PROJECT_ASSET_ANALYSES).insertMany(analysisDocuments, { session });
+      }
+      if (completedAnalysisSeed) {
+        await db.collection(COLLECTIONS.CHAT_DEEP_ANALYSIS_JOBS).insertOne(completedAnalysisSeed.job, { session });
+        await db.collection(COLLECTIONS.CHAT_SESSIONS).insertOne(completedAnalysisSeed.chatSession, { session });
       }
     });
 
@@ -99,6 +131,7 @@ async function main(): Promise<void> {
       sourceProjectId: plan.sourceProjectId,
       profile: plan.profile,
       selectedOverlayId: prepared.selectedOverlayId,
+      sessionId: completedAnalysisSeed?.sessionId,
       clientContextPath,
       editorUrlPath: `/dashboard/editron/project/${fixtureProjectId}`,
       expiresAt: expiresAt.toISOString(),
@@ -110,6 +143,87 @@ async function main(): Promise<void> {
     await session.endSession();
     await client.close();
   }
+}
+
+function buildCompletedAnalysisSeed(
+  project: Record<string, unknown>,
+  now: Date,
+  expiresAt: Date,
+): {
+  job: Record<string, unknown>;
+  chatSession: Record<string, unknown>;
+  sessionId: string;
+} {
+  const userId = requireString(project.userId, 'fixture userId');
+  const projectId = requireString(project.projectId, 'fixture projectId');
+  const overlay = asArray(project.overlays)
+    .map(asRecord)
+    .find((candidate) => candidate.type === 'video' && stringValue(candidate.assetId));
+  if (!overlay) throw new Error('Completed-analysis fixture requires a video overlay with an assetId.');
+
+  const fps = positiveNumber(project.fps) ?? 30;
+  const startFrame = nonNegativeInteger(overlay.from);
+  const durationInFrames = Math.max(1, nonNegativeInteger(overlay.durationInFrames));
+  const endFrame = startFrame + durationInFrames;
+  const overlayId = requireString(String(overlay.id), 'analysis overlay id');
+  const assetId = requireString(overlay.assetId, 'analysis asset id');
+  const jobId = `chatda_fixture_${randomUUID().replace(/-/g, '')}`;
+  const sessionId = `sess_fixture_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+  const result = {
+    version: 'editron-chat-deep-analysis-result-v1',
+    summary: 'The selected shot contains a clearly visible primary subject with stable framing.',
+    findings: [{
+      kind: 'visual-subject',
+      label: 'primary subject',
+      confidence: 0.98,
+      timeline: { startFrame, endFrame },
+      source: { startFrame: 0, endFrame: durationInFrames },
+    }],
+  };
+  const job = {
+    _id: jobId,
+    version: 'editron-chat-deep-analysis-job-v1',
+    status: 'completed',
+    projectId,
+    userId,
+    projectRevision: `battle-fixture:${projectId}`,
+    modality: 'video',
+    targetMode: 'overlay',
+    target: {
+      overlayId,
+      overlayType: 'video',
+      assetId,
+      displayName: stringValue(overlay.name) ?? stringValue(overlay.filename),
+      fps,
+      timeline: { startFrame, endFrame },
+      source: { startFrame: 0, endFrame: durationInFrames },
+    },
+    attemptCount: 1,
+    result,
+    error: null,
+    createdAt: now,
+    updatedAt: now,
+    completedAt: now,
+    expiresAt,
+  };
+  const chatSession = {
+    sessionId,
+    userId,
+    projectId,
+    name: 'Chat battle completed analysis',
+    messages: [{
+      role: 'assistant',
+      content: `Deep analysis job ${jobId} completed for the selected video. Use get_clip_analysis_result with this exact job ID before reporting its findings.`,
+      timestamp: now,
+    }],
+    createdAt: now,
+    updatedAt: now,
+  };
+  project.intelligence = {
+    ...asRecord(project.intelligence),
+    chatDeepAnalysisJobs: [{ jobId, status: 'completed', result }],
+  };
+  return { job, chatSession, sessionId };
 }
 
 async function ensureImageAssetAlias(input: {
@@ -182,6 +296,14 @@ function requireString(value: unknown, label: string): string {
 
 function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function positiveNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function nonNegativeInteger(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
 function asArray(value: unknown): unknown[] {
