@@ -118,8 +118,44 @@ async function main(): Promise<void> {
           runId: options.runId,
           startedAt: startedAtHolder.value || new Date().toISOString(),
         });
-        latestInvocation = invocation;
-        return invocation;
+        const dubbingJobId = scenario.id === 'selected-dialogue-dubbing'
+          ? extractQueuedDubbingJobId(invocation)
+          : null;
+        if (!dubbingJobId || !baselineMaterialDigest) {
+          latestInvocation = invocation;
+          return invocation;
+        }
+
+        console.log(`[chat-battle] waiting for dubbing job ${dubbingJobId} to commit`);
+        const settled = await waitForQueuedProjectMutation({
+          projectId,
+          baselineDigest: baselineMaterialDigest,
+        });
+        console.log(settled.changed
+          ? `[chat-battle] dubbing committed after ${settled.polls} poll(s)`
+          : `[chat-battle] dubbing did not commit within the settlement deadline (${settled.polls} poll(s))`);
+
+        try {
+          const followUp = await invokeLiveChatAgent({
+            api,
+            scenarioPrompt: `Check dubbing job ${dubbingJobId} for this project now. Report its exact terminal result and do not queue another job.`,
+            projectId,
+            selectedOverlayId,
+            clientContext: context,
+            runId: `${options.runId}-dubbing-result`,
+            startedAt: startedAtHolder.value || new Date().toISOString(),
+          });
+          const combined = mergeChatBattleInvocations(invocation, followUp);
+          latestInvocation = combined;
+          return combined;
+        } catch (error) {
+          const failedFollowUp = {
+            ...invocation,
+            error: `Dubbing result follow-up failed: ${error instanceof Error ? error.message : String(error)}`,
+          };
+          latestInvocation = failedFollowUp;
+          return failedFollowUp;
+        }
       },
       reloadUiProject: async (projectId) => getJson(api, `/api/services/editron/projects/${encodeURIComponent(projectId)}`),
       captureRenderEvidence: async ({ projectId, mongoAfter, startedAt }) => {
@@ -268,6 +304,30 @@ export function chatBattleInvocationQueuedProjectMutation(invocation: ChatBattle
       || queueStatus === 'queued'
       || queueStatus === 'already-queued';
   });
+}
+
+export function extractQueuedDubbingJobId(invocation: ChatBattleInvocationEvidence): string | null {
+  for (const event of invocation.toolEvents) {
+    if (event.name !== 'dub_selected_dialogue') continue;
+    const output = parseToolOutputRecord(event.output);
+    if (output.status !== 'success') continue;
+    const jobId = asRecord(output.data).jobId;
+    if (typeof jobId === 'string' && /^[A-Za-z0-9:_-]{1,200}$/.test(jobId)) return jobId;
+  }
+  return null;
+}
+
+export function mergeChatBattleInvocations(
+  initial: ChatBattleInvocationEvidence,
+  followUp: ChatBattleInvocationEvidence,
+): ChatBattleInvocationEvidence {
+  return {
+    ...initial,
+    agentRunId: `${initial.agentRunId}+${followUp.agentRunId}`,
+    responseText: [initial.responseText, followUp.responseText].filter(Boolean).join('\n'),
+    toolEvents: [...initial.toolEvents, ...followUp.toolEvents],
+    ...(followUp.error ? { error: followUp.error } : initial.error ? { error: initial.error } : {}),
+  };
 }
 
 export interface QueuedProjectSettlementResult {

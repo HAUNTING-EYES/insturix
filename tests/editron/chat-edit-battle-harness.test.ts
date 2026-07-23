@@ -172,7 +172,9 @@ import type {
 import {
   buildLiveChatRequestBody,
   chatBattleInvocationQueuedProjectMutation,
+  extractQueuedDubbingJobId,
   loadChatBattleMongoProject,
+  mergeChatBattleInvocations,
   parseChatBattleCliArgs,
   validateChatBattleCliOptions,
   waitForFreshChatBattleRenderEvidence,
@@ -555,6 +557,38 @@ describe('chat edit battle harness', () => {
     ]);
     expect(dubbing.prompt).toContain('Preserve the original speech timing');
     expect(reframing.prompt).toContain('keep the main subject visible');
+  });
+
+  it('extracts and merges the two durable dubbing proof turns without inventing a job id', () => {
+    const initial = invocation('selected-dialogue-dubbing', [{
+      id: 'dub',
+      name: 'dub_selected_dialogue',
+      args: { overlayId: 'video-1', targetLanguage: 'English' },
+      startedAt: '2026-07-23T00:00:00.000Z',
+      completedAt: '2026-07-23T00:00:01.000Z',
+      output: successEnvelope({ jobId: 'chat_dub_123', status: 'queued' }),
+    }]);
+    const followUp = invocation('selected-dialogue-dubbing', [{
+      id: 'result',
+      name: 'get_dubbing_job_result',
+      args: { jobId: 'chat_dub_123' },
+      startedAt: '2026-07-23T00:00:10.000Z',
+      completedAt: '2026-07-23T00:00:11.000Z',
+      output: successEnvelope({ jobId: 'chat_dub_123', status: 'completed' }),
+    }]);
+
+    expect(extractQueuedDubbingJobId(initial)).toBe('chat_dub_123');
+    expect(extractQueuedDubbingJobId(invocation('selected-dialogue-dubbing', [{
+      ...initial.toolEvents[0],
+      output: successEnvelope({ jobId: '../not-safe', status: 'queued' }),
+    }]))).toBeNull();
+    expect(mergeChatBattleInvocations(initial, followUp)).toMatchObject({
+      responseText: 'done\ndone',
+      toolEvents: [
+        { name: 'dub_selected_dialogue' },
+        { name: 'get_dubbing_job_result' },
+      ],
+    });
   });
 
   it('tests reference style through the durable owner and forbids legacy style authority', () => {
