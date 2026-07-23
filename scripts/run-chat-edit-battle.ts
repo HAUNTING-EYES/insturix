@@ -160,7 +160,11 @@ async function main(): Promise<void> {
       reloadUiProject: async (projectId) => getJson(api, `/api/services/editron/projects/${encodeURIComponent(projectId)}`),
       captureRenderEvidence: async ({ projectId, mongoAfter, startedAt }) => {
         const initial = extractPersistedChatBattleRenderEvidence(mongoAfter, startedAt);
-        if (!scenario.requireRenderedEvidence || initial.status !== 'missing') return initial;
+        if (!shouldPollForFreshChatBattleRenderEvidence({
+          requiresRenderedEvidence: scenario.requireRenderedEvidence,
+          initialStatus: initial.status,
+          invocationError: latestInvocation?.error,
+        })) return initial;
         console.log('[chat-battle] waiting for fresh rendered evidence');
         return waitForFreshChatBattleRenderEvidence({
           projectId,
@@ -334,6 +338,16 @@ export interface QueuedProjectSettlementResult {
   project: Record<string, unknown>;
   changed: boolean;
   polls: number;
+}
+
+export function shouldPollForFreshChatBattleRenderEvidence(input: {
+  requiresRenderedEvidence: boolean;
+  initialStatus: ChatBattleRenderEvidence['status'];
+  invocationError?: string | null;
+}): boolean {
+  return input.requiresRenderedEvidence
+    && input.initialStatus === 'missing'
+    && !input.invocationError;
 }
 
 interface QueuedProjectSettlementDependencies {

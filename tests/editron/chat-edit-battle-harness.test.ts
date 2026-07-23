@@ -176,6 +176,7 @@ import {
   loadChatBattleMongoProject,
   mergeChatBattleInvocations,
   parseChatBattleCliArgs,
+  shouldPollForFreshChatBattleRenderEvidence,
   validateChatBattleCliOptions,
   waitForFreshChatBattleRenderEvidence,
   waitForQueuedProjectMutation,
@@ -1071,6 +1072,20 @@ describe('chat edit battle harness', () => {
       'https://cdn/before.wav',
       'https://cdn/after.wav',
     ]);
+  });
+
+  it('does not poll for rendered evidence after a terminal agent invocation failure', () => {
+    expect(shouldPollForFreshChatBattleRenderEvidence({
+      requiresRenderedEvidence: true,
+      initialStatus: 'missing',
+      invocationError: 'CHAT_PROVIDER_CREDITS_DEPLETED',
+    })).toBe(false);
+
+    expect(shouldPollForFreshChatBattleRenderEvidence({
+      requiresRenderedEvidence: true,
+      initialStatus: 'missing',
+      invocationError: null,
+    })).toBe(true);
   });
 
   it('tracks render verification lifecycle without regressing a delivered job to dispatched', () => {
