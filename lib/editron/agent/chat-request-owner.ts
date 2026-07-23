@@ -351,13 +351,22 @@ export function filterChatToolsForRequestOwner<T extends { name: string }>(
   });
 }
 
-export function formatChatRequestOwnerLicenseForPrompt(license?: ChatRequestOwnerLicense): string {
+export function formatChatRequestOwnerLicenseForPrompt(
+  license?: ChatRequestOwnerLicense,
+  options: { assistLane?: boolean } = {},
+): string {
   if (!license) return '';
   const semanticWorkflow = license.owner === 'semantic-editorial-planner'
     ? resolveSemanticWorkflow(license)
     : undefined;
   const workflowRule = semanticWorkflow === 'editorial-plan'
-    ? 'Use apply_editorial_intent as the sole mutation owner. Resolvers may provide evidence, but do not call low-level mutation tools.'
+    ? options.assistLane
+      ? [
+        'For a specific family directive, use the matching declared direct tool and do not call apply_editorial_intent.',
+        'Use apply_editorial_intent only for a genuinely vague whole-project re-edit; pass semantic facts and the exact supplied script, never graphic/form labels.',
+        'Never combine apply_editorial_intent with a direct mutation owner in the same turn.',
+      ].join(' ')
+      : 'Use apply_editorial_intent as the sole mutation owner. Pass semantic facts and the exact supplied script, never graphic/form labels. Resolvers may provide evidence, but do not call low-level mutation tools.'
     : semanticWorkflow === 'reference-style'
       ? 'Use apply_reference_style as the sole semantic workflow. Do not invoke another semantic workflow in this turn.'
       : semanticWorkflow === 'localized-mutation'

@@ -350,12 +350,17 @@ export const createAgent = (
       debugWarn('No messages in state');
     }
     
-    const ownerLicensePrompt = formatChatRequestOwnerLicenseForPrompt(turnContext?.requestOwnerLicense);
+    const ownerLicensePrompt = formatChatRequestOwnerLicenseForPrompt(
+      turnContext?.requestOwnerLicense,
+      { assistLane: turnContext?.assistLane },
+    );
     const availableToolNames = tools.map((tool) => tool.name).join(', ');
     const callableToolNames = new Set(tools.map((tool) => tool.name));
     const semanticIntentGuidance = callableToolNames.has('apply_editorial_intent')
       ? `**SEMANTIC EDITORIAL INTENT**:
-    - Call apply_editorial_intent for vague outcomes, family-level requests, script-led re-editing, or edits that require deciding what belongs and how it should feel.
+    - ${turnContext?.assistLane
+      ? 'Call apply_editorial_intent only for a vague whole-project re-edit. Use the declared direct tool for a specific family directive.'
+      : 'Call apply_editorial_intent for vague outcomes, family-level requests, script-led re-editing, or edits that require deciding what belongs and how it should feel.'}
     - Pass facts only. Never invent an MG type, transition type, SFX token, animation preset, keyframe recipe, or global caption style.
     - For a supplied script, preserve the exact scriptText; never summarize or route to the legacy single-video script editor.`
       : '';

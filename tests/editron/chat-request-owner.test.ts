@@ -396,6 +396,17 @@ describe('chat request owner capability filtering', () => {
     expect(formatChatRequestOwnerLicenseForPrompt(
       license('semantic-editorial-planner', 'selected-dialogue-dubbing'),
     )).toContain('Use dub_selected_dialogue as the sole durable operation owner');
+    expect(formatChatRequestOwnerLicenseForPrompt(
+      license('semantic-editorial-planner', 'editorial-plan'),
+      { assistLane: true },
+    )).toContain('specific family directive');
+    expect(formatChatRequestOwnerLicenseForPrompt(
+      license('semantic-editorial-planner', 'editorial-plan'),
+      { assistLane: true },
+    )).toContain('Never combine apply_editorial_intent with a direct mutation owner');
+    expect(formatChatRequestOwnerLicenseForPrompt(
+      license('semantic-editorial-planner', 'editorial-plan'),
+    )).toContain('sole mutation owner');
     expect(formatChatRequestOwnerLicenseForPrompt(undefined)).toBe('');
   });
 
@@ -447,6 +458,7 @@ describe('live chat owner wiring', () => {
     ), 'utf8').replaceAll('\r\n', '\n');
 
     expect(agentSource).toContain('filterChatToolsForRequestOwner');
+    expect(agentSource).toContain('{ assistLane: turnContext?.assistLane }');
     expect(agentSource).toContain('Callable tools for this turn: ${availableToolNames}');
     expect(agentSource).not.toContain('STYLE TRANSFER WORKFLOW');
     expect(agentSource).not.toContain('WHEN TO USE EACH CAPTION TOOL');
