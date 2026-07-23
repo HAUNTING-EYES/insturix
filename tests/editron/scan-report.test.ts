@@ -101,4 +101,14 @@ describe('buildScanMarkers', () => {
     expect(m.markers.filter((x) => x.kind === 'silence').length).toBeLessThanOrEqual(200);
     expect(m.clustered).toBe(true);
   });
+
+  it('positions against the LIVE duration override, not the stale doc (no post-edit drift)', () => {
+    // Doc says 100s; a chat edit shrank the live timeline to 80s. A scene at 50s
+    // must render at 50/80=62.5%, not the stale 50/100=50%.
+    const m = buildScanMarkers(
+      project({ durationInFrames: 30 * 100, segmentAnalysis: { segments: [{ startMs: 50_000 }] } }),
+      { durationInFrames: 30 * 80 },
+    )!;
+    expect(m.markers.find((x) => x.kind === 'scene')!.leftPct).toBeCloseTo(62.5, 5);
+  });
 });

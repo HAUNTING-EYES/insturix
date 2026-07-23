@@ -27,7 +27,8 @@ import { useEditorContext } from "../../contexts/editor-context";
 import { useTimeline } from "../../contexts/timeline-context";
 import { useSidebar } from "../../contexts/sidebar-context";
 import { OverlayType } from "../../types";
-import { buildAssistBriefing, type AssistBriefing } from "@/lib/editron/services/assist-briefing";
+import { buildAssistBriefing } from "@/lib/editron/services/assist-briefing";
+import { useAssistScanDoc } from "../../hooks/use-assist-scan-doc";
 import { getUserId } from "../../utils/user-id";
 import { cn } from "@/lib/utils";
 import { EDLSuggestions } from "./edl-suggestions";
@@ -163,22 +164,15 @@ export function AIChatPanel() {
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   
   // Director Mode (assist lane): the scan briefing rendered as chat's first
-  // message. Computed from persisted analyses — zero model calls, zero billing.
-  const [assistBriefing, setAssistBriefing] = useState<AssistBriefing | null>(null);
+  // message. Derived from the shared scan doc (which polls until ready_for_chat,
+  // so it appears even if chat mounted mid-scan). Zero model calls, zero billing.
+  const assistScanDoc = useAssistScanDoc(editorProjectId);
+  const assistBriefing = buildAssistBriefing(assistScanDoc);
   // True only when WE auto-created the very first session (genuine first open).
   // Reloading an already-chatted project loads existing sessions → stays false →
   // the briefing never reappears claiming "nothing has been edited" (battle-lane P2).
   const [assistFirstOpen, setAssistFirstOpen] = useState(false);
   const assistSessionBootstrappedRef = useRef<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    if (!editorProjectId) { setAssistBriefing(null); return; }
-    fetch(`/api/services/editron/projects/${editorProjectId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!cancelled) setAssistBriefing(buildAssistBriefing(d?.project ?? d)); })
-      .catch(() => { /* no briefing — the plain empty state renders */ });
-    return () => { cancelled = true; };
-  }, [editorProjectId]);
 
   // Battle-lane P0: a fresh assist project has NO chat session, so the briefing
   // (which lives inside the has-session branch) never rendered — the user hit a

@@ -127,12 +127,13 @@ export function buildScanReport(project: unknown): ScanReport | null {
   };
 }
 
-/** Evenly downsample to at most `cap` items, preserving order and endpoints. */
+/** Evenly downsample to at most `cap` items, ALWAYS keeping the first and last. */
 function downsample<T>(items: T[], cap: number): { kept: T[]; clustered: boolean } {
   if (items.length <= cap) return { kept: items, clustered: false };
-  const step = items.length / cap;
+  // step over [0, length-1] in cap points so i=0 → first and i=cap-1 → last.
+  const step = (items.length - 1) / (cap - 1);
   const kept: T[] = [];
-  for (let i = 0; i < cap; i += 1) kept.push(items[Math.floor(i * step)]);
+  for (let i = 0; i < cap; i += 1) kept.push(items[Math.round(i * step)]);
   return { kept, clustered: true };
 }
 
@@ -141,14 +142,23 @@ function downsample<T>(items: T[], cap: number): { kept: T[]; clustered: boolean
  * (hairlines) positioned as a percentage of total duration, so they align to a
  * timeline track whose width scales with zoom. Pure; reads the hydrated project.
  * Downsamples each kind past MAX_MARKERS_PER_KIND so long footage stays cheap.
+ *
+ * `live` lets the caller position against the LIVE composition duration/fps the
+ * timeline actually renders (from editor context) instead of the persisted doc,
+ * so markers don't drift after a chat edit resizes the timeline. Falls back to
+ * the doc values when not supplied.
  */
-export function buildScanMarkers(project: unknown, fpsInput = 30): ScanMarkers | null {
+export function buildScanMarkers(
+  project: unknown,
+  live: { fps?: number; durationInFrames?: number } = {},
+): ScanMarkers | null {
   if (get(project, 'editMode') !== 'assist') return null;
   if (get(project, 'autoEditStatus') !== 'ready_for_chat') return null;
 
-  const fpsRaw = num(get(project, 'fps'), fpsInput);
-  const fps = fpsRaw > 0 ? fpsRaw : (fpsInput > 0 ? fpsInput : 30);
-  const durationInFrames = Math.max(0, num(get(project, 'durationInFrames'), 0));
+  const docFps = num(get(project, 'fps'), 30);
+  const fpsRaw = num(live.fps, docFps);
+  const fps = fpsRaw > 0 ? fpsRaw : 30;
+  const durationInFrames = Math.max(0, num(live.durationInFrames, num(get(project, 'durationInFrames'), 0)));
   const totalMs = (durationInFrames / fps) * 1000;
   if (!Number.isFinite(totalMs) || totalMs <= 0) return { markers: [], clustered: false };
 

@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { useEditorContext } from "../../contexts/editor-context";
-import { buildScanMarkers, type ScanMarkers } from "@/lib/editron/services/scan-report";
+import { useAssistScanDoc } from "../../hooks/use-assist-scan-doc";
+import { buildScanMarkers } from "@/lib/editron/services/scan-report";
 
 /**
  * Director Mode timeline scan markers. A non-interactive overlay inside the
@@ -14,17 +15,12 @@ import { buildScanMarkers, type ScanMarkers } from "@/lib/editron/services/scan-
 export function ScanMarkerStrip() {
   const editorCtx = useEditorContext();
   const projectId = (editorCtx as { projectId?: string })?.projectId ?? editorCtx?.state?.projectId;
-  const [markers, setMarkers] = useState<ScanMarkers | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!projectId) { setMarkers(null); return; }
-    fetch(`/api/services/editron/projects/${projectId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!cancelled) setMarkers(buildScanMarkers(d?.project ?? d)); })
-      .catch(() => { /* no markers */ });
-    return () => { cancelled = true; };
-  }, [projectId]);
+  // Position against the LIVE composition duration the timeline actually renders,
+  // so markers don't drift after a chat edit resizes the timeline.
+  const liveDurationInFrames = (editorCtx as { durationInFrames?: number })?.durationInFrames
+    ?? editorCtx?.state?.durationInFrames;
+  const doc = useAssistScanDoc(projectId);
+  const markers = buildScanMarkers(doc, { durationInFrames: liveDurationInFrames });
 
   if (!markers || markers.markers.length === 0) return null;
 

@@ -62,15 +62,25 @@ describe('ATTACK: marker positions must ALWAYS be finite and in [0,100]', () => 
 });
 
 describe('ATTACK: downsample integrity', () => {
-  it('keeps the FIRST and LAST item (endpoints), no NaN indices, exactly ≤200', () => {
-    const gaps = Array.from({ length: 1234 }, (_, i) => ({ startMs: i * 80, endMs: i * 80 + 10 })); // 0..~98720ms
+  it('keeps BOTH the first AND the true last item (endpoints) — no blank right edge', () => {
+    const N = 1234;
+    const gaps = Array.from({ length: N }, (_, i) => ({ startMs: i * 80, endMs: i * 80 + 10 }));
     const m = buildScanMarkers(ready({ durationInFrames: 30 * 100, rawFootageAnalysis: { silenceGaps: gaps } }))!;
     const silences = m.markers.filter((x) => x.kind === 'silence');
     expect(silences.length).toBeLessThanOrEqual(200);
     expect(silences.length).toBeGreaterThan(150);
     expect(silences[0].startMs).toBe(0); // first preserved
+    expect(silences[silences.length - 1].startMs).toBe((N - 1) * 80); // TRUE LAST preserved (was dropped)
     expect(m.clustered).toBe(true);
     for (const s of silences) expect(finite(s.leftPct)).toBe(true);
+  });
+
+  it('a huge set still keeps the exact last element (regression: the ~0.5% blank tail)', () => {
+    const N = 40_000;
+    const segs = Array.from({ length: N }, (_, i) => ({ startMs: i * 2 }));
+    const m = buildScanMarkers(ready({ durationInFrames: 30 * 100, segmentAnalysis: { segments: segs } }))!;
+    const scenes = m.markers.filter((x) => x.kind === 'scene');
+    expect(scenes[scenes.length - 1].startMs).toBe((N - 1) * 2);
   });
 
   it('exactly 200 is NOT clustered; 201 IS', () => {

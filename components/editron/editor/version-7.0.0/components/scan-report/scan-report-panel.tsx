@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { Bot, ScanLine, AlertTriangle } from "lucide-react";
 import { useEditorContext } from "../../contexts/editor-context";
-import { buildScanReport, type ScanReport } from "@/lib/editron/services/scan-report";
+import { useAssistScanDoc } from "../../hooks/use-assist-scan-doc";
+import { buildScanReport } from "@/lib/editron/services/scan-report";
 
 /**
  * Scan Report Panel (Director Mode) — the "here's everything I saw" trust surface.
@@ -16,27 +17,21 @@ export function ScanReportPanel() {
   const projectId = (editorCtx as { projectId?: string })?.projectId
     ?? editorCtx?.state?.projectId;
   const playerRef = (editorCtx as { playerRef?: { current?: { seekTo?: (f: number) => void } } })?.playerRef;
-  const fps = editorCtx?.state?.fps || (editorCtx as { fps?: number })?.fps || 30;
 
-  const [report, setReport] = useState<ScanReport | null>(null);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!projectId) { setReport(null); setLoaded(true); return; }
-    fetch(`/api/services/editron/projects/${projectId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!cancelled) { setReport(buildScanReport(d?.project ?? d)); setLoaded(true); } })
-      .catch(() => { if (!cancelled) setLoaded(true); });
-    return () => { cancelled = true; };
-  }, [projectId]);
+  const doc = useAssistScanDoc(projectId);
+  const report = buildScanReport(doc);
+  // Seek by the project's real fps (the Remotion composition is 30 today, but the
+  // doc carries the source-of-truth). Falls back to 30.
+  const seekFps = typeof (doc as { fps?: number } | null)?.fps === "number" && (doc as { fps: number }).fps > 0
+    ? (doc as { fps: number }).fps
+    : 30;
 
   const jumpTo = (startMs: number) => {
-    const frame = Math.max(0, Math.round((startMs / 1000) * fps));
+    const frame = Math.max(0, Math.round((startMs / 1000) * seekFps));
     playerRef?.current?.seekTo?.(frame);
   };
 
-  if (!loaded) {
+  if (!doc) {
     return <div className="p-6 text-center text-sm text-muted-foreground">Loading scan report…</div>;
   }
   if (!report) {
