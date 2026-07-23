@@ -15,6 +15,10 @@ import {
   directingDescToStageIndex,
   TOTAL_STAGES,
 } from '@/components/editron/project/auto-edit/auto-edit-stages';
+import { canRescueToDirectorMode } from '@/lib/editron/services/assist-lane-predicates';
+
+const DIRECTOR_MODE_ENABLED = process.env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED === 'true'
+  || process.env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED === '1';
 
 /* Full-screen auto-edit processing route. Polls the project's coarse
    autoEditStatus and drives the AutoEditProcessing screen from it, then
@@ -44,6 +48,30 @@ export default function AutoEditProcessingPage() {
   const [pollGeneration, setPollGeneration] = useState(0);
   const stopped = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Director Mode rescue: a failed auto-edit that kept its scans + timeline can be
+  // reopened in Director Mode for free instead of dead-ending.
+  const [rescuable, setRescuable] = useState(false);
+  const [rescuing, setRescuing] = useState(false);
+  const rescueToDirectorMode = async () => {
+    if (!projectId || rescuing) return;
+    setRescuing(true);
+    try {
+      const res = await fetch('/api/services/editron/auto-edit/rescue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.success) {
+        router.push(`/dashboard/editron/project/${projectId}`);
+      } else {
+        setRescuing(false);
+      }
+    } catch {
+      setRescuing(false);
+    }
+  };
 
   // Director Mode (assist lane): scans are cancellable with a refund of any charge.
   const [assistLane, setAssistLane] = useState(false);
@@ -103,6 +131,14 @@ export default function AutoEditProcessingPage() {
           if (s === 'scan_failed') {
             // Director Mode: the scan failed and the charge was refunded. This
             // project never opens — render the refunded dead-end card below.
+            setDone(false);
+            stopped.current = true;
+            return;
+          }
+          if (s === 'failed' && DIRECTOR_MODE_ENABLED && canRescueToDirectorMode(proj)) {
+            // The auto edit failed but kept its scans + timeline — offer a free
+            // reopen in Director Mode instead of dropping into a broken edit.
+            setRescuable(true);
             setDone(false);
             stopped.current = true;
             return;
@@ -230,6 +266,37 @@ export default function AutoEditProcessingPage() {
         >
           Back to Editron
         </button>
+      </div>
+    );
+  }
+
+  if (rescuable) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-black px-6 text-center">
+        <span className="text-xs uppercase tracking-widest text-amber-400">Auto-edit didn&apos;t finish</span>
+        <h1 className="max-w-md text-xl font-semibold text-white">
+          The automatic edit hit a snag — but everything was scanned.
+        </h1>
+        <p className="max-w-md text-sm text-neutral-400">
+          Open it in Director Mode and direct the edit yourself in chat. Your footage is already laid out and analyzed — no extra charge.
+        </p>
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            onClick={() => void rescueToDirectorMode()}
+            disabled={rescuing}
+            className="rounded-full bg-white px-5 py-2 text-sm font-medium text-black hover:bg-neutral-200 disabled:opacity-50"
+          >
+            {rescuing ? 'Opening…' : 'Open in Director Mode'}
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard/editron')}
+            className="rounded-full border border-neutral-700 px-5 py-2 text-sm text-white hover:bg-neutral-900"
+          >
+            Back to Editron
+          </button>
+        </div>
       </div>
     );
   }

@@ -25,16 +25,25 @@ import {
 } from '@/lib/editron/services/multi-asset-director-context';
 import type { ProjectAssetAnalysisDoc } from '@/lib/editron/storyline/asset-analysis-reader';
 
-export const EDIT_MODES = ['auto', 'assist'] as const;
-export type EditMode = (typeof EDIT_MODES)[number];
+// Pure lane predicates live in a dependency-free module so client components can
+// import them without pulling this file's heavy hydration chain into the bundle.
+// Re-exported here so existing server importers keep their import path.
+export {
+  EDIT_MODES,
+  ASSIST_STATUS_READY,
+  ASSIST_STATUS_SCAN_FAILED,
+  parseEditMode,
+  isAssistProject,
+  isRefundedAssistProject,
+  canRescueToDirectorMode,
+} from '@/lib/editron/services/assist-lane-predicates';
+export type { EditMode } from '@/lib/editron/services/assist-lane-predicates';
 
-/** New autoEditStatus values owned by the assist lane (additive; auto values untouched). */
-export const ASSIST_STATUS_READY = 'ready_for_chat' as const;
-export const ASSIST_STATUS_SCAN_FAILED = 'scan_failed' as const;
-
-export function parseEditMode(value: unknown): EditMode | undefined {
-  return value === 'auto' || value === 'assist' ? value : undefined;
-}
+import {
+  ASSIST_STATUS_READY,
+  ASSIST_STATUS_SCAN_FAILED,
+  isAssistProject,
+} from '@/lib/editron/services/assist-lane-predicates';
 
 /**
  * Server-side feature gate. UI hiding alone is not "dark" — both intake routes
@@ -44,32 +53,6 @@ export function parseEditMode(value: unknown): EditMode | undefined {
 export function isAssistIntakeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const v = env.DIRECTOR_MODE_ENABLED ?? env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED;
   return v === 'true' || v === '1';
-}
-
-/**
- * The ONE divergence guard. True → skip storyline/director entirely.
- * Consulted at: from-batch compose, video-analysis worker (:executeDirectorPlan site),
- * from-asset route inline director path.
- */
-export function isAssistProject(project: unknown): boolean {
-  const editMode = project && typeof project === 'object'
-    ? (project as { editMode?: unknown }).editMode
-    : undefined;
-  return parseEditMode(editMode) === 'assist';
-}
-
-/**
- * A refunded assist project (scan_failed) must be inert to EVERY mutation and
- * open surface — the user was refunded because they never received a product.
- * Battle-lane finding: the 403 lived only on chat/stream; sibling mutation
- * routes (chat/tool-call, …) must consult this too.
- */
-export function isRefundedAssistProject(project: unknown): boolean {
-  if (!isAssistProject(project)) return false;
-  const status = project && typeof project === 'object'
-    ? (project as { autoEditStatus?: unknown }).autoEditStatus
-    : undefined;
-  return status === ASSIST_STATUS_SCAN_FAILED;
 }
 
 /**
