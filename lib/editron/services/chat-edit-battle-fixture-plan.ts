@@ -3,6 +3,7 @@ import type { ChatBattleScenario } from './chat-edit-battle-harness';
 export type ChatBattleFixtureProfile =
   | 'mixed'
   | 'speech'
+  | 'dubbing'
   | 'visual-multi-asset'
   | 'audio'
   | 'generated-scene';
@@ -10,6 +11,7 @@ export type ChatBattleFixtureProfile =
 export interface ChatBattleFixtureSources {
   mixed: string;
   speech: string;
+  dubbing: string;
   'visual-multi-asset': string;
   audio: string;
   'generated-scene': string;
@@ -29,6 +31,7 @@ export interface ChatBattleFixturePlan {
 export const DEFAULT_CHAT_BATTLE_FIXTURE_SOURCES: ChatBattleFixtureSources = {
   mixed: 'proj_chatbattle_500c55dbd0',
   speech: 'proj_chatbattle_500c55dbd0',
+  dubbing: 'proj_FYZeVGomJuSh',
   'visual-multi-asset': 'proj_chatbattle_500c55dbd0',
   audio: 'proj_4N_6crLWX89A',
   'generated-scene': 'proj_Fp_gxpn-Lonh',
@@ -89,6 +92,7 @@ export function planChatBattleFixture(
 }
 
 function resolveProfile(scenarioId: string): ChatBattleFixtureProfile {
+  if (scenarioId === 'selected-dialogue-dubbing') return 'dubbing';
   if (GENERATED_SCENE_SCENARIOS.has(scenarioId)) return 'generated-scene';
   if (AUDIO_SCENARIOS.has(scenarioId)) return 'audio';
   if (VISUAL_SCENARIOS.has(scenarioId)) return 'visual-multi-asset';

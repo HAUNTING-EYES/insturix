@@ -120,7 +120,8 @@ const MINIMAL_READ_TOOLS = new Set([
 ]);
 
 const DUBBING_WORKFLOW_TOOLS = new Set([
-  ...MINIMAL_READ_TOOLS,
+  'read_project_file',
+  'get_timeline_view',
   'dub_selected_dialogue',
 ]);
 

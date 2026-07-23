@@ -340,7 +340,6 @@ describe('chat request owner capability filtering', () => {
       'read_project_file',
       'get_timeline_view',
       'dub_selected_dialogue',
-      'get_dubbing_job_result',
     ]);
   });
 

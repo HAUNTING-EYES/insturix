@@ -617,10 +617,10 @@ describe('chat edit battle harness', () => {
       expect(scenario.requireRenderedEvidence).toBe(true);
     }
     expect(dubbing.requiredToolSequence).toEqual([
-      ['read_project_file', 'get_timeline_view'],
       'dub_selected_dialogue',
       'get_dubbing_job_result',
     ]);
+    expect(dubbing.requireEvidenceBeforeMutation).toBe(false);
     expect(reframing.requiredToolSequence).toEqual([
       ['read_project_file', 'get_timeline_view'],
       'reframe_project',
