@@ -26,6 +26,7 @@ import remarkGfm from "remark-gfm";
 import { useEditorContext } from "../../contexts/editor-context";
 import { useTimeline } from "../../contexts/timeline-context";
 import { useSidebar } from "../../contexts/sidebar-context";
+import { OverlayType } from "../../types";
 import { buildAssistBriefing, type AssistBriefing } from "@/lib/editron/services/assist-briefing";
 import { getUserId } from "../../utils/user-id";
 import { cn } from "@/lib/utils";
@@ -143,7 +144,7 @@ export function AIChatPanel() {
     setIsAIProcessing, selectedOverlayId, currentFrame, projectId: editorProjectId
   } = useEditorContext();
   const { timelineRef, zoomScale, scrollPosition } = useTimeline();
-  const { activePanel } = useSidebar();
+  const { activePanel, setActivePanel } = useSidebar();
   const { toast } = useToast();
   const userId = getUserId();
   const { invalidateCredits } = useCredits();
@@ -1203,9 +1204,16 @@ export function AIChatPanel() {
                     </div>
                     <div className="max-w-[85%] rounded-2xl rounded-tl-sm px-4 py-3 text-sm bg-muted/50 border space-y-3">
                       <p className="font-medium">{assistBriefing.summary}</p>
-                      {assistBriefing.detail ? (
-                        <p className="text-muted-foreground">{assistBriefing.detail}</p>
-                      ) : null}
+                      <p className="text-muted-foreground">
+                        {assistBriefing.detail ? `${assistBriefing.detail} · ` : ""}
+                        <button
+                          type="button"
+                          onClick={() => setActivePanel(OverlayType.SCAN_REPORT)}
+                          className="underline underline-offset-2 hover:text-foreground"
+                        >
+                          View scan report
+                        </button>
+                      </p>
                       {assistBriefing.chips.length > 0 ? (
                         <div className="flex flex-wrap gap-2">
                           {assistBriefing.chips.map((chip) => (
