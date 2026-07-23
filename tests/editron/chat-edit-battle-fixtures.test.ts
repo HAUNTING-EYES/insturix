@@ -22,6 +22,11 @@ describe('chat edit battle fixtures', () => {
       profile: 'dubbing',
       sourceProjectId: 'proj_FYZeVGomJuSh',
       selectedOverlayType: 'video',
+      seedTranscript: false,
+    });
+    expect(plan('spoken-phrase-english')).toMatchObject({
+      profile: 'speech',
+      sourceProjectId: 'proj_FYZeVGomJuSh',
       seedTranscript: true,
     });
     expect(plan('vertical-subject-reframe')).toMatchObject({ profile: 'visual-multi-asset' });
@@ -65,6 +70,16 @@ describe('chat edit battle fixtures', () => {
     expect(tokens.join(' ')).toContain('कीमत आसान है');
     expect(tokens.join(' ')).toContain('this is the key point');
     expect(caption?.metadata).toMatchObject({ battleFixtureTranscript: true });
+    expect(prepared.transcriptAssetAlias).toMatchObject({
+      sourceAssetId: 'video-asset',
+      fixtureAssetId: 'battle_proj_chatbattle_speech1',
+      transcription: {
+        transcript: expect.stringContaining('pricing is simple'),
+        language: 'multilingual-fixture',
+      },
+    });
+    expect(overlays(prepared.project).find((overlay) => overlay.type === 'video')?.assetId)
+      .toBe('battle_proj_chatbattle_speech1');
   });
 
   it('removes captions only for add-caption cases and keeps the source unchanged', () => {
@@ -103,6 +118,61 @@ describe('chat edit battle fixtures', () => {
       createdAt: NOW,
       updatedAt: NOW,
     }]);
+  });
+
+  it('keeps cloned media and analysis transcript truth aligned for seeded speech cases', () => {
+    const source = sourceProject();
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_analysis_speech1',
+      plan: plan('spoken-phrase-english'),
+      now: NOW,
+    });
+    const analyses = [{
+      _id: 'analysis-source-id',
+      projectId: 'source-project',
+      assetId: 'video-asset',
+      rawFootageAnalysis: {
+        transcription: {
+          transcript: 'I look at you.',
+          words: [{ word: 'I', startMs: 500, endMs: 700, confidence: 0.9 }],
+        },
+      },
+      segmentAnalysis: {
+        segments: [{
+          startMs: 0,
+          endMs: 6_000,
+          transcript: { text: 'I look at you.' },
+          visual: { motionIntensity: 0.4 },
+        }],
+      },
+    }];
+    const snapshot = structuredClone(analyses);
+    const cloned = cloneChatBattleAnalysisDocuments(
+      analyses,
+      'proj_chatbattle_analysis_speech1',
+      NOW,
+      prepared.transcriptAssetAlias,
+    );
+
+    expect(analyses).toEqual(snapshot);
+    expect(cloned[0]).toMatchObject({
+      projectId: 'proj_chatbattle_analysis_speech1',
+      assetId: 'battle_proj_chatbattle_analysis_speech1',
+      rawFootageAnalysis: {
+        transcription: {
+          transcript: expect.stringContaining('pricing is simple'),
+          language: 'multilingual-fixture',
+        },
+      },
+      segmentAnalysis: {
+        segments: [{
+          transcript: { text: expect.stringContaining('pricing is simple') },
+          visual: { motionIntensity: 0.4 },
+        }],
+      },
+    });
+    expect(cloned[0]).not.toHaveProperty('_id');
   });
 
   it('clones upload batches under fixture ownership without stale orchestration output', () => {

@@ -92,7 +92,17 @@ async function main(): Promise<void> {
       sourceAnalyses as Record<string, unknown>[],
       fixtureProjectId,
       now,
+      prepared.transcriptAssetAlias,
     );
+    const transcriptAsset = prepared.transcriptAssetAlias
+      ? await cloneTranscriptAssetAlias({
+          db,
+          userId: requireString(prepared.project.userId, 'source project userId'),
+          project: prepared.project,
+          alias: prepared.transcriptAssetAlias,
+          now,
+        })
+      : null;
     const completedAnalysisSeed = scenario.fixtureRequirements.includes('completed-clip-analysis-job')
       ? buildCompletedAnalysisSeed(prepared.project, now, expiresAt)
       : null;
@@ -107,6 +117,9 @@ async function main(): Promise<void> {
           project: prepared.project,
           now,
         });
+      }
+      if (transcriptAsset) {
+        await db.collection(COLLECTIONS.MEDIA_ASSETS).insertOne(transcriptAsset, { session });
       }
       await db.collection(COLLECTIONS.PROJECTS).insertOne(prepared.project, { session });
       if (uploadBatch) {
@@ -224,6 +237,54 @@ function buildCompletedAnalysisSeed(
     chatDeepAnalysisJobs: [{ jobId, status: 'completed', result }],
   };
   return { job, chatSession, sessionId };
+}
+
+async function cloneTranscriptAssetAlias(input: {
+  db: any;
+  userId: string;
+  project: Record<string, unknown>;
+  alias: NonNullable<ReturnType<typeof prepareChatBattleFixture>['transcriptAssetAlias']>;
+  now: Date;
+}): Promise<Record<string, unknown>> {
+  const { COLLECTIONS } = await import('../lib/editron/db/mongodb');
+  const assets = input.db.collection(COLLECTIONS.MEDIA_ASSETS);
+  const collision = await assets.findOne({
+    userId: input.userId,
+    assetId: input.alias.fixtureAssetId,
+  });
+  if (collision) {
+    throw new Error(`Transcript fixture asset already exists: ${input.alias.fixtureAssetId}`);
+  }
+  const source = await assets.findOne({
+    userId: input.userId,
+    assetId: input.alias.sourceAssetId,
+  });
+  if (!source) {
+    throw new Error(`Transcript fixture source asset not found: ${input.alias.sourceAssetId}`);
+  }
+
+  const clone = structuredClone(source) as Record<string, unknown>;
+  delete clone._id;
+  clone.assetId = input.alias.fixtureAssetId;
+  clone.transcription = structuredClone(input.alias.transcription);
+  clone.createdAt = input.now;
+  clone.updatedAt = input.now;
+  clone.uploadedAt = input.now;
+  clone.metadata = {
+    ...asRecord(clone.metadata),
+    battleFixtureAlias: true,
+    battleFixtureProjectId: requireString(input.project.projectId, 'fixture projectId'),
+    sourceAssetId: input.alias.sourceAssetId,
+  };
+
+  const sourceAssetIds = new Set(
+    asArray(input.project.sourceAssetIds)
+      .filter((value): value is string => typeof value === 'string')
+      .map((assetId) => assetId === input.alias.sourceAssetId ? input.alias.fixtureAssetId : assetId),
+  );
+  sourceAssetIds.add(input.alias.fixtureAssetId);
+  input.project.sourceAssetIds = [...sourceAssetIds];
+  return clone;
 }
 
 async function ensureImageAssetAlias(input: {

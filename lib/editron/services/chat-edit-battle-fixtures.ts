@@ -4,6 +4,24 @@ export interface PreparedChatBattleFixture {
   project: Record<string, unknown>;
   selectedOverlayId?: string | number;
   clientContext: Record<string, unknown>;
+  transcriptAssetAlias?: ChatBattleTranscriptAssetAlias;
+}
+
+export interface ChatBattleTranscriptAssetAlias {
+  sourceAssetId: string;
+  fixtureAssetId: string;
+  transcription: {
+    words: Array<{
+      word: string;
+      startMs: number;
+      endMs: number;
+      confidence: number;
+    }>;
+    transcript: string;
+    language: string;
+    confidence: number;
+    generatedAt: Date;
+  };
 }
 
 export function prepareChatBattleFixture(input: {
@@ -18,10 +36,12 @@ export function prepareChatBattleFixture(input: {
   delete project._id;
 
   const overlays = cloneOverlays(project.overlays);
+  let transcriptAssetAlias: ChatBattleTranscriptAssetAlias | undefined;
   if (input.plan.removeCaptionTrack) {
     project.overlays = overlays.filter((overlay) => !isCaptionOverlay(overlay));
   } else if (input.plan.seedTranscript) {
     project.overlays = seedTranscriptOverlay(overlays, project, input.fixtureProjectId);
+    transcriptAssetAlias = remapSeededTranscriptAsset(project, input.fixtureProjectId, now);
   } else {
     project.overlays = overlays;
   }
@@ -64,6 +84,7 @@ export function prepareChatBattleFixture(input: {
   return {
     project,
     selectedOverlayId,
+    ...(transcriptAssetAlias ? { transcriptAssetAlias } : {}),
     clientContext: buildFixtureClientContext({
       durationInFrames,
       overlayCount: Array.isArray(project.overlays) ? project.overlays.length : 0,
@@ -79,6 +100,7 @@ export function cloneChatBattleAnalysisDocuments(
   sourceDocuments: readonly Record<string, unknown>[],
   fixtureProjectId: string,
   now: Date = new Date(),
+  transcriptAssetAlias?: ChatBattleTranscriptAssetAlias,
 ): Record<string, unknown>[] {
   return sourceDocuments.map((source) => {
     const clone = structuredClone(source);
@@ -86,6 +108,16 @@ export function cloneChatBattleAnalysisDocuments(
     clone.projectId = fixtureProjectId;
     clone.createdAt = now;
     clone.updatedAt = now;
+    if (transcriptAssetAlias && clone.assetId === transcriptAssetAlias.sourceAssetId) {
+      clone.assetId = transcriptAssetAlias.fixtureAssetId;
+      const rawFootageAnalysis = asRecord(clone.rawFootageAnalysis);
+      rawFootageAnalysis.transcription = structuredClone(transcriptAssetAlias.transcription);
+      clone.rawFootageAnalysis = rawFootageAnalysis;
+      clone.segmentAnalysis = synchronizeSegmentTranscripts(
+        asRecord(clone.segmentAnalysis),
+        transcriptAssetAlias.transcription.words,
+      );
+    }
     return clone;
   });
 }
@@ -135,8 +167,8 @@ function seedTranscriptOverlay(
   const durationInFrames = Math.max(600, positiveInteger(project.durationInFrames) ?? maxOverlayEnd(overlays));
   project.durationInFrames = durationInFrames;
   const words = transcriptFixtureTokens().map((token, index) => {
-    const startFrame = 45 + (index * 14);
-    const endFrame = startFrame + 10;
+    const startFrame = 15 + (index * 6);
+    const endFrame = startFrame + 5;
     return {
       word: token,
       startMs: Math.round((startFrame / fps) * 1000),
@@ -163,6 +195,105 @@ function seedTranscriptOverlay(
   if (existingIndex >= 0) overlays[existingIndex] = seeded;
   else overlays.push(seeded);
   return overlays;
+}
+
+function remapSeededTranscriptAsset(
+  project: Record<string, unknown>,
+  fixtureProjectId: string,
+  now: Date,
+): ChatBattleTranscriptAssetAlias {
+  const fps = positiveInteger(project.fps) ?? 30;
+  const overlays = cloneOverlays(project.overlays);
+  const caption = overlays.find((overlay) => (
+    isCaptionOverlay(overlay)
+    && asRecord(overlay.metadata).battleFixtureTranscript === true
+  ));
+  const words = asRecords(caption?.words).flatMap((word) => {
+    const text = stringValue(word.word ?? word.text);
+    const startMs = finiteNonNegativeNumber(word.startMs);
+    const endMs = finiteNonNegativeNumber(word.endMs);
+    const confidence = finiteNonNegativeNumber(word.confidence) ?? 0.99;
+    return text && startMs != null && endMs != null && endMs > startMs
+      ? [{ word: text, startMs, endMs, confidence }]
+      : [];
+  });
+  if (words.length === 0) {
+    throw new Error(`Fixture ${fixtureProjectId} seeded a caption track without timed words.`);
+  }
+
+  const lastSourceFrame = Math.ceil((words[words.length - 1].endMs / 1_000) * fps);
+  const sourceOverlay = overlays.find((overlay) => {
+    if (overlay.type !== 'video') return false;
+    const sourceStart = finiteFrame(overlay.sourceStartFrame ?? overlay.videoStartTime);
+    return finiteFrame(overlay.from) === 0
+      && sourceStart === 0
+      && finiteFrame(overlay.durationInFrames) >= lastSourceFrame
+      && Boolean(stringValue(overlay.assetId));
+  });
+  const sourceAssetId = stringValue(sourceOverlay?.assetId);
+  if (!sourceAssetId) {
+    throw new Error(
+      `Fixture ${fixtureProjectId} needs a source-zero video long enough for its ${lastSourceFrame}-frame transcript seed.`,
+    );
+  }
+
+  const fixtureAssetId = `battle_${fixtureProjectId.replace(/[^a-z0-9_-]/gi, '_').slice(0, 72)}`;
+  project.overlays = overlays.map((overlay) => (
+    overlay.assetId === sourceAssetId
+      ? { ...overlay, assetId: fixtureAssetId }
+      : overlay
+  ));
+  return {
+    sourceAssetId,
+    fixtureAssetId,
+    transcription: {
+      words,
+      transcript: words.map((word) => word.word).join(' '),
+      language: 'multilingual-fixture',
+      confidence: 0.99,
+      generatedAt: now,
+    },
+  };
+}
+
+function synchronizeSegmentTranscripts(
+  segmentAnalysis: Record<string, unknown>,
+  words: ChatBattleTranscriptAssetAlias['transcription']['words'],
+): Record<string, unknown> {
+  const segments = asRecords(segmentAnalysis.segments);
+  if (segments.length === 0) return segmentAnalysis;
+  return {
+    ...segmentAnalysis,
+    segments: segments.map((segment) => {
+      const startMs = finiteNonNegativeNumber(segment.startMs) ?? 0;
+      const endMs = finiteNonNegativeNumber(segment.endMs) ?? startMs;
+      const matching = words.filter((word) => word.endMs > startMs && word.startMs < endMs);
+      const next = { ...segment };
+      if (matching.length === 0) {
+        delete next.transcript;
+      } else {
+        next.transcript = {
+          text: matching.map((word) => word.word).join(' '),
+          wordCount: matching.length,
+          fillerCount: 0,
+          silenceGapCount: 0,
+          avgWordGapMs: averageWordGapMs(matching),
+        };
+      }
+      return next;
+    }),
+  };
+}
+
+function averageWordGapMs(
+  words: ChatBattleTranscriptAssetAlias['transcription']['words'],
+): number {
+  if (words.length < 2) return 0;
+  let total = 0;
+  for (let index = 1; index < words.length; index += 1) {
+    total += Math.max(0, words[index].startMs - words[index - 1].endMs);
+  }
+  return total / (words.length - 1);
 }
 
 function transcriptFixtureTokens(): string[] {
@@ -227,6 +358,10 @@ function cloneOverlays(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? structuredClone(value).map(asRecord) : [];
 }
 
+function asRecords(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.map(asRecord) : [];
+}
+
 function findSelectedOverlay(value: unknown, requiredType?: string): Record<string, unknown> | undefined {
   if (!requiredType || !Array.isArray(value)) return undefined;
   const compatible = requiredType === 'html-scene'
@@ -264,4 +399,8 @@ function finiteFrame(value: unknown): number {
 
 function positiveInteger(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+}
+
+function finiteNonNegativeNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 }

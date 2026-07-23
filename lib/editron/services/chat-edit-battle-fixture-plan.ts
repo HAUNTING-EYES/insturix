@@ -30,7 +30,7 @@ export interface ChatBattleFixturePlan {
 
 export const DEFAULT_CHAT_BATTLE_FIXTURE_SOURCES: ChatBattleFixtureSources = {
   mixed: 'proj_chatbattle_500c55dbd0',
-  speech: 'proj_chatbattle_500c55dbd0',
+  speech: 'proj_FYZeVGomJuSh',
   dubbing: 'proj_FYZeVGomJuSh',
   'visual-multi-asset': 'proj_chatbattle_500c55dbd0',
   audio: 'proj_4N_6crLWX89A',
@@ -42,7 +42,6 @@ const SPEECH_SCENARIOS = new Set([
   'semantic-transcript-topic', 'roman-hinglish-phrase', 'transcript-overview',
   'transcript-moment-search', 'speech-anchored-sticker', 'content-analysis',
   'clean-captions', 'refresh-plain-captions', 'refresh-fancy-captions', 'batch-caption-edit',
-  'selected-dialogue-dubbing',
 ]);
 
 const VISUAL_SCENARIOS = new Set([
