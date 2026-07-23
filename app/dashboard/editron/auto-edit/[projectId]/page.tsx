@@ -53,9 +53,11 @@ export default function AutoEditProcessingPage() {
   // reopened in Director Mode for free instead of dead-ending.
   const [rescuable, setRescuable] = useState(false);
   const [rescuing, setRescuing] = useState(false);
+  const [rescueError, setRescueError] = useState<string | null>(null);
   const rescueToDirectorMode = async () => {
     if (!projectId || rescuing) return;
     setRescuing(true);
+    setRescueError(null);
     try {
       const res = await fetch('/api/services/editron/auto-edit/rescue', {
         method: 'POST',
@@ -65,10 +67,20 @@ export default function AutoEditProcessingPage() {
       const data = await res.json().catch(() => ({}));
       if (res.ok && data?.success) {
         router.push(`/dashboard/editron/project/${projectId}`);
-      } else {
-        setRescuing(false);
+        return; // keep the button in "Opening…" while the editor route loads
       }
+      // Surface WHY the reopen failed instead of silently resetting the button. A
+      // 409 (no longer rescuable / lost race), 403 (feature off) or 5xx must tell
+      // the user, not strand them clicking a dead primary CTA.
+      setRescueError(
+        res.status === 409 ? 'This project can no longer be reopened in Director Mode.'
+          : res.status === 403 ? 'Director Mode is not available right now.'
+          : (typeof data?.error === 'string' && data.error) ? data.error
+          : 'Could not reopen in Director Mode. Please try again.',
+      );
+      setRescuing(false);
     } catch {
+      setRescueError('Network error. Could not reach the server. Please try again.');
       setRescuing(false);
     }
   };
@@ -137,8 +149,20 @@ export default function AutoEditProcessingPage() {
           }
           if (s === 'failed' && DIRECTOR_MODE_ENABLED && canRescueToDirectorMode(proj)) {
             // The auto edit failed but kept its scans + timeline — offer a free
-            // reopen in Director Mode instead of dropping into a broken edit.
+            // reopen in Director Mode instead of dropping into a broken edit. Keep
+            // polling (do NOT stop) so a later transition — a redelivery completing
+            // the edit, or the project becoming non-rescuable — is reflected instead
+            // of stranding the user on a stale rescue screen.
             setRescuable(true);
+            setDone(false);
+            timer = setTimeout(poll, 4000);
+            return;
+          }
+          if (s === 'failed' && DIRECTOR_MODE_ENABLED) {
+            // Failed and NOT rescuable (no usable substrate) — show an honest failure
+            // card instead of dropping into an empty/half-broken editor. Flag off keeps
+            // the legacy terminal push below, unchanged for production.
+            setRescuable(false);
             setDone(false);
             stopped.current = true;
             return;
@@ -297,6 +321,30 @@ export default function AutoEditProcessingPage() {
             Back to Editron
           </button>
         </div>
+        {rescueError ? (
+          <p className="mt-2 max-w-md text-sm text-red-400" role="alert">{rescueError}</p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (status === 'failed' && DIRECTOR_MODE_ENABLED) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-black px-6 text-center">
+        <span className="text-xs uppercase tracking-widest text-red-400">Edit failed</span>
+        <h1 className="max-w-md text-xl font-semibold text-white">
+          We couldn&apos;t finish this automatic edit.
+        </h1>
+        <p className="max-w-md text-sm text-neutral-400">
+          Something went wrong while building your edit. Start a new project to try again.
+        </p>
+        <button
+          type="button"
+          onClick={() => router.push('/dashboard/editron')}
+          className="mt-3 rounded-full border border-neutral-700 px-5 py-2 text-sm text-white hover:bg-neutral-900"
+        >
+          Back to Editron
+        </button>
       </div>
     );
   }
