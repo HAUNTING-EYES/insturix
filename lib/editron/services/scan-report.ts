@@ -27,6 +27,23 @@ export interface ScanReport {
   degradedAssetIds: string[];
 }
 
+export type ScanMarkerKind = 'silence' | 'scene';
+export interface ScanMarker {
+  kind: ScanMarkerKind;
+  /** Left edge as a percentage [0,100] of the total timeline duration. */
+  leftPct: number;
+  /** Width as a percentage of duration (silences span a range; scenes are hairlines). */
+  widthPct: number;
+  startMs: number;
+}
+export interface ScanMarkers {
+  markers: ScanMarker[];
+  clustered: boolean;
+}
+
+/** Above this, we downsample so the strip doesn't paint thousands of overlapping ticks. */
+const MAX_MARKERS_PER_KIND = 200;
+
 function get(obj: unknown, key: string): unknown {
   return obj && typeof obj === 'object' ? (obj as Record<string, unknown>)[key] : undefined;
 }
@@ -103,4 +120,51 @@ export function buildScanReport(project: unknown): ScanReport | null {
     scenes,
     degradedAssetIds,
   };
+}
+
+/** Evenly downsample to at most `cap` items, preserving order and endpoints. */
+function downsample<T>(items: T[], cap: number): { kept: T[]; clustered: boolean } {
+  if (items.length <= cap) return { kept: items, clustered: false };
+  const step = items.length / cap;
+  const kept: T[] = [];
+  for (let i = 0; i < cap; i += 1) kept.push(items[Math.floor(i * step)]);
+  return { kept, clustered: true };
+}
+
+/**
+ * Timeline scan markers (Director Mode) — silences (spans) + scene bounds
+ * (hairlines) positioned as a percentage of total duration, so they align to a
+ * timeline track whose width scales with zoom. Pure; reads the hydrated project.
+ * Downsamples each kind past MAX_MARKERS_PER_KIND so long footage stays cheap.
+ */
+export function buildScanMarkers(project: unknown, fpsInput = 30): ScanMarkers | null {
+  if (get(project, 'editMode') !== 'assist') return null;
+  if (get(project, 'autoEditStatus') !== 'ready_for_chat') return null;
+
+  const fps = typeof get(project, 'fps') === 'number' && (get(project, 'fps') as number) > 0 ? (get(project, 'fps') as number) : fpsInput;
+  const durationInFrames = typeof get(project, 'durationInFrames') === 'number' ? (get(project, 'durationInFrames') as number) : 0;
+  const totalMs = (durationInFrames / (fps > 0 ? fps : 30)) * 1000;
+  if (totalMs <= 0) return { markers: [], clustered: false };
+
+  const pct = (ms: number) => Math.max(0, Math.min(100, (ms / totalMs) * 100));
+
+  const raw = get(project, 'rawFootageAnalysis');
+  const rawSilences = (Array.isArray(get(raw, 'silenceGaps')) ? get(raw, 'silenceGaps') : []) as unknown[];
+  const rawSegments = (Array.isArray(get(get(project, 'segmentAnalysis'), 'segments')) ? get(get(project, 'segmentAnalysis'), 'segments') : []) as unknown[];
+
+  const silenceSrc = downsample(rawSilences, MAX_MARKERS_PER_KIND);
+  const sceneSrc = downsample(rawSegments, MAX_MARKERS_PER_KIND);
+
+  const silences: ScanMarker[] = silenceSrc.kept.map((g) => {
+    const startMs = typeof get(g, 'startMs') === 'number' ? (get(g, 'startMs') as number) : 0;
+    const endMs = typeof get(g, 'endMs') === 'number' ? (get(g, 'endMs') as number) : startMs;
+    const left = pct(startMs);
+    return { kind: 'silence', startMs, leftPct: left, widthPct: Math.max(0.15, pct(endMs) - left) };
+  });
+  const scenes: ScanMarker[] = sceneSrc.kept.map((s) => {
+    const startMs = typeof get(s, 'startMs') === 'number' ? (get(s, 'startMs') as number) : 0;
+    return { kind: 'scene', startMs, leftPct: pct(startMs), widthPct: 0 };
+  });
+
+  return { markers: [...silences, ...scenes], clustered: silenceSrc.clustered || sceneSrc.clustered };
 }

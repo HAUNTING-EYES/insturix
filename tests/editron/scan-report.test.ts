@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { buildScanReport } from '@/lib/editron/services/scan-report';
+import { buildScanReport, buildScanMarkers } from '@/lib/editron/services/scan-report';
 
 const ready = (over: Record<string, unknown> = {}) => ({
   editMode: 'assist',
@@ -65,5 +65,40 @@ describe('buildScanReport', () => {
     expect(r.overview.clipCount).toBe(0);
     expect(r.scenes).toEqual([]);
     expect(r.degradedAssetIds).toEqual(['v2']);
+  });
+});
+
+describe('buildScanMarkers', () => {
+  const project = (over: Record<string, unknown> = {}) => ({
+    editMode: 'assist', autoEditStatus: 'ready_for_chat', fps: 30, durationInFrames: 30 * 100, // 100s = 100000ms
+    rawFootageAnalysis: { silenceGaps: [{ startMs: 10_000, endMs: 12_000 }, { startMs: 50_000, endMs: 50_500 }] },
+    segmentAnalysis: { segments: [{ startMs: 0 }, { startMs: 25_000 }, { startMs: 75_000 }] },
+    ...over,
+  });
+
+  it('positions silences as spans and scenes as hairlines, as % of duration', () => {
+    const m = buildScanMarkers(project())!;
+    const silences = m.markers.filter((x) => x.kind === 'silence');
+    const scenes = m.markers.filter((x) => x.kind === 'scene');
+    expect(silences[0]).toMatchObject({ startMs: 10_000, leftPct: 10 });
+    expect(silences[0].widthPct).toBeCloseTo(2, 5); // 2000ms of 100000ms = 2%
+    expect(silences[1].widthPct).toBeGreaterThanOrEqual(0.15); // min hairline width enforced
+    expect(scenes.map((s) => s.leftPct)).toEqual([0, 25, 75]);
+    expect(m.clustered).toBe(false);
+  });
+
+  it('null for auto / non-ready / zero-duration; clamps out-of-range', () => {
+    expect(buildScanMarkers(project({ editMode: 'auto' }))).toBeNull();
+    expect(buildScanMarkers(project({ autoEditStatus: 'scanning' }))).toBeNull();
+    expect(buildScanMarkers(project({ durationInFrames: 0 }))!.markers).toEqual([]);
+    const past = buildScanMarkers(project({ segmentAnalysis: { segments: [{ startMs: 999_999 }] } }))!;
+    expect(past.markers.find((x) => x.kind === 'scene')!.leftPct).toBe(100); // clamped
+  });
+
+  it('downsamples past 200 per kind so long footage stays cheap', () => {
+    const manySilences = Array.from({ length: 5000 }, (_, i) => ({ startMs: i * 10, endMs: i * 10 + 5 }));
+    const m = buildScanMarkers(project({ rawFootageAnalysis: { silenceGaps: manySilences } }))!;
+    expect(m.markers.filter((x) => x.kind === 'silence').length).toBeLessThanOrEqual(200);
+    expect(m.clustered).toBe(true);
   });
 });
