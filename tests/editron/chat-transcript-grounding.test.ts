@@ -45,6 +45,13 @@ function findTranscriptTool() {
   return tool;
 }
 
+function resolveTranscriptTool() {
+  const tools = createChatTranscriptTools({ userId: 'user-1', projectId: 'project-1' });
+  const tool = tools.find((candidate) => candidate.name === 'resolve_transcript_edit');
+  if (!tool) throw new Error('resolve_transcript_edit tool missing');
+  return tool;
+}
+
 describe('chat transcript grounding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -112,6 +119,56 @@ describe('chat transcript grounding', () => {
     }));
 
     expect(output.data.candidates[0]).toMatchObject({ startFrame: 30, endFrame: 48 });
+  });
+
+  it('reconciles duplicate media and caption words before destructive phrase resolution', async () => {
+    const words = [
+      { word: 'pricing', startMs: 500, endMs: 667, confidence: 0.99 },
+      { word: 'is', startMs: 700, endMs: 867, confidence: 0.99 },
+      { word: 'simple', startMs: 900, endMs: 1067, confidence: 0.99 },
+    ];
+    mocks.loadProject.mockResolvedValue({
+      projectId: 'project-1',
+      fps: 30,
+      durationInFrames: 300,
+      overlays: [
+        { id: 1, type: 'video', assetId: 'asset-1', from: 0, durationInFrames: 300 },
+        { id: 2, type: 'caption', from: 0, durationInFrames: 300, words },
+      ],
+    });
+    mocks.getTranscription.mockResolvedValue({
+      transcript: 'pricing is simple',
+      words,
+      language: 'en',
+      confidence: 0.99,
+      generatedAt: new Date(),
+    });
+
+    const output = JSON.parse(await resolveTranscriptTool().invoke({
+      query: 'pricing is simple',
+      action: 'cut_phrase',
+      includeCaptions: true,
+      forceRefresh: false,
+      limit: 5,
+      minConfidence: 0.42,
+      minGapFrames: 6,
+      maxCutFrames: 90,
+    }));
+
+    expect(output.status).toBe('success');
+    expect(output.data).toMatchObject({
+      status: 'ready',
+      searchedWordCount: 3,
+      candidate: {
+        text: 'pricing is simple',
+        startFrame: 15,
+        endFrame: 32,
+        matchType: 'phrase',
+        safeForAutoEdit: true,
+      },
+      cutSection: { startFrame: 15, endFrame: 32 },
+      canonicalEvidence: { mode: 'lexical-exact' },
+    });
   });
 
   it('rejects a cached transcript that has words but no usable timing', () => {

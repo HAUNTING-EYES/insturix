@@ -795,9 +795,55 @@ async function buildTranscriptWordsFromProject(
     }
   }
 
-  return words
+  return reconcileTranscriptWords(words)
     .filter((word) => word.word.trim() && word.endFrame > word.startFrame)
     .sort((a, b) => a.startFrame - b.startFrame || a.endFrame - b.endFrame);
+}
+
+function reconcileTranscriptWords(words: TranscriptSearchWord[]): TranscriptSearchWord[] {
+  const reconciled: TranscriptSearchWord[] = [];
+  const sorted = [...words].sort((a, b) => a.startFrame - b.startFrame || a.endFrame - b.endFrame);
+  for (const candidate of sorted) {
+    const normalized = normalizeToken(candidate.word);
+    if (!normalized) continue;
+    const duplicateIndex = reconciled.findIndex((existing) => (
+      normalizeToken(existing.word) === normalized
+      && transcriptWordOverlapRatio(existing, candidate) >= 0.6
+    ));
+    if (duplicateIndex < 0) {
+      reconciled.push(candidate);
+      continue;
+    }
+    reconciled[duplicateIndex] = preferredTranscriptWord(reconciled[duplicateIndex], candidate);
+  }
+  return reconciled;
+}
+
+function transcriptWordOverlapRatio(left: TranscriptSearchWord, right: TranscriptSearchWord): number {
+  const overlap = Math.max(0, Math.min(left.endFrame, right.endFrame) - Math.max(left.startFrame, right.startFrame));
+  const shorterDuration = Math.max(1, Math.min(
+    left.endFrame - left.startFrame,
+    right.endFrame - right.startFrame,
+  ));
+  return overlap / shorterDuration;
+}
+
+function preferredTranscriptWord(left: TranscriptSearchWord, right: TranscriptSearchWord): TranscriptSearchWord {
+  const leftConfidence = numberValue(left.confidence) ?? 0;
+  const rightConfidence = numberValue(right.confidence) ?? 0;
+  if (Math.abs(leftConfidence - rightConfidence) > 0.02) {
+    return rightConfidence > leftConfidence ? right : left;
+  }
+  const leftPriority = transcriptSourcePriority(left.source.type);
+  const rightPriority = transcriptSourcePriority(right.source.type);
+  if (leftPriority !== rightPriority) return rightPriority > leftPriority ? right : left;
+  return leftConfidence >= rightConfidence ? left : right;
+}
+
+function transcriptSourcePriority(sourceType: TranscriptSearchWord["source"]["type"]): number {
+  if (sourceType === "video-transcription" || sourceType === "audio-transcription") return 2;
+  if (sourceType === "caption-overlay") return 1;
+  return 0;
 }
 
 function mapMediaWordsToTimeline(
