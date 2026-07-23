@@ -90,12 +90,19 @@ export async function cleanupDisposableChatBattleFixtureInDatabase(
     projectId,
     'metadata.battleTest.disposable': true,
   });
+  const scopedAliasDelete = await db.collection(collections.mediaAssets).deleteMany({
+    'metadata.battleFixtureAlias': true,
+    'metadata.battleFixtureProjectId': projectId,
+  });
   const remainingFixtures = await projects.countDocuments({
     projectId: { $regex: DISPOSABLE_FIXTURE_PREFIX },
     'metadata.battleTest.disposable': true,
   }, { limit: 1 });
-  const aliasDelete = remainingFixtures === 0
-    ? await db.collection(collections.mediaAssets).deleteMany({ 'metadata.battleFixtureAlias': true })
+  const legacyAliasDelete = remainingFixtures === 0
+    ? await db.collection(collections.mediaAssets).deleteMany({
+        'metadata.battleFixtureAlias': true,
+        'metadata.battleFixtureProjectId': { $exists: false },
+      })
     : { deletedCount: 0 };
 
   return {
@@ -110,7 +117,7 @@ export async function cleanupDisposableChatBattleFixtureInDatabase(
       dubbingJobs: dubbingJobs.deletedCount,
       mgRenderJobs: mgRenderJobs.deletedCount,
       uploadBatches: uploadBatches.deletedCount,
-      assetAliases: aliasDelete.deletedCount,
+      assetAliases: scopedAliasDelete.deletedCount + legacyAliasDelete.deletedCount,
     },
   };
 }

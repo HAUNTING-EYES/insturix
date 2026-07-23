@@ -68,7 +68,7 @@ describe('chat battle fixture cleanup', () => {
     expect(calls.map((call) => call.operation)).toEqual(['findOne']);
   });
 
-  it('deletes dependents before the marked project and removes aliases only after the final fixture', async () => {
+  it('deletes scoped aliases and removes legacy shared aliases only after the final fixture', async () => {
     const { db, calls } = fakeDatabase({ fixtureExists: true, remainingFixtures: 0 });
     const result = await cleanupDisposableChatBattleFixtureInDatabase(db, 'proj_chatbattle_run_1', COLLECTIONS);
     expect(result).toMatchObject({
@@ -82,7 +82,7 @@ describe('chat battle fixture cleanup', () => {
         dubbingJobs: 1,
         mgRenderJobs: 1,
         uploadBatches: 1,
-        assetAliases: 1,
+        assetAliases: 2,
       },
     });
     const projectDeleteIndex = calls.findIndex((call) => call.collection === COLLECTIONS.projects && call.operation === 'deleteOne');
@@ -97,10 +97,18 @@ describe('chat battle fixture cleanup', () => {
     }));
   });
 
-  it('keeps the shared asset alias while another disposable fixture still exists', async () => {
+  it('deletes only the current fixture aliases while another disposable fixture exists', async () => {
     const { db, calls } = fakeDatabase({ fixtureExists: true, remainingFixtures: 1 });
     const result = await cleanupDisposableChatBattleFixtureInDatabase(db, 'proj_chatbattle_run_2', COLLECTIONS);
-    expect(result.deleted.assetAliases).toBe(0);
-    expect(calls.some((call) => call.collection === COLLECTIONS.mediaAssets)).toBe(false);
+    expect(result.deleted.assetAliases).toBe(1);
+    expect(calls.filter((call) => call.collection === COLLECTIONS.mediaAssets)).toEqual([
+      expect.objectContaining({
+        operation: 'deleteMany',
+        filter: {
+          'metadata.battleFixtureAlias': true,
+          'metadata.battleFixtureProjectId': 'proj_chatbattle_run_2',
+        },
+      }),
+    ]);
   });
 });
