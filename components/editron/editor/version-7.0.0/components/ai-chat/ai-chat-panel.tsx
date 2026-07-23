@@ -26,6 +26,7 @@ import remarkGfm from "remark-gfm";
 import { useEditorContext } from "../../contexts/editor-context";
 import { useTimeline } from "../../contexts/timeline-context";
 import { useSidebar } from "../../contexts/sidebar-context";
+import { buildAssistBriefing, type AssistBriefing } from "@/lib/editron/services/assist-briefing";
 import { getUserId } from "../../utils/user-id";
 import { cn } from "@/lib/utils";
 import { EDLSuggestions } from "./edl-suggestions";
@@ -158,6 +159,19 @@ export function AIChatPanel() {
   const [editingName, setEditingName] = useState("");
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   
+  // Director Mode (assist lane): the scan briefing rendered as chat's first
+  // message. Computed from persisted analyses — zero model calls, zero billing.
+  const [assistBriefing, setAssistBriefing] = useState<AssistBriefing | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!editorProjectId) { setAssistBriefing(null); return; }
+    fetch(`/api/services/editron/projects/${editorProjectId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) setAssistBriefing(buildAssistBriefing(d?.project ?? d)); })
+      .catch(() => { /* no briefing — the plain empty state renders */ });
+    return () => { cancelled = true; };
+  }, [editorProjectId]);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeProjectIdRef = useRef('');
@@ -1134,9 +1148,41 @@ export function AIChatPanel() {
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-6">
               {messages.length === 0 ? (
-                <div className="text-center text-muted-foreground text-sm py-12">
-                  <p>Ask me anything about your video</p>
-                </div>
+                assistBriefing ? (
+                  <div className="flex gap-3">
+                    <div className="h-8 w-8 rounded-full flex items-center justify-center shrink-0 bg-muted border">
+                      <Bot className="h-4 w-4" />
+                    </div>
+                    <div className="max-w-[85%] rounded-2xl rounded-tl-sm px-4 py-3 text-sm bg-muted/50 border space-y-3">
+                      <p className="font-medium">{assistBriefing.summary}</p>
+                      {assistBriefing.detail ? (
+                        <p className="text-muted-foreground">{assistBriefing.detail}</p>
+                      ) : null}
+                      {assistBriefing.chips.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {assistBriefing.chips.map((chip) => (
+                            <button
+                              key={chip.id}
+                              type="button"
+                              disabled={isProcessing}
+                              onClick={() => void handleSendMessage(chip.prompt)}
+                              className="rounded-full border px-3 py-1 text-xs hover:bg-muted disabled:opacity-50"
+                            >
+                              {chip.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      <p className="text-[11px] text-muted-foreground">
+                        Tap a chip or just tell me what you want — each instruction bills as a chat message.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center text-muted-foreground text-sm py-12">
+                    <p>Ask me anything about your video</p>
+                  </div>
+                )
               ) : (
                 messages
                   // Filter out empty assistant messages (no content AND no tool calls)
