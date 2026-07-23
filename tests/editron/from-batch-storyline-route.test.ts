@@ -870,7 +870,18 @@ describe('from-batch storyline route handoff', () => {
           expect.objectContaining({ text: expect.stringContaining('1.00s-3.00s') }),
         ],
       })],
-      generationConfig: expect.objectContaining({ responseMimeType: 'application/json', maxOutputTokens: 256 }),
+      generationConfig: expect.objectContaining({
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'object',
+          properties: {
+            confirmed: { type: 'boolean' },
+            note: { type: 'string' },
+          },
+          required: ['confirmed', 'note'],
+        },
+        maxOutputTokens: 256,
+      }),
     }));
     expect(mocks.generateEditronEmbedding).toHaveBeenCalledWith(
       'make a concise product proof cut\n\nShow the proof, then the result.',

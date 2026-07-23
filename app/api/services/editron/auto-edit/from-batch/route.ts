@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { SchemaType } from '@google/generative-ai';
 import { auth } from '@clerk/nextjs/server';
 import { Receiver } from '@upstash/qstash';
 import { projectService } from '@/lib/editron/services/project-service';
@@ -791,7 +792,20 @@ function createBatchScriptCoverageVerifier(): CoverageVerify {
           { text: `${visualScope}\nDetermine whether the pixels visibly depict this requested moment. Transcript, filename, tags, and the request itself are not proof. Return JSON only.\n${JSON.stringify({ requestedMoment: query.text, responseSchema: { confirmed: 'boolean', note: 'short visible evidence' } })}` },
         ],
       }],
-      generationConfig: { temperature: 0, seed: 42, responseMimeType: 'application/json', maxOutputTokens: 256 },
+      generationConfig: {
+        temperature: 0,
+        seed: 42,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: SchemaType.OBJECT,
+          properties: {
+            confirmed: { type: SchemaType.BOOLEAN },
+            note: { type: SchemaType.STRING },
+          },
+          required: ['confirmed', 'note'],
+        },
+        maxOutputTokens: 256,
+      },
     });
     const parsed = parseJsonObject(result.response.text());
     if (!parsed || typeof parsed.confirmed !== 'boolean') {
