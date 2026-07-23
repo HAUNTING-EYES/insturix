@@ -22,6 +22,7 @@ import { getTranscription } from "./transcription-service";
 import { spawn } from "child_process";
 import { renderMediaOnLambda } from "@remotion/lambda/client";
 
+import { existsSync } from "fs";
 import fs from "fs/promises";
 import path from "path";
 import { nanoid } from "nanoid";
@@ -31,19 +32,58 @@ import { assertRemotionSiteFresh } from "../remotion-site-version";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createRequire } from "module";
 
+let cachedFFmpegPath: string | null = null;
+
 export function getFFmpegPath(): string {
   if (typeof window !== "undefined") {
     throw new Error("FFmpeg can only be used on the server");
   }
 
-  const require = createRequire(import.meta.url);
-  const ffmpegInstaller = require("@ffmpeg-installer/ffmpeg");
+  if (cachedFFmpegPath) return cachedFFmpegPath;
 
-  if (!ffmpegInstaller?.path) {
-    throw new Error("FFmpeg binary not found");
+  const require = createRequire(import.meta.url);
+  const attemptedPaths: string[] = [];
+  const configuredPath = process.env.FFMPEG_PATH?.trim();
+  if (configuredPath) {
+    const absolutePath = path.resolve(configuredPath);
+    attemptedPaths.push(absolutePath);
+    if (existsSync(absolutePath)) {
+      cachedFFmpegPath = absolutePath;
+      return cachedFFmpegPath;
+    }
   }
 
-  return ffmpegInstaller.path;
+  // The generic installer discovers optional platform packages dynamically, which
+  // Next output tracing cannot infer. Resolve the production Linux package directly
+  // so the traced binary and runtime path have one explicit owner.
+  if (process.platform === "linux" && process.arch === "x64") {
+    try {
+      const packageJsonPath = require.resolve("@ffmpeg-installer/linux-x64/package.json");
+      const linuxBinaryPath = path.join(path.dirname(packageJsonPath), "ffmpeg");
+      attemptedPaths.push(linuxBinaryPath);
+      if (existsSync(linuxBinaryPath)) {
+        cachedFFmpegPath = linuxBinaryPath;
+        return cachedFFmpegPath;
+      }
+    } catch {
+      attemptedPaths.push("@ffmpeg-installer/linux-x64:unresolvable");
+    }
+  }
+
+  try {
+    const ffmpegInstaller = require("@ffmpeg-installer/ffmpeg") as { path?: unknown };
+    if (typeof ffmpegInstaller.path === "string") {
+      attemptedPaths.push(ffmpegInstaller.path);
+      if (existsSync(ffmpegInstaller.path)) {
+        cachedFFmpegPath = ffmpegInstaller.path;
+        return cachedFFmpegPath;
+      }
+    }
+  } catch (error) {
+    attemptedPaths.push(`@ffmpeg-installer/ffmpeg:${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  throw new Error(`FFmpeg executable is unavailable. Checked: ${attemptedPaths.join(", ") || "no candidates"}`);
 }
 
 /* ====================================================== */
@@ -130,12 +170,6 @@ export async function sampleAudioClip(params: {
   /* ===============================
      ASSET PATH (FFmpeg)
      =============================== */
-
-  if (!getFFmpegPath()) {
-    throw new Error(
-      "FFmpeg binary not found. Install ffmpeg-static to enable asset audio sampling.",
-    );
-  }
 
   // Resolve asset URL
   let srcUrl = params.assetUrl;
@@ -258,12 +292,6 @@ export async function sampleVideoClip(params: {
      ASSET PATH (FFmpeg)
      =============================== */
 
-  if (!getFFmpegPath()) {
-    throw new Error(
-      "FFmpeg binary not found. Install ffmpeg-static to enable asset video analysis.",
-    );
-  }
-
   // Resolve asset URL
   let srcUrl = params.assetUrl;
   if (!srcUrl && params.assetId) {
@@ -287,12 +315,6 @@ export async function sampleVideoClip(params: {
   }
 
   const output = await tempFile("mp4");
-
-  if (!getFFmpegPath()) {
-    throw new Error(
-      "FFmpeg binary not found. Install ffmpeg-static to enable asset video analysis.",
-    );
-  }
 
   const ffmpeg = getFFmpegPath();
 

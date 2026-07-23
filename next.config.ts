@@ -51,8 +51,14 @@ const nextConfig: NextConfig = {
     '@remotion/lambda',
     '@remotion/lambda-client',
     '@remotion/renderer',
+    '@ffmpeg-installer/ffmpeg',
     'sharp',
   ],
+  outputFileTracingIncludes: {
+    '/api/internal/workers/chat-dubbing': [
+      './node_modules/@ffmpeg-installer/linux-x64/ffmpeg',
+    ],
+  },
   // Performance optimizations
   experimental: {
     optimizePackageImports: [
