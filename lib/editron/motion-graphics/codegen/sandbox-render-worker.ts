@@ -99,6 +99,10 @@ export function buildMgSandboxNetworkPolicy(input: {
   return {
     allow: [
       'generativelanguage.googleapis.com',
+      // The copied MG kit loads its pinned @remotion/google-fonts WOFF2 assets directly through FontFace.
+      // Those generated modules embed fonts.gstatic.com URLs; without this exact host, selectComposition fails
+      // with a browser NetworkError before a single frame can render. Keep this narrower than general Google egress.
+      'fonts.gstatic.com',
       zaiHost,
       `${input.r2AccountId}.r2.cloudflarestorage.com`,
       authorizationHost,

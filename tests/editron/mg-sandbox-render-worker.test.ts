@@ -143,6 +143,8 @@ describe('MG Sandbox render worker', () => {
       r2AccountId: 'account123',
       zaiApiUrl: 'https://api.z.ai/api/paas/v4',
     }));
+    expect(config.networkPolicy.allow).toContain('fonts.gstatic.com');
+    expect(config.networkPolicy.allow).not.toContain('fonts.googleapis.com');
     expect(() => resolveMgSandboxRuntimeConfig({
       request: { ...request(), appCommit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
       storageAuthorization: { url: 'https://app.example.com/api/internal/mg-storage', token: 'job-token' },
