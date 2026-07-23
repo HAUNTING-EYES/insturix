@@ -9,7 +9,9 @@ const COLLECTIONS = {
   analyses: 'editron_asset_analyses',
   chats: 'chatSessions',
   checkpoints: 'checkpoints',
+  deepAnalysisJobs: 'editron_chat_deep_analysis_jobs',
   mgRenderJobs: 'editron_mg_render_jobs',
+  uploadBatches: 'mediaUploadBatches',
   mediaAssets: 'mediaAssets',
 };
 
@@ -70,7 +72,16 @@ describe('chat battle fixture cleanup', () => {
     const result = await cleanupDisposableChatBattleFixtureInDatabase(db, 'proj_chatbattle_run_1', COLLECTIONS);
     expect(result).toMatchObject({
       skipped: false,
-      deleted: { projects: 1, analyses: 1, chats: 1, checkpoints: 1, mgRenderJobs: 1, assetAliases: 1 },
+      deleted: {
+        projects: 1,
+        analyses: 1,
+        chats: 1,
+        checkpoints: 1,
+        deepAnalysisJobs: 1,
+        mgRenderJobs: 1,
+        uploadBatches: 1,
+        assetAliases: 1,
+      },
     });
     const projectDeleteIndex = calls.findIndex((call) => call.collection === COLLECTIONS.projects && call.operation === 'deleteOne');
     const dependentDeleteIndexes = calls

@@ -25,6 +25,7 @@ export interface ChatBattleCliOptions {
   authHeaderFile: string;
   outputRoot: string;
   runId: string;
+  sessionId?: string;
   selectedOverlayId?: string;
   clientContextPath?: string;
   allowLiveWrite: boolean;
@@ -113,6 +114,7 @@ async function main(): Promise<void> {
           api,
           scenarioPrompt: scenario.prompt,
           projectId,
+          sessionId: options.sessionId,
           selectedOverlayId,
           clientContext: context,
           runId: options.runId,
@@ -140,6 +142,7 @@ async function main(): Promise<void> {
             api,
             scenarioPrompt: `Check dubbing job ${dubbingJobId} for this project now. Report its exact terminal result and do not queue another job.`,
             projectId,
+            sessionId: options.sessionId,
             selectedOverlayId,
             clientContext: context,
             runId: `${options.runId}-dubbing-result`,
@@ -201,6 +204,7 @@ export function parseChatBattleCliArgs(argv: string[]): ChatBattleCliOptions | n
     else if (arg.startsWith('--auth-header-file=')) options.authHeaderFile = valueAfterEquals(arg);
     else if (arg.startsWith('--output=')) options.outputRoot = valueAfterEquals(arg);
     else if (arg.startsWith('--run-id=')) options.runId = valueAfterEquals(arg);
+    else if (arg.startsWith('--session-id=')) options.sessionId = valueAfterEquals(arg);
     else if (arg.startsWith('--selected-overlay=')) options.selectedOverlayId = valueAfterEquals(arg);
     else if (arg.startsWith('--client-context=')) options.clientContextPath = valueAfterEquals(arg);
   }
@@ -219,6 +223,7 @@ async function invokeLiveChatAgent(input: {
   api: ApiClient;
   scenarioPrompt: string;
   projectId: string;
+  sessionId?: string;
   selectedOverlayId?: string;
   clientContext?: Record<string, unknown>;
   runId: string;
@@ -255,6 +260,7 @@ async function invokeLiveChatAgent(input: {
 export function buildLiveChatRequestBody(input: {
   scenarioPrompt: string;
   projectId: string;
+  sessionId?: string;
   selectedOverlayId?: string;
   clientContext?: Record<string, unknown>;
   runId: string;
@@ -262,6 +268,7 @@ export function buildLiveChatRequestBody(input: {
   return {
     message: input.scenarioPrompt,
     projectId: input.projectId,
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     operationId: `chat-battle:${safeSegment(input.runId)}`,
     ...(input.selectedOverlayId ? { selectedOverlayId: input.selectedOverlayId } : {}),
     ...(input.clientContext ? { clientContext: input.clientContext } : {}),
