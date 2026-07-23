@@ -300,8 +300,16 @@ export function createChatEditorialIntentTools(
       const userTurnText = typeof config.configurable?.chatUserTurnText === 'string'
         ? config.configurable.chatUserTurnText
         : undefined;
+      // Structured Auto-Director confirmation: the client's explicit confirm button
+      // sets this on the request; OR it into the wire flag so the confirm executes
+      // deterministically — no dependency on the model re-setting the flag or on
+      // parsing "yes" from the next turn.
+      const confirmedByClient = config.configurable?.autoDirectorConfirmed === true;
       const input = chatEditorialIntentSchema.parse(
-        compileChatEditorialIntentWire(wireInput, { userTurnText }),
+        compileChatEditorialIntentWire(
+          { ...wireInput, autoDirectorConfirmed: wireInput.autoDirectorConfirmed || confirmedByClient },
+          { userTurnText },
+        ),
       );
       try {
         const result = await applyGroundedEditorialIntent({ userId, projectId, input }, dependencies);
@@ -310,7 +318,7 @@ export function createChatEditorialIntentTools(
           data: result,
           error: result.status === 'error' ? result.dispatch.reasons.join(', ') : null,
           nextAction: result.dispatch.reasons.includes('assist-auto-director-needs-confirmation')
-            ? 'This is a Director Mode project. Ask the user explicitly: this request hands the edit to Auto-Director, which will re-edit the timeline automatically — do they want to proceed? ONLY after a clear yes in their next message, call apply_editorial_intent again with autoDirectorConfirmed: true. Do not claim any edit was made.'
+            ? 'This is a Director Mode project. Tell the user plainly that this request would hand the whole timeline to Auto-Director (a full automatic re-edit), and that a confirmation button is shown for them to run it or decline. Do NOT call apply_editorial_intent again yourself and do NOT claim any edit was made — the confirm button drives it.'
             : result.status === 'advisory'
               ? 'Ask once for a clearer target or narrower constraint. Do not claim an edit was made.'
               : result.dispatch.status === 'queued'

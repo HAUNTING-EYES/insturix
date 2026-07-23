@@ -67,6 +67,8 @@ const clampUnit = (value: number) => Math.max(0, Math.min(value, 1));
 interface ChatSendOptions {
   allowWhileProcessing?: boolean;
   visualEvidence?: ChatFrameEvidence;
+  // Director Mode: set ONLY by the explicit "Run Auto-Director" confirm button.
+  autoDirectorConfirmed?: boolean;
 }
 
 async function seekToRenderedFrame(player: any, frame: number): Promise<void> {
@@ -196,6 +198,26 @@ export function AIChatPanel() {
       .catch(() => { assistSessionBootstrappedRef.current = null; /* allow a retry */ });
     return () => { cancelled = true; };
   }, [assistBriefing, editorProjectId, currentSessionId, isLoadingSessions]);
+
+  // Director Mode structured confirm: holds the goal to re-run with Auto-Director
+  // when the last assistant turn asked for confirmation. Cleared on run/dismiss.
+  const [autoDirectorConfirm, setAutoDirectorConfirm] = useState<string | null>(null);
+  useEffect(() => {
+    const AWAIT = 'assist-auto-director-needs-confirmation';
+    // Walk from the end: the newest assistant turn decides.
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      if (msg.role === 'user') { setAutoDirectorConfirm(null); return; }
+      if (msg.role !== 'assistant') continue;
+      const asked = (msg.toolCalls ?? []).some((tc) => typeof tc.output === 'string' && tc.output.includes(AWAIT));
+      if (!asked) { setAutoDirectorConfirm(null); return; }
+      // Find the user request that triggered this advisory.
+      const goal = [...messages.slice(0, i)].reverse().find((m) => m.role === 'user')?.content ?? null;
+      setAutoDirectorConfirm(goal);
+      return;
+    }
+    setAutoDirectorConfirm(null);
+  }, [messages]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -644,6 +666,7 @@ export function AIChatPanel() {
           clientContext,
           attachments: attachmentsForTurn.map(toChatAttachmentInput),
           visualEvidence: options.visualEvidence,
+          ...(options.autoDirectorConfirmed ? { autoDirectorConfirmed: true } : {}),
         }),
         signal: controller.signal,
       });
@@ -1370,6 +1393,35 @@ export function AIChatPanel() {
                 </div>
               )}
               
+              {autoDirectorConfirm ? (
+                <div className="flex flex-col gap-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+                  <p className="text-muted-foreground">
+                    This hands the whole timeline to Auto-Director, which re-edits it automatically. Director Mode normally leaves the editing to you.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => {
+                        const goal = autoDirectorConfirm;
+                        setAutoDirectorConfirm(null);
+                        void handleSendMessage(goal, { autoDirectorConfirmed: true });
+                      }}
+                      className="rounded-full bg-amber-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      Run Auto-Director
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAutoDirectorConfirm(null)}
+                      className="rounded-full border px-4 py-1.5 text-xs hover:bg-muted"
+                    >
+                      No, I'll direct it myself
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               <div ref={messagesEndRef} />
             </div>
           </ScrollArea>

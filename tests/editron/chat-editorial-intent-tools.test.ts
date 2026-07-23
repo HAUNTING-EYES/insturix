@@ -633,4 +633,28 @@ describe('Director Mode confirm-gate (assist lane)', () => {
     const compiled = compileChatEditorialIntentWire({ ...wire, autoDirectorConfirmed: true });
     expect(compiled.autoDirectorConfirmed).toBe(true);
   });
+
+  it('STRUCTURED CONFIRM: the tool ORs config.autoDirectorConfirmed into the wire flag (button-driven, no NLP)', async () => {
+    const deps = dependencies({ loadProject: vi.fn(async () => assistProject()) });
+    const tools = createChatEditorialIntentTools({ userId: 'user-1', projectId: 'project-1' }, deps);
+    const applyTool = tools.find((t) => (t as { name: string }).name === 'apply_editorial_intent') as {
+      invoke: (input: unknown, config: unknown) => Promise<string>;
+    };
+
+    // First call WITHOUT the config flag → gate fires (advisory).
+    const gated = JSON.parse(await applyTool.invoke(
+      { goal: 'just edit the whole thing for me', scopeKind: 'project' },
+      { configurable: {} },
+    ));
+    expect(gated.data.dispatch.reasons).toContain('assist-auto-director-needs-confirmation');
+    expect(deps.executeProjectIntent).not.toHaveBeenCalled();
+
+    // Re-run WITH the structured config flag (set by the confirm button) → executes.
+    const confirmed = JSON.parse(await applyTool.invoke(
+      { goal: 'just edit the whole thing for me', scopeKind: 'project' },
+      { configurable: { autoDirectorConfirmed: true } },
+    ));
+    expect(confirmed.status).toBe('success');
+    expect(deps.executeProjectIntent).toHaveBeenCalledOnce();
+  });
 });

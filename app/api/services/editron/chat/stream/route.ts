@@ -221,7 +221,11 @@ export async function POST(req: NextRequest) {
       operationId,
       attachments: rawAttachments,
       visualEvidence: rawVisualEvidence,
+      // Director Mode: set true ONLY by the client's explicit "Run Auto-Director"
+      // confirmation button (structured confirm — never inferred from message text).
+      autoDirectorConfirmed: rawAutoDirectorConfirmed,
     } = await req.json();
+    const autoDirectorConfirmed = rawAutoDirectorConfirmed === true;
 
     if (typeof message !== 'string' || !message.trim() || !projectId || !operationId) {
       return NextResponse.json(
@@ -448,6 +452,10 @@ export async function POST(req: NextRequest) {
             streamCallback,
             tokenTracker,
             chatFrameEvidence: visualEvidence,
+            // Structured Auto-Director confirmation (Director Mode). The tool ORs
+            // this into its wire input so a button-driven confirm executes without
+            // parsing "yes" from free text.
+            autoDirectorConfirmed,
           }
         });
 
