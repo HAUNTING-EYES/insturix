@@ -152,6 +152,17 @@ describe('chat request owner classification', () => {
     expect(prompt).toContain('targetFullySpecified=true');
   });
 
+  it('defines selected spoken-dialogue dubbing as a distinct durable operation', () => {
+    const prompt = buildChatRequestOwnerPrompt({
+      ...baseInput,
+      userMessage: 'Dub the selected clip to English.',
+      selectedOverlayPresent: true,
+    });
+
+    expect(prompt).toContain('durableOperation: selected-dialogue-dubbing');
+    expect(prompt).toContain('source separation, translation, timing, and commit owner');
+  });
+
   it('derives mechanical ownership from a fully specified literal timeline edit', async () => {
     const generate = vi.fn(async () => ({
       text: JSON.stringify({
@@ -227,6 +238,10 @@ describe('chat request owner classification', () => {
       ...baseFacts,
       requiresEditorialJudgment: true,
     })).toBe('editorial-plan');
+    expect(deriveChatSemanticWorkflow({
+      ...baseFacts,
+      durableOperation: 'selected-dialogue-dubbing',
+    })).toBe('selected-dialogue-dubbing');
   });
 });
 
@@ -249,6 +264,8 @@ describe('chat request owner capability filtering', () => {
     'add_sfx',
     'refresh_captions',
     'reframe_project',
+    'dub_selected_dialogue',
+    'get_dubbing_job_result',
     'restore_ai_edit_checkpoint',
     'unknown_tool',
   ].map((name) => ({ name }));
@@ -264,6 +281,7 @@ describe('chat request owner capability filtering', () => {
       'resolve_visual_edit',
       'queue_resolved_clip_analysis',
       'apply_editorial_intent',
+      'get_dubbing_job_result',
     ]);
   });
 
@@ -274,6 +292,7 @@ describe('chat request owner capability filtering', () => {
       'resolve_visual_edit',
       'queue_resolved_clip_analysis',
       'apply_reference_style',
+      'get_dubbing_job_result',
     ]);
     expect(namesFor('semantic-editorial-planner', 'localized-mutation')).toEqual([
       'read_project_file',
@@ -285,6 +304,16 @@ describe('chat request owner capability filtering', () => {
       'generate_html_sticker',
       'set_keyframes',
       'add_sfx',
+      'get_dubbing_job_result',
+    ]);
+  });
+
+  it('licenses selected dialogue dubbing as one non-overlapping durable workflow', () => {
+    expect(namesFor('semantic-editorial-planner', 'selected-dialogue-dubbing')).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'dub_selected_dialogue',
+      'get_dubbing_job_result',
     ]);
   });
 
@@ -302,6 +331,7 @@ describe('chat request owner capability filtering', () => {
       'add_sfx',
       'refresh_captions',
       'reframe_project',
+      'get_dubbing_job_result',
     ]);
     expect(names).not.toEqual(expect.arrayContaining([
       'apply_editorial_intent',
@@ -318,11 +348,13 @@ describe('chat request owner capability filtering', () => {
       'get_timeline_view',
       'resolve_visual_edit',
       'queue_resolved_clip_analysis',
+      'get_dubbing_job_result',
     ]);
-    expect(namesFor('conversation')).toEqual(['read_project_file', 'get_timeline_view']);
+    expect(namesFor('conversation')).toEqual(['read_project_file', 'get_timeline_view', 'get_dubbing_job_result']);
     expect(namesFor('checkpoint-restorer')).toEqual([
       'read_project_file',
       'get_timeline_view',
+      'get_dubbing_job_result',
       'restore_ai_edit_checkpoint',
     ]);
   });
@@ -334,6 +366,9 @@ describe('chat request owner capability filtering', () => {
     expect(formatChatRequestOwnerLicenseForPrompt(
       license('semantic-editorial-planner', 'localized-mutation'),
     )).toContain('semanticWorkflow=localized-mutation');
+    expect(formatChatRequestOwnerLicenseForPrompt(
+      license('semantic-editorial-planner', 'selected-dialogue-dubbing'),
+    )).toContain('Use dub_selected_dialogue as the sole durable operation owner');
     expect(formatChatRequestOwnerLicenseForPrompt(undefined)).toBe('');
   });
 
