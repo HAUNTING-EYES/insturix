@@ -527,6 +527,9 @@ describe('chat request owner capability filtering', () => {
     expect(formatChatRequestOwnerLicenseForPrompt(
       license('semantic-editorial-planner', 'editorial-plan'),
     )).toContain('sole mutation owner');
+    expect(formatChatRequestOwnerLicenseForPrompt(
+      license('semantic-editorial-planner', 'editorial-plan'),
+    )).toContain('call read_project_file or get_timeline_view');
     expect(formatChatRequestOwnerLicenseForPrompt(undefined)).toBe('');
   });
 

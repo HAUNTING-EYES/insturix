@@ -475,13 +475,18 @@ export function formatChatRequestOwnerLicenseForPrompt(
         ? 'Resolve the requested media moment first, then call only the exact mutation and arguments returned in data.useWith. The server rejects ungrounded or altered continuations.'
         : semanticWorkflow === 'selected-dialogue-dubbing'
           ? 'Use dub_selected_dialogue as the sole durable operation owner. A queued job is not completion; use get_dubbing_job_result on a later turn.'
-        : 'Use only tools declared for this owner.';
+      : 'Use only tools declared for this owner.';
+  const timelineEvidenceRule = license.owner === 'semantic-editorial-planner'
+    || license.owner === 'mechanical-editor'
+    ? 'Before any visual or timeline mutation, call read_project_file or get_timeline_view for the current revision. Resolver output does not replace this timeline read.'
+    : '';
   return `<turn_capability_license>
 version=${license.version}
 owner=${license.owner}
 ${semanticWorkflow ? `semanticWorkflow=${semanticWorkflow}\n` : ''}${license.routingFacts
     ? `familyDirectives=${JSON.stringify(license.routingFacts.familyDirectives)}\nfamilyScopeExclusive=${license.routingFacts.familyScopeExclusive}\n`
     : ''}${workflowRule}
+${timelineEvidenceRule}
 Only the function declarations attached to this turn are callable. Do not name, request, or simulate hidden tools. Do not use generic overlays or low-level mutations to bypass the licensed owner. Complete the turn through this owner only.
 </turn_capability_license>`;
 }

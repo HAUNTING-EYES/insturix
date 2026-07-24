@@ -433,7 +433,9 @@ function enforceEvidenceContract(input: {
     message: hasStaleRequiredEvidence
       ? `Canonical evidence for ${input.toolName} belongs to an older project revision.`
       : `${input.toolName} requires current ${missing.join(', ')} evidence before mutation.`,
-    nextAction: 'Call read_project_file as the only next tool, then retry this exact target once.',
+    nextAction: missing.includes('timeline-state')
+      ? 'Call read_project_file or get_timeline_view as the only next tool, then retry this exact target once.'
+      : 'Call read_project_file as the only next tool, then retry this exact target once.',
   });
 }
 

@@ -240,6 +240,9 @@ const DEFAULT_LOADING_MESSAGES = ['Working'];
 
 function defineTool(input: ChatToolMetadataInput): ChatToolMetadata {
   const mutatesProject = input.mutatesProject ?? false;
+  const postconditionContract = mutatesProject
+    ? input.postconditions ?? defaultPostconditions(input.iconCategory)
+    : null;
   return {
     ...input,
     executionType: input.executionType ?? 'quick',
@@ -247,21 +250,30 @@ function defineTool(input: ChatToolMetadataInput): ChatToolMetadata {
     mutatesProject,
     requiresProjectReload: input.requiresProjectReload ?? mutatesProject,
     riskLevel: input.riskLevel ?? (mutatesProject ? 'medium' : 'read'),
-    postconditions: mutatesProject
-      ? input.postconditions ?? defaultPostconditions(input.iconCategory)
-      : null,
+    postconditions: postconditionContract,
     executionPolicy: CHAT_TOOL_EXECUTION_CONTRACTS[input.name],
-    turnContract: input.turnContract ?? defaultTurnContract(input.name, mutatesProject),
+    turnContract: input.turnContract ?? defaultTurnContract(
+      input.name,
+      mutatesProject,
+      postconditionContract,
+    ),
     effectContract: input.effectContract ?? { produces: [], redundantAfter: [] },
   };
 }
 
-function defaultTurnContract(name: string, mutatesProject: boolean): ChatToolTurnContract {
+function defaultTurnContract(
+  name: string,
+  mutatesProject: boolean,
+  postconditions: ChatToolPostconditionContract | null,
+): ChatToolTurnContract {
   if (mutatesProject) {
+    const requiresTimelineRead = postconditions?.render.modalities.includes('visual') ?? false;
     return {
       owner: 'mechanical-editor',
       evidenceStrategy: 'preflight',
-      requiredEvidence: ['project-state'],
+      requiredEvidence: requiresTimelineRead
+        ? ['project-state', 'timeline-state']
+        : ['project-state'],
       producesEvidence: [],
     };
   }
@@ -276,7 +288,7 @@ function defaultTurnContract(name: string, mutatesProject: boolean): ChatToolTur
 }
 
 const EVIDENCE_PRODUCERS: Readonly<Record<string, ChatToolEvidenceClass[]>> = {
-  read_project_file: ['project-state'],
+  read_project_file: ['project-state', 'timeline-state'],
   get_timeline_view: ['timeline-state'],
   visual_inspect_frame: ['render-frame'],
   resolve_transcript_edit: ['transcript-target'],
@@ -307,7 +319,7 @@ function defaultPostconditions(iconCategory: ChatToolIconCategory): ChatToolPost
 export const CHAT_TOOL_REGISTRY = {
   read_project_file: defineTool({ name: 'read_project_file', label: 'Reading project data', shortLabel: 'Read', iconCategory: 'file', receiptLabel: 'Read project data' }),
   get_timeline_view: defineTool({ name: 'get_timeline_view', label: 'Reading timeline layout', shortLabel: 'Timeline', iconCategory: 'timeline', receiptLabel: 'Read timeline' }),
-  apply_editorial_intent: defineTool({ name: 'apply_editorial_intent', label: 'Grounding editorial intent', shortLabel: 'Editorial plan', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied grounded editorial intent', loadingMessages: ['Reading the edit', 'Grounding the request', 'Applying warranted changes'], postconditions: postconditions('project-state-changed-or-durable-operation-queued', ['visual', 'audio']), turnContract: { owner: 'semantic-editorial-planner', evidenceStrategy: 'owner-internal', requiredEvidence: [], producesEvidence: [] } }),
+  apply_editorial_intent: defineTool({ name: 'apply_editorial_intent', label: 'Grounding editorial intent', shortLabel: 'Editorial plan', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied grounded editorial intent', loadingMessages: ['Reading the edit', 'Grounding the request', 'Applying warranted changes'], postconditions: postconditions('project-state-changed-or-durable-operation-queued', ['visual', 'audio']), turnContract: { owner: 'semantic-editorial-planner', evidenceStrategy: 'preflight', requiredEvidence: ['project-state', 'timeline-state'], producesEvidence: [] } }),
   apply_reference_style: defineTool({ name: 'apply_reference_style', label: 'Applying reference style', shortLabel: 'Reference style', iconCategory: 'style', executionType: 'generative', receiptLabel: 'Queued reference style', loadingMessages: ['Inspecting the reference', 'Extracting edit language', 'Planning faithful changes'] }),
   add_overlay: defineTool({ name: 'add_overlay', label: 'Adding element', shortLabel: 'Add', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added element', postconditions: postconditions('overlay-created', ['visual', 'audio']) }),
   update_overlay: defineTool({ name: 'update_overlay', label: 'Updating element', shortLabel: 'Update', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Updated element', postconditions: postconditions('overlay-updated', ['visual', 'audio']) }),
@@ -356,7 +368,7 @@ export const CHAT_TOOL_REGISTRY = {
   add_transition: defineTool({ name: 'add_transition', label: 'Adding transition', shortLabel: 'Transition', iconCategory: 'transition', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added transition' }),
   auto_motion_graphics: defineTool({ name: 'auto_motion_graphics', label: 'Adding motion graphics', shortLabel: 'Auto MG', iconCategory: 'motion', executionType: 'generative', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphics', loadingMessages: ['Finding moments', 'Planning graphics', 'Adding motion'] }),
   extract_style: defineTool({ name: 'extract_style', label: 'Extracting edit style', shortLabel: 'Extract', iconCategory: 'style', executionType: 'generative', exposure: 'shadow-authority-filtered', receiptLabel: 'Extracted style', loadingMessages: ['Reading style', 'Finding patterns', 'Building profile'] }),
-  apply_style: defineTool({ name: 'apply_style', label: 'Applying edit style', shortLabel: 'Style', iconCategory: 'style', executionType: 'generative', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied style', loadingMessages: ['Planning style', 'Applying changes', 'Checking timing'], turnContract: { owner: 'semantic-editorial-planner', evidenceStrategy: 'owner-internal', requiredEvidence: [], producesEvidence: [] } }),
+  apply_style: defineTool({ name: 'apply_style', label: 'Applying edit style', shortLabel: 'Style', iconCategory: 'style', executionType: 'generative', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied style', loadingMessages: ['Planning style', 'Applying changes', 'Checking timing'], turnContract: { owner: 'semantic-editorial-planner', evidenceStrategy: 'preflight', requiredEvidence: ['project-state', 'timeline-state'], producesEvidence: [] } }),
   sync_cuts_to_beats: defineTool({ name: 'sync_cuts_to_beats', label: 'Syncing cuts to beats', shortLabel: 'Beat sync', iconCategory: 'audio', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Synced cuts to beats' }),
   set_keyframes: defineTool({ name: 'set_keyframes', label: 'Setting keyframes', shortLabel: 'Keyframes', iconCategory: 'keyframe', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Set keyframes' }),
   regenerate_bgm: defineTool({ name: 'regenerate_bgm', label: 'Regenerating music', shortLabel: 'Music', iconCategory: 'audio', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Regenerated music', loadingMessages: ['Composing music', 'Matching mood', 'Adding track'] }),
@@ -371,7 +383,7 @@ export const CHAT_TOOL_REGISTRY = {
   use_matching_footage: defineTool({ name: 'use_matching_footage', label: 'Using matching footage', shortLabel: 'Use footage', iconCategory: 'stock', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Used matching footage' }),
 
   apply_filter: defineTool({ name: 'apply_filter', label: 'Applying filter', shortLabel: 'Filter', iconCategory: 'style', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Applied filter' }),
-  reframe_project: defineTool({ name: 'reframe_project', label: 'Reframing project', shortLabel: 'Reframe', iconCategory: 'visual', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Reframed project', loadingMessages: ['Reading subject positions', 'Reframing the timeline', 'Checking focal tracks'], postconditions: postconditions('project-state-changed', ['visual']), turnContract: { owner: 'mechanical-editor', evidenceStrategy: 'owner-internal', requiredEvidence: [], producesEvidence: [] } }),
+  reframe_project: defineTool({ name: 'reframe_project', label: 'Reframing project', shortLabel: 'Reframe', iconCategory: 'visual', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Reframed project', loadingMessages: ['Reading subject positions', 'Reframing the timeline', 'Checking focal tracks'], postconditions: postconditions('project-state-changed', ['visual']), turnContract: { owner: 'mechanical-editor', evidenceStrategy: 'preflight', requiredEvidence: ['project-state', 'timeline-state'], producesEvidence: [] } }),
 } satisfies Record<ChatToolName, ChatToolMetadata>;
 
 export function getChatToolMetadata(toolName: string): ChatToolMetadata | undefined {

@@ -103,8 +103,8 @@ describe('chat tool turn protocol', () => {
       'timeline',
     ]);
     expect(scheduleChatToolCalls(calls, ['project-state']).map((call) => call.id)).toEqual([
-      'add-1',
       'read',
+      'add-1',
       'add-2',
       'timeline',
     ]);
@@ -118,6 +118,9 @@ describe('chat tool turn protocol', () => {
       expect(metadata.turnContract.evidenceStrategy, metadata.name).not.toBe('none');
       if (metadata.turnContract.evidenceStrategy === 'preflight') {
         expect(metadata.turnContract.requiredEvidence, metadata.name).toContain('project-state');
+        if (metadata.postconditions?.render.modalities.includes('visual')) {
+          expect(metadata.turnContract.requiredEvidence, metadata.name).toContain('timeline-state');
+        }
       }
     }
   });
@@ -199,10 +202,21 @@ describe('chat tool turn protocol', () => {
     })).toMatchObject({ action: 'block', reason: 'missing-evidence' });
   });
 
-  it('uses the server-loaded canonical project as project-state evidence', () => {
+  it('does not treat server-loaded canonical state as an explicit visual timeline read', () => {
     expect(decideChatToolExecution({
       toolName: 'add_overlay',
       args: { type: 'text' },
+      ledger: ledger(),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+    })).toMatchObject({ action: 'block', reason: 'missing-evidence' });
+  });
+
+  it('uses the server-loaded canonical project as project-state evidence for audio-only mutation', () => {
+    expect(decideChatToolExecution({
+      toolName: 'regenerate_bgm',
+      args: { prompt: 'restrained ambient bed' },
       ledger: ledger(),
       projectId: PROJECT_ID,
       projectRevision: REVISION,
@@ -240,7 +254,7 @@ describe('chat tool turn protocol', () => {
     expect(decideChatToolExecution({
       toolName: 'add_overlay',
       args: resolvedArgs,
-      ledger: ledger([resolved]),
+      ledger: ledger([currentProjectRead(), resolved]),
       projectId: PROJECT_ID,
       projectRevision: REVISION,
       canonicalProjectEvidence: true,
@@ -250,7 +264,7 @@ describe('chat tool turn protocol', () => {
     const altered = decideChatToolExecution({
       toolName: 'add_overlay',
       args: { ...resolvedArgs, assetId: 'asset-2' },
-      ledger: ledger([resolved]),
+      ledger: ledger([currentProjectRead(), resolved]),
       projectId: PROJECT_ID,
       projectRevision: REVISION,
       canonicalProjectEvidence: true,
@@ -291,7 +305,10 @@ describe('chat tool turn protocol', () => {
     expect(decideChatToolExecution({
       toolName: 'generate_html_sticker',
       args: resolvedArgs,
-      ledger: ledger([execution('resolve_sticker_overlay', resolverOutput, { evidenceReceipts })]),
+      ledger: ledger([
+        currentProjectRead(),
+        execution('resolve_sticker_overlay', resolverOutput, { evidenceReceipts }),
+      ]),
       projectId: PROJECT_ID,
       projectRevision: REVISION,
       canonicalProjectEvidence: true,
@@ -311,7 +328,7 @@ describe('chat tool turn protocol', () => {
     const repeated = decideChatToolExecution({
       toolName: 'generate_html_sticker',
       args,
-      ledger: ledger([denied]),
+      ledger: ledger([currentProjectRead(), denied]),
       projectId: PROJECT_ID,
       projectRevision: REVISION,
       canonicalProjectEvidence: true,
@@ -339,7 +356,7 @@ describe('chat tool turn protocol', () => {
     expect(decideChatToolExecution({
       toolName: 'generate_html_sticker',
       args,
-      ledger: ledger([denied, resolved]),
+      ledger: ledger([currentProjectRead(), denied, resolved]),
       projectId: PROJECT_ID,
       projectRevision: REVISION,
       canonicalProjectEvidence: true,
@@ -416,7 +433,7 @@ describe('chat tool turn protocol', () => {
     expect(decideChatToolExecution({
       toolName: 'apply_editorial_intent',
       args: { goal: 'add captions' },
-      ledger: ledger([firstFailure]),
+      ledger: ledger([currentProjectRead(), firstFailure]),
       projectId: PROJECT_ID,
       projectRevision: REVISION,
     })).toEqual({ action: 'execute' });
@@ -427,7 +444,7 @@ describe('chat tool turn protocol', () => {
     expect(decideChatToolExecution({
       toolName: 'apply_editorial_intent',
       args: { goal: 'add captions' },
-      ledger: ledger([firstFailure, secondFailure]),
+      ledger: ledger([currentProjectRead(), firstFailure, secondFailure]),
       projectId: PROJECT_ID,
       projectRevision: REVISION,
     })).toMatchObject({ action: 'block', reason: 'validation-retry-limit' });
@@ -442,14 +459,14 @@ describe('chat tool turn protocol', () => {
     expect(decideChatToolExecution({
       toolName: 'apply_editorial_intent',
       args: { goal: 'add captions' },
-      ledger: ledger([success]),
+      ledger: ledger([currentProjectRead(), success]),
       projectId: PROJECT_ID,
       projectRevision: REVISION,
     })).toMatchObject({ action: 'replay', reason: 'identical-call' });
     expect(decideChatToolExecution({
       toolName: 'apply_editorial_intent',
       args: { goal: 'add music' },
-      ledger: ledger([success]),
+      ledger: ledger([currentProjectRead(), success]),
       projectId: PROJECT_ID,
       projectRevision: REVISION,
     })).toMatchObject({ action: 'block', reason: 'turn-limit' });
