@@ -188,7 +188,14 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('spoken-phrase-english', 'English phrase without timestamp', 'Remove the words pricing is simple.', { requiredToolSequence: ['resolve_transcript_edit', 'cut_section'] }),
   scenario('spoken-phrase-devanagari', 'Devanagari phrase without timestamp', '\u091c\u0939\u093e\u0901 \u092e\u0948\u0902 \u0915\u0939\u0924\u093e \u0939\u0942\u0901 \u0915\u0940\u092e\u0924 \u0906\u0938\u093e\u0928 \u0939\u0948 \u0935\u0939 \u0939\u093f\u0938\u094d\u0938\u093e \u0939\u091f\u093e \u0926\u094b\u0964', { requiredToolSequence: ['resolve_transcript_edit', 'cut_section'] }),
   scenario('untimed-transcript-cache', 'Untimed transcript cache', 'Remove the phrase pricing is simple without asking me for a timestamp.', { requiredToolSequence: ['resolve_transcript_edit', 'cut_section'] }),
-  scenario('semantic-transcript-topic', 'Semantic transcript topic', 'Remove the part where I explain why pricing matters.', { requiredToolSequence: ['resolve_transcript_edit', 'cut_section'] }),
+  scenario('semantic-transcript-topic', 'Semantic transcript topic', 'Remove the part where I explain why pricing matters.', {
+    mutationExpectation: 'forbidden',
+    minimumSuccessfulMutations: 0,
+    requiredToolSequence: ['resolve_transcript_edit'],
+    requireEvidenceBeforeMutation: false,
+    requireUiReload: false,
+    requireRenderedEvidence: false,
+  }),
   scenario('roman-hinglish-phrase', 'Roman Hinglish phrase', 'Jahan main bolta hoon pricing simple hai woh part hata do.', { requiredToolSequence: ['resolve_transcript_edit', 'cut_section'] }),
   scenario('visual-object-exact', 'Exact visual object reference', 'When the logo appears, add a small highlight around it.', { requiredToolSequence: ['resolve_visual_edit', 'add_overlay'] }),
   scenario('visual-object-paraphrase', 'Visual paraphrase', 'Highlight the shot where the garment sketch is being measured.', { requiredToolSequence: ['resolve_visual_edit', 'add_overlay'] }),
@@ -969,6 +976,16 @@ function mutationCheckStatus(
 
 function isMutatingTool(name: string): boolean {
   return getChatToolMetadata(name)?.mutatesProject === true;
+}
+
+export function chatBattleInvocationHasSuccessfulMutation(
+  invocation: ChatBattleInvocationEvidence,
+): boolean {
+  return invocation.toolEvents.some((event) =>
+    Boolean(event.completedAt)
+    && isMutatingTool(event.name)
+    && isSuccessfulToolOutput(event.output),
+  );
 }
 
 function isSuccessfulToolOutput(output: unknown): boolean {

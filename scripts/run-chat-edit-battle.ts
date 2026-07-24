@@ -9,6 +9,7 @@ import { cleanupDisposableChatBattleFixture } from '../lib/editron/services/chat
 import {
   CHAT_EDIT_BATTLE_SCENARIOS,
   buildChatBattleProjectSnapshot,
+  chatBattleInvocationHasSuccessfulMutation,
   chatBattleToolEventsFromSse,
   extractPersistedChatBattleRenderEvidence,
   getChatEditBattleScenario,
@@ -178,6 +179,9 @@ async function main(): Promise<void> {
           requiresRenderedEvidence: scenario.requireRenderedEvidence,
           initialStatus: initial.status,
           invocationError: latestInvocation?.error ?? latestDurableMutationFailure,
+          hasSuccessfulMutation: latestInvocation
+            ? chatBattleInvocationHasSuccessfulMutation(latestInvocation)
+            : false,
         })) return initial;
         console.log('[chat-battle] waiting for fresh rendered evidence');
         return waitForFreshChatBattleRenderEvidence({
@@ -426,9 +430,11 @@ export function shouldPollForFreshChatBattleRenderEvidence(input: {
   requiresRenderedEvidence: boolean;
   initialStatus: ChatBattleRenderEvidence['status'];
   invocationError?: string | null;
+  hasSuccessfulMutation: boolean;
 }): boolean {
   return input.requiresRenderedEvidence
     && input.initialStatus === 'missing'
+    && input.hasSuccessfulMutation
     && !input.invocationError;
 }
 

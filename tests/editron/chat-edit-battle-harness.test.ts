@@ -630,6 +630,15 @@ describe('chat edit battle harness', () => {
     expect(reframing.prompt).toContain('keep the main subject visible');
   });
 
+  it('keeps semantic transcript deletion fail-closed until the user confirms an exact range', () => {
+    const scenario = getChatEditBattleScenario('semantic-transcript-topic')!;
+
+    expect(scenario.mutationExpectation).toBe('forbidden');
+    expect(scenario.minimumSuccessfulMutations).toBe(0);
+    expect(scenario.requiredToolSequence).toEqual(['resolve_transcript_edit']);
+    expect(scenario.requireRenderedEvidence).toBe(false);
+  });
+
   it('extracts and merges the two durable dubbing proof turns without inventing a job id', () => {
     const initial = invocation('selected-dialogue-dubbing', [{
       id: 'dub',
@@ -1265,13 +1274,22 @@ describe('chat edit battle harness', () => {
       requiresRenderedEvidence: true,
       initialStatus: 'missing',
       invocationError: 'CHAT_PROVIDER_CREDITS_DEPLETED',
+      hasSuccessfulMutation: true,
     })).toBe(false);
 
     expect(shouldPollForFreshChatBattleRenderEvidence({
       requiresRenderedEvidence: true,
       initialStatus: 'missing',
       invocationError: null,
+      hasSuccessfulMutation: true,
     })).toBe(true);
+
+    expect(shouldPollForFreshChatBattleRenderEvidence({
+      requiresRenderedEvidence: true,
+      initialStatus: 'missing',
+      invocationError: null,
+      hasSuccessfulMutation: false,
+    })).toBe(false);
   });
 
   it('tracks render verification lifecycle without regressing a delivered job to dispatched', () => {
