@@ -156,6 +156,7 @@ export interface MgRenderJobRunnerDependencies {
   deliverResult?: typeof deliverMgRenderJobResult;
   getJobState?: typeof getMgRenderJobState;
   waitForProjectReady?: typeof waitForDirectorSaveBarrier;
+  reconcileParent?: typeof reconcileChatEditorialIntentParent;
 }
 
 export class MgRenderJobExecutionError extends Error {
@@ -258,6 +259,17 @@ async function getMgRenderJobState(jobId: string): Promise<{
       userId: job.userId,
     }
     : { status: 'missing', leaseExpiresAt: null, nextAttemptAt: null, projectId: null, userId: null };
+}
+
+async function reconcileChatEditorialIntentParent(input: {
+  jobId: string;
+  projectId: string;
+  userId: string;
+}): Promise<void> {
+  const { reconcileChatEditorialIntentMgChild } = await import(
+    '@/lib/editron/services/chat-editorial-intent-job'
+  );
+  await reconcileChatEditorialIntentMgChild(input);
 }
 
 function directorSaveBarrierTimeoutMs(env: EnvLike): number {
@@ -404,6 +416,8 @@ async function executeClaimedMgRenderJob(
   const failJob = dependencies.failJob ?? failMgRenderJob;
   const executeSandbox = dependencies.executeSandbox ?? executeMgRenderInSandbox;
   const deliverResult = dependencies.deliverResult ?? deliverMgRenderJobResult;
+  const reconcileParent = dependencies.reconcileParent ?? reconcileChatEditorialIntentParent;
+  let result: MgRenderWorkerResult;
 
   try {
     if (!claimed.request) throw new Error(`MG render job ${claimed._id} is missing its executable request`);
@@ -417,7 +431,7 @@ async function executeClaimedMgRenderJob(
       orgId: claimed.orgId,
       expiresAtMs: now.getTime() + authTtlMs(env, leaseMs),
     };
-    const result = await executeSandbox({
+    result = await executeSandbox({
       request: claimed.request,
       executionId: leaseId,
       storageAuthorization: {
@@ -430,7 +444,6 @@ async function executeClaimedMgRenderJob(
     if (deliver) await deliverResult(claimed, result);
     const completed = await completeJob({ jobId: claimed._id, leaseId, result });
     if (!completed) throw new Error(`MG render job ${claimed._id} lost its lease before completion`);
-    return result;
   } catch (error) {
     const disposition = await failJob({
       jobId: claimed._id,
@@ -438,8 +451,32 @@ async function executeClaimedMgRenderJob(
       error,
       retryable: retryableSandboxFailure(error),
     });
+    if (deliver && disposition === 'failed') {
+      try {
+        await reconcileParent({
+          jobId: claimed._id,
+          projectId: claimed.projectId,
+          userId: claimed.userId,
+        });
+      } catch (reconciliationError) {
+        throw new Error(
+          `MG render job ${claimed._id} reached terminal failure but parent reconciliation failed: ${
+            reconciliationError instanceof Error ? reconciliationError.message : String(reconciliationError)
+          }`,
+          { cause: reconciliationError },
+        );
+      }
+    }
     throw new MgRenderJobExecutionError(claimed._id, disposition, error);
   }
+  if (deliver) {
+    await reconcileParent({
+      jobId: claimed._id,
+      projectId: claimed.projectId,
+      userId: claimed.userId,
+    });
+  }
+  return result;
 }
 
 export async function executeQueuedMgRenderJob(
@@ -462,6 +499,19 @@ export async function executeQueuedMgRenderJob(
   const dependencies = options.dependencies ?? {};
   const state = await (dependencies.getJobState ?? getMgRenderJobState)(jobId);
   if (state.status === 'missing' || !state.projectId || !state.userId) {
+    return {
+      status: 'not-claimed',
+      jobStatus: state.status,
+      leaseExpiresAt: state.leaseExpiresAt,
+      nextAttemptAt: state.nextAttemptAt,
+    };
+  }
+  if (state.status === 'completed' || state.status === 'failed') {
+    await (dependencies.reconcileParent ?? reconcileChatEditorialIntentParent)({
+      jobId,
+      projectId: state.projectId,
+      userId: state.userId,
+    });
     return {
       status: 'not-claimed',
       jobStatus: state.status,

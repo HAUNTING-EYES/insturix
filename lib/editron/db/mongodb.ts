@@ -197,6 +197,10 @@ export async function initializeIndexes(): Promise<void> {
   await db.collection(COLLECTIONS.CHAT_EDITORIAL_INTENT_JOBS).createIndexes([
     { key: { idempotencyKey: 1 }, name: 'idempotencyKey_unique', unique: true },
     { key: { status: 1, leaseExpiresAt: 1, createdAt: 1 }, name: 'status_lease_createdAt' },
+    {
+      key: { status: 1, pendingChildJobIds: 1, projectId: 1, userId: 1 },
+      name: 'status_pendingChild_project_user',
+    },
     { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
     { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
   ]);

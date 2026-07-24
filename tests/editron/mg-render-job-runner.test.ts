@@ -215,6 +215,7 @@ describe('durable MG render job runner', () => {
     const result = generatedResult(queued._id);
     const deliverResult = vi.fn(async () => undefined);
     const completeJob = vi.fn(async () => true);
+    const reconcileParent = vi.fn(async () => undefined);
 
     await expect(executeQueuedMgRenderJob(queued._id, {
       env: ENV,
@@ -227,6 +228,7 @@ describe('durable MG render job runner', () => {
         deliverResult,
         completeJob,
         failJob: vi.fn(),
+        reconcileParent,
       },
     })).resolves.toEqual({ status: 'completed', result });
 
@@ -235,7 +237,75 @@ describe('durable MG render job runner', () => {
       jobId: queued._id,
       result,
     }));
+    expect(reconcileParent).toHaveBeenCalledWith({
+      jobId: queued._id,
+      projectId: 'project-1',
+      userId: 'user-1',
+    });
     expect(deliverResult.mock.invocationCallOrder[0]).toBeLessThan(completeJob.mock.invocationCallOrder[0]);
+    expect(completeJob.mock.invocationCallOrder[0]).toBeLessThan(reconcileParent.mock.invocationCallOrder[0]);
+  });
+
+  it('replays only parent reconciliation when a completed child worker delivery is retried', async () => {
+    const completed = queuedJobState({ status: 'completed' });
+    const reconcileParent = vi.fn(async () => undefined);
+    const claimJob = vi.fn();
+    const executeSandbox = vi.fn();
+
+    await expect(executeQueuedMgRenderJob(job()._id, {
+      env: ENV,
+      now: NOW,
+      dependencies: {
+        getJobState: vi.fn(async () => completed),
+        reconcileParent,
+        claimJob,
+        executeSandbox,
+      },
+    })).resolves.toEqual({
+      status: 'not-claimed',
+      jobStatus: 'completed',
+      leaseExpiresAt: null,
+      nextAttemptAt: NOW,
+    });
+
+    expect(reconcileParent).toHaveBeenCalledOnce();
+    expect(claimJob).not.toHaveBeenCalled();
+    expect(executeSandbox).not.toHaveBeenCalled();
+  });
+
+  it('notifies the parent after terminal child failure without rewriting child disposition', async () => {
+    const queued = job();
+    const running = { ...queued, status: 'running' as const, leaseId: 'mgl_worker' };
+    const failJob = vi.fn(async () => 'failed' as const);
+    const reconcileParent = vi.fn(async () => undefined);
+
+    await expect(executeQueuedMgRenderJob(queued._id, {
+      env: ENV,
+      now: NOW,
+      dependencies: {
+        getJobState: vi.fn(async () => queuedJobState()),
+        waitForProjectReady: vi.fn(async () => true),
+        claimJob: vi.fn(async () => running),
+        executeSandbox: vi.fn(async () => {
+          throw new Error('terminal renderer configuration failure');
+        }),
+        deliverResult: vi.fn(),
+        completeJob: vi.fn(),
+        failJob,
+        reconcileParent,
+      },
+    })).rejects.toThrow(/failed \(failed\): terminal renderer configuration failure/);
+
+    expect(failJob).toHaveBeenCalledWith(expect.objectContaining({
+      jobId: queued._id,
+      retryable: true,
+    }));
+    expect(reconcileParent).toHaveBeenCalledWith({
+      jobId: queued._id,
+      projectId: 'project-1',
+      userId: 'user-1',
+    });
+    expect(failJob.mock.invocationCallOrder[0]).toBeLessThan(reconcileParent.mock.invocationCallOrder[0]);
   });
 
   it('does no paid or persistence work when another worker owns the lease', async () => {

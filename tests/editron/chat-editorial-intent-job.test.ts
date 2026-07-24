@@ -13,6 +13,7 @@ import {
   ChatEditorialIntentRetryableError,
   buildChatEditorialIntentProjectBrief,
   queueChatEditorialIntentJob,
+  reconcileChatEditorialIntentMgChild,
   runChatEditorialIntentJob,
   type ChatEditorialIntentJob,
   type ChatEditorialIntentJobStore,
@@ -199,6 +200,193 @@ describe('durable chat editorial-intent jobs', () => {
       status: 'completed_unverified',
       error: 'render-worker-unavailable',
     });
+  });
+
+  it('waits for durable MG children instead of falsely declining an asynchronous render', async () => {
+    const store = new MemoryStore(queuedJob());
+    let loadCount = 0;
+    const checkpoint = checkpointRuntime([]);
+
+    const result = await runChatEditorialIntentJob(workerPayload(), {
+      store,
+      loadProject: async () => {
+        loadCount += 1;
+        return loadCount === 1
+          ? project('before')
+          : {
+            ...project('before'),
+            intelligence: {
+              mgCodegenRun: {
+                outcomes: [
+                  { status: 'queued', jobId: 'mgr_bbbbbbbbbbbbbbbbbbbbbbbb' },
+                  { status: 'queued', jobId: 'mgr_aaaaaaaaaaaaaaaaaaaaaaaa' },
+                  { status: 'queued', jobId: 'mgr_bbbbbbbbbbbbbbbbbbbbbbbb' },
+                ],
+              },
+            },
+          };
+      },
+      executeDirector: async () => directorResult(0),
+      loadChildJobs: async (jobIds) => jobIds.map((jobId) => ({
+        _id: jobId,
+        status: 'queued' as const,
+        result: null,
+        lastError: null,
+      })),
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({
+      status: 'waiting_children',
+      jobId: 'job-intent-1',
+      reason: 'waiting-for-async-mg-render:2',
+    });
+    expect(store.jobs.get('job-intent-1')).toMatchObject({
+      status: 'waiting_children',
+      pendingChildJobIds: [
+        'mgr_aaaaaaaaaaaaaaaaaaaaaaaa',
+        'mgr_bbbbbbbbbbbbbbbbbbbbbbbb',
+      ],
+      result: {
+        overlaysModified: 0,
+        lifecycle: 'waiting-for-async-mg-render',
+      },
+    });
+    expect(store.jobs.get('job-intent-1')?.completedAt).toBeUndefined();
+    expect(checkpoint.dependencies.checkpointService.updateChatEditOperation).not.toHaveBeenCalled();
+  });
+
+  it('reconciles a generated MG child into the parent checkpoint and rendered proof exactly once', async () => {
+    const parent = waitingParentJob(['mgr_aaaaaaaaaaaaaaaaaaaaaaaa']);
+    const store = new MemoryStore(parent);
+    const checkpoint = checkpointRuntime([]);
+    checkpoint.seedBeforeCheckpoint(parent, project('before'));
+    const afterProject = {
+      ...project('before'),
+      overlays: [
+        ...project('before').overlays,
+        {
+          id: 'mg-sequence-1',
+          type: 'motion-graphic',
+          from: 90,
+          durationInFrames: 90,
+          row: 3,
+          metadata: { mgRenderJobId: 'mgr_aaaaaaaaaaaaaaaaaaaaaaaa' },
+        },
+      ],
+    };
+    const dispatchRenderEvidence = vi.fn(async () => ({
+      dispatched: true,
+      messageId: 'render-mg-parent-1',
+    }));
+    const loadChildJobs = vi.fn(async () => [{
+      _id: 'mgr_aaaaaaaaaaaaaaaaaaaaaaaa',
+      status: 'completed' as const,
+      result: { status: 'generated', sequence: { address: { sequenceId: 'seq-1' } } },
+      lastError: null,
+    }]);
+
+    const first = await reconcileChatEditorialIntentMgChild({
+      jobId: 'mgr_aaaaaaaaaaaaaaaaaaaaaaaa',
+      projectId: 'project-1',
+      userId: 'user-1',
+    }, {
+      store,
+      loadChildJobs,
+      loadProject: async () => structuredClone(afterProject),
+      dispatchRenderEvidence,
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+    const replay = await reconcileChatEditorialIntentMgChild({
+      jobId: 'mgr_aaaaaaaaaaaaaaaaaaaaaaaa',
+      projectId: 'project-1',
+      userId: 'user-1',
+    }, {
+      store,
+      loadChildJobs,
+      loadProject: async () => structuredClone(afterProject),
+      dispatchRenderEvidence,
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(first).toEqual({ reconciled: 1, waiting: 0 });
+    expect(replay).toEqual({ reconciled: 0, waiting: 0 });
+    expect(store.jobs.get(parent._id)).toMatchObject({
+      status: 'completed',
+      afterCheckpointId: `${parent._id}:after:attempt:1`,
+      result: {
+        lifecycle: 'async-mg-render-reconciled',
+        generatedChildJobIds: ['mgr_aaaaaaaaaaaaaaaaaaaaaaaa'],
+        childOutcomes: [{
+          jobId: 'mgr_aaaaaaaaaaaaaaaaaaaaaaaa',
+          jobStatus: 'completed',
+          outcome: 'generated',
+        }],
+      },
+    });
+    expect(checkpoint.createCheckpoint).toHaveBeenCalledTimes(1);
+    expect(dispatchRenderEvidence).toHaveBeenCalledTimes(1);
+  });
+
+  it('declines only after every MG child is terminal and none changed canonical project state', async () => {
+    const parent = waitingParentJob([
+      'mgr_aaaaaaaaaaaaaaaaaaaaaaaa',
+      'mgr_bbbbbbbbbbbbbbbbbbbbbbbb',
+    ]);
+    const store = new MemoryStore(parent);
+    const checkpoint = checkpointRuntime([]);
+    checkpoint.seedBeforeCheckpoint(parent, project('before'));
+    const children = [
+      {
+        _id: 'mgr_aaaaaaaaaaaaaaaaaaaaaaaa',
+        status: 'completed' as const,
+        result: { status: 'declined', reason: 'not visually explainable' },
+        lastError: null,
+      },
+      {
+        _id: 'mgr_bbbbbbbbbbbbbbbbbbbbbbbb',
+        status: 'failed' as const,
+        result: null,
+        lastError: 'terminal provider failure',
+      },
+    ];
+
+    const result = await reconcileChatEditorialIntentMgChild({
+      jobId: 'mgr_bbbbbbbbbbbbbbbbbbbbbbbb',
+      projectId: 'project-1',
+      userId: 'user-1',
+    }, {
+      store,
+      loadChildJobs: async () => children,
+      loadProject: async () => project('before'),
+      dispatchRenderEvidence: vi.fn(),
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({ reconciled: 1, waiting: 0 });
+    expect(store.jobs.get(parent._id)).toMatchObject({
+      status: 'declined',
+      result: {
+        lifecycle: 'async-mg-render-reconciled',
+        childOutcomes: [
+          expect.objectContaining({ outcome: 'declined', reason: 'not visually explainable' }),
+          expect.objectContaining({ outcome: 'failed', error: 'terminal provider failure' }),
+        ],
+      },
+    });
+    expect(checkpoint.createCheckpoint).not.toHaveBeenCalled();
+    expect(
+      checkpoint.dependencies.checkpointService.updateChatEditOperation,
+    ).toHaveBeenCalledWith(
+      parent.beforeCheckpointId,
+      'user-1',
+      'operation-intent-1:editorial-intent:attempt:1',
+      { operationStatus: 'no-op', mutatingToolNames: [] },
+    );
   });
 
   it('keeps the internal worker signed and fails closed outside tests when signing keys are absent', () => {
@@ -390,6 +578,70 @@ class MemoryStore implements ChatEditorialIntentJobStore {
     Object.assign(this.owned(jobId, userId), { beforeCheckpointId: checkpointId, updatedAt: now });
   }
 
+  async markWaitingChildren(
+    jobId: string,
+    userId: string,
+    childJobIds: string[],
+    result: Record<string, unknown>,
+    now: Date,
+  ) {
+    Object.assign(this.owned(jobId, userId), {
+      status: 'waiting_children',
+      pendingChildJobIds: childJobIds,
+      result,
+      leaseId: null,
+      leaseExpiresAt: null,
+      error: null,
+      updatedAt: now,
+    });
+  }
+
+  async findWaitingForChild(childJobId: string, projectId: string, userId: string) {
+    return Array.from(this.jobs.values())
+      .filter((job) => (
+        job.projectId === projectId
+        && job.userId === userId
+        && ['waiting_children', 'reconciling_children'].includes(job.status)
+        && job.pendingChildJobIds?.includes(childJobId)
+      ))
+      .map((job) => structuredClone(job));
+  }
+
+  async claimChildReconciliation(jobId: string, userId: string, leaseId: string, now: Date) {
+    const job = this.owned(jobId, userId);
+    const reclaimable = job.status === 'waiting_children'
+      || (job.status === 'reconciling_children' && Boolean(job.leaseExpiresAt && job.leaseExpiresAt <= now));
+    if (!reclaimable) return null;
+    Object.assign(job, {
+      status: 'reconciling_children',
+      leaseId,
+      leaseExpiresAt: new Date(now.getTime() + 60_000),
+      error: null,
+      updatedAt: now,
+    });
+    return structuredClone(job);
+  }
+
+  async releaseChildReconciliation(
+    jobId: string,
+    userId: string,
+    leaseId: string,
+    error: string,
+    now: Date,
+  ) {
+    const job = this.owned(jobId, userId);
+    if (job.status !== 'reconciling_children' || job.leaseId !== leaseId) {
+      throw new Error('lost child reconciliation lease');
+    }
+    Object.assign(job, {
+      status: 'waiting_children',
+      leaseId: null,
+      leaseExpiresAt: null,
+      error,
+      updatedAt: now,
+    });
+  }
+
   async markDeclined(jobId: string, userId: string, result: Record<string, unknown>, now: Date) {
     Object.assign(this.owned(jobId, userId), {
       status: 'declined',
@@ -481,6 +733,21 @@ function queuedJob(): ChatEditorialIntentJob {
   };
 }
 
+function waitingParentJob(pendingChildJobIds: string[]): ChatEditorialIntentJob {
+  const job = queuedJob();
+  return {
+    ...job,
+    status: 'waiting_children',
+    attemptCount: 1,
+    beforeCheckpointId: `${job._id}:before:attempt:1`,
+    pendingChildJobIds,
+    result: {
+      overlaysModified: 0,
+      lifecycle: 'waiting-for-async-mg-render',
+    },
+  };
+}
+
 function directorResult(overlaysModified: number) {
   return {
     success: true,
@@ -509,16 +776,43 @@ function project(content: 'before' | 'after') {
 }
 
 function checkpointRuntime(order: string[]) {
+  const checkpoints = new Map<string, Checkpoint>();
+  const seedBeforeCheckpoint = (
+    job: ChatEditorialIntentJob,
+    value: Record<string, unknown>,
+  ) => {
+    if (!job.beforeCheckpointId) throw new Error('waiting parent requires a before checkpoint id');
+    const projectState: RestorableProjectState = {
+      presentFields: ['overlays', 'fps', 'durationInFrames'],
+      fields: {
+        overlays: value.overlays ?? [],
+        fps: value.fps,
+        durationInFrames: value.durationInFrames,
+      },
+    };
+    checkpoints.set(
+      job.beforeCheckpointId,
+      checkpoint(job.beforeCheckpointId, attemptOperationId(job), projectState),
+    );
+  };
   const claimChatEditOperation = vi.fn(async (input: Parameters<CheckpointRuntime['claimChatEditOperation']>[0]) => {
     order.push('before-checkpoint');
+    const value = checkpoint(input.checkpointId, input.operationId, input.projectState);
+    checkpoints.set(input.checkpointId, value);
     return {
       claimed: true,
-      checkpoint: checkpoint(input.checkpointId, input.operationId, input.projectState),
+      checkpoint: value,
     };
   });
   const createCheckpoint = vi.fn(async (input: Parameters<CheckpointRuntime['createCheckpoint']>[0]) => {
     order.push('after-checkpoint');
-    return checkpoint(input.checkpointId!, input.operationId!, input.projectState!);
+    const value = checkpoint(input.checkpointId!, input.operationId!, input.projectState!);
+    checkpoints.set(value.checkpointId, value);
+    return value;
+  });
+  const getCheckpoint = vi.fn(async (checkpointId: string, userId: string) => {
+    const value = checkpoints.get(checkpointId);
+    return value?.userId === userId ? structuredClone(value) : null;
   });
   const updateChatEditOperation = vi.fn(async () => undefined);
   const restoreProjectCheckpoint = vi.fn(async (checkpointId: string) => ({
@@ -530,12 +824,14 @@ function checkpointRuntime(order: string[]) {
   const checkpointService = {
     claimChatEditOperation,
     createCheckpoint,
+    getCheckpoint,
     updateChatEditOperation,
     restoreProjectCheckpoint,
   };
   return {
     claimChatEditOperation,
     createCheckpoint,
+    seedBeforeCheckpoint,
     restoreProjectCheckpoint,
     dependencies: {
       checkpointService,
@@ -565,6 +861,10 @@ function checkpointRuntime(order: string[]) {
       }),
     },
   };
+}
+
+function attemptOperationId(job: ChatEditorialIntentJob) {
+  return `${job.operationId}:editorial-intent:attempt:${job.attemptCount}`;
 }
 
 interface CheckpointRuntime {
