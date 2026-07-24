@@ -1,4 +1,5 @@
 import { getDatabase } from '@/lib/editron/db/mongodb';
+import type { MusicGenerationPolicy } from '@/lib/pipeline/bgm-conditioning-contract';
 import type { AudioDispatchResult } from './audio-worker-dispatch';
 import type { EditorialDecisionPolicy } from './editorial-decision-policy';
 
@@ -42,6 +43,7 @@ export interface AutoBgmDecisionEvidence {
   musicPrompt?: string;
   dispatch?: AudioDispatchResult;
   editorialPolicy?: EditorialDecisionPolicy;
+  musicGenerationPolicy?: MusicGenerationPolicy;
   error?: string;
   evaluatedAt: string;
 }
@@ -58,13 +60,16 @@ export function buildAutoBgmDecisionEvidence(input: {
   musicPrompt?: string;
   dispatchResult?: AudioDispatchResult | null;
   editorialPolicy?: EditorialDecisionPolicy;
+  musicGenerationPolicy?: MusicGenerationPolicy;
   error?: unknown;
   evaluatedAt?: string | Date;
 }): AutoBgmDecisionEvidence {
   const recommendation = input.recommendation ?? null;
   const signalShouldAddBgm = typeof recommendation?.shouldAddBgm === 'boolean' ? recommendation.shouldAddBgm : null;
+  const generationBlocked = input.musicGenerationPolicy?.allowed === false;
   const editorialBlocked = input.editorialPolicy?.executionAllowed === false;
-  const shouldAddBgm = editorialBlocked ? false : signalShouldAddBgm;
+  const userBlocked = generationBlocked || editorialBlocked;
+  const shouldAddBgm = userBlocked ? false : signalShouldAddBgm;
   const storyboardOwned = input.isStoryboardProject === true;
   const durationSec = finitePositiveNumber(input.durationSec);
   const dispatchError = errorMessage(input.error) ?? input.dispatchResult?.error;
@@ -75,9 +80,11 @@ export function buildAutoBgmDecisionEvidence(input: {
   let status: AutoBgmDecisionStatus;
   let reason: string;
 
-  if (editorialBlocked) {
+  if (userBlocked) {
     status = 'user-disabled';
-    reason = input.editorialPolicy?.reason ?? 'user-policy-off:music';
+    reason = input.musicGenerationPolicy?.reason
+      ?? input.editorialPolicy?.reason
+      ?? 'user-policy-off:music';
   } else if (!recommendation) {
     status = 'missing-recommendation';
     reason = 'No BGM recommendation was available from signal-computed genre parameters.';
@@ -122,6 +129,7 @@ export function buildAutoBgmDecisionEvidence(input: {
     ...(input.musicPrompt ? { musicPrompt: input.musicPrompt.slice(0, 500) } : {}),
     ...(input.dispatchResult ? { dispatch: input.dispatchResult } : {}),
     ...(input.editorialPolicy ? { editorialPolicy: input.editorialPolicy } : {}),
+    ...(input.musicGenerationPolicy ? { musicGenerationPolicy: input.musicGenerationPolicy } : {}),
     ...(dispatchError ? { error: dispatchError } : {}),
     evaluatedAt,
   };

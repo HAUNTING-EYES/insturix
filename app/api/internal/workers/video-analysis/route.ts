@@ -31,9 +31,29 @@ import {
   type ProviderCostEventStatus,
 } from '@/lib/financials/provider-cost-events';
 import type { ProviderCostBasis, ProviderCostUnits } from '@/lib/financials/provider-cost-estimates';
+import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
+import {
+  normalizeEditorialPreferences,
+  type EditorialPreferences,
+} from '@/lib/editron/production-brief/editorial-preferences';
 
 export const runtime = 'nodejs';
 export const maxDuration = 800; // Steps 1-3 only (~215s typical). TRIBE Phase 2 runs in separate worker.
+
+type MusicPreference = NonNullable<ProjectBrief['musicPreference']>;
+
+const MUSIC_PREFERENCES = new Set<MusicPreference>([
+  'none',
+  'subtle_bed',
+  'energetic',
+  'match_video',
+]);
+
+function normalizeMusicPreference(value: unknown): MusicPreference | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase() as MusicPreference;
+  return MUSIC_PREFERENCES.has(normalized) ? normalized : undefined;
+}
 
 interface VideoAnalysisPayload {
   projectId: string;
@@ -57,6 +77,7 @@ interface VideoAnalysisPayload {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
+  editorialPreferences?: EditorialPreferences;
   creditTransactionId?: string;
   chargedCredits?: number;
 }
@@ -74,6 +95,7 @@ async function handler(request: NextRequest) {
       title, profileId: initialProfileId,
       userIntent, referenceAssetId, referenceVideoUrl, script, platform,
       captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference,
+      editorialPreferences,
     } = payload;
     trackedProjectId = projectId;
 
@@ -85,6 +107,8 @@ async function handler(request: NextRequest) {
 
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
+    const normalizedMusicPreference = normalizeMusicPreference(musicPreference);
+    const normalizedEditorialPreferences = normalizeEditorialPreferences(editorialPreferences);
 
     // Director Mode (assist lane): scans run, but NOTHING is cut. Read the lane
     // once up front so the destructive stage (silence removal) is skipped — the
@@ -100,7 +124,14 @@ async function handler(request: NextRequest) {
     // Mark project as analyzing
     await db.collection('projects').updateOne(
       { projectId },
-      { $set: { autoEditStatus: 'analyzing', autoEditStartedAt: new Date() } },
+      {
+        $set: {
+          autoEditStatus: 'analyzing',
+          autoEditStartedAt: new Date(),
+          ...(normalizedMusicPreference ? { musicPreference: normalizedMusicPreference } : {}),
+          ...(normalizedEditorialPreferences ? { editorialPreferences: normalizedEditorialPreferences } : {}),
+        },
+      },
     );
 
     // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1: Transcription + Cuts FIRST Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
@@ -844,7 +875,9 @@ async function handler(request: NextRequest) {
       profileId: initialProfileId,
       title, platform, userIntent,
       captionStyle, transitionPreference, zoomBehavior,
-      motionGraphics, pacingFeel, musicPreference,
+      motionGraphics, pacingFeel,
+      musicPreference: normalizedMusicPreference,
+      editorialPreferences: normalizedEditorialPreferences,
     };
 
     const hasSegments = rawFootageAnalysis?.segments?.length > 0;
@@ -1125,7 +1158,8 @@ async function handler(request: NextRequest) {
       ...(zoomBehavior && { zoomBehavior }),
       ...(motionGraphics && { motionGraphics }),
       ...(pacingFeel && { pacingFeel }),
-      ...(musicPreference && { musicPreference }),
+      ...(normalizedMusicPreference && { musicPreference: normalizedMusicPreference }),
+      ...(normalizedEditorialPreferences && { editorialPreferences: normalizedEditorialPreferences }),
       ...(platform && { platform }),
       ...(userIntent && { intent: userIntent }),
     };

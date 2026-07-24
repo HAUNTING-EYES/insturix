@@ -39,6 +39,7 @@ import {
 } from '@/lib/editron/services/unified-decision-bundle';
 import { enforceCanonicalDecisionTimeline } from '@/lib/editron/services/decision-timeline-guard';
 import { resolveEditorialDecisionPolicy } from '@/lib/editron/services/editorial-decision-policy';
+import { resolveMusicGenerationPolicy } from '@/lib/pipeline/bgm-conditioning-contract';
 import {
   shouldInjectGlobalCaptionAction,
   shouldRunDirectorScopedEffect,
@@ -526,6 +527,7 @@ export async function executeDirectorPlan(
       throw new Error(`Project ${projectId} not found`);
     }
 
+    const directorProjectRecord = project as any;
     const overlays = project.overlays || [];
     result.checkpointId = `director_${Date.now()}`;
 
@@ -555,10 +557,23 @@ export async function executeDirectorPlan(
       effect: 'canonical-captions',
       executionScope: editorialExecutionScope,
     });
-    const musicEditorialPolicy = resolveEditorialDecisionPolicy(
-      brief?.editorialPreferences,
-      'music',
-    );
+    const musicGenerationPolicy = resolveMusicGenerationPolicy({
+      musicPreferences: [
+        { value: brief?.musicPreference, source: 'director-brief.musicPreference' },
+        { value: directorProjectRecord.musicPreference, source: 'project.musicPreference' },
+        { value: directorProjectRecord.productionBrief?.musicPreference, source: 'project.productionBrief.musicPreference' },
+        { value: directorProjectRecord.productionBriefIntake?.musicPreference, source: 'project.productionBriefIntake.musicPreference' },
+        { value: directorProjectRecord.creativeBrief?.musicPreference, source: 'project.creativeBrief.musicPreference' },
+      ],
+      editorialPreferences: [
+        { value: brief?.editorialPreferences, source: 'director-brief.editorialPreferences' },
+        { value: directorProjectRecord.editorialPreferences, source: 'project.editorialPreferences' },
+        { value: directorProjectRecord.productionBrief?.editorialPreferences, source: 'project.productionBrief.editorialPreferences' },
+        { value: directorProjectRecord.productionBriefIntake?.editorialPreferences, source: 'project.productionBriefIntake.editorialPreferences' },
+        { value: directorProjectRecord.creativeBrief?.editorialPreferences, source: 'project.creativeBrief.editorialPreferences' },
+      ],
+    });
+    const musicEditorialPolicy = musicGenerationPolicy.editorialPolicy;
     let briefPacing: string | undefined;
     let briefSignalContext: Record<string, number> = {};
     let unifiedDecisionBundleExecuted = false;
@@ -1891,6 +1906,7 @@ export async function executeDirectorPlan(
                 totalFrames: bgmTotalFrames,
                 fps: bgmFps,
                 editorialPolicy: musicEditorialPolicy,
+                musicGenerationPolicy,
                 ...evidenceInput,
               });
               await persistAutoBgmDecisionEvidence(projectId, evidence);
@@ -1899,7 +1915,7 @@ export async function executeDirectorPlan(
 
             if (!autoBgmExecutionScopePolicy.run) {
               console.log(`[Director] Auto-BGM skipped (${autoBgmExecutionScopePolicy.reason})`);
-            } else if (!musicEditorialPolicy.executionAllowed || bgmRec?.shouldAddBgm !== true || isStoryboardProject) {
+            } else if (!musicGenerationPolicy.allowed || bgmRec?.shouldAddBgm !== true || isStoryboardProject) {
               const evidence = await persistAutoBgmEvidence({});
               console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, shouldAdd=${evidence.shouldAddBgm}`);
             } else {
@@ -1918,7 +1934,13 @@ export async function executeDirectorPlan(
                   [{ mood: bgmMood, editDirections: { pacing: bgmPacing }, narration: 'voiceover' }],
                   bgmDurationSec,
                 );
-                const requestedMusicPrompt = brief?.editorialPreferences?.musicPrompt;
+                const requestedMusicPrompt = [
+                  brief?.editorialPreferences?.musicPrompt,
+                  directorProjectRecord.editorialPreferences?.musicPrompt,
+                  directorProjectRecord.productionBrief?.editorialPreferences?.musicPrompt,
+                  directorProjectRecord.productionBriefIntake?.editorialPreferences?.musicPrompt,
+                  directorProjectRecord.creativeBrief?.editorialPreferences?.musicPrompt,
+                ].find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim();
                 const bgmMusicPrompt = requestedMusicPrompt
                   ? `${signalMusicPrompt}. User direction: ${requestedMusicPrompt}`
                   : signalMusicPrompt;
@@ -1938,6 +1960,8 @@ export async function executeDirectorPlan(
                   fps: bgmFps,
                   bgmBaseVolume: bgmMix.baseVolume,
                   bgmDuckLevel: bgmMix.duckLevel,
+                  musicPreference: musicGenerationPolicy.musicPreference,
+                  editorialPreferences: musicGenerationPolicy.editorialPreferences,
                 }, 'BGM(auto-edit)');
                 const evidence = await persistAutoBgmEvidence({
                   providerAvailable,
@@ -1971,6 +1995,7 @@ export async function executeDirectorPlan(
                 totalFrames: bgmTotalFrames,
                 fps: bgmFps,
                 editorialPolicy: musicEditorialPolicy,
+                musicGenerationPolicy,
                 error: bgmErr,
               });
               await persistAutoBgmDecisionEvidence(projectId, evidence);
