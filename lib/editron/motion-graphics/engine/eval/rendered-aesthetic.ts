@@ -239,7 +239,7 @@ function scoreSafeArea(overlay: NormalizedOverlay, input: RenderedFrameAesthetic
       severity: 'fail',
     });
   }
-  if (isIntentionalFullFrameMotionGraphic(overlay)) return;
+  if (isIntentionalFullFrameScene(overlay, input)) return;
 
   if (overlay.family === 'caption') {
     scoreCaptionPlatformSafeZone(overlay, input, addIssue);
@@ -608,6 +608,18 @@ function scoreCaptionPlatformSafeZone(
     evidence: `centerYRatio=${centerYRatio.toFixed(2)}; safeRange=${CAPTION_TOP_UNSAFE_RATIO.toFixed(2)}-${CAPTION_BOTTOM_UNSAFE_RATIO.toFixed(2)}; constraint=overlay.caption_unsafe_zone`,
     severity: 'warn',
   });
+}
+
+function isIntentionalFullFrameScene(
+  overlay: NormalizedOverlay,
+  input: RenderedFrameAestheticInput,
+): boolean {
+  if (isIntentionalFullFrameMotionGraphic(overlay)) return true;
+  if (overlay.family !== 'html-scene' || !overlay.box) return false;
+  return overlay.box.x <= 1
+    && overlay.box.y <= 1
+    && overlay.box.x + overlay.box.width >= input.width - 1
+    && overlay.box.y + overlay.box.height >= input.height - 1;
 }
 
 function safeBox(width: number, height: number, margin: number): PixelBox {

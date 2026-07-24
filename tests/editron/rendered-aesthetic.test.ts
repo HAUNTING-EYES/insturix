@@ -299,6 +299,47 @@ describe('rendered frame aesthetic scoring', () => {
     expect(result.issues).toHaveLength(0);
   });
 
+  it('does not treat a full-frame HTML scene canvas as its inner text rectangle', () => {
+    const receipt = buildOverlayAtomicReceipt({
+      family: 'html-scene',
+      intent: 'process-explanation',
+      frame: 42,
+      durationFrames: 90,
+      target: { x: 0, y: 0, width: FRAME.width, height: FRAME.height },
+      atoms: [
+        overlayAtom('text-content', 'content.text', 'Workflow Overview', 1, 'transcript'),
+        overlayAtom('font-size', 'text.font_size', '72', 1, 'decision-param'),
+        overlayAtom('text-color', 'text.color', '#ffffff', 1, 'decision-param'),
+      ],
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 11, alphaMean: 1 },
+      overlays: [{
+        id: 'full-frame-html-scene',
+        receipt,
+        box: {
+          x: 0,
+          y: 0,
+          width: FRAME.width,
+          height: FRAME.height,
+          opacity: 1,
+          visiblePixelRatio: 0.08,
+          contrastRatio: 5.1,
+          textPixelHeight: 72,
+        },
+      }],
+    });
+
+    expect(result.issues).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'safe-area',
+        message: expect.stringContaining('title-safe'),
+      }),
+    ]));
+  });
+
   it('fails dense one-row captions with low local contrast', () => {
     const receipt = captionReceipt({
       words: ['this', 'is', 'the', 'one', 'thing', 'that', 'changed', 'everything', 'forever'],

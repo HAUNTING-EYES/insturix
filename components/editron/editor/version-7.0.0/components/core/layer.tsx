@@ -3,6 +3,7 @@ import { Sequence, useCurrentFrame, useVideoConfig } from "remotion";
 import { LayerContent } from "./layer-content";
 import { Overlay, OverlayType } from "../../types";
 import { evaluateAllTracks } from "../../utils/keyframe-evaluator";
+import { constrainFinalOverlayGeometry } from "./final-overlay-geometry";
 
 /**
  * Props for the Layer component
@@ -66,12 +67,26 @@ export const Layer: React.FC<{
       if (kf.rotation !== undefined) rotation = kf.rotation;
     }
 
-    const scaleTransform = scale !== 1 ? ` scale(${scale})` : '';
+    const geometry = overlay.type === 'text' || overlay.type === 'caption'
+      ? constrainFinalOverlayGeometry({
+          overlayType: overlay.type,
+          left,
+          top,
+          width: overlay.width,
+          height: overlay.height,
+          scale,
+          rotationDegrees: rotation,
+          transformOrigin,
+          canvasWidth: videoConfig.width,
+          canvasHeight: videoConfig.height,
+        })
+      : { left, top, scale };
+    const scaleTransform = geometry.scale !== 1 ? ` scale(${geometry.scale})` : '';
 
     return {
       position: "absolute",
-      left,
-      top,
+      left: geometry.left,
+      top: geometry.top,
       width: isMgSequence ? videoConfig.width : overlay.width,
       height: isMgSequence ? videoConfig.height : overlay.height,
       transform: `rotate(${rotation}deg)${scaleTransform}`,
@@ -89,6 +104,9 @@ export const Layer: React.FC<{
     overlay.row,
     overlay.id,
     overlay.from,
+    overlay.type,
+    (overlay as any).styles?.opacity,
+    (overlay as any).styles?.transformOrigin,
     selectedOverlayId,
     hasKeyframes,
     isMgSequence,
