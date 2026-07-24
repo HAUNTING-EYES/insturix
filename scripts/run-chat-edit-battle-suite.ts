@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { config as loadEnv } from 'dotenv';
 
 import { CHAT_EDIT_BATTLE_SCENARIOS } from '../lib/editron/services/chat-edit-battle-harness';
+import { planChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-plan';
 
 const require = createRequire(import.meta.url);
 const tsxCliPath = require.resolve('tsx/cli');
@@ -15,6 +16,7 @@ const tsxCliPath = require.resolve('tsx/cli');
 interface SuiteOptions {
   baseUrl: string;
   authHeaderFile: string;
+  environmentFile?: string;
   outputRoot: string;
   suiteId: string;
   scenarioIds: string[];
@@ -45,6 +47,7 @@ interface SuiteSummary {
   updatedAt: string;
   completedAt?: string;
   baseUrl: string;
+  databaseName?: string;
   scenarioCount: number;
   completedCount: number;
   passCount: number;
@@ -55,11 +58,10 @@ interface SuiteSummary {
 }
 
 async function main(): Promise<void> {
-  loadEnv({ path: '.env.local', override: false, quiet: true });
-  loadEnv({ path: '.env', override: false, quiet: true });
-
   const options = parseSuiteArgs(process.argv.slice(2));
+  const databaseName = await loadSuiteEnvironment(options);
   const scenarios = resolveScenarios(options.scenarioIds);
+  await preflightFixtureSources(scenarios);
   const suiteDir = path.resolve(options.outputRoot, safeSegment(options.suiteId));
   const summaryPath = path.join(suiteDir, 'suite-summary.json');
   await mkdir(suiteDir, { recursive: true });
@@ -71,6 +73,7 @@ async function main(): Promise<void> {
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     baseUrl: options.baseUrl,
+    databaseName,
     scenarioCount: scenarios.length,
     completedCount: 0,
     passCount: 0,
@@ -189,7 +192,7 @@ async function runScenario(input: {
   }
 }
 
-function parseSuiteArgs(argv: string[]): SuiteOptions {
+export function parseSuiteArgs(argv: string[]): SuiteOptions {
   const partial: Partial<SuiteOptions> = {
     outputRoot: '.calibration-temp/chat-edit-battle',
     suiteId: `live-suite-${new Date().toISOString().replace(/[:.]/g, '-')}`,
@@ -200,6 +203,7 @@ function parseSuiteArgs(argv: string[]): SuiteOptions {
     if (arg === '--resume') partial.resume = true;
     else if (arg.startsWith('--base-url=')) partial.baseUrl = valueAfterEquals(arg).replace(/\/$/, '');
     else if (arg.startsWith('--auth-header-file=')) partial.authHeaderFile = valueAfterEquals(arg);
+    else if (arg.startsWith('--env-file=')) partial.environmentFile = valueAfterEquals(arg);
     else if (arg.startsWith('--output=')) partial.outputRoot = valueAfterEquals(arg);
     else if (arg.startsWith('--suite-id=')) partial.suiteId = valueAfterEquals(arg);
     else if (arg.startsWith('--cases=')) {
@@ -210,7 +214,73 @@ function parseSuiteArgs(argv: string[]): SuiteOptions {
     throw new Error('--base-url must be an absolute HTTP(S) URL.');
   }
   if (!partial.authHeaderFile) throw new Error('--auth-header-file is required.');
+  const environmentError = validateSuiteEnvironmentSelection(partial as SuiteOptions);
+  if (environmentError) throw new Error(environmentError);
   return partial as SuiteOptions;
+}
+
+export function validateSuiteEnvironmentSelection(
+  options: Pick<SuiteOptions, 'baseUrl' | 'environmentFile'>,
+): string | null {
+  const hostname = new URL(options.baseUrl).hostname.toLowerCase();
+  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  if (!isLocal && !options.environmentFile) {
+    return '--env-file is required when --base-url targets a remote deployment; '
+      + 'fixture preparation and API execution must use the same environment.';
+  }
+  return null;
+}
+
+async function loadSuiteEnvironment(options: SuiteOptions): Promise<string> {
+  if (options.environmentFile) {
+    const environmentPath = path.resolve(options.environmentFile);
+    await access(environmentPath);
+    const result = loadEnv({ path: environmentPath, override: true, quiet: true });
+    if (result.error) throw result.error;
+  } else {
+    loadEnv({ path: '.env.local', override: false, quiet: true });
+    loadEnv({ path: '.env', override: false, quiet: true });
+  }
+
+  if (!process.env.MONGODB_URI) throw new Error('Selected environment is missing MONGODB_URI.');
+  const databaseName = process.env.EDITRON_MONGODB_DB_NAME || process.env.MONGODB_DB_NAME;
+  if (!databaseName) {
+    throw new Error('Selected environment is missing EDITRON_MONGODB_DB_NAME/MONGODB_DB_NAME.');
+  }
+  console.log(`[chat-battle-suite] environment database=${databaseName}`);
+  return databaseName;
+}
+
+async function preflightFixtureSources(
+  scenarios: ReturnType<typeof resolveScenarios>,
+): Promise<void> {
+  const sourceProjectIds = [...new Set(
+    scenarios.map((scenario) => planChatBattleFixture(scenario).sourceProjectId),
+  )];
+  const { COLLECTIONS, connectToDatabase } = await import('../lib/editron/db/mongodb');
+  const { client, db } = await connectToDatabase();
+  let available: Set<string>;
+  try {
+    const sources = await db.collection(COLLECTIONS.PROJECTS)
+      .find(
+        { projectId: { $in: sourceProjectIds } },
+        { projection: { _id: 0, projectId: 1 } },
+      )
+      .toArray();
+    available = new Set(sources.flatMap((source) => (
+      typeof source.projectId === 'string' ? [source.projectId] : []
+    )));
+  } finally {
+    await client.close();
+  }
+  const missing = sourceProjectIds.filter((projectId) => !available.has(projectId));
+  if (missing.length > 0) {
+    throw new Error(
+      `Battle fixture preflight failed in ${process.env.EDITRON_MONGODB_DB_NAME || process.env.MONGODB_DB_NAME}: `
+      + `missing source project(s) ${missing.join(', ')}.`,
+    );
+  }
+  console.log(`[chat-battle-suite] fixture preflight sources=${sourceProjectIds.length} status=ready`);
 }
 
 function resolveScenarios(ids: string[]) {
