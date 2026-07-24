@@ -385,7 +385,29 @@ describe('canonical chat multimodal evidence', () => {
       source: { auditId: 'audit-live', evidenceId: 'evidence-craft' },
     });
 
-    const visualTools = createChatVisualTools({ userId: 'user-1', projectId: project.projectId });
+    const frameVerifier = vi.fn(async () => ({
+      status: 'confirmed' as const,
+      receiptId: 'frame-visual-test',
+      frame: 130,
+      query: 'the hand-crafted garment section',
+      provider: 'gemini' as const,
+      model: 'test-vision-model',
+      matchQuality: 'clear-semantic' as const,
+      evidence: 'Hands are working on the garment.',
+      reasoning: 'The requested garment craft moment is directly visible.',
+      boundingBox: {
+        x: 0.2,
+        y: 0.25,
+        width: 0.5,
+        height: 0.45,
+        units: 'normalized' as const,
+      },
+    }));
+    const visualTools = createChatVisualTools({
+      userId: 'user-1',
+      projectId: project.projectId,
+      frameVerifier,
+    });
     const resolveVisual = visualTools.find((tool) => tool.name === 'resolve_visual_edit')!;
     const highlightOutput = JSON.parse(await resolveVisual.invoke({
       query: 'the hand-crafted garment section',
@@ -418,5 +440,50 @@ describe('canonical chat multimodal evidence', () => {
     expect(cutOutput.status).toBe('error');
     expect(cutOutput.data.status).toBe('ambiguous');
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ intent: 'visual' }));
+
+    search.mockResolvedValueOnce({
+      auditId: 'audit-frame-inspection',
+      candidates: [canonicalCandidate({
+        accepted: false,
+        safeForAutomaticMutation: false,
+        rejectionReasons: ['below-evidence-threshold'],
+      })],
+      analyzedDocumentCount: 1,
+      embeddedDocumentCount: 1,
+      rankingPolicy: {},
+    });
+    const frameVerifiedOutput = JSON.parse(await resolveVisual.invoke({
+      query: 'the hand-crafted garment section',
+      action: 'highlight',
+      includeOverlayText: false,
+      limit: 5,
+      minConfidence: 0.35,
+      durationFrames: 60,
+    }, {
+      configurable: {
+        chatFrameEvidence: {
+          frame: 130,
+          question: 'Verify canonical visual match for: the hand-crafted garment section',
+          dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
+          width: 960,
+          height: 540,
+          capturedAtMs: 1_000_000,
+          source: 'editor-rendered-frame',
+        },
+      },
+    }));
+    expect(frameVerifiedOutput.status).toBe('success');
+    expect(frameVerifiedOutput.data.frameVerification).toMatchObject({
+      status: 'confirmed',
+      receiptId: 'frame-visual-test',
+    });
+    expect(frameVerifiedOutput.data.useWith.add_overlay).toMatchObject({
+      start: 130,
+      x: '20%',
+      y: '25%',
+      width: '50%',
+      height: '45%',
+    });
+    expect(frameVerifier).toHaveBeenCalledOnce();
   });
 });

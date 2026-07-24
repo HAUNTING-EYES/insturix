@@ -2,10 +2,15 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
 import { DEFAULT_CONFIG } from "../config/editron-config";
+import type { ChatFrameEvidence } from "./chat-frame-evidence";
 import {
   searchCanonicalChatEvidence,
   type CanonicalChatEvidenceCandidate,
 } from "../services/chat-multimodal-evidence";
+import {
+  verifyChatFrameVisualMatch,
+  type ChatFrameVisualVerification,
+} from "../services/chat-frame-visual-verification";
 import { PROJECT_ASSET_ANALYSES_COLLECTION } from "../services/project-analysis-storage";
 import {
   buildSubjectAwareReframePlan,
@@ -62,6 +67,8 @@ export interface VisualMomentCandidate {
     scores?: CanonicalChatEvidenceCandidate["scores"];
     missingModalities?: string[];
     rejectionReasons?: string[];
+    frameVerificationReceiptId?: string;
+    verifiedFrame?: number;
   };
   safeForAutoEdit: boolean;
   useWith: {
@@ -76,6 +83,7 @@ interface CreateChatVisualToolsOptions {
   userId: string;
   projectId: string;
   subjectReframeDependencies?: SubjectReframeDependencies;
+  frameVerifier?: typeof verifyChatFrameVisualMatch;
 }
 
 export interface SubjectReframeDependencies {
@@ -660,6 +668,7 @@ export function createChatVisualTools({
   userId,
   projectId,
   subjectReframeDependencies,
+  frameVerifier = verifyChatFrameVisualMatch,
 }: CreateChatVisualToolsOptions) {
   const findVisualMoment = tool(
     async (input: z.infer<typeof visualMomentSchema>) => {
@@ -706,7 +715,7 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
   );
 
   const resolveVisualEdit = tool(
-    async (input: z.infer<typeof visualEditSchema>) => {
+    async (input: z.infer<typeof visualEditSchema>, config) => {
       const { projectService } = await import("../services/project-service");
       const project = await projectService.loadProject(userId, projectId);
       const evidence = buildVisualEvidence(project, {
@@ -723,6 +732,62 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
         project, projectId, userId, query: input.query,
         overlayId: input.videoOverlayId, limit: input.limit, lexicalCandidates,
       });
+      let candidates = retrieval.candidates;
+      let frameVerification: ChatFrameVisualVerification | undefined;
+      const frameEvidence = config?.configurable?.chatFrameEvidence as ChatFrameEvidence | undefined;
+      if (frameEvidence) {
+        const candidate = selectVisualCandidateForFrame(candidates, frameEvidence.frame);
+        if (!candidate) {
+          return JSON.stringify({
+            status: "error",
+            data: {
+              status: "no-match",
+              action: input.action,
+              query: input.query,
+              candidates,
+              warnings: [],
+              canonicalEvidence: retrieval.audit,
+            },
+            message: `The attached rendered frame ${frameEvidence.frame} does not belong to a retrieved visual candidate for "${input.query}".`,
+          });
+        }
+        try {
+          frameVerification = await frameVerifier({
+            query: input.query,
+            evidence: frameEvidence,
+            candidateContext: candidate.evidenceText,
+          });
+        } catch (error) {
+          return JSON.stringify({
+            status: "error",
+            data: {
+              status: "ambiguous",
+              action: input.action,
+              query: input.query,
+              candidates,
+              warnings: ["frame-verification-provider-failed"],
+              canonicalEvidence: retrieval.audit,
+            },
+            message: `The rendered frame could not be independently verified: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+        if (frameVerification.status !== "confirmed") {
+          return JSON.stringify({
+            status: "error",
+            data: {
+              status: "ambiguous",
+              action: input.action,
+              query: input.query,
+              candidates,
+              warnings: ["frame-verification-rejected"],
+              canonicalEvidence: retrieval.audit,
+              frameVerification,
+            },
+            message: `The rendered frame did not visibly confirm "${input.query}". No edit was authorized.`,
+          });
+        }
+        candidates = promoteFrameVerifiedCandidate(candidates, candidate, frameVerification);
+      }
       const plan = resolveVisualEditPlacement(project, input.query, {
         action: input.action,
         videoOverlayId: input.videoOverlayId,
@@ -730,7 +795,7 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
         minConfidence: input.minConfidence,
         includeOverlayText: input.includeOverlayText,
         durationFrames: input.durationFrames,
-        precomputedCandidates: retrieval.candidates,
+        precomputedCandidates: candidates,
       });
 
       return JSON.stringify({
@@ -739,6 +804,7 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
           ...plan,
           searchedEvidenceCount: evidence.length,
           canonicalEvidence: retrieval.audit,
+          ...(frameVerification ? { frameVerification } : {}),
         },
         message: plan.message,
       });
@@ -1129,7 +1195,7 @@ async function enrichVisualCandidatesWithCanonicalEvidence(input: {
     limit: input.limit,
   });
   const semanticCandidates = evidence.candidates
-    .filter((candidate) => candidate.accepted && candidate.startFrame != null && candidate.endFrame != null)
+    .filter((candidate) => candidate.startFrame != null && candidate.endFrame != null)
     .map((candidate) => canonicalVisualCandidate(candidate, evidence.auditId, input.query));
   return {
     candidates: mergeVisualCandidates(input.lexicalCandidates, semanticCandidates, input.limit),
@@ -1140,6 +1206,45 @@ async function enrichVisualCandidatesWithCanonicalEvidence(input: {
       embeddedDocumentCount: evidence.embeddedDocumentCount,
     },
   };
+}
+
+function selectVisualCandidateForFrame(
+  candidates: VisualMomentCandidate[],
+  frame: number,
+): VisualMomentCandidate | undefined {
+  return candidates
+    .filter((candidate) => frame >= candidate.startFrame && frame <= candidate.endFrame)
+    .sort((left, right) => (
+      Number(right.safeForAutoEdit) - Number(left.safeForAutoEdit)
+      || right.confidence - left.confidence
+      || Math.abs(left.frame - frame) - Math.abs(right.frame - frame)
+    ))[0];
+}
+
+function promoteFrameVerifiedCandidate(
+  candidates: VisualMomentCandidate[],
+  selected: VisualMomentCandidate,
+  verification: ChatFrameVisualVerification,
+): VisualMomentCandidate[] {
+  const promoted: VisualMomentCandidate = {
+    ...selected,
+    ...(verification.boundingBox ? { boundingBox: verification.boundingBox } : {}),
+    safeForAutoEdit: true,
+    matchReasons: [
+      ...selected.matchReasons,
+      `frame-verified=${verification.receiptId}`,
+      `frame-match=${verification.matchQuality}`,
+    ],
+    source: {
+      ...selected.source,
+      frameVerificationReceiptId: verification.receiptId,
+      verifiedFrame: verification.frame,
+    },
+  };
+  return [
+    promoted,
+    ...candidates.filter((candidate) => candidate !== selected),
+  ];
 }
 
 function canonicalVisualCandidate(
