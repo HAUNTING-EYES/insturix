@@ -10,6 +10,7 @@ import { buildMusicPrompt, isBGMAvailable } from '@/lib/pipeline/bgm-service';
 import {
   assertConditionedBGMResult,
   resolveAudioPlatformEvidence,
+  resolveMusicGenerationPolicy,
 } from '@/lib/pipeline/bgm-conditioning-contract';
 import { dispatchAudioJob } from '@/lib/editron/services/audio-worker-dispatch';
 import { isSFXAvailable } from '@/lib/pipeline/sfx-service';
@@ -215,6 +216,8 @@ export async function POST(
       includeCaptions = true,
       brandId,
       requireVideoCoverage = true,
+      musicPreference,
+      editorialPreferences,
     } = body;
 
     const storyboard = await getStoryboard(id, userId);
@@ -924,6 +927,36 @@ export async function POST(
       brandId,
       sourceSessionId: storyboardSourceSessionId,
     });
+    const projectRecord = project as any;
+    const musicGenerationPolicy = resolveMusicGenerationPolicy({
+      musicPreferences: [
+        { value: musicPreference, source: 'finalize-request.musicPreference' },
+        { value: (storyboard as any).musicPreference, source: 'storyboard.musicPreference' },
+        {
+          value: (briefSnapshot as any)?.musicPreference,
+          source: 'storyboard.productionManifest.thinkforgeContext.briefSnapshot.musicPreference',
+        },
+        { value: projectRecord.musicPreference, source: 'project.musicPreference' },
+        { value: projectRecord.productionBrief?.musicPreference, source: 'project.productionBrief.musicPreference' },
+        { value: projectRecord.productionBriefIntake?.musicPreference, source: 'project.productionBriefIntake.musicPreference' },
+        { value: projectRecord.creativeBrief?.musicPreference, source: 'project.creativeBrief.musicPreference' },
+      ],
+      editorialPreferences: [
+        { value: editorialPreferences, source: 'finalize-request.editorialPreferences' },
+        { value: (storyboard as any).editorialPreferences, source: 'storyboard.editorialPreferences' },
+        {
+          value: (briefSnapshot as any)?.editorialPreferences,
+          source: 'storyboard.productionManifest.thinkforgeContext.briefSnapshot.editorialPreferences',
+        },
+        { value: projectRecord.editorialPreferences, source: 'project.editorialPreferences' },
+        { value: projectRecord.productionBrief?.editorialPreferences, source: 'project.productionBrief.editorialPreferences' },
+        { value: projectRecord.productionBriefIntake?.editorialPreferences, source: 'project.productionBriefIntake.editorialPreferences' },
+        { value: projectRecord.creativeBrief?.editorialPreferences, source: 'project.creativeBrief.editorialPreferences' },
+      ],
+    });
+    if (!musicGenerationPolicy.allowed) {
+      console.log(`[Finalize] BGM disabled by ${musicGenerationPolicy.reason}`);
+    }
 
     // Update name + stage on reused project (it was created with a possibly-different title)
     if (existingProject) {
@@ -963,6 +996,13 @@ export async function POST(
       {
         $set: {
           sourceStoryboardId: id,
+          musicGenerationPolicy,
+          ...(musicGenerationPolicy.musicPreference
+            ? { musicPreference: musicGenerationPolicy.musicPreference }
+            : {}),
+          ...(musicGenerationPolicy.editorialPreferences
+            ? { editorialPreferences: musicGenerationPolicy.editorialPreferences }
+            : {}),
           updatedAt: new Date(),
           // Bundle 4 Toyota B.silent.1 fix: if applyEditDirections failed,
           // persist that flag on the project so the editor UI can show a
@@ -1061,8 +1101,9 @@ export async function POST(
     let bgmSyncCompleted = false;
     let bgmGenerationBlockedByCredits = false;
     let bgmCreditCharge: PipelineAudioCreditCharge | null = null;
+    let audioGenerationQueued = false;
 
-    if (isBGMAvailable() && currentFrame > 0 && beatSyncActive) {
+    if (musicGenerationPolicy.allowed && isBGMAvailable() && currentFrame > 0 && beatSyncActive) {
       const totalDurationSec = Math.round(currentFrame / fps);
       bgmCreditCharge = await deductPipelineAudioCredits({
         userId,
@@ -1216,7 +1257,13 @@ export async function POST(
       }
     }
 
-    if (isBGMAvailable() && currentFrame > 0 && !bgmSyncCompleted && !bgmGenerationBlockedByCredits) {
+    if (
+      musicGenerationPolicy.allowed
+      && isBGMAvailable()
+      && currentFrame > 0
+      && !bgmSyncCompleted
+      && !bgmGenerationBlockedByCredits
+    ) {
       const totalDurationSec = Math.round(currentFrame / fps);
       const musicPrompt = storyboard.overallMusicPrompt
         || buildMusicPrompt(
@@ -1249,10 +1296,14 @@ export async function POST(
           totalFrames: currentFrame,
           fps,
           platform: audioPlatformEvidence.platform,
+          musicPreference: musicGenerationPolicy.musicPreference,
+          editorialPreferences: musicGenerationPolicy.editorialPreferences,
         }, 'BGM');
         if (!bgmDispatch.dispatched) {
           await refundPipelineAudioCredits(userId, bgmCreditCharge, 'BGM dispatch failed before worker execution');
           bgmCreditCharge = null;
+        } else {
+          audioGenerationQueued = true;
         }
       }
     }
@@ -1348,6 +1399,8 @@ export async function POST(
           }, 'SFX');
           if (!sfxDispatch.dispatched) {
             await refundPipelineAudioCredits(userId, sfxCreditCharge, 'SFX dispatch failed before worker execution');
+          } else {
+            audioGenerationQueued = true;
           }
         }
       } else if (hasSfxIntent > 0 && nativeAudioSceneCount > 0) {
@@ -1408,7 +1461,7 @@ export async function POST(
       name: projectName,
       overlayCount: overlays.length,
       totalDurationFrames: currentFrame,
-      audioGenerating: true,
+      audioGenerating: audioGenerationQueued,
       directorQueued: true,
       ...(warnings.length > 0 && { warnings }),
       pipelineHealth: pipelineWarnings.count(),

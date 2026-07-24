@@ -16,6 +16,7 @@ import { generateBackgroundMusic } from '@/lib/pipeline/bgm-service';
 import {
   assertConditionedBGMResult,
   resolveAudioPlatformEvidence,
+  resolveMusicGenerationPolicy,
 } from '@/lib/pipeline/bgm-conditioning-contract';
 import { ROW, alignCutsToBeats } from '@/lib/pipeline/scene-to-editron';
 import { generateSFXForScenes } from '@/lib/pipeline/sfx-service';
@@ -64,6 +65,8 @@ interface AudioWorkerPayload {
   totalFrames?: number;
   fps?: number;
   platform?: string | null;
+  musicPreference?: string | null;
+  editorialPreferences?: unknown;
   // Signal-driven BGM mix levels (bgm-mix-levels.ts, CKG-bounded). Absent → DEFAULT_BGM_MIX_LEVELS.
   bgmBaseVolume?: number;
   bgmDuckLevel?: number;
@@ -106,6 +109,38 @@ async function handler(request: NextRequest) {
     }
 
     if (type === 'bgm') {
+      const musicGenerationPolicy = resolveMusicGenerationPolicy({
+        musicPreferences: [
+          { value: payload.musicPreference, source: 'audio-worker-payload.musicPreference' },
+          { value: project.musicPreference, source: 'project.musicPreference' },
+          { value: project.productionBrief?.musicPreference, source: 'project.productionBrief.musicPreference' },
+          { value: project.productionBriefIntake?.musicPreference, source: 'project.productionBriefIntake.musicPreference' },
+          { value: project.creativeBrief?.musicPreference, source: 'project.creativeBrief.musicPreference' },
+        ],
+        editorialPreferences: [
+          { value: payload.editorialPreferences, source: 'audio-worker-payload.editorialPreferences' },
+          { value: project.editorialPreferences, source: 'project.editorialPreferences' },
+          { value: project.productionBrief?.editorialPreferences, source: 'project.productionBrief.editorialPreferences' },
+          { value: project.productionBriefIntake?.editorialPreferences, source: 'project.productionBriefIntake.editorialPreferences' },
+          { value: project.creativeBrief?.editorialPreferences, source: 'project.creativeBrief.editorialPreferences' },
+        ],
+      });
+      if (!musicGenerationPolicy.allowed) {
+        console.log(
+          `[AudioWorker] BGM skipped by ${musicGenerationPolicy.reason} `
+          + `(source=${musicGenerationPolicy.musicPreferenceSource !== 'unresolved'
+            ? musicGenerationPolicy.musicPreferenceSource
+            : musicGenerationPolicy.editorialPreferencesSource})`,
+        );
+        return NextResponse.json({
+          success: true,
+          type: 'bgm',
+          skipped: true,
+          reason: musicGenerationPolicy.reason,
+          musicGenerationPolicy,
+        });
+      }
+
       const { musicPrompt, totalDurationSec, totalFrames, fps, bgmBaseVolume, bgmDuckLevel } = payload;
       if (!musicPrompt || !totalDurationSec || !totalFrames || !fps) {
         console.error('[AudioWorker] BGM: missing required fields');

@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => {
     createProject: vi.fn(),
     findProjectBySessionId: vi.fn(),
     saveProject: vi.fn(),
+    loadProject: vi.fn(),
+    updateOverlay: vi.fn(),
+    addOverlay: vi.fn(),
+    deleteOverlay: vi.fn(),
     getDatabase: vi.fn(),
     dbFindOne: vi.fn(),
     dbUpdateOne: vi.fn(),
@@ -50,6 +54,17 @@ vi.mock('@/lib/editron/services/project-service', () => ({
     createProject: mocks.createProject,
     findProjectBySessionId: mocks.findProjectBySessionId,
     saveProject: mocks.saveProject,
+    loadProject: mocks.loadProject,
+    updateOverlay: mocks.updateOverlay,
+    addOverlay: mocks.addOverlay,
+    deleteOverlay: mocks.deleteOverlay,
+  },
+}));
+vi.mock('@/lib/editron/services/asset-resolver', () => ({
+  assetResolver: {
+    stripUrlsForLLM: <T>(overlays: T[]) => structuredClone(overlays),
+    resolveProjectAssets: async <T>(overlays: T[]) => structuredClone(overlays),
+    resolveAssetUrl: vi.fn(async () => 'https://cdn.example.com/resolved.mp4'),
   },
 }));
 vi.mock('@/lib/editron/db/mongodb', () => ({
@@ -110,8 +125,10 @@ vi.mock('audio-decode', () => ({ default: mocks.decodeAudio }));
 import {
   assertConditionedBGMResult,
   resolveAudioPlatformEvidence,
+  resolveMusicGenerationPolicy,
 } from '../../lib/pipeline/bgm-conditioning-contract';
 import { resolveAudioLoudnessTarget } from '../../lib/editron/constants/audio-standards';
+import { createTools } from '../../lib/editron/agent/tools';
 import { POST as finalizeStoryboard } from '../../app/api/services/pipeline/storyboard/[id]/finalize/route';
 import { POST as runAudioWorker } from '../../app/api/internal/workers/pipeline/audio/route';
 
@@ -215,6 +232,14 @@ function makeRequest(body: Record<string, unknown>) {
   return { json: vi.fn().mockResolvedValue(body) };
 }
 
+function regenerateBgmTool() {
+  const candidate = createTools('user_1', 'proj_audio').find(tool => tool.name === 'regenerate_bgm');
+  expect(candidate, 'regenerate_bgm should be registered').toBeDefined();
+  return candidate as unknown as {
+    invoke: (input: Record<string, unknown>) => Promise<string>;
+  };
+}
+
 describe('conditioned BGM contract', () => {
   it('uses the first concrete platform evidence and skips placeholders', () => {
     expect(resolveAudioPlatformEvidence([
@@ -233,6 +258,34 @@ describe('conditioned BGM contract', () => {
       contentType: 'audio/mpeg',
       conditioning: undefined,
     }, 300)).toThrow('refusing to mutate the project');
+  });
+
+  it('treats legacy none and editorial music off as provenance-bearing hard vetoes', () => {
+    expect(resolveMusicGenerationPolicy({
+      musicPreferences: [{ value: ' NONE ', source: 'request.musicPreference' }],
+      editorialPreferences: [],
+    })).toMatchObject({
+      allowed: false,
+      reason: 'music-preference-none',
+      musicPreference: 'none',
+      musicPreferenceSource: 'request.musicPreference',
+    });
+
+    expect(resolveMusicGenerationPolicy({
+      musicPreferences: [],
+      editorialPreferences: [{
+        value: { families: { music: { mode: 'off' } } },
+        source: 'request.editorialPreferences',
+      }],
+    })).toMatchObject({
+      allowed: false,
+      reason: 'user-policy-off:music',
+      editorialPreferencesSource: 'request.editorialPreferences',
+      editorialPolicy: {
+        executionAllowed: false,
+        reason: 'user-policy-off:music',
+      },
+    });
   });
 });
 
@@ -353,7 +406,59 @@ describe('storyboard finalize audio conditioning', () => {
       totalFrames: 150,
       fps: 30,
       platform: 'instagram-reels',
+      musicPreference: null,
+      editorialPreferences: null,
     }, 'BGM');
+  });
+
+  it.each([
+    ['legacy none on beat-sync finalize', { musicPreference: 'none' }, true, 'music-preference-none'],
+    ['legacy none on async finalize', { musicPreference: 'none' }, false, 'music-preference-none'],
+    [
+      'editorial off on beat-sync finalize',
+      { editorialPreferences: { families: { music: { mode: 'off' } } } },
+      true,
+      'user-policy-off:music',
+    ],
+    [
+      'editorial off on async finalize',
+      { editorialPreferences: { families: { music: { mode: 'off' } } } },
+      false,
+      'user-policy-off:music',
+    ],
+  ])('CRITICAL: %s produces zero music overlays and spends zero BGM credits', async (
+    _label,
+    body,
+    beatSyncActive,
+    expectedReason,
+  ) => {
+    mocks.getStoryboard.mockResolvedValue(makeStoryboard(beatSyncActive));
+
+    const response = await finalizeStoryboard(makeRequest(body) as any, {
+      params: Promise.resolve({ id: 'sb_audio' }),
+    });
+    const responseBody = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(responseBody.audioGenerating).toBe(false);
+    expect(mocks.generateBackgroundMusic).not.toHaveBeenCalled();
+    expect(mocks.dispatchAudioJob).not.toHaveBeenCalled();
+    expect(mocks.deductCredits.mock.calls.some(
+      ([, , action]) => action === 'bgm_generation',
+    )).toBe(false);
+    expect(mocks.dbUpdateOne.mock.calls.some(
+      ([collectionName, , mutation]) => {
+        if (collectionName !== 'projects' || !mutation?.$push?.overlays) return false;
+        const pushed = mutation.$push.overlays.$each || [mutation.$push.overlays];
+        return pushed.some((overlay: any) => overlay?.row === 3);
+      },
+    )).toBe(false);
+    expect(mocks.dbUpdateOne.mock.calls.some(
+      ([collectionName, , mutation]) => (
+        collectionName === 'projects'
+        && mutation?.$set?.musicGenerationPolicy?.reason === expectedReason
+      ),
+    )).toBe(true);
   });
 });
 
@@ -520,5 +625,101 @@ describe('audio worker conditioning', () => {
         collectionName === 'projects' && Boolean(mutation?.$push?.overlays)
       ),
     )).toBe(false);
+  });
+
+  it.each([
+    ['legacy none', { musicPreference: 'none' }, 'music-preference-none'],
+    [
+      'editorial off',
+      { editorialPreferences: { families: { music: { mode: 'off' } } } },
+      'user-policy-off:music',
+    ],
+  ])('CRITICAL: worker %s retry produces zero music overlays', async (
+    _label,
+    preferencePayload,
+    expectedReason,
+  ) => {
+    const response = await runAudioWorker(makeRequest({
+      type: 'bgm',
+      projectId: 'proj_worker',
+      userId: 'user_1',
+      storyboardId: 'sb_worker',
+      musicPrompt: 'must not reach provider',
+      totalDurationSec: 15,
+      totalFrames: 450,
+      fps: 30,
+      ...preferencePayload,
+    }) as any);
+    const responseBody = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(responseBody).toMatchObject({
+      success: true,
+      type: 'bgm',
+      skipped: true,
+      reason: expectedReason,
+    });
+    expect(mocks.generateBackgroundMusic).not.toHaveBeenCalled();
+    expect(mocks.dbUpdateOne.mock.calls.some(
+      ([collectionName]) => collectionName === 'mediaAssets',
+    )).toBe(false);
+    expect(mocks.dbUpdateOne.mock.calls.some(
+      ([collectionName, , mutation]) => (
+        collectionName === 'projects' && Boolean(mutation?.$push?.overlays)
+      ),
+    )).toBe(false);
+  });
+});
+
+describe('chat BGM policy enforcement', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    ['legacy none', { musicPreference: 'none' }, 'music-preference-none'],
+    [
+      'editorial off',
+      {
+        productionBriefIntake: {
+          editorialPreferences: { families: { music: { mode: 'off' } } },
+        },
+      },
+      'user-policy-off:music',
+    ],
+  ])('CRITICAL: regenerate_bgm with %s fails loud and creates zero music overlays', async (
+    _label,
+    projectPolicy,
+    expectedReason,
+  ) => {
+    mocks.loadProject.mockResolvedValue({
+      projectId: 'proj_audio',
+      userId: 'user_1',
+      fps: 30,
+      durationInFrames: 300,
+      overlays: [],
+      ...projectPolicy,
+    });
+
+    const result = JSON.parse(await regenerateBgmTool().invoke({ mood: 'cinematic' }));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      nextAction: 'stop',
+      error: {
+        code: 'BGM_DISABLED_BY_POLICY',
+        details: {
+          musicGenerationPolicy: {
+            allowed: false,
+            reason: expectedReason,
+          },
+        },
+      },
+    });
+    expect(mocks.generateBackgroundMusic).not.toHaveBeenCalled();
+    expect(mocks.updateOverlay).not.toHaveBeenCalled();
+    expect(mocks.addOverlay).not.toHaveBeenCalled();
+    expect(mocks.deleteOverlay).not.toHaveBeenCalled();
+    expect(mocks.dbUpdateOne).not.toHaveBeenCalled();
   });
 });

@@ -5188,6 +5188,31 @@ NEVER ask the user which clips — default to applyToAll: true.`,
     async (input: z.infer<typeof regenerateBGMSchema>) => {
       try {
         const project = await loadProject();
+        const projectPolicyRecord = project as any;
+        const { resolveMusicGenerationPolicy } = await import('@/lib/pipeline/bgm-conditioning-contract');
+        const musicGenerationPolicy = resolveMusicGenerationPolicy({
+          musicPreferences: [
+            { value: projectPolicyRecord.musicPreference, source: 'project.musicPreference' },
+            { value: projectPolicyRecord.productionBrief?.musicPreference, source: 'project.productionBrief.musicPreference' },
+            { value: projectPolicyRecord.productionBriefIntake?.musicPreference, source: 'project.productionBriefIntake.musicPreference' },
+            { value: projectPolicyRecord.creativeBrief?.musicPreference, source: 'project.creativeBrief.musicPreference' },
+          ],
+          editorialPreferences: [
+            { value: projectPolicyRecord.editorialPreferences, source: 'project.editorialPreferences' },
+            { value: projectPolicyRecord.productionBrief?.editorialPreferences, source: 'project.productionBrief.editorialPreferences' },
+            { value: projectPolicyRecord.productionBriefIntake?.editorialPreferences, source: 'project.productionBriefIntake.editorialPreferences' },
+            { value: projectPolicyRecord.creativeBrief?.editorialPreferences, source: 'project.creativeBrief.editorialPreferences' },
+          ],
+        });
+        if (!musicGenerationPolicy.allowed) {
+          return errorEnvelope(
+            'Background music is disabled for this project. Change the music preference before generating a replacement.',
+            'BGM_DISABLED_BY_POLICY',
+            { musicGenerationPolicy },
+            'stop',
+          );
+        }
+
         const overlays = (project as any).overlays || [];
         const rawFps = Number((project as any).fps);
         const fps = Number.isFinite(rawFps) && rawFps > 0 ? rawFps : 30;

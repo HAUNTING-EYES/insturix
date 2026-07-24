@@ -1,7 +1,16 @@
 import type { BGMResult, ConditionedBGMResult } from '@/lib/pipeline/bgm-service';
 import { resolveAudioLoudnessTarget } from '@/lib/editron/constants/audio-standards';
+import {
+  normalizeEditorialPreferences,
+  type EditorialPreferences,
+} from '@/lib/editron/production-brief/editorial-preferences';
+import {
+  resolveEditorialDecisionPolicy,
+  type EditorialDecisionPolicy,
+} from '@/lib/editron/services/editorial-decision-policy';
 
 const UNRESOLVED_PLATFORM_SOURCE = 'unresolved';
+const UNRESOLVED_PREFERENCE_SOURCE = 'unresolved';
 const PLACEHOLDER_PLATFORM_VALUES = new Set(['auto', 'unknown', 'unspecified']);
 
 export interface AudioPlatformCandidate {
@@ -12,6 +21,27 @@ export interface AudioPlatformCandidate {
 export interface AudioPlatformEvidence {
   platform: string | null;
   source: string;
+}
+
+export interface MusicPreferenceCandidate {
+  value: unknown;
+  source: string;
+}
+
+export interface EditorialPreferencesCandidate {
+  value: unknown;
+  source: string;
+}
+
+export interface MusicGenerationPolicy {
+  version: 'music-generation-policy-v1';
+  allowed: boolean;
+  reason: 'music-preference-none' | 'user-policy-off:music' | 'music-enabled';
+  musicPreference: string | null;
+  musicPreferenceSource: string;
+  editorialPreferences: EditorialPreferences | null;
+  editorialPreferencesSource: string;
+  editorialPolicy: EditorialDecisionPolicy;
 }
 
 export function resolveAudioPlatformEvidence(
@@ -27,6 +57,47 @@ export function resolveAudioPlatformEvidence(
   return {
     platform: null,
     source: UNRESOLVED_PLATFORM_SOURCE,
+  };
+}
+
+export function resolveMusicGenerationPolicy(params: {
+  musicPreferences: readonly MusicPreferenceCandidate[];
+  editorialPreferences: readonly EditorialPreferencesCandidate[];
+}): MusicGenerationPolicy {
+  const musicPreferenceEvidence = params.musicPreferences
+    .map(candidate => ({
+      preference: typeof candidate.value === 'string'
+        ? candidate.value.trim().toLowerCase()
+        : '',
+      source: candidate.source,
+    }))
+    .find(candidate => candidate.preference.length > 0);
+
+  const editorialEvidence = params.editorialPreferences
+    .map(candidate => ({
+      preferences: normalizeEditorialPreferences(candidate.value),
+      source: candidate.source,
+    }))
+    .find(candidate => candidate.preferences?.families?.music);
+
+  const editorialPreferences = editorialEvidence?.preferences;
+  const editorialPolicy = resolveEditorialDecisionPolicy(editorialPreferences, 'music');
+  const blockedByLegacyPreference = musicPreferenceEvidence?.preference === 'none';
+  const allowed = !blockedByLegacyPreference && editorialPolicy.executionAllowed;
+
+  return {
+    version: 'music-generation-policy-v1',
+    allowed,
+    reason: blockedByLegacyPreference
+      ? 'music-preference-none'
+      : editorialPolicy.executionAllowed
+        ? 'music-enabled'
+        : 'user-policy-off:music',
+    musicPreference: musicPreferenceEvidence?.preference || null,
+    musicPreferenceSource: musicPreferenceEvidence?.source || UNRESOLVED_PREFERENCE_SOURCE,
+    editorialPreferences: editorialPreferences || null,
+    editorialPreferencesSource: editorialEvidence?.source || UNRESOLVED_PREFERENCE_SOURCE,
+    editorialPolicy,
   };
 }
 
