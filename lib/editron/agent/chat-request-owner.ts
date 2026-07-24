@@ -148,6 +148,13 @@ const MECHANICAL_SHADOW_FAMILY_TOOLS = new Set([
   'add_fancy_captions',
   'regenerate_bgm',
   'sync_cuts_to_beats',
+  // Motion-graphic creation is a family authority exactly like captions/music:
+  // the registry marks both tools `shadow-authority-filtered`, but that marker
+  // has no runtime consumer — membership HERE is the actual ban. Before this,
+  // mechanical turns in BOTH lanes could reach them, contradicting the
+  // documented contract (chat-edit-vibe-command-matrix pins them as shadowed).
+  'add_motion_graphic',
+  'auto_motion_graphics',
 ]);
 
 // Director Mode (assist lane): the USER is the editorial director. A specific
@@ -158,6 +165,12 @@ const MECHANICAL_SHADOW_FAMILY_TOOLS = new Set([
 // internally; the assist license just exposes them because ownership moved to
 // the user. The full-reedit planner (apply_editorial_intent) stays available for
 // genuinely vague "edit the whole thing for me" requests, behind a confirm.
+// Scene / motion-graphic creation (founder ruling after the C1 create-html-scene
+// finding): a Director Mode user asking for a scene gets the MG GENERATOR —
+// add_motion_graphic / auto_motion_graphics arrive via the shadow-family spread
+// below, exactly like captions/music. The legacy generate_html_scene is
+// deliberately NOT licensed here (its output does not meet the bar), and a plain
+// add_overlay is never an acceptable substitute for a requested scene.
 const DIRECTOR_MODE_DIRECT_TOOLS = new Set<string>([
   ...MECHANICAL_SHADOW_FAMILY_TOOLS,
   ...LOCALIZED_MUTATION_TOOLS,

@@ -405,6 +405,7 @@ export const createAgent = (
     - This project was scanned but never auto-edited. The user directs each change; nothing was decided for them.
     - For a SPECIFIC directive, use the direct tool and execute it now — do NOT route it to apply_editorial_intent:
       "add captions" → add_captions; "add/replace music" → regenerate_bgm; "cut the silences"/"remove the dead air" → the grounded transcript/silence resolver then cut_section.
+    - "create a scene"/"add a motion graphic"/"animated title/infographic" at a SPECIFIC moment → add_motion_graphic; "add motion graphics" across the video → auto_motion_graphics. NEVER substitute a plain add_overlay or a static text card for a requested scene/motion graphic.
     - Use apply_editorial_intent ONLY for a genuinely vague whole-project request like "edit this for me" or "make it good" — that hands the timeline to Auto-Director and is confirmed separately.
     - Never re-edit, re-cut, or re-pace the whole timeline to satisfy a single additive directive.`
       : '';

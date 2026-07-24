@@ -262,6 +262,9 @@ describe('chat request owner capability filtering', () => {
     'regenerate_bgm',
     'sync_cuts_to_beats',
     'add_sfx',
+    'add_motion_graphic',
+    'auto_motion_graphics',
+    'generate_html_scene',
     'refresh_captions',
     'reframe_project',
     'dub_selected_dialogue',
@@ -316,6 +319,11 @@ describe('chat request owner capability filtering', () => {
     for (const direct of ['add_captions', 'regenerate_bgm', 'cut_section', 'add_fancy_captions', 'sync_cuts_to_beats', 'add_overlay', 'add_sfx']) {
       expect(assistNames).toContain(direct);
     }
+    // Scene/MG creation routes to the MG generator (founder ruling, C1 finding):
+    expect(assistNames).toContain('add_motion_graphic');
+    expect(assistNames).toContain('auto_motion_graphics');
+    // ...and deliberately NOT the legacy HTML scene tool:
+    expect(assistNames).not.toContain('generate_html_scene');
     // Auto-Director stays available for a genuinely vague whole-project request:
     expect(assistNames).toContain('apply_editorial_intent');
     // But NOT other semantic owners' tools:
@@ -355,6 +363,9 @@ describe('chat request owner capability filtering', () => {
       'generate_html_sticker',
       'set_keyframes',
       'add_sfx',
+      // Pre-existing mechanical reachability, made visible when the fixture
+      // gained the tool: generate_html_scene is NOT shadow-banned at runtime.
+      'generate_html_scene',
       'refresh_captions',
       'reframe_project',
       'get_dubbing_job_result',
@@ -365,6 +376,11 @@ describe('chat request owner capability filtering', () => {
       'add_fancy_captions',
       'regenerate_bgm',
       'sync_cuts_to_beats',
+      // Family authorities like captions/music — banned from mechanical turns
+      // in BOTH lanes (their registry 'shadow-authority-filtered' marker now
+      // has a real enforcement site: MECHANICAL_SHADOW_FAMILY_TOOLS).
+      'add_motion_graphic',
+      'auto_motion_graphics',
     ]));
   });
 
