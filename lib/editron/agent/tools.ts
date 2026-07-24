@@ -5169,7 +5169,12 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         } catch {
           generatedUrlProtocol = '';
         }
-        if (!generatedUrl || !['http:', 'https:'].includes(generatedUrlProtocol) || !bgm.audioAssetId || !bgm.gcsPath) {
+        // A playable BGM needs a fetchable URL + a registered asset id. gcsPath is
+        // NOT required: on the R2-primary storage path it is null by design
+        // (upload-service.ts — GCS is only mirrored for Gemini analysis), and no
+        // consumer reads it here (it is $setOnInsert metadata below). Requiring it
+        // rejected every healthy R2-hosted track (C1 matrix, 2/2 on preview).
+        if (!generatedUrl || !['http:', 'https:'].includes(generatedUrlProtocol) || !bgm.audioAssetId) {
           return errorEnvelope(
             'The music provider returned an incomplete asset, so the existing BGM was kept.',
             'BGM_INVALID_GENERATED_ASSET',

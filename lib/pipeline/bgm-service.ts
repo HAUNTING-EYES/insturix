@@ -19,7 +19,12 @@ function ensureFalConfig() {
 
 interface BGMResult {
   audioUrl: string;
-  gcsPath: string;
+  /**
+   * GCS path — null when R2 is the primary storage backend (the default in every
+   * deployed env; upload-service only sets gcsPath on the GCS fallback or when a
+   * Gemini-analysis mirror is requested). Metadata only — playback uses audioUrl.
+   */
+  gcsPath: string | null;
   audioAssetId: string;
   durationMs: number;
   buffer?: Buffer;
@@ -147,7 +152,9 @@ export async function generateBackgroundMusic(
 
     return {
       audioUrl: uploadResult.signedUrl,
-      gcsPath: uploadResult.gcsPath!,
+      // Honest null on the R2-primary path — the old `!` assertion masked it and a
+      // downstream validator rejected every healthy R2-hosted track (C1 matrix P1).
+      gcsPath: uploadResult.gcsPath ?? null,
       audioAssetId: uploadResult.assetId,
       durationMs: durationSec * 1000, // Approximate - actual may differ
       buffer,

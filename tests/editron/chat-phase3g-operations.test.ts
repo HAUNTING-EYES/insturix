@@ -254,6 +254,40 @@ describe('chat Phase 3G operation contracts', () => {
     expect(mocks.mediaAssetUpdateOne).not.toHaveBeenCalled();
   });
 
+  it('REGRESSION (C1 matrix): accepts an R2-primary result where gcsPath is null by design', async () => {
+    // upload-service returns gcsPath:null on the R2 path (GCS is only mirrored for
+    // Gemini analysis). The validator used to require gcsPath and rejected every
+    // healthy R2-hosted track with BGM_INVALID_GENERATED_ASSET on preview/prod.
+    const currentBgm = {
+      id: 80, type: 'sound', row: ROW.BGM, from: 0, durationInFrames: 3600,
+      assetId: 'bgm_old', src: 'https://cdn.example.com/old.mp3', styles: { volume: 0.5 },
+    };
+    vi.spyOn(projectService, 'loadProject')
+      .mockResolvedValueOnce({ ...BASE_PROJECT, overlays: [currentBgm] } as any)
+      .mockResolvedValueOnce({ ...BASE_PROJECT, overlays: [{ ...currentBgm, assetId: 'bgm_r2' }] } as any);
+    const update = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue();
+    vi.spyOn(projectService, 'addOverlay').mockResolvedValue();
+    vi.spyOn(projectService, 'deleteOverlay').mockResolvedValue();
+    mocks.generateBackgroundMusic.mockResolvedValue({
+      audioUrl: 'https://cdn.r2.example.com/bgm_r2.mp3',
+      audioAssetId: 'bgm_r2',
+      gcsPath: null, // R2-primary shape — must NOT be rejected
+      durationMs: 120_000,
+      buffer: Buffer.alloc(256),
+    });
+
+    const result = parseEnvelope(await toolNamed('regenerate_bgm').invoke({ mood: 'calm' }));
+
+    expect(result, JSON.stringify(result)).toMatchObject({ status: 'success', data: { assetId: 'bgm_r2' } });
+    expect(update).toHaveBeenCalled();
+    // Metadata write records the honest null (consistent with all R2-primary assets).
+    expect(mocks.mediaAssetUpdateOne).toHaveBeenCalledWith(
+      { assetId: 'bgm_r2', userId: 'user_1' },
+      expect.objectContaining({ $setOnInsert: expect.objectContaining({ gcsPath: null }) }),
+      { upsert: true },
+    );
+  });
+
   it('registers a generated BGM before swapping it in place and then removes duplicates', async () => {
     const primary = {
       id: 70,
