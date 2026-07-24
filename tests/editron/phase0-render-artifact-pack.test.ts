@@ -131,6 +131,49 @@ describe('phase0 render artifact pack', () => {
     expect(pack.samplePlan.samples.every((sample) => sample.frame >= 0 && sample.frame < 180)).toBe(true);
   });
 
+  it('treats generated MG frame sequences as motion-graphic visual evidence', () => {
+    const project: Phase0FixtureProject = {
+      projectId: 'proj_mg_sequence',
+      fps: 30,
+      durationInFrames: 180,
+      playerDimensions: { width: 1920, height: 1080 },
+      overlays: [{
+        id: 'mg-sequence-1',
+        type: 'mg-sequence',
+        from: 30,
+        durationInFrames: 90,
+        assetId: 'mgseq_test-sequence',
+        sequence: {
+          sequenceId: 'test-sequence',
+          frameCount: 90,
+          fps: 30,
+          width: 1920,
+          height: 1080,
+          transparent: true,
+          frameFormat: 'webp',
+          cdnBaseUrl: 'https://cdn.example.com',
+        },
+      }],
+    };
+    const manifest = buildPhase0FixtureManifest(project);
+
+    const pack = buildPhase0RenderArtifactPack(project, manifest, {
+      artifactDir: '.calibration-temp/phase0-fixtures/proj_mg_sequence',
+    });
+
+    expect(pack.familyCoverage.counts['mg-sequence']).toBe(1);
+    expect(pack.familyCoverage.countsByFamily['motion-graphic']).toBe(1);
+    expect(pack.familyCoverage.auditedVisualTypes).toContain('mg-sequence');
+    expect(pack.samplePlan.samples).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceOverlayIds: ['mg-sequence-1'],
+        sourceOverlayTypes: ['mg-sequence'],
+        sourceFamilies: ['motion-graphic'],
+        evidenceKinds: ['visual'],
+      }),
+    ]));
+  });
+
   it('counts video-attached zoom receipts as zoom motion evidence', () => {
     const project: Phase0FixtureProject = {
       projectId: 'proj_video_zoom',

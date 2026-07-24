@@ -190,6 +190,7 @@ function overlayFamily(type: string): AtomicOverlayFamily {
     case "transition":
       return "transition";
     case "motion-graphic":
+    case "mg-sequence":
       return "motion-graphic";
     case "sticker":
     case "lottie":

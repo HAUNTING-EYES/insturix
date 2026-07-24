@@ -9,6 +9,7 @@ import {
   overlayAtom,
   type AtomicOverlayReceipt,
 } from '../../lib/editron/engine/atomic-overlay-core';
+import { ensureLiveAtomicOverlayReceipt } from '../../lib/editron/engine/overlay-atomic-receipts';
 import {
   buildBaselineOverlays,
   buildFrameAwareOverlayReceipt,
@@ -133,6 +134,19 @@ describe('rendered aesthetic harness helpers', () => {
 
     expect(samples.some((sample) => sample.sourceOverlayTypes.includes('generated-scene'))).toBe(true);
     expect(renderOverlays.map((overlay) => overlay.id)).toEqual([21]);
+  });
+
+  it('samples and renders generated MG sequences as motion-graphic evidence', () => {
+    const sequence = mgSequenceOverlay({ id: 23, from: 30, durationInFrames: 90 });
+    const stamped = ensureLiveAtomicOverlayReceipt(sequence);
+    const samples = planRenderedAestheticSamples([stamped], 150, 12);
+    const renderOverlays = buildOverlayOnlyRenderOverlays([stamped], 1920, 1080);
+
+    expect(samples.some((sample) => sample.sourceOverlayTypes.includes('mg-sequence'))).toBe(true);
+    expect(renderOverlays.map((overlay) => overlay.id)).toEqual([23]);
+    expect((stamped as Overlay & {
+      metadata?: { atomicOverlayReceipt?: { family?: string } };
+    }).metadata?.atomicOverlayReceipt?.family).toBe('motion-graphic');
   });
 
   it('fails SaaS motion variety when SaaS generated scenes repeat or dominate the sequence', () => {
@@ -798,6 +812,30 @@ function generatedSceneOverlay(input: OverlayFixtureInput & { id: number }): Ove
       },
     },
     metadata: { sourceType: 'saas-explainer-generated-scene' },
+  } as unknown as Overlay;
+}
+
+function mgSequenceOverlay(input: OverlayFixtureInput & { id: number }): Overlay {
+  return {
+    ...baseOverlay({
+      left: 0,
+      top: 0,
+      width: 1920,
+      height: 1080,
+      ...input,
+      type: OverlayType.MG_SEQUENCE,
+    }),
+    assetId: 'mgseq_test-sequence',
+    sequence: {
+      sequenceId: 'test-sequence',
+      frameCount: input.durationInFrames ?? 60,
+      fps: 30,
+      width: 1920,
+      height: 1080,
+      transparent: true,
+      frameFormat: 'webp',
+      cdnBaseUrl: 'https://cdn.example.com',
+    },
   } as unknown as Overlay;
 }
 

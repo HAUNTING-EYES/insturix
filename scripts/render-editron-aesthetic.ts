@@ -41,6 +41,7 @@ const COMPOSITOR_FALLBACKS = {
 
 const AUDITED_VISUAL_TYPES = new Set<string>([
   'motion-graphic',
+  OverlayType.MG_SEQUENCE,
   'text',
   'caption',
   'shape',
@@ -991,12 +992,18 @@ function auditedOverlayEvidenceFamily(
   overlay: Overlay,
   receipt: RenderedOverlayEvidence['receipt'],
 ): RenderedOverlayEvidence['family'] {
-  if (overlay.type === OverlayType.GENERATED_SCENE) return 'motion-graphic';
+  if (
+    overlay.type === OverlayType.GENERATED_SCENE
+    || overlay.type === OverlayType.MG_SEQUENCE
+  ) return 'motion-graphic';
   return receipt?.family;
 }
 
 function fallbackVisualIntentStageMode(overlay: Overlay): string | undefined {
-  if (overlay.type === OverlayType.GENERATED_SCENE) return 'full-frame-graphic-scene';
+  if (
+    overlay.type === OverlayType.GENERATED_SCENE
+    || overlay.type === OverlayType.MG_SEQUENCE
+  ) return 'full-frame-graphic-scene';
   return undefined;
 }
 
