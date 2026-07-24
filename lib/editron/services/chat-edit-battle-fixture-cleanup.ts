@@ -5,6 +5,9 @@ export interface ChatBattleFixtureCleanupCollections {
   analyses: string;
   chats: string;
   checkpoints: string;
+  referenceAttachments: string;
+  referenceStyleJobs: string;
+  editorialIntentJobs: string;
   deepAnalysisJobs: string;
   dubbingJobs: string;
   mgRenderJobs: string;
@@ -20,6 +23,9 @@ export interface ChatBattleFixtureCleanupResult {
     analyses: number;
     chats: number;
     checkpoints: number;
+    referenceAttachments: number;
+    referenceStyleJobs: number;
+    editorialIntentJobs: number;
     deepAnalysisJobs: number;
     dubbingJobs: number;
     mgRenderJobs: number;
@@ -42,6 +48,9 @@ export async function cleanupDisposableChatBattleFixture(
       analyses: COLLECTIONS.PROJECT_ASSET_ANALYSES,
       chats: COLLECTIONS.CHAT_SESSIONS,
       checkpoints: COLLECTIONS.CHECKPOINTS,
+      referenceAttachments: COLLECTIONS.CHAT_REFERENCE_ATTACHMENTS,
+      referenceStyleJobs: COLLECTIONS.CHAT_REFERENCE_STYLE_JOBS,
+      editorialIntentJobs: COLLECTIONS.CHAT_EDITORIAL_INTENT_JOBS,
       deepAnalysisJobs: COLLECTIONS.CHAT_DEEP_ANALYSIS_JOBS,
       dubbingJobs: COLLECTIONS.CHAT_DUBBING_JOBS,
       mgRenderJobs: COLLECTIONS.MG_RENDER_JOBS,
@@ -73,6 +82,9 @@ export async function cleanupDisposableChatBattleFixtureInDatabase(
     analyses,
     chats,
     checkpoints,
+    referenceAttachments,
+    referenceStyleJobs,
+    editorialIntentJobs,
     deepAnalysisJobs,
     dubbingJobs,
     mgRenderJobs,
@@ -81,6 +93,9 @@ export async function cleanupDisposableChatBattleFixtureInDatabase(
     db.collection(collections.analyses).deleteMany({ projectId }),
     db.collection(collections.chats).deleteMany({ projectId }),
     db.collection(collections.checkpoints).deleteMany({ projectId }),
+    db.collection(collections.referenceAttachments).deleteMany({ projectId }),
+    db.collection(collections.referenceStyleJobs).deleteMany({ projectId }),
+    db.collection(collections.editorialIntentJobs).deleteMany({ projectId }),
     db.collection(collections.deepAnalysisJobs).deleteMany({ projectId }),
     db.collection(collections.dubbingJobs).deleteMany({ projectId }),
     db.collection(collections.mgRenderJobs).deleteMany({ projectId }),
@@ -113,6 +128,9 @@ export async function cleanupDisposableChatBattleFixtureInDatabase(
       analyses: analyses.deletedCount,
       chats: chats.deletedCount,
       checkpoints: checkpoints.deletedCount,
+      referenceAttachments: referenceAttachments.deletedCount,
+      referenceStyleJobs: referenceStyleJobs.deletedCount,
+      editorialIntentJobs: editorialIntentJobs.deletedCount,
       deepAnalysisJobs: deepAnalysisJobs.deletedCount,
       dubbingJobs: dubbingJobs.deletedCount,
       mgRenderJobs: mgRenderJobs.deletedCount,
@@ -131,6 +149,9 @@ function emptyCleanupResult(projectId: string, skipped: boolean): ChatBattleFixt
       analyses: 0,
       chats: 0,
       checkpoints: 0,
+      referenceAttachments: 0,
+      referenceStyleJobs: 0,
+      editorialIntentJobs: 0,
       deepAnalysisJobs: 0,
       dubbingJobs: 0,
       mgRenderJobs: 0,
