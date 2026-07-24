@@ -2687,6 +2687,56 @@ describe('unified decision bundle merge', () => {
       'cross-overlay-choreography:text-lane-stack': expect.objectContaining({ count: 1 }),
     }));
   });
+  it('does not let a grounded narrative MG opportunity bypass canonical caption reservations', () => {
+    const bundle = planUnifiedDecisionBundleFromCandidates([
+      {
+        source: 'signal-driven',
+        edl: edl([
+          decision({
+            type: 'graphic',
+            frame: 36,
+            durationFrames: 90,
+            source: 'narrative-beat-producer:p3.5',
+            signal: 'narrative_beat',
+            reason: 'narrative_beat',
+            confidence: 0.6,
+            params: {
+              graphicType: 'narrative',
+              line: 'How come they never teach us money at school?',
+              sourceSpan: {
+                text: 'How come they never teach us money at school?',
+                startMs: 1200,
+                endMs: 4200,
+              },
+            },
+          }),
+        ]),
+      },
+    ], {
+      choreographyReservations: [
+        decision({
+          type: 'caption-emphasis',
+          frame: 30,
+          durationFrames: 120,
+          source: 'canonical-caption-track',
+          signal: 'caption-group-active',
+          confidence: 1,
+          params: { choreographyReservationOnly: true },
+        }),
+      ],
+    });
+
+    expect(bundle?.edl.decisions).toEqual([]);
+    expect(bundle?.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'cross-overlay-choreography:text-lane-stack': expect.objectContaining({ count: 1 }),
+    }));
+    expect(bundle?.evidence.evidenceOnlySignalDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: 'narrative-beat-producer:p3.5',
+        reason: 'cross-overlay-choreography:text-lane-stack',
+      }),
+    ]));
+  });
   it('normalizes legacy slow-motion decisions to speed-change at the bundle boundary', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'signal-driven',
@@ -2932,4 +2982,3 @@ function decision(overrides: Partial<EditDecision>): EditDecision {
     ...overrides,
   };
 }
-

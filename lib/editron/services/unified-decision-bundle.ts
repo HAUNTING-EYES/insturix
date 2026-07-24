@@ -4120,6 +4120,13 @@ function resolveSignalIndependentExecutionLicense(
     return { executable: false, reason: 'unsupported-signal-decision-type' };
   }
 
+  // A narrative beat is a grounded opportunity for the MG designer, not a confidence-ranked render command.
+  // Its transcript span and semantic ledger license it into planning; the design pre-pass remains the only
+  // authority that can turn the opportunity into a generated MG.
+  if (isGroundedNarrativeMgOpportunity(signalDecision)) {
+    return { executable: true, reason: 'licensed-grounded-narrative-mg-opportunity' };
+  }
+
   if (candidate.confidence < minConfidence) {
     return { executable: false, reason: 'below-signal-confidence-floor' };
   }
@@ -4132,6 +4139,14 @@ function resolveSignalIndependentExecutionLicense(
   }
 
   return resolveFamilyExecutionLicense(signalDecision);
+}
+
+function isGroundedNarrativeMgOpportunity(decision: ReactiveEditDecision): boolean {
+  if (decision.type !== 'graphic' || decision.source !== 'narrative-beat-producer:p3.5') return false;
+  const normalized = normalizeMotionGraphicContent(decision.params ?? {});
+  const gate = resolveSemanticMgLedgerGate(normalized.semanticMgCandidateLedger);
+  return gate.allow
+    && normalized.semanticMgCandidateLedger.candidates.some((candidate) => candidate.factKind === 'narrative');
 }
 
 function resolveFamilyExecutionLicense(

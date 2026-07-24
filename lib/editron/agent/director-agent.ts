@@ -1639,6 +1639,63 @@ export async function executeDirectorPlan(
         console.log(`[Director] Storyline seam hints: ${storylineSeamEdl.totalDecisions} transition candidates`);
       }
 
+      // Narrative MG opportunities belong in the same planner as every other family. Appending them after
+      // planning bypassed caption reservations, frequency selection, dedupe, and final decision ownership.
+      // They remain offers only: the MG design pre-pass can still decline them without creating an overlay.
+      if (editedTimelineContext) {
+        try {
+          const [{ produceNarrativeBeatDecisions }, { isLiveMgCodegenEnabled }] = await Promise.all([
+            import('@/lib/editron/services/narrative-beat-producer'),
+            import('@/lib/editron/services/edl-executor'),
+          ]);
+          if (isLiveMgCodegenEnabled()) {
+            const existingGraphicDecisions = unifiedDecisionCandidates
+              .flatMap((candidate) => candidate.edl.decisions)
+              .filter((decision) => decision.type === 'graphic')
+              .map((decision) => ({ type: 'graphic' as const, frame: decision.frame }));
+            const narrativeBeatDecisions = produceNarrativeBeatDecisions({
+              words: editedTimelineContext.transcription,
+              fps: editedTimelineContext.fps,
+              existingDecisions: existingGraphicDecisions,
+            });
+            if (narrativeBeatDecisions.length > 0) {
+              unifiedDecisionCandidates.push({
+                source: 'signal-driven',
+                editorialPreferences: brief?.editorialPreferences,
+                edl: {
+                  projectId,
+                  generatedAt: new Date(),
+                  totalDecisions: narrativeBeatDecisions.length,
+                  decisions: narrativeBeatDecisions,
+                  stats: {
+                    cutsPerMinute: 0,
+                    transitionCount: 0,
+                    graphicCount: narrativeBeatDecisions.length,
+                    zoomCount: 0,
+                    speedChangeCount: 0,
+                    averageConfidence: narrativeBeatDecisions.reduce(
+                      (sum, decision) => sum + decision.confidence,
+                      0,
+                    ) / narrativeBeatDecisions.length,
+                  },
+                },
+                graphicsDensity: densityFromSignalsOrNeutral(pathDGenreParams ?? pathEGenreParams),
+                expectedExecuted: narrativeBeatDecisions.length,
+                expectedSkipped: 0,
+              });
+              console.log(
+                `[Director] Narrative beat producer (P3.5): ${narrativeBeatDecisions.length} factless ` +
+                'opportunities submitted to the unified planner',
+              );
+            } else {
+              console.log('[Director] Narrative beat producer (P3.5): no free beats to submit');
+            }
+          }
+        } catch (narrativeErr: any) {
+          console.warn(`[Director] Narrative beat producer failed (non-fatal): ${narrativeErr?.message ?? narrativeErr}`);
+        }
+      }
+
       const canonicalCaptionChoreographyReservations = editedTimelineContext && captionEditorialPolicy.executionAllowed
         ? buildCanonicalCaptionChoreographyReservations({
           overlays,
@@ -1662,41 +1719,6 @@ export async function executeDirectorPlan(
           `${unifiedDecisionBundle.evidence.validatedDecisionCount} validated, ` +
           `${unifiedDecisionBundle.edl.totalDecisions} total`
         );
-      }
-
-      // ── P3.5 Phase B2: narrative beat producer ─────────────────────────────────────────────────────────
-      // Offer the video's factless transcript beats (edited-time words → sentence/pause beats) to the MG
-      // designer alongside the fact graphics. The designer's approved plan within the density budget is a
-      // beat's ONLY render license — executeEDL enforces plan-or-skip, so a declined beat renders nothing
-      // (never free-form). Additive after bundle planning; provenance = decision.source. Beats overlapping a
-      // fact graphic are skipped; the offer is capped by the design-plan contract (24 moments + 48 declined).
-      if (unifiedDecisionBundle && editedTimelineContext) {
-        try {
-          const [{ produceNarrativeBeatDecisions }, { isLiveMgCodegenEnabled }] = await Promise.all([
-            import('@/lib/editron/services/narrative-beat-producer'),
-            import('@/lib/editron/services/edl-executor'),
-          ]);
-          if (isLiveMgCodegenEnabled()) {
-            const narrativeBeatDecisions = produceNarrativeBeatDecisions({
-              words: editedTimelineContext.transcription,
-              fps: editedTimelineContext.fps,
-              existingDecisions: unifiedDecisionBundle.edl.decisions,
-            });
-            if (narrativeBeatDecisions.length > 0) {
-              unifiedDecisionBundle.edl.decisions.push(...narrativeBeatDecisions);
-              unifiedDecisionBundle.edl.totalDecisions += narrativeBeatDecisions.length;
-              unifiedDecisionBundle.edl.stats.graphicCount += narrativeBeatDecisions.length;
-              console.log(
-                `[Director] Narrative beat producer (P3.5): +${narrativeBeatDecisions.length} factless beats ` +
-                'offered to the MG designer (designer license, plan-or-skip)',
-              );
-            } else {
-              console.log('[Director] Narrative beat producer (P3.5): no free beats to offer');
-            }
-          }
-        } catch (narrativeErr: any) {
-          console.warn(`[Director] Narrative beat producer failed (non-fatal): ${narrativeErr?.message ?? narrativeErr}`);
-        }
       }
 
       if (unifiedDecisionBundle) {

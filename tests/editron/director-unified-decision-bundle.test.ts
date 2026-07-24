@@ -22,7 +22,7 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain('if (canRunPathD)');
     expect(source).toContain('planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates, {');
     expect(source).toContain('choreographyReservations: canonicalCaptionChoreographyReservations');
-    expect(source.match(/editorialPreferences: brief\?\.editorialPreferences/g)).toHaveLength(3);
+    expect(source.match(/editorialPreferences: brief\?\.editorialPreferences/g)).toHaveLength(4);
     expect(source).toContain('await executeEDL(');
     expect(source).toContain('unifiedDecisionBundle.edl');
     expect(source).toContain('Unified decision bundle execution COMPLETE');
@@ -35,6 +35,18 @@ describe('director unified decision bundle control flow', () => {
     expect(source).not.toContain('executeEDLPathD');
     expect(source).not.toContain('await executeEDLPathE');
     expect(source).not.toContain('await executeEDLPathD');
+  });
+
+  it('submits narrative MG opportunities before unified planning instead of appending executable decisions', () => {
+    const source = directorSource();
+    const producerIndex = source.indexOf('produceNarrativeBeatDecisions({');
+    const plannerIndex = source.indexOf('planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates, {');
+
+    expect(producerIndex).toBeGreaterThan(0);
+    expect(plannerIndex).toBeGreaterThan(producerIndex);
+    expect(source).toContain('opportunities submitted to the unified planner');
+    expect(source).not.toContain('unifiedDecisionBundle.edl.decisions.push(...narrativeBeatDecisions)');
+    expect(source).not.toContain('unifiedDecisionBundle.edl.totalDecisions += narrativeBeatDecisions.length');
   });
 
   it('refuses raw-timeline overlay decisions when canonical edited timeline is unsafe', () => {
