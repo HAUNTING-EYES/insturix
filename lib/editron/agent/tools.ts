@@ -5231,6 +5231,18 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         addContext('project.referenceEditDNA.musicStyle.energyLevel', projectRecord.referenceEditDNA?.musicStyle?.energyLevel);
         addContext('project.brandSignalProfile.narrative.pacePreference', projectRecord.brandSignalProfile?.narrative?.pacePreference);
         addContext('project.brandSignalProfile.narrative.emotionalArc', projectRecord.brandSignalProfile?.narrative?.emotionalArc);
+        const conditioningPlatform = [
+          { source: 'project.productionBrief.output.platform', value: projectRecord.productionBrief?.output?.platform },
+          { source: 'project.syntheticStoryboard.platform', value: projectRecord.syntheticStoryboard?.platform },
+          { source: 'project.platform', value: projectRecord.platform },
+        ].find((candidate) => (
+          typeof candidate.value === 'string'
+          && candidate.value.trim().length > 0
+          && !['unspecified', 'unknown'].includes(candidate.value.trim().toLowerCase())
+        ));
+        const conditioningPlatformValue = typeof conditioningPlatform?.value === 'string'
+          ? conditioningPlatform.value.trim()
+          : undefined;
 
         const explicitDirection = input.prompt?.trim();
         if (explicitDirection) contextSources.unshift('user.prompt');
@@ -5248,7 +5260,13 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         // Generate and validate before mutating the project. Provider failure must
         // leave the currently-renderable BGM untouched.
         const { generateBackgroundMusic } = await import('@/lib/pipeline/bgm-service');
-        const bgm = await generateBackgroundMusic(musicPrompt, userId, totalDurationSec);
+        const bgm = await generateBackgroundMusic(musicPrompt, userId, totalDurationSec, {
+          conditioning: {
+            targetFrames: totalFrames,
+            fps,
+            platform: conditioningPlatformValue,
+          },
+        });
         const generatedUrl = typeof bgm.audioUrl === 'string' ? bgm.audioUrl.trim() : '';
         let generatedUrlProtocol = '';
         try {
@@ -5269,6 +5287,43 @@ NEVER ask the user which clips — default to applyToAll: true.`,
             'stop',
           );
         }
+        const exactDurationMs = (totalFrames / fps) * 1000;
+        const durationToleranceMs = 1000 / fps;
+        const conditioning = bgm.conditioning;
+        const conditioningVerified = Boolean(
+          conditioning
+          && conditioning.targetFrames === totalFrames
+          && Math.abs(conditioning.durationMs - exactDurationMs) <= durationToleranceMs
+          && Number.isFinite(conditioning.measuredOutputLufs)
+          && Number.isFinite(conditioning.truePeakDbtp)
+          && bgm.contentType === 'audio/flac'
+          && bgm.filename.endsWith('.flac')
+          && conditioning.contentType === 'audio/flac'
+          && conditioning.filenameExtension === 'flac',
+        );
+        if (!conditioningVerified) {
+          return errorEnvelope(
+            'The generated music could not be verified as exact-length, loudness-conditioned audio, so the existing BGM was kept.',
+            'BGM_CONDITIONING_NOT_VERIFIED',
+            {
+              targetFrames: totalFrames,
+              fps,
+              hasConditioningEvidence: Boolean(conditioning),
+              conditionedFrames: conditioning?.targetFrames,
+              conditionedDurationMs: conditioning?.durationMs,
+              contentType: bgm.contentType,
+              filename: bgm.filename,
+            },
+            'stop',
+          );
+        }
+        const audioConditioningEvidence = {
+          version: 'pre-upload-ebur128-v1',
+          fps,
+          requestedPlatform: conditioningPlatformValue ?? null,
+          platformSource: conditioningPlatform?.source ?? null,
+          ...conditioning,
+        };
 
         const replacementCandidate: any = {
           ...(bgmOverlays[0] || {}),
@@ -5303,7 +5358,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         replacementCandidate.metadata = {
           ...(bgmOverlays[0]?.metadata || {}),
           audioPolicyEvidence: {
-            version: 'chat-bgm-replacement-v1',
+            version: 'chat-bgm-replacement-v2',
             intentSource: explicitDirection ? 'user-prompt-and-mood' : 'user-mood',
             contextSources,
             generatedPrompt: musicPrompt,
@@ -5312,6 +5367,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
             speechEvidenceCount: mixPlan.speechEvidenceCount,
             voiceSourceOverlayIds: mixPlan.voiceSourceOverlayIds,
             warnings: mixPlan.warnings,
+            audioConditioningEvidence,
             generatedAt: new Date().toISOString(),
           },
         };
@@ -5328,11 +5384,14 @@ NEVER ask the user which clips — default to applyToAll: true.`,
               userId,
               projectId,
               type: 'audio',
-              filename: `${bgm.audioAssetId}.mp3`,
+              filename: bgm.filename,
+              contentType: bgm.contentType,
               source: 'generated',
               gcsPath: bgm.gcsPath,
               urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               size: bgm.buffer?.length || 0,
+              duration: bgm.durationMs / 1000,
+              audioConditioningEvidence,
               uploadedAt: now,
             },
           },
@@ -5364,12 +5423,19 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           overlayId: pendingBgmId,
           assetId: bgm.audioAssetId,
           mood: input.mood,
-          durationSec: totalDurationSec,
+          durationSec: bgm.durationMs / 1000,
           replacedInPlace,
           removedDuplicateCount: duplicateBgmOverlays.length,
           contextSources,
           mixStatus: mixPlan.status,
-          message: `${replacedInPlace ? 'Replaced' : 'Added'} background music with a ${input.mood} score (${totalDurationSec}s).`,
+          conditioning: {
+            loudnessPlatform: conditioning.loudnessPlatform,
+            measuredOutputLufs: conditioning.measuredOutputLufs,
+            truePeakDbtp: conditioning.truePeakDbtp,
+            wasLooped: conditioning.wasLooped,
+            wasTrimmed: conditioning.wasTrimmed,
+          },
+          message: `${replacedInPlace ? 'Replaced' : 'Added'} background music with a ${input.mood} score (${(bgm.durationMs / 1000).toFixed(1)}s).`,
         });
       } catch (e: any) {
         return errorEnvelope(

@@ -63,6 +63,52 @@ const BASE_PROJECT = {
   visibility: 'private',
 };
 
+function conditionedBgmResult(
+  assetId: string,
+  options: {
+    gcsPath?: string | null;
+    targetFrames?: number;
+    fps?: number;
+    platform?: string;
+    size?: number;
+  } = {},
+) {
+  const targetFrames = options.targetFrames ?? 3600;
+  const fps = options.fps ?? 30;
+  const durationMs = (targetFrames / fps) * 1000;
+  const gcsPath = options.gcsPath === undefined
+    ? `users/user_1/${assetId}.flac`
+    : options.gcsPath;
+  return {
+    audioUrl: `https://cdn.r2.example.com/${assetId}.flac`,
+    audioAssetId: assetId,
+    gcsPath,
+    durationMs,
+    filename: `${assetId}.flac`,
+    contentType: 'audio/flac',
+    buffer: Buffer.alloc(options.size ?? 512),
+    conditioning: {
+      contentType: 'audio/flac',
+      filenameExtension: 'flac',
+      targetFrames,
+      durationMs,
+      sourceDurationMs: 60_000,
+      sampleRate: 48_000,
+      channels: 2,
+      measuredInputLufs: -18,
+      measuredOutputLufs: -14,
+      truePeakDbtp: -1.1,
+      targetLufs: -14,
+      targetTruePeakDbtp: -1,
+      loudnessPlatform: options.platform ?? 'universal',
+      wasLooped: true,
+      wasTrimmed: false,
+      loopsAdded: 1,
+      crossfadeMs: 250,
+    },
+  };
+}
+
 function toolNamed(name: string) {
   const candidate = createTools('user_1', 'proj_phase3g').find((tool) => tool.name === name);
   expect(candidate, `${name} should be registered`).toBeDefined();
@@ -254,6 +300,46 @@ describe('chat Phase 3G operation contracts', () => {
     expect(mocks.mediaAssetUpdateOne).not.toHaveBeenCalled();
   });
 
+  it('keeps current BGM untouched when exact-length conditioning evidence is missing', async () => {
+    const currentBgm = {
+      id: 75,
+      type: 'sound',
+      row: ROW.BGM,
+      from: 0,
+      durationInFrames: 3600,
+      assetId: 'bgm_old',
+      src: 'https://cdn.example.com/old.mp3',
+      styles: { volume: 0.5 },
+    };
+    vi.spyOn(projectService, 'loadProject').mockResolvedValue({
+      ...BASE_PROJECT,
+      overlays: [currentBgm],
+    } as any);
+    const update = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue();
+    const add = vi.spyOn(projectService, 'addOverlay').mockResolvedValue();
+    const remove = vi.spyOn(projectService, 'deleteOverlay').mockResolvedValue();
+    mocks.generateBackgroundMusic.mockResolvedValue({
+      audioUrl: 'https://cdn.example.com/unconditioned.mp3',
+      audioAssetId: 'bgm_unconditioned',
+      gcsPath: null,
+      durationMs: 120_000,
+      filename: 'bgm_unconditioned.mp3',
+      contentType: 'audio/mpeg',
+      buffer: Buffer.alloc(256),
+    });
+
+    const result = parseEnvelope(await toolNamed('regenerate_bgm').invoke({ mood: 'calm' }));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: { code: 'BGM_CONDITIONING_NOT_VERIFIED' },
+    });
+    expect(update).not.toHaveBeenCalled();
+    expect(add).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    expect(mocks.mediaAssetUpdateOne).not.toHaveBeenCalled();
+  });
+
   it('REGRESSION (C1 matrix): accepts an R2-primary result where gcsPath is null by design', async () => {
     // upload-service returns gcsPath:null on the R2 path (GCS is only mirrored for
     // Gemini analysis). The validator used to require gcsPath and rejected every
@@ -268,13 +354,10 @@ describe('chat Phase 3G operation contracts', () => {
     const update = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue();
     vi.spyOn(projectService, 'addOverlay').mockResolvedValue();
     vi.spyOn(projectService, 'deleteOverlay').mockResolvedValue();
-    mocks.generateBackgroundMusic.mockResolvedValue({
-      audioUrl: 'https://cdn.r2.example.com/bgm_r2.mp3',
-      audioAssetId: 'bgm_r2',
+    mocks.generateBackgroundMusic.mockResolvedValue(conditionedBgmResult('bgm_r2', {
       gcsPath: null, // R2-primary shape — must NOT be rejected
-      durationMs: 120_000,
-      buffer: Buffer.alloc(256),
-    });
+      size: 256,
+    }));
 
     const result = parseEnvelope(await toolNamed('regenerate_bgm').invoke({ mood: 'calm' }));
 
@@ -313,6 +396,7 @@ describe('chat Phase 3G operation contracts', () => {
       .mockResolvedValueOnce({
         ...BASE_PROJECT,
         editorialPreferences: { musicPrompt: 'restrained documentary texture' },
+        productionBrief: { output: { platform: 'tiktok' } },
         referenceEditDNA: { musicStyle: { genre: 'minimal electronic', tempo: 'medium' } },
         overlays: [voice, primary, duplicate],
       } as any)
@@ -323,13 +407,10 @@ describe('chat Phase 3G operation contracts', () => {
     const update = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue();
     const add = vi.spyOn(projectService, 'addOverlay').mockResolvedValue();
     const remove = vi.spyOn(projectService, 'deleteOverlay').mockResolvedValue();
-    mocks.generateBackgroundMusic.mockResolvedValue({
-      audioUrl: 'https://cdn.example.com/new.mp3',
-      audioAssetId: 'bgm_new',
-      gcsPath: 'users/user_1/bgm_new.mp3',
-      durationMs: 120_000,
-      buffer: Buffer.alloc(512),
-    });
+    mocks.generateBackgroundMusic.mockResolvedValue(conditionedBgmResult('bgm_new', {
+      platform: 'tiktok',
+      size: 512,
+    }));
 
     const result = parseEnvelope(await toolNamed('regenerate_bgm').invoke({
       mood: 'hopeful and restrained',
@@ -351,11 +432,32 @@ describe('chat Phase 3G operation contracts', () => {
       expect.stringMatching(/Warm analog pulse.*hopeful and restrained.*instrumental only, no vocals/i),
       'user_1',
       120,
+      {
+        conditioning: {
+          targetFrames: 3600,
+          fps: 30,
+          platform: 'tiktok',
+        },
+      },
     );
     expect(mocks.mediaAssetUpdateOne).toHaveBeenCalledWith(
       { assetId: 'bgm_new', userId: 'user_1' },
       expect.objectContaining({
-        $setOnInsert: expect.objectContaining({ source: 'generated', projectId: 'proj_phase3g', size: 512 }),
+        $setOnInsert: expect.objectContaining({
+          source: 'generated',
+          projectId: 'proj_phase3g',
+          filename: 'bgm_new.flac',
+          contentType: 'audio/flac',
+          duration: 120,
+          size: 512,
+          audioConditioningEvidence: expect.objectContaining({
+            targetFrames: 3600,
+            fps: 30,
+            requestedPlatform: 'tiktok',
+            platformSource: 'project.productionBrief.output.platform',
+            measuredOutputLufs: -14,
+          }),
+        }),
       }),
       { upsert: true },
     );
@@ -365,9 +467,15 @@ describe('chat Phase 3G operation contracts', () => {
       styles: expect.objectContaining({ duckingConfig: expect.objectContaining({ enabled: true }) }),
       metadata: expect.objectContaining({
         audioPolicyEvidence: expect.objectContaining({
+          version: 'chat-bgm-replacement-v2',
           mixOwner: 'applyAudioDuckingToProject',
           speechEvidenceCount: 1,
           voiceSourceOverlayIds: [10],
+          audioConditioningEvidence: expect.objectContaining({
+            targetFrames: 3600,
+            fps: 30,
+            loudnessPlatform: 'tiktok',
+          }),
         }),
       }),
     }));

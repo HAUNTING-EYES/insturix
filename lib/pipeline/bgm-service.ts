@@ -47,6 +47,12 @@ export interface BGMResult {
   conditioning?: BGMConditioningEvidence;
 }
 
+export interface ConditionedBGMResult extends BGMResult {
+  filename: `${string}.flac`;
+  contentType: 'audio/flac';
+  conditioning: BGMConditioningEvidence;
+}
+
 async function recordPipelineBGMProviderCost(input: {
   status: ProviderCostEventStatus;
   userId: string;
@@ -86,6 +92,18 @@ async function recordPipelineBGMProviderCost(input: {
  * CassetteAI can return less audio than the timeline needs. Callers that provide
  * conditioning options receive an exact-duration, normalized asset before upload.
  */
+export function generateBackgroundMusic(
+  prompt: string,
+  userId: string,
+  durationSec: number,
+  options: { conditioning: BGMConditioningRequest },
+): Promise<ConditionedBGMResult>;
+export function generateBackgroundMusic(
+  prompt: string,
+  userId: string,
+  durationSec: number,
+  options?: BGMGenerationOptions,
+): Promise<BGMResult>;
 export async function generateBackgroundMusic(
   prompt: string,
   userId: string,
