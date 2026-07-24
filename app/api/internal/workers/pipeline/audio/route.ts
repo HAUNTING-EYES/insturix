@@ -24,6 +24,10 @@ import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { createPipelineWarnings } from '@/lib/editron/services/pipeline-warnings';
 import { analyzeBeatsFull } from '@/lib/editron/services/media/beat-detection-service';
 import { DEFAULT_BGM_MIX_LEVELS } from '@/lib/editron/services/bgm-mix-levels';
+import {
+  buildMusicCoverageOverlays,
+  resolveRuntimeMusicCoveragePlan,
+} from '@/lib/editron/services/music-coverage-runtime';
 
 /**
  * Persist pipeline warnings from this worker run to the project doc.
@@ -67,6 +71,7 @@ interface AudioWorkerPayload {
   platform?: string | null;
   musicPreference?: string | null;
   editorialPreferences?: unknown;
+  musicCoveragePlan?: unknown;
   // Signal-driven BGM mix levels (bgm-mix-levels.ts, CKG-bounded). Absent → DEFAULT_BGM_MIX_LEVELS.
   bgmBaseVolume?: number;
   bgmDuckLevel?: number;
@@ -149,6 +154,50 @@ async function handler(request: NextRequest) {
         return NextResponse.json({ success: false, error: 'Missing BGM fields' }, { status: 400 });
       }
 
+      let musicCoveragePlan;
+      try {
+        musicCoveragePlan = resolveRuntimeMusicCoveragePlan({
+          totalFrames,
+          fps,
+          project,
+          musicPreference: musicGenerationPolicy.musicPreference,
+          precomputedPlan: payload.musicCoveragePlan,
+        });
+      } catch (coverageErr: any) {
+        warnings.add({
+          severity: 'error',
+          phase: 'bgm',
+          message: `Invalid music coverage evidence: ${coverageErr.message}`,
+          details: { code: coverageErr.code },
+        });
+        await persistWarnings(db, projectId, warnings);
+        return NextResponse.json({
+          success: false,
+          error: `Music coverage planning failed: ${coverageErr.message}`,
+        }, { status: 400 });
+      }
+
+      if (musicCoveragePlan.mode === 'none') {
+        await db.collection(COLLECTIONS.PROJECTS).updateOne(
+          { projectId },
+          {
+            $set: {
+              musicCoveragePlan,
+              'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
+              updatedAt: new Date(),
+            },
+          },
+        );
+        console.log(`[AudioWorker] BGM skipped by coverage plan: ${musicCoveragePlan.reasonCodes.join(',')}`);
+        return NextResponse.json({
+          success: true,
+          type: 'bgm',
+          skipped: true,
+          reason: 'music-coverage-none',
+          musicCoveragePlan,
+        });
+      }
+
       const audioPlatformEvidence = resolveAudioPlatformEvidence([
         { value: payload.platform, source: 'audio-worker-payload.platform' },
         { value: project.productionBrief?.output?.platform, source: 'project.productionBrief.output.platform' },
@@ -174,7 +223,7 @@ async function handler(request: NextRequest) {
 
       // A5 FIX: Use timestamp + crypto random for guaranteed unique IDs across concurrent workers
       const overlayId = Date.now() * 1000 + Math.floor(Math.random() * 999999);
-      const bgmOverlay = {
+      const bgmOverlayBase = {
         id: overlayId,
         type: 'sound',
         from: 0,
@@ -207,17 +256,27 @@ async function handler(request: NextRequest) {
             ...bgm.conditioning,
           },
         },
+        _workerAdded: true,
       };
 
       // F6.6 FIX: Push to overlays AND mark as worker-added.
       // The _workerAdded flag tells saveProject to preserve these overlays
       // even when the user saves (browser autosave would otherwise clobber them).
-      const markedBgm = { ...bgmOverlay, _workerAdded: true };
+      const markedBgm = buildMusicCoverageOverlays({
+        baseOverlay: bgmOverlayBase,
+        plan: musicCoveragePlan,
+        totalFrames,
+        idFactory: sectionIndex => overlayId + sectionIndex,
+      });
       await db.collection(COLLECTIONS.PROJECTS).updateOne(
         { projectId },
         {
-          $push: { 'overlays': markedBgm as any },
-          $set: { updatedAt: new Date() },
+          $push: { overlays: { $each: markedBgm } } as any,
+          $set: {
+            musicCoveragePlan,
+            'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
+            updatedAt: new Date(),
+          },
         },
       );
 
@@ -309,7 +368,13 @@ async function handler(request: NextRequest) {
       }
 
       await persistWarnings(db, projectId, warnings);
-      return NextResponse.json({ success: true, type: 'bgm', assetId: bgm.audioAssetId, warnings: warnings.getAll() });
+      return NextResponse.json({
+        success: true,
+        type: 'bgm',
+        assetId: bgm.audioAssetId,
+        musicCoveragePlan,
+        warnings: warnings.getAll(),
+      });
 
     } else if (type === 'sfx') {
       const { sfxInputs, sceneFrameMap } = payload;

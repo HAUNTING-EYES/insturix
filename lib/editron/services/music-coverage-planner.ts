@@ -6,25 +6,19 @@ export type MusicPreference = NonNullable<ProjectBrief['musicPreference']>;
 export interface MusicCoverageFrameRange { startFrame: number; endFrame: number }
 export interface MusicCoverageEnergyRange extends MusicCoverageFrameRange { energy: number }
 export interface MusicCoverageAudioTreatment extends MusicCoverageFrameRange { treatment: 'vo' | 'music_beat' }
-export interface MusicCoverageSection extends MusicCoverageFrameRange {
-  intent: MusicCoverageIntent;
-  energyTier: MusicCoverageEnergyTier;
-  sources: Array<'audio-treatment' | 'energy-arc' | 'speech-gap' | 'content-default' | 'user-preference'>;
-}
+export type MusicCoverageSource = 'audio-treatment' | 'energy-arc' | 'speech-gap' | 'content-default' | 'user-preference' | 'authored-direction';
+export interface MusicCoverageSection extends MusicCoverageFrameRange { intent: MusicCoverageIntent; energyTier: MusicCoverageEnergyTier; sources: MusicCoverageSource[] }
 export interface MusicCoveragePlannerInput {
   totalFrames: number;
   fps: number;
   contentType?: string | null;
   musicPreference?: MusicPreference | null;
+  authoredMusicIntent?: { coverage: 'full' | 'sections'; source: string } | null;
   speechCoverage?: number | null;
   speechSegments?: MusicCoverageFrameRange[] | null;
   energyArc?: MusicCoverageEnergyRange[] | null;
   audioTreatments?: MusicCoverageAudioTreatment[] | null;
-  sourceMusic?: {
-    detected: boolean;
-    confidence?: number | null;
-    reason?: string;
-  } | null;
+  sourceMusic?: { detected: boolean; confidence?: number | null; reason?: string } | null;
 }
 export interface MusicCoveragePlan {
   version: 'music-coverage-plan-v1';
@@ -34,32 +28,26 @@ export interface MusicCoveragePlan {
   evidence: {
     contentType: string | null;
     musicPreference: MusicPreference | null;
+    authoredMusicIntent: MusicCoveragePlannerInput['authoredMusicIntent'];
     sourceMusicDetected: boolean;
     sourceMusicConfidence: number | null;
     sourceMusicReason: string | null;
     speechCoverage: number | null;
-    temporalEvidence: {
-      speechSegments: number;
-      energyRanges: number;
-      audioTreatments: number;
-    };
+    temporalEvidence: { speechSegments: number; energyRanges: number; audioTreatments: number };
     coveredFrames: number;
     coverageRatio: number;
   };
 }
 export class MusicCoveragePlanningError extends Error {
-  constructor(public readonly code: 'INVALID_TIMELINE' | 'INVALID_MUSIC_PREFERENCE', message: string) {
+  constructor(public readonly code: 'INVALID_TIMELINE' | 'INVALID_MUSIC_PREFERENCE' | 'INVALID_AUTHORED_MUSIC_INTENT', message: string) {
     super(message);
     this.name = 'MusicCoveragePlanningError';
   }
 }
 const MUSIC_PREFERENCES = new Set<MusicPreference>(['none', 'subtle_bed', 'energetic', 'match_video']);
-const FULL_CONTENT_TYPES = new Set([
-  'ad', 'advertisement', 'cinematic', 'montage', 'music-video', 'product-demo', 'promo', 'social-ad',
-]);
+const FULL_CONTENT_TYPES = new Set(['ad', 'advertisement', 'cinematic', 'montage', 'music-video', 'product-demo', 'promo', 'social-ad']);
 const SECTION_CONTENT_TYPES = new Set(['comedy', 'documentary', 'doc', 'vlog']);
 const SPARSE_CONTENT_TYPES = new Set(['corporate', 'interview', 'podcast', 'talking-head', 'tutorial']);
-
 // CKG music-energy tracking requires a sustained 4-second change before reacting.
 const MIN_SECTION_SECONDS = 4;
 const MERGE_GAP_SECONDS = 1;
@@ -70,12 +58,14 @@ export function planMusicCoverage(input: MusicCoveragePlannerInput): MusicCovera
   const { totalFrames, fps } = validateTimeline(input);
   const contentType = normalizeContentType(input.contentType);
   const musicPreference = normalizeMusicPreference(input.musicPreference);
+  const authoredMusicIntent = normalizeAuthoredMusicIntent(input.authoredMusicIntent);
   const speechSegments = normalizeRanges(input.speechSegments, totalFrames);
   const energyArc = normalizeEnergyRanges(input.energyArc, totalFrames);
   const audioTreatments = normalizeAudioTreatments(input.audioTreatments, totalFrames);
   const evidenceBase = {
     contentType,
     musicPreference,
+    authoredMusicIntent,
     sourceMusicDetected: input.sourceMusic?.detected === true,
     sourceMusicConfidence: finiteUnit(input.sourceMusic?.confidence),
     sourceMusicReason: input.sourceMusic?.reason?.trim() || null,
@@ -102,16 +92,19 @@ export function planMusicCoverage(input: MusicCoveragePlannerInput): MusicCovera
       sources: ['user-preference'],
     }], ['user-full-preference'], evidenceBase, totalFrames);
   }
+  if (authoredMusicIntent?.coverage === 'full' && musicPreference !== 'match_video') {
+    const sections = buildFullCoverage(totalFrames, energyArc, 'authored-direction');
+    return finalizePlan('full', sections, ['authored-full-direction'], evidenceBase, totalFrames);
+  }
   if (contentType && FULL_CONTENT_TYPES.has(contentType)) {
     const sections = buildFullCoverage(totalFrames, energyArc);
     return finalizePlan('full', sections, ['content-default-full'], evidenceBase, totalFrames);
   }
   const explicitBeats = audioTreatments.filter(item => item.treatment === 'music_beat');
-  const mayUseComputedSections = (
-    musicPreference === 'match_video'
+  const mayUseComputedSections = musicPreference === 'match_video'
+    || authoredMusicIntent?.coverage === 'sections'
     || !contentType
-    || SECTION_CONTENT_TYPES.has(contentType)
-  );
+    || SECTION_CONTENT_TYPES.has(contentType);
   const candidates = buildSectionCandidates({
     totalFrames,
     fps,
@@ -131,9 +124,11 @@ export function planMusicCoverage(input: MusicCoveragePlannerInput): MusicCovera
   if (contentType && SPARSE_CONTENT_TYPES.has(contentType)) {
     return finalizePlan('none', [], ['speech-first-content'], evidenceBase, totalFrames);
   }
+  if (authoredMusicIntent?.coverage === 'sections')
+    return finalizePlan('none', [], ['authored-sections-without-temporal-evidence'], evidenceBase, totalFrames);
   return finalizePlan('none', [], ['no-licensed-sections'], evidenceBase, totalFrames);
 }
-function buildFullCoverage(totalFrames: number, energyArc: MusicCoverageEnergyRange[]): MusicCoverageSection[] {
+function buildFullCoverage(totalFrames: number, energyArc: MusicCoverageEnergyRange[], source: MusicCoverageSource = 'content-default'): MusicCoverageSection[] {
   const energy = energyArc.length > 0
     ? energyArc.reduce((sum, range) => sum + range.energy * (range.endFrame - range.startFrame), 0)
       / energyArc.reduce((sum, range) => sum + (range.endFrame - range.startFrame), 0)
@@ -143,7 +138,7 @@ function buildFullCoverage(totalFrames: number, energyArc: MusicCoverageEnergyRa
     endFrame: totalFrames,
     intent: 'continuous-bed',
     energyTier: energyTier(energy),
-    sources: ['content-default'],
+    sources: [source],
   }];
 }
 function buildSectionCandidates(params: {
@@ -266,6 +261,14 @@ function normalizeMusicPreference(value: MusicCoveragePlannerInput['musicPrefere
   }
   return value;
 }
+function normalizeAuthoredMusicIntent(value: MusicCoveragePlannerInput['authoredMusicIntent']) {
+  if (value == null) return null;
+  const source = typeof value.source === 'string' ? value.source.trim() : '';
+  if ((value.coverage !== 'full' && value.coverage !== 'sections') || !source) {
+    throw new MusicCoveragePlanningError('INVALID_AUTHORED_MUSIC_INTENT', 'Authored music intent requires full/sections coverage and a non-empty evidence source');
+  }
+  return { coverage: value.coverage, source };
+}
 function normalizeContentType(value: string | null | undefined): string | null {
   return typeof value === 'string' ? value.trim().toLowerCase().replace(/[\s_]+/g, '-') || null : null;
 }
@@ -291,10 +294,6 @@ function finalizePlan(
     mode,
     sections,
     reasonCodes,
-    evidence: {
-      ...evidence,
-      coveredFrames,
-      coverageRatio: coveredFrames / totalFrames,
-    },
+    evidence: { ...evidence, coveredFrames, coverageRatio: coveredFrames / totalFrames },
   };
 }

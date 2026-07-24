@@ -128,6 +128,7 @@ import {
   resolveMusicGenerationPolicy,
 } from '../../lib/pipeline/bgm-conditioning-contract';
 import { resolveAudioLoudnessTarget } from '../../lib/editron/constants/audio-standards';
+import { resolveRuntimeMusicCoveragePlan } from '../../lib/editron/services/music-coverage-runtime';
 import { createTools } from '../../lib/editron/agent/tools';
 import { POST as finalizeStoryboard } from '../../app/api/services/pipeline/storyboard/[id]/finalize/route';
 import { POST as runAudioWorker } from '../../app/api/internal/workers/pipeline/audio/route';
@@ -161,6 +162,26 @@ function makeConditionedBgm(targetFrames: number, fps = 30, platform?: string | 
       crossfadeMs: 250,
     },
   };
+}
+
+function makeFullCoveragePlan(totalFrames: number, fps = 30) {
+  return resolveRuntimeMusicCoveragePlan({
+    totalFrames,
+    fps,
+    authoredMusicIntent: { coverage: 'full', source: 'test.authored-music' },
+  });
+}
+
+function makeSectionCoveragePlan(totalFrames: number, fps = 30) {
+  return resolveRuntimeMusicCoveragePlan({
+    totalFrames,
+    fps,
+    contentType: 'vlog',
+    speechSegments: [
+      { startFrame: 0, endFrame: 120 },
+      { startFrame: 240, endFrame: 330 },
+    ],
+  });
 }
 
 function makeStoryboard(beatSyncActive: boolean) {
@@ -287,6 +308,57 @@ describe('conditioned BGM contract', () => {
       },
     });
   });
+
+  it('projects raw-footage speech evidence onto the edited timeline before planning sections', () => {
+    const plan = resolveRuntimeMusicCoveragePlan({
+      totalFrames: 300,
+      fps: 30,
+      project: {
+        rawFootageAnalysis: {
+          contentTypeDetection: { contentType: 'vlog' },
+          originalDurationMs: 10_000,
+          transcription: {
+            words: [
+              { word: 'opening', startMs: 0, endMs: 1_000 },
+              { word: 'closing', startMs: 7_000, endMs: 8_000 },
+            ],
+          },
+        },
+      },
+      overlays: [{
+        type: 'video',
+        from: 0,
+        durationInFrames: 300,
+        sourceStartFrame: 0,
+      }],
+    });
+
+    expect(plan).toMatchObject({
+      mode: 'sections',
+      sections: [{ startFrame: 34, endFrame: 206, intent: 'speech-gap' }],
+      evidence: {
+        contentType: 'vlog',
+        speechCoverage: 0.2,
+        temporalEvidence: { speechSegments: 2 },
+      },
+    });
+  });
+
+  it('fails loud when raw speech cannot be mapped to a multi-clip edited timeline', () => {
+    expect(() => resolveRuntimeMusicCoveragePlan({
+      totalFrames: 300,
+      fps: 30,
+      project: {
+        rawFootageAnalysis: {
+          transcription: { words: [{ word: 'speech', startMs: 0, endMs: 1_000 }] },
+        },
+      },
+      overlays: [
+        { type: 'video', from: 0, durationInFrames: 150 },
+        { type: 'video', from: 150, durationInFrames: 150 },
+      ],
+    })).toThrow('cannot map 1 speech words onto the edited timeline');
+  });
 });
 
 describe('storyboard finalize audio conditioning', () => {
@@ -356,14 +428,25 @@ describe('storyboard finalize audio conditioning', () => {
     const projectOverlayMutation = mocks.dbUpdateOne.mock.calls.find(
       ([collectionName, , mutation]) => (
         collectionName === 'projects'
-        && mutation?.$push?.overlays?.metadata?.source === 'finalize-sync-beat-sync'
+        && mutation?.$push?.overlays?.$each?.some(
+          (overlay: any) => overlay?.metadata?.source === 'finalize-sync-beat-sync',
+        )
       ),
     );
     expect(projectOverlayMutation).toBeDefined();
-    expect(projectOverlayMutation?.[2].$push.overlays).toMatchObject({
+    expect(projectOverlayMutation?.[2].$push.overlays.$each).toHaveLength(1);
+    expect(projectOverlayMutation?.[2].$push.overlays.$each[0]).toMatchObject({
+      from: 0,
       durationInFrames: 150,
+      startFromSound: 0,
       _workerAdded: true,
       metadata: {
+        musicCoverage: {
+          version: 'music-coverage-plan-v1',
+          mode: 'full',
+          sectionIndex: 0,
+          reasonCodes: ['authored-full-direction'],
+        },
         audioConditioning: {
           requestedPlatform: 'instagram-reels',
           platformEvidenceSource:
@@ -408,7 +491,42 @@ describe('storyboard finalize audio conditioning', () => {
       platform: 'instagram-reels',
       musicPreference: null,
       editorialPreferences: null,
+      musicCoveragePlan: expect.objectContaining({
+        version: 'music-coverage-plan-v1',
+        mode: 'full',
+        reasonCodes: ['authored-full-direction'],
+        evidence: expect.objectContaining({
+          authoredMusicIntent: {
+            coverage: 'full',
+            source: 'storyboard.overallMusicPrompt',
+          },
+        }),
+      }),
     }, 'BGM');
+  });
+
+  it('spends zero BGM credits when the storyboard has no authored or temporal music evidence', async () => {
+    const storyboard = makeStoryboard(false);
+    delete (storyboard as any).overallMusicPrompt;
+    mocks.getStoryboard.mockResolvedValue(storyboard);
+
+    const response = await finalizeStoryboard(makeRequest({}) as any, {
+      params: Promise.resolve({ id: 'sb_audio' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.generateBackgroundMusic).not.toHaveBeenCalled();
+    expect(mocks.dispatchAudioJob).not.toHaveBeenCalled();
+    expect(mocks.deductCredits.mock.calls.some(
+      ([, , action]) => action === 'bgm_generation',
+    )).toBe(false);
+    expect(mocks.dbUpdateOne.mock.calls.some(
+      ([collectionName, , mutation]) => (
+        collectionName === 'projects'
+        && mutation?.$set?.musicCoveragePlan?.mode === 'none'
+        && mutation?.$set?.musicCoveragePlan?.reasonCodes?.includes('no-licensed-sections')
+      ),
+    )).toBe(true);
   });
 
   it.each([
@@ -511,6 +629,7 @@ describe('audio worker conditioning', () => {
       totalFrames: 450,
       fps: 30,
       platform: 'tiktok',
+      musicCoveragePlan: makeFullCoveragePlan(450),
     }) as any);
 
     expect(response.status).toBe(200);
@@ -533,13 +652,22 @@ describe('audio worker conditioning', () => {
     const projectOverlayMutation = mocks.dbUpdateOne.mock.calls.find(
       ([collectionName, , mutation]) => (
         collectionName === 'projects'
-        && mutation?.$push?.overlays?.metadata?.source === 'audio-worker'
+        && mutation?.$push?.overlays?.$each?.some(
+          (overlay: any) => overlay?.metadata?.source === 'audio-worker',
+        )
       ),
     );
-    expect(projectOverlayMutation?.[2].$push.overlays).toMatchObject({
+    expect(projectOverlayMutation?.[2].$push.overlays.$each).toHaveLength(1);
+    expect(projectOverlayMutation?.[2].$push.overlays.$each[0]).toMatchObject({
+      from: 0,
       durationInFrames: 450,
+      startFromSound: 0,
       _workerAdded: true,
       metadata: {
+        musicCoverage: {
+          mode: 'full',
+          sectionIndex: 0,
+        },
         audioConditioning: {
           requestedPlatform: 'tiktok',
           platformEvidenceSource: 'audio-worker-payload.platform',
@@ -569,6 +697,7 @@ describe('audio worker conditioning', () => {
       totalDurationSec: 10,
       totalFrames: 300,
       fps: 30,
+      musicCoveragePlan: makeFullCoveragePlan(300),
     }) as any);
 
     expect(response.status).toBe(200);
@@ -587,10 +716,12 @@ describe('audio worker conditioning', () => {
     const projectOverlayMutation = mocks.dbUpdateOne.mock.calls.find(
       ([collectionName, , mutation]) => (
         collectionName === 'projects'
-        && mutation?.$push?.overlays?.metadata?.source === 'audio-worker'
+        && mutation?.$push?.overlays?.$each?.some(
+          (overlay: any) => overlay?.metadata?.source === 'audio-worker',
+        )
       ),
     );
-    expect(projectOverlayMutation?.[2].$push.overlays.metadata.audioConditioning).toMatchObject({
+    expect(projectOverlayMutation?.[2].$push.overlays.$each[0].metadata.audioConditioning).toMatchObject({
       requestedPlatform: 'youtube',
       platformEvidenceSource: 'project.productionBrief.output.platform',
       loudnessPlatform: 'youtube',
@@ -614,6 +745,7 @@ describe('audio worker conditioning', () => {
       totalDurationSec: 15,
       totalFrames: 450,
       fps: 30,
+      musicCoveragePlan: makeFullCoveragePlan(450),
     }) as any);
 
     expect(response.status).toBe(500);
@@ -624,6 +756,78 @@ describe('audio worker conditioning', () => {
       ([collectionName, , mutation]) => (
         collectionName === 'projects' && Boolean(mutation?.$push?.overlays)
       ),
+    )).toBe(false);
+  });
+
+  it('places section coverage at matching timeline and source offsets', async () => {
+    mocks.generateBackgroundMusic.mockImplementation(
+      (_prompt, _userId, _durationSec, options) => Promise.resolve(
+        makeConditionedBgm(
+          options.conditioning.targetFrames,
+          options.conditioning.fps,
+          options.conditioning.platform,
+        ),
+      ),
+    );
+    const plan = makeSectionCoveragePlan(450);
+
+    const response = await runAudioWorker(makeRequest({
+      type: 'bgm',
+      projectId: 'proj_worker',
+      userId: 'user_1',
+      storyboardId: 'sb_worker',
+      musicPrompt: 'section-aware score',
+      totalDurationSec: 15,
+      totalFrames: 450,
+      fps: 30,
+      musicCoveragePlan: plan,
+    }) as any);
+
+    expect(response.status).toBe(200);
+    expect(plan.mode).toBe('sections');
+    const projectOverlayMutation = mocks.dbUpdateOne.mock.calls.find(
+      ([collectionName, , mutation]) => (
+        collectionName === 'projects' && Array.isArray(mutation?.$push?.overlays?.$each)
+      ),
+    );
+    expect(projectOverlayMutation?.[2].$push.overlays.$each).toMatchObject([
+      {
+        from: 120,
+        durationInFrames: 120,
+        startFromSound: 120,
+        metadata: { musicCoverage: { sectionIndex: 0, mode: 'sections' } },
+      },
+      {
+        from: 330,
+        durationInFrames: 120,
+        startFromSound: 330,
+        metadata: { musicCoverage: { sectionIndex: 1, mode: 'sections' } },
+      },
+    ]);
+  });
+
+  it('rejects a tampered coverage plan before provider or asset mutation', async () => {
+    const tamperedPlan = {
+      ...makeFullCoveragePlan(450),
+      sections: [{ ...makeFullCoveragePlan(450).sections[0], endFrame: 449 }],
+    };
+
+    const response = await runAudioWorker(makeRequest({
+      type: 'bgm',
+      projectId: 'proj_worker',
+      userId: 'user_1',
+      storyboardId: 'sb_worker',
+      musicPrompt: 'must not reach provider',
+      totalDurationSec: 15,
+      totalFrames: 450,
+      fps: 30,
+      musicCoveragePlan: tamperedPlan,
+    }) as any);
+
+    expect(response.status).toBe(400);
+    expect(mocks.generateBackgroundMusic).not.toHaveBeenCalled();
+    expect(mocks.dbUpdateOne.mock.calls.some(
+      ([collectionName]) => collectionName === 'mediaAssets',
     )).toBe(false);
   });
 

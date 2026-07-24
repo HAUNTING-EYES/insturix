@@ -20,6 +20,10 @@ import { getAnalysis, selectBestSegment } from '@/lib/editron/services/five-trac
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { addProjectToLink } from '@/lib/shared/project-links';
 import { resolveStoryboardBrandReferenceIssue } from '@/lib/pipeline/storyboard-brand-reference-guard';
+import {
+  buildMusicCoverageOverlays,
+  resolveRuntimeMusicCoveragePlan,
+} from '@/lib/editron/services/music-coverage-runtime';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Reduced — no longer generates audio inline
@@ -957,6 +961,25 @@ export async function POST(
     if (!musicGenerationPolicy.allowed) {
       console.log(`[Finalize] BGM disabled by ${musicGenerationPolicy.reason}`);
     }
+    const authoredMusicPrompt = nonEmptyString(storyboard.overallMusicPrompt);
+    const musicCoveragePlan = musicGenerationPolicy.allowed
+      ? resolveRuntimeMusicCoveragePlan({
+          totalFrames: currentFrame,
+          fps,
+          project: projectRecord,
+          overlays,
+          contentType: nonEmptyString((briefSnapshot as any)?.contentType),
+          musicPreference: musicGenerationPolicy.musicPreference,
+          authoredMusicIntent: authoredMusicPrompt
+            ? { coverage: 'full', source: 'storyboard.overallMusicPrompt' }
+            : null,
+          storyboardScenes: storyboard.scenes,
+          sceneFrameMap,
+        })
+      : null;
+    if (musicCoveragePlan?.mode === 'none') {
+      console.log(`[Finalize] BGM skipped by coverage plan: ${musicCoveragePlan.reasonCodes.join(',')}`);
+    }
 
     // Update name + stage on reused project (it was created with a possibly-different title)
     if (existingProject) {
@@ -997,6 +1020,10 @@ export async function POST(
         $set: {
           sourceStoryboardId: id,
           musicGenerationPolicy,
+          ...(musicCoveragePlan ? {
+            musicCoveragePlan,
+            'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
+          } : {}),
           ...(musicGenerationPolicy.musicPreference
             ? { musicPreference: musicGenerationPolicy.musicPreference }
             : {}),
@@ -1103,7 +1130,14 @@ export async function POST(
     let bgmCreditCharge: PipelineAudioCreditCharge | null = null;
     let audioGenerationQueued = false;
 
-    if (musicGenerationPolicy.allowed && isBGMAvailable() && currentFrame > 0 && beatSyncActive) {
+    if (
+      musicGenerationPolicy.allowed
+      && musicCoveragePlan
+      && musicCoveragePlan.mode !== 'none'
+      && isBGMAvailable()
+      && currentFrame > 0
+      && beatSyncActive
+    ) {
       const totalDurationSec = Math.round(currentFrame / fps);
       bgmCreditCharge = await deductPipelineAudioCredits({
         userId,
@@ -1168,7 +1202,7 @@ export async function POST(
           // so downstream Director + editor treat it identically to async-generated BGM.
           // Beat grid stored on overlay metadata so Director reads from the BGM source itself.
           const bgmOverlayId = Date.now() * 1000 + Math.floor(Math.random() * 999999);
-          const bgmOverlay = {
+          const bgmOverlayBase = {
             id: bgmOverlayId,
             type: 'sound',
             from: 0,
@@ -1204,6 +1238,12 @@ export async function POST(
             },
             _workerAdded: true,
           } as any;
+          const bgmOverlays = buildMusicCoverageOverlays({
+            baseOverlay: bgmOverlayBase,
+            plan: musicCoveragePlan,
+            totalFrames: currentFrame,
+            idFactory: sectionIndex => bgmOverlayId + sectionIndex,
+          });
 
           // Register asset (same as audio worker does after generation)
           await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
@@ -1237,11 +1277,15 @@ export async function POST(
           await db.collection(COLLECTIONS.PROJECTS).updateOne(
             { projectId: project.projectId },
             {
-              $push: { overlays: bgmOverlay },
-              $set: { updatedAt: new Date() },
+              $push: { overlays: { $each: bgmOverlays } } as any,
+              $set: {
+                musicCoveragePlan,
+                'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
+                updatedAt: new Date(),
+              },
             },
           );
-          overlays.push(bgmOverlay);
+          overlays.push(...bgmOverlays);
 
           bgmSyncCompleted = true;
           console.log(`[Finalize] Sync BGM + beat grid ready for Director`);
@@ -1259,6 +1303,8 @@ export async function POST(
 
     if (
       musicGenerationPolicy.allowed
+      && musicCoveragePlan
+      && musicCoveragePlan.mode !== 'none'
       && isBGMAvailable()
       && currentFrame > 0
       && !bgmSyncCompleted
@@ -1298,6 +1344,7 @@ export async function POST(
           platform: audioPlatformEvidence.platform,
           musicPreference: musicGenerationPolicy.musicPreference,
           editorialPreferences: musicGenerationPolicy.editorialPreferences,
+          musicCoveragePlan,
         }, 'BGM');
         if (!bgmDispatch.dispatched) {
           await refundPipelineAudioCredits(userId, bgmCreditCharge, 'BGM dispatch failed before worker execution');
