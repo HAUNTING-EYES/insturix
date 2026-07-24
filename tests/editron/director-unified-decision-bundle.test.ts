@@ -255,7 +255,8 @@ describe('director unified decision bundle control flow', () => {
     });
 
     const source = directorSource();
-    expect(source).toContain('if (editedTimelineContext && captionEditorialPolicy.executionAllowed)');
+    expect(source).toContain('&& captionEditorialPolicy.executionAllowed');
+    expect(source).toContain('&& captionExecutionScopePolicy.run');
     expect(source).toContain('editorialExecutionAllowed: captionEditorialPolicy.executionAllowed');
   });
 });

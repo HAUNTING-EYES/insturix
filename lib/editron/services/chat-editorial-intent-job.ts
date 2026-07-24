@@ -6,11 +6,7 @@ import type { ChatAiEditTransaction } from '@/lib/editron/agent/chat-ai-edit-tra
 import { verifyChatToolPostcondition } from '@/lib/editron/agent/chat-edit-postconditions';
 import type { GroundedEditorialIntent } from '@/lib/editron/agent/chat-editorial-intent-tools';
 import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
-import {
-  EDITORIAL_FAMILIES,
-  normalizeEditorialPreferences,
-  type EditorialPreferences,
-} from '@/lib/editron/production-brief/editorial-preferences';
+import { normalizeEditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
 import type {
   Checkpoint,
   CheckpointService,
@@ -599,37 +595,11 @@ export function buildChatEditorialIntentProjectBrief(
   intent: GroundedEditorialIntent,
 ): ProjectBrief {
   const editorialPreferences = normalizeEditorialPreferences(intent.editorialPreferences);
-  const explicitFamilies = EDITORIAL_FAMILIES.filter(
-    (family) => editorialPreferences?.families?.[family] !== undefined,
-  );
-  if (explicitFamilies.length === 0) {
-    return {
-      modifiers: [],
-      intent: intent.goal,
-      editorialPreferences,
-    };
-  }
-
-  const isolatedFamilies = Object.fromEntries(
-    EDITORIAL_FAMILIES.map((family) => [
-      family,
-      editorialPreferences?.families?.[family] ?? { mode: 'off' as const },
-    ]),
-  ) as NonNullable<EditorialPreferences['families']>;
-
   return {
     modifiers: [],
     intent: intent.goal,
-    editorialPreferences: {
-      ...editorialPreferences,
-      families: isolatedFamilies,
-    },
-    executionScope: {
-      version: 'editorial-execution-scope-v1',
-      source: 'chat-editorial-intent',
-      mode: 'explicit-families-only',
-      families: explicitFamilies,
-    },
+    editorialPreferences,
+    ...(intent.executionScope ? { executionScope: intent.executionScope } : {}),
   };
 }
 

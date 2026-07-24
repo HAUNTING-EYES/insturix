@@ -551,6 +551,10 @@ export async function executeDirectorPlan(
       brief?.editorialPreferences,
       'caption',
     );
+    const captionExecutionScopePolicy = shouldRunDirectorScopedEffect({
+      effect: 'canonical-captions',
+      executionScope: editorialExecutionScope,
+    });
     const musicEditorialPolicy = resolveEditorialDecisionPolicy(
       brief?.editorialPreferences,
       'music',
@@ -1700,7 +1704,9 @@ export async function executeDirectorPlan(
         }
       }
 
-      const canonicalCaptionChoreographyReservations = editedTimelineContext && captionEditorialPolicy.executionAllowed
+      const canonicalCaptionChoreographyReservations = editedTimelineContext
+        && captionEditorialPolicy.executionAllowed
+        && captionExecutionScopePolicy.run
         ? buildCanonicalCaptionChoreographyReservations({
           overlays,
           editedTimelineContext,
@@ -1715,6 +1721,7 @@ export async function executeDirectorPlan(
         : [];
       unifiedDecisionBundle = planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates, {
         choreographyReservations: canonicalCaptionChoreographyReservations,
+        executionScope: editorialExecutionScope,
       });
       if (unifiedDecisionBundle?.source === 'creative-brief+signal-driven') {
         console.log(
@@ -1748,7 +1755,11 @@ export async function executeDirectorPlan(
           // when the track was installed AFTER executeEDL, every caption-emphasis returned null -> 0
           // emphasized words (observed in proj_e4BGPZza2CAl: 0/1739). Installing it here puts the track
           // in `overlays` for the EDL pass so per-word emphasis can be marked.
-          if (editedTimelineContext && captionEditorialPolicy.executionAllowed) {
+          if (
+            editedTimelineContext
+            && captionEditorialPolicy.executionAllowed
+            && captionExecutionScopePolicy.run
+          ) {
             const captionPresentation = resolveAtomicCaptionPresentation({
               requestedStyle: briefCaptionStyle,
               profileStyle: undefined,
@@ -1777,7 +1788,10 @@ export async function executeDirectorPlan(
             }
           } else if (editedTimelineContext) {
             console.log(
-              `[Director] Canonical caption track skipped (${captionEditorialPolicy.reason})`,
+              `[Director] Canonical caption track skipped (` +
+              `${captionEditorialPolicy.executionAllowed
+                ? captionExecutionScopePolicy.reason
+                : captionEditorialPolicy.reason})`,
             );
           }
 
@@ -1854,6 +1868,10 @@ export async function executeDirectorPlan(
           const bgmGenreParams = pathDGenreParams ?? pathEGenreParams;
           const bgmRec = (bgmGenreParams as any)?.bgmRecommendation;
           const isStoryboardProject = storyboardContextSource === 'storyboard';
+          const autoBgmExecutionScopePolicy = shouldRunDirectorScopedEffect({
+            effect: 'auto-bgm',
+            executionScope: editorialExecutionScope,
+          });
           try {
             const {
               buildAutoBgmDecisionEvidence,
@@ -1879,7 +1897,9 @@ export async function executeDirectorPlan(
               return evidence;
             };
 
-            if (!musicEditorialPolicy.executionAllowed || bgmRec?.shouldAddBgm !== true || isStoryboardProject) {
+            if (!autoBgmExecutionScopePolicy.run) {
+              console.log(`[Director] Auto-BGM skipped (${autoBgmExecutionScopePolicy.reason})`);
+            } else if (!musicEditorialPolicy.executionAllowed || bgmRec?.shouldAddBgm !== true || isStoryboardProject) {
               const evidence = await persistAutoBgmEvidence({});
               console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, shouldAdd=${evidence.shouldAddBgm}`);
             } else {

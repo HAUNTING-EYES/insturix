@@ -18,6 +18,7 @@ import {
   type ChatEditorialIntentJobStore,
 } from '@/lib/editron/services/chat-editorial-intent-job';
 import type { Checkpoint, RestorableProjectState } from '@/lib/editron/services/checkpoint-service';
+import { planUnifiedDecisionBundleFromCandidates } from '@/lib/editron/services/unified-decision-bundle';
 
 const NOW = new Date('2026-07-24T10:00:00.000Z');
 
@@ -212,8 +213,15 @@ describe('durable chat editorial-intent jobs', () => {
   });
 
   it('isolates explicit family requests while preserving broad project goals', () => {
+    const executionScope = {
+      version: 'editorial-execution-scope-v1' as const,
+      source: 'chat-editorial-intent' as const,
+      mode: 'explicit-families-only' as const,
+      families: ['motionGraphics' as const],
+    };
     const motionGraphicsBrief = buildChatEditorialIntentProjectBrief({
       ...request().intent,
+      executionScope,
       editorialPreferences: {
         families: {
           motionGraphics: { mode: 'prefer', frequency: 0.5, intensity: 0.7 },
@@ -222,20 +230,10 @@ describe('durable chat editorial-intent jobs', () => {
       },
     });
 
-    expect(motionGraphicsBrief.executionScope).toEqual({
-      version: 'editorial-execution-scope-v1',
-      source: 'chat-editorial-intent',
-      mode: 'explicit-families-only',
-      families: ['motionGraphics'],
-    });
+    expect(motionGraphicsBrief.executionScope).toEqual(executionScope);
     expect(motionGraphicsBrief.editorialPreferences).toEqual({
       families: {
-        captions: { mode: 'off' },
         motionGraphics: { mode: 'prefer', frequency: 0.5, intensity: 0.7 },
-        zoom: { mode: 'off' },
-        transitions: { mode: 'off' },
-        sfx: { mode: 'off' },
-        music: { mode: 'off' },
       },
       notes: 'Keep the composition restrained.',
     });
@@ -248,12 +246,20 @@ describe('durable chat editorial-intent jobs', () => {
   it('blocks collateral Director effects during a scoped MG request', () => {
     const executionScope = buildChatEditorialIntentProjectBrief({
       ...request().intent,
+      executionScope: {
+        version: 'editorial-execution-scope-v1',
+        source: 'chat-editorial-intent',
+        mode: 'explicit-families-only',
+        families: ['motionGraphics'],
+      },
       editorialPreferences: {
         families: { motionGraphics: { mode: 'prefer' } },
       },
     }).executionScope;
 
     for (const effect of [
+      'canonical-captions',
+      'auto-bgm',
       'color-normalization',
       'transition-dedup',
       'beat-sync',
@@ -283,11 +289,49 @@ describe('durable chat editorial-intent jobs', () => {
       'utf8',
     );
     expect(source).toContain("effect: 'color-normalization'");
+    expect(source).toContain("effect: 'canonical-captions'");
+    expect(source).toContain("effect: 'auto-bgm'");
     expect(source).toContain("effect: 'transition-dedup'");
     expect(source).toContain("effect: 'beat-sync'");
     expect(source).toContain("effect: 'transition-sfx'");
     expect(source).toContain("effect: 'audio-ducking'");
     expect(source).toContain('Legacy intelligence fallback disabled for scoped chat execution');
+  });
+
+  it('keeps unrequested planner families as audited evidence instead of executable edits', () => {
+    const executionScope = {
+      version: 'editorial-execution-scope-v1' as const,
+      source: 'chat-editorial-intent' as const,
+      mode: 'explicit-families-only' as const,
+      families: ['motionGraphics' as const],
+    };
+    const bundle = planUnifiedDecisionBundleFromCandidates([{
+      source: 'signal-driven',
+      edl: {
+        projectId: 'project-1',
+        decisions: [{
+          type: 'transition',
+          frame: 90,
+          durationFrames: 12,
+          priority: 0.8,
+          source: 'test-boundary',
+          signal: 'topic_shift',
+          reason: 'A real cut boundary exists.',
+          confidence: 0.9,
+          params: {},
+        }],
+      },
+    }], { executionScope });
+
+    expect(bundle?.edl.decisions).toEqual([]);
+    expect(bundle?.evidence.signalDecisionAudit.byReason).toMatchObject({
+      'execution-scope-unrequested:transitions': { count: 1 },
+    });
+    const directorSource = readFileSync(
+      resolve(process.cwd(), 'lib/editron/agent/director-agent.ts'),
+      'utf8',
+    );
+    expect(directorSource).toContain('executionScope: editorialExecutionScope');
   });
 });
 

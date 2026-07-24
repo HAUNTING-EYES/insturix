@@ -7,6 +7,7 @@ import { resolveSemanticMgLedgerGate } from '@/lib/editron/motion-graphics/engin
 import { normalizeMotionGraphicContent } from './mg-content-atoms';
 import { applyCrossOverlayChoreography, type CrossOverlayChoreographyReport } from './cross-overlay-choreography';
 import type { EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
+import type { EditorialExecutionScope } from '@/lib/editron/data/edit-profile-types';
 import {
   resolveEditorialDecisionPolicy,
   type EditorialDecisionPolicy,
@@ -485,6 +486,7 @@ export type UnifiedDecisionProducerCandidate = CreateUnifiedDecisionBundleOption
 interface MergeSignalDrivenBundleOptions {
   maxNearFrameWindow?: number;
   choreographyReservations?: ReactiveEditDecision[];
+  executionScope?: EditorialExecutionScope;
 }
 
 const DEFAULT_MAX_NEAR_FRAME_WINDOW = 24;
@@ -747,7 +749,11 @@ export function planUnifiedDecisionBundleFromCandidates(
   if (candidates.length === 0) return null;
 
   const producerSet = new Set(candidates.map((candidate) => candidate.source));
-  if (producerSet.has('signal-driven') || (options.choreographyReservations?.length ?? 0) > 0) {
+  if (
+    producerSet.has('signal-driven')
+    || (options.choreographyReservations?.length ?? 0) > 0
+    || options.executionScope !== undefined
+  ) {
     return planUnifiedDecisionBundleFromRankedCandidates(candidates, options);
   }
 
@@ -833,6 +839,14 @@ function planUnifiedDecisionBundleFromRankedCandidates(
   };
 
   for (const entry of plannerEntries) {
+    const executionScopePolicy = resolvePlannerExecutionScopePolicy(
+      entry.editorialPolicy,
+      options.executionScope,
+    );
+    if (!executionScopePolicy.executionAllowed) {
+      keepAsEvidence(entry, 'evidence-only', executionScopePolicy.reason);
+      continue;
+    }
     if (!entry.editorialPolicy.executionAllowed) {
       keepAsEvidence(entry, 'evidence-only', entry.editorialPolicy.reason);
       continue;
@@ -961,6 +975,25 @@ function planUnifiedDecisionBundleFromRankedCandidates(
       ]),
     },
   };
+}
+
+function resolvePlannerExecutionScopePolicy(
+  editorialPolicy: EditorialDecisionPolicy,
+  executionScope?: EditorialExecutionScope,
+): { executionAllowed: boolean; reason: string } {
+  if (!executionScope) {
+    return { executionAllowed: true, reason: 'unscoped-director-run' };
+  }
+  const family = editorialPolicy.editorialFamily;
+  if (!family || family === 'pacing') {
+    return {
+      executionAllowed: false,
+      reason: `execution-scope-unowned:${editorialPolicy.decisionFamily}`,
+    };
+  }
+  return executionScope.families.includes(family)
+    ? { executionAllowed: true, reason: `execution-scope-requested:${family}` }
+    : { executionAllowed: false, reason: `execution-scope-unrequested:${family}` };
 }
 export function mergeSignalDrivenBundle(
   primaryBundle: UnifiedDecisionBundle,

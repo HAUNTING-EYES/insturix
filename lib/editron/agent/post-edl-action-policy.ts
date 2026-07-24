@@ -69,6 +69,8 @@ export interface PostBundleProfileActionDecision {
 }
 
 export type DirectorScopedEffect =
+  | 'canonical-captions'
+  | 'auto-bgm'
   | 'color-normalization'
   | 'transition-dedup'
   | 'beat-sync'
@@ -90,6 +92,8 @@ export interface DirectorExecutionScopeDecision {
 }
 
 const DIRECTOR_EFFECT_FAMILY: Record<DirectorScopedEffect, EditorialFamily | 'always' | null> = {
+  'canonical-captions': 'captions',
+  'auto-bgm': 'music',
   'color-normalization': null,
   'transition-dedup': 'transitions',
   'beat-sync': 'music',

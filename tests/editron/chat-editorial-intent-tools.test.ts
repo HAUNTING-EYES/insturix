@@ -186,12 +186,7 @@ describe('chat semantic editorial intent', () => {
     }, [{ family: 'sfx', mode: 'prefer' }], true);
 
     expect(input.families).toEqual({
-      captions: { mode: 'off' },
-      motionGraphics: { mode: 'off' },
-      zoom: { mode: 'off' },
-      transitions: { mode: 'off' },
       sfx: { mode: 'prefer' },
-      music: { mode: 'off' },
     });
     expect(JSON.stringify(input)).not.toMatch(/asset|token|query|form|type/i);
   });
@@ -255,13 +250,14 @@ describe('chat semantic editorial intent', () => {
       intent: expect.objectContaining({
         editorialPreferences: {
           families: {
-            captions: { mode: 'off' },
             motionGraphics: { mode: 'prefer' },
-            zoom: { mode: 'off' },
-            transitions: { mode: 'off' },
-            sfx: { mode: 'off' },
-            music: { mode: 'off' },
           },
+        },
+        executionScope: {
+          version: 'editorial-execution-scope-v1',
+          source: 'chat-editorial-intent',
+          mode: 'explicit-families-only',
+          families: ['motionGraphics'],
         },
       }),
     }));

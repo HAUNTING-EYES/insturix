@@ -9,6 +9,7 @@ import {
   type EditorialFamily,
   type EditorialPreferences,
 } from '@/lib/editron/production-brief/editorial-preferences';
+import type { EditorialExecutionScope } from '@/lib/editron/data/edit-profile-types';
 import type { EditDecision, EditDecisionList } from '@/lib/editron/services/reactive-edit-engine';
 import { isAssistProject } from '@/lib/editron/services/assist-lane';
 import { extractMotionGraphicSemanticFacts } from '@/lib/editron/services/mg-semantic-fact-extractor';
@@ -109,6 +110,7 @@ export interface GroundedEditorialIntent {
   strength: number;
   uncertainty: number;
   editorialPreferences?: EditorialPreferences;
+  executionScope?: EditorialExecutionScope;
   script?: string;
   evidenceQuery: string;
 }
@@ -190,7 +192,10 @@ export function filterChatShadowAuthorityTools<T extends { name: string }>(tools
   return tools.filter((candidate) => !CHAT_SHADOW_AUTHORITY_TOOLS.has(candidate.name));
 }
 
-export function compileGroundedEditorialIntent(input: ChatEditorialIntentInput): GroundedEditorialIntent {
+export function compileGroundedEditorialIntent(
+  input: ChatEditorialIntentInput,
+  options: { executionScope?: EditorialExecutionScope } = {},
+): GroundedEditorialIntent {
   const familyPreferences = normalizeEditorialPreferences({
     families: input.families,
     musicPrompt: input.musicPrompt,
@@ -208,6 +213,7 @@ export function compileGroundedEditorialIntent(input: ChatEditorialIntentInput):
     strength: clamp01(input.strength),
     uncertainty: clamp01(input.uncertainty),
     ...(familyPreferences ? { editorialPreferences: familyPreferences } : {}),
+    ...(options.executionScope ? { executionScope: options.executionScope } : {}),
     ...(script ? { script } : {}),
     evidenceQuery: targetReference ?? input.goal.trim(),
   };
@@ -220,11 +226,14 @@ export async function applyGroundedEditorialIntent(
     sessionId?: string;
     operationId?: string;
     input: ChatEditorialIntentInput;
+    executionScope?: EditorialExecutionScope;
   },
   dependencies?: Partial<ChatEditorialIntentDependencies>,
 ): Promise<ChatEditorialIntentResult> {
   const deps = await resolveDependencies(dependencies);
-  const intent = compileGroundedEditorialIntent(args.input);
+  const intent = compileGroundedEditorialIntent(args.input, {
+    executionScope: args.executionScope,
+  });
   const project = await deps.loadProject(args.userId, args.projectId);
   if (!project) throw new Error('Project not found');
 
@@ -339,6 +348,10 @@ export function createChatEditorialIntentTools(
           familyScopeExclusive,
         ),
       );
+      const executionScope = buildEditorialExecutionScope(
+        requiredFamilyDirectives,
+        familyScopeExclusive,
+      );
       try {
         const result = await applyGroundedEditorialIntent({
           userId,
@@ -346,6 +359,7 @@ export function createChatEditorialIntentTools(
           sessionId,
           operationId,
           input,
+          executionScope,
         }, dependencies);
         return JSON.stringify({
           status: result.status,
@@ -481,11 +495,29 @@ export function enforceServerEditorialFamilyScope(
       };
       continue;
     }
-    if (exclusive) families[family] = { mode: 'off' };
   }
 
   return {
     ...input,
+    families,
+  };
+}
+
+function buildEditorialExecutionScope(
+  directives: readonly ChatEditorialFamilyDirective[],
+  exclusive: boolean,
+): EditorialExecutionScope | undefined {
+  if (!exclusive) return undefined;
+  const families = directives
+    .filter((directive) => directive.mode === 'prefer')
+    .map((directive) => directive.family);
+  if (families.length === 0) {
+    throw new Error('Exclusive editorial family scope requires a preferred family.');
+  }
+  return {
+    version: 'editorial-execution-scope-v1',
+    source: 'chat-editorial-intent',
+    mode: 'explicit-families-only',
     families,
   };
 }
@@ -611,7 +643,9 @@ async function defaultExecuteTargetedIntent(args: {
     source: 'signal-driven',
     edl,
     editorialPreferences: args.intent.editorialPreferences,
-  }]);
+  }], {
+    executionScope: args.intent.executionScope,
+  });
   if (!bundle || bundle.edl.decisions.length === 0) {
     return {
       owner: 'targeted-unified-planner',
