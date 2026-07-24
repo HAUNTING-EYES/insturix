@@ -75,6 +75,7 @@ export const COLLECTIONS = {
   PROJECT_LINKS: 'project_links',
   MG_RENDER_JOBS: 'editron_mg_render_jobs',
   CHAT_REFERENCE_STYLE_JOBS: 'editron_chat_reference_style_jobs',
+  CHAT_EDITORIAL_INTENT_JOBS: 'editron_chat_editorial_intent_jobs',
   CHAT_DEEP_ANALYSIS_JOBS: 'editron_chat_deep_analysis_jobs',
   CHAT_DUBBING_JOBS: 'editron_chat_dubbing_jobs',
   LEDGER: 'ledger',
@@ -185,6 +186,15 @@ export async function initializeIndexes(): Promise<void> {
   // Durable chat reference-style workflows. A deterministic idempotency key prevents
   // retries or duplicate model calls from extracting/applying the same reference twice.
   await db.collection(COLLECTIONS.CHAT_REFERENCE_STYLE_JOBS).createIndexes([
+    { key: { idempotencyKey: 1 }, name: 'idempotencyKey_unique', unique: true },
+    { key: { status: 1, leaseExpiresAt: 1, createdAt: 1 }, name: 'status_lease_createdAt' },
+    { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
+    { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // Project-wide chat intent execution can outlive an HTTP/SSE turn. Dedicated leased jobs keep
+  // Director retries idempotent and preserve terminal receipts without bloating the project doc.
+  await db.collection(COLLECTIONS.CHAT_EDITORIAL_INTENT_JOBS).createIndexes([
     { key: { idempotencyKey: 1 }, name: 'idempotencyKey_unique', unique: true },
     { key: { status: 1, leaseExpiresAt: 1, createdAt: 1 }, name: 'status_lease_createdAt' },
     { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },

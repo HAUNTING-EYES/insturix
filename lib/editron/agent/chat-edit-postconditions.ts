@@ -288,15 +288,26 @@ function verifyDurableEditorialQueue(
   const uploadBatchId = typeof authority.uploadBatchId === 'string'
     ? authority.uploadBatchId.trim()
     : '';
-  const pass = dispatch.owner === 'phase2-script-planner'
+  const jobId = typeof authority.jobId === 'string'
+    ? authority.jobId.trim()
+    : '';
+  const acceptedQueueStatus = queueStatus === 'queued'
+    || queueStatus === 'already-queued'
+    || queueStatus === 'completed';
+  const scriptQueueAccepted = dispatch.owner === 'phase2-script-planner'
+    && acceptedQueueStatus
     && (queueStatus === 'queued' || queueStatus === 'already-queued')
     && uploadBatchId.length > 0;
+  const directorQueueAccepted = dispatch.owner === 'director-unified-planner'
+    && acceptedQueueStatus
+    && jobId.length > 0;
+  const pass = scriptQueueAccepted || directorQueueAccepted;
   return {
     matched: true,
     pass,
     reason: pass
-      ? 'The durable editorial operation was accepted by the script recomposition queue.'
-      : 'Tool reported a queued editorial operation without a valid durable batch receipt.',
+      ? 'The durable editorial operation was accepted by its owning queue.'
+      : 'Tool reported a queued editorial operation without a valid owner-specific receipt.',
     deferred: pass,
   };
 }

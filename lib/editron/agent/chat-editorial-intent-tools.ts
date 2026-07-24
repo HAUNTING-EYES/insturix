@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { tool, type ToolRunnableConfig } from '@langchain/core/tools';
 import { z } from 'zod';
 
-import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
 import {
   normalizeEditorialPreferences,
   type EditorialFamily,
@@ -21,6 +20,10 @@ import {
   queueChatReferenceStyleJob,
   type QueueChatReferenceStyleJobResult,
 } from '@/lib/editron/services/chat-reference-style-job';
+import {
+  queueChatEditorialIntentJob,
+  type QueueChatEditorialIntentJobResult,
+} from '@/lib/editron/services/chat-editorial-intent-job';
 import type {
   CanonicalChatEvidenceCandidate,
   SearchCanonicalChatEvidenceResult,
@@ -145,6 +148,8 @@ export interface ChatEditorialIntentDependencies {
   executeProjectIntent(args: {
     projectId: string;
     userId: string;
+    sessionId?: string;
+    operationId?: string;
     intent: GroundedEditorialIntent;
   }): Promise<EditorialOwnerDispatchResult>;
   executeTargetedIntent(args: {
@@ -205,7 +210,13 @@ export function compileGroundedEditorialIntent(input: ChatEditorialIntentInput):
 }
 
 export async function applyGroundedEditorialIntent(
-  args: { userId: string; projectId: string; input: ChatEditorialIntentInput },
+  args: {
+    userId: string;
+    projectId: string;
+    sessionId?: string;
+    operationId?: string;
+    input: ChatEditorialIntentInput;
+  },
   dependencies?: Partial<ChatEditorialIntentDependencies>,
 ): Promise<ChatEditorialIntentResult> {
   const deps = await resolveDependencies(dependencies);
@@ -249,6 +260,8 @@ export async function applyGroundedEditorialIntent(
     dispatch = await deps.executeProjectIntent({
       projectId: args.projectId,
       userId: args.userId,
+      sessionId: args.sessionId,
+      operationId: args.operationId,
       intent,
     });
   } else if (
@@ -312,7 +325,13 @@ export function createChatEditorialIntentTools(
         ),
       );
       try {
-        const result = await applyGroundedEditorialIntent({ userId, projectId, input }, dependencies);
+        const result = await applyGroundedEditorialIntent({
+          userId,
+          projectId,
+          sessionId,
+          operationId,
+          input,
+        }, dependencies);
         return JSON.stringify({
           status: result.status,
           data: result,
@@ -322,7 +341,7 @@ export function createChatEditorialIntentTools(
             : result.status === 'advisory'
               ? 'Ask once for a clearer target or narrower constraint. Do not claim an edit was made.'
               : result.dispatch.status === 'queued'
-                ? 'Tell the user the script-led re-edit is processing. Do not claim the timeline has changed yet.'
+                ? 'Tell the user the editorial edit is processing. Do not claim the timeline has changed yet.'
                 : 'Reload the project and verify the requested outcome.',
         });
       } catch (error) {
@@ -432,7 +451,7 @@ async function resolveDependencies(
   return {
     loadProject,
     searchEvidence,
-    executeProjectIntent: overrides?.executeProjectIntent ?? defaultExecuteProjectIntent,
+    executeProjectIntent: overrides?.executeProjectIntent ?? dispatchProjectIntentToDurableJob,
     executeTargetedIntent: overrides?.executeTargetedIntent ?? defaultExecuteTargetedIntent,
     dispatchScriptIntent: overrides?.dispatchScriptIntent ?? defaultDispatchScriptIntent,
     persistAudit: overrides?.persistAudit ?? defaultPersistAudit,
@@ -440,26 +459,74 @@ async function resolveDependencies(
   };
 }
 
-async function defaultExecuteProjectIntent(args: {
-  projectId: string;
-  userId: string;
-  intent: GroundedEditorialIntent;
-}): Promise<EditorialOwnerDispatchResult> {
-  const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
-  const brief: ProjectBrief = {
-    modifiers: [],
-    intent: args.intent.goal,
-    editorialPreferences: args.intent.editorialPreferences,
-  };
-  const result = await executeDirectorPlan(args.projectId, args.userId, 'A-01', brief);
+export async function dispatchProjectIntentToDurableJob(
+  args: {
+    projectId: string;
+    userId: string;
+    sessionId?: string;
+    operationId?: string;
+    intent: GroundedEditorialIntent;
+  },
+  enqueue: typeof queueChatEditorialIntentJob = queueChatEditorialIntentJob,
+): Promise<EditorialOwnerDispatchResult> {
+  if (!args.sessionId || !args.operationId) {
+    return {
+      owner: 'director-unified-planner',
+      status: 'failed',
+      mutated: false,
+      reasons: ['durable-editorial-intent-context-unavailable'],
+    };
+  }
+  const result: QueueChatEditorialIntentJobResult = await enqueue({
+    projectId: args.projectId,
+    userId: args.userId,
+    sessionId: args.sessionId,
+    operationId: args.operationId,
+    intent: args.intent,
+  });
+  if (result.status === 'failed') {
+    return {
+      owner: 'director-unified-planner',
+      status: 'failed',
+      mutated: false,
+      authority: {
+        orchestrationVersion: CHAT_EDITORIAL_INTENT_VERSION,
+        jobId: result.jobId,
+        queueStatus: result.status,
+      },
+      reasons: [result.reason ?? 'durable-editorial-intent-dispatch-failed'],
+    };
+  }
+  if (result.status === 'declined') {
+    return {
+      owner: 'director-unified-planner',
+      status: 'advisory',
+      mutated: false,
+      authority: {
+        orchestrationVersion: CHAT_EDITORIAL_INTENT_VERSION,
+        jobId: result.jobId,
+        queueStatus: result.status,
+      },
+      reasons: ['durable-editorial-intent-declined'],
+    };
+  }
   return {
     owner: 'director-unified-planner',
-    status: result.success ? 'executed' : 'failed',
-    mutated: result.success && result.overlaysModified > 0,
-    executedDecisions: result.decisionAuthority?.executedDecisions,
-    modifiedOverlays: result.overlaysModified,
-    authority: result.decisionAuthority as unknown as Record<string, unknown> | undefined,
-    reasons: result.success ? result.warnings : [...result.warnings, ...result.actionsSkipped.map((item) => item.reason)],
+    status: 'queued',
+    mutated: false,
+    authority: {
+      orchestrationVersion: CHAT_EDITORIAL_INTENT_VERSION,
+      jobId: result.jobId,
+      queueStatus: result.status,
+      messageId: result.messageId ?? null,
+    },
+    reasons: [
+      result.status === 'completed'
+        ? 'durable-editorial-intent-already-completed'
+        : result.status === 'already-queued'
+          ? 'durable-editorial-intent-already-queued'
+          : 'durable-editorial-intent-queued',
+    ],
   };
 }
 

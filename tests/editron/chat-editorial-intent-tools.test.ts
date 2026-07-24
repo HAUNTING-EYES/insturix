@@ -8,10 +8,12 @@ import {
   buildTargetedSignalDecisions,
   compileGroundedEditorialIntent,
   createChatEditorialIntentTools,
+  dispatchProjectIntentToDurableJob,
   filterChatShadowAuthorityTools,
   type ChatEditorialIntentDependencies,
   type GroundedEditorialIntent,
 } from '@/lib/editron/agent/chat-editorial-intent-tools';
+import { verifyChatToolPostcondition } from '@/lib/editron/agent/chat-edit-postconditions';
 import {
   chatEditorialIntentWireSchema,
   compileChatEditorialIntentWire,
@@ -349,6 +351,8 @@ describe('chat semantic editorial intent', () => {
     const result = await applyGroundedEditorialIntent({
       userId: 'user-1',
       projectId: 'project-1',
+      sessionId: 'session-1',
+      operationId: 'operation-1',
       input: {
         goal: 'Make the edit feel more engaging but still restrained',
         scope: { kind: 'project' },
@@ -361,11 +365,91 @@ describe('chat semantic editorial intent', () => {
     expect(result.status).toBe('success');
     expect(result.dispatch.owner).toBe('director-unified-planner');
     expect(deps.executeProjectIntent).toHaveBeenCalledOnce();
+    expect(deps.executeProjectIntent).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session-1',
+      operationId: 'operation-1',
+    }));
     expect(deps.executeTargetedIntent).not.toHaveBeenCalled();
     expect(deps.searchEvidence).toHaveBeenCalledWith(expect.objectContaining({
       query: 'Make the edit feel more engaging but still restrained',
     }));
     expect(deps.persistAudit).toHaveBeenCalledOnce();
+  });
+
+  it('maps project-wide work to an owner-scoped durable receipt instead of running Director inline', async () => {
+    const enqueue = vi.fn(async () => ({
+      status: 'queued' as const,
+      jobId: 'chat_intent_123',
+      messageId: 'qstash-intent-123',
+    }));
+    const intent = compileGroundedEditorialIntent({
+      goal: 'Make the whole edit more intentional',
+      scope: { kind: 'project' },
+      constraints: [],
+      strength: 0.6,
+      uncertainty: 0,
+    });
+
+    const dispatch = await dispatchProjectIntentToDurableJob({
+      projectId: 'project-1',
+      userId: 'user-1',
+      sessionId: 'session-1',
+      operationId: 'operation-1',
+      intent,
+    }, enqueue);
+
+    expect(enqueue).toHaveBeenCalledWith({
+      projectId: 'project-1',
+      userId: 'user-1',
+      sessionId: 'session-1',
+      operationId: 'operation-1',
+      intent,
+    });
+    expect(dispatch).toMatchObject({
+      owner: 'director-unified-planner',
+      status: 'queued',
+      mutated: false,
+      authority: {
+        jobId: 'chat_intent_123',
+        queueStatus: 'queued',
+        messageId: 'qstash-intent-123',
+      },
+    });
+
+    const verification = verifyChatToolPostcondition({
+      toolName: 'apply_editorial_intent',
+      args: { goal: intent.goal },
+      resultData: { dispatch },
+      beforeProject: project(),
+      afterProject: project(),
+    });
+    expect(verification).toMatchObject({
+      status: 'pass',
+      stateChanged: false,
+      renderVerification: { status: 'deferred', required: false },
+    });
+  });
+
+  it('fails project-wide dispatch when server-owned durable turn identity is absent', async () => {
+    const enqueue = vi.fn();
+    const dispatch = await dispatchProjectIntentToDurableJob({
+      projectId: 'project-1',
+      userId: 'user-1',
+      intent: compileGroundedEditorialIntent({
+        goal: 'Make this better',
+        scope: { kind: 'project' },
+        constraints: [],
+        strength: 0.5,
+        uncertainty: 0,
+      }),
+    }, enqueue);
+
+    expect(dispatch).toMatchObject({
+      status: 'failed',
+      mutated: false,
+      reasons: ['durable-editorial-intent-context-unavailable'],
+    });
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('keeps weak or ambiguous targeted evidence advisory and never mutates', async () => {
