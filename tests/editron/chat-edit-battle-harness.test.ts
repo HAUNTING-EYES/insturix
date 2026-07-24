@@ -1093,10 +1093,23 @@ describe('chat edit battle harness', () => {
     const mongo = project([{ id: 'image-1', type: 'image', from: 0, durationInFrames: 90, row: 1, publicUrl: 'https://cdn/a?token=one', content: 'A' }]);
     const reload = project([{ id: 'image-1', type: 'image', from: 0, durationInFrames: 90, row: 1, publicUrl: 'https://cdn/a?token=two', src: 'https://cdn/resolved', content: 'A' }]);
     const changed = project([{ id: 'image-1', type: 'image', from: 0, durationInFrames: 90, row: 1, publicUrl: 'https://cdn/a?token=two', src: 'https://cdn/resolved', content: 'B' }]);
+    const mongoVideo = project([{ id: 'video-1', type: 'video', assetId: 'upload_1', from: 0, durationInFrames: 90, row: 0 }]);
+    const hydratedVideo = project([{
+      id: 'video-1',
+      type: 'video',
+      assetId: 'upload_1',
+      from: 0,
+      durationInFrames: 90,
+      row: 0,
+      src: 'https://cdn/asset/upload_1',
+      content: 'https://cdn/asset/upload_1',
+    }]);
     expect(buildChatBattleProjectSnapshot(mongo, 'mongo-after').digest)
       .toBe(buildChatBattleProjectSnapshot(reload, 'ui-reload').digest);
     expect(buildChatBattleProjectSnapshot(mongo, 'mongo-after').digest)
       .not.toBe(buildChatBattleProjectSnapshot(changed, 'ui-reload').digest);
+    expect(buildChatBattleProjectSnapshot(mongoVideo, 'mongo-after').digest)
+      .toBe(buildChatBattleProjectSnapshot(hydratedVideo, 'ui-reload').digest);
   });
 
   it('requires an explicit live-write flag and a known battle case', () => {

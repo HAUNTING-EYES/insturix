@@ -1002,9 +1002,10 @@ function sanitizeMaterialState(value: unknown, parentKey = ''): unknown {
   if (value instanceof Date) return value.toISOString();
   if (Array.isArray(value)) return value.map((item) => sanitizeMaterialState(item, parentKey));
   if (typeof value !== 'object') return String(value);
+  const record = value as Record<string, unknown>;
   const output: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) {
-    if (isEphemeralProjectKey(key, parentKey, child)) continue;
+  for (const [key, child] of Object.entries(record).sort(([a], [b]) => a.localeCompare(b))) {
+    if (isEphemeralProjectKey(key, parentKey, child, record)) continue;
     output[key] = sanitizeMaterialState(child, key);
   }
   return output;
@@ -1021,9 +1022,20 @@ function hasCanonicalProjectPreflight(event: ChatBattleToolEvent | undefined): b
     && verification.beforeStateHash.length > 0;
 }
 
-function isEphemeralProjectKey(key: string, parentKey: string, value: unknown): boolean {
+function isEphemeralProjectKey(
+  key: string,
+  parentKey: string,
+  value: unknown,
+  owner: Record<string, unknown>,
+): boolean {
   if (['createdAt', 'updatedAt', 'resolvedAt', 'expiresAt', 'signedUrl', 'publicUrl', 'cachedUrl', 'thumbnailUrl', 'frameUrls'].includes(key)) return true;
   if (['src', 'url', 'mediaUrl'].includes(key) && typeof value === 'string' && /^(?:https?:|blob:|data:)/i.test(value)) return true;
+  if (
+    key === 'content'
+    && typeof value === 'string'
+    && /^(?:https?:|blob:|data:)/i.test(value)
+    && ['video', 'audio', 'sound'].includes(stringValue(owner.type) ?? '')
+  ) return true;
   if (key === 'appliedAt' && /receipt/i.test(parentKey)) return true;
   return /^(authorization|cookie|token|apiKey|secret)$/i.test(key);
 }
