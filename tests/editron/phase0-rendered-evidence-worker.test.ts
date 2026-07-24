@@ -83,7 +83,7 @@ describe('phase0 rendered evidence worker service', () => {
       serveUrl: 'https://remotion-site.example.com',
       imageFormat: 'png',
       privacy: 'public',
-      maxRetries: 1,
+      maxRetries: 0,
     });
     expect((renderStill.mock.calls[0]?.[0] as any).inputProps.isRendering).toBe(true);
     expect((renderStill.mock.calls[0]?.[0] as any).inputProps.overlays.map((overlay: any) => overlay.id)).toEqual(['bg', 1]);
@@ -439,6 +439,16 @@ describe('phase0 rendered evidence worker service', () => {
     });
   });
 
+  it('prefers the bounded Phase 0 still-render function over the long media-render function', () => {
+    expect(resolvePhase0RenderedEvidenceConfig(configuredEnv({
+      REMOTION_PHASE0_LAMBDA_FUNCTION_NAME: 'phase0-still-180sec',
+      REMOTION_LAMBDA_FUNCTION_NAME: 'general-media-900sec',
+    }))).toMatchObject({
+      configured: true,
+      functionName: 'phase0-still-180sec',
+    });
+  });
+
   it('wires QStash failure callbacks so async rendered evidence jobs cannot hang silently', () => {
     const serviceSource = readFileSync('lib/editron/services/phase0-rendered-evidence-worker.ts', 'utf8');
     const routeSource = readFileSync('app/api/internal/workers/phase0-rendered-evidence/route.ts', 'utf8');
@@ -449,6 +459,18 @@ describe('phase0 rendered evidence worker service', () => {
     expect(routeSource).toContain("request.nextUrl.searchParams.get('qstashFailure') === '1'");
     expect(routeSource).toContain('markChatEditRenderVerificationDeliveryFailed');
     expect(routeSource).toContain('qstash_delivery_failed');
+  });
+
+  it('claims render ownership before persisting retry-delivery progress', () => {
+    const source = readFileSync('app/api/internal/workers/phase0-rendered-evidence/route.ts', 'utf8');
+    const handlerStart = source.indexOf('async function handleChatEditRenderVerification');
+    const handlerEnd = source.indexOf('async function handleQstashFailureCallback');
+    const handlerSource = source.slice(handlerStart, handlerEnd);
+
+    expect(handlerSource.indexOf('const claim = await checkpoints.updateOne')).toBeGreaterThan(-1);
+    expect(handlerSource).not.toContain('persistChatEditVerificationProgress');
+    expect(handlerSource.indexOf('const claim = await checkpoints.updateOne'))
+      .toBeLessThan(handlerSource.indexOf("'intelligence.latestChatEditRenderVerification': runningRecord"));
   });
 
   it('builds a project-level claim for the expensive rendered-evidence worker', () => {

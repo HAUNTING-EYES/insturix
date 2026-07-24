@@ -38,6 +38,7 @@ export const PHASE0_RENDERED_STILL_EVIDENCE_VERSION = 'editron-phase0-rendered-s
 const DEFAULT_PHASE0_RENDERED_EVIDENCE_LOCK_STALE_MS = 20 * 60 * 1000;
 const PHASE0_RENDER_STILL_TIMEOUT_MS = 90_000;
 const PHASE0_RENDER_STILL_TRANSIENT_RETRIES = 1;
+const PHASE0_RENDER_STILL_LAMBDA_RETRIES = 0;
 
 type Phase0RenderedStillEvidenceStatus = 'completed' | 'partial' | 'failed' | 'skipped';
 
@@ -224,7 +225,9 @@ type RenderStill = typeof renderStillOnLambda;
 
 export function resolvePhase0RenderedEvidenceConfig(env: EnvLike = process.env) {
   const enabled = !isExplicitlyFalse(env.EDITRON_PHASE0_RENDERED_EVIDENCE_AUTO);
-  const functionName = env.REMOTION_LAMBDA_FUNCTION_NAME || '';
+  const functionName = env.REMOTION_PHASE0_LAMBDA_FUNCTION_NAME
+    || env.REMOTION_LAMBDA_FUNCTION_NAME
+    || '';
   const serveUrl = env.REMOTION_LAMBDA_SERVE_URL || '';
   const region = env.REMOTION_AWS_REGION || 'us-east-1';
   const sampleLimit = clampSampleLimit(env.EDITRON_PHASE0_RENDERED_EVIDENCE_MAX_SAMPLES);
@@ -448,7 +451,7 @@ export async function buildPhase0RenderedStillEvidence(
           imageFormat: 'png',
           privacy: 'public',
           frame,
-          maxRetries: 1,
+          maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
         }),
         renderStillForEvidence(renderStill, {
           region: config.region as any,
@@ -459,7 +462,7 @@ export async function buildPhase0RenderedStillEvidence(
           imageFormat: 'png',
           privacy: 'public',
           frame,
-          maxRetries: 1,
+          maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
         }),
       ]);
       return { frame, fullResult, baselineResult };

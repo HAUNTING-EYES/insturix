@@ -238,13 +238,6 @@ async function handleChatEditRenderVerification(input: {
     workerRequestId: input.workerRequestId,
     now,
   });
-  await persistChatEditVerificationProgress({
-    db: input.db,
-    projectId: input.projectId,
-    userId: input.userId,
-    checkpointId: input.verification.beforeCheckpointId,
-    record: deliveredRecord,
-  });
   const runningRecord = markChatEditRenderVerificationRendering(deliveredRecord, now);
   const claim = await checkpoints.updateOne(
     {
@@ -772,34 +765,6 @@ async function persistChatEditVerificationResult(input: {
           },
         } as any,
       },
-    ),
-  ]);
-}
-
-async function persistChatEditVerificationProgress(input: {
-  db: EditronDatabase;
-  projectId: string;
-  userId: string;
-  checkpointId: string;
-  record: RenderVerificationRecord;
-}) {
-  await Promise.all([
-    input.db.collection<VerificationCheckpoint>(COLLECTIONS.CHECKPOINTS).updateOne(
-      {
-        checkpointId: input.checkpointId,
-        projectId: input.projectId,
-        userId: input.userId,
-        'chatEditRenderVerification.operationId': input.record.operationId,
-      },
-      { $set: { chatEditRenderVerification: input.record, updatedAt: new Date() } },
-    ),
-    input.db.collection(COLLECTIONS.PROJECTS).updateOne(
-      {
-        projectId: input.projectId,
-        userId: input.userId,
-        'intelligence.latestChatEditRenderVerification.operationId': input.record.operationId,
-      },
-      { $set: { 'intelligence.latestChatEditRenderVerification': input.record } },
     ),
   ]);
 }
