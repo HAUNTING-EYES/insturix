@@ -699,7 +699,7 @@ export function createChatVisualTools({
           candidates,
           canonicalEvidence: retrieval.audit,
           message: candidates.length
-            ? `Found ${candidates.length} visual moment candidate(s). Use frame/startFrame/endFrame directly when confidence is high.`
+            ? `Found ${candidates.length} visual moment candidate(s). This is discovery evidence only; call resolve_visual_edit before any mutation.`
             : `No stored visual evidence matched "${input.query}". Use analyze_clip_video/analyze_video_content first, or ask once for a clearer visual phrase.`,
         },
       });
@@ -707,7 +707,7 @@ export function createChatVisualTools({
     {
       name: "find_visual_moment",
       description: `Find when a stored visual event, object, scene, action, gesture, OCR text, or overlay visual label appears in the edited timeline.
-Use before edit requests such as "cut when the logo appears", "zoom when he points", "add a motion graphic on the shot with the laptop", or "inspect the frame where the product is visible".
+Use for read-only discovery and questions about where something appears. For any mutation, call resolve_visual_edit directly because it performs the same retrieval and returns the only mutation-authorizing contract.
 Returns deterministic frame candidates, confidence, source evidence, and exact frame hints for cut_section, add_motion_graphic, set_keyframes, and visual_inspect_frame.
 Do not make a destructive edit from a low-confidence or ambiguous candidate; present the candidates and ask once.`,
       schema: visualMomentSchema,
@@ -812,7 +812,7 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
     {
       name: "resolve_visual_edit",
       description: `Resolve a stored visual event into safe edit parameters for downstream tools.
-Use before requests like "when the logo appears, add a highlight", "cut the shot with the laptop", "inspect the product frame", or "zoom/keyframe on the object".
+Call this directly for requests like "when the logo appears, add a highlight", "cut the shot with the laptop", or "zoom/keyframe on the object"; do not call find_visual_moment first.
 Returns add_overlay placement only when the matched visual fact has a bounding box. Otherwise it returns an inspection frame and fails loud instead of guessing coordinates. It never mutates the project by itself.`,
       schema: visualEditSchema,
     },

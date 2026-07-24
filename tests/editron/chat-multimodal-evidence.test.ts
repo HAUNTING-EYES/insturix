@@ -447,7 +447,10 @@ describe('canonical chat multimodal evidence', () => {
       projectId: project.projectId,
       frameVerifier,
     });
+    const findVisual = visualTools.find((tool) => tool.name === 'find_visual_moment')!;
     const resolveVisual = visualTools.find((tool) => tool.name === 'resolve_visual_edit')!;
+    expect(findVisual.description).toContain('For any mutation, call resolve_visual_edit directly');
+    expect(resolveVisual.description).toContain('do not call find_visual_moment first');
     const highlightOutput = JSON.parse(await resolveVisual.invoke({
       query: 'the hand-crafted garment section',
       action: 'highlight',

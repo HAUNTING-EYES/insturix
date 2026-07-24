@@ -91,6 +91,8 @@ describe('chat tool registry', () => {
     expect(agentSource).toContain('GROUNDED LOCALIZED MUTATION');
     expect(agentSource).toContain('Read-only resolvers do not edit');
     expect(agentSource).toContain('call only the mutating tool named in data.useWith');
+    expect(agentSource).toContain('For a visual mutation, call resolve_visual_edit directly');
+    expect(agentSource).toContain('Call visual_inspect_frame only when resolve_visual_edit explicitly returns');
     expect(agentSource).toContain('cut_section');
     expect(agentSource).toContain('A successful edit turn must include a declared mutating tool call');
     expect(agentSource).toContain('DURABLE SELECTED-CLIP DUBBING');

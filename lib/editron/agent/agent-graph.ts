@@ -379,6 +379,8 @@ export const createAgent = (
     - Read-only resolvers do not edit. Resolve the user's spoken, visible, audio, or uploaded-asset target first.
     - After a successful resolver result, call only the mutating tool named in data.useWith with those arguments unchanged.
     - For transcript removal, resolve_transcript_edit must return a safe cut_section range. Ambiguous or unsafe matches must not mutate.
+    - For a visual mutation, call resolve_visual_edit directly; it already performs retrieval. Do not call find_visual_moment first.
+    - Call visual_inspect_frame only when resolve_visual_edit explicitly returns data.useWith.visual_inspect_frame, or when the user asks a read-only question about rendered pixels.
     - For visual/audio/asset requests, use resolve_visual_edit, resolve_audio_edit, or resolve_user_asset_overlay as appropriate. The server rejects mutations without a current resolver authorization.`
       : '';
     const htmlSceneGuidance = callableToolNames.has('edit_html_scene')
