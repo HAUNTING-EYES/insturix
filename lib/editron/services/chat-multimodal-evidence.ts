@@ -497,7 +497,10 @@ export function rankCanonicalChatEvidence(input: {
     };
   }).sort((left, right) => right.score - left.score || (left.startFrame ?? Number.MAX_SAFE_INTEGER) - (right.startFrame ?? Number.MAX_SAFE_INTEGER));
 
-  const accepted = ranked.filter((candidate) => candidate.accepted);
+  const normalizedRanked = input.intent === 'visual'
+    ? collapseTouchingEquivalentVisualCandidates(ranked)
+    : ranked;
+  const accepted = normalizedRanked.filter((candidate) => candidate.accepted);
   const ambiguous = accepted.length > 1
     && Math.abs(accepted[0].score - accepted[1].score) < CHAT_EVIDENCE_RANKING_POLICY.ambiguityMargin
     && !rangesOverlap(accepted[0], accepted[1]);
@@ -509,7 +512,7 @@ export function rankCanonicalChatEvidence(input: {
   if (ambiguous) {
     accepted[0].rejectionReasons = uniqueStrings([...accepted[0].rejectionReasons, 'ambiguous-top-candidates']);
   }
-  return ranked.slice(0, clampInt(input.limit ?? DEFAULT_LIMIT, 1, 12));
+  return normalizedRanked.slice(0, clampInt(input.limit ?? DEFAULT_LIMIT, 1, 12));
 }
 
 export function validateEmbedding(
@@ -854,6 +857,81 @@ function tokenize(value: unknown): string[] {
 function rangesOverlap(left: CanonicalChatEvidenceCandidate, right: CanonicalChatEvidenceCandidate): boolean {
   if (left.startFrame == null || left.endFrame == null || right.startFrame == null || right.endFrame == null) return false;
   return left.startFrame < right.endFrame && right.startFrame < left.endFrame;
+}
+
+function collapseTouchingEquivalentVisualCandidates(
+  candidates: CanonicalChatEvidenceCandidate[],
+): CanonicalChatEvidenceCandidate[] {
+  const opportunities: Array<{
+    candidate: CanonicalChatEvidenceCandidate;
+    startFrame: number;
+    endFrame: number;
+    sourcePaths: string[];
+  }> = [];
+  const passthrough: CanonicalChatEvidenceCandidate[] = [];
+
+  for (const candidate of [...candidates].sort(compareCandidateTimeline)) {
+    if (
+      !candidate.accepted
+      || candidate.startFrame == null
+      || candidate.endFrame == null
+      || !normalizeText(candidate.visualText)
+    ) {
+      passthrough.push(candidate);
+      continue;
+    }
+    const visualFact = normalizeText(candidate.visualText);
+    const opportunity = opportunities.find((current) => (
+      current.candidate.assetId === candidate.assetId
+      && normalizeText(current.candidate.visualText) === visualFact
+      && candidate.startFrame! <= current.endFrame
+      && current.startFrame <= candidate.endFrame!
+    ));
+    if (!opportunity) {
+      opportunities.push({
+        candidate,
+        startFrame: candidate.startFrame,
+        endFrame: candidate.endFrame,
+        sourcePaths: [...candidate.sourcePaths],
+      });
+      continue;
+    }
+    opportunity.startFrame = Math.min(opportunity.startFrame, candidate.startFrame);
+    opportunity.endFrame = Math.max(opportunity.endFrame, candidate.endFrame);
+    opportunity.sourcePaths = uniqueStrings([...opportunity.sourcePaths, ...candidate.sourcePaths]);
+    if (
+      candidate.score > opportunity.candidate.score
+      || (
+        candidate.score === opportunity.candidate.score
+        && candidate.startFrame < (opportunity.candidate.startFrame ?? Number.MAX_SAFE_INTEGER)
+      )
+    ) {
+      opportunity.candidate = candidate;
+    }
+  }
+
+  return [
+    ...opportunities.map((opportunity) => ({
+      ...opportunity.candidate,
+      sourcePaths: opportunity.sourcePaths,
+    })),
+    ...passthrough,
+  ].sort((left, right) => (
+    right.score - left.score
+    || (left.startFrame ?? Number.MAX_SAFE_INTEGER) - (right.startFrame ?? Number.MAX_SAFE_INTEGER)
+  ));
+}
+
+function compareCandidateTimeline(
+  left: CanonicalChatEvidenceCandidate,
+  right: CanonicalChatEvidenceCandidate,
+): number {
+  return (
+    (left.startFrame ?? Number.MAX_SAFE_INTEGER) - (right.startFrame ?? Number.MAX_SAFE_INTEGER)
+    || (left.endFrame ?? Number.MAX_SAFE_INTEGER) - (right.endFrame ?? Number.MAX_SAFE_INTEGER)
+    || right.score - left.score
+    || left.evidenceId.localeCompare(right.evidenceId)
+  );
 }
 
 function dedupeDocuments(documents: CanonicalChatEvidenceDocument[]): CanonicalChatEvidenceDocument[] {

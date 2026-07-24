@@ -301,6 +301,45 @@ describe('canonical chat multimodal evidence', () => {
     expect(ranked[0].scores).toMatchObject({ textSemantic: 1, imageSemantic: 1 });
   });
 
+  it('collapses touching slices of the same visual fact into one mutation opportunity', () => {
+    const { project, analyses } = fixture();
+    const craft = buildCanonicalChatEvidenceDocuments({
+      projectId: project.projectId,
+      project,
+      analyses,
+    }).find((document) => document.assetId === 'asset-craft')!;
+    const adjacent = {
+      ...craft,
+      evidenceId: 'evidence-craft-adjacent',
+      overlayId: 'craft-clip-adjacent',
+      sourceStartMs: craft.sourceEndMs,
+      sourceEndMs: craft.sourceEndMs + 2_000,
+      editedStartFrame: craft.editedEndFrame,
+      editedEndFrame: (craft.editedEndFrame ?? 0) + 60,
+      sourcePaths: ['project.overlays.craft-clip-adjacent'],
+    };
+
+    const ranked = rankCanonicalChatEvidence({
+      documents: [craft, adjacent],
+      query: 'artisan stitching beads by hand',
+      intent: 'visual',
+      limit: 5,
+    });
+
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]).toMatchObject({
+      assetId: 'asset-craft',
+      matchType: 'exact-phrase',
+      accepted: true,
+      safeForAutomaticMutation: true,
+    });
+    expect(ranked[0].rejectionReasons).not.toContain('ambiguous-top-candidates');
+    expect(ranked[0].sourcePaths).toEqual(expect.arrayContaining([
+      ...craft.sourcePaths,
+      'project.overlays.craft-clip-adjacent',
+    ]));
+  });
+
   it('persists bounded retrieval evidence, missing modalities, and rejection reasons without hidden Mongo initialization', async () => {
     const { project, analyses } = fixture();
     const savedCaches: CanonicalChatEvidenceDocument[][] = [];
