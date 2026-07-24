@@ -249,6 +249,93 @@ describe('chat edit rendered verification', () => {
       .not.toEqual(expect.arrayContaining([expect.objectContaining({ overlayId: 'caption_unrelated' })]));
   });
 
+  it('accepts a tiny real mutation without misclassifying the full frame as blank', async () => {
+    const renderStill = vi.fn(async (input: any) => {
+      const isAfter = input.inputProps.overlays.some((overlay: any) => overlay.id === 'txt_after');
+      return {
+        estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+        url: `https://example.com/${isAfter ? 'after' : 'before'}-f${input.frame}.png`,
+        outKey: `chat/${isAfter ? 'after' : 'before'}-f${input.frame}.png`,
+        bucketName: 'render-bucket',
+        renderId: `${isAfter ? 'after' : 'before'}-${input.frame}`,
+        cloudWatchLogs: 'https://logs.example.com',
+        sizeInBytes: 512,
+        artifacts: [],
+      };
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(afterProject(), {
+      baselineProject: beforeProject(),
+      requestedSampleFrames: [45],
+      auditedOverlayIds: ['txt_after'],
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async (url) => renderedImageWithTinyDelta(url.includes('/after-')),
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.renderedAestheticReport?.summary).toMatchObject({
+      mutationStatus: 'pass',
+      mutationChangedFrameCount: 1,
+    });
+    expect(evidence.renderedAestheticReport?.summary?.status).not.toBe('fail');
+    expect(evidence.renderedAestheticReport?.summary?.absoluteQualityStatus).not.toBe('fail');
+    expect(evidence.renderedAestheticReport?.frames?.flatMap((frame) => frame.report?.issues ?? []))
+      .not.toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          dimension: 'render',
+          message: expect.stringContaining('blank'),
+        }),
+      ]));
+  });
+
+  it('fails mutation proof when rendered before and after frames are pixel-identical', async () => {
+    const renderStill = vi.fn(async (input: any) => {
+      const isAfter = input.inputProps.overlays.some((overlay: any) => overlay.id === 'txt_after');
+      return {
+        estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+        url: `https://example.com/${isAfter ? 'after' : 'before'}-f${input.frame}.png`,
+        outKey: `chat/${isAfter ? 'after' : 'before'}-f${input.frame}.png`,
+        bucketName: 'render-bucket',
+        renderId: `${isAfter ? 'after' : 'before'}-${input.frame}`,
+        cloudWatchLogs: 'https://logs.example.com',
+        sizeInBytes: 512,
+        artifacts: [],
+      };
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(afterProject(), {
+      baselineProject: beforeProject(),
+      requestedSampleFrames: [45],
+      auditedOverlayIds: ['txt_after'],
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async () => renderedImageWithTinyDelta(false),
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.renderedAestheticReport?.summary).toMatchObject({
+      status: 'fail',
+      mutationStatus: 'fail',
+      mutationChangedFrameCount: 0,
+    });
+    expect(evidence.renderedAestheticReport?.summary?.absoluteQualityStatus).not.toBe('fail');
+    expect(evidence.renderedAestheticReport?.frames?.flatMap((frame) => frame.report?.issues ?? []))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          dimension: 'mutation',
+          severity: 'fail',
+        }),
+      ]));
+    expect(evidence.renderedAestheticReport?.frames?.flatMap((frame) => frame.report?.issues ?? []))
+      .not.toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          dimension: 'render',
+          message: expect.stringContaining('blank'),
+        }),
+      ]));
+  });
+
   it('renders shortened before and after timelines on a shared absolute duration', async () => {
     const renderStill = vi.fn(async (input: any) => ({
       estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
@@ -675,6 +762,25 @@ function renderedImage(changed: boolean): RawRenderedStillImage {
       data[offset] = highlighted ? 240 : 12;
       data[offset + 1] = highlighted ? 240 : 12;
       data[offset + 2] = highlighted ? 240 : 12;
+      data[offset + 3] = 255;
+    }
+  }
+  return { width, height, channels, data };
+}
+
+function renderedImageWithTinyDelta(changed: boolean): RawRenderedStillImage {
+  const width = 320;
+  const height = 180;
+  const channels = 4;
+  const data = Buffer.alloc(width * height * channels);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const offset = (y * width + x) * channels;
+      const base = (x + y) % 2 === 0 ? 0 : 20;
+      const value = changed && x === 100 && y === 80 ? 255 : base;
+      data[offset] = value;
+      data[offset + 1] = value;
+      data[offset + 2] = value;
       data[offset + 3] = 255;
     }
   }

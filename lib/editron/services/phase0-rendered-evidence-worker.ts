@@ -527,6 +527,7 @@ export async function buildPhase0RenderedStillEvidence(
         {
           readImage: options.readImage,
           auditedOverlayIds: options.auditedOverlayIds,
+          comparisonMode: options.baselineProject ? 'mutation-delta' : 'overlay-visibility',
         },
       );
       if (aestheticEvidence) {

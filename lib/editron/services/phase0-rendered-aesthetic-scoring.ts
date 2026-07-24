@@ -49,6 +49,7 @@ export type ReadRenderedStillImage = (url: string) => Promise<RawRenderedStillIm
 interface BuildRenderedAestheticEvidenceOptions {
   readImage?: ReadRenderedStillImage;
   auditedOverlayIds?: Array<string | number>;
+  comparisonMode?: 'overlay-visibility' | 'mutation-delta';
 }
 
 interface FrameReportLike {
@@ -59,6 +60,8 @@ interface FrameReportLike {
   baselineStill: string;
   sample: Phase0RenderSample;
   report: RenderedFrameAestheticReport;
+  mutationPixelCount?: number;
+  sampledPixelCount?: number;
 }
 
 export async function buildPhase0RenderedAestheticEvidence(
@@ -82,12 +85,14 @@ export async function buildPhase0RenderedAestheticEvidence(
       sample,
       readImage,
       auditedOverlayIds: options.auditedOverlayIds,
+      comparisonMode: options.comparisonMode ?? 'overlay-visibility',
     }));
   }
 
   const report = buildRenderedAestheticReport({
     artifactPack,
     frames,
+    comparisonMode: options.comparisonMode ?? 'overlay-visibility',
   });
   const renderedManifest = withPhase0RenderedAestheticReport(packedManifest, report);
   return {
@@ -122,6 +127,7 @@ async function scoreRenderedStillFrame(input: {
   sample: Phase0RenderSample;
   readImage: ReadRenderedStillImage;
   auditedOverlayIds?: Array<string | number>;
+  comparisonMode: 'overlay-visibility' | 'mutation-delta';
 }): Promise<FrameReportLike> {
   const { artifactPack, still, sample } = input;
   let fullImage: RawRenderedStillImage | undefined;
@@ -154,6 +160,7 @@ async function scoreRenderedStillFrame(input: {
     fullImage,
     baselineImage,
     input.auditedOverlayIds,
+    input.comparisonMode,
   );
   const image = fullImage ? imageStats(fullImage, baselineImage) : undefined;
   const report = scoreRenderedFrameAesthetic({
@@ -175,6 +182,12 @@ async function scoreRenderedStillFrame(input: {
     fullStill: still.url,
     baselineStill: still.baselineUrl ?? '',
     report,
+    ...(image?.mutationPixelCount !== undefined
+      ? {
+          mutationPixelCount: image.mutationPixelCount,
+          sampledPixelCount: image.sampledPixelCount,
+        }
+      : {}),
   };
 }
 
@@ -188,6 +201,7 @@ function activeRenderedOverlayEvidence(
   fullImage?: RawRenderedStillImage,
   baselineImage?: RawRenderedStillImage,
   auditedOverlayIds?: Array<string | number>,
+  comparisonMode: 'overlay-visibility' | 'mutation-delta' = 'overlay-visibility',
 ): RenderedOverlayEvidence[] {
   const auditedIds = auditedOverlayIds === undefined
     ? null
@@ -213,6 +227,19 @@ function activeRenderedOverlayEvidence(
       const pixelEvidence = fullImage && baselineImage
         ? measureRenderedOverlayPixelEvidence(fullImage, baselineImage, box, width, height)
         : {};
+      const visiblePixelEvidence = comparisonMode === 'overlay-visibility'
+        ? pixelEvidence
+        : {
+            ...(pixelEvidence.localBackgroundLuma !== undefined
+              ? { localBackgroundLuma: pixelEvidence.localBackgroundLuma }
+              : {}),
+            ...(pixelEvidence.foregroundLuma !== undefined
+              ? { foregroundLuma: pixelEvidence.foregroundLuma }
+              : {}),
+            ...(pixelEvidence.contrastRatio !== undefined
+              ? { contrastRatio: pixelEvidence.contrastRatio }
+              : {}),
+          };
       return [{
         id: overlay.id,
         type: String(overlay.type ?? 'unknown'),
@@ -222,7 +249,7 @@ function activeRenderedOverlayEvidence(
         visualIntentStageMode: readString((overlay.metadata as Record<string, unknown> | undefined)?.visualIntentStageMode),
         box: {
           ...box,
-          ...pixelEvidence,
+          ...visiblePixelEvidence,
         },
       }];
     });
@@ -424,7 +451,11 @@ function imageStats(fullImage: RawRenderedStillImage, baselineImage?: RawRendere
     lumaStdDev: round3(Math.sqrt(variance)),
     alphaMean: round3(alphaTotal / Math.max(1, lumas.length)),
     ...(baselineImage && sameDimensions(fullImage, baselineImage)
-      ? { visiblePixelRatio: round4(changed / Math.max(1, sample.offsets.length)) }
+      ? {
+          mutationPixelRatio: round4(changed / Math.max(1, sample.offsets.length)),
+          mutationPixelCount: changed,
+          sampledPixelCount: sample.offsets.length,
+        }
       : {}),
   };
 }
@@ -472,43 +503,81 @@ export function measureRenderedOverlayPixelEvidence(
 function buildRenderedAestheticReport(input: {
   artifactPack: Phase0RenderArtifactPack;
   frames: FrameReportLike[];
+  comparisonMode: 'overlay-visibility' | 'mutation-delta';
 }): Phase0RenderedAestheticReportLike {
-  const passFrames = input.frames.filter((frame) => frame.report.status === 'pass').length;
-  const warnFrames = input.frames.filter((frame) => frame.report.status === 'warn').length;
-  const failFrames = input.frames.filter((frame) => frame.report.status === 'fail').length;
-  const score = round3(input.frames.length
+  const absoluteWarnFrames = input.frames.filter((frame) => frame.report.status === 'warn').length;
+  const absoluteFailFrames = input.frames.filter((frame) => frame.report.status === 'fail').length;
+  const absoluteQualityStatus = absoluteFailFrames > 0
+    ? 'fail'
+    : absoluteWarnFrames > 0
+      ? 'warn'
+      : 'pass';
+  const absoluteQualityScore = round3(input.frames.length
     ? Math.min(...input.frames.map((frame) => frame.report.score))
     : 0);
-
-  return {
-    outputDir: `lambda://${input.artifactPack.projectId}/phase0-rendered-evidence`,
-    summary: {
-      status: failFrames > 0 ? 'fail' : warnFrames > 0 ? 'warn' : 'pass',
-      score,
-      passFrames,
-      warnFrames,
-      failFrames,
-      sampledFrames: input.frames.length,
-      animationSampleFrames: input.frames.filter((frame) => frame.sample.roles.some((role) => role !== 'manual' && role !== 'hold')).length,
-    },
-    frames: input.frames.map((frame) => ({
+  const mutationChangedFrameCount = input.frames.filter(
+    (frame) => (frame.mutationPixelCount ?? 0) > 0,
+  ).length;
+  const mutationStatus = input.comparisonMode === 'mutation-delta'
+    ? mutationChangedFrameCount > 0 ? 'pass' : 'fail'
+    : 'not-required';
+  const sampledPixelCount = input.frames.reduce(
+    (sum, frame) => sum + (frame.sampledPixelCount ?? 0),
+    0,
+  );
+  const reportedFrames = input.frames.map((frame, index) => {
+    const mutationFailed = mutationStatus === 'fail' && index === 0;
+    const mutationIssues = mutationFailed
+      ? [{
+          dimension: 'mutation',
+          severity: 'fail' as const,
+          message: 'rendered before/after samples are pixel-identical inside the requested mutation window',
+          evidence: `changedPixels=0; sampledPixels=${sampledPixelCount}`,
+        }]
+      : [];
+    return {
       frame: frame.frame,
       activeOverlayIds: frame.activeOverlayIds,
       activeOverlayTypes: frame.activeOverlayTypes,
       fullStill: frame.fullStill,
       baselineStill: frame.baselineStill,
       report: {
-        status: frame.report.status,
-        score: frame.report.score,
-        issues: frame.report.issues.slice(0, 24).map((issue) => ({
-          dimension: issue.dimension,
-          severity: issue.severity,
-          overlayId: issue.overlayId,
-          message: issue.message,
-          evidence: issue.evidence,
-        })),
+        status: mutationFailed ? 'fail' as const : frame.report.status,
+        score: mutationFailed ? 0 : frame.report.score,
+        issues: [
+          ...frame.report.issues.slice(0, Math.max(0, 24 - mutationIssues.length)).map((issue) => ({
+            dimension: issue.dimension,
+            severity: issue.severity,
+            overlayId: issue.overlayId,
+            message: issue.message,
+            evidence: issue.evidence,
+          })),
+          ...mutationIssues,
+        ],
       },
-    })),
+    };
+  });
+  const passFrames = reportedFrames.filter((frame) => frame.report.status === 'pass').length;
+  const warnFrames = reportedFrames.filter((frame) => frame.report.status === 'warn').length;
+  const failFrames = reportedFrames.filter((frame) => frame.report.status === 'fail').length;
+  const score = mutationStatus === 'fail' ? 0 : absoluteQualityScore;
+
+  return {
+    outputDir: `lambda://${input.artifactPack.projectId}/phase0-rendered-evidence`,
+    summary: {
+      status: failFrames > 0 ? 'fail' : warnFrames > 0 ? 'warn' : 'pass',
+      score,
+      absoluteQualityStatus,
+      absoluteQualityScore,
+      mutationStatus,
+      mutationChangedFrameCount,
+      passFrames,
+      warnFrames,
+      failFrames,
+      sampledFrames: input.frames.length,
+      animationSampleFrames: input.frames.filter((frame) => frame.sample.roles.some((role) => role !== 'manual' && role !== 'hold')).length,
+    },
+    frames: reportedFrames,
   };
 }
 

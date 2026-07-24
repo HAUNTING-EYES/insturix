@@ -82,6 +82,10 @@ export interface Phase0RenderedAestheticReportLike {
   summary?: {
     status?: Phase0RenderedAestheticStatus;
     score?: number;
+    absoluteQualityStatus?: Phase0RenderedAestheticStatus;
+    absoluteQualityScore?: number;
+    mutationStatus?: 'not-required' | 'pass' | 'fail';
+    mutationChangedFrameCount?: number;
     passFrames?: number;
     warnFrames?: number;
     failFrames?: number;
