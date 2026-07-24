@@ -1,4 +1,7 @@
-import type { ChatBattleFixturePlan } from './chat-edit-battle-fixture-plan';
+import type {
+  ChatBattleFixtureCapability,
+  ChatBattleFixturePlan,
+} from './chat-edit-battle-fixture-plan';
 
 export interface PreparedChatBattleFixture {
   project: Record<string, unknown>;
@@ -21,6 +24,65 @@ export interface ChatBattleTranscriptAssetAlias {
     language: string;
     confidence: number;
     generatedAt: Date;
+  };
+}
+
+export interface ChatBattleFixtureCapabilityReport {
+  ok: boolean;
+  required: ChatBattleFixtureCapability[];
+  missing: ChatBattleFixtureCapability[];
+  sourceAssetIds: string[];
+  videoAssetIds: string[];
+  semanticVisualAssetIds: string[];
+  spatialVisualAssetIds: string[];
+}
+
+export function inspectChatBattleFixtureCapabilities(input: {
+  sourceProject: Record<string, unknown>;
+  sourceAnalyses: readonly Record<string, unknown>[];
+  required: readonly ChatBattleFixtureCapability[];
+}): ChatBattleFixtureCapabilityReport {
+  const required = [...new Set(input.required)];
+  const sourceAssetIds = uniqueStrings(input.sourceProject.sourceAssetIds);
+  const videoAssetIds = uniqueStrings(
+    asRecords(input.sourceProject.overlays)
+      .filter((overlay) => stringValue(overlay.type) === 'video')
+      .map((overlay) => overlay.assetId),
+  );
+  const analysisByAssetId = new Map(
+    input.sourceAnalyses.flatMap((analysis) => {
+      const assetId = stringValue(analysis.assetId);
+      return assetId ? [[assetId, analysis] as const] : [];
+    }),
+  );
+  const semanticVisualAssetIds = videoAssetIds.filter((assetId) => (
+    hasTimeLocalizedSemanticVisual(analysisByAssetId.get(assetId))
+  ));
+  const spatialVisualAssetIds = videoAssetIds.filter((assetId) => (
+    hasTimeLocalizedSpatialVisual(analysisByAssetId.get(assetId))
+  ));
+
+  const missing = required.filter((capability) => {
+    if (capability === 'multi-asset') {
+      return new Set([...sourceAssetIds, ...videoAssetIds]).size < 2;
+    }
+    if (capability === 'semantic-visual') {
+      return semanticVisualAssetIds.length === 0;
+    }
+    if (capability === 'semantic-visual-all-video-assets') {
+      return videoAssetIds.length === 0 || semanticVisualAssetIds.length !== videoAssetIds.length;
+    }
+    return videoAssetIds.length === 0 || spatialVisualAssetIds.length !== videoAssetIds.length;
+  });
+
+  return {
+    ok: missing.length === 0,
+    required,
+    missing,
+    sourceAssetIds,
+    videoAssetIds,
+    semanticVisualAssetIds,
+    spatialVisualAssetIds,
   };
 }
 
@@ -358,6 +420,37 @@ function cloneOverlays(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? structuredClone(value).map(asRecord) : [];
 }
 
+function hasTimeLocalizedSemanticVisual(analysis: Record<string, unknown> | undefined): boolean {
+  return asRecords(asRecord(analysis?.segmentAnalysis).segments).some((segment) => {
+    const semanticVisual = asRecord(segment.semanticVisual);
+    return asRecords(semanticVisual.windows).some((window) => {
+      const startSec = finiteNonNegativeNumber(window.startSec);
+      const endSec = finiteNonNegativeNumber(window.endSec);
+      return startSec != null && endSec != null && endSec > startSec;
+    });
+  });
+}
+
+function hasTimeLocalizedSpatialVisual(analysis: Record<string, unknown> | undefined): boolean {
+  return asRecords(asRecord(analysis?.segmentAnalysis).segments).some((segment) => {
+    const visual = asRecord(segment.visual);
+    const presence = asRecord(visual.primitivePresence);
+    return presence.mainSubject === true
+      && finiteUnitNumber(visual.mainSubjectX) != null
+      && finiteUnitNumber(visual.mainSubjectY) != null
+      && finiteUnitNumber(visual.mainSubjectWidth) != null
+      && finiteUnitNumber(visual.mainSubjectHeight) != null;
+  });
+}
+
+function uniqueStrings(value: unknown): string[] {
+  return [...new Set(
+    (Array.isArray(value) ? value : [])
+      .map(stringValue)
+      .filter((item): item is string => Boolean(item)),
+  )];
+}
+
 function asRecords(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.map(asRecord) : [];
 }
@@ -403,4 +496,10 @@ function positiveInteger(value: unknown): number | null {
 
 function finiteNonNegativeNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function finiteUnitNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
+    ? value
+    : null;
 }

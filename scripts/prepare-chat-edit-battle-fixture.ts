@@ -11,6 +11,7 @@ import { planChatBattleFixture } from '../lib/editron/services/chat-edit-battle-
 import {
   cloneChatBattleAnalysisDocuments,
   cloneChatBattleUploadBatch,
+  inspectChatBattleFixtureCapabilities,
   prepareChatBattleFixture,
 } from '../lib/editron/services/chat-edit-battle-fixtures';
 
@@ -32,6 +33,7 @@ interface FixtureManifest {
   clientContextPath: string;
   editorUrlPath: string;
   expiresAt: string;
+  sourceCapabilities: ReturnType<typeof inspectChatBattleFixtureCapabilities>;
 }
 
 async function main(): Promise<void> {
@@ -61,6 +63,19 @@ async function main(): Promise<void> {
     const sourceAnalyses = await db.collection(COLLECTIONS.PROJECT_ASSET_ANALYSES)
       .find({ projectId: plan.sourceProjectId })
       .toArray();
+    const sourceCapabilities = inspectChatBattleFixtureCapabilities({
+      sourceProject: sourceProject as Record<string, unknown>,
+      sourceAnalyses: sourceAnalyses as Record<string, unknown>[],
+      required: plan.requiredSourceCapabilities,
+    });
+    if (!sourceCapabilities.ok) {
+      throw new Error(
+        `Fixture source ${plan.sourceProjectId} cannot prove ${scenario.id}: `
+        + `missing ${sourceCapabilities.missing.join(', ')}; `
+        + `${sourceCapabilities.semanticVisualAssetIds.length}/${sourceCapabilities.videoAssetIds.length} video assets have semantic visual evidence and `
+        + `${sourceCapabilities.spatialVisualAssetIds.length}/${sourceCapabilities.videoAssetIds.length} have spatial visual evidence.`,
+      );
+    }
     const sourceUploadBatchId = stringValue(sourceProject.sourceUploadBatchId);
     const sourceUploadBatch = plan.requiresUploadBatchClone && sourceUploadBatchId
       ? await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).findOne({
@@ -148,6 +163,7 @@ async function main(): Promise<void> {
       clientContextPath,
       editorUrlPath: `/dashboard/editron/project/${fixtureProjectId}`,
       expiresAt: expiresAt.toISOString(),
+      sourceCapabilities,
     };
     const manifestPath = path.join(fixtureDir, 'fixture.json');
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');

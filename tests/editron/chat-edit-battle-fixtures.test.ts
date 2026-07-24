@@ -5,6 +5,7 @@ import { planChatBattleFixture } from '@/lib/editron/services/chat-edit-battle-f
 import {
   cloneChatBattleAnalysisDocuments,
   cloneChatBattleUploadBatch,
+  inspectChatBattleFixtureCapabilities,
   prepareChatBattleFixture,
 } from '@/lib/editron/services/chat-edit-battle-fixtures';
 
@@ -30,7 +31,73 @@ describe('chat edit battle fixtures', () => {
       seedTranscript: true,
     });
     expect(plan('vertical-subject-reframe')).toMatchObject({ profile: 'visual-multi-asset' });
-    expect(plan('multiasset-script-chat')).toMatchObject({ requiresUploadBatchClone: true });
+    expect(plan('visual-object-paraphrase')).toMatchObject({
+      requiredSourceCapabilities: ['semantic-visual'],
+    });
+    expect(plan('vertical-subject-reframe')).toMatchObject({
+      requiredSourceCapabilities: ['spatial-visual-all-video-assets'],
+    });
+    expect(plan('multiasset-script-chat')).toMatchObject({
+      requiresUploadBatchClone: true,
+      requiredSourceCapabilities: ['multi-asset', 'semantic-visual-all-video-assets'],
+    });
+    expect(plan('selected-overlay-edit')).toMatchObject({ requiredSourceCapabilities: [] });
+  });
+
+  it('rejects semantically blind visual fixtures before they can produce false product failures', () => {
+    const report = inspectChatBattleFixtureCapabilities({
+      sourceProject: sourceProject(),
+      sourceAnalyses: [{
+        projectId: 'source-project',
+        assetId: 'video-asset',
+        segmentAnalysis: { segments: [{ semanticVisual: null }] },
+      }],
+      required: ['semantic-visual'],
+    });
+
+    expect(report).toMatchObject({
+      ok: false,
+      missing: ['semantic-visual'],
+      videoAssetIds: ['video-asset'],
+      semanticVisualAssetIds: [],
+    });
+  });
+
+  it('requires time-localized semantic and spatial truth for every used video in multi-asset fixtures', () => {
+    const source = sourceProject();
+    source.sourceAssetIds = ['video-asset', 'video-asset-2', 'image-asset'];
+    source.overlays.push({
+      id: 'video-2',
+      type: 'video',
+      from: 300,
+      durationInFrames: 300,
+      assetId: 'video-asset-2',
+    });
+    const analyses = [
+      visualAnalysis('video-asset'),
+      visualAnalysis('video-asset-2'),
+    ];
+
+    expect(inspectChatBattleFixtureCapabilities({
+      sourceProject: source,
+      sourceAnalyses: analyses,
+      required: ['multi-asset', 'semantic-visual-all-video-assets', 'spatial-visual-all-video-assets'],
+    })).toMatchObject({
+      ok: true,
+      missing: [],
+      videoAssetIds: ['video-asset', 'video-asset-2'],
+      semanticVisualAssetIds: ['video-asset', 'video-asset-2'],
+      spatialVisualAssetIds: ['video-asset', 'video-asset-2'],
+    });
+
+    expect(inspectChatBattleFixtureCapabilities({
+      sourceProject: source,
+      sourceAnalyses: [analyses[0]],
+      required: ['semantic-visual-all-video-assets', 'spatial-visual-all-video-assets'],
+    })).toMatchObject({
+      ok: false,
+      missing: ['semantic-visual-all-video-assets', 'spatial-visual-all-video-assets'],
+    });
   });
 
   it('clones without mutating source truth and removes stale render verdicts', () => {
@@ -262,4 +329,25 @@ function sourceProject(): Record<string, any> {
 
 function overlays(project: Record<string, any>): Record<string, any>[] {
   return project.overlays as Record<string, any>[];
+}
+
+function visualAnalysis(assetId: string): Record<string, unknown> {
+  return {
+    projectId: 'source-project',
+    assetId,
+    segmentAnalysis: {
+      segments: [{
+        semanticVisual: {
+          windows: [{ startSec: 0, endSec: 2, subjects: ['garment'] }],
+        },
+        visual: {
+          primitivePresence: { mainSubject: true },
+          mainSubjectX: 0.2,
+          mainSubjectY: 0.1,
+          mainSubjectWidth: 0.5,
+          mainSubjectHeight: 0.8,
+        },
+      }],
+    },
+  };
 }

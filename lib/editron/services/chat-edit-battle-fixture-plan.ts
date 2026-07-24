@@ -8,6 +8,12 @@ export type ChatBattleFixtureProfile =
   | 'audio'
   | 'generated-scene';
 
+export type ChatBattleFixtureCapability =
+  | 'multi-asset'
+  | 'semantic-visual'
+  | 'semantic-visual-all-video-assets'
+  | 'spatial-visual-all-video-assets';
+
 export interface ChatBattleFixtureSources {
   mixed: string;
   speech: string;
@@ -26,6 +32,7 @@ export interface ChatBattleFixturePlan {
   removeCaptionTrack: boolean;
   requiresImageAssetAlias: boolean;
   requiresUploadBatchClone: boolean;
+  requiredSourceCapabilities: ChatBattleFixtureCapability[];
 }
 
 export const DEFAULT_CHAT_BATTLE_FIXTURE_SOURCES: ChatBattleFixtureSources = {
@@ -50,6 +57,18 @@ const VISUAL_SCENARIOS = new Set([
   'visual-speed-ramp', 'list-uploaded-assets', 'search-uploaded-assets',
   'inspect-uploaded-asset', 'place-uploaded-asset', 'replace-with-uploaded-footage',
   'vertical-subject-reframe',
+]);
+
+const SEMANTIC_VISUAL_SCENARIOS = new Set([
+  'visual-object-exact',
+  'visual-object-paraphrase',
+  'visual-moment-search',
+  'visual-speed-ramp',
+]);
+
+const MULTI_ASSET_SEMANTIC_VISUAL_SCENARIOS = new Set([
+  'multiasset-script-intake',
+  'multiasset-script-chat',
 ]);
 
 const AUDIO_SCENARIOS = new Set([
@@ -87,7 +106,21 @@ export function planChatBattleFixture(
     requiresImageAssetAlias: scenario.id === 'explicit-asset',
     requiresUploadBatchClone: scenario.id === 'multiasset-script-intake'
       || scenario.id === 'multiasset-script-chat',
+    requiredSourceCapabilities: resolveRequiredSourceCapabilities(scenario.id),
   };
+}
+
+function resolveRequiredSourceCapabilities(scenarioId: string): ChatBattleFixtureCapability[] {
+  if (MULTI_ASSET_SEMANTIC_VISUAL_SCENARIOS.has(scenarioId)) {
+    return ['multi-asset', 'semantic-visual-all-video-assets'];
+  }
+  if (SEMANTIC_VISUAL_SCENARIOS.has(scenarioId)) {
+    return ['semantic-visual'];
+  }
+  if (scenarioId === 'vertical-subject-reframe') {
+    return ['spatial-visual-all-video-assets'];
+  }
+  return [];
 }
 
 function resolveProfile(scenarioId: string): ChatBattleFixtureProfile {
