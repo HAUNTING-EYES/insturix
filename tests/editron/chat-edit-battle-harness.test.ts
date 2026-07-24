@@ -496,6 +496,47 @@ describe('chat edit battle harness', () => {
     expect(soundVerification.renderVerification.modalities).toEqual(['audio']);
   });
 
+  it('keeps caption-only editorial intent visual when an existing BGM is unchanged', () => {
+    const existingBgm = {
+      id: 'bgm-1',
+      type: 'sound',
+      volume: 0.45,
+      from: 0,
+      durationInFrames: 300,
+      _workerAdded: true,
+      metadata: { role: 'bgm' },
+    };
+    const before = project([
+      { id: 'caption-1', type: 'caption', content: 'before', from: 0, durationInFrames: 300 },
+      existingBgm,
+    ]);
+    const after = project([
+      { id: 'caption-1', type: 'caption', content: 'after', from: 0, durationInFrames: 300 },
+      structuredClone(existingBgm),
+    ]);
+
+    const verification = verifyChatToolPostcondition({
+      toolName: 'apply_editorial_intent',
+      args: { request: 'clean up the captions' },
+      resultData: {},
+      beforeProject: before,
+      afterProject: after,
+    });
+
+    expect(verification).toMatchObject({
+      status: 'pass',
+      affectedTargets: [{
+        overlayId: 'caption-1',
+        overlayType: 'caption',
+        state: 'updated',
+      }],
+      renderVerification: {
+        required: true,
+        modalities: ['visual'],
+      },
+    });
+  });
+
   it('does not mistake expiring transport URLs for an edit', () => {
     const before = project([{
       id: 1,

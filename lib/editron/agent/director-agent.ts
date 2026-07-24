@@ -2863,8 +2863,8 @@ export async function executeDirectorPlan(
     }
 
     try {
-      const { annotateFinalOverlayChoreographyBypasses } = await import('@/lib/editron/services/cross-overlay-final-overlays');
-      const finalOverlayChoreography = annotateFinalOverlayChoreographyBypasses(persistableOverlays);
+      const { summarizeFinalOverlayChoreographyBypasses } = await import('@/lib/editron/services/cross-overlay-final-overlays');
+      const finalOverlayChoreography = summarizeFinalOverlayChoreographyBypasses(persistableOverlays);
       (result as any).finalOverlayChoreography = finalOverlayChoreography;
       if (finalOverlayChoreography.bypassOverlayCount > 0) {
         console.log(

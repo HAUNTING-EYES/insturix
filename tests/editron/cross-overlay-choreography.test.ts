@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { EditDecision } from '../../lib/editron/services/reactive-edit-engine';
 import { applyCrossOverlayChoreography } from '../../lib/editron/services/cross-overlay-choreography';
-import { annotateFinalOverlayChoreographyBypasses } from '../../lib/editron/services/cross-overlay-final-overlays';
+import {
+  annotateFinalOverlayChoreographyBypasses,
+  summarizeFinalOverlayChoreographyBypasses,
+} from '../../lib/editron/services/cross-overlay-final-overlays';
 import { buildCanonicalCaptionChoreographyReservations } from '../../lib/editron/services/canonical-caption-track';
 import { resolveAtomicCaptionPresentation } from '../../lib/editron/services/caption-form';
 import { resolveAtomicPlacement } from '../../lib/editron/services/atomic-placement';
@@ -422,6 +425,26 @@ describe('cross-overlay choreography scheduler', () => {
       family: 'camera',
     }));
     expect(overlays[3].metadata.crossOverlayFinalChoreography).toBeUndefined();
+  });
+  it('summarizes final bypasses without mutating canonical overlays', () => {
+    const overlays: any[] = [{
+      id: 'bgm-1',
+      type: 'sound',
+      from: 0,
+      durationInFrames: 300,
+      row: 1,
+      _workerAdded: true,
+      metadata: { role: 'bgm' },
+    }];
+    const before = structuredClone(overlays);
+
+    const report = summarizeFinalOverlayChoreographyBypasses(overlays);
+
+    expect(report).toMatchObject({
+      bypassOverlayCount: 1,
+      countsByProducer: { 'async-worker-audio': 1 },
+    });
+    expect(overlays).toEqual(before);
   });
   it('clears canonical caption bypass only when the persisted reservation receipt is complete', () => {
     const scheduledCaption = {
