@@ -3425,16 +3425,16 @@ function buildVisualHighlightOverlay(
 function visualBoxToOverlayPosition(box: VisualBoundingBox): Pick<VisualHighlightOverlayHint, "x" | "y" | "width" | "height"> {
   if (box.units === "normalized") {
     return {
-      x: `${round3(box.x * 100)}%`,
-      y: `${round3(box.y * 100)}%`,
+      x: `${round3((box.x + box.width / 2) * 100)}%`,
+      y: `${round3((box.y + box.height / 2) * 100)}%`,
       width: `${round3(box.width * 100)}%`,
       height: `${round3(box.height * 100)}%`,
     };
   }
 
   return {
-    x: Math.round(box.x),
-    y: Math.round(box.y),
+    x: Math.round(box.x + box.width / 2),
+    y: Math.round(box.y + box.height / 2),
     width: Math.round(box.width),
     height: Math.round(box.height),
   };

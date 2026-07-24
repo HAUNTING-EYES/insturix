@@ -11,6 +11,7 @@ import { StickerLayerContent } from "../overlays/stickers/sticker-layer-content"
 import { HtmlSceneLayerContent } from "../overlays/html/html-scene-layer-content";
 import { TransitionLayerContent } from "../overlays/transitions/transition-layer-content";
 import { MotionGraphicLayerContent } from "../overlays/motion-graphic/motion-graphic-layer-content";
+import { ShapeLayerContent } from "../overlays/shapes/shape-layer-content";
 import { GeneratedSceneLayerContent } from "./generated-scene-layer-content";
 import {
   sequenceFrameIndex,
@@ -115,6 +116,13 @@ export const LayerContent: React.FC<LayerContentProps> = ({
       return (
         <div style={{ ...commonStyle }}>
           <TextLayerContent overlay={overlay} />
+        </div>
+      );
+
+    case OverlayType.SHAPE:
+      return (
+        <div style={{ ...commonStyle }}>
+          <ShapeLayerContent overlay={overlay} />
         </div>
       );
 

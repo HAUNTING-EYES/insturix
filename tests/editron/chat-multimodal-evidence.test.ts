@@ -518,8 +518,8 @@ describe('canonical chat multimodal evidence', () => {
     });
     expect(frameVerifiedOutput.data.useWith.add_overlay).toMatchObject({
       start: 130,
-      x: '20%',
-      y: '25%',
+      x: '45%',
+      y: '47.5%',
       width: '50%',
       height: '45%',
     });
