@@ -55,7 +55,16 @@ const nextConfig: NextConfig = {
     'sharp',
   ],
   outputFileTracingIncludes: {
+    '/api/internal/workers/pipeline/audio': [
+      './node_modules/@ffmpeg-installer/linux-x64/ffmpeg',
+    ],
     '/api/internal/workers/chat-dubbing': [
+      './node_modules/@ffmpeg-installer/linux-x64/ffmpeg',
+    ],
+    '/api/services/editron/chat/tool-call': [
+      './node_modules/@ffmpeg-installer/linux-x64/ffmpeg',
+    ],
+    '/api/services/pipeline/storyboard/*/finalize': [
       './node_modules/@ffmpeg-installer/linux-x64/ffmpeg',
     ],
   },

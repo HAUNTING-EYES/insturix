@@ -17,7 +17,7 @@ describe('chat dubbing FFmpeg runtime', () => {
     const config = readFileSync(join(process.cwd(), 'next.config.ts'), 'utf8');
     const resolver = readFileSync(join(
       process.cwd(),
-      'lib/editron/services/media/analysis-service.ts',
+      'lib/editron/services/media/ffmpeg-runtime.ts',
     ), 'utf8');
     const packageJson = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as {
       optionalDependencies?: Record<string, string>;
