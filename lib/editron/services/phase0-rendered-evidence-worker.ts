@@ -12,6 +12,7 @@ import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from './remotion-
 import {
   buildPhase0FixtureManifest,
   type Phase0FixtureProject,
+  type Phase0OverlayLike,
   type Phase0RenderedAestheticReportLike,
   type Phase0RenderedQualityEvidencePayload,
 } from './phase0-fixture-manifest';
@@ -27,6 +28,11 @@ import { buildPhase0RenderedQualityGate } from './editron-learning-gate';
 import { buildPhase0LiveTruthSnapshot, type Phase0LiveTruthSnapshot } from './phase0-live-truth';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 import { resolveRemotionSiteFreshness } from './remotion-site-version';
+import {
+  inspectMediaAudioTrack,
+  type InspectMediaAudioTrack,
+  type MediaAudioTrackInspection,
+} from './media-audio-track-service';
 
 export const PHASE0_RENDERED_STILL_EVIDENCE_VERSION = 'editron-phase0-rendered-still-evidence-v1' as const;
 const DEFAULT_PHASE0_RENDERED_EVIDENCE_LOCK_STALE_MS = 20 * 60 * 1000;
@@ -93,7 +99,16 @@ export interface ChatEditRenderedAudioEvidence {
   status: 'pass' | 'fail' | 'missing';
   capturedAt: string;
   windows: ChatEditRenderedAudioWindowEvidence[];
+  skippedWindows?: ChatEditRenderedAudioSkippedWindow[];
   reason: string | null;
+}
+
+export interface ChatEditRenderedAudioSkippedWindow {
+  startFrame: number;
+  endFrame: number;
+  beforeStatus: MediaAudioTrackInspection['status'];
+  afterStatus: MediaAudioTrackInspection['status'];
+  reason: string;
 }
 
 export interface Phase0RenderedEvidenceDispatchResult {
@@ -624,6 +639,23 @@ type RenderAudioWindow = (input: {
   config: ReturnType<typeof resolvePhase0RenderedEvidenceConfig>;
 }) => Promise<RenderedAudioArtifact>;
 
+type AudioWindow = {
+  startFrame: number;
+  endFrame: number;
+};
+
+type AudioWindowTrackState = {
+  status: MediaAudioTrackInspection['status'];
+  reason: string | null;
+};
+
+type ClassifiedAudioWindow = AudioWindow & {
+  before: AudioWindowTrackState;
+  after: AudioWindowTrackState;
+};
+
+const EMPTY_AUDIO_PCM_SHA256 = createHash('sha256').update(Buffer.alloc(0)).digest('hex');
+
 export async function buildChatEditRenderedAudioEvidence(
   project: Phase0FixtureProject,
   baselineProject: Phase0FixtureProject,
@@ -633,6 +665,7 @@ export async function buildChatEditRenderedAudioEvidence(
     env?: EnvLike;
     prepareCredentials?: () => Promise<void>;
     renderAudioWindow?: RenderAudioWindow;
+    inspectAudioTrack?: InspectMediaAudioTrack;
   } = {},
 ): Promise<ChatEditRenderedAudioEvidence> {
   const capturedAt = options.capturedAt ?? new Date().toISOString();
@@ -651,6 +684,70 @@ export async function buildChatEditRenderedAudioEvidence(
     fps,
     sampleLimit: config.sampleLimit,
   });
+  const inspectAudioTrack = memoizeAudioTrackInspection(
+    options.inspectAudioTrack ?? inspectMediaAudioTrack,
+  );
+  const classifiedWindows = await Promise.all(
+    windows.map(async (window): Promise<ClassifiedAudioWindow> => ({
+      ...window,
+      before: await resolveAudioWindowTrackState(
+        baselineProject.overlays,
+        window,
+        inspectAudioTrack,
+      ),
+      after: await resolveAudioWindowTrackState(
+        project.overlays,
+        window,
+        inspectAudioTrack,
+      ),
+    })),
+  );
+  const unknownWindow = classifiedWindows.find(
+    (window) => window.before.status === 'unknown' || window.after.status === 'unknown',
+  );
+  const skippedWindows = classifiedWindows
+    .filter((window) => window.before.status === 'absent' && window.after.status === 'absent')
+    .map((window): ChatEditRenderedAudioSkippedWindow => ({
+      startFrame: window.startFrame,
+      endFrame: window.endFrame,
+      beforeStatus: window.before.status,
+      afterStatus: window.after.status,
+      reason: 'no_audio_stream_in_requested_window',
+    }));
+
+  if (unknownWindow) {
+    return {
+      version: 'editron-chat-rendered-audio-v1',
+      status: 'missing',
+      capturedAt,
+      windows: [],
+      skippedWindows,
+      reason: `audio_stream_presence_unknown:${
+        unknownWindow.before.reason
+        ?? unknownWindow.after.reason
+        ?? 'unresolved_media_track'
+      }`,
+    };
+  }
+
+  const applicableWindows = classifiedWindows.filter(
+    (window) => window.before.status === 'present' || window.after.status === 'present',
+  );
+  if (applicableWindows.length === 0) {
+    const hasExplicitAudioTarget = request.targets.some((target) =>
+      ['audio', 'sound'].includes(target.overlayType.toLowerCase()),
+    );
+    return {
+      version: 'editron-chat-rendered-audio-v1',
+      status: hasExplicitAudioTarget ? 'fail' : 'pass',
+      capturedAt,
+      windows: [],
+      skippedWindows,
+      reason: hasExplicitAudioTarget
+        ? 'expected_audio_stream_missing_in_requested_windows'
+        : 'no_audio_stream_in_requested_windows',
+    };
+  }
 
   if (!config.configured) {
     return {
@@ -658,6 +755,7 @@ export async function buildChatEditRenderedAudioEvidence(
       status: 'missing',
       capturedAt,
       windows: [],
+      skippedWindows,
       reason: config.reason ?? 'audio_render_not_configured',
     };
   }
@@ -687,6 +785,7 @@ export async function buildChatEditRenderedAudioEvidence(
       status: 'missing',
       capturedAt,
       windows: [],
+      skippedWindows,
       reason: `audio_artifact_pack_not_renderable:${[
         ...afterPack.issues,
         ...beforePack.issues,
@@ -697,41 +796,47 @@ export async function buildChatEditRenderedAudioEvidence(
   await (options.prepareCredentials ?? setAWSCredentials)();
   const renderAudioWindow = options.renderAudioWindow ?? renderLambdaAudioWindow;
   const evidenceWindows: ChatEditRenderedAudioWindowEvidence[] = [];
-  for (const window of windows) {
+  for (const window of applicableWindows) {
     try {
       const [before, after] = await Promise.all([
-        renderAudioWindow({
-          inputProps: {
-            ...beforePack.renderInput,
-            durationInFrames,
-            isRendering: true,
-          },
-          startFrame: window.startFrame,
-          endFrame: window.endFrame,
-          config,
-        }),
-        renderAudioWindow({
-          inputProps: {
-            ...afterPack.renderInput,
-            durationInFrames,
-            isRendering: true,
-          },
-          startFrame: window.startFrame,
-          endFrame: window.endFrame,
-          config,
-        }),
+        window.before.status === 'present'
+          ? renderAudioWindow({
+              inputProps: {
+                ...beforePack.renderInput,
+                durationInFrames,
+                isRendering: true,
+              },
+              startFrame: window.startFrame,
+              endFrame: window.endFrame,
+              config,
+            })
+          : Promise.resolve(null),
+        window.after.status === 'present'
+          ? renderAudioWindow({
+              inputProps: {
+                ...afterPack.renderInput,
+                durationInFrames,
+                isRendering: true,
+              },
+              startFrame: window.startFrame,
+              endFrame: window.endFrame,
+              config,
+            })
+          : Promise.resolve(null),
       ]);
+      const beforePcmSha256 = before?.pcmSha256 ?? EMPTY_AUDIO_PCM_SHA256;
+      const afterPcmSha256 = after?.pcmSha256 ?? EMPTY_AUDIO_PCM_SHA256;
       evidenceWindows.push({
         ...window,
-        beforeUrl: before.url,
-        afterUrl: after.url,
-        beforePcmSha256: before.pcmSha256,
-        afterPcmSha256: after.pcmSha256,
-        beforeRms: before.rms,
-        afterRms: after.rms,
-        beforePeak: before.peak,
-        afterPeak: after.peak,
-        changed: before.pcmSha256 !== after.pcmSha256,
+        beforeUrl: before?.url ?? null,
+        afterUrl: after?.url ?? null,
+        beforePcmSha256,
+        afterPcmSha256,
+        beforeRms: before?.rms ?? 0,
+        afterRms: after?.rms ?? 0,
+        beforePeak: before?.peak ?? 0,
+        afterPeak: after?.peak ?? 0,
+        changed: beforePcmSha256 !== afterPcmSha256,
         error: null,
       });
     } catch (error: unknown) {
@@ -757,10 +862,101 @@ export async function buildChatEditRenderedAudioEvidence(
     status: evidenceWindows.length > 0 && failed.length === 0 ? 'pass' : 'fail',
     capturedAt,
     windows: evidenceWindows,
+    skippedWindows,
     reason: failed.length === 0
       ? null
       : failed[0]?.error ?? 'rendered_audio_did_not_change_in_the_requested_window',
   };
+}
+
+function memoizeAudioTrackInspection(
+  inspect: InspectMediaAudioTrack,
+): InspectMediaAudioTrack {
+  const cache = new Map<string, Promise<MediaAudioTrackInspection>>();
+  return (url) => {
+    const existing = cache.get(url);
+    if (existing) return existing;
+    const pending = inspect(url);
+    cache.set(url, pending);
+    return pending;
+  };
+}
+
+async function resolveAudioWindowTrackState(
+  overlays: Phase0FixtureProject['overlays'],
+  window: AudioWindow,
+  inspect: InspectMediaAudioTrack,
+): Promise<AudioWindowTrackState> {
+  const active = (Array.isArray(overlays) ? overlays : []).filter(
+    (overlay) => overlayIntersectsAudioWindow(overlay, window) && overlayCanProduceAudio(overlay),
+  );
+  if (active.length === 0) return { status: 'absent', reason: null };
+
+  const explicitAudio = active.find((overlay) =>
+    ['audio', 'sound'].includes(String(overlay.type ?? '').toLowerCase()),
+  );
+  if (explicitAudio) return { status: 'present', reason: null };
+
+  const videoUrls = Array.from(new Set(
+    active
+      .filter((overlay) => String(overlay.type ?? '').toLowerCase() === 'video')
+      .map(mediaUrlOf)
+      .filter((url): url is string => Boolean(url)),
+  ));
+  const hasVideoWithoutUrl = active.some(
+    (overlay) =>
+      String(overlay.type ?? '').toLowerCase() === 'video'
+      && !mediaUrlOf(overlay),
+  );
+  const inspections = await Promise.all(videoUrls.map(inspect));
+  if (inspections.some((result) => result.status === 'present')) {
+    return { status: 'present', reason: null };
+  }
+  const unknown = inspections.find((result) => result.status === 'unknown');
+  if (unknown || hasVideoWithoutUrl) {
+    return {
+      status: 'unknown',
+      reason: unknown?.reason ?? 'video_audio_source_url_missing',
+    };
+  }
+  return { status: 'absent', reason: null };
+}
+
+function overlayIntersectsAudioWindow(
+  overlay: Phase0OverlayLike,
+  window: AudioWindow,
+): boolean {
+  const from = numberValue(overlay.from) ?? 0;
+  const duration = Math.max(1, numberValue(overlay.durationInFrames) ?? 1);
+  return from < window.endFrame && from + duration > window.startFrame;
+}
+
+function overlayCanProduceAudio(overlay: Phase0OverlayLike): boolean {
+  const type = String(overlay.type ?? '').toLowerCase();
+  if (!['video', 'audio', 'sound'].includes(type)) return false;
+  const styles = recordValue(overlay.styles);
+  const muted = overlay.muted === true || styles?.muted === true;
+  const volume = numberValue(styles?.volume) ?? numberValue(overlay.volume) ?? 1;
+  return !muted && volume > 0;
+}
+
+function mediaUrlOf(overlay: Phase0OverlayLike): string | null {
+  for (const value of [overlay.src, overlay.content]) {
+    if (typeof value !== 'string') continue;
+    try {
+      const url = new URL(value);
+      if (url.protocol === 'https:' || url.protocol === 'http:') return url.toString();
+    } catch {
+      // Asset IDs and display labels are not media URLs.
+    }
+  }
+  return null;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 export function buildChatEditAudioVerificationWindows(input: {

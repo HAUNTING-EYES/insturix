@@ -395,6 +395,9 @@ importers:
       marked:
         specifier: ^17.0.4
         version: 17.0.4
+      mediabunny:
+        specifier: 1.27.2
+        version: 1.27.2
       mongodb:
         specifier: ^7.0.0
         version: 7.0.0(socks@2.8.7)

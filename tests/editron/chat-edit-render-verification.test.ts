@@ -318,6 +318,11 @@ describe('chat edit rendered verification', () => {
         env: configuredEnv(),
         prepareCredentials: async () => {},
         renderAudioWindow,
+        inspectAudioTrack: async () => ({
+          status: 'present',
+          audioTrackCount: 1,
+          reason: null,
+        }),
       },
     );
 
@@ -341,6 +346,11 @@ describe('chat edit rendered verification', () => {
       {
         env: configuredEnv(),
         prepareCredentials: async () => {},
+        inspectAudioTrack: async () => ({
+          status: 'present',
+          audioTrackCount: 1,
+          reason: null,
+        }),
         renderAudioWindow: async () => ({
           url: 'https://example.com/same.wav',
           renderId: 'same-render',
@@ -354,6 +364,146 @@ describe('chat edit rendered verification', () => {
 
     expect(evidence.status, evidence.reason ?? 'no reason').toBe('fail');
     expect(evidence.reason).toBe('rendered_audio_did_not_change_in_the_requested_window');
+  });
+
+  it('skips an impossible audio render when both timeline states are proven audio-less', async () => {
+    const renderAudioWindow = vi.fn();
+    const evidence = await buildChatEditRenderedAudioEvidence(
+      projectWithOverlays([]),
+      projectWithOverlays([]),
+      videoMutationAudioRequest(),
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        inspectAudioTrack: async () => ({
+          status: 'absent',
+          audioTrackCount: 0,
+          reason: null,
+        }),
+        renderAudioWindow,
+      },
+    );
+
+    expect(evidence.status).toBe('pass');
+    expect(evidence.reason).toBe('no_audio_stream_in_requested_windows');
+    expect(evidence.windows).toEqual([]);
+    expect(evidence.skippedWindows).toEqual([
+      expect.objectContaining({
+        beforeStatus: 'absent',
+        afterStatus: 'absent',
+        reason: 'no_audio_stream_in_requested_window',
+      }),
+    ]);
+    expect(renderAudioWindow).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when media-track truth cannot be established', async () => {
+    const renderAudioWindow = vi.fn();
+    const evidence = await buildChatEditRenderedAudioEvidence(
+      projectWithOverlays([]),
+      projectWithOverlays([]),
+      videoMutationAudioRequest(),
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        inspectAudioTrack: async () => ({
+          status: 'unknown',
+          audioTrackCount: null,
+          reason: 'media_audio_track_inspection_timeout',
+        }),
+        renderAudioWindow,
+      },
+    );
+
+    expect(evidence.status).toBe('missing');
+    expect(evidence.reason).toContain('audio_stream_presence_unknown');
+    expect(renderAudioWindow).not.toHaveBeenCalled();
+  });
+
+  it('fails when an explicit audio edit produces no audio-bearing output', async () => {
+    const renderAudioWindow = vi.fn();
+    const evidence = await buildChatEditRenderedAudioEvidence(
+      projectWithOverlays([]),
+      projectWithOverlays([]),
+      audioRequest(),
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        inspectAudioTrack: async () => ({
+          status: 'absent',
+          audioTrackCount: 0,
+          reason: null,
+        }),
+        renderAudioWindow,
+      },
+    );
+
+    expect(evidence.status).toBe('fail');
+    expect(evidence.reason).toBe('expected_audio_stream_missing_in_requested_windows');
+    expect(renderAudioWindow).not.toHaveBeenCalled();
+  });
+
+  it('renders only the audio-bearing side when an edit adds audio to silent footage', async () => {
+    const renderAudioWindow = vi.fn(async (_input: any) => ({
+      url: 'https://example.com/after.wav',
+      renderId: 'after-render',
+      bucketName: 'render-bucket',
+      pcmSha256: 'after-pcm',
+      rms: 0.4,
+      peak: 0.8,
+    }));
+    const evidence = await buildChatEditRenderedAudioEvidence(
+      afterProject(),
+      beforeProject(),
+      audioRequest(),
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        inspectAudioTrack: async () => ({
+          status: 'absent',
+          audioTrackCount: 0,
+          reason: null,
+        }),
+        renderAudioWindow,
+      },
+    );
+
+    expect(evidence.status, evidence.reason ?? 'no reason').toBe('pass');
+    expect(renderAudioWindow).toHaveBeenCalledTimes(1);
+    expect(renderAudioWindow.mock.calls[0]?.[0].inputProps.overlays).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'sound_after' })]),
+    );
+    expect(evidence.windows[0]).toMatchObject({
+      beforeUrl: null,
+      afterUrl: 'https://example.com/after.wav',
+      beforeRms: 0,
+      afterRms: 0.4,
+      changed: true,
+    });
+  });
+
+  it('treats muted media as audio-less without probing its container', async () => {
+    const inspectAudioTrack = vi.fn();
+    const mutedProject = projectWithOverlays([]) as ReturnType<typeof projectWithOverlays>;
+    mutedProject.overlays[0] = {
+      ...mutedProject.overlays[0],
+      styles: { volume: 0 },
+    };
+    const evidence = await buildChatEditRenderedAudioEvidence(
+      mutedProject,
+      structuredClone(mutedProject),
+      videoMutationAudioRequest(),
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        inspectAudioTrack,
+        renderAudioWindow: vi.fn(),
+      },
+    );
+
+    expect(evidence.status).toBe('pass');
+    expect(evidence.reason).toBe('no_audio_stream_in_requested_windows');
+    expect(inspectAudioTrack).not.toHaveBeenCalled();
   });
 
   it('bounds long audio targets into distributed verification windows', () => {
@@ -429,6 +579,26 @@ function audioRequest(): ChatEditRenderVerificationRequest {
     modalities: ['audio'],
     targets: [{ overlayId: 'sound_after', overlayType: 'sound', state: 'created', from: 30, endFrame: 120 }],
     sampleFrames: [30, 75, 119],
+  };
+}
+
+function videoMutationAudioRequest(): ChatEditRenderVerificationRequest {
+  return {
+    ...audioRequest(),
+    operationId: 'op_video_audio_verify_1',
+    targets: [{
+      overlayId: 'video_1',
+      overlayType: 'video',
+      state: 'updated',
+      from: 0,
+      endFrame: 300,
+    }],
+    mutationRanges: [{
+      startFrame: 150,
+      endFrame: 151,
+      toolName: 'cut_section',
+    }],
+    sampleFrames: [149, 150, 151],
   };
 }
 
