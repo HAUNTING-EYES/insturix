@@ -58,6 +58,7 @@ export const BGM_FADE_OUT_FRAMES = 30; // 1 second at 30fps
 export const PLATFORM_SPECS = {
   youtube: {
     lufs: -14,
+    truePeakDbtp: -1,
     maxDurationSec: 43200, // 12 hours
     resolution: { width: 1920, height: 1080 },
     codec: 'H.264',
@@ -66,6 +67,7 @@ export const PLATFORM_SPECS = {
   },
   instagram_reel: {
     lufs: -14,
+    truePeakDbtp: -1,
     maxDurationSec: 90,
     resolution: { width: 1080, height: 1920 },
     codec: 'H.264',
@@ -74,6 +76,7 @@ export const PLATFORM_SPECS = {
   },
   instagram_feed: {
     lufs: -14,
+    truePeakDbtp: -1,
     maxDurationSec: 60,
     resolution: { width: 1080, height: 1350 },
     codec: 'H.264',
@@ -81,7 +84,8 @@ export const PLATFORM_SPECS = {
     aspectRatios: ['1:1', '4:5', '16:9'],
   },
   tiktok: {
-    lufs: -13,
+    lufs: -14,
+    truePeakDbtp: -1,
     maxDurationSec: 600,
     resolution: { width: 1080, height: 1920 },
     codec: 'H.264',
@@ -90,6 +94,7 @@ export const PLATFORM_SPECS = {
   },
   linkedin: {
     lufs: -14,
+    truePeakDbtp: -1,
     maxDurationSec: 600,
     resolution: { width: 1920, height: 1080 },
     codec: 'H.264',
@@ -98,6 +103,7 @@ export const PLATFORM_SPECS = {
   },
   twitter: {
     lufs: -14,
+    truePeakDbtp: -1,
     maxDurationSec: 140,
     resolution: { width: 1920, height: 1080 },
     codec: 'H.264',
@@ -106,6 +112,25 @@ export const PLATFORM_SPECS = {
   },
   broadcast: {
     lufs: -24,
+    truePeakDbtp: -2,
+    maxDurationSec: Infinity,
+    resolution: { width: 1920, height: 1080 },
+    codec: 'H.264',
+    maxBitrateKbps: 50000,
+    aspectRatios: ['16:9'],
+  },
+  broadcast_ebu: {
+    lufs: -23,
+    truePeakDbtp: -1,
+    maxDurationSec: Infinity,
+    resolution: { width: 1920, height: 1080 },
+    codec: 'H.264',
+    maxBitrateKbps: 50000,
+    aspectRatios: ['16:9'],
+  },
+  broadcast_atsc: {
+    lufs: -24,
+    truePeakDbtp: -2,
     maxDurationSec: Infinity,
     resolution: { width: 1920, height: 1080 },
     codec: 'H.264',
@@ -115,3 +140,40 @@ export const PLATFORM_SPECS = {
 } as const;
 
 export type Platform = keyof typeof PLATFORM_SPECS;
+
+export interface AudioLoudnessTarget {
+  platform: Platform | 'universal';
+  integratedLufs: number;
+  truePeakDbtp: number;
+}
+
+export const UNIVERSAL_AUDIO_LOUDNESS_TARGET: AudioLoudnessTarget = {
+  platform: 'universal',
+  integratedLufs: -14,
+  truePeakDbtp: -1,
+};
+
+const AUDIO_PLATFORM_ALIASES: Record<string, Platform> = {
+  'youtube-shorts': 'youtube',
+  'instagram-reels': 'instagram_reel',
+  'instagram-reel': 'instagram_reel',
+  'instagram-feed': 'instagram_feed',
+  x: 'twitter',
+  broadcast: 'broadcast',
+  'broadcast-ebu': 'broadcast_ebu',
+  'broadcast-atsc': 'broadcast_atsc',
+};
+
+export function resolveAudioLoudnessTarget(platform?: string | null): AudioLoudnessTarget {
+  const normalized = platform?.trim().toLowerCase().replace(/_/g, '-') || '';
+  const platformKey = AUDIO_PLATFORM_ALIASES[normalized]
+    ?? (normalized in PLATFORM_SPECS ? normalized as Platform : undefined);
+  if (!platformKey) return UNIVERSAL_AUDIO_LOUDNESS_TARGET;
+
+  const spec = PLATFORM_SPECS[platformKey];
+  return {
+    platform: platformKey,
+    integratedLufs: spec.lufs,
+    truePeakDbtp: spec.truePeakDbtp,
+  };
+}

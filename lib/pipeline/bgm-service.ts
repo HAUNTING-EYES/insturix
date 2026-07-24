@@ -9,6 +9,7 @@ import { fal } from '@fal-ai/client';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
 import { nanoid } from 'nanoid';
 import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
+import { conditionAudio, type AudioConditioningResult } from '@/lib/pipeline/audio-conditioning';
 
 // Configure fal.ai on every call — env vars may change between deployments
 function ensureFalConfig() {
@@ -17,7 +18,20 @@ function ensureFalConfig() {
   fal.config({ credentials: key });
 }
 
-interface BGMResult {
+export interface BGMConditioningRequest {
+  targetFrames: number;
+  fps: number;
+  platform?: string | null;
+  crossfadeMs?: number;
+}
+
+export interface BGMGenerationOptions {
+  conditioning?: BGMConditioningRequest;
+}
+
+export type BGMConditioningEvidence = Omit<AudioConditioningResult, 'buffer'>;
+
+export interface BGMResult {
   audioUrl: string;
   /**
    * GCS path — null when R2 is the primary storage backend (the default in every
@@ -27,7 +41,10 @@ interface BGMResult {
   gcsPath: string | null;
   audioAssetId: string;
   durationMs: number;
-  buffer?: Buffer;
+  filename: string;
+  contentType: string;
+  buffer: Buffer;
+  conditioning?: BGMConditioningEvidence;
 }
 
 async function recordPipelineBGMProviderCost(input: {
@@ -66,13 +83,14 @@ async function recordPipelineBGMProviderCost(input: {
  * Uses MiniMax Music v2 (fal-ai/minimax-music/v2) — fast, cheap ($0.03/req),
  * and doesn't sit in queue forever like beatoven.
  *
- * MiniMax generates complete songs with vocals. We prompt for instrumental only.
- * For videos longer than the generated clip, the timeline loops the audio.
+ * CassetteAI can return less audio than the timeline needs. Callers that provide
+ * conditioning options receive an exact-duration, normalized asset before upload.
  */
 export async function generateBackgroundMusic(
   prompt: string,
   userId: string,
   durationSec: number,
+  options: BGMGenerationOptions = {},
 ): Promise<BGMResult> {
   const model = 'cassetteai/music-generator';
   const costStartMs = Date.now();
@@ -135,18 +153,33 @@ export async function generateBackgroundMusic(
     // Download and upload to GCS
     const response = await fetch(audioUrl);
     if (!response.ok) throw new Error(`Failed to download generated music (${response.status})`);
-    const buffer = Buffer.from(await response.arrayBuffer());
+    const providerBuffer = Buffer.from(await response.arrayBuffer());
+    let uploadBuffer: Buffer = providerBuffer;
+    let filename = `${assetId}.mp3`;
+    let contentType = 'audio/mpeg';
+    let conditioning: BGMConditioningEvidence | undefined;
+    if (options.conditioning) {
+      const conditioned = await conditionAudio({
+        ...options.conditioning,
+        role: 'music',
+        buffer: providerBuffer,
+      });
+      const { buffer: conditionedBuffer, ...evidence } = conditioned;
+      uploadBuffer = conditionedBuffer;
+      filename = `${assetId}.${conditioned.filenameExtension}`;
+      contentType = conditioned.contentType;
+      conditioning = evidence;
+    }
 
-    const filename = `${assetId}.mp3`;
-    const uploadResult = await uploadMedia(buffer, userId, filename, 'audio/mpeg', { customAssetId: assetId });
+    const uploadResult = await uploadMedia(uploadBuffer, userId, filename, contentType, { customAssetId: assetId });
 
-    console.log(`[BGM] Uploaded: ${uploadResult.assetId} (${buffer.length} bytes)`);
+    console.log(`[BGM] Uploaded: ${uploadResult.assetId} (${uploadBuffer.length} bytes, conditioned=${Boolean(conditioning)})`);
     await recordPipelineBGMProviderCost({
       status: 'success',
       userId,
       model,
       durationSec,
-      bytesOut: buffer.length,
+      bytesOut: providerBuffer.length,
       functionMs: Date.now() - costStartMs,
     });
 
@@ -156,8 +189,11 @@ export async function generateBackgroundMusic(
       // downstream validator rejected every healthy R2-hosted track (C1 matrix P1).
       gcsPath: uploadResult.gcsPath ?? null,
       audioAssetId: uploadResult.assetId,
-      durationMs: durationSec * 1000, // Approximate - actual may differ
-      buffer,
+      durationMs: conditioning?.durationMs ?? durationSec * 1000,
+      filename,
+      contentType,
+      buffer: uploadBuffer,
+      ...(conditioning ? { conditioning } : {}),
     };
   } catch (err) {
     await recordPipelineBGMProviderCost({
