@@ -7,7 +7,7 @@ import {
   withEditorAtomicOverlayReceipt,
 } from "../../components/editron/editor/version-7.0.0/utils/atomic-overlay-receipts";
 import { buildAtomicMomentBundle } from "../../lib/editron/services/moment-bundle";
-import { OverlayType, type CaptionOverlay, type MotionGraphicOverlay, type SoundOverlay, type TextOverlay } from "../../components/editron/editor/version-7.0.0/types";
+import { OverlayType, type CaptionOverlay, type MotionGraphicOverlay, type ShapeOverlay, type SoundOverlay, type TextOverlay } from "../../components/editron/editor/version-7.0.0/types";
 
 describe("editor atomic overlay receipts", () => {
   it("stamps editor text overlays with geometry, typography, and text atoms", () => {
@@ -101,6 +101,43 @@ describe("editor atomic overlay receipts", () => {
       expect.objectContaining({ kind: "text-row-capacity", key: "text.row_capacity", value: 2 }),
       expect.objectContaining({ kind: "text-contrast-mode", key: "text.contrast_mode", value: "light-on-dark" }),
     ]));
+  });
+
+  it("does not treat shape control values as visible text evidence", () => {
+    const overlay: ShapeOverlay = {
+      id: 12,
+      type: OverlayType.SHAPE,
+      from: 336,
+      durationInFrames: 45,
+      row: 0,
+      left: 270,
+      top: 288,
+      width: 540,
+      height: 1344,
+      isDragging: false,
+      rotation: 0,
+      content: "rectangle",
+      styles: {
+        fill: "transparent",
+        stroke: "#ffcc00",
+        strokeWidth: 4,
+        opacity: 0.95,
+        borderRadius: "10px",
+      },
+    };
+
+    const stamped = withEditorAtomicOverlayReceipt(overlay, { source: "test-editor" }) as any;
+    const receipt = stamped.metadata.atomicOverlayReceipt;
+
+    expect(receipt.family).toBe("shape");
+    expect(receipt.visualContext.textOnScreen).toBe(0);
+    expect(receipt.placementHints.avoid).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: "text-occupancy" }),
+    ]));
+    expect(receipt.atoms).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "text-content" }),
+    ]));
+    expect(receipt.form.text).toBeUndefined();
   });
 
   it("stamps editor caption and sound overlays with caption words and media timing atoms", () => {

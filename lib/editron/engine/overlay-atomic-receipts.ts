@@ -633,12 +633,25 @@ function colorToRgb(color: unknown): { r: number; g: number; b: number } | undef
 }
 
 function overlayText(overlay: Overlay): string {
-  if ("captions" in overlay) return overlay.captions.map((caption) => caption.text).join(" ");
-  if ("content" in overlay && typeof overlay.content === "string") return overlay.content;
-  if ("content" in overlay && isRecord(overlay.content)) {
-    return Object.values(overlay.content).filter((value) => typeof value === "string").join(" ");
+  switch (String(overlay.type)) {
+    case "caption":
+      return "captions" in overlay
+        ? overlay.captions.map((caption) => caption.text).join(" ")
+        : "";
+    case "text":
+      return "content" in overlay && typeof overlay.content === "string"
+        ? overlay.content
+        : "";
+    case "motion-graphic":
+      if ("content" in overlay && isRecord(overlay.content)) {
+        return Object.values(overlay.content)
+          .filter((value) => typeof value === "string")
+          .join(" ");
+      }
+      return "";
+    default:
+      return "";
   }
-  return "";
 }
 
 function overlayRegion(overlay: Overlay): string {
