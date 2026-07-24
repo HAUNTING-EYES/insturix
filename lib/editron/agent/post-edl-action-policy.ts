@@ -1,3 +1,6 @@
+import type { EditorialExecutionScope } from '@/lib/editron/data/edit-profile-types';
+import type { EditorialFamily } from '@/lib/editron/production-brief/editorial-preferences';
+
 export type PostEdlUtilityScoringReason =
   | 'eligible'
   | 'utility-engine-disabled'
@@ -65,6 +68,36 @@ export interface PostBundleProfileActionDecision {
   reason: PostBundleProfileActionReason;
 }
 
+export type DirectorScopedEffect =
+  | 'color-normalization'
+  | 'transition-dedup'
+  | 'beat-sync'
+  | 'transition-sfx'
+  | 'audio-ducking'
+  | 'quality-review';
+
+export type DirectorExecutionScopeReason =
+  | 'unscoped-director-run'
+  | 'always-allowed-quality-review'
+  | 'requested-family'
+  | 'unrequested-family'
+  | 'no-family-owner'
+  | 'legacy-action-not-owned-by-scoped-run';
+
+export interface DirectorExecutionScopeDecision {
+  run: boolean;
+  reason: DirectorExecutionScopeReason;
+}
+
+const DIRECTOR_EFFECT_FAMILY: Record<DirectorScopedEffect, EditorialFamily | 'always' | null> = {
+  'color-normalization': null,
+  'transition-dedup': 'transitions',
+  'beat-sync': 'music',
+  'transition-sfx': 'sfx',
+  'audio-ducking': 'music',
+  'quality-review': 'always',
+};
+
 const POST_BUNDLE_ALLOWED_PROFILE_TOOLS = new Set([
   'audio_ducking',
   'quality_review',
@@ -97,6 +130,51 @@ export function shouldRunPostEdlUtilityScoring(
   }
 
   return { run: true, reason: 'eligible' };
+}
+
+export function shouldRunDirectorScopedEffect(input: {
+  effect: DirectorScopedEffect;
+  executionScope?: EditorialExecutionScope;
+}): DirectorExecutionScopeDecision {
+  if (!input.executionScope) {
+    return { run: true, reason: 'unscoped-director-run' };
+  }
+
+  const requiredFamily = DIRECTOR_EFFECT_FAMILY[input.effect];
+  if (requiredFamily === 'always') {
+    return { run: true, reason: 'always-allowed-quality-review' };
+  }
+  if (requiredFamily === null) {
+    return { run: false, reason: 'no-family-owner' };
+  }
+  if (input.executionScope.families.includes(requiredFamily)) {
+    return { run: true, reason: 'requested-family' };
+  }
+  return { run: false, reason: 'unrequested-family' };
+}
+
+export function shouldRunProfileActionWithinExecutionScope(input: {
+  tool: string;
+  executionScope?: EditorialExecutionScope;
+}): DirectorExecutionScopeDecision {
+  if (!input.executionScope) {
+    return { run: true, reason: 'unscoped-director-run' };
+  }
+  if (input.tool === 'quality_review') {
+    return { run: true, reason: 'always-allowed-quality-review' };
+  }
+  if (input.tool === 'audio_ducking') {
+    return shouldRunDirectorScopedEffect({
+      effect: 'audio-ducking',
+      executionScope: input.executionScope,
+    });
+  }
+  if (input.tool === 'add_captions' || input.tool === 'add_fancy_captions') {
+    return input.executionScope.families.includes('captions')
+      ? { run: true, reason: 'requested-family' }
+      : { run: false, reason: 'unrequested-family' };
+  }
+  return { run: false, reason: 'legacy-action-not-owned-by-scoped-run' };
 }
 
 export function shouldRunPostBundleProfileAction(

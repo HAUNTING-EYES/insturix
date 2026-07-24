@@ -41,8 +41,10 @@ import { enforceCanonicalDecisionTimeline } from '@/lib/editron/services/decisio
 import { resolveEditorialDecisionPolicy } from '@/lib/editron/services/editorial-decision-policy';
 import {
   shouldInjectGlobalCaptionAction,
+  shouldRunDirectorScopedEffect,
   shouldRunPostBundleProfileAction,
   shouldRunPostEdlUtilityScoring,
+  shouldRunProfileActionWithinExecutionScope,
   shouldRunUtilityLiveProducer,
 } from '@/lib/editron/agent/post-edl-action-policy';
 import {
@@ -473,6 +475,7 @@ export async function executeDirectorPlan(
   // Scoring happens after signal timeline build (Step D.4c) where real signals exist.
   const useUtilityEngine = process.env.USE_UTILITY_ENGINE === 'true';
   const useUtilityLive = process.env.USE_UTILITY_LIVE === 'true';
+  const editorialExecutionScope = brief?.executionScope;
 
   // Pipeline warning collector for structured error visibility
   const { createPipelineWarnings } = await import('@/lib/editron/services/pipeline-warnings');
@@ -496,6 +499,7 @@ export async function executeDirectorPlan(
       evidenceOnlySignalDecisionCount: 0,
       totalDecisions: 0,
       executedDecisions: 0,
+      ...(editorialExecutionScope ? { executionScope: editorialExecutionScope } : {}),
     },
     actionsExecuted: 0,
     actionsSkipped: [],
@@ -1791,15 +1795,23 @@ export async function executeDirectorPlan(
           edlSummary.executed = unifiedExecutionResult.decisionsExecuted;
           edlSummary.skipped = unifiedExecutionResult.decisionsSkipped;
 
-          try {
-            const { applyColorNormalization } = await import('@/lib/editron/services/auto-post-processing');
-            const colorResult = applyColorNormalization(overlays, analysesMap, pathDGenreParams ?? pathEGenreParams);
-            result.overlaysModified += colorResult.modified;
-            if (colorResult.modified > 0) {
-              console.log(`[Director] Post-process: ${colorResult.modified} color normalizations applied (C-030)`);
+          const colorScopeDecision = shouldRunDirectorScopedEffect({
+            effect: 'color-normalization',
+            executionScope: editorialExecutionScope,
+          });
+          if (colorScopeDecision.run) {
+            try {
+              const { applyColorNormalization } = await import('@/lib/editron/services/auto-post-processing');
+              const colorResult = applyColorNormalization(overlays, analysesMap, pathDGenreParams ?? pathEGenreParams);
+              result.overlaysModified += colorResult.modified;
+              if (colorResult.modified > 0) {
+                console.log(`[Director] Post-process: ${colorResult.modified} color normalizations applied (C-030)`);
+              }
+            } catch (colorErr: any) {
+              console.warn(`[Director] Color normalization failed (non-fatal): ${colorErr?.message ?? colorErr}`);
             }
-          } catch (colorErr: any) {
-            console.warn(`[Director] Color normalization failed (non-fatal): ${colorErr?.message ?? colorErr}`);
+          } else {
+            console.log(`[Director] Color normalization skipped (${colorScopeDecision.reason})`);
           }
 
           for (const d of unifiedDecisionBundle.edl.decisions) {
@@ -1827,6 +1839,7 @@ export async function executeDirectorPlan(
             evidenceOnlySignalDecisionCount: unifiedDecisionBundle.evidence.evidenceOnlySignalDecisionCount,
             totalDecisions: unifiedDecisionBundle.edl.totalDecisions,
             executedDecisions: unifiedExecutionResult.decisionsExecuted,
+            ...(editorialExecutionScope ? { executionScope: editorialExecutionScope } : {}),
             signalAudit: summarizeSignalDecisionAuditForAuthority(unifiedDecisionBundle),
           };
 
@@ -1963,7 +1976,11 @@ export async function executeDirectorPlan(
       }
 
       // ── Generate Edit Plan — prefer Unified Intelligence, fallback to old EDL ──
-      const legacyFallbackEnabled = shouldRunLegacyIntelligenceFallback();
+      const legacyFallbackConfigured = shouldRunLegacyIntelligenceFallback();
+      const legacyFallbackEnabled = legacyFallbackConfigured && !editorialExecutionScope;
+      if (legacyFallbackConfigured && editorialExecutionScope) {
+        console.log('[Director] Legacy intelligence fallback disabled for scoped chat execution');
+      }
       if (!pathDHandled && analyses.length > 0 && legacyFallbackEnabled) {
         try {
           onProgress?.(0, 0, `Generating intelligent edit plan from ${analyses.length} assets + script context...`);
@@ -2132,6 +2149,7 @@ export async function executeDirectorPlan(
             evidenceOnlySignalDecisionCount: 0,
             totalDecisions: edlSummary.totalDecisions,
             executedDecisions: edlSummary.executed,
+            ...(editorialExecutionScope ? { executionScope: editorialExecutionScope } : {}),
           };
 
           result.overlaysModified += edlResult.overlaysModified + edlResult.overlaysCreated;
@@ -2452,7 +2470,22 @@ export async function executeDirectorPlan(
     // Unify captions: ALL caption paths go through add_captions (editable, word-timed).
     // The standard caption system now supports instagram/hormozi display modes with spring
     // animation — no need for separate add_fancy_captions html-scene overlays.
-    let filteredActions = actions.map(a => {
+    const scopedActions = actions.filter((action) => {
+      const scopedDecision = shouldRunProfileActionWithinExecutionScope({
+        tool: action.tool,
+        executionScope: editorialExecutionScope,
+      });
+      if (scopedDecision.run) return true;
+      console.log(
+        `[Director] Scoped chat execution: skipping profile action '${action.tool}' (${scopedDecision.reason})`,
+      );
+      result.actionsSkipped.push({
+        action: action.description,
+        reason: `scoped-chat-execution:${scopedDecision.reason}`,
+      });
+      return false;
+    });
+    let filteredActions = scopedActions.map(a => {
       if (a.tool === 'add_fancy_captions') {
         console.log(`[Director] Unified captions: fancy → add_captions (editable + animated)`);
         return { ...a, tool: 'add_captions' as const, description: 'Add captions (unified, animated)' };
@@ -2596,21 +2629,28 @@ export async function executeDirectorPlan(
     // any ghost markers (no source + no transitionStyle) that slipped through.
     // This is the safety net for Root Cause B of the 2026-04-18 regression —
     // see pipeline_investigations.md and dedupTransitionsByClipPair below.
-    try {
-      const dedupResult = dedupTransitionsByClipPair(overlays);
-      if (dedupResult.duplicatesRemoved > 0 || dedupResult.ghostsStripped > 0) {
-        console.log(
-          `[Director] Step 3.4: transition dedup — removed ${dedupResult.duplicatesRemoved} duplicate(s), ` +
-          `stripped ${dedupResult.ghostsStripped} ghost(s)`,
-        );
-        result.overlaysModified += dedupResult.duplicatesRemoved + dedupResult.ghostsStripped;
+    const transitionDedupScopeDecision = shouldRunDirectorScopedEffect({
+      effect: 'transition-dedup',
+      executionScope: editorialExecutionScope,
+    });
+    if (transitionDedupScopeDecision.run) {
+      try {
+        const dedupResult = dedupTransitionsByClipPair(overlays);
+        if (dedupResult.duplicatesRemoved > 0 || dedupResult.ghostsStripped > 0) {
+          console.log(
+            `[Director] Step 3.4: transition dedup — removed ${dedupResult.duplicatesRemoved} duplicate(s), ` +
+            `stripped ${dedupResult.ghostsStripped} ghost(s)`,
+          );
+          result.overlaysModified += dedupResult.duplicatesRemoved + dedupResult.ghostsStripped;
+        }
+      } catch (dedupErr: any) {
+        const errMsg = dedupErr?.message || 'Unknown error';
+        console.error('[Director] Step 3.4 transition dedup failed:', errMsg);
+        result.warnings.push(`Transition dedup failed: ${errMsg}`);
+        pipelineWarnings.errorSwallowed('director', dedupErr, 'transition dedup (dedupTransitionsByClipPair)');
       }
-    } catch (dedupErr: any) {
-      const errMsg = dedupErr?.message || 'Unknown error';
-      console.error('[Director] Step 3.4 transition dedup failed:', errMsg);
-      result.warnings.push(`Transition dedup failed: ${errMsg}`);
-      pipelineWarnings.errorSwallowed('director', dedupErr, 'transition dedup (dedupTransitionsByClipPair)');
-      // Non-fatal — step 4's A1 marker filter still runs as a secondary net.
+    } else {
+      console.log(`[Director] Step 3.4 transition dedup skipped (${transitionDedupScopeDecision.reason})`);
     }
 
     // ─── Step 3.5: Beat-sync cut alignment (beatSyncActive projects only) ──
@@ -2627,29 +2667,35 @@ export async function executeDirectorPlan(
     // Creative doc alignment: §11 "Cuts on downbeats (beat 1 of a measure)".
     // alignCutsToBeats() uses a 0.5s snap threshold — cuts further than 15
     // frames from any beat are left creative-intent-placed (no forced snap).
-    try {
-      const bgmOverlay: any = overlays.find(
-        (o: any) => o?.type === 'sound' && o?.metadata?.beatGrid?.beats?.length > 0,
-      );
-      if (bgmOverlay?.metadata?.beatGrid) {
-        const beatGrid = bgmOverlay.metadata.beatGrid;
-        const fps = project.fps || 30;
-        const { alignCutsToBeats } = await import('@/lib/pipeline/scene-to-editron');
-        const snapped = alignCutsToBeats(overlays, beatGrid.beats, fps);
-        console.log(
-          `[Director] Beat-sync step 3.5: ${snapped} cut(s) snapped to beats ` +
-          `(grid: ${beatGrid.bpm} BPM, ${beatGrid.beats.length} beats, ` +
-          `${beatGrid.downbeats?.length || 0} downbeats, source=${beatGrid.source})`,
+    const beatSyncScopeDecision = shouldRunDirectorScopedEffect({
+      effect: 'beat-sync',
+      executionScope: editorialExecutionScope,
+    });
+    if (beatSyncScopeDecision.run) {
+      try {
+        const bgmOverlay: any = overlays.find(
+          (o: any) => o?.type === 'sound' && o?.metadata?.beatGrid?.beats?.length > 0,
         );
-        if (snapped > 0) result.overlaysModified += snapped;
+        if (bgmOverlay?.metadata?.beatGrid) {
+          const beatGrid = bgmOverlay.metadata.beatGrid;
+          const fps = project.fps || 30;
+          const { alignCutsToBeats } = await import('@/lib/pipeline/scene-to-editron');
+          const snapped = alignCutsToBeats(overlays, beatGrid.beats, fps);
+          console.log(
+            `[Director] Beat-sync step 3.5: ${snapped} cut(s) snapped to beats ` +
+            `(grid: ${beatGrid.bpm} BPM, ${beatGrid.beats.length} beats, ` +
+            `${beatGrid.downbeats?.length || 0} downbeats, source=${beatGrid.source})`,
+          );
+          if (snapped > 0) result.overlaysModified += snapped;
+        }
+      } catch (beatAlignErr: any) {
+        const errMsg = beatAlignErr?.message || 'Unknown error';
+        console.error('[Director] Beat-sync alignment failed:', errMsg);
+        result.warnings.push(`Beat-sync alignment failed: ${errMsg}`);
+        pipelineWarnings.errorSwallowed('director', beatAlignErr, 'beat-sync alignment (alignCutsToBeats)');
       }
-      // else: no beat grid on any sound overlay — not a beat-sync project. Silent no-op.
-    } catch (beatAlignErr: any) {
-      const errMsg = beatAlignErr?.message || 'Unknown error';
-      console.error('[Director] Beat-sync alignment failed:', errMsg);
-      result.warnings.push(`Beat-sync alignment failed: ${errMsg}`);
-      pipelineWarnings.errorSwallowed('director', beatAlignErr, 'beat-sync alignment (alignCutsToBeats)');
-      // Non-fatal — continue to step 3.6. Creative-intent cuts stay in place.
+    } else {
+      console.log(`[Director] Beat-sync step 3.5 skipped (${beatSyncScopeDecision.reason})`);
     }
 
     // ─── Step 3.6: Transition SFX placement ──────────────────
@@ -2664,27 +2710,34 @@ export async function executeDirectorPlan(
     //
     // Deterministic — no LLM dependency (Rule 18N). A sound designer's
     // workflow: look at the cut, place the sound. This mirrors that.
-    try {
-      const { placeTransitionSFX } = await import('@/lib/editron/services/transition-sfx-placer');
-      const sfxResult = await placeTransitionSFX(overlays, userId, effectiveProfile, pipelineWarnings);
-      if (sfxResult.placed > 0) {
-        console.log(
-          `[Director] Transition SFX: placed ${sfxResult.placed}, skipped ${sfxResult.skipped} ` +
-          `(tokens: ${sfxResult.tokensUsed.join(',')})`
-        );
-        result.overlaysModified += sfxResult.placed;
-      } else if (sfxResult.skipped > 0) {
-        console.log(
-          `[Director] Transition SFX: 0 placed, ${sfxResult.skipped} skipped ` +
-          `(reasons: ${JSON.stringify(sfxResult.skipReasons)})`
-        );
+    const transitionSfxScopeDecision = shouldRunDirectorScopedEffect({
+      effect: 'transition-sfx',
+      executionScope: editorialExecutionScope,
+    });
+    if (transitionSfxScopeDecision.run) {
+      try {
+        const { placeTransitionSFX } = await import('@/lib/editron/services/transition-sfx-placer');
+        const sfxResult = await placeTransitionSFX(overlays, userId, effectiveProfile, pipelineWarnings);
+        if (sfxResult.placed > 0) {
+          console.log(
+            `[Director] Transition SFX: placed ${sfxResult.placed}, skipped ${sfxResult.skipped} ` +
+            `(tokens: ${sfxResult.tokensUsed.join(',')})`
+          );
+          result.overlaysModified += sfxResult.placed;
+        } else if (sfxResult.skipped > 0) {
+          console.log(
+            `[Director] Transition SFX: 0 placed, ${sfxResult.skipped} skipped ` +
+            `(reasons: ${JSON.stringify(sfxResult.skipReasons)})`
+          );
+        }
+      } catch (sfxErr: any) {
+        const errMsg = sfxErr?.message || 'Unknown error';
+        console.error('[Director] Transition SFX placement failed:', errMsg);
+        result.warnings.push(`Transition SFX placement failed: ${errMsg}`);
+        pipelineWarnings.errorSwallowed('sfx', sfxErr, 'transition SFX placer');
       }
-    } catch (sfxErr: any) {
-      const errMsg = sfxErr?.message || 'Unknown error';
-      console.error('[Director] Transition SFX placement failed:', errMsg);
-      result.warnings.push(`Transition SFX placement failed: ${errMsg}`);
-      pipelineWarnings.errorSwallowed('sfx', sfxErr, 'transition SFX placer');
-      // Non-fatal — continue to merge/save. Missing SFX is degradation, not failure.
+    } else {
+      console.log(`[Director] Transition SFX step 3.6 skipped (${transitionSfxScopeDecision.reason})`);
     }
 
     // ─── Step 4: Merge and save ───────────────────────────────
@@ -2727,7 +2780,11 @@ export async function executeDirectorPlan(
     // and is merged above in Step 4. Profile actions ran at Step 3 when
     // BGM wasn't present → hasBGM was false → audio_ducking skipped.
     const hasBGMNow = overlays.some((o: any) => o.type === 'sound' && (o.row === ROW.BGM || (o.assetId || '').startsWith('bgm_')));
-    if (hasBGMNow) {
+    const postMergeDuckScopeDecision = shouldRunDirectorScopedEffect({
+      effect: 'audio-ducking',
+      executionScope: editorialExecutionScope,
+    });
+    if (hasBGMNow && postMergeDuckScopeDecision.run) {
       const duckAction = profileActions.find(a => a.tool === 'audio_ducking');
       if (duckAction) {
         try {
@@ -2738,6 +2795,8 @@ export async function executeDirectorPlan(
           console.warn(`[Director] Step 4.5: audio ducking failed (non-fatal): ${duckErr.message}`);
         }
       }
+    } else if (hasBGMNow) {
+      console.log(`[Director] Step 4.5 audio ducking skipped (${postMergeDuckScopeDecision.reason})`);
     }
 
     // Strip in-memory dedup markers before persist. The add_transition loop

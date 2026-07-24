@@ -5,8 +5,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { CHAT_EDITORIAL_INTENT_VERSION } from '@/lib/editron/agent/chat-editorial-intent-tools';
 import {
+  shouldRunDirectorScopedEffect,
+  shouldRunProfileActionWithinExecutionScope,
+} from '@/lib/editron/agent/post-edl-action-policy';
+import {
   CHAT_EDITORIAL_INTENT_JOB_VERSION,
   ChatEditorialIntentRetryableError,
+  buildChatEditorialIntentProjectBrief,
   queueChatEditorialIntentJob,
   runChatEditorialIntentJob,
   type ChatEditorialIntentJob,
@@ -201,6 +206,85 @@ describe('durable chat editorial-intent jobs', () => {
     expect(source).toContain("process.env.NODE_ENV === 'test'");
     expect(source).toContain('QStash signing keys are required for this internal worker');
     expect(source).toContain('export const maxDuration = 800');
+  });
+
+  it('isolates explicit family requests while preserving broad project goals', () => {
+    const motionGraphicsBrief = buildChatEditorialIntentProjectBrief({
+      ...request().intent,
+      editorialPreferences: {
+        families: {
+          motionGraphics: { mode: 'prefer', frequency: 0.5, intensity: 0.7 },
+        },
+        notes: 'Keep the composition restrained.',
+      },
+    });
+
+    expect(motionGraphicsBrief.executionScope).toEqual({
+      version: 'editorial-execution-scope-v1',
+      source: 'chat-editorial-intent',
+      mode: 'explicit-families-only',
+      families: ['motionGraphics'],
+    });
+    expect(motionGraphicsBrief.editorialPreferences).toEqual({
+      families: {
+        captions: { mode: 'off' },
+        motionGraphics: { mode: 'prefer', frequency: 0.5, intensity: 0.7 },
+        zoom: { mode: 'off' },
+        transitions: { mode: 'off' },
+        sfx: { mode: 'off' },
+        music: { mode: 'off' },
+      },
+      notes: 'Keep the composition restrained.',
+    });
+
+    const broadBrief = buildChatEditorialIntentProjectBrief(request().intent);
+    expect(broadBrief.executionScope).toBeUndefined();
+    expect(broadBrief.editorialPreferences).toBeUndefined();
+  });
+
+  it('blocks collateral Director effects during a scoped MG request', () => {
+    const executionScope = buildChatEditorialIntentProjectBrief({
+      ...request().intent,
+      editorialPreferences: {
+        families: { motionGraphics: { mode: 'prefer' } },
+      },
+    }).executionScope;
+
+    for (const effect of [
+      'color-normalization',
+      'transition-dedup',
+      'beat-sync',
+      'transition-sfx',
+      'audio-ducking',
+    ] as const) {
+      expect(shouldRunDirectorScopedEffect({ effect, executionScope }).run).toBe(false);
+    }
+    expect(shouldRunDirectorScopedEffect({
+      effect: 'quality-review',
+      executionScope,
+    }).run).toBe(true);
+    expect(shouldRunProfileActionWithinExecutionScope({
+      tool: 'add_captions',
+      executionScope,
+    }).run).toBe(false);
+    expect(shouldRunProfileActionWithinExecutionScope({
+      tool: 'add_motion_graphic',
+      executionScope,
+    })).toEqual({
+      run: false,
+      reason: 'legacy-action-not-owned-by-scoped-run',
+    });
+
+    const source = readFileSync(
+      resolve(process.cwd(), 'lib/editron/agent/director-agent.ts'),
+      'utf8',
+    );
+    expect(source).toContain("effect: 'color-normalization'");
+    expect(source).toContain("effect: 'transition-dedup'");
+    expect(source).toContain("effect: 'beat-sync'");
+    expect(source).toContain("effect: 'transition-sfx'");
+    expect(source).toContain("effect: 'audio-ducking'");
+    expect(source).toContain('Legacy intelligence fallback disabled for scoped chat execution');
   });
 });
 

@@ -7,7 +7,10 @@
  */
 
 
-import type { EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
+import type {
+  EditorialFamily,
+  EditorialPreferences,
+} from '@/lib/editron/production-brief/editorial-preferences';
 // ─── Profile Categories ─────────────────────────────────────────
 
 export type ProfileCategory =
@@ -129,6 +132,13 @@ export interface DetectionResult {
   suggestedModifiers: ModifierId[];
 }
 
+export interface EditorialExecutionScope {
+  version: 'editorial-execution-scope-v1';
+  source: 'chat-editorial-intent';
+  mode: 'explicit-families-only';
+  families: EditorialFamily[];
+}
+
 export interface ProjectBrief {
   /** Auto-detected profile (highest confidence) */
   detectedProfile?: DetectionResult;
@@ -157,6 +167,8 @@ export interface ProjectBrief {
   musicPreference?: 'none' | 'subtle_bed' | 'energetic' | 'match_video';
   /** User policy for family authority. Exact form/timing stays resolver-owned. */
   editorialPreferences?: EditorialPreferences;
+  /** Internal transaction boundary for a family-specific chat edit. */
+  executionScope?: EditorialExecutionScope;
 }
 
 export interface DirectorResult {
@@ -178,6 +190,7 @@ export interface DirectorResult {
     evidenceOnlySignalDecisionCount: number;
     totalDecisions: number;
     executedDecisions: number;
+    executionScope?: EditorialExecutionScope;
     signalAudit?: {
       version: 'signal-decision-audit-summary-v1';
       totalCount: number;
