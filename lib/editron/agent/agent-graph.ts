@@ -287,6 +287,10 @@ export const createAgent = (
         projectId,
         sessionId: turnContext?.sessionId,
         operationId: turnContext?.operationId,
+        requiredFamilyDirectives:
+          turnContext?.requestOwnerLicense?.routingFacts?.familyDirectives,
+        familyScopeExclusive:
+          turnContext?.requestOwnerLicense?.routingFacts?.familyScopeExclusive,
       }),
       ...createChatDeepAnalysisTools({ userId, projectId }),
       ...createChatDubbingTools({ userId, projectId }),

@@ -9,6 +9,7 @@ import {
   compileGroundedEditorialIntent,
   createChatEditorialIntentTools,
   dispatchProjectIntentToDurableJob,
+  enforceServerEditorialFamilyScope,
   filterChatShadowAuthorityTools,
   type ChatEditorialIntentDependencies,
   type GroundedEditorialIntent,
@@ -173,6 +174,97 @@ describe('chat semantic editorial intent', () => {
       'cut_section',
     ]);
     expect(tools).toHaveLength(8);
+  });
+
+  it('server-enforces an exclusive SFX request without choosing its asset or form', () => {
+    const input = enforceServerEditorialFamilyScope({
+      goal: 'Add a tasteful sound effect at the strongest beat',
+      scope: { kind: 'project' },
+      constraints: [],
+      strength: 0.5,
+      uncertainty: 0,
+    }, [{ family: 'sfx', mode: 'prefer' }], true);
+
+    expect(input.families).toEqual({
+      captions: { mode: 'off' },
+      motionGraphics: { mode: 'off' },
+      zoom: { mode: 'off' },
+      transitions: { mode: 'off' },
+      sfx: { mode: 'prefer' },
+      music: { mode: 'off' },
+    });
+    expect(JSON.stringify(input)).not.toMatch(/asset|token|query|form|type/i);
+  });
+
+  it('preserves broad freedom and hard off directives while correcting a missing family mode', () => {
+    const input = enforceServerEditorialFamilyScope({
+      goal: 'Improve the whole edit, add music, and do not use motion graphics',
+      scope: { kind: 'project' },
+      constraints: [],
+      strength: 0.5,
+      uncertainty: 0,
+      families: {
+        captions: { mode: 'prefer', frequency: 0.4 },
+      },
+    }, [
+      { family: 'music', mode: 'prefer' },
+      { family: 'motionGraphics', mode: 'off' },
+    ], false);
+
+    expect(input.families).toEqual({
+      captions: { mode: 'prefer', frequency: 0.4 },
+      music: { mode: 'prefer' },
+      motionGraphics: { mode: 'off' },
+    });
+    expect(input.families).not.toHaveProperty('zoom');
+  });
+
+  it('fails closed on invalid server family contracts', () => {
+    const input = {
+      goal: 'Improve the edit',
+      scope: { kind: 'project' as const },
+      constraints: [],
+      strength: 0.5,
+      uncertainty: 0,
+    };
+    expect(() => enforceServerEditorialFamilyScope(input, [], true)).toThrow(
+      'requires a preferred family',
+    );
+    expect(() => enforceServerEditorialFamilyScope(input, [
+      { family: 'sfx', mode: 'prefer' },
+      { family: 'sfx', mode: 'off' },
+    ], false)).toThrow('duplicate family');
+  });
+
+  it('injects the owner-classified family contract before durable dispatch', async () => {
+    const deps = dependencies();
+    const intentTool = createChatEditorialIntentTools({
+      userId: 'user-1',
+      projectId: 'project-1',
+      requiredFamilyDirectives: [{ family: 'motionGraphics', mode: 'prefer' }],
+      familyScopeExclusive: true,
+    }, deps).find((candidate) => candidate.name === 'apply_editorial_intent');
+    expect(intentTool).toBeDefined();
+
+    await intentTool!.invoke({
+      goal: 'Create a process diagram for this explanation',
+      scopeKind: 'project',
+    });
+
+    expect(deps.executeProjectIntent).toHaveBeenCalledWith(expect.objectContaining({
+      intent: expect.objectContaining({
+        editorialPreferences: {
+          families: {
+            captions: { mode: 'off' },
+            motionGraphics: { mode: 'prefer' },
+            zoom: { mode: 'off' },
+            transitions: { mode: 'off' },
+            sfx: { mode: 'off' },
+            music: { mode: 'off' },
+          },
+        },
+      }),
+    }));
   });
 
   it('queues reference video style through the durable worker using server-owned turn identity', async () => {

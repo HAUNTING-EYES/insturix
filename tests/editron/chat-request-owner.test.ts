@@ -69,6 +69,8 @@ describe('chat request owner classification', () => {
           requestsReferenceStyle: false,
           operationFullySpecified: false,
           targetFullySpecified: false,
+          familyDirectives: [{ family: 'motionGraphics', mode: 'prefer' }],
+          familyScopeExclusive: true,
         },
         confidence: 0.97,
         reason: 'The request needs editorial judgment across the whole edit.',
@@ -81,6 +83,10 @@ describe('chat request owner classification', () => {
     expect(result.owner).toBe('semantic-editorial-planner');
     expect(result.semanticWorkflow).toBe('editorial-plan');
     expect(result.routingFacts?.requiresEditorialJudgment).toBe(true);
+    expect(result.routingFacts?.familyDirectives).toEqual([
+      { family: 'motionGraphics', mode: 'prefer' },
+    ]);
+    expect(result.routingFacts?.familyScopeExclusive).toBe(true);
     expect(result.decidedBy).toBe('gemini');
     expect(generate).toHaveBeenCalledTimes(1);
     expect(addUsage).toHaveBeenCalledWith({ promptTokenCount: 40, candidatesTokenCount: 12 });
@@ -163,6 +169,18 @@ describe('chat request owner classification', () => {
     expect(prompt).toContain('source separation, translation, timing, and commit owner');
   });
 
+  it('extracts family scope without choosing renderer form', () => {
+    const prompt = buildChatRequestOwnerPrompt({
+      ...baseInput,
+      userMessage: 'Add a tasteful SFX at the strongest beat.',
+    });
+
+    expect(prompt).toContain('familyDirectives');
+    expect(prompt).toContain('"family":"sfx","mode":"prefer"');
+    expect(prompt).toContain('This scopes ownership only');
+    expect(prompt).toContain('familyScopeExclusive=true');
+  });
+
   it('derives mechanical ownership from a fully specified literal timeline edit', async () => {
     const generate = vi.fn(async () => ({
       text: JSON.stringify({
@@ -201,6 +219,8 @@ describe('chat request owner classification', () => {
       requestsReferenceStyle: false,
       operationFullySpecified: true,
       targetFullySpecified: false,
+      familyDirectives: [],
+      familyScopeExclusive: false,
     })).toBe('semantic-editorial-planner');
 
     expect(deriveChatRequestOwner({
@@ -211,6 +231,8 @@ describe('chat request owner classification', () => {
       requestsReferenceStyle: false,
       operationFullySpecified: true,
       targetFullySpecified: true,
+      familyDirectives: [],
+      familyScopeExclusive: false,
     })).toBe('semantic-editorial-planner');
   });
 
@@ -223,6 +245,8 @@ describe('chat request owner classification', () => {
       requestsReferenceStyle: false,
       operationFullySpecified: true,
       targetFullySpecified: false,
+      familyDirectives: [],
+      familyScopeExclusive: false,
     };
 
     expect(deriveChatSemanticWorkflow({
@@ -281,7 +305,6 @@ describe('chat request owner capability filtering', () => {
     expect(namesFor('semantic-editorial-planner')).toEqual([
       'read_project_file',
       'get_timeline_view',
-      'resolve_visual_edit',
       'queue_resolved_clip_analysis',
       'apply_editorial_intent',
       'get_dubbing_job_result',
@@ -292,7 +315,6 @@ describe('chat request owner capability filtering', () => {
     expect(namesFor('semantic-editorial-planner', 'reference-style')).toEqual([
       'read_project_file',
       'get_timeline_view',
-      'resolve_visual_edit',
       'queue_resolved_clip_analysis',
       'apply_reference_style',
       'get_dubbing_job_result',
@@ -438,6 +460,25 @@ describe('chat request owner capability filtering', () => {
       license('semantic-editorial-planner', 'editorial-plan'),
     )).toContain('sole mutation owner');
     expect(formatChatRequestOwnerLicenseForPrompt(undefined)).toBe('');
+  });
+
+  it('publishes server-enforced family scope in the owner license', () => {
+    const scopedLicense = license('semantic-editorial-planner', 'editorial-plan');
+    scopedLicense.routingFacts = {
+      requestsMutation: true,
+      requestsAnalysis: false,
+      requiresContentLocalization: false,
+      requiresEditorialJudgment: true,
+      requestsReferenceStyle: false,
+      operationFullySpecified: false,
+      targetFullySpecified: false,
+      familyDirectives: [{ family: 'sfx', mode: 'prefer' }],
+      familyScopeExclusive: true,
+    };
+
+    const prompt = formatChatRequestOwnerLicenseForPrompt(scopedLicense);
+    expect(prompt).toContain('familyDirectives=[{"family":"sfx","mode":"prefer"}]');
+    expect(prompt).toContain('familyScopeExclusive=true');
   });
 
   it('mechanically removes prompt instructions for registered but hidden tools', () => {

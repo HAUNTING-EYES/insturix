@@ -4,6 +4,7 @@ import { tool, type ToolRunnableConfig } from '@langchain/core/tools';
 import { z } from 'zod';
 
 import {
+  EDITORIAL_FAMILIES,
   normalizeEditorialPreferences,
   type EditorialFamily,
   type EditorialPreferences,
@@ -34,6 +35,7 @@ import {
   normalizeOptionalChatScript,
   type ChatEditorialIntentWireInput,
 } from './chat-editorial-intent-wire';
+import type { ChatEditorialFamilyDirective } from './chat-request-owner';
 
 export const CHAT_EDITORIAL_INTENT_VERSION = 'chat-editorial-intent-v1' as const;
 export const CHAT_INTENT_AUDIT_COLLECTION = 'editron_chat_intent_audits';
@@ -174,6 +176,8 @@ interface CreateChatEditorialIntentToolsOptions {
   projectId: string;
   sessionId?: string;
   operationId?: string;
+  requiredFamilyDirectives?: readonly ChatEditorialFamilyDirective[];
+  familyScopeExclusive?: boolean;
 }
 
 export interface ChatReferenceStyleToolDependencies {
@@ -304,7 +308,14 @@ export async function applyGroundedEditorialIntent(
 }
 
 export function createChatEditorialIntentTools(
-  { userId, projectId, sessionId, operationId }: CreateChatEditorialIntentToolsOptions,
+  {
+    userId,
+    projectId,
+    sessionId,
+    operationId,
+    requiredFamilyDirectives = [],
+    familyScopeExclusive = false,
+  }: CreateChatEditorialIntentToolsOptions,
   dependencies?: Partial<ChatEditorialIntentDependencies>,
   referenceStyleDependencies?: Partial<ChatReferenceStyleToolDependencies>,
 ) {
@@ -319,9 +330,13 @@ export function createChatEditorialIntentTools(
       // parsing "yes" from the next turn.
       const confirmedByClient = config.configurable?.autoDirectorConfirmed === true;
       const input = chatEditorialIntentSchema.parse(
-        compileChatEditorialIntentWire(
+        enforceServerEditorialFamilyScope(
+          compileChatEditorialIntentWire(
           { ...wireInput, autoDirectorConfirmed: wireInput.autoDirectorConfirmed || confirmedByClient },
           { userTurnText },
+          ),
+          requiredFamilyDirectives,
+          familyScopeExclusive,
         ),
       );
       try {
@@ -425,6 +440,54 @@ export function createChatEditorialIntentTools(
   );
 
   return [applyEditorialIntent, applyReferenceStyle];
+}
+
+export function enforceServerEditorialFamilyScope(
+  input: ChatEditorialIntentInput,
+  directives: readonly ChatEditorialFamilyDirective[],
+  exclusive: boolean,
+): ChatEditorialIntentInput {
+  if (exclusive && !directives.some((directive) => directive.mode === 'prefer')) {
+    throw new Error('Exclusive editorial family scope requires a preferred family.');
+  }
+  if (directives.length === 0 && !exclusive) return input;
+
+  const directivesByFamily = new Map(
+    directives.map((directive) => [directive.family, directive] as const),
+  );
+  if (directivesByFamily.size !== directives.length) {
+    throw new Error('Editorial family directives contain a duplicate family.');
+  }
+
+  const families: NonNullable<ChatEditorialIntentInput['families']> = {
+    ...(input.families ?? {}),
+  };
+  for (const family of EDITORIAL_FAMILIES) {
+    const directive = directivesByFamily.get(family);
+    if (directive?.mode === 'off') {
+      families[family] = { mode: 'off' };
+      continue;
+    }
+    if (directive?.mode === 'prefer') {
+      const modelPreference = families[family];
+      families[family] = {
+        mode: 'prefer',
+        ...(modelPreference?.mode === 'prefer' && modelPreference.frequency !== undefined
+          ? { frequency: modelPreference.frequency }
+          : {}),
+        ...(modelPreference?.mode === 'prefer' && modelPreference.intensity !== undefined
+          ? { intensity: modelPreference.intensity }
+          : {}),
+      };
+      continue;
+    }
+    if (exclusive) families[family] = { mode: 'off' };
+  }
+
+  return {
+    ...input,
+    families,
+  };
 }
 
 async function resolveDependencies(
