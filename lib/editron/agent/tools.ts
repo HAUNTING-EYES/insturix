@@ -57,6 +57,10 @@ import {
 } from './chat-analysis-coordinate-space';
 import { buildChatProjectReadModel } from './chat-project-read-model';
 import { cutTimelineRange } from '../services/timeline-range-cut';
+import {
+  constrainChatOverlayPlacement,
+  EDITRON_TITLE_SAFE_MARGIN,
+} from './chat-overlay-safe-placement';
 
 // PERF FIX: Module-level singleton map for ChatGoogleGenerativeAI instances.
 // OLD (in each tool):
@@ -935,11 +939,16 @@ Call with no arguments to get full timeline.`,
 
         // Resolve coordinates using Physics Engine
         const defaultSize = getDefaultSize(physicsType);
-        const coords = resolveCoordinates(
+        const requestedCoords = resolveCoordinates(
           { x: input.x, y: input.y, width: input.width, height: input.height },
           canvas,
           defaultSize
         );
+        const coords = constrainChatOverlayPlacement({
+          overlayType: input.type,
+          bounds: requestedCoords,
+          canvas,
+        });
 
         // Build base overlay
         const baseOverlay = {
@@ -954,6 +963,19 @@ Call with no arguments to get full timeline.`,
           height: coords.height,
           rotation: input.rotation ?? 0,
           isDragging: false,
+          metadata: {
+            chatPlacement: {
+              requested: coords.requested,
+              resolved: {
+                left: coords.left,
+                top: coords.top,
+                width: coords.width,
+                height: coords.height,
+              },
+              safeMargin: coords.margin,
+              adjusted: coords.adjusted,
+            },
+          },
         };
 
         // Build type-specific overlay
@@ -966,8 +988,7 @@ Call with no arguments to get full timeline.`,
             const explicitLines = textContent.split('\n');
             const maxLineChars = Math.max(...explicitLines.map(l => l.length), 1);
 
-            // Cap width to 90% of canvas to prevent overflow
-            const maxAllowedWidth = canvas.width * 0.9;
+            const maxAllowedWidth = canvas.width * (1 - (2 * EDITRON_TITLE_SAFE_MARGIN));
 
             // Calculate width: auto-fit to content but cap to canvas
             const rawAutoWidth = Math.max(200, maxLineChars * fontSize * 0.6);
@@ -984,15 +1005,33 @@ Call with no arguments to get full timeline.`,
             // Use auto-calculated if not specified, otherwise use resolved coords (also capped)
             const textWidth = input.width === undefined ? autoWidth : Math.min(coords.width, maxAllowedWidth);
             const textHeight = input.height === undefined ? autoHeight : coords.height;
-            const textLeft = input.x === undefined ? (canvas.width - textWidth) / 2 : coords.left;
-            const textTop = input.y === undefined ? (canvas.height - textHeight) / 2 : coords.top;
+            const textLeft = input.x === undefined ? (canvas.width - textWidth) / 2 : requestedCoords.left;
+            const textTop = input.y === undefined ? (canvas.height - textHeight) / 2 : requestedCoords.top;
+            const textPlacement = constrainChatOverlayPlacement({
+              overlayType: input.type,
+              bounds: { left: textLeft, top: textTop, width: textWidth, height: textHeight },
+              canvas,
+            });
 
             newOverlay = {
               ...baseOverlay,
-              left: textLeft,
-              top: textTop,
-              width: textWidth,
-              height: textHeight,
+              left: textPlacement.left,
+              top: textPlacement.top,
+              width: textPlacement.width,
+              height: textPlacement.height,
+              metadata: {
+                chatPlacement: {
+                  requested: textPlacement.requested,
+                  resolved: {
+                    left: textPlacement.left,
+                    top: textPlacement.top,
+                    width: textPlacement.width,
+                    height: textPlacement.height,
+                  },
+                  safeMargin: textPlacement.margin,
+                  adjusted: textPlacement.adjusted,
+                },
+              },
               content: textContent,
               styles: {
                 fontSize: `${fontSize}`,
@@ -1090,7 +1129,12 @@ Call with no arguments to get full timeline.`,
           status: 'success', 
           id,
           row,
-          position: { left: coords.left, top: coords.top, width: coords.width, height: coords.height },
+          position: {
+            left: newOverlay.left,
+            top: newOverlay.top,
+            width: newOverlay.width,
+            height: newOverlay.height,
+          },
           message: `${input.type} overlay added with ID ${id} on row ${row}` 
         });
         
@@ -1164,21 +1208,40 @@ TYPE-SPECIFIC FIELDS:
         
         if (hasPositionUpdate) {
           // Use current values as defaults for missing props
-          const newCoords = resolveCoordinates(
+          const requestedCoords = resolveCoordinates(
             {
-              x: input.x,
-              y: input.y,
-              width: input.width,
-              height: input.height
+              x: input.x ?? overlay.left,
+              y: input.y ?? overlay.top,
+              width: input.width ?? overlay.width,
+              height: input.height ?? overlay.height
             },
             canvas,
             { width: overlay.width, height: overlay.height }
           );
-          
-          if (input.x !== undefined) updates.left = newCoords.left;
-          if (input.y !== undefined) updates.top = newCoords.top;
-          if (input.width !== undefined) updates.width = newCoords.width;
-          if (input.height !== undefined) updates.height = newCoords.height;
+          const newCoords = constrainChatOverlayPlacement({
+            overlayType: overlay.type,
+            bounds: requestedCoords,
+            canvas,
+          });
+
+          updates.left = newCoords.left;
+          updates.top = newCoords.top;
+          updates.width = newCoords.width;
+          updates.height = newCoords.height;
+          updates.metadata = {
+            ...((overlay as { metadata?: Record<string, unknown> }).metadata || {}),
+            chatPlacement: {
+              requested: newCoords.requested,
+              resolved: {
+                left: newCoords.left,
+                top: newCoords.top,
+                width: newCoords.width,
+                height: newCoords.height,
+              },
+              safeMargin: newCoords.margin,
+              adjusted: newCoords.adjusted,
+            },
+          };
         }
         
         if (input.rotation !== undefined) updates.rotation = input.rotation;
@@ -1244,15 +1307,39 @@ TYPE-SPECIFIC FIELDS:
           
           // Position
           if (update.x !== undefined || update.y !== undefined || update.width !== undefined || update.height !== undefined) {
-            const newCoords = resolveCoordinates(
-              { x: update.x, y: update.y, width: update.width, height: update.height },
+            const requestedCoords = resolveCoordinates(
+              {
+                x: update.x ?? overlay.left,
+                y: update.y ?? overlay.top,
+                width: update.width ?? overlay.width,
+                height: update.height ?? overlay.height,
+              },
               canvas,
               { width: overlay.width, height: overlay.height }
             );
-            if (update.x !== undefined) updates.left = newCoords.left;
-            if (update.y !== undefined) updates.top = newCoords.top;
-            if (update.width !== undefined) updates.width = newCoords.width;
-            if (update.height !== undefined) updates.height = newCoords.height;
+            const newCoords = constrainChatOverlayPlacement({
+              overlayType: overlay.type,
+              bounds: requestedCoords,
+              canvas,
+            });
+            updates.left = newCoords.left;
+            updates.top = newCoords.top;
+            updates.width = newCoords.width;
+            updates.height = newCoords.height;
+            updates.metadata = {
+              ...((overlay as { metadata?: Record<string, unknown> }).metadata || {}),
+              chatPlacement: {
+                requested: newCoords.requested,
+                resolved: {
+                  left: newCoords.left,
+                  top: newCoords.top,
+                  width: newCoords.width,
+                  height: newCoords.height,
+                },
+                safeMargin: newCoords.margin,
+                adjusted: newCoords.adjusted,
+              },
+            };
           }
           
           if (update.styles) {

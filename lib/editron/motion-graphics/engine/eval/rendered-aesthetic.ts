@@ -6,6 +6,10 @@ import type {
 } from '../../../engine/atomic-overlay-core';
 import type { RenderValidityInput } from './render-validity';
 import { classifyRenderValidity } from './render-validity';
+import {
+  EDITRON_ACTION_SAFE_MARGIN,
+  EDITRON_TITLE_SAFE_MARGIN,
+} from '../../../agent/chat-overlay-safe-placement';
 
 export type RenderedAestheticDimension =
   | 'render'
@@ -241,7 +245,9 @@ function scoreSafeArea(overlay: NormalizedOverlay, input: RenderedFrameAesthetic
     scoreCaptionPlatformSafeZone(overlay, input, addIssue);
   }
 
-  const margin = isTextFamily(overlay.family) ? 0.1 : 0.05;
+  const margin = isTextFamily(overlay.family)
+    ? EDITRON_TITLE_SAFE_MARGIN
+    : EDITRON_ACTION_SAFE_MARGIN;
   const safe = safeBox(input.width, input.height, margin);
   const safeOverflow = overflowAmount(overlay.box, safe);
   if (safeOverflow > 24) {
