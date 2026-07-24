@@ -267,6 +267,7 @@ function invocation(
 }
 
 beforeEach(() => {
+  vi.unstubAllEnvs();
   fixture.modelStep = 0;
   fixture.systemInstruction = '';
   fixture.modelContents.length = 0;
@@ -1223,6 +1224,40 @@ describe('chat edit battle harness', () => {
       'https://cdn/before.wav',
       'https://cdn/after.wav',
     ]);
+  });
+
+  it('keeps a disposable fixture alive beyond the worker three-minute boundary by default', async () => {
+    let now = 0;
+    const pending = project([]);
+    const completed = {
+      ...project([]),
+      intelligence: {
+        latestChatEditRenderVerification: {
+          status: 'pass',
+          requestedAt: '2026-07-18T10:00:01.000Z',
+          completedAt: '2026-07-18T10:04:00.000Z',
+          visual: {
+            renderedFrames: [{ beforeUrl: 'https://cdn/before.webp', afterUrl: 'https://cdn/after.webp' }],
+            issues: [],
+          },
+          audio: { windows: [] },
+        },
+      },
+    };
+
+    const evidence = await waitForFreshChatBattleRenderEvidence({
+      projectId: 'proj_fixture',
+      startedAt: '2026-07-18T10:00:00.000Z',
+      initialProject: pending,
+      pollIntervalMs: 60_000,
+    }, {
+      loadProject: async () => now >= 4 * 60_000 ? completed : pending,
+      now: () => now,
+      sleep: async (milliseconds) => { now += milliseconds; },
+    });
+
+    expect(now).toBe(4 * 60_000);
+    expect(evidence).toMatchObject({ status: 'pass', capturedAt: '2026-07-18T10:04:00.000Z' });
   });
 
   it('does not poll for rendered evidence after a terminal agent invocation failure', () => {

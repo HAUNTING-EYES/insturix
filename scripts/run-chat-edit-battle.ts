@@ -526,7 +526,7 @@ export async function waitForFreshChatBattleRenderEvidence(
   },
 ): Promise<ChatBattleRenderEvidence> {
   const timeoutMs = input.timeoutMs
-    ?? boundedEnvInteger('EDITRON_CHAT_BATTLE_RENDER_TIMEOUT_MS', 3 * 60 * 1000, 10_000, 15 * 60 * 1000);
+    ?? boundedEnvInteger('EDITRON_CHAT_BATTLE_RENDER_TIMEOUT_MS', 15 * 60 * 1000, 10_000, 15 * 60 * 1000);
   const pollIntervalMs = input.pollIntervalMs
     ?? boundedEnvInteger('EDITRON_CHAT_BATTLE_RENDER_POLL_MS', 3_000, 500, 30_000);
   const deadline = dependencies.now() + timeoutMs;
