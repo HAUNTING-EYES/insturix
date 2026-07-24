@@ -369,6 +369,15 @@ describe('phase0 rendered evidence worker service', () => {
     expect(source).toContain('statusReason: evidence.statusReason');
   });
 
+  it('preserves exact chat mutation ranges through the rendered-evidence worker trust boundary', () => {
+    const source = readFileSync('app/api/internal/workers/phase0-rendered-evidence/route.ts', 'utf8');
+
+    expect(source).toContain('const rawMutationRanges = Array.isArray(request.mutationRanges)');
+    expect(source).toContain('if (rawMutationRanges.length > 64) return null');
+    expect(source).toContain('endFrame <= startFrame');
+    expect(source).toContain('...(mutationRanges.length > 0 ? { mutationRanges } : {})');
+  });
+
   it('builds durable dispatch breadcrumbs for Phase 0 rendered evidence requests', () => {
     expect(buildPhase0RenderedEvidenceDispatchPersistSet(
       { dispatched: true, messageId: 'msg_123' },

@@ -557,6 +557,23 @@ function validateChatEditVerificationRequest(
   const sampleFrames = Array.from(new Set(rawFrames.map((entry) => Number(entry))));
   if (sampleFrames.some((frame) => !Number.isSafeInteger(frame) || frame < 0 || frame > 100_000_000)) return null;
 
+  const rawMutationRanges = Array.isArray(request.mutationRanges) ? request.mutationRanges : [];
+  if (rawMutationRanges.length > 64) return null;
+  const mutationRanges: NonNullable<ChatEditRenderVerificationRequest['mutationRanges']> = [];
+  for (const rawMutationRange of rawMutationRanges) {
+    const mutationRange = asRecord(rawMutationRange);
+    const startFrame = nullableFrame(mutationRange.startFrame);
+    const endFrame = nullableFrame(mutationRange.endFrame);
+    const toolName = boundedIdentifier(mutationRange.toolName, 1, 120);
+    if (
+      startFrame === null
+      || endFrame === null
+      || endFrame <= startFrame
+      || !toolName
+    ) return null;
+    mutationRanges.push({ startFrame, endFrame, toolName });
+  }
+
   return {
     version: 'editron-chat-render-verification-v1',
     operationId,
@@ -566,6 +583,7 @@ function validateChatEditVerificationRequest(
     requestedAt,
     modalities,
     targets,
+    ...(mutationRanges.length > 0 ? { mutationRanges } : {}),
     sampleFrames,
   };
 }
