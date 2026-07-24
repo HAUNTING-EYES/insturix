@@ -32,7 +32,7 @@ interface ScenarioResult {
   scenarioId: string;
   projectId: string;
   runId: string;
-  status: 'pass' | 'fail' | 'infrastructure-fail';
+  status: 'pass' | 'warn' | 'fail' | 'infrastructure-fail';
   exitCode: number;
   reportPath?: string;
   failedChecks: string[];
@@ -48,6 +48,7 @@ interface SuiteSummary {
   scenarioCount: number;
   completedCount: number;
   passCount: number;
+  warnCount: number;
   failCount: number;
   infrastructureFailCount: number;
   results: ScenarioResult[];
@@ -73,6 +74,7 @@ async function main(): Promise<void> {
     scenarioCount: scenarios.length,
     completedCount: 0,
     passCount: 0,
+    warnCount: 0,
     failCount: 0,
     infrastructureFailCount: 0,
     results: [],
@@ -105,7 +107,7 @@ async function main(): Promise<void> {
   await writeSummary(summaryPath, summary);
   console.log(`[chat-battle-suite] summary=${summaryPath}`);
   console.log(
-    `[chat-battle-suite] complete pass=${summary.passCount} fail=${summary.failCount} infrastructure=${summary.infrastructureFailCount}`,
+    `[chat-battle-suite] complete pass=${summary.passCount} warn=${summary.warnCount} fail=${summary.failCount} infrastructure=${summary.infrastructureFailCount}`,
   );
   if (summary.failCount > 0 || summary.infrastructureFailCount > 0) process.exitCode = 1;
 }
@@ -159,11 +161,16 @@ async function runScenario(input: {
       .map(asRecord)
       .filter((check) => check.status !== 'pass')
       .map((check) => String(check.id ?? 'unknown-check'));
+    const reportVerdict = String(report.verdict ?? 'fail');
     return {
       scenarioId: input.scenarioId,
       projectId: input.fixtureProjectId,
       runId: input.runId,
-      status: report.verdict === 'pass' && exitCode === 0 ? 'pass' : 'fail',
+      status: exitCode !== 0
+        ? 'fail'
+        : reportVerdict === 'pass' || reportVerdict === 'warn'
+          ? reportVerdict
+          : 'fail',
       exitCode,
       reportPath,
       failedChecks,
@@ -262,6 +269,7 @@ function recalculateSummary(summary: SuiteSummary, scenarioCount: number): void 
   summary.scenarioCount = scenarioCount;
   summary.completedCount = summary.results.length;
   summary.passCount = summary.results.filter((result) => result.status === 'pass').length;
+  summary.warnCount = summary.results.filter((result) => result.status === 'warn').length;
   summary.failCount = summary.results.filter((result) => result.status === 'fail').length;
   summary.infrastructureFailCount = summary.results.filter((result) => result.status === 'infrastructure-fail').length;
 }
