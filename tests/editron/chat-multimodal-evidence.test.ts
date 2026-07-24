@@ -328,7 +328,11 @@ describe('canonical chat multimodal evidence', () => {
       limit: 3,
     }, dependencies);
 
-    expect(dependencies.loadAnalyses).toHaveBeenCalledWith(project.projectId, ['asset-craft', 'asset-stage', 'asset-image']);
+    expect(dependencies.loadAnalyses).toHaveBeenCalledWith(
+      project.projectId,
+      ['asset-craft', 'asset-stage', 'asset-image'],
+      'user-1',
+    );
     expect(savedCaches.flat()).toHaveLength(3);
     expect(result.candidates[0]).toMatchObject({ assetId: 'asset-craft', accepted: true });
     expect(audits).toHaveLength(1);

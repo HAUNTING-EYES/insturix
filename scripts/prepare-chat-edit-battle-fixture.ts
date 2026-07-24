@@ -8,6 +8,7 @@ import { config as loadEnv } from 'dotenv';
 import { cleanupDisposableChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-cleanup';
 import { getChatEditBattleScenario } from '../lib/editron/services/chat-edit-battle-harness';
 import { planChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-plan';
+import { loadCanonicalProjectAssetAnalyses } from '../lib/editron/services/project-analysis-storage';
 import {
   cloneChatBattleAnalysisDocuments,
   cloneChatBattleUploadBatch,
@@ -60,9 +61,15 @@ async function main(): Promise<void> {
   try {
     const sourceProject = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId: plan.sourceProjectId });
     if (!sourceProject) throw new Error(`Fixture source project not found: ${plan.sourceProjectId}`);
-    const sourceAnalyses = await db.collection(COLLECTIONS.PROJECT_ASSET_ANALYSES)
-      .find({ projectId: plan.sourceProjectId })
-      .toArray();
+    const sourceAssetIds = [...new Set([
+      ...asArray(sourceProject.sourceAssetIds),
+      ...asArray(sourceProject.overlays).map((value) => asRecord(value).assetId),
+    ].filter((value): value is string => typeof value === 'string' && Boolean(value.trim())))];
+    const sourceAnalyses = await loadCanonicalProjectAssetAnalyses(db, {
+      projectId: plan.sourceProjectId,
+      userId: requireString(sourceProject.userId, 'source project userId'),
+      assetIds: sourceAssetIds,
+    });
     const sourceCapabilities = inspectChatBattleFixtureCapabilities({
       sourceProject: sourceProject as Record<string, unknown>,
       sourceAnalyses: sourceAnalyses as Record<string, unknown>[],

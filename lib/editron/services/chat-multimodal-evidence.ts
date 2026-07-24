@@ -5,6 +5,7 @@ import {
   EDITRON_EMBEDDING_MODEL,
   generateEditronEmbedding,
 } from './gemini-embedding';
+import { loadCanonicalProjectAssetAnalyses } from './project-analysis-storage';
 import { cosineSimilarity } from '../storyline/scene-embedding';
 
 export const CHAT_EVIDENCE_INDEX_COLLECTION = 'editron_chat_evidence';
@@ -166,7 +167,7 @@ export interface ChatEvidenceEmbeddingCacheEntry {
 }
 
 export interface ChatEvidenceDependencies {
-  loadAnalyses(projectId: string, assetIds: string[]): Promise<unknown[]>;
+  loadAnalyses(projectId: string, assetIds: string[], userId: string): Promise<unknown[]>;
   loadEmbeddingCache(projectId: string, evidenceIds: string[]): Promise<ChatEvidenceEmbeddingCacheEntry[]>;
   saveEmbeddingCache(projectId: string, userId: string, entries: CanonicalChatEvidenceDocument[]): Promise<void>;
   saveAudit(audit: ChatEvidenceRetrievalAudit): Promise<void>;
@@ -187,7 +188,7 @@ export async function searchCanonicalChatEvidence(
   const deps = await resolveDependencies(dependencies);
   const project = asRecord(unwrapProject(input.project));
   const assetIds = timelineAssetIds(project, input.overlayId);
-  const analyses = await deps.loadAnalyses(projectId, assetIds);
+  const analyses = await deps.loadAnalyses(projectId, assetIds, userId);
   const documents = buildCanonicalChatEvidenceDocuments({
     projectId,
     project,
@@ -563,12 +564,12 @@ async function defaultDependencies(): Promise<ChatEvidenceDependencies> {
   }
   await indexesReady;
   return {
-    loadAnalyses: async (projectId, assetIds) => {
-      if (assetIds.length === 0) return [];
-      return db.collection('editron_asset_analyses').find({
+    loadAnalyses: async (projectId, assetIds, userId) => {
+      return loadCanonicalProjectAssetAnalyses(db, {
         projectId,
-        assetId: { $in: assetIds },
-      }).toArray();
+        userId,
+        assetIds,
+      });
     },
     loadEmbeddingCache: async (projectId, evidenceIds) => {
       if (evidenceIds.length === 0) return [];
