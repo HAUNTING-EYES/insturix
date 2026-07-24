@@ -14,6 +14,7 @@ import {
 } from '../../lib/editron/services/phase0-rendered-evidence-worker';
 import {
   buildPhase0RenderedAestheticEvidence,
+  measureRenderedOverlayPixelEvidence,
   type RawRenderedStillImage,
 } from '../../lib/editron/services/phase0-rendered-aesthetic-scoring';
 import { buildPhase0FixtureManifest } from '../../lib/editron/services/phase0-fixture-manifest';
@@ -146,6 +147,34 @@ describe('phase0 rendered evidence worker service', () => {
     expect(renderStill).toHaveBeenCalledTimes(6);
     expect(maximumActiveRenders).toBe(6);
     expect(evidence.renderedFrames.map((frame) => frame.frame)).toEqual(evidence.requestedSampleFrames);
+  });
+
+  it('measures text contrast against each changed pixel local background', () => {
+    const baseline = rawRenderedImageFromLumas([210, 210, 210, 210, 20, 20, 20, 20, 20, 20]);
+    const full = rawRenderedImageFromLumas([255, 255, 255, 255, 255, 255, 255, 255, 255, 255]);
+
+    const mixedEvidence = measureRenderedOverlayPixelEvidence(
+      full,
+      baseline,
+      { x: 0, y: 0, width: 10, height: 1 },
+      10,
+      1,
+    );
+
+    expect(mixedEvidence.contrastRatio).toBeGreaterThan(3);
+    expect(mixedEvidence.localBackgroundLuma).toBeLessThan(100);
+    expect(mixedEvidence.foregroundLuma).toBe(255);
+
+    const brightBaseline = rawRenderedImageFromLumas(Array.from({ length: 10 }, () => 210));
+    const brightEvidence = measureRenderedOverlayPixelEvidence(
+      full,
+      brightBaseline,
+      { x: 0, y: 0, width: 10, height: 1 },
+      10,
+      1,
+    );
+
+    expect(brightEvidence.contrastRatio).toBeLessThan(3);
   });
 
   it('fails rendered quality evidence when full and baseline stills are visually unchanged', async () => {
@@ -519,6 +548,20 @@ function rawRenderedImage(kind: 'baseline' | 'visible'): RawRenderedStillImage {
   }
 
   return { data, width, height, channels };
+}
+
+function rawRenderedImageFromLumas(lumas: number[]): RawRenderedStillImage {
+  const channels = 4;
+  const data = Buffer.alloc(lumas.length * channels);
+  for (let index = 0; index < lumas.length; index += 1) {
+    const offset = index * channels;
+    const luma = lumas[index] ?? 0;
+    data[offset] = luma;
+    data[offset + 1] = luma;
+    data[offset + 2] = luma;
+    data[offset + 3] = 255;
+  }
+  return { data, width: lumas.length, height: 1, channels };
 }
 
 function projectFixture() {

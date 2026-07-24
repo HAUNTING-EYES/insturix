@@ -211,7 +211,7 @@ function activeRenderedOverlayEvidence(
 
       const box = renderedOverlayBoxAtFrame(frameOverlay, frame);
       const pixelEvidence = fullImage && baselineImage
-        ? overlayPixelEvidence(fullImage, baselineImage, box, width, height)
+        ? measureRenderedOverlayPixelEvidence(fullImage, baselineImage, box, width, height)
         : {};
       return [{
         id: overlay.id,
@@ -429,7 +429,7 @@ function imageStats(fullImage: RawRenderedStillImage, baselineImage?: RawRendere
   };
 }
 
-function overlayPixelEvidence(
+export function measureRenderedOverlayPixelEvidence(
   fullImage: RawRenderedStillImage,
   baselineImage: RawRenderedStillImage,
   box: RenderedOverlayBox,
@@ -444,23 +444,27 @@ function overlayPixelEvidence(
   let changed = 0;
   const foreground: number[] = [];
   const background: number[] = [];
+  const localContrasts: number[] = [];
   for (const offset of offsets) {
     const baseLuma = pixelLuma(baselineImage.data, offset);
     background.push(baseLuma);
     if (pixelsDiffer(fullImage.data, baselineImage.data, offset)) {
       changed += 1;
-      foreground.push(pixelLuma(fullImage.data, offset));
+      const renderedLuma = pixelLuma(fullImage.data, offset);
+      foreground.push(renderedLuma);
+      localContrasts.push(contrastRatio(baseLuma, renderedLuma));
     }
   }
 
   const localBackgroundLuma = average(background);
   const foregroundLuma = average(foreground);
+  const localContrastRatio = median(localContrasts);
   return {
     visiblePixelRatio: round4(changed / Math.max(1, offsets.length)),
     ...(localBackgroundLuma !== undefined ? { localBackgroundLuma: round3(localBackgroundLuma) } : {}),
     ...(foregroundLuma !== undefined ? { foregroundLuma: round3(foregroundLuma) } : {}),
-    ...(localBackgroundLuma !== undefined && foregroundLuma !== undefined
-      ? { contrastRatio: round3(contrastRatio(localBackgroundLuma, foregroundLuma)) }
+    ...(localContrastRatio !== undefined
+      ? { contrastRatio: round3(localContrastRatio) }
       : {}),
   };
 }
@@ -729,6 +733,14 @@ function asRecord(value: unknown): Record<string, unknown> {
 function average(values: number[]): number | undefined {
   if (!values.length) return undefined;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function median(values: number[]): number | undefined {
+  if (!values.length) return undefined;
+  const sorted = [...values].sort((a, b) => a - b);
+  const midpoint = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[midpoint];
+  return ((sorted[midpoint - 1] ?? 0) + (sorted[midpoint] ?? 0)) / 2;
 }
 
 function contrastRatio(a: number, b: number): number {
