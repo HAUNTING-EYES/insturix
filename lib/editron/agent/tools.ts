@@ -5401,50 +5401,16 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         let beatAnalysis: any = null;
         let beatGrid: any = null;
         if (beatRealignEnabled) {
-          const arrayBuffer = bgm.buffer.buffer.slice(
-            bgm.buffer.byteOffset,
-            bgm.buffer.byteOffset + bgm.buffer.byteLength,
-          ) as ArrayBuffer;
-          const decode = (await import('audio-decode')).default;
-          const decoded = await decode(arrayBuffer);
-          const channelLength = decoded.channelData[0]?.length ?? 0;
-          if (!Number.isFinite(decoded.sampleRate) || decoded.sampleRate <= 0 || channelLength <= 0) {
-            throw new Error('Conditioned BGM could not be decoded for beat realignment');
-          }
-          const { analyzeBeatsFull } = await import('@/lib/editron/services/media/beat-detection-service');
-          beatAnalysis = await analyzeBeatsFull({
-            sampleRate: decoded.sampleRate,
-            length: channelLength,
-            numberOfChannels: decoded.channelData.length,
-            getChannelData: (channel: number) => decoded.channelData[channel] ?? decoded.channelData[0],
-            duration: channelLength / decoded.sampleRate,
+          const { analyzeConditionedMusicBeatGrid } = await import(
+            '@/lib/editron/services/music-beat-grid'
+          );
+          const beatEvidence = await analyzeConditionedMusicBeatGrid({
+            buffer: bgm.buffer,
+            fps,
+            totalFrames,
           });
-          if (!Array.isArray(beatAnalysis.beats) || beatAnalysis.beats.length === 0) {
-            throw new Error('Conditioned BGM produced no usable beat grid');
-          }
-          const beats = beatAnalysis.beats.map((beat: any) => ({
-            frame: Math.round((beat.timeMs / 1000) * fps),
-            isDownbeat: beat.isDownbeat === true,
-          }));
-          if (
-            !Number.isFinite(beatAnalysis.bpm)
-            || beatAnalysis.bpm <= 0
-            || beats.some((beat: any) => (
-              !Number.isSafeInteger(beat.frame)
-              || beat.frame < 0
-              || beat.frame >= totalFrames
-            ))
-          ) {
-            throw new Error('Conditioned BGM produced an invalid beat grid');
-          }
-          beatGrid = {
-            bpm: beatAnalysis.bpm,
-            bpmConfidence: beatAnalysis.bpmConfidence,
-            beats,
-            downbeats: beats.filter((beat: any) => beat.isDownbeat).map((beat: any) => beat.frame),
-            firstBeatOffsetFrames: beats[0]?.frame ?? 0,
-            source: 'audio-analysis',
-          };
+          beatAnalysis = beatEvidence.beatAnalysis;
+          beatGrid = beatEvidence.beatGrid;
         }
 
         const replacementBase: any = {
@@ -5530,6 +5496,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
               cachedUrl: generatedUrl,
               lastUsedAt: now,
               ...(beatAnalysis ? { beatAnalysis } : {}),
+              ...(beatGrid ? { beatGrid } : {}),
             },
             $setOnInsert: {
               assetId: bgm.audioAssetId,

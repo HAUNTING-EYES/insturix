@@ -24,6 +24,7 @@ import {
   buildMusicCoverageOverlays,
   resolveRuntimeMusicCoveragePlan,
 } from '@/lib/editron/services/music-coverage-runtime';
+import { analyzeConditionedMusicBeatGrid } from '@/lib/editron/services/music-beat-grid';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Reduced — no longer generates audio inline
@@ -1178,25 +1179,26 @@ export async function POST(
           ]);
           assertConditionedBGMResult(bgm, currentFrame, audioPlatformEvidence.platform);
 
-          // Detect beats (heuristic from BPM — upgrade path to audio analysis
-          // documented in beat-detection-service.ts header).
-          const { detectBeats } = await import('@/lib/editron/services/beat-detection-service');
-          const beatGrid = await detectBeats({
-            audioUrl: bgm.audioUrl,
-            bpm: (storyboard as any).bpm,
-            durationFrames: currentFrame,
-            fps,
-            hints: {
-              mood: storyboard.scenes[0]?.descriptor.mood,
-              profileId: (project as any).pendingDirectorProfileId,
-            },
-          });
-
-          console.log(
-            `[Finalize] Beat grid computed: ${beatGrid.bpm} BPM, ` +
-            `${beatGrid.beats.length} beats, ${beatGrid.downbeats.length} downbeats, ` +
-            `source=${beatGrid.source}`
-          );
+          let beatEvidence: Awaited<ReturnType<typeof analyzeConditionedMusicBeatGrid>> | null = null;
+          try {
+            beatEvidence = await analyzeConditionedMusicBeatGrid({
+              buffer: bgm.buffer,
+              fps,
+              totalFrames: currentFrame,
+            });
+            console.log(
+              `[Finalize] Beat grid analyzed: ${beatEvidence.beatGrid.bpm} BPM, `
+              + `${beatEvidence.beatGrid.beats.length} beats, `
+              + `${beatEvidence.beatGrid.downbeats.length} downbeats`,
+            );
+          } catch (beatErr: any) {
+            console.warn(`[Finalize] Beat analysis failed without discarding conditioned BGM: ${beatErr.message}`);
+            pipelineWarnings.degraded(
+              'bgm',
+              'beat-grid-analysis',
+              `Conditioned BGM was preserved, but beat analysis failed: ${beatErr.message}. Cuts were not realigned.`,
+            );
+          }
 
           // Build BGM overlay mirroring audio worker's shape (route.ts:118-140)
           // so downstream Director + editor treat it identically to async-generated BGM.
@@ -1229,7 +1231,7 @@ export async function POST(
             metadata: {
               source: 'finalize-sync-beat-sync',
               beatSyncActive: true,
-              beatGrid,
+              ...(beatEvidence ? { beatGrid: beatEvidence.beatGrid } : {}),
               audioConditioning: {
                 requestedPlatform: audioPlatformEvidence.platform,
                 platformEvidenceSource: audioPlatformEvidence.source,
@@ -1249,6 +1251,14 @@ export async function POST(
           await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
             { assetId: bgm.audioAssetId },
             {
+              $set: {
+                cachedUrl: bgm.audioUrl,
+                lastUsedAt: new Date(),
+                ...(beatEvidence ? {
+                  beatAnalysis: beatEvidence.beatAnalysis,
+                  beatGrid: beatEvidence.beatGrid,
+                } : {}),
+              },
               $setOnInsert: {
                 assetId: bgm.audioAssetId,
                 userId,
@@ -1257,7 +1267,6 @@ export async function POST(
                 contentType: bgm.contentType,
                 source: 'generated',
                 gcsPath: bgm.gcsPath,
-                cachedUrl: bgm.audioUrl,
                 urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
                 size: bgm.buffer.length,
                 durationMs: bgm.durationMs,
@@ -1288,7 +1297,11 @@ export async function POST(
           overlays.push(...bgmOverlays);
 
           bgmSyncCompleted = true;
-          console.log(`[Finalize] Sync BGM + beat grid ready for Director`);
+          console.log(
+            beatEvidence
+              ? '[Finalize] Sync BGM + analyzed beat grid ready for Director'
+              : '[Finalize] Sync BGM ready; beat alignment unavailable and reported',
+          );
         } catch (syncBgmErr: any) {
           console.error(`[Finalize] Sync BGM failed: ${syncBgmErr.message} — falling back to async (beat-sync degraded)`);
           pipelineWarnings.degraded(

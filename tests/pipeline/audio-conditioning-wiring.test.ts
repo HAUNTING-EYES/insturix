@@ -129,6 +129,7 @@ import {
 } from '../../lib/pipeline/bgm-conditioning-contract';
 import { resolveAudioLoudnessTarget } from '../../lib/editron/constants/audio-standards';
 import { resolveRuntimeMusicCoveragePlan } from '../../lib/editron/services/music-coverage-runtime';
+import { analyzeConditionedMusicBeatGrid } from '../../lib/editron/services/music-beat-grid';
 import { createTools } from '../../lib/editron/agent/tools';
 import { POST as finalizeStoryboard } from '../../app/api/services/pipeline/storyboard/[id]/finalize/route';
 import { POST as runAudioWorker } from '../../app/api/internal/workers/pipeline/audio/route';
@@ -161,6 +162,27 @@ function makeConditionedBgm(targetFrames: number, fps = 30, platform?: string | 
       loopsAdded: 1,
       crossfadeMs: 250,
     },
+  };
+}
+
+function makeBeatAnalysis(durationMs = 5_000) {
+  return {
+    beats: [
+      { timeMs: 0, strength: 1, isDownbeat: true },
+      { timeMs: 500, strength: 0.8, isDownbeat: false },
+      { timeMs: 1_000, strength: 0.9, isDownbeat: false },
+    ],
+    bpm: 120,
+    bpmConfidence: 0.92,
+    durationMs,
+    timeSignatureNumerator: 4,
+    energyPeaks: [],
+    rawOnsets: [
+      { timeMs: 0, strength: 1 },
+      { timeMs: 500, strength: 0.8 },
+      { timeMs: 1_000, strength: 0.9 },
+      { timeMs: 1_500, strength: 0.75 },
+    ],
   };
 }
 
@@ -260,6 +282,48 @@ function regenerateBgmTool() {
     invoke: (input: Record<string, unknown>) => Promise<string>;
   };
 }
+
+describe('conditioned music beat evidence', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.decodeAudio.mockResolvedValue({
+      sampleRate: 48_000,
+      channelData: [new Float32Array(480)],
+    });
+  });
+
+  it('rejects a fabricated default tempo with zero analysis confidence', async () => {
+    mocks.analyzeBeatsFull.mockResolvedValue({
+      ...makeBeatAnalysis(),
+      bpmConfidence: 0,
+    });
+
+    await expect(analyzeConditionedMusicBeatGrid({
+      buffer: Buffer.from('conditioned-flac-bytes'),
+      fps: 30,
+      totalFrames: 150,
+    })).rejects.toMatchObject({
+      name: 'MusicBeatGridError',
+      code: 'INSUFFICIENT_BEAT_EVIDENCE',
+    });
+  });
+
+  it('rejects analyzed beats outside the conditioned timeline', async () => {
+    mocks.analyzeBeatsFull.mockResolvedValue({
+      ...makeBeatAnalysis(),
+      beats: [{ timeMs: 5_000, strength: 1, isDownbeat: true }],
+    });
+
+    await expect(analyzeConditionedMusicBeatGrid({
+      buffer: Buffer.from('conditioned-flac-bytes'),
+      fps: 30,
+      totalFrames: 150,
+    })).rejects.toMatchObject({
+      name: 'MusicBeatGridError',
+      code: 'INVALID_BEAT_GRID',
+    });
+  });
+});
 
 describe('conditioned BGM contract', () => {
   it('uses the first concrete platform evidence and skips placeholders', () => {
@@ -392,6 +456,11 @@ describe('storyboard finalize audio conditioning', () => {
         ))
       ),
     );
+    mocks.decodeAudio.mockResolvedValue({
+      sampleRate: 48_000,
+      channelData: [new Float32Array(480)],
+    });
+    mocks.analyzeBeatsFull.mockResolvedValue(makeBeatAnalysis());
     mocks.detectBeats.mockResolvedValue({
       bpm: 120,
       beats: [0, 15, 30],
@@ -424,6 +493,9 @@ describe('storyboard finalize audio conditioning', () => {
       },
     );
     expect(mocks.dispatchAudioJob).not.toHaveBeenCalled();
+    expect(mocks.decodeAudio).toHaveBeenCalledTimes(1);
+    expect(mocks.analyzeBeatsFull).toHaveBeenCalledTimes(1);
+    expect(mocks.detectBeats).not.toHaveBeenCalled();
 
     const projectOverlayMutation = mocks.dbUpdateOne.mock.calls.find(
       ([collectionName, , mutation]) => (
@@ -453,6 +525,18 @@ describe('storyboard finalize audio conditioning', () => {
             'storyboard.productionManifest.thinkforgeContext.briefSnapshot.output.platform',
           targetFrames: 150,
         },
+        beatGrid: {
+          bpm: 120,
+          bpmConfidence: 0.92,
+          beats: [
+            { frame: 0, isDownbeat: true },
+            { frame: 15, isDownbeat: false },
+            { frame: 30, isDownbeat: false },
+          ],
+          downbeats: [0],
+          firstBeatOffsetFrames: 0,
+          source: 'audio-analysis',
+        },
       },
     });
 
@@ -467,6 +551,21 @@ describe('storyboard finalize audio conditioning', () => {
       source: 'generated',
       size: Buffer.from('conditioned-flac-bytes').length,
       durationMs: 5_000,
+    });
+    expect(assetMutation?.[2].$set).toMatchObject({
+      beatAnalysis: makeBeatAnalysis(),
+      beatGrid: {
+        bpm: 120,
+        bpmConfidence: 0.92,
+        beats: [
+          { frame: 0, isDownbeat: true },
+          { frame: 15, isDownbeat: false },
+          { frame: 30, isDownbeat: false },
+        ],
+        downbeats: [0],
+        firstBeatOffsetFrames: 0,
+        source: 'audio-analysis',
+      },
     });
   });
 
@@ -587,7 +686,7 @@ describe('audio worker conditioning', () => {
     mocks.dbUpdateOne.mockResolvedValue({ acknowledged: true });
     mocks.dbInsertOne.mockResolvedValue({ acknowledged: true });
     mocks.alignCutsToBeats.mockReturnValue(0);
-    mocks.analyzeBeatsFull.mockResolvedValue({ beats: [] });
+    mocks.analyzeBeatsFull.mockResolvedValue(makeBeatAnalysis(15_000));
     mocks.decodeAudio.mockResolvedValue({
       sampleRate: 48_000,
       channelData: [new Float32Array(480)],
@@ -646,6 +745,7 @@ describe('audio worker conditioning', () => {
       },
     );
     expect(mocks.decodeAudio).toHaveBeenCalledTimes(1);
+    expect(mocks.analyzeBeatsFull).toHaveBeenCalledTimes(1);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
 
@@ -673,6 +773,36 @@ describe('audio worker conditioning', () => {
           platformEvidenceSource: 'audio-worker-payload.platform',
           targetFrames: 450,
         },
+        beatGrid: {
+          source: 'audio-analysis',
+          bpm: 120,
+          beats: [
+            { frame: 0, isDownbeat: true },
+            { frame: 15, isDownbeat: false },
+            { frame: 30, isDownbeat: false },
+          ],
+        },
+      },
+    });
+    expect(mocks.alignCutsToBeats).toHaveBeenCalledWith(
+      expect.any(Array),
+      [
+        { frame: 0, isDownbeat: true },
+        { frame: 15, isDownbeat: false },
+        { frame: 30, isDownbeat: false },
+      ],
+      30,
+    );
+    const assetMutation = mocks.dbUpdateOne.mock.calls.find(
+      ([collectionName, filter]) => (
+        collectionName === 'mediaAssets' && filter?.assetId === 'bgm_conditioned'
+      ),
+    );
+    expect(assetMutation?.[2].$set).toMatchObject({
+      beatAnalysis: makeBeatAnalysis(15_000),
+      beatGrid: {
+        source: 'audio-analysis',
+        bpm: 120,
       },
     });
   });

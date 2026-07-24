@@ -22,8 +22,8 @@ import { ROW, alignCutsToBeats } from '@/lib/pipeline/scene-to-editron';
 import { generateSFXForScenes } from '@/lib/pipeline/sfx-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { createPipelineWarnings } from '@/lib/editron/services/pipeline-warnings';
-import { analyzeBeatsFull } from '@/lib/editron/services/media/beat-detection-service';
 import { DEFAULT_BGM_MIX_LEVELS } from '@/lib/editron/services/bgm-mix-levels';
+import { analyzeConditionedMusicBeatGrid } from '@/lib/editron/services/music-beat-grid';
 import {
   buildMusicCoverageOverlays,
   resolveRuntimeMusicCoveragePlan,
@@ -221,6 +221,30 @@ async function handler(request: NextRequest) {
         return NextResponse.json({ success: false, error: `BGM generation failed: ${bgmErr.message}` }, { status: 500 });
       }
 
+      let beatEvidence: Awaited<ReturnType<typeof analyzeConditionedMusicBeatGrid>> | null = null;
+      try {
+        beatEvidence = await analyzeConditionedMusicBeatGrid({
+          buffer: bgm.buffer,
+          fps,
+          totalFrames,
+        });
+        console.log(
+          `[AudioWorker] Beat grid analyzed: ${beatEvidence.beatGrid.bpm} BPM, `
+          + `${beatEvidence.beatGrid.beats.length} beats`,
+        );
+      } catch (beatErr: any) {
+        console.error(`[AudioWorker] Beat analysis failed: ${beatErr.message}`);
+        warnings.add({
+          severity: 'warning',
+          phase: 'bgm',
+          message: `Beat analysis failed: ${beatErr.message}. Music was preserved, but cuts were not realigned.`,
+          details: {
+            code: beatErr.code,
+            stack: beatErr.stack?.split('\n').slice(0, 3).join(' -> '),
+          },
+        });
+      }
+
       // A5 FIX: Use timestamp + crypto random for guaranteed unique IDs across concurrent workers
       const overlayId = Date.now() * 1000 + Math.floor(Math.random() * 999999);
       const bgmOverlayBase = {
@@ -255,6 +279,7 @@ async function handler(request: NextRequest) {
             platformEvidenceSource: audioPlatformEvidence.source,
             ...bgm.conditioning,
           },
+          ...(beatEvidence ? { beatGrid: beatEvidence.beatGrid } : {}),
         },
         _workerAdded: true,
       };
@@ -284,10 +309,18 @@ async function handler(request: NextRequest) {
       await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
         { assetId: bgm.audioAssetId },
         {
+          $set: {
+            cachedUrl: bgm.audioUrl,
+            lastUsedAt: new Date(),
+            ...(beatEvidence ? {
+              beatAnalysis: beatEvidence.beatAnalysis,
+              beatGrid: beatEvidence.beatGrid,
+            } : {}),
+          },
           $setOnInsert: {
             assetId: bgm.audioAssetId, userId, type: 'audio',
             filename: bgm.filename, contentType: bgm.contentType, source: 'generated',
-            gcsPath: bgm.gcsPath, cachedUrl: bgm.audioUrl,
+            gcsPath: bgm.gcsPath,
             urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
             size: bgm.buffer.length, durationMs: bgm.durationMs,
             metadata: {
@@ -305,66 +338,40 @@ async function handler(request: NextRequest) {
 
       console.log(`[AudioWorker] BGM complete: ${bgm.audioAssetId} (${Date.now() - startMs}ms)`);
       
-      // Phase A10 FIX: Use the alignCutsToBeats function as part of the "pipeline flow".
-      // This automatically snaps script-driven montage sub-shots to the beats of the 
-      // newly generated BGM.
-      try {
-        console.log(`[AudioWorker] Starting automatic beat alignment for montages...`);
-        // OLD: node-web-audio-api AudioContext — requires libasound.so.2 (ALSA) which
-        // doesn't exist on Vercel serverless. Crashed with:
-        //   "libasound.so.2: cannot open shared object file: No such file or directory"
-        // NEW: audio-decode — pure WASM MP3/WAV decoder, no native dependencies.
-        // Returns AudioBuffer-compatible object (sampleRate, getChannelData, duration, length).
-        // Reuse the exact conditioned FLAC bytes returned by generation. Do not
-        // download bgm.audioUrl again just to perform beat analysis.
-        const arrayBuffer = bgm.buffer.buffer.slice(bgm.buffer.byteOffset, bgm.buffer.byteOffset + bgm.buffer.byteLength) as ArrayBuffer;
-        const decode = (await import('audio-decode')).default;
-        const decoded = await decode(arrayBuffer);
-        // Adapt audio-decode's AudioData → the duck-typed AudioBuffer shape
-        // that analyzeBeatsFull expects (sampleRate, length, numberOfChannels, getChannelData, duration).
-        const audioBuffer = {
-          sampleRate: decoded.sampleRate,
-          length: decoded.channelData[0]?.length ?? 0,
-          numberOfChannels: decoded.channelData.length,
-          getChannelData: (ch: number) => decoded.channelData[ch] ?? decoded.channelData[0],
-          duration: (decoded.channelData[0]?.length ?? 0) / decoded.sampleRate,
-        };
-
-        const beatAnalysis = await analyzeBeatsFull(audioBuffer);
-        const beatFrames = beatAnalysis.beats.map(b => ({
-          frame: Math.round((b.timeMs / 1000) * fps),
-          isDownbeat: b.isDownbeat
-        }));
-
-        // Reload project to get latest overlays (after the BGM push above)
-        const updatedProject = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId }) as any;
-        if (updatedProject && updatedProject.overlays) {
-          const snappedCount = alignCutsToBeats(updatedProject.overlays, beatFrames, fps);
-          if (snappedCount > 0) {
-            await db.collection(COLLECTIONS.PROJECTS).updateOne(
-              { projectId },
-              { 
-                $set: { 
-                  overlays: updatedProject.overlays,
-                  updatedAt: new Date() 
-                } 
-              }
+      if (beatEvidence) {
+        try {
+          console.log('[AudioWorker] Starting automatic cut alignment to analyzed beats...');
+          const updatedProject = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId }) as any;
+          if (updatedProject && updatedProject.overlays) {
+            const snappedCount = alignCutsToBeats(
+              updatedProject.overlays,
+              beatEvidence.beatGrid.beats,
+              fps,
             );
-            console.log(`[AudioWorker] Pipeline Flow: Aligned ${snappedCount} montage cuts to BGM beats`);
-          } else {
-            console.log(`[AudioWorker] Pipeline Flow: No montage cuts required alignment`);
+            if (snappedCount > 0) {
+              await db.collection(COLLECTIONS.PROJECTS).updateOne(
+                { projectId },
+                {
+                  $set: {
+                    overlays: updatedProject.overlays,
+                    updatedAt: new Date(),
+                  },
+                },
+              );
+              console.log(`[AudioWorker] Pipeline Flow: Aligned ${snappedCount} cuts to BGM beats`);
+            } else {
+              console.log('[AudioWorker] Pipeline Flow: No cuts required alignment');
+            }
           }
+        } catch (alignErr: any) {
+          console.error(`[AudioWorker] Beat alignment enhancement failed: ${alignErr.message}`);
+          warnings.add({
+            severity: 'warning',
+            phase: 'bgm',
+            message: `Beat alignment failed: ${alignErr.message}. Cuts may not sync to music beats.`,
+            details: { stack: alignErr.stack?.split('\n').slice(0, 3).join(' -> ') },
+          });
         }
-      } catch (alignErr: any) {
-        console.error(`[AudioWorker] Beat alignment enhancement failed: ${alignErr.message}`);
-        // Non-critical: worker still succeeds (BGM is already saved).
-        // But Rule 18N: fail VISIBLE — surface in project warnings so it's not invisible.
-        warnings.add({
-          severity: 'warning',
-          phase: 'bgm',
-          message: `Beat alignment failed: ${alignErr.message}. Montage cuts may not sync to music beats.`,
-          details: { stack: alignErr.stack?.split('\n').slice(0, 3).join(' → ') },
-        });
       }
 
       await persistWarnings(db, projectId, warnings);
