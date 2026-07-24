@@ -86,6 +86,28 @@ describe('chat edit rendered verification', () => {
     expect(new Set(request.modalities)).toEqual(new Set(['visual', 'audio']));
   });
 
+  it('carries an owner-reported mutation range into exact seam samples and audio windows', () => {
+    const request = buildRequest({
+      name: 'cut_section',
+      args: { startFrame: 30, endFrame: 60 },
+      target: { overlayId: 'video_1', overlayType: 'video', state: 'updated', from: 0, endFrame: 270 },
+      modalities: ['visual', 'audio'],
+      affectedFrameRange: { startFrame: 30, endFrame: 31 },
+    });
+
+    expect(request.mutationRanges).toEqual([
+      { startFrame: 30, endFrame: 31, toolName: 'cut_section' },
+    ]);
+    expect(request.sampleFrames).toEqual([29, 30, 31]);
+    expect(buildChatEditAudioVerificationWindows({
+      targets: request.targets,
+      mutationRanges: request.mutationRanges,
+      durationInFrames: 270,
+      fps: 30,
+      sampleLimit: 12,
+    })).toEqual([{ startFrame: 0, endFrame: 91 }]);
+  });
+
   it('does not broaden an explicitly visual video mutation into audio verification', () => {
     const request = buildRequest({
       name: 'apply_filter',
@@ -361,6 +383,7 @@ function buildRequest(input: {
   target: ChatEditRenderVerificationRequest['targets'][number];
   modalities: ChatEditRenderVerificationRequest['modalities'];
   projectDurationInFrames?: number;
+  affectedFrameRange?: { startFrame: number; endFrame: number };
 }) {
   return buildChatEditRenderVerificationRequest({
     transaction: {
@@ -381,6 +404,7 @@ function buildRequest(input: {
         result: JSON.stringify({
           status: 'success',
           data: {
+            ...(input.affectedFrameRange ? { affectedFrameRange: input.affectedFrameRange } : {}),
             postconditionVerification: {
               version: 'editron-chat-postcondition-v1',
               status: 'pass',

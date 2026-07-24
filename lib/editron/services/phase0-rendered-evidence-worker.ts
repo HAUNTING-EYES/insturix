@@ -54,6 +54,12 @@ export interface ChatEditRenderVerificationTarget {
   endFrame: number | null;
 }
 
+export interface ChatEditRenderVerificationMutationRange {
+  startFrame: number;
+  endFrame: number;
+  toolName: string;
+}
+
 export interface ChatEditRenderVerificationRequest {
   version: 'editron-chat-render-verification-v1';
   operationId: string;
@@ -63,6 +69,7 @@ export interface ChatEditRenderVerificationRequest {
   requestedAt: string;
   modalities: ChatEditRenderVerificationModality[];
   targets: ChatEditRenderVerificationTarget[];
+  mutationRanges?: ChatEditRenderVerificationMutationRange[];
   sampleFrames: number[];
 }
 
@@ -639,6 +646,7 @@ export async function buildChatEditRenderedAudioEvidence(
   );
   const windows = buildChatEditAudioVerificationWindows({
     targets: request.targets,
+    mutationRanges: request.mutationRanges,
     durationInFrames,
     fps,
     sampleLimit: config.sampleLimit,
@@ -757,6 +765,7 @@ export async function buildChatEditRenderedAudioEvidence(
 
 export function buildChatEditAudioVerificationWindows(input: {
   targets: ChatEditRenderVerificationTarget[];
+  mutationRanges?: ChatEditRenderVerificationMutationRange[];
   durationInFrames: number;
   fps: number;
   sampleLimit: number;
@@ -764,6 +773,21 @@ export function buildChatEditAudioVerificationWindows(input: {
   const duration = Math.max(1, Math.round(input.durationInFrames));
   const maxWindowFrames = Math.max(1, Math.round(input.fps * 6));
   const candidates: Array<{ startFrame: number; endFrame: number }> = [];
+  const mutationContextFrames = Math.max(1, Math.round(input.fps * 2));
+
+  for (const range of input.mutationRanges ?? []) {
+    const start = clampFrame(range.startFrame, duration);
+    const end = Math.max(start + 1, Math.min(duration, Math.round(range.endFrame)));
+    candidates.push({
+      startFrame: Math.max(0, start - mutationContextFrames),
+      endFrame: Math.min(duration, end + mutationContextFrames),
+    });
+  }
+
+  if (candidates.length > 0) {
+    return dedupeAudioVerificationWindows(candidates, input.sampleLimit);
+  }
+
   const audioTargets = input.targets.filter((target) =>
     ['audio', 'sound', 'video'].includes(target.overlayType.toLowerCase()),
   );
@@ -787,11 +811,18 @@ export function buildChatEditAudioVerificationWindows(input: {
   if (candidates.length === 0) {
     candidates.push({ startFrame: 0, endFrame: Math.min(duration, maxWindowFrames) });
   }
+  return dedupeAudioVerificationWindows(candidates, input.sampleLimit);
+}
+
+function dedupeAudioVerificationWindows(
+  candidates: Array<{ startFrame: number; endFrame: number }>,
+  sampleLimit: number,
+): Array<{ startFrame: number; endFrame: number }> {
   const unique = new Map<string, { startFrame: number; endFrame: number }>();
   for (const candidate of candidates) {
     unique.set(`${candidate.startFrame}:${candidate.endFrame}`, candidate);
   }
-  return Array.from(unique.values()).slice(0, Math.max(1, Math.min(12, input.sampleLimit)));
+  return Array.from(unique.values()).slice(0, Math.max(1, Math.min(12, sampleLimit)));
 }
 
 async function renderLambdaAudioWindow(input: {

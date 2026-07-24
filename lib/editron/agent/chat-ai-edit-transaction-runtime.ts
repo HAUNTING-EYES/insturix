@@ -11,6 +11,7 @@ import {
 } from '@/lib/editron/services/checkpoint-service';
 import type {
   ChatEditRenderVerificationModality,
+  ChatEditRenderVerificationMutationRange,
   ChatEditRenderVerificationRequest,
   ChatEditRenderVerificationTarget,
 } from '@/lib/editron/services/phase0-rendered-evidence-worker';
@@ -345,6 +346,7 @@ export function buildChatEditRenderVerificationRequest(input: {
   requestedAt?: string;
 }): ChatEditRenderVerificationRequest {
   const targetsByKey = new Map<string, ChatEditRenderVerificationTarget>();
+  const mutationRangesByKey = new Map<string, ChatEditRenderVerificationMutationRange>();
   const modalitySet = new Set<ChatEditRenderVerificationModality>();
 
   for (const successful of input.successfulCalls) {
@@ -354,15 +356,23 @@ export function buildChatEditRenderVerificationRequest(input: {
     for (const target of targets) {
       targetsByKey.set(`${target.overlayId}:${target.state}`, target);
     }
+    for (const range of receipt?.mutationRanges ?? []) {
+      const withOwner = { ...range, toolName: successful.call.name };
+      mutationRangesByKey.set(
+        `${withOwner.toolName}:${withOwner.startFrame}:${withOwner.endFrame}`,
+        withOwner,
+      );
+    }
     for (const modality of inferMutationModalities(successful.call, targets, receipt?.modalities)) {
       modalitySet.add(modality);
     }
   }
 
   const targets = Array.from(targetsByKey.values());
+  const mutationRanges = Array.from(mutationRangesByKey.values());
   if (modalitySet.size === 0) modalitySet.add('visual');
   const durationInFrames = Math.max(1, Math.round(finitePositiveNumber(input.project.durationInFrames) ?? 1));
-  const sampleFrames = buildVerificationSampleFrames(targets, durationInFrames);
+  const sampleFrames = buildVerificationSampleFrames(targets, durationInFrames, mutationRanges);
 
   return {
     version: 'editron-chat-render-verification-v1',
@@ -373,12 +383,14 @@ export function buildChatEditRenderVerificationRequest(input: {
     requestedAt: input.requestedAt ?? new Date().toISOString(),
     modalities: Array.from(modalitySet),
     targets,
+    ...(mutationRanges.length > 0 ? { mutationRanges } : {}),
     sampleFrames,
   };
 }
 
 function readPassedPostconditionReceipt(result: unknown): {
   targets: ChatEditRenderVerificationTarget[];
+  mutationRanges: Array<Omit<ChatEditRenderVerificationMutationRange, 'toolName'>>;
   modalities: ChatEditRenderVerificationModality[];
   required: boolean;
 } | null {
@@ -409,8 +421,20 @@ function readPassedPostconditionReceipt(result: unknown): {
         (value): value is ChatEditRenderVerificationModality => value === 'visual' || value === 'audio',
       )
     : [];
+  const mutationRanges = [
+    data.affectedFrameRange,
+    ...(Array.isArray(data.affectedFrameRanges) ? data.affectedFrameRanges : []),
+    ...(Array.isArray(receipt.affectedFrameRanges) ? receipt.affectedFrameRanges : []),
+  ].flatMap((value) => {
+    const range = asRecord(value);
+    const startFrame = finiteNumberOrNull(range.startFrame);
+    const endFrame = finiteNumberOrNull(range.endFrame);
+    if (startFrame == null || endFrame == null || endFrame <= startFrame) return [];
+    return [{ startFrame: Math.round(startFrame), endFrame: Math.round(endFrame) }];
+  });
   return {
     targets,
+    mutationRanges,
     modalities,
     required: renderVerification.required !== false,
   };
@@ -482,6 +506,7 @@ export function buildChatEditRenderVerificationStatusMessage(result: {
 function buildVerificationSampleFrames(
   targets: ChatEditRenderVerificationTarget[],
   projectDurationInFrames: number,
+  mutationRanges: ChatEditRenderVerificationMutationRange[] = [],
 ): number[] {
   const targetDurationInFrames = targets.reduce((maximum, target) => Math.max(
     maximum,
@@ -490,6 +515,19 @@ function buildVerificationSampleFrames(
   ), 0);
   const durationInFrames = Math.max(1, projectDurationInFrames, targetDurationInFrames);
   const frames: number[] = [];
+  for (const range of mutationRanges) {
+    const start = clampFrame(range.startFrame, durationInFrames);
+    const end = clampFrame(Math.max(range.startFrame, range.endFrame - 1), durationInFrames);
+    frames.push(
+      clampFrame(start - 1, durationInFrames),
+      start,
+      clampFrame(end + 1, durationInFrames),
+    );
+  }
+  if (frames.length > 0) {
+    return Array.from(new Set(frames)).slice(0, 12);
+  }
+
   for (const target of targets) {
     if (target.from == null) continue;
     const start = clampFrame(target.from, durationInFrames);
