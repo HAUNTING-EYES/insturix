@@ -418,16 +418,47 @@ describe('chat AI edit transaction runtime', () => {
       ],
     }, { checkpointStore: store, loadProject: store.loadProject });
 
+    // KEEP-BEST (founder-ruled after the C1 matrix): the parsed-envelope failure
+    // no longer destroys the verified sibling success. The batch COMMITS, keeps
+    // the successful edit, and reports the failure.
     expect(result).toMatchObject({
-      status: 'rolled-back',
-      mutatingToolNames: ['update_overlay', 'delete_overlay'],
+      status: 'created',
+      mutatingToolNames: ['update_overlay'],
       failedToolNames: ['delete_overlay'],
     });
-    const restored = captureRestorableProjectState(store.project);
-    expect(projectStateFingerprint(restored)).toBe(
+    expect(store.events).not.toContain('restore');
+    const kept = captureRestorableProjectState(store.project);
+    expect(projectStateFingerprint(kept)).not.toBe(
       projectStateFingerprint(captureRestorableProjectState(ORIGINAL_PROJECT)),
     );
-    expect(store.events).toEqual(['claim', 'restore', 'status:rolled-back']);
+  });
+
+  it('recovers ANY failure kind when a later same-tool call succeeds (C1: add_captions retry)', async () => {
+    const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
+    const ready = await prepare(store, 'chatop_retryrecover');
+    store.project.overlays = [{ ...ORIGINAL_PROJECT.overlays[0], content: 'captions added' }];
+
+    const result = await completeChatAiEditTransaction({
+      transaction: ready.transaction!,
+      toolCalls: [
+        { id: 'call_1', name: 'add_captions' },
+        { id: 'call_2', name: 'add_captions' },
+      ],
+      toolResults: [
+        // Attempt 1: a real-world TOOL_HANDLER_ERROR (pre-flight guard) — the exact
+        // shape that used to be unforgivable and rolled back the successful retry.
+        { toolCallId: 'call_1', toolName: 'add_captions', result: JSON.stringify({ status: 'error', error: { code: 'TOOL_HANDLER_ERROR', message: 'Valid video overlay with asset not found' } }) },
+        { toolCallId: 'call_2', toolName: 'add_captions', result: '{"status":"success"}' },
+      ],
+    }, { checkpointStore: store, loadProject: store.loadProject });
+
+    expect(result).toMatchObject({
+      status: 'created',
+      mutatingToolNames: ['add_captions'],
+      failedToolNames: [],
+      recoveredInputToolNames: ['add_captions'],
+    });
+    expect(store.events).not.toContain('restore');
   });
 
   it('treats a missing mutating result as failure and reports a failed rollback loudly', async () => {

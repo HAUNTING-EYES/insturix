@@ -523,8 +523,17 @@ export async function POST(req: NextRequest) {
         if (editTransactionSummary.status === 'failed') {
           throw new Error(`AI edit rollback failed: ${editTransactionSummary.error ?? 'unknown error'}`);
         }
+        // ROLLED-BACK is a safe, user-explainable outcome — the project was
+        // restored untouched. Throwing here used to skip BOTH the SSE reply and
+        // saveMessage, so the user got an EMPTY response (C1 matrix: every
+        // rollback turn). Tell them what happened instead.
         if (editTransactionSummary.status === 'rolled-back') {
-          throw new Error(`AI edit was rolled back: ${editTransactionSummary.error ?? 'a mutating tool failed'}`);
+          const failedNames = editTransactionSummary.failedToolNames.join(', ') || 'the requested edit';
+          finalResponse = [
+            `I couldn't complete this edit — ${failedNames} failed, so I restored your project to exactly how it was before I started. Nothing was changed.`,
+            editTransactionSummary.error ? `Reason: ${editTransactionSummary.error}` : '',
+            'You can try rephrasing the request, or ask me to try a different approach.',
+          ].filter(Boolean).join('\n\n');
         }
 
         let renderVerificationDispatch: { dispatched: boolean; reason?: string; messageId?: string } | undefined;
@@ -562,6 +571,21 @@ export async function POST(req: NextRequest) {
             });
           }
           persistedResponse = buildChatEditRenderVerificationStatusMessage(renderVerificationDispatch);
+        }
+        // KEEP-BEST: a committed batch can now carry reported failures — say so
+        // instead of implying everything applied.
+        if (editTransactionSummary.status === 'created' && editTransactionSummary.failedToolNames.length > 0) {
+          persistedResponse = [
+            persistedResponse,
+            `Note: ${editTransactionSummary.mutatingToolNames.join(', ')} applied successfully, but ${editTransactionSummary.failedToolNames.join(', ')} failed and was not applied. The successful edits were kept.`,
+          ].filter(Boolean).join('\n\n');
+        }
+        // A turn must NEVER end with an empty reply (C1 matrix: silent deaths
+        // after tool spirals). Synthesize an honest minimum from the outcome.
+        if (!persistedResponse || !persistedResponse.trim()) {
+          persistedResponse = editTransactionSummary.status === 'created'
+            ? `Done — applied: ${editTransactionSummary.mutatingToolNames.join(', ')}.`
+            : 'I looked into this but could not complete an edit this turn. Nothing was changed — tell me how you would like to proceed.';
         }
         if (mutatingToolStarted) {
           await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: persistedResponse })}\n\n`));

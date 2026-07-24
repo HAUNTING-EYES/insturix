@@ -160,7 +160,20 @@ export async function completeChatAiEditTransaction(
     return summary(input.transaction, 'not-needed', [], [], undefined);
   }
 
-  if (batch.failedToolNames.length > 0) {
+  // KEEP-BEST (founder-ruled after the C1 matrix wiped 3 verified edits over one
+  // failed sibling): a failure only forces a full rollback when the project state
+  // is genuinely unknown — a 'missing' result (tool started, never completed) —
+  // or when NOTHING succeeded (rollback is then a free safety belt over an
+  // unchanged project). Failures that returned a parsed error envelope are the
+  // tool's own declaration that it did not deliver; verified sibling successes
+  // are kept and the failures are reported, not silently destroyed.
+  const missingOutcomeToolNames = batch.failedToolNames.filter(
+    (name) => !batch.unrecoveredParsedFailureToolNames.includes(name),
+  );
+  const keepBest = batch.failedToolNames.length > 0
+    && missingOutcomeToolNames.length === 0
+    && batch.successfulToolNames.length > 0;
+  if (batch.failedToolNames.length > 0 && !keepBest) {
     return rollbackChatAiEditTransaction({
       transaction: input.transaction,
       mutatingToolNames: batch.attemptedToolNames,
@@ -209,7 +222,10 @@ export async function completeChatAiEditTransaction(
       input.transaction,
       'created',
       batch.successfulToolNames,
-      [],
+      // Keep-best: parsed-envelope failures that survived recovery are REPORTED
+      // on the committed summary so the route can tell the user what applied
+      // and what failed — instead of destroying the verified work.
+      batch.failedToolNames,
       afterCheckpoint.checkpointId,
       undefined,
       renderVerification,
@@ -302,21 +318,26 @@ function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiT
   const recoveredInputToolNames: string[] = [];
   const recoveredPreconditionToolNames: string[] = [];
   const failedToolNames: string[] = [];
+  // Failures that returned a PARSED error envelope (the tool self-reported not
+  // delivering). 'missing' outcomes (started, never completed = unknown state)
+  // are deliberately NOT in this list — they always force a full rollback.
+  const unrecoveredParsedFailureToolNames: string[] = [];
   classifiedCalls.forEach((entry, index) => {
     if (entry.outcome === 'missing') {
       failedToolNames.push(entry.call.name);
       return;
     }
     if (entry.outcome.status !== 'failed') return;
-    const hasLaterSuccessfulRetry = (
-      entry.outcome.failureKind === 'input-validation'
-      || entry.outcome.failureKind === 'precondition'
-    )
-      && classifiedCalls.slice(index + 1).some((candidate) =>
-        candidate.call.name === entry.call.name
-        && candidate.outcome !== 'missing'
-        && candidate.outcome.status === 'success',
-      );
+    // A later SUCCESSFUL call of the same tool recovers the failed attempt for
+    // EVERY failure kind, not only schema/evidence rejections: the tool's error
+    // envelope is its own declaration that it did not deliver, and the retry's
+    // passed postcondition validated the final state. Rolling back a verified
+    // retry destroyed real work live (C1: add_captions, reorder_layer).
+    const hasLaterSuccessfulRetry = classifiedCalls.slice(index + 1).some((candidate) =>
+      candidate.call.name === entry.call.name
+      && candidate.outcome !== 'missing'
+      && candidate.outcome.status === 'success',
+    );
     if (hasLaterSuccessfulRetry) {
       if (entry.outcome.failureKind === 'precondition') {
         recoveredPreconditionToolNames.push(entry.call.name);
@@ -326,6 +347,7 @@ function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiT
       return;
     }
     failedToolNames.push(entry.call.name);
+    unrecoveredParsedFailureToolNames.push(entry.call.name);
   });
 
   return {
@@ -334,6 +356,7 @@ function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiT
     failedToolNames: unique(failedToolNames),
     recoveredInputToolNames: unique(recoveredInputToolNames),
     recoveredPreconditionToolNames: unique(recoveredPreconditionToolNames),
+    unrecoveredParsedFailureToolNames: unique(unrecoveredParsedFailureToolNames),
     successfulCalls,
   };
 }
