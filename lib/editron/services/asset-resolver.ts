@@ -262,7 +262,8 @@ export class AssetResolver {
         // Worker — the Worker only serves R2 objects, not GCS.
         const isGcsOnly = !!asset.gcsPath && !asset.r2Key && !asset.cachedUrl?.includes(cdnBaseUrl);
         if (cdnBaseUrl && asset.assetId && !isGcsOnly) {
-          assetMap.set(asset.assetId, `${cdnBaseUrl}/asset/${asset.assetId}`);
+          const storageKey = asset.r2Key?.trim() || asset.assetId;
+          assetMap.set(asset.assetId, `${cdnBaseUrl}/asset/${storageKey}`);
           console.log(`[AssetResolver] ${asset.assetId}: CDN proxy URL`);
         } else if (cdnBaseUrl && asset.cachedUrl && !asset.cachedUrl.includes('storage.googleapis.com')) {
           assetMap.set(asset.assetId, asset.cachedUrl);
