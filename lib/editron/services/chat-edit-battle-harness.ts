@@ -515,7 +515,9 @@ export function evaluateChatEditBattleJourney(input: {
 
   const renderFresh = isFreshTimestamp(input.renderEvidence.capturedAt, input.startedAt);
   const renderStatus: ChatBattleStatus = input.scenario.requireRenderedEvidence
-    ? input.renderEvidence.status === 'pass' && renderFresh ? 'pass' : 'fail'
+    ? !renderFresh || input.renderEvidence.status === 'missing' || input.renderEvidence.status === 'fail'
+      ? 'fail'
+      : input.renderEvidence.status
     : input.renderEvidence.status === 'fail' ? 'warn' : 'pass';
   checks.push(check(
     'render.fresh-evidence',

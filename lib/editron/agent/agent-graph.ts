@@ -124,6 +124,15 @@ export function normalizeAgentToolArgs(
   }
 
   const args = { ...(input as Record<string, unknown>) };
+  if (
+    toolName === 'add_overlay'
+    && args.type === undefined
+    && typeof args.text === 'string'
+    && args.text.trim().length > 0
+  ) {
+    args.type = 'text';
+  }
+
   if (toolName === 'read_project_file') {
     const mode = typeof args.mode === 'string' ? args.mode : 'full';
     if (mode === 'full') {

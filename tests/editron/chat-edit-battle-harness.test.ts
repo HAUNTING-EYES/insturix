@@ -909,6 +909,45 @@ describe('chat edit battle harness', () => {
     expect(report.checks.find((check) => check.id === 'render.fresh-evidence')).toMatchObject({ status: 'fail' });
   });
 
+  it('preserves a fresh rendered warning without failing a successful edit', () => {
+    const scenario = getChatEditBattleScenario('explicit-text')!;
+    const beforeProject = project([]);
+    const afterProject = project([{
+      id: 'title-1',
+      type: 'text',
+      content: 'Launch day',
+      from: 0,
+      durationInFrames: 90,
+      row: 0,
+    }]);
+    const report = evaluateChatEditBattleJourney({
+      journeyId: 'fresh-render-warning',
+      scenario,
+      projectId: 'proj_battle',
+      startedAt: '2026-07-16T10:00:00.000Z',
+      completedAt: '2026-07-16T10:00:01.000Z',
+      invocation: invocation('explicit-text', [
+        { id: 'read', name: 'read_project_file', args: {}, startedAt: '2026-07-16T10:00:00.100Z', completedAt: '2026-07-16T10:00:00.200Z', output: successEnvelope() },
+        { id: 'add', name: 'add_overlay', args: { type: 'text' }, startedAt: '2026-07-16T10:00:00.300Z', completedAt: '2026-07-16T10:00:00.400Z', output: successEnvelope() },
+      ]),
+      mongoBefore: buildChatBattleProjectSnapshot(beforeProject, 'mongo-before', '2026-07-16T10:00:00.000Z'),
+      mongoAfter: buildChatBattleProjectSnapshot(afterProject, 'mongo-after', '2026-07-16T10:00:01.000Z'),
+      uiReload: buildChatBattleProjectSnapshot(afterProject, 'ui-reload', '2026-07-16T10:00:01.000Z'),
+      renderEvidence: {
+        status: 'warn',
+        capturedAt: '2026-07-16T10:00:00.900Z',
+        artifactRefs: ['artifact://title.png'],
+        issues: [{ code: 'title_safe_overflow', severity: 'warn' }],
+      },
+    });
+
+    expect(report.verdict).toBe('warn');
+    expect(report.checks.find((check) => check.id === 'render.fresh-evidence')).toMatchObject({
+      status: 'warn',
+      blocking: true,
+    });
+  });
+
   it('recognizes advisory tool results as deterministic envelopes without treating them as mutations', () => {
     const scenario = getChatEditBattleScenario('selected-overlay-edit')!;
     const unchangedProject = project([{ id: 'title-1', type: 'text', content: 'Title', from: 0, durationInFrames: 90 }]);

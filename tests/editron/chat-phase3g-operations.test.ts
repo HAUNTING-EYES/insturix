@@ -124,6 +124,25 @@ describe('chat Phase 3G operation contracts', () => {
       },
     });
 
+    expect(normalizeAgentToolArgs('add_overlay', {
+      text: 'Launch day',
+    })).toEqual({
+      text: 'Launch day',
+      type: 'text',
+    });
+    expect(normalizeAgentToolArgs('add_overlay', {
+      text: '   ',
+    })).toEqual({
+      text: '   ',
+    });
+    expect(normalizeAgentToolArgs('add_overlay', {
+      type: 'image',
+      text: 'Poster alt text',
+    })).toEqual({
+      type: 'image',
+      text: 'Poster alt text',
+    });
+
     const routeSource = readFileSync(join(
       process.cwd(),
       'app/api/services/editron/chat/stream/route.ts',
