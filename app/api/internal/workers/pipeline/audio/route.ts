@@ -12,7 +12,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
-import { generateBackgroundMusic, buildMusicPrompt } from '@/lib/pipeline/bgm-service';
+import { generateBackgroundMusic } from '@/lib/pipeline/bgm-service';
+import {
+  assertConditionedBGMResult,
+  resolveAudioPlatformEvidence,
+} from '@/lib/pipeline/bgm-conditioning-contract';
 import { ROW, alignCutsToBeats } from '@/lib/pipeline/scene-to-editron';
 import { generateSFXForScenes } from '@/lib/pipeline/sfx-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
@@ -59,6 +63,7 @@ interface AudioWorkerPayload {
   totalDurationSec?: number;
   totalFrames?: number;
   fps?: number;
+  platform?: string | null;
   // Signal-driven BGM mix levels (bgm-mix-levels.ts, CKG-bounded). Absent → DEFAULT_BGM_MIX_LEVELS.
   bgmBaseVolume?: number;
   bgmDuckLevel?: number;
@@ -109,9 +114,23 @@ async function handler(request: NextRequest) {
         return NextResponse.json({ success: false, error: 'Missing BGM fields' }, { status: 400 });
       }
 
+      const audioPlatformEvidence = resolveAudioPlatformEvidence([
+        { value: payload.platform, source: 'audio-worker-payload.platform' },
+        { value: project.productionBrief?.output?.platform, source: 'project.productionBrief.output.platform' },
+        { value: project.syntheticStoryboard?.platform, source: 'project.syntheticStoryboard.platform' },
+        { value: project.platform, source: 'project.platform' },
+      ]);
+
       let bgm;
       try {
-        bgm = await generateBackgroundMusic(musicPrompt, userId, totalDurationSec);
+        bgm = await generateBackgroundMusic(musicPrompt, userId, totalDurationSec, {
+          conditioning: {
+            targetFrames: totalFrames,
+            fps,
+            platform: audioPlatformEvidence.platform,
+          },
+        });
+        assertConditionedBGMResult(bgm, totalFrames, audioPlatformEvidence.platform);
       } catch (bgmErr: any) {
         warnings.errorSwallowed('bgm', bgmErr, `CassetteAI BGM generation for "${musicPrompt.substring(0, 60)}"`);
         await persistWarnings(db, projectId, warnings);
@@ -145,6 +164,14 @@ async function handler(request: NextRequest) {
             lookAheadMs: 200,
           },
         },
+        metadata: {
+          source: 'audio-worker',
+          audioConditioning: {
+            requestedPlatform: audioPlatformEvidence.platform,
+            platformEvidenceSource: audioPlatformEvidence.source,
+            ...bgm.conditioning,
+          },
+        },
       };
 
       // F6.6 FIX: Push to overlays AND mark as worker-added.
@@ -165,10 +192,18 @@ async function handler(request: NextRequest) {
         {
           $setOnInsert: {
             assetId: bgm.audioAssetId, userId, type: 'audio',
-            filename: `${bgm.audioAssetId}.mp3`, source: 'user-upload',
+            filename: bgm.filename, contentType: bgm.contentType, source: 'generated',
             gcsPath: bgm.gcsPath, cachedUrl: bgm.audioUrl,
             urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-            size: 0, uploadedAt: new Date(),
+            size: bgm.buffer.length, durationMs: bgm.durationMs,
+            metadata: {
+              audioConditioning: {
+                requestedPlatform: audioPlatformEvidence.platform,
+                platformEvidenceSource: audioPlatformEvidence.source,
+                ...bgm.conditioning,
+              },
+            },
+            uploadedAt: new Date(),
           },
         },
         { upsert: true },
@@ -186,7 +221,8 @@ async function handler(request: NextRequest) {
         //   "libasound.so.2: cannot open shared object file: No such file or directory"
         // NEW: audio-decode — pure WASM MP3/WAV decoder, no native dependencies.
         // Returns AudioBuffer-compatible object (sampleRate, getChannelData, duration, length).
-        if (!bgm.buffer) throw new Error('No audio buffer returned from BGM generation');
+        // Reuse the exact conditioned FLAC bytes returned by generation. Do not
+        // download bgm.audioUrl again just to perform beat analysis.
         const arrayBuffer = bgm.buffer.buffer.slice(bgm.buffer.byteOffset, bgm.buffer.byteOffset + bgm.buffer.byteLength) as ArrayBuffer;
         const decode = (await import('audio-decode')).default;
         const decoded = await decode(arrayBuffer);

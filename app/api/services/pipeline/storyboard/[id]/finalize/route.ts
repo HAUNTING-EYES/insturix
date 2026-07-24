@@ -7,6 +7,10 @@ import { CreditsService } from '@/lib/services/creditsService';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import type { Storyboard } from '@/lib/pipeline/schemas/storyboard';
 import { buildMusicPrompt, isBGMAvailable } from '@/lib/pipeline/bgm-service';
+import {
+  assertConditionedBGMResult,
+  resolveAudioPlatformEvidence,
+} from '@/lib/pipeline/bgm-conditioning-contract';
 import { dispatchAudioJob } from '@/lib/editron/services/audio-worker-dispatch';
 import { isSFXAvailable } from '@/lib/pipeline/sfx-service';
 import { applyEditDirections } from '@/lib/pipeline/edit-direction-applier';
@@ -217,6 +221,18 @@ export async function POST(
     if (!storyboard) {
       return NextResponse.json({ error: 'Storyboard not found' }, { status: 404 });
     }
+
+    const briefSnapshot = storyboard.productionManifest?.thinkforgeContext?.briefSnapshot;
+    const briefOutput = briefSnapshot && typeof briefSnapshot.output === 'object' && briefSnapshot.output !== null
+      ? briefSnapshot.output as Record<string, unknown>
+      : undefined;
+    const audioPlatformEvidence = resolveAudioPlatformEvidence([
+      {
+        value: briefOutput?.platform,
+        source: 'storyboard.productionManifest.thinkforgeContext.briefSnapshot.output.platform',
+      },
+      { value: (storyboard as any).platform, source: 'storyboard.platform' },
+    ]);
 
     const coverageIssue = resolveProductionCoverageIssue(storyboard, {
       requireVideoCoverage: requireVideoCoverage !== false,
@@ -1074,11 +1090,18 @@ export async function POST(
           );
           const { generateBackgroundMusic } = await import('@/lib/pipeline/bgm-service');
           const bgm = await Promise.race([
-            generateBackgroundMusic(musicPrompt, userId, totalDurationSec),
+            generateBackgroundMusic(musicPrompt, userId, totalDurationSec, {
+              conditioning: {
+                targetFrames: currentFrame,
+                fps,
+                platform: audioPlatformEvidence.platform,
+              },
+            }),
             new Promise<never>((_, reject) =>
               setTimeout(() => reject(new Error('BGM sync timeout (120s)')), 120_000),
             ),
           ]);
+          assertConditionedBGMResult(bgm, currentFrame, audioPlatformEvidence.platform);
 
           // Detect beats (heuristic from BPM — upgrade path to audio analysis
           // documented in beat-detection-service.ts header).
@@ -1104,7 +1127,7 @@ export async function POST(
           // so downstream Director + editor treat it identically to async-generated BGM.
           // Beat grid stored on overlay metadata so Director reads from the BGM source itself.
           const bgmOverlayId = Date.now() * 1000 + Math.floor(Math.random() * 999999);
-          overlays.push({
+          const bgmOverlay = {
             id: bgmOverlayId,
             type: 'sound',
             from: 0,
@@ -1132,8 +1155,14 @@ export async function POST(
               source: 'finalize-sync-beat-sync',
               beatSyncActive: true,
               beatGrid,
+              audioConditioning: {
+                requestedPlatform: audioPlatformEvidence.platform,
+                platformEvidenceSource: audioPlatformEvidence.source,
+                ...bgm.conditioning,
+              },
             },
-          } as any);
+            _workerAdded: true,
+          } as any;
 
           // Register asset (same as audio worker does after generation)
           await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
@@ -1143,17 +1172,35 @@ export async function POST(
                 assetId: bgm.audioAssetId,
                 userId,
                 type: 'audio',
-                filename: `${bgm.audioAssetId}.mp3`,
-                source: 'user-upload',
+                filename: bgm.filename,
+                contentType: bgm.contentType,
+                source: 'generated',
                 gcsPath: bgm.gcsPath,
                 cachedUrl: bgm.audioUrl,
                 urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-                size: 0,
+                size: bgm.buffer.length,
+                durationMs: bgm.durationMs,
+                metadata: {
+                  audioConditioning: {
+                    requestedPlatform: audioPlatformEvidence.platform,
+                    platformEvidenceSource: audioPlatformEvidence.source,
+                    ...bgm.conditioning,
+                  },
+                },
                 uploadedAt: new Date(),
               },
             },
             { upsert: true },
           );
+
+          await db.collection(COLLECTIONS.PROJECTS).updateOne(
+            { projectId: project.projectId },
+            {
+              $push: { overlays: bgmOverlay },
+              $set: { updatedAt: new Date() },
+            },
+          );
+          overlays.push(bgmOverlay);
 
           bgmSyncCompleted = true;
           console.log(`[Finalize] Sync BGM + beat grid ready for Director`);
@@ -1201,6 +1248,7 @@ export async function POST(
           totalDurationSec,
           totalFrames: currentFrame,
           fps,
+          platform: audioPlatformEvidence.platform,
         }, 'BGM');
         if (!bgmDispatch.dispatched) {
           await refundPipelineAudioCredits(userId, bgmCreditCharge, 'BGM dispatch failed before worker execution');
