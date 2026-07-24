@@ -5226,10 +5226,54 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           return errorEnvelope('The project has no renderable duration, so its music cannot be replaced safely.', 'BGM_INVALID_PROJECT_DURATION', { totalFrames }, 'stop');
         }
         const totalDurationSec = Math.max(1, Math.ceil(totalFrames / fps));
+        const expectedProjectRevision = projectPolicyRecord.updatedAt;
+        if (!(expectedProjectRevision instanceof Date) || Number.isNaN(expectedProjectRevision.getTime())) {
+          return errorEnvelope(
+            'The project revision is missing, so background music cannot be replaced without risking a concurrent edit.',
+            'BGM_PROJECT_REVISION_MISSING',
+            {},
+            'stop',
+          );
+        }
 
         const bgmOverlays = overlays.filter((o: any) => o.type === 'sound' && o.row === ROW.BGM);
         const nonBgmOverlays = overlays.filter((overlay: any) => !bgmOverlays.includes(overlay));
-        const pendingBgmId = bgmOverlays[0]?.id ?? (Date.now() + Math.floor(Math.random() * 100000));
+        const {
+          buildMusicCoverageOverlays,
+          resolveRuntimeMusicCoveragePlan,
+        } = await import('@/lib/editron/services/music-coverage-runtime');
+        const storedCoveragePlan = projectPolicyRecord.musicCoveragePlan;
+        const preserveStoredCoverage = storedCoveragePlan?.mode === 'full' || storedCoveragePlan?.mode === 'sections';
+        const musicCoveragePlan = resolveRuntimeMusicCoveragePlan({
+          totalFrames,
+          fps,
+          project,
+          overlays,
+          musicPreference: musicGenerationPolicy.musicPreference,
+          precomputedPlan: preserveStoredCoverage ? storedCoveragePlan : undefined,
+          authoredMusicIntent: preserveStoredCoverage
+            ? null
+            : { coverage: 'full', source: 'chat.regenerate_bgm' },
+        });
+        if (musicCoveragePlan.mode === 'none') {
+          return errorEnvelope(
+            'The project music coverage plan does not license any replacement sections.',
+            'BGM_COVERAGE_NONE',
+            { musicCoveragePlan },
+            'stop',
+          );
+        }
+        const reusableBgmIds = bgmOverlays
+          .map((overlay: any) => Number(overlay.id))
+          .filter((id: number) => Number.isSafeInteger(id));
+        let nextOverlayId = Math.max(
+          Date.now(),
+          ...overlays.map((overlay: any) => Number(overlay.id)).filter((id: number) => Number.isSafeInteger(id)),
+        );
+        const replacementIds = musicCoveragePlan.sections.map(
+          (_section, index) => reusableBgmIds[index] ?? ++nextOverlayId,
+        );
+        const pendingBgmId = replacementIds[0];
         const policyProbe = applyAudioDuckingToProject({
           ...project,
           overlays: [
@@ -5350,7 +5394,60 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           ...conditioning,
         };
 
-        const replacementCandidate: any = {
+        const beatRealignEnabled = (
+          process.env.EDITRON_MUSIC_CHANGE_BEAT_REALIGN === 'true'
+          || projectPolicyRecord.featureFlags?.musicChangeBeatRealign === true
+        );
+        let beatAnalysis: any = null;
+        let beatGrid: any = null;
+        if (beatRealignEnabled) {
+          const arrayBuffer = bgm.buffer.buffer.slice(
+            bgm.buffer.byteOffset,
+            bgm.buffer.byteOffset + bgm.buffer.byteLength,
+          ) as ArrayBuffer;
+          const decode = (await import('audio-decode')).default;
+          const decoded = await decode(arrayBuffer);
+          const channelLength = decoded.channelData[0]?.length ?? 0;
+          if (!Number.isFinite(decoded.sampleRate) || decoded.sampleRate <= 0 || channelLength <= 0) {
+            throw new Error('Conditioned BGM could not be decoded for beat realignment');
+          }
+          const { analyzeBeatsFull } = await import('@/lib/editron/services/media/beat-detection-service');
+          beatAnalysis = await analyzeBeatsFull({
+            sampleRate: decoded.sampleRate,
+            length: channelLength,
+            numberOfChannels: decoded.channelData.length,
+            getChannelData: (channel: number) => decoded.channelData[channel] ?? decoded.channelData[0],
+            duration: channelLength / decoded.sampleRate,
+          });
+          if (!Array.isArray(beatAnalysis.beats) || beatAnalysis.beats.length === 0) {
+            throw new Error('Conditioned BGM produced no usable beat grid');
+          }
+          const beats = beatAnalysis.beats.map((beat: any) => ({
+            frame: Math.round((beat.timeMs / 1000) * fps),
+            isDownbeat: beat.isDownbeat === true,
+          }));
+          if (
+            !Number.isFinite(beatAnalysis.bpm)
+            || beatAnalysis.bpm <= 0
+            || beats.some((beat: any) => (
+              !Number.isSafeInteger(beat.frame)
+              || beat.frame < 0
+              || beat.frame >= totalFrames
+            ))
+          ) {
+            throw new Error('Conditioned BGM produced an invalid beat grid');
+          }
+          beatGrid = {
+            bpm: beatAnalysis.bpm,
+            bpmConfidence: beatAnalysis.bpmConfidence,
+            beats,
+            downbeats: beats.filter((beat: any) => beat.isDownbeat).map((beat: any) => beat.frame),
+            firstBeatOffsetFrames: beats[0]?.frame ?? 0,
+            source: 'audio-analysis',
+          };
+        }
+
+        const replacementBase: any = {
           ...(bgmOverlays[0] || {}),
           id: pendingBgmId,
           type: 'sound',
@@ -5373,29 +5470,55 @@ NEVER ask the user which clips — default to applyToAll: true.`,
             opacity: 1,
             animation: { exit: 'fade', duration: 1 },
           },
+          metadata: {
+            ...(bgmOverlays[0]?.metadata || {}),
+            ...(beatGrid ? { beatGrid } : {}),
+          },
+          _workerAdded: true,
         };
+        const replacementCandidates = buildMusicCoverageOverlays({
+          baseOverlay: replacementBase,
+          plan: musicCoveragePlan,
+          totalFrames,
+          idFactory: sectionIndex => replacementIds[sectionIndex],
+        });
         const mixPlan = applyAudioDuckingToProject({
           ...project,
-          overlays: [...nonBgmOverlays, replacementCandidate],
+          overlays: [...nonBgmOverlays, ...replacementCandidates],
         });
-        const mixUpdate = mixPlan.updates.find((update) => update.overlayId === pendingBgmId);
-        replacementCandidate.styles = mixUpdate?.nextStyles || replacementCandidate.styles;
-        replacementCandidate.metadata = {
-          ...(bgmOverlays[0]?.metadata || {}),
-          audioPolicyEvidence: {
-            version: 'chat-bgm-replacement-v2',
-            intentSource: explicitDirection ? 'user-prompt-and-mood' : 'user-mood',
-            contextSources,
-            generatedPrompt: musicPrompt,
-            mixOwner: 'applyAudioDuckingToProject',
-            duckingConfig: mixPlan.config,
-            speechEvidenceCount: mixPlan.speechEvidenceCount,
-            voiceSourceOverlayIds: mixPlan.voiceSourceOverlayIds,
-            warnings: mixPlan.warnings,
-            audioConditioningEvidence,
-            generatedAt: new Date().toISOString(),
-          },
-        };
+        const generatedAt = new Date().toISOString();
+        for (const replacementCandidate of replacementCandidates) {
+          const mixUpdate = mixPlan.updates.find((update) => update.overlayId === replacementCandidate.id);
+          replacementCandidate.styles = mixUpdate?.nextStyles || replacementCandidate.styles;
+          replacementCandidate.metadata = {
+            ...(replacementCandidate.metadata || {}),
+            audioPolicyEvidence: {
+              version: 'chat-bgm-replacement-v3',
+              intentSource: explicitDirection ? 'user-prompt-and-mood' : 'user-mood',
+              contextSources,
+              generatedPrompt: musicPrompt,
+              mixOwner: 'applyAudioDuckingToProject',
+              duckingConfig: mixPlan.config,
+              speechEvidenceCount: mixPlan.speechEvidenceCount,
+              voiceSourceOverlayIds: mixPlan.voiceSourceOverlayIds,
+              warnings: mixPlan.warnings,
+              audioConditioningEvidence,
+              generatedAt,
+            },
+          };
+        }
+        const replacementIndex = overlays.findIndex((overlay: any) => bgmOverlays.includes(overlay));
+        const nextOverlays = overlays.flatMap((overlay: any, index: number) => {
+          if (!bgmOverlays.includes(overlay)) return [overlay];
+          return index === replacementIndex ? replacementCandidates : [];
+        });
+        if (replacementIndex < 0) nextOverlays.push(...replacementCandidates);
+
+        let snappedCutCount = 0;
+        if (beatGrid) {
+          const { alignCutsToBeats } = await import('@/lib/pipeline/scene-to-editron');
+          snappedCutCount = alignCutsToBeats(nextOverlays, beatGrid.beats, fps);
+        }
 
         const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
@@ -5403,7 +5526,11 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
           { assetId: bgm.audioAssetId, userId },
           {
-            $set: { cachedUrl: generatedUrl, lastUsedAt: now },
+            $set: {
+              cachedUrl: generatedUrl,
+              lastUsedAt: now,
+              ...(beatAnalysis ? { beatAnalysis } : {}),
+            },
             $setOnInsert: {
               assetId: bgm.audioAssetId,
               userId,
@@ -5424,35 +5551,74 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         );
 
         const replacedInPlace = bgmOverlays.length > 0;
-        if (replacedInPlace) {
-          await projectService.updateOverlay(userId, projectId, pendingBgmId, replacementCandidate);
-        } else {
-          await projectService.addOverlay(userId, projectId, replacementCandidate);
+        const committed = await projectService.replaceOverlayFamilyAtomic(userId, projectId, {
+          expectedUpdatedAt: expectedProjectRevision,
+          overlays: nextOverlays,
+          projectUpdates: {
+            musicCoveragePlan,
+            'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
+            'intelligence.audio.lastMusicChange': {
+              version: 'chat-music-change-v1',
+              assetId: bgm.audioAssetId,
+              replacementOverlayIds: replacementIds,
+              beatRealignEnabled,
+              snappedCutCount,
+              beatCount: beatGrid?.beats.length ?? 0,
+              generatedAt,
+            },
+          },
+        });
+        if (!committed) {
+          return errorEnvelope(
+            'The project changed while new music was being prepared. Existing timeline music was kept; retry from the latest edit.',
+            'BGM_PROJECT_CONFLICT',
+            { assetId: bgm.audioAssetId },
+            'retry',
+          );
         }
         const persistedProject = await loadProject();
-        const persistedBgm = (persistedProject.overlays || []).find((overlay: any) => overlay.id === pendingBgmId);
-        if (persistedBgm?.type !== 'sound' || persistedBgm.row !== ROW.BGM || persistedBgm.assetId !== bgm.audioAssetId) {
+        const persistedBgm = (persistedProject.overlays || []).filter(
+          (overlay: any) => overlay.type === 'sound' && overlay.row === ROW.BGM,
+        );
+        const persistenceVerified = (
+          persistedBgm.length === replacementCandidates.length
+          && persistedBgm.every((overlay: any, index: number) => (
+            overlay.assetId === bgm.audioAssetId
+            && overlay.metadata?.musicCoverage?.sectionIndex === index
+          ))
+        );
+        if (!persistenceVerified) {
           return errorEnvelope(
-            'The generated music asset was valid, but its timeline replacement could not be verified.',
+            'The generated music asset was valid, but its complete timeline coverage replacement could not be verified.',
             'BGM_PERSISTENCE_NOT_VERIFIED',
-            { overlayId: pendingBgmId, assetId: bgm.audioAssetId },
+            {
+              overlayIds: replacementIds,
+              expectedSections: replacementCandidates.length,
+              persistedSections: persistedBgm.length,
+              assetId: bgm.audioAssetId,
+            },
             'stop',
           );
         }
-        const duplicateBgmOverlays = bgmOverlays.slice(1);
-        for (const duplicate of duplicateBgmOverlays) {
-          await projectService.deleteOverlay(userId, projectId, duplicate.id);
-        }
+        const removedDuplicateCount = Math.max(0, bgmOverlays.length - replacementCandidates.length);
 
         return successEnvelope({
           overlayId: pendingBgmId,
+          overlayIds: replacementIds,
           assetId: bgm.audioAssetId,
           mood: input.mood,
           durationSec: bgm.durationMs / 1000,
           replacedInPlace,
-          removedDuplicateCount: duplicateBgmOverlays.length,
+          replacedOverlayCount: bgmOverlays.length,
+          removedDuplicateCount,
           contextSources,
           mixStatus: mixPlan.status,
+          musicCoveragePlan,
+          beatRealignment: {
+            enabled: beatRealignEnabled,
+            snappedCutCount,
+            beatCount: beatGrid?.beats.length ?? 0,
+          },
           conditioning: {
             loudnessPlatform: conditioning.loudnessPlatform,
             measuredOutputLufs: conditioning.measuredOutputLufs,
