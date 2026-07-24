@@ -56,6 +56,7 @@ import {
   selectAnalysisOverlay,
 } from './chat-analysis-coordinate-space';
 import { buildChatProjectReadModel } from './chat-project-read-model';
+import { cutTimelineRange } from '../services/timeline-range-cut';
 
 // PERF FIX: Module-level singleton map for ChatGoogleGenerativeAI instances.
 // OLD (in each tool):
@@ -4332,94 +4333,41 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           return JSON.stringify({ status: 'error', message: 'endFrame must be greater than startFrame' });
         }
 
-        const cutDuration = endFrame - startFrame;
         const project = await loadProject();
-        const overlays = project.overlays || [];
-        const summary: string[] = [];
-        let deleted = 0;
-        let trimmed = 0;
-        let shifted = 0;
-
-        for (const overlay of overlays) {
-          const oStart = overlay.from || 0;
-          const oEnd = oStart + (overlay.durationInFrames || 0);
-
-          if (oStart >= startFrame && oEnd <= endFrame) {
-            // Entirely within range: delete it
-            // Also delete linked captions/fancy captions if it's a video
-            if (overlay.type === 'video') {
-              const linkedCaptions = overlays.filter(
-                (o: any) =>
-                  (o.type === 'caption' || (o.type === 'html-scene' && o.metadata?.sourceType === 'fancy-caption')) &&
-                  o.sourceVideoId === overlay.id
-              );
-              for (const caption of linkedCaptions) {
-                await projectService.deleteOverlay(userId, projectId, caption.id);
-              }
-            }
-            await projectService.deleteOverlay(userId, projectId, overlay.id);
-            deleted++;
-          } else if (oStart < startFrame && oEnd > endFrame) {
-            // Spans entire range: trim out the middle (reduce duration by cutDuration)
-            const newDuration = (overlay.durationInFrames || 0) - cutDuration;
-            await projectService.updateOverlay(userId, projectId, overlay.id, {
-              durationInFrames: newDuration,
-            });
-            trimmed++;
-          } else if (oStart < startFrame && oEnd > startFrame && oEnd <= endFrame) {
-            // Starts before range, ends within: trim end
-            const newDuration = startFrame - oStart;
-            await projectService.updateOverlay(userId, projectId, overlay.id, {
-              durationInFrames: newDuration,
-            });
-            trimmed++;
-          } else if (oStart >= startFrame && oStart < endFrame && oEnd > endFrame) {
-            // Starts within range, ends after: trim start and shift left
-            const framesToTrimFromStart = endFrame - oStart;
-            const newDuration = (overlay.durationInFrames || 0) - framesToTrimFromStart;
-            const newFrom = startFrame; // Will be shifted further below
-
-            const updates: any = {
-              from: newFrom,
-              durationInFrames: newDuration,
-            };
-
-            // For video/sound overlays, update internal start time
-            if (overlay.type === 'video') {
-              updates.videoStartTime = (overlay.videoStartTime || 0) + framesToTrimFromStart;
-            }
-            if (overlay.type === 'sound') {
-              updates.startFromSound = (overlay.startFromSound || 0) + framesToTrimFromStart;
-            }
-
-            await projectService.updateOverlay(userId, projectId, overlay.id, updates);
-            trimmed++;
-          } else if (oStart >= endFrame) {
-            // Entirely after range: shift left by cutDuration
-            await projectService.updateOverlay(userId, projectId, overlay.id, {
-              from: oStart - cutDuration,
-            });
-            shifted++;
-          }
-          // else: entirely before range — no change needed
-        }
-
-        await recalculateProjectDuration();
-
         const fps = project.fps || 30;
-        const secondsCut = Math.round((cutDuration / fps) * 10) / 10;
+        const cut = cutTimelineRange({
+          overlays: project.overlays || [],
+          startFrame,
+          endFrame,
+          fps,
+          durationInFrames: project.durationInFrames,
+        });
+        project.overlays = cut.overlays as Overlay[];
+        project.durationInFrames = cut.newDurationInFrames;
+        await projectService.saveProject(userId, projectId, project);
+
+        const summary: string[] = [];
+
+        const secondsCut = Math.round((cut.framesCut / fps) * 10) / 10;
         summary.push(`Cut ${secondsCut}s (frames ${startFrame}-${endFrame})`);
-        if (deleted > 0) summary.push(`${deleted} overlay(s) deleted`);
-        if (trimmed > 0) summary.push(`${trimmed} overlay(s) trimmed`);
-        if (shifted > 0) summary.push(`${shifted} overlay(s) shifted`);
+        if (cut.deleted > 0) summary.push(`${cut.deleted} overlay(s) deleted`);
+        if (cut.trimmed > 0) summary.push(`${cut.trimmed} overlay(s) trimmed`);
+        if (cut.shifted > 0) summary.push(`${cut.shifted} overlay(s) shifted`);
+        if (cut.split > 0) summary.push(`${cut.split} source overlay(s) split`);
 
         return JSON.stringify({
           status: 'success',
-          deleted,
-          trimmed,
-          shifted,
-          framesCut: cutDuration,
+          deleted: cut.deleted,
+          trimmed: cut.trimmed,
+          shifted: cut.shifted,
+          split: cut.split,
+          created: cut.created,
+          framesCut: cut.framesCut,
           secondsCut,
+          affectedFrameRange: {
+            startFrame,
+            endFrame: Math.min(cut.newDurationInFrames, startFrame + 1),
+          },
           message: summary.join(', '),
         });
       } catch (e: any) {

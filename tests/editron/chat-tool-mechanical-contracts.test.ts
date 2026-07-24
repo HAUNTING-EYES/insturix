@@ -65,7 +65,12 @@ function installProjectStore(project: FixtureProject) {
       Object.assign(project, structuredClone(patch));
     },
   );
-  return { updateOverlay, addOverlay, updateProject };
+  const saveProject = vi.spyOn(projectService, 'saveProject').mockImplementation(
+    async (_userId, _projectId, nextProject) => {
+      Object.assign(project, structuredClone(nextProject));
+    },
+  );
+  return { updateOverlay, addOverlay, updateProject, saveProject };
 }
 
 function toolNamed(name: string) {
@@ -213,5 +218,128 @@ describe('chat mechanical tool contracts', () => {
       'proj_mechanical_tools',
       { durationInFrames: 180 },
     );
+  });
+
+  it('atomically removes a timeline range while preserving source continuity across overlay families', async () => {
+    const project = makeProject([
+      {
+        id: 1,
+        type: 'video',
+        from: 0,
+        durationInFrames: 120,
+        sourceStartFrame: 30,
+        videoStartTime: 30,
+        row: 0,
+      },
+      {
+        id: 2,
+        type: 'sound',
+        assetId: 'voiceover_source',
+        metadata: { role: 'voiceover' },
+        from: 0,
+        durationInFrames: 120,
+        startFromSound: 60,
+        row: 4,
+      },
+      {
+        id: 3,
+        type: 'sound',
+        assetId: 'bgm_track',
+        metadata: { role: 'background_music' },
+        from: 0,
+        durationInFrames: 240,
+        startFromSound: 0,
+        row: 1,
+      },
+      {
+        id: 4,
+        type: 'caption',
+        from: 0,
+        durationInFrames: 240,
+        row: 4,
+        words: [
+          { word: 'before', startMs: 0, endMs: 900 },
+          { word: 'remove', startMs: 1100, endMs: 1900 },
+          { word: 'after', startMs: 2100, endMs: 2900 },
+        ],
+      },
+      { id: 5, type: 'text', from: 150, durationInFrames: 30, row: 3 },
+      {
+        id: 6,
+        type: 'transition',
+        from: 45,
+        durationInFrames: 30,
+        row: 0,
+        clipAId: 1,
+        clipBId: 5,
+      },
+    ], 240);
+    const store = installProjectStore(project);
+
+    const result = parseEnvelope(await toolNamed('cut_section').invoke({
+      startFrame: 30,
+      endFrame: 60,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'success',
+      data: {
+        deleted: 1,
+        trimmed: 4,
+        shifted: 1,
+        split: 2,
+        created: 2,
+        framesCut: 30,
+        affectedFrameRange: { startFrame: 30, endFrame: 31 },
+      },
+    });
+    expect(project.durationInFrames).toBe(210);
+    expect(project.overlays).toHaveLength(7);
+
+    const videos = project.overlays
+      .filter((overlay) => overlay.type === 'video')
+      .sort((left, right) => left.from - right.from);
+    expect(videos).toEqual([
+      expect.objectContaining({
+        id: 1,
+        from: 0,
+        durationInFrames: 30,
+        sourceStartFrame: 30,
+        videoStartTime: 30,
+      }),
+      expect.objectContaining({
+        from: 30,
+        durationInFrames: 60,
+        sourceStartFrame: 90,
+        videoStartTime: 90,
+      }),
+    ]);
+
+    const voiceovers = project.overlays
+      .filter((overlay) => overlay.type === 'sound' && overlay.assetId === 'voiceover_source')
+      .sort((left, right) => left.from - right.from);
+    expect(voiceovers).toEqual([
+      expect.objectContaining({ from: 0, durationInFrames: 30, startFromSound: 60 }),
+      expect.objectContaining({ from: 30, durationInFrames: 60, startFromSound: 120 }),
+    ]);
+    expect(project.overlays.find((overlay) => overlay.id === 3)).toMatchObject({
+      from: 0,
+      durationInFrames: 210,
+      startFromSound: 0,
+    });
+    expect(project.overlays.find((overlay) => overlay.id === 4)).toMatchObject({
+      from: 0,
+      durationInFrames: 210,
+      words: [
+        { word: 'before', startMs: 0, endMs: 900 },
+        { word: 'after', startMs: 1100, endMs: 1900 },
+      ],
+    });
+    expect(project.overlays.find((overlay) => overlay.id === 5)).toMatchObject({ from: 120 });
+    expect(project.overlays.some((overlay) => overlay.id === 6)).toBe(false);
+    expect(store.updateOverlay).not.toHaveBeenCalled();
+    expect(store.addOverlay).not.toHaveBeenCalled();
+    expect(store.updateProject).not.toHaveBeenCalled();
+    expect(store.saveProject).toHaveBeenCalledTimes(1);
   });
 });
