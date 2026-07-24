@@ -331,6 +331,21 @@ describe('chat request owner capability filtering', () => {
     expect(assistNames).not.toContain('dub_selected_dialogue');
   });
 
+  it('DIRECTOR MODE: a localized turn can place a motion graphic at a moment (live-probe fix)', () => {
+    // "add a motion graphic at THIS moment" classifies as localized-mutation, not
+    // editorial-plan — probed live 2026-07-24: the agent substituted
+    // generate_html_sticker because the MG tool was missing from this license.
+    const assistNames = filterChatToolsForRequestOwner(
+      tools, license('semantic-editorial-planner', 'localized-mutation'), { assistLane: true },
+    ).map((t) => t.name);
+    expect(assistNames).toContain('add_motion_graphic');
+    expect(assistNames).not.toContain('auto_motion_graphics'); // across-video = editorial-plan only
+    const autoNames = filterChatToolsForRequestOwner(
+      tools, license('semantic-editorial-planner', 'localized-mutation'),
+    ).map((t) => t.name);
+    expect(autoNames).not.toContain('add_motion_graphic'); // auto lane unchanged
+  });
+
   it('AUTO projects are unchanged: an editorial-plan turn still exposes only apply_editorial_intent', () => {
     const autoNames = filterChatToolsForRequestOwner(
       tools, license('semantic-editorial-planner', 'editorial-plan'),

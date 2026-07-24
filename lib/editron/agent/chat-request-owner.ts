@@ -355,7 +355,16 @@ export function filterChatToolsForRequestOwner<T extends { name: string }>(
           ? DIRECTOR_MODE_DIRECT_TOOLS.has(tool.name)
           : tool.name === 'apply_editorial_intent';
       }
-      if (workflow === 'localized-mutation') return LOCALIZED_MUTATION_TOOLS.has(tool.name);
+      if (workflow === 'localized-mutation') {
+        // Director Mode: "add a motion graphic at THIS moment" classifies as a
+        // localized mutation (live-probed 2026-07-24: with the MG tool licensed
+        // only on editorial-plan turns, the agent substituted generate_html_sticker
+        // — the closest tool in its license). Moment-scoped MG placement is a
+        // localized decision the user already made; auto_motion_graphics (across
+        // the whole video) stays editorial-plan only. Auto lane unchanged.
+        return LOCALIZED_MUTATION_TOOLS.has(tool.name)
+          || (options.assistLane === true && tool.name === 'add_motion_graphic');
+      }
       return false;
     }
 
