@@ -121,11 +121,14 @@ describe('durable chat reference-style jobs', () => {
       profileId: 'style-profile-1',
       renderVerification: { dispatched: true },
     });
+    const attemptOperationId = checkpoint.claimChatEditOperation.mock.calls[0]?.[0].operationId;
+    expect(attemptOperationId).toMatch(/^style_[a-f0-9]{32}$/);
+    expect(checkpoint.createCheckpoint.mock.calls[0]?.[0].operationId).toBe(attemptOperationId);
     expect(dispatchRenderEvidence).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'project-1',
       userId: 'user-1',
       chatEditVerification: expect.objectContaining({
-        operationId: 'operation-style-1',
+        operationId: attemptOperationId,
         modalities: ['visual'],
         targets: [expect.objectContaining({ overlayId: 'title-1', state: 'updated' })],
       }),

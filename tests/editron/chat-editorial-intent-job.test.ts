@@ -114,11 +114,14 @@ describe('durable chat editorial-intent jobs', () => {
       status: 'completed',
       renderVerification: { dispatched: true },
     });
+    const attemptOperationId = checkpoint.claimChatEditOperation.mock.calls[0]?.[0].operationId;
+    expect(attemptOperationId).toBe('operation-intent-1:editorial-intent:attempt:1');
+    expect(checkpoint.createCheckpoint.mock.calls[0]?.[0].operationId).toBe(attemptOperationId);
     expect(dispatchRenderEvidence).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'project-1',
       userId: 'user-1',
       chatEditVerification: expect.objectContaining({
-        operationId: 'operation-intent-1',
+        operationId: attemptOperationId,
         modalities: ['visual'],
       }),
     }));
@@ -487,6 +490,7 @@ function checkpointRuntime(order: string[]) {
     restoreProjectCheckpoint,
   };
   return {
+    claimChatEditOperation,
     createCheckpoint,
     restoreProjectCheckpoint,
     dependencies: {

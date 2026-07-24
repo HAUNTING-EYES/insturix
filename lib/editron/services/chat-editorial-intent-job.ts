@@ -300,7 +300,7 @@ export async function runChatEditorialIntentJob(
     );
 
     const transaction: ChatAiEditTransaction = {
-      operationId: job.operationId,
+      operationId: attemptOperationId,
       sessionId: job.sessionId,
       projectId: job.projectId,
       userId: job.userId,
