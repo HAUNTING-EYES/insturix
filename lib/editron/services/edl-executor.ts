@@ -3684,6 +3684,34 @@ function readPlacementAdjustment(value: unknown): OverlayPlacementAdjustment | u
   };
 }
 
+function readCaptionPlacementReservations(value: unknown): Array<{
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  reason?: string;
+  strength?: number;
+}> | undefined {
+  if (!isObjectRecord(value) || !Array.isArray(value.regions)) return undefined;
+  const regions = value.regions.flatMap((item) => {
+    if (!isObjectRecord(item)) return [];
+    const x = readFiniteNumber(item.x);
+    const y = readFiniteNumber(item.y);
+    const width = readFiniteNumber(item.width);
+    const height = readFiniteNumber(item.height);
+    if (x === undefined || y === undefined || width === undefined || height === undefined) return [];
+    return [{
+      x,
+      y,
+      width,
+      height,
+      ...(typeof item.reason === 'string' ? { reason: item.reason } : {}),
+      ...(readFiniteNumber(item.strength) !== undefined ? { strength: readFiniteNumber(item.strength) } : {}),
+    }];
+  });
+  return regions.length > 0 ? regions : undefined;
+}
+
 function mergePlacementAdjustment(
   base: OverlayPlacementAdjustment | undefined,
   atomic: OverlayPlacementAdjustment | undefined,
@@ -4076,6 +4104,7 @@ async function runMgDesignPrepass(
       momentBundle: decisionMomentBundle(decision),
       signals: decisionSignals(decision),
       requestedRegion: requestedPlacementRegion,
+      protectedRegions: readCaptionPlacementReservations(decision.params.captionPlacementReservations),
     });
     const placementRegion = atomicPlacement.candidateRegion ?? requestedPlacementRegion;
     const {
@@ -4206,6 +4235,7 @@ async function applyGraphic(
     momentBundle: decisionMomentBundle(decision),
     signals: decisionSignals(decision),
     requestedRegion: requestedPlacementRegion,
+    protectedRegions: readCaptionPlacementReservations(decision.params.captionPlacementReservations),
   });
   const placementRegion = atomicPlacement.candidateRegion ?? requestedPlacementRegion;
   const placementAdjustment = mergePlacementAdjustment(requestedPlacementAdjustment, atomicPlacement.placementAdjustment);

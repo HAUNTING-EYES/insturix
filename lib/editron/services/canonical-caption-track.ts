@@ -83,6 +83,15 @@ export function buildCanonicalCaptionChoreographyReservations(
   const overlay = createCanonicalCaptionTrack(input);
   if (!overlay) return [];
   const fps = input.editedTimelineContext.fps > 0 ? input.editedTimelineContext.fps : 30;
+  const dimensions = input.playerDimensions ?? { width: 1920, height: 1080 };
+  const captionProtectedRegion = {
+    x: clamp01(overlay.left / Math.max(1, dimensions.width)),
+    y: clamp01(overlay.top / Math.max(1, dimensions.height)),
+    width: clamp01(overlay.width / Math.max(1, dimensions.width)),
+    height: clamp01(overlay.height / Math.max(1, dimensions.height)),
+    reason: 'canonical-caption-region',
+    strength: 1,
+  };
   return overlay.captions.map((caption, index) => {
     const frame = Math.max(0, Math.floor((caption.startMs / 1000) * fps));
     const endFrame = Math.max(frame + 1, Math.ceil((caption.endMs / 1000) * fps));
@@ -99,6 +108,7 @@ export function buildCanonicalCaptionChoreographyReservations(
         captionGroupIndex: index,
         captionStartMs: caption.startMs,
         captionEndMs: caption.endMs,
+        captionProtectedRegion,
       },
       confidence: 1,
     };

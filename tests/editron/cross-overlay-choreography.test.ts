@@ -4,6 +4,7 @@ import { applyCrossOverlayChoreography } from '../../lib/editron/services/cross-
 import { annotateFinalOverlayChoreographyBypasses } from '../../lib/editron/services/cross-overlay-final-overlays';
 import { buildCanonicalCaptionChoreographyReservations } from '../../lib/editron/services/canonical-caption-track';
 import { resolveAtomicCaptionPresentation } from '../../lib/editron/services/caption-form';
+import { resolveAtomicPlacement } from '../../lib/editron/services/atomic-placement';
 
 describe('cross-overlay choreography scheduler', () => {
   it('keeps one text-lane owner when MG and caption emphasis compete on the same moment', () => {
@@ -82,7 +83,13 @@ describe('cross-overlay choreography scheduler', () => {
       frame: 30,
       durationFrames: 23,
       source: 'canonical-caption-track',
-      params: { choreographyReservationOnly: true },
+      params: {
+        choreographyReservationOnly: true,
+        captionProtectedRegion: {
+          reason: 'canonical-caption-region',
+          strength: 1,
+        },
+      },
     });
 
     const result = applyCrossOverlayChoreography([
@@ -97,29 +104,45 @@ describe('cross-overlay choreography scheduler', () => {
 
     expect(result.decisions).toEqual([expect.objectContaining({
       type: 'graphic',
-      frame: 76,
+      frame: 36,
       params: expect.objectContaining({
-        crossOverlayChoreographyShape: expect.objectContaining({
-          reason: 'text-lane-stack',
-          originalFrame: 36,
-          frame: 76,
-          shiftFrames: 40,
+        coordinateWithCaptions: true,
+        captionPlacementReservations: expect.objectContaining({
+          version: 'caption-placement-reservations-v1',
+          source: 'canonical-caption-track',
+          regions: [expect.objectContaining({
+            reason: 'canonical-caption-region',
+            strength: 1,
+          })],
         }),
       }),
     })]);
     expect(result.suppressed).toEqual([]);
-    expect(result.shaped).toEqual([expect.objectContaining({
-      reason: 'text-lane-stack',
-      family: 'mg',
-      conflictingWith: expect.objectContaining({ source: 'canonical-caption-track', family: 'caption' }),
-    })]);
+    expect(result.shaped).toEqual([]);
     expect(result.report).toMatchObject({
       inputDecisionCount: 1,
       outputDecisionCount: 1,
-      shapedDecisionCount: 1,
+      shapedDecisionCount: 0,
       reservationCount: 1,
       reservations: [expect.objectContaining({ source: 'canonical-caption-track', family: 'caption' })],
     });
+
+    const placementReservations = result.decisions[0].params.captionPlacementReservations as {
+      regions: Array<{ x: number; y: number; width: number; height: number; reason: string; strength: number }>;
+    };
+    const placement = resolveAtomicPlacement({
+      family: 'graphic',
+      requestedRegion: 'full-frame',
+      protectedRegions: placementReservations.regions,
+    });
+    expect(placement.placementHints.avoid).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        reason: 'text-occupancy',
+        source: 'layout-analysis',
+        strength: 1,
+      }),
+    ]));
+    expect(placement.placementHints.constraints).toContain('protect-caption-reservation');
   });
   it('shapes a text-lane decision when a small timing nudge seats both overlays', () => {
     const result = applyCrossOverlayChoreography([
