@@ -67,10 +67,10 @@ describe('chat request owner classification', () => {
           requiresContentLocalization: false,
           requiresEditorialJudgment: true,
           requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
           operationFullySpecified: false,
           targetFullySpecified: false,
           familyDirectives: [{ family: 'motionGraphics', mode: 'prefer' }],
-          familyScopeExclusive: true,
         },
         confidence: 0.97,
         reason: 'The request needs editorial judgment across the whole edit.',
@@ -176,9 +176,73 @@ describe('chat request owner classification', () => {
     });
 
     expect(prompt).toContain('familyDirectives');
-    expect(prompt).toContain('"family":"sfx","mode":"prefer"');
+    expect(prompt).toContain('SFX at the strongest beat');
     expect(prompt).toContain('This scopes ownership only');
-    expect(prompt).toContain('familyScopeExclusive=true');
+    expect(prompt).toContain('requestsBroadEditorialOutcome');
+  });
+
+  it('derives an exclusive family lock instead of trusting the model with final authority', async () => {
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: false,
+          requiresEditorialJudgment: true,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: false,
+          targetFullySpecified: false,
+          familyDirectives: [{ family: 'captions', mode: 'prefer' }],
+        },
+        confidence: 0.99,
+        reason: 'The user requested only the caption family.',
+      }),
+    }));
+
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage: 'Add clean readable captions that fit this video.',
+    }, { generate });
+
+    expect(result.routingFacts).toMatchObject({
+      requestsBroadEditorialOutcome: false,
+      familyDirectives: [{ family: 'captions', mode: 'prefer' }],
+      familyScopeExclusive: true,
+    });
+  });
+
+  it('keeps preferred families non-exclusive when the user also asks for a broad re-edit', async () => {
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: false,
+          requiresEditorialJudgment: true,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: true,
+          durableOperation: 'none',
+          operationFullySpecified: false,
+          targetFullySpecified: false,
+          familyDirectives: [{ family: 'music', mode: 'prefer' }],
+        },
+        confidence: 0.99,
+        reason: 'The user requested a broad re-edit and also preferred music.',
+      }),
+    }));
+
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage: 'Improve the whole edit and add music.',
+    }, { generate });
+
+    expect(result.routingFacts).toMatchObject({
+      requestsBroadEditorialOutcome: true,
+      familyDirectives: [{ family: 'music', mode: 'prefer' }],
+      familyScopeExclusive: false,
+    });
   });
 
   it('derives mechanical ownership from a fully specified literal timeline edit', async () => {
@@ -190,6 +254,7 @@ describe('chat request owner classification', () => {
           requiresContentLocalization: false,
           requiresEditorialJudgment: false,
           requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
           operationFullySpecified: true,
           targetFullySpecified: true,
         },
@@ -217,6 +282,7 @@ describe('chat request owner classification', () => {
       requiresContentLocalization: true,
       requiresEditorialJudgment: false,
       requestsReferenceStyle: false,
+      requestsBroadEditorialOutcome: false,
       operationFullySpecified: true,
       targetFullySpecified: false,
       familyDirectives: [],
@@ -229,6 +295,7 @@ describe('chat request owner classification', () => {
       requiresContentLocalization: false,
       requiresEditorialJudgment: false,
       requestsReferenceStyle: false,
+      requestsBroadEditorialOutcome: false,
       operationFullySpecified: true,
       targetFullySpecified: true,
       familyDirectives: [],
@@ -243,6 +310,7 @@ describe('chat request owner classification', () => {
       requiresContentLocalization: false,
       requiresEditorialJudgment: false,
       requestsReferenceStyle: false,
+      requestsBroadEditorialOutcome: false,
       operationFullySpecified: true,
       targetFullySpecified: false,
       familyDirectives: [],
@@ -470,6 +538,7 @@ describe('chat request owner capability filtering', () => {
       requiresContentLocalization: false,
       requiresEditorialJudgment: true,
       requestsReferenceStyle: false,
+      requestsBroadEditorialOutcome: false,
       operationFullySpecified: false,
       targetFullySpecified: false,
       familyDirectives: [{ family: 'sfx', mode: 'prefer' }],
