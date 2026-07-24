@@ -1,7 +1,7 @@
 import {
   computeSpeedSegments,
   evaluateKeyframeTrack,
-} from '@/components/editron/editor/version-7.0.0/utils/keyframe-evaluator';
+} from '@/lib/editron/utils/keyframe-math';
 import type {
   Keyframe,
   KeyframeTrack,
