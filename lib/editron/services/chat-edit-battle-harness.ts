@@ -31,6 +31,7 @@ export interface ChatBattleScenario {
   requiredToolSequence: ReadonlyArray<string | readonly string[]>;
   forbiddenTools: readonly string[];
   forbiddenArguments: readonly ChatBattleArgumentProhibition[];
+  requiredCreatedOverlayTypes: ReadonlyArray<string | readonly string[]>;
   requireEvidenceBeforeMutation: boolean;
   requireUiReload: boolean;
   requireRenderedEvidence: boolean;
@@ -191,6 +192,7 @@ function scenario(
     requiredToolSequence: options.requiredToolSequence ?? [],
     forbiddenTools: options.forbiddenTools ?? [],
     forbiddenArguments: options.forbiddenArguments ?? [],
+    requiredCreatedOverlayTypes: options.requiredCreatedOverlayTypes ?? [],
     requireEvidenceBeforeMutation: options.requireEvidenceBeforeMutation ?? true,
     requireUiReload: options.requireUiReload ?? true,
     requireRenderedEvidence: options.requireRenderedEvidence ?? true,
@@ -223,11 +225,11 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('vague-enhance', 'Vague enhancement request', 'Enhance this video so it feels professionally edited.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], minimumSuccessfulMutations: 1, forbiddenTools: ['add_transition', 'add_motion_graphic', 'auto_motion_graphics'] }),
   scenario('vague-transitions', 'Content-owned transitions', 'Add transitions where they genuinely help the edit.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['add_transition'] }),
   scenario('vague-motion-graphics', 'Signal-owned motion graphics', 'Add motion graphics only where the idea is visually explainable.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['auto_motion_graphics', 'add_motion_graphic'] }),
-  scenario('motivated-zoom', 'Motivated zoom', 'Use a subtle zoom on the strongest spoken emphasis, if the shot supports it.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['resolve_keyframe_edit', 'set_keyframes'] }),
-  scenario('vague-sfx-beat', 'SFX on a grounded beat', 'Add a subtle impact on the strongest visual or spoken beat.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['resolve_audio_edit', 'add_sfx'] }),
+  scenario('motivated-zoom', 'Motivated zoom', 'Use a subtle zoom on the strongest spoken emphasis, if the shot supports it.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['resolve_keyframe_edit', 'set_keyframes'] }),
+  scenario('vague-sfx-beat', 'SFX on a grounded beat', 'Add a subtle impact on the strongest visual or spoken beat.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['resolve_audio_edit', 'add_sfx'] }),
   scenario('clean-captions', 'Clean readable captions', 'Add clean readable captions that fit this video.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['add_captions'] }),
-  scenario('create-html-scene', 'Create HTML scene', 'Create a full-screen process diagram for this explanation.', { requiredToolSequence: [READ_PROJECT, 'generate_html_scene'] }),
-  scenario('edit-html-scene', 'Edit HTML scene in place', 'Change the existing process graphic title to How it works.', { requiredToolSequence: [READ_PROJECT, 'edit_html_scene'] }),
+  scenario('create-html-scene', 'Create process graphic', 'Create a full-screen process diagram for this explanation.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['generate_html_scene', 'generate_html_sticker', 'add_overlay'], requiredCreatedOverlayTypes: [['motion-graphic', 'mg-sequence']] }),
+  scenario('edit-html-scene', 'Edit HTML scene in place', 'Edit the selected HTML scene itself: change the heading embedded inside that HTML scene to How it works. Do not edit the separate text overlay.', { requiredToolSequence: [READ_PROJECT, 'edit_html_scene'] }),
   scenario('bgm-explicit', 'Explicit BGM intent', 'Add restrained cinematic background music with no vocals and keep speech clear.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['regenerate_bgm'] }),
   scenario('bgm-vague', 'Vague BGM intent', 'Add suitable background music for this edit.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['regenerate_bgm'] }),
   scenario('bgm-provider-failure', 'Safe BGM replacement failure', 'Replace the current music with something calmer.', { mutationExpectation: 'conditional', requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'], fixtureRequirements: ['bgm-provider-failure-injection'] }),
@@ -523,6 +525,31 @@ export function evaluateChatEditBattleJourney(input: {
       stateChanged,
       beforeDigest: input.mongoBefore.digest,
       afterDigest: input.mongoAfter.digest,
+    },
+  ));
+
+  const beforeOverlayIds = new Set(input.mongoBefore.overlays.map((overlay) => overlay.id));
+  const createdOverlays = input.mongoAfter.overlays.filter(
+    (overlay) => !beforeOverlayIds.has(overlay.id),
+  );
+  const missingCreatedOverlayTypes = input.scenario.requiredCreatedOverlayTypes.filter(
+    (requirement) => {
+      const acceptedTypes = Array.isArray(requirement) ? requirement : [requirement];
+      return !createdOverlays.some((overlay) => acceptedTypes.includes(overlay.type));
+    },
+  );
+  checks.push(check(
+    'mongo.required-created-overlay-types',
+    missingCreatedOverlayTypes.length === 0 ? 'pass' : 'fail',
+    input.scenario.requiredCreatedOverlayTypes.length > 0,
+    'Family-specific creation requests must persist an overlay from the requested family.',
+    {
+      required: input.scenario.requiredCreatedOverlayTypes,
+      createdOverlays: createdOverlays.map((overlay) => ({
+        id: overlay.id,
+        type: overlay.type,
+      })),
+      missing: missingCreatedOverlayTypes,
     },
   ));
 

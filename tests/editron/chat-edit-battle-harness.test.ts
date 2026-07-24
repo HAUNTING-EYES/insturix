@@ -580,6 +580,106 @@ describe('chat edit battle harness', () => {
     }
   });
 
+  it('treats motivated zoom and SFX as evidence-licensed conditional edits', () => {
+    for (const id of ['motivated-zoom', 'vague-sfx-beat']) {
+      const scenario = getChatEditBattleScenario(id)!;
+      expect(scenario.mutationExpectation).toBe('conditional');
+      expect(scenario.minimumSuccessfulMutations).toBe(0);
+    }
+  });
+
+  it('requires process-diagram creation to persist MG-family output', () => {
+    const scenario = getChatEditBattleScenario('create-html-scene')!;
+    expect(scenario.requiredToolSequence).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'apply_editorial_intent',
+    ]);
+    expect(scenario.forbiddenTools).toEqual(expect.arrayContaining([
+      'generate_html_scene',
+      'generate_html_sticker',
+      'add_overlay',
+    ]));
+    expect(scenario.requiredCreatedOverlayTypes).toEqual([
+      ['motion-graphic', 'mg-sequence'],
+    ]);
+  });
+
+  it('rejects collateral caption creation as process-diagram success', () => {
+    const scenario = getChatEditBattleScenario('create-html-scene')!;
+    const beforeProject = project([]);
+    const invocationEvidence = invocation('create-html-scene', [
+      {
+        id: 'read',
+        name: 'read_project_file',
+        args: { mode: 'full' },
+        startedAt: '2026-07-24T10:00:00.100Z',
+        completedAt: '2026-07-24T10:00:00.200Z',
+        output: successEnvelope(),
+      },
+      {
+        id: 'intent',
+        name: 'apply_editorial_intent',
+        args: { goal: scenario.prompt },
+        startedAt: '2026-07-24T10:00:00.300Z',
+        completedAt: '2026-07-24T10:00:00.400Z',
+        output: successEnvelope(),
+      },
+    ]);
+    const evaluateCreatedType = (type: string) => {
+      const afterProject = project([{
+        id: `created-${type}`,
+        type,
+        from: 0,
+        durationInFrames: 90,
+        row: 1,
+      }]);
+      return evaluateChatEditBattleJourney({
+        journeyId: `process-diagram-${type}`,
+        scenario,
+        projectId: 'proj_battle',
+        startedAt: '2026-07-24T10:00:00.000Z',
+        completedAt: '2026-07-24T10:00:01.000Z',
+        invocation: invocationEvidence,
+        mongoBefore: buildChatBattleProjectSnapshot(beforeProject, 'mongo-before'),
+        mongoAfter: buildChatBattleProjectSnapshot(afterProject, 'mongo-after'),
+        uiReload: buildChatBattleProjectSnapshot(afterProject, 'ui-reload'),
+        renderEvidence: {
+          status: 'pass',
+          capturedAt: '2026-07-24T10:00:00.900Z',
+          artifactRefs: [`artifact://${type}.png`],
+          issues: [],
+        },
+      });
+    };
+
+    expect(evaluateCreatedType('caption').checks.find(
+      (check) => check.id === 'mongo.required-created-overlay-types',
+    )).toMatchObject({
+      status: 'fail',
+      blocking: true,
+      evidence: {
+        createdOverlays: [{ id: 'created-caption', type: 'caption' }],
+        missing: [['motion-graphic', 'mg-sequence']],
+      },
+    });
+    expect(evaluateCreatedType('mg-sequence').checks.find(
+      (check) => check.id === 'mongo.required-created-overlay-types',
+    )).toMatchObject({
+      status: 'pass',
+      blocking: true,
+    });
+  });
+
+  it('targets the embedded HTML scene explicitly for in-place editing', () => {
+    const scenario = getChatEditBattleScenario('edit-html-scene')!;
+    expect(scenario.prompt).toContain('selected HTML scene itself');
+    expect(scenario.prompt).toContain('Do not edit the separate text overlay');
+    expect(scenario.requiredToolSequence).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'edit_html_scene',
+    ]);
+  });
+
   it('recognizes a queued semantic-owner result without treating ordinary successful tools as queued', () => {
     const queued = invocation('multiasset-script-chat', [{
       id: 'intent',
