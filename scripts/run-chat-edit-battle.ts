@@ -15,6 +15,7 @@ import {
   getChatEditBattleScenario,
   parseChatBattleSse,
   runChatEditBattleJourney,
+  type ChatBattleDurableOperationEvidence,
   type ChatBattleInvocationEvidence,
   type ChatBattleRenderEvidence,
 } from '../lib/editron/services/chat-edit-battle-harness';
@@ -99,6 +100,7 @@ async function main(): Promise<void> {
           && latestInvocation
           && !latestDurableMutationFailure
           && chatBattleInvocationQueuedProjectMutation(latestInvocation)
+          && (latestInvocation.durableOperations?.length ?? 0) === 0
         ) {
           console.log('[chat-battle] queued edit detected; waiting for material project state to change');
           const settled = await waitForQueuedProjectMutation({
@@ -127,6 +129,39 @@ async function main(): Promise<void> {
           runId: options.runId,
           startedAt: startedAtHolder.value || new Date().toISOString(),
         });
+        const editorialIntentJobId = extractQueuedEditorialIntentJobId(invocation);
+        if (editorialIntentJobId) {
+          console.log(`[chat-battle] waiting for editorial-intent job ${editorialIntentJobId} to settle`);
+          const terminal = await waitForEditorialIntentJobTerminal({
+            jobId: editorialIntentJobId,
+            projectId,
+          });
+          console.log(
+            `[chat-battle] editorial-intent reached ${terminal.status} after ${terminal.polls} poll(s)`
+            + `${terminal.error ? `: ${terminal.error}` : ''}`,
+          );
+          const durableOperation: ChatBattleDurableOperationEvidence = {
+            owner: 'editorial-intent',
+            jobId: editorialIntentJobId,
+            status: terminal.status,
+            materialChange: terminal.materialChange,
+            polls: terminal.polls,
+            ...(terminal.error ? { error: terminal.error } : {}),
+          };
+          const settledInvocation: ChatBattleInvocationEvidence = {
+            ...invocation,
+            durableOperations: [...(invocation.durableOperations ?? []), durableOperation],
+          };
+          latestDurableMutationFailure = terminal.status === 'failed'
+            || terminal.status === 'dispatch_failed'
+            || terminal.status === 'rolled_back'
+            || terminal.status === 'timeout'
+            || terminal.status === 'missing'
+            ? `editorial-intent-${terminal.status}:${terminal.error ?? 'no error detail'}`
+            : null;
+          latestInvocation = settledInvocation;
+          return settledInvocation;
+        }
         const dubbingJobId = scenario.id === 'selected-dialogue-dubbing'
           ? extractQueuedDubbingJobId(invocation)
           : null;
@@ -343,6 +378,22 @@ export function extractQueuedDubbingJobId(invocation: ChatBattleInvocationEviden
   return null;
 }
 
+export function extractQueuedEditorialIntentJobId(
+  invocation: ChatBattleInvocationEvidence,
+): string | null {
+  for (const event of invocation.toolEvents) {
+    if (event.name !== 'apply_editorial_intent') continue;
+    const output = parseToolOutputRecord(event.output);
+    if (output.status !== 'success') continue;
+    const data = asRecord(output.data);
+    const dispatch = asRecord(data.dispatch);
+    const authority = asRecord(dispatch.authority);
+    const jobId = authority.jobId ?? dispatch.jobId ?? data.jobId;
+    if (typeof jobId === 'string' && /^chat_intent_[A-Za-z0-9_-]{1,180}$/.test(jobId)) return jobId;
+  }
+  return null;
+}
+
 export function mergeChatBattleInvocations(
   initial: ChatBattleInvocationEvidence,
   followUp: ChatBattleInvocationEvidence,
@@ -365,9 +416,25 @@ export interface QueuedProjectSettlementResult {
 }
 
 type DubbingJobTerminalStatus = 'completed' | 'failed' | 'stale' | 'dispatch_failed' | 'timeout' | 'missing';
+type EditorialIntentJobTerminalStatus =
+  | 'completed'
+  | 'completed_unverified'
+  | 'declined'
+  | 'failed'
+  | 'dispatch_failed'
+  | 'rolled_back'
+  | 'timeout'
+  | 'missing';
 
 export interface DubbingJobSettlementResult {
   status: DubbingJobTerminalStatus;
+  polls: number;
+  error?: string;
+}
+
+export interface EditorialIntentJobSettlementResult {
+  status: EditorialIntentJobTerminalStatus;
+  materialChange: boolean;
   polls: number;
   error?: string;
 }
@@ -422,8 +489,75 @@ async function loadChatBattleDubbingJob(
   const { COLLECTIONS, connectToDatabase } = await import('../lib/editron/db/mongodb');
   const { client, db } = await connectToDatabase();
   chatBattleMongoClient = client;
-  return db.collection(COLLECTIONS.CHAT_DUBBING_JOBS)
+  return db.collection<Record<string, unknown> & { _id: string; projectId: string }>(COLLECTIONS.CHAT_DUBBING_JOBS)
     .findOne({ _id: jobId, projectId }) as Promise<Record<string, unknown> | null>;
+}
+
+interface EditorialIntentJobSettlementDependencies {
+  loadJob(jobId: string, projectId: string): Promise<Record<string, unknown> | null>;
+  now(): number;
+  sleep(milliseconds: number): Promise<void>;
+}
+
+export async function waitForEditorialIntentJobTerminal(
+  input: {
+    jobId: string;
+    projectId: string;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  },
+  dependencies: EditorialIntentJobSettlementDependencies = {
+    loadJob: loadChatBattleEditorialIntentJob,
+    now: () => Date.now(),
+    sleep: async (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  },
+): Promise<EditorialIntentJobSettlementResult> {
+  const timeoutMs = input.timeoutMs
+    ?? boundedEnvInteger('EDITRON_CHAT_BATTLE_EDITORIAL_INTENT_TIMEOUT_MS', 15 * 60 * 1000, 30_000, 30 * 60 * 1000);
+  const pollIntervalMs = input.pollIntervalMs
+    ?? boundedEnvInteger('EDITRON_CHAT_BATTLE_SETTLEMENT_POLL_MS', 5_000, 500, 30_000);
+  const deadline = dependencies.now() + timeoutMs;
+  let polls = 0;
+
+  while (true) {
+    polls += 1;
+    const job = await dependencies.loadJob(input.jobId, input.projectId);
+    if (!job) return { status: 'missing', materialChange: false, polls, error: 'editorial-intent-job-not-found' };
+    const status = stringValue(job.status);
+    const result = asRecord(job.result);
+    const overlaysModified = typeof result.overlaysModified === 'number' && Number.isFinite(result.overlaysModified)
+      ? result.overlaysModified
+      : 0;
+    if (status === 'completed' || status === 'completed_unverified') {
+      return { status, materialChange: overlaysModified > 0, polls };
+    }
+    if (status === 'declined') return { status, materialChange: false, polls };
+    if (status === 'failed' || status === 'dispatch_failed' || status === 'rolled_back') {
+      const error = stringValue(job.error);
+      return { status, materialChange: false, polls, ...(error ? { error } : {}) };
+    }
+    if (dependencies.now() >= deadline) {
+      return {
+        status: 'timeout',
+        materialChange: false,
+        polls,
+        error: `editorial-intent-job-timeout:${status ?? 'unknown'}`,
+      };
+    }
+    await dependencies.sleep(pollIntervalMs);
+  }
+}
+
+async function loadChatBattleEditorialIntentJob(
+  jobId: string,
+  projectId: string,
+): Promise<Record<string, unknown> | null> {
+  const { COLLECTIONS, connectToDatabase } = await import('../lib/editron/db/mongodb');
+  const { client, db } = await connectToDatabase();
+  chatBattleMongoClient = client;
+  return db.collection<Record<string, unknown> & { _id: string; projectId: string }>(
+    COLLECTIONS.CHAT_EDITORIAL_INTENT_JOBS,
+  ).findOne({ _id: jobId, projectId }) as Promise<Record<string, unknown> | null>;
 }
 
 export function shouldPollForFreshChatBattleRenderEvidence(input: {

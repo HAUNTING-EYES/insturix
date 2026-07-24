@@ -52,7 +52,25 @@ export interface ChatBattleInvocationEvidence {
   prompt: string;
   responseText: string;
   toolEvents: ChatBattleToolEvent[];
+  durableOperations?: ChatBattleDurableOperationEvidence[];
   refusalReason?: string;
+  error?: string;
+}
+
+export interface ChatBattleDurableOperationEvidence {
+  owner: 'editorial-intent';
+  jobId: string;
+  status:
+    | 'completed'
+    | 'completed_unverified'
+    | 'declined'
+    | 'failed'
+    | 'dispatch_failed'
+    | 'rolled_back'
+    | 'timeout'
+    | 'missing';
+  materialChange: boolean;
+  polls: number;
   error?: string;
 }
 
@@ -204,7 +222,7 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('multiasset-script-chat', 'Multi-asset script through chat', 'Use all relevant uploaded footage and reorder it around this script. Script: Begin with the black-and-gold fashion reveal. Move through hands assembling fabric, drawing the design, and embroidering the garment. Finish with the clearest model or finished-garment shot. Preserve factual order and skip footage that does not support the script.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['auto_edit_from_script'], requireRenderedEvidence: false }),
   scenario('vague-enhance', 'Vague enhancement request', 'Enhance this video so it feels professionally edited.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], minimumSuccessfulMutations: 1, forbiddenTools: ['add_transition', 'add_motion_graphic', 'auto_motion_graphics'] }),
   scenario('vague-transitions', 'Content-owned transitions', 'Add transitions where they genuinely help the edit.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['add_transition'] }),
-  scenario('vague-motion-graphics', 'Signal-owned motion graphics', 'Add motion graphics only where the idea is visually explainable.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['auto_motion_graphics', 'add_motion_graphic'] }),
+  scenario('vague-motion-graphics', 'Signal-owned motion graphics', 'Add motion graphics only where the idea is visually explainable.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['auto_motion_graphics', 'add_motion_graphic'] }),
   scenario('motivated-zoom', 'Motivated zoom', 'Use a subtle zoom on the strongest spoken emphasis, if the shot supports it.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['resolve_keyframe_edit', 'set_keyframes'] }),
   scenario('vague-sfx-beat', 'SFX on a grounded beat', 'Add a subtle impact on the strongest visual or spoken beat.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['resolve_audio_edit', 'add_sfx'] }),
   scenario('clean-captions', 'Clean readable captions', 'Add clean readable captions that fit this video.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['add_captions'] }),
@@ -414,8 +432,12 @@ export function evaluateChatEditBattleJourney(input: {
 
   const events = input.invocation.toolEvents;
   const completedEvents = events.filter((event) => Boolean(event.completedAt));
-  const successfulMutations = completedEvents.filter((event) => isMutatingTool(event.name) && isSuccessfulToolOutput(event.output));
-  const failedMutations = completedEvents.filter((event) => isMutatingTool(event.name) && !isSuccessfulToolOutput(event.output));
+  const successfulMutations = completedEvents.filter(
+    (event) => isMutatingTool(event.name) && isSuccessfulMutationEvent(event, input.invocation),
+  );
+  const failedMutations = completedEvents.filter(
+    (event) => isMutatingTool(event.name) && isFailedMutationEvent(event, input.invocation),
+  );
   const stateChanged = input.mongoBefore.digest !== input.mongoAfter.digest;
 
   checks.push(check(
@@ -497,6 +519,7 @@ export function evaluateChatEditBattleJourney(input: {
       expectation: input.scenario.mutationExpectation,
       successfulMutations: successfulMutations.map((event) => event.name),
       failedMutations: failedMutations.map((event) => event.name),
+      durableOperations: input.invocation.durableOperations ?? [],
       stateChanged,
       beforeDigest: input.mongoBefore.digest,
       afterDigest: input.mongoAfter.digest,
@@ -514,7 +537,10 @@ export function evaluateChatEditBattleJourney(input: {
   ));
 
   const renderFresh = isFreshTimestamp(input.renderEvidence.capturedAt, input.startedAt);
-  const renderStatus: ChatBattleStatus = input.scenario.requireRenderedEvidence
+  const renderRequired = input.scenario.requireRenderedEvidence
+    && successfulMutations.length > 0
+    && stateChanged;
+  const renderStatus: ChatBattleStatus = renderRequired
     ? !renderFresh || input.renderEvidence.status === 'missing' || input.renderEvidence.status === 'fail'
       ? 'fail'
       : input.renderEvidence.status
@@ -522,9 +548,14 @@ export function evaluateChatEditBattleJourney(input: {
   checks.push(check(
     'render.fresh-evidence',
     renderStatus,
-    input.scenario.requireRenderedEvidence,
+    renderRequired,
     'Visual/audio mutations require rendered evidence captured after the chat journey began.',
-    { required: input.scenario.requireRenderedEvidence, fresh: renderFresh, renderEvidence: input.renderEvidence },
+    {
+      configured: input.scenario.requireRenderedEvidence,
+      required: renderRequired,
+      fresh: renderFresh,
+      renderEvidence: input.renderEvidence,
+    },
   ));
 
   const envelopeFailures = completedEvents.filter((event) => !hasDeterministicToolEnvelope(event.output));
@@ -990,8 +1021,39 @@ export function chatBattleInvocationHasSuccessfulMutation(
   return invocation.toolEvents.some((event) =>
     Boolean(event.completedAt)
     && isMutatingTool(event.name)
-    && isSuccessfulToolOutput(event.output),
+    && isSuccessfulMutationEvent(event, invocation),
   );
+}
+
+function isSuccessfulMutationEvent(
+  event: ChatBattleToolEvent,
+  invocation: ChatBattleInvocationEvidence,
+): boolean {
+  if (!isSuccessfulToolOutput(event.output)) return false;
+  const durable = durableOperationForEvent(event, invocation.durableOperations ?? []);
+  return durable ? durable.materialChange : true;
+}
+
+function isFailedMutationEvent(
+  event: ChatBattleToolEvent,
+  invocation: ChatBattleInvocationEvidence,
+): boolean {
+  if (!isSuccessfulToolOutput(event.output)) return true;
+  const durable = durableOperationForEvent(event, invocation.durableOperations ?? []);
+  return durable ? !durable.materialChange : false;
+}
+
+function durableOperationForEvent(
+  event: ChatBattleToolEvent,
+  operations: readonly ChatBattleDurableOperationEvidence[],
+): ChatBattleDurableOperationEvidence | null {
+  if (event.name !== 'apply_editorial_intent' || operations.length === 0) return null;
+  const output = parseToolOutput(event.output);
+  const data = asRecord(output?.data);
+  const dispatch = asRecord(data.dispatch);
+  const authority = asRecord(dispatch.authority);
+  const jobId = stringValue(authority.jobId ?? dispatch.jobId ?? data.jobId);
+  return jobId ? operations.find((operation) => operation.jobId === jobId) ?? null : null;
 }
 
 function isSuccessfulToolOutput(output: unknown): boolean {

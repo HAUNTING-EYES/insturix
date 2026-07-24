@@ -148,6 +148,7 @@ import {
   CHAT_EDIT_BATTLE_SCENARIOS,
   buildChatBattleProjectSnapshot,
   buildChatEditBattleSuite,
+  chatBattleInvocationHasSuccessfulMutation,
   evaluateChatEditBattleJourney,
   evaluateChatBattleFixturePreconditions,
   extractPersistedChatBattleRenderEvidence,
@@ -174,12 +175,14 @@ import {
   buildLiveChatRequestBody,
   chatBattleInvocationQueuedProjectMutation,
   extractQueuedDubbingJobId,
+  extractQueuedEditorialIntentJobId,
   loadChatBattleMongoProject,
   mergeChatBattleInvocations,
   parseChatBattleCliArgs,
   shouldPollForFreshChatBattleRenderEvidence,
   validateChatBattleCliOptions,
   waitForDubbingJobTerminal,
+  waitForEditorialIntentJobTerminal,
   waitForFreshChatBattleRenderEvidence,
   waitForQueuedProjectMutation,
   readChatBattleAuthHeaders,
@@ -606,6 +609,75 @@ describe('chat edit battle harness', () => {
     expect(chatBattleInvocationQueuedProjectMutation(queued)).toBe(true);
     expect(chatBattleInvocationQueuedProjectMutation(referenceStyle)).toBe(true);
     expect(chatBattleInvocationQueuedProjectMutation(immediate)).toBe(false);
+    expect(extractQueuedEditorialIntentJobId(invocation('vague-motion-graphics', [{
+      ...queued.toolEvents[0],
+      output: successEnvelope({
+        dispatch: {
+          status: 'queued',
+          authority: { jobId: 'chat_intent_123' },
+        },
+      }),
+    }]))).toBe('chat_intent_123');
+    expect(extractQueuedEditorialIntentJobId(invocation('vague-motion-graphics', [{
+      ...queued.toolEvents[0],
+      output: successEnvelope({
+        dispatch: {
+          status: 'queued',
+          authority: { jobId: '../not-safe' },
+        },
+      }),
+    }]))).toBeNull();
+  });
+
+  it('treats a durable MG decline as a valid conditional no-op instead of a queued mutation hang', () => {
+    const scenario = getChatEditBattleScenario('vague-motion-graphics')!;
+    const queued = invocation('vague-motion-graphics', [{
+      id: 'intent',
+      name: 'apply_editorial_intent',
+      args: {},
+      startedAt: '2026-07-24T08:00:00.000Z',
+      completedAt: '2026-07-24T08:00:01.000Z',
+      output: successEnvelope({
+        dispatch: {
+          status: 'queued',
+          authority: { jobId: 'chat_intent_declined' },
+        },
+      }),
+    }]);
+    const settled: ChatBattleInvocationEvidence = {
+      ...queued,
+      durableOperations: [{
+        owner: 'editorial-intent',
+        jobId: 'chat_intent_declined',
+        status: 'declined',
+        materialChange: false,
+        polls: 2,
+      }],
+    };
+    const unchanged = buildChatBattleProjectSnapshot(project([]), 'mongo-before');
+    const report = evaluateChatEditBattleJourney({
+      journeyId: 'declined-mg',
+      scenario,
+      projectId: 'proj_battle',
+      startedAt: '2026-07-24T08:00:00.000Z',
+      completedAt: '2026-07-24T08:00:02.000Z',
+      invocation: settled,
+      mongoBefore: unchanged,
+      mongoAfter: { ...unchanged, source: 'mongo-after' },
+      uiReload: { ...unchanged, source: 'ui-reload' },
+      renderEvidence: {
+        status: 'missing',
+        artifactRefs: [],
+        issues: [],
+        reason: 'no material change to render',
+      },
+      fixturePreconditions: { ok: true, missing: [], satisfied: [] },
+    });
+
+    expect(scenario.mutationExpectation).toBe('conditional');
+    expect(chatBattleInvocationHasSuccessfulMutation(settled)).toBe(false);
+    expect(report.checks.find((check) => check.id === 'mongo.mutation-truth')?.status).toBe('pass');
+    expect(report.checks.find((check) => check.id === 'render.fresh-evidence')?.status).toBe('pass');
   });
 
   it('requires the dedicated durable dubbing and subject-aware reframing owners', () => {
@@ -704,6 +776,38 @@ describe('chat edit battle harness', () => {
       polls: 1,
       error: 'unnatural-phrase-fit',
     });
+  });
+
+  it('settles durable editorial intent from its job receipt, including clean decline and material completion', async () => {
+    let clock = 0;
+    const declined = await waitForEditorialIntentJobTerminal({
+      jobId: 'chat_intent_declined',
+      projectId: 'proj_battle',
+      timeoutMs: 100,
+      pollIntervalMs: 10,
+    }, {
+      loadJob: vi.fn()
+        .mockResolvedValueOnce({ status: 'running' })
+        .mockResolvedValueOnce({ status: 'declined', result: { overlaysModified: 0 } }),
+      now: () => clock,
+      sleep: async (milliseconds) => { clock += milliseconds; },
+    });
+    expect(declined).toEqual({ status: 'declined', materialChange: false, polls: 2 });
+
+    const completed = await waitForEditorialIntentJobTerminal({
+      jobId: 'chat_intent_completed',
+      projectId: 'proj_battle',
+      timeoutMs: 100,
+      pollIntervalMs: 10,
+    }, {
+      loadJob: vi.fn().mockResolvedValue({
+        status: 'completed',
+        result: { overlaysModified: 2 },
+      }),
+      now: () => 0,
+      sleep: async () => undefined,
+    });
+    expect(completed).toEqual({ status: 'completed', materialChange: true, polls: 1 });
   });
 
   it('tests reference style through the durable owner and forbids legacy style authority', () => {
