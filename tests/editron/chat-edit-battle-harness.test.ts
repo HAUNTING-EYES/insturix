@@ -910,6 +910,149 @@ describe('chat edit battle harness', () => {
     expect(completed).toEqual({ status: 'completed', materialChange: true, polls: 1 });
   });
 
+  it('snapshots bounded MG child evidence before disposable fixture cleanup removes durable jobs', async () => {
+    const parent = {
+      status: 'completed',
+      pendingChildJobIds: ['mgr_child_generated', 'mgr_child_failed'],
+      result: {
+        overlaysModified: 1,
+        lifecycle: 'async-mg-render-reconciled',
+        generatedChildJobIds: ['mgr_child_generated'],
+        postconditionVerification: { status: 'pass' },
+      },
+    };
+    const children = [
+      {
+        _id: 'mgr_child_generated',
+        status: 'completed',
+        requestAudit: {
+          momentId: 'moment-1',
+          candidateId: 'candidate-1',
+          factKind: 'claim',
+        },
+        result: {
+          status: 'generated',
+          sequence: { address: { sequenceId: 'mgseq_1' } },
+          receipt: { outcome: 'generated' },
+        },
+      },
+      {
+        _id: 'mgr_child_failed',
+        status: 'failed',
+        requestAudit: {
+          momentId: 'moment-2',
+          candidateId: 'candidate-2',
+          factKind: 'comparison',
+        },
+        lastError: 'sandbox timeout '.repeat(500),
+        result: {
+          status: 'fallback',
+          reason: 'provider unavailable '.repeat(500),
+          receipt: {
+            outcome: 'fallback',
+            failure: {
+              provider: 'zai',
+              operation: 'component-generation',
+              code: 'timeout',
+              disposition: 'retryable',
+              statusCode: 504,
+            },
+          },
+        },
+      },
+    ];
+    const settlement = await waitForEditorialIntentJobTerminal({
+      jobId: 'chat_intent_children',
+      projectId: 'proj_battle',
+      timeoutMs: 100,
+      pollIntervalMs: 10,
+    }, {
+      loadJob: vi.fn().mockResolvedValue(parent),
+      loadChildJobs: vi.fn().mockResolvedValue(children),
+      now: () => 0,
+      sleep: async () => undefined,
+    });
+
+    parent.pendingChildJobIds.length = 0;
+    children.length = 0;
+
+    expect(settlement).toMatchObject({
+      status: 'completed',
+      materialChange: true,
+      lifecycle: 'async-mg-render-reconciled',
+      postconditionStatus: 'pass',
+      pendingChildJobIds: ['mgr_child_failed', 'mgr_child_generated'],
+      generatedChildJobIds: ['mgr_child_generated'],
+      childOperations: [
+        {
+          jobId: 'mgr_child_failed',
+          status: 'failed',
+          outcome: 'fallback',
+          momentId: 'moment-2',
+          candidateId: 'candidate-2',
+          factKind: 'comparison',
+          providerFailure: {
+            provider: 'zai',
+            operation: 'component-generation',
+            code: 'timeout',
+            disposition: 'retryable',
+            statusCode: 504,
+          },
+        },
+        {
+          jobId: 'mgr_child_generated',
+          status: 'completed',
+          outcome: 'generated',
+          momentId: 'moment-1',
+          candidateId: 'candidate-1',
+          factKind: 'claim',
+          sequenceId: 'mgseq_1',
+        },
+      ],
+    });
+    expect(settlement.childOperations?.[0].reason).toHaveLength(2_000);
+    expect(settlement.childOperations?.[0].error).toHaveLength(2_000);
+  });
+
+  it('preserves parent child outcomes when direct MG evidence loading fails', async () => {
+    const settlement = await waitForEditorialIntentJobTerminal({
+      jobId: 'chat_intent_declined_children',
+      projectId: 'proj_battle',
+      timeoutMs: 100,
+      pollIntervalMs: 10,
+    }, {
+      loadJob: vi.fn().mockResolvedValue({
+        status: 'declined',
+        pendingChildJobIds: ['mgr_child_declined'],
+        result: {
+          overlaysModified: 0,
+          childOutcomes: [{
+            jobId: 'mgr_child_declined',
+            jobStatus: 'completed',
+            outcome: 'declined',
+            reason: 'no visually explainable structure',
+          }],
+        },
+      }),
+      loadChildJobs: vi.fn().mockRejectedValue(new Error('mongo evidence unavailable')),
+      now: () => 0,
+      sleep: async () => undefined,
+    });
+
+    expect(settlement).toMatchObject({
+      status: 'declined',
+      materialChange: false,
+      reason: 'all-async-mg-children-produced-no-material-change',
+      evidenceError: 'mongo evidence unavailable',
+      childOperations: [{
+        jobId: 'mgr_child_declined',
+        status: 'completed',
+        outcome: 'declined',
+        reason: 'no visually explainable structure',
+      }],
+    });
+  });
+
   it('tests reference style through the durable owner and forbids legacy style authority', () => {
     const scenario = getChatEditBattleScenario('reference-style-transfer')!;
     expect(scenario.requiredToolSequence).toEqual(['apply_reference_style']);

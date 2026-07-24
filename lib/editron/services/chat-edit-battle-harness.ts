@@ -72,7 +72,34 @@ export interface ChatBattleDurableOperationEvidence {
     | 'missing';
   materialChange: boolean;
   polls: number;
+  reason?: string;
   error?: string;
+  lifecycle?: string;
+  postconditionStatus?: string;
+  pendingChildJobIds?: string[];
+  generatedChildJobIds?: string[];
+  childOperations?: ChatBattleDurableChildOperationEvidence[];
+  evidenceError?: string;
+}
+
+export interface ChatBattleDurableChildOperationEvidence {
+  owner: 'mg-render';
+  jobId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'missing' | 'unknown';
+  outcome: 'generated' | 'declined' | 'fallback' | 'failed' | 'unknown';
+  momentId?: string;
+  candidateId?: string;
+  factKind?: string;
+  sequenceId?: string;
+  reason?: string;
+  error?: string;
+  providerFailure?: {
+    provider?: string;
+    operation?: string;
+    code?: string;
+    disposition?: string;
+    statusCode?: number;
+  };
 }
 
 export interface ChatBattleOverlaySnapshot {

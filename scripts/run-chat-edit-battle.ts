@@ -15,6 +15,7 @@ import {
   getChatEditBattleScenario,
   parseChatBattleSse,
   runChatEditBattleJourney,
+  type ChatBattleDurableChildOperationEvidence,
   type ChatBattleDurableOperationEvidence,
   type ChatBattleInvocationEvidence,
   type ChatBattleRenderEvidence,
@@ -146,7 +147,20 @@ async function main(): Promise<void> {
             status: terminal.status,
             materialChange: terminal.materialChange,
             polls: terminal.polls,
+            ...(terminal.reason ? { reason: terminal.reason } : {}),
             ...(terminal.error ? { error: terminal.error } : {}),
+            ...(terminal.lifecycle ? { lifecycle: terminal.lifecycle } : {}),
+            ...(terminal.postconditionStatus ? { postconditionStatus: terminal.postconditionStatus } : {}),
+            ...(terminal.pendingChildJobIds?.length
+              ? { pendingChildJobIds: terminal.pendingChildJobIds }
+              : {}),
+            ...(terminal.generatedChildJobIds?.length
+              ? { generatedChildJobIds: terminal.generatedChildJobIds }
+              : {}),
+            ...(terminal.childOperations?.length
+              ? { childOperations: terminal.childOperations }
+              : {}),
+            ...(terminal.evidenceError ? { evidenceError: terminal.evidenceError } : {}),
           };
           const settledInvocation: ChatBattleInvocationEvidence = {
             ...invocation,
@@ -436,7 +450,14 @@ export interface EditorialIntentJobSettlementResult {
   status: EditorialIntentJobTerminalStatus;
   materialChange: boolean;
   polls: number;
+  reason?: string;
   error?: string;
+  lifecycle?: string;
+  postconditionStatus?: string;
+  pendingChildJobIds?: string[];
+  generatedChildJobIds?: string[];
+  childOperations?: ChatBattleDurableChildOperationEvidence[];
+  evidenceError?: string;
 }
 
 interface DubbingJobSettlementDependencies {
@@ -495,6 +516,10 @@ async function loadChatBattleDubbingJob(
 
 interface EditorialIntentJobSettlementDependencies {
   loadJob(jobId: string, projectId: string): Promise<Record<string, unknown> | null>;
+  loadChildJobs?(
+    jobIds: readonly string[],
+    projectId: string,
+  ): Promise<Record<string, unknown>[]>;
   now(): number;
   sleep(milliseconds: number): Promise<void>;
 }
@@ -508,6 +533,7 @@ export async function waitForEditorialIntentJobTerminal(
   },
   dependencies: EditorialIntentJobSettlementDependencies = {
     loadJob: loadChatBattleEditorialIntentJob,
+    loadChildJobs: loadChatBattleMgRenderJobs,
     now: () => Date.now(),
     sleep: async (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   },
@@ -529,23 +555,227 @@ export async function waitForEditorialIntentJobTerminal(
       ? result.overlaysModified
       : 0;
     if (status === 'completed' || status === 'completed_unverified') {
-      return { status, materialChange: overlaysModified > 0, polls };
+      return buildEditorialIntentSettlementEvidence({
+        status,
+        materialChange: overlaysModified > 0,
+        polls,
+        job,
+        projectId: input.projectId,
+        loadChildJobs: dependencies.loadChildJobs,
+      });
     }
-    if (status === 'declined') return { status, materialChange: false, polls };
+    if (status === 'declined') {
+      return buildEditorialIntentSettlementEvidence({
+        status,
+        materialChange: false,
+        polls,
+        job,
+        projectId: input.projectId,
+        loadChildJobs: dependencies.loadChildJobs,
+      });
+    }
     if (status === 'failed' || status === 'dispatch_failed' || status === 'rolled_back') {
       const error = stringValue(job.error);
-      return { status, materialChange: false, polls, ...(error ? { error } : {}) };
+      return buildEditorialIntentSettlementEvidence({
+        status,
+        materialChange: false,
+        polls,
+        job,
+        projectId: input.projectId,
+        loadChildJobs: dependencies.loadChildJobs,
+        ...(error ? { error } : {}),
+      });
     }
     if (dependencies.now() >= deadline) {
-      return {
+      return buildEditorialIntentSettlementEvidence({
         status: 'timeout',
         materialChange: false,
         polls,
+        job,
+        projectId: input.projectId,
+        loadChildJobs: dependencies.loadChildJobs,
         error: `editorial-intent-job-timeout:${status ?? 'unknown'}`,
-      };
+      });
     }
     await dependencies.sleep(pollIntervalMs);
   }
+}
+
+async function buildEditorialIntentSettlementEvidence(input: {
+  status: EditorialIntentJobTerminalStatus;
+  materialChange: boolean;
+  polls: number;
+  job: Record<string, unknown>;
+  projectId: string;
+  loadChildJobs?: EditorialIntentJobSettlementDependencies['loadChildJobs'];
+  error?: string;
+}): Promise<EditorialIntentJobSettlementResult> {
+  const result = asRecord(input.job.result);
+  const postcondition = asRecord(result.postconditionVerification);
+  const pendingChildJobIds = uniqueBoundedStrings([
+    ...arrayValue(input.job.pendingChildJobIds),
+    ...arrayValue(result.pendingChildJobIds),
+  ]);
+  const generatedChildJobIds = uniqueBoundedStrings(arrayValue(result.generatedChildJobIds));
+  let childOperations = childOperationsFromParentResult(result);
+  let evidenceError: string | undefined;
+
+  if (pendingChildJobIds.length > 0 && input.loadChildJobs) {
+    try {
+      const loaded = await input.loadChildJobs(pendingChildJobIds, input.projectId);
+      const byId = new Map(loaded.map((job) => [stringValue(job._id), job]));
+      const parentEvidenceById = new Map(childOperations.map((child) => [child.jobId, child]));
+      childOperations = pendingChildJobIds.map((jobId) => {
+        const child = byId.get(jobId);
+        return child
+          ? childOperationEvidence(child)
+          : parentEvidenceById.get(jobId) ?? missingChildOperationEvidence(jobId);
+      });
+    } catch (error) {
+      evidenceError = boundedEvidenceText(error instanceof Error ? error.message : String(error)) ?? undefined;
+    }
+  }
+
+  const hasAsyncMgEvidence = pendingChildJobIds.length > 0 || childOperations.length > 0;
+  const reason = boundedEvidenceText(
+    result.reason
+    ?? postcondition.reason
+    ?? (input.status === 'declined' && hasAsyncMgEvidence
+      ? 'all-async-mg-children-produced-no-material-change'
+      : null),
+  );
+  const operationError = boundedEvidenceText(input.error);
+  const lifecycle = boundedEvidenceText(result.lifecycle, 240);
+  const postconditionStatus = boundedEvidenceText(postcondition.status, 120);
+  return {
+    status: input.status,
+    materialChange: input.materialChange,
+    polls: input.polls,
+    ...(reason ? { reason } : {}),
+    ...(operationError ? { error: operationError } : {}),
+    ...(lifecycle ? { lifecycle } : {}),
+    ...(postconditionStatus ? { postconditionStatus } : {}),
+    ...(pendingChildJobIds.length > 0 ? { pendingChildJobIds } : {}),
+    ...(generatedChildJobIds.length > 0 ? { generatedChildJobIds } : {}),
+    ...(childOperations.length > 0 ? { childOperations } : {}),
+    ...(evidenceError ? { evidenceError } : {}),
+  };
+}
+
+function childOperationsFromParentResult(
+  result: Record<string, unknown>,
+): ChatBattleDurableChildOperationEvidence[] {
+  return arrayValue(result.childOutcomes)
+    .slice(0, 100)
+    .flatMap((value) => {
+      const child = asRecord(value);
+      const jobId = boundedEvidenceText(child.jobId, 240);
+      if (!jobId) return [];
+      const status = normalizeChildJobStatus(child.jobStatus);
+      const outcome = normalizeChildOutcome(child.outcome, status);
+      const reason = boundedEvidenceText(child.reason);
+      const error = boundedEvidenceText(child.error);
+      return [{
+        owner: 'mg-render' as const,
+        jobId,
+        status,
+        outcome,
+        ...(reason ? { reason } : {}),
+        ...(error ? { error } : {}),
+      }];
+    });
+}
+
+function childOperationEvidence(
+  job: Record<string, unknown>,
+): ChatBattleDurableChildOperationEvidence {
+  const result = asRecord(job.result);
+  const requestAudit = asRecord(job.requestAudit);
+  const receipt = asRecord(result.receipt);
+  const failure = asRecord(receipt.failure);
+  const sequence = asRecord(result.sequence);
+  const address = asRecord(sequence.address);
+  const status = normalizeChildJobStatus(job.status);
+  const reason = boundedEvidenceText(result.reason ?? receipt.reason);
+  const error = boundedEvidenceText(job.lastError ?? receipt.compileError);
+  const providerFailure = compactProviderFailure(failure);
+  return {
+    owner: 'mg-render',
+    jobId: boundedEvidenceText(job._id, 240) ?? 'unknown',
+    status,
+    outcome: normalizeChildOutcome(result.status ?? receipt.outcome, status),
+    ...(boundedEvidenceText(requestAudit.momentId, 240) ? { momentId: boundedEvidenceText(requestAudit.momentId, 240)! } : {}),
+    ...(boundedEvidenceText(requestAudit.candidateId, 240) ? { candidateId: boundedEvidenceText(requestAudit.candidateId, 240)! } : {}),
+    ...(boundedEvidenceText(requestAudit.factKind, 120) ? { factKind: boundedEvidenceText(requestAudit.factKind, 120)! } : {}),
+    ...(boundedEvidenceText(address.sequenceId, 240) ? { sequenceId: boundedEvidenceText(address.sequenceId, 240)! } : {}),
+    ...(reason ? { reason } : {}),
+    ...(error ? { error } : {}),
+    ...(providerFailure ? { providerFailure } : {}),
+  };
+}
+
+function compactProviderFailure(
+  failure: Record<string, unknown>,
+): ChatBattleDurableChildOperationEvidence['providerFailure'] | null {
+  const provider = boundedEvidenceText(failure.provider, 120);
+  const operation = boundedEvidenceText(failure.operation, 120);
+  const code = boundedEvidenceText(failure.code, 120);
+  const disposition = boundedEvidenceText(failure.disposition, 120);
+  const statusCode = typeof failure.statusCode === 'number' && Number.isInteger(failure.statusCode)
+    ? failure.statusCode
+    : undefined;
+  if (!provider && !operation && !code && !disposition && statusCode == null) return null;
+  return {
+    ...(provider ? { provider } : {}),
+    ...(operation ? { operation } : {}),
+    ...(code ? { code } : {}),
+    ...(disposition ? { disposition } : {}),
+    ...(statusCode != null ? { statusCode } : {}),
+  };
+}
+
+function missingChildOperationEvidence(jobId: string): ChatBattleDurableChildOperationEvidence {
+  return {
+    owner: 'mg-render',
+    jobId,
+    status: 'missing',
+    outcome: 'unknown',
+    error: 'mg-render-child-job-not-found-before-fixture-cleanup',
+  };
+}
+
+function normalizeChildJobStatus(
+  value: unknown,
+): ChatBattleDurableChildOperationEvidence['status'] {
+  return ['queued', 'running', 'completed', 'failed', 'missing'].includes(String(value))
+    ? String(value) as ChatBattleDurableChildOperationEvidence['status']
+    : 'unknown';
+}
+
+function normalizeChildOutcome(
+  value: unknown,
+  status: ChatBattleDurableChildOperationEvidence['status'],
+): ChatBattleDurableChildOperationEvidence['outcome'] {
+  if (['generated', 'declined', 'fallback'].includes(String(value))) {
+    return String(value) as ChatBattleDurableChildOperationEvidence['outcome'];
+  }
+  return status === 'failed' ? 'failed' : 'unknown';
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function uniqueBoundedStrings(values: unknown[]): string[] {
+  return [...new Set(values.flatMap((value) => {
+    const text = boundedEvidenceText(value, 240);
+    return text ? [text] : [];
+  }))].sort().slice(0, 100);
+}
+
+function boundedEvidenceText(value: unknown, maxLength = 2_000): string | null {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text ? text.slice(0, maxLength) : null;
 }
 
 async function loadChatBattleEditorialIntentJob(
@@ -558,6 +788,30 @@ async function loadChatBattleEditorialIntentJob(
   return db.collection<Record<string, unknown> & { _id: string; projectId: string }>(
     COLLECTIONS.CHAT_EDITORIAL_INTENT_JOBS,
   ).findOne({ _id: jobId, projectId }) as Promise<Record<string, unknown> | null>;
+}
+
+async function loadChatBattleMgRenderJobs(
+  jobIds: readonly string[],
+  projectId: string,
+): Promise<Record<string, unknown>[]> {
+  if (jobIds.length === 0) return [];
+  const { COLLECTIONS, connectToDatabase } = await import('../lib/editron/db/mongodb');
+  const { client, db } = await connectToDatabase();
+  chatBattleMongoClient = client;
+  return db.collection<Record<string, unknown> & { _id: string; projectId: string }>(
+    COLLECTIONS.MG_RENDER_JOBS,
+  ).find(
+    { _id: { $in: [...jobIds] }, projectId },
+    {
+      projection: {
+        _id: 1,
+        status: 1,
+        requestAudit: 1,
+        result: 1,
+        lastError: 1,
+      },
+    },
+  ).toArray() as Promise<Record<string, unknown>[]>;
 }
 
 export function shouldPollForFreshChatBattleRenderEvidence(input: {
