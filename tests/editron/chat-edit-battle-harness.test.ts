@@ -163,6 +163,7 @@ import {
   markChatEditRenderVerificationDispatched,
   markChatEditRenderVerificationRendering,
   markChatEditRenderVerificationTerminal,
+  resolveChatEditRenderVerificationStatus,
 } from '@/lib/editron/services/chat-edit-render-verification-lifecycle';
 import type {
   ChatEditRenderedAudioEvidence,
@@ -1375,6 +1376,69 @@ describe('chat edit battle harness', () => {
       terminalStatus: 'pass',
       attemptCount: 2,
       terminalAt: '2026-07-18T10:00:04.000Z',
+    });
+  });
+
+  it('preserves advisory rendered quality warnings while blocking missing or failed evidence', () => {
+    const visualWarning = {
+      status: 'completed',
+      gateStatus: 'warn',
+      renderedFrames: [{ afterUrl: 'https://cdn/title.webp' }],
+      issues: [{
+        modality: 'visual',
+        severity: 'warn',
+        code: 'safe-area',
+        message: 'Title exceeds title-safe margin.',
+      }],
+    };
+    expect(resolveChatEditRenderVerificationStatus({
+      requestedModalities: ['visual'],
+      visual: visualWarning,
+      audio: null,
+    })).toBe('warn');
+    expect(resolveChatEditRenderVerificationStatus({
+      requestedModalities: ['visual'],
+      visual: { ...visualWarning, gateStatus: 'needs_review' },
+      audio: null,
+    })).toBe('fail');
+    expect(resolveChatEditRenderVerificationStatus({
+      requestedModalities: ['visual', 'audio'],
+      visual: { ...visualWarning, gateStatus: 'pass' },
+      audio: null,
+    })).toBe('fail');
+    expect(resolveChatEditRenderVerificationStatus({
+      requestedModalities: ['visual', 'audio'],
+      visual: { ...visualWarning, gateStatus: 'pass' },
+      audio: renderedAudioEvidence(),
+    })).toBe('pass');
+
+    const completed = markChatEditRenderVerificationTerminal(
+      buildRequestedChatEditRenderVerification(renderVerificationRequest()),
+      {
+        status: 'warn',
+        visual: visualWarning,
+        audio: null,
+        reasons: ['visual_gate_warn'],
+        issues: visualWarning.issues,
+        now: '2026-07-18T10:00:04.000Z',
+      },
+    );
+    const evidence = extractPersistedChatBattleRenderEvidence({
+      projectId: 'proj_battle',
+      intelligence: { latestChatEditRenderVerification: completed },
+    }, '2026-07-18T10:00:00.000Z');
+
+    expect(completed).toMatchObject({
+      status: 'warn',
+      lifecycle: {
+        state: 'completed',
+        terminalStatus: 'quality-warn',
+      },
+    });
+    expect(evidence).toMatchObject({
+      status: 'warn',
+      artifactRefs: ['https://cdn/title.webp'],
+      issues: [expect.objectContaining({ severity: 'warn', code: 'safe-area' })],
     });
   });
 

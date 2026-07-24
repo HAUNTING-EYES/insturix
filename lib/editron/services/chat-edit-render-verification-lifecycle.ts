@@ -10,6 +10,7 @@ export type ChatEditRenderVerificationStatus =
   | 'pending'
   | 'running'
   | 'pass'
+  | 'warn'
   | 'fail'
   | 'error';
 
@@ -23,6 +24,7 @@ export type ChatEditRenderVerificationLifecycleState =
 
 export type ChatEditRenderVerificationTerminalStatus =
   | 'pass'
+  | 'quality-warn'
   | 'quality-fail'
   | 'system-error'
   | 'dispatch-error';
@@ -79,6 +81,23 @@ export type PersistedChatEditRenderVerificationRecord<Visual = unknown, Audio = 
     issues?: ChatEditRenderVerificationIssue[];
   };
 
+export function resolveChatEditRenderVerificationStatus(input: {
+  requestedModalities: ChatEditRenderVerificationRequest['modalities'];
+  visual: { status?: unknown; gateStatus?: unknown } | null;
+  audio: { status?: unknown } | null;
+}): Extract<ChatEditRenderVerificationStatus, 'pass' | 'warn' | 'fail'> {
+  let hasWarning = false;
+  if (input.requestedModalities.includes('visual')) {
+    if (!input.visual || input.visual.status !== 'completed') return 'fail';
+    if (input.visual.gateStatus === 'warn') hasWarning = true;
+    else if (input.visual.gateStatus !== 'pass') return 'fail';
+  }
+  if (input.requestedModalities.includes('audio') && input.audio?.status !== 'pass') {
+    return 'fail';
+  }
+  return hasWarning ? 'warn' : 'pass';
+}
+
 export function buildRequestedChatEditRenderVerification(
   request: ChatEditRenderVerificationRequest,
   now: Date | string = new Date(),
@@ -130,7 +149,7 @@ export function ensureChatEditRenderVerificationLifecycle<Visual, Audio>(
     return record as ChatEditRenderVerificationRecord<Visual, Audio>;
   }
   const updatedAt = toIso(now);
-  const completed = record.status === 'pass' || record.status === 'fail';
+  const completed = record.status === 'pass' || record.status === 'warn' || record.status === 'fail';
   const failed = record.status === 'error';
   const state: ChatEditRenderVerificationLifecycleState = completed
     ? 'completed'
@@ -149,6 +168,8 @@ export function ensureChatEditRenderVerificationLifecycle<Visual, Audio>(
       state,
       terminalStatus: record.status === 'pass'
         ? 'pass'
+        : record.status === 'warn'
+          ? 'quality-warn'
         : record.status === 'fail'
           ? 'quality-fail'
           : failed
@@ -281,7 +302,7 @@ export function markChatEditRenderVerificationRendering<Visual, Audio>(
 export function markChatEditRenderVerificationTerminal<Visual, Audio>(
   record: ChatEditRenderVerificationRecord<Visual, Audio>,
   input: {
-    status: 'pass' | 'fail' | 'error';
+    status: 'pass' | 'warn' | 'fail' | 'error';
     visual: Visual | null;
     audio: Audio | null;
     reasons: string[];
@@ -307,6 +328,8 @@ export function markChatEditRenderVerificationTerminal<Visual, Audio>(
       state: isSystemError ? 'failed' : 'completed',
       terminalStatus: input.status === 'pass'
         ? 'pass'
+        : input.status === 'warn'
+          ? 'quality-warn'
         : isSystemError
           ? 'system-error'
           : 'quality-fail',

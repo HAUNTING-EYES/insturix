@@ -35,6 +35,7 @@ import {
   markChatEditRenderVerificationDeliveryFailed,
   markChatEditRenderVerificationRendering,
   markChatEditRenderVerificationTerminal,
+  resolveChatEditRenderVerificationStatus,
   type ChatEditRenderVerificationRecord,
   type PersistedChatEditRenderVerificationRecord,
 } from '@/lib/editron/services/chat-edit-render-verification-lifecycle';
@@ -265,7 +266,7 @@ async function handleChatEditRenderVerification(input: {
     const record = current?.chatEditRenderVerification
       ? ensureChatEditRenderVerificationLifecycle(current.chatEditRenderVerification)
       : undefined;
-    if (record && (record.status === 'pass' || record.status === 'fail')) {
+    if (record && (record.status === 'pass' || record.status === 'warn' || record.status === 'fail')) {
       await ensureVerificationNotification({
         db: input.db,
         projectId: input.projectId,
@@ -348,8 +349,13 @@ async function handleChatEditRenderVerification(input: {
       visual: visualSummary,
       audio: audioEvidence,
     });
+    const verificationStatus = resolveChatEditRenderVerificationStatus({
+      requestedModalities: input.verification.modalities,
+      visual: visualSummary,
+      audio: audioEvidence,
+    });
     const finalRecord = markChatEditRenderVerificationTerminal(runningRecord, {
-      status: reasons.length === 0 ? 'pass' : 'fail',
+      status: verificationStatus,
       visual: visualSummary,
       audio: audioEvidence,
       reasons,
@@ -822,6 +828,8 @@ async function ensureVerificationNotification(input: {
   try {
     const content = input.record.status === 'pass'
       ? `Rendered verification passed for edit operation ${input.record.operationId}. The affected ${input.record.modalities.join(' and ')} output changed and passed the rendered quality checks.`
+      : input.record.status === 'warn'
+        ? `Rendered verification completed for edit operation ${input.record.operationId} with advisory quality warnings: ${input.record.reasons.join('; ') || 'review the persisted rendered evidence'}. The edit remains applied, and the warning evidence is available for review.`
       : `The edit was saved, but rendered verification did not pass for operation ${input.record.operationId}: ${input.record.reasons.join('; ') || 'unknown verification failure'}. I am not marking this edit as successful; review the persisted before/after evidence for the affected frames or audio windows.`;
     await chatService.saveMessage(input.record.sessionId, input.userId, input.projectId, {
       role: 'assistant',

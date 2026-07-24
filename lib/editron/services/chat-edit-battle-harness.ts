@@ -789,10 +789,14 @@ function uniqueIssueRecords(issues: Array<Record<string, unknown>>): Array<Recor
   const seen = new Set<string>();
   const unique: Array<Record<string, unknown>> = [];
   for (const issue of issues) {
-    const code = stringValue(issue.code) ?? stringValue(issue.message) ?? 'render_verification_issue';
+    const code = stringValue(issue.code ?? issue.dimension)
+      ?? stringValue(issue.message)
+      ?? 'render_verification_issue';
     const modality = stringValue(issue.modality) ?? 'system';
-    const frame = stringValue(issue.frame ?? issue.startFrame) ?? '';
-    const key = `${modality}:${code}:${frame}`;
+    const severity = stringValue(issue.severity) ?? '';
+    const frame = finiteNumber(issue.frame ?? issue.startFrame);
+    const overlayId = stringValue(issue.overlayId) ?? finiteNumber(issue.overlayId)?.toString() ?? '';
+    const key = `${modality}:${code}:${severity}:${frame ?? ''}:${overlayId}`;
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(issue);
