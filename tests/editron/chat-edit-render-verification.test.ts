@@ -86,6 +86,19 @@ describe('chat edit rendered verification', () => {
     expect(new Set(request.modalities)).toEqual(new Set(['visual', 'audio']));
   });
 
+  it('marks a lossless split as continuity-preserving instead of requiring changed pixels or audio', () => {
+    const request = buildRequest({
+      name: 'split_overlay',
+      args: { overlayId: 'video_1', splitFrame: 75 },
+      target: { overlayId: 'video_1', overlayType: 'video', state: 'updated', from: 0, endFrame: 150 },
+      modalities: ['visual', 'audio'],
+      affectedFrameRange: { startFrame: 74, endFrame: 77 },
+    });
+
+    expect(request.expectedEffect).toBe('continuity-preserved');
+    expect(request.sampleFrames).toEqual([73, 74, 75, 76, 77]);
+  });
+
   it('carries an owner-reported mutation range into exact seam samples and audio windows', () => {
     const request = buildRequest({
       name: 'cut_section',
@@ -389,6 +402,69 @@ describe('chat edit rendered verification', () => {
       ]));
   });
 
+  it('passes continuity proof only when the seam renders identically', async () => {
+    const renderStill = vi.fn(async (input: any) => ({
+      estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+      url: `https://example.com/${input.inputProps.overlays.some((overlay: any) => overlay.id === 'txt_after') ? 'after' : 'before'}-f${input.frame}.png`,
+      outKey: `chat/continuity-f${input.frame}.png`,
+      bucketName: 'render-bucket',
+      renderId: `continuity-${input.frame}`,
+      cloudWatchLogs: 'https://logs.example.com',
+      sizeInBytes: 512,
+      artifacts: [],
+    }));
+
+    const evidence = await buildPhase0RenderedStillEvidence(afterProject(), {
+      baselineProject: beforeProject(),
+      requestedSampleFrames: [44, 45, 46],
+      auditedOverlayIds: ['txt_after'],
+      comparisonMode: 'continuity-preserved',
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async () => renderedImageWithTinyDelta(false),
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.renderedAestheticReport?.summary).toMatchObject({
+      mutationStatus: 'pass',
+      mutationChangedFrameCount: 0,
+    });
+    expect(evidence.renderedAestheticReport?.summary?.status).not.toBe('fail');
+  });
+
+  it('fails continuity proof when the split changes seam pixels', async () => {
+    const renderStill = vi.fn(async (input: any) => {
+      const isAfter = input.inputProps.overlays.some((overlay: any) => overlay.id === 'txt_after');
+      return {
+        estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+        url: `https://example.com/${isAfter ? 'after' : 'before'}-continuity-f${input.frame}.png`,
+        outKey: `chat/changed-continuity-f${input.frame}.png`,
+        bucketName: 'render-bucket',
+        renderId: `changed-continuity-${input.frame}`,
+        cloudWatchLogs: 'https://logs.example.com',
+        sizeInBytes: 512,
+        artifacts: [],
+      };
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(afterProject(), {
+      baselineProject: beforeProject(),
+      requestedSampleFrames: [44, 45, 46],
+      auditedOverlayIds: ['txt_after'],
+      comparisonMode: 'continuity-preserved',
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async (url) => renderedImageWithTinyDelta(url.includes('/after-')),
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.renderedAestheticReport?.summary).toMatchObject({
+      status: 'fail',
+      mutationStatus: 'fail',
+      mutationChangedFrameCount: 3,
+    });
+  });
+
   it('renders shortened before and after timelines on a shared absolute duration', async () => {
     const renderStill = vi.fn(async (input: any) => ({
       estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
@@ -504,6 +580,74 @@ describe('chat edit rendered verification', () => {
 
     expect(evidence.status, evidence.reason ?? 'no reason').toBe('fail');
     expect(evidence.reason).toBe('rendered_audio_did_not_change_in_the_requested_window');
+  });
+
+  it('passes continuity proof when before and after PCM are identical', async () => {
+    const evidence = await buildChatEditRenderedAudioEvidence(
+      afterProject(),
+      beforeProject(),
+      {
+        ...videoMutationAudioRequest(),
+        expectedEffect: 'continuity-preserved',
+      },
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        inspectAudioTrack: async () => ({
+          status: 'present',
+          audioTrackCount: 1,
+          reason: null,
+        }),
+        renderAudioWindow: async () => ({
+          url: 'https://example.com/same.wav',
+          renderId: 'same-render',
+          bucketName: 'render-bucket',
+          pcmSha256: 'same-pcm',
+          rms: 0.2,
+          peak: 0.5,
+        }),
+      },
+    );
+
+    expect(evidence.status, evidence.reason ?? 'no reason').toBe('pass');
+    expect(evidence.windows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ changed: false }),
+    ]));
+  });
+
+  it('fails continuity proof when PCM changes across the split seam', async () => {
+    const evidence = await buildChatEditRenderedAudioEvidence(
+      afterProject(),
+      beforeProject(),
+      {
+        ...videoMutationAudioRequest(),
+        expectedEffect: 'continuity-preserved',
+      },
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        inspectAudioTrack: async () => ({
+          status: 'present',
+          audioTrackCount: 1,
+          reason: null,
+        }),
+        renderAudioWindow: async (input) => {
+          const overlays = Array.isArray(input.inputProps.overlays) ? input.inputProps.overlays : [];
+          const isAfter = overlays.some((overlay: any) => overlay.id === 'sound_after');
+          return {
+            url: `https://example.com/${isAfter ? 'after' : 'before'}.wav`,
+            renderId: isAfter ? 'after-render' : 'before-render',
+            bucketName: 'render-bucket',
+            pcmSha256: isAfter ? 'after-pcm' : 'before-pcm',
+            rms: isAfter ? 0.4 : 0.2,
+            peak: isAfter ? 0.8 : 0.5,
+          };
+        },
+      },
+    );
+
+    expect(evidence.status).toBe('fail');
+    expect(evidence.reason).toBe('rendered_audio_changed_across_continuity_preserving_edit');
   });
 
   it('skips an impossible audio render when both timeline states are proven audio-less', async () => {

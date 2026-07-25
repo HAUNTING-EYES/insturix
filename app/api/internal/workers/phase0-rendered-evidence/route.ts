@@ -302,6 +302,7 @@ async function handleChatEditRenderVerification(input: {
             auditedOverlayIds: input.verification.targets
               .filter((target) => target.state !== 'deleted')
               .map((target) => target.overlayId),
+            comparisonMode: input.verification.expectedEffect ?? 'mutation-delta',
             capturedAt,
           })
         : Promise.resolve(null),
@@ -527,6 +528,13 @@ function validateChatEditVerificationRequest(
       : [],
   ));
   if (modalities.length === 0 || modalities.length > 2) return null;
+  const expectedEffect = request.expectedEffect === undefined
+    ? 'mutation-delta'
+    : request.expectedEffect === 'mutation-delta'
+      || request.expectedEffect === 'continuity-preserved'
+      ? request.expectedEffect
+      : null;
+  if (!expectedEffect) return null;
 
   const rawTargets = Array.isArray(request.targets) ? request.targets : [];
   if (rawTargets.length > 64) return null;
@@ -581,6 +589,7 @@ function validateChatEditVerificationRequest(
     afterCheckpointId,
     requestedAt,
     modalities,
+    expectedEffect,
     targets,
     ...(mutationRanges.length > 0 ? { mutationRanges } : {}),
     sampleFrames,

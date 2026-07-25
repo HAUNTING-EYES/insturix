@@ -45,11 +45,15 @@ export interface RawRenderedStillImage {
 }
 
 export type ReadRenderedStillImage = (url: string) => Promise<RawRenderedStillImage>;
+type RenderedComparisonMode =
+  | 'overlay-visibility'
+  | 'mutation-delta'
+  | 'continuity-preserved';
 
 interface BuildRenderedAestheticEvidenceOptions {
   readImage?: ReadRenderedStillImage;
   auditedOverlayIds?: Array<string | number>;
-  comparisonMode?: 'overlay-visibility' | 'mutation-delta';
+  comparisonMode?: RenderedComparisonMode;
 }
 
 interface FrameReportLike {
@@ -127,7 +131,7 @@ async function scoreRenderedStillFrame(input: {
   sample: Phase0RenderSample;
   readImage: ReadRenderedStillImage;
   auditedOverlayIds?: Array<string | number>;
-  comparisonMode: 'overlay-visibility' | 'mutation-delta';
+  comparisonMode: RenderedComparisonMode;
 }): Promise<FrameReportLike> {
   const { artifactPack, still, sample } = input;
   let fullImage: RawRenderedStillImage | undefined;
@@ -201,7 +205,7 @@ function activeRenderedOverlayEvidence(
   fullImage?: RawRenderedStillImage,
   baselineImage?: RawRenderedStillImage,
   auditedOverlayIds?: Array<string | number>,
-  comparisonMode: 'overlay-visibility' | 'mutation-delta' = 'overlay-visibility',
+  comparisonMode: RenderedComparisonMode = 'overlay-visibility',
 ): RenderedOverlayEvidence[] {
   const auditedIds = auditedOverlayIds === undefined
     ? null
@@ -525,7 +529,7 @@ export function measureRenderedOverlayPixelEvidence(
 function buildRenderedAestheticReport(input: {
   artifactPack: Phase0RenderArtifactPack;
   frames: FrameReportLike[];
-  comparisonMode: 'overlay-visibility' | 'mutation-delta';
+  comparisonMode: RenderedComparisonMode;
 }): Phase0RenderedAestheticReportLike {
   const absoluteWarnFrames = input.frames.filter((frame) => frame.report.status === 'warn').length;
   const absoluteFailFrames = input.frames.filter((frame) => frame.report.status === 'fail').length;
@@ -542,7 +546,9 @@ function buildRenderedAestheticReport(input: {
   ).length;
   const mutationStatus = input.comparisonMode === 'mutation-delta'
     ? mutationChangedFrameCount > 0 ? 'pass' : 'fail'
-    : 'not-required';
+    : input.comparisonMode === 'continuity-preserved'
+      ? mutationChangedFrameCount === 0 ? 'pass' : 'fail'
+      : 'not-required';
   const sampledPixelCount = input.frames.reduce(
     (sum, frame) => sum + (frame.sampledPixelCount ?? 0),
     0,
@@ -553,8 +559,10 @@ function buildRenderedAestheticReport(input: {
       ? [{
           dimension: 'mutation',
           severity: 'fail' as const,
-          message: 'rendered before/after samples are pixel-identical inside the requested mutation window',
-          evidence: `changedPixels=0; sampledPixels=${sampledPixelCount}`,
+          message: input.comparisonMode === 'continuity-preserved'
+            ? 'continuity-preserving edit changed rendered pixels inside the seam window'
+            : 'rendered before/after samples are pixel-identical inside the requested mutation window',
+          evidence: `changedPixels=${input.frames.reduce((sum, frame) => sum + (frame.mutationPixelCount ?? 0), 0)}; sampledPixels=${sampledPixelCount}`,
         }]
       : [];
     return {

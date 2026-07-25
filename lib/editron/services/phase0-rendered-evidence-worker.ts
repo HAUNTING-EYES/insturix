@@ -52,6 +52,9 @@ export interface Phase0RenderedEvidenceDispatchPayload {
 }
 
 export type ChatEditRenderVerificationModality = 'visual' | 'audio';
+export type ChatEditRenderVerificationExpectation =
+  | 'mutation-delta'
+  | 'continuity-preserved';
 
 export interface ChatEditRenderVerificationTarget {
   overlayId: string;
@@ -75,6 +78,7 @@ export interface ChatEditRenderVerificationRequest {
   afterCheckpointId: string;
   requestedAt: string;
   modalities: ChatEditRenderVerificationModality[];
+  expectedEffect?: ChatEditRenderVerificationExpectation;
   targets: ChatEditRenderVerificationTarget[];
   mutationRanges?: ChatEditRenderVerificationMutationRange[];
   sampleFrames: number[];
@@ -331,6 +335,7 @@ export async function buildPhase0RenderedStillEvidence(
     requestedSampleFrames?: number[];
     baselineProject?: Phase0FixtureProject;
     auditedOverlayIds?: Array<string | number>;
+    comparisonMode?: 'mutation-delta' | 'continuity-preserved';
   } = {},
 ): Promise<Phase0RenderedStillEvidence> {
   const capturedAt = options.capturedAt ?? new Date().toISOString();
@@ -570,7 +575,8 @@ export async function buildPhase0RenderedStillEvidence(
         {
           readImage: options.readImage,
           auditedOverlayIds: options.auditedOverlayIds,
-          comparisonMode: options.baselineProject ? 'mutation-delta' : 'overlay-visibility',
+          comparisonMode: options.comparisonMode
+            ?? (options.baselineProject ? 'mutation-delta' : 'overlay-visibility'),
         },
       );
       if (aestheticEvidence) {
@@ -909,7 +915,10 @@ export async function buildChatEditRenderedAudioEvidence(
     }
   }
 
-  const failed = evidenceWindows.filter((window) => !window.changed || window.error);
+  const expectsContinuity = request.expectedEffect === 'continuity-preserved';
+  const failed = evidenceWindows.filter((window) =>
+    Boolean(window.error) || (expectsContinuity ? window.changed : !window.changed),
+  );
   return {
     version: 'editron-chat-rendered-audio-v1',
     status: evidenceWindows.length > 0 && failed.length === 0 ? 'pass' : 'fail',
@@ -918,7 +927,10 @@ export async function buildChatEditRenderedAudioEvidence(
     skippedWindows,
     reason: failed.length === 0
       ? null
-      : failed[0]?.error ?? 'rendered_audio_did_not_change_in_the_requested_window',
+      : failed[0]?.error
+        ?? (expectsContinuity
+          ? 'rendered_audio_changed_across_continuity_preserving_edit'
+          : 'rendered_audio_did_not_change_in_the_requested_window'),
   };
 }
 

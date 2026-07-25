@@ -11,6 +11,7 @@ import {
 } from '@/lib/editron/services/checkpoint-service';
 import type {
   ChatEditRenderVerificationModality,
+  ChatEditRenderVerificationExpectation,
   ChatEditRenderVerificationMutationRange,
   ChatEditRenderVerificationRequest,
   ChatEditRenderVerificationTarget,
@@ -371,6 +372,7 @@ export function buildChatEditRenderVerificationRequest(input: {
   const targetsByKey = new Map<string, ChatEditRenderVerificationTarget>();
   const mutationRangesByKey = new Map<string, ChatEditRenderVerificationMutationRange>();
   const modalitySet = new Set<ChatEditRenderVerificationModality>();
+  const expectedEffects = new Set<ChatEditRenderVerificationExpectation>();
 
   for (const successful of input.successfulCalls) {
     const receipt = readPassedPostconditionReceipt(successful.result.result);
@@ -389,13 +391,26 @@ export function buildChatEditRenderVerificationRequest(input: {
     for (const modality of inferMutationModalities(successful.call, targets, receipt?.modalities)) {
       modalitySet.add(modality);
     }
+    expectedEffects.add(
+      getChatToolMetadata(successful.call.name)?.postconditions?.render.expectation
+      ?? 'mutation-delta',
+    );
   }
 
   const targets = Array.from(targetsByKey.values());
   const mutationRanges = Array.from(mutationRangesByKey.values());
   if (modalitySet.size === 0) modalitySet.add('visual');
   const durationInFrames = Math.max(1, Math.round(finitePositiveNumber(input.project.durationInFrames) ?? 1));
-  const sampleFrames = buildVerificationSampleFrames(targets, durationInFrames, mutationRanges);
+  const expectedEffect: ChatEditRenderVerificationExpectation =
+    expectedEffects.has('mutation-delta')
+      ? 'mutation-delta'
+      : 'continuity-preserved';
+  const sampleFrames = buildVerificationSampleFrames(
+    targets,
+    durationInFrames,
+    mutationRanges,
+    expectedEffect,
+  );
 
   return {
     version: 'editron-chat-render-verification-v1',
@@ -405,6 +420,7 @@ export function buildChatEditRenderVerificationRequest(input: {
     afterCheckpointId: input.afterCheckpointId,
     requestedAt: input.requestedAt ?? new Date().toISOString(),
     modalities: Array.from(modalitySet),
+    expectedEffect,
     targets,
     ...(mutationRanges.length > 0 ? { mutationRanges } : {}),
     sampleFrames,
@@ -530,6 +546,7 @@ function buildVerificationSampleFrames(
   targets: ChatEditRenderVerificationTarget[],
   projectDurationInFrames: number,
   mutationRanges: ChatEditRenderVerificationMutationRange[] = [],
+  expectedEffect: ChatEditRenderVerificationExpectation = 'mutation-delta',
 ): number[] {
   const targetDurationInFrames = targets.reduce((maximum, target) => Math.max(
     maximum,
@@ -541,6 +558,16 @@ function buildVerificationSampleFrames(
   for (const range of mutationRanges) {
     const start = clampFrame(range.startFrame, durationInFrames);
     const end = clampFrame(Math.max(range.startFrame, range.endFrame - 1), durationInFrames);
+    if (expectedEffect === 'continuity-preserved') {
+      for (
+        let frame = clampFrame(start - 1, durationInFrames);
+        frame <= clampFrame(end + 1, durationInFrames);
+        frame += 1
+      ) {
+        frames.push(frame);
+      }
+      continue;
+    }
     frames.push(
       clampFrame(start - 1, durationInFrames),
       start,

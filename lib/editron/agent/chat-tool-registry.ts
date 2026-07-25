@@ -9,6 +9,9 @@ export type ChatToolStatePostconditionKind =
   | 'overlay-deleted'
   | 'overlay-set-changed';
 export type ChatToolRenderEvidenceModality = 'visual' | 'audio';
+export type ChatToolRenderEvidenceExpectation =
+  | 'mutation-delta'
+  | 'continuity-preserved';
 export type ChatToolEvidenceClass =
   | 'project-state'
   | 'timeline-state'
@@ -222,6 +225,7 @@ export interface ChatToolPostconditionContract {
   render: {
     required: true;
     modalities: ChatToolRenderEvidenceModality[];
+    expectation: ChatToolRenderEvidenceExpectation;
   };
 }
 
@@ -301,10 +305,11 @@ const EVIDENCE_PRODUCERS: Readonly<Record<string, ChatToolEvidenceClass[]>> = {
 function postconditions(
   kind: ChatToolStatePostconditionKind,
   modalities: ChatToolRenderEvidenceModality[] = ['visual'],
+  expectation: ChatToolRenderEvidenceExpectation = 'mutation-delta',
 ): ChatToolPostconditionContract {
   return {
     state: { kind, targetSource: 'tool-args-and-result' },
-    render: { required: true, modalities },
+    render: { required: true, modalities, expectation },
   };
 }
 
@@ -324,7 +329,7 @@ export const CHAT_TOOL_REGISTRY = {
   add_overlay: defineTool({ name: 'add_overlay', label: 'Adding element', shortLabel: 'Add', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added element', postconditions: postconditions('overlay-created', ['visual', 'audio']) }),
   update_overlay: defineTool({ name: 'update_overlay', label: 'Updating element', shortLabel: 'Update', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Updated element', postconditions: postconditions('overlay-updated', ['visual', 'audio']) }),
   batch_update_overlays: defineTool({ name: 'batch_update_overlays', label: 'Batch updating elements', shortLabel: 'Batch', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Batch updated elements', postconditions: postconditions('overlay-updated', ['visual', 'audio']) }),
-  split_overlay: defineTool({ name: 'split_overlay', label: 'Splitting clip', shortLabel: 'Split', iconCategory: 'trim', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Split clip', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']) }),
+  split_overlay: defineTool({ name: 'split_overlay', label: 'Splitting clip', shortLabel: 'Split', iconCategory: 'trim', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Split clip', postconditions: postconditions('overlay-set-changed', ['visual', 'audio'], 'continuity-preserved') }),
   trim_overlay: defineTool({ name: 'trim_overlay', label: 'Trimming clip', shortLabel: 'Trim', iconCategory: 'trim', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Trimmed clip' }),
   delete_overlay: defineTool({ name: 'delete_overlay', label: 'Removing element', shortLabel: 'Remove', iconCategory: 'delete', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Removed element', postconditions: postconditions('overlay-deleted', ['visual', 'audio']) }),
   sync_style: defineTool({ name: 'sync_style', label: 'Syncing styles', shortLabel: 'Sync', iconCategory: 'style', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Synced styles' }),
