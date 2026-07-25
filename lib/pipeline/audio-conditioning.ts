@@ -10,7 +10,7 @@ const SILENCE_THRESHOLD_LUFS = -60;
 const MAX_DURATION_SECONDS = 600;
 const MIN_MUSIC_DURATION_SECONDS = 0.4;
 const FFMPEG_TIMEOUT_MS = 120_000;
-const MAX_INPUT_BYTES = 128 * 1024 * 1024;
+export const MAX_AUDIO_CONDITIONING_INPUT_BYTES = 128 * 1024 * 1024;
 const MAX_PCM_BYTES = 256 * 1024 * 1024;
 const MAX_FFMPEG_OUTPUT_BYTES = 256 * 1024 * 1024;
 const MAX_STDERR_BYTES = 2 * 1024 * 1024;
@@ -217,10 +217,10 @@ export async function conditionAudio(input: ConditionAudioInput): Promise<AudioC
   if (!Buffer.isBuffer(input.buffer) || input.buffer.length === 0) {
     throw new AudioConditioningError('INVALID_REQUEST', 'Audio conditioning requires a non-empty encoded buffer');
   }
-  if (input.buffer.length > MAX_INPUT_BYTES) {
+  if (input.buffer.length > MAX_AUDIO_CONDITIONING_INPUT_BYTES) {
     throw new AudioConditioningError(
       'INPUT_TOO_LARGE',
-      `Encoded audio is ${input.buffer.length} bytes; limit is ${MAX_INPUT_BYTES}`,
+      `Encoded audio is ${input.buffer.length} bytes; limit is ${MAX_AUDIO_CONDITIONING_INPUT_BYTES}`,
     );
   }
 
