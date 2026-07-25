@@ -288,8 +288,8 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('clean-captions', 'Clean readable captions', 'Add clean readable captions that fit this video.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['add_captions'] }),
   scenario('create-html-scene', 'Create process graphic', 'Create a full-screen process diagram for this explanation.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['generate_html_scene', 'generate_html_sticker', 'add_overlay'], requiredCreatedOverlayTypes: [['motion-graphic', 'mg-sequence']] }),
   scenario('edit-html-scene', 'Edit HTML scene in place', 'Edit the selected HTML scene itself: change the heading embedded inside that HTML scene to How it works. Do not edit the separate text overlay.', { requiredToolSequence: [READ_PROJECT, 'edit_html_scene'] }),
-  scenario('bgm-explicit', 'Explicit BGM intent', 'Add restrained cinematic background music with no vocals and keep speech clear.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['regenerate_bgm'] }),
-  scenario('bgm-vague', 'Vague BGM intent', 'Add suitable background music for this edit.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['regenerate_bgm'] }),
+  scenario('bgm-explicit', 'Explicit BGM intent', 'Add restrained cinematic background music with no vocals and keep speech clear.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'], forbiddenTools: ['apply_editorial_intent'] }),
+  scenario('bgm-vague', 'Vague BGM intent', 'Add suitable background music for this edit.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'], forbiddenTools: ['apply_editorial_intent'] }),
   scenario('bgm-provider-failure', 'Safe BGM replacement failure', 'Replace the current music with something calmer.', {
     projectMode: 'assist',
     executionLane: 'deterministic-contract',

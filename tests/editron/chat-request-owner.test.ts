@@ -453,6 +453,37 @@ describe('chat request owner capability filtering', () => {
     expect(assistNames).not.toContain('dub_selected_dialogue');
   });
 
+  it('DIRECTOR MODE: an exclusive music directive exposes only the BGM family owner', () => {
+    const musicLicense: ChatRequestOwnerLicense = {
+      ...license('semantic-editorial-planner', 'editorial-plan'),
+      routingFacts: {
+        requestsMutation: true,
+        requestsAnalysis: false,
+        requiresContentLocalization: false,
+        requiresEditorialJudgment: true,
+        requestsReferenceStyle: false,
+        requestsBroadEditorialOutcome: false,
+        durableOperation: 'none',
+        operationFullySpecified: false,
+        targetFullySpecified: false,
+        familyDirectives: [{ family: 'music', mode: 'prefer' }],
+        familyScopeExclusive: true,
+      },
+    };
+    const assistNames = filterChatToolsForRequestOwner(
+      tools,
+      musicLicense,
+      { assistLane: true },
+    ).map((tool) => tool.name);
+
+    expect(assistNames).toContain('read_project_file');
+    expect(assistNames).toContain('get_timeline_view');
+    expect(assistNames).toContain('regenerate_bgm');
+    expect(assistNames).not.toContain('apply_editorial_intent');
+    expect(assistNames).not.toContain('add_captions');
+    expect(assistNames).not.toContain('sync_cuts_to_beats');
+  });
+
   it('DIRECTOR MODE: localized mutation tools cannot bypass MG semantic authority', () => {
     const assistNames = filterChatToolsForRequestOwner(
       tools, license('semantic-editorial-planner', 'localized-mutation'), { assistLane: true },

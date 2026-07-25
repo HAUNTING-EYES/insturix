@@ -254,11 +254,38 @@ const DIRECTOR_MODE_DIRECT_FAMILY_TOOLS = new Set([
   'sync_cuts_to_beats',
 ]);
 
+const DIRECTOR_MODE_EXCLUSIVE_FAMILY_OWNERS: Partial<
+  Record<EditorialFamily, ReadonlySet<string>>
+> = {
+  captions: new Set(['add_captions', 'add_fancy_captions']),
+  music: new Set(['regenerate_bgm']),
+};
+
 const DIRECTOR_MODE_DIRECT_TOOLS = new Set<string>([
   ...DIRECTOR_MODE_DIRECT_FAMILY_TOOLS,
   ...LOCALIZED_MUTATION_TOOLS,
   'apply_editorial_intent',
 ]);
+
+function resolveExclusiveDirectorFamilyTools(
+  license: ChatRequestOwnerLicense,
+): ReadonlySet<string> | null {
+  const facts = license.routingFacts;
+  if (!facts?.familyScopeExclusive) return null;
+
+  const preferredFamilies = facts.familyDirectives
+    .filter((directive) => directive.mode === 'prefer')
+    .map((directive) => directive.family);
+  if (preferredFamilies.length === 0) return null;
+
+  const tools = new Set<string>();
+  for (const family of preferredFamilies) {
+    const familyOwners = DIRECTOR_MODE_EXCLUSIVE_FAMILY_OWNERS[family];
+    if (!familyOwners) return null;
+    for (const toolName of familyOwners) tools.add(toolName);
+  }
+  return tools;
+}
 
 export async function classifyChatRequestOwner(
   input: ClassifyChatRequestOwnerInput,
@@ -452,9 +479,11 @@ export function filterChatToolsForRequestOwner<T extends { name: string }>(
         // Director Mode: the user is the director. A family-level directive runs
         // on the direct tools; only a vague whole-project re-edit falls through
         // to apply_editorial_intent (which is confirm-gated for assist).
-        return options.assistLane
-          ? DIRECTOR_MODE_DIRECT_TOOLS.has(tool.name)
-          : tool.name === 'apply_editorial_intent';
+        if (!options.assistLane) return tool.name === 'apply_editorial_intent';
+        const exclusiveFamilyTools = resolveExclusiveDirectorFamilyTools(license);
+        return exclusiveFamilyTools
+          ? exclusiveFamilyTools.has(tool.name)
+          : DIRECTOR_MODE_DIRECT_TOOLS.has(tool.name);
       }
       if (workflow === 'localized-mutation') {
         return LOCALIZED_MUTATION_TOOLS.has(tool.name);

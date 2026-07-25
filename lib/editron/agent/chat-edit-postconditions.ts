@@ -6,7 +6,10 @@ import {
   type ChatToolRenderEvidenceModality,
   type ChatToolStatePostconditionKind,
 } from './chat-tool-registry';
-import { buildOverlayRenderTruthSnapshot } from '../shared/render-request-payload';
+import {
+  buildOverlayRenderTruthSnapshot,
+  UnlicensedAudioInRenderError,
+} from '../shared/render-request-payload';
 
 export const CHAT_EDIT_POSTCONDITION_VERSION = 'editron-chat-postcondition-v1' as const;
 
@@ -104,15 +107,30 @@ export function verifyChatToolPostcondition(input: {
   const stateChanged = before != null && after != null && beforeStateHash !== afterStateHash;
   const requestedTargetIds = resolveRequestedTargetIds(contract?.state.kind, input.args, input.resultData);
   const affectedTargets = before && after ? diffOverlayTargets(before.overlays, after.overlays) : [];
-  const outcome = evaluateStateExpectation({
-    contract,
-    before,
-    after,
-    stateChanged,
-    requestedTargetIds,
-    affectedTargets,
-    resultData: input.resultData,
-  });
+  const invalidAffectedTargets = after
+    ? affectedTargets.filter((target) => (
+        target.state !== 'deleted'
+        && after.renderEligibilityIssues.has(target.overlayId)
+      ))
+    : [];
+  const outcome = invalidAffectedTargets.length > 0
+    ? {
+        pass: false,
+        deferred: false,
+        reason: invalidAffectedTargets
+          .map((target) => after?.renderEligibilityIssues.get(target.overlayId))
+          .filter((reason): reason is string => Boolean(reason))
+          .join('; '),
+      }
+    : evaluateStateExpectation({
+        contract,
+        before,
+        after,
+        stateChanged,
+        requestedTargetIds,
+        affectedTargets,
+        resultData: input.resultData,
+      });
 
   return {
     version: CHAT_EDIT_POSTCONDITION_VERSION,
@@ -162,6 +180,7 @@ function resolveRenderVerificationModalities(
 interface ProjectSnapshot {
   stateHash: string;
   overlays: Map<string, JsonRecord>;
+  renderEligibilityIssues: Map<string, string>;
 }
 
 export function buildChatProjectRevision(value: unknown): string | null {
@@ -173,9 +192,18 @@ function projectSnapshot(value: unknown): ProjectSnapshot | null {
   if (Object.keys(project).length === 0) return null;
   const scrubbed = scrubVolatileTransportFields(project) as JsonRecord;
   const overlays = Array.isArray(scrubbed.overlays) ? scrubbed.overlays.map(asRecord) : [];
+  const overlayMap = new Map(overlays.map((overlay) => [String(overlay.id ?? ''), overlay]));
   return {
     stateHash: materialStateFingerprint(scrubbed),
-    overlays: new Map(overlays.map((overlay) => [String(overlay.id ?? ''), overlay])),
+    overlays: overlayMap,
+    renderEligibilityIssues: new Map(
+      overlays.flatMap((overlay) => {
+        const overlayId = String(overlay.id ?? '');
+        if (!overlayId) return [];
+        const issue = overlayRenderEligibilityIssue(overlay);
+        return issue ? [[overlayId, issue] as const] : [];
+      }),
+    ),
   };
 }
 
@@ -390,7 +418,25 @@ function targetFromOverlay(
 }
 
 function overlayFingerprint(overlay: JsonRecord): string {
-  return stableDigest(buildOverlayRenderTruthSnapshot(overlay));
+  try {
+    return stableDigest(buildOverlayRenderTruthSnapshot(overlay));
+  } catch (error) {
+    if (!(error instanceof UnlicensedAudioInRenderError)) throw error;
+    return stableDigest({
+      renderEligibility: error.code,
+      overlay,
+    });
+  }
+}
+
+function overlayRenderEligibilityIssue(overlay: JsonRecord): string | null {
+  try {
+    buildOverlayRenderTruthSnapshot(overlay);
+    return null;
+  } catch (error) {
+    if (error instanceof UnlicensedAudioInRenderError) return error.message;
+    throw error;
+  }
 }
 
 const CHAT_RENDERABLE_PROJECT_FIELDS = [

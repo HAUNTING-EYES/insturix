@@ -577,6 +577,8 @@ describe('chat edit battle harness', () => {
     const existingBgm = {
       id: 'bgm-1',
       type: 'sound',
+      row: 1,
+      assetId: 'bgm-legacy-1',
       volume: 0.45,
       from: 0,
       durationInFrames: 300,
@@ -612,6 +614,87 @@ describe('chat edit battle harness', () => {
         modalities: ['visual'],
       },
     });
+  });
+
+  it('allows a licensed generated BGM to replace a legacy BGM without rights evidence', () => {
+    const legacyBgm = {
+      id: 'bgm-1',
+      type: 'sound',
+      row: 1,
+      assetId: 'bgm-legacy-1',
+      volume: 0.45,
+      from: 0,
+      durationInFrames: 300,
+      _workerAdded: true,
+    };
+    const generatedBgm = {
+      ...legacyBgm,
+      assetId: 'bgm-generated-1',
+      src: 'https://cdn.example/generated-bgm.mp3',
+      musicRights: {
+        mediaRole: 'music',
+        source: 'generated',
+        userChoice: 'attested',
+        licensed: true,
+        evidence: {
+          kind: 'generated-provider',
+          sourceAssetId: 'bgm-generated-1',
+          licenseId: 'provider:commercial-use',
+        },
+      },
+    };
+
+    const verification = verifyChatToolPostcondition({
+      toolName: 'regenerate_bgm',
+      args: { mood: 'restrained cinematic' },
+      resultData: { overlayId: 'bgm-1' },
+      beforeProject: project([legacyBgm]),
+      afterProject: project([generatedBgm]),
+    });
+
+    expect(verification).toMatchObject({
+      status: 'pass',
+      affectedTargets: [{
+        overlayId: 'bgm-1',
+        overlayType: 'sound',
+        state: 'updated',
+      }],
+      renderVerification: {
+        required: true,
+        modalities: ['audio'],
+      },
+    });
+  });
+
+  it('rejects a changed BGM when the resulting overlay still has no rights evidence', () => {
+    const legacyBgm = {
+      id: 'bgm-1',
+      type: 'sound',
+      row: 1,
+      assetId: 'bgm-legacy-1',
+      volume: 0.45,
+      from: 0,
+      durationInFrames: 300,
+      _workerAdded: true,
+    };
+
+    const verification = verifyChatToolPostcondition({
+      toolName: 'update_overlay',
+      args: { id: 'bgm-1', volume: 0.7 },
+      resultData: { overlayId: 'bgm-1' },
+      beforeProject: project([legacyBgm]),
+      afterProject: project([{ ...legacyBgm, volume: 0.7 }]),
+    });
+
+    expect(verification.status).toBe('fail');
+    expect(verification.reason).toContain('Cannot render unlicensed audio overlay bgm-1');
+    expect(verification.affectedTargets).toEqual([
+      expect.objectContaining({
+        overlayId: 'bgm-1',
+        overlayType: 'sound',
+        state: 'updated',
+      }),
+    ]);
   });
 
   it('ignores audio rights and persistence provenance churn when deriving render modalities', () => {
@@ -747,8 +830,6 @@ describe('chat edit battle harness', () => {
       ['motivated-zoom', ['resolve_keyframe_edit', 'set_keyframes']],
       ['vague-sfx-beat', ['resolve_audio_edit', 'add_sfx']],
       ['clean-captions', ['add_captions']],
-      ['bgm-explicit', ['regenerate_bgm']],
-      ['bgm-vague', ['regenerate_bgm']],
     ] as const;
 
     for (const [id, forbiddenTools] of cases) {
@@ -758,6 +839,18 @@ describe('chat edit battle harness', () => {
         'apply_editorial_intent',
       ]);
       expect(scenario.forbiddenTools).toEqual(expect.arrayContaining([...forbiddenTools]));
+    }
+  });
+
+  it('routes explicit and vague assist-mode BGM requests to the direct licensed owner', () => {
+    for (const id of ['bgm-explicit', 'bgm-vague']) {
+      const scenario = getChatEditBattleScenario(id)!;
+      expect(scenario.projectMode).toBe('assist');
+      expect(scenario.requiredToolSequence).toEqual([
+        ['read_project_file', 'get_timeline_view'],
+        'regenerate_bgm',
+      ]);
+      expect(scenario.forbiddenTools).toContain('apply_editorial_intent');
     }
   });
 
