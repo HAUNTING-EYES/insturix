@@ -6,6 +6,10 @@ import { pathToFileURL } from 'node:url';
 import { config as loadEnv } from 'dotenv';
 
 import { cleanupDisposableChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-cleanup';
+import {
+  persistChatBattleDurableSeeds,
+  prepareChatBattleDurableSeeds,
+} from '../lib/editron/services/chat-edit-battle-fixture-seeds';
 import { getChatEditBattleScenario } from '../lib/editron/services/chat-edit-battle-harness';
 import { planChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-plan';
 import { loadCanonicalProjectAssetAnalyses } from '../lib/editron/services/project-analysis-storage';
@@ -31,6 +35,8 @@ interface FixtureManifest {
   profile: string;
   selectedOverlayId?: string | number;
   sessionId?: string;
+  operationId?: string;
+  referenceAssetId?: string;
   clientContextPath: string;
   editorUrlPath: string;
   expiresAt: string;
@@ -93,6 +99,13 @@ async function main(): Promise<void> {
     if (plan.requiresUploadBatchClone && !sourceUploadBatch) {
       throw new Error(`Fixture source upload batch not found for ${plan.sourceProjectId}.`);
     }
+    const sourceReferenceAsset = scenario.fixtureRequirements.includes('durable-reference-asset')
+      ? await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne({
+          userId: sourceProject.userId,
+          type: 'video',
+          assetId: { $in: sourceAssetIds },
+        })
+      : null;
     const prepared = prepareChatBattleFixture({
       sourceProject: sourceProject as Record<string, unknown>,
       fixtureProjectId,
@@ -128,6 +141,12 @@ async function main(): Promise<void> {
     const completedAnalysisSeed = scenario.fixtureRequirements.includes('completed-clip-analysis-job')
       ? buildCompletedAnalysisSeed(prepared.project, now, expiresAt)
       : null;
+    const durableSeeds = prepareChatBattleDurableSeeds({
+      scenario,
+      project: prepared.project,
+      sourceReferenceAsset: sourceReferenceAsset as Record<string, unknown> | null,
+      now,
+    });
 
     await session.withTransaction(async () => {
       if (plan.requiresImageAssetAlias) {
@@ -143,6 +162,9 @@ async function main(): Promise<void> {
       if (transcriptAsset) {
         await db.collection(COLLECTIONS.MEDIA_ASSETS).insertOne(transcriptAsset, { session });
       }
+      if (durableSeeds.referenceAsset) {
+        await db.collection(COLLECTIONS.MEDIA_ASSETS).insertOne(durableSeeds.referenceAsset, { session });
+      }
       await db.collection(COLLECTIONS.PROJECTS).insertOne(prepared.project, { session });
       if (uploadBatch) {
         await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).insertOne(uploadBatch, { session });
@@ -154,7 +176,11 @@ async function main(): Promise<void> {
         await db.collection(COLLECTIONS.CHAT_DEEP_ANALYSIS_JOBS).insertOne(completedAnalysisSeed.job, { session });
         await db.collection(COLLECTIONS.CHAT_SESSIONS).insertOne(completedAnalysisSeed.chatSession, { session });
       }
+      if (durableSeeds.chatSessions.length > 0) {
+        await db.collection(COLLECTIONS.CHAT_SESSIONS).insertMany(durableSeeds.chatSessions, { session });
+      }
     });
+    await persistChatBattleDurableSeeds(durableSeeds);
 
     const fixtureDir = path.resolve(options.outputRoot, fixtureProjectId);
     await mkdir(fixtureDir, { recursive: true });
@@ -166,7 +192,9 @@ async function main(): Promise<void> {
       sourceProjectId: plan.sourceProjectId,
       profile: plan.profile,
       selectedOverlayId: prepared.selectedOverlayId,
-      sessionId: completedAnalysisSeed?.sessionId,
+      sessionId: durableSeeds.sessionId ?? completedAnalysisSeed?.sessionId,
+      operationId: durableSeeds.operationId,
+      referenceAssetId: durableSeeds.referenceAssetId,
       clientContextPath,
       editorUrlPath: `/dashboard/editron/project/${fixtureProjectId}`,
       expiresAt: expiresAt.toISOString(),
