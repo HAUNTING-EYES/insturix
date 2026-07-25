@@ -179,6 +179,7 @@ import {
   loadChatBattleMongoProject,
   mergeChatBattleInvocations,
   parseChatBattleCliArgs,
+  parseChatBattleOperationReplayResponse,
   shouldPollForFreshChatBattleRenderEvidence,
   validateChatBattleCliOptions,
   waitForDubbingJobTerminal,
@@ -1668,6 +1669,132 @@ describe('chat edit battle harness', () => {
       projectId: 'proj_chatbattle_contract',
       runId: 'run 2026/07/18 #1',
     }).operationId).toBe(request.operationId);
+    expect(buildLiveChatRequestBody({
+      scenarioPrompt: 'Retry the previous edit.',
+      projectId: 'proj_chatbattle_contract',
+      runId: 'run 2026/07/18 #2',
+      operationId: 'chat-battle-seed:retry-idempotency:operation',
+    }).operationId).toBe('chat-battle-seed:retry-idempotency:operation');
+  });
+
+  it('parses only the canonical chat operation replay receipt', () => {
+    expect(parseChatBattleOperationReplayResponse(409, JSON.stringify({
+      code: 'CHAT_EDIT_OPERATION_REPLAY',
+      operationId: 'chat-battle-seed:retry-idempotency:operation',
+      operationStatus: 'completed',
+      beforeCheckpointId: 'checkpoint_before',
+      afterCheckpointId: 'checkpoint_after',
+    }))).toEqual({
+      code: 'CHAT_EDIT_OPERATION_REPLAY',
+      operationId: 'chat-battle-seed:retry-idempotency:operation',
+      operationStatus: 'completed',
+      beforeCheckpointId: 'checkpoint_before',
+      afterCheckpointId: 'checkpoint_after',
+    });
+    expect(parseChatBattleOperationReplayResponse(200, '{}')).toBeNull();
+    expect(() => parseChatBattleOperationReplayResponse(409, '<html>conflict</html>'))
+      .toThrow('without a valid JSON replay receipt');
+    expect(() => parseChatBattleOperationReplayResponse(409, JSON.stringify({
+      code: 'SOME_OTHER_CONFLICT',
+      operationId: 'operation',
+    }))).toThrow('unexpected HTTP 409 response');
+  });
+
+  it('proves idempotent retry through durable replay evidence and zero second mutation', () => {
+    const scenario = getChatEditBattleScenario('retry-idempotency')!;
+    const unchangedProject = project([{
+      id: 'video-1',
+      type: 'video',
+      from: 0,
+      durationInFrames: 300,
+      row: 0,
+      assetId: 'asset-1',
+    }]);
+    const before = buildChatBattleProjectSnapshot(unchangedProject, 'mongo-before');
+    const after = buildChatBattleProjectSnapshot(unchangedProject, 'mongo-after');
+    const reload = buildChatBattleProjectSnapshot(unchangedProject, 'ui-reload');
+    const report = evaluateChatEditBattleJourney({
+      journeyId: 'journey-replay',
+      scenario,
+      projectId: 'proj_battle',
+      startedAt: '2026-07-25T10:00:00.000Z',
+      completedAt: '2026-07-25T10:00:01.000Z',
+      invocation: {
+        agentRunId: 'journey-replay',
+        mode: 'live-provider',
+        prompt: scenario.prompt,
+        responseText: '',
+        toolEvents: [],
+        replayProtection: {
+          code: 'CHAT_EDIT_OPERATION_REPLAY',
+          operationId: 'chat-battle-seed:retry-idempotency:operation',
+          operationStatus: 'completed',
+          beforeCheckpointId: 'checkpoint_before',
+          afterCheckpointId: 'checkpoint_after',
+        },
+      },
+      mongoBefore: before,
+      mongoAfter: after,
+      uiReload: reload,
+      renderEvidence: {
+        status: 'missing',
+        artifactRefs: [],
+        issues: [],
+      },
+      fixturePreconditions: {
+        ok: true,
+        missing: [],
+        satisfied: ['prior-idempotency-record'],
+      },
+    });
+
+    expect(report.verdict).toBe('pass');
+    expect(report.checks.find((check) => check.id === 'agent.operation-replay-protection'))
+      .toMatchObject({ status: 'pass', blocking: true });
+    expect(report.checks.find((check) => check.id === 'agent.tool-completion'))
+      .toMatchObject({ status: 'pass' });
+    expect(report.checks.find((check) => check.id === 'mongo.mutation-truth'))
+      .toMatchObject({ status: 'pass' });
+  });
+
+  it('rejects an operation replay receipt during a fresh scenario', () => {
+    const scenario = getChatEditBattleScenario('explicit-text')!;
+    const unchangedProject = project([]);
+    const report = evaluateChatEditBattleJourney({
+      journeyId: 'journey-unexpected-replay',
+      scenario,
+      projectId: 'proj_battle',
+      startedAt: '2026-07-25T10:00:00.000Z',
+      completedAt: '2026-07-25T10:00:01.000Z',
+      invocation: {
+        agentRunId: 'journey-unexpected-replay',
+        mode: 'live-provider',
+        prompt: scenario.prompt,
+        responseText: '',
+        toolEvents: [],
+        replayProtection: {
+          code: 'CHAT_EDIT_OPERATION_REPLAY',
+          operationId: 'unexpected-operation',
+        },
+      },
+      mongoBefore: buildChatBattleProjectSnapshot(unchangedProject, 'mongo-before'),
+      mongoAfter: buildChatBattleProjectSnapshot(unchangedProject, 'mongo-after'),
+      uiReload: buildChatBattleProjectSnapshot(unchangedProject, 'ui-reload'),
+      renderEvidence: {
+        status: 'missing',
+        artifactRefs: [],
+        issues: [],
+      },
+      fixturePreconditions: {
+        ok: true,
+        missing: [],
+        satisfied: [],
+      },
+    });
+
+    expect(report.verdict).toBe('fail');
+    expect(report.checks.find((check) => check.id === 'agent.operation-replay-protection'))
+      .toMatchObject({ status: 'fail', blocking: true });
   });
 
   it('reuses the process-owned Mongo connection across before and after snapshots', async () => {

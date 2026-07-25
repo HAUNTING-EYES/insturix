@@ -18,6 +18,7 @@ import {
   type ChatBattleDurableChildOperationEvidence,
   type ChatBattleDurableOperationEvidence,
   type ChatBattleInvocationEvidence,
+  type ChatBattleOperationReplayEvidence,
   type ChatBattleRenderEvidence,
 } from '../lib/editron/services/chat-edit-battle-harness';
 
@@ -28,6 +29,7 @@ export interface ChatBattleCliOptions {
   authHeaderFile: string;
   outputRoot: string;
   runId: string;
+  operationId?: string;
   sessionId?: string;
   selectedOverlayId?: string;
   clientContextPath?: string;
@@ -128,6 +130,7 @@ async function main(): Promise<void> {
           selectedOverlayId,
           clientContext: context,
           runId: options.runId,
+          operationId: options.operationId,
           startedAt: startedAtHolder.value || new Date().toISOString(),
         });
         const editorialIntentJobId = extractQueuedEditorialIntentJobId(invocation);
@@ -268,6 +271,7 @@ export function parseChatBattleCliArgs(argv: string[]): ChatBattleCliOptions | n
     else if (arg.startsWith('--auth-header-file=')) options.authHeaderFile = valueAfterEquals(arg);
     else if (arg.startsWith('--output=')) options.outputRoot = valueAfterEquals(arg);
     else if (arg.startsWith('--run-id=')) options.runId = valueAfterEquals(arg);
+    else if (arg.startsWith('--operation-id=')) options.operationId = valueAfterEquals(arg);
     else if (arg.startsWith('--session-id=')) options.sessionId = valueAfterEquals(arg);
     else if (arg.startsWith('--selected-overlay=')) options.selectedOverlayId = valueAfterEquals(arg);
     else if (arg.startsWith('--client-context=')) options.clientContextPath = valueAfterEquals(arg);
@@ -291,6 +295,7 @@ async function invokeLiveChatAgent(input: {
   selectedOverlayId?: string;
   clientContext?: Record<string, unknown>;
   runId: string;
+  operationId?: string;
   startedAt: string;
 }): Promise<ChatBattleInvocationEvidence> {
   const requestBody = buildLiveChatRequestBody(input);
@@ -301,6 +306,17 @@ async function invokeLiveChatAgent(input: {
     body: JSON.stringify(requestBody),
   });
   const raw = await response.text();
+  const replayProtection = parseChatBattleOperationReplayResponse(response.status, raw);
+  if (replayProtection) {
+    return {
+      agentRunId: input.runId,
+      mode: 'live-provider',
+      prompt: input.scenarioPrompt,
+      responseText: '',
+      toolEvents: [],
+      replayProtection,
+    };
+  }
   if (!response.ok) throw new Error(`Chat route failed HTTP ${response.status}: ${raw.slice(0, 1_000)}`);
   const records = parseChatBattleSse(raw);
   const parseErrors = records.filter((record) => record.type === 'parse_error');
@@ -328,12 +344,13 @@ export function buildLiveChatRequestBody(input: {
   selectedOverlayId?: string;
   clientContext?: Record<string, unknown>;
   runId: string;
+  operationId?: string;
 }): Record<string, unknown> {
   return {
     message: input.scenarioPrompt,
     projectId: input.projectId,
     ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-    operationId: `chat-battle:${safeSegment(input.runId)}`,
+    operationId: input.operationId ?? `chat-battle:${safeSegment(input.runId)}`,
     ...(input.selectedOverlayId ? { selectedOverlayId: input.selectedOverlayId } : {}),
     ...(input.clientContext ? { clientContext: input.clientContext } : {}),
   };
@@ -659,6 +676,33 @@ async function buildEditorialIntentSettlementEvidence(input: {
     ...(generatedChildJobIds.length > 0 ? { generatedChildJobIds } : {}),
     ...(childOperations.length > 0 ? { childOperations } : {}),
     ...(evidenceError ? { evidenceError } : {}),
+  };
+}
+
+export function parseChatBattleOperationReplayResponse(
+  status: number,
+  raw: string,
+): ChatBattleOperationReplayEvidence | null {
+  if (status !== 409) return null;
+  let payload: Record<string, unknown>;
+  try {
+    payload = asRecord(JSON.parse(raw));
+  } catch {
+    throw new Error('Chat route returned HTTP 409 without a valid JSON replay receipt.');
+  }
+  if (payload.code !== 'CHAT_EDIT_OPERATION_REPLAY') {
+    throw new Error(`Chat route returned unexpected HTTP 409 response: ${raw.slice(0, 1_000)}`);
+  }
+  const operationId = stringValue(payload.operationId);
+  if (!operationId) {
+    throw new Error('Chat replay receipt omitted operationId.');
+  }
+  return {
+    code: 'CHAT_EDIT_OPERATION_REPLAY',
+    operationId,
+    ...(stringValue(payload.operationStatus) ? { operationStatus: stringValue(payload.operationStatus)! } : {}),
+    ...(stringValue(payload.beforeCheckpointId) ? { beforeCheckpointId: stringValue(payload.beforeCheckpointId)! } : {}),
+    ...(stringValue(payload.afterCheckpointId) ? { afterCheckpointId: stringValue(payload.afterCheckpointId)! } : {}),
   };
 }
 

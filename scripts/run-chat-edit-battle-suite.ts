@@ -27,6 +27,7 @@ interface FixtureManifest {
   fixtureProjectId: string;
   selectedOverlayId?: string | number;
   sessionId?: string;
+  operationId?: string;
   clientContextPath: string;
 }
 
@@ -155,6 +156,7 @@ async function runScenario(input: {
       runArgs.push(`--selected-overlay=${String(manifest.selectedOverlayId)}`);
     }
     if (manifest.sessionId) runArgs.push(`--session-id=${manifest.sessionId}`);
+    if (manifest.operationId) runArgs.push(`--operation-id=${manifest.operationId}`);
     const exitCode = await runTsx(runArgs);
     const report = await readJsonIfPresent(reportPath);
     if (!report) {

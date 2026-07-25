@@ -34,6 +34,7 @@ export interface ChatBattleScenario {
   label: string;
   prompt: string;
   projectMode: ChatBattleProjectMode;
+  expectOperationReplay: boolean;
   mutationExpectation: ChatBattleMutationExpectation;
   minimumSuccessfulMutations: number;
   requiredToolSequence: ReadonlyArray<string | readonly string[]>;
@@ -62,9 +63,18 @@ export interface ChatBattleInvocationEvidence {
   prompt: string;
   responseText: string;
   toolEvents: ChatBattleToolEvent[];
+  replayProtection?: ChatBattleOperationReplayEvidence;
   durableOperations?: ChatBattleDurableOperationEvidence[];
   refusalReason?: string;
   error?: string;
+}
+
+export interface ChatBattleOperationReplayEvidence {
+  code: 'CHAT_EDIT_OPERATION_REPLAY';
+  operationId: string;
+  operationStatus?: string;
+  beforeCheckpointId?: string;
+  afterCheckpointId?: string;
 }
 
 export interface ChatBattleDurableOperationEvidence {
@@ -224,6 +234,7 @@ function scenario(
     label,
     prompt,
     projectMode: options.projectMode ?? 'auto',
+    expectOperationReplay: options.expectOperationReplay ?? false,
     mutationExpectation: options.mutationExpectation ?? 'required',
     minimumSuccessfulMutations: options.minimumSuccessfulMutations ?? 1,
     requiredToolSequence: options.requiredToolSequence ?? [],
@@ -282,7 +293,15 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('undo-overlay-edit', 'Undo overlay edit', 'Undo that AI edit.', { requiredToolSequence: ['restore_ai_edit_checkpoint'], fixtureRequirements: ['ai-edit-checkpoint'] }),
   scenario('undo-full-state', 'Undo timing and project state', 'Undo the last AI edit including its timing and project duration changes.', { requiredToolSequence: ['restore_ai_edit_checkpoint'], fixtureRequirements: ['ai-edit-checkpoint'] }),
   scenario('rollback-partial-failure', 'Rollback partial failure', 'Apply these three changes as one edit and leave everything unchanged if any step fails.', { mutationExpectation: 'conditional', requiredToolSequence: [READ_PROJECT], minimumSuccessfulMutations: 2, fixtureRequirements: ['partial-failure-plan'] }),
-  scenario('retry-idempotency', 'Interrupted request retry', 'Retry my previous edit without applying anything twice.', { mutationExpectation: 'conditional', requiredToolSequence: [READ_PROJECT], fixtureRequirements: ['prior-idempotency-record'] }),
+  scenario('retry-idempotency', 'Interrupted request retry', 'Retry my previous edit without applying anything twice.', {
+    expectOperationReplay: true,
+    mutationExpectation: 'forbidden',
+    minimumSuccessfulMutations: 0,
+    requiredToolSequence: [],
+    requireEvidenceBeforeMutation: false,
+    requireRenderedEvidence: false,
+    fixtureRequirements: ['prior-idempotency-record'],
+  }),
   scenario('project-chat-isolation', 'Project-scoped chat isolation', 'Add a test title only to this project.', { requiredToolSequence: [READ_PROJECT, 'add_overlay'] }),
   scenario('fragmented-sse', 'Fragmented SSE transport', 'Add one title and report the completed edit.', { requiredToolSequence: [READ_PROJECT, 'add_overlay'] }),
   scenario('visible-range-reference', 'Visible timeline reference', 'Tighten this visible section without changing the rest.', { requiredToolSequence: [READ_PROJECT], minimumSuccessfulMutations: 1 }),
@@ -494,6 +513,10 @@ export function evaluateChatEditBattleJourney(input: {
     && successfulMutations.length === 0
     && failedMutations.length === 0
     && !stateChanged;
+  const replayEvidence = input.invocation.replayProtection;
+  const validExpectedReplay = input.scenario.expectOperationReplay
+    && replayEvidence?.code === 'CHAT_EDIT_OPERATION_REPLAY'
+    && replayEvidence.operationId.length > 0;
 
   checks.push(check(
     'agent.dynamic-run',
@@ -503,10 +526,29 @@ export function evaluateChatEditBattleJourney(input: {
     { agentRunId: input.invocation.agentRunId, mode: input.invocation.mode, promptMatches: input.invocation.prompt === input.scenario.prompt, error: input.invocation.error },
   ));
   checks.push(check(
-    'agent.tool-completion',
-    events.length > 0 && completedEvents.length === events.length ? 'pass' : 'fail',
+    'agent.operation-replay-protection',
+    input.scenario.expectOperationReplay
+      ? validExpectedReplay && events.length === 0 ? 'pass' : 'fail'
+      : replayEvidence == null ? 'pass' : 'fail',
     true,
-    'Every selected tool must have a completed result.',
+    input.scenario.expectOperationReplay
+      ? 'A retry must be rejected by the durable operation guard before any tool executes.'
+      : 'A fresh scenario must not be rejected as a replay.',
+    {
+      expected: input.scenario.expectOperationReplay,
+      replayProtection: replayEvidence ?? null,
+      selectedToolCount: events.length,
+    },
+  ));
+  checks.push(check(
+    'agent.tool-completion',
+    validExpectedReplay
+      ? events.length === 0 ? 'pass' : 'fail'
+      : events.length > 0 && completedEvents.length === events.length ? 'pass' : 'fail',
+    true,
+    validExpectedReplay
+      ? 'A server-rejected replay must execute no tools.'
+      : 'Every selected tool must have a completed result.',
     { selected: events.map((event) => ({ id: event.id, name: event.name, args: event.args })), completedCount: completedEvents.length },
   ));
 
