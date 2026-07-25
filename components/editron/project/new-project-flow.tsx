@@ -122,8 +122,13 @@ const CSS = `
 .enp .in{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;color:var(--text);font-size:13.5px;outline:none}
 .enp .in:focus{border-color:var(--gold)}
 .enp .seg{display:flex;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:3px}
-.enp .seg b{flex:1;text-align:center;padding:7px 4px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.06em;color:var(--soft);cursor:pointer;font-weight:400}
-.enp .seg b.on{background:var(--gold);color:var(--bg);font-weight:700}
+/* border reserved on the base rule so selecting a mode never shifts layout by 1px */
+.enp .seg b{flex:1;text-align:center;padding:7px 4px;border:1px solid transparent;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.06em;color:var(--soft);cursor:pointer;font-weight:400;transition:color .2s,border-color .2s,background .2s}
+.enp .seg b:hover{color:var(--text);border-color:var(--bs)}
+/* gold here follows the console's language (border + text + 10% tint, as .beta/.drop .ar)
+   — a solid gold fill outshouted the drop zone, which is the actual primary action */
+.enp .seg b.on{background:rgba(212,166,82,.10);border-color:var(--gold);color:var(--gold);font-weight:500}
+.enp .fld .s{display:block;font-size:12px;line-height:1.5;color:var(--soft);margin-top:7px}
 .enp .ctx{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
 .enp .ctx .sw{display:flex;gap:5px}.enp .ctx .sw i{width:22px;height:22px;border-radius:4px;border:1px solid var(--border)}
 .enp .err{color:var(--red);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.04em}
@@ -283,6 +288,14 @@ export default function NewProjectFlow() {
   }, [onFootageFiles]);
 
   const m = META[screen];
+  // Director lane changes what happens AFTER the scan, so every promise on the upload
+  // screen has to change with it — otherwise the headline and the drop zone keep
+  // advertising an automatic first cut that Director mode deliberately does not make.
+  const directorLane = assistAvailable && laneMode === 'assist';
+  const heroSub =
+    screen === 'upload' && directorLane
+      ? 'Editron scans every clip, then hands you the timeline to direct.'
+      : m.sub;
   const pendingSingleVideo =
     pendingFootageFiles.length === 1 && pendingFootageFiles[0]?.type.startsWith('video/')
       ? pendingFootageFiles[0]
@@ -335,7 +348,7 @@ export default function NewProjectFlow() {
         <div className="body">
           <div className="hero">
             {m.h ? <div className="h" dangerouslySetInnerHTML={{ __html: m.h }} /> : null}
-            <div className="sub">{m.sub}</div>
+            <div className="sub">{heroSub}</div>
           </div>
 
           <div className="panels">
@@ -386,11 +399,13 @@ export default function NewProjectFlow() {
                     value={laneMode === 'assist' ? 'Director' : 'Auto edit'}
                     onChange={(v) => setLaneMode(v === 'Director' ? 'assist' : 'auto')}
                   />
-                  {laneMode === 'assist' ? (
-                    <span className="s" style={{ marginTop: 4 }}>
-                      Scans everything, edits nothing — you direct every cut via chat.
-                    </span>
-                  ) : null}
+                  {/* Shown for BOTH modes: the lanes differ only in what happens after the
+                      scan, and the user has to be able to compare them BEFORE uploading. */}
+                  <span className="s">
+                    {directorLane
+                      ? 'Scans everything, edits nothing. When the scan finishes you get the timeline plus a chat, and you direct every cut.'
+                      : 'Scans everything, then cuts it into a first pass you can refine.'}
+                  </span>
                 </label>
               ) : null}
               <input
@@ -410,7 +425,9 @@ export default function NewProjectFlow() {
               >
                 <span className="ar">&#8613;</span>
                 <span className="t">Drop footage or browse</span>
-                <span className="s">Editron cuts your raw clips automatically</span>
+                <span className="s">
+                  {directorLane ? 'Editron scans your clips — you direct the cuts' : 'Editron cuts your raw clips automatically'}
+                </span>
                 {screen === 'upload' && error ? <span className="err" style={{ marginTop: 4 }}>{error}</span> : null}
               </button>
             </div>
