@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { renderVideo } from "@/components/editron/editor/version-7.0.0/lambda-helpers/api";
@@ -5,7 +6,9 @@ import {
   buildChapterRenderApiData,
   buildLambdaRenderInputProps,
   buildProjectRenderInputProps,
+  resolveRenderableAudioInputProps,
   shouldHydrateRenderInputFromProject,
+  UnlicensedAudioInRenderError,
 } from "@/lib/editron/shared/render-request-payload";
 
 const inputProps = {
@@ -138,6 +141,135 @@ describe("Editron render request payloads", () => {
     expect(hydrated.fps).toBe(24);
     expect(hydrated.width).toBe(1080);
     expect(hydrated.height).toBe(1920);
+  });
+
+  it("CRITICAL: throws before unresolved preview audio reaches Lambda", () => {
+    const build = () => buildLambdaRenderInputProps({
+      overlays: [{
+        id: 77,
+        type: "sound",
+        row: 1,
+        src: "https://preview.example/track.mp3",
+        musicRights: {
+          source: "preview-only",
+          userChoice: "attested",
+          licensed: false,
+        },
+      }],
+    });
+
+    expect(build).toThrow(UnlicensedAudioInRenderError);
+    expect(build).toThrow(/Cannot render unlicensed audio overlay 77/);
+  });
+
+  it("rejects the bundled legacy preview URL regardless of its old timeline row", () => {
+    expect(() => buildLambdaRenderInputProps({
+      overlays: [{
+        id: 752284,
+        type: "sound",
+        row: 4,
+        src: "https://rwxrdxvxndclnqvznxfj.supabase.co/storage/v1/object/public/sounds/sound-1.mp3",
+      }],
+    })).toThrowError(expect.objectContaining({
+      code: "UNLICENSED_AUDIO_IN_RENDER",
+      overlayId: 752284,
+    }));
+  });
+
+  it.each([
+    {
+      userChoice: "no-music",
+      code: "PREVIEW_AUDIO_REMOVED_NO_MUSIC",
+    },
+    {
+      userChoice: "swap",
+      code: "PREVIEW_AUDIO_REMOVED_NO_CLEARED_SWAP",
+    },
+  ] as const)("strips preview audio resolved as $userChoice and records $code", ({
+    userChoice,
+    code,
+  }) => {
+    const renderable = resolveRenderableAudioInputProps({
+      overlays: [
+        {
+          id: 88,
+          type: "sound",
+          row: 1,
+          src: "https://preview.example/track.mp3",
+          musicRights: {
+            source: "preview-only",
+            userChoice,
+            licensed: false,
+          },
+        },
+        { id: 89, type: "sound", row: 3, src: "https://voice.example/vo.mp3" },
+      ],
+    });
+
+    expect(renderable.overlays).toEqual([
+      { id: 89, type: "sound", row: 3, src: "https://voice.example/vo.mp3" },
+    ]);
+    expect(renderable.audioRightsNotices).toEqual([{
+      code,
+      overlayId: 88,
+      action: "stripped",
+      source: "preview-only",
+    }]);
+  });
+
+  it("keeps affirmatively attested preview audio and unrelated sound overlays", () => {
+    const overlays = [
+      {
+        id: 91,
+        type: "sound",
+        row: 1,
+        src: "https://preview.example/track.mp3",
+        musicRights: {
+          source: "preview-only",
+          userChoice: "attested",
+          licensed: true,
+        },
+      },
+      { id: 92, type: "sound", row: 3, src: "https://voice.example/vo.mp3" },
+    ];
+
+    expect(buildLambdaRenderInputProps({ overlays }).overlays).toEqual(overlays);
+  });
+
+  it("rejects malformed or explicitly unlicensed non-preview rights", () => {
+    expect(() => buildLambdaRenderInputProps({
+      overlays: [{ id: 93, type: "sound", musicRights: { licensed: true } }],
+    })).toThrow(UnlicensedAudioInRenderError);
+
+    expect(() => buildLambdaRenderInputProps({
+      overlays: [{
+        id: 94,
+        type: "sound",
+        musicRights: {
+          source: "generated",
+          userChoice: "attested",
+          licensed: false,
+        },
+      }],
+    })).toThrow(UnlicensedAudioInRenderError);
+  });
+
+  it("enforces audio rights before cloud asset hydration and credit deduction", () => {
+    const routeSource = readFileSync(
+      "app/api/services/editron/cloudrun/render/route.ts",
+      "utf8"
+    );
+    const gateIndex = routeSource.indexOf(
+      "resolveRenderableAudioInputProps(resolvedProps)"
+    );
+    const hydrationIndex = routeSource.indexOf(
+      "assetResolver.resolveProjectAssets(resolvedProps.overlays)"
+    );
+    const creditIndex = routeSource.indexOf("checkCredits(userId");
+
+    expect(gateIndex).toBeGreaterThan(-1);
+    expect(gateIndex).toBeLessThan(hydrationIndex);
+    expect(gateIndex).toBeLessThan(creditIndex);
   });
 
   it("keeps render-owned overlay metadata while stripping audit freight before Lambda", () => {

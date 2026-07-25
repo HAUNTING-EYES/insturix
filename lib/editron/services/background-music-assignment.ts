@@ -11,6 +11,10 @@ import {
   resolveMusicGenerationPolicy,
 } from '@/lib/pipeline/bgm-conditioning-contract';
 import { ROW, alignCutsToBeats } from '@/lib/pipeline/scene-to-editron';
+import {
+  MUSIC_RIGHTS_ATTESTATION_VERSION as RIGHTS_ATTESTATION_VERSION,
+  type MusicRightsContract,
+} from '@/lib/editron/shared/render-request-payload';
 
 import { DEFAULT_BGM_MIX_LEVELS } from './bgm-mix-levels';
 import { refreshSignedUrl } from './gcs-service';
@@ -25,7 +29,8 @@ import { uploadMedia } from './upload-service';
 
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
-const RIGHTS_ATTESTATION_VERSION = 'music-rights-attestation-v1';
+
+export type { MusicRightsContract } from '@/lib/editron/shared/render-request-payload';
 
 export type BackgroundMusicAssignmentErrorCode =
   | 'INVALID_REQUEST'
@@ -58,20 +63,6 @@ export class BackgroundMusicAssignmentError extends Error {
     super(message, options);
     this.name = 'BackgroundMusicAssignmentError';
   }
-}
-
-export interface MusicRightsContract {
-  source: 'user-upload' | 'library' | 'generated' | 'preview-only';
-  userChoice: 'swap' | 'no-music' | 'attested';
-  licensed: boolean;
-  evidence?: {
-    kind: 'user-attestation' | 'library-license' | 'generated-provider';
-    sourceAssetId: string;
-    attestationVersion?: typeof RIGHTS_ATTESTATION_VERSION;
-    attestedAt?: string;
-    attestedBy?: string;
-    licenseId?: string;
-  };
 }
 
 export interface BackgroundMusicAssignmentInput {

@@ -8,7 +8,9 @@ import {
   buildChapterRenderApiData,
   buildLambdaRenderInputProps,
   buildProjectRenderInputProps,
+  resolveRenderableAudioInputProps,
   shouldHydrateRenderInputFromProject,
+  UnlicensedAudioInRenderError,
 } from '@/lib/editron/shared/render-request-payload';
 import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from '@/lib/editron/services/remotion-constants';
 import { assertRemotionSiteFresh } from '@/lib/editron/services/remotion-site-version';
@@ -73,6 +75,10 @@ export async function POST(request: Request) {
       resolvedProps = buildProjectRenderInputProps(project, resolvedProps);
       console.log(`[Render] Hydrated render props from project ${projectId} (${project.overlays?.length || 0} overlays)`);
     }
+
+    // Enforce rights before asset hydration can replace a legacy preview URL
+    // with a storage/CDN URL that no longer carries its original provenance.
+    resolvedProps = resolveRenderableAudioInputProps(resolvedProps);
 
     if (resolvedProps.overlays?.length > 0) {
       try {
@@ -210,12 +216,14 @@ export async function POST(request: Request) {
       await refundRenderExportCredits(renderCreditCheck, 'Render/export failed before render start');
     }
     console.error('Lambda render error:', error);
+    const rightsError = error instanceof UnlicensedAudioInRenderError;
     return NextResponse.json(
-      { 
-        type: 'error', 
-        message: error.message || 'Failed to trigger render' 
+      {
+        type: 'error',
+        message: error.message || 'Failed to trigger render',
+        ...(rightsError ? { code: error.code } : {}),
       },
-      { status: 500 }
+      { status: rightsError ? 422 : 500 }
     );
   }
 }

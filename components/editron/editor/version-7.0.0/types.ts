@@ -1,3 +1,5 @@
+import type { MusicRightsContract } from "@/lib/editron/shared/render-request-payload";
+
 // Define overlay types enum
 export enum OverlayType {
   TEXT = "text",
@@ -172,6 +174,8 @@ export type SoundOverlay = BaseOverlay & {
   content: string;
   src?: string; // Optional - resolved from assetId
   assetId?: string; // Reference to mediaAsset
+  /** Render/export licensing decision for music and preview audio. */
+  musicRights?: MusicRightsContract;
   /** Source-audio playback rate. Used for bounded phrase timing alignment. */
   playbackRate?: number;
   /** @deprecated Use audioStartFrame instead. Kept for backward compatibility. */
