@@ -17,10 +17,23 @@ export interface EpidemicMusicCatalogProviderOptions {
   baseUrl?: string;
   timeoutMs?: number;
   fetchImpl?: FetchLike;
+  downloadHosts?: string[];
+}
+
+export interface EpidemicTrackDownloadEntitlement {
+  provider: 'epidemic-sound';
+  providerTrackId: string;
+  url: string;
+  expiresAt: Date;
+  format: 'mp3';
+  quality: 'normal' | 'high';
+  entitlementCheckedAt: Date;
 }
 
 const DEFAULT_BASE_URL = 'https://partner-content-api.epidemicsound.com';
 const DEFAULT_TIMEOUT_MS = 8_000;
+const DEFAULT_DOWNLOAD_HOSTS = ['pdn.epidemicsound.com'];
+const providerTrackIdSchema = z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9_-]+$/);
 
 const taxonomySchema = z.object({
   id: z.string().min(1),
@@ -64,6 +77,12 @@ const tracksResponseSchema = z.object({
   }).passthrough(),
 }).passthrough();
 
+const trackMetadataResponseSchema = z.array(trackSchema);
+const trackDownloadResponseSchema = z.object({
+  url: z.string().url(),
+  expires: z.string().datetime({ offset: true }),
+}).passthrough();
+
 export class EpidemicMusicCatalogProvider implements MusicCatalogProvider {
   readonly name = 'epidemic-sound' as const;
 
@@ -71,12 +90,22 @@ export class EpidemicMusicCatalogProvider implements MusicCatalogProvider {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
   private readonly fetchImpl: FetchLike;
+  private readonly downloadHosts: ReadonlySet<string>;
 
   constructor(options: EpidemicMusicCatalogProviderOptions = {}) {
     this.apiKey = (options.apiKey ?? process.env.EPIDEMIC_SOUND_API_KEY)?.trim() || undefined;
     this.baseUrl = options.baseUrl ?? process.env.EPIDEMIC_SOUND_API_BASE_URL ?? DEFAULT_BASE_URL;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.downloadHosts = new Set(
+      (
+        options.downloadHosts
+        ?? process.env.EPIDEMIC_SOUND_DOWNLOAD_HOSTS?.split(',')
+        ?? DEFAULT_DOWNLOAD_HOSTS
+      )
+        .map((host) => host.trim().toLowerCase())
+        .filter(Boolean),
+    );
   }
 
   available(): boolean {
@@ -151,6 +180,152 @@ export class EpidemicMusicCatalogProvider implements MusicCatalogProvider {
           nextOffset: links.next ? pagination.offset + pagination.limit : null,
         },
       };
+    } catch (error) {
+      if (error instanceof MusicCatalogProviderError) throw error;
+      if (isAbortError(error)) {
+        throw new MusicCatalogProviderError(
+          'UPSTREAM_TIMEOUT',
+          'The music catalog request timed out',
+          undefined,
+          undefined,
+          { cause: error },
+        );
+      }
+      throw new MusicCatalogProviderError(
+        'UPSTREAM_UNAVAILABLE',
+        'The music catalog is unavailable',
+        undefined,
+        undefined,
+        { cause: error },
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async getTrack(providerTrackId: string): Promise<MusicCatalogTrack> {
+    const trackId = this.parseTrackId(providerTrackId);
+    const url = new URL('/v0/tracks/metadata', `${this.baseUrl.replace(/\/+$/, '')}/`);
+    url.searchParams.append('trackId', trackId);
+    const payload = await this.requestJson(url);
+    const parsed = trackMetadataResponseSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new MusicCatalogProviderError(
+        'INVALID_UPSTREAM_RESPONSE',
+        'The music catalog metadata response did not match its contract',
+        undefined,
+        undefined,
+        { cause: parsed.error },
+      );
+    }
+    const track = parsed.data.find((candidate) => candidate.id === trackId);
+    if (!track) {
+      throw new MusicCatalogProviderError(
+        'INVALID_UPSTREAM_RESPONSE',
+        'The requested music catalog track was missing from the metadata response',
+      );
+    }
+    return normalizeTrack(track);
+  }
+
+  async requestDownload(
+    providerTrackId: string,
+    quality: 'normal' | 'high' = 'high',
+  ): Promise<EpidemicTrackDownloadEntitlement> {
+    const trackId = this.parseTrackId(providerTrackId);
+    const url = new URL(
+      `/v0/tracks/${encodeURIComponent(trackId)}/download`,
+      `${this.baseUrl.replace(/\/+$/, '')}/`,
+    );
+    url.searchParams.set('format', 'mp3');
+    url.searchParams.set('quality', quality);
+    const payload = await this.requestJson(url);
+    const parsed = trackDownloadResponseSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new MusicCatalogProviderError(
+        'INVALID_UPSTREAM_RESPONSE',
+        'The music catalog download response did not match its contract',
+        undefined,
+        undefined,
+        { cause: parsed.error },
+      );
+    }
+
+    const downloadUrl = new URL(parsed.data.url);
+    if (
+      downloadUrl.protocol !== 'https:'
+      || downloadUrl.username
+      || downloadUrl.password
+      || !this.downloadHosts.has(downloadUrl.hostname.toLowerCase())
+    ) {
+      throw new MusicCatalogProviderError(
+        'INVALID_UPSTREAM_RESPONSE',
+        'The music catalog returned an untrusted download URL',
+      );
+    }
+    const expiresAt = new Date(parsed.data.expires);
+    const entitlementCheckedAt = new Date();
+    if (expiresAt.getTime() <= entitlementCheckedAt.getTime() + 30_000) {
+      throw new MusicCatalogProviderError(
+        'INVALID_UPSTREAM_RESPONSE',
+        'The music catalog returned an expired download entitlement',
+      );
+    }
+
+    return {
+      provider: this.name,
+      providerTrackId: trackId,
+      url: downloadUrl.toString(),
+      expiresAt,
+      format: 'mp3',
+      quality,
+      entitlementCheckedAt,
+    };
+  }
+
+  private parseTrackId(providerTrackId: string): string {
+    const parsed = providerTrackIdSchema.safeParse(providerTrackId);
+    if (!parsed.success) {
+      throw new MusicCatalogProviderError(
+        'INVALID_QUERY',
+        'The music catalog track identifier is invalid',
+        undefined,
+        undefined,
+        { cause: parsed.error },
+      );
+    }
+    return parsed.data;
+  }
+
+  private async requestJson(url: URL): Promise<unknown> {
+    if (!this.apiKey) {
+      throw new MusicCatalogProviderError(
+        'NOT_CONFIGURED',
+        'The Epidemic Sound catalog is not configured',
+      );
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const response = await this.fetchImpl(url, {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+          accept: 'application/json',
+          authorization: `Bearer ${this.apiKey}`,
+        },
+        signal: controller.signal,
+      });
+      if (!response.ok) throw providerResponseError(response);
+      return await response.json().catch((error: unknown) => {
+        throw new MusicCatalogProviderError(
+          'INVALID_UPSTREAM_RESPONSE',
+          'The music catalog returned invalid JSON',
+          response.status,
+          undefined,
+          { cause: error },
+        );
+      });
     } catch (error) {
       if (error instanceof MusicCatalogProviderError) throw error;
       if (isAbortError(error)) {

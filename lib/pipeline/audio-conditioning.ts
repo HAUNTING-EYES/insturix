@@ -89,6 +89,15 @@ export interface AudioConditioningResult {
   crossfadeMs: number;
 }
 
+export interface EncodedMusicInspection {
+  durationMs: number;
+  sampleRate: number;
+  channels: number;
+  measuredLufs: number;
+  truePeakDbtp: number;
+  clippingRisk: boolean;
+}
+
 interface FfmpegResult {
   stdout: Buffer;
   stderr: string;
@@ -295,6 +304,69 @@ export async function conditionAudio(input: ConditionAudioInput): Promise<AudioC
     wasTrimmed: fitted.wasTrimmed,
     loopsAdded: fitted.loopsAdded,
     crossfadeMs: (fitted.crossfadeSamples / fitted.sampleRate) * 1000,
+  };
+}
+
+export async function inspectEncodedMusicAudio(buffer: Buffer): Promise<EncodedMusicInspection> {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    throw new AudioConditioningError('INVALID_REQUEST', 'Audio inspection requires a non-empty encoded buffer');
+  }
+  if (buffer.length > MAX_AUDIO_CONDITIONING_INPUT_BYTES) {
+    throw new AudioConditioningError(
+      'INPUT_TOO_LARGE',
+      `Encoded audio is ${buffer.length} bytes; limit is ${MAX_AUDIO_CONDITIONING_INPUT_BYTES}`,
+    );
+  }
+
+  let decoded: DecodedPcm;
+  try {
+    decoded = await decode(buffer);
+  } catch (error) {
+    throw new AudioConditioningError('DECODE_FAILED', 'Unable to decode source audio', { cause: error });
+  }
+  if (!Number.isFinite(decoded.sampleRate) || decoded.sampleRate <= 0) {
+    throw new AudioConditioningError('INVALID_PCM', `Invalid PCM sample rate: ${decoded.sampleRate}`);
+  }
+  if (decoded.channelData.length < 1 || decoded.channelData.length > 2) {
+    throw new AudioConditioningError(
+      'UNSUPPORTED_CHANNELS',
+      `Music inspection supports mono or stereo PCM, received ${decoded.channelData.length} channels`,
+    );
+  }
+
+  const sourceSamples = Math.min(...decoded.channelData.map((channel) => channel.length));
+  const sourceDurationSeconds = sourceSamples / decoded.sampleRate;
+  if (!Number.isFinite(sourceDurationSeconds) || sourceDurationSeconds < MIN_MUSIC_DURATION_SECONDS) {
+    throw new AudioConditioningError(
+      'INVALID_PCM',
+      `Decoded music is too short to inspect safely (${sourceDurationSeconds.toFixed(3)}s)`,
+    );
+  }
+  if (sourceDurationSeconds > MAX_DURATION_SECONDS) {
+    throw new AudioConditioningError(
+      'INVALID_PCM',
+      `Music inspection supports sources up to ${MAX_DURATION_SECONDS}s, received ${sourceDurationSeconds.toFixed(3)}s`,
+    );
+  }
+
+  const measurements = await measureAudio(buffer);
+  if (measurements.integratedLufs <= SILENCE_THRESHOLD_LUFS) {
+    throw new AudioConditioningError(
+      'AUDIO_SILENT',
+      `Source audio measured ${measurements.integratedLufs.toFixed(1)} LUFS (silence threshold ${SILENCE_THRESHOLD_LUFS} LUFS)`,
+    );
+  }
+  if (!Number.isFinite(measurements.truePeakDbtp)) {
+    throw new AudioConditioningError('FFMPEG_FAILED', 'FFmpeg returned no finite true-peak measurement');
+  }
+
+  return {
+    durationMs: sourceDurationSeconds * 1000,
+    sampleRate: decoded.sampleRate,
+    channels: decoded.channelData.length,
+    measuredLufs: measurements.integratedLufs,
+    truePeakDbtp: measurements.truePeakDbtp,
+    clippingRisk: measurements.truePeakDbtp > 0,
   };
 }
 
