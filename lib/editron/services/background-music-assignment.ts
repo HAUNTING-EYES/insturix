@@ -37,6 +37,8 @@ const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 
 export type { MusicRightsContract } from '@/lib/editron/shared/render-request-payload';
 
+export type BackgroundMusicUsageMode = 'embedded' | 'reference-only';
+
 export type BackgroundMusicAssignmentErrorCode =
   | 'INVALID_REQUEST'
   | 'PROJECT_NOT_FOUND'
@@ -75,6 +77,7 @@ export interface BackgroundMusicAssignmentInput {
   projectId: string;
   assetId: string;
   idempotencyKey: string;
+  usageMode?: BackgroundMusicUsageMode;
   rightsAttestation?: {
     accepted: true;
     version: typeof RIGHTS_ATTESTATION_VERSION;
@@ -83,6 +86,7 @@ export interface BackgroundMusicAssignmentInput {
 
 export interface BackgroundMusicAssignmentResult {
   replayed: boolean;
+  usageMode: BackgroundMusicUsageMode;
   sourceAssetId: string;
   derivativeAssetId: string;
   overlays: unknown[];
@@ -109,6 +113,7 @@ interface AssignmentReceipt {
   idempotencyKey?: string;
   sourceAssetId?: string;
   derivativeAssetId?: string;
+  usageMode?: BackgroundMusicUsageMode;
   musicRights?: MusicRightsContract;
   beatGrid?: BackgroundMusicAssignmentResult['beatGrid'];
   musicCoveragePlan?: BackgroundMusicAssignmentResult['musicCoveragePlan'];
@@ -192,6 +197,7 @@ export async function assignBackgroundMusic(
   dependencyOverrides: Partial<BackgroundMusicAssignmentDependencies> = {},
 ): Promise<BackgroundMusicAssignmentResult> {
   const input = validateInput(rawInput);
+  const usageMode = input.usageMode ?? 'embedded';
   const dependencies = { ...defaultDependencies, ...dependencyOverrides };
   const project = await dependencies.loadProject(input.userId, input.projectId);
   if (!project) {
@@ -204,6 +210,13 @@ export async function assignBackgroundMusic(
       throw assignmentError(
         'IDEMPOTENCY_CONFLICT',
         'The idempotency key was already used for a different source asset',
+        409,
+      );
+    }
+    if ((replay.usageMode ?? 'embedded') !== usageMode) {
+      throw assignmentError(
+        'IDEMPOTENCY_CONFLICT',
+        'The idempotency key was already used for a different music usage mode',
         409,
       );
     }
@@ -269,7 +282,7 @@ export async function assignBackgroundMusic(
   if (sourceAsset.type !== 'audio') {
     throw assignmentError('ASSET_NOT_AUDIO', 'Selected asset is not an audio asset', 422);
   }
-  const musicRights = resolveMusicRights(sourceAsset, input, assignedAt);
+  const musicRights = resolveMusicRights(sourceAsset, input, assignedAt, usageMode);
   await verifyLibrarySourceAuthority(sourceAsset, input, musicRights);
   const sourceBuffer = await downloadStoredAudio(sourceAsset, dependencies);
 
@@ -367,6 +380,7 @@ export async function assignBackgroundMusic(
       opacity: 1,
       animation: { exit: 'fade', duration: 1 },
     },
+    audioRights: musicRights,
     musicRights,
     metadata: {
       ...(existingBgm[0]?.metadata ?? {}),
@@ -381,6 +395,7 @@ export async function assignBackgroundMusic(
       assignment: {
         version: 'background-music-assignment-v1',
         idempotencyKey: input.idempotencyKey,
+        usageMode,
         assignedAt: assignedAt.toISOString(),
       },
     },
@@ -416,6 +431,7 @@ export async function assignBackgroundMusic(
     idempotencyKey: input.idempotencyKey,
     sourceAssetId: input.assetId,
     derivativeAssetId,
+    usageMode,
     musicRights,
     beatGrid: beatEvidence.beatGrid,
     musicCoveragePlan,
@@ -430,7 +446,7 @@ export async function assignBackgroundMusic(
       userId: input.userId,
       projectId: input.projectId,
       type: 'audio',
-      source: 'generated',
+      source: usageMode === 'reference-only' ? 'preview-only' : 'generated',
       filename: `${derivativeAssetId}.flac`,
       contentType: uploadResult.contentType,
       gcsPath: uploadResult.gcsPath,
@@ -468,6 +484,7 @@ export async function assignBackgroundMusic(
         overlays: nextOverlays,
         projectUpdates: {
           musicCoveragePlan,
+          'intelligence.audio.musicUsageMode': usageMode,
           'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
           'intelligence.audio.lastMusicAssignment': assignmentReceipt,
         },
@@ -506,6 +523,7 @@ export async function assignBackgroundMusic(
 
   return {
     replayed: false,
+    usageMode,
     sourceAssetId: input.assetId,
     derivativeAssetId,
     overlays: nextOverlays,
@@ -535,6 +553,17 @@ function validateInput(input: BackgroundMusicAssignmentInput): BackgroundMusicAs
       400,
     );
   }
+  if (
+    input.usageMode !== undefined
+    && input.usageMode !== 'embedded'
+    && input.usageMode !== 'reference-only'
+  ) {
+    throw assignmentError(
+      'INVALID_REQUEST',
+      'usageMode must be embedded or reference-only',
+      400,
+    );
+  }
   return { ...input, userId, projectId, assetId, idempotencyKey };
 }
 
@@ -542,7 +571,16 @@ function resolveMusicRights(
   asset: StoredAudioAsset,
   input: BackgroundMusicAssignmentInput,
   assignedAt: Date,
+  usageMode: BackgroundMusicUsageMode,
 ): MusicRightsContract {
+  if (usageMode === 'reference-only') {
+    return {
+      mediaRole: 'music',
+      source: 'preview-only',
+      userChoice: 'no-music',
+      licensed: false,
+    };
+  }
   const persistedRights = asset.musicRights;
   const persistedRightsIssue = persistedRights
     ? getAudioRightsContractIssue(persistedRights)
@@ -606,6 +644,7 @@ function resolveMusicRights(
     );
   }
   return {
+    mediaRole: 'music',
     source: 'user-upload',
     userChoice: 'attested',
     licensed: true,
@@ -777,6 +816,7 @@ function replayAssignment(
   }
   return {
     replayed: true,
+    usageMode: receipt.usageMode ?? 'embedded',
     sourceAssetId: receipt.sourceAssetId as string,
     derivativeAssetId,
     overlays,
@@ -803,6 +843,7 @@ function buildDerivativeAssetId(
       input.projectId,
       input.assetId,
       input.idempotencyKey,
+      input.usageMode ?? 'embedded',
       String(totalFrames),
       String(fps),
     ].join('\0'))

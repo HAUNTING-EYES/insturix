@@ -29,6 +29,7 @@ import {
   type BackgroundMusicAssignmentDependencies,
   type BackgroundMusicAssignmentInput,
 } from '@/lib/editron/services/background-music-assignment';
+import { resolveRenderableAudioInputProps } from '@/lib/editron/shared/render-request-payload';
 import { MAX_AUDIO_CONDITIONING_INPUT_BYTES } from '@/lib/pipeline/audio-conditioning';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 
@@ -218,6 +219,7 @@ describe('background music assignment', () => {
 
     expect(result).toMatchObject({
       replayed: false,
+      usageMode: 'embedded',
       sourceAssetId: 'audio_1',
       snappedCutCount: 1,
       musicRights: {
@@ -298,6 +300,51 @@ describe('background music assignment', () => {
       result.derivativeAssetId,
       'attached',
     );
+  });
+
+  it('uses an uploaded song as a beat-analyzed reference while stripping it from render input', async () => {
+    const deps = dependencies();
+    const result = await assignBackgroundMusic({
+      ...INPUT,
+      usageMode: 'reference-only',
+      rightsAttestation: undefined,
+    }, deps);
+    const referenceOverlays = result.overlays.filter((overlay: any) => overlay.row === ROW.BGM);
+    const renderable = resolveRenderableAudioInputProps({ overlays: result.overlays });
+
+    expect(result).toMatchObject({
+      replayed: false,
+      usageMode: 'reference-only',
+      musicRights: {
+        mediaRole: 'music',
+        source: 'preview-only',
+        userChoice: 'no-music',
+        licensed: false,
+      },
+      beatGrid: BEAT_EVIDENCE.beatGrid,
+      snappedCutCount: 1,
+    });
+    expect(referenceOverlays).not.toHaveLength(0);
+    expect(referenceOverlays).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        audioRights: result.musicRights,
+        musicRights: result.musicRights,
+        metadata: expect.objectContaining({
+          assignment: expect.objectContaining({ usageMode: 'reference-only' }),
+          beatGrid: BEAT_EVIDENCE.beatGrid,
+        }),
+      }),
+    ]));
+    expect(renderable.overlays).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ row: ROW.BGM }),
+    ]));
+    expect(renderable.audioRightsNotices).toHaveLength(referenceOverlays.length);
+    expect(deps.condition).toHaveBeenCalledTimes(1);
+    expect(deps.analyze).toHaveBeenCalledTimes(1);
+    expect(deps.upsertDerivativeAsset).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'preview-only',
+      musicRights: result.musicRights,
+    }));
   });
 
   it('scopes Mongo lookup and accepts only a matching durable library receipt', async () => {
@@ -520,6 +567,26 @@ describe('background music assignment', () => {
     expect(replayDeps.condition).not.toHaveBeenCalled();
     expect(replayDeps.upload).not.toHaveBeenCalled();
     expect(replayDeps.replaceOverlayFamilyAtomic).not.toHaveBeenCalled();
+  });
+
+  it('rejects an idempotency replay that changes the music usage mode', async () => {
+    const firstDeps = dependencies();
+    const first = await assignBackgroundMusic(INPUT, firstDeps);
+    const casInput = vi.mocked(firstDeps.replaceOverlayFamilyAtomic).mock.calls[0][2];
+    const receipt = casInput.projectUpdates?.['intelligence.audio.lastMusicAssignment'];
+    const replayDeps = dependencies({
+      loadProject: vi.fn(async () => projectFixture({
+        overlays: first.overlays,
+        intelligence: { audio: { lastMusicAssignment: receipt } },
+      })),
+    });
+
+    await expect(assignBackgroundMusic({
+      ...INPUT,
+      usageMode: 'reference-only',
+      rightsAttestation: undefined,
+    }, replayDeps)).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' });
+    expect(replayDeps.findAsset).not.toHaveBeenCalled();
   });
 
   it('loses a concurrent project race loudly and marks the derivative orphaned', async () => {

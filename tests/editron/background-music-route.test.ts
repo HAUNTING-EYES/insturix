@@ -82,6 +82,7 @@ describe('background music assignment route', () => {
       projectId: 'victim_project',
       assetId: 'audio_1',
       idempotencyKey: 'assign_001',
+      usageMode: 'embedded',
       rightsAttestation: {
         accepted: true,
         version: 'music-rights-attestation-v1',
@@ -94,6 +95,7 @@ describe('background music assignment route', () => {
       projectId: 'project_1',
       assetId: 'audio_1',
       idempotencyKey: 'assign_001',
+      usageMode: 'embedded',
       rightsAttestation: {
         accepted: true,
         version: 'music-rights-attestation-v1',
@@ -103,6 +105,24 @@ describe('background music assignment route', () => {
       success: true,
       derivativeAssetId: 'bgm_assignment_1',
       overlays: [{ id: 9, type: 'sound', row: 3 }],
+    });
+  });
+
+  it('forwards reference-only intent without requiring a rights attestation', async () => {
+    const response = await POST(request({
+      assetId: 'audio_1',
+      idempotencyKey: 'reference_001',
+      usageMode: 'reference-only',
+    }) as never, context);
+
+    expect(response.status).toBe(200);
+    expect(mocks.assignBackgroundMusic).toHaveBeenCalledWith({
+      userId: 'user_1',
+      projectId: 'project_1',
+      assetId: 'audio_1',
+      idempotencyKey: 'reference_001',
+      usageMode: 'reference-only',
+      rightsAttestation: undefined,
     });
   });
 
