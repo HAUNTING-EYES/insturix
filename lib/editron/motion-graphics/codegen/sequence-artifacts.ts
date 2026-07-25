@@ -14,13 +14,15 @@
  *     (director: overlays.push; worker: $push onto project.overlays — the audio-worker pattern,
  *     _workerAdded so saveProject preserves it).
  *
- * Every field is copied byte-for-byte from the original block — no new values, no new thresholds.
+ * The base artifact fields stay identical across callers. Optional typed kinetic-SFX events
+ * are producer evidence only; the downstream atomic SFX resolver still owns sound form.
  */
 
 import { OverlayType, type MgSequenceOverlay } from '@/components/editron/editor/version-7.0.0/types';
 import { COLLECTIONS, getDatabase } from '@/lib/editron/db/mongodb';
 import type { MgSequenceOutput } from '@/lib/editron/motion-graphics/codegen/render/render-moment';
 import type { MgReceipt } from '@/lib/editron/motion-graphics/codegen/types';
+import type { KineticSfxEvent } from '@/lib/editron/services/kinetic-sfx-service';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 
 export function mgSequenceAssetId(sequence: Pick<MgSequenceOutput, 'address'>): string {
@@ -116,6 +118,7 @@ export interface BuildMgSequenceOverlayInput {
     mgExpressionAuthority: unknown;
     edlSource?: string;
     edlReason?: string;
+    kineticSfxEvents?: KineticSfxEvent[];
   };
 }
 
@@ -158,6 +161,7 @@ export function buildMgSequenceOverlay(
       receipt: input.receipt,
       edlSource: input.metadata.edlSource,
       edlReason: input.metadata.edlReason,
+      kineticSfxEvents: input.metadata.kineticSfxEvents ?? [],
     },
   };
 }

@@ -361,12 +361,18 @@ async function deliverMgRenderJobResult(job: MgRenderJob, result: MgRenderWorker
       placement: request.input.placement,
     },
   });
+  const overlayId = asyncOverlayId(job._id);
+  const {
+    deriveCodegenKineticSfxEvents,
+    placeMotionGraphicKineticSFX,
+  } = await import('@/lib/editron/services/kinetic-sfx-service');
+  const kineticSfxEvents = deriveCodegenKineticSfxEvents(request.input, overlayId);
   const overlay = buildMgSequenceOverlay({
     sequence: result.sequence,
     receipt: result.receipt,
     candidate: { id: candidate.id, factKind: candidate.factKind },
     assetId,
-    overlayId: asyncOverlayId(job._id),
+    overlayId,
     snappedFrame: request.input.window.startFrame,
     canvas: request.canvas,
     metadata: {
@@ -374,9 +380,20 @@ async function deliverMgRenderJobResult(job: MgRenderJob, result: MgRenderWorker
       mgExpressionAuthority: request.input.expressiveness,
       edlSource: 'async-mg-render-worker',
       edlReason: job._id,
+      kineticSfxEvents,
     },
   });
   overlay.metadata = { ...overlay.metadata, mgRenderJobId: job._id };
+  const deliveryOverlays: any[] = [overlay];
+  try {
+    const sfxResult = await placeMotionGraphicKineticSFX(deliveryOverlays, job.userId, 'full');
+    overlay.metadata.kineticSfxDelivery = { status: 'completed', ...sfxResult };
+  } catch (error) {
+    overlay.metadata.kineticSfxDelivery = {
+      status: 'degraded',
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
 
   const write = await projects.updateOne(
     {
@@ -386,7 +403,7 @@ async function deliverMgRenderJobResult(job: MgRenderJob, result: MgRenderWorker
     },
     {
       $push: {
-        overlays: overlay as never,
+        overlays: { $each: deliveryOverlays } as never,
         'intelligence.mgCodegenRun.asyncOutcomes': { $each: [outcome], $slice: -100 } as never,
       },
       $set: { updatedAt: new Date() },
