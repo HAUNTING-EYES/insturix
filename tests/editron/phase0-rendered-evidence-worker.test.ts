@@ -177,6 +177,41 @@ describe('phase0 rendered evidence worker service', () => {
     expect(brightEvidence.contrastRatio).toBeLessThan(3);
   });
 
+  it('measures outlined text from supported glyph and halo layers without blessing bright-on-bright text', () => {
+    const baseline = rawRenderedImageFromLumas(Array.from({ length: 30 }, () => 210));
+    const outlinedText = rawRenderedImageFromLumas([
+      ...Array.from({ length: 5 }, () => 255),
+      ...Array.from({ length: 5 }, () => 20),
+      ...Array.from({ length: 10 }, () => 225),
+      ...Array.from({ length: 10 }, () => 195),
+    ]);
+
+    const outlinedEvidence = measureRenderedOverlayPixelEvidence(
+      outlinedText,
+      baseline,
+      { x: 0, y: 0, width: 30, height: 1 },
+      30,
+      1,
+      { allowLayeredForegroundContrast: true },
+    );
+
+    expect(outlinedEvidence.contrastRatio).toBeGreaterThan(3);
+
+    const brightOnly = rawRenderedImageFromLumas(Array.from({ length: 30 }, (_, index) => (
+      index < 5 ? 255 : 225
+    )));
+    const brightOnlyEvidence = measureRenderedOverlayPixelEvidence(
+      brightOnly,
+      baseline,
+      { x: 0, y: 0, width: 30, height: 1 },
+      30,
+      1,
+      { allowLayeredForegroundContrast: true },
+    );
+
+    expect(brightOnlyEvidence.contrastRatio).toBeLessThan(3);
+  });
+
   it('fails rendered quality evidence when full and baseline stills are visually unchanged', async () => {
     const renderStill = vi.fn(async (input: any) => {
       const overlayIds = (input.inputProps.overlays ?? []).map((overlay: any) => overlay.id);

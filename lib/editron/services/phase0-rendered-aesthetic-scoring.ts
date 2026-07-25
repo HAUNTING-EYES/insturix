@@ -225,7 +225,9 @@ function activeRenderedOverlayEvidence(
 
       const box = renderedOverlayBoxAtFrame(frameOverlay, frame);
       const pixelEvidence = fullImage && baselineImage
-        ? measureRenderedOverlayPixelEvidence(fullImage, baselineImage, box, width, height)
+        ? measureRenderedOverlayPixelEvidence(fullImage, baselineImage, box, width, height, {
+            allowLayeredForegroundContrast: isLayeredTextContrastOverlay(String(frameOverlay.type)),
+          })
         : {};
       const visiblePixelEvidence = comparisonMode === 'overlay-visibility'
         ? pixelEvidence
@@ -466,6 +468,7 @@ export function measureRenderedOverlayPixelEvidence(
   box: RenderedOverlayBox,
   width: number,
   height: number,
+  options: { allowLayeredForegroundContrast?: boolean } = {},
 ): Pick<RenderedOverlayBox, 'visiblePixelRatio' | 'localBackgroundLuma' | 'foregroundLuma' | 'contrastRatio'> {
   if (!sameDimensions(fullImage, baselineImage)) return {};
   const bounds = clampBox(box, width, height);
@@ -476,6 +479,8 @@ export function measureRenderedOverlayPixelEvidence(
   const foreground: number[] = [];
   const background: number[] = [];
   const localContrasts: number[] = [];
+  const brightenedForeground: number[] = [];
+  const darkenedForeground: number[] = [];
   for (const offset of offsets) {
     const baseLuma = pixelLuma(baselineImage.data, offset);
     background.push(baseLuma);
@@ -484,18 +489,35 @@ export function measureRenderedOverlayPixelEvidence(
       const renderedLuma = pixelLuma(fullImage.data, offset);
       foreground.push(renderedLuma);
       localContrasts.push(contrastRatio(baseLuma, renderedLuma));
+      const lumaDelta = renderedLuma - baseLuma;
+      if (lumaDelta >= 6) brightenedForeground.push(renderedLuma);
+      if (lumaDelta <= -6) darkenedForeground.push(renderedLuma);
     }
   }
 
   const localBackgroundLuma = average(background);
   const foregroundLuma = average(foreground);
   const localContrastRatio = median(localContrasts);
+  const minimumLayerSupport = Math.max(4, Math.ceil(foreground.length * 0.05));
+  const layeredForegroundContrast = options.allowLayeredForegroundContrast
+    && brightenedForeground.length >= minimumLayerSupport
+    && darkenedForeground.length >= minimumLayerSupport
+    ? contrastRatio(
+        percentile(brightenedForeground, 0.85) ?? 0,
+        percentile(darkenedForeground, 0.15) ?? 0,
+      )
+    : undefined;
+  const measuredContrastRatio = localContrastRatio === undefined
+    ? layeredForegroundContrast
+    : layeredForegroundContrast === undefined
+      ? localContrastRatio
+      : Math.max(localContrastRatio, layeredForegroundContrast);
   return {
     visiblePixelRatio: round4(changed / Math.max(1, offsets.length)),
     ...(localBackgroundLuma !== undefined ? { localBackgroundLuma: round3(localBackgroundLuma) } : {}),
     ...(foregroundLuma !== undefined ? { foregroundLuma: round3(foregroundLuma) } : {}),
-    ...(localContrastRatio !== undefined
-      ? { contrastRatio: round3(localContrastRatio) }
+    ...(measuredContrastRatio !== undefined
+      ? { contrastRatio: round3(measuredContrastRatio) }
       : {}),
   };
 }
@@ -799,6 +821,10 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function isLayeredTextContrastOverlay(type: string): boolean {
+  return type === 'text' || type === 'caption';
+}
+
 function average(values: number[]): number | undefined {
   if (!values.length) return undefined;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -810,6 +836,13 @@ function median(values: number[]): number | undefined {
   const midpoint = Math.floor(sorted.length / 2);
   if (sorted.length % 2 === 1) return sorted[midpoint];
   return ((sorted[midpoint - 1] ?? 0) + (sorted[midpoint] ?? 0)) / 2;
+}
+
+function percentile(values: number[], fraction: number): number | undefined {
+  if (!values.length) return undefined;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.floor((sorted.length - 1) * Math.max(0, Math.min(1, fraction)));
+  return sorted[index];
 }
 
 function contrastRatio(a: number, b: number): number {
