@@ -8,7 +8,6 @@ import { nanoid } from 'nanoid';
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 
 import { getDatabase, COLLECTIONS } from '../db/mongodb';
-import { ensureAtomicOverlayReceipt } from '../engine/overlay-atomic-receipts';
 import { assetResolver } from './asset-resolver';
 
 export type CheckpointType = 'initial' | 'before-llm' | 'after-llm' | 'user-edit';
@@ -143,7 +142,6 @@ export class CheckpointService {
     const db = await getDatabase();
     const cleanState = this.cleanProjectState(
       input.projectState ?? captureRestorableProjectState({ overlays: input.overlays }),
-      'checkpoint-service-create',
     );
     const stateHash = projectStateFingerprint(cleanState);
 
@@ -275,7 +273,6 @@ export class CheckpointService {
 
     const projectState = this.cleanProjectState(
       cloneValue(checkpoint.projectState),
-      'checkpoint-service-restore-source',
     );
     const expectedStateHash = projectStateFingerprint(projectState);
     if (
@@ -334,7 +331,6 @@ export class CheckpointService {
 
     const actualState = this.cleanProjectState(
       captureRestorableProjectState(restoredProject as Record<string, unknown>),
-      'checkpoint-service-verify-restore',
     );
     const actualStateHash = projectStateFingerprint(actualState);
     return {
@@ -368,16 +364,10 @@ export class CheckpointService {
     }
   }
 
-  private cleanProjectState(state: RestorableProjectState, source: string): RestorableProjectState {
+  private cleanProjectState(state: RestorableProjectState): RestorableProjectState {
     const fields = cloneValue(state.fields);
     const rawOverlays = Array.isArray(fields.overlays) ? fields.overlays as Overlay[] : [];
-    fields.overlays = assetResolver.stripUrlsForLLM(rawOverlays).map((overlay) =>
-      ensureAtomicOverlayReceipt(overlay, {
-        source,
-        intent: `checkpoint-${overlay.type}`,
-        reason: 'overlay persisted in checkpoint state',
-      }),
-    );
+    fields.overlays = assetResolver.stripUrlsForLLM(rawOverlays);
     const presentFields = Array.from(new Set<ChatRestorableProjectField>(['overlays', ...state.presentFields]));
     return mongoStableValue({ presentFields, fields });
   }
