@@ -173,6 +173,15 @@ const DUBBING_WORKFLOW_TOOLS = new Set([
   'dub_selected_dialogue',
 ]);
 
+const REFERENCE_STYLE_WORKFLOW_TOOLS = new Set([
+  'read_project_file',
+  'get_timeline_view',
+  'list_user_assets',
+  'search_user_assets',
+  'inspect_user_asset',
+  'apply_reference_style',
+]);
+
 const SEMANTIC_OWNER_TOOLS = new Set([
   'apply_editorial_intent',
   'apply_reference_style',
@@ -418,6 +427,7 @@ export function filterChatToolsForRequestOwner<T extends { name: string }>(
     if (license.owner === 'semantic-editorial-planner') {
       const workflow = resolveSemanticWorkflow(license);
       if (workflow === 'selected-dialogue-dubbing') return DUBBING_WORKFLOW_TOOLS.has(tool.name);
+      if (workflow === 'reference-style') return REFERENCE_STYLE_WORKFLOW_TOOLS.has(tool.name);
       if (tool.name === 'dub_selected_dialogue') return false;
       if (!metadata.mutatesProject) {
         if (
@@ -426,9 +436,7 @@ export function filterChatToolsForRequestOwner<T extends { name: string }>(
         ) {
           return false;
         }
-        return workflow === 'reference-style'
-          ? tool.name === 'apply_reference_style' || !SEMANTIC_OWNER_TOOLS.has(tool.name)
-          : !SEMANTIC_OWNER_TOOLS.has(tool.name);
+        return !SEMANTIC_OWNER_TOOLS.has(tool.name);
       }
       if (workflow === 'editorial-plan') {
         // Director Mode: the user is the director. A family-level directive runs

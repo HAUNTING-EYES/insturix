@@ -386,9 +386,7 @@ describe('chat request owner capability filtering', () => {
     expect(namesFor('semantic-editorial-planner', 'reference-style')).toEqual([
       'read_project_file',
       'get_timeline_view',
-      'queue_resolved_clip_analysis',
       'apply_reference_style',
-      'get_dubbing_job_result',
     ]);
     expect(namesFor('semantic-editorial-planner', 'localized-mutation')).toEqual([
       'read_project_file',
@@ -406,6 +404,33 @@ describe('chat request owner capability filtering', () => {
       'use_matching_footage',
       'get_dubbing_job_result',
     ]);
+  });
+
+  it('keeps legacy style extraction and application outside the durable reference workflow', () => {
+    const referenceTools = [
+      ...tools,
+      { name: 'list_user_assets' },
+      { name: 'search_user_assets' },
+      { name: 'inspect_user_asset' },
+      { name: 'extract_style' },
+      { name: 'apply_style' },
+    ];
+    const names = filterChatToolsForRequestOwner(
+      referenceTools,
+      license('semantic-editorial-planner', 'reference-style'),
+    ).map((tool) => tool.name);
+
+    expect(names).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'apply_reference_style',
+      'list_user_assets',
+      'search_user_assets',
+      'inspect_user_asset',
+    ]);
+    expect(names).not.toContain('extract_style');
+    expect(names).not.toContain('apply_style');
+    expect(names).not.toContain('apply_editorial_intent');
   });
 
   it('DIRECTOR MODE: an editorial-plan turn exposes the direct family + localized tools, not just Auto-Director', () => {

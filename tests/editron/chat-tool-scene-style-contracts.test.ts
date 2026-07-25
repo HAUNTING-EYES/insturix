@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getStoryboard: vi.fn(),
   getStoryboardByProjectId: vi.fn(),
   loadProfile: vi.fn(),
+  queueReferenceStyleJob: vi.fn(),
 }));
 
 const agentFixture = vi.hoisted(() => ({
@@ -30,28 +31,11 @@ vi.mock('@google/generative-ai', () => ({
       return {
         async generateContentStream() {
           const step = agentFixture.modelStep++;
-          const parts = step === 0
-            ? [
-                ...Array.from({ length: 3 }, (_, index) => ({
-                  functionCall: {
-                    name: 'extract_style',
-                    args: { videoUrl: 'https://cdn.example.com/reference.mp4', sourceName: 'Reference cut' },
-                  },
-                  thoughtSignature: `signed-extract-${index}`,
-                })),
-                ...Array.from({ length: 5 }, (_, index) => ({
-                  functionCall: {
-                    name: 'apply_editorial_intent',
-                    args: { goal: 'Match the reference style.' },
-                  },
-                  thoughtSignature: `signed-generic-${index}`,
-                })),
-              ]
-            : step === 1 || step === 2
+          const parts = step === 0 || step === 1
               ? [{
                   functionCall: {
-                    name: 'apply_style',
-                    args: { profileId: 'dna-reference-1', strength: 0.7 },
+                    name: 'apply_reference_style',
+                    args: { referenceAssetId: 'asset-reference', strength: 0.7 },
                   },
                   thoughtSignature: `signed-apply-${step}`,
                 }]
@@ -114,6 +98,24 @@ vi.mock('@/lib/editron/agent/chat-editorial-intent-tools', () => ({
         name: 'apply_editorial_intent',
         description: 'Apply generic editorial intent.',
         schema: z.object({ goal: z.string() }),
+      },
+    ),
+    tool(
+      async (input: { referenceAssetId: string; strength: number }) => {
+        const result = await mocks.queueReferenceStyleJob(input);
+        return JSON.stringify({
+          status: 'success',
+          data: result,
+          error: null,
+        });
+      },
+      {
+        name: 'apply_reference_style',
+        description: 'Queue the dedicated durable reference-style workflow.',
+        schema: z.object({
+          referenceAssetId: z.string(),
+          strength: z.number().min(0).max(1),
+        }),
       },
     ),
   ],
@@ -368,35 +370,24 @@ describe('chat scene and style tool contracts', () => {
   });
 
   it('enforces one dedicated style workflow owner across the real agent graph', async () => {
-    mocks.extractEditDNA.mockResolvedValue(dnaFixture());
-    mocks.loadProfile.mockResolvedValue(dnaFixture());
-    mocks.applyGroundedEditorialIntent.mockImplementation(async () => {
-      agentFixture.project = {
-        ...agentFixture.project,
-        overlays: [
-          ...(agentFixture.project.overlays as unknown[]),
-          {
-            id: 'style-result-1',
-            type: 'text',
-            content: 'Reference-led title',
-            from: 30,
-            durationInFrames: 90,
-          },
-        ],
-      };
-      return {
-        status: 'success',
-        dispatch: {
-          owner: 'director-unified-planner',
-          status: 'executed',
-          mutated: true,
-          modifiedOverlays: 1,
-          reasons: [],
-        },
-      };
+    mocks.queueReferenceStyleJob.mockResolvedValue({
+      jobId: 'chat_style_123',
+      queueStatus: 'queued',
     });
     const toolEvents: Array<{ name: string; output: string }> = [];
-    const agent = createAgent('user_scene_style', 'Style transfer test project.');
+    const agent = createAgent('user_scene_style', 'Style transfer test project.', {
+      sessionId: 'session_scene_style',
+      operationId: 'operation_scene_style',
+      requestOwnerLicense: {
+        version: 'editron-chat-request-owner-v1',
+        owner: 'semantic-editorial-planner',
+        confidence: 1,
+        reason: 'The user requested a reference-style transfer.',
+        requestDigest: 'reference-style-request',
+        decidedBy: 'gemini',
+        semanticWorkflow: 'reference-style',
+      },
+    });
 
     await agent.invoke(
       { messages: [new HumanMessage('Match this reference style.')] },
@@ -417,20 +408,19 @@ describe('chat scene and style tool contracts', () => {
       },
     );
 
-    expect(mocks.extractEditDNA).toHaveBeenCalledTimes(1);
-    expect(mocks.applyGroundedEditorialIntent).toHaveBeenCalledTimes(1);
+    expect(mocks.queueReferenceStyleJob).toHaveBeenCalledTimes(1);
+    expect(mocks.queueReferenceStyleJob).toHaveBeenCalledWith({
+      referenceAssetId: 'asset-reference',
+      strength: 0.7,
+    });
+    expect(mocks.extractEditDNA).not.toHaveBeenCalled();
+    expect(mocks.applyGroundedEditorialIntent).not.toHaveBeenCalled();
     expect(agentFixture.genericIntentExecutions).toBe(0);
-    expect(toolEvents.filter((event) => event.name === 'extract_style')).toHaveLength(3);
-    expect(toolEvents.filter((event) => event.name === 'apply_editorial_intent')).toHaveLength(5);
-    expect(toolEvents.filter((event) => event.name === 'apply_style')).toHaveLength(2);
-    expect(toolEvents
-      .filter((event) => event.name === 'apply_editorial_intent')
-      .every((event) => event.output.includes('CHAT_TOOL_OWNER_CONFLICT'))).toBe(true);
     const applyOutputs = toolEvents
-      .filter((event) => event.name === 'apply_style')
+      .filter((event) => event.name === 'apply_reference_style')
       .map((event) => event.output);
+    expect(applyOutputs).toHaveLength(2);
     expect(applyOutputs[0]).toContain('"status":"success"');
-    expect(applyOutputs[0]).toContain('"postconditionVerification":{"version":"editron-chat-postcondition-v1","status":"pass"');
-    expect(applyOutputs[1]).toBe(applyOutputs[0]);
+    expect(applyOutputs[1]).toContain('"code":"CHAT_TOOL_TURN_LIMIT"');
   });
 });
