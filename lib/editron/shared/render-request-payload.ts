@@ -73,6 +73,13 @@ const AUDIO_RIGHTS_CHOICES = new Set<AudioRightsContract["userChoice"]>([
   "no-music",
   "attested",
 ]);
+const AUDIO_MEDIA_ROLES = new Set<NonNullable<AudioRightsContract["mediaRole"]>>([
+  "music",
+  "sfx",
+  "voiceover",
+  "dubbing",
+  "other",
+]);
 const STOCK_PREVIEW_HOST = "rwxrdxvxndclnqvznxfj.supabase.co";
 const STOCK_PREVIEW_PATH = "/storage/v1/object/public/sounds/";
 
@@ -180,21 +187,37 @@ export function resolveRenderableAudio(
   }
 
   const knownPreviewSource = hasKnownStockPreviewSource(overlay);
+  const musicOverlay = hasCanonicalMusicIdentity(overlay);
   const rightsValue = overlay.audioRights ?? overlay.musicRights;
-  if (rightsValue === undefined && !knownPreviewSource) {
+  if (
+    rightsValue === undefined &&
+    !knownPreviewSource &&
+    !musicOverlay
+  ) {
     return { overlay };
   }
-  if (!isAudioRightsContract(rightsValue)) {
+  const contractIssue = getAudioRightsContractIssue(rightsValue);
+  if (contractIssue) {
     throw new UnlicensedAudioInRenderError(
       overlay,
       knownPreviewSource
         ? "bundled preview source has no resolved rights decision"
-        : "audio rights metadata is missing or malformed"
+        : musicOverlay && rightsValue === undefined
+          ? "background music has no durable rights receipt"
+          : contractIssue
+    );
+  }
+  const audioRights = rightsValue as AudioRightsContract;
+
+  if (knownPreviewSource && audioRights.source !== "preview-only") {
+    throw new UnlicensedAudioInRenderError(
+      overlay,
+      `bundled preview source contradicts declared ${audioRights.source} provenance`
     );
   }
 
-  if (rightsValue.source === "preview-only" || knownPreviewSource) {
-    if (rightsValue.userChoice === "no-music") {
+  if (audioRights.source === "preview-only" || knownPreviewSource) {
+    if (audioRights.userChoice === "no-music") {
       return {
         overlay: null,
         notice: buildRightsNotice(
@@ -203,7 +226,7 @@ export function resolveRenderableAudio(
         ),
       };
     }
-    if (rightsValue.userChoice === "swap") {
+    if (audioRights.userChoice === "swap") {
       return {
         overlay: null,
         notice: buildRightsNotice(
@@ -212,7 +235,7 @@ export function resolveRenderableAudio(
         ),
       };
     }
-    if (rightsValue.userChoice === "attested" && rightsValue.licensed) {
+    if (audioRights.userChoice === "attested" && audioRights.licensed) {
       return { overlay };
     }
     throw new UnlicensedAudioInRenderError(
@@ -221,10 +244,10 @@ export function resolveRenderableAudio(
     );
   }
 
-  if (!rightsValue.licensed) {
+  if (!audioRights.licensed) {
     throw new UnlicensedAudioInRenderError(
       overlay,
-      `${rightsValue.source} audio is explicitly unlicensed`
+      `${audioRights.source} audio is explicitly unlicensed`
     );
   }
 
@@ -306,17 +329,85 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isAudioRightsContract(value: unknown): value is AudioRightsContract {
-  return (
-    isRecord(value) &&
-    typeof value.source === "string" &&
-    AUDIO_RIGHTS_SOURCES.has(value.source as AudioRightsContract["source"]) &&
-    typeof value.userChoice === "string" &&
-    AUDIO_RIGHTS_CHOICES.has(
+export function getAudioRightsContractIssue(value: unknown): string | null {
+  if (!isRecord(value)) return "audio rights metadata is missing or malformed";
+  if (
+    typeof value.source !== "string" ||
+    !AUDIO_RIGHTS_SOURCES.has(value.source as AudioRightsContract["source"])
+  ) {
+    return "audio rights source is missing or unsupported";
+  }
+  if (
+    typeof value.userChoice !== "string" ||
+    !AUDIO_RIGHTS_CHOICES.has(
       value.userChoice as AudioRightsContract["userChoice"]
-    ) &&
-    typeof value.licensed === "boolean"
+    )
+  ) {
+    return "audio rights choice is missing or unsupported";
+  }
+  if (typeof value.licensed !== "boolean") {
+    return "audio licensed state is missing or malformed";
+  }
+  if (
+    value.mediaRole !== undefined &&
+    (
+      typeof value.mediaRole !== "string" ||
+      !AUDIO_MEDIA_ROLES.has(
+        value.mediaRole as NonNullable<AudioRightsContract["mediaRole"]>
+      )
+    )
+  ) {
+    return "audio media role is unsupported";
+  }
+  if (!value.licensed) return null;
+  if (value.userChoice !== "attested") {
+    return "licensed audio requires an attested rights choice";
+  }
+
+  const evidence = value.evidence;
+  if (!isRecord(evidence) || !nonEmptyString(evidence.sourceAssetId)) {
+    return "licensed audio requires durable source-asset evidence";
+  }
+  if (value.source === "library") {
+    return evidence.kind === "library-license" && nonEmptyString(evidence.licenseId)
+      ? null
+      : "library audio requires a durable library-license receipt";
+  }
+  if (value.source === "generated") {
+    return evidence.kind === "generated-provider" && nonEmptyString(evidence.licenseId)
+      ? null
+      : "generated audio requires a durable provider-license receipt";
+  }
+  if (value.source === "user-upload" || value.source === "preview-only") {
+    return (
+      evidence.kind === "user-attestation" &&
+      evidence.attestationVersion === MUSIC_RIGHTS_ATTESTATION_VERSION &&
+      nonEmptyString(evidence.attestedBy) &&
+      isValidDateString(evidence.attestedAt)
+    )
+      ? null
+      : "user-attested audio requires a current durable attestation receipt";
+  }
+  return "audio rights source is unsupported";
+}
+
+function hasCanonicalMusicIdentity(overlay: Record<string, unknown>): boolean {
+  const assetId = nonEmptyString(overlay.assetId);
+  return (
+    overlay.row === 1 ||
+    overlay.row === "1" ||
+    overlay.mediaRole === "music" ||
+    overlay.audioRole === "music" ||
+    Boolean(assetId?.toLowerCase().startsWith("bgm_"))
   );
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isValidDateString(value: unknown): boolean {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
 
 function hasKnownStockPreviewSource(overlay: Record<string, unknown>): boolean {

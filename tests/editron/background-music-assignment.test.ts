@@ -267,9 +267,58 @@ describe('background music assignment', () => {
       code: 'UNLICENSED_LIBRARY_ASSET',
     },
     {
+      name: 'a library asset attempting to fall through as a user upload',
+      input: INPUT,
+      asset: {
+        assetId: 'audio_1',
+        userId: 'user_1',
+        type: 'audio',
+        source: 'library',
+        r2Key: 'key',
+      },
+      code: 'UNLICENSED_LIBRARY_ASSET',
+    },
+    {
+      name: 'library music with a forged licensed flag but no license receipt',
+      input: INPUT,
+      asset: {
+        assetId: 'audio_1',
+        type: 'audio',
+        source: 'library',
+        r2Key: 'key',
+        musicRights: {
+          source: 'library',
+          userChoice: 'attested',
+          licensed: true,
+        },
+      },
+      code: 'UNLICENSED_LIBRARY_ASSET',
+    },
+    {
       name: 'generated music without provider evidence',
       input: INPUT,
       asset: { assetId: 'audio_1', userId: 'user_1', type: 'audio', source: 'generated', r2Key: 'key' },
+      code: 'RIGHTS_EVIDENCE_REQUIRED',
+    },
+    {
+      name: 'generated music with an incomplete provider receipt',
+      input: INPUT,
+      asset: {
+        assetId: 'audio_1',
+        userId: 'user_1',
+        type: 'audio',
+        source: 'generated',
+        r2Key: 'key',
+        musicRights: {
+          source: 'generated',
+          userChoice: 'attested',
+          licensed: true,
+          evidence: {
+            kind: 'generated-provider',
+            sourceAssetId: 'audio_1',
+          },
+        },
+      },
       code: 'RIGHTS_EVIDENCE_REQUIRED',
     },
     {

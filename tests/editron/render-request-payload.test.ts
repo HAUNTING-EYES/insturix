@@ -176,6 +176,55 @@ describe("Editron render request payloads", () => {
     }));
   });
 
+  it("rejects canonical background music without a durable rights receipt", () => {
+    expect(() => buildLambdaRenderInputProps({
+      overlays: [{
+        id: 78,
+        type: "sound",
+        row: 1,
+        assetId: "legacy_music",
+        src: "https://cdn.example/legacy-music.mp3",
+      }],
+    })).toThrowError(/background music has no durable rights receipt/);
+  });
+
+  it("rejects evidence-free licensed audio and preview provenance relabeling", () => {
+    for (const source of ["library", "generated", "preview-only"] as const) {
+      expect(() => buildLambdaRenderInputProps({
+        overlays: [{
+          id: `evidence-free-${source}`,
+          type: "sound",
+          row: 1,
+          src: "https://preview.example/track.mp3",
+          musicRights: {
+            source,
+            userChoice: "attested",
+            licensed: true,
+          },
+        }],
+      })).toThrow(UnlicensedAudioInRenderError);
+    }
+
+    expect(() => buildLambdaRenderInputProps({
+      overlays: [{
+        id: "relabelled-stock-preview",
+        type: "sound",
+        row: 1,
+        src: "https://rwxrdxvxndclnqvznxfj.supabase.co/storage/v1/object/public/sounds/sound-1.mp3",
+        musicRights: {
+          source: "generated",
+          userChoice: "attested",
+          licensed: true,
+          evidence: {
+            kind: "generated-provider",
+            sourceAssetId: "forged-generated-asset",
+            licenseId: "provider:commercial-use",
+          },
+        },
+      }],
+    })).toThrowError(/contradicts declared generated provenance/);
+  });
+
   it.each([
     {
       userChoice: "no-music",
@@ -228,6 +277,13 @@ describe("Editron render request payloads", () => {
           source: "preview-only",
           userChoice: "attested",
           licensed: true,
+          evidence: {
+            kind: "user-attestation",
+            sourceAssetId: "preview-track-91",
+            attestationVersion: "music-rights-attestation-v1",
+            attestedAt: "2026-07-25T12:00:00.000Z",
+            attestedBy: "user-91",
+          },
         },
       },
       { id: 92, type: "sound", row: 3, src: "https://voice.example/vo.mp3" },
@@ -259,6 +315,10 @@ describe("Editron render request payloads", () => {
       "app/api/services/editron/cloudrun/render/route.ts",
       "utf8"
     );
+    const chapterSource = readFileSync(
+      "lib/editron/services/chapter-renderer.ts",
+      "utf8"
+    );
     const gateIndex = routeSource.indexOf(
       "resolveRenderableAudioInputProps(resolvedProps)"
     );
@@ -270,6 +330,11 @@ describe("Editron render request payloads", () => {
     expect(gateIndex).toBeGreaterThan(-1);
     expect(gateIndex).toBeLessThan(hydrationIndex);
     expect(gateIndex).toBeLessThan(creditIndex);
+    expect(
+      chapterSource.match(/buildLambdaRenderInputProps\(/g)
+    ).toHaveLength(2);
+    expect(chapterSource.indexOf("buildLambdaRenderInputProps("))
+      .toBeLessThan(chapterSource.indexOf("renderMediaOnLambda({"));
   });
 
   it("keeps render-owned overlay metadata while stripping audit freight before Lambda", () => {

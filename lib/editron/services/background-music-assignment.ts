@@ -12,6 +12,7 @@ import {
 } from '@/lib/pipeline/bgm-conditioning-contract';
 import { ROW, alignCutsToBeats } from '@/lib/pipeline/scene-to-editron';
 import {
+  getAudioRightsContractIssue,
   MUSIC_RIGHTS_ATTESTATION_VERSION as RIGHTS_ATTESTATION_VERSION,
   type MusicRightsContract,
 } from '@/lib/editron/shared/render-request-payload';
@@ -512,15 +513,26 @@ function resolveMusicRights(
   assignedAt: Date,
 ): MusicRightsContract {
   const persistedRights = asset.musicRights;
-  if (persistedRights?.source === 'preview-only' || persistedRights?.licensed === false) {
+  const persistedRightsIssue = persistedRights
+    ? getAudioRightsContractIssue(persistedRights)
+    : 'audio rights metadata is missing';
+  if (
+    asset.source === 'preview-only'
+    || persistedRights?.source === 'preview-only'
+    || persistedRights?.licensed === false
+  ) {
     throw assignmentError(
       'UNLICENSED_LIBRARY_ASSET',
       'Preview-only or unlicensed audio cannot be assigned as renderable background music',
       422,
     );
   }
-  if (persistedRights?.source === 'library') {
-    if (persistedRights.licensed !== true) {
+  if (asset.source === 'library' || persistedRights?.source === 'library') {
+    if (
+      persistedRights?.source !== 'library'
+      || persistedRights.licensed !== true
+      || persistedRightsIssue
+    ) {
       throw assignmentError(
         'UNLICENSED_LIBRARY_ASSET',
         'Library audio requires durable license evidence before assignment',
@@ -541,6 +553,7 @@ function resolveMusicRights(
       persistedRights?.source === 'generated'
       && persistedRights.licensed === true
       && persistedRights.evidence?.kind === 'generated-provider'
+      && !persistedRightsIssue
     ) {
       return persistedRights;
     }
@@ -554,6 +567,7 @@ function resolveMusicRights(
     persistedRights?.source === 'user-upload'
     && persistedRights.licensed === true
     && persistedRights.userChoice === 'attested'
+    && !persistedRightsIssue
   ) {
     return persistedRights;
   }
