@@ -641,6 +641,52 @@ describe('chat edit battle harness', () => {
     ]);
   });
 
+  it('accepts only a structured resolver ambiguity as a safe paraphrase clarification', () => {
+    const scenario = getChatEditBattleScenario('visual-object-paraphrase')!;
+    const unchanged = buildChatBattleProjectSnapshot(project([]), 'mongo-before');
+    const evaluate = (resolverStatus: 'ambiguous' | 'no-match') => evaluateChatEditBattleJourney({
+      journeyId: `visual-paraphrase-${resolverStatus}`,
+      scenario,
+      projectId: 'proj_battle',
+      startedAt: '2026-07-24T10:00:00.000Z',
+      completedAt: '2026-07-24T10:00:01.000Z',
+      invocation: invocation('visual-object-paraphrase', [{
+        id: 'resolve',
+        name: 'resolve_visual_edit',
+        args: { query: 'garment sketch being measured', action: 'highlight' },
+        startedAt: '2026-07-24T10:00:00.100Z',
+        completedAt: '2026-07-24T10:00:00.200Z',
+        output: JSON.stringify({
+          status: 'error',
+          data: { status: resolverStatus, useWith: undefined },
+          error: { code: 'VISUAL_RESOLUTION_REQUIRED', message: resolverStatus },
+          nextAction: 'Ask the user to choose before editing.',
+        }),
+      }]),
+      mongoBefore: unchanged,
+      mongoAfter: { ...unchanged, source: 'mongo-after' },
+      uiReload: null,
+      renderEvidence: {
+        status: 'missing',
+        artifactRefs: [],
+        issues: [],
+        reason: 'No material change to render.',
+      },
+      fixturePreconditions: { ok: true, missing: [], satisfied: [] },
+    });
+
+    expect(scenario.acceptedResolverOutcomes).toEqual(['ambiguous']);
+    expect(scenario.mutationExpectation).toBe('conditional');
+    const accepted = evaluate('ambiguous');
+    expect(accepted.checks.find((check) => check.id === 'agent.required-owner-path')?.status).toBe('pass');
+    expect(accepted.checks.find((check) => check.id === 'agent.grounded-clarification')?.status).toBe('pass');
+    expect(accepted.checks.find((check) => check.id === 'mongo.mutation-truth')?.status).toBe('pass');
+
+    const rejected = evaluate('no-match');
+    expect(rejected.checks.find((check) => check.id === 'agent.grounded-clarification')?.status).toBe('fail');
+    expect(rejected.checks.find((check) => check.id === 'mongo.mutation-truth')?.status).toBe('fail');
+  });
+
   it('treats motivated zoom and SFX as evidence-licensed conditional edits', () => {
     for (const id of ['motivated-zoom', 'vague-sfx-beat']) {
       const scenario = getChatEditBattleScenario(id)!;

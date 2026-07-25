@@ -8,6 +8,12 @@ export type ChatBattleRuntimeMode = 'deterministic-fixture' | 'live-provider';
 export type ChatBattleMutationExpectation = 'required' | 'forbidden' | 'conditional';
 export type ChatBattleStatus = 'pass' | 'warn' | 'fail';
 export type ChatBattleProjectMode = 'auto' | 'assist';
+export type ChatBattleResolverOutcome =
+  | 'ambiguous'
+  | 'low-confidence'
+  | 'no-match'
+  | 'no-placement'
+  | 'unsupported';
 export type ChatBattleFixtureRequirement =
   | 'ai-edit-checkpoint'
   | 'prior-idempotency-record'
@@ -38,6 +44,7 @@ export interface ChatBattleScenario {
   requireUiReload: boolean;
   requireRenderedEvidence: boolean;
   fixtureRequirements: readonly ChatBattleFixtureRequirement[];
+  acceptedResolverOutcomes: readonly ChatBattleResolverOutcome[];
 }
 
 export interface ChatBattleToolEvent {
@@ -227,6 +234,7 @@ function scenario(
     requireUiReload: options.requireUiReload ?? true,
     requireRenderedEvidence: options.requireRenderedEvidence ?? true,
     fixtureRequirements: options.fixtureRequirements ?? [],
+    acceptedResolverOutcomes: options.acceptedResolverOutcomes ?? [],
   };
 }
 
@@ -248,7 +256,14 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   }),
   scenario('roman-hinglish-phrase', 'Roman Hinglish phrase', 'Jahan main bolta hoon pricing simple hai woh part hata do.', { requiredToolSequence: ['resolve_transcript_edit', 'cut_section'] }),
   scenario('visual-object-exact', 'Exact visual object reference', 'When the embroidery frame appears, add a small highlight around it.', { requiredToolSequence: ['resolve_visual_edit', 'add_overlay'] }),
-  scenario('visual-object-paraphrase', 'Visual paraphrase', 'Highlight the shot where the garment sketch is being measured.', { requiredToolSequence: ['resolve_visual_edit', 'add_overlay'] }),
+  scenario('visual-object-paraphrase', 'Visual paraphrase', 'Highlight the shot where the garment sketch is being measured.', {
+    mutationExpectation: 'conditional',
+    minimumSuccessfulMutations: 0,
+    requiredToolSequence: ['resolve_visual_edit', 'add_overlay'],
+    requireUiReload: false,
+    requireRenderedEvidence: false,
+    acceptedResolverOutcomes: ['ambiguous'],
+  }),
   scenario('inspect-rendered-frame', 'Inspect actual rendered frame', 'Look at the frame under my playhead and tell me what blocks the subject.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['visual_inspect_frame'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('multiasset-script-intake', 'Multi-asset script with editorial constraints', 'Rebuild this edit from all relevant uploaded footage. Script: Open on the models wearing black and gold garments. Then show the garment-making process: fabric assembly, pattern sketching, and embroidery. End on the strongest finished-garment reveal. Preserve factual order, skip unrelated footage, keep natural audio understandable, and do not add decorative motion graphics.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['auto_edit_from_script'], requireRenderedEvidence: false }),
   scenario('multiasset-script-chat', 'Multi-asset script through chat', 'Use all relevant uploaded footage and reorder it around this script. Script: Begin with the black-and-gold fashion reveal. Move through hands assembling fabric, drawing the design, and embroidering the garment. Finish with the clearest model or finished-garment shot. Preserve factual order and skip footage that does not support the script.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['auto_edit_from_script'], requireRenderedEvidence: false }),
@@ -471,6 +486,14 @@ export function evaluateChatEditBattleJourney(input: {
     (event) => isMutatingTool(event.name) && isFailedMutationEvent(event, input.invocation),
   );
   const stateChanged = input.mongoBefore.digest !== input.mongoAfter.digest;
+  const groundedClarification = findAcceptedResolverOutcome(
+    completedEvents,
+    input.scenario.acceptedResolverOutcomes,
+  );
+  const acceptedGroundedClarification = groundedClarification != null
+    && successfulMutations.length === 0
+    && failedMutations.length === 0
+    && !stateChanged;
 
   checks.push(check(
     'agent.dynamic-run',
@@ -492,7 +515,9 @@ export function evaluateChatEditBattleJourney(input: {
     ...(events.some(hasCanonicalProjectPreflight) ? [SERVER_CANONICAL_PROJECT_STATE] : []),
     ...toolNames,
   ];
-  const sequenceResult = requiredSequenceResult(ownerPath, input.scenario.requiredToolSequence);
+  const sequenceResult = acceptedGroundedClarification
+    ? requiredSequenceResult(ownerPath, resolverOnlySequence(input.scenario.requiredToolSequence))
+    : requiredSequenceResult(ownerPath, input.scenario.requiredToolSequence);
   checks.push(check(
     'agent.required-owner-path',
     sequenceResult.ok ? 'pass' : 'fail',
@@ -512,6 +537,22 @@ export function evaluateChatEditBattleJourney(input: {
     'Legacy or ungrounded authority must not satisfy the journey.',
     { forbiddenTools: forbiddenTools.map((event) => event.name), forbiddenArguments },
   ));
+
+  if (input.scenario.acceptedResolverOutcomes.length > 0) {
+    const clarificationStatus = stateChanged || acceptedGroundedClarification ? 'pass' : 'fail';
+    checks.push(check(
+      'agent.grounded-clarification',
+      clarificationStatus,
+      true,
+      'A safe no-op must come from an explicitly accepted structured resolver outcome.',
+      {
+        acceptedResolverOutcomes: input.scenario.acceptedResolverOutcomes,
+        resolvedOutcome: groundedClarification?.outcome ?? null,
+        resolverTool: groundedClarification?.toolName ?? null,
+        stateChanged,
+      },
+    ));
+  }
 
   const firstMutationIndex = events.findIndex(
     (event) => isMutatingTool(event.name) && isSuccessfulToolOutput(event.output),
@@ -541,7 +582,13 @@ export function evaluateChatEditBattleJourney(input: {
     },
   ));
 
-  const mutationStatus = mutationCheckStatus(input.scenario, successfulMutations.length, failedMutations.length, stateChanged);
+  const mutationStatus = mutationCheckStatus(
+    input.scenario,
+    successfulMutations.length,
+    failedMutations.length,
+    stateChanged,
+    acceptedGroundedClarification,
+  );
   checks.push(check(
     'mongo.mutation-truth',
     mutationStatus,
@@ -1053,19 +1100,61 @@ function requiredSequenceResult(
   return { ok: true };
 }
 
+function resolverOnlySequence(
+  requirements: ReadonlyArray<string | readonly string[]>,
+): ReadonlyArray<string | readonly string[]> {
+  const prefix: Array<string | readonly string[]> = [];
+  for (const requirement of requirements) {
+    const accepted = Array.isArray(requirement) ? requirement : [requirement];
+    if (accepted.some((toolName) => isMutatingTool(toolName))) break;
+    prefix.push(requirement);
+  }
+  return prefix;
+}
+
 function mutationCheckStatus(
   scenarioDefinition: ChatBattleScenario,
   successfulMutationCount: number,
   failedMutationCount: number,
   stateChanged: boolean,
+  acceptedGroundedClarification: boolean,
 ): ChatBattleStatus {
   if (scenarioDefinition.mutationExpectation === 'forbidden') {
     return successfulMutationCount === 0 && !stateChanged ? 'pass' : 'fail';
+  }
+  if (
+    scenarioDefinition.mutationExpectation === 'conditional'
+    && acceptedGroundedClarification
+    && successfulMutationCount === 0
+    && failedMutationCount === 0
+    && !stateChanged
+  ) {
+    return 'pass';
   }
   if (scenarioDefinition.mutationExpectation === 'conditional' && failedMutationCount > 0) {
     return stateChanged ? 'fail' : 'pass';
   }
   return successfulMutationCount >= scenarioDefinition.minimumSuccessfulMutations && stateChanged ? 'pass' : 'fail';
+}
+
+function findAcceptedResolverOutcome(
+  events: readonly ChatBattleToolEvent[],
+  acceptedOutcomes: readonly ChatBattleResolverOutcome[],
+): { toolName: string; outcome: ChatBattleResolverOutcome } | null {
+  if (acceptedOutcomes.length === 0) return null;
+  for (const event of events) {
+    if (isMutatingTool(event.name)) continue;
+    const envelope = parseToolOutput(event.output);
+    const data = asRecord(envelope?.data);
+    const outcome = stringValue(data.status);
+    if (outcome && acceptedOutcomes.includes(outcome as ChatBattleResolverOutcome)) {
+      return {
+        toolName: event.name,
+        outcome: outcome as ChatBattleResolverOutcome,
+      };
+    }
+  }
+  return null;
 }
 
 function isMutatingTool(name: string): boolean {
