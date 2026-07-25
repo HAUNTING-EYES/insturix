@@ -37,7 +37,7 @@ import {
 export const PHASE0_RENDERED_STILL_EVIDENCE_VERSION = 'editron-phase0-rendered-still-evidence-v1' as const;
 const DEFAULT_PHASE0_RENDERED_EVIDENCE_LOCK_STALE_MS = 20 * 60 * 1000;
 const PHASE0_RENDER_STILL_TIMEOUT_MS = 90_000;
-const PHASE0_RENDER_STILL_TRANSIENT_RETRIES = 1;
+const PHASE0_RENDER_STILL_TRANSIENT_REPAIR_BUDGET = 2;
 const PHASE0_RENDER_STILL_LAMBDA_RETRIES = 0;
 
 type Phase0RenderedStillEvidenceStatus = 'completed' | 'partial' | 'failed' | 'skipped';
@@ -469,6 +469,49 @@ export async function buildPhase0RenderedStillEvidence(
     },
   );
 
+  // A transient failure must not retry while the initial Lambda fan-out is
+  // still consuming render capacity. Preserve every successful still, then
+  // repair only failed transient calls sequentially under a global budget.
+  let transientRepairBudget = PHASE0_RENDER_STILL_TRANSIENT_REPAIR_BUDGET;
+  for (const frameResult of frameResults) {
+    if (
+      transientRepairBudget > 0
+      && frameResult.fullResult.status === 'rejected'
+      && isTransientRenderedStillFailure(frameResult.fullResult.reason)
+    ) {
+      transientRepairBudget -= 1;
+      frameResult.fullResult = await settleRenderedStillForEvidence(renderStill, {
+        region: config.region as any,
+        functionName: config.functionName,
+        serveUrl: config.serveUrl,
+        composition: REMOTION_COMPOSITION_ID,
+        inputProps: overlayOnlyInputProps,
+        imageFormat: 'png',
+        privacy: 'public',
+        frame: frameResult.frame,
+        maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
+      });
+    }
+    if (
+      transientRepairBudget > 0
+      && frameResult.baselineResult.status === 'rejected'
+      && isTransientRenderedStillFailure(frameResult.baselineResult.reason)
+    ) {
+      transientRepairBudget -= 1;
+      frameResult.baselineResult = await settleRenderedStillForEvidence(renderStill, {
+        region: config.region as any,
+        functionName: config.functionName,
+        serveUrl: config.serveUrl,
+        composition: REMOTION_COMPOSITION_ID,
+        inputProps: baselineInputProps,
+        imageFormat: 'png',
+        privacy: 'public',
+        frame: frameResult.frame,
+        maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
+      });
+    }
+  }
+
   for (const { frame, fullResult, baselineResult } of frameResults) {
     if (fullResult.status === 'rejected') {
       failedFrames.push({
@@ -595,20 +638,26 @@ async function renderStillForEvidence(
   renderStill: RenderStill,
   input: Parameters<RenderStill>[0],
 ): Promise<RenderStillOnLambdaOutput> {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await renderStill({
-        ...input,
-        timeoutInMilliseconds: PHASE0_RENDER_STILL_TIMEOUT_MS,
-      });
-    } catch (error: unknown) {
-      if (
-        attempt >= PHASE0_RENDER_STILL_TRANSIENT_RETRIES
-        || !isTransientRenderedStillFailure(error)
-      ) {
-        throw error;
-      }
-    }
+  return renderStill({
+    ...input,
+    timeoutInMilliseconds: PHASE0_RENDER_STILL_TIMEOUT_MS,
+  });
+}
+
+async function settleRenderedStillForEvidence(
+  renderStill: RenderStill,
+  input: Parameters<RenderStill>[0],
+): Promise<PromiseSettledResult<RenderStillOnLambdaOutput>> {
+  try {
+    return {
+      status: 'fulfilled',
+      value: await renderStillForEvidence(renderStill, input),
+    };
+  } catch (reason: unknown) {
+    return {
+      status: 'rejected',
+      reason,
+    };
   }
 }
 

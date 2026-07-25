@@ -194,6 +194,59 @@ describe('chat edit rendered verification', () => {
     expect(renderStill.mock.calls.every((call) => call[0].timeoutInMilliseconds === 90_000)).toBe(true);
   });
 
+  it('waits for the initial render batch before repairing a transient still failure', async () => {
+    let releaseInitialRenders!: () => void;
+    const initialRendersReleased = new Promise<void>((resolve) => {
+      releaseInitialRenders = resolve;
+    });
+    const attempts = new Map<string, number>();
+    const renderStill = vi.fn(async (input: any) => {
+      const isAfter = input.inputProps.overlays.some((overlay: any) => overlay.id === 'txt_after');
+      const kind = isAfter ? 'after' : 'before';
+      const key = `${kind}:${input.frame}`;
+      const attempt = (attempts.get(key) ?? 0) + 1;
+      attempts.set(key, attempt);
+      if (key === 'after:30' && attempt === 1) {
+        throw new Error('Lambda function failed with error code Sandbox.Timeout');
+      }
+      if (attempt === 1) {
+        await initialRendersReleased;
+      }
+      return {
+        estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+        url: `https://example.com/${kind}-f${input.frame}.png`,
+        outKey: `chat/${kind}-f${input.frame}.png`,
+        bucketName: 'render-bucket',
+        renderId: `${kind}-${input.frame}-${attempt}`,
+        cloudWatchLogs: 'https://logs.example.com',
+        sizeInBytes: 512,
+        artifacts: [],
+      };
+    });
+
+    const evidencePromise = buildPhase0RenderedStillEvidence(afterProject(), {
+      baselineProject: beforeProject(),
+      requestedSampleFrames: [30, 45],
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async (url) => renderedImage(url.includes('/after-')),
+      prepareCredentials: async () => {},
+    });
+
+    await vi.waitFor(() => {
+      expect(renderStill).toHaveBeenCalledTimes(4);
+    });
+    expect(attempts.get('after:30')).toBe(1);
+
+    releaseInitialRenders();
+    const evidence = await evidencePromise;
+
+    expect(evidence.status, evidence.statusReason ?? 'no reason').toBe('completed');
+    expect(evidence.failedFrames).toEqual([]);
+    expect(attempts.get('after:30')).toBe(2);
+    expect(renderStill).toHaveBeenCalledTimes(5);
+  });
+
   it('audits only overlays changed by the chat operation', async () => {
     const unchangedCaption = {
       id: 'caption_unrelated',
