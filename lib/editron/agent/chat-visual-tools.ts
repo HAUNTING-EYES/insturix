@@ -740,13 +740,28 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
       });
       let candidates = retrieval.candidates;
       let frameVerification: ChatFrameVisualVerification | undefined;
+      const resolutionEnvelope = (
+        data: Record<string, unknown>,
+        message: string,
+        ready = false,
+      ) => JSON.stringify({
+        status: ready ? "success" : "error",
+        data,
+        error: ready
+          ? null
+          : {
+              code: "VISUAL_RESOLUTION_REQUIRED",
+              message,
+              details: { resolverStatus: data.status ?? "unknown" },
+            },
+        nextAction: ready ? "continue" : "ask_clarification",
+      });
       const frameEvidence = config?.configurable?.chatFrameEvidence as ChatFrameEvidence | undefined;
       if (frameEvidence) {
         const candidate = selectVisualCandidateForFrame(candidates, frameEvidence.frame);
         if (!candidate) {
-          return JSON.stringify({
-            status: "error",
-            data: {
+          return resolutionEnvelope(
+            {
               status: "no-match",
               action: input.action,
               query: input.query,
@@ -754,8 +769,8 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
               warnings: [],
               canonicalEvidence: retrieval.audit,
             },
-            message: `The attached rendered frame ${frameEvidence.frame} does not belong to a retrieved visual candidate for "${input.query}".`,
-          });
+            `The attached rendered frame ${frameEvidence.frame} does not belong to a retrieved visual candidate for "${input.query}".`,
+          );
         }
         try {
           frameVerification = await frameVerifier({
@@ -764,9 +779,8 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
             candidateContext: candidate.evidenceText,
           });
         } catch (error) {
-          return JSON.stringify({
-            status: "error",
-            data: {
+          return resolutionEnvelope(
+            {
               status: "ambiguous",
               action: input.action,
               query: input.query,
@@ -774,13 +788,12 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
               warnings: ["frame-verification-provider-failed"],
               canonicalEvidence: retrieval.audit,
             },
-            message: `The rendered frame could not be independently verified: ${error instanceof Error ? error.message : String(error)}`,
-          });
+            `The rendered frame could not be independently verified: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
         if (frameVerification.status !== "confirmed") {
-          return JSON.stringify({
-            status: "error",
-            data: {
+          return resolutionEnvelope(
+            {
               status: "ambiguous",
               action: input.action,
               query: input.query,
@@ -789,8 +802,8 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
               canonicalEvidence: retrieval.audit,
               frameVerification,
             },
-            message: `The rendered frame did not visibly confirm "${input.query}". No edit was authorized.`,
-          });
+            `The rendered frame did not visibly confirm "${input.query}". No edit was authorized.`,
+          );
         }
         candidates = promoteFrameVerifiedCandidate(candidates, candidate, frameVerification);
       }
@@ -804,16 +817,16 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
         precomputedCandidates: candidates,
       });
 
-      return JSON.stringify({
-        status: plan.status === "ready" ? "success" : "error",
-        data: {
+      return resolutionEnvelope(
+        {
           ...plan,
           searchedEvidenceCount: evidence.length,
           canonicalEvidence: retrieval.audit,
           ...(frameVerification ? { frameVerification } : {}),
         },
-        message: plan.message,
-      });
+        plan.message,
+        plan.status === "ready",
+      );
     },
     {
       name: "resolve_visual_edit",

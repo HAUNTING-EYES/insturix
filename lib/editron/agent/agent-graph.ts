@@ -409,10 +409,10 @@ export const createAgent = (
     const directorModeGuidance = turnContext?.assistLane
       ? `**DIRECTOR MODE (the user is the editorial director)**:
     - This project was scanned but never auto-edited. The user directs each change; nothing was decided for them.
-    - For a SPECIFIC directive, use the direct tool and execute it now — do NOT route it to apply_editorial_intent:
+    - For a SPECIFIC mechanical directive, use the direct tool and execute it now:
       "add captions" → add_captions; "add/replace music" → regenerate_bgm; "cut the silences"/"remove the dead air" → the grounded transcript/silence resolver then cut_section.
-    - "create a scene"/"add a motion graphic"/"animated title/infographic" at a SPECIFIC moment → add_motion_graphic; "add motion graphics" across the video → auto_motion_graphics. NEVER substitute a plain add_overlay or a static text card for a requested scene/motion graphic.
-    - Use apply_editorial_intent ONLY for a genuinely vague whole-project request like "edit this for me" or "make it good" — that hands the timeline to Auto-Director and is confirmed separately.
+    - Motion graphics are semantic compositions, not direct overlay forms. Route "create a scene", "add a motion graphic", animated titles, infographics, and across-video MG requests to apply_editorial_intent with the user's exact content, timing, and family scope. NEVER substitute generate_html_scene, add_motion_graphic, auto_motion_graphics, a plain add_overlay, or a static text card.
+    - Also use apply_editorial_intent for a genuinely vague whole-project request like "edit this for me" or "make it good" — that hands the timeline to Auto-Director and is confirmed separately.
     - Never re-edit, re-cut, or re-pace the whole timeline to satisfy a single additive directive.`
       : '';
     const dubbingGuidance = callableToolNames.has('dub_selected_dialogue')

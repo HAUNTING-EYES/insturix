@@ -441,10 +441,10 @@ describe('chat request owner capability filtering', () => {
     for (const direct of ['add_captions', 'regenerate_bgm', 'cut_section', 'add_fancy_captions', 'sync_cuts_to_beats', 'add_overlay', 'add_sfx', 'apply_camera_shake', 'apply_speed_ramp', 'use_matching_footage']) {
       expect(assistNames).toContain(direct);
     }
-    // Scene/MG creation routes to the MG generator (founder ruling, C1 finding):
-    expect(assistNames).toContain('add_motion_graphic');
-    expect(assistNames).toContain('auto_motion_graphics');
-    // ...and deliberately NOT the legacy HTML scene tool:
+    // MG creation stays with the semantic planner. Direct MG/HTML tools still
+    // carry legacy form authority and may not bypass that owner.
+    expect(assistNames).not.toContain('add_motion_graphic');
+    expect(assistNames).not.toContain('auto_motion_graphics');
     expect(assistNames).not.toContain('generate_html_scene');
     // Auto-Director stays available for a genuinely vague whole-project request:
     expect(assistNames).toContain('apply_editorial_intent');
@@ -453,19 +453,17 @@ describe('chat request owner capability filtering', () => {
     expect(assistNames).not.toContain('dub_selected_dialogue');
   });
 
-  it('DIRECTOR MODE: a localized turn can place a motion graphic at a moment (live-probe fix)', () => {
-    // "add a motion graphic at THIS moment" classifies as localized-mutation, not
-    // editorial-plan — probed live 2026-07-24: the agent substituted
-    // generate_html_sticker because the MG tool was missing from this license.
+  it('DIRECTOR MODE: localized mutation tools cannot bypass MG semantic authority', () => {
     const assistNames = filterChatToolsForRequestOwner(
       tools, license('semantic-editorial-planner', 'localized-mutation'), { assistLane: true },
     ).map((t) => t.name);
-    expect(assistNames).toContain('add_motion_graphic');
-    expect(assistNames).not.toContain('auto_motion_graphics'); // across-video = editorial-plan only
+    expect(assistNames).not.toContain('add_motion_graphic');
+    expect(assistNames).not.toContain('auto_motion_graphics');
+    expect(assistNames).not.toContain('generate_html_scene');
     const autoNames = filterChatToolsForRequestOwner(
       tools, license('semantic-editorial-planner', 'localized-mutation'),
     ).map((t) => t.name);
-    expect(autoNames).not.toContain('add_motion_graphic'); // auto lane unchanged
+    expect(autoNames).not.toContain('add_motion_graphic');
   });
 
   it('AUTO projects are unchanged: an editorial-plan turn still exposes only apply_editorial_intent', () => {
@@ -503,9 +501,6 @@ describe('chat request owner capability filtering', () => {
       'apply_camera_shake',
       'apply_speed_ramp',
       'use_matching_footage',
-      // Pre-existing mechanical reachability, made visible when the fixture
-      // gained the tool: generate_html_scene is NOT shadow-banned at runtime.
-      'generate_html_scene',
       'refresh_captions',
       'reframe_project',
       'get_dubbing_job_result',
@@ -521,6 +516,7 @@ describe('chat request owner capability filtering', () => {
       // has a real enforcement site: MECHANICAL_SHADOW_FAMILY_TOOLS).
       'add_motion_graphic',
       'auto_motion_graphics',
+      'generate_html_scene',
     ]));
   });
 

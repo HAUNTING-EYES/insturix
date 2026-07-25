@@ -460,6 +460,8 @@ describe('canonical chat multimodal evidence', () => {
       durationFrames: 60,
     }));
     expect(highlightOutput.status).toBe('success');
+    expect(highlightOutput.error).toBeNull();
+    expect(highlightOutput.nextAction).toBe('continue');
     expect(highlightOutput.data.useWith.add_overlay).toMatchObject({ start: 130, type: 'shape' });
 
     const inspection = resolveVisualEditPlacement(project, 'the hand-crafted garment section', {
@@ -481,6 +483,11 @@ describe('canonical chat multimodal evidence', () => {
     }));
     expect(cutOutput.status).toBe('error');
     expect(cutOutput.data.status).toBe('ambiguous');
+    expect(cutOutput.error).toMatchObject({
+      code: 'VISUAL_RESOLUTION_REQUIRED',
+      details: { resolverStatus: 'ambiguous' },
+    });
+    expect(cutOutput.nextAction).toBe('ask_clarification');
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ intent: 'visual' }));
 
     search.mockResolvedValueOnce({

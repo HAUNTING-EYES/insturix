@@ -228,6 +228,7 @@ const MECHANICAL_SHADOW_FAMILY_TOOLS = new Set([
   // documented contract (chat-edit-vibe-command-matrix pins them as shadowed).
   'add_motion_graphic',
   'auto_motion_graphics',
+  'generate_html_scene',
 ]);
 
 // Director Mode (assist lane): the USER is the editorial director. A specific
@@ -238,14 +239,17 @@ const MECHANICAL_SHADOW_FAMILY_TOOLS = new Set([
 // internally; the assist license just exposes them because ownership moved to
 // the user. The full-reedit planner (apply_editorial_intent) stays available for
 // genuinely vague "edit the whole thing for me" requests, behind a confirm.
-// Scene / motion-graphic creation (founder ruling after the C1 create-html-scene
-// finding): a Director Mode user asking for a scene gets the MG GENERATOR —
-// add_motion_graphic / auto_motion_graphics arrive via the shadow-family spread
-// below, exactly like captions/music. The legacy generate_html_scene is
-// deliberately NOT licensed here (its output does not meet the bar), and a plain
-// add_overlay is never an acceptable substitute for a requested scene.
+// Motion-graphic creation is absent here because the direct chat tools still carry
+// legacy graphicType/template authority. The semantic planner owns MG requests.
+const DIRECTOR_MODE_DIRECT_FAMILY_TOOLS = new Set([
+  'add_captions',
+  'add_fancy_captions',
+  'regenerate_bgm',
+  'sync_cuts_to_beats',
+]);
+
 const DIRECTOR_MODE_DIRECT_TOOLS = new Set<string>([
-  ...MECHANICAL_SHADOW_FAMILY_TOOLS,
+  ...DIRECTOR_MODE_DIRECT_FAMILY_TOOLS,
   ...LOCALIZED_MUTATION_TOOLS,
   'apply_editorial_intent',
 ]);
@@ -447,14 +451,7 @@ export function filterChatToolsForRequestOwner<T extends { name: string }>(
           : tool.name === 'apply_editorial_intent';
       }
       if (workflow === 'localized-mutation') {
-        // Director Mode: "add a motion graphic at THIS moment" classifies as a
-        // localized mutation (live-probed 2026-07-24: with the MG tool licensed
-        // only on editorial-plan turns, the agent substituted generate_html_sticker
-        // — the closest tool in its license). Moment-scoped MG placement is a
-        // localized decision the user already made; auto_motion_graphics (across
-        // the whole video) stays editorial-plan only. Auto lane unchanged.
-        return LOCALIZED_MUTATION_TOOLS.has(tool.name)
-          || (options.assistLane === true && tool.name === 'add_motion_graphic');
+        return LOCALIZED_MUTATION_TOOLS.has(tool.name);
       }
       return false;
     }
