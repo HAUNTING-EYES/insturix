@@ -434,6 +434,7 @@ async function handler(request: NextRequest) {
           content: sfx.audioUrl,
           src: sfx.audioUrl,
           assetId: sfx.audioAssetId,
+          audioRights: sfx.audioRights,
           styles: { volume: 0.3, opacity: 1 }, // 30% — SFX should complement, not overpower narration
         });
 
@@ -441,9 +442,14 @@ async function handler(request: NextRequest) {
         await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
           { assetId: sfx.audioAssetId },
           {
+            $set: {
+              audioRights: sfx.audioRights,
+              cachedUrl: sfx.audioUrl,
+              lastUsedAt: new Date(),
+            },
             $setOnInsert: {
               assetId: sfx.audioAssetId, userId, type: 'audio',
-              filename: `${sfx.audioAssetId}.mp3`, source: 'user-upload',
+              filename: `${sfx.audioAssetId}.mp3`, source: sfx.audioRights.source,
               gcsPath: sfx.gcsPath, cachedUrl: sfx.audioUrl,
               urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               size: 0, uploadedAt: new Date(),

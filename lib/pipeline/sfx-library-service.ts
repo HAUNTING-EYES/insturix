@@ -14,6 +14,7 @@
  */
 
 import { uploadMedia } from '@/lib/editron/services/upload-service';
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import {
   evaluateAtomicSfxAssetCandidate,
   type AtomicSfxCandidateEvaluation,
@@ -23,9 +24,10 @@ import { nanoid } from 'nanoid';
 
 export interface SFXLibraryResult {
   audioUrl: string;
-  gcsPath: string;
+  gcsPath: string | null;
   audioAssetId: string;
   durationMs: number;
+  audioRights: AudioRightsContract;
   source: 'pixabay' | 'freesound';
   originalTitle?: string;
 }
@@ -67,7 +69,7 @@ export interface SFXLibrarySearchReport {
 export type SFXLibrarySearchReporter = (report: SFXLibrarySearchReport) => void;
 
 interface SFXProviderCandidate {
-  id?: string;
+  id: string;
   url: string;
   title: string;
   duration: number;
@@ -138,8 +140,9 @@ async function searchFreesound(
         const previews = isRecord(item.previews) ? item.previews : {};
         const previewUrl = stringValue(previews['preview-hq-mp3']) || stringValue(previews['preview-lq-mp3']);
         if (!previewUrl) return null;
+        if (item.id === undefined || item.id === null) return null;
         return {
-          id: item.id !== undefined ? String(item.id) : undefined,
+          id: String(item.id),
           url: previewUrl,
           title: stringValue(item.name) || query,
           duration: Math.max(0.1, Number(item.duration) || 5),
@@ -231,6 +234,17 @@ export async function searchAndDownloadSFX(
     const assetId = `sfx_lib_${nanoid(8)}`;
     const ext = candidate.url.includes('.wav') ? 'wav' : 'mp3';
     const uploadResult = await uploadMedia(buffer, userId, `${assetId}.${ext}`, `audio/${ext === 'wav' ? 'wav' : 'mpeg'}`, { customAssetId: assetId });
+    const audioRights: AudioRightsContract = {
+      mediaRole: 'sfx',
+      source: 'library',
+      userChoice: 'attested',
+      licensed: true,
+      evidence: {
+        kind: 'library-license',
+        sourceAssetId: uploadResult.assetId,
+        licenseId: `freesound:${candidate.id}:creative-commons-0`,
+      },
+    };
 
     // Persist to media_assets so asset-resolver can find it later.
     // Without this, SFX overlays reference assetIds that don't exist in MongoDB
@@ -241,6 +255,9 @@ export async function searchAndDownloadSFX(
       await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
         { assetId: uploadResult.assetId },
         {
+          $set: {
+            audioRights,
+          },
           $setOnInsert: {
             assetId: uploadResult.assetId,
             userId,
@@ -273,9 +290,10 @@ export async function searchAndDownloadSFX(
 
     return {
       audioUrl: uploadResult.signedUrl,
-      gcsPath: uploadResult.gcsPath ?? '',
+      gcsPath: uploadResult.gcsPath ?? null,
       audioAssetId: uploadResult.assetId,
       durationMs: Math.round(candidate.duration * 1000),
+      audioRights,
       source: candidate.source,
       originalTitle: candidate.title,
     };
@@ -591,17 +609,9 @@ export function audioDescriptionToSearchQuery(audioDescription: string): string 
 /**
  * Check if SFX library search can return results.
  *
- * OLD: returned false when FREESOUND_API_KEY was missing → EDL executor skipped
- * ALL sfx-trigger decisions → zero SFX in output. Silent failure (Rule 18N violation).
- *
- * NEW: Always returns true. The search function handles missing credentials by
- * logging a loud warning and returning null PER SEARCH — but the EDL executor
- * still processes SFX decisions for budget tracking and quality review accounting.
- * This means:
- *   - Budget system correctly counts SFX (prevents over-allocation on retry)
- *   - Quality review can detect "SFX requested but unfulfilled"
- *   - Setting the env var immediately unlocks audio without code changes
+ * Callers must not reserve SFX budget when the only library provider cannot run.
+ * Unfulfilled intent belongs in the quality receipt, not a fake capability.
  */
 export function isSFXLibraryAvailable(): boolean {
-  return true;
+  return Boolean(process.env.FREESOUND_API_KEY?.trim());
 }

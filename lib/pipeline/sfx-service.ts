@@ -10,6 +10,8 @@
 
 import { fal } from '@fal-ai/client';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
+import { isSFXLibraryAvailable } from '@/lib/pipeline/sfx-library-service';
 import { nanoid } from 'nanoid';
 import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
 
@@ -26,9 +28,10 @@ function ensureFalConfig() {
 
 export interface SFXResult {
   audioUrl: string;
-  gcsPath: string;
+  gcsPath: string | null;
   audioAssetId: string;
   durationMs: number;
+  audioRights: AudioRightsContract;
 }
 
 export interface SFXSceneInput {
@@ -90,8 +93,6 @@ export async function generateSFX(
   /** Explicit SFX cue from script editDirections (e.g., "chalk dust puff, fabric rustle") */
   sfxCue?: string,
 ): Promise<SFXResult> {
-  ensureFalConfig();
-
   // Beatoven sound-effect-generation supports 1-35 seconds.
   const duration = Math.min(Math.max(durationSec, 1), 35);
   const assetId = `sfx_${nanoid(12)}`;
@@ -110,7 +111,7 @@ export async function generateSFX(
   // Priority 1: SFX Library (Pixabay/Freesound).
   // Instant, free, royalty-free. Best for deterministic SFX.
   try {
-    const { searchAndDownloadSFX, audioDescriptionToSearchQuery, isSFXLibraryAvailable } = await import('./sfx-library-service');
+    const { searchAndDownloadSFX, audioDescriptionToSearchQuery } = await import('./sfx-library-service');
     if (isSFXLibraryAvailable()) {
       const searchQuery = audioDescriptionToSearchQuery(sfxPrompt);
       console.log('[SFX] Searching free SFX library');
@@ -124,6 +125,11 @@ export async function generateSFX(
   } catch (libErr: any) {
     console.warn(`[SFX] Library search failed: ${libErr.message}`);
   }
+
+  if (!process.env.FAL_AI_API_KEY?.trim()) {
+    throw new Error('SFX unavailable: no acceptable library asset and FAL_AI_API_KEY is not configured');
+  }
+  ensureFalConfig();
 
   // Priority 2: mirelo video-to-audio (if video URL available).
   // AI-generated SFX synced to actual video content.
@@ -175,9 +181,10 @@ export async function generateSFX(
         });
         return {
           audioUrl: uploadResult.signedUrl,
-          gcsPath: uploadResult.gcsPath!,
+          gcsPath: uploadResult.gcsPath ?? null,
           audioAssetId: uploadResult.assetId,
           durationMs: duration * 1000,
+          audioRights: generatedSfxRights(uploadResult.assetId, mireloModel),
         };
       }
       const noAudioError = new Error('mirelo returned no audio');
@@ -291,9 +298,10 @@ export async function generateSFX(
 
     return {
       audioUrl: uploadResult.signedUrl,
-      gcsPath: uploadResult.gcsPath!,
+      gcsPath: uploadResult.gcsPath ?? null,
       audioAssetId: uploadResult.assetId,
       durationMs: duration * 1000,
+      audioRights: generatedSfxRights(uploadResult.assetId, cassetteModel),
     };
   } catch (err) {
     await recordPipelineSFXProviderCost({
@@ -353,5 +361,19 @@ export async function generateSFXForScenes(
  * Check if SFX generation is available (same key as BGM).
  */
 export function isSFXAvailable(): boolean {
-  return !!process.env.FAL_AI_API_KEY;
+  return isSFXLibraryAvailable() || Boolean(process.env.FAL_AI_API_KEY?.trim());
+}
+
+function generatedSfxRights(assetId: string, model: string): AudioRightsContract {
+  return {
+    mediaRole: 'sfx',
+    source: 'generated',
+    userChoice: 'attested',
+    licensed: true,
+    evidence: {
+      kind: 'generated-provider',
+      sourceAssetId: assetId,
+      licenseId: `fal-ai:${model}:commercial-use`,
+    },
+  };
 }

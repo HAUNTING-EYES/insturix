@@ -22,7 +22,12 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
 }));
 
 import { resolveAtomicSfxForm } from '@/lib/editron/services/sfx-form';
-import { searchAndDownloadSFX, type SFXLibrarySearchReport } from '@/lib/pipeline/sfx-library-service';
+import { resolveRenderableAudio } from '@/lib/editron/shared/render-request-payload';
+import {
+  isSFXLibraryAvailable,
+  searchAndDownloadSFX,
+  type SFXLibrarySearchReport,
+} from '@/lib/pipeline/sfx-library-service';
 
 function freesoundResponse(results: Array<Record<string, unknown>>): Response {
   return new Response(JSON.stringify({ results }), {
@@ -71,6 +76,14 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
     if (originalFreesoundKey) process.env.FREESOUND_API_KEY = originalFreesoundKey;
     else delete process.env.FREESOUND_API_KEY;
     vi.unstubAllGlobals();
+  });
+
+  it('reports library availability truthfully from its provider credential', () => {
+    delete process.env.FREESOUND_API_KEY;
+    expect(isSFXLibraryAvailable()).toBe(false);
+
+    process.env.FREESOUND_API_KEY = 'configured';
+    expect(isSFXLibraryAvailable()).toBe(true);
   });
 
   it('scores provider candidates before downloading and uploads only the accepted SFX', async () => {
@@ -140,12 +153,31 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
       durationMs: 800,
       source: 'freesound',
       originalTitle: 'Air movement pass',
+      audioRights: {
+        mediaRole: 'sfx',
+        source: 'library',
+        userChoice: 'attested',
+        licensed: true,
+        evidence: {
+          kind: 'library-license',
+          sourceAssetId: 'sfx_lib_selected',
+          licenseId: 'freesound:2:creative-commons-0',
+        },
+      },
     }));
+    expect(resolveRenderableAudio({
+      id: 'sfx-overlay',
+      type: 'sound',
+      audioRights: result?.audioRights,
+    }).overlay).not.toBeNull();
     expect(mocks.uploadMedia).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalledWith('https://cdn.example.com/bad.mp3');
     expect(mocks.updateOne).toHaveBeenCalledWith(
       { assetId: 'sfx_lib_selected' },
       expect.objectContaining({
+        $set: {
+          audioRights: result?.audioRights,
+        },
         $setOnInsert: expect.objectContaining({
           source: 'sfx-provider-freesound',
           cachedUrl: 'https://r2.example.com/asset/sfx_lib_selected',

@@ -25,7 +25,8 @@ const finiteNumber = (value: unknown): number | undefined =>
 export const MUSIC_RIGHTS_ATTESTATION_VERSION =
   "music-rights-attestation-v1" as const;
 
-export interface MusicRightsContract {
+export interface AudioRightsContract {
+  mediaRole?: "music" | "sfx" | "voiceover" | "dubbing" | "other";
   source: "user-upload" | "library" | "generated" | "preview-only";
   userChoice: "swap" | "no-music" | "attested";
   licensed: boolean;
@@ -37,6 +38,10 @@ export interface MusicRightsContract {
     attestedBy?: string;
     licenseId?: string;
   };
+}
+
+export interface MusicRightsContract extends AudioRightsContract {
+  mediaRole?: "music";
 }
 
 export interface RenderAudioRightsNotice {
@@ -57,13 +62,13 @@ type RenderableAudioInputProps<T extends RenderInputProps> = T & {
   audioRightsNotices?: RenderAudioRightsNotice[];
 };
 
-const MUSIC_RIGHTS_SOURCES = new Set<MusicRightsContract["source"]>([
+const AUDIO_RIGHTS_SOURCES = new Set<AudioRightsContract["source"]>([
   "user-upload",
   "library",
   "generated",
   "preview-only",
 ]);
-const MUSIC_RIGHTS_CHOICES = new Set<MusicRightsContract["userChoice"]>([
+const AUDIO_RIGHTS_CHOICES = new Set<AudioRightsContract["userChoice"]>([
   "swap",
   "no-music",
   "attested",
@@ -169,16 +174,16 @@ export function resolveRenderableAudio(
   }
 
   const knownPreviewSource = hasKnownStockPreviewSource(overlay);
-  const rightsValue = overlay.musicRights;
+  const rightsValue = overlay.audioRights ?? overlay.musicRights;
   if (rightsValue === undefined && !knownPreviewSource) {
     return { overlay };
   }
-  if (!isMusicRightsContract(rightsValue)) {
+  if (!isAudioRightsContract(rightsValue)) {
     throw new UnlicensedAudioInRenderError(
       overlay,
       knownPreviewSource
         ? "bundled preview source has no resolved rights decision"
-        : "music rights metadata is missing or malformed"
+        : "audio rights metadata is missing or malformed"
     );
   }
 
@@ -275,14 +280,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isMusicRightsContract(value: unknown): value is MusicRightsContract {
+function isAudioRightsContract(value: unknown): value is AudioRightsContract {
   return (
     isRecord(value) &&
     typeof value.source === "string" &&
-    MUSIC_RIGHTS_SOURCES.has(value.source as MusicRightsContract["source"]) &&
+    AUDIO_RIGHTS_SOURCES.has(value.source as AudioRightsContract["source"]) &&
     typeof value.userChoice === "string" &&
-    MUSIC_RIGHTS_CHOICES.has(
-      value.userChoice as MusicRightsContract["userChoice"]
+    AUDIO_RIGHTS_CHOICES.has(
+      value.userChoice as AudioRightsContract["userChoice"]
     ) &&
     typeof value.licensed === "boolean"
   );
