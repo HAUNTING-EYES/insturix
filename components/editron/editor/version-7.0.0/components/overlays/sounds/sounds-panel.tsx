@@ -1,22 +1,19 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
-import { Play, Pause } from "lucide-react";
+import { Play, Pause, ShieldAlert } from "lucide-react";
 import { LocalSound, OverlayType, SoundOverlay } from "../../../types";
 import { useState, useEffect, useRef } from "react";
 
 import { localSounds } from "../../../templates/sound-templates";
-import { useTimelinePositioning } from "../../../hooks/use-timeline-positioning";
 import { useEditorContext } from "../../../contexts/editor-context";
-import { useTimeline } from "../../../contexts/timeline-context";
 import { SoundDetails } from "./sound-details";
 
 /**
  * SoundsPanel Component
  *
  * A panel component that manages sound overlays in the editor. It provides functionality for:
- * - Displaying a list of available sound tracks
+ * - Auditioning non-renderable stock reference tracks
  * - Playing/pausing sound previews
- * - Adding sounds to the timeline
  * - Managing selected sound overlays and their properties
  *
  * The component switches between two views:
@@ -29,14 +26,10 @@ const SoundsPanel: React.FC = () => {
   const [playingTrack, setPlayingTrack] = useState<string | null>(null);
   const audioRefs = useRef<{ [key: string]: HTMLAudioElement }>({});
   const {
-    addOverlay,
     overlays,
-    durationInFrames,
     selectedOverlayId,
     changeOverlay,
   } = useEditorContext();
-  const { findNextAvailablePosition } = useTimelinePositioning();
-  const { visibleRows } = useTimeline();
   const [localOverlay, setLocalOverlay] = useState<SoundOverlay | null>(null);
 
   useEffect(() => {
@@ -102,71 +95,8 @@ const SoundsPanel: React.FC = () => {
   };
 
   /**
-   * Adds a sound overlay to the timeline at the next available position
-   * Calculates duration based on the sound length (30fps)
-   * Creates a public asset record for the stock sound
-   *
-   * @param {LocalSound} sound - The sound track to add to the timeline
-   */
-  const handleAddToTimeline = async (sound: LocalSound) => {
-    try {
-      // First, create a public asset record (or get existing one)
-      const response = await fetch('/api/services/editron/assets/create-public', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          publicUrl: sound.file,
-          type: 'audio',
-          filename: `${sound.title}.mp3`,
-          duration: sound.duration,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to create asset record');
-      }
-
-      const { assetId } = await response.json();
-
-      // Find the next available position on the timeline
-      const { from, row } = findNextAvailablePosition(
-        overlays,
-        visibleRows,
-        durationInFrames
-      );
-
-      // Create the sound overlay configuration with assetId
-      const newSoundOverlay: SoundOverlay = {
-        id: Date.now(),
-        type: OverlayType.SOUND,
-        content: sound.title,
-        assetId, // Use assetId instead of src
-        from,
-        row,
-        // Layout properties
-        left: 0,
-        top: 0,
-        width: 1920,
-        height: 100,
-        rotation: 0,
-        isDragging: false,
-        durationInFrames: sound.duration * 30, // 30fps
-        styles: {
-          opacity: 1,
-        },
-      };
-
-      addOverlay(newSoundOverlay);
-    } catch (error) {
-      console.error('Error adding sound to timeline:', error);
-      // TODO: Show error toast to user
-    }
-  };
-
-  /**
    * Renders an individual sound card with play controls and metadata
-   * Clicking the card adds the sound to the timeline
-   * Clicking the play button toggles sound preview
+   * Stock tracks are audition-only until a cleared library is ingested.
    *
    * @param {LocalSound} sound - The sound track data to render
    * @returns {JSX.Element} A sound card component
@@ -174,14 +104,14 @@ const SoundsPanel: React.FC = () => {
   const renderSoundCard = (sound: LocalSound) => (
     <div
       key={sound.id}
-      onClick={() => handleAddToTimeline(sound)}
+      title="Preview only - this track cannot be added to an export"
       className="group flex items-center gap-3 p-2.5 bg-background dark:bg-background rounded-md 
-        border border-border dark:border-border hover:bg-muted/50 dark:hover:bg-muted/50
-        transition-all duration-150 cursor-pointer"
+        border border-border dark:border-border transition-all duration-150"
     >
       <Button
         variant="ghost"
         size="sm"
+        aria-label={playingTrack === sound.id ? `Pause ${sound.title}` : `Preview ${sound.title}`}
         onClick={(e) => {
           e.stopPropagation();
           togglePlay(sound.id);
@@ -203,6 +133,10 @@ const SoundsPanel: React.FC = () => {
           {sound.artist}
         </p>
       </div>
+      <span className="flex shrink-0 items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-1 text-[9px] font-medium text-amber-600 dark:text-amber-300">
+        <ShieldAlert className="h-3 w-3" />
+        Preview only
+      </span>
     </div>
   );
 
