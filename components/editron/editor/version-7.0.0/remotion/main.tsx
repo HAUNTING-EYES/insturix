@@ -4,7 +4,11 @@ import { AbsoluteFill, prefetch, useCurrentFrame } from "remotion";
 import { Overlay } from "../types";
 import { SortedOutlines } from "../components/selection/sorted-outlines";
 import { Layer } from "../components/core/layer";
-import { RenderingProvider } from "../contexts/rendering-context";
+import {
+  RenderingProvider,
+  resolveRenderLayerBehavior,
+  type RenderMediaMode,
+} from "../contexts/rendering-context";
 
 /**
  * Props for the Main component
@@ -39,6 +43,8 @@ export type MainProps = {
   readonly baseUrl?: string;
   /** Render mode — when true, use original quality. When false (editing), use proxy. */
   readonly isRendering?: boolean;
+  /** Restricts evidence renders to the media graph they actually verify. */
+  readonly renderMediaMode?: RenderMediaMode;
 };
 
 const outer: React.CSSProperties = {
@@ -64,6 +70,7 @@ export const Main: React.FC<MainProps> = ({
   changeOverlay,
   baseUrl,
   isRendering,
+  renderMediaMode = "full",
 }) => {
   const prefetchHandlesRef = useRef<Map<string, { free: () => void }>>(new Map());
   const blobUrlsRef = useRef<Map<string, string>>(new Map()); // assetId → blob URL
@@ -73,10 +80,18 @@ export const Main: React.FC<MainProps> = ({
 
   // Sort media overlays by start frame for proximity-based prefetching
   const mediaOverlays = useMemo(() => {
+    if (isRendering) return [];
     return overlays
       .filter((o) => (o.type === 'video' || o.type === 'sound') && (o.src || o.content))
       .sort((a, b) => a.from - b.from);
-  }, [overlays]);
+  }, [isRendering, overlays]);
+
+  const renderedOverlays = useMemo(
+    () => overlays.filter(
+      (overlay) => resolveRenderLayerBehavior(overlay.type, renderMediaMode) !== "omit",
+    ),
+    [overlays, renderMediaMode],
+  );
 
   // Throttle: re-evaluate prefetch window every 300 frames (10s at 30fps).
   // Without this, useCurrentFrame triggers 30 re-renders/sec.
@@ -214,7 +229,11 @@ export const Main: React.FC<MainProps> = ({
   );
 
   return (
-    <RenderingProvider isRendering={isRendering ?? false} overlays={overlays}>
+    <RenderingProvider
+      isRendering={isRendering ?? false}
+      mediaMode={renderMediaMode}
+      overlays={overlays}
+    >
       <AbsoluteFill
         style={{
           ...outer,
@@ -222,7 +241,7 @@ export const Main: React.FC<MainProps> = ({
         onPointerDown={onPointerDown}
       >
         <AbsoluteFill style={layerContainer}>
-          {overlays.map((overlay, index) => {
+          {renderedOverlays.map((overlay, index) => {
             return (
               <Layer
                 key={`${overlay.id}-${index}`}
@@ -233,12 +252,14 @@ export const Main: React.FC<MainProps> = ({
             );
           })}
         </AbsoluteFill>
-        <SortedOutlines
-          selectedOverlayId={selectedOverlayId}
-          overlays={overlays}
-          setSelectedOverlayId={setSelectedOverlayId}
-          changeOverlay={changeOverlay}
-        />
+        {renderMediaMode === "full" ? (
+          <SortedOutlines
+            selectedOverlayId={selectedOverlayId}
+            overlays={overlays}
+            setSelectedOverlayId={setSelectedOverlayId}
+            changeOverlay={changeOverlay}
+          />
+        ) : null}
       </AbsoluteFill>
     </RenderingProvider>
   );

@@ -1,10 +1,14 @@
-import { OffthreadVideo, Video, Sequence, useCurrentFrame } from "remotion";
+import { Audio, OffthreadVideo, Video, Sequence, useCurrentFrame } from "remotion";
 import { useMemo } from "react";
 import { ClipOverlay } from "../../../types";
 import { computeSpeedSegments, evaluateAllTracks } from "../../../utils/keyframe-evaluator";
 import { animationTemplates } from "../../../templates/animation-templates";
 import { toAbsoluteUrl } from "../../../utils/url-helper";
-import { useIsRendering, useAllOverlays } from "../../../contexts/rendering-context";
+import {
+  useAllOverlays,
+  useIsRendering,
+  useRenderMediaMode,
+} from "../../../contexts/rendering-context";
 import { createDuckingVolume } from "../../../utils/audio-ducking";
 
 const CANONICAL_VOICEOVER_ROW = 3;
@@ -45,6 +49,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
 }) => {
   const frame = useCurrentFrame();
   const isRendering = useIsRendering();
+  const renderMediaMode = useRenderMediaMode();
   const allOverlays = useAllOverlays();
   const fps = 30; // Matches sound-layer-content.tsx
 
@@ -195,6 +200,43 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   // If speedCurve is present, split into segments with different playback rates.
   // Each segment is a separate <Video> in a <Sequence> with correct source offset.
   const hasSpeedCurve = (overlay as any).speedCurve && (overlay as any).speedCurve.length > 1;
+
+  if (renderMediaMode === "audio-only") {
+    if (hasSpeedCurve) {
+      const segments = computeSpeedSegments(
+        (overlay as any).speedCurve,
+        overlay.durationInFrames,
+      );
+      return (
+        <>
+          {segments.map((seg, i) => (
+            <Sequence
+              key={i}
+              from={seg.compositionStartFrame}
+              durationInFrames={seg.compositionEndFrame - seg.compositionStartFrame}
+              layout="none"
+            >
+              <Audio
+                src={videoSrc}
+                startFrom={(overlay.videoStartTime || 0) + seg.sourceStartFrame}
+                volume={resolvedVolume}
+                playbackRate={seg.playbackRate}
+              />
+            </Sequence>
+          ))}
+        </>
+      );
+    }
+
+    return (
+      <Audio
+        src={videoSrc}
+        startFrom={overlay.videoStartTime || 0}
+        volume={resolvedVolume}
+        playbackRate={overlay.speed ?? 1}
+      />
+    );
+  }
 
   if (hasSpeedCurve) {
     const segments = computeSpeedSegments(
