@@ -1,8 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getAsset: vi.fn(),
   resolveAssetUrl: vi.fn(),
+  searchAndDownloadSFX: vi.fn(),
   searchStockImages: vi.fn(),
   searchStockVideos: vi.fn(),
 }));
@@ -27,6 +29,10 @@ vi.mock('@/lib/pipeline/pixabay-service', () => ({
   searchStockVideos: mocks.searchStockVideos,
 }));
 
+vi.mock('@/lib/pipeline/sfx-library-service', () => ({
+  searchAndDownloadSFX: mocks.searchAndDownloadSFX,
+}));
+
 import { createTools } from '@/lib/editron/agent/tools';
 import { projectService } from '@/lib/editron/services/project-service';
 
@@ -47,6 +53,7 @@ const PROJECT = {
       durationInFrames: 45,
       src: 'https://cdn.example.com/old-whoosh.wav',
       content: 'https://cdn.example.com/old-whoosh.wav',
+      assetId: 'asset-old-whoosh',
       role: 'sfx',
     },
     {
@@ -113,15 +120,26 @@ describe('chat provider and user-asset tool contracts', () => {
 
   it('replaces the selected SFX source without changing its timeline placement', async () => {
     const updateOverlay = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue(undefined as any);
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      results: [{
-        url: 'https://cdn.example.com/paper-whoosh.wav',
-        title: 'Soft paper whoosh',
-        duration: 1.2,
-        source: 'freesound',
-      }],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
-    vi.stubGlobal('fetch', fetchMock);
+    const audioRights = {
+      mediaRole: 'sfx' as const,
+      source: 'library' as const,
+      userChoice: 'attested' as const,
+      licensed: true,
+      evidence: {
+        kind: 'library-license' as const,
+        sourceAssetId: 'asset-paper-whoosh',
+        licenseId: 'freesound:88:creative-commons-0',
+      },
+    };
+    mocks.searchAndDownloadSFX.mockResolvedValue({
+      audioUrl: 'https://cdn.example.com/paper-whoosh.wav',
+      gcsPath: null,
+      audioAssetId: 'asset-paper-whoosh',
+      durationMs: 1200,
+      audioRights,
+      originalTitle: 'Soft paper whoosh',
+      source: 'freesound',
+    });
 
     const result = parseResult(await toolNamed('replace_sfx').invoke({ query: 'soft paper whoosh' }));
 
@@ -129,31 +147,46 @@ describe('chat provider and user-asset tool contracts', () => {
       status: 'success',
       data: {
         overlayId: 10,
+        assetId: 'asset-paper-whoosh',
         title: 'Soft paper whoosh',
         duration: 1.2,
         source: 'freesound',
       },
     });
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://preview.example.test/api/services/editron/sfx-library/search?q=soft%20paper%20whoosh&limit=1',
+    expect(mocks.searchAndDownloadSFX).toHaveBeenCalledWith(
+      'soft paper whoosh',
+      'user_provider_asset',
+      2,
+      expect.objectContaining({
+        version: 'atomic-sfx-form-v1',
+        shouldPlace: true,
+      }),
     );
     expect(updateOverlay).toHaveBeenCalledWith(
       'user_provider_asset',
       'proj_provider_asset',
       10,
-      {
+      expect.objectContaining({
+        assetId: 'asset-paper-whoosh',
         content: 'https://cdn.example.com/paper-whoosh.wav',
         src: 'https://cdn.example.com/paper-whoosh.wav',
-      },
+        audioRights,
+        metadata: expect.objectContaining({
+          source: 'chat-replace-sfx',
+          provider: 'freesound',
+          providerTitle: 'Soft paper whoosh',
+        }),
+      }),
     );
+    const mutation = updateOverlay.mock.calls[0]?.[3] as Record<string, unknown>;
+    expect(mutation.assetId).not.toBe('asset-old-whoosh');
+    expect(mutation).not.toHaveProperty('from');
+    expect(mutation).not.toHaveProperty('durationInFrames');
   });
 
   it('does not mutate SFX when the provider returns no candidates', async () => {
     const updateOverlay = vi.spyOn(projectService, 'updateOverlay');
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ results: [] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })));
+    mocks.searchAndDownloadSFX.mockResolvedValue(null);
 
     const result = parseResult(await toolNamed('replace_sfx').invoke({
       overlayId: 10,
@@ -165,6 +198,17 @@ describe('chat provider and user-asset tool contracts', () => {
       error: { message: 'No SFX found for "nonexistent acoustic texture". Try different keywords.' },
     });
     expect(updateOverlay).not.toHaveBeenCalled();
+  });
+
+  it('keeps provider rights attached at every automated SFX overlay producer', () => {
+    const edlSource = readFileSync(new URL('../../lib/editron/services/edl-executor.ts', import.meta.url), 'utf8');
+    const transitionSource = readFileSync(new URL('../../lib/editron/services/transition-sfx-placer.ts', import.meta.url), 'utf8');
+
+    expect(edlSource).toContain("audioRights: SFXLibraryResult['audioRights']");
+    expect(edlSource).toContain('audioRights: result.audioRights');
+    expect(edlSource).toContain('audioRights: cached.audioRights');
+    expect(transitionSource).toContain("audioRights: SFXLibraryResult['audioRights']");
+    expect(transitionSource).toContain('audioRights: sfx.result.audioRights');
   });
 
   it('searches stock video with the requested duration constraints without mutating the project', async () => {

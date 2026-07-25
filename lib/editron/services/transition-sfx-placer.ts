@@ -328,6 +328,7 @@ interface SFXOverlayShape {
   content: string;
   src: string;
   assetId?: string;
+  audioRights: SFXLibraryResult['audioRights'];
   styles: { volume: number; opacity: number };
   metadata?: Record<string, any>;
 }
@@ -788,6 +789,7 @@ export async function placeTransitionSFX(
       content: sfx.result.audioUrl,
       src: sfx.result.audioUrl,
       assetId: sfx.result.audioAssetId,
+      audioRights: sfx.result.audioRights,
       styles: {
         volume: adjustVolumeForPolicy(spec.volume, policy),
         opacity: 1,

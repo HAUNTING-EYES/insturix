@@ -453,6 +453,7 @@ interface SfxCacheEntry {
   audioUrl: string;
   audioAssetId: string;
   durationMs: number;
+  audioRights: SFXLibraryResult['audioRights'];
   source?: SFXLibraryResult['source'];
   originalTitle?: string;
   assetQuality: AtomicSfxCandidateEvaluation;
@@ -2055,6 +2056,7 @@ function acceptedSfxCacheEntry(
     audioUrl: result.audioUrl,
     audioAssetId: result.audioAssetId,
     durationMs: result.durationMs,
+    audioRights: result.audioRights,
     source: result.source,
     originalTitle: result.originalTitle,
     assetQuality,
@@ -2669,6 +2671,7 @@ async function applyDecision(
         content: cached.audioUrl,
         src: cached.audioUrl,
         assetId: cached.audioAssetId,
+        audioRights: cached.audioRights,
         styles: { volume: atomicSfxForm.mix.volume, opacity: 1 },
         metadata: {
           source: 'edl-sfx-trigger',

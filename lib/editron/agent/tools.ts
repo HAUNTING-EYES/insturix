@@ -5642,26 +5642,60 @@ Examples:
           return JSON.stringify({ status: 'error', message: `SFX overlay ${targetId || 'selected'} not found. Please select or specify the SFX overlay ID.` });
         }
 
-        // Search Freesound for replacement
-        const searchRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')}/api/services/editron/sfx-library/search?q=${encodeURIComponent(input.query)}&limit=1`);
-        const searchData = await searchRes.json().catch(() => ({ results: [] }));
+        const { resolveAtomicSfxForm } = await import('@/lib/editron/services/sfx-form');
+        const { searchAndDownloadSFX } = await import('@/lib/pipeline/sfx-library-service');
+        const fps = Number((project as any).fps) || 30;
+        const atomicSfxForm = resolveAtomicSfxForm({
+          params: {
+            sfxCue: input.query,
+            sfxAnchor: (sfxOverlay.metadata?.atomicSfxForm?.timing?.anchor as string | undefined) || 'scene-bed',
+            syncFrame: sfxOverlay.metadata?.sfxSyncFrame ?? sfxOverlay.from,
+            durationFrames: sfxOverlay.durationInFrames,
+          },
+          frame: sfxOverlay.from,
+          durationFrames: sfxOverlay.durationInFrames,
+          sceneRemainingFrames: sfxOverlay.durationInFrames,
+        });
+        const newSfx = await searchAndDownloadSFX(
+          input.query,
+          userId,
+          Math.max(1, Math.ceil(sfxOverlay.durationInFrames / fps)),
+          atomicSfxForm,
+        );
 
-        if (!searchData.results || searchData.results.length === 0) {
+        if (!newSfx) {
           return JSON.stringify({ status: 'error', message: `No SFX found for "${input.query}". Try different keywords.` });
         }
 
-        const newSfx = searchData.results[0];
-
-        // Update the overlay with new audio URL
+        // Replace the complete asset identity so hydration cannot restore the old source.
         await projectService.updateOverlay(userId, projectId, sfxOverlay.id, {
-          content: newSfx.url,
-          src: newSfx.url,
+          assetId: newSfx.audioAssetId,
+          content: newSfx.audioUrl,
+          src: newSfx.audioUrl,
+          audioRights: newSfx.audioRights,
+          row: ROW.SFX,
+          metadata: {
+            ...(sfxOverlay.metadata || {}),
+            source: 'chat-replace-sfx',
+            sfxQuery: input.query,
+            sfxIntent: atomicSfxForm.intent,
+            atomicSfxForm,
+            atomicSfxForms: [atomicSfxForm],
+            provider: newSfx.source,
+            providerTitle: newSfx.originalTitle,
+          },
         } as any);
 
         return JSON.stringify({
           status: 'success',
-          data: { overlayId: sfxOverlay.id, title: newSfx.title, duration: newSfx.duration, source: newSfx.source },
-          message: `Replaced SFX with "${newSfx.title}" (${newSfx.duration}s from ${newSfx.source})`,
+          data: {
+            overlayId: sfxOverlay.id,
+            assetId: newSfx.audioAssetId,
+            title: newSfx.originalTitle || input.query,
+            duration: newSfx.durationMs / 1000,
+            source: newSfx.source,
+          },
+          message: `Replaced SFX with "${newSfx.originalTitle || input.query}" (${(newSfx.durationMs / 1000).toFixed(1)}s from ${newSfx.source})`,
         });
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
@@ -5695,9 +5729,10 @@ Examples:
 
         const { uploadMedia } = await import('@/lib/editron/services/upload-service');
         const { nanoid } = await import('nanoid');
-        const assetId = `sfx_${nanoid(12)}`;
+        let assetId = `sfx_${nanoid(12)}`;
         let audioUrl: string | null = null;
         let gcsPath: string | null = null;
+        let audioRights: import('@/lib/editron/shared/render-request-payload').AudioRightsContract | null = null;
         let sfxTitle = input.query;
         let sfxSource = 'unknown';
 
@@ -5722,6 +5757,19 @@ Examples:
         }
         const durationSec = sceneDuration;
         let sfxDuration = durationSec;
+        const { resolveAtomicSfxForm } = await import('@/lib/editron/services/sfx-form');
+        const atomicSfxForm = resolveAtomicSfxForm({
+          params: {
+            sfxCue: input.query,
+            sfxAnchor: 'scene-bed',
+            sceneStartFrame,
+            syncFrame: sceneStartFrame,
+            durationFrames: Math.max(1, Math.round(durationSec * fps)),
+          },
+          frame: sceneStartFrame,
+          durationFrames: Math.max(1, Math.round(durationSec * fps)),
+          sceneRemainingFrames: Math.max(1, Math.round(durationSec * fps)),
+        });
 
         const { fal } = await import('@fal-ai/client');
         const falKey = process.env.FAL_AI_API_KEY;
@@ -5730,48 +5778,26 @@ Examples:
         // ─── Priority 1: Freesound library search (real recorded SFX, free, CC-licensed) ─
         // Best quality: professional recorded sounds. Always try first.
         if (!audioUrl) {
-          const baseUrl = process.env.VERCEL_URL
-            ? `https://${process.env.VERCEL_URL}`
-            : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-
-          const queries = [input.query];
-          if (input.query.includes(' ')) {
-            queries.push(...input.query.split(' ').filter(w => w.length > 2));
-          }
-
-          for (const q of queries) {
-            if (audioUrl) break;
-            try {
-              const searchRes = await fetch(`${baseUrl}/api/services/editron/sfx-library/search?q=${encodeURIComponent(q)}&limit=3`);
-              const searchData = await searchRes.json().catch(() => ({ results: [] }));
-              if (searchData.results?.length > 0) {
-                const sfx = searchData.results[0];
-                let buffer: Buffer | null = null;
-                for (let attempt = 0; attempt < 2; attempt++) {
-                  try {
-                    const audioRes = await fetch(sfx.url);
-                    if (audioRes.ok) {
-                      buffer = Buffer.from(await audioRes.arrayBuffer());
-                      break;
-                    }
-                  } catch (err) { console.warn('[add_sfx] Freesound fetch attempt:', err); }
-                }
-                if (buffer && buffer.length >= 100) {
-                  const ext = sfx.url.includes('.wav') ? 'wav' : 'mp3';
-                  const uploadResult = await uploadMedia(buffer, userId, `${assetId}.${ext}`, `audio/${ext === 'wav' ? 'wav' : 'mpeg'}`, { customAssetId: assetId });
-                  if (uploadResult?.signedUrl) {
-                    audioUrl = uploadResult.signedUrl;
-                    gcsPath = uploadResult.gcsPath;
-                    sfxTitle = sfx.title || input.query;
-                    sfxDuration = sfx.duration || durationSec;
-                    sfxSource = 'freesound';
-                    console.log(`[add_sfx] Freesound success: ${assetId} — "${sfxTitle}"`);
-                  }
-                }
-              }
-            } catch (fsErr: any) {
-              console.warn(`[add_sfx] Freesound search failed for "${q}": ${fsErr.message}`);
+          try {
+            const { searchAndDownloadSFX } = await import('@/lib/pipeline/sfx-library-service');
+            const librarySfx = await searchAndDownloadSFX(
+              input.query,
+              userId,
+              atomicSfxForm.asset.maxDurationSec,
+              atomicSfxForm,
+            );
+            if (librarySfx) {
+              assetId = librarySfx.audioAssetId;
+              audioUrl = librarySfx.audioUrl;
+              gcsPath = librarySfx.gcsPath;
+              audioRights = librarySfx.audioRights;
+              sfxTitle = librarySfx.originalTitle || input.query;
+              sfxDuration = librarySfx.durationMs / 1000;
+              sfxSource = librarySfx.source;
+              console.log(`[add_sfx] Library success: ${assetId} - "${sfxTitle}"`);
             }
+          } catch (libraryErr: any) {
+            console.warn(`[add_sfx] Rights-cleared library search failed for "${input.query}": ${libraryErr.message}`);
           }
         }
 
@@ -5814,6 +5840,17 @@ Examples:
                     gcsPath = uploadResult.gcsPath;
                     sfxSource = 'mirelo-video-to-audio';
                     sfxDuration = mireloDuration;
+                    audioRights = {
+                      mediaRole: 'sfx',
+                      source: 'generated',
+                      userChoice: 'attested',
+                      licensed: true,
+                      evidence: {
+                        kind: 'generated-provider',
+                        sourceAssetId: uploadResult.assetId,
+                        licenseId: 'fal-ai:mirelo-ai/sfx-v1.5/video-to-audio:commercial-use',
+                      },
+                    };
                     console.log(`[add_sfx] mirelo success: ${assetId}`);
                   }
                 }
@@ -5857,6 +5894,17 @@ Examples:
                   audioUrl = uploadResult.signedUrl;
                   gcsPath = uploadResult.gcsPath;
                   sfxSource = 'cassetteai';
+                  audioRights = {
+                    mediaRole: 'sfx',
+                    source: 'generated',
+                    userChoice: 'attested',
+                    licensed: true,
+                    evidence: {
+                      kind: 'generated-provider',
+                      sourceAssetId: uploadResult.assetId,
+                      licenseId: 'fal-ai:cassetteai/music-generator:commercial-use',
+                    },
+                  };
                   console.log(`[add_sfx] CassetteAI success: ${assetId}`);
                 }
               }
@@ -5868,7 +5916,7 @@ Examples:
 
         // Old Freesound block removed — now runs as Priority 1 above mirelo.
 
-        if (!audioUrl) {
+        if (!audioUrl || !audioRights) {
           return JSON.stringify({ status: 'error', message: `Could not find or generate SFX for "${input.query}". Freesound search, mirelo AI, and CassetteAI all failed. Try a different description.` });
         }
 
@@ -5878,6 +5926,7 @@ Examples:
         await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
           { assetId },
           {
+            $set: { audioRights },
             $setOnInsert: {
               assetId, userId, type: 'audio',
               filename: `${assetId}.mp3`, source: sfxSource,
@@ -5890,8 +5939,8 @@ Examples:
         );
 
         // Place on timeline
-        const startFrame = sceneStartFrame;
-        const durationFrames = Math.round(sfxDuration * fps);
+        const startFrame = atomicSfxForm.timing.startFrame;
+        const durationFrames = atomicSfxForm.timing.durationFrames;
 
         const { nanoid: nid } = await import('nanoid');
         const overlayId = Date.now() + parseInt(nid(4), 36);
@@ -5900,13 +5949,28 @@ Examples:
           type: 'sound',
           from: startFrame,
           durationInFrames: durationFrames,
-          row: ROW.MOTION_GRAPHICS,
+          startFromSound: atomicSfxForm.timing.sourceOffsetFrames,
+          audioStartFrame: atomicSfxForm.timing.startFrame,
+          audioEndFrame: atomicSfxForm.timing.endFrame,
+          row: ROW.SFX,
           left: 0, top: 0, width: 0, height: 0,
           isDragging: false, rotation: 0,
           content: audioUrl,
           src: audioUrl,
           assetId,
-          styles: { volume: 0.5, opacity: 1 },
+          audioRights,
+          styles: { volume: atomicSfxForm.mix.volume, opacity: 1 },
+          metadata: {
+            source: 'chat-add-sfx',
+            sfxQuery: input.query,
+            sfxIntent: atomicSfxForm.intent,
+            sfxSyncFrame: atomicSfxForm.timing.syncFrame,
+            sfxStartFrame: atomicSfxForm.timing.startFrame,
+            sfxAnchor: atomicSfxForm.timing.anchor,
+            atomicSfxForm,
+            atomicSfxForms: [atomicSfxForm],
+            provider: sfxSource,
+          },
         } as any);
 
         return JSON.stringify({
