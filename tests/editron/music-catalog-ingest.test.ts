@@ -268,6 +268,50 @@ describe('music catalog controlled ingest', () => {
     expect(store.complete).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    {
+      label: 'legacy musicPreference none',
+      project: { orgId: 'org_1', musicPreference: 'none' },
+      reason: 'music-preference-none',
+    },
+    {
+      label: 'editorial music off',
+      project: {
+        orgId: 'org_1',
+        productionBriefIntake: {
+          editorialPreferences: {
+            families: { music: { mode: 'off' } },
+          },
+        },
+      },
+      reason: 'user-policy-off:music',
+    },
+  ])('blocks $label before any ingest or provider work', async ({ project, reason }) => {
+    const catalog = provider();
+    const store = ingestStore();
+    const deps = dependencies({
+      provider: catalog,
+      store,
+      loadProject: vi.fn(async () => project),
+    });
+
+    await expect(ingestMusicCatalogTrack(request, deps)).rejects.toMatchObject({
+      code: 'MUSIC_DISABLED_BY_POLICY',
+      httpStatus: 409,
+      message: expect.stringContaining(reason),
+    });
+    expect(store.findAsset).not.toHaveBeenCalled();
+    expect(store.claim).not.toHaveBeenCalled();
+    expect(catalog.getTrack).not.toHaveBeenCalled();
+    expect(catalog.requestDownload).not.toHaveBeenCalled();
+    expect(deps.fetchImpl).not.toHaveBeenCalled();
+    expect(deps.detectFileType).not.toHaveBeenCalled();
+    expect(deps.inspectAudio).not.toHaveBeenCalled();
+    expect(deps.upload).not.toHaveBeenCalled();
+    expect(deps.cleanupUpload).not.toHaveBeenCalled();
+    expect(store.fail).not.toHaveBeenCalled();
+  });
+
   it('rejects preview-only tracks before requesting or downloading audio', async () => {
     const catalog = provider({
       getTrack: vi.fn(async () =>

@@ -9,6 +9,7 @@ import {
   MAX_AUDIO_CONDITIONING_INPUT_BYTES,
   type EncodedMusicInspection,
 } from '@/lib/pipeline/audio-conditioning';
+import { resolveMusicGenerationPolicy } from '@/lib/pipeline/bgm-conditioning-contract';
 import type { UploadResult } from '@/lib/editron/services/upload-service';
 
 const INGEST_COLLECTION = 'editron_music_catalog_ingests';
@@ -31,6 +32,7 @@ export type MusicCatalogIngestErrorCode =
   | 'INVALID_REQUEST'
   | 'NOT_CONFIGURED'
   | 'PROJECT_NOT_FOUND'
+  | 'MUSIC_DISABLED_BY_POLICY'
   | 'TRACK_NOT_ENTITLED'
   | 'INGEST_IN_PROGRESS'
   | 'IDEMPOTENCY_CONFLICT'
@@ -193,13 +195,25 @@ export interface MusicCatalogIngestStore {
   fail(lease: IngestLease, code: string, failedAt: Date): Promise<void>;
 }
 
+interface MusicCatalogProjectPolicySource {
+  musicPreference?: unknown;
+  editorialPreferences?: unknown;
+}
+
+interface MusicCatalogIngestProject extends MusicCatalogProjectPolicySource {
+  orgId?: string | null;
+  productionBrief?: MusicCatalogProjectPolicySource;
+  productionBriefIntake?: MusicCatalogProjectPolicySource;
+  creativeBrief?: MusicCatalogProjectPolicySource;
+}
+
 export interface MusicCatalogIngestDependencies {
   provider: MusicCatalogIngestProvider;
   providerAgreementId?: string;
   loadProject(
     userId: string,
     projectId: string,
-  ): Promise<{ orgId?: string | null } | null>;
+  ): Promise<MusicCatalogIngestProject | null>;
   inspectAudio(buffer: Buffer): Promise<EncodedMusicInspection>;
   detectFileType(
     buffer: Uint8Array,
@@ -246,6 +260,27 @@ export async function ingestMusicCatalogTrack(
       'PROJECT_NOT_FOUND',
       'Project not found or access denied',
       404,
+    );
+  }
+  const musicPolicy = resolveMusicGenerationPolicy({
+    musicPreferences: [
+      { value: project.musicPreference, source: 'project.musicPreference' },
+      { value: project.productionBrief?.musicPreference, source: 'project.productionBrief.musicPreference' },
+      { value: project.productionBriefIntake?.musicPreference, source: 'project.productionBriefIntake.musicPreference' },
+      { value: project.creativeBrief?.musicPreference, source: 'project.creativeBrief.musicPreference' },
+    ],
+    editorialPreferences: [
+      { value: project.editorialPreferences, source: 'project.editorialPreferences' },
+      { value: project.productionBrief?.editorialPreferences, source: 'project.productionBrief.editorialPreferences' },
+      { value: project.productionBriefIntake?.editorialPreferences, source: 'project.productionBriefIntake.editorialPreferences' },
+      { value: project.creativeBrief?.editorialPreferences, source: 'project.creativeBrief.editorialPreferences' },
+    ],
+  });
+  if (!musicPolicy.allowed) {
+    throw new MusicCatalogIngestError(
+      'MUSIC_DISABLED_BY_POLICY',
+      `Music catalog ingest is disabled by ${musicPolicy.reason}`,
+      409,
     );
   }
 
@@ -751,7 +786,7 @@ async function downloadEntitledAudio(url: string, fetchImpl: typeof fetch): Prom
 
 function buildStoredAsset(input: {
   request: MusicCatalogIngestRequest;
-  project: { orgId?: string | null };
+  project: MusicCatalogIngestProject;
   track: MusicCatalogTrack;
   agreementId: string;
   licenseId: string;
