@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 
 import { config as loadEnv } from 'dotenv';
 
+import { readRotatingChatBattleAuthHeaders } from './chat-edit-battle-auth';
 import { cleanupDisposableChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-cleanup';
 import {
   CHAT_EDIT_BATTLE_SCENARIOS,
@@ -1014,14 +1015,7 @@ async function getJson(api: ApiClient, route: string): Promise<Record<string, un
 }
 
 export async function readChatBattleAuthHeaders(headerFile: string): Promise<Record<string, string>> {
-  const raw = await readJsonRecord(headerFile);
-  const headers = Object.fromEntries(
-    Object.entries(raw).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
-  );
-  if (!headers.cookie && !headers.authorization) {
-    throw new Error('Auth header file must contain cookie or authorization.');
-  }
-  return headers;
+  return readRotatingChatBattleAuthHeaders(headerFile);
 }
 
 async function readJsonRecord(filePath: string): Promise<Record<string, unknown>> {

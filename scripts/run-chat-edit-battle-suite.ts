@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 import { config as loadEnv } from 'dotenv';
 
+import { readRotatingChatBattleAuthHeaders } from './chat-edit-battle-auth';
 import { CHAT_EDIT_BATTLE_SCENARIOS } from '../lib/editron/services/chat-edit-battle-harness';
 import { planChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-plan';
 
@@ -76,6 +77,11 @@ async function main(): Promise<void> {
   options.baseUrl = deployment.deploymentUrl;
   const scenarios = resolveLiveChatBattleScenarios(options.scenarioIds);
   await preflightFixtureSources(scenarios);
+  await preflightRemoteBattleExecution(
+    deployment.deploymentUrl,
+    options.authHeaderFile,
+    scenarios,
+  );
   const suiteDir = path.resolve(options.outputRoot, safeSegment(options.suiteId));
   const summaryPath = path.join(suiteDir, 'suite-summary.json');
   await mkdir(suiteDir, { recursive: true });
@@ -322,11 +328,9 @@ async function fetchDeploymentIdentity(
   baseUrl: string,
   authHeaderFile: string,
 ): Promise<unknown> {
-  const headers = asRecord(JSON.parse(await readFile(path.resolve(authHeaderFile), 'utf8')));
+  const headers = await readRotatingChatBattleAuthHeaders(authHeaderFile);
   const response = await fetch(`${baseUrl}/api/services/editron/build-info`, {
-    headers: Object.fromEntries(
-      Object.entries(headers).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
-    ),
+    headers,
     cache: 'no-store',
   });
   const text = await response.text();
@@ -397,6 +401,85 @@ async function preflightFixtureSources(
     );
   }
   console.log(`[chat-battle-suite] fixture preflight sources=${sourceProjectIds.length} status=ready`);
+}
+
+async function preflightRemoteBattleExecution(
+  baseUrl: string,
+  authHeaderFile: string,
+  scenarios: ReturnType<typeof resolveLiveChatBattleScenarios>,
+): Promise<void> {
+  if (isLocalBaseUrl(baseUrl)) return;
+  const sourceProjectIds = [...new Set(
+    scenarios.map((scenario) => planChatBattleFixture(scenario).sourceProjectId),
+  )];
+  for (const projectId of sourceProjectIds) {
+    const payload = await fetchBattlePreflightJson(
+      baseUrl,
+      `/api/services/editron/projects/${encodeURIComponent(projectId)}`,
+      authHeaderFile,
+    );
+    const error = validateAccessibleSourceProjectPayload(payload, projectId);
+    if (error) throw new Error(error);
+  }
+
+  const creditPayload = await fetchBattlePreflightJson(
+    baseUrl,
+    '/api/user/credits',
+    authHeaderFile,
+  );
+  const creditError = validateBattleCreditPreflight(creditPayload, scenarios.length);
+  if (creditError) throw new Error(creditError);
+  console.log(
+    `[chat-battle-suite] remote preflight sources=${sourceProjectIds.length} `
+    + `credits>=${scenarios.length} status=ready`,
+  );
+}
+
+async function fetchBattlePreflightJson(
+  baseUrl: string,
+  route: string,
+  authHeaderFile: string,
+): Promise<unknown> {
+  const response = await fetch(`${baseUrl}${route}`, {
+    headers: await readRotatingChatBattleAuthHeaders(authHeaderFile),
+    cache: 'no-store',
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Battle remote preflight ${route} failed HTTP ${response.status}: ${text.slice(0, 500)}`,
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Battle remote preflight ${route} returned invalid JSON.`);
+  }
+}
+
+export function validateAccessibleSourceProjectPayload(
+  value: unknown,
+  projectId: string,
+): string | null {
+  const payload = asRecord(value);
+  const project = asRecord(payload.project);
+  return payload.success === true && project.projectId === projectId
+    ? null
+    : `Authenticated battle user cannot access fixture source project ${projectId}.`;
+}
+
+export function validateBattleCreditPreflight(
+  value: unknown,
+  requiredCredits: number,
+): string | null {
+  const balance = asRecord(asRecord(value).balance);
+  const totalCredits = Number(balance.totalCredits);
+  if (!Number.isFinite(totalCredits)) {
+    return 'Battle credit preflight did not return a finite totalCredits balance.';
+  }
+  return totalCredits >= requiredCredits
+    ? null
+    : `Battle user has ${totalCredits} credits but ${requiredCredits} live scenarios were requested.`;
 }
 
 export function resolveLiveChatBattleScenarios(ids: string[]) {

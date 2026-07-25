@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   parseSuiteArgs,
   resolveLiveChatBattleScenarios,
+  validateAccessibleSourceProjectPayload,
+  validateBattleCreditPreflight,
   validateDeploymentIdentityPayload,
   validateSuiteEnvironmentSelection,
 } from '../../scripts/run-chat-edit-battle-suite';
@@ -64,5 +66,24 @@ describe('chat edit battle suite environment selection', () => {
       commitSha: '0dce04a4',
       deploymentUrl: 'https://preview.example.test',
     })).toThrow('immutable HTTPS vercel.app URL');
+  });
+
+  it('requires authenticated access to every fixture source', () => {
+    expect(validateAccessibleSourceProjectPayload({
+      success: true,
+      project: { projectId: 'proj-source' },
+    }, 'proj-source')).toBeNull();
+    expect(validateAccessibleSourceProjectPayload({
+      success: false,
+    }, 'proj-source')).toContain('cannot access fixture source');
+  });
+
+  it('requires enough credits for the requested live scenarios', () => {
+    expect(validateBattleCreditPreflight({
+      balance: { totalCredits: 76 },
+    }, 76)).toBeNull();
+    expect(validateBattleCreditPreflight({
+      balance: { totalCredits: 12 },
+    }, 76)).toContain('12 credits');
   });
 });
