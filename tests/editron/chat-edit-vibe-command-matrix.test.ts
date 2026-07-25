@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { CHAT_TOOL_REGISTRY } from '@/lib/editron/agent/chat-tool-registry';
+import { planChatBattleFixture } from '@/lib/editron/services/chat-edit-battle-fixture-plan';
 import { CHAT_EDIT_BATTLE_SCENARIOS } from '@/lib/editron/services/chat-edit-battle-harness';
 
 function requiredTools(): Set<string> {
@@ -40,6 +41,7 @@ describe('Editron vibe-editing command matrix', () => {
       'auto_edit_from_script',
       'auto_motion_graphics',
       'extract_style',
+      'generate_html_scene',
     ]);
     expect(shadowAuthority.filter((tool) => required.has(tool))).toEqual([]);
   });
@@ -50,6 +52,21 @@ describe('Editron vibe-editing command matrix', () => {
 
     expect(new Set(ids).size).toBe(ids.length);
     expect(new Set(prompts).size).toBe(prompts.length);
+  });
+
+  it('runs every journey in an explicit product lane', () => {
+    const modes = Object.fromEntries(
+      CHAT_EDIT_BATTLE_SCENARIOS.map((scenario) => [
+        scenario.id,
+        planChatBattleFixture(scenario).projectMode,
+      ]),
+    );
+
+    expect(modes['selected-overlay-edit']).toBe('auto');
+    expect(modes['plain-caption-track']).toBe('assist');
+    expect(modes['fancy-caption-track']).toBe('assist');
+    expect(modes['dialogue-ducking']).toBe('assist');
+    expect(modes['beat-sync-cuts']).toBe('assist');
   });
 
   it('makes read-only journeys mutation-proof and evidence-light', () => {

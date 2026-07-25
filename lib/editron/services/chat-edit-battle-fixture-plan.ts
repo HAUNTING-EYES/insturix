@@ -1,4 +1,7 @@
-import type { ChatBattleScenario } from './chat-edit-battle-harness';
+import type {
+  ChatBattleProjectMode,
+  ChatBattleScenario,
+} from './chat-edit-battle-harness';
 
 export type ChatBattleFixtureProfile =
   | 'mixed'
@@ -25,6 +28,7 @@ export interface ChatBattleFixtureSources {
 
 export interface ChatBattleFixturePlan {
   scenarioId: string;
+  projectMode: ChatBattleProjectMode;
   profile: ChatBattleFixtureProfile;
   sourceProjectId: string;
   selectedOverlayType?: string;
@@ -98,6 +102,7 @@ export function planChatBattleFixture(
   const profile = resolveProfile(scenario.id);
   return {
     scenarioId: scenario.id,
+    projectMode: scenario.projectMode,
     profile,
     sourceProjectId: sources[profile],
     selectedOverlayType: resolveSelectedOverlayType(scenario.id),

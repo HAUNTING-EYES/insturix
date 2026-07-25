@@ -7,6 +7,7 @@ export const CHAT_EDIT_BATTLE_HARNESS_VERSION = 'editron-chat-battle-v1' as cons
 export type ChatBattleRuntimeMode = 'deterministic-fixture' | 'live-provider';
 export type ChatBattleMutationExpectation = 'required' | 'forbidden' | 'conditional';
 export type ChatBattleStatus = 'pass' | 'warn' | 'fail';
+export type ChatBattleProjectMode = 'auto' | 'assist';
 export type ChatBattleFixtureRequirement =
   | 'ai-edit-checkpoint'
   | 'prior-idempotency-record'
@@ -26,6 +27,7 @@ export interface ChatBattleScenario {
   id: string;
   label: string;
   prompt: string;
+  projectMode: ChatBattleProjectMode;
   mutationExpectation: ChatBattleMutationExpectation;
   minimumSuccessfulMutations: number;
   requiredToolSequence: ReadonlyArray<string | readonly string[]>;
@@ -214,6 +216,7 @@ function scenario(
     id,
     label,
     prompt,
+    projectMode: options.projectMode ?? 'auto',
     mutationExpectation: options.mutationExpectation ?? 'required',
     minimumSuccessfulMutations: options.minimumSuccessfulMutations ?? 1,
     requiredToolSequence: options.requiredToolSequence ?? [],
@@ -259,7 +262,7 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('edit-html-scene', 'Edit HTML scene in place', 'Edit the selected HTML scene itself: change the heading embedded inside that HTML scene to How it works. Do not edit the separate text overlay.', { requiredToolSequence: [READ_PROJECT, 'edit_html_scene'] }),
   scenario('bgm-explicit', 'Explicit BGM intent', 'Add restrained cinematic background music with no vocals and keep speech clear.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['regenerate_bgm'] }),
   scenario('bgm-vague', 'Vague BGM intent', 'Add suitable background music for this edit.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['regenerate_bgm'] }),
-  scenario('bgm-provider-failure', 'Safe BGM replacement failure', 'Replace the current music with something calmer.', { mutationExpectation: 'conditional', requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'], fixtureRequirements: ['bgm-provider-failure-injection'] }),
+  scenario('bgm-provider-failure', 'Safe BGM replacement failure', 'Replace the current music with something calmer.', { projectMode: 'assist', mutationExpectation: 'conditional', requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'], fixtureRequirements: ['bgm-provider-failure-injection'] }),
   scenario('mixed-multi-step', 'Mixed multi-step edit', 'Clean the captions, add one motivated zoom, and add music without covering speech.', { requiredToolSequence: [READ_PROJECT], minimumSuccessfulMutations: 2 }),
   scenario('undo-overlay-edit', 'Undo overlay edit', 'Undo that AI edit.', { requiredToolSequence: ['restore_ai_edit_checkpoint'], fixtureRequirements: ['ai-edit-checkpoint'] }),
   scenario('undo-full-state', 'Undo timing and project state', 'Undo the last AI edit including its timing and project duration changes.', { requiredToolSequence: ['restore_ai_edit_checkpoint'], fixtureRequirements: ['ai-edit-checkpoint'] }),
@@ -298,18 +301,18 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('selected-dialogue-dubbing', 'Translate and dub selected dialogue', 'Translate and dub the selected video clip\'s spoken dialogue into Hindi. Preserve the original speech timing, keep the background sound natural, and do not change the other clips.', { requiredToolSequence: ['dub_selected_dialogue', 'get_dubbing_job_result'], requireEvidenceBeforeMutation: false }),
   scenario('vertical-subject-reframe', 'Reframe project while preserving subjects', 'Reframe this project to 9:16 and keep the main subject visible throughout every shot. Do not crop important on-screen text.', { requiredToolSequence: [READ_PROJECT, 'reframe_project'] }),
   scenario('manual-impact-sfx', 'Grounded manual SFX', 'Add a restrained impact sound exactly on the first strong downbeat after the phrase now watch this.', { requiredToolSequence: ['resolve_audio_edit', 'add_sfx'] }),
-  scenario('dialogue-ducking', 'Duck music under dialogue', 'Duck the background music under every spoken section so the dialogue remains clear.', { requiredToolSequence: [READ_PROJECT, 'apply_audio_ducking'] }),
+  scenario('dialogue-ducking', 'Duck music under dialogue', 'Duck the background music under every spoken section so the dialogue remains clear.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'apply_audio_ducking'] }),
   scenario('content-analysis', 'Analyze edit opportunities', 'Analyze this video for silence, filler words, and useful edit points. Report findings only.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['analyze_video_content'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
-  scenario('plain-caption-track', 'Add explicit plain captions', 'Add plain subtitle captions for all spoken dialogue, with no animated emphasis.', { requiredToolSequence: [READ_PROJECT, 'add_captions'] }),
-  scenario('fancy-caption-track', 'Add explicit animated captions', 'Add animated word-highlight captions for all spoken dialogue.', { requiredToolSequence: [READ_PROJECT, 'add_fancy_captions'] }),
+  scenario('plain-caption-track', 'Add explicit plain captions', 'Add plain subtitle captions for all spoken dialogue, with no animated emphasis.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'add_captions'] }),
+  scenario('fancy-caption-track', 'Add explicit animated captions', 'Add animated word-highlight captions for all spoken dialogue.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'add_fancy_captions'] }),
   scenario('refresh-plain-captions', 'Refresh plain captions', 'Realign the existing plain captions to the current edited clips and transcript.', { requiredToolSequence: [READ_PROJECT, 'refresh_captions'] }),
   scenario('refresh-fancy-captions', 'Refresh animated captions', 'Realign the existing animated captions to the current edited clips and transcript.', { requiredToolSequence: [READ_PROJECT, 'refresh_fancy_captions'] }),
   scenario('batch-caption-edit', 'Batch edit caption styling', 'Make all existing captions use sentence case and a high-contrast white style without changing their timing.', { requiredToolSequence: [READ_PROJECT, 'batch_edit_captions'] }),
   scenario('analyze-selected-audio', 'Analyze selected clip audio', 'Resolve and queue durable analysis of the selected clip audio for beats, pauses, speech, and energy. Do not edit anything and do not claim findings before the job completes.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['resolve_clip_analysis', 'queue_resolved_clip_analysis'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('analyze-selected-video', 'Analyze selected clip video', 'Resolve and queue durable analysis of the selected clip visuals for subjects, actions, shot changes, and text. Do not edit anything and do not claim findings before the job completes.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['resolve_clip_analysis', 'queue_resolved_clip_analysis'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('read-completed-clip-analysis', 'Read completed clip analysis', 'Read the completed deep-analysis job already referenced in this project conversation. Report only its grounded findings and do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['get_clip_analysis_result'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false, fixtureRequirements: ['completed-clip-analysis-job'] }),
-  scenario('regenerate-existing-scene', 'Regenerate existing scene', 'Regenerate scene 2 while preserving its narrative purpose and timing.', { requiredToolSequence: [READ_PROJECT, 'regenerate_scene'] }),
-  scenario('beat-sync-cuts', 'Sync cuts to detected beats', 'Find the music downbeats and sync the existing montage cuts to them without changing clip order.', { requiredToolSequence: ['find_audio_moment', 'sync_cuts_to_beats'] }),
+  scenario('regenerate-existing-scene', 'Regenerate existing scene', 'Regenerate scene 2 while preserving its narrative purpose and timing.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'regenerate_scene'] }),
+  scenario('beat-sync-cuts', 'Sync cuts to detected beats', 'Find the music downbeats and sync the existing montage cuts to them without changing clip order.', { projectMode: 'assist', requiredToolSequence: ['find_audio_moment', 'sync_cuts_to_beats'] }),
   scenario('replace-selected-sfx', 'Replace selected SFX', 'Replace the selected sound effect with a softer paper whoosh at the same time.', { requiredToolSequence: [READ_PROJECT, 'replace_sfx'] }),
   scenario('list-uploaded-assets', 'List uploaded assets', 'List the videos, images, and audio files I uploaded to this project. Do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['list_user_assets'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('search-uploaded-assets', 'Search uploaded assets', 'Find my uploaded clip showing embroidery work. Do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['search_user_assets'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),

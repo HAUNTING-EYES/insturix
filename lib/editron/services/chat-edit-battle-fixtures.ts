@@ -113,6 +113,7 @@ export function prepareChatBattleFixture(input: {
   project.projectId = input.fixtureProjectId;
   project.name = title;
   project.title = title;
+  project.editMode = input.plan.projectMode;
   project.status = 'ready';
   project.createdAt = now;
   project.updatedAt = now;
@@ -124,6 +125,7 @@ export function prepareChatBattleFixture(input: {
     battleTest: {
       harnessVersion: 'editron-chat-battle-v1',
       scenarioId: input.plan.scenarioId,
+      projectMode: input.plan.projectMode,
       profile: input.plan.profile,
       sourceProjectId,
       disposable: true,
