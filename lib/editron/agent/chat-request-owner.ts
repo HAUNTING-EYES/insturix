@@ -239,8 +239,14 @@ const MECHANICAL_SHADOW_FAMILY_TOOLS = new Set([
 // internally; the assist license just exposes them because ownership moved to
 // the user. The full-reedit planner (apply_editorial_intent) stays available for
 // genuinely vague "edit the whole thing for me" requests, behind a confirm.
-// Motion-graphic creation is absent here because the direct chat tools still carry
-// legacy graphicType/template authority. The semantic planner owns MG requests.
+// Motion-graphic authority (founder ruling history): after the 2026-07-24 C1
+// probe, direct MG tools remained licensed because removing them made the agent
+// substitute generate_html_sticker; generate_html_scene remained banned. The
+// ruling changed on 2026-07-25 after the direct tools were confirmed to retain
+// legacy graphicType/template authority and a live probe on 0dce04a4 routed the
+// request through apply_editorial_intent without sticker, scene, or direct-MG
+// substitution. The generated component then failed quality review and declined
+// without a fallback overlay. The semantic planner therefore owns MG requests.
 const DIRECTOR_MODE_DIRECT_FAMILY_TOOLS = new Set([
   'add_captions',
   'add_fancy_captions',
