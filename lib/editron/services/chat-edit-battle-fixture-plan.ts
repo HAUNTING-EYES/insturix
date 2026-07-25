@@ -93,6 +93,7 @@ const VIDEO_SELECTED_SCENARIOS = new Set([
 const TEXT_SELECTED_SCENARIOS = new Set([
   'selected-overlay-edit', 'delete-selected-overlay', 'sync-overlay-style',
   'selected-overlay-fade', 'reorder-overlay-layer', 'move-retime-overlay',
+  'rollback-partial-failure',
 ]);
 
 export function planChatBattleFixture(

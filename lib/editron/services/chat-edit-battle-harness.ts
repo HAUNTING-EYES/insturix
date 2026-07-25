@@ -5,6 +5,7 @@ import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
 export const CHAT_EDIT_BATTLE_HARNESS_VERSION = 'editron-chat-battle-v1' as const;
 
 export type ChatBattleRuntimeMode = 'deterministic-fixture' | 'live-provider';
+export type ChatBattleExecutionLane = 'live' | 'deterministic-contract';
 export type ChatBattleMutationExpectation = 'required' | 'forbidden' | 'conditional';
 export type ChatBattleStatus = 'pass' | 'warn' | 'fail';
 export type ChatBattleProjectMode = 'auto' | 'assist';
@@ -18,8 +19,6 @@ export type ChatBattleFixtureRequirement =
   | 'ai-edit-checkpoint'
   | 'prior-idempotency-record'
   | 'durable-reference-asset'
-  | 'bgm-provider-failure-injection'
-  | 'partial-failure-plan'
   | 'completed-clip-analysis-job';
 
 export interface ChatBattleArgumentProhibition {
@@ -34,6 +33,7 @@ export interface ChatBattleScenario {
   label: string;
   prompt: string;
   projectMode: ChatBattleProjectMode;
+  executionLane: ChatBattleExecutionLane;
   expectOperationReplay: boolean;
   mutationExpectation: ChatBattleMutationExpectation;
   minimumSuccessfulMutations: number;
@@ -234,6 +234,7 @@ function scenario(
     label,
     prompt,
     projectMode: options.projectMode ?? 'auto',
+    executionLane: options.executionLane ?? 'live',
     expectOperationReplay: options.expectOperationReplay ?? false,
     mutationExpectation: options.mutationExpectation ?? 'required',
     minimumSuccessfulMutations: options.minimumSuccessfulMutations ?? 1,
@@ -288,11 +289,22 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('edit-html-scene', 'Edit HTML scene in place', 'Edit the selected HTML scene itself: change the heading embedded inside that HTML scene to How it works. Do not edit the separate text overlay.', { requiredToolSequence: [READ_PROJECT, 'edit_html_scene'] }),
   scenario('bgm-explicit', 'Explicit BGM intent', 'Add restrained cinematic background music with no vocals and keep speech clear.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['regenerate_bgm'] }),
   scenario('bgm-vague', 'Vague BGM intent', 'Add suitable background music for this edit.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['regenerate_bgm'] }),
-  scenario('bgm-provider-failure', 'Safe BGM replacement failure', 'Replace the current music with something calmer.', { projectMode: 'assist', mutationExpectation: 'conditional', requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'], fixtureRequirements: ['bgm-provider-failure-injection'] }),
+  scenario('bgm-provider-failure', 'Safe BGM replacement failure', 'Replace the current music with something calmer.', {
+    projectMode: 'assist',
+    executionLane: 'deterministic-contract',
+    mutationExpectation: 'conditional',
+    requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'],
+    requireRenderedEvidence: false,
+  }),
   scenario('mixed-multi-step', 'Mixed multi-step edit', 'Clean the captions, add one motivated zoom, and add music without covering speech.', { requiredToolSequence: [READ_PROJECT], minimumSuccessfulMutations: 2 }),
   scenario('undo-overlay-edit', 'Undo overlay edit', 'Undo that AI edit.', { requiredToolSequence: ['restore_ai_edit_checkpoint'], fixtureRequirements: ['ai-edit-checkpoint'] }),
   scenario('undo-full-state', 'Undo timing and project state', 'Undo the last AI edit including its timing and project duration changes.', { requiredToolSequence: ['restore_ai_edit_checkpoint'], fixtureRequirements: ['ai-edit-checkpoint'] }),
-  scenario('rollback-partial-failure', 'Rollback partial failure', 'Apply these three changes as one edit and leave everything unchanged if any step fails.', { mutationExpectation: 'conditional', requiredToolSequence: [READ_PROJECT], minimumSuccessfulMutations: 2, fixtureRequirements: ['partial-failure-plan'] }),
+  scenario(
+    'rollback-partial-failure',
+    'Keep verified edits on partial failure',
+    'Apply these three edits: add a small label saying Kept edit test at 1 second, make the selected title white, and delete overlay battle_missing_overlay. Keep the successful edits if the missing-overlay deletion fails, and report exactly what succeeded and failed.',
+    { requiredToolSequence: [READ_PROJECT], minimumSuccessfulMutations: 2 },
+  ),
   scenario('retry-idempotency', 'Interrupted request retry', 'Retry my previous edit without applying anything twice.', {
     expectOperationReplay: true,
     mutationExpectation: 'forbidden',
@@ -1070,13 +1082,6 @@ function chatBattleFixtureRequirementSatisfied(
       return truthyFixtureFlag(fixture, 'hasDurableReferenceAsset')
         || stringValue(fixture.referenceAssetId) != null
         || projectHasReferenceAsset(project);
-    case 'bgm-provider-failure-injection':
-      return truthyFixtureFlag(fixture, 'hasBgmProviderFailureInjection')
-        || truthyFixtureFlag(fixture, 'forceBgmProviderFailure');
-    case 'partial-failure-plan':
-      return truthyFixtureFlag(fixture, 'hasPartialFailurePlan')
-        || (Array.isArray(fixture.rollbackPlan) && fixture.rollbackPlan.length >= 3)
-        || (Array.isArray(fixture.partialFailureSteps) && fixture.partialFailureSteps.length >= 3);
     case 'completed-clip-analysis-job':
       return truthyFixtureFlag(fixture, 'hasCompletedClipAnalysisJob')
         || stringValue(fixture.completedClipAnalysisJobId) != null

@@ -104,4 +104,18 @@ describe('Editron vibe-editing command matrix', () => {
       expect(scenario.fixtureRequirements).toContain('prior-idempotency-record');
     }
   });
+
+  it('keeps dependency-fault contracts deterministic instead of adding live backdoors', () => {
+    const deterministicContracts = CHAT_EDIT_BATTLE_SCENARIOS.filter(
+      (scenario) => scenario.executionLane === 'deterministic-contract',
+    );
+
+    expect(deterministicContracts.map((scenario) => scenario.id))
+      .toEqual(['bgm-provider-failure']);
+    for (const scenario of deterministicContracts) {
+      expect(scenario.requireRenderedEvidence).toBe(false);
+      expect(scenario.fixtureRequirements).toEqual([]);
+      expect(scenario.requiredToolSequence.length).toBeGreaterThan(0);
+    }
+  });
 });

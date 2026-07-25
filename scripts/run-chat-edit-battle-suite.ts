@@ -61,7 +61,7 @@ interface SuiteSummary {
 async function main(): Promise<void> {
   const options = parseSuiteArgs(process.argv.slice(2));
   const databaseName = await loadSuiteEnvironment(options);
-  const scenarios = resolveScenarios(options.scenarioIds);
+  const scenarios = resolveLiveChatBattleScenarios(options.scenarioIds);
   await preflightFixtureSources(scenarios);
   const suiteDir = path.resolve(options.outputRoot, safeSegment(options.suiteId));
   const summaryPath = path.join(suiteDir, 'suite-summary.json');
@@ -254,7 +254,7 @@ async function loadSuiteEnvironment(options: SuiteOptions): Promise<string> {
 }
 
 async function preflightFixtureSources(
-  scenarios: ReturnType<typeof resolveScenarios>,
+  scenarios: ReturnType<typeof resolveLiveChatBattleScenarios>,
 ): Promise<void> {
   const sourceProjectIds = [...new Set(
     scenarios.map((scenario) => planChatBattleFixture(scenario).sourceProjectId),
@@ -285,10 +285,21 @@ async function preflightFixtureSources(
   console.log(`[chat-battle-suite] fixture preflight sources=${sourceProjectIds.length} status=ready`);
 }
 
-function resolveScenarios(ids: string[]) {
-  if (ids.length === 0) return CHAT_EDIT_BATTLE_SCENARIOS;
+export function resolveLiveChatBattleScenarios(ids: string[]) {
+  const liveScenarios = CHAT_EDIT_BATTLE_SCENARIOS.filter(
+    (scenario) => scenario.executionLane === 'live',
+  );
+  if (ids.length === 0) return liveScenarios;
   const wanted = new Set(ids);
-  const scenarios = CHAT_EDIT_BATTLE_SCENARIOS.filter((scenario) => wanted.has(scenario.id));
+  const scenarios = liveScenarios.filter((scenario) => wanted.has(scenario.id));
+  const deterministicOnly = CHAT_EDIT_BATTLE_SCENARIOS
+    .filter((scenario) => wanted.has(scenario.id) && scenario.executionLane === 'deterministic-contract')
+    .map((scenario) => scenario.id);
+  if (deterministicOnly.length > 0) {
+    throw new Error(
+      `Chat battle case(s) are deterministic-contract only and cannot run in the live suite: ${deterministicOnly.join(', ')}`,
+    );
+  }
   const missing = ids.filter((id) => !scenarios.some((scenario) => scenario.id === id));
   if (missing.length > 0) throw new Error(`Unknown chat battle case(s): ${missing.join(', ')}`);
   return scenarios;

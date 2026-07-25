@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   parseSuiteArgs,
+  resolveLiveChatBattleScenarios,
   validateSuiteEnvironmentSelection,
 } from '../../scripts/run-chat-edit-battle-suite';
 
@@ -30,5 +31,16 @@ describe('chat edit battle suite environment selection', () => {
       environmentFile: '.calibration-temp/vercel-preview.env',
       scenarioIds: ['motivated-zoom', 'vague-sfx-beat'],
     });
+  });
+
+  it('keeps deterministic fault contracts out of the remote live suite', () => {
+    const liveIds = resolveLiveChatBattleScenarios([]).map((scenario) => scenario.id);
+
+    expect(liveIds).not.toContain('bgm-provider-failure');
+    expect(liveIds).toContain('bgm-explicit');
+    expect(() => resolveLiveChatBattleScenarios(['bgm-provider-failure']))
+      .toThrow('deterministic-contract only');
+    expect(() => resolveLiveChatBattleScenarios(['not-a-scenario']))
+      .toThrow('Unknown chat battle case');
   });
 });
