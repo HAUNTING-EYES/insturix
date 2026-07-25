@@ -6,8 +6,11 @@ import {
   assignBackgroundMusicAsset,
   BackgroundMusicAssignmentClientError,
   createBackgroundMusicIdempotencyKey,
+  ingestAndAssignMusicCatalogTrack,
   MUSIC_RIGHTS_ATTESTATION_VERSION,
+  searchMusicCatalog,
 } from '@/components/editron/editor/version-7.0.0/utils/background-music-assignment';
+import type { MusicCatalogTrack } from '@/lib/editron/music-catalog/types';
 
 const timelineSources = [
   readFileSync(
@@ -32,6 +35,25 @@ function jsonResponse(payload: unknown, status = 200): Response {
     headers: { 'Content-Type': 'application/json' },
   });
 }
+
+const catalogTrack: MusicCatalogTrack = {
+  provider: 'epidemic-sound',
+  providerTrackId: 'track_licensed_1',
+  title: 'Focused Future',
+  artists: ['Example Artist'],
+  featuredArtists: [],
+  durationMs: 183_000,
+  bpm: 110,
+  moods: [{ id: 'focused', name: 'Focused' }],
+  genres: [{ id: 'electronic', name: 'Electronic' }],
+  vocalType: 'none',
+  hasVocals: false,
+  explicit: false,
+  providerTier: 'paid',
+  catalogAvailability: 'download-candidate',
+  rightsStatus: 'unverified',
+  renderEligibility: 'requires-entitlement-and-ingest',
+};
 
 describe('background music client contract', () => {
   it('creates endpoint-valid idempotency keys and rejects unsafe fragments', () => {
@@ -93,6 +115,122 @@ describe('background music client contract', () => {
     });
     expect(JSON.parse(init?.body as string)).not.toHaveProperty('userId');
     expect(JSON.parse(init?.body as string)).not.toHaveProperty('projectId');
+  });
+
+  it('searches, ingests, then assigns catalog music without fabricating upload consent', async () => {
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input);
+      if (url.startsWith('/api/services/editron/music-catalog/search?')) {
+        return jsonResponse({
+          success: true,
+          provider: 'epidemic-sound',
+          tracks: [catalogTrack],
+          recommendation: {
+            providerTrackId: catalogTrack.providerTrackId,
+            query: 'focused technology',
+            evidenceSources: ['project.editorialPreferences.musicPrompt'],
+            requiresExplicitUse: true,
+          },
+        });
+      }
+      if (url.endsWith('/music-catalog/ingest')) {
+        return jsonResponse({
+          success: true,
+          assetId: 'library_audio_1',
+          provider: 'epidemic-sound',
+          providerTrackId: catalogTrack.providerTrackId,
+          title: catalogTrack.title,
+          durationMs: catalogTrack.durationMs,
+          licenseId: 'license_1',
+          rightsStatus: 'licensed',
+          renderEligibility: 'requires-audio-assignment-conditioning',
+          idempotentReplay: false,
+        });
+      }
+      if (url.endsWith('/background-music')) {
+        return jsonResponse({
+          success: true,
+          replayed: false,
+          sourceAssetId: 'library_audio_1',
+          derivativeAssetId: 'conditioned_audio_1',
+          overlays: [{ id: 8, type: 'sound', row: 1, assetId: 'conditioned_audio_1' }],
+          snappedCutCount: 3,
+        });
+      }
+      return jsonResponse({ success: false, code: 'UNEXPECTED_URL' }, 500);
+    }) as unknown as typeof fetch;
+
+    const discovery = await searchMusicCatalog({
+      mode: 'recommend',
+      projectId: 'proj_1',
+      limit: 6,
+      fetchImpl,
+    });
+    const result = await ingestAndAssignMusicCatalogTrack({
+      projectId: 'proj_1',
+      track: discovery.tracks[0],
+      idempotencyKey: 'bgm_catalog_001',
+      fetchImpl,
+    });
+
+    expect(discovery.recommendation).toMatchObject({
+      providerTrackId: catalogTrack.providerTrackId,
+      requiresExplicitUse: true,
+    });
+    expect(result).toMatchObject({
+      ingestedAssetId: 'library_audio_1',
+      licenseId: 'license_1',
+      assignment: {
+        derivativeAssetId: 'conditioned_audio_1',
+        snappedCutCount: 3,
+      },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+
+    const [searchUrl] = vi.mocked(fetchImpl).mock.calls[0];
+    expect(String(searchUrl)).toContain('mode=recommend');
+    expect(String(searchUrl)).toContain('projectId=proj_1');
+
+    const [ingestUrl, ingestInit] = vi.mocked(fetchImpl).mock.calls[1];
+    expect(ingestUrl).toBe(
+      '/api/services/editron/projects/proj_1/music-catalog/ingest',
+    );
+    expect(JSON.parse(ingestInit?.body as string)).toEqual({
+      provider: 'epidemic-sound',
+      providerTrackId: catalogTrack.providerTrackId,
+      idempotencyKey: 'bgm_catalog_001',
+    });
+
+    const [assignmentUrl, assignmentInit] = vi.mocked(fetchImpl).mock.calls[2];
+    expect(assignmentUrl).toBe(
+      '/api/services/editron/projects/proj_1/background-music',
+    );
+    expect(JSON.parse(assignmentInit?.body as string)).toEqual({
+      assetId: 'library_audio_1',
+      idempotencyKey: 'bgm_catalog_001',
+    });
+    expect(JSON.parse(assignmentInit?.body as string)).not.toHaveProperty(
+      'rightsAttestation',
+    );
+  });
+
+  it('never assigns a catalog response that lacks a licensed ingest receipt', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({
+      success: true,
+      assetId: 'library_audio_1',
+      providerTrackId: catalogTrack.providerTrackId,
+      licenseId: 'license_1',
+      rightsStatus: 'unverified',
+      renderEligibility: 'requires-audio-assignment-conditioning',
+    })) as unknown as typeof fetch;
+
+    await expect(ingestAndAssignMusicCatalogTrack({
+      projectId: 'proj_1',
+      track: catalogTrack,
+      idempotencyKey: 'bgm_catalog_001',
+      fetchImpl,
+    })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it('preserves typed server failures for actionable consent and conflict states', async () => {

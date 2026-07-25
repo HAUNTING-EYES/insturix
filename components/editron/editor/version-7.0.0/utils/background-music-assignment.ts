@@ -1,3 +1,5 @@
+import type { MusicCatalogProviderName, MusicCatalogTrack } from '@/lib/editron/music-catalog/types';
+
 import type { Overlay } from '../types';
 
 export const MUSIC_RIGHTS_ATTESTATION_VERSION = 'music-rights-attestation-v1';
@@ -20,6 +22,7 @@ export interface AssignBackgroundMusicAssetInput {
   projectId: string;
   assetId: string;
   idempotencyKey: string;
+  rightsSource?: 'user-upload' | 'library';
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
 }
@@ -30,6 +33,40 @@ export interface AssignBackgroundMusicAssetResult {
   derivativeAssetId: string;
   overlays: Overlay[];
   snappedCutCount: number;
+}
+
+export interface SearchMusicCatalogInput {
+  mode: 'search' | 'recommend';
+  projectId?: string;
+  term?: string;
+  limit?: number;
+  signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
+}
+
+export interface SearchMusicCatalogResult {
+  provider: MusicCatalogProviderName;
+  tracks: MusicCatalogTrack[];
+  recommendation?: {
+    providerTrackId: string | null;
+    query: string;
+    evidenceSources: string[];
+    requiresExplicitUse: true;
+  };
+}
+
+export interface IngestAndAssignMusicCatalogTrackInput {
+  projectId: string;
+  track: MusicCatalogTrack;
+  idempotencyKey: string;
+  signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
+}
+
+export interface IngestAndAssignMusicCatalogTrackResult {
+  ingestedAssetId: string;
+  licenseId: string;
+  assignment: AssignBackgroundMusicAssetResult;
 }
 
 export function createBackgroundMusicIdempotencyKey(
@@ -66,12 +103,18 @@ export async function assignBackgroundMusicAsset({
   projectId,
   assetId,
   idempotencyKey,
+  rightsSource = 'user-upload',
   signal,
   fetchImpl = fetch,
 }: AssignBackgroundMusicAssetInput): Promise<AssignBackgroundMusicAssetResult> {
   const normalizedProjectId = projectId.trim();
   const normalizedAssetId = assetId.trim();
-  if (!normalizedProjectId || !normalizedAssetId || !idempotencyKey.trim()) {
+  if (
+    !normalizedProjectId
+    || !normalizedAssetId
+    || !idempotencyKey.trim()
+    || (rightsSource !== 'user-upload' && rightsSource !== 'library')
+  ) {
     throw new BackgroundMusicAssignmentClientError(
       'INVALID_REQUEST',
       'Project, audio asset, and request identity are required',
@@ -88,10 +131,14 @@ export async function assignBackgroundMusicAsset({
         body: JSON.stringify({
           assetId: normalizedAssetId,
           idempotencyKey,
-          rightsAttestation: {
-            accepted: true,
-            version: MUSIC_RIGHTS_ATTESTATION_VERSION,
-          },
+          ...(rightsSource === 'user-upload'
+            ? {
+                rightsAttestation: {
+                  accepted: true,
+                  version: MUSIC_RIGHTS_ATTESTATION_VERSION,
+                },
+              }
+            : {}),
         }),
         signal,
       },
@@ -140,6 +187,163 @@ export async function assignBackgroundMusicAsset({
   };
 }
 
+export async function searchMusicCatalog({
+  mode,
+  projectId,
+  term,
+  limit = 12,
+  signal,
+  fetchImpl = fetch,
+}: SearchMusicCatalogInput): Promise<SearchMusicCatalogResult> {
+  const normalizedProjectId = projectId?.trim();
+  const normalizedTerm = term?.trim();
+  if (
+    (mode === 'recommend' && !normalizedProjectId)
+    || (mode === 'search' && !normalizedTerm)
+    || !Number.isSafeInteger(limit)
+    || limit < 1
+    || limit > 60
+  ) {
+    throw new BackgroundMusicAssignmentClientError(
+      'INVALID_REQUEST',
+      'Music search requires a valid mode, query, project, and result limit',
+    );
+  }
+
+  const searchParams = new URLSearchParams({
+    mode,
+    limit: String(limit),
+    ...(normalizedProjectId ? { projectId: normalizedProjectId } : {}),
+    ...(normalizedTerm ? { q: normalizedTerm } : {}),
+  });
+  let response: Response;
+  try {
+    response = await fetchImpl(
+      `/api/services/editron/music-catalog/search?${searchParams.toString()}`,
+      { method: 'GET', signal },
+    );
+  } catch (error) {
+    throw requestFailure(error, 'Music catalog search was interrupted', 'Could not reach the music catalog');
+  }
+
+  const payload = await readJsonRecord(response);
+  if (!response.ok || payload.success !== true) {
+    throw responseFailure(payload, response, 'Music catalog search failed');
+  }
+  const provider = stringField(payload.provider);
+  if (
+    (provider !== 'epidemic-sound' && provider !== 'soundstripe')
+    || !Array.isArray(payload.tracks)
+    || !payload.tracks.every(isMusicCatalogTrack)
+  ) {
+    throw new BackgroundMusicAssignmentClientError(
+      'INVALID_RESPONSE',
+      'Music catalog returned incomplete track metadata',
+      response.status,
+    );
+  }
+
+  const rawRecommendation = recordField(payload.recommendation);
+  const recommendation = rawRecommendation
+    && Array.isArray(rawRecommendation.evidenceSources)
+    && rawRecommendation.evidenceSources.every((source) => typeof source === 'string')
+    && typeof rawRecommendation.query === 'string'
+    && rawRecommendation.requiresExplicitUse === true
+    ? {
+        providerTrackId: stringField(rawRecommendation.providerTrackId),
+        query: rawRecommendation.query,
+        evidenceSources: rawRecommendation.evidenceSources as string[],
+        requiresExplicitUse: true as const,
+      }
+    : undefined;
+  if (mode === 'recommend' && !recommendation) {
+    throw new BackgroundMusicAssignmentClientError(
+      'INVALID_RESPONSE',
+      'Music recommendation returned without its decision evidence',
+      response.status,
+    );
+  }
+
+  return {
+    provider,
+    tracks: payload.tracks as MusicCatalogTrack[],
+    ...(recommendation ? { recommendation } : {}),
+  };
+}
+
+export async function ingestAndAssignMusicCatalogTrack({
+  projectId,
+  track,
+  idempotencyKey,
+  signal,
+  fetchImpl = fetch,
+}: IngestAndAssignMusicCatalogTrackInput): Promise<IngestAndAssignMusicCatalogTrackResult> {
+  const normalizedProjectId = projectId.trim();
+  if (
+    !normalizedProjectId
+    || !track.providerTrackId.trim()
+    || !idempotencyKey.trim()
+  ) {
+    throw new BackgroundMusicAssignmentClientError(
+      'INVALID_REQUEST',
+      'Project, catalog track, and request identity are required',
+    );
+  }
+
+  let response: Response;
+  try {
+    response = await fetchImpl(
+      `/api/services/editron/projects/${encodeURIComponent(normalizedProjectId)}/music-catalog/ingest`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: track.provider,
+          providerTrackId: track.providerTrackId,
+          idempotencyKey,
+        }),
+        signal,
+      },
+    );
+  } catch (error) {
+    throw requestFailure(error, 'Music catalog ingest was interrupted', 'Could not ingest the catalog track');
+  }
+
+  const payload = await readJsonRecord(response);
+  if (!response.ok || payload.success !== true) {
+    throw responseFailure(payload, response, 'Music catalog ingest failed');
+  }
+  const assetId = stringField(payload.assetId);
+  const licenseId = stringField(payload.licenseId);
+  if (
+    !assetId
+    || !licenseId
+    || payload.providerTrackId !== track.providerTrackId
+    || payload.rightsStatus !== 'licensed'
+    || payload.renderEligibility !== 'requires-audio-assignment-conditioning'
+  ) {
+    throw new BackgroundMusicAssignmentClientError(
+      'INVALID_RESPONSE',
+      'Music catalog ingest did not return a render-safe licensed asset',
+      response.status,
+    );
+  }
+
+  const assignment = await assignBackgroundMusicAsset({
+    projectId: normalizedProjectId,
+    assetId,
+    idempotencyKey,
+    rightsSource: 'library',
+    signal,
+    fetchImpl,
+  });
+  return {
+    ingestedAssetId: assetId,
+    licenseId,
+    assignment,
+  };
+}
+
 async function readJsonRecord(response: Response): Promise<Record<string, unknown>> {
   try {
     const payload = await response.json();
@@ -153,4 +357,64 @@ async function readJsonRecord(response: Response): Promise<Record<string, unknow
 
 function stringField(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function recordField(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function requestFailure(
+  error: unknown,
+  abortedMessage: string,
+  networkMessage: string,
+): BackgroundMusicAssignmentClientError {
+  const aborted = error instanceof Error && error.name === 'AbortError';
+  return new BackgroundMusicAssignmentClientError(
+    aborted ? 'REQUEST_ABORTED' : 'NETWORK_ERROR',
+    aborted ? abortedMessage : networkMessage,
+    null,
+    { cause: error },
+  );
+}
+
+function responseFailure(
+  payload: Record<string, unknown>,
+  response: Response,
+  fallbackMessage: string,
+): BackgroundMusicAssignmentClientError {
+  return new BackgroundMusicAssignmentClientError(
+    stringField(payload.code) ?? `HTTP_${response.status}`,
+    stringField(payload.error) ?? `${fallbackMessage} (${response.status})`,
+    response.status,
+  );
+}
+
+function isMusicCatalogTrack(value: unknown): value is MusicCatalogTrack {
+  const track = recordField(value);
+  if (!track) return false;
+  return (
+    (track.provider === 'epidemic-sound' || track.provider === 'soundstripe')
+    && Boolean(stringField(track.providerTrackId))
+    && Boolean(stringField(track.title))
+    && Array.isArray(track.artists)
+    && track.artists.every((artist) => typeof artist === 'string')
+    && Array.isArray(track.featuredArtists)
+    && track.featuredArtists.every((artist) => typeof artist === 'string')
+    && typeof track.durationMs === 'number'
+    && Number.isFinite(track.durationMs)
+    && Array.isArray(track.moods)
+    && track.moods.every(isMusicCatalogTag)
+    && Array.isArray(track.genres)
+    && track.genres.every(isMusicCatalogTag)
+    && (track.catalogAvailability === 'preview-only' || track.catalogAvailability === 'download-candidate')
+    && track.rightsStatus === 'unverified'
+    && track.renderEligibility === 'requires-entitlement-and-ingest'
+  );
+}
+
+function isMusicCatalogTag(value: unknown): boolean {
+  const tag = recordField(value);
+  return Boolean(tag && stringField(tag.id) && stringField(tag.name));
 }

@@ -1,7 +1,10 @@
 import { NextRequest } from 'next/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { handleMusicCatalogSearch } from '@/app/api/services/editron/music-catalog/search/route';
+import {
+  deriveProjectMusicDirection,
+  handleMusicCatalogSearch,
+} from '@/app/api/services/editron/music-catalog/search/route';
 import { EpidemicMusicCatalogProvider } from '@/lib/editron/music-catalog/epidemic-provider';
 import {
   MusicCatalogProviderError,
@@ -238,6 +241,90 @@ describe('music catalog search route', () => {
       provider: 'epidemic-sound',
       rightsNotice: expect.stringContaining('library-license receipt'),
     });
+  });
+
+  it('grounds recommendations in authorized project evidence without choosing a license', async () => {
+    const search = vi.fn(async () => ({
+      provider: 'epidemic-sound' as const,
+      tracks: [
+        {
+          provider: 'epidemic-sound' as const,
+          providerTrackId: 'track_recommended',
+          title: 'Measured Momentum',
+        },
+      ],
+      pagination: { limit: 6, offset: 0, nextOffset: null },
+    }));
+    const loadProject = vi.fn(async () => ({
+      editorialPreferences: {
+        musicPrompt: 'warm minimal electronic score with measured momentum',
+      },
+      referenceEditDNA: {
+        musicStyle: {
+          genre: 'ambient technology',
+          tempo: 'mid-tempo',
+          energyLevel: 'restrained',
+        },
+      },
+    }));
+    const response = await handleMusicCatalogSearch(
+      new NextRequest(
+        'https://app.example.com/api/services/editron/music-catalog/search'
+        + '?mode=recommend&projectId=proj_1&limit=6&q=ignored',
+      ),
+      {
+        authenticate: async () => ({ userId: 'user_1' }),
+        provider: provider(search),
+        loadProject,
+      },
+    );
+
+    expect(loadProject).toHaveBeenCalledWith('user_1', 'proj_1');
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({
+      term: 'warm minimal electronic score with measured momentum, ambient technology, mid-tempo, restrained',
+      limit: 6,
+      offset: 0,
+      sort: 'Relevance',
+      order: 'asc',
+    }));
+    expect(await response.json()).toMatchObject({
+      success: true,
+      recommendation: {
+        providerTrackId: 'track_recommended',
+        evidenceSources: [
+          'project.editorialPreferences.musicPrompt',
+          'project.referenceEditDNA.musicStyle.genre',
+          'project.referenceEditDNA.musicStyle.tempo',
+          'project.referenceEditDNA.musicStyle.energyLevel',
+        ],
+        selectionAuthority: 'SUGGESTS',
+        licensingAuthority: 'NEVER_AUTOMATED',
+        requiresExplicitUse: true,
+      },
+    });
+  });
+
+  it('fails loud when recommendation has no stored music evidence', async () => {
+    const search = vi.fn();
+    const response = await handleMusicCatalogSearch(
+      new NextRequest(
+        'https://app.example.com/api/services/editron/music-catalog/search'
+        + '?mode=recommend&projectId=proj_1',
+      ),
+      {
+        authenticate: async () => ({ userId: 'user_1' }),
+        provider: provider(search),
+        loadProject: async () => ({ name: 'No creative direction' }),
+      },
+    );
+
+    expect(response.status).toBe(422);
+    expect(search).not.toHaveBeenCalled();
+    expect(await response.json()).toMatchObject({
+      success: false,
+      code: 'MUSIC_DIRECTION_UNAVAILABLE',
+    });
+    expect(deriveProjectMusicDirection({ editorialPreferences: {} })).toBeNull();
   });
 
   it('rejects an inverted BPM range before provider access', async () => {

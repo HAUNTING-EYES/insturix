@@ -1,35 +1,56 @@
-import React from "react";
 import { Button } from "@/components/ui/button";
-import { Play, Pause, ShieldAlert } from "lucide-react";
-import { LocalSound, OverlayType, SoundOverlay } from "../../../types";
-import { useState, useEffect, useRef } from "react";
+import { Input } from "@/components/ui/input";
+import type { MusicCatalogTrack } from "@/lib/editron/music-catalog/types";
+import {
+  AlertCircle,
+  Check,
+  Loader2,
+  Pause,
+  Play,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
+  Upload,
+} from "lucide-react";
+import React, { FormEvent, useEffect, useRef, useState } from "react";
 
+import { LocalSound, OverlayType, SoundOverlay } from "../../../types";
 import { localSounds } from "../../../templates/sound-templates";
 import { useEditorContext } from "../../../contexts/editor-context";
+import { useSidebar } from "../../../contexts/sidebar-context";
+import {
+  BackgroundMusicAssignmentClientError,
+  createBackgroundMusicIdempotencyKey,
+  ingestAndAssignMusicCatalogTrack,
+  searchMusicCatalog,
+} from "../../../utils/background-music-assignment";
 import { SoundDetails } from "./sound-details";
 
-/**
- * SoundsPanel Component
- *
- * A panel component that manages sound overlays in the editor. It provides functionality for:
- * - Auditioning non-renderable stock reference tracks
- * - Playing/pausing sound previews
- * - Managing selected sound overlays and their properties
- *
- * The component switches between two views:
- * 1. Sound library view: Shows available sounds that can be added
- * 2. Sound details view: Shows controls for the currently selected sound overlay
- *
- * @component
- */
+type AudioLibraryView = "catalog" | "references";
+
 const SoundsPanel: React.FC = () => {
   const [playingTrack, setPlayingTrack] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<AudioLibraryView>("catalog");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [catalogTracks, setCatalogTracks] = useState<MusicCatalogTrack[]>([]);
+  const [recommendedTrackId, setRecommendedTrackId] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [assigningTrackId, setAssigningTrackId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{
+    tone: "error" | "success";
+    message: string;
+  } | null>(null);
   const audioRefs = useRef<{ [key: string]: HTMLAudioElement }>({});
+  const requestControllerRef = useRef<AbortController | null>(null);
   const {
     overlays,
     selectedOverlayId,
     changeOverlay,
+    projectId,
+    setOverlays,
   } = useEditorContext();
+  const { setActivePanel, setIsOpen } = useSidebar();
   const [localOverlay, setLocalOverlay] = useState<SoundOverlay | null>(null);
 
   useEffect(() => {
@@ -47,18 +68,11 @@ const SoundsPanel: React.FC = () => {
     }
   }, [selectedOverlayId, overlays]);
 
-  /**
-   * Updates the local overlay state and propagates changes to the editor context
-   * @param {SoundOverlay} updatedOverlay - The modified sound overlay
-   */
   const handleUpdateOverlay = (updatedOverlay: SoundOverlay) => {
     setLocalOverlay(updatedOverlay);
     changeOverlay(updatedOverlay.id, updatedOverlay);
   };
 
-  /**
-   * Initialize audio elements for each sound and handle cleanup
-   */
   useEffect(() => {
     localSounds.forEach((sound) => {
       audioRefs.current[sound.id] = new Audio(sound.file);
@@ -69,17 +83,13 @@ const SoundsPanel: React.FC = () => {
         audio.pause();
         audio.currentTime = 0;
       });
+      requestControllerRef.current?.abort();
     };
-  }, [localSounds]);
+  }, []);
 
-  /**
-   * Toggles play/pause state for a sound track
-   * Ensures only one track plays at a time
-   *
-   * @param soundId - Unique identifier of the sound to toggle
-   */
   const togglePlay = (soundId: string) => {
     const audio = audioRefs.current[soundId];
+    if (!audio) return;
     if (playingTrack === soundId) {
       audio.pause();
       setPlayingTrack(null);
@@ -94,13 +104,102 @@ const SoundsPanel: React.FC = () => {
     }
   };
 
-  /**
-   * Renders an individual sound card with play controls and metadata
-   * Stock tracks are audition-only until a cleared library is ingested.
-   *
-   * @param {LocalSound} sound - The sound track data to render
-   * @returns {JSX.Element} A sound card component
-   */
+  const beginRequest = () => {
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+    return controller;
+  };
+
+  const finishRequest = (controller: AbortController) => {
+    if (requestControllerRef.current === controller) {
+      requestControllerRef.current = null;
+    }
+  };
+
+  const runCatalogSearch = async (mode: "search" | "recommend") => {
+    if (mode === "search" && !searchTerm.trim()) {
+      setFeedback({ tone: "error", message: "Enter a music direction to search." });
+      return;
+    }
+    if (mode === "recommend" && !projectId) {
+      setFeedback({ tone: "error", message: "Save this project before requesting a recommendation." });
+      return;
+    }
+
+    const controller = beginRequest();
+    setSearching(true);
+    setFeedback(null);
+    try {
+      const result = await searchMusicCatalog({
+        mode,
+        projectId,
+        term: mode === "search" ? searchTerm : undefined,
+        signal: controller.signal,
+      });
+      setCatalogTracks(result.tracks);
+      setRecommendedTrackId(result.recommendation?.providerTrackId ?? null);
+      if (result.tracks.length === 0) {
+        setFeedback({ tone: "error", message: "No catalog tracks matched this direction." });
+      }
+    } catch (error) {
+      setCatalogTracks([]);
+      setRecommendedTrackId(null);
+      setFeedback({
+        tone: "error",
+        message: clientErrorMessage(error, "Music catalog search failed."),
+      });
+    } finally {
+      finishRequest(controller);
+      setSearching(false);
+    }
+  };
+
+  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void runCatalogSearch("search");
+  };
+
+  const handleUseTrack = async (track: MusicCatalogTrack) => {
+    if (!projectId) {
+      setFeedback({ tone: "error", message: "Save this project before assigning music." });
+      return;
+    }
+
+    const controller = beginRequest();
+    setAssigningTrackId(track.providerTrackId);
+    setFeedback(null);
+    try {
+      const result = await ingestAndAssignMusicCatalogTrack({
+        projectId,
+        track,
+        idempotencyKey: createBackgroundMusicIdempotencyKey(),
+        signal: controller.signal,
+      });
+      setOverlays(result.assignment.overlays);
+      setFeedback({
+        tone: "success",
+        message: `${track.title} was licensed, conditioned, and added to the timeline.`,
+      });
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        message: clientErrorMessage(error, "The track could not be assigned."),
+      });
+    } finally {
+      finishRequest(controller);
+      setAssigningTrackId(null);
+    }
+  };
+
+  const selectView = (view: AudioLibraryView) => {
+    if (view === "catalog" && playingTrack) {
+      audioRefs.current[playingTrack]?.pause();
+      setPlayingTrack(null);
+    }
+    setActiveView(view);
+  };
+
   const renderSoundCard = (sound: LocalSound) => (
     <div
       key={sound.id}
@@ -140,18 +239,194 @@ const SoundsPanel: React.FC = () => {
     </div>
   );
 
-  return (
-    <div className="space-y-4 p-4 bg-background h-full">
-      {!localOverlay ? (
-        localSounds.map(renderSoundCard)
-      ) : (
+  const renderCatalogTrack = (track: MusicCatalogTrack) => {
+    const isRecommended = track.providerTrackId === recommendedTrackId;
+    const isAssigning = assigningTrackId === track.providerTrackId;
+    const metadata = [
+      track.bpm ? `${track.bpm} BPM` : null,
+      track.moods[0]?.name,
+      formatDuration(track.durationMs),
+    ].filter(Boolean).join(" / ");
+
+    return (
+      <div
+        key={`${track.provider}:${track.providerTrackId}`}
+        className={`space-y-2 rounded-md border p-3 ${
+          isRecommended ? "border-emerald-500/60 bg-emerald-500/5" : "border-border"
+        }`}
+      >
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <p className="truncate text-sm font-medium text-foreground">{track.title}</p>
+              {isRecommended ? (
+                <span className="flex shrink-0 items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-300">
+                  <Sparkles className="h-3 w-3" />
+                  Suggested
+                </span>
+              ) : null}
+            </div>
+            <p className="truncate text-[11px] text-muted-foreground">
+              {track.artists.join(", ") || "Epidemic Sound"}
+            </p>
+          </div>
+          <span
+            className="flex shrink-0 items-center gap-1 text-[9px] font-medium text-muted-foreground"
+            title="Provider entitlement is verified during controlled ingest"
+          >
+            <ShieldCheck className="h-3 w-3" />
+            Checked on use
+          </span>
+        </div>
+        <div className="flex min-h-8 items-center justify-between gap-2">
+          <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+            {metadata}
+          </span>
+          <Button
+            size="sm"
+            className="h-8 shrink-0 gap-1.5 rounded-md"
+            disabled={Boolean(assigningTrackId) || searching || !projectId}
+            onClick={() => void handleUseTrack(track)}
+          >
+            {isAssigning ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Check className="h-3.5 w-3.5" />
+            )}
+            Use track
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  if (localOverlay) {
+    return (
+      <div className="h-full bg-background p-4">
         <SoundDetails
           localOverlay={localOverlay}
           setLocalOverlay={handleUpdateOverlay}
         />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full space-y-3 overflow-y-auto bg-background p-4">
+      <div className="flex items-center gap-1 rounded-md border border-border p-1">
+        <Button
+          type="button"
+          size="sm"
+          variant={activeView === "catalog" ? "secondary" : "ghost"}
+          className="h-8 flex-1 rounded-md"
+          onClick={() => selectView("catalog")}
+        >
+          Licensed catalog
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={activeView === "references" ? "secondary" : "ghost"}
+          className="h-8 flex-1 rounded-md"
+          onClick={() => selectView("references")}
+        >
+          Preview refs
+        </Button>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="h-8 w-8 shrink-0 rounded-md"
+          title="Upload audio"
+          aria-label="Upload audio"
+          onClick={() => {
+            setActivePanel(OverlayType.LOCAL_DIR);
+            setIsOpen(true);
+          }}
+        >
+          <Upload className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {activeView === "catalog" ? (
+        <>
+          <form className="flex items-center gap-1.5" onSubmit={handleSearchSubmit}>
+            <Input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Mood, genre, energy"
+              className="h-9 min-w-0 rounded-md"
+              disabled={searching || Boolean(assigningTrackId)}
+            />
+            <Button
+              type="submit"
+              size="icon"
+              variant="outline"
+              className="h-9 w-9 shrink-0 rounded-md"
+              disabled={searching || Boolean(assigningTrackId)}
+              title="Search catalog"
+              aria-label="Search catalog"
+            >
+              {searching ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+            </Button>
+          </form>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 w-full gap-2 rounded-md"
+            disabled={searching || Boolean(assigningTrackId) || !projectId}
+            onClick={() => void runCatalogSearch("recommend")}
+          >
+            {searching ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            Pick for me
+          </Button>
+          {feedback ? (
+            <div
+              role={feedback.tone === "error" ? "alert" : "status"}
+              className={`flex items-start gap-2 rounded-md border p-2.5 text-xs ${
+                feedback.tone === "error"
+                  ? "border-destructive/40 bg-destructive/5 text-destructive"
+                  : "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300"
+              }`}
+            >
+              {feedback.tone === "error" ? (
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              ) : (
+                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              )}
+              <span>{feedback.message}</span>
+            </div>
+          ) : null}
+          <div className="space-y-2">
+            {catalogTracks.map(renderCatalogTrack)}
+          </div>
+        </>
+      ) : (
+        <div className="space-y-2">{localSounds.map(renderSoundCard)}</div>
       )}
     </div>
   );
 };
+
+function formatDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function clientErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof BackgroundMusicAssignmentClientError
+    ? error.message
+    : fallback;
+}
 
 export default SoundsPanel;

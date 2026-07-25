@@ -6,13 +6,23 @@ import {
   MusicCatalogProviderError,
   musicCatalogSearchQuerySchema,
   type MusicCatalogProvider,
+  type MusicCatalogSearchQuery,
 } from '@/lib/editron/music-catalog/types';
 
 export const runtime = 'nodejs';
 
+const PROJECT_ID_PATTERN = /^[A-Za-z0-9_-]{4,128}$/;
+const MAX_RECOMMENDATION_TERM_LENGTH = 200;
+
 interface MusicCatalogSearchDependencies {
   authenticate: () => Promise<{ userId: string | null }>;
   provider: MusicCatalogProvider;
+  loadProject?: (userId: string, projectId: string) => Promise<unknown | null>;
+}
+
+export interface ProjectMusicDirection {
+  term: string;
+  evidenceSources: string[];
 }
 
 export async function handleMusicCatalogSearch(
@@ -24,6 +34,25 @@ export async function handleMusicCatalogSearch(
     return NextResponse.json(
       { success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' },
       { status: 401 },
+    );
+  }
+
+  const discoveryMode = optionalText(request.nextUrl.searchParams.get('mode')) ?? 'search';
+  const projectId = optionalText(request.nextUrl.searchParams.get('projectId'));
+  if (
+    !['search', 'recommend'].includes(discoveryMode)
+    || (
+      discoveryMode === 'recommend'
+      && (!projectId || !PROJECT_ID_PATTERN.test(projectId))
+    )
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Recommendation mode requires a valid projectId',
+        code: 'INVALID_QUERY',
+      },
+      { status: 400 },
     );
   }
 
@@ -57,11 +86,61 @@ export async function handleMusicCatalogSearch(
   }
 
   try {
-    const result = await dependencies.provider.search(parsedQuery.data);
+    let searchQuery: MusicCatalogSearchQuery = parsedQuery.data;
+    let direction: ProjectMusicDirection | null = null;
+
+    if (discoveryMode === 'recommend') {
+      if (!dependencies.loadProject) {
+        throw new Error('Project-aware music recommendation is not configured');
+      }
+      const project = await dependencies.loadProject(userId, projectId as string);
+      if (!project) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Project not found or access denied',
+            code: 'PROJECT_NOT_FOUND',
+          },
+          { status: 404 },
+        );
+      }
+      direction = deriveProjectMusicDirection(project);
+      if (!direction) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'This project has no stored music direction to recommend from',
+            code: 'MUSIC_DIRECTION_UNAVAILABLE',
+          },
+          { status: 422 },
+        );
+      }
+      searchQuery = {
+        ...parsedQuery.data,
+        term: direction.term,
+        offset: 0,
+        sort: 'Relevance',
+        order: 'asc',
+      };
+    }
+
+    const result = await dependencies.provider.search(searchQuery);
     return NextResponse.json(
       {
         success: true,
         ...result,
+        ...(direction
+          ? {
+              recommendation: {
+                providerTrackId: result.tracks[0]?.providerTrackId ?? null,
+                query: direction.term,
+                evidenceSources: direction.evidenceSources,
+                selectionAuthority: 'SUGGESTS',
+                licensingAuthority: 'NEVER_AUTOMATED',
+                requiresExplicitUse: true,
+              },
+            }
+          : {}),
         rightsNotice:
           'Catalog results are previews only until provider entitlement, controlled ingest, and a library-license receipt succeed.',
       },
@@ -104,7 +183,67 @@ export async function GET(request: NextRequest) {
   return handleMusicCatalogSearch(request, {
     authenticate: auth,
     provider: new EpidemicMusicCatalogProvider(),
+    loadProject: async (userId, projectId) => {
+      const { projectService } = await import('@/lib/editron/services/project-service');
+      return projectService.loadProject(userId, projectId);
+    },
   });
+}
+
+export function deriveProjectMusicDirection(project: unknown): ProjectMusicDirection | null {
+  const candidates: Array<{ path: string; value: unknown }> = [
+    {
+      path: 'project.editorialPreferences.musicPrompt',
+      value: valueAtPath(project, ['editorialPreferences', 'musicPrompt']),
+    },
+    {
+      path: 'project.productionBrief.editorialPreferences.musicPrompt',
+      value: valueAtPath(project, ['productionBrief', 'editorialPreferences', 'musicPrompt']),
+    },
+    {
+      path: 'project.productionBriefIntake.editorialPreferences.musicPrompt',
+      value: valueAtPath(project, ['productionBriefIntake', 'editorialPreferences', 'musicPrompt']),
+    },
+    {
+      path: 'project.creativeBrief.editorialPreferences.musicPrompt',
+      value: valueAtPath(project, ['creativeBrief', 'editorialPreferences', 'musicPrompt']),
+    },
+    {
+      path: 'project.syntheticStoryboard.overallMusicPrompt',
+      value: valueAtPath(project, ['syntheticStoryboard', 'overallMusicPrompt']),
+    },
+    {
+      path: 'project.referenceEditDNA.musicStyle.genre',
+      value: valueAtPath(project, ['referenceEditDNA', 'musicStyle', 'genre']),
+    },
+    {
+      path: 'project.referenceEditDNA.musicStyle.tempo',
+      value: valueAtPath(project, ['referenceEditDNA', 'musicStyle', 'tempo']),
+    },
+    {
+      path: 'project.referenceEditDNA.musicStyle.energyLevel',
+      value: valueAtPath(project, ['referenceEditDNA', 'musicStyle', 'energyLevel']),
+    },
+  ];
+  const parts: string[] = [];
+  const evidenceSources: string[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    const text = cleanRecommendationText(candidate.value);
+    if (!text || seen.has(text.toLowerCase())) continue;
+    const separator = parts.length > 0 ? ', ' : '';
+    const remaining = MAX_RECOMMENDATION_TERM_LENGTH
+      - parts.join(', ').length
+      - separator.length;
+    if (remaining <= 0) break;
+    parts.push(text.slice(0, remaining));
+    evidenceSources.push(candidate.path);
+    seen.add(text.toLowerCase());
+  }
+
+  const term = parts.join(', ').trim();
+  return term ? { term, evidenceSources } : null;
 }
 
 function readSearchQuery(searchParams: URLSearchParams): Record<string, unknown> {
@@ -130,6 +269,23 @@ function optionalText(value: string | null): string | undefined {
 function optionalNumber(value: string | null): number | undefined {
   if (value === null || value.trim() === '') return undefined;
   return Number(value);
+}
+
+function cleanRecommendationText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.replace(/\s+/g, ' ').trim();
+  return text || null;
+}
+
+function valueAtPath(value: unknown, path: string[]): unknown {
+  let cursor = value;
+  for (const key of path) {
+    if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor)) {
+      return undefined;
+    }
+    cursor = (cursor as Record<string, unknown>)[key];
+  }
+  return cursor;
 }
 
 function routeErrorFor(error: MusicCatalogProviderError): {
