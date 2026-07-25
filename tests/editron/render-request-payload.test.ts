@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { renderVideo } from "@/components/editron/editor/version-7.0.0/lambda-helpers/api";
+import {
+  getProgress,
+  renderVideo,
+} from "@/components/editron/editor/version-7.0.0/lambda-helpers/api";
 import {
   RenderAudioRightsAuthorityError,
   verifyRenderAudioRightsAuthority,
@@ -53,13 +56,102 @@ describe("Editron render request payloads", () => {
       id: "TestComponent",
       inputProps,
       projectId: "proj_123",
+      musicDeliveryMode: "platform-native",
     });
 
     const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const requestBody = JSON.parse(String(firstCall[1]?.body));
     expect(requestBody.projectId).toBe("proj_123");
+    expect(requestBody.musicDeliveryMode).toBe("platform-native");
     expect(requestBody.inputProps.overlays).toEqual([]);
     expect(JSON.stringify(requestBody)).not.toContain("x".repeat(1000));
+  });
+
+  it("retains the delivery manifest returned by progress polling", async () => {
+    const deliveryManifest = {
+      version: "editron-render-delivery-manifest-v1",
+      mode: "platform-native",
+      createdAt: "2026-07-26T00:00:00.000Z",
+      completedAt: "2026-07-26T00:05:00.000Z",
+      primaryArtifact: {
+        kind: "clean-master",
+        renderId: "render_1",
+        status: "ready",
+        url: "https://video.example/clean-master.mp4",
+      },
+      music: {
+        embedded: false,
+        removedOverlayIds: ["music_1"],
+        handoff: {
+          version: "editron-platform-native-music-handoff-v1",
+          destinationPlatform: "instagram",
+          attachmentOwner: "destination-platform",
+          track: {
+            status: "manual-selection-required",
+            provider: null,
+            providerTrackId: null,
+            title: null,
+            artists: [],
+            sourceAssetId: null,
+            usage: "reference-only",
+          },
+          timing: {
+            timelineStartFrame: 0,
+            timelineEndFrame: 300,
+            timelineStartMs: 0,
+            timelineEndMs: 10_000,
+            timelineBeatEntryFrame: null,
+            timelineBeatEntryMs: null,
+            platformTrackSourceOffsetMs: null,
+            cueStatus: "manual-cue-required",
+          },
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify({
+        type: "success",
+        data: {
+          done: true,
+          outputFile: "https://video.example/clean-master.mp4",
+          outputSize: 42,
+          deliveryManifest,
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    ));
+
+    await expect(getProgress({
+      id: "render_1",
+      bucketName: "bucket",
+    })).resolves.toEqual({
+      type: "done",
+      url: "https://video.example/clean-master.mp4",
+      size: 42,
+      deliveryManifest,
+    });
+  });
+
+  it("fails loudly when progress claims completion without an artifact", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify({
+        type: "success",
+        data: { done: true, outputSize: 42 },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    ));
+
+    await expect(getProgress({
+      id: "render_without_artifact",
+      bucketName: "bucket",
+    })).resolves.toEqual({
+      type: "error",
+      message: "Render completed without an output file",
+    });
   });
 
   it("reports non-JSON HTTP failures without throwing a JSON parse error", async () => {

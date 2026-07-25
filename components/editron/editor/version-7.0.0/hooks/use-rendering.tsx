@@ -9,7 +9,12 @@ import {
   getProgress as lambdaGetProgress,
   renderVideo as lambdaRenderVideo,
 } from "../lambda-helpers/api";
+import type { LambdaProgressResponse } from "../lambda-helpers/api";
 import { getUserFriendlyErrorMessage } from "@/lib/editron/utils/error-handling";
+import type {
+  RenderDeliveryManifest,
+  RenderMusicDeliveryMode,
+} from "@/lib/editron/services/render-delivery-manifest";
 
 // Define possible states for the rendering process
 export type State =
@@ -21,6 +26,7 @@ export type State =
       progress: number;
       status: "rendering";
       bucketName?: string; // Make bucketName optional
+      deliveryManifest?: RenderDeliveryManifest;
     }
   | {
       // Error occurred during rendering
@@ -33,6 +39,7 @@ export type State =
       url: string;
       size: number;
       status: "done";
+      deliveryManifest?: RenderDeliveryManifest;
     };
 
 // Utility function to create a delay
@@ -45,6 +52,15 @@ const wait = async (milliSeconds: number) => {
 };
 
 type RenderType = "ssr" | "lambda";
+
+async function getRenderProgress(
+  renderType: RenderType,
+  input: { id: string; bucketName: string },
+): Promise<LambdaProgressResponse> {
+  return renderType === "lambda"
+    ? lambdaGetProgress(input)
+    : ssrGetProgress(input);
+}
 
 type ActiveRenderRecord = {
   projectId?: string;
@@ -207,6 +223,7 @@ export const useRendering = (
                 size: result.size,
                 url: result.url,
                 status: "done",
+                deliveryManifest: result.deliveryManifest,
               });
               pending = false;
               break;
@@ -216,6 +233,7 @@ export const useRendering = (
                 progress: result.progress,
                 renderId,
                 bucketName,
+                deliveryManifest: result.deliveryManifest,
               });
               await wait(3000);
           }
@@ -231,25 +249,30 @@ export const useRendering = (
   }, [renderType, projectId]);
 
   // Main function to handle the rendering process
-  const renderMedia = useCallback(async () => {
+  const renderMedia = useCallback(async (
+    musicDeliveryMode: RenderMusicDeliveryMode = "embedded",
+  ) => {
 
     cancelledRef.current = false;
     setState({
       status: "invoking",
     });
     try {
-      const renderVideo =
-        renderType === "ssr" ? ssrRenderVideo : lambdaRenderVideo;
-      const getProgress =
-        renderType === "ssr" ? ssrGetProgress : lambdaGetProgress;
-
-
-      const response = await renderVideo({ id, inputProps, projectId });
+      const lambdaResponse = renderType === "lambda"
+        ? await lambdaRenderVideo({
+            id,
+            inputProps,
+            projectId,
+            musicDeliveryMode,
+          })
+        : null;
+      const response = lambdaResponse ?? await ssrRenderVideo({ id, inputProps });
       const renderId = response.renderId;
       const bucketName =
         "bucketName" in response ? response.bucketName : undefined;
       const normalizedBucketName =
         typeof bucketName === "string" ? bucketName : undefined;
+      const initialDeliveryManifest = lambdaResponse?.deliveryManifest;
 
       // Check if render is already complete (synchronous Cloud Run)
       if ("publicUrl" in response && response.publicUrl) {
@@ -259,6 +282,7 @@ export const useRendering = (
           status: "done",
           url: response.publicUrl as string,
           size: (response as any).size || 0,
+          deliveryManifest: initialDeliveryManifest,
         });
         return;
       }
@@ -273,6 +297,7 @@ export const useRendering = (
         progress: 0,
         renderId,
         bucketName: normalizedBucketName,
+        deliveryManifest: initialDeliveryManifest,
       });
       writeRenderResumeClaim(projectId, renderId, normalizedBucketName);
 
@@ -288,7 +313,7 @@ export const useRendering = (
           break;
         }
 
-        const result = await getProgress({
+        const result = await getRenderProgress(renderType, {
           id: renderId,
           bucketName: normalizedBucketName ?? "",
         });
@@ -314,6 +339,8 @@ export const useRendering = (
               size: result.size,
               url: result.url,
               status: "done",
+              deliveryManifest:
+                result.deliveryManifest ?? initialDeliveryManifest,
             });
             pending = false;
             break;
@@ -324,6 +351,9 @@ export const useRendering = (
               status: "rendering",
               progress: result.progress,
               renderId: renderId,
+              bucketName: normalizedBucketName,
+              deliveryManifest:
+                result.deliveryManifest ?? initialDeliveryManifest,
             });
             await wait(3000); // Poll every 3 seconds to avoid rate limits
           }

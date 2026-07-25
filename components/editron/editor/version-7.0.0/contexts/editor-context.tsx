@@ -1,5 +1,6 @@
 import React, { createContext, useContext, ReactNode } from "react";
 import { Overlay, AspectRatio, CaptionStyles, NamedMarker } from "../types";
+import type { RenderMusicDeliveryMode } from "@/lib/editron/services/render-delivery-manifest";
 
 // Define the shape of the context
 interface EditorContextProps {
@@ -44,7 +45,7 @@ interface EditorContextProps {
   // Video Properties
   durationInFrames: number; // Total number of frames
   durationInSeconds: number; // Total duration in seconds
-  renderMedia: () => void; // Trigger media rendering
+  renderMedia: (musicDeliveryMode?: RenderMusicDeliveryMode) => Promise<void>; // Trigger media rendering
   cancelRender: () => void; // Cancel in-progress render
   state: any; // General state object with proper typing
 
