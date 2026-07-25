@@ -71,7 +71,10 @@ describe('Editron vibe-editing command matrix', () => {
 
   it('makes read-only journeys mutation-proof and evidence-light', () => {
     const invalid = CHAT_EDIT_BATTLE_SCENARIOS
-      .filter((scenario) => scenario.mutationExpectation === 'forbidden')
+      .filter((scenario) =>
+        scenario.mutationExpectation === 'forbidden'
+        && !scenario.expectOperationReplay,
+      )
       .filter((scenario) =>
         scenario.minimumSuccessfulMutations !== 0
         || scenario.requireEvidenceBeforeMutation
@@ -81,5 +84,24 @@ describe('Editron vibe-editing command matrix', () => {
       .map((scenario) => scenario.id);
 
     expect(invalid).toEqual([]);
+  });
+
+  it('proves replay journeys from durable rejection and unchanged reloaded state', () => {
+    const replayScenarios = CHAT_EDIT_BATTLE_SCENARIOS.filter(
+      (scenario) => scenario.expectOperationReplay,
+    );
+
+    expect(replayScenarios.length).toBeGreaterThan(0);
+    for (const scenario of replayScenarios) {
+      expect(scenario).toMatchObject({
+        mutationExpectation: 'forbidden',
+        minimumSuccessfulMutations: 0,
+        requiredToolSequence: [],
+        requireEvidenceBeforeMutation: false,
+        requireUiReload: true,
+        requireRenderedEvidence: false,
+      });
+      expect(scenario.fixtureRequirements).toContain('prior-idempotency-record');
+    }
   });
 });
