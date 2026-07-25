@@ -17,6 +17,11 @@ import {
 } from '@/lib/editron/shared/render-request-payload';
 import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from '@/lib/editron/services/remotion-constants';
 import { assertRemotionSiteFresh } from '@/lib/editron/services/remotion-site-version';
+import {
+  buildRenderDeliveryManifest,
+  RenderDeliveryContractError,
+  resolveRenderDeliveryPlan,
+} from '@/lib/editron/services/render-delivery-manifest';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 
 export async function POST(request: Request) {
@@ -33,7 +38,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { inputProps, compositionId, projectId } = body;
+    const { inputProps, compositionId, projectId, musicDeliveryMode } = body;
     if (typeof projectId !== 'string' || !projectId.trim()) {
       return NextResponse.json(
         { type: 'error', message: 'A persisted projectId is required for rendering' },
@@ -93,6 +98,17 @@ export async function POST(request: Request) {
     // Resolve preview choices only after durable licensed claims have been
     // matched to the authoritative stored project assets.
     resolvedProps = resolveRenderableAudioInputProps(resolvedProps);
+    const deliveryPlan = resolveRenderDeliveryPlan({
+      requestedMode: musicDeliveryMode,
+      overlays: resolvedProps.overlays,
+      fps: resolvedProps.fps,
+      durationInFrames: resolvedProps.durationInFrames,
+      destinationPlatform: readProjectDestinationPlatform(project),
+    });
+    resolvedProps = {
+      ...resolvedProps,
+      overlays: deliveryPlan.overlays,
+    };
     let renderOverlays = Array.isArray(resolvedProps.overlays)
       ? resolvedProps.overlays as any[]
       : [];
@@ -152,13 +168,26 @@ export async function POST(request: Request) {
       renderStarted = true;
 
       // Save job reference
+      const deliveryManifest = buildRenderDeliveryManifest({
+        plan: deliveryPlan,
+        renderId: jobId,
+      });
       try {
-        await createJob(jobId, userId, canonicalProjectId, 'chapter-render');
+        await createJob(
+          jobId,
+          userId,
+          canonicalProjectId,
+          'chapter-render',
+          deliveryManifest,
+        );
       } catch (err: unknown) { console.warn('[Render] chapter render job save failed:', err instanceof Error ? err.message : err); }
 
       return NextResponse.json({
         type: 'success',
-        data: buildChapterRenderApiData({ jobId, region, chapters }),
+        data: {
+          ...buildChapterRenderApiData({ jobId, region, chapters }),
+          deliveryManifest,
+        },
       });
     }
 
@@ -183,8 +212,18 @@ export async function POST(request: Request) {
     console.log('Lambda render started:', { renderId, bucketName });
 
     // Save job to database for persistence (wrapped in try-catch)
+    const deliveryManifest = buildRenderDeliveryManifest({
+      plan: deliveryPlan,
+      renderId,
+    });
     try {
-      await createJob(renderId, userId, canonicalProjectId, bucketName);
+      await createJob(
+        renderId,
+        userId,
+        canonicalProjectId,
+        bucketName,
+        deliveryManifest,
+      );
       console.log('Render job saved to database:', renderId);
     } catch (dbError) {
       console.error('Failed to save render job to DB:', dbError);
@@ -222,6 +261,7 @@ export async function POST(request: Request) {
         bucketName,
         region,
         functionName,
+        deliveryManifest,
         // Progress endpoint for polling
         progressUrl: `/api/services/editron/cloudrun/progress?renderId=${renderId}&bucketName=${bucketName}&region=${region}`,
       }
@@ -235,13 +275,14 @@ export async function POST(request: Request) {
       error instanceof UnlicensedAudioInRenderError
       || error instanceof RenderAudioRightsAuthorityError
     );
+    const deliveryError = error instanceof RenderDeliveryContractError;
     return NextResponse.json(
       {
         type: 'error',
         message: error.message || 'Failed to trigger render',
-        ...(rightsError ? { code: error.code } : {}),
+        ...((rightsError || deliveryError) ? { code: error.code } : {}),
       },
-      { status: rightsError ? 422 : 500 }
+      { status: rightsError ? 422 : deliveryError ? 400 : 500 }
     );
   }
 }
@@ -270,4 +311,19 @@ async function refundRenderExportCredits(creditCheck: CreditCheckResult, reason:
   } catch (error) {
     console.error('[Render] render/export credit refund failed:', error);
   }
+}
+
+function readProjectDestinationPlatform(project: unknown): unknown {
+  const record = asRecord(project);
+  const productionBrief = asRecord(record?.productionBrief);
+  const productionBriefOutput = asRecord(productionBrief?.output);
+  const intake = asRecord(record?.productionBriefIntake);
+  const intakeOutput = asRecord(intake?.output);
+  return productionBriefOutput?.platform ?? intakeOutput?.platform ?? record?.platform;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
