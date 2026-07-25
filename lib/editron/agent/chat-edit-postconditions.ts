@@ -6,6 +6,7 @@ import {
   type ChatToolRenderEvidenceModality,
   type ChatToolStatePostconditionKind,
 } from './chat-tool-registry';
+import { buildOverlayRenderTruthSnapshot } from '../shared/render-request-payload';
 
 export const CHAT_EDIT_POSTCONDITION_VERSION = 'editron-chat-postcondition-v1' as const;
 
@@ -389,7 +390,7 @@ function targetFromOverlay(
 }
 
 function overlayFingerprint(overlay: JsonRecord): string {
-  return stableDigest(overlay);
+  return stableDigest(buildOverlayRenderTruthSnapshot(overlay));
 }
 
 const CHAT_RENDERABLE_PROJECT_FIELDS = [

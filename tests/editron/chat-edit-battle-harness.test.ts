@@ -538,6 +538,68 @@ describe('chat edit battle harness', () => {
     });
   });
 
+  it('ignores audio rights and persistence provenance churn when deriving render modalities', () => {
+    const beforeBgm = {
+      id: 'bgm-1',
+      type: 'sound',
+      src: 'https://cdn.example/bgm.mp3?signature=before',
+      volume: 0.45,
+      from: 0,
+      durationInFrames: 300,
+      _workerAdded: false,
+      musicRights: {
+        mediaRole: 'music',
+        source: 'library',
+        userChoice: 'attested',
+        licensed: true,
+        evidence: {
+          kind: 'library-license',
+          sourceAssetId: 'bgm-asset-1',
+          attestedAt: '2026-07-24T00:00:00.000Z',
+        },
+      },
+    };
+    const afterBgm = {
+      ...structuredClone(beforeBgm),
+      src: 'https://cdn.example/bgm.mp3?signature=after',
+      _workerAdded: true,
+      musicRights: {
+        ...structuredClone(beforeBgm.musicRights),
+        evidence: {
+          ...structuredClone(beforeBgm.musicRights.evidence),
+          attestedAt: '2026-07-25T00:00:00.000Z',
+        },
+      },
+    };
+
+    const verification = verifyChatToolPostcondition({
+      toolName: 'apply_editorial_intent',
+      args: { request: 'clean up the captions' },
+      resultData: {},
+      beforeProject: project([
+        { id: 'caption-1', type: 'caption', content: 'before', from: 0, durationInFrames: 300 },
+        beforeBgm,
+      ]),
+      afterProject: project([
+        { id: 'caption-1', type: 'caption', content: 'after', from: 0, durationInFrames: 300 },
+        afterBgm,
+      ]),
+    });
+
+    expect(verification).toMatchObject({
+      status: 'pass',
+      affectedTargets: [{
+        overlayId: 'caption-1',
+        overlayType: 'caption',
+        state: 'updated',
+      }],
+      renderVerification: {
+        required: true,
+        modalities: ['visual'],
+      },
+    });
+  });
+
   it('does not mistake expiring transport URLs for an edit', () => {
     const before = project([{
       id: 1,

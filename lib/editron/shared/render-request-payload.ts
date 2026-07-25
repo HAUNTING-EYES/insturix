@@ -112,6 +112,12 @@ const RENDER_DROPPABLE_OVERLAY_KEYS = [
   "visualExplanationContract",
 ] as const;
 
+const RENDER_ELIGIBILITY_ONLY_OVERLAY_KEYS = [
+  "_workerAdded",
+  "audioRights",
+  "musicRights",
+] as const;
+
 /**
  * Browser render requests must stay small enough for Vercel to accept them.
  * When a projectId is available, Mongo is the render source of truth.
@@ -223,6 +229,26 @@ export function resolveRenderableAudio(
   }
 
   return { overlay };
+}
+
+/**
+ * Canonical overlay state that can affect rendered pixels or audio.
+ * Rights metadata is evaluated before it is removed: a rights decision that
+ * suppresses playback still changes this snapshot from an overlay to null,
+ * while provenance-only refreshes do not masquerade as audible edits.
+ */
+export function buildOverlayRenderTruthSnapshot(overlay: unknown): unknown {
+  const renderable = resolveRenderableAudio(overlay).overlay;
+  if (renderable === null) return null;
+
+  const compact = compactOverlayForLambdaRender(renderable);
+  if (!isRecord(compact)) return compact;
+
+  const snapshot: Record<string, unknown> = { ...compact };
+  for (const key of RENDER_ELIGIBILITY_ONLY_OVERLAY_KEYS) {
+    delete snapshot[key];
+  }
+  return snapshot;
 }
 
 export function buildProjectRenderInputProps(
