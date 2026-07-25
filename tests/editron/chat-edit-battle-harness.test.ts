@@ -621,6 +621,26 @@ describe('chat edit battle harness', () => {
     }
   });
 
+  it('requires operation-ready resolvers before localized audio, visual, and asset mutations', () => {
+    expect(getChatEditBattleScenario('audio-anchored-camera-shake')?.requiredToolSequence).toEqual([
+      'resolve_audio_edit',
+      'apply_camera_shake',
+    ]);
+    expect(getChatEditBattleScenario('visual-speed-ramp')?.requiredToolSequence).toEqual([
+      'resolve_visual_edit',
+      'apply_speed_ramp',
+    ]);
+    expect(getChatEditBattleScenario('beat-sync-cuts')?.requiredToolSequence).toEqual([
+      'resolve_audio_edit',
+      'sync_cuts_to_beats',
+    ]);
+    expect(getChatEditBattleScenario('replace-with-uploaded-footage')?.requiredToolSequence).toEqual([
+      'search_user_assets',
+      'resolve_user_asset_overlay',
+      'use_matching_footage',
+    ]);
+  });
+
   it('treats motivated zoom and SFX as evidence-licensed conditional edits', () => {
     for (const id of ['motivated-zoom', 'vague-sfx-beat']) {
       const scenario = getChatEditBattleScenario(id)!;

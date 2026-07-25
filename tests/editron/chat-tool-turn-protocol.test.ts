@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { resolveAudioEditTiming } from '@/lib/editron/agent/chat-audio-tools';
 import { buildChatProjectRevision } from '@/lib/editron/agent/chat-edit-postconditions';
 import {
   buildChatEvidenceReceipts,
@@ -14,6 +15,7 @@ import {
 } from '@/lib/editron/agent/chat-tool-execution-policy';
 import { CHAT_TOOL_REGISTRY } from '@/lib/editron/agent/chat-tool-registry';
 import type { ChatRequestOwnerLicense } from '@/lib/editron/agent/chat-request-owner';
+import { resolveVisualEditPlacement } from '@/lib/editron/agent/chat-visual-tools';
 
 const PROJECT_ID = 'project-1';
 const REVISION = 'revision-1';
@@ -393,6 +395,114 @@ describe('chat tool turn protocol', () => {
       canonicalProjectEvidence: true,
       requestOwnerLicense: LOCALIZED_LICENSE,
     })).toEqual({ action: 'execute' });
+  });
+
+  it('authorizes the exact camera shake produced by the real audio resolver', () => {
+    const resolution = resolveAudioEditTiming(project({
+      analysis: {
+        audio: {
+          beats: [{ timestampMs: 3000, strength: 0.91, beatType: 'downbeat' }],
+        },
+      },
+    }), 'the strongest downbeat', { action: 'camera_shake' });
+    expect(resolution).toMatchObject({
+      status: 'ready',
+      useWith: { apply_camera_shake: { targetFrame: 90 } },
+    });
+
+    const resolverOutput = JSON.stringify({
+      status: 'success',
+      data: resolution,
+      message: resolution.message,
+    });
+    const resolved = execution('resolve_audio_edit', resolverOutput, {
+      args: { query: 'the strongest downbeat', action: 'camera_shake' },
+      evidenceReceipts: buildChatEvidenceReceipts({
+        toolName: 'resolve_audio_edit',
+        args: { query: 'the strongest downbeat', action: 'camera_shake' },
+        output: resolverOutput,
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      }),
+    });
+    const authorizedArgs = resolution.useWith?.apply_camera_shake;
+    expect(authorizedArgs).toBeDefined();
+    expect(decideChatToolExecution({
+      toolName: 'apply_camera_shake',
+      args: authorizedArgs!,
+      ledger: ledger([currentProjectRead(), resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toEqual({ action: 'execute' });
+    expect(decideChatToolExecution({
+      toolName: 'apply_camera_shake',
+      args: { ...authorizedArgs!, targetFrame: authorizedArgs!.targetFrame + 1 },
+      ledger: ledger([currentProjectRead(), resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toMatchObject({ action: 'block', reason: 'missing-evidence' });
+  });
+
+  it('authorizes the exact speed ramp produced by the real visual resolver', () => {
+    const resolution = resolveVisualEditPlacement(project({
+      analysis: {
+        keyframeAnalyses: [{
+          frame: 96,
+          description: 'Fabric is thrown into frame',
+          objects: ['fabric'],
+          action: 'throwing',
+        }],
+      },
+    }), 'fabric is thrown into frame', { action: 'speed_ramp' });
+    expect(resolution).toMatchObject({
+      status: 'ready',
+      useWith: {
+        apply_speed_ramp: {
+          targetFrame: 96,
+          durationFrames: 30,
+        },
+      },
+    });
+
+    const resolverOutput = JSON.stringify({
+      status: 'success',
+      data: resolution,
+      message: resolution.message,
+    });
+    const resolved = execution('resolve_visual_edit', resolverOutput, {
+      args: { query: 'fabric is thrown into frame', action: 'speed_ramp' },
+      evidenceReceipts: buildChatEvidenceReceipts({
+        toolName: 'resolve_visual_edit',
+        args: { query: 'fabric is thrown into frame', action: 'speed_ramp' },
+        output: resolverOutput,
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      }),
+    });
+    const authorizedArgs = resolution.useWith?.apply_speed_ramp;
+    expect(authorizedArgs).toBeDefined();
+    expect(decideChatToolExecution({
+      toolName: 'apply_speed_ramp',
+      args: authorizedArgs!,
+      ledger: ledger([currentProjectRead(), resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toEqual({ action: 'execute' });
+    expect(decideChatToolExecution({
+      toolName: 'apply_speed_ramp',
+      args: { ...authorizedArgs!, durationFrames: authorizedArgs!.durationFrames + 1 },
+      ledger: ledger([currentProjectRead(), resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toMatchObject({ action: 'block', reason: 'missing-evidence' });
   });
 
   it('persists evidence receipts through tool-message ledger reconstruction', () => {
