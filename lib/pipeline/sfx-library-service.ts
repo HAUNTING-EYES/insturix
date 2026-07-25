@@ -20,6 +20,12 @@ import {
   type AtomicSfxCandidateEvaluation,
   type AtomicSfxForm,
 } from '@/lib/editron/services/sfx-form';
+import {
+  BUNDLED_SFX_CATALOG,
+  selectSfxCatalogEntry,
+  type SfxCatalogManifest,
+  type SfxCatalogSelectionReport,
+} from '@/lib/pipeline/sfx-catalog';
 import { nanoid } from 'nanoid';
 
 export interface SFXLibraryResult {
@@ -28,13 +34,14 @@ export interface SFXLibraryResult {
   audioAssetId: string;
   durationMs: number;
   audioRights: AudioRightsContract;
-  source: 'pixabay' | 'freesound';
+  source: 'catalog' | 'pixabay' | 'freesound';
   originalTitle?: string;
 }
 
 export type SFXLibrarySearchFailureReason =
   | 'no-provider-candidates'
   | 'all-candidates-rejected'
+  | 'form-resolved-silence'
   | 'download-failed'
   | 'non-audio-download'
   | 'upload-failed';
@@ -58,6 +65,8 @@ export interface SFXLibrarySearchReport {
   query: string;
   maxDurationSec?: number;
   atomicGate: boolean;
+  selectionLane: 'catalog' | 'provider' | 'none';
+  catalog: SfxCatalogSelectionReport;
   providerCandidateCount: number;
   acceptedCandidateCount: number;
   rejectedCandidateCount: number;
@@ -176,7 +185,67 @@ export async function searchAndDownloadSFX(
   maxDurationSec?: number,
   atomicForm?: AtomicSfxForm,
   reportSearch?: SFXLibrarySearchReporter,
+  catalogManifest: SfxCatalogManifest = BUNDLED_SFX_CATALOG,
 ): Promise<SFXLibraryResult | null> {
+  const catalogSelection = selectSfxCatalogEntry(catalogManifest, {
+    query,
+    maxDurationSec,
+    form: atomicForm,
+  });
+  if (catalogSelection.entry) {
+    const entry = catalogSelection.entry;
+    const candidateReport = catalogSelection.report.candidates.find(candidate => candidate.assetId === entry.assetId);
+    reportSearch?.({
+      version: 'sfx-library-search-report-v1',
+      query,
+      maxDurationSec,
+      atomicGate: Boolean(atomicForm),
+      selectionLane: 'catalog',
+      catalog: catalogSelection.report,
+      providerCandidateCount: 0,
+      acceptedCandidateCount: 1,
+      rejectedCandidateCount: catalogSelection.report.rejectedCandidateCount,
+      selectedCandidate: {
+        providerId: entry.provenance.providerAssetId,
+        source: 'catalog',
+        title: entry.title,
+        durationMs: entry.durationMs,
+        score: candidateReport?.score ?? 0,
+        accepted: true,
+        decision: 'accept',
+        reasons: candidateReport?.reasons ?? ['catalog-candidate-accepted'],
+      },
+      candidates: [],
+    });
+    console.log(`[SFXLib] Selected catalog asset: "${entry.title}" (${entry.durationMs}ms)`);
+    return {
+      audioUrl: entry.audioUrl,
+      gcsPath: entry.storagePath ?? null,
+      audioAssetId: entry.assetId,
+      durationMs: entry.durationMs,
+      audioRights: entry.audioRights,
+      source: 'catalog',
+      originalTitle: entry.title,
+    };
+  }
+
+  if (catalogSelection.report.decision === 'silence') {
+    reportSearch?.({
+      version: 'sfx-library-search-report-v1',
+      query,
+      maxDurationSec,
+      atomicGate: Boolean(atomicForm),
+      selectionLane: 'none',
+      catalog: catalogSelection.report,
+      providerCandidateCount: 0,
+      acceptedCandidateCount: 0,
+      rejectedCandidateCount: 0,
+      failureReason: 'form-resolved-silence',
+      candidates: [],
+    });
+    return null;
+  }
+
   console.log(`[SFXLib] Searching providers: "${query}" (maxDuration=${maxDurationSec || 'any'}s)`);
 
   const candidates = await searchProviderCandidates(query, maxDurationSec);
@@ -189,7 +258,14 @@ export async function searchAndDownloadSFX(
   const ranked = rankProviderCandidates(query, candidates, maxDurationSec, atomicForm);
   const threshold = atomicForm ? 0 : 0.52;
   const selected = ranked.find((item) => item.score >= threshold) ?? null;
-  let report = buildSfxSearchReport(query, maxDurationSec, atomicForm, ranked, selected);
+  let report = buildSfxSearchReport(
+    query,
+    maxDurationSec,
+    atomicForm,
+    catalogSelection.report,
+    ranked,
+    selected,
+  );
   if (!selected) {
     report = {
       ...report,
@@ -348,6 +424,7 @@ function buildSfxSearchReport(
   query: string,
   maxDurationSec: number | undefined,
   atomicForm: AtomicSfxForm | undefined,
+  catalog: SfxCatalogSelectionReport,
   ranked: Array<{ candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation }>,
   selected: { candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation } | null,
 ): SFXLibrarySearchReport {
@@ -359,6 +436,8 @@ function buildSfxSearchReport(
     query,
     maxDurationSec,
     atomicGate: Boolean(atomicForm),
+    selectionLane: selected ? 'provider' : 'none',
+    catalog,
     providerCandidateCount: ranked.length,
     acceptedCandidateCount: ranked.filter((item) => item.score >= threshold).length,
     rejectedCandidateCount: ranked.filter((item) => item.score < threshold).length,
@@ -613,5 +692,5 @@ export function audioDescriptionToSearchQuery(audioDescription: string): string 
  * Unfulfilled intent belongs in the quality receipt, not a fake capability.
  */
 export function isSFXLibraryAvailable(): boolean {
-  return Boolean(process.env.FREESOUND_API_KEY?.trim());
+  return BUNDLED_SFX_CATALOG.entries.length > 0 || Boolean(process.env.FREESOUND_API_KEY?.trim());
 }

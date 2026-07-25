@@ -24,6 +24,12 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
 import { resolveAtomicSfxForm } from '@/lib/editron/services/sfx-form';
 import { resolveRenderableAudio } from '@/lib/editron/shared/render-request-payload';
 import {
+  InvalidSfxCatalogManifestError,
+  parseSfxCatalogManifest,
+  selectSfxCatalogEntry,
+  type SfxCatalogManifest,
+} from '@/lib/pipeline/sfx-catalog';
+import {
   isSFXLibraryAvailable,
   searchAndDownloadSFX,
   type SFXLibrarySearchReport,
@@ -53,6 +59,74 @@ function freesoundCandidate(input: {
     tags: input.tags ?? [],
     avg_rating: input.rating ?? 4,
   };
+}
+
+function validCatalogManifest(): SfxCatalogManifest {
+  const contentHash = 'a'.repeat(64);
+  return parseSfxCatalogManifest({
+    version: 'sfx-catalog-v1',
+    generatedAt: '2026-07-25T00:00:00.000Z',
+    knowledgeGraphRefs: ['transition-sfx-pairing', 'true-peak-limiting'],
+    qualityPolicy: {
+      minimumSelectionScore: 0.6,
+      silenceFloorLufs: -60,
+      maxTruePeakDbtp: -1,
+      minSampleRateHz: 44100,
+      allowedChannelCounts: [1, 2],
+      blockedTags: ['vocal', 'speech', 'music', 'meme', 'noisy', 'comedic', 'distorted', 'clipping'],
+    },
+    entries: [{
+      assetId: 'sfx_catalog_air_whoosh_001',
+      title: 'Clean cinematic air whoosh',
+      audioUrl: 'https://r2.example.com/sfx/air-whoosh-001.wav',
+      storagePath: 'sfx/air-whoosh-001.wav',
+      durationMs: 800,
+      contentHashSha256: contentHash,
+      mimeType: 'audio/wav',
+      eventRoles: ['whoosh'],
+      surfaces: ['transition', 'motion-graphic'],
+      layerRole: 'oneshot',
+      tags: ['whoosh', 'cinematic', 'smooth', 'transition'],
+      negativeTags: [],
+      energy: 0.7,
+      brightness: 0.58,
+      weight: 0.24,
+      transientSharpness: 0.46,
+      material: 'air',
+      tailMs: 180,
+      loopable: false,
+      direction: 'neutral',
+      motionSpeed: 'fast',
+      trendTag: 'clean-editorial',
+      measurement: {
+        algorithm: 'ffmpeg-ebur128-v1',
+        integratedLufs: -18,
+        truePeakDbtp: -3,
+        sampleRateHz: 48000,
+        channelCount: 2,
+        measuredAt: '2026-07-25T00:00:00.000Z',
+        sourceHashSha256: contentHash,
+      },
+      provenance: {
+        provider: 'sonniss',
+        providerAssetId: 'sonniss-air-whoosh-001',
+        licenseId: 'sonniss-game-audio-gdc-royalty-free',
+        licenseUrl: 'https://sonniss.com/gameaudiogdc',
+        attributionRequired: false,
+      },
+      audioRights: {
+        mediaRole: 'sfx',
+        source: 'library',
+        userChoice: 'attested',
+        licensed: true,
+        evidence: {
+          kind: 'library-license',
+          sourceAssetId: 'sfx_catalog_air_whoosh_001',
+          licenseId: 'sonniss-game-audio-gdc-royalty-free',
+        },
+      },
+    }],
+  });
 }
 
 describe('searchAndDownloadSFX provider candidate gate', () => {
@@ -133,6 +207,11 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
       version: 'sfx-library-search-report-v1',
       query: 'whoosh cinematic sweep',
       atomicGate: true,
+      selectionLane: 'provider',
+      catalog: expect.objectContaining({
+        decision: 'no-match',
+        catalogEntryCount: 0,
+      }),
       providerCandidateCount: 2,
       acceptedCandidateCount: 1,
       rejectedCandidateCount: 1,
@@ -228,6 +307,7 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
       acceptedCandidateCount: 0,
       rejectedCandidateCount: 1,
       failureReason: 'all-candidates-rejected',
+      selectionLane: 'none',
     }));
     expect(reports[0].candidates[0]).toEqual(expect.objectContaining({
       source: 'freesound',
@@ -239,5 +319,145 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
     expect(mocks.uploadMedia).not.toHaveBeenCalled();
     expect(mocks.updateOne).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses a measured rights-cleared catalog asset without a provider or upload call', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error('catalog hit must not make a provider or download request');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const form = resolveAtomicSfxForm({
+      params: {
+        sfxCue: 'cinematic whoosh sweep transition',
+        sfxAnchor: 'transition',
+        transitionFrame: 30,
+      },
+      frame: 30,
+      sceneRemainingFrames: 90,
+    });
+    const reports: SFXLibrarySearchReport[] = [];
+
+    const result = await searchAndDownloadSFX(
+      'whoosh cinematic sweep',
+      'user-1',
+      2,
+      form,
+      report => reports.push(report),
+      validCatalogManifest(),
+    );
+
+    expect(result).toEqual({
+      audioUrl: 'https://r2.example.com/sfx/air-whoosh-001.wav',
+      gcsPath: 'sfx/air-whoosh-001.wav',
+      audioAssetId: 'sfx_catalog_air_whoosh_001',
+      durationMs: 800,
+      source: 'catalog',
+      originalTitle: 'Clean cinematic air whoosh',
+      audioRights: {
+        mediaRole: 'sfx',
+        source: 'library',
+        userChoice: 'attested',
+        licensed: true,
+        evidence: {
+          kind: 'library-license',
+          sourceAssetId: 'sfx_catalog_air_whoosh_001',
+          licenseId: 'sonniss-game-audio-gdc-royalty-free',
+        },
+      },
+    });
+    expect(reports).toEqual([
+      expect.objectContaining({
+        selectionLane: 'catalog',
+        providerCandidateCount: 0,
+        selectedCandidate: expect.objectContaining({
+          source: 'catalog',
+          accepted: true,
+          decision: 'accept',
+        }),
+        catalog: expect.objectContaining({
+          decision: 'selected',
+          selectedAssetId: 'sfx_catalog_air_whoosh_001',
+        }),
+      }),
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.uploadMedia).not.toHaveBeenCalled();
+    expect(mocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('fails loud on forged rights or audio measurements at catalog ingest', () => {
+    const invalid = structuredClone(validCatalogManifest());
+    invalid.entries[0].audioRights.evidence.sourceAssetId = 'sfx_catalog_other_asset';
+    invalid.entries[0].measurement.truePeakDbtp = 0;
+
+    expect(() => parseSfxCatalogManifest(invalid)).toThrow(InvalidSfxCatalogManifestError);
+    expect(() => parseSfxCatalogManifest(invalid)).toThrow(/rights receipt belongs to another asset/);
+    expect(() => parseSfxCatalogManifest(invalid)).toThrow(/true-peak ceiling/);
+  });
+
+  it('hard-rejects a semantically matching catalog asset carrying blocked tags', () => {
+    const catalog = structuredClone(validCatalogManifest());
+    catalog.entries[0].negativeTags = ['comedic boing'];
+    const form = resolveAtomicSfxForm({
+      params: {
+        sfxCue: 'cinematic whoosh transition',
+        sfxAnchor: 'transition',
+        transitionFrame: 30,
+      },
+      frame: 30,
+      sceneRemainingFrames: 90,
+    });
+
+    const selection = selectSfxCatalogEntry(catalog, {
+      query: 'cinematic whoosh',
+      maxDurationSec: 2,
+      form,
+    });
+
+    expect(selection.entry).toBeNull();
+    expect(selection.report).toEqual(expect.objectContaining({
+      decision: 'no-match',
+      acceptedCandidateCount: 0,
+      rejectedCandidateCount: 1,
+    }));
+    expect(selection.report.candidates[0].reasons).toContain('blocked-tags:comedic');
+  });
+
+  it('ranks measured sonic features instead of relying on filenames', () => {
+    const catalog = structuredClone(validCatalogManifest());
+    const mismatched = structuredClone(catalog.entries[0]);
+    mismatched.assetId = 'sfx_catalog_air_whoosh_mismatched';
+    mismatched.contentHashSha256 = 'b'.repeat(64);
+    mismatched.measurement.sourceHashSha256 = mismatched.contentHashSha256;
+    mismatched.provenance.providerAssetId = 'sonniss-air-whoosh-mismatched';
+    mismatched.audioRights.evidence.sourceAssetId = mismatched.assetId;
+    mismatched.energy = 0.05;
+    mismatched.brightness = 0.05;
+    mismatched.weight = 0.95;
+    mismatched.transientSharpness = 0.05;
+    mismatched.motionSpeed = 'slow';
+    catalog.entries.unshift(mismatched);
+    const form = resolveAtomicSfxForm({
+      params: {
+        sfxCue: 'cinematic whoosh transition',
+        sfxAnchor: 'transition',
+        transitionFrame: 30,
+      },
+      signals: {
+        motion_intensity: 0.82,
+        cinematic_moment: 0.74,
+      },
+      frame: 30,
+      sceneRemainingFrames: 90,
+    });
+
+    const selection = selectSfxCatalogEntry(catalog, {
+      query: 'cinematic whoosh',
+      maxDurationSec: 2,
+      form,
+    });
+
+    expect(selection.entry?.assetId).toBe('sfx_catalog_air_whoosh_001');
+    expect(selection.report.candidates[0].score).toBeGreaterThan(selection.report.candidates[1].score);
   });
 });

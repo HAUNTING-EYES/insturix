@@ -1,0 +1,30 @@
+{
+  "version": "sfx-catalog-v1",
+  "generatedAt": "2026-07-25T00:00:00.000Z",
+  "knowledgeGraphRefs": [
+    "transition-sfx-pairing",
+    "true-peak-limiting",
+    "platform-loudness-target"
+  ],
+  "qualityPolicy": {
+    "minimumSelectionScore": 0.6,
+    "silenceFloorLufs": -60,
+    "maxTruePeakDbtp": -1,
+    "minSampleRateHz": 44100,
+    "allowedChannelCounts": [
+      1,
+      2
+    ],
+    "blockedTags": [
+      "vocal",
+      "speech",
+      "music",
+      "meme",
+      "noisy",
+      "comedic",
+      "distorted",
+      "clipping"
+    ]
+  },
+  "entries": []
+}

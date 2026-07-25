@@ -972,7 +972,12 @@ function normalizeCandidateSource(source: string | undefined): AtomicSfxCandidat
   if (!source) return 'unknown';
   const normalized = source.toLowerCase();
   if (normalized === 'generated' || normalized.includes('generated')) return 'generated';
-  if (normalized === 'freesound' || normalized === 'pixabay' || normalized.includes('library')) return 'library';
+  if (
+    normalized === 'catalog'
+    || normalized === 'freesound'
+    || normalized === 'pixabay'
+    || normalized.includes('library')
+  ) return 'library';
   return 'unknown';
 }
 
