@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseSuiteArgs,
   resolveLiveChatBattleScenarios,
+  validateDeploymentIdentityPayload,
   validateSuiteEnvironmentSelection,
 } from '../../scripts/run-chat-edit-battle-suite';
 
@@ -42,5 +43,26 @@ describe('chat edit battle suite environment selection', () => {
       .toThrow('deterministic-contract only');
     expect(() => resolveLiveChatBattleScenarios(['not-a-scenario']))
       .toThrow('Unknown chat battle case');
+  });
+
+  it('pins remote battle runs to the immutable deployment identity', () => {
+    expect(validateDeploymentIdentityPayload({
+      commitSha: '0dce04a4df84708b0877d45d29c73171eee92e91',
+      deploymentUrl: 'https://front-a1b2c3.vercel.app/',
+    })).toEqual({
+      commitSha: '0dce04a4df84708b0877d45d29c73171eee92e91',
+      deploymentUrl: 'https://front-a1b2c3.vercel.app',
+    });
+  });
+
+  it('fails closed when remote deployment identity is missing or mutable', () => {
+    expect(() => validateDeploymentIdentityPayload({
+      commitSha: '',
+      deploymentUrl: 'https://front-a1b2c3.vercel.app',
+    })).toThrow('valid commit SHA');
+    expect(() => validateDeploymentIdentityPayload({
+      commitSha: '0dce04a4',
+      deploymentUrl: 'https://preview.example.test',
+    })).toThrow('immutable HTTPS vercel.app URL');
   });
 });

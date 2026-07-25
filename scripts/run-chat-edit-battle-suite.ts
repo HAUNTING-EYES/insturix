@@ -23,6 +23,11 @@ interface SuiteOptions {
   resume: boolean;
 }
 
+interface DeploymentIdentity {
+  commitSha: string;
+  deploymentUrl: string;
+}
+
 interface FixtureManifest {
   fixtureProjectId: string;
   selectedOverlayId?: string | number;
@@ -47,7 +52,9 @@ interface SuiteSummary {
   startedAt: string;
   updatedAt: string;
   completedAt?: string;
+  requestedBaseUrl: string;
   baseUrl: string;
+  commitSha: string;
   databaseName?: string;
   scenarioCount: number;
   completedCount: number;
@@ -61,6 +68,12 @@ interface SuiteSummary {
 async function main(): Promise<void> {
   const options = parseSuiteArgs(process.argv.slice(2));
   const databaseName = await loadSuiteEnvironment(options);
+  const requestedBaseUrl = options.baseUrl;
+  const deployment = await resolvePinnedDeploymentIdentity(
+    requestedBaseUrl,
+    options.authHeaderFile,
+  );
+  options.baseUrl = deployment.deploymentUrl;
   const scenarios = resolveLiveChatBattleScenarios(options.scenarioIds);
   await preflightFixtureSources(scenarios);
   const suiteDir = path.resolve(options.outputRoot, safeSegment(options.suiteId));
@@ -68,12 +81,24 @@ async function main(): Promise<void> {
   await mkdir(suiteDir, { recursive: true });
 
   const existing = options.resume ? await readExistingSummary(summaryPath) : null;
+  if (existing && (
+    existing.commitSha !== deployment.commitSha
+    || existing.baseUrl !== deployment.deploymentUrl
+  )) {
+    throw new Error(
+      `Cannot resume suite ${options.suiteId}: recorded deployment `
+      + `${existing.commitSha || 'unknown'} at ${existing.baseUrl || 'unknown'} does not match `
+      + `${deployment.commitSha} at ${deployment.deploymentUrl}.`,
+    );
+  }
   const completedIds = new Set(existing?.results.map((result) => result.scenarioId) ?? []);
   const summary: SuiteSummary = existing ?? {
     suiteId: options.suiteId,
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    baseUrl: options.baseUrl,
+    requestedBaseUrl,
+    baseUrl: deployment.deploymentUrl,
+    commitSha: deployment.commitSha,
     databaseName,
     scenarioCount: scenarios.length,
     completedCount: 0,
@@ -84,13 +109,20 @@ async function main(): Promise<void> {
     results: [],
   };
 
-  console.log(`[chat-battle-suite] suite=${options.suiteId} scenarios=${scenarios.length} resume=${options.resume}`);
+  console.log(
+    `[chat-battle-suite] suite=${options.suiteId} scenarios=${scenarios.length} `
+    + `commit=${deployment.commitSha} deployment=${deployment.deploymentUrl} resume=${options.resume}`,
+  );
   for (const [index, scenario] of scenarios.entries()) {
     if (completedIds.has(scenario.id)) {
       console.log(`[chat-battle-suite] SKIP ${index + 1}/${scenarios.length} ${scenario.id} (already recorded)`);
       continue;
     }
 
+    await assertPinnedDeploymentIdentity(
+      deployment,
+      options.authHeaderFile,
+    );
     const fixtureProjectId = buildFixtureProjectId(options.suiteId, index);
     const runId = `${safeSegment(options.suiteId)}-${String(index + 1).padStart(3, '0')}`;
     console.log(`[chat-battle-suite] START ${index + 1}/${scenarios.length} ${scenario.id}`);
@@ -231,6 +263,88 @@ export function validateSuiteEnvironmentSelection(
       + 'fixture preparation and API execution must use the same environment.';
   }
   return null;
+}
+
+export function validateDeploymentIdentityPayload(
+  value: unknown,
+): DeploymentIdentity {
+  const record = asRecord(value);
+  const commitSha = typeof record.commitSha === 'string' ? record.commitSha.trim() : '';
+  const deploymentUrl = typeof record.deploymentUrl === 'string'
+    ? record.deploymentUrl.replace(/\/$/, '')
+    : '';
+  if (!/^[a-f0-9]{7,64}$/i.test(commitSha)) {
+    throw new Error('Remote deployment did not provide a valid commit SHA.');
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(deploymentUrl);
+  } catch {
+    throw new Error('Remote deployment did not provide a valid immutable deployment URL.');
+  }
+  if (parsed.protocol !== 'https:' || !parsed.hostname.endsWith('.vercel.app')) {
+    throw new Error('Remote deployment identity must use an immutable HTTPS vercel.app URL.');
+  }
+  return { commitSha, deploymentUrl: parsed.origin };
+}
+
+async function resolvePinnedDeploymentIdentity(
+  baseUrl: string,
+  authHeaderFile: string,
+): Promise<DeploymentIdentity> {
+  if (isLocalBaseUrl(baseUrl)) {
+    return { commitSha: 'local', deploymentUrl: baseUrl };
+  }
+  const identity = await fetchDeploymentIdentity(baseUrl, authHeaderFile);
+  return validateDeploymentIdentityPayload(identity);
+}
+
+async function assertPinnedDeploymentIdentity(
+  expected: DeploymentIdentity,
+  authHeaderFile: string,
+): Promise<void> {
+  if (expected.commitSha === 'local') return;
+  const actual = validateDeploymentIdentityPayload(
+    await fetchDeploymentIdentity(expected.deploymentUrl, authHeaderFile),
+  );
+  if (
+    actual.commitSha !== expected.commitSha
+    || actual.deploymentUrl !== expected.deploymentUrl
+  ) {
+    throw new Error(
+      `Battle deployment identity changed: expected ${expected.commitSha} at `
+      + `${expected.deploymentUrl}, received ${actual.commitSha} at ${actual.deploymentUrl}.`,
+    );
+  }
+}
+
+async function fetchDeploymentIdentity(
+  baseUrl: string,
+  authHeaderFile: string,
+): Promise<unknown> {
+  const headers = asRecord(JSON.parse(await readFile(path.resolve(authHeaderFile), 'utf8')));
+  const response = await fetch(`${baseUrl}/api/services/editron/build-info`, {
+    headers: Object.fromEntries(
+      Object.entries(headers).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    ),
+    cache: 'no-store',
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Deployment identity preflight failed HTTP ${response.status}: ${text.slice(0, 500)}`,
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error('Deployment identity preflight returned invalid JSON.');
+  }
+}
+
+function isLocalBaseUrl(baseUrl: string): boolean {
+  const hostname = new URL(baseUrl).hostname.toLowerCase();
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
 }
 
 async function loadSuiteEnvironment(options: SuiteOptions): Promise<string> {

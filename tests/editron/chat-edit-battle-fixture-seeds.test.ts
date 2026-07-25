@@ -155,16 +155,17 @@ describe('chat battle durable fixture seeds', () => {
     })).toThrow('requires an owned source video asset');
   });
 
-  it('does not pretend unsupported provider or rollback fault fixtures are ready', () => {
-    for (const scenarioId of ['bgm-provider-failure', 'rollback-partial-failure']) {
-      const scenario = getChatEditBattleScenario(scenarioId)!;
-      const prepared = prepareChatBattleDurableSeeds({
-        scenario,
-        project: project(),
-        now: NOW,
-      });
-      expect(evaluateChatBattleFixturePreconditions(scenario, prepared.project).ok).toBe(false);
-    }
+  it('keeps provider faults deterministic while allowing the seeded rollback journey', () => {
+    const providerFailure = getChatEditBattleScenario('bgm-provider-failure')!;
+    expect(providerFailure.executionLane).toBe('deterministic-contract');
+
+    const rollback = getChatEditBattleScenario('rollback-partial-failure')!;
+    const prepared = prepareChatBattleDurableSeeds({
+      scenario: rollback,
+      project: project(),
+      now: NOW,
+    });
+    expect(evaluateChatBattleFixturePreconditions(rollback, prepared.project).ok).toBe(true);
   });
 });
 
