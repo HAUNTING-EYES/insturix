@@ -179,6 +179,7 @@ export interface ChatBattleJourneyReport {
   mongoBefore: ChatBattleProjectSnapshot;
   mongoAfter: ChatBattleProjectSnapshot;
   uiReload: ChatBattleProjectSnapshot | null;
+  uiReloadError?: string;
   renderEvidence: ChatBattleRenderEvidence;
   checks: ChatBattleCheck[];
 }
@@ -443,11 +444,13 @@ export async function runChatEditBattleJourney(
   const completedAt = now().toISOString();
   const mongoAfter = buildChatBattleProjectSnapshot(afterProject, 'mongo-after', completedAt);
   let uiReload: ChatBattleProjectSnapshot | null = null;
+  let uiReloadError: string | undefined;
   try {
     const reloaded = await runtime.reloadUiProject(input.projectId);
     uiReload = buildChatBattleProjectSnapshot(reloaded, 'ui-reload', completedAt);
-  } catch {
+  } catch (error) {
     uiReload = null;
+    uiReloadError = errorMessage(error);
   }
   const renderEvidence = await runtime.captureRenderEvidence({
     projectId: input.projectId,
@@ -470,6 +473,7 @@ export async function runChatEditBattleJourney(
     mongoBefore,
     mongoAfter,
     uiReload,
+    uiReloadError,
     renderEvidence,
     fixturePreconditions,
   });
@@ -485,6 +489,7 @@ export function evaluateChatEditBattleJourney(input: {
   mongoBefore: ChatBattleProjectSnapshot;
   mongoAfter: ChatBattleProjectSnapshot;
   uiReload: ChatBattleProjectSnapshot | null;
+  uiReloadError?: string;
   renderEvidence: ChatBattleRenderEvidence;
   fixturePreconditions?: ChatBattleFixturePreconditionResult;
 }): ChatBattleJourneyReport {
@@ -691,7 +696,12 @@ export function evaluateChatEditBattleJourney(input: {
     reloadStatus,
     input.scenario.requireUiReload,
     'The editor reload payload must reflect the persisted Mongo result.',
-    { required: input.scenario.requireUiReload, mongoDigest: input.mongoAfter.digest, uiDigest: input.uiReload?.digest ?? null },
+    {
+      required: input.scenario.requireUiReload,
+      mongoDigest: input.mongoAfter.digest,
+      uiDigest: input.uiReload?.digest ?? null,
+      error: input.uiReloadError ?? null,
+    },
   ));
 
   const renderFresh = isFreshTimestamp(input.renderEvidence.capturedAt, input.startedAt);
@@ -738,6 +748,7 @@ function buildChatBattleJourneyReport(input: {
   mongoBefore: ChatBattleProjectSnapshot;
   mongoAfter: ChatBattleProjectSnapshot;
   uiReload: ChatBattleProjectSnapshot | null;
+  uiReloadError?: string;
   renderEvidence: ChatBattleRenderEvidence;
 }, checks: ChatBattleCheck[]): ChatBattleJourneyReport {
   const verdict = checks.some((item) => item.status === 'fail' && item.blocking)
@@ -757,6 +768,7 @@ function buildChatBattleJourneyReport(input: {
     mongoBefore: input.mongoBefore,
     mongoAfter: input.mongoAfter,
     uiReload: input.uiReload,
+    ...(input.uiReloadError ? { uiReloadError: input.uiReloadError } : {}),
     renderEvidence: input.renderEvidence,
     checks,
   };

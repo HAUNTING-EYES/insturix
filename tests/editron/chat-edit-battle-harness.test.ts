@@ -366,6 +366,82 @@ describe('chat edit battle harness', () => {
     expect(missing).toEqual([]);
   });
 
+  it('preserves the UI reload failure instead of collapsing it into a null snapshot', async () => {
+    const beforeProject = project([]);
+    const afterProject = project([{
+      id: 'title-1',
+      type: 'text',
+      content: 'Standing strong',
+      from: 0,
+      durationInFrames: 90,
+      row: 1,
+    }]);
+    const times = [
+      new Date('2026-07-16T10:00:00.000Z'),
+      new Date('2026-07-16T10:00:01.000Z'),
+    ];
+    const report = await runChatEditBattleJourney({
+      scenarioId: 'explicit-text',
+      projectId: 'proj_reload_failure',
+      journeyId: 'reload-failure',
+      now: () => times.shift() ?? new Date('2026-07-16T10:00:01.000Z'),
+    }, {
+      loadMongoProject: async (_projectId, phase) => (
+        phase === 'before' ? beforeProject : afterProject
+      ),
+      invokeAgent: async () => invocation('explicit-text', [
+        {
+          id: 'read-project',
+          name: 'read_project_file',
+          args: {},
+          startedAt: '2026-07-16T10:00:00.100Z',
+          completedAt: '2026-07-16T10:00:00.200Z',
+          output: successEnvelope({ project: beforeProject }),
+        },
+        {
+          id: 'add-title',
+          name: 'add_overlay',
+          args: { type: 'text', content: 'Standing strong' },
+          startedAt: '2026-07-16T10:00:00.300Z',
+          completedAt: '2026-07-16T10:00:00.400Z',
+          output: successEnvelope({
+            postconditionVerification: {
+              version: 'editron-chat-postcondition-v1',
+              status: 'pass',
+              affectedTargets: [{
+                overlayId: 'title-1',
+                overlayType: 'text',
+                state: 'created',
+                from: 0,
+                endFrame: 90,
+              }],
+            },
+          }),
+        },
+      ]),
+      reloadUiProject: async () => {
+        throw new Error('Editor project reload failed: HTTP 503 upstream unavailable');
+      },
+      captureRenderEvidence: async () => ({
+        status: 'pass',
+        capturedAt: '2026-07-16T10:00:00.900Z',
+        artifactRefs: ['artifact://title-1/frame-30.png'],
+        issues: [],
+      }),
+    });
+
+    expect(report.uiReload).toBeNull();
+    expect(report.uiReloadError).toBe(
+      'Editor project reload failed: HTTP 503 upstream unavailable',
+    );
+    expect(report.checks.find((item) => item.id === 'ui.reload-parity')).toMatchObject({
+      status: 'fail',
+      evidence: {
+        error: 'Editor project reload failed: HTTP 503 upstream unavailable',
+      },
+    });
+  });
+
   it('turns status-success into an error when canonical state did not change', () => {
     const before = project([{ id: 1, type: 'text', content: 'before', from: 0, durationInFrames: 30 }]);
     const enforced = enforceChatToolPostcondition({
@@ -555,6 +631,7 @@ describe('chat edit battle harness', () => {
         evidence: {
           kind: 'library-license',
           sourceAssetId: 'bgm-asset-1',
+          licenseId: 'license-bgm-asset-1',
           attestedAt: '2026-07-24T00:00:00.000Z',
         },
       },

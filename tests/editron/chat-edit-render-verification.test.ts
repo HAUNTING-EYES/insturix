@@ -24,6 +24,7 @@ import {
   type ChatEditRenderVerificationRequest,
 } from '../../lib/editron/services/phase0-rendered-evidence-worker';
 import type { RawRenderedStillImage } from '../../lib/editron/services/phase0-rendered-aesthetic-scoring';
+import { buildChatEditRenderIssue } from '../../lib/editron/services/chat-edit-render-diagnostics';
 
 describe('chat edit rendered verification', () => {
   it('derives exact targets, sample frames, and visual modality from a passed state receipt', () => {
@@ -808,6 +809,27 @@ describe('chat edit rendered verification', () => {
       .toContain('not marking it successful until that verification finishes');
     expect(buildChatEditRenderVerificationStatusMessage({ dispatched: false, reason: 'missing worker' }))
       .toContain('not marking this edit as successful');
+  });
+
+  it('preserves bounded long provider diagnostics instead of replacing them with a generic error', () => {
+    const providerError = `Lambda audio render failed:\n${'provider-trace '.repeat(80)}`;
+    const issue = buildChatEditRenderIssue(
+      'audio',
+      'audio_window_render_error',
+      providerError,
+      { startFrame: 30, endFrame: 120 },
+    );
+
+    expect(issue).toMatchObject({
+      modality: 'audio',
+      code: 'audio_window_render_error',
+      startFrame: 30,
+      endFrame: 120,
+    });
+    expect(String(issue.message)).toContain('Lambda audio render failed: provider-trace');
+    expect(String(issue.message)).toHaveLength(500);
+    expect(String(issue.message).endsWith('...')).toBe(true);
+    expect(issue.message).not.toBe('Rendered verification failed.');
   });
 });
 

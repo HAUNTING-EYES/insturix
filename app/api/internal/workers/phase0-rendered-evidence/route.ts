@@ -14,6 +14,10 @@ import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { COLLECTIONS, getDatabase } from '@/lib/editron/db/mongodb';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { chatService } from '@/lib/editron/services/chat-service';
+import {
+  buildChatEditRenderIssue as renderIssue,
+  sanitizeChatEditRenderDiagnostic,
+} from '@/lib/editron/services/chat-edit-render-diagnostics';
 import { buildPhase0RenderedQualityGate } from '@/lib/editron/services/editron-learning-gate';
 import {
   buildChatEditRenderedAudioEvidence,
@@ -650,7 +654,9 @@ function collectVerificationFailureReasons(input: {
     if (!input.audio) reasons.push('audio_evidence_missing');
     else if (input.audio.status !== 'pass') reasons.push(`audio_render_${input.audio.status}:${input.audio.reason ?? 'unknown'}`);
   }
-  return reasons.map((reason) => boundedText(reason, 500) || 'unknown_verification_failure');
+  return reasons.map(
+    (reason) => sanitizeChatEditRenderDiagnostic(reason, 500) ?? 'unknown_verification_failure',
+  );
 }
 
 function collectVerificationIssues(input: {
@@ -724,29 +730,15 @@ function collectVerificationIssues(input: {
         issues.push(renderIssue(
           'audio',
           `audio_render_${input.audio.status}`,
-          boundedText(input.audio.reason, 500) ?? `Audio render evidence status was ${input.audio.status}.`,
+          typeof input.audio.reason === 'string'
+            ? input.audio.reason
+            : `Audio render evidence status was ${input.audio.status}.`,
         ));
       }
     }
   }
 
   return issues.slice(0, 100);
-}
-
-function renderIssue(
-  modality: 'visual' | 'audio' | 'system',
-  code: string,
-  message: string,
-  extra: Record<string, unknown> = {},
-): Record<string, unknown> {
-  return {
-    ...extra,
-    modality,
-    severity: 'error',
-    code: boundedText(code, 120) ?? 'render_verification_issue',
-    message: boundedText(message, 500) ?? 'Rendered verification failed.',
-    source: 'chat-edit-render-verification',
-  };
 }
 
 async function persistChatEditVerificationResult(input: {
