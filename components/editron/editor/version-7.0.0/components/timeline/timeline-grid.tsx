@@ -13,6 +13,11 @@ import GapIndicator from "./timeline-gap-indicator";
 import TimelineItem from "./timeline-item";
 import ContextualActionBar from "./contextual-action-bar";
 import { SNAPPING_CONFIG } from "../../constants";
+import { ROW } from "@/lib/pipeline/scene-to-editron";
+import {
+  BackgroundMusicAssignmentDialog,
+  useBackgroundMusicAssignment,
+} from "../overlays/sounds/background-music-assignment-dialog";
 
 /**
  * Props for the TimelineGrid component
@@ -111,6 +116,8 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
 }) => {
   const { visibleRows } = useTimeline();
   const { projectId, setOverlays, addOverlay } = useEditorContext();
+  const backgroundMusicAssignment = useBackgroundMusicAssignment();
+  const { requestAssignment: requestBackgroundMusicAssignment } = backgroundMusicAssignment;
 
   // Create a memoized selectedItem object
   const selectedItem = useMemo(
@@ -275,6 +282,16 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
         ? Math.round((segmentEnd - segmentStart) * fps)
         : durationFrames;
 
+      if (asset.type === 'audio' && targetRow === ROW.BGM) {
+        const opened = requestBackgroundMusicAssignment({
+          assetId: asset.assetId,
+          name: asset.name,
+        });
+        setActionStatus(opened ? 'Confirm music rights to continue' : 'Background music unavailable');
+        setTimeout(() => setActionStatus(null), 2000);
+        return;
+      }
+
       let newOverlay: any;
 
       if (asset.type === 'audio') {
@@ -337,7 +354,7 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
       setActionStatus('Failed to add asset');
       setTimeout(() => setActionStatus(null), 2500);
     }
-  }, [totalDuration, visibleRows, addOverlay]);
+  }, [totalDuration, visibleRows, addOverlay, requestBackgroundMusicAssignment]);
 
   // Combined drop handler
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -361,6 +378,7 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
       }}
       onDrop={handleDrop}
     >
+      <BackgroundMusicAssignmentDialog controller={backgroundMusicAssignment} />
       {/* Action status banner (transition drop, etc.) */}
       {actionStatus && (
         <div className="absolute top-0 left-1/2 -translate-x-1/2 z-[100] px-3 py-1.5 rounded-b-md bg-emerald-600 text-white text-[11px] font-medium shadow-lg animate-in fade-in slide-in-from-top-2 duration-200">

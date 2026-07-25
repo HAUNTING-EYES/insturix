@@ -7,6 +7,11 @@ import { useEditorContext } from '../../contexts/editor-context';
 import { Overlay } from '../../types';
 import GapIndicator from '../../components/timeline/timeline-gap-indicator';
 import V2TimelineItem from './v2-timeline-item';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
+import {
+  BackgroundMusicAssignmentDialog,
+  useBackgroundMusicAssignment,
+} from '../../components/overlays/sounds/background-music-assignment-dialog';
 
 /* ═══ Editron editor v2 · timeline grid ══════════════════════════════
    Presentational twin of components/timeline/timeline-grid.tsx. Reuses
@@ -66,6 +71,8 @@ export function V2TimelineGrid({
 }: V2TimelineGridProps) {
   const { visibleRows } = useTimeline();
   const { projectId, setOverlays, addOverlay } = useEditorContext();
+  const backgroundMusicAssignment = useBackgroundMusicAssignment();
+  const { requestAssignment: requestBackgroundMusicAssignment } = backgroundMusicAssignment;
 
   const selectedItem = useMemo(
     () => (selectedOverlayId !== null ? { id: selectedOverlayId } : null),
@@ -162,6 +169,15 @@ export function V2TimelineGrid({
         const segmentStart = asset.segmentStart || 0;
         const segmentEnd = asset.segmentEnd || undefined;
         const segmentDuration = segmentEnd ? Math.round((segmentEnd - segmentStart) * fps) : durationFrames;
+        if (asset.type === 'audio' && targetRow === ROW.BGM) {
+          const opened = requestBackgroundMusicAssignment({
+            assetId: asset.assetId,
+            name: asset.name,
+          });
+          setActionStatus(opened ? 'Confirm music rights to continue' : 'Background music unavailable');
+          setTimeout(() => setActionStatus(null), 2000);
+          return;
+        }
         let newOverlay: any;
         if (asset.type === 'audio') {
           newOverlay = {
@@ -195,7 +211,7 @@ export function V2TimelineGrid({
         setTimeout(() => setActionStatus(null), 2500);
       }
     },
-    [totalDuration, visibleRows, addOverlay],
+    [totalDuration, visibleRows, addOverlay, requestBackgroundMusicAssignment],
   );
 
   const handleDrop = useCallback(
@@ -221,6 +237,7 @@ export function V2TimelineGrid({
       }}
       onDrop={handleDrop}
     >
+      <BackgroundMusicAssignmentDialog controller={backgroundMusicAssignment} />
       {actionStatus && (
         <div className="absolute left-1/2 top-0 z-[100] -translate-x-1/2 rounded-b-md bg-status-success px-3 py-1.5 text-[11px] font-medium text-[#0B0B0A] shadow-lg">
           {actionStatus}
