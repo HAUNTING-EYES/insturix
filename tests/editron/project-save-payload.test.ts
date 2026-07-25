@@ -22,6 +22,8 @@ describe('Editron project save payload compaction', () => {
           recipe: { elements: [{ text: heavyEvidence }] },
           contentSignals: { speech_energy: 0.9, emotion: 0.7 },
           semanticAtoms: [{ kind: 'scalar', value: '42', evidence: heavyEvidence }],
+          audioRights: { source: 'library', licensed: true },
+          musicRights: { source: 'library', licensed: true },
           metadata: {
             sceneIndex: 3,
             atomicTransitionForm: { version: 'atomic-transition-form-v1', compatibilityType: 'dissolve', direction: { axis: 'none' } },
@@ -45,6 +47,8 @@ describe('Editron project save payload compaction', () => {
     expect(compact.overlays[0].recipe).toBeUndefined();
     expect(compact.overlays[0].contentSignals).toBeUndefined();
     expect(compact.overlays[0].semanticAtoms).toBeUndefined();
+    expect(compact.overlays[0].audioRights).toBeUndefined();
+    expect(compact.overlays[0].musicRights).toBeUndefined();
     expect(compact.overlays[0].metadata.sceneIndex).toBe(3);
     expect(compact.overlays[0].metadata.atomicTransitionForm).toEqual(expect.objectContaining({
       version: 'atomic-transition-form-v1',
@@ -64,6 +68,8 @@ describe('Editron project save payload compaction', () => {
         transitionStyle: 'dissolve',
         contentSignals: { visual_motion: 0.8 },
         recipe: { elements: [{ type: 'kept-render-recipe' }] },
+        audioRights: { source: 'library', licensed: true, evidence: { licenseId: 'stored-license' } },
+        musicRights: { source: 'library', licensed: true, evidence: { licenseId: 'stored-license' } },
         metadata: {
           sceneIndex: 1,
           atomicOverlayReceipt: { atoms: ['kept'] },
@@ -81,6 +87,8 @@ describe('Editron project save payload compaction', () => {
         row: 2,
         durationInFrames: 20,
         transitionStyle: 'zoom-punch',
+        audioRights: { source: 'preview-only', licensed: false },
+        musicRights: { source: 'preview-only', licensed: false },
         metadata: {
           sceneIndex: 2,
           atomicTransitionForm: { version: 'atomic-transition-form-v1', compatibilityType: 'zoom-punch' },
@@ -95,10 +103,37 @@ describe('Editron project save payload compaction', () => {
     expect(merged.transitionStyle).toBe('zoom-punch');
     expect(merged.contentSignals).toEqual({ visual_motion: 0.8 });
     expect(merged.recipe).toEqual({ elements: [{ type: 'kept-render-recipe' }] });
+    expect(merged.audioRights.evidence.licenseId).toBe('stored-license');
+    expect(merged.musicRights.evidence.licenseId).toBe('stored-license');
     expect(merged.metadata.sceneIndex).toBe(2);
     expect(merged.metadata.atomicTransitionForm.compatibilityType).toBe('zoom-punch');
     expect(merged.metadata.atomicOverlayReceipt).toEqual({ atoms: ['kept'] });
     expect(merged.metadata.atomicOverlayForm).toEqual({ version: 'overlay-atomic-form-v1' });
     expect(merged.metadata.debugEvidence).toEqual({ huge: true });
+  });
+
+  it('strips forged server-owned rights from newly injected browser overlays', () => {
+    const incoming = [{
+      id: 'forged_music',
+      type: 'sound',
+      from: 0,
+      row: 1,
+      durationInFrames: 120,
+      audioRights: {
+        source: 'library',
+        licensed: true,
+        evidence: { licenseId: 'browser-forged-license' },
+      },
+      musicRights: {
+        source: 'library',
+        licensed: true,
+        evidence: { licenseId: 'browser-forged-license' },
+      },
+    }];
+
+    const [merged] = mergeServerOwnedOverlayDataForSave(incoming as any, []) as any[];
+
+    expect(merged.audioRights).toBeUndefined();
+    expect(merged.musicRights).toBeUndefined();
   });
 });

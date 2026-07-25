@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  buildChatEditRenderedAudioEvidence,
   buildPhase0RenderedEvidenceClaimFilter,
   buildPhase0RenderedEvidenceClaimRelease,
   buildPhase0RenderedEvidenceClaimUpdate,
@@ -48,6 +49,74 @@ describe('phase0 rendered evidence worker service', () => {
       qualityEvidenceSource: 'metadata-only',
     });
     expect(set).not.toHaveProperty('autoEditStatus');
+  });
+
+  it('blocks unlicensed music before credentials or the Phase-0 audio renderer', async () => {
+    const prepareCredentials = vi.fn(async () => {});
+    const renderAudioWindow = vi.fn();
+    const project = audioEvidenceProject({
+      source: 'preview-only',
+      userChoice: 'attested',
+      licensed: false,
+      mediaRole: 'music',
+    });
+
+    await expect(buildChatEditRenderedAudioEvidence(
+      project,
+      structuredClone(project),
+      audioVerificationRequest(),
+      {
+        env: configuredEnv(),
+        prepareCredentials,
+        renderAudioWindow,
+      },
+    )).rejects.toThrow('preview-only music is not licensed for rendering');
+
+    expect(prepareCredentials).not.toHaveBeenCalled();
+    expect(renderAudioWindow).not.toHaveBeenCalled();
+  });
+
+  it('strips an explicit no-music decision before Phase-0 audio rendering', async () => {
+    let renderCount = 0;
+    const renderAudioWindow = vi.fn(async (_input: any) => {
+      renderCount += 1;
+      return {
+        url: `https://example.com/audio-${renderCount}.wav`,
+        renderId: `audio-render-${renderCount}`,
+        bucketName: 'render-bucket',
+        pcmSha256: `pcm-${renderCount}`,
+        rms: 0,
+        peak: 0,
+      };
+    });
+    const project = audioEvidenceProject({
+      source: 'preview-only',
+      userChoice: 'no-music',
+      licensed: false,
+      mediaRole: 'music',
+    });
+
+    await buildChatEditRenderedAudioEvidence(
+      project,
+      structuredClone(project),
+      audioVerificationRequest(),
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        renderAudioWindow,
+      },
+    );
+
+    expect(renderAudioWindow).toHaveBeenCalledTimes(2);
+    for (const [input] of renderAudioWindow.mock.calls) {
+      expect(input.inputProps.overlays).toEqual([]);
+      expect(input.inputProps.audioRightsNotices).toEqual([
+        expect.objectContaining({
+          code: 'PREVIEW_AUDIO_REMOVED_NO_MUSIC',
+          action: 'stripped',
+        }),
+      ]);
+    }
   });
 
   it('renders paired full and baseline sampled stills with the configured Lambda render stack', async () => {
@@ -567,6 +636,47 @@ function configuredEnv(extra: Record<string, string> = {}) {
     REMOTION_AWS_REGION: 'us-east-1',
     ...extra,
   };
+}
+
+function audioVerificationRequest() {
+  return {
+    version: 'editron-chat-render-verification-v1' as const,
+    operationId: 'op_audio_rights',
+    sessionId: 'session_audio_rights',
+    beforeCheckpointId: 'checkpoint_before',
+    afterCheckpointId: 'checkpoint_after',
+    requestedAt: '2026-07-26T00:00:00.000Z',
+    modalities: ['audio' as const],
+    expectedEffect: 'mutation-delta' as const,
+    targets: [{
+      overlayId: 'music_1',
+      overlayType: 'sound',
+      state: 'updated' as const,
+      from: 0,
+      endFrame: 120,
+    }],
+    sampleFrames: [0],
+  };
+}
+
+function audioEvidenceProject(audioRights: Record<string, unknown>) {
+  return {
+    projectId: 'proj_phase0_audio_rights',
+    userId: 'user_phase0_audio_rights',
+    durationInFrames: 120,
+    fps: 30,
+    playerDimensions: { width: 320, height: 180 },
+    overlays: [{
+      id: 'music_1',
+      assetId: 'bgm_phase0_audio_rights',
+      type: OverlayType.SOUND,
+      row: 1,
+      from: 0,
+      durationInFrames: 120,
+      src: 'https://example.com/music.mp3',
+      audioRights,
+    }],
+  } as any;
 }
 
 function visibleImageReader() {

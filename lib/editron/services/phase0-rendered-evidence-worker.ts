@@ -33,6 +33,11 @@ import {
   type InspectMediaAudioTrack,
   type MediaAudioTrackInspection,
 } from './media-audio-track-service';
+import { verifyRenderAudioRightsAuthority } from './render-audio-rights-authority';
+import {
+  buildLambdaRenderInputProps,
+  isCanonicalMusicOverlay,
+} from '@/lib/editron/shared/render-request-payload';
 
 export const PHASE0_RENDERED_STILL_EVIDENCE_VERSION = 'editron-phase0-rendered-still-evidence-v1' as const;
 const DEFAULT_PHASE0_RENDERED_EVIDENCE_LOCK_STALE_MS = 20 * 60 * 1000;
@@ -852,6 +857,39 @@ export async function buildChatEditRenderedAudioEvidence(
     };
   }
 
+  const beforeInputProps = {
+    ...beforePack.renderInput,
+    durationInFrames,
+    isRendering: true,
+    renderMediaMode: 'audio-only',
+  };
+  const afterInputProps = {
+    ...afterPack.renderInput,
+    durationInFrames,
+    isRendering: true,
+    renderMediaMode: 'audio-only',
+  };
+  const musicOverlays = [
+    ...beforeInputProps.overlays,
+    ...afterInputProps.overlays,
+  ].filter(isCanonicalMusicOverlay);
+  if (musicOverlays.length > 0) {
+    const projectId = readNonEmptyString(project.projectId);
+    const baselineProjectId = readNonEmptyString(baselineProject.projectId);
+    const userId = readNonEmptyString(project.userId)
+      ?? readNonEmptyString(baselineProject.userId);
+    if (!projectId || !userId || (baselineProjectId && baselineProjectId !== projectId)) {
+      throw new Error('Phase-0 audio rights authority requires one authenticated project identity.');
+    }
+    await verifyRenderAudioRightsAuthority({
+      projectId,
+      userId,
+      overlays: musicOverlays,
+    });
+  }
+  const authorizedBeforeInputProps = buildLambdaRenderInputProps(beforeInputProps);
+  const authorizedAfterInputProps = buildLambdaRenderInputProps(afterInputProps);
+
   await (options.prepareCredentials ?? setAWSCredentials)();
   const renderAudioWindow = options.renderAudioWindow ?? renderLambdaAudioWindow;
   const evidenceWindows: ChatEditRenderedAudioWindowEvidence[] = [];
@@ -860,12 +898,7 @@ export async function buildChatEditRenderedAudioEvidence(
       const [before, after] = await Promise.all([
         window.before.status === 'present'
           ? renderAudioWindow({
-              inputProps: {
-                ...beforePack.renderInput,
-                durationInFrames,
-                isRendering: true,
-                renderMediaMode: 'audio-only',
-              },
+              inputProps: authorizedBeforeInputProps,
               startFrame: window.startFrame,
               endFrame: window.endFrame,
               config,
@@ -873,12 +906,7 @@ export async function buildChatEditRenderedAudioEvidence(
           : Promise.resolve(null),
         window.after.status === 'present'
           ? renderAudioWindow({
-              inputProps: {
-                ...afterPack.renderInput,
-                durationInFrames,
-                isRendering: true,
-                renderMediaMode: 'audio-only',
-              },
+              inputProps: authorizedAfterInputProps,
               startFrame: window.startFrame,
               endFrame: window.endFrame,
               config,
@@ -1024,6 +1052,10 @@ function recordValue(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 export function buildChatEditAudioVerificationWindows(input: {
