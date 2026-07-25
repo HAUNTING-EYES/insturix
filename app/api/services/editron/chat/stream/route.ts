@@ -39,6 +39,7 @@ import {
   markChatEditRenderVerificationDispatched,
   type ChatEditRenderVerificationRecord,
 } from '@/lib/editron/services/chat-edit-render-verification-lifecycle';
+import { startChatSseHeartbeat } from '@/lib/editron/services/chat-sse-heartbeat';
 
 // Minimum credits required to start a chat (actual cost calculated post-hoc based on tokens)
 const MINIMUM_CREDITS_REQUIRED = 1;
@@ -417,6 +418,14 @@ export async function POST(req: NextRequest) {
     const stream = new TransformStream();
     const writer = stream.writable.getWriter();
     const encoder = new TextEncoder();
+    const heartbeat = startChatSseHeartbeat(writer, {
+      onWriteError: (error) => {
+        console.warn(
+          '[STREAM-ROUTE] SSE heartbeat stopped after the client stream became unavailable:',
+          error instanceof Error ? error.message : String(error),
+        );
+      },
+    });
 
     // Run agent in background with streaming
     (async () => {
@@ -650,6 +659,7 @@ export async function POST(req: NextRequest) {
           ...(providerFailure ? { code: providerFailure.code, retryable: providerFailure.retryable } : {}),
         })}\n\n`));
       } finally {
+        await heartbeat.stop();
         await writer.close();
       }
     })();
