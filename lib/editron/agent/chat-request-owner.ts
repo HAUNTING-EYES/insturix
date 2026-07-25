@@ -195,9 +195,13 @@ const MUTATION_AUTHORIZATION_TOOLS = new Set([
 const LOCALIZED_MUTATION_TOOLS = new Set([
   'add_overlay',
   'add_sfx',
+  'apply_camera_shake',
+  'apply_speed_ramp',
   'cut_section',
   'generate_html_sticker',
   'set_keyframes',
+  'sync_cuts_to_beats',
+  'use_matching_footage',
 ]);
 
 // These compatibility tools create family output directly. They stay available to

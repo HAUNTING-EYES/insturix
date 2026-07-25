@@ -354,6 +354,9 @@ describe('chat request owner capability filtering', () => {
     'regenerate_bgm',
     'sync_cuts_to_beats',
     'add_sfx',
+    'apply_camera_shake',
+    'apply_speed_ramp',
+    'use_matching_footage',
     'add_motion_graphic',
     'auto_motion_graphics',
     'generate_html_scene',
@@ -396,7 +399,11 @@ describe('chat request owner capability filtering', () => {
       'cut_section',
       'generate_html_sticker',
       'set_keyframes',
+      'sync_cuts_to_beats',
       'add_sfx',
+      'apply_camera_shake',
+      'apply_speed_ramp',
+      'use_matching_footage',
       'get_dubbing_job_result',
     ]);
   });
@@ -406,7 +413,7 @@ describe('chat request owner capability filtering', () => {
       tools, license('semantic-editorial-planner', 'editorial-plan'), { assistLane: true },
     ).map((t) => t.name);
     // The chip directives now execute on their own hardened tools:
-    for (const direct of ['add_captions', 'regenerate_bgm', 'cut_section', 'add_fancy_captions', 'sync_cuts_to_beats', 'add_overlay', 'add_sfx']) {
+    for (const direct of ['add_captions', 'regenerate_bgm', 'cut_section', 'add_fancy_captions', 'sync_cuts_to_beats', 'add_overlay', 'add_sfx', 'apply_camera_shake', 'apply_speed_ramp', 'use_matching_footage']) {
       expect(assistNames).toContain(direct);
     }
     // Scene/MG creation routes to the MG generator (founder ruling, C1 finding):
@@ -468,6 +475,9 @@ describe('chat request owner capability filtering', () => {
       'generate_html_sticker',
       'set_keyframes',
       'add_sfx',
+      'apply_camera_shake',
+      'apply_speed_ramp',
+      'use_matching_footage',
       // Pre-existing mechanical reachability, made visible when the fixture
       // gained the tool: generate_html_scene is NOT shadow-banned at runtime.
       'generate_html_scene',

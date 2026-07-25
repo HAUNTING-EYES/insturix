@@ -44,13 +44,14 @@ export interface AudioMomentCandidate {
   useWith: {
     cut_section: { startFrame: number; endFrame: number; note: string };
     add_sfx: { frame: number; sync: "audio-anchor"; note: string };
+    apply_camera_shake: { targetFrame: number; note: string };
     set_keyframes: { frame: number; note: string };
     sync_cuts_to_beats: { frame: number; note: string };
     add_motion_graphic: { frame: number; text: string };
   };
 }
 
-export type AudioEditAction = "add_sfx" | "cut_section" | "sync_cuts_to_beats";
+export type AudioEditAction = "add_sfx" | "camera_shake" | "cut_section" | "sync_cuts_to_beats";
 export type AudioEditResolutionStatus = "ready" | "no-match" | "ambiguous" | "unsupported";
 
 export interface AudioEditResolveOptions extends AudioMomentOptions {
@@ -67,6 +68,7 @@ export interface AudioEditResolution {
   candidate?: AudioMomentCandidate;
   useWith?: {
     add_sfx?: { query: string; frame: number; sync: "audio-anchor"; note: string };
+    apply_camera_shake?: AudioMomentCandidate["useWith"]["apply_camera_shake"];
     cut_section?: AudioMomentCandidate["useWith"]["cut_section"];
     sync_cuts_to_beats?: AudioMomentCandidate["useWith"]["sync_cuts_to_beats"];
   };
@@ -154,7 +156,7 @@ const audioMomentSchema = z.object({
 });
 
 const audioEditSchema = audioMomentSchema.extend({
-  action: z.enum(["add_sfx", "cut_section", "sync_cuts_to_beats"]).default("add_sfx").describe("Edit operation that needs the resolved audio timing."),
+  action: z.enum(["add_sfx", "camera_shake", "cut_section", "sync_cuts_to_beats"]).default("add_sfx").describe("Edit operation that needs the resolved audio timing."),
   sfxQuery: z.string().trim().min(1).optional().describe("Optional SFX search query to pass to add_sfx. If omitted, the resolver derives a conservative query from the request words."),
 });
 
@@ -259,7 +261,7 @@ export function createChatAudioTools({ userId, projectId }: CreateChatAudioTools
       name: "find_audio_moment",
       description: `Find when a stored audio event, silence, filler, beat, downbeat, music drop, energy peak, music section, or sound overlay appears in the edited timeline.
 Use before edit requests such as "cut the long pause", "add impact on the beat drop", "sync this cut to the downbeat", or "put SFX on the loud hit".
-Returns deterministic frame candidates, confidence, source evidence, and exact frame hints for cut_section, add_sfx, set_keyframes, sync_cuts_to_beats, and add_motion_graphic.
+Returns deterministic frame candidates, confidence, source evidence, and exact frame hints for cut_section, add_sfx, apply_camera_shake, set_keyframes, sync_cuts_to_beats, and add_motion_graphic.
 Do not make a destructive edit from a low-confidence or ambiguous candidate; present the candidates and ask once.`,
       schema: audioMomentSchema,
     },
@@ -287,8 +289,8 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
     {
       name: "resolve_audio_edit",
       description: `Resolve an audio-referenced edit into operation-ready timing.
-Use after or instead of find_audio_moment for requests like "add impact on the first beat drop", "cut the long silence", or "sync the cut to the downbeat".
-This is read-only: it returns safe frame params for add_sfx, cut_section, or sync_cuts_to_beats, and refuses no-match, ambiguous, low-confidence, or unsupported audio references.`,
+Use after or instead of find_audio_moment for requests like "add impact on the first beat drop", "shake on the strongest hit", "cut the long silence", or "sync the cut to the downbeat".
+This is read-only: it returns safe frame params for add_sfx, apply_camera_shake, cut_section, or sync_cuts_to_beats, and refuses no-match, ambiguous, low-confidence, or unsupported audio references.`,
       schema: audioEditSchema,
     },
   );
@@ -401,6 +403,21 @@ export function resolveAudioEditTiming(
       message: `Resolved "${query}" to ${candidate.audioKind}, which is not valid for beat-sync edits.`,
     };
   }
+  if (action === "camera_shake" && !isImpactEmphasisKind(candidate.audioKind)) {
+    return {
+      status: "unsupported",
+      action,
+      query,
+      searchedCandidateCount: candidates.length,
+      candidates,
+      candidate,
+      warnings: [
+        ...warnings,
+        `Audio kind "${candidate.audioKind}" is not a point-like impact anchor for camera shake.`,
+      ],
+      message: `Resolved "${query}" to ${candidate.audioKind}, which is not valid for camera-shake emphasis.`,
+    };
+  }
 
   const useWith: AudioEditResolution["useWith"] = {};
   if (action === "add_sfx") {
@@ -408,6 +425,8 @@ export function resolveAudioEditTiming(
       ...candidate.useWith.add_sfx,
       query: options.sfxQuery ?? inferAudioSfxQuery(query, candidate.audioKind),
     };
+  } else if (action === "camera_shake") {
+    useWith.apply_camera_shake = candidate.useWith.apply_camera_shake;
   } else if (action === "cut_section") {
     useWith.cut_section = candidate.useWith.cut_section;
   } else {
@@ -603,6 +622,14 @@ function isBeatSyncKind(kind: AudioMomentKind): boolean {
     || kind === "transient"
     || kind === "energy-peak"
     || kind === "music-section";
+}
+
+function isImpactEmphasisKind(kind: AudioMomentKind): boolean {
+  return kind === "beat"
+    || kind === "downbeat"
+    || kind === "beat-drop"
+    || kind === "transient"
+    || kind === "energy-peak";
 }
 
 function inferAudioSfxQuery(query: string, kind: AudioMomentKind): string {
@@ -930,6 +957,10 @@ function scoreEvidence(
         frame: evidence.frame,
         sync: "audio-anchor",
         note: "Use as the anchor frame for impact/spot SFX.",
+      },
+      apply_camera_shake: {
+        targetFrame: evidence.frame,
+        note: "Use as the exact impact frame for a bounded camera shake.",
       },
       set_keyframes: {
         frame: evidence.frame,

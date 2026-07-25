@@ -482,7 +482,7 @@ describe('chat edit context bundle', () => {
       mutatesProject: true,
       requiresProjectReload: true,
       riskLevel: 'high',
-      turnContract: { owner: 'mechanical-editor', evidenceStrategy: 'owner-internal' },
+      turnContract: { owner: 'mechanical-editor', evidenceStrategy: 'preflight' },
     });
   });
 
@@ -861,8 +861,8 @@ describe('chat edit context bundle', () => {
           type: 'shape',
           start: 96,
           duration: 36,
-          x: '70%',
-          y: '10%',
+          x: '80%',
+          y: '16%',
           width: '20%',
           height: '12%',
           styles: {
@@ -878,6 +878,28 @@ describe('chat edit context bundle', () => {
         },
       },
     });
+  });
+
+  it('resolves a visual action into an exact speed-ramp authorization', () => {
+    const plan = resolveVisualEditPlacement(project, 'logo appears on laptop', {
+      action: 'speed_ramp',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      action: 'speed_ramp',
+      candidate: {
+        frame: 96,
+      },
+      useWith: {
+        apply_speed_ramp: {
+          targetFrame: 96,
+          durationFrames: 30,
+        },
+      },
+    });
+    expect(plan.useWith?.add_overlay).toBeUndefined();
+    expect(plan.useWith?.set_keyframes).toBeUndefined();
   });
 
   it('refuses visual highlight placement when the visual fact has no bounding box', () => {
@@ -1482,6 +1504,12 @@ describe('chat edit context bundle', () => {
     const silenceCut = resolveAudioEditTiming(project, 'cut the long silence', {
       action: 'cut_section',
     });
+    const cameraShake = resolveAudioEditTiming(project, 'shake on the first beat drop', {
+      action: 'camera_shake',
+    });
+    const invalidCameraShake = resolveAudioEditTiming(project, 'shake on the long silence', {
+      action: 'camera_shake',
+    });
     const invalidBeatSync = resolveAudioEditTiming(project, 'sync cuts to the long silence', {
       action: 'sync_cuts_to_beats',
     });
@@ -1517,6 +1545,26 @@ describe('chat edit context bundle', () => {
           startFrame: 36,
           endFrame: 66,
         },
+      },
+    });
+    expect(cameraShake).toMatchObject({
+      status: 'ready',
+      action: 'camera_shake',
+      candidate: {
+        audioKind: 'beat-drop',
+        frame: 90,
+      },
+      useWith: {
+        apply_camera_shake: {
+          targetFrame: 90,
+        },
+      },
+    });
+    expect(invalidCameraShake).toMatchObject({
+      status: 'unsupported',
+      action: 'camera_shake',
+      candidate: {
+        audioKind: 'silence',
       },
     });
     expect(invalidBeatSync).toMatchObject({

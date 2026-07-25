@@ -100,7 +100,7 @@ interface VisualMomentOptions {
   includeOverlayText?: boolean;
 }
 
-export type VisualEditAction = "highlight" | "inspect" | "cut_range" | "keyframe_anchor";
+export type VisualEditAction = "highlight" | "inspect" | "cut_range" | "keyframe_anchor" | "speed_ramp";
 export type VisualEditResolutionStatus = "ready" | "no-match" | "ambiguous" | "no-placement";
 
 export interface VisualEditResolveOptions extends VisualMomentOptions {
@@ -119,6 +119,11 @@ export interface VisualEditResolution {
   message: string;
   useWith?: {
     add_overlay?: VisualHighlightOverlayHint;
+    apply_speed_ramp?: {
+      targetFrame: number;
+      durationFrames: number;
+      videoOverlayId?: OverlayId;
+    };
     cut_section?: VisualMomentCandidate["useWith"]["cut_section"];
     set_keyframes?: VisualMomentCandidate["useWith"]["set_keyframes"];
     visual_inspect_frame?: VisualMomentCandidate["useWith"]["visual_inspect_frame"];
@@ -377,6 +382,7 @@ interface VisualEvidence {
 const DEFAULT_FPS = 30;
 const DEFAULT_CLIP_DURATION_FRAMES = 30;
 const DEFAULT_HIGHLIGHT_DURATION_FRAMES = 45;
+const DEFAULT_SPEED_RAMP_DURATION_FRAMES = 30;
 
 const visualMomentSchema = z.object({
   query: z.string().min(1).describe("Natural-language visual event, object, action, scene, or on-screen text to locate in the timeline."),
@@ -388,12 +394,12 @@ const visualMomentSchema = z.object({
 
 const visualEditSchema = z.object({
   query: z.string().min(1).describe("Visual event, object, action, scene, or on-screen text that anchors the edit."),
-  action: z.enum(["highlight", "inspect", "cut_range", "keyframe_anchor"]).default("highlight").describe("Requested downstream operation. Highlight needs a bounding box; inspect/cut/keyframe need only an unambiguous visual moment."),
+  action: z.enum(["highlight", "inspect", "cut_range", "keyframe_anchor", "speed_ramp"]).default("highlight").describe("Requested downstream operation. Highlight needs a bounding box; inspect/cut/keyframe/speed-ramp need an unambiguous visual moment."),
   videoOverlayId: z.union([z.string(), z.number()]).optional().describe("Optional timeline video overlay id to constrain the search."),
   limit: z.coerce.number().int().min(1).max(12).default(5).describe("Maximum visual candidates to inspect before resolving ambiguity."),
   minConfidence: z.coerce.number().min(0).max(1).default(0.35).describe("Minimum candidate confidence."),
   includeOverlayText: z.boolean().default(true).describe("Also search text already attached to timeline overlays."),
-  durationFrames: z.coerce.number().int().min(1).max(300).default(DEFAULT_HIGHLIGHT_DURATION_FRAMES).describe("Duration for a resolved highlight overlay."),
+  durationFrames: z.coerce.number().int().min(1).max(300).optional().describe("Optional operation window. Defaults are operation-specific."),
 });
 
 const cameraShakeSchema = z.object({
@@ -3366,6 +3372,31 @@ export function resolveVisualEditPlacement(
       warnings,
       useWith: { set_keyframes: candidate.useWith.set_keyframes },
       message: `Resolved keyframe anchor for "${candidate.text}" at frame ${candidate.frame}.`,
+    };
+  }
+
+  if (action === "speed_ramp") {
+    return {
+      status: "ready",
+      action,
+      query,
+      candidates,
+      candidate,
+      warnings,
+      useWith: {
+        apply_speed_ramp: {
+          targetFrame: candidate.frame,
+          durationFrames: clampInt(
+            options.durationFrames ?? DEFAULT_SPEED_RAMP_DURATION_FRAMES,
+            3,
+            300,
+          ),
+          ...(candidate.source.overlayId != null
+            ? { videoOverlayId: candidate.source.overlayId }
+            : {}),
+        },
+      },
+      message: `Resolved speed-ramp anchor for "${candidate.text}" at frame ${candidate.frame}.`,
     };
   }
 
