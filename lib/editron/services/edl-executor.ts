@@ -436,6 +436,11 @@ interface EDLSignalContext {
   /** The project's motionGraphics family preference (the user's dial: mode/frequency/intensity) — feeds the
    *  density budget + motion-intensity resolver. Absent = 'auto' (no user push). */
   motionGraphicsPref?: EditorialFamilyPreference;
+  kineticSfxPolicy?: {
+    policy: 'full' | 'subtle' | 'off';
+    profileId: string;
+    source: 'director-effective-profile';
+  };
   /** P5-1 Phase C 2/2: per-decision approved designs from the video-level design pre-pass, keyed by the decision
    *  object (by reference). applyGraphic looks its plan up here → renders via the coder prompt. Absent for a
    *  decision (or the whole map) → free-form codegen (today's path). Dark until isLiveMgCodegenEnabled. */
@@ -796,6 +801,11 @@ export async function executeEDL(
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const projectDoc = await (await getDatabase()).collection('projects').findOne({ projectId });
+    const kineticPolicyReceipt = recordValue(projectDoc?.intelligence?.kineticSfxPolicy);
+    const kineticPolicyVersion = kineticPolicyReceipt ? readString(kineticPolicyReceipt, 'version') : undefined;
+    const kineticPolicy = kineticPolicyReceipt ? readString(kineticPolicyReceipt, 'policy') : undefined;
+    const kineticProfileId = kineticPolicyReceipt ? readString(kineticPolicyReceipt, 'profileId') : undefined;
+    const kineticPolicySource = kineticPolicyReceipt ? readString(kineticPolicyReceipt, 'source') : undefined;
     const vjepaSegs = arrayOrUndefined(projectDoc?.vjepaAnalysis?.segments);
     const wav2vecSegs = arrayOrUndefined(projectDoc?.wav2vecAnalysis?.segments);
     // SIGNAL-driven MG style identity (Phase B): aggregate the video's ENERGY from its per-segment motion +
@@ -831,6 +841,13 @@ export async function executeEDL(
       intent: mgUserIntent,
       videoSignals: mgEnergy !== undefined ? { energy: mgEnergy } : undefined,
       motionGraphicsPref: mgGraphicsPref,
+      kineticSfxPolicy:
+        kineticPolicyVersion === 'kinetic-sfx-policy-v1'
+        && kineticPolicySource === 'director-effective-profile'
+        && (kineticPolicy === 'full' || kineticPolicy === 'subtle' || kineticPolicy === 'off')
+        && kineticProfileId
+          ? { policy: kineticPolicy, profileId: kineticProfileId, source: 'director-effective-profile' }
+          : undefined,
     };
     if (projectDoc?.brandId && userId) {
       const { resolveEffectiveBrandWithProfile } = await import('@/lib/shared/brand-effective-resolver');
@@ -4549,8 +4566,9 @@ async function applyGraphic(
         const mgSubjectBox = mgSubjectX != null && mgSubjectY != null && mgSubjectW != null && mgSubjectH != null && mgSubjectW > 0 && mgSubjectH > 0
           ? { x: mgSubjectX, y: mgSubjectY, width: mgSubjectW, height: mgSubjectH }
           : undefined;
+        const momentId = `${projectId}:${snappedFrame}:${selectedCandidate.id}`;
         const momentInput = buildMgMomentInput({
-          momentId: `${projectId}:${snappedFrame}:${selectedCandidate.id}`,
+          momentId,
           candidate: selectedCandidate,
           brand: mappedBrand.brand,
           window: codegenWindow,
@@ -4568,6 +4586,59 @@ async function applyGraphic(
           design: projectSignalContext.mgDesignPlans?.get(decision),
           subjectBox: mgSubjectBox, // P5-2(b): real V-JEPA subject box → screen.subject (coder + judge context)
         });
+        const signalSpeechEnergy = readNumber(rawSignals, 'speech_energy', 'speech.energy');
+        const segmentSpeechEnergy = mgWav2vec ? readNumber(mgWav2vec, 'energy', 'speech_energy') : undefined;
+        const speechEnergy = signalSpeechEnergy ?? segmentSpeechEnergy;
+        const kineticSfxContext = {
+          version: 'mg-kinetic-sfx-context-v1',
+          momentId,
+          policy: projectSignalContext.kineticSfxPolicy?.policy ?? null,
+          profileId: projectSignalContext.kineticSfxPolicy?.profileId ?? null,
+          policySource: projectSignalContext.kineticSfxPolicy?.source ?? 'unavailable',
+          speechEnergy: speechEnergy == null ? null : clamp01(speechEnergy),
+          speechSource: signalSpeechEnergy != null
+            ? 'moment-signals'
+            : segmentSpeechEnergy != null
+              ? 'wav2vec-segment'
+              : 'unavailable',
+          writtenAt: new Date(),
+        };
+        try {
+          const { getDatabase } = await import('@/lib/editron/db/mongodb');
+          const projects = (await getDatabase()).collection('projects');
+          const replaced = await projects.updateOne(
+            {
+              projectId,
+              'intelligence.mgKineticSfxContexts.momentId': momentId,
+            },
+            {
+              $set: {
+                'intelligence.mgKineticSfxContexts.$': kineticSfxContext,
+              },
+            },
+          );
+          if (replaced.matchedCount === 0) {
+            await projects.updateOne(
+              {
+                projectId,
+                'intelligence.mgKineticSfxContexts.momentId': { $ne: momentId },
+              },
+              {
+                $push: {
+                  'intelligence.mgKineticSfxContexts': {
+                    $each: [kineticSfxContext],
+                    $slice: -100,
+                  } as never,
+                },
+              },
+            );
+          }
+        } catch (error) {
+          console.warn(
+            `[EDL] MG kinetic SFX context persistence failed for ${momentId}; async SFX will suppress:`,
+            error instanceof Error ? error.message : error,
+          );
+        }
         const enqueued = await enqueueDurableMgRenderJob({
           projectId,
           userId,

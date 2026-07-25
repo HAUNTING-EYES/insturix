@@ -41,6 +41,11 @@ export interface KineticSfxEvent {
   evidence: string[];
 }
 
+export interface CodegenKineticSfxEvidence {
+  speechEnergy: number;
+  evidence: string[];
+}
+
 export interface TransitionKineticSfxHint {
   cue: string;
   rule: string;
@@ -176,7 +181,11 @@ export function deriveCompositionKineticSfxEvents(overlay: unknown): KineticSfxE
 export function deriveCodegenKineticSfxEvents(
   input: Pick<MgMomentInput, 'candidate' | 'window' | 'anchors' | 'expressiveness' | 'design'>,
   sourceOverlayId: number | string,
+  audioEvidence?: CodegenKineticSfxEvidence,
 ): KineticSfxEvent[] {
+  if (!audioEvidence || !Number.isFinite(audioEvidence.speechEnergy)) return [];
+  const speechEnergy = signal01(audioEvidence.speechEnergy);
+  if (speechEnergy >= CKG_ENERGETIC_SPEECH_FLOOR) return [];
   const landingFrame = input.anchors?.landingFrame;
   if (landingFrame == null || !Number.isFinite(landingFrame)) return [];
   const eventSpec = codegenEventSpec(input);
@@ -195,12 +204,13 @@ export function deriveCodegenKineticSfxEvents(
     fps: Math.max(1, Math.round(input.window.fps)),
     eventSpec,
     energy,
-    speechEnergy: 0,
+    speechEnergy,
     evidence: [
       `fact-kind:${input.candidate.factKind}`,
       `expressiveness:${input.expressiveness.tier}`,
       `anchor:landing-frame-${Math.round(landingFrame)}`,
       ...(input.design ? [`target-bar:${input.design.plan.targetBar}`] : []),
+      ...audioEvidence.evidence,
     ],
   })];
 }

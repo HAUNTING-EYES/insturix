@@ -457,7 +457,17 @@ describe('non-MG atomic overlay receipts', () => {
     const events = deriveCodegenKineticSfxEvents({
       ...baseInput,
       anchors: { landingFrame: 18 },
-    }, 9901);
+    }, 9901, {
+      speechEnergy: 0.24,
+      evidence: ['policy:subtle', 'profile:D-01', 'speech-source:moment-signals'],
+    });
+    expect(deriveCodegenKineticSfxEvents({
+      ...baseInput,
+      anchors: { landingFrame: 18 },
+    }, 9901, {
+      speechEnergy: 0.9,
+      evidence: ['speech-source:moment-signals'],
+    })).toEqual([]);
     const overlays: any[] = [{
       id: 9901,
       type: 'mg-sequence',
@@ -481,5 +491,19 @@ describe('non-MG atomic overlay receipts', () => {
       status: 'placed',
       soundOverlayId: sound.id,
     }));
+
+    const suppressedOverlays: any[] = [{
+      id: 9901,
+      type: 'mg-sequence',
+      from: 600,
+      durationInFrames: 120,
+      metadata: { kineticSfxEvents: events },
+    }];
+    const suppressed = await placeTransitionSFX(suppressedOverlays, 'user-1', {
+      profileId: 'D-02',
+      transitionSFXPolicy: 'off',
+    } as any);
+    expect(suppressed.motionGraphics.skipReasons).toEqual({ 'profile-policy-off': 1 });
+    expect(suppressedOverlays.some(overlay => overlay.type === 'sound')).toBe(false);
   });
 });

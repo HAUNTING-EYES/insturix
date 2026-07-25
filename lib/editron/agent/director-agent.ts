@@ -516,9 +516,22 @@ export async function executeDirectorPlan(
     // Prevents browser autosave from clobbering Director changes.
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const lockDb = await getDatabase();
+    const kineticSfxPolicy = effectiveProfile.transitionSFXPolicy ?? 'full';
     await lockDb.collection('projects').updateOne(
       { projectId },
-      { $set: { directorLock: true, directorLockAt: new Date() } },
+      {
+        $set: {
+          directorLock: true,
+          directorLockAt: new Date(),
+          'intelligence.kineticSfxPolicy': {
+            version: 'kinetic-sfx-policy-v1',
+            policy: kineticSfxPolicy,
+            profileId: effectiveProfile.profileId,
+            source: 'director-effective-profile',
+            resolvedAt: new Date(),
+          },
+        },
+      },
     );
 
     // ─── Step 1: Load project state ──────────────────────────

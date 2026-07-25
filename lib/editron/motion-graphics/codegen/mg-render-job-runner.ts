@@ -309,6 +309,47 @@ function asyncOverlayId(jobId: string): number {
   return 8_000_000_000_000_000 + Number.parseInt(hash, 16);
 }
 
+interface PersistedMgKineticSfxContext {
+  version: 'mg-kinetic-sfx-context-v1';
+  momentId: string;
+  policy: 'full' | 'subtle' | 'off';
+  profileId: string;
+  policySource: 'director-effective-profile';
+  speechEnergy: number;
+  speechSource: 'moment-signals' | 'wav2vec-segment';
+}
+
+function resolveMgKineticSfxContext(
+  project: unknown,
+  momentId: string,
+): PersistedMgKineticSfxContext | null {
+  if (!project || typeof project !== 'object') return null;
+  const intelligence = (project as Record<string, unknown>).intelligence;
+  if (!intelligence || typeof intelligence !== 'object') return null;
+  const contexts = (intelligence as Record<string, unknown>).mgKineticSfxContexts;
+  if (!Array.isArray(contexts)) return null;
+  const context = contexts.find(item => (
+    item
+    && typeof item === 'object'
+    && (item as Record<string, unknown>).momentId === momentId
+  )) as Record<string, unknown> | undefined;
+  if (!context || context.version !== 'mg-kinetic-sfx-context-v1') return null;
+  const policy = context.policy;
+  const speechEnergy = context.speechEnergy;
+  const speechSource = context.speechSource;
+  if ((policy !== 'full' && policy !== 'subtle' && policy !== 'off')
+    || typeof context.profileId !== 'string'
+    || context.policySource !== 'director-effective-profile'
+    || typeof speechEnergy !== 'number'
+    || !Number.isFinite(speechEnergy)
+    || speechEnergy < 0
+    || speechEnergy > 1
+    || (speechSource !== 'moment-signals' && speechSource !== 'wav2vec-segment')) {
+    return null;
+  }
+  return context as unknown as PersistedMgKineticSfxContext;
+}
+
 async function deliverMgRenderJobResult(job: MgRenderJob, result: MgRenderWorkerResult): Promise<void> {
   if (!job.request) throw new Error(`MG render job ${job._id} is missing its executable request`);
   const request = job.request;
@@ -362,11 +403,29 @@ async function deliverMgRenderJobResult(job: MgRenderJob, result: MgRenderWorker
     },
   });
   const overlayId = asyncOverlayId(job._id);
-  const {
-    deriveCodegenKineticSfxEvents,
-    placeMotionGraphicKineticSFX,
-  } = await import('@/lib/editron/services/kinetic-sfx-service');
-  const kineticSfxEvents = deriveCodegenKineticSfxEvents(request.input, overlayId);
+  const contextProject = await projects.findOne(
+    { projectId: job.projectId, userId: job.userId },
+    { projection: { 'intelligence.mgKineticSfxContexts': 1 } },
+  );
+  const kineticSfxContext = resolveMgKineticSfxContext(contextProject, request.input.momentId);
+  let kineticService: typeof import('@/lib/editron/services/kinetic-sfx-service') | null = null;
+  let kineticSfxEvents: import('@/lib/editron/services/kinetic-sfx-service').KineticSfxEvent[] = [];
+  let kineticServiceError: string | null = null;
+  if (kineticSfxContext) {
+    try {
+      kineticService = await import('@/lib/editron/services/kinetic-sfx-service');
+      kineticSfxEvents = kineticService.deriveCodegenKineticSfxEvents(request.input, overlayId, {
+        speechEnergy: kineticSfxContext.speechEnergy,
+        evidence: [
+          `policy:${kineticSfxContext.policy}`,
+          `profile:${kineticSfxContext.profileId}`,
+          `speech-source:${kineticSfxContext.speechSource}`,
+        ],
+      });
+    } catch (error) {
+      kineticServiceError = error instanceof Error ? error.message : String(error);
+    }
+  }
   const overlay = buildMgSequenceOverlay({
     sequence: result.sequence,
     receipt: result.receipt,
@@ -383,16 +442,45 @@ async function deliverMgRenderJobResult(job: MgRenderJob, result: MgRenderWorker
       kineticSfxEvents,
     },
   });
-  overlay.metadata = { ...overlay.metadata, mgRenderJobId: job._id };
+  overlay.metadata = {
+    ...overlay.metadata,
+    mgRenderJobId: job._id,
+    kineticSfxContext: kineticSfxContext ?? {
+      version: 'mg-kinetic-sfx-context-v1',
+      status: 'unavailable',
+      momentId: request.input.momentId,
+    },
+  };
   const deliveryOverlays: any[] = [overlay];
-  try {
-    const sfxResult = await placeMotionGraphicKineticSFX(deliveryOverlays, job.userId, 'full');
-    overlay.metadata.kineticSfxDelivery = { status: 'completed', ...sfxResult };
-  } catch (error) {
+  if (!kineticSfxContext) {
+    overlay.metadata.kineticSfxDelivery = {
+      status: 'suppressed',
+      reason: 'durable-kinetic-sfx-context-unavailable',
+    };
+  } else if (kineticServiceError || !kineticService) {
     overlay.metadata.kineticSfxDelivery = {
       status: 'degraded',
-      reason: error instanceof Error ? error.message : String(error),
+      reason: kineticServiceError ?? 'kinetic-sfx-service-unavailable',
     };
+  } else if (kineticSfxEvents.length === 0) {
+    overlay.metadata.kineticSfxDelivery = {
+      status: 'suppressed',
+      reason: 'kinetic-event-not-licensed-by-evidence',
+    };
+  } else {
+    try {
+      const sfxResult = await kineticService.placeMotionGraphicKineticSFX(
+        deliveryOverlays,
+        job.userId,
+        kineticSfxContext.policy,
+      );
+      overlay.metadata.kineticSfxDelivery = { status: 'completed', ...sfxResult };
+    } catch (error) {
+      overlay.metadata.kineticSfxDelivery = {
+        status: 'degraded',
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   const write = await projects.updateOne(
