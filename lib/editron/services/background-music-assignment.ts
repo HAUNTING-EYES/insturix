@@ -16,6 +16,10 @@ import {
   MUSIC_RIGHTS_ATTESTATION_VERSION as RIGHTS_ATTESTATION_VERSION,
   type MusicRightsContract,
 } from '@/lib/editron/shared/render-request-payload';
+import {
+  RenderAudioRightsAuthorityError,
+  verifyRenderAudioRightsAuthority,
+} from './render-audio-rights-authority';
 
 import { DEFAULT_BGM_MIX_LEVELS } from './bgm-mix-levels';
 import { refreshSignedUrl } from './gcs-service';
@@ -88,7 +92,7 @@ export interface BackgroundMusicAssignmentResult {
   snappedCutCount: number;
 }
 
-interface StoredAudioAsset {
+interface StoredAudioAsset extends Record<string, unknown> {
   assetId: string;
   userId?: string;
   projectId?: string;
@@ -113,7 +117,11 @@ interface AssignmentReceipt {
 
 export interface BackgroundMusicAssignmentDependencies {
   loadProject: (userId: string, projectId: string) => Promise<any | null>;
-  findAsset: (assetId: string) => Promise<StoredAudioAsset | null>;
+  findAsset: (
+    assetId: string,
+    userId: string,
+    projectId: string,
+  ) => Promise<StoredAudioAsset | null>;
   resolveR2ReadUrl: (r2Key: string) => Promise<string>;
   resolveGcsReadUrl: (gcsPath: string) => Promise<string>;
   fetchAsset: typeof fetch;
@@ -129,11 +137,28 @@ export interface BackgroundMusicAssignmentDependencies {
   now: () => Date;
 }
 
+export function buildBackgroundMusicSourceAssetFilter(input: {
+  assetId: string;
+  userId: string;
+  projectId: string;
+}): Record<string, unknown> {
+  return {
+    assetId: input.assetId,
+    userId: input.userId,
+    $or: [
+      { source: { $ne: 'library' } },
+      { source: 'library', projectId: input.projectId },
+    ],
+  };
+}
+
 const defaultDependencies: BackgroundMusicAssignmentDependencies = {
   loadProject: (userId, projectId) => projectService.loadProject(userId, projectId),
-  findAsset: async (assetId) => {
+  findAsset: async (assetId, userId, projectId) => {
     const db = await getDatabase();
-    return db.collection(COLLECTIONS.MEDIA_ASSETS).findOne({ assetId }) as Promise<StoredAudioAsset | null>;
+    return db.collection(COLLECTIONS.MEDIA_ASSETS).findOne(
+      buildBackgroundMusicSourceAssetFilter({ assetId, userId, projectId }),
+    ) as Promise<StoredAudioAsset | null>;
   },
   resolveR2ReadUrl: getR2PresignedReadUrl,
   resolveGcsReadUrl: async (gcsPath) => (await refreshSignedUrl(gcsPath)).url,
@@ -232,14 +257,20 @@ export async function assignBackgroundMusic(
     },
   });
 
-  const sourceAsset = await dependencies.findAsset(input.assetId);
+  const sourceAsset = await dependencies.findAsset(
+    input.assetId,
+    input.userId,
+    input.projectId,
+  );
   if (!sourceAsset) {
     throw assignmentError('ASSET_NOT_FOUND', 'Audio asset not found', 404);
   }
+  assertSourceAssetScope(sourceAsset, input);
   if (sourceAsset.type !== 'audio') {
     throw assignmentError('ASSET_NOT_AUDIO', 'Selected asset is not an audio asset', 422);
   }
   const musicRights = resolveMusicRights(sourceAsset, input, assignedAt);
+  await verifyLibrarySourceAuthority(sourceAsset, input, musicRights);
   const sourceBuffer = await downloadStoredAudio(sourceAsset, dependencies);
 
   const audioPlatformEvidence = resolveAudioPlatformEvidence([
@@ -541,13 +572,6 @@ function resolveMusicRights(
     }
     return persistedRights;
   }
-  if (asset.userId !== input.userId) {
-    throw assignmentError(
-      'ASSET_ACCESS_DENIED',
-      'The selected audio asset is not owned by this user',
-      403,
-    );
-  }
   if (asset.source === 'generated') {
     if (
       persistedRights?.source === 'generated'
@@ -593,6 +617,63 @@ function resolveMusicRights(
       attestedBy: input.userId,
     },
   };
+}
+
+function assertSourceAssetScope(
+  asset: StoredAudioAsset,
+  input: BackgroundMusicAssignmentInput,
+): void {
+  if (asset.userId !== input.userId) {
+    throw assignmentError(
+      'ASSET_ACCESS_DENIED',
+      'The selected audio asset is not owned by this user',
+      403,
+    );
+  }
+  if (asset.source === 'library' && asset.projectId !== input.projectId) {
+    throw assignmentError(
+      'ASSET_ACCESS_DENIED',
+      'Library music is licensed only for the project that ingested it',
+      403,
+    );
+  }
+}
+
+async function verifyLibrarySourceAuthority(
+  asset: StoredAudioAsset,
+  input: BackgroundMusicAssignmentInput,
+  musicRights: MusicRightsContract,
+): Promise<void> {
+  if (musicRights.source !== 'library') return;
+
+  try {
+    await verifyRenderAudioRightsAuthority(
+      {
+        userId: input.userId,
+        projectId: input.projectId,
+        overlays: [{
+          id: `background-music-source:${asset.assetId}`,
+          type: 'sound',
+          row: ROW.BGM,
+          assetId: asset.assetId,
+          musicRights,
+        }],
+      },
+      {
+        loadAssets: async () => [asset],
+      },
+    );
+  } catch (error) {
+    if (error instanceof RenderAudioRightsAuthorityError) {
+      throw assignmentError(
+        'UNLICENSED_LIBRARY_ASSET',
+        `Library audio authority could not be verified: ${error.message}`,
+        422,
+        error,
+      );
+    }
+    throw error;
+  }
 }
 
 async function downloadStoredAudio(

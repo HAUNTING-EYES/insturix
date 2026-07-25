@@ -25,6 +25,7 @@ vi.mock('@/lib/editron/services/project-service', () => ({
 
 import {
   assignBackgroundMusic,
+  buildBackgroundMusicSourceAssetFilter,
   type BackgroundMusicAssignmentDependencies,
   type BackgroundMusicAssignmentInput,
 } from '@/lib/editron/services/background-music-assignment';
@@ -87,6 +88,57 @@ const BEAT_EVIDENCE = {
     source: 'audio-analysis' as const,
   },
 };
+
+function libraryReceipt(
+  ownership: { userId: string; projectId: string } = {
+    userId: 'user_1',
+    projectId: 'project_1',
+  },
+) {
+  return {
+    version: 'editron-library-license-receipt-v1',
+    provider: 'epidemic-sound',
+    providerTrackId: 'epidemic_track_1',
+    licenseId: 'epidemic_license_1',
+    agreement: {
+      reference: 'agreement_1',
+      configuredBy: 'deployment-operator',
+      authority: 'NEVER_AUTOMATED',
+    },
+    ownership: {
+      ...ownership,
+      orgId: null,
+    },
+    sourceObject: {
+      sha256: 'a'.repeat(64),
+      size: 1_024,
+    },
+  };
+}
+
+function libraryAsset(overrides: Record<string, unknown> = {}) {
+  return {
+    assetId: 'audio_1',
+    userId: 'user_1',
+    projectId: 'project_1',
+    type: 'audio',
+    source: 'library',
+    r2Key: 'users/user_1/library/audio_1.mp3',
+    musicRights: {
+      mediaRole: 'music',
+      source: 'library',
+      userChoice: 'attested',
+      licensed: true,
+      evidence: {
+        kind: 'library-license',
+        sourceAssetId: 'audio_1',
+        licenseId: 'epidemic_license_1',
+      },
+    },
+    libraryLicenseReceipt: libraryReceipt(),
+    ...overrides,
+  };
+}
 
 function projectFixture(overrides: Record<string, unknown> = {}) {
   return {
@@ -219,6 +271,7 @@ describe('background music assignment', () => {
       from: 150,
       durationInFrames: 150,
     });
+    expect(deps.findAsset).toHaveBeenCalledWith('audio_1', 'user_1', 'project_1');
 
     expect(deps.upsertDerivativeAsset).toHaveBeenCalledWith(expect.objectContaining({
       assetId: result.derivativeAssetId,
@@ -247,6 +300,37 @@ describe('background music assignment', () => {
     );
   });
 
+  it('scopes Mongo lookup and accepts only a matching durable library receipt', async () => {
+    expect(buildBackgroundMusicSourceAssetFilter({
+      assetId: 'audio_1',
+      userId: 'user_1',
+      projectId: 'project_1',
+    })).toEqual({
+      assetId: 'audio_1',
+      userId: 'user_1',
+      $or: [
+        { source: { $ne: 'library' } },
+        { source: 'library', projectId: 'project_1' },
+      ],
+    });
+    const deps = dependencies({
+      findAsset: vi.fn(async () => libraryAsset() as any),
+    });
+
+    const result = await assignBackgroundMusic(INPUT, deps);
+
+    expect(result.musicRights).toMatchObject({
+      source: 'library',
+      licensed: true,
+      evidence: {
+        sourceAssetId: 'audio_1',
+        licenseId: 'epidemic_license_1',
+      },
+    });
+    expect(deps.fetchAsset).toHaveBeenCalledTimes(1);
+    expect(deps.condition).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     {
       name: 'an unattested user upload',
@@ -259,6 +343,8 @@ describe('background music assignment', () => {
       input: INPUT,
       asset: {
         assetId: 'audio_1',
+        userId: 'user_1',
+        projectId: 'project_1',
         type: 'audio',
         source: 'library',
         r2Key: 'key',
@@ -272,6 +358,7 @@ describe('background music assignment', () => {
       asset: {
         assetId: 'audio_1',
         userId: 'user_1',
+        projectId: 'project_1',
         type: 'audio',
         source: 'library',
         r2Key: 'key',
@@ -283,6 +370,8 @@ describe('background music assignment', () => {
       input: INPUT,
       asset: {
         assetId: 'audio_1',
+        userId: 'user_1',
+        projectId: 'project_1',
         type: 'audio',
         source: 'library',
         r2Key: 'key',
@@ -292,6 +381,35 @@ describe('background music assignment', () => {
           licensed: true,
         },
       },
+      code: 'UNLICENSED_LIBRARY_ASSET',
+    },
+    {
+      name: 'library music ingested for another project',
+      input: INPUT,
+      asset: libraryAsset({
+        projectId: 'project_2',
+        libraryLicenseReceipt: libraryReceipt({
+          userId: 'user_1',
+          projectId: 'project_2',
+        }),
+      }),
+      code: 'ASSET_ACCESS_DENIED',
+    },
+    {
+      name: 'library music with mismatched receipt ownership',
+      input: INPUT,
+      asset: libraryAsset({
+        libraryLicenseReceipt: libraryReceipt({
+          userId: 'user_1',
+          projectId: 'project_2',
+        }),
+      }),
+      code: 'UNLICENSED_LIBRARY_ASSET',
+    },
+    {
+      name: 'library music with revoked rights evidence',
+      input: INPUT,
+      asset: libraryAsset({ rightsRevokedAt: NOW }),
       code: 'UNLICENSED_LIBRARY_ASSET',
     },
     {
