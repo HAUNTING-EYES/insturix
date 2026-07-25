@@ -1,5 +1,18 @@
 import React from "react";
-import { Download, Loader2, Bell, Save, X, Layers, Info, BarChart3, AlertTriangle } from "lucide-react";
+import {
+  AlertTriangle,
+  BarChart3,
+  Bell,
+  Download,
+  FileAudio2,
+  Info,
+  Layers,
+  Loader2,
+  Music2,
+  Save,
+  Volume2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -17,24 +30,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { formatDistanceToNow } from "date-fns";
-
-/**
- * Interface representing a single video render attempt
- * @property {string} url - URL of the rendered video (if successful)
- * @property {Date} timestamp - When the render was completed
- * @property {string} id - Unique identifier for the render
- * @property {'success' | 'error'} status - Result of the render attempt
- * @property {string} error - Error message if render failed
- * @property {Date} expiresAt - When the render file expires (7 days after creation)
- */
-interface RenderItem {
-  url?: string;
-  timestamp: Date;
-  id: string;
-  status: "success" | "error";
-  error?: string;
-  expiresAt?: Date;
-}
+import {
+  formatCueTime,
+  parseRenderHistoryItem,
+  type RenderItem,
+} from "./render-delivery-ui";
+import type {
+  RenderDeliveryManifest,
+  RenderMusicDeliveryMode,
+} from "@/lib/editron/services/render-delivery-manifest";
 
 /**
  * Props for the RenderControls component
@@ -46,7 +50,9 @@ interface RenderItem {
  */
 interface RenderControlsProps {
   state: any;
-  handleRender: () => void;
+  handleRender: (
+    musicDeliveryMode?: RenderMusicDeliveryMode,
+  ) => void | Promise<void>;
   handleCancel?: () => void;
   saveProject?: () => Promise<void>;
   renderType?: "ssr" | "lambda";
@@ -77,6 +83,8 @@ const RenderControls: React.FC<RenderControlsProps> = ({
   const [renders, setRenders] = React.useState<RenderItem[]>([]);
   // Track if there are new renders
   const [hasNewRender, setHasNewRender] = React.useState(false);
+  const [musicDeliveryMode, setMusicDeliveryMode] =
+    React.useState<RenderMusicDeliveryMode>("embedded");
 
   // Quality gate: warn before render when score < 40
   const QUALITY_WARN_THRESHOLD = 40; // <- Plan decision: "Score < 40 shows dialog"
@@ -110,7 +118,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
 
     if (!projectId || renderType !== "lambda") {
       setQualityChecking(false);
-      handleRender();
+      void handleRender("embedded");
       return;
     }
 
@@ -139,15 +147,24 @@ const RenderControls: React.FC<RenderControlsProps> = ({
     }
 
     setQualityChecking(false);
-    handleRender();
-  }, [projectId, renderType, handleRender, saveBeforeRender]);
+    void handleRender(musicDeliveryMode);
+  }, [
+    projectId,
+    renderType,
+    handleRender,
+    musicDeliveryMode,
+    saveBeforeRender,
+  ]);
 
   // Check if rendering is disabled via environment variable
   const isRenderDisabled = process.env.NEXT_PUBLIC_DISABLE_RENDER === "true";
 
   // Alyzitron analysis state
   const [analyzingId, setAnalyzingId] = React.useState<string | null>(null);
-  const [postRenderDialog, setPostRenderDialog] = React.useState<{ url: string } | null>(null);
+  const [postRenderDialog, setPostRenderDialog] = React.useState<{
+    url: string;
+    deliveryManifest?: RenderDeliveryManifest;
+  } | null>(null);
 
   const handleAnalyze = async (url: string, renderId?: string) => {
     if (!projectId || analyzingId) return;
@@ -182,14 +199,12 @@ const RenderControls: React.FC<RenderControlsProps> = ({
         const json = await response.json();
         
         if (json.type === "success" && json.data?.renders?.length > 0) {
-          const historyItems: RenderItem[] = json.data.renders.map((r: any) => ({
-            id: r.id,
-            url: r.url,
-            timestamp: new Date(r.completedAt),
-            status: r.status === "done" ? "success" : "error",
-            error: r.error,
-            expiresAt: r.expiresAt ? new Date(r.expiresAt) : undefined,
-          }));
+          const historyItems: RenderItem[] = json.data.renders.flatMap(
+            (record: unknown) => {
+              const item = parseRenderHistoryItem(record);
+              return item ? [item] : [];
+            },
+          );
           setRenders(historyItems);
         }
       } catch (err) {
@@ -209,11 +224,17 @@ const RenderControls: React.FC<RenderControlsProps> = ({
           timestamp: new Date(),
           id: crypto.randomUUID(),
           status: "success",
+          deliveryManifest: state.deliveryManifest,
         },
         ...prev,
       ]);
       setHasNewRender(true);
-      if (state.url) setPostRenderDialog({ url: state.url });
+      if (state.url) {
+        setPostRenderDialog({
+          url: state.url,
+          deliveryManifest: state.deliveryManifest,
+        });
+      }
     } else if (state.status === "error") {
       setRenders((prev) => [
         {
@@ -227,7 +248,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
       ]);
       setHasNewRender(true);
     }
-  }, [state.status, state.url, state.error]);
+  }, [state.status, state.url, state.error, state.deliveryManifest]);
 
   const handleDownload = async (url: string) => {
     try {
@@ -298,6 +319,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
       return url.split("/").pop();
     }
   };
+  const postRenderHandoff = postRenderDialog?.deliveryManifest?.music.handoff;
 
   return (
     <>
@@ -328,76 +350,130 @@ const RenderControls: React.FC<RenderControlsProps> = ({
             {renders.length === 0 ? (
               <p className="text-[11px] text-muted-foreground">No renders yet</p>
             ) : (
-              renders.map((render) => (
-                <div
-                  key={render.id}
-                  className={`flex items-center justify-between rounded-md border p-1.5 ${
-                    render.status === "error"
-                      ? "border-destructive/50 bg-destructive/10"
-                      : "border-border"
-                  }`}
-                >
-                  <div className="flex flex-col">
-                    <div className="text-[11px] text-zinc-200">
-                      {render.status === "error" ? (
-                        <span className="text-red-400 font-medium">
-                          Render Failed
-                        </span>
-                      ) : (
-                        getDisplayFileName(render.url!)
-                      )}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {formatDistanceToNow(render.timestamp, {
-                        addSuffix: true,
-                      })}
-                      {render.error && (
+              renders.map((render) => {
+                const handoff = render.deliveryManifest?.music.handoff;
+                return (
+                  <div
+                    key={render.id}
+                    className={`flex items-center justify-between rounded-md border p-1.5 ${
+                      render.status === "error"
+                        ? "border-destructive/50 bg-destructive/10"
+                        : "border-border"
+                    }`}
+                  >
+                    <div className="flex min-w-0 flex-col">
+                      <div className="truncate text-[11px] text-zinc-200">
+                        {render.status === "error" ? (
+                          <span className="font-medium text-red-400">
+                            Render Failed
+                          </span>
+                        ) : (
+                          getDisplayFileName(render.url!)
+                        )}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {formatDistanceToNow(render.timestamp, {
+                          addSuffix: true,
+                        })}
+                        {render.error && (
+                          <div
+                            className="mt-0.5 max-w-[180px] truncate text-red-400"
+                            title={render.error}
+                          >
+                            {render.error}
+                          </div>
+                        )}
+                      </div>
+                      {render.deliveryManifest && (
                         <div
-                          className="text-red-400 mt-0.5 truncate max-w-[180px]"
-                          title={render.error}
+                          className="mt-0.5 flex items-center gap-1 text-[10px] text-zinc-400"
+                          title={handoff
+                            ? "Add destination-platform music manually"
+                            : "Licensed music is embedded in this master"}
                         >
-                          {render.error}
+                          <FileAudio2 className="h-3 w-3 shrink-0" />
+                          <span className="truncate">
+                            {handoff
+                              ? `Clean master • ${formatCueTime(handoff.timing.timelineStartMs)}-${formatCueTime(handoff.timing.timelineEndMs)}`
+                              : "Mixed master"}
+                          </span>
                         </div>
                       )}
                     </div>
+                    {render.status === "success" && (
+                      (() => {
+                        const isExpired = render.expiresAt && new Date() > render.expiresAt;
+                        return isExpired ? (
+                          <span className="px-1.5 text-[10px] text-muted-foreground">Expired</span>
+                        ) : (
+                          <div className="flex items-center gap-0.5">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6 text-zinc-200 hover:text-gray-800"
+                              onClick={() => handleAnalyze(render.url!, render.id)}
+                              disabled={analyzingId === render.id}
+                              title="Analyze with Alyzitron"
+                            >
+                              {analyzingId === render.id
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : <BarChart3 className="h-3 w-3" />}
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6 text-zinc-200 hover:text-gray-800"
+                              onClick={() => handleDownload(render.url!)}
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        );
+                      })()
+                    )}
                   </div>
-                  {render.status === "success" && (
-                    (() => {
-                      const isExpired = render.expiresAt && new Date() > render.expiresAt;
-                      return isExpired ? (
-                        <span className="text-[10px] text-muted-foreground px-1.5">Expired</span>
-                      ) : (
-                        <div className="flex items-center gap-0.5">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="text-zinc-200 hover:text-gray-800 h-6 w-6"
-                            onClick={() => handleAnalyze(render.url!, render.id)}
-                            disabled={analyzingId === render.id}
-                            title="Analyze with Alyzitron"
-                          >
-                            {analyzingId === render.id
-                              ? <Loader2 className="w-3 h-3 animate-spin" />
-                              : <BarChart3 className="w-3 h-3" />}
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="text-zinc-200 hover:text-gray-800 h-6 w-6"
-                            onClick={() => handleDownload(render.url!)}
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                      );
-                    })()
-                  )}
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </PopoverContent>
       </Popover>
+
+      {renderType === "lambda" && (
+        <div
+          className="inline-flex h-8 rounded-md border border-gray-700 bg-gray-900 p-0.5"
+          aria-label="Music delivery mode"
+        >
+          <button
+            type="button"
+            onClick={() => setMusicDeliveryMode("embedded")}
+            disabled={state.status === "rendering" || state.status === "invoking"}
+            title="Render with licensed music embedded"
+            className={`inline-flex items-center gap-1 rounded px-2 text-[10px] font-medium ${
+              musicDeliveryMode === "embedded"
+                ? "bg-zinc-700 text-white"
+                : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            <Volume2 className="h-3 w-3" />
+            Mixed
+          </button>
+          <button
+            type="button"
+            onClick={() => setMusicDeliveryMode("platform-native")}
+            disabled={state.status === "rendering" || state.status === "invoking"}
+            title="Render a clean master for music added on the destination platform"
+            className={`inline-flex items-center gap-1 rounded px-2 text-[10px] font-medium ${
+              musicDeliveryMode === "platform-native"
+                ? "bg-zinc-700 text-white"
+                : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            <Music2 className="h-3 w-3" />
+            Clean
+          </button>
+        </div>
+      )}
 
       <Button
         onClick={handleRenderWithQualityCheck}
@@ -451,7 +527,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
               onClick={() => {
                 setQualityDialogOpen(false);
                 setQualityChecking(false);
-                handleRender();
+                void handleRender(musicDeliveryMode);
               }}
             >
               Render Anyway
@@ -516,6 +592,34 @@ const RenderControls: React.FC<RenderControlsProps> = ({
               Download your rendered video or send it to Alyzitron for quality analysis, engagement scoring, and improvement suggestions.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {postRenderHandoff && (
+            <div className="border-y border-zinc-800 py-2.5 text-xs">
+              <div className="mb-2 flex items-center gap-1.5 font-semibold text-[#D4A652]">
+                <FileAudio2 className="h-3.5 w-3.5" />
+                Platform music handoff
+              </div>
+              <div className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-1 text-zinc-400">
+                <span>Master</span>
+                <span className="text-zinc-200">Clean, no BGM</span>
+                <span>Track</span>
+                <span className="truncate text-zinc-200">
+                  {postRenderHandoff.track.title ?? "Choose in platform"}
+                </span>
+                <span>Timeline</span>
+                <span className="font-mono text-zinc-200">
+                  {formatCueTime(postRenderHandoff.timing.timelineStartMs)}
+                  {" - "}
+                  {formatCueTime(postRenderHandoff.timing.timelineEndMs)}
+                </span>
+                <span>Cue</span>
+                <span className="text-zinc-200">
+                  {postRenderHandoff.timing.timelineBeatEntryMs === null
+                    ? "Manual"
+                    : formatCueTime(postRenderHandoff.timing.timelineBeatEntryMs)}
+                </span>
+              </div>
+            </div>
+          )}
           <AlertDialogFooter className="flex-col gap-2 sm:flex-col">
             <AlertDialogAction
               className="bg-zinc-700 text-white hover:bg-zinc-600 w-full"

@@ -9,6 +9,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { formatCueTime } from '../../components/rendering/render-delivery-ui';
 import { useEditorContext } from '../../contexts/editor-context';
 import type { AspectRatio } from '../../types';
 import type {
@@ -26,13 +27,6 @@ const ASPECTS: AspectRatio[] = ['16:9', '9:16', '1:1', '4:5'];
 
 const iconBtn =
   'flex h-8 w-8 items-center justify-center rounded-button border border-ds-subtle bg-surface-deeper text-ds-secondary transition-colors hover:bg-surface-well disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold/60';
-
-function formatCueTime(milliseconds: number) {
-  const totalSeconds = Math.max(0, Math.round(milliseconds / 1_000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-}
 
 export function V2Header({
   projectName,
