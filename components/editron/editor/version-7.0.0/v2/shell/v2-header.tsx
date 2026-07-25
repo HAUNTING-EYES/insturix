@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/popover';
 import { formatCueTime } from '../../components/rendering/render-delivery-ui';
 import { useEditorContext } from '../../contexts/editor-context';
+import { hasReferenceOnlyBackgroundMusic } from '../../utils/background-music-assignment';
 import type { AspectRatio } from '../../types';
 import type {
   RenderDeliveryManifest,
@@ -43,14 +44,22 @@ export function V2Header({
   onOpenQuality?: () => void;
   onOpenMobilePreview?: () => void;
 }) {
-  const { aspectRatio, setAspectRatio, undo, redo, canUndo, canRedo, renderMedia, state } = useEditorContext();
+  const { aspectRatio, setAspectRatio, undo, redo, canUndo, canRedo, renderMedia, state, overlays } = useEditorContext();
   const [saveMenu, setSaveMenu] = useState(false);
   const [musicDeliveryMode, setMusicDeliveryMode] =
     useState<RenderMusicDeliveryMode>('embedded');
+  const hasReferenceMusic = hasReferenceOnlyBackgroundMusic(overlays);
+  const effectiveMusicDeliveryMode: RenderMusicDeliveryMode = hasReferenceMusic
+    ? 'platform-native'
+    : musicDeliveryMode;
   const rendering = state?.status === 'rendering' || state?.status === 'invoking';
   const deliveryManifest: RenderDeliveryManifest | undefined =
     state?.status === 'done' ? state.deliveryManifest : undefined;
   const musicHandoff = deliveryManifest?.music.handoff;
+
+  useEffect(() => {
+    if (hasReferenceMusic) setMusicDeliveryMode('platform-native');
+  }, [hasReferenceMusic]);
 
   // The header receives the project id; fetch the friendly project name
   // (falls back to the id if the project has no name / the fetch fails).
@@ -101,11 +110,13 @@ export function V2Header({
           <button
             type="button"
             onClick={() => setMusicDeliveryMode('embedded')}
-            disabled={rendering}
-            title="Render with licensed music embedded"
+            disabled={rendering || hasReferenceMusic}
+            title={hasReferenceMusic
+              ? 'Reference music is excluded from exports'
+              : 'Render with licensed music embedded'}
             className={cn(
               'inline-flex items-center gap-1 rounded-[5px] px-2 font-mono text-[10px] transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold/60',
-              musicDeliveryMode === 'embedded'
+              effectiveMusicDeliveryMode === 'embedded'
                 ? 'bg-surface-well font-bold text-ds-primary'
                 : 'text-ds-muted hover:text-ds-secondary',
             )}
@@ -120,7 +131,7 @@ export function V2Header({
             title="Render a clean master for music added on the destination platform"
             className={cn(
               'inline-flex items-center gap-1 rounded-[5px] px-2 font-mono text-[10px] transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold/60',
-              musicDeliveryMode === 'platform-native'
+              effectiveMusicDeliveryMode === 'platform-native'
                 ? 'bg-surface-well font-bold text-ds-primary'
                 : 'text-ds-muted hover:text-ds-secondary',
             )}
@@ -129,6 +140,18 @@ export function V2Header({
             Clean
           </button>
         </div>
+        {hasReferenceMusic && (
+          <span
+            title="Reference music plays in the editor but is excluded from the exported video"
+          >
+            <Mono
+              size="8"
+              className="rounded border border-gold/40 bg-gold/10 px-1.5 py-1 text-gold"
+            >
+              REF · CLEAN ONLY
+            </Mono>
+          </span>
+        )}
         {musicHandoff && (
           <Popover>
             <PopoverTrigger asChild>
@@ -169,7 +192,7 @@ export function V2Header({
             </PopoverContent>
           </Popover>
         )}
-        <button type="button" onClick={() => renderMedia(musicDeliveryMode)} disabled={rendering} className="inline-flex h-8 items-center gap-1.5 rounded-button border border-gold bg-gold px-4 text-[12.5px] font-extrabold text-[#241B08] hover:bg-[#E0B86A] disabled:opacity-60 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold/60"><span className="h-2 w-2 rounded-full bg-[#241B08]" />{rendering ? 'Rendering…' : 'Render'}</button>
+        <button type="button" onClick={() => renderMedia(effectiveMusicDeliveryMode)} disabled={rendering} className="inline-flex h-8 items-center gap-1.5 rounded-button border border-gold bg-gold px-4 text-[12.5px] font-extrabold text-[#241B08] hover:bg-[#E0B86A] disabled:opacity-60 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold/60"><span className="h-2 w-2 rounded-full bg-[#241B08]" />{rendering ? 'Rendering…' : 'Render'}</button>
       </div>
     </div>
   );

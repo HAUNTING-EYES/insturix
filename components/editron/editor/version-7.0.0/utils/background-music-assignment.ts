@@ -4,6 +4,8 @@ import type { Overlay } from '../types';
 
 export const MUSIC_RIGHTS_ATTESTATION_VERSION = 'music-rights-attestation-v1';
 
+export type BackgroundMusicUsageMode = 'embedded' | 'reference-only';
+
 const IDEMPOTENCY_FRAGMENT_PATTERN = /^[A-Za-z0-9_-]{8,120}$/;
 
 export class BackgroundMusicAssignmentClientError extends Error {
@@ -22,6 +24,7 @@ export interface AssignBackgroundMusicAssetInput {
   projectId: string;
   assetId: string;
   idempotencyKey: string;
+  usageMode?: BackgroundMusicUsageMode;
   rightsSource?: 'user-upload' | 'library';
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
@@ -29,6 +32,7 @@ export interface AssignBackgroundMusicAssetInput {
 
 export interface AssignBackgroundMusicAssetResult {
   replayed: boolean;
+  usageMode: BackgroundMusicUsageMode;
   sourceAssetId: string;
   derivativeAssetId: string;
   overlays: Overlay[];
@@ -99,10 +103,26 @@ export function createBackgroundMusicIdempotencyKey(
   return `bgm_${fragment}`;
 }
 
+export function hasReferenceOnlyBackgroundMusic(overlays: readonly unknown[]): boolean {
+  return overlays.some((overlay) => {
+    const record = recordField(overlay);
+    if (!record || record.type !== 'sound') return false;
+    const rights = recordField(record.audioRights) ?? recordField(record.musicRights);
+    const metadata = recordField(record.metadata);
+    const assignment = recordField(metadata?.assignment);
+    return (
+      rights?.source === 'preview-only'
+      && rights.userChoice === 'no-music'
+      && rights.licensed === false
+    ) || assignment?.usageMode === 'reference-only';
+  });
+}
+
 export async function assignBackgroundMusicAsset({
   projectId,
   assetId,
   idempotencyKey,
+  usageMode = 'embedded',
   rightsSource = 'user-upload',
   signal,
   fetchImpl = fetch,
@@ -114,6 +134,8 @@ export async function assignBackgroundMusicAsset({
     || !normalizedAssetId
     || !idempotencyKey.trim()
     || (rightsSource !== 'user-upload' && rightsSource !== 'library')
+    || (usageMode !== 'embedded' && usageMode !== 'reference-only')
+    || (usageMode === 'reference-only' && rightsSource !== 'user-upload')
   ) {
     throw new BackgroundMusicAssignmentClientError(
       'INVALID_REQUEST',
@@ -131,7 +153,8 @@ export async function assignBackgroundMusicAsset({
         body: JSON.stringify({
           assetId: normalizedAssetId,
           idempotencyKey,
-          ...(rightsSource === 'user-upload'
+          ...(usageMode === 'reference-only' ? { usageMode } : {}),
+          ...(rightsSource === 'user-upload' && usageMode === 'embedded'
             ? {
                 rightsAttestation: {
                   accepted: true,
@@ -175,9 +198,18 @@ export async function assignBackgroundMusicAsset({
       response.status,
     );
   }
+  const responseUsageMode = stringField(payload.usageMode) ?? usageMode;
+  if (responseUsageMode !== usageMode) {
+    throw new BackgroundMusicAssignmentClientError(
+      'INVALID_RESPONSE',
+      'Background music service returned a different usage mode',
+      response.status,
+    );
+  }
 
   return {
     replayed: payload.replayed === true,
+    usageMode,
     sourceAssetId: payload.sourceAssetId as string,
     derivativeAssetId: payload.derivativeAssetId as string,
     overlays: payload.overlays as Overlay[],

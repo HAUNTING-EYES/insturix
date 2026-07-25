@@ -6,6 +6,7 @@ import {
   assignBackgroundMusicAsset,
   BackgroundMusicAssignmentClientError,
   createBackgroundMusicIdempotencyKey,
+  hasReferenceOnlyBackgroundMusic,
   ingestAndAssignMusicCatalogTrack,
   MUSIC_RIGHTS_ATTESTATION_VERSION,
   searchMusicCatalog,
@@ -23,6 +24,22 @@ const timelineSources = [
   readFileSync(
     new URL(
       '../../components/editron/editor/version-7.0.0/v2/timeline/v2-timeline-grid.tsx',
+      import.meta.url,
+    ),
+    'utf8',
+  ),
+];
+const renderControlSources = [
+  readFileSync(
+    new URL(
+      '../../components/editron/editor/version-7.0.0/components/rendering/render-controls.tsx',
+      import.meta.url,
+    ),
+    'utf8',
+  ),
+  readFileSync(
+    new URL(
+      '../../components/editron/editor/version-7.0.0/v2/shell/v2-header.tsx',
       import.meta.url,
     ),
     'utf8',
@@ -89,6 +106,7 @@ describe('background music client contract', () => {
     });
 
     expect(result).toMatchObject({
+      usageMode: 'embedded',
       derivativeAssetId: 'bgm_assignment_1',
       snappedCutCount: 2,
       overlays: [
@@ -115,6 +133,53 @@ describe('background music client contract', () => {
     });
     expect(JSON.parse(init?.body as string)).not.toHaveProperty('userId');
     expect(JSON.parse(init?.body as string)).not.toHaveProperty('projectId');
+  });
+
+  it('assigns user audio as a reference without fabricating export consent', async () => {
+    const referenceOverlay = {
+      id: 2,
+      type: 'sound',
+      row: 1,
+      musicRights: {
+        source: 'preview-only',
+        userChoice: 'no-music',
+        licensed: false,
+      },
+      metadata: { assignment: { usageMode: 'reference-only' } },
+    };
+    const fetchImpl = vi.fn(async () => jsonResponse({
+      success: true,
+      replayed: false,
+      usageMode: 'reference-only',
+      sourceAssetId: 'audio_1',
+      derivativeAssetId: 'bgm_reference_1',
+      overlays: [referenceOverlay],
+      snappedCutCount: 4,
+    })) as unknown as typeof fetch;
+
+    const result = await assignBackgroundMusicAsset({
+      projectId: 'project_1',
+      assetId: 'audio_1',
+      idempotencyKey: 'bgm_reference_001',
+      usageMode: 'reference-only',
+      fetchImpl,
+    });
+
+    expect(result).toMatchObject({
+      usageMode: 'reference-only',
+      derivativeAssetId: 'bgm_reference_1',
+      snappedCutCount: 4,
+    });
+    expect(hasReferenceOnlyBackgroundMusic(result.overlays)).toBe(true);
+    expect(hasReferenceOnlyBackgroundMusic([
+      { type: 'sound', row: 1, musicRights: { source: 'user-upload', licensed: true } },
+    ])).toBe(false);
+    const [, init] = vi.mocked(fetchImpl).mock.calls[0];
+    expect(JSON.parse(init?.body as string)).toEqual({
+      assetId: 'audio_1',
+      idempotencyKey: 'bgm_reference_001',
+      usageMode: 'reference-only',
+    });
   });
 
   it('searches, ingests, then assigns catalog music without fabricating upload consent', async () => {
@@ -318,6 +383,16 @@ describe('background music client contract', () => {
       expect(source).toContain(
         '<BackgroundMusicAssignmentDialog controller={backgroundMusicAssignment} />',
       );
+    }
+  });
+
+  it('forces both editor render controls to use clean delivery for reference music', () => {
+    for (const source of renderControlSources) {
+      expect(source).toContain('hasReferenceOnlyBackgroundMusic');
+      expect(source).toContain('effectiveMusicDeliveryMode');
+      expect(source).toContain('hasReferenceMusic');
+      expect(source).toContain('platform-native');
+      expect(source.toLowerCase()).toContain('clean only');
     }
   });
 });

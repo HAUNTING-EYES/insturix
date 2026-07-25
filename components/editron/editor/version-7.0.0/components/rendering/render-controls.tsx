@@ -39,6 +39,8 @@ import type {
   RenderDeliveryManifest,
   RenderMusicDeliveryMode,
 } from "@/lib/editron/services/render-delivery-manifest";
+import { useEditorContext } from "../../contexts/editor-context";
+import { hasReferenceOnlyBackgroundMusic } from "../../utils/background-music-assignment";
 
 /**
  * Props for the RenderControls component
@@ -79,12 +81,21 @@ const RenderControls: React.FC<RenderControlsProps> = ({
   renderType = "ssr",
   projectId,
 }) => {
+  const { overlays } = useEditorContext();
   // Store multiple renders
   const [renders, setRenders] = React.useState<RenderItem[]>([]);
   // Track if there are new renders
   const [hasNewRender, setHasNewRender] = React.useState(false);
   const [musicDeliveryMode, setMusicDeliveryMode] =
     React.useState<RenderMusicDeliveryMode>("embedded");
+  const hasReferenceMusic = hasReferenceOnlyBackgroundMusic(overlays);
+  const effectiveMusicDeliveryMode: RenderMusicDeliveryMode = hasReferenceMusic
+    ? "platform-native"
+    : musicDeliveryMode;
+
+  React.useEffect(() => {
+    if (hasReferenceMusic) setMusicDeliveryMode("platform-native");
+  }, [hasReferenceMusic]);
 
   // Quality gate: warn before render when score < 40
   const QUALITY_WARN_THRESHOLD = 40; // <- Plan decision: "Score < 40 shows dialog"
@@ -118,7 +129,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
 
     if (!projectId || renderType !== "lambda") {
       setQualityChecking(false);
-      void handleRender("embedded");
+      void handleRender(effectiveMusicDeliveryMode);
       return;
     }
 
@@ -147,12 +158,12 @@ const RenderControls: React.FC<RenderControlsProps> = ({
     }
 
     setQualityChecking(false);
-    void handleRender(musicDeliveryMode);
+    void handleRender(effectiveMusicDeliveryMode);
   }, [
     projectId,
     renderType,
     handleRender,
-    musicDeliveryMode,
+    effectiveMusicDeliveryMode,
     saveBeforeRender,
   ]);
 
@@ -447,10 +458,12 @@ const RenderControls: React.FC<RenderControlsProps> = ({
           <button
             type="button"
             onClick={() => setMusicDeliveryMode("embedded")}
-            disabled={state.status === "rendering" || state.status === "invoking"}
-            title="Render with licensed music embedded"
+            disabled={hasReferenceMusic || state.status === "rendering" || state.status === "invoking"}
+            title={hasReferenceMusic
+              ? "Reference music is excluded from exports"
+              : "Render with licensed music embedded"}
             className={`inline-flex items-center gap-1 rounded px-2 text-[10px] font-medium ${
-              musicDeliveryMode === "embedded"
+              effectiveMusicDeliveryMode === "embedded"
                 ? "bg-zinc-700 text-white"
                 : "text-zinc-400 hover:text-white"
             }`}
@@ -464,7 +477,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
             disabled={state.status === "rendering" || state.status === "invoking"}
             title="Render a clean master for music added on the destination platform"
             className={`inline-flex items-center gap-1 rounded px-2 text-[10px] font-medium ${
-              musicDeliveryMode === "platform-native"
+              effectiveMusicDeliveryMode === "platform-native"
                 ? "bg-zinc-700 text-white"
                 : "text-zinc-400 hover:text-white"
             }`}
@@ -473,6 +486,14 @@ const RenderControls: React.FC<RenderControlsProps> = ({
             Clean
           </button>
         </div>
+      )}
+      {renderType === "lambda" && hasReferenceMusic && (
+        <span
+          className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-1 text-[9px] font-semibold uppercase text-amber-300"
+          title="Reference music plays in the editor but is excluded from the exported video"
+        >
+          Ref · Clean only
+        </span>
       )}
 
       <Button
@@ -527,7 +548,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
               onClick={() => {
                 setQualityDialogOpen(false);
                 setQualityChecking(false);
-                void handleRender(musicDeliveryMode);
+                void handleRender(effectiveMusicDeliveryMode);
               }}
             >
               Render Anyway
