@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -145,6 +147,16 @@ function makeConditionedBgm(targetFrames: number, fps = 30, platform?: string | 
     filename: 'bgm_conditioned.flac',
     contentType: 'audio/flac',
     buffer: Buffer.from('conditioned-flac-bytes'),
+    musicRights: {
+      source: 'generated' as const,
+      userChoice: 'attested' as const,
+      licensed: true,
+      evidence: {
+        kind: 'generated-provider' as const,
+        sourceAssetId: 'bgm_conditioned',
+        licenseId: 'fal-ai:cassetteai/music-generator:commercial-use',
+      },
+    },
     conditioning: {
       targetFrames,
       durationMs,
@@ -326,6 +338,25 @@ describe('conditioned music beat evidence', () => {
 });
 
 describe('conditioned BGM contract', () => {
+  it('stamps provider rights at generation and persists them in every producer', () => {
+    const serviceSource = readFileSync(
+      resolve(process.cwd(), 'lib/pipeline/bgm-service.ts'),
+      'utf8',
+    );
+    expect(serviceSource).toContain(
+      "licenseId: 'fal-ai:cassetteai/music-generator:commercial-use'",
+    );
+
+    for (const producerPath of [
+      'app/api/internal/workers/pipeline/audio/route.ts',
+      'app/api/services/pipeline/storyboard/[id]/finalize/route.ts',
+      'lib/editron/agent/tools.ts',
+    ]) {
+      const producerSource = readFileSync(resolve(process.cwd(), producerPath), 'utf8');
+      expect(producerSource.match(/musicRights: bgm\.musicRights/g), producerPath).toHaveLength(2);
+    }
+  });
+
   it('uses the first concrete platform evidence and skips placeholders', () => {
     expect(resolveAudioPlatformEvidence([
       { value: 'auto', source: 'payload' },
@@ -512,6 +543,7 @@ describe('storyboard finalize audio conditioning', () => {
       durationInFrames: 150,
       startFromSound: 0,
       _workerAdded: true,
+      musicRights: makeConditionedBgm(150).musicRights,
       metadata: {
         musicCoverage: {
           version: 'music-coverage-plan-v1',
@@ -553,6 +585,7 @@ describe('storyboard finalize audio conditioning', () => {
       durationMs: 5_000,
     });
     expect(assetMutation?.[2].$set).toMatchObject({
+      musicRights: makeConditionedBgm(150).musicRights,
       beatAnalysis: makeBeatAnalysis(),
       beatGrid: {
         bpm: 120,
@@ -799,6 +832,7 @@ describe('audio worker conditioning', () => {
       ),
     );
     expect(assetMutation?.[2].$set).toMatchObject({
+      musicRights: makeConditionedBgm(450, 30, 'tiktok').musicRights,
       beatAnalysis: makeBeatAnalysis(15_000),
       beatGrid: {
         source: 'audio-analysis',

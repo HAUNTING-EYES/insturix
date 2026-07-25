@@ -1215,6 +1215,7 @@ export async function POST(
             content: bgm.audioUrl,
             src: bgm.audioUrl,
             assetId: bgm.audioAssetId,
+            musicRights: bgm.musicRights,
             styles: {
               // CKG-compliant levels (bgm-mix-levels.ts, from CKG music_solo/under_speech dB ranges). Were 0.75/0.20,
               // ~9dB/~5dB hotter than the CKG's own ranges (the "BGM too loud" defect).
@@ -1254,6 +1255,7 @@ export async function POST(
               $set: {
                 cachedUrl: bgm.audioUrl,
                 lastUsedAt: new Date(),
+                musicRights: bgm.musicRights,
                 ...(beatEvidence ? {
                   beatAnalysis: beatEvidence.beatAnalysis,
                   beatGrid: beatEvidence.beatGrid,

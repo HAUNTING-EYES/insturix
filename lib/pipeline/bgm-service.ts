@@ -1,12 +1,12 @@
 /**
  * Background Music Generation Service
  *
- * Uses fal.ai MiniMax Music v2 to generate instrumental background music.
- * MiniMax is fast ($0.03/req) and doesn't queue forever like beatoven.
+ * Uses fal.ai CassetteAI to generate instrumental background music.
  */
 
 import { fal } from '@fal-ai/client';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
+import type { MusicRightsContract } from '@/lib/editron/shared/render-request-payload';
 import { nanoid } from 'nanoid';
 import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
 import { conditionAudio, type AudioConditioningResult } from '@/lib/pipeline/audio-conditioning';
@@ -44,6 +44,7 @@ export interface BGMResult {
   filename: string;
   contentType: string;
   buffer: Buffer;
+  musicRights: MusicRightsContract;
   conditioning?: BGMConditioningEvidence;
 }
 
@@ -86,8 +87,8 @@ async function recordPipelineBGMProviderCost(input: {
 /**
  * Generate background music for the entire video.
  *
- * Uses MiniMax Music v2 (fal-ai/minimax-music/v2) — fast, cheap ($0.03/req),
- * and doesn't sit in queue forever like beatoven.
+ * Uses CassetteAI through fal.ai. Generated tracks carry provider provenance so
+ * every render consumer can enforce the same rights contract.
  *
  * CassetteAI can return less audio than the timeline needs. Callers that provide
  * conditioning options receive an exact-duration, normalized asset before upload.
@@ -211,6 +212,16 @@ export async function generateBackgroundMusic(
       filename,
       contentType,
       buffer: uploadBuffer,
+      musicRights: {
+        source: 'generated',
+        userChoice: 'attested',
+        licensed: true,
+        evidence: {
+          kind: 'generated-provider',
+          sourceAssetId: uploadResult.assetId,
+          licenseId: 'fal-ai:cassetteai/music-generator:commercial-use',
+        },
+      },
       ...(conditioning ? { conditioning } : {}),
     };
   } catch (err) {

@@ -5429,6 +5429,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           content: generatedUrl,
           src: generatedUrl,
           assetId: bgm.audioAssetId,
+          musicRights: bgm.musicRights,
           styles: {
             ...(bgmOverlays[0]?.styles || {}),
             // Preserve the replaced BGM's own level; else CKG-compliant base (~-9dB, bgm-mix-levels.ts). Was 0.75 (too hot).
@@ -5495,6 +5496,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
             $set: {
               cachedUrl: generatedUrl,
               lastUsedAt: now,
+              musicRights: bgm.musicRights,
               ...(beatAnalysis ? { beatAnalysis } : {}),
               ...(beatGrid ? { beatGrid } : {}),
             },

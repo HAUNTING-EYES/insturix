@@ -258,6 +258,7 @@ async function handler(request: NextRequest) {
         content: bgm.audioUrl,
         src: bgm.audioUrl,
         assetId: bgm.audioAssetId,
+        musicRights: bgm.musicRights,
         styles: {
           // Signal-driven levels from the director (CKG solo/under-speech dB ranges); CKG-compliant default when
           // dispatched without them (finalize/storyboard). Replaces the old fixed 0.75/0.20 (music too loud in gaps).
@@ -312,6 +313,7 @@ async function handler(request: NextRequest) {
           $set: {
             cachedUrl: bgm.audioUrl,
             lastUsedAt: new Date(),
+            musicRights: bgm.musicRights,
             ...(beatEvidence ? {
               beatAnalysis: beatEvidence.beatAnalysis,
               beatGrid: beatEvidence.beatGrid,
