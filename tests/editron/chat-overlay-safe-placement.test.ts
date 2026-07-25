@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   constrainChatOverlayPlacement,
   EDITRON_ACTION_SAFE_MARGIN,
+  EDITRON_TEXT_SHADOW_FLOOR,
   EDITRON_TITLE_SAFE_MARGIN,
+  protectChatTextLegibility,
 } from '../../lib/editron/agent/chat-overlay-safe-placement';
 
 describe('chat overlay safe placement', () => {
@@ -77,5 +79,49 @@ describe('chat overlay safe placement', () => {
       bounds: { left: 0, top: 0, width: Number.NaN, height: 100 },
       canvas: { width: 1080, height: 1920 },
     })).toThrow(/finite coordinates and positive dimensions/);
+  });
+
+  it('adds a legibility floor when transparent text is moved without a contrast treatment', () => {
+    expect(protectChatTextLegibility({
+      overlayType: 'text',
+      currentStyles: {
+        color: '#ffffff',
+        backgroundColor: 'transparent',
+      },
+      requestedStyles: {
+        fontSize: 72,
+      },
+    })).toMatchObject({
+      color: '#ffffff',
+      backgroundColor: 'transparent',
+      fontSize: 72,
+      textShadow: EDITRON_TEXT_SHADOW_FLOOR,
+    });
+  });
+
+  it('preserves explicit user contrast choices instead of replacing them', () => {
+    expect(protectChatTextLegibility({
+      overlayType: 'text',
+      currentStyles: {
+        color: '#ffffff',
+        backgroundColor: 'transparent',
+      },
+      requestedStyles: {
+        textShadow: 'none',
+      },
+    })).toMatchObject({
+      backgroundColor: 'transparent',
+      textShadow: 'none',
+    });
+
+    expect(protectChatTextLegibility({
+      overlayType: 'text',
+      currentStyles: {
+        color: '#ffffff',
+      },
+      requestedStyles: {
+        backgroundColor: 'rgba(0,0,0,0.72)',
+      },
+    })).not.toHaveProperty('textShadow');
   });
 });

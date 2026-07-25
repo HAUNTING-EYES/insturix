@@ -60,6 +60,7 @@ import { cutTimelineRange } from '../services/timeline-range-cut';
 import {
   constrainChatOverlayPlacement,
   EDITRON_TITLE_SAFE_MARGIN,
+  protectChatTextLegibility,
 } from './chat-overlay-safe-placement';
 
 // PERF FIX: Module-level singleton map for ChatGoogleGenerativeAI instances.
@@ -1033,22 +1034,25 @@ Call with no arguments to get full timeline.`,
                 },
               },
               content: textContent,
-              styles: {
-                fontSize: `${fontSize}`,
-                fontFamily: input.styles?.fontFamily ?? "font-sans",
-                fontWeight: `${input.styles?.fontWeight ?? 700}`,
-                textAlign: input.styles?.textAlign ?? "center",
-                color: input.styles?.color ?? "#ffffff",
-                backgroundColor: input.styles?.backgroundColor ?? "transparent",
-                fontStyle: "normal",
-                textDecoration: "none",
-                opacity: input.styles?.opacity ?? 1,
-                animation: {
-                  enter: input.styles?.animation?.enter ?? "fade",
-                  exit: input.styles?.animation?.exit ?? "fade",
-                  duration: 15 
-                }
-              }
+              styles: protectChatTextLegibility({
+                overlayType: 'text',
+                currentStyles: {
+                  fontSize: `${fontSize}`,
+                  fontFamily: input.styles?.fontFamily ?? "font-sans",
+                  fontWeight: `${input.styles?.fontWeight ?? 700}`,
+                  textAlign: input.styles?.textAlign ?? "center",
+                  color: input.styles?.color ?? "#ffffff",
+                  backgroundColor: input.styles?.backgroundColor ?? "transparent",
+                  fontStyle: "normal",
+                  textDecoration: "none",
+                  opacity: input.styles?.opacity ?? 1,
+                  animation: {
+                    enter: input.styles?.animation?.enter ?? "fade",
+                    exit: input.styles?.animation?.exit ?? "fade",
+                    duration: 15,
+                  },
+                },
+              }),
             };
             break;
           }
@@ -1248,7 +1252,11 @@ TYPE-SPECIFIC FIELDS:
         
         // Styles merge
         if (input.styles) {
-          updates.styles = { ...overlay.styles, ...input.styles };
+          updates.styles = protectChatTextLegibility({
+            overlayType: overlay.type,
+            currentStyles: overlay.styles,
+            requestedStyles: input.styles,
+          });
         }
         
         await projectService.updateOverlay(userId, projectId, input.id, updates);

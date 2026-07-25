@@ -1,5 +1,7 @@
 export const EDITRON_TITLE_SAFE_MARGIN = 0.1;
 export const EDITRON_ACTION_SAFE_MARGIN = 0.05;
+export const EDITRON_TEXT_SHADOW_FLOOR =
+  '0 4px 16px rgba(0,0,0,0.78), 0 0 5px rgba(0,0,0,0.98), 0 1px 1px rgba(0,0,0,1)';
 
 export interface ChatOverlayBounds {
   left: number;
@@ -17,6 +19,28 @@ export interface ChatOverlayPlacementResolution extends ChatOverlayBounds {
   adjusted: boolean;
   margin: number;
   requested: ChatOverlayBounds;
+}
+
+export function protectChatTextLegibility(input: {
+  overlayType: string;
+  currentStyles?: object;
+  requestedStyles?: object;
+}): Record<string, unknown> {
+  const currentStyles = input.currentStyles ?? {};
+  const requestedStyles = input.requestedStyles ?? {};
+  const mergedStyles: Record<string, unknown> = { ...currentStyles, ...requestedStyles };
+  if (input.overlayType !== 'text') return mergedStyles;
+
+  if (Object.prototype.hasOwnProperty.call(requestedStyles, 'textShadow')) {
+    return mergedStyles;
+  }
+  if (hasVisibleTextShadow(mergedStyles.textShadow)) return mergedStyles;
+  if (!isTransparentSurface(mergedStyles.backgroundColor)) return mergedStyles;
+
+  return {
+    ...mergedStyles,
+    textShadow: EDITRON_TEXT_SHADOW_FLOOR,
+  };
 }
 
 export function constrainChatOverlayPlacement(input: {
@@ -89,4 +113,22 @@ function clamp(value: number, min: number, max: number): number {
 
 function nearlyEqual(a: number, b: number): boolean {
   return Math.abs(a - b) < 0.001;
+}
+
+function hasVisibleTextShadow(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 && normalized !== 'none';
+}
+
+function isTransparentSurface(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value !== 'string') return false;
+  const normalized = value.replace(/\s+/g, '').toLowerCase();
+  if (!normalized || normalized === 'transparent' || normalized === 'none') return true;
+
+  const rgba = normalized.match(/^rgba\([^,]+,[^,]+,[^,]+,([^)]+)\)$/);
+  if (!rgba) return false;
+  const alpha = Number(rgba[1]);
+  return Number.isFinite(alpha) && alpha <= 0;
 }
