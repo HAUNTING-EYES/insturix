@@ -377,24 +377,6 @@ export const createTools = (userId: string, projectId: string) => {
     }));
   };
 
-  const overlayRestoreFingerprint = (overlays: Overlay[]): string => {
-    const volatileKeys = new Set(['src', 'url', 'assetUrl', 'thumbnailUrl', 'signedUrl']);
-    const stableValue = (value: any): any => {
-      if (Array.isArray(value)) return value.map(stableValue);
-      if (value && typeof value === 'object') {
-        return Object.keys(value)
-          .filter((key) => !volatileKeys.has(key))
-          .sort()
-          .reduce((result: Record<string, any>, key) => {
-            result[key] = stableValue(value[key]);
-            return result;
-          }, {});
-      }
-      return value;
-    };
-    return JSON.stringify((overlays || []).map(stableValue));
-  };
-
   type SignalValueMap = Record<string, unknown>;
   type ProjectSignalInputs = Partial<ContentSignals>;
 
@@ -6280,51 +6262,61 @@ Example: use_matching_footage({ overlayId: 42, assetId: "a_Xk7pqR2m", sourceStar
         const input = coerceInput(rawInput);
         const checkpoint = await checkpointService.getCheckpoint(input.checkpointId, userId);
         if (!checkpoint) {
-          return JSON.stringify({ status: 'error', message: `Checkpoint ${input.checkpointId} was not found or is not accessible.` });
+          return errorEnvelope(
+            `Checkpoint ${input.checkpointId} was not found or is not accessible.`,
+            'CHECKPOINT_NOT_FOUND',
+            { checkpointId: input.checkpointId },
+            'stop',
+          );
         }
         if (checkpoint.projectId !== projectId) {
-          return JSON.stringify({ status: 'error', message: 'Checkpoint belongs to a different project and cannot be restored here.' });
+          return errorEnvelope(
+            'Checkpoint belongs to a different project and cannot be restored here.',
+            'CHECKPOINT_PROJECT_MISMATCH',
+            { checkpointId: checkpoint.checkpointId, checkpointProjectId: checkpoint.projectId, projectId },
+            'stop',
+          );
         }
 
-        const overlaysToRestore = checkpoint.overlays || [];
-        const expectedFingerprint = overlayRestoreFingerprint(overlaysToRestore);
-        await projectService.updateProject(userId, projectId, { overlays: overlaysToRestore });
-
-        const restoredProject = await projectService.loadProject(userId, projectId);
-        if (!restoredProject) {
-          return JSON.stringify({ status: 'error', message: 'Project could not be reloaded after checkpoint restore.' });
-        }
-
-        const actualFingerprint = overlayRestoreFingerprint(restoredProject.overlays || []);
-        if (actualFingerprint !== expectedFingerprint) {
-          return JSON.stringify({
-            status: 'error',
-            message: 'Checkpoint restore did not persist exactly. No inverse edit was attempted.',
-            data: {
+        const verification = await checkpointService.restoreProjectCheckpoint(
+          checkpoint.checkpointId,
+          userId,
+        );
+        if (!verification.restored) {
+          return errorEnvelope(
+            'Checkpoint restore was not verified, so Editron did not report the undo as successful.',
+            'CHECKPOINT_RESTORE_NOT_VERIFIED',
+            {
               checkpointId: checkpoint.checkpointId,
-              expectedOverlayCount: overlaysToRestore.length,
-              actualOverlayCount: restoredProject.overlays?.length ?? 0,
+              reason: verification.reason,
+              expectedStateHash: verification.expectedStateHash,
+              actualStateHash: verification.actualStateHash,
             },
-          });
+            'stop',
+          );
         }
 
-        return JSON.stringify({
-          status: 'success',
-          data: {
-            checkpointId: checkpoint.checkpointId,
-            checkpointType: checkpoint.type,
-            description: checkpoint.description,
-            restoredOverlayCount: overlaysToRestore.length,
-            message: `Restored checkpoint ${checkpoint.checkpointId}.`,
+        const restoredOverlays = checkpoint.projectState?.fields.overlays;
+        return successEnvelope({
+          checkpointId: checkpoint.checkpointId,
+          checkpointType: checkpoint.type,
+          description: checkpoint.description,
+          restoredOverlayCount: Array.isArray(restoredOverlays) ? restoredOverlays.length : 0,
+          restoredFields: checkpoint.projectState?.presentFields ?? [],
+          reloadProject: true,
+          verification: {
+            expectedStateHash: verification.expectedStateHash,
+            actualStateHash: verification.actualStateHash,
           },
+          message: `Restored the complete project state from checkpoint ${checkpoint.checkpointId}.`,
         });
       } catch (e: any) {
-        return JSON.stringify({ status: 'error', message: e.message });
+        return errorEnvelope(e.message, 'CHECKPOINT_RESTORE_FAILED', undefined, 'stop');
       }
     },
     {
       name: 'restore_ai_edit_checkpoint',
-      description: `Restore the project overlays from a checkpoint created around an AI chat edit.
+      description: `Restore the complete editor-owned project state from a checkpoint created around an AI chat edit.
 Use this for undo/revert requests. Prefer beforeCheckpointId to undo the previous AI edit. Use afterCheckpointId only when the user explicitly asks to redo a restored edit.
 Never manually reverse edits when a checkpoint is available; restore the checkpoint snapshot instead.`,
       schema: restoreAiEditCheckpointSchema,

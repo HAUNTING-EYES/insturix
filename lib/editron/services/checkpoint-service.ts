@@ -67,6 +67,7 @@ export interface Checkpoint {
   overlays: Overlay[];
   projectState?: RestorableProjectState;
   stateHash?: string;
+  stateHashVersion?: 2;
   operationId?: string;
   operationStatus?: ChatEditOperationStatus;
   mutatingToolNames?: string[];
@@ -107,6 +108,8 @@ export interface RestoreProjectCheckpointResult {
   actualStateHash?: string;
   reason?: string;
 }
+
+const CURRENT_STATE_HASH_VERSION = 2 as const;
 
 export function captureRestorableProjectState(project: Record<string, unknown>): RestorableProjectState {
   const fields: RestorableProjectState['fields'] = {};
@@ -169,6 +172,7 @@ export class CheckpointService {
       overlays: (cleanState.fields.overlays ?? []) as Overlay[],
       projectState: cleanState,
       stateHash,
+      stateHashVersion: CURRENT_STATE_HASH_VERSION,
       operationId: input.operationId,
       operationStatus: input.operationStatus,
       timestamp: now,
@@ -269,8 +273,24 @@ export class CheckpointService {
       };
     }
 
-    const projectState = cloneValue(checkpoint.projectState);
-    const expectedStateHash = checkpoint.stateHash ?? projectStateFingerprint(projectState);
+    const projectState = this.cleanProjectState(
+      cloneValue(checkpoint.projectState),
+      'checkpoint-service-restore-source',
+    );
+    const expectedStateHash = projectStateFingerprint(projectState);
+    if (
+      checkpoint.stateHashVersion === CURRENT_STATE_HASH_VERSION
+      && checkpoint.stateHash
+      && checkpoint.stateHash !== expectedStateHash
+    ) {
+      return {
+        restored: false,
+        checkpointId,
+        expectedStateHash: checkpoint.stateHash,
+        actualStateHash: expectedStateHash,
+        reason: 'checkpoint-state-hash-mismatch',
+      };
+    }
     const setFields: Record<string, unknown> = {};
     const unsetFields: Record<string, ''> = {};
 
@@ -359,7 +379,7 @@ export class CheckpointService {
       }),
     );
     const presentFields = Array.from(new Set<ChatRestorableProjectField>(['overlays', ...state.presentFields]));
-    return { presentFields, fields };
+    return mongoStableValue({ presentFields, fields });
   }
 }
 
@@ -384,6 +404,24 @@ function canonicalize(value: unknown): unknown {
         result[key] = canonicalize((value as Record<string, unknown>)[key]);
         return result;
       }, {});
+  }
+  return value;
+}
+
+function mongoStableValue<T>(value: T): T {
+  if (value instanceof Date) return new Date(value.getTime()) as T;
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      item === undefined ? null : mongoStableValue(item),
+    ) as T;
+  }
+  if (value && typeof value === 'object') {
+    const normalized: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (item === undefined) continue;
+      normalized[key] = mongoStableValue(item);
+    }
+    return normalized as T;
   }
   return value;
 }

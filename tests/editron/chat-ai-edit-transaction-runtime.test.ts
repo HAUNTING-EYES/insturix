@@ -11,6 +11,24 @@ const infrastructureMocks = vi.hoisted(() => ({
   updateOne: vi.fn(),
 }));
 
+function emulateMongoRoundTrip<T>(value: T): T {
+  if (value instanceof Date) return new Date(value.getTime()) as T;
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      item === undefined ? null : emulateMongoRoundTrip(item),
+    ) as T;
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        item === undefined ? null : emulateMongoRoundTrip(item),
+      ]),
+    ) as T;
+  }
+  return value;
+}
+
 vi.hoisted(() => {
   process.env.MONGODB_URI ??= 'mongodb://localhost:27017/editron-test';
   process.env.MONGODB_DB_NAME ??= 'editron-test';
@@ -504,6 +522,16 @@ describe('chat AI edit transaction runtime', () => {
   it('restores every captured project field through the production checkpoint owner', async () => {
     const service = new CheckpointService();
     let insertedCheckpoint: Checkpoint | undefined;
+    const projectWithUndefinedMetadata = {
+      ...ORIGINAL_PROJECT,
+      overlays: [{
+        ...ORIGINAL_PROJECT.overlays[0],
+        metadata: {
+          nestedOptional: undefined,
+          arrayWithOptional: [undefined, 'kept'],
+        },
+      }],
+    };
     const persistedProject: Record<string, any> = {
       ...structuredClone(ORIGINAL_PROJECT),
       overlays: [{ ...ORIGINAL_PROJECT.overlays[0], content: 'mutated' }],
@@ -515,7 +543,7 @@ describe('chat AI edit transaction runtime', () => {
     };
 
     infrastructureMocks.insertOne.mockImplementation(async (checkpoint: Checkpoint) => {
-      insertedCheckpoint = structuredClone(checkpoint);
+      insertedCheckpoint = emulateMongoRoundTrip(checkpoint);
       return { acknowledged: true, insertedId: checkpoint.checkpointId };
     });
     infrastructureMocks.updateOne.mockImplementation(async (
@@ -523,11 +551,11 @@ describe('chat AI edit transaction runtime', () => {
       update: { $set?: Record<string, unknown>; $unset?: Record<string, unknown> },
     ) => {
       expect(filter).toEqual({ projectId: 'proj_1', userId: 'user_1' });
-      Object.assign(persistedProject, structuredClone(update.$set ?? {}));
+      Object.assign(persistedProject, emulateMongoRoundTrip(update.$set ?? {}));
       for (const field of Object.keys(update.$unset ?? {})) delete persistedProject[field];
       return { matchedCount: 1, modifiedCount: 1 };
     });
-    infrastructureMocks.findOne.mockImplementation(async () => structuredClone(persistedProject));
+    infrastructureMocks.findOne.mockImplementation(async () => emulateMongoRoundTrip(persistedProject));
     infrastructureMocks.getDatabase.mockResolvedValue({
       collection: (name: string) => {
         if (name === COLLECTIONS.CHECKPOINTS) {
@@ -548,8 +576,8 @@ describe('chat AI edit transaction runtime', () => {
       sessionId: 'sess_1',
       projectId: 'proj_1',
       userId: 'user_1',
-      overlays: ORIGINAL_PROJECT.overlays as any,
-      projectState: captureRestorableProjectState(ORIGINAL_PROJECT),
+      overlays: projectWithUndefinedMetadata.overlays as any,
+      projectState: captureRestorableProjectState(projectWithUndefinedMetadata),
       description: 'Before manual undo',
       type: 'before-llm',
       force: true,
@@ -558,6 +586,7 @@ describe('chat AI edit transaction runtime', () => {
     expect(insertedCheckpoint?.projectState?.presentFields).toEqual(expect.arrayContaining([
       'overlays', 'fps', 'durationInFrames', 'playerDimensions', 'metadata', 'sourceAssetIds',
     ]));
+    expect(insertedCheckpoint?.stateHashVersion).toBe(2);
     vi.spyOn(service, 'getCheckpoint').mockResolvedValue(insertedCheckpoint ?? null);
 
     const result = await service.restoreProjectCheckpoint('ckpt_full_state', 'user_1');
@@ -573,6 +602,11 @@ describe('chat AI edit transaction runtime', () => {
       metadata: ORIGINAL_PROJECT.metadata,
       sourceAssetIds: ORIGINAL_PROJECT.sourceAssetIds,
     });
+    expect((persistedProject.overlays[0].metadata as Record<string, unknown>).nestedOptional).toBeUndefined();
+    expect((persistedProject.overlays[0].metadata as Record<string, unknown>).arrayWithOptional).toEqual([
+      null,
+      'kept',
+    ]);
   });
 
   it('rejects legacy overlay-only checkpoints before any project mutation', async () => {
@@ -594,6 +628,34 @@ describe('chat AI edit transaction runtime', () => {
     expect(result).toMatchObject({
       restored: false,
       reason: 'legacy-overlay-only-checkpoint',
+    });
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
+  });
+
+  it('rejects a corrupted versioned checkpoint before mutating the project', async () => {
+    const service = new CheckpointService();
+    const projectState = captureRestorableProjectState(ORIGINAL_PROJECT);
+    vi.spyOn(service, 'getCheckpoint').mockResolvedValue({
+      checkpointId: 'ckpt_corrupt',
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any,
+      projectState,
+      stateHash: 'corrupt-state-hash',
+      stateHashVersion: 2,
+      timestamp: new Date(),
+      description: 'Corrupt checkpoint',
+      type: 'before-llm',
+      createdAt: new Date(),
+    });
+
+    const result = await service.restoreProjectCheckpoint('ckpt_corrupt', 'user_1');
+
+    expect(result).toMatchObject({
+      restored: false,
+      reason: 'checkpoint-state-hash-mismatch',
+      expectedStateHash: 'corrupt-state-hash',
     });
     expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
   });
