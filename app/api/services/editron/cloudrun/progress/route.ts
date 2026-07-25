@@ -1,14 +1,24 @@
 import { NextResponse } from 'next/server';
 import { getRenderProgress } from '@remotion/lambda/client';
+import { auth } from '@clerk/nextjs/server';
 import {
   updateJobProgress,
   completeJob,
-  failJob
+  failJob,
+  getJob,
 } from '@/lib/editron/services/render-job-service';
 import { addVideoToLink } from '@/lib/shared/project-links';
 
 export async function GET(request: Request) {
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { type: 'error', message: 'Unauthorized' },
+        { status: 401 },
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const renderId = searchParams.get('renderId');
     const bucketName = searchParams.get('bucketName');
@@ -21,6 +31,13 @@ export async function GET(request: Request) {
       return NextResponse.json(
         { type: 'error', message: 'Missing required parameters: renderId, bucketName, region' },
         { status: 400 }
+      );
+    }
+    const persistedJob = await getJob(renderId);
+    if (!persistedJob || persistedJob.userId !== userId) {
+      return NextResponse.json(
+        { type: 'error', message: 'Render job not found' },
+        { status: 404 },
       );
     }
 
@@ -57,6 +74,7 @@ export async function GET(request: Request) {
 
       if (chapterProgress.status === 'completed' && chapterProgress.outputUrl) {
         await completeJob(renderId, chapterProgress.outputUrl, 0);
+        const completedJob = await getJob(renderId);
         return NextResponse.json({
           type: 'success',
           data: {
@@ -65,6 +83,7 @@ export async function GET(request: Request) {
             outputUrl: chapterProgress.outputUrl,
             outputFile: chapterProgress.outputUrl,
             outputSize: 0,
+            deliveryManifest: completedJob?.deliveryManifest,
             renderMetadata: {
               estimatedTotalLambdaInvokations: chapterProgress.chapters.length,
               actualLambdaInvokations: chapterProgress.chapters.length,
@@ -86,6 +105,7 @@ export async function GET(request: Request) {
         data: {
           done: false,
           progress: chapterProgress.overallProgress,
+          deliveryManifest: persistedJob.deliveryManifest,
           renderedFrames: 0,
           encodedFrames: 0,
           lambdasInvoked: chapterProgress.chapters.length,
@@ -114,6 +134,7 @@ export async function GET(request: Request) {
         progress.outputFile || '',
         progress.outputSizeInBytes || 0
       );
+      const completedJob = await getJob(renderId);
 
       // Brand Intelligence: emit video_rendered + transition status
       try {
@@ -179,6 +200,7 @@ export async function GET(request: Request) {
           outputUrl: progress.outputFile,
           outputFile: progress.outputFile,
           outputSize: progress.outputSizeInBytes,
+          deliveryManifest: completedJob?.deliveryManifest,
           renderMetadata: {
             estimatedTotalLambdaInvokations: progress.renderMetadata?.estimatedTotalLambdaInvokations || 0,
             actualLambdaInvokations: progress.chunks || 0,
@@ -235,6 +257,7 @@ export async function GET(request: Request) {
       data: {
         done: false,
         progress: progress.overallProgress, // This should be 0-1
+        deliveryManifest: persistedJob.deliveryManifest,
         renderedFrames: progress.framesRendered || 0,
         encodedFrames: progress.encodingStatus?.framesEncoded || 0,
         lambdasInvoked: progress.lambdasInvoked,

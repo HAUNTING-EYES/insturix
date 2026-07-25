@@ -101,6 +101,18 @@ describe("chapter renderer progress", () => {
         from: 0,
         durationInFrames: 30_000,
         startFromSound: 1234,
+        assetId: "bgm_fixture_derivative",
+        musicRights: {
+          mediaRole: "music",
+          source: "generated",
+          userChoice: "attested",
+          licensed: true,
+          evidence: {
+            kind: "generated-provider",
+            sourceAssetId: "bgm_fixture_source",
+            licenseId: "fixture-provider-license",
+          },
+        },
       },
       {
         id: "transition-at-seam",

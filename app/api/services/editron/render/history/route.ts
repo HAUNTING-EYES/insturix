@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
           status: job.status,
           url: job.outputUrl,
           size: job.outputSize,
+          deliveryManifest: job.deliveryManifest,
           error: job.error,
           completedAt: job.completedAt,
           expiresAt: job.expiresAt,
