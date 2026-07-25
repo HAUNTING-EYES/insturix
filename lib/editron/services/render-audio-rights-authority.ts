@@ -1,0 +1,328 @@
+import {
+  getAudioRightsContractIssue,
+  isCanonicalMusicOverlay,
+  type AudioRightsContract,
+} from '@/lib/editron/shared/render-request-payload';
+
+type UnknownRecord = Record<string, unknown>;
+
+interface StoredAudioAsset extends UnknownRecord {
+  assetId?: unknown;
+  userId?: unknown;
+  projectId?: unknown;
+  type?: unknown;
+  source?: unknown;
+  parentAssetId?: unknown;
+  assignmentStatus?: unknown;
+  musicRights?: unknown;
+  audioRights?: unknown;
+  libraryLicenseReceipt?: unknown;
+}
+
+export interface RenderAudioRightsAuthorityDependencies {
+  loadAssets(assetIds: string[]): Promise<StoredAudioAsset[]>;
+}
+
+export interface VerifyRenderAudioRightsAuthorityInput {
+  userId: string;
+  projectId: string;
+  projectOwnerId?: string | null;
+  overlays: unknown[];
+}
+
+export class RenderAudioRightsAuthorityError extends Error {
+  readonly code = 'AUDIO_RIGHTS_EVIDENCE_UNVERIFIED';
+
+  constructor(
+    readonly overlayId: string | number | null,
+    reason: string,
+  ) {
+    super(
+      `Cannot verify render audio rights for overlay ${
+        overlayId === null ? 'unknown' : String(overlayId)
+      }: ${reason}`,
+    );
+    this.name = 'RenderAudioRightsAuthorityError';
+  }
+}
+
+const defaultDependencies: RenderAudioRightsAuthorityDependencies = {
+  async loadAssets(assetIds) {
+    if (assetIds.length === 0) return [];
+    const { COLLECTIONS, getDatabase } = await import('@/lib/editron/db/mongodb');
+    const db = await getDatabase();
+    return db.collection(COLLECTIONS.MEDIA_ASSETS)
+      .find({ assetId: { $in: assetIds } })
+      .toArray() as Promise<StoredAudioAsset[]>;
+  },
+};
+
+/**
+ * The synchronous render gate validates the receipt envelope. This verifier
+ * proves that a licensed music receipt is backed by the current stored asset
+ * before any URL hydration, credit deduction, or Lambda invocation.
+ */
+export async function verifyRenderAudioRightsAuthority(
+  input: VerifyRenderAudioRightsAuthorityInput,
+  dependencyOverrides: Partial<RenderAudioRightsAuthorityDependencies> = {},
+): Promise<void> {
+  const dependencies = { ...defaultDependencies, ...dependencyOverrides };
+  const musicClaims = input.overlays
+    .filter(isCanonicalMusicOverlay)
+    .map((overlay) => readMusicClaim(overlay));
+  const renderableClaims = musicClaims.filter((claim) => claim.requiresStoredEvidence);
+  if (renderableClaims.length === 0) return;
+
+  const assetIds = Array.from(new Set(renderableClaims.flatMap((claim) => [
+    claim.overlayAssetId,
+    claim.sourceAssetId,
+  ])));
+  const assets = await dependencies.loadAssets(assetIds);
+  const assetsById = new Map(
+    assets.flatMap((asset) => {
+      const assetId = nonEmptyString(asset.assetId);
+      return assetId ? [[assetId, asset] as const] : [];
+    }),
+  );
+  const allowedUserIds = new Set([
+    input.userId,
+    nonEmptyString(input.projectOwnerId),
+  ].filter((value): value is string => Boolean(value)));
+
+  for (const claim of renderableClaims) {
+    const overlayAsset = assetsById.get(claim.overlayAssetId);
+    if (!overlayAsset) {
+      throw authorityError(claim.overlay, 'render asset evidence is missing');
+    }
+    assertAudioAssetScope(overlayAsset, input.projectId, allowedUserIds, claim.overlay);
+    assertRightsMatch(overlayAsset, claim.rights, claim.overlay, 'render asset');
+
+    const sourceAsset = assetsById.get(claim.sourceAssetId);
+    if (!sourceAsset) {
+      throw authorityError(claim.overlay, 'source asset evidence is missing');
+    }
+    assertAudioAssetScope(sourceAsset, input.projectId, allowedUserIds, claim.overlay);
+    assertNotRevoked(overlayAsset, claim.overlay);
+    assertNotRevoked(sourceAsset, claim.overlay);
+
+    if (claim.overlayAssetId !== claim.sourceAssetId) {
+      if (
+        nonEmptyString(overlayAsset.parentAssetId) !== claim.sourceAssetId
+        || overlayAsset.assignmentStatus !== 'attached'
+      ) {
+        throw authorityError(
+          claim.overlay,
+          'conditioned render asset is not attached to the claimed source asset',
+        );
+      }
+    }
+
+    assertSourceAuthority({
+      rights: claim.rights,
+      sourceAsset,
+      projectId: input.projectId,
+      allowedUserIds,
+      overlay: claim.overlay,
+    });
+  }
+}
+
+function readMusicClaim(overlay: unknown): {
+  overlay: UnknownRecord;
+  rights: AudioRightsContract;
+  overlayAssetId: string;
+  sourceAssetId: string;
+  requiresStoredEvidence: boolean;
+} {
+  const record = asRecord(overlay);
+  if (!record) throw authorityError(overlay, 'music overlay is malformed');
+  const rightsValue = record.musicRights ?? record.audioRights;
+  const issue = getAudioRightsContractIssue(rightsValue);
+  if (issue) throw authorityError(record, issue);
+  const rights = rightsValue as AudioRightsContract;
+
+  if (
+    rights.source === 'preview-only'
+    && rights.licensed === false
+    && (rights.userChoice === 'swap' || rights.userChoice === 'no-music')
+  ) {
+    return {
+      overlay: record,
+      rights,
+      overlayAssetId: '',
+      sourceAssetId: '',
+      requiresStoredEvidence: false,
+    };
+  }
+  if (!rights.licensed) {
+    throw authorityError(record, `${rights.source} music is not licensed for rendering`);
+  }
+
+  const overlayAssetId = nonEmptyString(record.assetId);
+  const sourceAssetId = nonEmptyString(rights.evidence?.sourceAssetId);
+  if (!overlayAssetId || !sourceAssetId) {
+    throw authorityError(record, 'licensed music requires stored render and source asset identities');
+  }
+  return {
+    overlay: record,
+    rights,
+    overlayAssetId,
+    sourceAssetId,
+    requiresStoredEvidence: true,
+  };
+}
+
+function assertAudioAssetScope(
+  asset: StoredAudioAsset,
+  projectId: string,
+  allowedUserIds: Set<string>,
+  overlay: unknown,
+): void {
+  if (asset.type !== 'audio') {
+    throw authorityError(overlay, 'stored rights evidence is not an audio asset');
+  }
+  const ownedByProject = nonEmptyString(asset.projectId) === projectId;
+  const ownedByProjectUser = allowedUserIds.has(nonEmptyString(asset.userId) ?? '');
+  if (!ownedByProject && !ownedByProjectUser) {
+    throw authorityError(overlay, 'stored audio evidence is outside the project scope');
+  }
+}
+
+function assertRightsMatch(
+  asset: StoredAudioAsset,
+  expected: AudioRightsContract,
+  overlay: unknown,
+  label: string,
+): void {
+  const stored = asset.musicRights ?? asset.audioRights;
+  if (
+    getAudioRightsContractIssue(stored)
+    || JSON.stringify(canonicalRights(stored as AudioRightsContract))
+      !== JSON.stringify(canonicalRights(expected))
+  ) {
+    throw authorityError(overlay, `${label} rights do not match the render claim`);
+  }
+}
+
+function assertSourceAuthority(input: {
+  rights: AudioRightsContract;
+  sourceAsset: StoredAudioAsset;
+  projectId: string;
+  allowedUserIds: Set<string>;
+  overlay: unknown;
+}): void {
+  const { rights, sourceAsset, overlay } = input;
+  if (rights.source === 'library') {
+    if (sourceAsset.source !== 'library') {
+      throw authorityError(overlay, 'library music is not backed by a library asset');
+    }
+    assertRightsMatch(sourceAsset, rights, overlay, 'library source asset');
+    assertLibraryReceipt(sourceAsset, rights, input.projectId, input.allowedUserIds, overlay);
+    return;
+  }
+  if (rights.source === 'generated') {
+    if (sourceAsset.source !== 'generated') {
+      throw authorityError(overlay, 'generated music is not backed by a generated asset');
+    }
+    assertRightsMatch(sourceAsset, rights, overlay, 'generated source asset');
+    return;
+  }
+  if (rights.source === 'user-upload') {
+    if (
+      sourceAsset.source !== 'user-upload'
+      || rights.evidence?.kind !== 'user-attestation'
+      || !input.allowedUserIds.has(nonEmptyString(rights.evidence.attestedBy) ?? '')
+    ) {
+      throw authorityError(overlay, 'user-upload music lacks an owner-backed attestation');
+    }
+    return;
+  }
+  if (rights.source === 'preview-only') {
+    if (sourceAsset.source !== 'preview-only') {
+      throw authorityError(overlay, 'attested preview music lacks quarantined source evidence');
+    }
+    assertRightsMatch(sourceAsset, rights, overlay, 'preview source asset');
+  }
+}
+
+function assertLibraryReceipt(
+  asset: StoredAudioAsset,
+  rights: AudioRightsContract,
+  projectId: string,
+  allowedUserIds: Set<string>,
+  overlay: unknown,
+): void {
+  const receipt = asRecord(asset.libraryLicenseReceipt);
+  const agreement = asRecord(receipt?.agreement);
+  const ownership = asRecord(receipt?.ownership);
+  const sourceObject = asRecord(receipt?.sourceObject);
+  if (
+    receipt?.version !== 'editron-library-license-receipt-v1'
+    || receipt.provider !== 'epidemic-sound'
+    || !nonEmptyString(receipt.providerTrackId)
+    || nonEmptyString(receipt.licenseId) !== rights.evidence?.licenseId
+    || agreement?.authority !== 'NEVER_AUTOMATED'
+    || agreement.configuredBy !== 'deployment-operator'
+    || !nonEmptyString(agreement.reference)
+    || nonEmptyString(ownership?.projectId) !== projectId
+    || !allowedUserIds.has(nonEmptyString(ownership?.userId) ?? '')
+    || !nonEmptyString(sourceObject?.sha256)
+    || !positiveNumber(sourceObject?.size)
+  ) {
+    throw authorityError(overlay, 'library music lacks a matching durable license receipt');
+  }
+}
+
+function assertNotRevoked(asset: StoredAudioAsset, overlay: unknown): void {
+  const status = nonEmptyString(asset.licenseStatus)?.toLowerCase();
+  if (
+    asset.revokedAt
+    || asset.rightsRevokedAt
+    || status === 'revoked'
+    || status === 'disabled'
+  ) {
+    throw authorityError(overlay, 'stored audio rights have been revoked');
+  }
+}
+
+function canonicalRights(rights: AudioRightsContract): UnknownRecord {
+  return {
+    mediaRole: rights.mediaRole ?? null,
+    source: rights.source,
+    userChoice: rights.userChoice,
+    licensed: rights.licensed,
+    evidence: rights.evidence
+      ? {
+          kind: rights.evidence.kind,
+          sourceAssetId: rights.evidence.sourceAssetId,
+          attestationVersion: rights.evidence.attestationVersion ?? null,
+          attestedAt: rights.evidence.attestedAt ?? null,
+          attestedBy: rights.evidence.attestedBy ?? null,
+          licenseId: rights.evidence.licenseId ?? null,
+        }
+      : null,
+  };
+}
+
+function authorityError(overlay: unknown, reason: string): RenderAudioRightsAuthorityError {
+  const record = asRecord(overlay);
+  const id = record?.id;
+  return new RenderAudioRightsAuthorityError(
+    typeof id === 'string' || typeof id === 'number' ? id : null,
+    reason,
+  );
+}
+
+function asRecord(value: unknown): UnknownRecord | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as UnknownRecord
+    : null;
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function positiveNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}

@@ -187,7 +187,7 @@ export function resolveRenderableAudio(
   }
 
   const knownPreviewSource = hasKnownStockPreviewSource(overlay);
-  const musicOverlay = hasCanonicalMusicIdentity(overlay);
+  const musicOverlay = isCanonicalMusicOverlay(overlay);
   const rightsValue = overlay.audioRights ?? overlay.musicRights;
   if (
     rightsValue === undefined &&
@@ -391,7 +391,8 @@ export function getAudioRightsContractIssue(value: unknown): string | null {
   return "audio rights source is unsupported";
 }
 
-function hasCanonicalMusicIdentity(overlay: Record<string, unknown>): boolean {
+export function isCanonicalMusicOverlay(overlay: unknown): boolean {
+  if (!isRecord(overlay) || overlay.type !== "sound") return false;
   const assetId = nonEmptyString(overlay.assetId);
   return (
     overlay.row === 1 ||

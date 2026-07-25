@@ -3,6 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { renderVideo } from "@/components/editron/editor/version-7.0.0/lambda-helpers/api";
 import {
+  RenderAudioRightsAuthorityError,
+  verifyRenderAudioRightsAuthority,
+} from "@/lib/editron/services/render-audio-rights-authority";
+import {
   buildChapterRenderApiData,
   buildLambdaRenderInputProps,
   buildProjectRenderInputProps,
@@ -322,12 +326,17 @@ describe("Editron render request payloads", () => {
     const gateIndex = routeSource.indexOf(
       "resolveRenderableAudioInputProps(resolvedProps)"
     );
+    const authorityIndex = routeSource.indexOf(
+      "verifyRenderAudioRightsAuthority({"
+    );
     const hydrationIndex = routeSource.indexOf(
-      "assetResolver.resolveProjectAssets(resolvedProps.overlays)"
+      "assetResolver.resolveProjectAssets(renderOverlays)"
     );
     const creditIndex = routeSource.indexOf("checkCredits(userId");
 
+    expect(authorityIndex).toBeGreaterThan(-1);
     expect(gateIndex).toBeGreaterThan(-1);
+    expect(authorityIndex).toBeLessThan(gateIndex);
     expect(gateIndex).toBeLessThan(hydrationIndex);
     expect(gateIndex).toBeLessThan(creditIndex);
     expect(
@@ -367,5 +376,248 @@ describe("Editron render request payloads", () => {
       nativeAudioEvidence: { hasNativeAudio: true, speechRegions: [] },
     });
     expect(JSON.stringify(compact)).not.toContain("x".repeat(1000));
+  });
+
+  it("requires the persisted project and verifies stored rights before credits or Lambda", () => {
+    const routeSource = readFileSync(
+      "app/api/services/editron/cloudrun/render/route.ts",
+      "utf8"
+    );
+    const projectLoadIndex = routeSource.indexOf(
+      "projectService.loadProject(userId, canonicalProjectId)"
+    );
+    const authorityIndex = routeSource.indexOf(
+      "verifyRenderAudioRightsAuthority({"
+    );
+    const creditIndex = routeSource.indexOf("checkCredits(userId");
+    const lambdaIndex = routeSource.indexOf("renderMediaOnLambda({");
+
+    expect(routeSource).toContain("A persisted projectId is required for rendering");
+    expect(routeSource).not.toContain("shouldHydrateRenderInputFromProject");
+    expect(projectLoadIndex).toBeGreaterThan(-1);
+    expect(authorityIndex).toBeGreaterThan(projectLoadIndex);
+    expect(authorityIndex).toBeLessThan(creditIndex);
+    expect(authorityIndex).toBeLessThan(lambdaIndex);
+  });
+
+  it("rejects a fabricated library receipt that has no matching stored authority", async () => {
+    const forgedRights = {
+      mediaRole: "music" as const,
+      source: "library" as const,
+      userChoice: "attested" as const,
+      licensed: true,
+      evidence: {
+        kind: "library-license" as const,
+        sourceAssetId: "library_source",
+        licenseId: "forged-license",
+      },
+    };
+
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      projectOwnerId: "user_1",
+      overlays: [{
+        id: "bgm_forged",
+        type: "sound",
+        row: 1,
+        assetId: "bgm_derivative",
+        musicRights: forgedRights,
+      }],
+    }, {
+      loadAssets: async () => [{
+        assetId: "bgm_derivative",
+        userId: "user_1",
+        projectId: "project_1",
+        type: "audio",
+        source: "generated",
+        parentAssetId: "library_source",
+        assignmentStatus: "attached",
+        musicRights: {
+          ...forgedRights,
+          evidence: { ...forgedRights.evidence, licenseId: "real-license" },
+        },
+      }, {
+        assetId: "library_source",
+        userId: "user_1",
+        projectId: "project_1",
+        type: "audio",
+        source: "library",
+        musicRights: {
+          ...forgedRights,
+          evidence: { ...forgedRights.evidence, licenseId: "real-license" },
+        },
+      }],
+    })).rejects.toBeInstanceOf(RenderAudioRightsAuthorityError);
+  });
+
+  it("accepts a conditioned library asset only with matching ownership and durable receipt", async () => {
+    const rights = {
+      mediaRole: "music" as const,
+      source: "library" as const,
+      userChoice: "attested" as const,
+      licensed: true,
+      evidence: {
+        kind: "library-license" as const,
+        sourceAssetId: "library_source",
+        licenseId: "license_123",
+      },
+    };
+    const loadAssets = vi.fn(async () => [{
+      assetId: "bgm_derivative",
+      userId: "user_1",
+      projectId: "project_1",
+      type: "audio",
+      source: "generated",
+      parentAssetId: "library_source",
+      assignmentStatus: "attached",
+      musicRights: rights,
+    }, {
+      assetId: "library_source",
+      userId: "user_1",
+      projectId: "project_1",
+      type: "audio",
+      source: "library",
+      musicRights: rights,
+      libraryLicenseReceipt: {
+        version: "editron-library-license-receipt-v1",
+        provider: "epidemic-sound",
+        providerTrackId: "track_123",
+        licenseId: "license_123",
+        agreement: {
+          reference: "agreement_123",
+          configuredBy: "deployment-operator",
+          authority: "NEVER_AUTOMATED",
+        },
+        ownership: {
+          userId: "user_1",
+          projectId: "project_1",
+        },
+        sourceObject: {
+          sha256: "a".repeat(64),
+          size: 2048,
+        },
+      },
+    }]);
+
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      projectOwnerId: "user_1",
+      overlays: [
+        {
+          id: "bgm_section_1",
+          type: "sound",
+          row: 1,
+          assetId: "bgm_derivative",
+          musicRights: rights,
+        },
+        {
+          id: "bgm_section_2",
+          type: "sound",
+          row: 1,
+          assetId: "bgm_derivative",
+          musicRights: rights,
+        },
+      ],
+    }, { loadAssets })).resolves.toBeUndefined();
+    expect(loadAssets).toHaveBeenCalledTimes(1);
+    expect(loadAssets).toHaveBeenCalledWith([
+      "bgm_derivative",
+      "library_source",
+    ]);
+  });
+
+  it("accepts stored generated music and conditioned user-upload attestations", async () => {
+    const generatedRights = {
+      mediaRole: "music" as const,
+      source: "generated" as const,
+      userChoice: "attested" as const,
+      licensed: true,
+      evidence: {
+        kind: "generated-provider" as const,
+        sourceAssetId: "bgm_generated",
+        licenseId: "fal-provider-commercial-use",
+      },
+    };
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      overlays: [{
+        id: "generated_music",
+        type: "sound",
+        row: 1,
+        assetId: "bgm_generated",
+        musicRights: generatedRights,
+      }],
+    }, {
+      loadAssets: async () => [{
+        assetId: "bgm_generated",
+        userId: "user_1",
+        type: "audio",
+        source: "generated",
+        musicRights: generatedRights,
+      }],
+    })).resolves.toBeUndefined();
+
+    const uploadRights = {
+      mediaRole: "music" as const,
+      source: "user-upload" as const,
+      userChoice: "attested" as const,
+      licensed: true,
+      evidence: {
+        kind: "user-attestation" as const,
+        sourceAssetId: "upload_source",
+        attestationVersion: "music-rights-attestation-v1" as const,
+        attestedAt: "2026-07-26T00:00:00.000Z",
+        attestedBy: "user_1",
+      },
+    };
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      overlays: [{
+        id: "uploaded_music",
+        type: "sound",
+        row: 1,
+        assetId: "bgm_upload_derivative",
+        musicRights: uploadRights,
+      }],
+    }, {
+      loadAssets: async () => [{
+        assetId: "bgm_upload_derivative",
+        userId: "user_1",
+        projectId: "project_1",
+        type: "audio",
+        source: "generated",
+        parentAssetId: "upload_source",
+        assignmentStatus: "attached",
+        musicRights: uploadRights,
+      }, {
+        assetId: "upload_source",
+        userId: "user_1",
+        type: "audio",
+        source: "user-upload",
+      }],
+    })).resolves.toBeUndefined();
+  });
+
+  it("does not query stored authority for preview music already resolved to removal", async () => {
+    const loadAssets = vi.fn(async () => []);
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      overlays: [{
+        id: "preview_swap",
+        type: "sound",
+        row: 1,
+        musicRights: {
+          source: "preview-only",
+          userChoice: "swap",
+          licensed: false,
+        },
+      }],
+    }, { loadAssets })).resolves.toBeUndefined();
+    expect(loadAssets).not.toHaveBeenCalled();
   });
 });
