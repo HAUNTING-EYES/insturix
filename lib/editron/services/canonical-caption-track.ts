@@ -14,6 +14,10 @@ import type { SegmentAnalysis, SegmentRecord } from '../types/segment-analysis';
 import type { VjepaTextBox } from './vjepa-service';
 import { createDisplayConfig, groupWordsIntoCaptions } from '../utils/caption-utils';
 import { selectCaptionPreset } from './caption-preset-registry';
+import {
+  EDITRON_CAPTION_SAFE_BOTTOM_MARGIN,
+  EDITRON_CAPTION_SAFE_TOP_MARGIN,
+} from '../shared/overlay-safe-zone-contract';
 
 export const CANONICAL_CAPTION_TRACK_SOURCE = 'canonical-caption-track';
 const SOURCE_TEXT_PROTECTED_REGION_REASON = 'source-text-box';
@@ -557,16 +561,29 @@ function captionGeometry(
   ));
   const bottomMargin = Math.round(dimensions.height * aesthetic.bottomMarginFraction);
   const lowerTop = dimensions.height - height - bottomMargin;
+  const safeCenterMin = dimensions.height * EDITRON_CAPTION_SAFE_TOP_MARGIN;
+  const safeCenterMax = dimensions.height * (1 - EDITRON_CAPTION_SAFE_BOTTOM_MARGIN);
+  const safeTopMin = Math.max(0, Math.ceil(safeCenterMin - (height / 2)));
+  const safeTopMax = Math.min(
+    dimensions.height - height,
+    Math.floor(safeCenterMax - (height / 2)),
+  );
+  const clampTopToSafeCenter = (top: number) => Math.max(
+    safeTopMin,
+    Math.min(safeTopMax, Math.round(top)),
+  );
   const candidates = [
     {
       region: 'bottom-center' as const,
       left: Math.round((dimensions.width - width) / 2),
-      top: Math.round(Math.max(dimensions.height * 0.58, Math.min(lowerTop, dimensions.height * 0.82))),
+      top: clampTopToSafeCenter(
+        Math.max(dimensions.height * 0.58, Math.min(lowerTop, dimensions.height * 0.82)),
+      ),
     },
     {
       region: 'top-center' as const,
       left: Math.round((dimensions.width - width) / 2),
-      top: Math.round(dimensions.height * 0.12),
+      top: clampTopToSafeCenter(dimensions.height * 0.12),
     },
   ];
   const selected = candidates

@@ -2487,23 +2487,10 @@ Use this to understand what exists. Then decide what to do based on user intent.
   // --- ADD CAPTIONS ---
   const addCaptionsSchema = z.object({
     videoOverlayId: z.coerce.number().describe("ID of the video overlay to add captions for"),
-    style: z.enum(['tiktok', 'minimal', 'bold', 'karaoke', 'subtitle', 'hormozi', 'mrbeast', 'ali-abdaal', 'corporate']).optional().default('tiktok').describe("Caption style preset. 'hormozi' = bold white, yellow keywords, high contrast. 'mrbeast' = large colorful, pop animation. 'ali-abdaal' = clean minimal modern. 'corporate' = professional bottom bar."),
-    position: z.enum(['bottom', 'top', 'center']).optional().default('bottom').describe("Caption position (default: bottom)"),
-    overwrite: z.coerce.boolean().optional().default(false).describe("Set to true to overwrite existing captions"),
-    // Custom style overrides (optional - override preset defaults)
-    fontSize: z.string().optional().describe("Font size, e.g. '48px', '3rem'. Overrides preset."),
-    fontFamily: z.string().optional().describe("Font family, e.g. 'Inter', 'Arial'. Overrides preset."),
-    fontWeight: z.coerce.number().optional().describe("Font weight, e.g. 400, 700, 900. Overrides preset."),
-    color: z.string().optional().describe("Text color, e.g. '#ffffff', 'yellow'. Overrides preset."),
-    backgroundColor: z.string().optional().describe("Background color, e.g. 'rgba(0,0,0,0.5)'. Overrides preset."),
-    textShadow: z.string().optional().describe("Text shadow, e.g. '2px 2px 4px rgba(0,0,0,0.5)'. Overrides preset."),
-    // Highlight customization
-    highlightColor: z.string().optional().describe("Active word highlight color, e.g. '#ffcc00'. Overrides preset."),
-    highlightEffect: z.enum(['none', 'glow', 'box', 'underline', 'pop']).optional().describe("Highlight effect for active word"),
-    highlightAnimation: z.enum(['none', 'bounce', 'pulse', 'scale']).optional().describe("Animation for active word"),
-    // Display mode customization  
-    displayMode: z.enum(['word-by-word', 'phrase', 'karaoke', 'subtitle', 'instagram', 'hormozi']).optional().describe("How words appear: word-by-word (1 word), phrase (3-4), karaoke (progressive), subtitle (sentence), instagram (center block, spring pop), hormozi (bold punch, spring bounce)"),
-    wordsPerGroup: z.coerce.number().optional().describe("Words shown at once (1-12). Overrides displayMode default."),
+    style: z.enum(['tiktok', 'minimal', 'bold', 'karaoke', 'subtitle', 'hormozi', 'mrbeast', 'ali-abdaal', 'corporate']).optional().default('tiktok').describe("Requested caption aesthetic. The canonical planner owns safe geometry, contrast, timing, and grouping."),
+    overwrite: z.coerce.boolean().optional().default(false).describe("Set to true to regenerate an existing generated caption track"),
+    displayMode: z.enum(['word-by-word', 'phrase', 'karaoke', 'subtitle', 'instagram', 'hormozi']).optional().describe("Requested display behavior; canonical readability constraints remain authoritative."),
+    wordsPerGroup: z.coerce.number().int().min(1).max(12).optional().describe("Preferred words per group (1-12); canonical readability constraints remain authoritative."),
   });
 
   const addCaptions = tool(
@@ -2516,132 +2503,76 @@ Use this to understand what exists. Then decide what to do based on user intent.
         if (!overlay || overlay.type !== 'video' || !overlay.assetId) {
           return JSON.stringify({ status: 'error', message: 'Valid video overlay with asset not found' });
         }
-        
-        const canvas = getCanvasDimensions(project);
-        const fps = project.fps || 30;
-        
-        // Check for existing captions
-        const existingCaptions = project.overlays.filter(
-          (o: any) => o.type === 'caption' && o.sourceVideoId === input.videoOverlayId
+
+        const { planChatCanonicalCaptionTrack } = await import(
+          '../services/chat-canonical-caption-adapter'
         );
-        
-        // If captions exist and overwrite is not true, error
-        if (existingCaptions.length > 0 && !input.overwrite) {
-          return JSON.stringify({ 
-            status: 'error', 
-            message: `Caption already exists for video ${input.videoOverlayId}. Use overwrite: true to replace it.`,
-            existingCaptionIds: existingCaptions.map((c: any) => c.id),
+        const plan = planChatCanonicalCaptionTrack(project as any, {
+          requestedStyle: input.style,
+          displayMode: input.displayMode,
+          wordsPerGroup: input.wordsPerGroup,
+          overwrite: input.overwrite,
+        });
+        if (plan.status !== 'generated') {
+          return JSON.stringify({
+            status: plan.status,
+            data: { reason: plan.reason, message: plan.message },
+            error: null,
+            nextAction: plan.status === 'needs-choice' ? 'ask_clarification' : 'stop',
           });
         }
-        
-        // Delete existing captions if overwriting
-        for (const caption of existingCaptions) {
-          await projectService.deleteOverlay(userId, projectId, caption.id);
-        }
-        
-        // Use caption service
-        const { createCaptions } = await import('../services/media');
 
-        // For pipeline-generated videos (AI video + voiceover), the video has NO audio.
-        // Find the voiceover overlay covering this video's time range and use IT for transcription.
-        const videoFrom = overlay.from;
-        const videoEnd = videoFrom + overlay.durationInFrames;
-        const voiceoverOverlay = project.overlays.find((o: any) => {
-          if (o.type !== 'sound') return false;
-          // Match by: same time range (within 30 frames tolerance) AND on voiceover row (3) or has voiceover_ assetId
-          const isVoiceover = o.row === ROW.VOICEOVER || (o.assetId || '').startsWith('voiceover_');
-          if (!isVoiceover) return false;
-          const oEnd = o.from + o.durationInFrames;
-          // Check time overlap (not exact match — overlays may differ by a few frames)
-          return !(oEnd <= videoFrom || o.from >= videoEnd);
-        });
-
-        // If voiceover exists, use its assetId for transcription instead of the silent video.
-        // If NO voiceover overlaps AND video is pipeline-generated (AI clip = no real speech),
-        // skip gracefully. User-uploaded footage (no generationUnitId) still falls through
-        // to video-based transcription for talking heads / lectures / interviews.
-        if (!voiceoverOverlay) {
-          const isPipelineGenerated = (overlay as any).metadata?.generationUnitId != null;
-          if (isPipelineGenerated) {
-            return JSON.stringify({
-              status: 'skipped',
-              data: null,
-              message: `No voiceover covers this video's time range. AI-generated videos have no captionable speech.`,
-            });
-          }
+        const revision = project.updatedAt instanceof Date
+          ? project.updatedAt
+          : new Date(project.updatedAt);
+        if (Number.isNaN(revision.getTime())) {
+          return JSON.stringify({
+            status: 'error',
+            data: null,
+            error: {
+              code: 'CHAT_CAPTION_PROJECT_REVISION_MISSING',
+              message: 'The canonical project revision is unavailable; captions were not written.',
+            },
+            nextAction: 'retry',
+          });
         }
-        const transcriptionAssetId = voiceoverOverlay?.assetId || overlay.assetId;
-
-        // Build style overrides from custom params
-        const styleOverrides: Record<string, any> = {};
-        if (input.fontSize) styleOverrides.fontSize = input.fontSize;
-        if (input.fontFamily) styleOverrides.fontFamily = input.fontFamily;
-        if (input.fontWeight) styleOverrides.fontWeight = input.fontWeight;
-        if (input.color) styleOverrides.color = input.color;
-        if (input.backgroundColor) styleOverrides.backgroundColor = input.backgroundColor;
-        if (input.textShadow) styleOverrides.textShadow = input.textShadow;
-        
-        // Build highlight overrides
-        if (input.highlightColor || input.highlightEffect || input.highlightAnimation) {
-          styleOverrides.highlight = {};
-          if (input.highlightColor) styleOverrides.highlight.color = input.highlightColor;
-          if (input.highlightEffect) styleOverrides.highlight.effect = input.highlightEffect;
-          if (input.highlightAnimation) styleOverrides.highlight.animation = input.highlightAnimation;
-        }
-        
-        // Build display config overrides
-        const displayOverrides: Record<string, any> = {};
-        if (input.displayMode) displayOverrides.mode = input.displayMode;
-        if (input.wordsPerGroup) displayOverrides.wordsPerGroup = input.wordsPerGroup;
-        
-        let captionOverlay = await createCaptions({
-          videoOverlay: overlay,
+        const replaced = await projectService.replaceOverlayFamilyAtomic(
           userId,
-          assetId: transcriptionAssetId, // Use voiceover asset if available (video is silent)
-          playerDimensions: canvas,
-          fps,
-          style: input.style,
-          position: input.position,
-          styleOverrides: Object.keys(styleOverrides).length > 0 ? styleOverrides : undefined,
-          displayOverrides: Object.keys(displayOverrides).length > 0 ? displayOverrides : undefined,
+          projectId,
+          {
+            expectedUpdatedAt: revision,
+            overlays: plan.overlays,
+          },
+        );
+        if (!replaced) {
+          return JSON.stringify({
+            status: 'replan-required',
+            data: { reason: 'project-revision-changed' },
+            error: null,
+            nextAction: 'Re-read the current timeline and retry caption generation once.',
+          });
+        }
+
+        return successEnvelope({
+          captionId: plan.captionOverlay.id,
+          style: plan.presentation.style,
+          displayMode: plan.presentation.displayMode,
+          captionCount: plan.result.captionCount,
+          wordCount: plan.result.wordCount,
+          producer: 'canonical-caption-track',
+          message: `Added one canonical caption track with ${plan.result.captionCount} readable groups.`,
         });
-        
-        // OLD: row 0 (shared with SFX, caused timeline overlap).
-        // NEW: row 4 (ROW.CAPTIONS) for clean timeline separation.
-        // Rendering z-index is handled in layer.tsx — captions get z-index 95
-        // regardless of row, so they always render above video (z-index 80).
-        captionOverlay = { ...captionOverlay, row: ROW.CAPTIONS };
-        
-        // Add caption to project
-        await projectService.addOverlay(userId, projectId, captionOverlay as any);
-        
-        return JSON.stringify({
-          status: 'success',
-          captionId: captionOverlay.id,
-          style: input.style,
-          position: input.position,
-          captionCount: captionOverlay.captions.length,
-          message: `Added ${input.style} captions (${captionOverlay.captions.length} segments) at row 0`,
-        });
-        
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
     {
       name: 'add_captions',
-      description: `Add AI-generated captions to a video. Start with a preset, then customize.
+      description: `Generate the project's canonical caption track from its word-timed edited transcript.
 
-PRESETS: tiktok (default), minimal, bold, karaoke, subtitle
+The selected aesthetic is a preference. The canonical planner remains responsible for speech-rate grouping, readable durations, protected-region avoidance, contrast, and title-safe placement.
 
-CUSTOM STYLE OPTIONS (override preset):
-- fontSize, fontFamily, fontWeight, color, backgroundColor, textShadow
-- highlightColor, highlightEffect (glow/box/underline/pop), highlightAnimation (bounce/pulse/scale)
-- displayMode (word-by-word/phrase/karaoke/subtitle), wordsPerGroup (1-12)
-
-Example: add_captions({ videoOverlayId: 0, style: 'tiktok', highlightColor: '#ffcc00', highlightEffect: 'pop' })
-
-IMPORTANT: If caption exists, pass overwrite: true or it will error.`,
+Use overwrite only to regenerate an existing generated track. Manually edited captions are never silently replaced.`,
       schema: addCaptionsSchema,
     }
   );
