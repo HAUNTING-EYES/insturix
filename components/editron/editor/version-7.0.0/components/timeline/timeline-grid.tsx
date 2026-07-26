@@ -18,6 +18,10 @@ import {
   BackgroundMusicAssignmentDialog,
   useBackgroundMusicAssignment,
 } from "../overlays/sounds/background-music-assignment-dialog";
+import {
+  UploadedAudioAssignmentDialog,
+  useUploadedAudioAssignment,
+} from "../overlays/sounds/uploaded-audio-assignment-dialog";
 
 /**
  * Props for the TimelineGrid component
@@ -118,6 +122,8 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
   const { projectId, setOverlays, addOverlay } = useEditorContext();
   const backgroundMusicAssignment = useBackgroundMusicAssignment();
   const { requestAssignment: requestBackgroundMusicAssignment } = backgroundMusicAssignment;
+  const uploadedAudioAssignment = useUploadedAudioAssignment();
+  const { requestAssignment: requestUploadedAudioAssignment } = uploadedAudioAssignment;
 
   // Create a memoized selectedItem object
   const selectedItem = useMemo(
@@ -292,24 +298,29 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
         return;
       }
 
+      if (asset.type === 'audio') {
+        const opened = requestUploadedAudioAssignment(
+          {
+            assetId: asset.assetId,
+            name: asset.name,
+          },
+          {
+            from: dropFrame,
+            durationInFrames: segmentDuration,
+            requestedRow: targetRow,
+            startFromSound: Math.round(segmentStart * fps),
+          },
+        );
+        setActionStatus(
+          opened ? 'Choose an audio role and confirm rights' : 'Audio unavailable',
+        );
+        setTimeout(() => setActionStatus(null), 2000);
+        return;
+      }
+
       let newOverlay: any;
 
-      if (asset.type === 'audio') {
-        newOverlay = {
-          id: Date.now(),
-          type: 'sound',
-          from: dropFrame,
-          durationInFrames: segmentDuration,
-          row: targetRow,
-          left: 0, top: 0, width: 0, height: 0,
-          isDragging: false, rotation: 0,
-          assetId: asset.assetId,
-          src: asset.path,
-          content: asset.name,
-          startFromSound: Math.round(segmentStart * fps),
-          styles: { volume: 1 },
-        };
-      } else if (asset.type === 'video') {
+      if (asset.type === 'video') {
         newOverlay = {
           id: Date.now(),
           type: 'video',
@@ -354,7 +365,13 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
       setActionStatus('Failed to add asset');
       setTimeout(() => setActionStatus(null), 2500);
     }
-  }, [totalDuration, visibleRows, addOverlay, requestBackgroundMusicAssignment]);
+  }, [
+    totalDuration,
+    visibleRows,
+    addOverlay,
+    requestBackgroundMusicAssignment,
+    requestUploadedAudioAssignment,
+  ]);
 
   // Combined drop handler
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -379,6 +396,7 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
       onDrop={handleDrop}
     >
       <BackgroundMusicAssignmentDialog controller={backgroundMusicAssignment} />
+      <UploadedAudioAssignmentDialog controller={uploadedAudioAssignment} />
       {/* Action status banner (transition drop, etc.) */}
       {actionStatus && (
         <div className="absolute top-0 left-1/2 -translate-x-1/2 z-[100] px-3 py-1.5 rounded-b-md bg-emerald-600 text-white text-[11px] font-medium shadow-lg animate-in fade-in slide-in-from-top-2 duration-200">

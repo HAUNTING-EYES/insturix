@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const clerkMocks = vi.hoisted(() => ({
@@ -13,9 +15,16 @@ import {
 } from '@/app/api/services/editron/projects/[projectId]/audio-assets/assign/route';
 import {
   assignUploadedAudio,
+  assignUploadedAudioToTimeline,
   UploadedAudioAssignmentError,
   type UploadedAudioAssignmentDependencies,
+  type UploadedAudioTimelineAssignmentDependencies,
 } from '@/lib/editron/services/uploaded-audio-assignment';
+import {
+  assignUploadedAudioAsset,
+  createUploadedAudioIdempotencyKey,
+  UploadedAudioAssignmentClientError,
+} from '@/components/editron/editor/version-7.0.0/components/overlays/sounds/uploaded-audio-assignment-dialog';
 import {
   AUDIO_RIGHTS_ATTESTATION_VERSION,
   MUSIC_RIGHTS_ATTESTATION_VERSION,
@@ -89,6 +98,46 @@ function assignmentInput(overrides: Record<string, unknown> = {}) {
       version: AUDIO_RIGHTS_ATTESTATION_VERSION,
     },
     ...overrides,
+  };
+}
+
+function timelineAssignmentInput(overrides: Record<string, unknown> = {}) {
+  return {
+    ...assignmentInput(),
+    displayName: 'Impact hit',
+    placement: {
+      from: 45,
+      durationInFrames: 38,
+      requestedRow: 6,
+      startFromSound: 3,
+    },
+    ...overrides,
+  };
+}
+
+function createTimelineDependencies(): UploadedAudioTimelineAssignmentDependencies & {
+  project: Record<string, unknown>;
+  appendCount: () => number;
+} {
+  const base = createDependencies();
+  const project: Record<string, unknown> = {
+    projectId: 'project_1',
+    userId: 'user_1',
+    overlays: [],
+  };
+  let appends = 0;
+  return {
+    ...base,
+    project,
+    appendCount: () => appends,
+    loadProject: vi.fn(async () => project),
+    appendTimelineOverlayIfAbsent: vi.fn(async (_userId, _projectId, overlay) => {
+      const overlays = project.overlays as Array<Record<string, unknown>>;
+      if (overlays.some((candidate) => candidate.id === overlay.id)) return false;
+      appends += 1;
+      overlays.push(overlay);
+      return true;
+    }),
   };
 }
 
@@ -228,6 +277,195 @@ describe('uploaded audio assignment', () => {
       audioRights: rights,
     })).toThrow(UnlicensedAudioInRenderError);
   });
+
+  it('atomically attaches the derivative and server-owned rights to the semantic lane', async () => {
+    const dependencies = createTimelineDependencies();
+
+    const result = await assignUploadedAudioToTimeline(
+      timelineAssignmentInput(),
+      dependencies,
+    );
+
+    expect(result.overlays).toHaveLength(1);
+    expect(result.overlays[0]).toMatchObject({
+      id: result.overlayId,
+      type: 'sound',
+      from: 45,
+      durationInFrames: 38,
+      row: 0,
+      assetId: result.derivativeAssetId,
+      content: 'Impact hit',
+      startFromSound: 3,
+      audioRights: result.audioRights,
+      metadata: {
+        source: 'uploaded-audio-assignment',
+        audioRole: 'sfx',
+        sourceAssetId: 'audio_source_1',
+      },
+    });
+    expect(result.overlays[0]).not.toMatchObject({
+      assetId: 'audio_source_1',
+    });
+    expect(dependencies.appendCount()).toBe(1);
+
+    const replay = await assignUploadedAudioToTimeline(
+      timelineAssignmentInput(),
+      dependencies,
+    );
+    expect(replay.replayed).toBe(true);
+    expect(replay.overlayId).toBe(result.overlayId);
+    expect(dependencies.appendCount()).toBe(1);
+  });
+
+  it('rejects idempotent replay when timeline placement changes', async () => {
+    const dependencies = createTimelineDependencies();
+    await assignUploadedAudioToTimeline(timelineAssignmentInput(), dependencies);
+
+    await expect(assignUploadedAudioToTimeline(timelineAssignmentInput({
+      placement: {
+        from: 90,
+        durationInFrames: 38,
+        requestedRow: 0,
+        startFromSound: 3,
+      },
+    }), dependencies)).rejects.toMatchObject({
+      code: 'IDEMPOTENCY_CONFLICT',
+      httpStatus: 409,
+    });
+  });
+});
+
+describe('uploaded audio editor client', () => {
+  it('sends only source identity, role, placement, and the current attestation', async () => {
+    const audioRights = {
+      mediaRole: 'voiceover',
+      source: 'user-upload',
+      userChoice: 'attested',
+      licensed: true,
+      evidence: {
+        kind: 'user-attestation',
+        sourceAssetId: 'audio_source_1',
+        attestationVersion: AUDIO_RIGHTS_ATTESTATION_VERSION,
+        attestedAt: NOW.toISOString(),
+        attestedBy: 'user_1',
+      },
+    };
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      replayed: false,
+      sourceAssetId: 'audio_source_1',
+      derivativeAssetId: 'audio_use_1',
+      overlayId: 123,
+      mediaRole: 'voiceover',
+      audioRights,
+      overlays: [{
+        id: 123,
+        type: 'sound',
+        row: 3,
+        assetId: 'audio_use_1',
+        audioRights,
+      }],
+    }), { status: 200 }));
+
+    const result = await assignUploadedAudioAsset({
+      projectId: 'project_1',
+      sourceAssetId: 'audio_source_1',
+      displayName: 'Narration',
+      mediaRole: 'voiceover',
+      idempotencyKey: 'audio_use_001',
+      placement: {
+        from: 0,
+        durationInFrames: 120,
+        requestedRow: 6,
+        startFromSound: 0,
+      },
+      fetchImpl,
+    });
+
+    expect(result.overlays).toHaveLength(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [, request] = fetchImpl.mock.calls[0];
+    expect(JSON.parse(request.body)).toEqual({
+      sourceAssetId: 'audio_source_1',
+      displayName: 'Narration',
+      mediaRole: 'voiceover',
+      idempotencyKey: 'audio_use_001',
+      placement: {
+        from: 0,
+        durationInFrames: 120,
+        requestedRow: 6,
+        startFromSound: 0,
+      },
+      rightsAttestation: {
+        accepted: true,
+        version: AUDIO_RIGHTS_ATTESTATION_VERSION,
+      },
+    });
+  });
+
+  it('rejects a success response whose overlay does not carry the assigned derivative', async () => {
+    const audioRights = {
+      mediaRole: 'sfx',
+      source: 'user-upload',
+      userChoice: 'attested',
+      licensed: true,
+      evidence: {
+        kind: 'user-attestation',
+        sourceAssetId: 'audio_source_1',
+        attestationVersion: AUDIO_RIGHTS_ATTESTATION_VERSION,
+        attestedAt: NOW.toISOString(),
+        attestedBy: 'user_1',
+      },
+    };
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      sourceAssetId: 'audio_source_1',
+      derivativeAssetId: 'audio_use_1',
+      overlayId: 123,
+      mediaRole: 'sfx',
+      audioRights,
+      overlays: [{
+        id: 123,
+        type: 'sound',
+        row: 0,
+        assetId: 'audio_source_1',
+        audioRights,
+      }],
+    }), { status: 200 }));
+
+    await expect(assignUploadedAudioAsset({
+      projectId: 'project_1',
+      sourceAssetId: 'audio_source_1',
+      displayName: 'Impact',
+      mediaRole: 'sfx',
+      idempotencyKey: 'audio_use_001',
+      placement: {
+        from: 0,
+        durationInFrames: 30,
+        requestedRow: 0,
+        startFromSound: 0,
+      },
+      fetchImpl,
+    })).rejects.toBeInstanceOf(UploadedAudioAssignmentClientError);
+  });
+
+  it('creates deterministic-format request identities and wires v1 through the shared owner', () => {
+    expect(createUploadedAudioIdempotencyKey(() => '12345678-abcd'))
+      .toBe('audio_12345678-abcd');
+    const source = readFileSync(
+      new URL(
+        '../../components/editron/editor/version-7.0.0/components/timeline/timeline-grid.tsx',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    expect(source).toContain('useUploadedAudioAssignment()');
+    expect(source).toContain('<UploadedAudioAssignmentDialog');
+    expect(source).toContain('requestUploadedAudioAssignment(');
+    expect(source).not.toMatch(
+      /if \(asset\.type === 'audio'\)\s*\{\s*newOverlay\s*=/,
+    );
+  });
 });
 
 describe('uploaded audio assignment route', () => {
@@ -281,8 +519,15 @@ describe('uploaded audio assignment route', () => {
           userId: 'victim_user',
           projectId: 'victim_project',
           sourceAssetId: 'audio_source_1',
+          displayName: 'Impact hit',
           mediaRole: 'sfx',
           idempotencyKey: 'audio_use_001',
+          placement: {
+            from: 45,
+            durationInFrames: 38,
+            requestedRow: 0,
+            startFromSound: 3,
+          },
           audioUrl: 'https://attacker.example/audio.wav',
           audioRights: { licensed: true },
           rightsAttestation: {
@@ -303,8 +548,15 @@ describe('uploaded audio assignment route', () => {
       userId: 'user_1',
       projectId: 'project_1',
       sourceAssetId: 'audio_source_1',
+      displayName: 'Impact hit',
       mediaRole: 'sfx',
       idempotencyKey: 'audio_use_001',
+      placement: {
+        from: 45,
+        durationInFrames: 38,
+        requestedRow: 0,
+        startFromSound: 3,
+      },
       rightsAttestation: {
         accepted: true,
         version: AUDIO_RIGHTS_ATTESTATION_VERSION,

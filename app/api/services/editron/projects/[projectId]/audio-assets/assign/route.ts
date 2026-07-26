@@ -2,9 +2,9 @@ import { auth } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
 
 import {
-  assignUploadedAudio,
+  assignUploadedAudioToTimeline,
   UploadedAudioAssignmentError,
-  type UploadedAudioAssignmentInput,
+  type UploadedAudioTimelineAssignmentInput,
 } from '@/lib/editron/services/uploaded-audio-assignment';
 
 export const runtime = 'nodejs';
@@ -13,12 +13,12 @@ const MAX_REQUEST_BODY_BYTES = 16 * 1_024;
 
 interface RouteDependencies {
   authenticate: () => ReturnType<typeof auth>;
-  assign: typeof assignUploadedAudio;
+  assign: typeof assignUploadedAudioToTimeline;
 }
 
 const defaultDependencies: RouteDependencies = {
   authenticate: auth,
-  assign: assignUploadedAudio,
+  assign: assignUploadedAudioToTimeline,
 };
 
 export async function POST(
@@ -54,10 +54,14 @@ export async function POST(
       userId,
       projectId,
       sourceAssetId: body.sourceAssetId as string,
-      mediaRole: body.mediaRole as UploadedAudioAssignmentInput['mediaRole'],
+      displayName: body.displayName as string,
+      mediaRole:
+        body.mediaRole as UploadedAudioTimelineAssignmentInput['mediaRole'],
       idempotencyKey: body.idempotencyKey as string,
+      placement:
+        body.placement as UploadedAudioTimelineAssignmentInput['placement'],
       rightsAttestation:
-        body.rightsAttestation as UploadedAudioAssignmentInput['rightsAttestation'],
+        body.rightsAttestation as UploadedAudioTimelineAssignmentInput['rightsAttestation'],
     });
     return NextResponse.json({ success: true, ...result });
   } catch (error) {

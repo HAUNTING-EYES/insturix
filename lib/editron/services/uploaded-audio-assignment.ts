@@ -5,8 +5,10 @@ import {
   getAudioRightsContractIssue,
   type AudioRightsContract,
 } from '@/lib/editron/shared/render-request-payload';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 
 const ASSIGNMENT_VERSION = 'editron-uploaded-audio-assignment-v1';
+const TIMELINE_ASSIGNMENT_VERSION = 'editron-uploaded-audio-timeline-v1';
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 const ASSIGNABLE_ROLES = new Set<UploadedAudioMediaRole>([
   'sfx',
@@ -31,7 +33,9 @@ export type UploadedAudioAssignmentErrorCode =
   | 'ASSET_STORAGE_UNAVAILABLE'
   | 'RIGHTS_ATTESTATION_REQUIRED'
   | 'IDEMPOTENCY_CONFLICT'
-  | 'DERIVATIVE_PERSISTENCE_FAILED';
+  | 'DERIVATIVE_PERSISTENCE_FAILED'
+  | 'PROJECT_TIMELINE_INVALID'
+  | 'PROJECT_PERSISTENCE_FAILED';
 
 export class UploadedAudioAssignmentError extends Error {
   constructor(
@@ -65,6 +69,25 @@ export interface UploadedAudioAssignmentResult {
   audioRights: AudioRightsContract;
   audioUrl: string;
   duration?: number;
+}
+
+export interface UploadedAudioTimelinePlacement {
+  from: number;
+  durationInFrames: number;
+  requestedRow: number;
+  startFromSound?: number;
+}
+
+export interface UploadedAudioTimelineAssignmentInput
+  extends UploadedAudioAssignmentInput {
+  displayName: string;
+  placement: UploadedAudioTimelinePlacement;
+}
+
+export interface UploadedAudioTimelineAssignmentResult
+  extends UploadedAudioAssignmentResult {
+  overlayId: number;
+  overlays: Array<Record<string, unknown>>;
 }
 
 interface StoredAudioAsset extends Record<string, unknown> {
@@ -107,6 +130,15 @@ export interface UploadedAudioAssignmentDependencies {
     now: Date,
   ): Promise<{ url: string; expiresAt: Date }>;
   now(): Date;
+}
+
+export interface UploadedAudioTimelineAssignmentDependencies
+  extends UploadedAudioAssignmentDependencies {
+  appendTimelineOverlayIfAbsent(
+    userId: string,
+    projectId: string,
+    overlay: Record<string, unknown>,
+  ): Promise<boolean>;
 }
 
 const defaultDependencies: UploadedAudioAssignmentDependencies = {
@@ -159,6 +191,34 @@ const defaultDependencies: UploadedAudioAssignmentDependencies = {
     throw new Error('No refreshable or current storage URL exists');
   },
   now: () => new Date(),
+};
+
+const defaultTimelineDependencies: UploadedAudioTimelineAssignmentDependencies = {
+  ...defaultDependencies,
+  async appendTimelineOverlayIfAbsent(userId, projectId, overlay) {
+    const { ensureAtomicOverlayReceipt } = await import(
+      '@/lib/editron/engine/overlay-atomic-receipts'
+    );
+    const { COLLECTIONS, getDatabase } = await import('@/lib/editron/db/mongodb');
+    const persistedOverlay = ensureAtomicOverlayReceipt(overlay as never, {
+      source: 'uploaded-audio-assignment',
+      intent: `persist-uploaded-${String(asRecord(overlay.audioRights)?.mediaRole ?? 'audio')}`,
+      reason: 'uploaded audio was rights-attested and attached by the server',
+    });
+    const db = await getDatabase();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        'overlays.id': { $ne: overlay.id },
+      },
+      {
+        $push: { overlays: persistedOverlay } as never,
+        $set: { updatedAt: new Date() },
+      },
+    );
+    return result.modifiedCount === 1;
+  },
 };
 
 export async function assignUploadedAudio(
@@ -251,6 +311,72 @@ export async function assignUploadedAudio(
   return buildResult(derivative, audioRights, input, false);
 }
 
+export async function assignUploadedAudioToTimeline(
+  rawInput: UploadedAudioTimelineAssignmentInput,
+  dependencyOverrides: Partial<UploadedAudioTimelineAssignmentDependencies> = {},
+): Promise<UploadedAudioTimelineAssignmentResult> {
+  const input = validateTimelineInput(rawInput);
+  const dependencies = {
+    ...defaultTimelineDependencies,
+    ...dependencyOverrides,
+  };
+  const assignment = await assignUploadedAudio(input, dependencies);
+  const overlayId = buildTimelineOverlayId(input);
+  const overlay = buildTimelineOverlay(input, assignment, overlayId);
+
+  let appended: boolean;
+  try {
+    appended = await dependencies.appendTimelineOverlayIfAbsent(
+      input.userId,
+      input.projectId,
+      overlay,
+    );
+  } catch (error) {
+    throw assignmentError(
+      'PROJECT_PERSISTENCE_FAILED',
+      'Uploaded audio could not be attached to the project timeline',
+      500,
+      error,
+    );
+  }
+
+  const project = asRecord(
+    await dependencies.loadProject(input.userId, input.projectId),
+  );
+  if (!project) {
+    throw assignmentError('PROJECT_NOT_FOUND', 'Project not found', 404);
+  }
+  const overlays = Array.isArray(project.overlays)
+    ? project.overlays.flatMap((candidate) => {
+        const record = asRecord(candidate);
+        return record ? [record] : [];
+      })
+    : null;
+  if (!overlays) {
+    throw assignmentError(
+      'PROJECT_TIMELINE_INVALID',
+      'Project timeline is missing or malformed',
+      500,
+    );
+  }
+  const persisted = overlays.find((candidate) => candidate.id === overlayId);
+  if (!persisted) {
+    throw assignmentError(
+      'PROJECT_PERSISTENCE_FAILED',
+      'Uploaded audio was not present after the project timeline commit',
+      500,
+    );
+  }
+  assertPersistedTimelineOverlay(persisted, overlay, input);
+
+  return {
+    ...assignment,
+    replayed: assignment.replayed || !appended,
+    overlayId,
+    overlays,
+  };
+}
+
 function validateInput(
   input: UploadedAudioAssignmentInput,
 ): UploadedAudioAssignmentInput {
@@ -290,6 +416,42 @@ function validateInput(
     );
   }
   return { ...input, userId, projectId, sourceAssetId, idempotencyKey };
+}
+
+function validateTimelineInput(
+  input: UploadedAudioTimelineAssignmentInput,
+): UploadedAudioTimelineAssignmentInput {
+  const validated = validateInput(input);
+  const displayName = nonEmptyString(input?.displayName);
+  const placement = asRecord(input?.placement);
+  const from = placement?.from;
+  const durationInFrames = placement?.durationInFrames;
+  const requestedRow = placement?.requestedRow;
+  const startFromSound = placement?.startFromSound ?? 0;
+  if (
+    !displayName
+    || !nonNegativeSafeInteger(from)
+    || !positiveSafeInteger(durationInFrames)
+    || !nonNegativeSafeInteger(requestedRow)
+    || requestedRow > 63
+    || !nonNegativeSafeInteger(startFromSound)
+  ) {
+    throw assignmentError(
+      'INVALID_REQUEST',
+      'displayName and a valid non-negative timeline placement are required',
+      400,
+    );
+  }
+  return {
+    ...validated,
+    displayName: displayName.slice(0, 200),
+    placement: {
+      from,
+      durationInFrames,
+      requestedRow,
+      startFromSound,
+    },
+  };
 }
 
 function assertSourceAsset(
@@ -437,6 +599,107 @@ function buildDerivativeAssetId(input: UploadedAudioAssignmentInput): string {
   return `audio_use_${digest}`;
 }
 
+function buildTimelineOverlay(
+  input: UploadedAudioTimelineAssignmentInput,
+  assignment: UploadedAudioAssignmentResult,
+  overlayId: number,
+): Record<string, unknown> {
+  const placement = input.placement;
+  const row = resolveTimelineRow(input.mediaRole, placement.requestedRow);
+  return {
+    id: overlayId,
+    type: 'sound',
+    from: placement.from,
+    durationInFrames: placement.durationInFrames,
+    row,
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    isDragging: false,
+    rotation: 0,
+    assetId: assignment.derivativeAssetId,
+    src: assignment.audioUrl,
+    content: input.displayName,
+    startFromSound: placement.startFromSound ?? 0,
+    styles: { volume: 1 },
+    audioRights: assignment.audioRights,
+    metadata: {
+      source: 'uploaded-audio-assignment',
+      audioRole: input.mediaRole,
+      sourceAssetId: input.sourceAssetId,
+      uploadedAudioAssignment: {
+        version: TIMELINE_ASSIGNMENT_VERSION,
+        idempotencyKey: input.idempotencyKey,
+        sourceAssetId: input.sourceAssetId,
+        derivativeAssetId: assignment.derivativeAssetId,
+        mediaRole: input.mediaRole,
+        placement: {
+          ...placement,
+          startFromSound: placement.startFromSound ?? 0,
+          resolvedRow: row,
+        },
+      },
+    },
+    _workerAdded: true,
+  };
+}
+
+function assertPersistedTimelineOverlay(
+  persisted: Record<string, unknown>,
+  expected: Record<string, unknown>,
+  input: UploadedAudioTimelineAssignmentInput,
+): void {
+  const persistedMetadata = asRecord(persisted.metadata);
+  const expectedMetadata = asRecord(expected.metadata);
+  const persistedReceipt = asRecord(
+    persistedMetadata?.uploadedAudioAssignment,
+  );
+  const expectedReceipt = asRecord(
+    expectedMetadata?.uploadedAudioAssignment,
+  );
+  if (
+    persisted.type !== 'sound'
+    || persisted.assetId !== expected.assetId
+    || persisted.row !== expected.row
+    || persisted.from !== expected.from
+    || persisted.durationInFrames !== expected.durationInFrames
+    || persisted.startFromSound !== expected.startFromSound
+    || persistedMetadata?.audioRole !== input.mediaRole
+    || JSON.stringify(persisted.audioRights) !== JSON.stringify(expected.audioRights)
+    || JSON.stringify(persistedReceipt) !== JSON.stringify(expectedReceipt)
+  ) {
+    throw assignmentError(
+      'IDEMPOTENCY_CONFLICT',
+      'The idempotency key is already attached to a different timeline placement',
+      409,
+    );
+  }
+}
+
+function resolveTimelineRow(
+  mediaRole: UploadedAudioMediaRole,
+  requestedRow: number,
+): number {
+  if (mediaRole === 'sfx') return ROW.SFX;
+  if (mediaRole === 'voiceover' || mediaRole === 'dubbing') {
+    return ROW.VOICEOVER;
+  }
+  return requestedRow === ROW.BGM ? ROW.SFX : requestedRow;
+}
+
+function buildTimelineOverlayId(
+  input: UploadedAudioTimelineAssignmentInput,
+): number {
+  const digest = createHash('sha256')
+    .update(
+      `${input.userId}\0${input.projectId}\0${input.idempotencyKey}\0timeline`,
+    )
+    .digest('hex')
+    .slice(0, 11);
+  return Number.parseInt(digest, 16);
+}
+
 function assignmentError(
   code: UploadedAudioAssignmentErrorCode,
   message: string,
@@ -463,6 +726,14 @@ function nonEmptyString(value: unknown): string | null {
 
 function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function nonNegativeSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function positiveSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) > 0;
 }
 
 function validDate(value: unknown): Date | null {
