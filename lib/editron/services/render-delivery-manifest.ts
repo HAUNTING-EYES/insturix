@@ -15,7 +15,7 @@ const PlatformNativeMusicHandoffSchema = z.object({
     title: z.string().nullable(),
     artists: z.array(z.string()),
     sourceAssetId: z.string().nullable(),
-    bpm: z.number().positive().nullable(),
+    bpm: z.number().positive().nullable().optional(),
     usage: z.literal('reference-only'),
   }),
   timing: z.object({
