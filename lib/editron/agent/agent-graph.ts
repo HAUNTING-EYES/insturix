@@ -84,6 +84,7 @@ import {
   type ChatRequestOwnerLicense,
 } from './chat-request-owner';
 import { filterChatToolsForWorkflowPhase } from './chat-tool-workflow-phase';
+import { resolveServerOwnedLocalizedWorkflowStep } from './chat-localized-workflow';
 
 // PERF FIX: Singleton GenAI client — reuse across all requests instead of
 // instantiating `new GoogleGenerativeAI(...)` on every callModel call.
@@ -365,10 +366,43 @@ export const createAgent = (
     });
 
     const workflowLedger = buildChatToolTurnLedger(messages);
+    const localizedWorkflowProject = turnContext?.requestOwnerLicense?.semanticWorkflow === 'localized-mutation'
+      ? await (
+        config.configurable?.loadPostconditionProject ?? loadCanonicalPostconditionProject
+      )(userId, projectId)
+      : null;
+    const localizedWorkflowRevision = buildChatProjectRevision(localizedWorkflowProject);
+    const localizedWorkflowStep = resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: turnContext?.requestOwnerLicense,
+      ledger: workflowLedger,
+      projectId,
+      projectRevision: localizedWorkflowRevision,
+    });
+    if (localizedWorkflowStep?.kind === 'tool-call') {
+      const available = getOrCreateTools(projectId).some(
+        (tool) => tool.name === localizedWorkflowStep.toolCall.name,
+      );
+      if (!available) {
+        throw new Error(
+          `Server-owned localized workflow produced unlicensed tool ${localizedWorkflowStep.toolCall.name}.`,
+        );
+      }
+      return processResponse({
+        content: '',
+        tool_calls: [{
+          type: 'tool_call',
+          ...localizedWorkflowStep.toolCall,
+        }],
+      });
+    }
+    if (localizedWorkflowStep?.kind === 'complete' || localizedWorkflowStep?.kind === 'halt') {
+      return processResponse({ content: localizedWorkflowStep.message });
+    }
     const tools = filterChatToolsForWorkflowPhase(getOrCreateTools(projectId), {
       requestOwnerLicense: turnContext?.requestOwnerLicense,
       ledger: workflowLedger,
       projectId,
+      projectRevision: localizedWorkflowRevision,
     });
     
     const ownerLicensePrompt = formatChatRequestOwnerLicenseForPrompt(

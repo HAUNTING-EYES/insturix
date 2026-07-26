@@ -9,6 +9,8 @@ export const CHAT_REQUEST_CAPABILITIES = [
   'html-scene-edit',
   'asset-placement',
   'asset-replacement',
+  'localized-cut',
+  'localized-overlay',
   'localized-sfx',
   'localized-camera-motion',
   'localized-speed-change',
@@ -19,6 +21,39 @@ export const CHAT_REQUEST_CAPABILITIES = [
 ] as const;
 
 export type ChatRequestCapability = (typeof CHAT_REQUEST_CAPABILITIES)[number];
+
+export const CHAT_LOCALIZED_MODALITIES = [
+  'transcript',
+  'visual',
+  'audio',
+  'asset',
+] as const;
+export type ChatLocalizedModality = (typeof CHAT_LOCALIZED_MODALITIES)[number];
+
+export const CHAT_LOCALIZED_OPERATIONS = [
+  'remove',
+  'highlight',
+  'camera-motion',
+  'speed-change',
+  'sound-effect',
+  'beat-sync',
+  'place-asset',
+  'replace-asset',
+] as const;
+export type ChatLocalizedOperation = (typeof CHAT_LOCALIZED_OPERATIONS)[number];
+
+export interface ChatLocalizedEditRequest {
+  modality: ChatLocalizedModality;
+  operation: ChatLocalizedOperation;
+  query: string;
+}
+
+export interface ChatLocalizedWorkflowAdapter {
+  capability: ChatRequestCapability;
+  resolverTool: string;
+  resolverArgs: Record<string, unknown>;
+  mutationTools: ReadonlySet<string>;
+}
 export type ChatOperationalAuthority =
   | 'family-owner'
   | 'localized-workflow'
@@ -147,6 +182,26 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       'use_matching_footage',
     ],
   }),
+  'localized-cut': capabilityContract({
+    authority: 'localized-workflow',
+    evidenceTools: [
+      'resolve_transcript_edit',
+      'resolve_visual_edit',
+      'resolve_audio_edit',
+    ],
+    mutationTools: ['cut_section'],
+    requiredToolSequence: [
+      TIMELINE_READ_STEP,
+      ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_audio_edit'],
+      'cut_section',
+    ],
+  }),
+  'localized-overlay': capabilityContract({
+    authority: 'localized-workflow',
+    evidenceTools: ['resolve_visual_edit'],
+    mutationTools: ['add_overlay'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'resolve_visual_edit', 'add_overlay'],
+  }),
   'localized-sfx': capabilityContract({
     authority: 'localized-workflow',
     evidenceTools: [
@@ -240,6 +295,81 @@ export function getChatCapabilityAuthorityContract(
   return CHAT_CAPABILITY_AUTHORITY_CONTRACTS[capability];
 }
 
+export function resolveChatLocalizedWorkflowAdapter(
+  edit: ChatLocalizedEditRequest,
+): ChatLocalizedWorkflowAdapter | null {
+  const query = edit.query.trim();
+  if (!query) return null;
+
+  if (edit.modality === 'transcript' && edit.operation === 'remove') {
+    return localizedAdapter('localized-cut', 'resolve_transcript_edit', {
+      query,
+      action: 'cut_phrase',
+    });
+  }
+  if (edit.modality === 'visual' && edit.operation === 'remove') {
+    return localizedAdapter('localized-cut', 'resolve_visual_edit', {
+      query,
+      action: 'cut_range',
+    });
+  }
+  if (edit.modality === 'audio' && edit.operation === 'remove') {
+    return localizedAdapter('localized-cut', 'resolve_audio_edit', {
+      query,
+      action: 'cut_section',
+    });
+  }
+  if (edit.modality === 'visual' && edit.operation === 'highlight') {
+    return localizedAdapter('localized-overlay', 'resolve_visual_edit', {
+      query,
+      action: 'highlight',
+    });
+  }
+  if (edit.modality === 'visual' && edit.operation === 'camera-motion') {
+    return localizedAdapter('localized-camera-motion', 'resolve_visual_edit', {
+      query,
+      action: 'keyframe_anchor',
+    });
+  }
+  if (edit.modality === 'audio' && edit.operation === 'camera-motion') {
+    return localizedAdapter('localized-camera-motion', 'resolve_audio_edit', {
+      query,
+      action: 'camera_shake',
+    });
+  }
+  if (edit.modality === 'visual' && edit.operation === 'speed-change') {
+    return localizedAdapter('localized-speed-change', 'resolve_visual_edit', {
+      query,
+      action: 'speed_ramp',
+    });
+  }
+  if (edit.modality === 'audio' && edit.operation === 'sound-effect') {
+    return localizedAdapter('localized-sfx', 'resolve_audio_edit', {
+      query,
+      action: 'add_sfx',
+    });
+  }
+  if (edit.modality === 'audio' && edit.operation === 'beat-sync') {
+    return localizedAdapter('beat-sync', 'resolve_audio_edit', {
+      query,
+      action: 'sync_cuts_to_beats',
+    });
+  }
+  if (edit.modality === 'asset' && edit.operation === 'place-asset') {
+    return localizedAdapter('asset-placement', 'resolve_user_asset_overlay', {
+      query,
+      operation: 'place',
+    });
+  }
+  if (edit.modality === 'asset' && edit.operation === 'replace-asset') {
+    return localizedAdapter('asset-replacement', 'resolve_user_asset_overlay', {
+      query,
+      operation: 'replace',
+    });
+  }
+  return null;
+}
+
 export function resolveChatCapabilityTools(
   capabilities: readonly ChatRequestCapability[],
 ): ReadonlySet<string> | null {
@@ -281,4 +411,17 @@ export function requiredToolSequenceForChatCapability(
   const sequence = [...contract.requiredToolSequence];
   sequence[sequence.length - 1] = mutationTool;
   return sequence;
+}
+
+function localizedAdapter(
+  capability: ChatRequestCapability,
+  resolverTool: string,
+  resolverArgs: Record<string, unknown>,
+): ChatLocalizedWorkflowAdapter {
+  return {
+    capability,
+    resolverTool,
+    resolverArgs,
+    mutationTools: getChatCapabilityAuthorityContract(capability).mutationTools,
+  };
 }
