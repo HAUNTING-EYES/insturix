@@ -8,8 +8,9 @@
 set -e
 
 ENV=${1:-dev}
-SITE_NAME="editron-$ENV"
 ENTRY_POINT="components/editron/editor/version-7.0.0/remotion/index.ts"
+BUNDLE_SHA=$(pnpm exec tsx -e "import { computeRemotionSiteFingerprint } from './lib/editron/services/remotion-site-fingerprint'; process.stdout.write(computeRemotionSiteFingerprint().sha256)")
+SITE_NAME="editron-${ENV}-${BUNDLE_SHA:0:12}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -42,6 +43,7 @@ export AWS_REGION=${REMOTION_AWS_REGION:-us-east-1}
 
 echo -e "  Region: ${AWS_REGION}"
 echo -e "  Entry Point: ${ENTRY_POINT}"
+echo -e "  Bundle SHA: ${BUNDLE_SHA}"
 echo ""
 
 # Deploy site
@@ -55,4 +57,5 @@ echo ""
 echo -e "${YELLOW}📝 Next steps:${NC}"
 echo "1. Copy the Serve URL from above"
 echo "2. Update REMOTION_LAMBDA_SERVE_URL in your ${ENV}.env file"
+echo "3. Set REMOTION_LAMBDA_SERVE_BUNDLE_SHA=${BUNDLE_SHA}"
 echo ""

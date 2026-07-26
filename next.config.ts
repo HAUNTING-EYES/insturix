@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
 
+import { computeRemotionSiteFingerprint } from "./lib/editron/services/remotion-site-fingerprint";
+
+const remotionSiteFingerprint = computeRemotionSiteFingerprint();
+
 const legacyProductRoutes = [
   "/products/alyzitron",
   "/products/clickatron",
@@ -32,6 +36,9 @@ const stalePublicRedirects = [
 ];
 
 const nextConfig: NextConfig = {
+  env: {
+    EDITRON_REMOTION_BUNDLE_SHA: remotionSiteFingerprint.sha256,
+  },
   // Disable React Strict Mode in production to avoid double-renders
   // Keep enabled in development for debugging
   reactStrictMode: process.env.NODE_ENV === "development",
