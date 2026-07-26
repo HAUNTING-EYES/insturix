@@ -880,8 +880,6 @@ ${ownerLicensePrompt}
     // Previously this was a second independent call to createToolsWithProject(projectId),
     // meaning ALL tool instances were constructed twice per agent round-trip.
     // Now we share the same cached set used by callModel.
-    //
-    // OLD: const tools = createToolsWithProject(projectId);  [duplicate construction]
     const tools = getOrCreateTools(projectId);
     
     const lastMessage = state.messages[state.messages.length - 1] as any;
