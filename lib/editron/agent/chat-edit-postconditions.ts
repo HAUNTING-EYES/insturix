@@ -34,6 +34,10 @@ export interface ChatEditPostconditionVerification {
   stateChanged: boolean;
   requestedTargetIds: string[];
   affectedTargets: ChatEditPostconditionTarget[];
+  renderEligibility: {
+    inheritedIssues: Array<{ overlayId: string; reason: string }>;
+    introducedIssues: Array<{ overlayId: string; reason: string }>;
+  };
   renderVerification: {
     status: 'pending' | 'deferred';
     required: boolean;
@@ -107,19 +111,17 @@ export function verifyChatToolPostcondition(input: {
   const stateChanged = before != null && after != null && beforeStateHash !== afterStateHash;
   const requestedTargetIds = resolveRequestedTargetIds(contract?.state.kind, input.args, input.resultData);
   const affectedTargets = before && after ? diffOverlayTargets(before.overlays, after.overlays) : [];
-  const invalidAffectedTargets = after
-    ? affectedTargets.filter((target) => (
-        target.state !== 'deleted'
-        && after.renderEligibilityIssues.has(target.overlayId)
-      ))
-    : [];
-  const outcome = invalidAffectedTargets.length > 0
+  const renderEligibility = classifyAffectedRenderEligibility({
+    affectedTargets,
+    before,
+    after,
+  });
+  const outcome = renderEligibility.introducedIssues.length > 0
     ? {
         pass: false,
         deferred: false,
-        reason: invalidAffectedTargets
-          .map((target) => after?.renderEligibilityIssues.get(target.overlayId))
-          .filter((reason): reason is string => Boolean(reason))
+        reason: renderEligibility.introducedIssues
+          .map((issue) => issue.reason)
           .join('; '),
       }
     : evaluateStateExpectation({
@@ -131,6 +133,17 @@ export function verifyChatToolPostcondition(input: {
         affectedTargets,
         resultData: input.resultData,
       });
+  const renderEligibleTargets = affectedTargets.filter((target) => (
+    !renderEligibility.inheritedIssues.some((issue) => issue.overlayId === target.overlayId)
+  ));
+  const modalities = outcome.deferred
+    ? []
+    : renderEligibleTargets.length === 0 && affectedTargets.length > 0
+      ? []
+      : resolveRenderVerificationModalities(
+          renderEligibleTargets,
+          contract?.render.modalities ?? ['visual', 'audio'],
+        );
 
   return {
     version: CHAT_EDIT_POSTCONDITION_VERSION,
@@ -143,17 +156,53 @@ export function verifyChatToolPostcondition(input: {
     stateChanged,
     requestedTargetIds,
     affectedTargets,
+    renderEligibility,
     renderVerification: {
-      status: outcome.deferred ? 'deferred' : 'pending',
-      required: !outcome.deferred,
-      modalities: outcome.deferred
-        ? []
-        : resolveRenderVerificationModalities(
-            affectedTargets,
-            contract?.render.modalities ?? ['visual', 'audio'],
-          ),
+      status: outcome.deferred || modalities.length === 0 ? 'deferred' : 'pending',
+      required: !outcome.deferred && modalities.length > 0,
+      modalities,
     },
   };
+}
+
+function classifyAffectedRenderEligibility(input: {
+  affectedTargets: ChatEditPostconditionTarget[];
+  before: ProjectSnapshot | null;
+  after: ProjectSnapshot | null;
+}): ChatEditPostconditionVerification['renderEligibility'] {
+  const inheritedIssues: Array<{ overlayId: string; reason: string }> = [];
+  const introducedIssues: Array<{ overlayId: string; reason: string }> = [];
+  if (!input.after) return { inheritedIssues, introducedIssues };
+
+  for (const target of input.affectedTargets) {
+    if (target.state === 'deleted') continue;
+    const afterIssue = input.after.renderEligibilityIssues.get(target.overlayId);
+    if (!afterIssue) continue;
+    const beforeIssue = input.before?.renderEligibilityIssues.get(target.overlayId);
+    const issue = { overlayId: target.overlayId, reason: afterIssue };
+    const sameEligibilityIdentity = input.before
+      ? renderEligibilityIdentity(input.before.overlays.get(target.overlayId))
+        === renderEligibilityIdentity(input.after.overlays.get(target.overlayId))
+      : false;
+    if (beforeIssue === afterIssue && sameEligibilityIdentity) inheritedIssues.push(issue);
+    else introducedIssues.push(issue);
+  }
+  return { inheritedIssues, introducedIssues };
+}
+
+function renderEligibilityIdentity(overlay: JsonRecord | undefined): string {
+  if (!overlay) return 'missing';
+  return stableDigest({
+    type: overlay.type,
+    assetId: overlay.assetId,
+    src: overlay.src,
+    content: overlay.content,
+    audioRights: overlay.audioRights,
+    musicRights: overlay.musicRights,
+    styles: overlay.styles,
+    volume: overlay.volume,
+    playbackRate: overlay.playbackRate,
+  });
 }
 
 function resolveRenderVerificationModalities(

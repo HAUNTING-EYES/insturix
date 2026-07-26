@@ -99,6 +99,16 @@ function conditionedBgmResult(
   return {
     audioUrl: `https://cdn.r2.example.com/${assetId}.flac`,
     audioAssetId: assetId,
+    musicRights: {
+      mediaRole: 'music',
+      source: 'generated',
+      userChoice: 'attested',
+      licensed: true,
+      evidence: {
+        kind: 'generated-provider',
+        sourceAssetId: assetId,
+      },
+    },
     gcsPath,
     durationMs,
     filename: `${assetId}.flac`,
@@ -421,6 +431,12 @@ describe('chat Phase 3G operation contracts', () => {
     const primary = {
       id: 70, type: 'sound', row: ROW.BGM, from: 120, durationInFrames: 120,
       startFromSound: 120, assetId: 'bgm_old', styles: { volume: 0.6 },
+      audioRights: {
+        mediaRole: 'music', source: 'preview-only', userChoice: 'no-music', licensed: false,
+      },
+      musicRights: {
+        mediaRole: 'music', source: 'preview-only', userChoice: 'no-music', licensed: false,
+      },
       metadata: { role: 'background-music', musicCoverage: { sectionIndex: 0 } },
     };
     const duplicate = {
@@ -533,6 +549,12 @@ describe('chat Phase 3G operation contracts', () => {
       durationInFrames: 120,
       startFromSound: 120,
       styles: { duckingConfig: { enabled: true } },
+      audioRights: {
+        mediaRole: 'music', source: 'generated', userChoice: 'attested', licensed: true,
+      },
+      musicRights: {
+        mediaRole: 'music', source: 'generated', userChoice: 'attested', licensed: true,
+      },
       metadata: {
         musicCoverage: { mode: 'sections', sectionIndex: 0 },
         audioPolicyEvidence: {

@@ -5419,6 +5419,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           content: generatedUrl,
           src: generatedUrl,
           assetId: bgm.audioAssetId,
+          audioRights: bgm.musicRights,
           musicRights: bgm.musicRights,
           styles: {
             ...(bgmOverlays[0]?.styles || {}),
