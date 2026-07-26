@@ -31,7 +31,7 @@ vi.mock('@google/generative-ai', () => ({
       return {
         async generateContentStream() {
           const step = agentFixture.modelStep++;
-          const parts = step === 0 || step === 1
+          const parts = step === 0 || step === 1 || step === 2
               ? [{
                   functionCall: {
                     name: 'apply_reference_style',
@@ -419,8 +419,9 @@ describe('chat scene and style tool contracts', () => {
     const applyOutputs = toolEvents
       .filter((event) => event.name === 'apply_reference_style')
       .map((event) => event.output);
-    expect(applyOutputs).toHaveLength(2);
-    expect(applyOutputs[0]).toContain('"status":"success"');
-    expect(applyOutputs[1]).toContain('"code":"CHAT_TOOL_TURN_LIMIT"');
+    expect(applyOutputs).toHaveLength(3);
+    expect(applyOutputs[0]).toContain('"code":"CHAT_TOOL_EVIDENCE_REQUIRED"');
+    expect(applyOutputs[1]).toContain('"status":"success"');
+    expect(applyOutputs[2]).toContain('"code":"CHAT_TOOL_TURN_LIMIT"');
   });
 });
