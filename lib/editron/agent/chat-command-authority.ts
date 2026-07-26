@@ -30,6 +30,7 @@ export type ChatRequiredToolStep = string | readonly string[];
 export interface ChatCapabilityAuthorityContract {
   authority: ChatOperationalAuthority;
   callableTools: ReadonlySet<string>;
+  evidenceTools: ReadonlySet<string>;
   mutationTools: ReadonlySet<string>;
   requiredToolSequence: readonly ChatRequiredToolStep[];
 }
@@ -60,13 +61,15 @@ function capabilityContract(input: {
   mutationTools: readonly string[];
   requiredToolSequence: readonly ChatRequiredToolStep[];
 }): ChatCapabilityAuthorityContract {
+  const evidenceTools = new Set(input.evidenceTools ?? []);
   return {
     authority: input.authority,
     callableTools: new Set([
       ...CHAT_MINIMAL_READ_TOOLS,
-      ...(input.evidenceTools ?? []),
+      ...evidenceTools,
       ...input.mutationTools,
     ]),
+    evidenceTools,
     mutationTools: new Set(input.mutationTools),
     requiredToolSequence: input.requiredToolSequence,
   };
@@ -86,16 +89,9 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     requiredToolSequence: [TIMELINE_READ_STEP, ['refresh_captions', 'refresh_fancy_captions']],
   }),
   'audio-ducking': capabilityContract({
-    authority: 'localized-workflow',
-    evidenceTools: [
-      'find_audio_moment',
-      'resolve_audio_edit',
-      'resolve_clip_analysis',
-      'queue_resolved_clip_analysis',
-      'get_clip_analysis_result',
-    ],
+    authority: 'family-owner',
     mutationTools: ['apply_audio_ducking'],
-    requiredToolSequence: [TIMELINE_READ_STEP, 'resolve_audio_edit', 'apply_audio_ducking'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'apply_audio_ducking'],
   }),
   'beat-sync': capabilityContract({
     authority: 'localized-workflow',
@@ -171,6 +167,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       'resolve_transcript_edit',
       'resolve_visual_edit',
       'resolve_keyframe_edit',
+      'visual_inspect_frame',
       'resolve_clip_analysis',
       'queue_resolved_clip_analysis',
       'get_clip_analysis_result',
@@ -190,6 +187,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       'resolve_transcript_edit',
       'resolve_visual_edit',
       'resolve_keyframe_edit',
+      'visual_inspect_frame',
       'resolve_clip_analysis',
       'queue_resolved_clip_analysis',
       'get_clip_analysis_result',

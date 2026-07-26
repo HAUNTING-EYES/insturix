@@ -82,6 +82,7 @@ import {
   formatChatRequestOwnerLicenseForPrompt,
   type ChatRequestOwnerLicense,
 } from './chat-request-owner';
+import { filterChatToolsForWorkflowPhase } from './chat-tool-workflow-phase';
 
 // PERF FIX: Singleton GenAI client — reuse across all requests instead of
 // instantiating `new GoogleGenerativeAI(...)` on every callModel call.
@@ -336,8 +337,6 @@ export const createAgent = (
     
     // PERF FIX: Use cached tools instead of creating a new set every call.
     // Previously: const tools = createToolsWithProject(projectId);  [every call]
-    const tools = getOrCreateTools(projectId);
-    
     let messages = state.messages || [];
 
     // Reject malformed history before converting it for Gemini.
@@ -362,6 +361,13 @@ export const createAgent = (
         });
       }
       return msg;
+    });
+
+    const workflowLedger = buildChatToolTurnLedger(messages);
+    const tools = filterChatToolsForWorkflowPhase(getOrCreateTools(projectId), {
+      requestOwnerLicense: turnContext?.requestOwnerLicense,
+      ledger: workflowLedger,
+      projectId,
     });
     
     const ownerLicensePrompt = formatChatRequestOwnerLicenseForPrompt(
@@ -577,10 +583,11 @@ ${ownerLicensePrompt}
       //
       // OLD: functionDeclarations = tools.map(tool => { convertZodToGemini(...) }) [every call]
       // NEW: build once per projectId, reuse from _functionDeclarationsCache
-      if (!_functionDeclarationsCache[projectId]) {
-        _functionDeclarationsCache[projectId] = buildGeminiFunctionDeclarations(tools);
+      const declarationCacheKey = `${projectId}:${tools.map((tool) => tool.name).join('|')}`;
+      if (!_functionDeclarationsCache[declarationCacheKey]) {
+        _functionDeclarationsCache[declarationCacheKey] = buildGeminiFunctionDeclarations(tools);
       }
-      const functionDeclarations = _functionDeclarationsCache[projectId];
+      const functionDeclarations = _functionDeclarationsCache[declarationCacheKey];
       
       const directModel = genAI.getGenerativeModel({
         model: CHAT_MODEL_NAME,
@@ -870,7 +877,7 @@ ${ownerLicensePrompt}
     // Previously this was a second independent call to createToolsWithProject(projectId),
     // meaning ALL tool instances were constructed twice per agent round-trip.
     // Now we share the same cached set used by callModel.
-    const tools = getOrCreateTools(projectId);
+    const licensedTools = getOrCreateTools(projectId);
     
     const lastMessage = state.messages[state.messages.length - 1] as any;
     const toolCalls: AgentToolCall[] = Array.isArray(lastMessage.tool_calls)
@@ -928,7 +935,7 @@ ${ownerLicensePrompt}
       const serverTimelinePreflight = await prepareServerTimelinePreflight({
         toolCalls,
         invokeTimelineView: (() => {
-          const timelineTool = tools.find((tool) => tool.name === 'get_timeline_view');
+          const timelineTool = licensedTools.find((tool) => tool.name === 'get_timeline_view');
           return timelineTool
             ? (args) => (timelineTool as any).invoke(args, config)
             : undefined;
@@ -949,7 +956,13 @@ ${ownerLicensePrompt}
           type: 'tool_start',
           data: { tool: toolCall.name, id: toolCall.id, args: toolCall.args },
         });
-        const tool = tools.find((t) => t.name === toolCall.name);
+        const phaseTools = filterChatToolsForWorkflowPhase(licensedTools, {
+          requestOwnerLicense: turnContext?.requestOwnerLicense,
+          ledger: turnLedger,
+          projectId,
+          projectRevision: schedulingRevision,
+        });
+        const tool = phaseTools.find((candidate) => candidate.name === toolCall.name);
         let output: string;
         let evidenceReceipts: ReturnType<typeof buildChatEvidenceReceipts> = [];
         let args = normalizeAgentToolArgs(toolCall.name, toolCall.args, {

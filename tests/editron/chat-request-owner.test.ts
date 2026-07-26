@@ -8,6 +8,10 @@ import {
   requiredToolSequenceForChatCapability,
 } from '@/lib/editron/agent/chat-command-authority';
 import {
+  filterChatToolsForWorkflowPhase,
+  resolveChatWorkflowPhase,
+} from '@/lib/editron/agent/chat-tool-workflow-phase';
+import {
   buildChatRequestOwnerPrompt,
   classifyChatRequestOwner,
   deriveChatRequestOwner,
@@ -380,6 +384,25 @@ describe('chat request owner capability filtering', () => {
   const namesFor = (owner: ChatRequestOwner, semanticWorkflow?: ChatSemanticWorkflow) => (
     filterChatToolsForRequestOwner(tools, license(owner, semanticWorkflow)).map((tool) => tool.name)
   );
+  const capabilityLicense = (
+    requestedCapabilities: NonNullable<ChatRequestOwnerLicense['routingFacts']>['requestedCapabilities'],
+  ): ChatRequestOwnerLicense => ({
+    ...license('semantic-editorial-planner', 'editorial-plan'),
+    routingFacts: {
+      requestsMutation: true,
+      requestsAnalysis: false,
+      requiresContentLocalization: false,
+      requiresEditorialJudgment: true,
+      requestsReferenceStyle: false,
+      requestsBroadEditorialOutcome: false,
+      durableOperation: 'none',
+      operationFullySpecified: false,
+      targetFullySpecified: false,
+      requestedCapabilities,
+      familyDirectives: [],
+      familyScopeExclusive: false,
+    },
+  });
 
   it('gives the semantic owner evidence readers and semantic producers only', () => {
     expect(namesFor('semantic-editorial-planner')).toEqual([
@@ -441,25 +464,6 @@ describe('chat request owner capability filtering', () => {
       'use_matching_footage',
       'apply_editorial_intent',
     ].map((name) => ({ name }));
-    const capabilityLicense = (
-      requestedCapabilities: NonNullable<ChatRequestOwnerLicense['routingFacts']>['requestedCapabilities'],
-    ): ChatRequestOwnerLicense => ({
-      ...license('semantic-editorial-planner', 'editorial-plan'),
-      routingFacts: {
-        requestsMutation: true,
-        requestsAnalysis: false,
-        requiresContentLocalization: false,
-        requiresEditorialJudgment: true,
-        requestsReferenceStyle: false,
-        requestsBroadEditorialOutcome: false,
-        durableOperation: 'none',
-        operationFullySpecified: false,
-        targetFullySpecified: false,
-        requestedCapabilities,
-        familyDirectives: [],
-        familyScopeExclusive: false,
-      },
-    });
     const licensedNames = (requestedCapabilities: NonNullable<
       ChatRequestOwnerLicense['routingFacts']
     >['requestedCapabilities']) => filterChatToolsForRequestOwner(
@@ -485,11 +489,6 @@ describe('chat request owner capability filtering', () => {
     expect(licensedNames(['audio-ducking'])).toEqual([
       'read_project_file',
       'get_timeline_view',
-      'find_audio_moment',
-      'resolve_audio_edit',
-      'resolve_clip_analysis',
-      'queue_resolved_clip_analysis',
-      'get_clip_analysis_result',
       'apply_audio_ducking',
     ]);
     expect(licensedNames(['beat-sync'])).toEqual([
@@ -555,6 +554,75 @@ describe('chat request owner capability filtering', () => {
       'caption-track',
       'add_sfx',
     )).toThrow('Tool add_sfx is not owned by chat capability caption-track.');
+  });
+
+  it('exposes localized evidence and exact authorized mutation in separate phases', () => {
+    const localizedSfxLicense = capabilityLicense(['localized-sfx']);
+    const availableTools = [
+      { name: 'read_project_file' },
+      { name: 'get_timeline_view' },
+      { name: 'resolve_audio_edit' },
+      { name: 'add_sfx' },
+      { name: 'apply_editorial_intent' },
+    ];
+    const evidencePhase = filterChatToolsForWorkflowPhase(availableTools, {
+      requestOwnerLicense: localizedSfxLicense,
+      projectId: 'project-1',
+      projectRevision: 'revision-1',
+      ledger: { completedExecutions: [] },
+    });
+    expect(evidencePhase.map((tool) => tool.name)).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'resolve_audio_edit',
+    ]);
+
+    const authorizedLedger = {
+      completedExecutions: [{
+        evidenceReceipts: [{
+          projectId: 'project-1',
+          projectRevision: 'revision-1',
+          authorizedMutations: [{ toolName: 'add_sfx' }],
+        }],
+      }],
+    };
+    expect(resolveChatWorkflowPhase({
+      requestOwnerLicense: localizedSfxLicense,
+      projectId: 'project-1',
+      projectRevision: 'revision-1',
+      ledger: authorizedLedger,
+    })).toMatchObject({ kind: 'mutation' });
+    expect(filterChatToolsForWorkflowPhase(availableTools, {
+      requestOwnerLicense: localizedSfxLicense,
+      projectId: 'project-1',
+      projectRevision: 'revision-1',
+      ledger: authorizedLedger,
+    }).map((tool) => tool.name)).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'add_sfx',
+    ]);
+  });
+
+  it('does not unlock a localized mutation with stale or cross-family authorization', () => {
+    const localizedSfxLicense = capabilityLicense(['localized-sfx']);
+    const phase = resolveChatWorkflowPhase({
+      requestOwnerLicense: localizedSfxLicense,
+      projectId: 'project-1',
+      projectRevision: 'revision-2',
+      ledger: {
+        completedExecutions: [{
+          evidenceReceipts: [{
+            projectId: 'project-1',
+            projectRevision: 'revision-1',
+            authorizedMutations: [{ toolName: 'add_sfx' }, { toolName: 'set_keyframes' }],
+          }],
+        }],
+      },
+    });
+    expect(phase.kind).toBe('evidence');
+    expect(phase.callableToolNames.has('add_sfx')).toBe(false);
+    expect(phase.callableToolNames.has('set_keyframes')).toBe(false);
   });
 
   it('keeps legacy style extraction and application outside the durable reference workflow', () => {

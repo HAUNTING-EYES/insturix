@@ -5,6 +5,7 @@ import {
   type ChatToolExecutionPolicy,
   type ChatToolOwnerClass,
 } from './chat-tool-registry';
+import { getChatCapabilityAuthorityContract } from './chat-command-authority';
 import type {
   ChatRequestCapability,
   ChatRequestOwnerLicense,
@@ -451,7 +452,7 @@ function enforceLocalizedMutationAuthorization(input: {
   requestOwnerLicense?: ChatRequestOwnerLicense;
 }): ChatToolExecutionDecision | null {
   if (
-    !requiresResolverAuthorization(input.requestOwnerLicense)
+    !requiresResolverAuthorization(input.requestOwnerLicense, input.toolName)
     || !getChatToolMetadata(input.toolName)?.mutatesProject
   ) {
     return null;
@@ -501,16 +502,6 @@ function enforceLocalizedMutationAuthorization(input: {
   });
 }
 
-const RESOLVER_AUTHORIZATION_CAPABILITIES = new Set<ChatRequestCapability>([
-  'audio-ducking',
-  'beat-sync',
-  'asset-placement',
-  'asset-replacement',
-  'localized-sfx',
-  'localized-camera-motion',
-  'localized-speed-change',
-]);
-
 export function resolveAuthorizedMutationArgs(input: {
   toolName: string;
   requestedArgs: Record<string, unknown>;
@@ -520,7 +511,7 @@ export function resolveAuthorizedMutationArgs(input: {
   requestOwnerLicense?: ChatRequestOwnerLicense;
 }): Record<string, unknown> | null {
   if (
-    !requiresResolverAuthorization(input.requestOwnerLicense)
+    !requiresResolverAuthorization(input.requestOwnerLicense, input.toolName)
     || !getChatToolMetadata(input.toolName)?.mutatesProject
     || !input.projectId
     || !input.projectRevision
@@ -560,11 +551,16 @@ export function resolveAuthorizedMutationArgs(input: {
 
 function requiresResolverAuthorization(
   license?: ChatRequestOwnerLicense,
+  toolName?: string,
 ): boolean {
   if (license?.owner !== 'semantic-editorial-planner') return false;
   if (license.semanticWorkflow === 'localized-mutation') return true;
   return (license.routingFacts?.requestedCapabilities ?? []).some(
-    (capability) => RESOLVER_AUTHORIZATION_CAPABILITIES.has(capability),
+    (capability: ChatRequestCapability) => {
+      const contract = getChatCapabilityAuthorityContract(capability);
+      return contract.authority === 'localized-workflow'
+        && Boolean(toolName && contract.mutationTools.has(toolName));
+    },
   );
 }
 
