@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import { requiredToolSequenceForChatCapability } from '@/lib/editron/agent/chat-command-authority';
 import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
 
 export const CHAT_EDIT_BATTLE_HARNESS_VERSION = 'editron-chat-battle-v1' as const;
@@ -284,9 +285,9 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('vague-enhance', 'Vague enhancement request', 'Enhance this video so it feels professionally edited.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], minimumSuccessfulMutations: 1, forbiddenTools: ['add_transition', 'add_motion_graphic', 'auto_motion_graphics'] }),
   scenario('vague-transitions', 'Content-owned transitions', 'Add transitions where they genuinely help the edit.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['add_transition'] }),
   scenario('vague-motion-graphics', 'Signal-owned motion graphics', 'Add motion graphics only where the idea is visually explainable.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['auto_motion_graphics', 'add_motion_graphic'] }),
-  scenario('motivated-zoom', 'Motivated zoom', 'Use a subtle zoom on the strongest spoken emphasis, if the shot supports it.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['resolve_keyframe_edit', 'set_keyframes'] }),
-  scenario('vague-sfx-beat', 'SFX on a grounded beat', 'Add a subtle impact on the strongest visual or spoken beat.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['resolve_audio_edit', 'add_sfx'] }),
-  scenario('clean-captions', 'Clean readable captions', 'Add clean readable captions that fit this video.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['add_captions'] }),
+  scenario('motivated-zoom', 'Motivated zoom', 'Use a subtle zoom on the strongest spoken emphasis, if the shot supports it.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: requiredToolSequenceForChatCapability('localized-camera-motion', 'set_keyframes'), forbiddenTools: ['apply_editorial_intent'] }),
+  scenario('vague-sfx-beat', 'SFX on a grounded beat', 'Add a subtle impact on the strongest visual or spoken beat.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: requiredToolSequenceForChatCapability('localized-sfx', 'add_sfx'), forbiddenTools: ['apply_editorial_intent'] }),
+  scenario('clean-captions', 'Clean readable captions', 'Add clean readable captions that fit this video.', { requiredToolSequence: requiredToolSequenceForChatCapability('caption-track', 'add_captions'), forbiddenTools: ['apply_editorial_intent'] }),
   scenario('create-html-scene', 'Create process graphic', 'Create a full-screen process diagram for this explanation.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['generate_html_scene', 'generate_html_sticker', 'add_overlay'], requiredCreatedOverlayTypes: [['motion-graphic', 'mg-sequence']] }),
   scenario('edit-html-scene', 'Edit HTML scene in place', 'Edit the selected HTML scene itself: change the heading embedded inside that HTML scene to How it works. Do not edit the separate text overlay.', { requiredToolSequence: [READ_PROJECT, 'edit_html_scene'] }),
   scenario('bgm-explicit', 'Explicit BGM intent', 'Add restrained cinematic background music with no vocals and keep speech clear.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'], forbiddenTools: ['apply_editorial_intent'] }),

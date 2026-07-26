@@ -4,6 +4,10 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  getChatCapabilityAuthorityContract,
+  requiredToolSequenceForChatCapability,
+} from '@/lib/editron/agent/chat-command-authority';
+import {
   buildChatRequestOwnerPrompt,
   classifyChatRequestOwner,
   deriveChatRequestOwner,
@@ -529,6 +533,28 @@ describe('chat request owner capability filtering', () => {
     expect(licensedNames(['audio-ducking', 'asset-placement'])).not.toContain(
       'apply_editorial_intent',
     );
+  });
+
+  it('uses one fail-closed capability authority contract for runtime and verification', () => {
+    expect(getChatCapabilityAuthorityContract('caption-track')).toMatchObject({
+      authority: 'family-owner',
+    });
+    expect(requiredToolSequenceForChatCapability('caption-track', 'add_captions')).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'add_captions',
+    ]);
+    expect(requiredToolSequenceForChatCapability(
+      'localized-camera-motion',
+      'set_keyframes',
+    )).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_keyframe_edit'],
+      'set_keyframes',
+    ]);
+    expect(() => requiredToolSequenceForChatCapability(
+      'caption-track',
+      'add_sfx',
+    )).toThrow('Tool add_sfx is not owned by chat capability caption-track.');
   });
 
   it('keeps legacy style extraction and application outside the durable reference workflow', () => {

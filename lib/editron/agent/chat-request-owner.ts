@@ -10,7 +10,20 @@ import {
 } from '../production-brief/editorial-preferences';
 import { CHAT_MODEL_NAME, getGenAI } from '../utils/gemini-model-factory';
 import type { TokenUsageMetadata } from '../utils/token-tracker';
+import {
+  CHAT_DIRECT_FAMILY_TOOLS,
+  CHAT_DUBBING_WORKFLOW_TOOLS,
+  CHAT_MINIMAL_READ_TOOLS,
+  CHAT_REFERENCE_STYLE_WORKFLOW_TOOLS,
+  CHAT_REQUEST_CAPABILITIES,
+  resolveChatCapabilityTools,
+  resolveExclusiveChatFamilyOwnerTools,
+  type ChatRequestCapability,
+} from './chat-command-authority';
 import { CHAT_TOOL_REGISTRY, getChatToolMetadata } from './chat-tool-registry';
+
+export { CHAT_REQUEST_CAPABILITIES } from './chat-command-authority';
+export type { ChatRequestCapability } from './chat-command-authority';
 
 export const CHAT_REQUEST_OWNERS = [
   'semantic-editorial-planner',
@@ -23,24 +36,6 @@ export const CHAT_REQUEST_OWNERS = [
 export type ChatRequestOwner = (typeof CHAT_REQUEST_OWNERS)[number];
 export type ChatRestoreResolutionStatus = 'ready' | 'no-intent' | 'no-checkpoint' | 'missing-target';
 export type ChatSemanticWorkflow = 'editorial-plan' | 'reference-style' | 'localized-mutation' | 'selected-dialogue-dubbing';
-export const CHAT_REQUEST_CAPABILITIES = [
-  'caption-track',
-  'caption-refresh',
-  'audio-ducking',
-  'beat-sync',
-  'scene-regeneration',
-  'html-scene-edit',
-  'asset-placement',
-  'asset-replacement',
-  'localized-sfx',
-  'localized-camera-motion',
-  'localized-speed-change',
-  'project-reframe',
-  'reference-style',
-  'selected-dialogue-dubbing',
-  'project-edit',
-] as const;
-export type ChatRequestCapability = (typeof CHAT_REQUEST_CAPABILITIES)[number];
 
 export interface ChatEditorialFamilyDirective {
   family: EditorialFamily;
@@ -245,27 +240,6 @@ const GEMINI_OWNER_RESPONSE_SCHEMA: ResponseSchema = {
   required: ['facts', 'confidence', 'reason'],
 };
 
-const MINIMAL_READ_TOOLS = new Set([
-  'read_project_file',
-  'get_timeline_view',
-  'get_dubbing_job_result',
-]);
-
-const DUBBING_WORKFLOW_TOOLS = new Set([
-  'read_project_file',
-  'get_timeline_view',
-  'dub_selected_dialogue',
-]);
-
-const REFERENCE_STYLE_WORKFLOW_TOOLS = new Set([
-  'read_project_file',
-  'get_timeline_view',
-  'list_user_assets',
-  'search_user_assets',
-  'inspect_user_asset',
-  'apply_reference_style',
-]);
-
 const SEMANTIC_OWNER_TOOLS = new Set([
   'apply_editorial_intent',
   'apply_reference_style',
@@ -331,145 +305,11 @@ const MECHANICAL_SHADOW_FAMILY_TOOLS = new Set([
 // request through apply_editorial_intent without sticker, scene, or direct-MG
 // substitution. The generated component then failed quality review and declined
 // without a fallback overlay. The semantic planner therefore owns MG requests.
-const DIRECTOR_MODE_DIRECT_FAMILY_TOOLS = new Set([
-  'add_captions',
-  'add_fancy_captions',
-  'regenerate_bgm',
-  'sync_cuts_to_beats',
-]);
-
-const DIRECTOR_MODE_EXCLUSIVE_FAMILY_OWNERS: Partial<
-  Record<EditorialFamily, ReadonlySet<string>>
-> = {
-  captions: new Set(['add_captions', 'add_fancy_captions']),
-  music: new Set(['regenerate_bgm']),
-};
-
 const DIRECTOR_MODE_DIRECT_TOOLS = new Set<string>([
-  ...DIRECTOR_MODE_DIRECT_FAMILY_TOOLS,
+  ...CHAT_DIRECT_FAMILY_TOOLS,
   ...LOCALIZED_MUTATION_TOOLS,
   'apply_editorial_intent',
 ]);
-
-const SEMANTIC_CAPABILITY_TOOL_CLOSURES: Record<
-  ChatRequestCapability,
-  ReadonlySet<string>
-> = {
-  'caption-track': new Set([
-    ...MINIMAL_READ_TOOLS,
-    'get_video_transcription',
-    'add_captions',
-    'add_fancy_captions',
-  ]),
-  'caption-refresh': new Set([
-    ...MINIMAL_READ_TOOLS,
-    'get_video_transcription',
-    'refresh_captions',
-    'refresh_fancy_captions',
-  ]),
-  'audio-ducking': new Set([
-    ...MINIMAL_READ_TOOLS,
-    'find_audio_moment',
-    'resolve_audio_edit',
-    'resolve_clip_analysis',
-    'queue_resolved_clip_analysis',
-    'get_clip_analysis_result',
-    'apply_audio_ducking',
-  ]),
-  'beat-sync': new Set([
-    ...MINIMAL_READ_TOOLS,
-    'find_audio_moment',
-    'resolve_audio_edit',
-    'resolve_clip_analysis',
-    'queue_resolved_clip_analysis',
-    'get_clip_analysis_result',
-    'sync_cuts_to_beats',
-  ]),
-  'scene-regeneration': new Set([
-    ...MINIMAL_READ_TOOLS,
-    'regenerate_scene',
-  ]),
-  'html-scene-edit': new Set([
-    ...MINIMAL_READ_TOOLS,
-    'edit_html_scene',
-  ]),
-  'asset-placement': new Set([
-    ...MINIMAL_READ_TOOLS,
-    'list_user_assets',
-    'search_user_assets',
-    'inspect_user_asset',
-    'resolve_user_asset_overlay',
-    'add_overlay',
-  ]),
-  'asset-replacement': new Set([
-    ...MINIMAL_READ_TOOLS,
-    'list_user_assets',
-    'search_user_assets',
-    'inspect_user_asset',
-    'resolve_user_asset_overlay',
-    'use_matching_footage',
-  ]),
-  'localized-sfx': new Set([
-    ...MINIMAL_READ_TOOLS,
-    'find_audio_moment',
-    'resolve_audio_edit',
-    'resolve_clip_analysis',
-    'queue_resolved_clip_analysis',
-    'get_clip_analysis_result',
-    'add_sfx',
-  ]),
-  'localized-camera-motion': new Set([
-    ...MINIMAL_READ_TOOLS,
-    'find_transcript_moment',
-    'find_visual_moment',
-    'resolve_transcript_edit',
-    'resolve_visual_edit',
-    'resolve_keyframe_edit',
-    'resolve_clip_analysis',
-    'queue_resolved_clip_analysis',
-    'get_clip_analysis_result',
-    'apply_camera_shake',
-    'set_keyframes',
-  ]),
-  'localized-speed-change': new Set([
-    ...MINIMAL_READ_TOOLS,
-    'find_transcript_moment',
-    'find_visual_moment',
-    'resolve_transcript_edit',
-    'resolve_visual_edit',
-    'resolve_keyframe_edit',
-    'resolve_clip_analysis',
-    'queue_resolved_clip_analysis',
-    'get_clip_analysis_result',
-    'apply_speed_ramp',
-  ]),
-  'project-reframe': new Set([
-    ...MINIMAL_READ_TOOLS,
-    'reframe_project',
-  ]),
-  'reference-style': REFERENCE_STYLE_WORKFLOW_TOOLS,
-  'selected-dialogue-dubbing': DUBBING_WORKFLOW_TOOLS,
-  'project-edit': new Set([
-    ...MINIMAL_READ_TOOLS,
-    'apply_editorial_intent',
-  ]),
-};
-
-function resolveSemanticCapabilityTools(
-  license: ChatRequestOwnerLicense,
-): ReadonlySet<string> | null {
-  const requested = license.routingFacts?.requestedCapabilities ?? [];
-  if (requested.length === 0) return null;
-
-  const tools = new Set<string>();
-  for (const capability of requested) {
-    for (const toolName of SEMANTIC_CAPABILITY_TOOL_CLOSURES[capability]) {
-      tools.add(toolName);
-    }
-  }
-  return tools;
-}
-
 function resolveExclusiveDirectorFamilyTools(
   license: ChatRequestOwnerLicense,
 ): ReadonlySet<string> | null {
@@ -479,15 +319,7 @@ function resolveExclusiveDirectorFamilyTools(
   const preferredFamilies = facts.familyDirectives
     .filter((directive) => directive.mode === 'prefer')
     .map((directive) => directive.family);
-  if (preferredFamilies.length === 0) return null;
-
-  const tools = new Set<string>();
-  for (const family of preferredFamilies) {
-    const familyOwners = DIRECTOR_MODE_EXCLUSIVE_FAMILY_OWNERS[family];
-    if (!familyOwners) return null;
-    for (const toolName of familyOwners) tools.add(toolName);
-  }
-  return tools;
+  return resolveExclusiveChatFamilyOwnerTools(preferredFamilies);
 }
 
 export async function classifyChatRequestOwner(
@@ -662,20 +494,26 @@ export function filterChatToolsForRequestOwner<T extends { name: string }>(
       );
     if (tool.name === 'dub_selected_dialogue' && !ownsSelectedDubbing) return false;
 
-    if (license.owner === 'conversation') return MINIMAL_READ_TOOLS.has(tool.name);
+    if (license.owner === 'conversation') return CHAT_MINIMAL_READ_TOOLS.has(tool.name);
     if (license.owner === 'checkpoint-restorer') {
-      return MINIMAL_READ_TOOLS.has(tool.name) || tool.name === 'restore_ai_edit_checkpoint';
+      return CHAT_MINIMAL_READ_TOOLS.has(tool.name) || tool.name === 'restore_ai_edit_checkpoint';
     }
     if (license.owner === 'analysis-reader') {
       return !metadata.mutatesProject && !SEMANTIC_OWNER_TOOLS.has(tool.name);
     }
     if (license.owner === 'semantic-editorial-planner') {
-      const capabilityTools = resolveSemanticCapabilityTools(license);
+      const capabilityTools = resolveChatCapabilityTools(
+        license.routingFacts?.requestedCapabilities ?? [],
+      );
       if (capabilityTools) return capabilityTools.has(tool.name);
 
       const workflow = resolveSemanticWorkflow(license);
-      if (workflow === 'selected-dialogue-dubbing') return DUBBING_WORKFLOW_TOOLS.has(tool.name);
-      if (workflow === 'reference-style') return REFERENCE_STYLE_WORKFLOW_TOOLS.has(tool.name);
+      if (workflow === 'selected-dialogue-dubbing') {
+        return CHAT_DUBBING_WORKFLOW_TOOLS.has(tool.name);
+      }
+      if (workflow === 'reference-style') {
+        return CHAT_REFERENCE_STYLE_WORKFLOW_TOOLS.has(tool.name);
+      }
       if (tool.name === 'dub_selected_dialogue') return false;
       if (!metadata.mutatesProject) {
         if (

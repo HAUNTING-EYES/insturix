@@ -824,14 +824,11 @@ describe('chat edit battle harness', () => {
     }
   });
 
-  it('requires semantic owner dispatch for vague and family-level requests', () => {
+  it('requires semantic owner dispatch for broad and MG/transition family requests', () => {
     const cases = [
       ['vague-enhance', ['add_transition', 'add_motion_graphic', 'auto_motion_graphics']],
       ['vague-transitions', ['add_transition']],
       ['vague-motion-graphics', ['add_motion_graphic', 'auto_motion_graphics']],
-      ['motivated-zoom', ['resolve_keyframe_edit', 'set_keyframes']],
-      ['vague-sfx-beat', ['resolve_audio_edit', 'add_sfx']],
-      ['clean-captions', ['add_captions']],
     ] as const;
 
     for (const [id, forbiddenTools] of cases) {
@@ -842,6 +839,32 @@ describe('chat edit battle harness', () => {
       ]);
       expect(scenario.forbiddenTools).toEqual(expect.arrayContaining([...forbiddenTools]));
     }
+  });
+
+  it('derives caption, localized zoom, and localized SFX paths from runtime authority', () => {
+    expect(getChatEditBattleScenario('clean-captions')).toMatchObject({
+      requiredToolSequence: [
+        ['read_project_file', 'get_timeline_view'],
+        'add_captions',
+      ],
+      forbiddenTools: ['apply_editorial_intent'],
+    });
+    expect(getChatEditBattleScenario('motivated-zoom')).toMatchObject({
+      requiredToolSequence: [
+        ['read_project_file', 'get_timeline_view'],
+        ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_keyframe_edit'],
+        'set_keyframes',
+      ],
+      forbiddenTools: ['apply_editorial_intent'],
+    });
+    expect(getChatEditBattleScenario('vague-sfx-beat')).toMatchObject({
+      requiredToolSequence: [
+        ['read_project_file', 'get_timeline_view'],
+        'resolve_audio_edit',
+        'add_sfx',
+      ],
+      forbiddenTools: ['apply_editorial_intent'],
+    });
   });
 
   it('routes explicit and vague assist-mode BGM requests to the direct licensed owner', () => {
