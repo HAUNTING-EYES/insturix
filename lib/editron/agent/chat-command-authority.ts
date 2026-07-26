@@ -42,6 +42,18 @@ export const CHAT_LOCALIZED_OPERATIONS = [
 ] as const;
 export type ChatLocalizedOperation = (typeof CHAT_LOCALIZED_OPERATIONS)[number];
 
+export const CHAT_LOCALIZED_READ_GOALS = [
+  'locate',
+  'inspect',
+] as const;
+export type ChatLocalizedReadGoal = (typeof CHAT_LOCALIZED_READ_GOALS)[number];
+
+export interface ChatLocalizedReadRequest {
+  modality: ChatLocalizedModality;
+  goal: ChatLocalizedReadGoal;
+  query: string;
+}
+
 export interface ChatLocalizedEditRequest {
   modality: ChatLocalizedModality;
   operation: ChatLocalizedOperation;

@@ -285,6 +285,136 @@ describe('chat request owner classification', () => {
     }));
   });
 
+  it('represents localized inspection without pretending it mutates the project', async () => {
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: false,
+          requestsAnalysis: true,
+          requiresContentLocalization: true,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [{
+            modality: 'visual',
+            goal: 'inspect',
+            query: 'frame under my playhead',
+          }],
+          localizedEdits: [],
+          requestedCapabilities: [],
+          familyDirectives: [],
+        },
+        confidence: 0.99,
+        reason: 'The user asked to inspect one rendered frame without changing it.',
+      }),
+    }));
+
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage: 'Look at the frame under my playhead and tell me what blocks the subject.',
+      visualEvidencePresent: true,
+    }, { generate });
+
+    expect(result).toMatchObject({
+      owner: 'analysis-reader',
+      routingFacts: {
+        requestsMutation: false,
+        requestsAnalysis: true,
+        requiresContentLocalization: true,
+        localizedReads: [{
+          modality: 'visual',
+          goal: 'inspect',
+          query: 'frame under my playhead',
+        }],
+        localizedEdits: [],
+      },
+    });
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps localized mutations on the existing revision-bound workflow', async () => {
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: true,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: false,
+          localizedReads: [],
+          localizedEdits: [{
+            modality: 'transcript',
+            operation: 'remove',
+            query: 'pricing is simple',
+          }],
+          requestedCapabilities: [],
+          familyDirectives: [],
+        },
+        confidence: 0.99,
+        reason: 'The requested phrase must be grounded before it is removed.',
+      }),
+    }));
+
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage: 'Remove where I say pricing is simple.',
+    }, { generate });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'localized-mutation',
+      routingFacts: {
+        localizedReads: [],
+        localizedEdits: [{
+          modality: 'transcript',
+          operation: 'remove',
+          query: 'pricing is simple',
+        }],
+        requestedCapabilities: ['localized-cut'],
+      },
+    });
+  });
+
+  it('fails closed when a localized read is not declared as analysis', async () => {
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: false,
+          requestsAnalysis: false,
+          requiresContentLocalization: true,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [{
+            modality: 'visual',
+            goal: 'inspect',
+            query: 'frame under my playhead',
+          }],
+          localizedEdits: [],
+          requestedCapabilities: [],
+          familyDirectives: [],
+        },
+        confidence: 0.99,
+        reason: 'Invalid read contract.',
+      }),
+    }));
+
+    await expect(classifyChatRequestOwner(baseInput, { generate })).rejects.toThrow(
+      'Localized reads require requestsAnalysis=true.',
+    );
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps content-localized, mixed, and underspecified mutations with the semantic owner', () => {
     expect(deriveChatRequestOwner({
       requestsMutation: true,
@@ -772,12 +902,17 @@ describe('chat request owner capability filtering', () => {
   });
 
   it('makes analysis read-only and keeps conversation/checkpoint surfaces minimal', () => {
-    expect(namesFor('analysis-reader')).toEqual([
+    const analysisNames = filterChatToolsForRequestOwner([
+      ...tools,
+      { name: 'visual_inspect_frame' },
+    ], license('analysis-reader')).map((tool) => tool.name);
+    expect(analysisNames).toEqual([
       'read_project_file',
       'get_timeline_view',
       'resolve_visual_edit',
       'queue_resolved_clip_analysis',
       'get_dubbing_job_result',
+      'visual_inspect_frame',
     ]);
     expect(namesFor('conversation')).toEqual(['read_project_file', 'get_timeline_view', 'get_dubbing_job_result']);
     expect(namesFor('checkpoint-restorer')).toEqual([
