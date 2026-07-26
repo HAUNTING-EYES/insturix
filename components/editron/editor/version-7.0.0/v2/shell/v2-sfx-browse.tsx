@@ -13,7 +13,15 @@ import { OverlayType } from '../../types';
    from the v1 emerald/zinc to the gold/warm tokens. Fixes the green
    search button the founder flagged. */
 
-interface SFXResult { title: string; url: string; duration: number; source: string }
+interface SFXResult {
+  providerAssetId: string;
+  title: string;
+  url: string;
+  duration: number;
+  source: 'Freesound';
+  license: 'CC0-1.0';
+  attributionRequired: false;
+}
 
 const SUGGESTIONS = ['whoosh', 'click', 'chime', 'impact', 'ambient', 'nature', 'city', 'water'];
 
@@ -25,17 +33,24 @@ export function V2SfxBrowse() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [audioRef] = useState(() => (typeof Audio !== 'undefined' ? new Audio() : null));
   const [adding, setAdding] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSearch = useCallback(async () => {
     if (!query.trim()) return;
     setLoading(true);
     setResults([]);
+    setError(null);
     try {
       const res = await fetch(`/api/services/editron/sfx-library/search?q=${encodeURIComponent(query)}&limit=12`);
       const data = await res.json().catch(() => ({}));
-      if (data.results) setResults(data.results);
+      if (!res.ok) {
+        setError(typeof data.error === 'string' ? data.error : 'Sound search failed');
+        return;
+      }
+      setResults(Array.isArray(data.results) ? data.results : []);
     } catch (err) {
       console.error('[SFXLibrary] Search failed:', err);
+      setError('Sound search failed');
     } finally {
       setLoading(false);
     }
@@ -61,6 +76,12 @@ export function V2SfxBrowse() {
         type: OverlayType.SOUND, from: 0, durationInFrames: Math.round(sfx.duration * 30), row: 0,
         left: 0, top: 0, width: 0, height: 0, isDragging: false, rotation: 0,
         content: sfx.url, src: sfx.url, styles: { volume: 0.5, opacity: 1 },
+        metadata: {
+          providerId: sfx.providerAssetId,
+          source: 'freesound-cc0',
+          title: sfx.title,
+          durationMs: Math.round(sfx.duration * 1000),
+        },
       } as never);
     } catch (err) {
       console.error('[SFXLibrary] Add failed:', err);
@@ -107,9 +128,10 @@ export function V2SfxBrowse() {
           <div className="py-8 text-center">
             <Volume2 className="mx-auto mb-2 h-8 w-8 text-ds-faint" />
             <Mono size="9" className="text-ds-dim">Search for sound effects</Mono>
-            <p className="mt-1 text-[10px] text-ds-faint">Freesound CC0 — free for commercial use</p>
+            <p className="mt-1 text-[10px] text-ds-faint">Verified Freesound CC0</p>
           </div>
         )}
+        {error && <p className="px-2 py-3 text-[10px] text-red-400">{error}</p>}
         {loading && (
           <div className="flex items-center justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-gold" /></div>
         )}
@@ -121,7 +143,7 @@ export function V2SfxBrowse() {
               </button>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[11px] text-ds-primary">{sfx.title}</p>
-                <p className="text-[10px] text-ds-muted">{sfx.duration}s • {sfx.source}</p>
+                <p className="text-[10px] text-ds-muted">{sfx.duration}s • {sfx.source} • {sfx.license}</p>
               </div>
               <button
                 type="button"
