@@ -1,6 +1,7 @@
 export type ChatToolExecutionType = 'quick' | 'generative';
 export type ChatToolRiskLevel = 'read' | 'low' | 'medium' | 'high';
 export type ChatToolExposure = 'live-chat' | 'shadow-authority-filtered';
+export type ChatToolMutationCompletion = 'immediate' | 'durable';
 export type ChatToolStatePostconditionKind =
   | 'project-state-changed'
   | 'project-state-changed-or-durable-operation-queued'
@@ -207,6 +208,7 @@ export interface ChatToolMetadata {
   executionType: ChatToolExecutionType;
   exposure: ChatToolExposure;
   mutatesProject: boolean;
+  mutationCompletion: ChatToolMutationCompletion;
   requiresProjectReload: boolean;
   riskLevel: ChatToolRiskLevel;
   receiptLabel: string;
@@ -229,10 +231,11 @@ export interface ChatToolPostconditionContract {
   };
 }
 
-type ChatToolMetadataInput = Omit<ChatToolMetadata, 'executionType' | 'exposure' | 'mutatesProject' | 'requiresProjectReload' | 'riskLevel' | 'postconditions' | 'executionPolicy' | 'turnContract' | 'effectContract'> & {
+type ChatToolMetadataInput = Omit<ChatToolMetadata, 'executionType' | 'exposure' | 'mutatesProject' | 'mutationCompletion' | 'requiresProjectReload' | 'riskLevel' | 'postconditions' | 'executionPolicy' | 'turnContract' | 'effectContract'> & {
   executionType?: ChatToolExecutionType;
   exposure?: ChatToolExposure;
   mutatesProject?: boolean;
+  mutationCompletion?: ChatToolMutationCompletion;
   requiresProjectReload?: boolean;
   riskLevel?: ChatToolRiskLevel;
   postconditions?: ChatToolPostconditionContract;
@@ -252,6 +255,7 @@ function defineTool(input: ChatToolMetadataInput): ChatToolMetadata {
     executionType: input.executionType ?? 'quick',
     exposure: input.exposure ?? 'live-chat',
     mutatesProject,
+    mutationCompletion: input.mutationCompletion ?? 'immediate',
     requiresProjectReload: input.requiresProjectReload ?? mutatesProject,
     riskLevel: input.riskLevel ?? (mutatesProject ? 'medium' : 'read'),
     postconditions: postconditionContract,
@@ -324,8 +328,8 @@ function defaultPostconditions(iconCategory: ChatToolIconCategory): ChatToolPost
 export const CHAT_TOOL_REGISTRY = {
   read_project_file: defineTool({ name: 'read_project_file', label: 'Reading project data', shortLabel: 'Read', iconCategory: 'file', receiptLabel: 'Read project data' }),
   get_timeline_view: defineTool({ name: 'get_timeline_view', label: 'Reading timeline layout', shortLabel: 'Timeline', iconCategory: 'timeline', receiptLabel: 'Read timeline' }),
-  apply_editorial_intent: defineTool({ name: 'apply_editorial_intent', label: 'Grounding editorial intent', shortLabel: 'Editorial plan', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Applied grounded editorial intent', loadingMessages: ['Reading the edit', 'Grounding the request', 'Applying warranted changes'], postconditions: postconditions('project-state-changed-or-durable-operation-queued', ['visual', 'audio']), turnContract: { owner: 'semantic-editorial-planner', evidenceStrategy: 'preflight', requiredEvidence: ['project-state', 'timeline-state'], producesEvidence: [] } }),
-  apply_reference_style: defineTool({ name: 'apply_reference_style', label: 'Applying reference style', shortLabel: 'Reference style', iconCategory: 'style', executionType: 'generative', receiptLabel: 'Queued reference style', loadingMessages: ['Inspecting the reference', 'Extracting edit language', 'Planning faithful changes'] }),
+  apply_editorial_intent: defineTool({ name: 'apply_editorial_intent', label: 'Grounding editorial intent', shortLabel: 'Editorial plan', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, mutationCompletion: 'durable', requiresProjectReload: false, riskLevel: 'high', receiptLabel: 'Queued grounded editorial intent', loadingMessages: ['Reading the edit', 'Grounding the request', 'Queueing warranted changes'], postconditions: postconditions('project-state-changed-or-durable-operation-queued', ['visual', 'audio']), turnContract: { owner: 'semantic-editorial-planner', evidenceStrategy: 'preflight', requiredEvidence: ['project-state', 'timeline-state'], producesEvidence: [] } }),
+  apply_reference_style: defineTool({ name: 'apply_reference_style', label: 'Applying reference style', shortLabel: 'Reference style', iconCategory: 'style', executionType: 'generative', mutatesProject: true, mutationCompletion: 'durable', requiresProjectReload: false, riskLevel: 'high', receiptLabel: 'Queued reference style', loadingMessages: ['Inspecting the reference', 'Extracting edit language', 'Queueing faithful changes'], postconditions: postconditions('project-state-changed-or-durable-operation-queued', ['visual', 'audio']), turnContract: { owner: 'semantic-editorial-planner', evidenceStrategy: 'preflight', requiredEvidence: ['project-state', 'timeline-state'], producesEvidence: [] } }),
   add_overlay: defineTool({ name: 'add_overlay', label: 'Adding element', shortLabel: 'Add', iconCategory: 'add', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added element', postconditions: postconditions('overlay-created', ['visual', 'audio']) }),
   update_overlay: defineTool({ name: 'update_overlay', label: 'Updating element', shortLabel: 'Update', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Updated element', postconditions: postconditions('overlay-updated', ['visual', 'audio']) }),
   batch_update_overlays: defineTool({ name: 'batch_update_overlays', label: 'Batch updating elements', shortLabel: 'Batch', iconCategory: 'update', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Batch updated elements', postconditions: postconditions('overlay-updated', ['visual', 'audio']) }),
@@ -364,7 +368,7 @@ export const CHAT_TOOL_REGISTRY = {
   resolve_clip_analysis: defineTool({ name: 'resolve_clip_analysis', label: 'Resolving analysis target', shortLabel: 'Resolve analysis', iconCategory: 'search', receiptLabel: 'Resolved analysis target' }),
   queue_resolved_clip_analysis: defineTool({ name: 'queue_resolved_clip_analysis', label: 'Queueing deep analysis', shortLabel: 'Queue analysis', iconCategory: 'sparkles', executionType: 'generative', receiptLabel: 'Queued deep analysis', loadingMessages: ['Locking the target', 'Queueing analysis', 'Preparing evidence'] }),
   get_clip_analysis_result: defineTool({ name: 'get_clip_analysis_result', label: 'Reading analysis result', shortLabel: 'Analysis result', iconCategory: 'file', receiptLabel: 'Read analysis result' }),
-  dub_selected_dialogue: defineTool({ name: 'dub_selected_dialogue', label: 'Queueing translated dialogue', shortLabel: 'Dub dialogue', iconCategory: 'audio', executionType: 'generative', riskLevel: 'medium', receiptLabel: 'Queued translated dialogue', loadingMessages: ['Locking the selected clip', 'Preparing dialogue timing', 'Queueing dubbing'] }),
+  dub_selected_dialogue: defineTool({ name: 'dub_selected_dialogue', label: 'Queueing translated dialogue', shortLabel: 'Dub dialogue', iconCategory: 'audio', executionType: 'generative', mutatesProject: true, mutationCompletion: 'durable', requiresProjectReload: false, riskLevel: 'medium', receiptLabel: 'Queued translated dialogue', loadingMessages: ['Locking the selected clip', 'Preparing dialogue timing', 'Queueing dubbing'], postconditions: postconditions('project-state-changed-or-durable-operation-queued', ['audio']), turnContract: { owner: 'mechanical-editor', evidenceStrategy: 'preflight', requiredEvidence: ['project-state', 'timeline-state', 'transcript-target'], producesEvidence: [] } }),
   get_dubbing_job_result: defineTool({ name: 'get_dubbing_job_result', label: 'Checking translated dialogue', shortLabel: 'Dubbing status', iconCategory: 'audio', requiresProjectReload: true, receiptLabel: 'Checked translated dialogue' }),
   analyze_clip_audio: defineTool({ name: 'analyze_clip_audio', label: 'Analyzing audio', shortLabel: 'Audio', iconCategory: 'audio', executionType: 'generative', exposure: 'shadow-authority-filtered', receiptLabel: 'Analyzed audio', loadingMessages: ['Listening to audio', 'Finding beats', 'Checking pauses'] }),
   analyze_clip_video: defineTool({ name: 'analyze_clip_video', label: 'Analyzing video', shortLabel: 'Video', iconCategory: 'visual', executionType: 'generative', exposure: 'shadow-authority-filtered', receiptLabel: 'Analyzed video', loadingMessages: ['Inspecting video', 'Reading frames', 'Checking visuals'] }),
@@ -413,6 +417,7 @@ export function shouldReloadProjectAfterTool(toolName: string): boolean {
 
 export function getChatToolCompletionLabel(toolName: string): string {
   const metadata = getChatToolMetadata(toolName);
+  if (metadata?.mutationCompletion === 'durable') return 'queued';
   return metadata?.mutatesProject ? 'done' : 'checked';
 }
 

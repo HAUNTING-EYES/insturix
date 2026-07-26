@@ -53,6 +53,7 @@ import {
   completeChatAiEditTransaction,
   prepareChatAiEditTransaction,
 } from '@/lib/editron/agent/chat-ai-edit-transaction-runtime';
+import { enforceChatToolPostcondition } from '@/lib/editron/agent/chat-edit-postconditions';
 import { COLLECTIONS } from '@/lib/editron/db/mongodb';
 import {
   CHAT_RESTORABLE_PROJECT_FIELDS,
@@ -777,7 +778,7 @@ describe('chat AI edit transaction runtime', () => {
     expect(Array.from(store.checkpoints.values()).filter((checkpoint) => checkpoint.type === 'after-llm')).toHaveLength(0);
   });
 
-  it('does not request immediate rendered verification for a deferred durable mutation', async () => {
+  it('leaves durable mutation completion, checkpoints, and rendering to the owning worker', async () => {
     const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
     const ready = await prepare(store, 'chatop_deferred1');
     const deferredVerification = {
@@ -822,11 +823,57 @@ describe('chat AI edit transaction runtime', () => {
       }],
     }, { checkpointStore: store, loadProject: store.loadProject });
 
-    expect(result).toMatchObject({
-      status: 'created',
-      mutatingToolNames: ['apply_editorial_intent'],
-    });
+    expect(result).toMatchObject({ status: 'not-needed', mutatingToolNames: [] });
     expect(result.renderVerification).toBeUndefined();
+    expect(Array.from(store.checkpoints.values()).filter((checkpoint) => checkpoint.type === 'after-llm')).toHaveLength(0);
+  });
+
+  it('accepts only verifiable durable queue receipts', () => {
+    const project = structuredClone(ORIGINAL_PROJECT);
+    const reference = enforceChatToolPostcondition({
+      toolName: 'apply_reference_style',
+      args: { referenceAssetId: 'asset_ref' },
+      output: JSON.stringify({
+        status: 'success',
+        data: { jobId: 'chat_style_123', queueStatus: 'queued' },
+      }),
+      beforeProject: project,
+      afterProject: project,
+    });
+    const dubbing = enforceChatToolPostcondition({
+      toolName: 'dub_selected_dialogue',
+      args: { overlayId: 'video-1' },
+      output: JSON.stringify({
+        status: 'success',
+        data: { jobId: 'chat_dub_123', status: 'already-queued' },
+      }),
+      beforeProject: project,
+      afterProject: project,
+    });
+    const malformed = enforceChatToolPostcondition({
+      toolName: 'apply_reference_style',
+      args: { referenceAssetId: 'asset_ref' },
+      output: JSON.stringify({
+        status: 'success',
+        data: { queueStatus: 'queued' },
+      }),
+      beforeProject: project,
+      afterProject: project,
+    });
+
+    expect(reference.verification).toMatchObject({
+      status: 'pass',
+      renderVerification: { status: 'deferred', required: false },
+    });
+    expect(dubbing.verification).toMatchObject({
+      status: 'pass',
+      renderVerification: { status: 'deferred', required: false },
+    });
+    expect(malformed.verification?.status).toBe('fail');
+    expect(JSON.parse(malformed.output)).toMatchObject({
+      status: 'error',
+      error: { code: 'CHAT_EDIT_POSTCONDITION_FAILED' },
+    });
   });
 
   it('keeps the live route and client ordered around durable preflight and stable operation IDs', () => {

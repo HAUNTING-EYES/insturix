@@ -53,9 +53,13 @@ describe('chat tool registry', () => {
     expect(returnBlock).not.toContain('// visualInspectFrame');
   });
 
-  it('marks mutating tools as project-reload tools', () => {
+  it('reloads immediate mutations but waits for durable owners to commit', () => {
     const mutatingWithoutReload = Object.values(CHAT_TOOL_REGISTRY)
-      .filter((metadata) => metadata.mutatesProject && !metadata.requiresProjectReload)
+      .filter((metadata) => (
+        metadata.mutatesProject
+        && metadata.mutationCompletion === 'immediate'
+        && !metadata.requiresProjectReload
+      ))
       .map((metadata) => metadata.name);
 
     const restoreMetadata = getChatToolMetadata('restore_ai_edit_checkpoint');
@@ -70,7 +74,9 @@ describe('chat tool registry', () => {
       riskLevel: 'high',
     });
     expect(getChatToolMetadata('dub_selected_dialogue')).toMatchObject({
-      mutatesProject: false,
+      mutatesProject: true,
+      mutationCompletion: 'durable',
+      requiresProjectReload: false,
       executionType: 'generative',
       riskLevel: 'medium',
     });
@@ -83,6 +89,9 @@ describe('chat tool registry', () => {
     expect(getChatToolCompletionLabel('resolve_transcript_edit')).toBe('checked');
     expect(getChatToolCompletionLabel('cut_section')).toBe('done');
     expect(getChatToolCompletionLabel('add_overlay')).toBe('done');
+    expect(getChatToolCompletionLabel('apply_editorial_intent')).toBe('queued');
+    expect(getChatToolCompletionLabel('apply_reference_style')).toBe('queued');
+    expect(getChatToolCompletionLabel('dub_selected_dialogue')).toBe('queued');
   });
 
   it('keeps the live agent prompt wired to resolver-to-mutator workflows', () => {
@@ -97,6 +106,20 @@ describe('chat tool registry', () => {
     expect(agentSource).toContain('A successful edit turn must include a declared mutating tool call');
     expect(agentSource).toContain('DURABLE SELECTED-CLIP DUBBING');
     expect(agentSource).toContain('Do not use a generic voiceover');
+  });
+
+  it('separates durable mutation ownership from immediate project completion', () => {
+    for (const toolName of ['apply_editorial_intent', 'apply_reference_style', 'dub_selected_dialogue'] as const) {
+      expect(CHAT_TOOL_REGISTRY[toolName]).toMatchObject({
+        mutatesProject: true,
+        mutationCompletion: 'durable',
+        requiresProjectReload: false,
+        postconditions: {
+          state: { kind: 'project-state-changed-or-durable-operation-queued' },
+        },
+      });
+    }
+    expect(CHAT_TOOL_REGISTRY.add_captions.mutationCompletion).toBe('immediate');
   });
 
   it('queues revision-bound dubbing and scopes result reads to the current project', async () => {

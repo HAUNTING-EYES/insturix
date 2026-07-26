@@ -281,11 +281,15 @@ export async function rollbackChatAiEditTransaction(
 }
 
 function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiToolResult[]) {
-  const attempted = toolCalls.filter((call) => getChatToolMetadata(call.name)?.mutatesProject === true);
+  const isImmediateMutation = (toolName: string) => {
+    const metadata = getChatToolMetadata(toolName);
+    return metadata?.mutatesProject === true && metadata.mutationCompletion === 'immediate';
+  };
+  const attempted = toolCalls.filter((call) => isImmediateMutation(call.name));
   const inferred = attempted.length > 0
     ? attempted
     : toolResults
-      .filter((result) => getChatToolMetadata(result.toolName)?.mutatesProject === true)
+      .filter((result) => isImmediateMutation(result.toolName))
       .map((result) => ({ id: result.toolCallId, name: result.toolName }));
   const usedResults = new Set<number>();
   const classifiedCalls: Array<{

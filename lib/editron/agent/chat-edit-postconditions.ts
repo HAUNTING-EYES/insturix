@@ -330,7 +330,7 @@ function evaluateStateExpectation(input: {
       };
     }
     case 'project-state-changed-or-durable-operation-queued': {
-      const queue = verifyDurableEditorialQueue(input.resultData);
+      const queue = verifyDurableOperationQueue(input.resultData);
       if (queue.matched) return queue;
       return {
         pass: input.stateChanged,
@@ -352,40 +352,45 @@ function evaluateStateExpectation(input: {
   }
 }
 
-function verifyDurableEditorialQueue(
+function verifyDurableOperationQueue(
   resultData: unknown,
 ): { matched: boolean; pass: boolean; reason: string; deferred: boolean } {
   const result = asRecord(resultData);
   const dispatch = asRecord(result.dispatch);
-  if (dispatch.status !== 'queued') {
-    return { matched: false, pass: false, reason: 'No durable operation was queued.', deferred: false };
-  }
-
   const authority = asRecord(dispatch.authority);
-  const queueStatus = authority.queueStatus;
+  const queueStatus = authority.queueStatus ?? result.queueStatus ?? result.status;
   const uploadBatchId = typeof authority.uploadBatchId === 'string'
     ? authority.uploadBatchId.trim()
     : '';
-  const jobId = typeof authority.jobId === 'string'
-    ? authority.jobId.trim()
+  const jobIdValue = authority.jobId ?? result.jobId;
+  const jobId = typeof jobIdValue === 'string'
+    ? jobIdValue.trim()
     : '';
   const acceptedQueueStatus = queueStatus === 'queued'
     || queueStatus === 'already-queued'
     || queueStatus === 'completed';
-  const scriptQueueAccepted = dispatch.owner === 'phase2-script-planner'
+  const scriptQueueAccepted = dispatch.status === 'queued'
+    && dispatch.owner === 'phase2-script-planner'
     && acceptedQueueStatus
     && (queueStatus === 'queued' || queueStatus === 'already-queued')
     && uploadBatchId.length > 0;
-  const directorQueueAccepted = dispatch.owner === 'director-unified-planner'
+  const directorQueueAccepted = dispatch.status === 'queued'
+    && dispatch.owner === 'director-unified-planner'
     && acceptedQueueStatus
     && jobId.length > 0;
-  const pass = scriptQueueAccepted || directorQueueAccepted;
+  const standaloneQueueAccepted = Object.keys(dispatch).length === 0
+    && acceptedQueueStatus
+    && jobId.length > 0;
+  const matched = dispatch.status === 'queued' || jobId.length > 0 || uploadBatchId.length > 0;
+  const pass = scriptQueueAccepted || directorQueueAccepted || standaloneQueueAccepted;
   return {
-    matched: true,
+    matched,
     pass,
     reason: pass
-      ? 'The durable editorial operation was accepted by its owning queue.'
-      : 'Tool reported a queued editorial operation without a valid owner-specific receipt.',
+      ? 'The durable operation was accepted by its owning queue.'
+      : matched
+        ? 'Tool reported a queued operation without a valid durable receipt.'
+        : 'No durable operation was queued.',
     deferred: pass,
   };
 }
