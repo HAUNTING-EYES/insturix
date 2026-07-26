@@ -180,6 +180,37 @@ async function main(): Promise<void> {
           latestInvocation = settledInvocation;
           return settledInvocation;
         }
+        const referenceStyleJobId = extractQueuedReferenceStyleJobId(invocation);
+        if (referenceStyleJobId) {
+          console.log(`[chat-battle] waiting for reference-style job ${referenceStyleJobId} to settle`);
+          const terminal = await waitForReferenceStyleJobTerminal({
+            jobId: referenceStyleJobId,
+            projectId,
+          });
+          console.log(
+            `[chat-battle] reference-style reached ${terminal.status} after ${terminal.polls} poll(s)`
+            + `${terminal.error ? `: ${terminal.error}` : ''}`,
+          );
+          const settledInvocation: ChatBattleInvocationEvidence = {
+            ...invocation,
+            durableOperations: [
+              ...(invocation.durableOperations ?? []),
+              {
+                owner: 'reference-style',
+                jobId: referenceStyleJobId,
+                status: terminal.status,
+                materialChange: terminal.materialChange,
+                polls: terminal.polls,
+                ...(terminal.error ? { error: terminal.error } : {}),
+              },
+            ],
+          };
+          latestDurableMutationFailure = isFailedDurableStatus(terminal.status)
+            ? `reference-style-${terminal.status}:${terminal.error ?? 'no error detail'}`
+            : null;
+          latestInvocation = settledInvocation;
+          return settledInvocation;
+        }
         const dubbingJobId = scenario.id === 'selected-dialogue-dubbing'
           ? extractQueuedDubbingJobId(invocation)
           : null;
@@ -201,6 +232,20 @@ async function main(): Promise<void> {
         latestDurableMutationFailure = terminal.status === 'completed'
           ? null
           : `dubbing-${terminal.status}:${terminal.error ?? 'no error detail'}`;
+        const settledInvocation: ChatBattleInvocationEvidence = {
+          ...invocation,
+          durableOperations: [
+            ...(invocation.durableOperations ?? []),
+            {
+              owner: 'dubbing',
+              jobId: dubbingJobId,
+              status: terminal.status,
+              materialChange: terminal.status === 'completed',
+              polls: terminal.polls,
+              ...(terminal.error ? { error: terminal.error } : {}),
+            },
+          ],
+        };
 
         try {
           const followUp = await invokeLiveChatAgent({
@@ -213,12 +258,12 @@ async function main(): Promise<void> {
             runId: `${options.runId}-dubbing-result`,
             startedAt: startedAtHolder.value || new Date().toISOString(),
           });
-          const combined = mergeChatBattleInvocations(invocation, followUp);
+          const combined = mergeChatBattleInvocations(settledInvocation, followUp);
           latestInvocation = combined;
           return combined;
         } catch (error) {
           const failedFollowUp = {
-            ...invocation,
+            ...settledInvocation,
             error: `Dubbing result follow-up failed: ${error instanceof Error ? error.message : String(error)}`,
           };
           latestInvocation = failedFollowUp;
@@ -410,6 +455,25 @@ export function extractQueuedDubbingJobId(invocation: ChatBattleInvocationEviden
   return null;
 }
 
+export function extractQueuedReferenceStyleJobId(
+  invocation: ChatBattleInvocationEvidence,
+): string | null {
+  for (const event of invocation.toolEvents) {
+    if (event.name !== 'apply_reference_style') continue;
+    const output = parseToolOutputRecord(event.output);
+    if (output.status !== 'success') continue;
+    const data = asRecord(output.data);
+    const jobId = data.jobId;
+    const queueStatus = data.queueStatus;
+    if (
+      typeof jobId === 'string'
+      && /^chat_style_[A-Za-z0-9_-]{1,180}$/.test(jobId)
+      && ['queued', 'already-queued', 'completed'].includes(String(queueStatus))
+    ) return jobId;
+  }
+  return null;
+}
+
 export function extractQueuedEditorialIntentJobId(
   invocation: ChatBattleInvocationEvidence,
 ): string | null {
@@ -460,6 +524,13 @@ type EditorialIntentJobTerminalStatus =
 
 export interface DubbingJobSettlementResult {
   status: DubbingJobTerminalStatus;
+  polls: number;
+  error?: string;
+}
+
+export interface ReferenceStyleJobSettlementResult {
+  status: 'completed' | 'completed_unverified' | 'declined' | 'failed' | 'dispatch_failed' | 'rolled_back' | 'timeout' | 'missing';
+  materialChange: boolean;
   polls: number;
   error?: string;
 }
@@ -521,6 +592,51 @@ export async function waitForDubbingJobTerminal(
   }
 }
 
+export async function waitForReferenceStyleJobTerminal(
+  input: {
+    jobId: string;
+    projectId: string;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  },
+  dependencies: DubbingJobSettlementDependencies = {
+    loadJob: loadChatBattleReferenceStyleJob,
+    now: () => Date.now(),
+    sleep: async (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  },
+): Promise<ReferenceStyleJobSettlementResult> {
+  const timeoutMs = input.timeoutMs
+    ?? boundedEnvInteger('EDITRON_CHAT_BATTLE_REFERENCE_STYLE_TIMEOUT_MS', 15 * 60 * 1000, 30_000, 30 * 60 * 1000);
+  const pollIntervalMs = input.pollIntervalMs
+    ?? boundedEnvInteger('EDITRON_CHAT_BATTLE_SETTLEMENT_POLL_MS', 5_000, 500, 30_000);
+  const deadline = dependencies.now() + timeoutMs;
+  let polls = 0;
+
+  while (true) {
+    polls += 1;
+    const job = await dependencies.loadJob(input.jobId, input.projectId);
+    if (!job) return { status: 'missing', materialChange: false, polls, error: 'reference-style-job-not-found' };
+    const status = stringValue(job.status);
+    if (status === 'completed' || status === 'completed_unverified') {
+      return { status, materialChange: true, polls };
+    }
+    if (status === 'declined') return { status, materialChange: false, polls };
+    if (status === 'failed' || status === 'dispatch_failed' || status === 'rolled_back') {
+      const error = stringValue(job.error);
+      return { status, materialChange: false, polls, ...(error ? { error } : {}) };
+    }
+    if (dependencies.now() >= deadline) {
+      return {
+        status: 'timeout',
+        materialChange: false,
+        polls,
+        error: `reference-style-job-timeout:${status ?? 'unknown'}`,
+      };
+    }
+    await dependencies.sleep(pollIntervalMs);
+  }
+}
+
 async function loadChatBattleDubbingJob(
   jobId: string,
   projectId: string,
@@ -530,6 +646,21 @@ async function loadChatBattleDubbingJob(
   chatBattleMongoClient = client;
   return db.collection<Record<string, unknown> & { _id: string; projectId: string }>(COLLECTIONS.CHAT_DUBBING_JOBS)
     .findOne({ _id: jobId, projectId }) as Promise<Record<string, unknown> | null>;
+}
+
+async function loadChatBattleReferenceStyleJob(
+  jobId: string,
+  projectId: string,
+): Promise<Record<string, unknown> | null> {
+  const { COLLECTIONS, connectToDatabase } = await import('../lib/editron/db/mongodb');
+  const { client, db } = await connectToDatabase();
+  chatBattleMongoClient = client;
+  return db.collection<Record<string, unknown> & { _id: string; projectId: string }>(COLLECTIONS.CHAT_REFERENCE_STYLE_JOBS)
+    .findOne({ _id: jobId, projectId }) as Promise<Record<string, unknown> | null>;
+}
+
+function isFailedDurableStatus(status: string): boolean {
+  return ['failed', 'dispatch_failed', 'rolled_back', 'stale', 'timeout', 'missing'].includes(status);
 }
 
 interface EditorialIntentJobSettlementDependencies {

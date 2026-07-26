@@ -176,6 +176,7 @@ import {
   chatBattleInvocationQueuedProjectMutation,
   extractQueuedDubbingJobId,
   extractQueuedEditorialIntentJobId,
+  extractQueuedReferenceStyleJobId,
   loadChatBattleMongoProject,
   mergeChatBattleInvocations,
   parseChatBattleCliArgs,
@@ -184,6 +185,7 @@ import {
   validateChatBattleCliOptions,
   waitForDubbingJobTerminal,
   waitForEditorialIntentJobTerminal,
+  waitForReferenceStyleJobTerminal,
   waitForFreshChatBattleRenderEvidence,
   waitForQueuedProjectMutation,
   readChatBattleAuthHeaders,
@@ -1108,6 +1110,11 @@ describe('chat edit battle harness', () => {
 
     expect(chatBattleInvocationQueuedProjectMutation(queued)).toBe(true);
     expect(chatBattleInvocationQueuedProjectMutation(referenceStyle)).toBe(true);
+    expect(extractQueuedReferenceStyleJobId(referenceStyle)).toBe('chat_style_123');
+    expect(extractQueuedReferenceStyleJobId(invocation('reference-style-transfer', [{
+      ...referenceStyle.toolEvents[0],
+      output: successEnvelope({ jobId: '../not-safe', queueStatus: 'queued' }),
+    }]))).toBeNull();
     expect(chatBattleInvocationQueuedProjectMutation(immediate)).toBe(false);
     expect(extractQueuedEditorialIntentJobId(invocation('vague-motion-graphics', [{
       ...queued.toolEvents[0],
@@ -1275,6 +1282,43 @@ describe('chat edit battle harness', () => {
       status: 'failed',
       polls: 1,
       error: 'unnatural-phrase-fit',
+    });
+  });
+
+  it('settles reference style from its own job source of truth', async () => {
+    let clock = 0;
+    const completed = await waitForReferenceStyleJobTerminal({
+      jobId: 'chat_style_123',
+      projectId: 'proj_battle',
+      timeoutMs: 100,
+      pollIntervalMs: 10,
+    }, {
+      loadJob: vi.fn()
+        .mockResolvedValueOnce({ status: 'running' })
+        .mockResolvedValueOnce({ status: 'completed_unverified' }),
+      now: () => clock,
+      sleep: async (milliseconds) => { clock += milliseconds; },
+    });
+    expect(completed).toEqual({
+      status: 'completed_unverified',
+      materialChange: true,
+      polls: 2,
+    });
+
+    const declined = await waitForReferenceStyleJobTerminal({
+      jobId: 'chat_style_declined',
+      projectId: 'proj_battle',
+      timeoutMs: 100,
+      pollIntervalMs: 10,
+    }, {
+      loadJob: vi.fn().mockResolvedValue({ status: 'declined' }),
+      now: () => 0,
+      sleep: async () => undefined,
+    });
+    expect(declined).toEqual({
+      status: 'declined',
+      materialChange: false,
+      polls: 1,
     });
   });
 

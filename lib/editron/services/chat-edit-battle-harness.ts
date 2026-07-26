@@ -78,13 +78,14 @@ export interface ChatBattleOperationReplayEvidence {
 }
 
 export interface ChatBattleDurableOperationEvidence {
-  owner: 'editorial-intent';
+  owner: 'editorial-intent' | 'reference-style' | 'dubbing';
   jobId: string;
   status:
     | 'completed'
     | 'completed_unverified'
     | 'declined'
     | 'failed'
+    | 'stale'
     | 'dispatch_failed'
     | 'rolled_back'
     | 'timeout'
@@ -1261,12 +1262,17 @@ function durableOperationForEvent(
   event: ChatBattleToolEvent,
   operations: readonly ChatBattleDurableOperationEvidence[],
 ): ChatBattleDurableOperationEvidence | null {
-  if (event.name !== 'apply_editorial_intent' || operations.length === 0) return null;
+  if (operations.length === 0) return null;
   const output = parseToolOutput(event.output);
   const data = asRecord(output?.data);
-  const dispatch = asRecord(data.dispatch);
-  const authority = asRecord(dispatch.authority);
-  const jobId = stringValue(authority.jobId ?? dispatch.jobId ?? data.jobId);
+  let jobId: string | null = null;
+  if (event.name === 'apply_editorial_intent') {
+    const dispatch = asRecord(data.dispatch);
+    const authority = asRecord(dispatch.authority);
+    jobId = stringValue(authority.jobId ?? dispatch.jobId ?? data.jobId);
+  } else if (event.name === 'apply_reference_style' || event.name === 'dub_selected_dialogue') {
+    jobId = stringValue(data.jobId);
+  }
   return jobId ? operations.find((operation) => operation.jobId === jobId) ?? null : null;
 }
 
