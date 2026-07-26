@@ -12,6 +12,10 @@ import {
   BackgroundMusicAssignmentDialog,
   useBackgroundMusicAssignment,
 } from '../../components/overlays/sounds/background-music-assignment-dialog';
+import {
+  UploadedAudioAssignmentDialog,
+  useUploadedAudioAssignment,
+} from '../../components/overlays/sounds/uploaded-audio-assignment-dialog';
 
 /* ═══ Editron editor v2 · timeline grid ══════════════════════════════
    Presentational twin of components/timeline/timeline-grid.tsx. Reuses
@@ -73,6 +77,8 @@ export function V2TimelineGrid({
   const { projectId, setOverlays, addOverlay } = useEditorContext();
   const backgroundMusicAssignment = useBackgroundMusicAssignment();
   const { requestAssignment: requestBackgroundMusicAssignment } = backgroundMusicAssignment;
+  const uploadedAudioAssignment = useUploadedAudioAssignment();
+  const { requestAssignment: requestUploadedAudioAssignment } = uploadedAudioAssignment;
 
   const selectedItem = useMemo(
     () => (selectedOverlayId !== null ? { id: selectedOverlayId } : null),
@@ -178,15 +184,29 @@ export function V2TimelineGrid({
           setTimeout(() => setActionStatus(null), 2000);
           return;
         }
-        let newOverlay: any;
+
         if (asset.type === 'audio') {
-          newOverlay = {
-            id: Date.now(), type: 'sound', from: dropFrame, durationInFrames: segmentDuration, row: targetRow,
-            left: 0, top: 0, width: 0, height: 0, isDragging: false, rotation: 0,
-            assetId: asset.assetId, src: asset.path, content: asset.name,
-            startFromSound: Math.round(segmentStart * fps), styles: { volume: 1 },
-          };
-        } else if (asset.type === 'video') {
+          const opened = requestUploadedAudioAssignment(
+            {
+              assetId: asset.assetId,
+              name: asset.name,
+            },
+            {
+              from: dropFrame,
+              durationInFrames: segmentDuration,
+              requestedRow: targetRow,
+              startFromSound: Math.round(segmentStart * fps),
+            },
+          );
+          setActionStatus(
+            opened ? 'Choose an audio role and confirm rights' : 'Audio unavailable',
+          );
+          setTimeout(() => setActionStatus(null), 2000);
+          return;
+        }
+
+        let newOverlay: any;
+        if (asset.type === 'video') {
           newOverlay = {
             id: Date.now(), type: 'video', from: dropFrame, durationInFrames: segmentDuration, row: targetRow,
             left: 0, top: 0, width: asset.dimensions?.width || 1920, height: asset.dimensions?.height || 1080,
@@ -211,7 +231,13 @@ export function V2TimelineGrid({
         setTimeout(() => setActionStatus(null), 2500);
       }
     },
-    [totalDuration, visibleRows, addOverlay, requestBackgroundMusicAssignment],
+    [
+      totalDuration,
+      visibleRows,
+      addOverlay,
+      requestBackgroundMusicAssignment,
+      requestUploadedAudioAssignment,
+    ],
   );
 
   const handleDrop = useCallback(
@@ -238,6 +264,7 @@ export function V2TimelineGrid({
       onDrop={handleDrop}
     >
       <BackgroundMusicAssignmentDialog controller={backgroundMusicAssignment} />
+      <UploadedAudioAssignmentDialog controller={uploadedAudioAssignment} />
       {actionStatus && (
         <div className="absolute left-1/2 top-0 z-[100] -translate-x-1/2 rounded-b-md bg-status-success px-3 py-1.5 text-[11px] font-medium text-[#0B0B0A] shadow-lg">
           {actionStatus}

@@ -449,22 +449,37 @@ describe('uploaded audio editor client', () => {
     })).rejects.toBeInstanceOf(UploadedAudioAssignmentClientError);
   });
 
-  it('creates deterministic-format request identities and wires v1 through the shared owner', () => {
+  it('creates deterministic-format request identities and wires every editor entry point through the shared owner', () => {
     expect(createUploadedAudioIdempotencyKey(() => '12345678-abcd'))
       .toBe('audio_12345678-abcd');
-    const source = readFileSync(
-      new URL(
-        '../../components/editron/editor/version-7.0.0/components/timeline/timeline-grid.tsx',
-        import.meta.url,
-      ),
-      'utf8',
-    );
-    expect(source).toContain('useUploadedAudioAssignment()');
-    expect(source).toContain('<UploadedAudioAssignmentDialog');
-    expect(source).toContain('requestUploadedAudioAssignment(');
-    expect(source).not.toMatch(
-      /if \(asset\.type === 'audio'\)\s*\{\s*newOverlay\s*=/,
-    );
+    const entryPoints = [
+      {
+        path: '../../components/editron/editor/version-7.0.0/components/timeline/timeline-grid.tsx',
+        unsafeConstructor:
+          /if \(asset\.type === 'audio'\)\s*\{\s*newOverlay\s*=/,
+      },
+      {
+        path: '../../components/editron/editor/version-7.0.0/v2/timeline/v2-timeline-grid.tsx',
+        unsafeConstructor:
+          /if \(asset\.type === 'audio'\)\s*\{\s*newOverlay\s*=/,
+      },
+      {
+        path: '../../components/editron/editor/version-7.0.0/components/overlays/local-media/local-media-panel.tsx',
+        unsafeConstructor:
+          /else if \(file\.type === "audio"\)\s*\{\s*newOverlay\s*=/,
+      },
+    ];
+
+    for (const entryPoint of entryPoints) {
+      const source = readFileSync(
+        new URL(entryPoint.path, import.meta.url),
+        'utf8',
+      );
+      expect(source).toContain('useUploadedAudioAssignment()');
+      expect(source).toContain('<UploadedAudioAssignmentDialog');
+      expect(source).toContain('requestUploadedAudioAssignment(');
+      expect(source).not.toMatch(entryPoint.unsafeConstructor);
+    }
   });
 });
 
