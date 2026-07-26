@@ -25,9 +25,10 @@ import {
   ingestAndAssignMusicCatalogTrack,
   searchMusicCatalog,
 } from "../../../utils/background-music-assignment";
+import { MusicDiscoveryPanel } from "./music-discovery-panel";
 import { SoundDetails } from "./sound-details";
 
-type AudioLibraryView = "catalog" | "references";
+type AudioLibraryView = "catalog" | "discover" | "references";
 
 const SoundsPanel: React.FC = () => {
   const [playingTrack, setPlayingTrack] = useState<string | null>(null);
@@ -193,7 +194,7 @@ const SoundsPanel: React.FC = () => {
   };
 
   const selectView = (view: AudioLibraryView) => {
-    if (view === "catalog" && playingTrack) {
+    if (view !== "references" && playingTrack) {
       audioRefs.current[playingTrack]?.pause();
       setPlayingTrack(null);
     }
@@ -321,7 +322,16 @@ const SoundsPanel: React.FC = () => {
           className="h-8 flex-1 rounded-md"
           onClick={() => selectView("catalog")}
         >
-          Licensed catalog
+          Licensed
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={activeView === "discover" ? "secondary" : "ghost"}
+          className="h-8 flex-1 rounded-md"
+          onClick={() => selectView("discover")}
+        >
+          Discover
         </Button>
         <Button
           type="button"
@@ -330,7 +340,7 @@ const SoundsPanel: React.FC = () => {
           className="h-8 flex-1 rounded-md"
           onClick={() => selectView("references")}
         >
-          Preview refs
+          Refs
         </Button>
         <Button
           type="button"
@@ -409,6 +419,8 @@ const SoundsPanel: React.FC = () => {
             {catalogTracks.map(renderCatalogTrack)}
           </div>
         </>
+      ) : activeView === "discover" ? (
+        <MusicDiscoveryPanel />
       ) : (
         <div className="space-y-2">{localSounds.map(renderSoundCard)}</div>
       )}
