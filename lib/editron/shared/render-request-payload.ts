@@ -24,6 +24,12 @@ const finiteNumber = (value: unknown): number | undefined =>
 
 export const MUSIC_RIGHTS_ATTESTATION_VERSION =
   "music-rights-attestation-v1" as const;
+export const AUDIO_RIGHTS_ATTESTATION_VERSION =
+  "audio-rights-attestation-v1" as const;
+
+type AudioRightsAttestationVersion =
+  | typeof MUSIC_RIGHTS_ATTESTATION_VERSION
+  | typeof AUDIO_RIGHTS_ATTESTATION_VERSION;
 
 export interface AudioRightsContract {
   mediaRole?: "music" | "sfx" | "voiceover" | "dubbing" | "other";
@@ -33,7 +39,7 @@ export interface AudioRightsContract {
   evidence?: {
     kind: "user-attestation" | "library-license" | "generated-provider";
     sourceAssetId: string;
-    attestationVersion?: typeof MUSIC_RIGHTS_ATTESTATION_VERSION;
+    attestationVersion?: AudioRightsAttestationVersion;
     attestedAt?: string;
     attestedBy?: string;
     licenseId?: string;
@@ -217,6 +223,17 @@ export function resolveRenderableAudio(
   }
   const audioRights = rightsValue;
 
+  if (
+    musicOverlay &&
+    audioRights.mediaRole !== undefined &&
+    audioRights.mediaRole !== "music"
+  ) {
+    throw new UnlicensedAudioInRenderError(
+      overlay,
+      `background music cannot use ${audioRights.mediaRole} rights evidence`
+    );
+  }
+
   if (knownPreviewSource && audioRights.source !== "preview-only") {
     throw new UnlicensedAudioInRenderError(
       overlay,
@@ -387,9 +404,13 @@ export function getAudioRightsContractIssue(value: unknown): string | null {
       : "generated audio requires a durable provider-license receipt";
   }
   if (value.source === "user-upload" || value.source === "preview-only") {
+    const expectedVersion =
+      value.mediaRole !== undefined && value.mediaRole !== "music"
+        ? AUDIO_RIGHTS_ATTESTATION_VERSION
+        : MUSIC_RIGHTS_ATTESTATION_VERSION;
     return (
       evidence.kind === "user-attestation" &&
-      evidence.attestationVersion === MUSIC_RIGHTS_ATTESTATION_VERSION &&
+      evidence.attestationVersion === expectedVersion &&
       nonEmptyString(evidence.attestedBy) &&
       isValidDateString(evidence.attestedAt)
     )
