@@ -27,6 +27,8 @@ import {
   buildPhase0RenderedStillEvidence,
   buildPhase0RenderedStillEvidenceFailure,
   buildPhase0RenderedStillEvidencePersistSet,
+  normalizeChatEditInheritedRenderEligibilityOverlayIds,
+  omitInheritedRenderDebtFromChatDeltaProject,
   type ChatEditRenderedAudioEvidence,
   type ChatEditRenderVerificationRequest,
   type Phase0RenderedStillEvidence,
@@ -295,6 +297,16 @@ async function handleChatEditRenderVerification(input: {
       resolveCheckpointProject(beforeCheckpoint),
       resolveCheckpointProject(afterCheckpoint),
     ]);
+    const inheritedOverlayIds = input.verification.inheritedRenderEligibilityOverlayIds ?? [];
+    const inheritedOverlayIdSet = new Set(inheritedOverlayIds);
+    const beforeAudioProject = omitInheritedRenderDebtFromChatDeltaProject(
+      beforeProject as any,
+      inheritedOverlayIds,
+    );
+    const afterAudioProject = omitInheritedRenderDebtFromChatDeltaProject(
+      afterProject as any,
+      inheritedOverlayIds,
+    );
     const capturedAt = new Date().toISOString();
     const [visualResult, audioResult] = await Promise.allSettled([
       input.verification.modalities.includes('visual')
@@ -304,7 +316,10 @@ async function handleChatEditRenderVerification(input: {
             // Before/after scoring must audit this operation's overlays. Unchanged
             // active overlays have zero delta pixels and are not operation failures.
             auditedOverlayIds: input.verification.targets
-              .filter((target) => target.state !== 'deleted')
+              .filter((target) =>
+                target.state !== 'deleted'
+                && !inheritedOverlayIdSet.has(target.overlayId),
+              )
               .map((target) => target.overlayId),
             comparisonMode: input.verification.expectedEffect ?? 'mutation-delta',
             capturedAt,
@@ -312,8 +327,8 @@ async function handleChatEditRenderVerification(input: {
         : Promise.resolve(null),
       input.verification.modalities.includes('audio')
         ? buildChatEditRenderedAudioEvidence(
-            afterProject as any,
-            beforeProject as any,
+            afterAudioProject,
+            beforeAudioProject,
             input.verification,
             { capturedAt },
           )
@@ -377,6 +392,7 @@ async function handleChatEditRenderVerification(input: {
     console.log(
       `[ChatEditRenderVerification] ${input.projectId}/${input.verification.operationId}: `
       + `status=${finalRecord.status}, modalities=${finalRecord.modalities.join(',')}, `
+      + `inheritedDebtOmitted=${inheritedOverlayIds.length}, `
       + `reasons=${reasons.join('|') || 'none'}, ms=${Date.now() - input.startedAt}`,
     );
     return NextResponse.json({
@@ -584,6 +600,11 @@ function validateChatEditVerificationRequest(
     ) return null;
     mutationRanges.push({ startFrame, endFrame, toolName });
   }
+  const inheritedRenderEligibilityOverlayIds =
+    normalizeChatEditInheritedRenderEligibilityOverlayIds(
+      request.inheritedRenderEligibilityOverlayIds,
+    );
+  if (inheritedRenderEligibilityOverlayIds === null) return null;
 
   return {
     version: 'editron-chat-render-verification-v1',
@@ -596,6 +617,9 @@ function validateChatEditVerificationRequest(
     expectedEffect,
     targets,
     ...(mutationRanges.length > 0 ? { mutationRanges } : {}),
+    ...(inheritedRenderEligibilityOverlayIds.length > 0
+      ? { inheritedRenderEligibilityOverlayIds }
+      : {}),
     sampleFrames,
   };
 }

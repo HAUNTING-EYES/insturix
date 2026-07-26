@@ -373,9 +373,21 @@ export function buildChatEditRenderVerificationRequest(input: {
   const mutationRangesByKey = new Map<string, ChatEditRenderVerificationMutationRange>();
   const modalitySet = new Set<ChatEditRenderVerificationModality>();
   const expectedEffects = new Set<ChatEditRenderVerificationExpectation>();
+  const inheritedRenderEligibilityOverlayIds = new Set<string>();
 
   for (const successful of input.successfulCalls) {
     const receipt = readPassedPostconditionReceipt(successful.result.result);
+    if (receipt) {
+      for (const target of receipt.targets) {
+        if (receipt.inheritedRenderEligibilityOverlayIds.includes(target.overlayId)) {
+          inheritedRenderEligibilityOverlayIds.add(target.overlayId);
+        } else {
+          // The latest successful mutation owns final eligibility truth. This
+          // removes stale debt when a later tool repairs the same overlay.
+          inheritedRenderEligibilityOverlayIds.delete(target.overlayId);
+        }
+      }
+    }
     if (receipt?.required === false) continue;
     const targets = receipt?.targets ?? [];
     for (const target of targets) {
@@ -423,6 +435,9 @@ export function buildChatEditRenderVerificationRequest(input: {
     expectedEffect,
     targets,
     ...(mutationRanges.length > 0 ? { mutationRanges } : {}),
+    ...(inheritedRenderEligibilityOverlayIds.size > 0
+      ? { inheritedRenderEligibilityOverlayIds: Array.from(inheritedRenderEligibilityOverlayIds) }
+      : {}),
     sampleFrames,
   };
 }
@@ -431,6 +446,7 @@ function readPassedPostconditionReceipt(result: unknown): {
   targets: ChatEditRenderVerificationTarget[];
   mutationRanges: Array<Omit<ChatEditRenderVerificationMutationRange, 'toolName'>>;
   modalities: ChatEditRenderVerificationModality[];
+  inheritedRenderEligibilityOverlayIds: string[];
   required: boolean;
 } | null {
   const envelope = parseToolResult(result);
@@ -455,6 +471,14 @@ function readPassedPostconditionReceipt(result: unknown): {
       })
     : [];
   const renderVerification = asRecord(receipt.renderVerification);
+  const renderEligibility = asRecord(receipt.renderEligibility);
+  const inheritedRenderEligibilityOverlayIds = Array.isArray(renderEligibility.inheritedIssues)
+    ? renderEligibility.inheritedIssues.flatMap((value) => {
+        const issue = asRecord(value);
+        const overlayId = String(issue.overlayId ?? '').trim();
+        return overlayId ? [overlayId] : [];
+      })
+    : [];
   const modalities = Array.isArray(renderVerification.modalities)
     ? renderVerification.modalities.filter(
         (value): value is ChatEditRenderVerificationModality => value === 'visual' || value === 'audio',
@@ -475,6 +499,7 @@ function readPassedPostconditionReceipt(result: unknown): {
     targets,
     mutationRanges,
     modalities,
+    inheritedRenderEligibilityOverlayIds,
     required: renderVerification.required !== false,
   };
 }

@@ -86,7 +86,40 @@ export interface ChatEditRenderVerificationRequest {
   expectedEffect?: ChatEditRenderVerificationExpectation;
   targets: ChatEditRenderVerificationTarget[];
   mutationRanges?: ChatEditRenderVerificationMutationRange[];
+  inheritedRenderEligibilityOverlayIds?: string[];
   sampleFrames: number[];
+}
+
+export function normalizeChatEditInheritedRenderEligibilityOverlayIds(
+  value: unknown,
+): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 64) return null;
+
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') return null;
+    const overlayId = entry.trim();
+    if (
+      overlayId.length < 1
+      || overlayId.length > 180
+      || /[\u0000-\u001F\u007F]/.test(overlayId)
+    ) return null;
+    if (!normalized.includes(overlayId)) normalized.push(overlayId);
+  }
+  return normalized;
+}
+
+export function omitInheritedRenderDebtFromChatDeltaProject(
+  project: Phase0FixtureProject,
+  overlayIds: readonly string[] = [],
+): Phase0FixtureProject {
+  if (overlayIds.length === 0 || !Array.isArray(project.overlays)) return project;
+  const omittedIds = new Set(overlayIds);
+  return {
+    ...project,
+    overlays: project.overlays.filter((overlay) => !omittedIds.has(String(overlay.id ?? ''))),
+  };
 }
 
 export interface ChatEditRenderedAudioWindowEvidence {

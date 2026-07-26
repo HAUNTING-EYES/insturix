@@ -64,6 +64,7 @@ export interface ChatEditRenderVerificationRecord<Visual = unknown, Audio = Chat
   completedAt: string | null;
   modalities: ChatEditRenderVerificationRequest['modalities'];
   targets: ChatEditRenderVerificationRequest['targets'];
+  inheritedRenderEligibilityOverlayIds?: string[];
   sampleFrames: number[];
   visual: Visual | null;
   audio: Audio | null;
@@ -115,6 +116,9 @@ export function buildRequestedChatEditRenderVerification(
     completedAt: null,
     modalities: request.modalities,
     targets: request.targets,
+    ...(request.inheritedRenderEligibilityOverlayIds?.length
+      ? { inheritedRenderEligibilityOverlayIds: request.inheritedRenderEligibilityOverlayIds }
+      : {}),
     sampleFrames: request.sampleFrames,
     visual: null,
     audio: null,
