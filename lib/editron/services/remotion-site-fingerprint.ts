@@ -3,6 +3,8 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire, isBuiltin } from 'node:module';
 import path from 'node:path';
 
+import type { ExportDeclaration, Expression, ImportClause, Node } from 'typescript';
+
 // Keep the compiler out of Next's config dependency graph; it is needed only while computing this hash.
 const runtimeRequire = createRequire(import.meta.url);
 const ts: typeof import('typescript') = runtimeRequire(['type', 'script'].join(''));
@@ -175,12 +177,12 @@ function collectRuntimeImports(filePath: string, source: string): string[] {
       : ts.ScriptKind.TS,
   );
 
-  const addModule = (expression: ts.Expression | undefined) => {
+  const addModule = (expression: Expression | undefined) => {
     if (expression && ts.isStringLiteralLike(expression)) {
       imports.add(expression.text);
     }
   };
-  const visit = (node: ts.Node) => {
+  const visit = (node: Node) => {
     if (ts.isImportDeclaration(node)) {
       if (!isTypeOnlyImport(node.importClause)) addModule(node.moduleSpecifier);
       return;
@@ -205,7 +207,7 @@ function collectRuntimeImports(filePath: string, source: string): string[] {
   return [...imports];
 }
 
-function isTypeOnlyImport(importClause: ts.ImportClause | undefined): boolean {
+function isTypeOnlyImport(importClause: ImportClause | undefined): boolean {
   if (!importClause) return false;
   if (importClause.isTypeOnly) return true;
   if (importClause.name) return false;
@@ -217,7 +219,7 @@ function isTypeOnlyImport(importClause: ts.ImportClause | undefined): boolean {
   );
 }
 
-function isTypeOnlyExport(declaration: ts.ExportDeclaration): boolean {
+function isTypeOnlyExport(declaration: ExportDeclaration): boolean {
   if (declaration.isTypeOnly) return true;
   return Boolean(
     declaration.exportClause

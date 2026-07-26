@@ -71,6 +71,10 @@ import {
   scheduleChatToolCalls,
 } from './chat-tool-execution-policy';
 import {
+  interceptToolCallForServerPreflight,
+  prepareServerTimelinePreflight,
+} from './chat-tool-server-preflight';
+import {
   filterChatToolsForRequestOwner,
   filterPromptForCallableChatTools,
   formatChatRequestOwnerLicenseForPrompt,
@@ -935,6 +939,19 @@ ${ownerLicensePrompt}
           )
           .map((receipt) => receipt.evidenceClass),
       ];
+      const serverTimelinePreflight = await prepareServerTimelinePreflight({
+        toolCalls,
+        invokeTimelineView: (() => {
+          const timelineTool = tools.find((tool) => tool.name === 'get_timeline_view');
+          return timelineTool
+            ? (args) => (timelineTool as any).invoke(args, config)
+            : undefined;
+        })(),
+        ledger: turnLedger,
+        projectId,
+        projectRevision: schedulingRevision,
+        requestOwnerLicense: turnContext?.requestOwnerLicense,
+      });
       const scheduledToolCalls = scheduleChatToolCalls(toolCalls, availableEvidence);
 
       for (const toolCall of scheduledToolCalls) {
@@ -948,7 +965,15 @@ ${ownerLicensePrompt}
         const args = normalizeAgentToolArgs(toolCall.name, toolCall.args, {
           projectFps: config.configurable?.projectFps,
         });
-        if (!tool) {
+        const preflightInterception = interceptToolCallForServerPreflight({
+          preflight: serverTimelinePreflight,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+        });
+        if (preflightInterception) {
+          output = preflightInterception.output;
+          evidenceReceipts = preflightInterception.evidenceReceipts;
+        } else if (!tool) {
           output = JSON.stringify({
             status: 'error',
             data: null,
