@@ -10,6 +10,10 @@ import {
   EDITRON_ACTION_SAFE_MARGIN,
   EDITRON_TITLE_SAFE_MARGIN,
 } from '../../../agent/chat-overlay-safe-placement';
+import {
+  EDITRON_CAPTION_SAFE_BOTTOM_MARGIN,
+  EDITRON_CAPTION_SAFE_TOP_MARGIN,
+} from '../../../shared/overlay-safe-zone-contract';
 
 export type RenderedAestheticDimension =
   | 'render'
@@ -131,8 +135,8 @@ const MIN_CAPTION_TEXT_PX_AT_1080 = 34;
 const MIN_GRAPHIC_TEXT_PX_AT_1080 = 72;
 const OVERLAY_SPATIAL_OVERLAP_RATIO = 0.2;
 const OVERLAY_PARTIAL_OVERLAP_RATIO = 0.1;
-const CAPTION_TOP_UNSAFE_RATIO = 0.1;
-const CAPTION_BOTTOM_UNSAFE_RATIO = 0.8;
+const CAPTION_TOP_UNSAFE_RATIO = EDITRON_CAPTION_SAFE_TOP_MARGIN;
+const CAPTION_BOTTOM_UNSAFE_RATIO = 1 - EDITRON_CAPTION_SAFE_BOTTOM_MARGIN;
 
 export function scoreRenderedFrameAesthetic(input: RenderedFrameAestheticInput): RenderedFrameAestheticReport {
   const penalties = emptyPenaltyMap();

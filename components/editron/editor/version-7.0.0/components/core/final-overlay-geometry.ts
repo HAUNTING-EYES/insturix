@@ -1,3 +1,8 @@
+import {
+  EDITRON_CAPTION_SAFE_BOTTOM_MARGIN,
+  EDITRON_CAPTION_SAFE_TOP_MARGIN,
+} from '@/lib/editron/shared/overlay-safe-zone-contract';
+
 const TITLE_SAFE_MARGIN = 0.1;
 const EPSILON = 0.001;
 
@@ -38,11 +43,17 @@ export function constrainFinalOverlayGeometry(input: {
     };
   }
 
+  const safeTopMargin = input.overlayType === 'caption'
+    ? EDITRON_CAPTION_SAFE_TOP_MARGIN
+    : TITLE_SAFE_MARGIN;
+  const safeBottomMargin = input.overlayType === 'caption'
+    ? EDITRON_CAPTION_SAFE_BOTTOM_MARGIN
+    : TITLE_SAFE_MARGIN;
   const safe = {
     left: input.canvasWidth * TITLE_SAFE_MARGIN,
-    top: input.canvasHeight * TITLE_SAFE_MARGIN,
+    top: input.canvasHeight * safeTopMargin,
     right: input.canvasWidth * (1 - TITLE_SAFE_MARGIN),
-    bottom: input.canvasHeight * (1 - TITLE_SAFE_MARGIN),
+    bottom: input.canvasHeight * (1 - safeBottomMargin),
   };
   const requestedBounds = transformedBounds(input);
   const requestedWidth = requestedBounds.right - requestedBounds.left;

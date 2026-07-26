@@ -47,6 +47,26 @@ describe('final overlay geometry', () => {
     });
   });
 
+  it('keeps the full caption box above the platform bottom exclusion zone', () => {
+    const result = constrainFinalOverlayGeometry({
+      overlayType: 'caption',
+      left: 108,
+      top: 1_536,
+      width: 864,
+      height: 192,
+      scale: 1,
+      rotationDegrees: 0,
+      transformOrigin: 'center center',
+      canvasWidth: 1_080,
+      canvasHeight: 1_920,
+    });
+
+    expect(result.constrained).toBe(true);
+    expect(result.bounds.top).toBeGreaterThanOrEqual(192 - 0.001);
+    expect(result.bounds.bottom).toBeLessThanOrEqual(1_536 + 0.001);
+    expect((result.bounds.top + result.bounds.bottom) / 2 / 1_920).toBeLessThanOrEqual(0.8);
+  });
+
   it('honors CSS vertical-first transform-origin keywords', () => {
     const result = constrainFinalOverlayGeometry({
       overlayType: 'text',
