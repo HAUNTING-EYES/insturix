@@ -13,6 +13,7 @@ import { TimelineItemContextMenu } from '../../components/timeline/timeline-item
 import TimelineCaptionBlocks from '../../components/timeline/timeline-caption-blocks';
 import { cn } from '@/lib/utils';
 import { useKeyframeContext } from '../../contexts/keyframe-context';
+import { hasReferenceOnlyBackgroundMusic } from '../../utils/background-music-assignment';
 
 /* ═══ Editron editor v2 · timeline clip ══════════════════════════════
    The v6-styled clip. This is a presentational twin of the real
@@ -113,6 +114,7 @@ const V2TimelineItem: React.FC<V2TimelineItemProps> = ({
   );
 
   const isSelected = selectedItem?.id === item.id;
+  const isReferenceMusic = hasReferenceOnlyBackgroundMusic([item]);
   const itemRef = useRef<HTMLDivElement>(null);
   const { setActivePanel, setIsOpen } = useSidebar();
   const { changeOverlay: editorChangeOverlay } = useEditorContext();
@@ -224,7 +226,10 @@ const V2TimelineItem: React.FC<V2TimelineItemProps> = ({
   // Show the name inline ONLY for the selected clip — keeps a dense timeline
   // clean (glyph only). Hovering any clip still reveals its name via `title`.
   const showName = isSelected;
-  const name = clipName(item);
+  const referenceTitle = getReferenceTrackTitle(item);
+  const name = isReferenceMusic
+    ? `REFERENCE · ${referenceTitle ?? 'Track'}`
+    : clipName(item);
   // Hover reveals the name even on tiles too narrow to show it inline.
   const hoverTitle =
     name ||
@@ -269,9 +274,13 @@ const V2TimelineItem: React.FC<V2TimelineItemProps> = ({
         {item.type !== OverlayType.CAPTION && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center gap-1 overflow-hidden px-1.5">
             <span className={cn('shrink-0 rounded-[3px] px-[3px] py-px font-mono text-[7.5px] font-bold leading-none', isSelected ? 'bg-gold/[0.14] text-gold' : 'bg-surface-deeper/80 text-ds-muted')}>
-              {GLYPH[item.type] ?? '••'}
+              {isReferenceMusic ? 'Rf' : GLYPH[item.type] ?? '••'}
             </span>
-            {showName && name && item.type !== OverlayType.SOUND && (
+            {isReferenceMusic ? (
+              <span className="min-w-0 flex-1 truncate font-mono text-[8px] font-bold uppercase text-gold">
+                {name}
+              </span>
+            ) : showName && name && item.type !== OverlayType.SOUND && (
               <span className={cn('min-w-0 flex-1 truncate font-mono text-[9px]', isSelected ? 'text-gold' : 'text-ds-secondary')}>{name}</span>
             )}
           </div>
@@ -449,3 +458,11 @@ const V2TimelineItem: React.FC<V2TimelineItemProps> = ({
 };
 
 export default memo(V2TimelineItem);
+
+function getReferenceTrackTitle(item: Overlay): string | null {
+  const metadata = (item as Overlay & {
+    metadata?: { referenceTrack?: { title?: unknown } };
+  }).metadata;
+  const title = metadata?.referenceTrack?.title;
+  return typeof title === 'string' && title.trim() ? title.trim() : null;
+}

@@ -356,6 +356,15 @@ export async function assignBackgroundMusic(
     createHash('sha256').update(derivativeAssetId).digest('hex').slice(0, 12),
     16,
   );
+  const referenceTrack = usageMode === 'reference-only'
+    ? {
+        title: audioAssetDisplayTitle(sourceAsset),
+        artists: [],
+        provider: sourceAsset.source ?? 'user-upload',
+        sourceAssetId: input.assetId,
+        bpm: positiveNumber(beatEvidence.beatGrid.bpm),
+      }
+    : null;
   const baseOverlay: any = {
     ...(existingBgm[0] ?? {}),
     id: overlaySeed,
@@ -386,6 +395,7 @@ export async function assignBackgroundMusic(
       ...(existingBgm[0]?.metadata ?? {}),
       source: 'background-music-assignment',
       sourceAssetId: input.assetId,
+      referenceTrack,
       beatGrid: beatEvidence.beatGrid,
       audioConditioning: {
         requestedPlatform: audioPlatformEvidence.platform,
@@ -432,6 +442,7 @@ export async function assignBackgroundMusic(
     sourceAssetId: input.assetId,
     derivativeAssetId,
     usageMode,
+    referenceTrack,
     musicRights,
     beatGrid: beatEvidence.beatGrid,
     musicCoveragePlan,
@@ -464,6 +475,7 @@ export async function assignBackgroundMusic(
       beatAnalysis: beatEvidence.beatAnalysis,
       beatGrid: beatEvidence.beatGrid,
       audioConditioningEvidence: conditioningEvidence,
+      referenceTrack,
     });
   } catch (error) {
     throw assignmentError(
@@ -867,6 +879,13 @@ function positiveInteger(value: unknown): number | null {
 
 function positiveNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function audioAssetDisplayTitle(asset: StoredAudioAsset): string {
+  const filename = nonEmptyString(asset.filename);
+  if (!filename) return asset.assetId;
+  const withoutExtension = filename.replace(/\.[^.]+$/, '').trim();
+  return withoutExtension || filename;
 }
 
 function nonEmptyString(value: unknown): string | null {

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/editron/db/mongodb', () => ({
@@ -29,11 +31,28 @@ import {
   type BackgroundMusicAssignmentDependencies,
   type BackgroundMusicAssignmentInput,
 } from '@/lib/editron/services/background-music-assignment';
+import { resolveRenderDeliveryPlan } from '@/lib/editron/services/render-delivery-manifest';
 import { resolveRenderableAudioInputProps } from '@/lib/editron/shared/render-request-payload';
 import { MAX_AUDIO_CONDITIONING_INPUT_BYTES } from '@/lib/pipeline/audio-conditioning';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 
 const NOW = new Date('2026-07-25T10:00:00.000Z');
+const timelineLabelSources = [
+  readFileSync(
+    new URL(
+      '../../components/editron/editor/version-7.0.0/components/timeline/timeline-item-label.tsx',
+      import.meta.url,
+    ),
+    'utf8',
+  ),
+  readFileSync(
+    new URL(
+      '../../components/editron/editor/version-7.0.0/v2/timeline/v2-timeline-item.tsx',
+      import.meta.url,
+    ),
+    'utf8',
+  ),
+];
 const INPUT: BackgroundMusicAssignmentInput = {
   userId: 'user_1',
   projectId: 'project_1',
@@ -179,6 +198,7 @@ function dependencies(
       userId: 'user_1',
       type: 'audio',
       source: 'user-upload',
+      filename: 'Launch Anthem.mp3',
       r2Key: 'users/user_1/audio_1.wav',
     })),
     resolveR2ReadUrl: vi.fn(async () => 'https://controlled.example/audio'),
@@ -311,6 +331,13 @@ describe('background music assignment', () => {
     }, deps);
     const referenceOverlays = result.overlays.filter((overlay: any) => overlay.row === ROW.BGM);
     const renderable = resolveRenderableAudioInputProps({ overlays: result.overlays });
+    const deliveryPlan = resolveRenderDeliveryPlan({
+      requestedMode: 'platform-native',
+      overlays: result.overlays,
+      fps: 30,
+      durationInFrames: 300,
+      destinationPlatform: 'instagram',
+    });
 
     expect(result).toMatchObject({
       replayed: false,
@@ -332,9 +359,39 @@ describe('background music assignment', () => {
         metadata: expect.objectContaining({
           assignment: expect.objectContaining({ usageMode: 'reference-only' }),
           beatGrid: BEAT_EVIDENCE.beatGrid,
+          referenceTrack: {
+            title: 'Launch Anthem',
+            artists: [],
+            provider: 'user-upload',
+            sourceAssetId: 'audio_1',
+            bpm: 120,
+          },
         }),
       }),
     ]));
+    expect(deliveryPlan.music.handoff).toMatchObject({
+      destinationPlatform: 'instagram',
+      track: {
+        status: 'reference-ready',
+        title: 'Launch Anthem',
+        artists: [],
+        provider: 'user-upload',
+        sourceAssetId: 'audio_1',
+        bpm: 120,
+      },
+      timing: {
+        timelineStartFrame: 0,
+        timelineEndFrame: 300,
+        timelineBeatEntryFrame: 0,
+        timelineBeatEntryMs: 0,
+        cueStatus: 'manual-cue-required',
+      },
+    });
+    for (const source of timelineLabelSources) {
+      expect(source).toContain('REFERENCE');
+      expect(source).toContain('hasReferenceOnlyBackgroundMusic');
+      expect(source).toContain('referenceTrack');
+    }
     expect(renderable.overlays).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ row: ROW.BGM }),
     ]));

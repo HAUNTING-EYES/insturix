@@ -15,6 +15,7 @@ const PlatformNativeMusicHandoffSchema = z.object({
     title: z.string().nullable(),
     artists: z.array(z.string()),
     sourceAssetId: z.string().nullable(),
+    bpm: z.number().positive().nullable(),
     usage: z.literal('reference-only'),
   }),
   timing: z.object({
@@ -187,24 +188,42 @@ function resolveTrackReference(
 ): NonNullable<RenderDeliveryManifest['music']['handoff']>['track'] {
   const record = asRecord(overlay);
   const metadata = asRecord(record?.metadata);
+  const referenceTrack = asRecord(metadata?.referenceTrack);
   const catalog = asRecord(metadata?.catalogMetadata);
+  const beatGrid = asRecord(metadata?.beatGrid);
   const rights = asRecord(record?.musicRights ?? record?.audioRights);
   const evidence = asRecord(rights?.evidence);
   const title = firstString(
+    referenceTrack?.title,
     catalog?.title,
     metadata?.originalTitle,
     metadata?.title,
     record?.title,
   );
-  const providerTrackId = firstString(catalog?.providerTrackId, metadata?.providerTrackId);
-  const provider = firstString(catalog?.provider, metadata?.providerId, rights?.source);
-  const sourceAssetId = firstString(evidence?.sourceAssetId, metadata?.sourceAssetId);
-  const artists = Array.isArray(catalog?.artists)
-    ? catalog.artists.flatMap((artist) => {
+  const providerTrackId = firstString(
+    referenceTrack?.providerTrackId,
+    catalog?.providerTrackId,
+    metadata?.providerTrackId,
+  );
+  const provider = firstString(
+    referenceTrack?.provider,
+    catalog?.provider,
+    metadata?.providerId,
+    rights?.source,
+  );
+  const sourceAssetId = firstString(
+    referenceTrack?.sourceAssetId,
+    evidence?.sourceAssetId,
+    metadata?.sourceAssetId,
+  );
+  const artistCandidates = Array.isArray(referenceTrack?.artists)
+    ? referenceTrack.artists
+    : Array.isArray(catalog?.artists) ? catalog.artists : [];
+  const artists = artistCandidates.flatMap((artist) => {
         const value = nonEmptyString(artist);
         return value ? [value] : [];
-      })
-    : [];
+      });
+  const bpm = positiveNumber(referenceTrack?.bpm) ?? positiveNumber(beatGrid?.bpm);
 
   return {
     status: title || providerTrackId ? 'reference-ready' : 'manual-selection-required',
@@ -213,6 +232,7 @@ function resolveTrackReference(
     title,
     artists,
     sourceAssetId,
+    bpm,
     usage: 'reference-only',
   };
 }

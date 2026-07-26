@@ -1,7 +1,8 @@
 import React from "react";
-import { Type, Film, Image, Volume2, Sticker, Code, Sparkles } from "lucide-react";
+import { Type, Film, Image, Volume2, Sticker, Code, Sparkles, FileAudio2 } from "lucide-react";
 import { OverlayType, Overlay } from "../../types";
 import { DISABLE_VIDEO_KEYFRAMES } from "../../constants";
+import { hasReferenceOnlyBackgroundMusic } from "../../utils/background-music-assignment";
 
 /**
  * Props for the TimelineItemLabel component
@@ -26,6 +27,9 @@ export const TimelineItemLabel: React.FC<TimelineItemLabelProps> = ({
   item,
   isSelected,
 }) => {
+  const isReferenceMusic = hasReferenceOnlyBackgroundMusic([item]);
+  const referenceTitle = getReferenceTrackTitle(item);
+
   /**
    * Returns the appropriate icon component based on the overlay type
    * @param {string} type - The type of overlay
@@ -40,7 +44,9 @@ export const TimelineItemLabel: React.FC<TimelineItemLabelProps> = ({
       case OverlayType.IMAGE:
         return <Image className="w-2 h-2 mr-0.5" />;
       case OverlayType.SOUND:
-        return <Volume2 className="w-2 h-2 mr-0.5" />;
+        return isReferenceMusic
+          ? <FileAudio2 className="w-2 h-2 mr-0.5" />
+          : <Volume2 className="w-2 h-2 mr-0.5" />;
       case OverlayType.STICKER:
         return <Sticker className="w-2 h-2 mr-0.5" />;
       case OverlayType.HTML_SCENE:
@@ -66,6 +72,9 @@ export const TimelineItemLabel: React.FC<TimelineItemLabelProps> = ({
    * @returns {string} The label content to display
    */
   const getLabelContent = () => {
+    if (isReferenceMusic) {
+      return `REFERENCE · ${referenceTitle ?? "Track"}`;
+    }
     if (item.type === OverlayType.CAPTION) {
       return "";
     }
@@ -101,7 +110,9 @@ export const TimelineItemLabel: React.FC<TimelineItemLabelProps> = ({
         group-hover:mx-5
         transition-all duration-200 ease-in-out
         ${
-          item.type === OverlayType.TEXT
+          isReferenceMusic
+            ? "bg-amber-500/25 text-amber-100 ring-1 ring-inset ring-amber-400/50"
+            : item.type === OverlayType.TEXT
             ? "bg-purple-200/30 text-white dark:bg-purple-200/30 dark:text-white"
             : item.type === OverlayType.STICKER
             ? "bg-pink-200/30 text-white dark:bg-pink-200/30 dark:text-white"
@@ -129,3 +140,11 @@ export const TimelineItemLabel: React.FC<TimelineItemLabelProps> = ({
     </div>
   );
 };
+
+function getReferenceTrackTitle(item: Overlay): string | null {
+  const metadata = (item as Overlay & {
+    metadata?: { referenceTrack?: { title?: unknown } };
+  }).metadata;
+  const title = metadata?.referenceTrack?.title;
+  return typeof title === "string" && title.trim() ? title.trim() : null;
+}
