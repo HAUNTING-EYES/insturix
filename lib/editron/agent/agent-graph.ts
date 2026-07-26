@@ -64,6 +64,7 @@ import {
 } from './chat-edit-postconditions';
 import {
   buildChatEvidenceReceipts,
+  buildChatRevisionReplanOutput,
   buildChatToolTurnLedger,
   classifyChatToolExecutionOutcome,
   decideChatToolExecution,
@@ -1006,48 +1007,57 @@ ${ownerLicensePrompt}
               throw new Error(`Canonical project state is unavailable before ${toolCall.name}.`);
             }
             const projectRevision = buildChatProjectRevision(beforeProject);
-            args = resolveAuthorizedMutationArgs({
+            const revisionReplanOutput = buildChatRevisionReplanOutput({
               toolName: toolCall.name,
-              requestedArgs: args,
-              ledger: turnLedger,
-              projectId,
-              projectRevision,
-              requestOwnerLicense: turnContext?.requestOwnerLicense,
-            }) ?? args;
-            const executionDecision = decideChatToolExecution({
-              toolName: toolCall.name,
-              args,
-              ledger: turnLedger,
-              projectId,
-              projectRevision,
-              canonicalProjectEvidence: Boolean(beforeProject && projectRevision),
-              requestOwnerLicense: turnContext?.requestOwnerLicense,
+              scheduledRevision: schedulingRevision,
+              currentRevision: projectRevision,
             });
-
-            if (executionDecision.action !== 'execute') {
-              output = executionDecision.output;
+            if (revisionReplanOutput) {
+              output = revisionReplanOutput;
             } else {
-              output = await (tool as any).invoke(args, {
-                ...config,
-                configurable: {
-                  ...(config.configurable ?? {}),
-                  chatUserTurnText,
-                },
+              args = resolveAuthorizedMutationArgs({
+                toolName: toolCall.name,
+                requestedArgs: args,
+                ledger: turnLedger,
+                projectId,
+                projectRevision,
+                requestOwnerLicense: turnContext?.requestOwnerLicense,
+              }) ?? args;
+              const executionDecision = decideChatToolExecution({
+                toolName: toolCall.name,
+                args,
+                ledger: turnLedger,
+                projectId,
+                projectRevision,
+                canonicalProjectEvidence: Boolean(beforeProject && projectRevision),
+                requestOwnerLicense: turnContext?.requestOwnerLicense,
               });
-              if (toolMetadata?.mutatesProject) {
-                const afterProject = await loadPostconditionProject(userId, projectId);
-                const enforced = enforceChatToolPostcondition({
-                  toolName: toolCall.name,
-                  args,
-                  output,
-                  beforeProject,
-                  afterProject,
+
+              if (executionDecision.action !== 'execute') {
+                output = executionDecision.output;
+              } else {
+                output = await (tool as any).invoke(args, {
+                  ...config,
+                  configurable: {
+                    ...(config.configurable ?? {}),
+                    chatUserTurnText,
+                  },
                 });
-                output = enforced.output;
-                if (enforced.verification?.status === 'fail') {
-                  debugError(
-                    `[POSTCONDITION] ${toolCall.name} failed: ${enforced.verification.reason}`,
-                  );
+                if (toolMetadata?.mutatesProject) {
+                  const afterProject = await loadPostconditionProject(userId, projectId);
+                  const enforced = enforceChatToolPostcondition({
+                    toolName: toolCall.name,
+                    args,
+                    output,
+                    beforeProject,
+                    afterProject,
+                  });
+                  output = enforced.output;
+                  if (enforced.verification?.status === 'fail') {
+                    debugError(
+                      `[POSTCONDITION] ${toolCall.name} failed: ${enforced.verification.reason}`,
+                    );
+                  }
                 }
               }
             }

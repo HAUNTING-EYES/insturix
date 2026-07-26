@@ -190,7 +190,7 @@ function parseGraphicDescription(description: string): {
 // Factory to create tools with context
 export const createTools = (userId: string, projectId: string) => {
   interface ToolEnvelope {
-    status: "success" | "error";
+    status: "success" | "advisory" | "no-op" | "declined" | "needs-choice" | "error";
     data: Record<string, any> | null;
     error: {
       message: string;
@@ -283,6 +283,16 @@ export const createTools = (userId: string, projectId: string) => {
           return successEnvelope(legacySuccessData(parsed), parsed.nextAction || "continue");
         }
 
+        const nonMutationStatus = normalizeNonMutationStatus(parsed.status);
+        if (nonMutationStatus) {
+          return JSON.stringify({
+            status: nonMutationStatus,
+            data: legacySuccessData(parsed),
+            error: null,
+            nextAction: parsed.nextAction || (nonMutationStatus === "needs-choice" ? "ask_clarification" : "stop"),
+          });
+        }
+
         return successEnvelope(parsed, "continue");
       } catch (err: unknown) {
         console.warn('[Tools] JSON parse fallback:', err instanceof Error ? err.message : err);
@@ -311,10 +321,31 @@ export const createTools = (userId: string, projectId: string) => {
         return successEnvelope(legacySuccessData(parsed), parsed.nextAction || "continue");
       }
 
+      const nonMutationStatus = normalizeNonMutationStatus(parsed.status);
+      if (nonMutationStatus) {
+        return JSON.stringify({
+          status: nonMutationStatus,
+          data: legacySuccessData(parsed),
+          error: null,
+          nextAction: parsed.nextAction || (nonMutationStatus === "needs-choice" ? "ask_clarification" : "stop"),
+        });
+      }
+
       return successEnvelope(parsed, "continue");
     }
 
     return successEnvelope({ value: rawOutput as any }, "continue");
+  }
+
+  function normalizeNonMutationStatus(
+    status: unknown,
+  ): Extract<ToolEnvelope["status"], "advisory" | "no-op" | "declined" | "needs-choice"> | null {
+    const normalized = String(status ?? "").toLowerCase().replaceAll("_", "-");
+    if (normalized === "advisory") return "advisory";
+    if (normalized === "no-op" || normalized === "noop" || normalized === "skipped") return "no-op";
+    if (normalized === "declined") return "declined";
+    if (normalized === "needs-choice") return "needs-choice";
+    return null;
   }
 
   function wrapToolWithEnvelope<T extends { invoke: (...args: any[]) => Promise<any> }>(toolInstance: T): T {

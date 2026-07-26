@@ -55,6 +55,10 @@ import {
   prepareChatAiEditTransaction,
 } from '@/lib/editron/agent/chat-ai-edit-transaction-runtime';
 import { enforceChatToolPostcondition } from '@/lib/editron/agent/chat-edit-postconditions';
+import {
+  buildChatRevisionReplanOutput,
+  classifyChatToolExecutionOutcome,
+} from '@/lib/editron/agent/chat-tool-execution-policy';
 import { COLLECTIONS } from '@/lib/editron/db/mongodb';
 import {
   CHAT_RESTORABLE_PROJECT_FIELDS,
@@ -827,6 +831,64 @@ describe('chat AI edit transaction runtime', () => {
     expect(result).toMatchObject({ status: 'not-needed', mutatingToolNames: [] });
     expect(result.renderVerification).toBeUndefined();
     expect(Array.from(store.checkpoints.values()).filter((checkpoint) => checkpoint.type === 'after-llm')).toHaveLength(0);
+  });
+
+  it('keeps a verified first mutation and replans stale sibling work against the new revision', async () => {
+    const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
+    const ready = await prepare(store, 'chatop_revision_replan1');
+    const replan = buildChatRevisionReplanOutput({
+      toolName: 'add_sfx',
+      scheduledRevision: 'revision-before',
+      currentRevision: 'revision-after',
+    });
+    expect(replan).not.toBeNull();
+    expect(classifyChatToolExecutionOutcome(replan!)).toBe('replan-required');
+
+    const result = await completeChatAiEditTransaction({
+      transaction: ready.transaction!,
+      toolCalls: [
+        { id: 'caption', name: 'add_captions' },
+        { id: 'sfx', name: 'add_sfx' },
+      ],
+      toolResults: [
+        {
+          toolCallId: 'caption',
+          toolName: 'add_captions',
+          result: JSON.stringify({ status: 'success' }),
+        },
+        {
+          toolCallId: 'sfx',
+          toolName: 'add_sfx',
+          result: replan!,
+        },
+      ],
+    }, { checkpointStore: store, loadProject: store.loadProject });
+
+    expect(result).toMatchObject({
+      status: 'created',
+      mutatingToolNames: ['add_captions'],
+      failedToolNames: [],
+    });
+    expect(store.events).not.toContain('restore');
+  });
+
+  it('treats explicit no-op, decline, and needs-choice outcomes as non-failures', async () => {
+    for (const [index, status] of ['no-op', 'declined', 'needs-choice'].entries()) {
+      const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
+      const ready = await prepare(store, `chatop_nonmutation_${index}`);
+      const result = await completeChatAiEditTransaction({
+        transaction: ready.transaction!,
+        toolCalls: [{ id: `captions-${index}`, name: 'add_captions' }],
+        toolResults: [{
+          toolCallId: `captions-${index}`,
+          toolName: 'add_captions',
+          result: JSON.stringify({ status, data: {}, error: null }),
+        }],
+      }, { checkpointStore: store, loadProject: store.loadProject });
+
+      expect(result).toMatchObject({ status: 'not-needed', failedToolNames: [] });
+      expect(store.events).not.toContain('restore');
+    }
   });
 
   it('accepts only verifiable durable queue receipts', () => {

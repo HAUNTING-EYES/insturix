@@ -44,6 +44,11 @@ export interface MusicRightsContract extends AudioRightsContract {
   mediaRole?: "music";
 }
 
+export interface AudioRightsClaimResolution {
+  rights: AudioRightsContract | null;
+  issue: string | null;
+}
+
 export interface RenderAudioRightsNotice {
   code:
     | "PREVIEW_AUDIO_REMOVED_NO_MUSIC"
@@ -188,26 +193,29 @@ export function resolveRenderableAudio(
 
   const knownPreviewSource = hasKnownStockPreviewSource(overlay);
   const musicOverlay = isCanonicalMusicOverlay(overlay);
-  const rightsValue = overlay.audioRights ?? overlay.musicRights;
+  const rightsClaim = resolveAudioRightsClaim(overlay);
+  if (rightsClaim.issue) {
+    throw new UnlicensedAudioInRenderError(overlay, rightsClaim.issue);
+  }
+  const rightsValue = rightsClaim.rights;
   if (
-    rightsValue === undefined &&
+    rightsValue === null &&
     !knownPreviewSource &&
     !musicOverlay
   ) {
     return { overlay };
   }
-  const contractIssue = getAudioRightsContractIssue(rightsValue);
-  if (contractIssue) {
+  if (rightsValue === null) {
     throw new UnlicensedAudioInRenderError(
       overlay,
       knownPreviewSource
         ? "bundled preview source has no resolved rights decision"
-        : musicOverlay && rightsValue === undefined
+        : musicOverlay
           ? "background music has no durable rights receipt"
-          : contractIssue
+          : "audio rights metadata is missing"
     );
   }
-  const audioRights = rightsValue as AudioRightsContract;
+  const audioRights = rightsValue;
 
   if (knownPreviewSource && audioRights.source !== "preview-only") {
     throw new UnlicensedAudioInRenderError(
@@ -391,6 +399,57 @@ export function getAudioRightsContractIssue(value: unknown): string | null {
   return "audio rights source is unsupported";
 }
 
+export function resolveAudioRightsClaim(
+  record: unknown
+): AudioRightsClaimResolution {
+  if (!isRecord(record)) {
+    return {
+      rights: null,
+      issue: "audio rights container is malformed",
+    };
+  }
+
+  const audioRights = record.audioRights;
+  const musicRights = record.musicRights;
+  const hasAudioRights = audioRights !== undefined;
+  const hasMusicRights = musicRights !== undefined;
+  if (!hasAudioRights && !hasMusicRights) {
+    return { rights: null, issue: null };
+  }
+
+  if (hasAudioRights) {
+    const issue = getAudioRightsContractIssue(audioRights);
+    if (issue) return { rights: null, issue: `audioRights ${issue}` };
+  }
+  if (hasMusicRights) {
+    const issue = getAudioRightsContractIssue(musicRights);
+    if (issue) return { rights: null, issue: `musicRights ${issue}` };
+  }
+
+  const resolvedAudioRights = hasAudioRights
+    ? audioRights as AudioRightsContract
+    : null;
+  const resolvedMusicRights = hasMusicRights
+    ? musicRights as AudioRightsContract
+    : null;
+  if (
+    resolvedAudioRights
+    && resolvedMusicRights
+    && canonicalAudioRightsSignature(resolvedAudioRights)
+      !== canonicalAudioRightsSignature(resolvedMusicRights)
+  ) {
+    return {
+      rights: null,
+      issue: "audioRights and musicRights conflict",
+    };
+  }
+
+  return {
+    rights: resolvedAudioRights ?? resolvedMusicRights,
+    issue: null,
+  };
+}
+
 export function isCanonicalMusicOverlay(overlay: unknown): boolean {
   if (!isRecord(overlay) || overlay.type !== "sound") return false;
   const assetId = nonEmptyString(overlay.assetId);
@@ -401,6 +460,25 @@ export function isCanonicalMusicOverlay(overlay: unknown): boolean {
     overlay.audioRole === "music" ||
     Boolean(assetId?.toLowerCase().startsWith("bgm_"))
   );
+}
+
+function canonicalAudioRightsSignature(rights: AudioRightsContract): string {
+  return JSON.stringify({
+    mediaRole: rights.mediaRole ?? null,
+    source: rights.source,
+    userChoice: rights.userChoice,
+    licensed: rights.licensed,
+    evidence: rights.evidence
+      ? {
+          kind: rights.evidence.kind,
+          sourceAssetId: rights.evidence.sourceAssetId,
+          attestationVersion: rights.evidence.attestationVersion ?? null,
+          attestedAt: rights.evidence.attestedAt ?? null,
+          attestedBy: rights.evidence.attestedBy ?? null,
+          licenseId: rights.evidence.licenseId ?? null,
+        }
+      : null,
+  });
 }
 
 function nonEmptyString(value: unknown): string | null {

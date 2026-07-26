@@ -710,7 +710,18 @@ function toolOutcome(result: unknown): {
           : 'execution',
     };
   }
-  if (parsed.status === 'advisory') return { status: 'advisory' };
+  const status = String(parsed.status ?? '').toLowerCase().replaceAll('_', '-');
+  if (
+    status === 'advisory'
+    || status === 'no-op'
+    || status === 'noop'
+    || status === 'skipped'
+    || status === 'declined'
+    || status === 'needs-choice'
+    || status === 'replan-required'
+  ) {
+    return { status: 'advisory' };
+  }
   return parsed.status === 'success'
     ? { status: 'success' }
     : { status: 'failed', failureKind: 'execution' };

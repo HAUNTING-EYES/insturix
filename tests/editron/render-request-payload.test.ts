@@ -321,6 +321,38 @@ describe("Editron render request payloads", () => {
     })).toThrowError(/contradicts declared generated provenance/);
   });
 
+  it("CRITICAL: rejects conflicting audio rights aliases before rendering", () => {
+    const generatedRights = {
+      mediaRole: "sfx" as const,
+      source: "generated" as const,
+      userChoice: "attested" as const,
+      licensed: true,
+      evidence: {
+        kind: "generated-provider" as const,
+        sourceAssetId: "sfx_render_asset",
+        licenseId: "provider:render-asset",
+      },
+    };
+
+    expect(() => buildLambdaRenderInputProps({
+      overlays: [{
+        id: "conflicting-rights",
+        type: "sound",
+        row: 0,
+        assetId: "sfx_render_asset",
+        audioRights: generatedRights,
+        musicRights: {
+          ...generatedRights,
+          evidence: {
+            ...generatedRights.evidence,
+            sourceAssetId: "different_source_asset",
+            licenseId: "provider:different-asset",
+          },
+        },
+      }],
+    })).toThrowError(/audioRights and musicRights conflict/);
+  });
+
   it.each([
     {
       userChoice: "no-music",
@@ -541,6 +573,104 @@ describe("Editron render request payloads", () => {
         },
       }],
     })).rejects.toBeInstanceOf(RenderAudioRightsAuthorityError);
+  });
+
+  it("CRITICAL: verifies SFX receipts against stored authority regardless of timeline row", async () => {
+    const rights = {
+      mediaRole: "sfx" as const,
+      source: "generated" as const,
+      userChoice: "attested" as const,
+      licensed: true,
+      evidence: {
+        kind: "generated-provider" as const,
+        sourceAssetId: "sfx_generated",
+        licenseId: "provider:sfx-commercial-use",
+      },
+    };
+
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      overlays: [{
+        id: "sfx_forged",
+        type: "sound",
+        row: 0,
+        assetId: "sfx_generated",
+        audioRights: rights,
+      }],
+    }, {
+      loadAssets: async () => [],
+    })).rejects.toBeInstanceOf(RenderAudioRightsAuthorityError);
+  });
+
+  it("accepts a Freesound CC0 SFX only when its stored provider evidence matches", async () => {
+    const rights = {
+      mediaRole: "sfx" as const,
+      source: "library" as const,
+      userChoice: "attested" as const,
+      licensed: true,
+      evidence: {
+        kind: "library-license" as const,
+        sourceAssetId: "sfx_freesound_2",
+        licenseId: "freesound:2:creative-commons-0",
+      },
+    };
+    const loadAssets = vi.fn(async () => [{
+      assetId: "sfx_freesound_2",
+      userId: "user_1",
+      type: "audio",
+      source: "sfx-provider-freesound",
+      sfxLibrarySource: "freesound",
+      sfxProviderId: "2",
+      audioRights: rights,
+    }]);
+
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      overlays: [{
+        id: "sfx_cc0",
+        type: "sound",
+        row: 0,
+        assetId: "sfx_freesound_2",
+        audioRights: rights,
+      }],
+    }, { loadAssets })).resolves.toBeUndefined();
+    expect(loadAssets).toHaveBeenCalledWith(["sfx_freesound_2"]);
+  });
+
+  it("accepts generated SFX only when the stored provider matches its receipt", async () => {
+    const rights = {
+      mediaRole: "sfx" as const,
+      source: "generated" as const,
+      userChoice: "attested" as const,
+      licensed: true,
+      evidence: {
+        kind: "generated-provider" as const,
+        sourceAssetId: "sfx_cassette",
+        licenseId: "fal-ai:cassetteai/music-generator:commercial-use",
+      },
+    };
+
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      overlays: [{
+        id: "sfx_generated_chat",
+        type: "sound",
+        row: 0,
+        assetId: "sfx_cassette",
+        audioRights: rights,
+      }],
+    }, {
+      loadAssets: async () => [{
+        assetId: "sfx_cassette",
+        userId: "user_1",
+        type: "audio",
+        source: "cassetteai",
+        audioRights: rights,
+      }],
+    })).resolves.toBeUndefined();
   });
 
   it("accepts a conditioned library asset only with matching ownership and durable receipt", async () => {

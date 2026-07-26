@@ -16,6 +16,10 @@ export const CHAT_TOOL_EVIDENCE_RECEIPT_VERSION = 'editron-chat-evidence-v1' as 
 export type ChatToolExecutionOutcome =
   | 'success'
   | 'advisory'
+  | 'no-op'
+  | 'declined'
+  | 'needs-choice'
+  | 'replan-required'
   | 'validation-error'
   | 'precondition-blocked'
   | 'policy-blocked'
@@ -320,7 +324,7 @@ export function buildChatEvidenceReceipts(input: {
     !metadata
     || metadata.turnContract.producesEvidence.length === 0
     || !input.projectRevision
-    || !isCompletedOwnerOutcome(classifyChatToolExecutionOutcome(input.output))
+    || classifyChatToolExecutionOutcome(input.output) !== 'success'
   ) {
     return [];
   }
@@ -346,10 +350,15 @@ export function classifyChatToolExecutionOutcome(output: string): ChatToolExecut
   const envelope = parseJsonRecord(output);
   if (!envelope) return /^Error:/i.test(output.trim()) ? 'execution-error' : 'success';
 
-  const status = String(envelope.status ?? '').toLowerCase();
+  const status = String(envelope.status ?? '').toLowerCase().replaceAll('_', '-');
   if (status === 'success') return 'success';
+  if (status === 'no-op' || status === 'noop' || status === 'skipped') return 'no-op';
+  if (status === 'declined') return 'declined';
+  if (status === 'needs-choice') return 'needs-choice';
+  if (status === 'replan-required') return 'replan-required';
   if (status === 'advisory') {
     const advisoryCode = resolveEnvelopeCode(envelope);
+    if (advisoryCode === 'CHAT_TOOL_REPLAN_REQUIRED') return 'replan-required';
     return advisoryCode?.startsWith('CHAT_TOOL_') ? 'policy-blocked' : 'advisory';
   }
   if (status !== 'error') return 'success';
@@ -362,6 +371,32 @@ export function classifyChatToolExecutionOutcome(output: string): ChatToolExecut
   if (code === 'CHAT_EDIT_POSTCONDITION_FAILED') return 'postcondition-failed';
   if (code?.startsWith('CHAT_TOOL_')) return 'policy-blocked';
   return 'execution-error';
+}
+
+export function buildChatRevisionReplanOutput(input: {
+  toolName: string;
+  scheduledRevision: string | null | undefined;
+  currentRevision: string | null | undefined;
+}): string | null {
+  if (
+    !input.scheduledRevision
+    || !input.currentRevision
+    || input.scheduledRevision === input.currentRevision
+  ) {
+    return null;
+  }
+
+  return JSON.stringify({
+    status: 'replan-required',
+    data: {
+      toolName: input.toolName,
+      scheduledRevision: input.scheduledRevision,
+      currentRevision: input.currentRevision,
+    },
+    error: null,
+    nextAction:
+      'Re-read the current timeline, rerun any required resolver, and issue only the remaining mutation against the current project revision.',
+  });
 }
 
 export function formatChatToolInvocationError(toolName: string, error: unknown): string {
@@ -632,7 +667,11 @@ function isCompletedOwnerExecution(execution: CompletedChatToolExecution): boole
 }
 
 function isCompletedOwnerOutcome(outcome: ChatToolExecutionOutcome): boolean {
-  return outcome === 'success' || outcome === 'advisory';
+  return outcome === 'success'
+    || outcome === 'advisory'
+    || outcome === 'no-op'
+    || outcome === 'declined'
+    || outcome === 'needs-choice';
 }
 
 function resolveExecutionTargetKey(
