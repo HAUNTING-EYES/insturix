@@ -39,6 +39,7 @@ export interface MusicDiscoverySource {
   providerId: string;
   url: string;
   embedUrl?: string;
+  previewUrl?: string;
   attribution?: string;
   previewCapability: 'official-embed' | 'provider-preview' | 'link-out';
 }
@@ -81,6 +82,7 @@ export interface MusicDiscoverySearchResult {
   providers: MusicDiscoveryProviderName[];
   identities: MusicDiscoveryIdentity[];
   query: MusicDiscoverySearchQuery;
+  failures: MusicDiscoveryProviderFailure[];
 }
 
 export interface MusicDiscoveryProvider {
@@ -96,15 +98,35 @@ export type MusicDiscoveryProviderErrorCode =
   | 'UPSTREAM_UNAVAILABLE'
   | 'UPSTREAM_TIMEOUT';
 
+export type MusicDiscoveryProviderFailureDetail =
+  | 'UPSTREAM_AUTH_FAILED'
+  | 'INVALID_UPSTREAM_RESPONSE';
+
+export interface MusicDiscoveryProviderFailure {
+  provider: MusicDiscoveryProviderName;
+  code: MusicDiscoveryProviderErrorCode;
+  detailCode?: MusicDiscoveryProviderFailureDetail;
+  message: string;
+  providerStatus?: number;
+  retryAfterSeconds?: number;
+}
+
+export interface MusicDiscoveryProviderErrorOptions extends ErrorOptions {
+  detailCode?: MusicDiscoveryProviderFailureDetail;
+}
+
 export class MusicDiscoveryProviderError extends Error {
+  readonly detailCode?: MusicDiscoveryProviderFailureDetail;
+
   constructor(
     readonly code: MusicDiscoveryProviderErrorCode,
     message: string,
     readonly providerStatus?: number,
     readonly retryAfterSeconds?: number,
-    options?: ErrorOptions,
+    options?: MusicDiscoveryProviderErrorOptions,
   ) {
     super(message, options);
     this.name = 'MusicDiscoveryProviderError';
+    this.detailCode = options?.detailCode;
   }
 }
