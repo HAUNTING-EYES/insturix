@@ -112,7 +112,6 @@ async function loadCanonicalPostconditionProject(userId: string, projectId: stri
   return projectService.loadProject(userId, projectId);
 }
 
-const debugWarn = (...args: any[]) => { console.warn('[AGENT-WARN]', ...args); };
 const debugError = (...args: any[]) => { console.error('[AGENT-ERROR]', ...args); }; // Errors always logged
 
 /**
@@ -364,10 +363,6 @@ export const createAgent = (
       }
       return msg;
     });
-    
-    if (messages.length === 0) {
-      debugWarn('No messages in state');
-    }
     
     const ownerLicensePrompt = formatChatRequestOwnerLicenseForPrompt(
       turnContext?.requestOwnerLicense,
@@ -672,7 +667,6 @@ ${ownerLicensePrompt}
       // The Gemini API requires contents to not be empty.
       // If messages somehow failed to parse or were empty, provide a fallback.
       if (geminiContents.length === 0) {
-        debugWarn('geminiContents is empty, adding fallback user message');
         geminiContents.push({
           role: 'user',
           parts: [{ text: 'Hello' }]
@@ -692,8 +686,7 @@ ${ownerLicensePrompt}
                 (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
               try {
                 parsed[key] = JSON.parse(trimmed);
-              } catch (err: unknown) {
-                console.warn('[AgentGraph] JSON parse fallback for key', key, ':', err instanceof Error ? err.message : err);
+              } catch {
                 parsed[key] = value;
               }
             } else {
@@ -745,10 +738,6 @@ ${ownerLicensePrompt}
             
             const parts = chunk.candidates?.[0]?.content?.parts || [];
             
-            if (parts.length === 0) {
-              debugWarn('Empty parts in chunk, checking candidate content:', JSON.stringify(chunk.candidates?.[0]?.content));
-            }
-            
             for (const part of parts) {
               modelResponseParts.push(part);
               if (part.text) {
@@ -763,8 +752,6 @@ ${ownerLicensePrompt}
                   args: parseArgs(part.functionCall.args || {})
                 };
                 toolCalls.push(toolCall);
-              } else {
-                debugWarn('Unknown part type:', JSON.stringify(part));
               }
             }
           }
@@ -779,13 +766,10 @@ ${ownerLicensePrompt}
               if (aggregatedResponse.usageMetadata && tokenTracker) {
                 tokenTracker.addUsage(aggregatedResponse.usageMetadata);
               }
-            } catch (usageError) {
-              debugWarn('Could not extract token usage:', usageError);
-            }
+            } catch {}
           } else {
             // Empty response - should we retry?
             if (attempt < MAX_RETRIES) {
-              debugWarn(`Attempt ${attempt} returned empty response, retrying...`);
               // Small delay before retry
               await new Promise(resolve => setTimeout(resolve, 500));
             } else {
@@ -1029,9 +1013,6 @@ ${ownerLicensePrompt}
 
             if (executionDecision.action !== 'execute') {
               output = executionDecision.output;
-              debugWarn(
-                `[TOOL-POLICY] ${executionDecision.action} ${toolCall.name}: ${executionDecision.reason}`,
-              );
             } else {
               output = await (tool as any).invoke(args, {
                 ...config,
