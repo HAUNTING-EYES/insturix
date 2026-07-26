@@ -53,7 +53,35 @@ export interface MusicTrendEvidence {
   previousRank?: number;
   rankDelta?: number;
   velocity?: number;
+  velocityUnit?: 'rank-positions-per-hour';
   observedAt: string;
+}
+
+export type MusicTrendCoverageStatus =
+  | 'fresh'
+  | 'stale'
+  | 'refreshing'
+  | 'not-configured'
+  | 'requires-territory'
+  | 'unavailable';
+
+export type MusicTrendCoverageReason =
+  | 'TERRITORY_REQUIRED'
+  | 'PROVIDER_NOT_CONFIGURED'
+  | 'REFRESH_IN_PROGRESS'
+  | 'STORE_UNAVAILABLE'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'ENRICHMENT_FAILED';
+
+export interface MusicTrendCoverage {
+  status: MusicTrendCoverageStatus;
+  source: 'youtube-most-popular-music';
+  territory: string | null;
+  requestedLanguages: string[];
+  matchedIdentityCount: number;
+  observedAt?: string;
+  previousObservedAt?: string;
+  reasonCode?: MusicTrendCoverageReason;
 }
 
 export interface MusicDiscoveryIdentity {
@@ -83,6 +111,7 @@ export interface MusicDiscoverySearchResult {
   identities: MusicDiscoveryIdentity[];
   query: MusicDiscoverySearchQuery;
   failures: MusicDiscoveryProviderFailure[];
+  trendCoverage?: MusicTrendCoverage;
 }
 
 export interface MusicDiscoveryProvider {

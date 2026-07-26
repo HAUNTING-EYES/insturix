@@ -16,19 +16,44 @@ import type { TrendFetcher, TrendFetchQuery, TrendCandidate } from '../fetcher';
 /** YouTube Data API caps a single videos.list page at 50. */
 const YT_MAX_RESULTS = 50;
 
+export interface YouTubeChartsFetcherOptions {
+  apiKey?: string;
+  defaultRegion?: string;
+  videoCategoryId?: string;
+  language?: string;
+  now?: () => number;
+}
+
 export class YouTubeChartsFetcher implements TrendFetcher {
   readonly name = 'youtube-charts';
 
+  private readonly apiKey?: string;
+  private readonly defaultRegion: string;
+  private readonly videoCategoryId?: string;
+  private readonly language?: string;
+  private readonly now: () => number;
+
+  constructor(options: YouTubeChartsFetcherOptions = {}) {
+    this.apiKey = (options.apiKey ?? process.env.YOUTUBE_API_KEY)?.trim() || undefined;
+    this.defaultRegion = (options.defaultRegion ?? 'IN').trim().toUpperCase();
+    this.videoCategoryId = options.videoCategoryId?.trim() || undefined;
+    this.language = options.language?.trim() || undefined;
+    this.now = options.now ?? Date.now;
+  }
+
   available(): boolean {
-    return Boolean(process.env.YOUTUBE_API_KEY);
+    return Boolean(this.apiKey);
   }
 
   async fetchCandidates(query: TrendFetchQuery): Promise<TrendCandidate[]> {
-    const apiKey = process.env.YOUTUBE_API_KEY;
+    const apiKey = this.apiKey;
     if (!apiKey) return [];
 
-    const regionCode = query.region ?? 'IN'; // §7.4 — YouTube Charts India
-    const maxResults = Math.min(query.limit ?? 25, YT_MAX_RESULTS);
+    const regionCode = (query.region ?? this.defaultRegion).trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(regionCode)) {
+      throw new Error('[youtube-charts] region must be an ISO alpha-2 country code');
+    }
+    const maxResults = Math.min(Math.max(query.limit ?? 25, 1), YT_MAX_RESULTS);
     const youtube = google.youtube({ version: 'v3', auth: apiKey });
 
     const response = await youtube.videos.list({
@@ -36,10 +61,12 @@ export class YouTubeChartsFetcher implements TrendFetcher {
       chart: 'mostPopular',
       regionCode,
       maxResults,
+      ...(this.videoCategoryId ? { videoCategoryId: this.videoCategoryId } : {}),
+      ...(this.language ? { hl: this.language } : {}),
     });
 
     const items = response.data.items ?? [];
-    const nowMs = Date.now();
+    const nowMs = this.now();
     return items
       .filter((item) => Boolean(item.id))
       .map((item, index): TrendCandidate => {

@@ -4,15 +4,28 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   MusicDiscoveryProviderError,
   musicDiscoverySearchQuerySchema,
-  type MusicDiscoveryProvider,
+  type MusicDiscoverySearchQuery,
+  type MusicDiscoverySearchResult,
 } from '@/lib/editron/music-discovery/types';
+import {
+  MusicDiscoveryAggregateError,
+  MusicDiscoveryAggregator,
+} from '@/lib/editron/music-discovery/aggregate-provider';
+import { AppleMusicDiscoveryProvider } from '@/lib/editron/music-discovery/apple-music-provider';
+import { MusicBrainzDiscoveryProvider } from '@/lib/editron/music-discovery/musicbrainz-provider';
 import { YouTubeMusicDiscoveryProvider } from '@/lib/editron/music-discovery/youtube-provider';
+import { YouTubeMusicTrendEnricher } from '@/lib/editron/music-discovery/youtube-music-trend-enricher';
 
 export const runtime = 'nodejs';
 
+interface MusicDiscoverySearcher {
+  search(query: MusicDiscoverySearchQuery): Promise<MusicDiscoverySearchResult>;
+}
+
 interface MusicDiscoverySearchDependencies {
   authenticate: () => Promise<{ userId: string | null }>;
-  provider: MusicDiscoveryProvider;
+  searcher: MusicDiscoverySearcher;
+  enrichTrends: (result: MusicDiscoverySearchResult) => Promise<MusicDiscoverySearchResult>;
 }
 
 export async function handleMusicDiscoverySearch(
@@ -45,25 +58,13 @@ export async function handleMusicDiscoverySearch(
     );
   }
 
-  if (!dependencies.provider.available()) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Music discovery is not configured',
-        code: 'MUSIC_DISCOVERY_NOT_CONFIGURED',
-      },
-      { status: 503 },
-    );
-  }
-
   try {
-    const identities = await dependencies.provider.search(parsed.data);
+    const discovery = await dependencies.searcher.search(parsed.data);
+    const result = await enrichTrendsSafely(discovery, dependencies.enrichTrends);
     return NextResponse.json(
       {
         success: true,
-        providers: [dependencies.provider.name],
-        identities,
-        query: parsed.data,
+        ...result,
         acquisitionNotice:
           'Discovery results do not provide downloadable audio. Use an export-cleared provider or supply reference audio.',
       },
@@ -73,7 +74,14 @@ export async function handleMusicDiscoverySearch(
     if (error instanceof MusicDiscoveryProviderError) {
       const mapped = routeErrorFor(error);
       return NextResponse.json(
-        { success: false, error: error.message, code: mapped.code },
+        {
+          success: false,
+          error: error.message,
+          code: mapped.code,
+          ...(error instanceof MusicDiscoveryAggregateError
+            ? { failures: error.failures }
+            : {}),
+        },
         {
           status: mapped.status,
           headers: error.retryAfterSeconds !== undefined
@@ -94,10 +102,41 @@ export async function handleMusicDiscoverySearch(
 }
 
 export async function GET(request: NextRequest) {
+  const searcher = new MusicDiscoveryAggregator([
+    new AppleMusicDiscoveryProvider(),
+    new YouTubeMusicDiscoveryProvider(),
+    new MusicBrainzDiscoveryProvider(),
+  ]);
+  const trendEnricher = new YouTubeMusicTrendEnricher();
   return handleMusicDiscoverySearch(request, {
     authenticate: auth,
-    provider: new YouTubeMusicDiscoveryProvider(),
+    searcher,
+    enrichTrends: (result) => trendEnricher.enrich(result),
   });
+}
+
+async function enrichTrendsSafely(
+  result: MusicDiscoverySearchResult,
+  enrichTrends: MusicDiscoverySearchDependencies['enrichTrends'],
+): Promise<MusicDiscoverySearchResult> {
+  try {
+    return await enrichTrends(result);
+  } catch (error) {
+    console.error('[MusicDiscoverySearch] Trend enrichment failed', {
+      name: error instanceof Error ? error.name : typeof error,
+    });
+    return {
+      ...result,
+      trendCoverage: {
+        status: 'unavailable',
+        source: 'youtube-most-popular-music',
+        territory: result.query.territory === 'GLOBAL' ? null : result.query.territory,
+        requestedLanguages: [...result.query.languages],
+        matchedIdentityCount: 0,
+        reasonCode: 'ENRICHMENT_FAILED',
+      },
+    };
+  }
 }
 
 function readSearchQuery(searchParams: URLSearchParams): Record<string, unknown> {
