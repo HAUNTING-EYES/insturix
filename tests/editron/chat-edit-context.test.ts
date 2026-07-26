@@ -354,10 +354,13 @@ describe('chat edit context bundle', () => {
         },
       },
     });
-    expect(plan.useWith?.add_overlay.x).toBeGreaterThan(900);
-    expect(plan.useWith?.add_overlay.y).toBeGreaterThan(500);
-    expect(plan.useWith?.add_overlay.width).toBeGreaterThanOrEqual(96);
-    expect(plan.useWith?.add_overlay.height).toBeGreaterThanOrEqual(36);
+    const addOverlay = plan.useWith?.add_overlay;
+    expect(addOverlay).toBeDefined();
+    if (!addOverlay) throw new Error('Expected placement resolution to authorize add_overlay.');
+    expect(addOverlay.x).toBeGreaterThan(900);
+    expect(addOverlay.y).toBeGreaterThan(500);
+    expect(addOverlay.width).toBeGreaterThanOrEqual(96);
+    expect(addOverlay.height).toBeGreaterThanOrEqual(36);
 
     const ambiguous = resolveUserAssetOverlayPlacement(project, [
       logoCandidate,
@@ -371,6 +374,64 @@ describe('chat edit context bundle', () => {
     ], { query: 'Use my logo in the corner during the intro' });
     expect(lowConfidence.status).toBe('low-confidence');
     expect(lowConfidence.useWith).toBeUndefined();
+
+    const videoCandidate: NormalizedAssetCandidate = {
+      ...logoCandidate,
+      assetId: 'asset_embroidery',
+      type: 'video',
+      name: 'embroidery.mp4',
+      duration: 12,
+      confidence: 0.94,
+      score: 0.94,
+      confidenceLabel: 'high',
+      useWith: {
+        tool: 'use_matching_footage',
+        assetId: 'asset_embroidery',
+        note: 'Use when replacing an existing generated scene; provide the sceneIndex plus this assetId.',
+      },
+    };
+    const replacement = resolveUserAssetOverlayPlacement(project, [videoCandidate], {
+      query: 'Replace the selected scene with my embroidery clip',
+      operation: 'replace',
+      targetOverlayId: 17,
+      sourceStartFrame: 24,
+    });
+    expect(replacement).toMatchObject({
+      status: 'ready',
+      operation: 'replace',
+      useWith: {
+        use_matching_footage: {
+          overlayId: 17,
+          assetId: 'asset_embroidery',
+          sourceStartFrame: 24,
+        },
+      },
+    });
+    expect(replacement.useWith).not.toHaveProperty('add_overlay');
+
+    const missingReplacementTarget = resolveUserAssetOverlayPlacement(project, [videoCandidate], {
+      query: 'Replace a scene with my embroidery clip',
+      operation: 'replace',
+    });
+    expect(missingReplacementTarget.status).toBe('no-target');
+    expect(missingReplacementTarget.useWith).toBeUndefined();
+
+    const conflictingReplacementTarget = resolveUserAssetOverlayPlacement(project, [videoCandidate], {
+      query: 'Replace a scene with my embroidery clip',
+      operation: 'replace',
+      targetOverlayId: 17,
+      targetSceneIndex: 2,
+    });
+    expect(conflictingReplacementTarget.status).toBe('conflicting-target');
+    expect(conflictingReplacementTarget.useWith).toBeUndefined();
+
+    const invalidReplacementSource = resolveUserAssetOverlayPlacement(project, [logoCandidate], {
+      query: 'Replace this video with my logo',
+      operation: 'replace',
+      targetOverlayId: 17,
+    });
+    expect(invalidReplacementSource.status).toBe('unsupported-type');
+    expect(invalidReplacementSource.useWith).toBeUndefined();
   });
 
   it('covers transcript moment search and transcript edit resolution with registry metadata without importing Mongo-backed tools', () => {

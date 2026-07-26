@@ -42,19 +42,32 @@ export interface NormalizedAssetCandidate {
 }
 
 export type UserAssetOverlayPlacement = "corner" | "center" | "full-frame";
-export type UserAssetOverlayStatus = "ready" | "no-candidate" | "ambiguous" | "low-confidence" | "unsupported-type";
+export type UserAssetOverlayOperation = "place" | "replace";
+export type UserAssetOverlayStatus =
+  | "ready"
+  | "no-candidate"
+  | "ambiguous"
+  | "low-confidence"
+  | "unsupported-type"
+  | "no-target"
+  | "conflicting-target";
 
 export interface UserAssetOverlayOptions {
   query: string;
+  operation?: UserAssetOverlayOperation;
   placement?: UserAssetOverlayPlacement;
   startFrame?: number;
   durationFrames?: number;
+  targetOverlayId?: string | number;
+  targetSceneIndex?: number;
+  sourceStartFrame?: number;
   minConfidence?: number;
   allowLowConfidence?: boolean;
 }
 
 export interface UserAssetOverlayResolution {
   status: UserAssetOverlayStatus;
+  operation: UserAssetOverlayOperation;
   query: string;
   inferredType?: UserAssetType;
   placement: UserAssetOverlayPlacement;
@@ -63,7 +76,7 @@ export interface UserAssetOverlayResolution {
   warnings: string[];
   message: string;
   useWith?: {
-    add_overlay: {
+    add_overlay?: {
       type: AddOverlayAssetType;
       assetId: string;
       start: number;
@@ -73,6 +86,12 @@ export interface UserAssetOverlayResolution {
       width?: number;
       height?: number;
       styles?: Record<string, unknown>;
+    };
+    use_matching_footage?: {
+      overlayId?: string | number;
+      sceneIndex?: number;
+      assetId: string;
+      sourceStartFrame?: number;
     };
   };
 }
@@ -97,10 +116,14 @@ const inspectUserAssetSchema = z.object({
 
 const resolveUserAssetOverlaySchema = z.object({
   query: z.string().min(1).describe("Natural-language description of the uploaded asset to place, such as 'my logo' or 'intro image'."),
+  operation: z.enum(["place", "replace"]).default("place").describe("Place creates a new overlay. Replace swaps one exact existing video target while preserving its timeline timing and geometry."),
   type: assetTypeSchema.optional().describe("Optional asset type filter. Infer logo/image/photo as image, clip/footage as video, and music/audio as audio."),
   placement: z.enum(["corner", "center", "full-frame"]).default("corner").describe("Requested frame placement. Corner is appropriate for logo bugs; center/full-frame need explicit user intent."),
   startFrame: z.coerce.number().int().min(0).optional().describe("Timeline frame where the asset overlay should start. Defaults to the intro or outro position inferred from the query."),
   durationFrames: z.coerce.number().int().min(1).max(7200).optional().describe("Overlay duration in frames. Defaults to a short intro/logo dwell for images."),
+  targetOverlayId: z.union([z.string(), z.number()]).optional().describe("Exact existing video overlay to replace. Prefer selectedOverlayId from trusted chat context."),
+  targetSceneIndex: z.coerce.number().int().min(0).optional().describe("Compatibility target for a generated scene containing exactly one video overlay. Do not combine with targetOverlayId."),
+  sourceStartFrame: z.coerce.number().int().min(0).optional().describe("Optional verified source frame where replacement playback begins. Omit rather than guessing when no source-range evidence exists."),
   minConfidence: z.coerce.number().min(0).max(1).default(0.65).describe("Minimum confidence required to auto-select one asset."),
   allowLowConfidence: z.boolean().default(false).describe("Allow returning add_overlay params even when the best asset candidate is below minConfidence."),
 });
@@ -257,8 +280,9 @@ Use this to check duration, dimensions, tags, transcription summary, and whether
     },
     {
       name: "resolve_user_asset_overlay",
-      description: `Resolve a natural-language uploaded-asset request into add_overlay-ready parameters.
-Use for requests like "use my logo in the corner during the intro" after or instead of search_user_assets. This tool never creates or edits assets and never mutates the project; it only selects a confident uploaded asset candidate and returns add_overlay params.
+      description: `Resolve a natural-language uploaded-asset request into operation-ready parameters.
+Use operation=place for requests like "use my logo in the corner during the intro". Use operation=replace plus one exact targetOverlayId or targetSceneIndex for "replace this clip with my uploaded footage".
+This tool never mutates the project. It returns add_overlay or use_matching_footage only after the source and target are unambiguous.
 If the best uploaded asset is low-confidence or ambiguous, ask the user to choose from returned candidates instead of guessing.`,
       schema: resolveUserAssetOverlaySchema,
     },
@@ -272,6 +296,7 @@ export function resolveUserAssetOverlayPlacement(
   candidates: NormalizedAssetCandidate[],
   options: UserAssetOverlayOptions,
 ): UserAssetOverlayResolution {
+  const operation = options.operation ?? "place";
   const placement = options.placement ?? inferPlacement(options.query);
   const minConfidence = clamp01(options.minConfidence ?? 0.65);
   const sorted = [...candidates]
@@ -282,6 +307,7 @@ export function resolveUserAssetOverlayPlacement(
   if (!sorted.length) {
     return {
       status: "no-candidate",
+      operation,
       query: options.query,
       inferredType: inferAssetType(options.query),
       placement,
@@ -296,6 +322,7 @@ export function resolveUserAssetOverlayPlacement(
   if (!candidate) {
     return {
       status: "no-candidate",
+      operation,
       query: options.query,
       inferredType: inferAssetType(options.query),
       placement,
@@ -308,6 +335,7 @@ export function resolveUserAssetOverlayPlacement(
   if (second && candidate.confidence - second.confidence < 0.08) {
     return {
       status: "ambiguous",
+      operation,
       query: options.query,
       inferredType: candidate.type,
       placement,
@@ -321,6 +349,7 @@ export function resolveUserAssetOverlayPlacement(
   if (candidate.confidence < minConfidence && !options.allowLowConfidence) {
     return {
       status: "low-confidence",
+      operation,
       query: options.query,
       inferredType: candidate.type,
       placement,
@@ -331,10 +360,65 @@ export function resolveUserAssetOverlayPlacement(
     };
   }
 
+  if (operation === "replace") {
+    if (candidate.type !== "video") {
+      return {
+        status: "unsupported-type",
+        operation,
+        query: options.query,
+        inferredType: candidate.type,
+        placement,
+        candidates: sorted,
+        candidate,
+        warnings,
+        message: `Uploaded asset "${candidate.name}" is ${candidate.type}; replacing timeline footage requires a video asset.`,
+      };
+    }
+    const hasOverlayTarget = options.targetOverlayId != null;
+    const hasSceneTarget = options.targetSceneIndex != null;
+    if (hasOverlayTarget === hasSceneTarget) {
+      return {
+        status: hasOverlayTarget ? "conflicting-target" : "no-target",
+        operation,
+        query: options.query,
+        inferredType: candidate.type,
+        placement,
+        candidates: sorted,
+        candidate,
+        warnings,
+        message: hasOverlayTarget
+          ? "Asset replacement received both targetOverlayId and targetSceneIndex. Supply exactly one target."
+          : "Asset replacement needs targetOverlayId from the selected timeline clip or one unambiguous targetSceneIndex.",
+      };
+    }
+    return {
+      status: "ready",
+      operation,
+      query: options.query,
+      inferredType: candidate.type,
+      placement,
+      candidates: sorted,
+      candidate,
+      warnings,
+      useWith: {
+        use_matching_footage: {
+          ...(hasOverlayTarget ? { overlayId: options.targetOverlayId } : {}),
+          ...(hasSceneTarget ? { sceneIndex: Math.round(options.targetSceneIndex!) } : {}),
+          assetId: candidate.assetId,
+          ...(options.sourceStartFrame != null
+            ? { sourceStartFrame: Math.max(0, Math.round(options.sourceStartFrame)) }
+            : {}),
+        },
+      },
+      message: `Resolved "${options.query}" to replace the exact timeline target with uploaded video "${candidate.name}".`,
+    };
+  }
+
   const overlayType = assetTypeToAddOverlayType(candidate.type);
   if (!overlayType) {
     return {
       status: "unsupported-type",
+      operation,
       query: options.query,
       inferredType: candidate.type,
       placement,
@@ -361,6 +445,7 @@ export function resolveUserAssetOverlayPlacement(
 
   return {
     status: "ready",
+    operation,
     query: options.query,
     inferredType: candidate.type,
     placement,
