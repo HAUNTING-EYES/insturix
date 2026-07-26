@@ -50,8 +50,8 @@ function providerResponse(overrides: Record<string, unknown> = {}) {
         ...overrides,
       },
     ],
-    pagination: { page: 3, limit: 12, offset: 24 },
-    links: { next: '/v0/tracks/search?offset=36' },
+    pagination: { page: 3, limit: 12 },
+    links: { next: '/v0/tracks/search?offset=36', prev: null },
   };
 }
 

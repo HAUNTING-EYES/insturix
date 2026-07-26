@@ -68,12 +68,13 @@ const trackSchema = z.object({
 const tracksResponseSchema = z.object({
   tracks: z.array(trackSchema),
   pagination: z.object({
+    page: z.number().int().positive().optional(),
     limit: z.number().int().positive(),
-    offset: z.number().int().nonnegative(),
+    offset: z.number().int().nonnegative().optional(),
   }).passthrough(),
   links: z.object({
-    next: z.string().optional(),
-    prev: z.string().optional(),
+    next: z.string().nullable().optional(),
+    prev: z.string().nullable().optional(),
   }).passthrough(),
 }).passthrough();
 
@@ -176,8 +177,10 @@ export class EpidemicMusicCatalogProvider implements MusicCatalogProvider {
         tracks: tracks.map(normalizeTrack),
         pagination: {
           limit: pagination.limit,
-          offset: pagination.offset,
-          nextOffset: links.next ? pagination.offset + pagination.limit : null,
+          offset: parsedQuery.data.offset,
+          nextOffset: links.next
+            ? parsedQuery.data.offset + pagination.limit
+            : null,
         },
       };
     } catch (error) {
