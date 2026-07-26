@@ -2563,7 +2563,6 @@ Use this to understand what exists. Then decide what to do based on user intent.
         if (!voiceoverOverlay) {
           const isPipelineGenerated = (overlay as any).metadata?.generationUnitId != null;
           if (isPipelineGenerated) {
-            console.log(`[add_captions] Skipping AI-gen video ${overlay.id}: no voiceover in time range [${videoFrom}-${videoEnd}], AI videos have no captionable speech`);
             return JSON.stringify({
               status: 'skipped',
               data: null,
@@ -2572,7 +2571,6 @@ Use this to understand what exists. Then decide what to do based on user intent.
           }
         }
         const transcriptionAssetId = voiceoverOverlay?.assetId || overlay.assetId;
-        console.log(`[add_captions] Using ${voiceoverOverlay ? 'voiceover' : 'video'} asset for transcription: ${transcriptionAssetId}`);
 
         // Build style overrides from custom params
         const styleOverrides: Record<string, any> = {};
