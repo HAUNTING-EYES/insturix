@@ -194,6 +194,7 @@ describe('chat request owner classification', () => {
           durableOperation: 'none',
           operationFullySpecified: false,
           targetFullySpecified: false,
+          requestedCapabilities: ['caption-track'],
           familyDirectives: [{ family: 'captions', mode: 'prefer' }],
         },
         confidence: 0.99,
@@ -226,6 +227,7 @@ describe('chat request owner classification', () => {
           durableOperation: 'none',
           operationFullySpecified: false,
           targetFullySpecified: false,
+          requestedCapabilities: ['project-edit'],
           familyDirectives: [{ family: 'music', mode: 'prefer' }],
         },
         confidence: 0.99,
@@ -285,6 +287,7 @@ describe('chat request owner classification', () => {
       requestsBroadEditorialOutcome: false,
       operationFullySpecified: true,
       targetFullySpecified: false,
+      requestedCapabilities: [],
       familyDirectives: [],
       familyScopeExclusive: false,
     })).toBe('semantic-editorial-planner');
@@ -298,6 +301,7 @@ describe('chat request owner classification', () => {
       requestsBroadEditorialOutcome: false,
       operationFullySpecified: true,
       targetFullySpecified: true,
+      requestedCapabilities: [],
       familyDirectives: [],
       familyScopeExclusive: false,
     })).toBe('semantic-editorial-planner');
@@ -313,6 +317,7 @@ describe('chat request owner classification', () => {
       requestsBroadEditorialOutcome: false,
       operationFullySpecified: true,
       targetFullySpecified: false,
+      requestedCapabilities: [],
       familyDirectives: [],
       familyScopeExclusive: false,
     };
@@ -406,6 +411,126 @@ describe('chat request owner capability filtering', () => {
     ]);
   });
 
+  it('licenses complete capability workflows instead of splitting evidence from mutation', () => {
+    const capabilityTools = [
+      'read_project_file',
+      'get_timeline_view',
+      'get_video_transcription',
+      'find_audio_moment',
+      'resolve_audio_edit',
+      'resolve_clip_analysis',
+      'queue_resolved_clip_analysis',
+      'get_clip_analysis_result',
+      'add_captions',
+      'add_fancy_captions',
+      'refresh_captions',
+      'refresh_fancy_captions',
+      'apply_audio_ducking',
+      'sync_cuts_to_beats',
+      'regenerate_scene',
+      'edit_html_scene',
+      'list_user_assets',
+      'search_user_assets',
+      'inspect_user_asset',
+      'resolve_user_asset_overlay',
+      'add_overlay',
+      'use_matching_footage',
+      'apply_editorial_intent',
+    ].map((name) => ({ name }));
+    const capabilityLicense = (
+      requestedCapabilities: NonNullable<ChatRequestOwnerLicense['routingFacts']>['requestedCapabilities'],
+    ): ChatRequestOwnerLicense => ({
+      ...license('semantic-editorial-planner', 'editorial-plan'),
+      routingFacts: {
+        requestsMutation: true,
+        requestsAnalysis: false,
+        requiresContentLocalization: false,
+        requiresEditorialJudgment: true,
+        requestsReferenceStyle: false,
+        requestsBroadEditorialOutcome: false,
+        durableOperation: 'none',
+        operationFullySpecified: false,
+        targetFullySpecified: false,
+        requestedCapabilities,
+        familyDirectives: [],
+        familyScopeExclusive: false,
+      },
+    });
+    const licensedNames = (requestedCapabilities: NonNullable<
+      ChatRequestOwnerLicense['routingFacts']
+    >['requestedCapabilities']) => filterChatToolsForRequestOwner(
+      capabilityTools,
+      capabilityLicense(requestedCapabilities),
+      { assistLane: true },
+    ).map((tool) => tool.name);
+
+    expect(licensedNames(['caption-track'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'get_video_transcription',
+      'add_captions',
+      'add_fancy_captions',
+    ]);
+    expect(licensedNames(['caption-refresh'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'get_video_transcription',
+      'refresh_captions',
+      'refresh_fancy_captions',
+    ]);
+    expect(licensedNames(['audio-ducking'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'find_audio_moment',
+      'resolve_audio_edit',
+      'resolve_clip_analysis',
+      'queue_resolved_clip_analysis',
+      'get_clip_analysis_result',
+      'apply_audio_ducking',
+    ]);
+    expect(licensedNames(['beat-sync'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'find_audio_moment',
+      'resolve_audio_edit',
+      'resolve_clip_analysis',
+      'queue_resolved_clip_analysis',
+      'get_clip_analysis_result',
+      'sync_cuts_to_beats',
+    ]);
+    expect(licensedNames(['scene-regeneration'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'regenerate_scene',
+    ]);
+    expect(licensedNames(['html-scene-edit'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'edit_html_scene',
+    ]);
+    expect(licensedNames(['asset-placement'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'list_user_assets',
+      'search_user_assets',
+      'inspect_user_asset',
+      'resolve_user_asset_overlay',
+      'add_overlay',
+    ]);
+    expect(licensedNames(['asset-replacement'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'list_user_assets',
+      'search_user_assets',
+      'inspect_user_asset',
+      'resolve_user_asset_overlay',
+      'use_matching_footage',
+    ]);
+    expect(licensedNames(['audio-ducking', 'asset-placement'])).not.toContain(
+      'apply_editorial_intent',
+    );
+  });
+
   it('keeps legacy style extraction and application outside the durable reference workflow', () => {
     const referenceTools = [
       ...tools,
@@ -466,6 +591,7 @@ describe('chat request owner capability filtering', () => {
         durableOperation: 'none',
         operationFullySpecified: false,
         targetFullySpecified: false,
+        requestedCapabilities: [],
         familyDirectives: [{ family: 'music', mode: 'prefer' }],
         familyScopeExclusive: true,
       },
@@ -606,6 +732,7 @@ describe('chat request owner capability filtering', () => {
       requestsBroadEditorialOutcome: false,
       operationFullySpecified: false,
       targetFullySpecified: false,
+      requestedCapabilities: [],
       familyDirectives: [{ family: 'sfx', mode: 'prefer' }],
       familyScopeExclusive: true,
     };
