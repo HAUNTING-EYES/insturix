@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { Search, Play, Plus, Loader2, Volume2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Mono, inputClass } from '@/components/primitives';
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import { useEditorContext } from '../../contexts/editor-context';
 import { OverlayType } from '../../types';
 
@@ -21,6 +22,15 @@ interface SFXResult {
   source: 'Freesound';
   license: 'CC0-1.0';
   attributionRequired: false;
+}
+
+interface ControlledSfxIngestResult {
+  audioUrl: string;
+  audioAssetId: string;
+  durationMs: number;
+  providerAssetId: string;
+  originalTitle?: string;
+  audioRights: AudioRightsContract;
 }
 
 const SUGGESTIONS = ['whoosh', 'click', 'chime', 'impact', 'ambient', 'nature', 'city', 'water'];
@@ -70,21 +80,36 @@ export function V2SfxBrowse() {
   }, [audioRef, previewUrl]);
 
   const add = useCallback(async (sfx: SFXResult) => {
-    setAdding(sfx.url);
+    setAdding(sfx.providerAssetId);
+    setError(null);
     try {
+      const response = await fetch('/api/services/editron/sfx-library/ingest', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ providerAssetId: sfx.providerAssetId }),
+      });
+      const data: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(apiErrorMessage(data, 'Sound ingest failed'));
+      }
+      if (!isControlledSfxIngestResult(data)) {
+        throw new Error('Sound ingest returned an invalid asset receipt');
+      }
       addOverlay({
-        type: OverlayType.SOUND, from: 0, durationInFrames: Math.round(sfx.duration * 30), row: 0,
+        type: OverlayType.SOUND, from: 0, durationInFrames: Math.max(1, Math.round((data.durationMs / 1000) * 30)), row: 0,
         left: 0, top: 0, width: 0, height: 0, isDragging: false, rotation: 0,
-        content: sfx.url, src: sfx.url, styles: { volume: 0.5, opacity: 1 },
+        content: data.audioUrl, src: data.audioUrl, assetId: data.audioAssetId,
+        audioRights: data.audioRights, styles: { volume: 0.5, opacity: 1 },
         metadata: {
-          providerId: sfx.providerAssetId,
-          source: 'freesound-cc0',
-          title: sfx.title,
-          durationMs: Math.round(sfx.duration * 1000),
+          providerId: data.providerAssetId,
+          source: 'freesound-cc0-controlled',
+          title: data.originalTitle ?? sfx.title,
+          durationMs: data.durationMs,
         },
       } as never);
     } catch (err) {
       console.error('[SFXLibrary] Add failed:', err);
+      setError(err instanceof Error ? err.message : 'Sound ingest failed');
     } finally {
       setAdding(null);
     }
@@ -148,11 +173,11 @@ export function V2SfxBrowse() {
               <button
                 type="button"
                 onClick={() => add(sfx)}
-                disabled={adding === sfx.url}
+                disabled={adding === sfx.providerAssetId}
                 title="Add to timeline"
                 className="shrink-0 rounded-md bg-gold/15 p-1.5 text-gold opacity-0 transition-opacity hover:bg-gold/30 group-hover:opacity-100"
               >
-                {adding === sfx.url ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                {adding === sfx.providerAssetId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
               </button>
             </div>
           ))}
@@ -160,4 +185,23 @@ export function V2SfxBrowse() {
       </div>
     </div>
   );
+}
+
+function isControlledSfxIngestResult(value: unknown): value is ControlledSfxIngestResult {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const result = value as Record<string, unknown>;
+  return typeof result.audioUrl === 'string'
+    && typeof result.audioAssetId === 'string'
+    && typeof result.durationMs === 'number'
+    && Number.isFinite(result.durationMs)
+    && result.durationMs > 0
+    && typeof result.providerAssetId === 'string'
+    && Boolean(result.audioRights)
+    && typeof result.audioRights === 'object';
+}
+
+function apiErrorMessage(value: unknown, fallback: string): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback;
+  const error = (value as Record<string, unknown>).error;
+  return typeof error === 'string' && error.trim() ? error : fallback;
 }

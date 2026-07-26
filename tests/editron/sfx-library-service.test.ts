@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server';
 
 const mocks = vi.hoisted(() => {
   const updateOne = vi.fn(async () => ({ acknowledged: true }));
@@ -30,10 +31,12 @@ import {
   type SfxCatalogManifest,
 } from '@/lib/pipeline/sfx-catalog';
 import {
+  ingestFreesoundSfxById,
   isSFXLibraryAvailable,
   searchAndDownloadSFX,
   type SFXLibrarySearchReport,
 } from '@/lib/pipeline/sfx-library-service';
+import { handleSfxLibraryIngest } from '@/app/api/services/editron/sfx-library/ingest/route';
 
 function freesoundResponse(results: Array<Record<string, unknown>>): Response {
   return new Response(JSON.stringify({ results }), {
@@ -459,5 +462,188 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
 
     expect(selection.entry?.assetId).toBe('sfx_catalog_air_whoosh_001');
     expect(selection.report.candidates[0].score).toBeGreaterThan(selection.report.candidates[1].score);
+  });
+});
+
+describe('controlled Freesound SFX ingest', () => {
+  const audioBytes = Buffer.from([
+    0xff, 0xfb, 0x90, 0x64,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+  ]);
+
+  function detailResponse(overrides: Record<string, unknown> = {}): Response {
+    return new Response(JSON.stringify({
+      id: 90210,
+      name: 'Clean directional air whoosh',
+      duration: 0.8,
+      previews: {
+        'preview-hq-mp3': 'https://cdn.freesound.org/previews/90/90210_1-hq.mp3',
+      },
+      license: 'https://creativecommons.org/publicdomain/zero/1.0/',
+      tags: ['whoosh', 'air', 'transition'],
+      ...overrides,
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  function uploadResult() {
+    return {
+      assetId: 'sfx_fs_90210_selected',
+      signedUrl: 'https://r2.example.com/asset/sfx_fs_90210_selected',
+      gcsPath: null,
+      r2Key: 'sfx_fs_90210_selected',
+      urlExpiresAt: null,
+      size: audioBytes.length,
+      contentType: 'audio/mpeg',
+    };
+  }
+
+  it('re-fetches the exact provider asset, verifies CC0 and persists a durable rights receipt', async () => {
+    const fetchImpl = vi.fn(async (
+      input: string | URL | Request,
+      _init?: RequestInit,
+    ) => {
+      const url = String(input);
+      if (url.startsWith('https://freesound.org/apiv2/sounds/90210/')) {
+        return detailResponse();
+      }
+      if (url === 'https://cdn.freesound.org/previews/90/90210_1-hq.mp3') {
+        return new Response(audioBytes, {
+          status: 200,
+          headers: { 'content-type': 'audio/mpeg' },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const upload = vi.fn(async () => uploadResult());
+    const persist = vi.fn(async () => undefined);
+
+    const result = await ingestFreesoundSfxById('90210', 'user-1', {
+      apiKey: 'server-only-key',
+      fetchImpl: fetchImpl as typeof fetch,
+      upload,
+      persist,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(String(fetchImpl.mock.calls[0][0])).toContain('/apiv2/sounds/90210/');
+    expect(fetchImpl.mock.calls[0][1]).toEqual(expect.objectContaining({
+      headers: { Authorization: 'Token server-only-key' },
+    }));
+    expect(upload).toHaveBeenCalledWith(
+      audioBytes,
+      'user-1',
+      expect.stringMatching(/^sfx_fs_90210_[A-Za-z0-9_-]+\.mp3$/),
+      'audio/mpeg',
+      { customAssetId: expect.stringMatching(/^sfx_fs_90210_[A-Za-z0-9_-]+$/) },
+    );
+    expect(persist).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1',
+      providerAssetId: '90210',
+      provider: 'freesound',
+      audioRights: {
+        mediaRole: 'sfx',
+        source: 'library',
+        userChoice: 'attested',
+        licensed: true,
+        evidence: {
+          kind: 'library-license',
+          sourceAssetId: 'sfx_fs_90210_selected',
+          licenseId: 'freesound:90210:creative-commons-0',
+        },
+      },
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      audioAssetId: 'sfx_fs_90210_selected',
+      audioUrl: 'https://r2.example.com/asset/sfx_fs_90210_selected',
+      durationMs: 800,
+      providerAssetId: '90210',
+      source: 'freesound',
+    }));
+  });
+
+  it.each([
+    ['a provider ID mismatch', { id: 90211 }, 'SFX_PROVIDER_ID_MISMATCH'],
+    ['a non-CC0 license', { license: 'Attribution 4.0' }, 'SFX_LICENSE_NOT_EXPORTABLE'],
+  ])('rejects %s before upload', async (_label, overrides, code) => {
+    const fetchImpl = vi.fn(async () => detailResponse(overrides));
+    const upload = vi.fn(async () => uploadResult());
+
+    await expect(ingestFreesoundSfxById('90210', 'user-1', {
+      apiKey: 'server-only-key',
+      fetchImpl: fetchImpl as typeof fetch,
+      upload,
+      persist: vi.fn(async () => undefined),
+    })).rejects.toMatchObject({ code });
+
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('fails loud and cleans up when the durable receipt cannot be persisted', async () => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request) =>
+      String(input).includes('/apiv2/sounds/')
+        ? detailResponse()
+        : new Response(audioBytes, {
+            status: 200,
+            headers: { 'content-type': 'audio/mpeg' },
+          }));
+    const cleanupUpload = vi.fn(async () => undefined);
+
+    await expect(ingestFreesoundSfxById('90210', 'user-1', {
+      apiKey: 'server-only-key',
+      fetchImpl: fetchImpl as typeof fetch,
+      upload: vi.fn(async () => uploadResult()),
+      persist: vi.fn(async () => {
+        throw new Error('database unavailable');
+      }),
+      cleanupUpload,
+    })).rejects.toMatchObject({ code: 'SFX_RECEIPT_PERSIST_FAILED' });
+
+    expect(cleanupUpload).toHaveBeenCalledWith(uploadResult());
+  });
+
+  it('passes only the authenticated user and provider ID across the HTTP boundary', async () => {
+    const ingest = vi.fn(async () => ({
+      audioUrl: 'https://r2.example.com/asset/sfx_fs_90210_selected',
+      gcsPath: null,
+      audioAssetId: 'sfx_fs_90210_selected',
+      durationMs: 800,
+      providerAssetId: '90210',
+      source: 'freesound' as const,
+      originalTitle: 'Clean directional air whoosh',
+      audioRights: {
+        mediaRole: 'sfx' as const,
+        source: 'library' as const,
+        userChoice: 'attested' as const,
+        licensed: true,
+        evidence: {
+          kind: 'library-license' as const,
+          sourceAssetId: 'sfx_fs_90210_selected',
+          licenseId: 'freesound:90210:creative-commons-0',
+        },
+      },
+    }));
+    const request = new NextRequest('http://localhost/api/services/editron/sfx-library/ingest', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        providerAssetId: '90210',
+        url: 'https://attacker.invalid/forged.mp3',
+        license: 'CC0-1.0',
+      }),
+    });
+
+    const response = await handleSfxLibraryIngest(request, {
+      authenticate: async () => ({ userId: 'user-1' }),
+      ingest,
+    });
+
+    expect(response.status).toBe(200);
+    expect(ingest).toHaveBeenCalledOnce();
+    expect(ingest).toHaveBeenCalledWith('90210', 'user-1');
   });
 });
