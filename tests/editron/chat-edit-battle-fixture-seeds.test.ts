@@ -44,6 +44,12 @@ describe('chat battle durable fixture seeds', () => {
       expect(prepared.project.overlays).toEqual(expect.arrayContaining([
         expect.objectContaining({
           id: `battle-undo-overlay-${scenarioId}`,
+          row: 0,
+          styles: expect.objectContaining({
+            backgroundColor: 'rgba(0,0,0,0.88)',
+            color: '#ffffff',
+            opacity: 1,
+          }),
           metadata: { battleFixtureMutation: true },
         }),
       ]));

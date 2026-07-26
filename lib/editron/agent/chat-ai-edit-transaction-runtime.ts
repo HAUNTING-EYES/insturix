@@ -426,6 +426,7 @@ export function buildChatEditRenderVerificationRequest(input: {
     durationInFrames,
     mutationRanges,
     expectedEffect,
+    input.project,
   );
 
   return {
@@ -521,7 +522,7 @@ function inferMutationModalities(
 ): ChatEditRenderVerificationModality[] {
   const isTimelineMutation = [
     'split_overlay', 'trim_overlay', 'cut_section', 'close_gaps',
-    'auto_edit_from_script', 'apply_editorial_intent',
+    'auto_edit_from_script',
   ].includes(call.name);
 
   // A passed postcondition receipt is the family owner's explicit contract.
@@ -576,6 +577,7 @@ function buildVerificationSampleFrames(
   projectDurationInFrames: number,
   mutationRanges: ChatEditRenderVerificationMutationRange[] = [],
   expectedEffect: ChatEditRenderVerificationExpectation = 'mutation-delta',
+  project: Record<string, unknown> = {},
 ): number[] {
   const targetDurationInFrames = targets.reduce((maximum, target) => Math.max(
     maximum,
@@ -607,6 +609,11 @@ function buildVerificationSampleFrames(
     return Array.from(new Set(frames)).slice(0, 12);
   }
 
+  frames.push(...buildCaptionVerificationSampleFrames(project, targets, durationInFrames));
+  if (frames.length > 0) {
+    return Array.from(new Set(frames)).slice(0, 12);
+  }
+
   for (const target of targets) {
     if (target.from == null) continue;
     const start = clampFrame(target.from, durationInFrames);
@@ -630,6 +637,47 @@ function buildVerificationSampleFrames(
     frames.push(0, Math.floor((durationInFrames - 1) / 2), durationInFrames - 1);
   }
   return Array.from(new Set(frames)).slice(0, 12);
+}
+
+function buildCaptionVerificationSampleFrames(
+  project: Record<string, unknown>,
+  targets: ChatEditRenderVerificationTarget[],
+  durationInFrames: number,
+): number[] {
+  const captionTargetIds = new Set(
+    targets
+      .filter((target) => target.state !== 'deleted' && target.overlayType.toLowerCase() === 'caption')
+      .map((target) => target.overlayId),
+  );
+  if (captionTargetIds.size === 0) return [];
+
+  const fps = finitePositiveNumber(project.fps) ?? 30;
+  const overlays = Array.isArray(project.overlays) ? project.overlays : [];
+  const activeFrames: number[] = [];
+  for (const value of overlays) {
+    const overlay = asRecord(value);
+    if (!captionTargetIds.has(String(overlay.id ?? ''))) continue;
+    const overlayFrom = finiteNumberOrNull(overlay.from) ?? 0;
+    const captions = Array.isArray(overlay.captions) ? overlay.captions : [];
+    for (const captionValue of captions) {
+      const caption = asRecord(captionValue);
+      const startMs = finiteNumberOrNull(caption.startMs);
+      const endMs = finiteNumberOrNull(caption.endMs);
+      if (startMs == null || endMs == null || endMs <= startMs) continue;
+      const visibleMidpointMs = startMs + ((endMs - startMs) / 2);
+      activeFrames.push(clampFrame(
+        overlayFrom + Math.round((visibleMidpointMs / 1000) * fps),
+        durationInFrames,
+      ));
+    }
+  }
+  if (activeFrames.length <= 3) return activeFrames;
+
+  return [
+    activeFrames[0],
+    activeFrames[Math.floor((activeFrames.length - 1) / 2)],
+    activeFrames[activeFrames.length - 1],
+  ];
 }
 
 function collectObjectKeys(value: unknown, output = new Set<string>()): Set<string> {

@@ -50,6 +50,7 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
 import { POST as restoreCheckpointRoute } from '@/app/api/services/editron/checkpoints/restore/route';
 import { createTools } from '@/lib/editron/agent/tools';
 import {
+  buildChatEditRenderVerificationRequest,
   completeChatAiEditTransaction,
   prepareChatAiEditTransaction,
 } from '@/lib/editron/agent/chat-ai-edit-transaction-runtime';
@@ -874,6 +875,66 @@ describe('chat AI edit transaction runtime', () => {
       status: 'error',
       error: { code: 'CHAT_EDIT_POSTCONDITION_FAILED' },
     });
+  });
+
+  it('uses the durable family receipt and active caption spans for render proof', () => {
+    const captionOverlay = {
+      id: 'caption_1',
+      type: 'caption',
+      from: 0,
+      durationInFrames: 300,
+      captions: [
+        { text: 'First phrase', startMs: 1_000, endMs: 2_000, words: [] },
+        { text: 'Second phrase', startMs: 7_000, endMs: 8_000, words: [] },
+      ],
+    };
+    const receipt = {
+      version: 'editron-chat-postcondition-v1',
+      status: 'pass',
+      affectedTargets: [{
+        overlayId: captionOverlay.id,
+        overlayType: captionOverlay.type,
+        state: 'created',
+        from: captionOverlay.from,
+        endFrame: captionOverlay.from + captionOverlay.durationInFrames,
+      }],
+      renderEligibility: { inheritedIssues: [], introducedIssues: [] },
+      renderVerification: {
+        status: 'pending',
+        required: true,
+        modalities: ['visual'],
+      },
+    };
+
+    const request = buildChatEditRenderVerificationRequest({
+      transaction: {
+        operationId: 'chatop_captionproof',
+        sessionId: 'session_captionproof',
+        projectId: 'proj_captionproof',
+        userId: 'user_1',
+        beforeCheckpointId: 'checkpoint_before',
+      },
+      afterCheckpointId: 'checkpoint_after',
+      project: {
+        durationInFrames: 300,
+        fps: 30,
+        overlays: [captionOverlay],
+      },
+      successfulCalls: [{
+        call: { id: 'intent', name: 'apply_editorial_intent' },
+        result: {
+          toolCallId: 'intent',
+          toolName: 'apply_editorial_intent',
+          result: JSON.stringify({
+            status: 'success',
+            data: { postconditionVerification: receipt },
+          }),
+        },
+      }],
+    });
+
+    expect(request.modalities).toEqual(['visual']);
+    expect(request.sampleFrames).toEqual([45, 225]);
   });
 
   it('keeps the live route and client ordered around durable preflight and stable operation IDs', () => {
