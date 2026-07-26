@@ -947,6 +947,7 @@ describe('chat edit battle harness', () => {
   it('keeps rendered title proof on the literal overlay owner and rejects collateral captions', () => {
     const scenario = getChatEditBattleScenario('post-edit-render-proof')!;
     expect(scenario.prompt).toContain('top center for the first 2 seconds');
+    expect(scenario.prompt).not.toContain('verify');
     expect(scenario.requiredToolSequence).toEqual([
       ['read_project_file', 'get_timeline_view'],
       'add_overlay',
@@ -1906,6 +1907,38 @@ describe('chat edit battle harness', () => {
       .not.toBe(buildChatBattleProjectSnapshot(changed, 'ui-reload').digest);
     expect(buildChatBattleProjectSnapshot(mongoVideo, 'mongo-after').digest)
       .toBe(buildChatBattleProjectSnapshot(hydratedVideo, 'ui-reload').digest);
+  });
+
+  it('preserves numeric overlay IDs so live created-overlay checks remain trustworthy', () => {
+    const before = buildChatBattleProjectSnapshot(project([{
+      id: 1783964668040,
+      type: 'video',
+      from: 0,
+      durationInFrames: 90,
+      row: 0,
+    }]), 'mongo-before');
+    const after = buildChatBattleProjectSnapshot(project([
+      {
+        id: 1783964668040,
+        type: 'video',
+        from: 0,
+        durationInFrames: 90,
+        row: 0,
+      },
+      {
+        id: 1785055208000,
+        type: 'text',
+        from: 0,
+        durationInFrames: 60,
+        row: 1,
+      },
+    ]), 'mongo-after');
+
+    expect(before.overlays.map((overlay) => overlay.id)).toEqual(['1783964668040']);
+    expect(after.overlays.map((overlay) => overlay.id)).toEqual([
+      '1783964668040',
+      '1785055208000',
+    ]);
   });
 
   it('requires an explicit live-write flag and a known battle case', () => {

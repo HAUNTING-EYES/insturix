@@ -329,7 +329,7 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario(
     'post-edit-render-proof',
     'Post-edit pixel and audio proof',
-    'Add a bold white title saying Chat Battle at the top center for the first 2 seconds, then verify it is readable in the rendered video.',
+    'Add a bold white title saying Chat Battle at the top center for the first 2 seconds.',
     {
       requiredToolSequence: [READ_PROJECT, 'add_overlay'],
       requiredCreatedOverlayTypes: ['text'],
@@ -820,7 +820,7 @@ export function buildChatBattleProjectSnapshot(
   const overlaySnapshots = overlays.map((overlay) => {
     const material = sanitizeMaterialState(overlay);
     return {
-      id: stringValue(overlay.id) ?? '',
+      id: identifierValue(overlay.id),
       type: stringValue(overlay.type) ?? 'unknown',
       from: finiteNumber(overlay.from),
       durationInFrames: finiteNumber(overlay.durationInFrames),
@@ -1366,6 +1366,12 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function identifierValue(value: unknown): string {
+  const text = stringValue(value);
+  if (text) return text;
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
 }
 
 function finiteNumber(value: unknown): number {
