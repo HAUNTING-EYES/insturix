@@ -326,7 +326,16 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
     requireEvidenceBeforeMutation: false,
     fixtureRequirements: ['durable-reference-asset'],
   }),
-  scenario('post-edit-render-proof', 'Post-edit pixel and audio proof', 'Add a title saying Chat Battle at the beginning, then verify it is readable in the rendered video.', { requiredToolSequence: [READ_PROJECT, 'add_overlay'], requireRenderedEvidence: true }),
+  scenario(
+    'post-edit-render-proof',
+    'Post-edit pixel and audio proof',
+    'Add a bold white title saying Chat Battle at the top center for the first 2 seconds, then verify it is readable in the rendered video.',
+    {
+      requiredToolSequence: [READ_PROJECT, 'add_overlay'],
+      requiredCreatedOverlayTypes: ['text'],
+      requireRenderedEvidence: true,
+    },
+  ),
   scenario('batch-overlay-update', 'Batch update matching overlays', 'Make every existing text overlay use the same white fill without changing its wording or timing.', { requiredToolSequence: [READ_PROJECT, 'batch_update_overlays'] }),
   scenario('split-selected-overlay', 'Split selected clip', 'Split the selected clip exactly at the playhead.', { requiredToolSequence: [READ_PROJECT, 'split_overlay'] }),
   scenario('trim-selected-overlay', 'Trim selected clip', 'Trim one second from the end of the selected clip.', { requiredToolSequence: [READ_PROJECT, 'trim_overlay'] }),

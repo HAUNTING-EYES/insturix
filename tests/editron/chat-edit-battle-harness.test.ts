@@ -944,6 +944,65 @@ describe('chat edit battle harness', () => {
     ]);
   });
 
+  it('keeps rendered title proof on the literal overlay owner and rejects collateral captions', () => {
+    const scenario = getChatEditBattleScenario('post-edit-render-proof')!;
+    expect(scenario.prompt).toContain('top center for the first 2 seconds');
+    expect(scenario.requiredToolSequence).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'add_overlay',
+    ]);
+    expect(scenario.requiredCreatedOverlayTypes).toEqual(['text']);
+
+    const beforeProject = project([]);
+    const afterProject = project([{
+      id: 'collateral-caption',
+      type: 'caption',
+      from: 0,
+      durationInFrames: 60,
+      row: 4,
+    }]);
+    const report = evaluateChatEditBattleJourney({
+      journeyId: 'render-proof-collateral-caption',
+      scenario,
+      projectId: 'proj_battle',
+      startedAt: '2026-07-24T10:00:00.000Z',
+      completedAt: '2026-07-24T10:00:01.000Z',
+      invocation: invocation('post-edit-render-proof', [
+        {
+          id: 'read',
+          name: 'get_timeline_view',
+          args: {},
+          startedAt: '2026-07-24T10:00:00.100Z',
+          completedAt: '2026-07-24T10:00:00.200Z',
+          output: successEnvelope(),
+        },
+        {
+          id: 'add',
+          name: 'add_overlay',
+          args: { type: 'text', text: 'Chat Battle', start: 0, duration: 60 },
+          startedAt: '2026-07-24T10:00:00.300Z',
+          completedAt: '2026-07-24T10:00:00.400Z',
+          output: successEnvelope(),
+        },
+      ]),
+      mongoBefore: buildChatBattleProjectSnapshot(beforeProject, 'mongo-before'),
+      mongoAfter: buildChatBattleProjectSnapshot(afterProject, 'mongo-after'),
+      uiReload: buildChatBattleProjectSnapshot(afterProject, 'ui-reload'),
+      renderEvidence: {
+        status: 'pass',
+        capturedAt: '2026-07-24T10:00:00.900Z',
+        artifactRefs: ['artifact://collateral-caption.png'],
+        issues: [],
+      },
+    });
+
+    expect(report.checks.find((check) => check.id === 'mongo.required-created-overlay-types'))
+      .toMatchObject({
+        status: 'fail',
+        evidence: { missing: ['text'] },
+      });
+  });
+
   it('rejects collateral caption creation as process-diagram success', () => {
     const scenario = getChatEditBattleScenario('create-html-scene')!;
     const beforeProject = project([]);
