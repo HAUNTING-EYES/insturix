@@ -14,8 +14,15 @@ const NOW = new Date('2026-07-18T12:00:00.000Z');
 describe('chat edit battle fixtures', () => {
   it('maps commands to sources with the prerequisites their real tool paths need', () => {
     expect(plan('selected-overlay-edit')).toMatchObject({ profile: 'mixed', selectedOverlayType: 'text' });
-    expect(plan('spoken-phrase-devanagari')).toMatchObject({ profile: 'speech', seedTranscript: true });
-    expect(plan('mixed-multi-step')).toMatchObject({ profile: 'audio' });
+    expect(plan('spoken-phrase-devanagari')).toMatchObject({
+      profile: 'speech',
+      seedTranscript: true,
+      preserveSoundOverlays: false,
+    });
+    expect(plan('mixed-multi-step')).toMatchObject({
+      profile: 'audio',
+      preserveSoundOverlays: true,
+    });
     expect(plan('replace-selected-sfx')).toMatchObject({ profile: 'audio', selectedOverlayType: 'sound' });
     expect(plan('edit-html-scene')).toMatchObject({ profile: 'generated-scene', selectedOverlayType: 'html-scene' });
     expect(plan('explicit-asset')).toMatchObject({ requiresImageAssetAlias: true });
@@ -121,6 +128,20 @@ describe('chat edit battle fixtures', () => {
     expect(prepared.project.intelligence).not.toHaveProperty('phase0RenderedStillEvidence');
     expect(prepared.selectedOverlayId).toBe('title-1');
     expect(prepared.clientContext).toMatchObject({ selectedOverlayId: 'title-1', activePanel: 'ai-chat' });
+    expect(overlays(prepared.project).some((overlay) => overlay.type === 'sound')).toBe(false);
+  });
+
+  it('fails fixture preflight immediately when an audio scenario inherits unlicensed sound', () => {
+    const source = sourceProject();
+    const backgroundMusic = overlays(source).find((overlay) => overlay.type === 'sound');
+    if (!backgroundMusic) throw new Error('Expected sound fixture.');
+    backgroundMusic.row = 1;
+    expect(() => prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_audio_rights1',
+      plan: plan('mixed-multi-step'),
+      now: NOW,
+    })).toThrow(/unrenderable audio required by mixed-multi-step/);
   });
 
   it('seeds exact multilingual and speech-anchor words as timed caption truth', () => {

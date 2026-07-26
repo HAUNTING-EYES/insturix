@@ -24,7 +24,7 @@ export type ChatCanonicalCaptionPlan =
   | {
       status: 'generated';
       overlays: Overlay[];
-      captionOverlay: Overlay & { captions?: unknown[]; words?: unknown[] };
+      captionOverlay: Overlay & JsonRecord;
       presentation: AtomicCaptionPresentation;
       result: InstallCanonicalCaptionTrackResult;
     }
@@ -123,7 +123,7 @@ export function planChatCanonicalCaptionTrack(
   return {
     status: 'generated',
     overlays: overlays as Overlay[],
-    captionOverlay,
+    captionOverlay: captionOverlay as Overlay & JsonRecord,
     presentation,
     result,
   };

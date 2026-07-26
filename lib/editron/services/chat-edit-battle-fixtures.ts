@@ -2,6 +2,7 @@ import type {
   ChatBattleFixtureCapability,
   ChatBattleFixturePlan,
 } from './chat-edit-battle-fixture-plan';
+import { resolveRenderableAudio } from '../shared/render-request-payload';
 
 export interface PreparedChatBattleFixture {
   project: Record<string, unknown>;
@@ -98,15 +99,19 @@ export function prepareChatBattleFixture(input: {
   delete project._id;
 
   const overlays = cloneOverlays(project.overlays);
+  const scenarioOverlays = input.plan.preserveSoundOverlays
+    ? overlays
+    : overlays.filter((overlay) => stringValue(overlay.type) !== 'sound');
   let transcriptAssetAlias: ChatBattleTranscriptAssetAlias | undefined;
   if (input.plan.removeCaptionTrack) {
-    project.overlays = overlays.filter((overlay) => !isCaptionOverlay(overlay));
+    project.overlays = scenarioOverlays.filter((overlay) => !isCaptionOverlay(overlay));
   } else if (input.plan.seedTranscript) {
-    project.overlays = seedTranscriptOverlay(overlays, project, input.fixtureProjectId);
+    project.overlays = seedTranscriptOverlay(scenarioOverlays, project, input.fixtureProjectId);
     transcriptAssetAlias = remapSeededTranscriptAsset(project, input.fixtureProjectId, now);
   } else {
-    project.overlays = overlays;
+    project.overlays = scenarioOverlays;
   }
+  assertFixtureAudioIsRenderable(project.overlays, input.plan);
 
   const sourceProjectId = stringValue(input.sourceProject.projectId) ?? input.plan.sourceProjectId;
   const title = `Chat battle: ${input.plan.scenarioId}`;
@@ -416,6 +421,24 @@ function stripStaleRenderEvidence(value: unknown): Record<string, unknown> {
   delete intelligence.phase0RenderedQualityGate;
   delete intelligence.phase0RenderedAestheticReport;
   return intelligence;
+}
+
+function assertFixtureAudioIsRenderable(
+  overlays: unknown,
+  plan: ChatBattleFixturePlan,
+): void {
+  if (!plan.preserveSoundOverlays) return;
+  for (const overlay of asRecords(overlays)) {
+    if (stringValue(overlay.type) !== 'sound') continue;
+    try {
+      resolveRenderableAudio(overlay);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Fixture source ${plan.sourceProjectId} has unrenderable audio required by ${plan.scenarioId}: ${message}`,
+      );
+    }
+  }
 }
 
 function cloneOverlays(value: unknown): Record<string, unknown>[] {

@@ -34,6 +34,7 @@ export interface ChatBattleFixturePlan {
   selectedOverlayType?: string;
   seedTranscript: boolean;
   removeCaptionTrack: boolean;
+  preserveSoundOverlays: boolean;
   requiresImageAssetAlias: boolean;
   requiresUploadBatchClone: boolean;
   requiredSourceCapabilities: ChatBattleFixtureCapability[];
@@ -109,6 +110,7 @@ export function planChatBattleFixture(
     selectedOverlayType: resolveSelectedOverlayType(scenario.id),
     seedTranscript: SPEECH_SCENARIOS.has(scenario.id) || scenario.id === 'manual-impact-sfx',
     removeCaptionTrack: ADD_CAPTION_SCENARIOS.has(scenario.id),
+    preserveSoundOverlays: profile === 'audio',
     requiresImageAssetAlias: scenario.id === 'explicit-asset',
     requiresUploadBatchClone: scenario.id === 'multiasset-script-intake'
       || scenario.id === 'multiasset-script-chat',
