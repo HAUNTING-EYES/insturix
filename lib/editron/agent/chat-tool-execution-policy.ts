@@ -5,7 +5,10 @@ import {
   type ChatToolExecutionPolicy,
   type ChatToolOwnerClass,
 } from './chat-tool-registry';
-import type { ChatRequestOwnerLicense } from './chat-request-owner';
+import type {
+  ChatRequestCapability,
+  ChatRequestOwnerLicense,
+} from './chat-request-owner';
 
 export const CHAT_TOOL_EVIDENCE_RECEIPT_VERSION = 'editron-chat-evidence-v1' as const;
 
@@ -448,8 +451,7 @@ function enforceLocalizedMutationAuthorization(input: {
   requestOwnerLicense?: ChatRequestOwnerLicense;
 }): ChatToolExecutionDecision | null {
   if (
-    input.requestOwnerLicense?.owner !== 'semantic-editorial-planner'
-    || input.requestOwnerLicense.semanticWorkflow !== 'localized-mutation'
+    !requiresResolverAuthorization(input.requestOwnerLicense)
     || !getChatToolMetadata(input.toolName)?.mutatesProject
   ) {
     return null;
@@ -497,6 +499,127 @@ function enforceLocalizedMutationAuthorization(input: {
       : `${input.toolName} is not authorized by a current resolver result for these exact arguments.`,
     nextAction: 'Call the matching transcript, visual, audio, or asset resolver, then use its data.useWith operation unchanged.',
   });
+}
+
+const RESOLVER_AUTHORIZATION_CAPABILITIES = new Set<ChatRequestCapability>([
+  'audio-ducking',
+  'beat-sync',
+  'asset-placement',
+  'asset-replacement',
+  'localized-sfx',
+  'localized-camera-motion',
+  'localized-speed-change',
+]);
+
+export function resolveAuthorizedMutationArgs(input: {
+  toolName: string;
+  requestedArgs: Record<string, unknown>;
+  projectId?: string;
+  projectRevision?: string | null;
+  ledger: ChatToolTurnLedger;
+  requestOwnerLicense?: ChatRequestOwnerLicense;
+}): Record<string, unknown> | null {
+  if (
+    !requiresResolverAuthorization(input.requestOwnerLicense)
+    || !getChatToolMetadata(input.toolName)?.mutatesProject
+    || !input.projectId
+    || !input.projectRevision
+  ) {
+    return null;
+  }
+
+  const candidates = input.ledger.completedExecutions
+    .flatMap((execution) => execution.evidenceReceipts)
+    .filter((receipt) =>
+      receipt.projectId === input.projectId
+      && receipt.projectRevision === input.projectRevision,
+    )
+    .flatMap((receipt) => receipt.authorizedMutations ?? [])
+    .filter((mutation) => mutation.toolName === input.toolName);
+  if (candidates.length === 0) return null;
+
+  const exact = candidates.find((candidate) =>
+    authorizedArgsMatch(input.toolName, candidate.args, input.requestedArgs),
+  );
+  if (exact) return input.requestedArgs;
+
+  const selected = candidates.length === 1
+    ? candidates[0]
+    : selectAuthorizedMutationCandidate(
+      input.toolName,
+      candidates.map((candidate) => candidate.args),
+      input.requestedArgs,
+    );
+  if (!selected) return null;
+
+  return mergeAuthorizedArgs(
+    input.requestedArgs,
+    normalizeAuthorizedArgs(input.toolName, selected.args),
+  );
+}
+
+function requiresResolverAuthorization(
+  license?: ChatRequestOwnerLicense,
+): boolean {
+  if (license?.owner !== 'semantic-editorial-planner') return false;
+  if (license.semanticWorkflow === 'localized-mutation') return true;
+  return (license.routingFacts?.requestedCapabilities ?? []).some(
+    (capability) => RESOLVER_AUTHORIZATION_CAPABILITIES.has(capability),
+  );
+}
+
+function selectAuthorizedMutationCandidate(
+  toolName: string,
+  candidates: Record<string, unknown>[],
+  requestedArgs: Record<string, unknown>,
+): { args: Record<string, unknown> } | null {
+  const identityKeys = new Set([
+    'id',
+    'overlayId',
+    'videoOverlayId',
+    'audioOverlayId',
+    'assetId',
+    'sceneIndex',
+    'startFrame',
+    'endFrame',
+  ]);
+  const requested = normalizeAuthorizedArgs(toolName, requestedArgs);
+  const scored = candidates.map((args) => {
+    const normalized = normalizeAuthorizedArgs(toolName, args);
+    const score = [...identityKeys].reduce((total, key) => (
+      normalized[key] !== undefined
+      && requested[key] !== undefined
+      && Object.is(normalized[key], requested[key])
+        ? total + 1
+        : total
+    ), 0);
+    return { args, score };
+  }).sort((left, right) => right.score - left.score);
+
+  if (scored[0]?.score === 0 || scored[0]?.score === scored[1]?.score) return null;
+  return { args: scored[0].args };
+}
+
+function mergeAuthorizedArgs(
+  requested: Record<string, unknown>,
+  authorized: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...requested };
+  for (const [key, value] of Object.entries(authorized)) {
+    const current = merged[key];
+    merged[key] = value
+      && typeof value === 'object'
+      && !Array.isArray(value)
+      && current
+      && typeof current === 'object'
+      && !Array.isArray(current)
+        ? mergeAuthorizedArgs(
+          current as Record<string, unknown>,
+          value as Record<string, unknown>,
+        )
+        : value;
+  }
+  return merged;
 }
 
 function findActiveOwner(executions: CompletedChatToolExecution[]): ChatToolOwnerClass | null {

@@ -68,11 +68,13 @@ import {
   classifyChatToolExecutionOutcome,
   decideChatToolExecution,
   formatChatToolInvocationError,
+  resolveAuthorizedMutationArgs,
   scheduleChatToolCalls,
 } from './chat-tool-execution-policy';
 import {
   interceptToolCallForServerPreflight,
   prepareServerTimelinePreflight,
+  recordServerTimelinePreflightEvidence,
 } from './chat-tool-server-preflight';
 import {
   filterChatToolsForRequestOwner,
@@ -952,6 +954,10 @@ ${ownerLicensePrompt}
         projectRevision: schedulingRevision,
         requestOwnerLicense: turnContext?.requestOwnerLicense,
       });
+      recordServerTimelinePreflightEvidence({
+        preflight: serverTimelinePreflight,
+        ledger: turnLedger,
+      });
       const scheduledToolCalls = scheduleChatToolCalls(toolCalls, availableEvidence);
 
       for (const toolCall of scheduledToolCalls) {
@@ -962,7 +968,7 @@ ${ownerLicensePrompt}
         const tool = tools.find((t) => t.name === toolCall.name);
         let output: string;
         let evidenceReceipts: ReturnType<typeof buildChatEvidenceReceipts> = [];
-        const args = normalizeAgentToolArgs(toolCall.name, toolCall.args, {
+        let args = normalizeAgentToolArgs(toolCall.name, toolCall.args, {
           projectFps: config.configurable?.projectFps,
         });
         const preflightInterception = interceptToolCallForServerPreflight({
@@ -1003,6 +1009,14 @@ ${ownerLicensePrompt}
               throw new Error(`Canonical project state is unavailable before ${toolCall.name}.`);
             }
             const projectRevision = buildChatProjectRevision(beforeProject);
+            args = resolveAuthorizedMutationArgs({
+              toolName: toolCall.name,
+              requestedArgs: args,
+              ledger: turnLedger,
+              projectId,
+              projectRevision,
+              requestOwnerLicense: turnContext?.requestOwnerLicense,
+            }) ?? args;
             const executionDecision = decideChatToolExecution({
               toolName: toolCall.name,
               args,

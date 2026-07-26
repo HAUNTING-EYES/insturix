@@ -2,12 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   buildChatEvidenceReceipts,
+  decideChatToolExecution,
   type ChatToolTurnLedger,
 } from '@/lib/editron/agent/chat-tool-execution-policy';
 import {
   interceptToolCallForServerPreflight,
   prepareServerTimelinePreflight,
+  recordServerTimelinePreflightEvidence,
 } from '@/lib/editron/agent/chat-tool-server-preflight';
+import type { ChatRequestOwnerLicense } from '@/lib/editron/agent/chat-request-owner';
 
 const PROJECT_ID = 'project-preflight';
 const REVISION = 'revision-preflight';
@@ -22,6 +25,29 @@ function timelineTool(output: string) {
     invoke: vi.fn(async () => output),
   };
 }
+
+const MECHANICAL_LICENSE: ChatRequestOwnerLicense = {
+  version: 'editron-chat-request-owner-v1',
+  owner: 'mechanical-editor',
+  confidence: 1,
+  reason: 'The literal operation and target are complete.',
+  requestDigest: 'mechanical',
+  decidedBy: 'gemini',
+  routingFacts: {
+    requestsMutation: true,
+    requestsAnalysis: false,
+    requiresContentLocalization: false,
+    requiresEditorialJudgment: false,
+    requestsReferenceStyle: false,
+    requestsBroadEditorialOutcome: false,
+    durableOperation: 'none',
+    operationFullySpecified: true,
+    targetFullySpecified: true,
+    requestedCapabilities: [],
+    familyDirectives: [],
+    familyScopeExclusive: false,
+  },
+};
 
 describe('server-owned chat timeline preflight', () => {
   it('acquires current timeline evidence and pauses a blind visual mutation', async () => {
@@ -97,6 +123,100 @@ describe('server-owned chat timeline preflight', () => {
       error: { code: 'CHAT_TOOL_EVIDENCE_REQUIRED' },
       data: { serverEvidencePreflight: { source: 'model-provided' } },
     });
+  });
+
+  it('continues a fully specified licensed mutation with server-owned evidence', async () => {
+    const timeline = JSON.stringify({
+      tracks: [{ id: 'video-1', fromFrame: 0, toFrame: 300 }],
+    });
+    const turnLedger = emptyLedger();
+    const preflight = await prepareServerTimelinePreflight({
+      toolCalls: [{
+        id: 'add-1',
+        name: 'add_overlay',
+        args: { type: 'text', text: 'Launch day', start: 0, duration: 90 },
+      }],
+      invokeTimelineView: timelineTool(timeline).invoke,
+      ledger: turnLedger,
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      requestOwnerLicense: MECHANICAL_LICENSE,
+    });
+
+    expect(preflight).toMatchObject({
+      targetToolCallIds: ['add-1'],
+      autoContinueToolCallIds: ['add-1'],
+      source: 'server-inserted',
+      status: 'ready',
+    });
+    recordServerTimelinePreflightEvidence({ preflight, ledger: turnLedger });
+    expect(turnLedger.completedExecutions).toEqual([
+      expect.objectContaining({
+        name: 'get_timeline_view',
+        outcome: 'success',
+        evidenceReceipts: [expect.objectContaining({
+          evidenceClass: 'timeline-state',
+          projectRevision: REVISION,
+        })],
+      }),
+    ]);
+    expect(interceptToolCallForServerPreflight({
+      preflight,
+      toolCallId: 'add-1',
+      toolName: 'add_overlay',
+    })).toBeNull();
+    expect(decideChatToolExecution({
+      toolName: 'add_overlay',
+      args: { type: 'text', text: 'Launch day', start: 0, duration: 90 },
+      ledger: turnLedger,
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: MECHANICAL_LICENSE,
+    })).toEqual({ action: 'execute' });
+  });
+
+  it('does not let server timeline evidence replace resolver authorization', async () => {
+    const localizedLicense: ChatRequestOwnerLicense = {
+      ...MECHANICAL_LICENSE,
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'localized-mutation',
+      routingFacts: {
+        ...MECHANICAL_LICENSE.routingFacts!,
+        requiresContentLocalization: true,
+        requiresEditorialJudgment: true,
+        requestedCapabilities: ['asset-placement'],
+      },
+    };
+    const turnLedger = emptyLedger();
+    const preflight = await prepareServerTimelinePreflight({
+      toolCalls: [{
+        id: 'add-1',
+        name: 'add_overlay',
+        args: { type: 'image', assetId: 'asset-1', start: 60, duration: 120 },
+      }],
+      invokeTimelineView: timelineTool(JSON.stringify({ tracks: [] })).invoke,
+      ledger: turnLedger,
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      requestOwnerLicense: localizedLicense,
+    });
+    recordServerTimelinePreflightEvidence({ preflight, ledger: turnLedger });
+
+    expect(interceptToolCallForServerPreflight({
+      preflight,
+      toolCallId: 'add-1',
+      toolName: 'add_overlay',
+    })).toBeNull();
+    expect(decideChatToolExecution({
+      toolName: 'add_overlay',
+      args: { type: 'image', assetId: 'asset-1', start: 60, duration: 120 },
+      ledger: turnLedger,
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: localizedLicense,
+    })).toMatchObject({ action: 'block', reason: 'missing-evidence' });
   });
 
   it('preserves read_project_file as the model-provided timeline producer', async () => {

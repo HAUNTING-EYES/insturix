@@ -1,11 +1,15 @@
 import {
   buildChatEvidenceReceipts,
   decideChatToolExecution,
+  type CompletedChatToolExecution,
   type ChatToolEvidenceReceipt,
   type ChatToolTurnLedger,
 } from './chat-tool-execution-policy';
 import { getChatToolMetadata } from './chat-tool-registry';
-import type { ChatRequestOwnerLicense } from './chat-request-owner';
+import {
+  filterChatToolsForRequestOwner,
+  type ChatRequestOwnerLicense,
+} from './chat-request-owner';
 
 interface PreflightToolCall {
   id: string;
@@ -15,6 +19,7 @@ interface PreflightToolCall {
 
 export interface ServerTimelinePreflight {
   targetToolCallIds: string[];
+  autoContinueToolCallIds: string[];
   producerTool: 'get_timeline_view' | 'read_project_file';
   source: 'server-inserted' | 'model-provided';
   status: 'ready' | 'failed';
@@ -31,15 +36,16 @@ export async function prepareServerTimelinePreflight(input: {
   projectRevision: string | null;
   requestOwnerLicense?: ChatRequestOwnerLicense;
 }): Promise<ServerTimelinePreflight | null> {
-  const targetToolCallIds = input.toolCalls
-    .filter((toolCall) => requiresTimelinePreflight({
+  const targetToolCalls = input.toolCalls.filter((toolCall) =>
+    requiresTimelinePreflight({
       toolCall,
       ledger: input.ledger,
       projectId: input.projectId,
       projectRevision: input.projectRevision,
       requestOwnerLicense: input.requestOwnerLicense,
-    }))
-    .map((toolCall) => toolCall.id);
+    }),
+  );
+  const targetToolCallIds = targetToolCalls.map((toolCall) => toolCall.id);
   if (targetToolCallIds.length === 0) return null;
 
   const modelProvidedTimelineRead = input.toolCalls.find((toolCall) =>
@@ -54,6 +60,7 @@ export async function prepareServerTimelinePreflight(input: {
       : 'get_timeline_view';
     return {
       targetToolCallIds,
+      autoContinueToolCallIds: [],
       producerTool,
       source: 'model-provided',
       status: 'ready',
@@ -90,6 +97,12 @@ export async function prepareServerTimelinePreflight(input: {
     }
     return {
       targetToolCallIds,
+      autoContinueToolCallIds: targetToolCalls
+        .filter((toolCall) => canContinueWithServerEvidence(
+          toolCall,
+          input.requestOwnerLicense,
+        ))
+        .map((toolCall) => toolCall.id),
       producerTool: 'get_timeline_view',
       source: 'server-inserted',
       status: 'ready',
@@ -105,6 +118,46 @@ export async function prepareServerTimelinePreflight(input: {
   }
 }
 
+export function recordServerTimelinePreflightEvidence(input: {
+  preflight: ServerTimelinePreflight | null;
+  ledger: ChatToolTurnLedger;
+}): void {
+  const preflight = input.preflight;
+  if (
+    !preflight
+    || preflight.status !== 'ready'
+    || preflight.source !== 'server-inserted'
+    || preflight.autoContinueToolCallIds.length === 0
+    || !preflight.evidenceOutput
+    || preflight.evidenceReceipts.length === 0
+  ) {
+    return;
+  }
+
+  const syntheticToolCallId = `server-preflight:${preflight.autoContinueToolCallIds.join(',')}`;
+  if (input.ledger.completedExecutions.some(
+    (execution) => execution.toolCallId === syntheticToolCallId,
+  )) {
+    return;
+  }
+
+  const execution: CompletedChatToolExecution = {
+    toolCallId: syntheticToolCallId,
+    name: preflight.producerTool,
+    args: {
+      granularity: 'detailed',
+      includeVideo: true,
+      includeAudio: true,
+      includeText: true,
+    },
+    output: preflight.evidenceOutput,
+    outcome: 'success',
+    evidenceReceipts: preflight.evidenceReceipts,
+  };
+  input.ledger.requestedToolNames.push(preflight.producerTool);
+  input.ledger.completedExecutions.push(execution);
+}
+
 export function interceptToolCallForServerPreflight(input: {
   preflight: ServerTimelinePreflight | null;
   toolCallId: string;
@@ -112,6 +165,7 @@ export function interceptToolCallForServerPreflight(input: {
 }): { output: string; evidenceReceipts: ChatToolEvidenceReceipt[] } | null {
   const preflight = input.preflight;
   if (!preflight || !preflight.targetToolCallIds.includes(input.toolCallId)) return null;
+  if (preflight.autoContinueToolCallIds.includes(input.toolCallId)) return null;
 
   if (preflight.status === 'failed') {
     return {
@@ -192,6 +246,7 @@ function failedPreflight(
 ): ServerTimelinePreflight {
   return {
     targetToolCallIds,
+    autoContinueToolCallIds: [],
     producerTool: 'get_timeline_view',
     source: 'server-inserted',
     status: 'failed',
@@ -199,6 +254,26 @@ function failedPreflight(
     evidenceReceipts: [],
     failureMessage,
   };
+}
+
+function canContinueWithServerEvidence(
+  toolCall: PreflightToolCall,
+  license?: ChatRequestOwnerLicense,
+): boolean {
+  if (!license) return false;
+  const facts = license.routingFacts;
+  const toolIsLicensed = filterChatToolsForRequestOwner(
+    [{ name: toolCall.name }],
+    license,
+    { assistLane: true },
+  ).length === 1;
+  if (!toolIsLicensed) return false;
+
+  if (license.owner === 'mechanical-editor') {
+    return Boolean(facts?.operationFullySpecified && facts.targetFullySpecified);
+  }
+  return license.owner === 'semantic-editorial-planner'
+    && Boolean(facts?.requestedCapabilities.length);
 }
 
 function stringifyToolOutput(output: unknown): string {

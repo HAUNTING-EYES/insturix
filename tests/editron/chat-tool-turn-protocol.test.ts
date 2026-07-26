@@ -8,6 +8,7 @@ import {
   classifyChatToolExecutionOutcome,
   decideChatToolExecution,
   formatChatToolInvocationError,
+  resolveAuthorizedMutationArgs,
   scheduleChatToolCalls,
   type ChatToolEvidenceReceipt,
   type ChatToolTurnLedger,
@@ -276,6 +277,106 @@ describe('chat tool turn protocol', () => {
     expect(JSON.parse(altered.action === 'block' ? altered.output : '{}')).toMatchObject({
       error: { code: 'CHAT_TOOL_TARGET_EVIDENCE_REQUIRED' },
     });
+  });
+
+  it('reconstructs canonical resolver arguments instead of trusting model rewrites', () => {
+    const resolvedArgs = {
+      type: 'image',
+      assetId: 'asset-1',
+      start: 60,
+      duration: 120,
+      x: 1440,
+      y: 760,
+      width: 320,
+      height: 180,
+    };
+    const resolverOutput = JSON.stringify({
+      status: 'success',
+      data: { useWith: { add_overlay: resolvedArgs } },
+      error: null,
+    });
+    const resolved = execution('resolve_user_asset_overlay', resolverOutput, {
+      evidenceReceipts: buildChatEvidenceReceipts({
+        toolName: 'resolve_user_asset_overlay',
+        args: { assetId: 'asset-1', query: 'bottom-right from 2 to 6 seconds' },
+        output: resolverOutput,
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      }),
+    });
+    const requestedArgs = {
+      ...resolvedArgs,
+      x: '75%',
+      y: '80%',
+      enterAnimation: 'fade',
+    };
+
+    const canonicalArgs = resolveAuthorizedMutationArgs({
+      toolName: 'add_overlay',
+      requestedArgs,
+      ledger: ledger([currentProjectRead(), resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    });
+
+    expect(canonicalArgs).toEqual({
+      ...resolvedArgs,
+      enterAnimation: 'fade',
+    });
+    expect(decideChatToolExecution({
+      toolName: 'add_overlay',
+      args: canonicalArgs!,
+      ledger: ledger([currentProjectRead(), resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toEqual({ action: 'execute' });
+  });
+
+  it('fails closed when more than one resolver authorization fits equally', () => {
+    const resolverOutput = JSON.stringify({
+      status: 'success',
+      data: { useWith: { add_overlay: { type: 'image', assetId: 'asset-1', start: 30 } } },
+      error: null,
+    });
+    const otherResolverOutput = JSON.stringify({
+      status: 'success',
+      data: { useWith: { add_overlay: { type: 'image', assetId: 'asset-2', start: 60 } } },
+      error: null,
+    });
+    const resolved = [
+      execution('resolve_user_asset_overlay', resolverOutput, {
+        toolCallId: 'resolver-1',
+        evidenceReceipts: buildChatEvidenceReceipts({
+          toolName: 'resolve_user_asset_overlay',
+          args: { assetId: 'asset-1' },
+          output: resolverOutput,
+          projectId: PROJECT_ID,
+          projectRevision: REVISION,
+        }),
+      }),
+      execution('resolve_user_asset_overlay', otherResolverOutput, {
+        toolCallId: 'resolver-2',
+        evidenceReceipts: buildChatEvidenceReceipts({
+          toolName: 'resolve_user_asset_overlay',
+          args: { assetId: 'asset-2' },
+          output: otherResolverOutput,
+          projectId: PROJECT_ID,
+          projectRevision: REVISION,
+        }),
+      }),
+    ];
+
+    expect(resolveAuthorizedMutationArgs({
+      toolName: 'add_overlay',
+      requestedArgs: { type: 'image', x: '75%', y: '80%' },
+      ledger: ledger([currentProjectRead(), ...resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toBeNull();
   });
 
   it('turns a sticker resolver result into exact revision-bound mutation authority', () => {
