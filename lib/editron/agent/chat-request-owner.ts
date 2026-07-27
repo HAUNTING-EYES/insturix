@@ -578,6 +578,7 @@ export function deriveChatRequestOwner(facts: ChatRequestRoutingFacts): ChatRequ
     const needsSemanticOwner = facts.requestsAnalysis
       || facts.requiresContentLocalization
       || facts.requiresEditorialJudgment
+      || facts.requestedCapabilities.length > 0
       || facts.familyDirectives.length > 0
       || !facts.operationFullySpecified
       || !facts.targetFullySpecified;

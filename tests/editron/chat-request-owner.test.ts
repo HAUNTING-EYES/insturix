@@ -484,6 +484,25 @@ describe('chat request owner classification', () => {
     })).toBe('semantic-editorial-planner');
   });
 
+  it('keeps declared capability workflows with the server-owned semantic executor', () => {
+    expect(deriveChatRequestOwner({
+      requestsMutation: true,
+      requestsAnalysis: false,
+      requiresContentLocalization: false,
+      requiresEditorialJudgment: false,
+      requestsReferenceStyle: false,
+      requestsBroadEditorialOutcome: false,
+      durableOperation: 'none',
+      operationFullySpecified: true,
+      targetFullySpecified: true,
+      localizedReads: [],
+      localizedEdits: [],
+      requestedCapabilities: ['html-scene-edit'],
+      familyDirectives: [],
+      familyScopeExclusive: false,
+    })).toBe('semantic-editorial-planner');
+  });
+
   it('keeps explicit editorial-family mutations with the semantic family owner', () => {
     expect(deriveChatRequestOwner({
       requestsMutation: true,

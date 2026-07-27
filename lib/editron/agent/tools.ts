@@ -2098,6 +2098,7 @@ CAPABILITIES:
           id: input.id,
           replacedInPlace: true,
           preserved: ['id', 'from', 'durationInFrames', 'row', 'position', 'styles'],
+          affectedFrameRanges: [overlayMutationFrameRange(overlay)],
           metadata: { fonts: metadata.fonts, colors: metadata.colors.slice(0, 3) },
           message: `Revised HTML scene ${input.id} in place.`,
         });

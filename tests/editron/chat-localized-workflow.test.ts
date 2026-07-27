@@ -440,6 +440,63 @@ describe('server-owned localized chat workflow', () => {
       },
     });
   });
+
+  it('runs a fully specified HTML-scene edit through one server-owned capability workflow', async () => {
+    const classified = await classifyChatRequestOwner({
+      userMessage: 'Change the selected HTML scene heading to How it works.',
+      restoreStatus: 'no-intent',
+      selectedOverlayPresent: true,
+      visualEvidencePresent: false,
+      attachments: [],
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: false,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            localizedReads: [],
+            localizedEdits: [],
+            requestedCapabilities: ['html-scene-edit'],
+            familyDirectives: [],
+          },
+          confidence: 1,
+          reason: 'The selected HTML scene and requested revision are explicit.',
+        }),
+      }),
+    });
+
+    expect(classified.owner).toBe('semantic-editorial-planner');
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: classified,
+      ledger: ledger(),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      operationId: '0:html-scene-edit',
+      toolCall: { name: 'get_timeline_view' },
+    });
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: classified,
+      ledger: ledger(timelineExecution),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toEqual({
+      kind: 'model-call',
+      operationId: '0:html-scene-edit',
+      stepIndex: 1,
+      allowedToolNames: new Set(['edit_html_scene']),
+      instruction: 'Complete html-scene-edit through its licensed family owner.',
+    });
+  });
+
   it('keeps replan-required internal and stops after bounded validated retries', () => {
     const owner = license({
       ...routingFacts([], ['caption-track']),

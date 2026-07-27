@@ -268,7 +268,11 @@ describe('chat Phase 3G operation contracts', () => {
 
     expect(result, JSON.stringify(result)).toMatchObject({
       status: 'success',
-      data: { id: 41, replacedInPlace: true },
+      data: {
+        id: 41,
+        replacedInPlace: true,
+        affectedFrameRanges: [{ startFrame: 120, endFrame: 300 }],
+      },
     });
     expect(update).toHaveBeenCalledTimes(1);
     expect(update).toHaveBeenCalledWith('user_1', 'proj_phase3g', 41, expect.objectContaining({
