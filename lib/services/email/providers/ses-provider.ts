@@ -8,9 +8,10 @@ import {
 
 import { loadMailerConfig, type MailerConfig } from '../config';
 import { RateLimiter } from './rate-limiter';
-import type { MailMessage, MailProvider, Recipient, SendResult, BatchOptions, BatchResult } from '../types';
+import type { MailMessage, MailProvider, Recipient, SendResult, BatchOptions } from '../types';
 
 const SES_UNSUBSCRIBE_PLACEHOLDER = '{{amazonSESUnsubscribeUrl}}';
+const ONE_CLICK_UNSUBSCRIBE_VALUE = 'List-Unsubscribe=One-Click';
 
 function resolveCredentials() {
   if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
@@ -129,7 +130,15 @@ export class SESProvider implements MailProvider {
     const includesUnsubscribePlaceholder = hasUnsubscribePlaceholder(message);
     let fromAddress = this.config.fromAddress;
     let configurationSetName = this.config.transactionalConfigurationSet;
-    let listManagementOptions: SendEmailCommandInput['ListManagementOptions'];
+    let headers: NonNullable<
+      NonNullable<SendEmailCommandInput['Content']>['Simple']
+    >['Headers'];
+
+    if (includesUnsubscribePlaceholder) {
+      throw new Error(
+        `${SES_UNSUBSCRIBE_PLACEHOLDER} is not supported by the custom unsubscribe flow.`
+      );
+    }
 
     if (delivery.stream === 'marketing') {
       const recipientCount =
@@ -144,11 +153,6 @@ export class SESProvider implements MailProvider {
       if (!topicName) {
         throw new Error('Marketing email must include a non-empty topicName.');
       }
-      if (!includesUnsubscribePlaceholder) {
-        throw new Error(
-          `Marketing email must include ${SES_UNSUBSCRIBE_PLACEHOLDER}.`
-        );
-      }
       if (!this.config.marketingFromAddress) {
         throw new Error('AWS_SES_MARKETING_FROM_EMAIL is not configured.');
       }
@@ -157,20 +161,44 @@ export class SESProvider implements MailProvider {
           'AWS_SES_MARKETING_CONFIGURATION_SET is not configured.'
         );
       }
-      if (!this.config.marketingContactListName) {
-        throw new Error('AWS_SES_MARKETING_CONTACT_LIST is not configured.');
+      const unsubscribeUrl = delivery.unsubscribeUrl?.trim();
+      if (!unsubscribeUrl) {
+        throw new Error(
+          'Marketing email must pass the centralized eligibility policy.'
+        );
+      }
+      assertHeaderSafe(unsubscribeUrl, 'Unsubscribe URL');
+
+      let parsedUnsubscribeUrl: URL;
+      try {
+        parsedUnsubscribeUrl = new URL(unsubscribeUrl);
+      } catch {
+        throw new Error('Marketing email has an invalid unsubscribe URL.');
+      }
+      if (parsedUnsubscribeUrl.protocol !== 'https:') {
+        throw new Error('Marketing unsubscribe URL must use HTTPS.');
+      }
+      if (
+        !message.htmlBody?.includes(unsubscribeUrl) &&
+        !message.textBody?.includes(unsubscribeUrl)
+      ) {
+        throw new Error(
+          'Marketing email must include a visible unsubscribe link.'
+        );
       }
 
       fromAddress = this.config.marketingFromAddress;
       configurationSetName = this.config.marketingConfigurationSet;
-      listManagementOptions = {
-        ContactListName: this.config.marketingContactListName,
-        TopicName: topicName,
-      };
-    } else if (includesUnsubscribePlaceholder) {
-      throw new Error(
-        `Transactional email cannot include ${SES_UNSUBSCRIBE_PLACEHOLDER}.`
-      );
+      headers = [
+        {
+          Name: 'List-Unsubscribe',
+          Value: `<${unsubscribeUrl}>`,
+        },
+        {
+          Name: 'List-Unsubscribe-Post',
+          Value: ONE_CLICK_UNSUBSCRIBE_VALUE,
+        },
+      ];
     }
 
     assertHeaderSafe(fromAddress, 'From address');
@@ -204,6 +232,7 @@ export class SESProvider implements MailProvider {
             Charset: 'UTF-8',
           },
           Body: body,
+          Headers: headers,
         },
       },
       ReplyToAddresses: toAddressList(message.replyTo),
@@ -212,7 +241,6 @@ export class SESProvider implements MailProvider {
         email_stream: delivery.stream,
       }),
       ConfigurationSetName: configurationSetName,
-      ListManagementOptions: listManagementOptions,
     };
   }
 
@@ -310,28 +338,6 @@ export class SESProvider implements MailProvider {
         sendNext();
       }
     });
-  }
-
-  async sendBatchManaged(
-    messages: MailMessage[],
-    options: BatchOptions & { onProgress?: (progress: any) => void } = {}
-  ): Promise<BatchResult> {
-    const startTime = Date.now();
-    const results = await this.sendBatch(messages, options);
-    const duration = Date.now() - startTime;
-
-    const successful = results.filter(r => r.success).length;
-    const failed = results.length - successful;
-
-    return {
-      results,
-      summary: {
-        total: results.length,
-        successful,
-        failed,
-        duration,
-      },
-    };
   }
 
   async verifyConfiguration(): Promise<boolean> {

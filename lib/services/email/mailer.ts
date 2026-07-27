@@ -1,49 +1,107 @@
 import { createSESProvider } from './providers/ses-provider';
 import { loadMailerConfig } from './config';
-import type { BatchOptions, MailMessage, MailProvider, Recipient, SendResult, SendTemplateOptions, BatchResult } from './types';
+import {
+  prepareMarketingMessages,
+  type PreparedMailDelivery,
+} from './marketing-policy';
+import type {
+  BatchOptions,
+  BatchProgress,
+  BatchResult,
+  MailMessage,
+  MailProvider,
+  Recipient,
+  SendResult,
+  SendTemplateOptions,
+} from './types';
 import { renderTemplate, type TemplateId, type TemplatePayloads } from './templates';
 
+export type DeliveryPreparer = (
+  messages: MailMessage[]
+) => Promise<PreparedMailDelivery[]>;
+
 export class TransactionalMailer {
-  constructor(private readonly provider: MailProvider) {}
+  constructor(
+    private readonly provider: MailProvider,
+    private readonly prepareDeliveries: DeliveryPreparer =
+      prepareMarketingMessages
+  ) {}
 
   async send(message: MailMessage): Promise<SendResult> {
-    return this.provider.send(message);
+    const [prepared] = await this.prepareDeliveries([message]);
+    if (!prepared) {
+      throw new Error('Email delivery policy returned no result.');
+    }
+    if ('result' in prepared) return prepared.result;
+    return this.provider.send(prepared.message);
   }
 
   async sendBatch(messages: MailMessage[], options?: BatchOptions): Promise<SendResult[]> {
-    if (typeof this.provider.sendBatch === 'function') {
-      return this.provider.sendBatch(messages, options);
+    if (messages.length === 0) return [];
+
+    const prepared = await this.prepareDeliveries(messages);
+    if (prepared.length !== messages.length) {
+      throw new Error('Email delivery policy returned an invalid result count.');
     }
 
-    const results: SendResult[] = [];
-    for (const message of messages) {
-      // Sequential fallback ensures providers without batch support still honour rate limits.
-      const result = await this.send(message);
-      results.push(result);
+    const sendable = prepared.flatMap(item =>
+      'message' in item ? [item.message] : []
+    );
+    let providerResults: SendResult[];
+    if (sendable.length === 0) {
+      providerResults = [];
+    } else if (typeof this.provider.sendBatch === 'function') {
+      providerResults = await this.provider.sendBatch(sendable, options);
+    } else {
+      providerResults = [];
+      for (const sendableMessage of sendable) {
+        providerResults.push(await this.provider.send(sendableMessage));
+      }
     }
-    return results;
+
+    if (providerResults.length !== sendable.length) {
+      throw new Error('Email provider returned an invalid result count.');
+    }
+
+    let providerResultIndex = 0;
+    return prepared.map(item => {
+      if ('result' in item) return item.result;
+      const providerResult = providerResults[providerResultIndex++];
+      if (!providerResult) {
+        throw new Error('Email provider result mapping failed.');
+      }
+      return providerResult;
+    });
   }
 
   async sendBatchManaged(
     messages: MailMessage[],
-    options?: BatchOptions & { onProgress?: (progress: any) => void }
-  ): Promise<BatchResult> {
-    if ('sendBatchManaged' in this.provider && typeof (this.provider as any).sendBatchManaged === 'function') {
-      return (this.provider as any).sendBatchManaged(messages, options);
+    options?: BatchOptions & {
+      onProgress?: (progress: BatchProgress) => void;
     }
-
-    // Fallback: sequential batch without advanced management
+  ): Promise<BatchResult> {
     const startTime = Date.now();
     const results = await this.sendBatch(messages, options);
     const duration = Date.now() - startTime;
     const successful = results.filter(r => r.success).length;
+    const skipped = results.filter(r => r.skipped).length;
+    const failed = results.length - successful - skipped;
+
+    options?.onProgress?.({
+      total: results.length,
+      sent: successful,
+      failed,
+      skipped,
+      inProgress: 0,
+    });
 
     return {
       results,
       summary: {
         total: results.length,
         successful,
-        failed: results.length - successful,
+        failed,
+        skipped,
         duration,
       },
     };
@@ -68,6 +126,7 @@ export class TransactionalMailer {
       cc: options.cc,
       bcc: options.bcc,
       tags: options.tags,
+      delivery: options.delivery,
     };
 
     return this.send(message);
