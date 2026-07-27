@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import { resolveServerOwnedLocalizedWorkflowStep } from '@/lib/editron/agent/chat-localized-workflow';
+import { resolveServerOwnedChatWorkflowStep } from '@/lib/editron/agent/chat-server-workflow';
 import {
   CHAT_TOOL_EVIDENCE_RECEIPT_VERSION,
   type ChatToolEvidenceReceipt,
   type ChatToolTurnLedger,
   type CompletedChatToolExecution,
 } from '@/lib/editron/agent/chat-tool-execution-policy';
-import type {
-  ChatRequestOwnerLicense,
-  ChatRequestRoutingFacts,
+import {
+  classifyChatRequestOwner,
+  type ChatRequestOwnerLicense,
+  type ChatRequestRoutingFacts,
 } from '@/lib/editron/agent/chat-request-owner';
 
 const PROJECT_ID = 'project-1';
@@ -338,6 +340,154 @@ describe('server-owned localized chat workflow', () => {
     })).toMatchObject({
       kind: 'tool-call',
       toolCall: { name: 'get_timeline_view' },
+    });
+  });
+  it('turns classified mixed capabilities into one server-owned operation at a time', async () => {
+    const classified = await classifyChatRequestOwner({
+      userMessage: 'Add clean captions, then remove the words pricing is simple.',
+      restoreStatus: 'no-intent',
+      selectedOverlayPresent: false,
+      visualEvidencePresent: false,
+      attachments: [],
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: true,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: false,
+            localizedReads: [],
+            localizedEdits: [{
+              modality: 'transcript',
+              operation: 'remove',
+              query: 'pricing is simple',
+            }],
+            requestedCapabilities: ['caption-track', 'localized-cut'],
+            familyDirectives: [{ family: 'captions', mode: 'prefer' }],
+          },
+          confidence: 1,
+          reason: 'The user requested two explicit operations in order.',
+        }),
+      }),
+    });
+
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: classified,
+      ledger: ledger(),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      operationId: '0:caption-track',
+      toolCall: { name: 'get_timeline_view' },
+    });
+
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: classified,
+      ledger: ledger(timelineExecution),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toEqual({
+      kind: 'model-call',
+      operationId: '0:caption-track',
+      stepIndex: 1,
+      allowedToolNames: new Set(['add_captions', 'add_fancy_captions']),
+      instruction: 'Complete caption-track through its licensed family owner.',
+    });
+
+    const captions = execution('add_captions', {}, {
+      toolCallId: 'server-workflow:0:caption-track:1:model:0',
+    });
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: classified,
+      ledger: ledger(timelineExecution, captions),
+      projectId: PROJECT_ID,
+      projectRevision: 'revision-2',
+    })).toMatchObject({
+      kind: 'tool-call',
+      operationId: '1:localized-cut',
+      toolCall: { name: 'get_timeline_view' },
+    });
+
+    const refreshedTimeline = execution('get_timeline_view', {
+      granularity: 'detailed',
+    }, {
+      toolCallId: 'server-workflow:1:localized-cut:timeline:0',
+      evidenceReceipts: [receipt(
+        'timeline-state',
+        'get_timeline_view',
+        undefined,
+        'revision-2',
+      )],
+    });
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: classified,
+      ledger: ledger(timelineExecution, captions, refreshedTimeline),
+      projectId: PROJECT_ID,
+      projectRevision: 'revision-2',
+    })).toMatchObject({
+      kind: 'tool-call',
+      operationId: '1:localized-cut',
+      toolCall: {
+        name: 'resolve_transcript_edit',
+        args: { query: 'pricing is simple', action: 'cut_phrase' },
+      },
+    });
+  });
+  it('keeps replan-required internal and stops after bounded validated retries', () => {
+    const owner = license({
+      ...routingFacts([], ['caption-track']),
+      requiresContentLocalization: false,
+      requestedCapabilities: ['caption-track'],
+      familyDirectives: [{ family: 'captions', mode: 'prefer' }],
+      familyScopeExclusive: true,
+    });
+    const refreshedTimeline = execution('get_timeline_view', {
+      granularity: 'detailed',
+    }, {
+      evidenceReceipts: [receipt(
+        'timeline-state',
+        'get_timeline_view',
+        undefined,
+        'revision-2',
+      )],
+    });
+    const replans = Array.from({ length: 3 }, (_, index) => execution('add_captions', {}, {
+      toolCallId: `server-workflow:0:caption-track:1:model:${index}`,
+      outcome: 'replan-required',
+      output: JSON.stringify({
+        status: 'replan-required',
+        data: null,
+        error: null,
+        nextAction: 'retry',
+      }),
+    }));
+
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(refreshedTimeline, replans[0]),
+      projectId: PROJECT_ID,
+      projectRevision: 'revision-2',
+    })).toMatchObject({
+      kind: 'model-call',
+      operationId: '0:caption-track',
+      stepIndex: 1,
+    });
+
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(refreshedTimeline, ...replans),
+      projectId: PROJECT_ID,
+      projectRevision: 'revision-2',
+    })).toEqual({
+      kind: 'halt',
+      message: 'I could not complete caption-track after 3 validated attempts, so I stopped without guessing.',
     });
   });
 });
