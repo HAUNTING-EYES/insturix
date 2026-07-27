@@ -14,6 +14,9 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
 }));
 
 import { createTools } from '@/lib/editron/agent/tools';
+import { buildChatEditRenderVerificationRequest } from '@/lib/editron/agent/chat-ai-edit-transaction-runtime';
+import { enforceChatToolPostcondition } from '@/lib/editron/agent/chat-edit-postconditions';
+import { createChatVisualTools } from '@/lib/editron/agent/chat-visual-tools';
 import { projectService } from '@/lib/editron/services/project-service';
 
 type FixtureProject = {
@@ -156,6 +159,176 @@ describe('chat mechanical tool contracts', () => {
     expect(store.updateOverlay).not.toHaveBeenCalled();
     expect(store.addOverlay).not.toHaveBeenCalled();
     expect(store.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('carries a visual producer mutation window through postconditions into render verification', async () => {
+    const project = makeProject([{
+      id: 3,
+      type: 'video',
+      from: 0,
+      durationInFrames: 180,
+      row: 0,
+      src: 'https://cdn.example.com/source.mp4',
+    }], 180);
+    installProjectStore(project);
+    const beforeProject = structuredClone(project);
+    const args = {
+      videoOverlayId: 3,
+      startFrame: 30,
+      endFrame: 90,
+      targetSpeed: 0.5,
+      allowDialogueSpeedRamp: false,
+    };
+
+    const rawOutput = await toolNamed('apply_speed_ramp').invoke(args);
+    const result = parseEnvelope(rawOutput);
+
+    expect(result).toMatchObject({
+      status: 'success',
+      data: {
+        affectedFrameRanges: [{ startFrame: 30, endFrame: 90 }],
+      },
+    });
+
+    const enforced = enforceChatToolPostcondition({
+      toolName: 'apply_speed_ramp',
+      args,
+      output: rawOutput,
+      beforeProject,
+      afterProject: project,
+    });
+    expect(enforced.verification?.status).toBe('pass');
+
+    const request = buildChatEditRenderVerificationRequest({
+      transaction: {
+        operationId: 'op_visual_mutation_window',
+        sessionId: 'session_visual_mutation_window',
+        projectId: project.projectId,
+        userId: project.userId,
+        beforeCheckpointId: 'checkpoint_before_visual_mutation',
+      },
+      afterCheckpointId: 'checkpoint_after_visual_mutation',
+      project,
+      successfulCalls: [{
+        call: { name: 'apply_speed_ramp', args },
+        result: {
+          toolName: 'apply_speed_ramp',
+          result: enforced.output,
+        },
+      }],
+      requestedAt: '2026-07-28T00:00:00.000Z',
+    });
+
+    expect(request.mutationRanges).toEqual([{
+      startFrame: 30,
+      endFrame: 90,
+      toolName: 'apply_speed_ramp',
+    }]);
+    expect(request.sampleFrames).toEqual([29, 30, 60, 89, 90]);
+  });
+
+  it('reports exact affected windows from every visual mutation producer', async () => {
+    const project = makeProject([
+      {
+        id: 30,
+        type: 'video',
+        assetId: 'asset_video_30',
+        from: 0,
+        durationInFrames: 180,
+        row: 0,
+        left: 0,
+        top: 0,
+        width: 1280,
+        height: 720,
+        styles: {},
+      },
+      {
+        id: 31,
+        type: 'text',
+        from: 20,
+        durationInFrames: 60,
+        row: 3,
+        content: 'Target title',
+      },
+      {
+        id: 32,
+        type: 'image',
+        from: 30,
+        durationInFrames: 70,
+        row: 1,
+        left: 100,
+        top: 100,
+        width: 300,
+        height: 200,
+      },
+      {
+        id: 33,
+        type: 'text',
+        from: 100,
+        durationInFrames: 30,
+        row: 4,
+        content: 'Move me',
+      },
+    ], 180);
+    installProjectStore(project);
+
+    const shake = parseEnvelope(await toolNamed('apply_camera_shake').invoke({
+      videoOverlayId: 30,
+      targetFrame: 40,
+      durationFrames: 10,
+    }));
+    expect(shake.data?.affectedFrameRanges).toEqual([{ startFrame: 40, endFrame: 52 }]);
+
+    const fade = parseEnvelope(await toolNamed('apply_fade').invoke({
+      overlayId: 31,
+      startFrame: 60,
+      endFrame: 75,
+      direction: 'out',
+    }));
+    expect(fade.data?.affectedFrameRanges).toEqual([{ startFrame: 60, endFrame: 75 }]);
+
+    const reorder = parseEnvelope(await toolNamed('reorder_layer').invoke({
+      overlayId: 31,
+      referenceOverlayId: 32,
+      relation: 'behind',
+    }));
+    expect(reorder.data?.affectedFrameRanges).toEqual([{ startFrame: 30, endFrame: 80 }]);
+
+    const retime = parseEnvelope(await toolNamed('move_retime_overlay').invoke({
+      overlayId: 33,
+      startFrame: 140,
+    }));
+    expect(retime.data?.affectedFrameRanges).toEqual([
+      { startFrame: 100, endFrame: 130 },
+      { startFrame: 140, endFrame: 170 },
+    ]);
+
+    const filter = parseEnvelope(await toolNamed('apply_filter').invoke({
+      overlayId: 30,
+      filterIntent: 'warmer',
+    }));
+    expect(filter.data?.affectedFrameRanges).toEqual([{ startFrame: 0, endFrame: 180 }]);
+
+    const reframeDependencies = {
+      loadProject: vi.fn(async () => structuredClone(project) as Record<string, any>),
+      loadAnalyses: vi.fn(async () => []),
+      saveProject: vi.fn(async (_userId: string, _projectId: string, next: Record<string, any>) => {
+        Object.assign(project, structuredClone(next));
+      }),
+      updateProject: vi.fn(async () => {}),
+    };
+    const reframeTool = createChatVisualTools({
+      userId: project.userId,
+      projectId: project.projectId,
+      subjectReframeDependencies: reframeDependencies,
+    }).find((candidate) => candidate.name === 'reframe_project');
+    expect(reframeTool).toBeDefined();
+    const reframe = JSON.parse(await reframeTool!.invoke({ targetAspectRatio: '9:16' })) as {
+      status: string;
+      data?: Record<string, any>;
+    };
+    expect(reframe.status).toBe('success');
+    expect(reframe.data?.affectedFrameRanges).toEqual([{ startFrame: 0, endFrame: 180 }]);
   });
 
   it('copies only requested style properties and reports missing targets', async () => {

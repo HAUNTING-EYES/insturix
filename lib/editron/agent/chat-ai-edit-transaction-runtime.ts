@@ -599,9 +599,12 @@ function buildVerificationSampleFrames(
       }
       continue;
     }
+    const midpoint = Math.round((start + end) / 2);
     frames.push(
       clampFrame(start - 1, durationInFrames),
       start,
+      midpoint,
+      end,
       clampFrame(end + 1, durationInFrames),
     );
   }

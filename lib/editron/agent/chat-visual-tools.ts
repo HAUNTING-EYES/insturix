@@ -871,6 +871,11 @@ This is read-only: it returns local-frame scale keyframes for set_keyframes and 
         if (plan.status !== "changed") {
           return JSON.stringify({ status: "error", message: plan.message, data: plan });
         }
+        const resultData = withAffectedFrameRanges(
+          plan,
+          cameraShakeAffectedFrameRanges(project, plan),
+          "apply_camera_shake",
+        );
 
         for (const update of plan.updates) {
           await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
@@ -878,7 +883,7 @@ This is read-only: it returns local-frame scale keyframes for set_keyframes and 
           } as any);
         }
 
-        return JSON.stringify({ status: "success", data: plan });
+        return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply camera shake." });
       }
@@ -905,6 +910,11 @@ Requires a target frame or high-confidence visual target. Refuses to overwrite e
         if (plan.status !== "changed") {
           return JSON.stringify({ status: "error", message: plan.message, data: plan });
         }
+        const resultData = withAffectedFrameRanges(
+          plan,
+          plan.updates.map(({ startFrame, endFrame }) => ({ startFrame, endFrame })),
+          "apply_speed_ramp",
+        );
 
         for (const update of plan.updates) {
           await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
@@ -913,7 +923,7 @@ Requires a target frame or high-confidence visual target. Refuses to overwrite e
           } as any);
         }
 
-        return JSON.stringify({ status: "success", data: plan });
+        return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply speed ramp." });
       }
@@ -940,6 +950,11 @@ Writes speedCurve plus matching speed keyframes into the existing video speed pa
         if (plan.status !== "changed") {
           return JSON.stringify({ status: "error", message: plan.message, data: plan });
         }
+        const resultData = withAffectedFrameRanges(
+          plan,
+          plan.updates.map(({ startFrame, endFrame }) => ({ startFrame, endFrame })),
+          "apply_fade",
+        );
 
         for (const update of plan.updates) {
           await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
@@ -947,7 +962,7 @@ Writes speedCurve plus matching speed keyframes into the existing video speed pa
           } as any);
         }
 
-        return JSON.stringify({ status: "success", data: plan });
+        return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply fade." });
       }
@@ -974,6 +989,11 @@ Writes opacity keyframes into the existing keyframeTracks path. Refuses sound ov
         if (plan.status !== "changed") {
           return JSON.stringify({ status: "error", message: plan.message, data: plan });
         }
+        const resultData = withAffectedFrameRanges(
+          plan,
+          layerReorderAffectedFrameRanges(project, plan),
+          "reorder_layer",
+        );
 
         for (const update of plan.updates) {
           const numericOverlayId = Number(update.overlayId);
@@ -985,7 +1005,7 @@ Writes opacity keyframes into the existing keyframeTracks path. Refuses sound ov
           } as any);
         }
 
-        return JSON.stringify({ status: "success", data: plan });
+        return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to reorder layer." });
       }
@@ -1012,6 +1032,20 @@ Lower rows render in front for ordinary overlays. This refuses sound, captions, 
         if (plan.status !== "changed") {
           return JSON.stringify({ status: "error", message: plan.message, data: plan });
         }
+        const resultData = withAffectedFrameRanges(
+          plan,
+          plan.updates.flatMap((update) => [
+            {
+              startFrame: update.previousStartFrame,
+              endFrame: update.previousEndFrame,
+            },
+            {
+              startFrame: update.nextStartFrame,
+              endFrame: update.nextEndFrame,
+            },
+          ]),
+          "move_retime_overlay",
+        );
 
         for (const update of plan.updates) {
           const numericOverlayId = Number(update.overlayId);
@@ -1021,7 +1055,7 @@ Lower rows render in front for ordinary overlays. This refuses sound, captions, 
           await projectService.updateOverlay(userId, projectId, numericOverlayId, update.nextUpdates as any);
         }
 
-        return JSON.stringify({ status: "success", data: plan });
+        return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to move or retime overlay." });
       }
@@ -1048,6 +1082,11 @@ Refuses caption/subtitle retiming, transitions, same-row timeline collisions, pr
         if (plan.status !== "changed") {
           return JSON.stringify({ status: "error", message: plan.message, data: plan });
         }
+        const resultData = withAffectedFrameRanges(
+          plan,
+          overlayRangesForIds(project, plan.updates.map((update) => update.overlayId)),
+          "apply_filter",
+        );
 
         for (const update of plan.updates) {
           const numericOverlayId = Number(update.overlayId);
@@ -1059,7 +1098,7 @@ Refuses caption/subtitle retiming, transitions, same-row timeline collisions, pr
           } as any);
         }
 
-        return JSON.stringify({ status: "success", data: plan });
+        return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply filter." });
       }
@@ -1096,10 +1135,17 @@ Writes only overlay.styles.filter, which is already consumed by the renderer. It
           analyses,
           targetAspectRatio: input.targetAspectRatio,
         }, dependencies);
+        const resultData = plan.status === "changed"
+          ? withAffectedFrameRanges(
+              plan,
+              overlayRangesForIds(project, plan.overlayUpdates.map((update) => update.overlayId)),
+              "reframe_project",
+            )
+          : plan;
 
         return JSON.stringify({
           status: plan.status === "changed" ? "success" : "error",
-          data: plan,
+          data: resultData,
           message: plan.message,
         });
       } catch (error: any) {
@@ -3100,6 +3146,84 @@ function overlayFrameRange(overlay: any): FrameRange {
     startFrame,
     endFrame: startFrame + duration(overlay?.durationInFrames),
   };
+}
+
+function withAffectedFrameRanges<T extends object>(
+  data: T,
+  ranges: FrameRange[],
+  owner: string,
+): T & { affectedFrameRanges: FrameRange[] } {
+  const affectedFrameRanges = normalizeAffectedFrameRanges(ranges);
+  if (affectedFrameRanges.length === 0) {
+    throw new Error(`${owner} produced a changed plan without a valid affected frame range.`);
+  }
+  return { ...data, affectedFrameRanges };
+}
+
+function normalizeAffectedFrameRanges(ranges: FrameRange[]): FrameRange[] {
+  const unique = new Map<string, FrameRange>();
+  for (const range of ranges) {
+    const rawStart = Number(range?.startFrame);
+    const rawEnd = Number(range?.endFrame);
+    if (!Number.isFinite(rawStart) || !Number.isFinite(rawEnd)) continue;
+    const startFrame = Math.max(0, Math.round(rawStart));
+    const endFrame = Math.max(0, Math.round(rawEnd));
+    if (endFrame <= startFrame) continue;
+    unique.set(`${startFrame}:${endFrame}`, { startFrame, endFrame });
+  }
+  return Array.from(unique.values()).sort(
+    (left, right) => left.startFrame - right.startFrame || left.endFrame - right.endFrame,
+  );
+}
+
+function overlayRangesForIds(project: any, overlayIds: OverlayId[]): FrameRange[] {
+  const ids = new Set(overlayIds.map((overlayId) => String(overlayId)));
+  const overlays = Array.isArray(project?.overlays) ? project.overlays : [];
+  return overlays
+    .filter((overlay: any) => ids.has(String(overlay?.id)))
+    .map(overlayFrameRange);
+}
+
+function cameraShakeAffectedFrameRanges(project: any, plan: CameraShakePlan): FrameRange[] {
+  const overlays = Array.isArray(project?.overlays) ? project.overlays : [];
+  return plan.updates.flatMap((update) => {
+    const overlay = overlays.find((candidate: any) => String(candidate?.id) === String(update.overlayId));
+    if (!overlay) return [];
+    const shakeFrames = update.nextKeyframeTracks
+      .filter(isCameraShakeTrack)
+      .flatMap((track: any) => (
+        Array.isArray(track?.keyframes)
+          ? track.keyframes.map((keyframe: any) => Number(keyframe?.frame))
+          : []
+      ))
+      .filter(Number.isFinite);
+    if (shakeFrames.length === 0) return [];
+    const overlayStartFrame = frame(overlay.from);
+    return [{
+      startFrame: overlayStartFrame + Math.min(...shakeFrames),
+      endFrame: overlayStartFrame + Math.max(...shakeFrames) + 1,
+    }];
+  });
+}
+
+function layerReorderAffectedFrameRanges(project: any, plan: LayerReorderPlan): FrameRange[] {
+  const overlays = Array.isArray(project?.overlays) ? project.overlays : [];
+  return plan.updates.flatMap((update) => {
+    const target = overlays.find((overlay: any) => String(overlay?.id) === String(update.overlayId));
+    if (!target) return [];
+    const targetRange = overlayFrameRange(target);
+    if (update.referenceOverlayId == null) return [targetRange];
+    const reference = overlays.find(
+      (overlay: any) => String(overlay?.id) === String(update.referenceOverlayId),
+    );
+    if (!reference) return [targetRange];
+    const referenceRange = overlayFrameRange(reference);
+    if (!rangesOverlap(targetRange, referenceRange)) return [targetRange];
+    return [{
+      startFrame: Math.max(targetRange.startFrame, referenceRange.startFrame),
+      endFrame: Math.min(targetRange.endFrame, referenceRange.endFrame),
+    }];
+  });
 }
 
 function findLayerRowCollisions(overlays: any[], target: any, nextRow: number): any[] {
