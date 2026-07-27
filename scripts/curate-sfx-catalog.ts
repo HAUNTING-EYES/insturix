@@ -168,6 +168,18 @@ export function parseSfxCatalogCurationSpec(value: unknown): SfxCatalogCurationS
   );
 }
 
+export function parseSfxCatalogUploadPlan(value: unknown): SfxCatalogUploadPlan {
+  const parsed = uploadPlanSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+
+  throw new SfxCatalogCurationError(
+    'INVALID_SFX_CATALOG_UPLOAD_PLAN',
+    `Invalid SFX catalog upload plan: ${parsed.error.issues
+      .map(issue => `${issue.path.join('.') || 'uploadPlan'}: ${issue.message}`)
+      .join('; ')}`,
+  );
+}
+
 export async function curateSfxCatalog(
   specValue: unknown,
   options: CurateSfxCatalogOptions,
@@ -284,7 +296,7 @@ export async function curateSfxCatalog(
     generatedAt,
     entries,
   });
-  const uploadPlan = uploadPlanSchema.parse({
+  const uploadPlan = parseSfxCatalogUploadPlan({
     version: 'sfx-catalog-upload-plan-v1',
     generatedAt,
     manifestVersion: manifest.version,
@@ -302,7 +314,7 @@ function parseCuratedEntry(entry: SfxCatalogEntry): SfxCatalogEntry {
   }).entries[0];
 }
 
-async function resolveLicensedSourcePath(
+export async function resolveLicensedSourcePath(
   sourceRoot: string,
   sourcePath: string,
   resolveRealPath: (filePath: string) => Promise<string>,
