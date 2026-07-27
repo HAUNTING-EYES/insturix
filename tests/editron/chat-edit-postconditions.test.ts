@@ -12,6 +12,17 @@ const LEGACY_BGM = {
   content: 'https://cdn.example.com/bgm.mp3',
 };
 
+const LEGACY_NATIVE_AUDIO_VIDEO = {
+  id: 'video-legacy-native-audio',
+  type: 'video',
+  row: 0,
+  from: 0,
+  durationInFrames: 300,
+  assetId: 'video-without-native-audio-rights',
+  content: 'https://cdn.example.com/source.mp4',
+  hasNativeAudio: true,
+};
+
 describe('chat edit render-eligibility postconditions', () => {
   it('does not roll back an unrelated cut because the same legacy rights debt already existed', () => {
     const verification = verifyChatToolPostcondition({
@@ -54,6 +65,105 @@ describe('chat edit render-eligibility postconditions', () => {
       afterProject: {
         durationInFrames: 300,
         overlays: [LEGACY_BGM],
+      },
+    });
+
+    expect(verification.status).toBe('fail');
+    expect(verification.renderEligibility).toEqual({
+      inheritedIssues: [],
+      introducedIssues: [{
+        overlayId: 'bgm-legacy',
+        reason: expect.stringContaining('background music has no durable rights receipt'),
+      }],
+    });
+  });
+
+  it('does not blame a new licensed BGM overlay for unchanged native-audio debt on a sibling video', () => {
+    const generatedBgm = {
+      id: 'bgm-generated',
+      type: 'sound',
+      row: 1,
+      from: 0,
+      durationInFrames: 300,
+      assetId: 'generated-bgm',
+      content: 'https://cdn.example.com/generated-bgm.mp3',
+      musicRights: {
+        mediaRole: 'music',
+        source: 'generated',
+        userChoice: 'attested',
+        licensed: true,
+        evidence: {
+          kind: 'generated-provider',
+          sourceAssetId: 'generated-bgm',
+          licenseId: 'test-provider:commercial-use',
+        },
+      },
+    };
+    const verification = verifyChatToolPostcondition({
+      toolName: 'regenerate_bgm',
+      args: { mood: 'calm' },
+      resultData: { overlayId: 'bgm-generated' },
+      beforeProject: {
+        durationInFrames: 300,
+        overlays: [LEGACY_NATIVE_AUDIO_VIDEO],
+      },
+      afterProject: {
+        durationInFrames: 300,
+        overlays: [LEGACY_NATIVE_AUDIO_VIDEO, generatedBgm],
+      },
+    });
+
+    expect(verification.status).toBe('pass');
+    expect(verification.renderEligibility).toEqual({
+      inheritedIssues: [{
+        overlayId: 'video-legacy-native-audio',
+        reason: expect.stringContaining('embedded native audio has no durable rights receipt'),
+      }],
+      introducedIssues: [],
+    });
+    expect(verification.renderVerification).toMatchObject({
+      required: true,
+      modalities: ['audio'],
+    });
+  });
+
+  it('rejects a replacement source that still lacks durable audio rights', () => {
+    const verification = verifyChatToolPostcondition({
+      toolName: 'update_overlay',
+      args: { id: 'bgm-legacy' },
+      resultData: { id: 'bgm-legacy' },
+      beforeProject: {
+        durationInFrames: 300,
+        overlays: [LEGACY_BGM],
+      },
+      afterProject: {
+        durationInFrames: 300,
+        overlays: [{ ...LEGACY_BGM, assetId: 'different-unlicensed-source' }],
+      },
+    });
+
+    expect(verification.status).toBe('fail');
+    expect(verification.renderEligibility).toEqual({
+      inheritedIssues: [],
+      introducedIssues: [{
+        overlayId: 'bgm-legacy',
+        reason: expect.stringContaining('background music has no durable rights receipt'),
+      }],
+    });
+  });
+
+  it('blocks inherited audio debt when a mutation expands its audible exposure', () => {
+    const verification = verifyChatToolPostcondition({
+      toolName: 'update_overlay',
+      args: { id: 'bgm-legacy' },
+      resultData: { id: 'bgm-legacy' },
+      beforeProject: {
+        durationInFrames: 300,
+        overlays: [LEGACY_BGM],
+      },
+      afterProject: {
+        durationInFrames: 450,
+        overlays: [{ ...LEGACY_BGM, durationInFrames: 450 }],
       },
     });
 

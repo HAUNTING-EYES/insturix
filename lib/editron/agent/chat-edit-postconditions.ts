@@ -112,7 +112,6 @@ export function verifyChatToolPostcondition(input: {
   const requestedTargetIds = resolveRequestedTargetIds(contract?.state.kind, input.args, input.resultData);
   const affectedTargets = before && after ? diffOverlayTargets(before.overlays, after.overlays) : [];
   const renderEligibility = classifyAffectedRenderEligibility({
-    affectedTargets,
     before,
     after,
   });
@@ -166,7 +165,6 @@ export function verifyChatToolPostcondition(input: {
 }
 
 function classifyAffectedRenderEligibility(input: {
-  affectedTargets: ChatEditPostconditionTarget[];
   before: ProjectSnapshot | null;
   after: ProjectSnapshot | null;
 }): ChatEditPostconditionVerification['renderEligibility'] {
@@ -174,35 +172,97 @@ function classifyAffectedRenderEligibility(input: {
   const introducedIssues: Array<{ overlayId: string; reason: string }> = [];
   if (!input.after) return { inheritedIssues, introducedIssues };
 
-  for (const target of input.affectedTargets) {
-    if (target.state === 'deleted') continue;
-    const afterIssue = input.after.renderEligibilityIssues.get(target.overlayId);
-    if (!afterIssue) continue;
-    const beforeIssue = input.before?.renderEligibilityIssues.get(target.overlayId);
-    const issue = { overlayId: target.overlayId, reason: afterIssue };
-    const sameEligibilityIdentity = input.before
-      ? renderEligibilityIdentity(input.before.overlays.get(target.overlayId))
-        === renderEligibilityIdentity(input.after.overlays.get(target.overlayId))
+  for (const [overlayId, afterIssue] of input.after.renderEligibilityIssues) {
+    const beforeIssue = input.before?.renderEligibilityIssues.get(overlayId);
+    const beforeOverlay = input.before?.overlays.get(overlayId);
+    const afterOverlay = input.after.overlays.get(overlayId);
+    const issue = { overlayId, reason: afterIssue };
+    const sameProvenance = input.before
+      ? renderEligibilityProvenanceIdentity(beforeOverlay)
+        === renderEligibilityProvenanceIdentity(afterOverlay)
       : false;
-    if (beforeIssue === afterIssue && sameEligibilityIdentity) inheritedIssues.push(issue);
-    else introducedIssues.push(issue);
+    const exposureDidNotExpand = renderEligibilityExposureDidNotExpand(
+      beforeOverlay,
+      afterOverlay,
+    );
+    if (beforeIssue === afterIssue && sameProvenance && exposureDidNotExpand) {
+      inheritedIssues.push(issue);
+    } else {
+      introducedIssues.push(issue);
+    }
   }
   return { inheritedIssues, introducedIssues };
 }
 
-function renderEligibilityIdentity(overlay: JsonRecord | undefined): string {
+function renderEligibilityProvenanceIdentity(overlay: JsonRecord | undefined): string {
   if (!overlay) return 'missing';
   return stableDigest({
     type: overlay.type,
     assetId: overlay.assetId,
-    src: overlay.src,
+    r2Key: overlay.r2Key,
     content: overlay.content,
+    row: overlay.row,
+    mediaRole: overlay.mediaRole,
+    audioRole: overlay.audioRole,
+    hasNativeAudio: overlay.hasNativeAudio,
     audioRights: overlay.audioRights,
     musicRights: overlay.musicRights,
-    styles: overlay.styles,
-    volume: overlay.volume,
-    playbackRate: overlay.playbackRate,
+    generatedVideoReceipt: overlay.generatedVideoReceipt,
   });
+}
+
+function renderEligibilityExposureDidNotExpand(
+  beforeOverlay: JsonRecord | undefined,
+  afterOverlay: JsonRecord | undefined,
+): boolean {
+  if (!beforeOverlay || !afterOverlay) return false;
+  const before = audioExposure(beforeOverlay);
+  const after = audioExposure(afterOverlay);
+  const epsilon = 0.0001;
+  return after.durationFrames <= before.durationFrames + epsilon
+    && after.gain <= before.gain + epsilon
+    && after.sourceStartFrame >= before.sourceStartFrame - epsilon
+    && after.sourceEndFrame <= before.sourceEndFrame + epsilon
+    && after.mixIdentity === before.mixIdentity;
+}
+
+function audioExposure(overlay: JsonRecord): {
+  durationFrames: number;
+  gain: number;
+  sourceStartFrame: number;
+  sourceEndFrame: number;
+  mixIdentity: string;
+} {
+  const styles = asRecord(overlay.styles);
+  const timelineStart = finiteNumber(overlay.audioStartFrame ?? overlay.from) ?? 0;
+  const explicitTimelineEnd = finiteNumber(overlay.audioEndFrame);
+  const durationFrames = explicitTimelineEnd === null
+    ? Math.max(0, finiteNumber(overlay.durationInFrames) ?? 0)
+    : Math.max(0, explicitTimelineEnd - timelineStart);
+  const gain = Math.max(0, finiteNumber(styles.volume ?? overlay.volume) ?? 1);
+  const sourceStartFrame = Math.max(
+    0,
+    finiteNumber(overlay.startFromSound ?? overlay.videoStartTime ?? overlay.sourceStartFrame) ?? 0,
+  );
+  const playbackRate = Math.max(
+    0.0001,
+    finiteNumber(overlay.playbackRate ?? overlay.speed) ?? 1,
+  );
+  return {
+    durationFrames,
+    gain,
+    sourceStartFrame,
+    sourceEndFrame: sourceStartFrame + durationFrames * playbackRate,
+    mixIdentity: stableDigest({
+      duckingConfig: styles.duckingConfig,
+      fadeIn: styles.fadeIn,
+      fadeInDuration: styles.fadeInDuration,
+      fadeOut: styles.fadeOut,
+      fadeOutDuration: styles.fadeOutDuration,
+      audioFadeInDuration: styles.audioFadeInDuration,
+      audioFadeOutDuration: styles.audioFadeOutDuration,
+    }),
+  };
 }
 
 function resolveRenderVerificationModalities(

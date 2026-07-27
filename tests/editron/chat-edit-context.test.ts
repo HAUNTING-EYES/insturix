@@ -10,6 +10,7 @@ import {
 } from '@/lib/editron/agent/chat-edit-context';
 import {
   applyAudioDuckingToProject,
+  buildAudioEditResolutionEnvelope,
   findAudioMomentCandidates,
   resolveAudioEditTiming,
 } from '@/lib/editron/agent/chat-audio-tools';
@@ -1639,6 +1640,66 @@ describe('chat edit context bundle', () => {
       status: 'no-match',
       action: 'add_sfx',
       searchedCandidateCount: 0,
+    });
+  });
+
+  it('preserves audio resolver terminal outcomes instead of reporting safe refusals as errors', () => {
+    const ready = buildAudioEditResolutionEnvelope({
+      status: 'ready',
+      action: 'add_sfx',
+      query: 'first beat',
+      searchedCandidateCount: 1,
+      candidates: [],
+      warnings: [],
+      message: 'Ready.',
+    });
+    const ambiguous = buildAudioEditResolutionEnvelope({
+      status: 'ambiguous',
+      action: 'add_sfx',
+      query: 'a beat',
+      searchedCandidateCount: 2,
+      candidates: [],
+      warnings: ['Two equal candidates.'],
+      message: 'Choose a beat.',
+    });
+    const missing = buildAudioEditResolutionEnvelope({
+      status: 'no-match',
+      action: 'add_sfx',
+      query: 'air horn',
+      searchedCandidateCount: 0,
+      candidates: [],
+      warnings: [],
+      message: 'No match.',
+    });
+    const unsupported = buildAudioEditResolutionEnvelope({
+      status: 'unsupported',
+      action: 'camera_shake',
+      query: 'long silence',
+      searchedCandidateCount: 1,
+      candidates: [],
+      warnings: [],
+      message: 'Not a point-like anchor.',
+    });
+
+    expect(ready).toMatchObject({
+      status: 'success',
+      error: null,
+      nextAction: 'continue',
+    });
+    expect(ambiguous).toMatchObject({
+      status: 'needs-choice',
+      error: null,
+      nextAction: 'ask_clarification',
+    });
+    expect(missing).toMatchObject({
+      status: 'declined',
+      error: null,
+      nextAction: 'stop',
+    });
+    expect(unsupported).toMatchObject({
+      status: 'declined',
+      error: null,
+      nextAction: 'stop',
     });
   });
 

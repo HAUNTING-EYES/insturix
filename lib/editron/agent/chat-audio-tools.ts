@@ -280,11 +280,7 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
         sfxQuery: input.sfxQuery,
       });
 
-      return JSON.stringify({
-        status: resolution.status === "ready" ? "success" : "error",
-        data: resolution,
-        message: resolution.message,
-      });
+      return JSON.stringify(buildAudioEditResolutionEnvelope(resolution));
     },
     {
       name: "resolve_audio_edit",
@@ -340,6 +336,36 @@ This only updates BGM sound overlays. It must not modify SFX, captions, video ti
   );
 
   return [findAudioMoment, resolveAudioEdit, applyAudioDucking];
+}
+
+export function buildAudioEditResolutionEnvelope(resolution: AudioEditResolution) {
+  switch (resolution.status) {
+    case "ready":
+      return {
+        status: "success" as const,
+        data: resolution,
+        error: null,
+        nextAction: "continue" as const,
+        message: resolution.message,
+      };
+    case "ambiguous":
+      return {
+        status: "needs-choice" as const,
+        data: resolution,
+        error: null,
+        nextAction: "ask_clarification" as const,
+        message: resolution.message,
+      };
+    case "no-match":
+    case "unsupported":
+      return {
+        status: "declined" as const,
+        data: resolution,
+        error: null,
+        nextAction: "stop" as const,
+        message: resolution.message,
+      };
+  }
 }
 
 export function resolveAudioEditTiming(
