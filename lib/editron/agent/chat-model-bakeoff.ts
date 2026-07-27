@@ -13,6 +13,7 @@ export interface ChatModelRoutingScore {
   passed: boolean;
   owner: ChatRequestOwnerLicense['owner'];
   semanticWorkflow?: ChatRequestOwnerLicense['semanticWorkflow'];
+  routingFacts?: ChatRequestOwnerLicense['routingFacts'];
   requiredSteps: Array<{
     alternatives: string[];
     reachable: boolean;
@@ -58,6 +59,7 @@ export function scoreChatModelRouting(
     passed: requiredSteps.every((step) => step.reachable) && forbiddenToolLeaks.length === 0,
     owner: license.owner,
     semanticWorkflow: license.semanticWorkflow,
+    routingFacts: license.routingFacts,
     requiredSteps,
     forbiddenToolLeaks,
     licensedTools,

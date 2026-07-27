@@ -60,6 +60,9 @@ describe('chat model bakeoff', () => {
     expect(score.passed).toBe(true);
     expect(score.licensedTools).toContain('regenerate_bgm');
     expect(score.licensedTools).not.toContain('apply_audio_ducking');
+    expect(score.routingFacts?.familyDirectives).toEqual([
+      { family: 'music', mode: 'prefer' },
+    ]);
     expect(fetchImpl).toHaveBeenCalledOnce();
     const request = fetchImpl.mock.calls[0]?.[1];
     expect(request).toBeDefined();
