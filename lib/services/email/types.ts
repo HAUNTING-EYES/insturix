@@ -9,6 +9,15 @@ export type Recipient = string | {
   name?: string;
 };
 
+export type MailDelivery =
+  | {
+      stream: 'transactional';
+    }
+  | {
+      stream: 'marketing';
+      topicName: string;
+    };
+
 export interface MailMessage {
   to: Recipient | Recipient[];
   subject: string;
@@ -18,6 +27,7 @@ export interface MailMessage {
   cc?: Recipient[];
   bcc?: Recipient[];
   tags?: Record<string, string>;
+  delivery?: MailDelivery;
 }
 
 export interface SendResult {

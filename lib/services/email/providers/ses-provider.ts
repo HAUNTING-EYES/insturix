@@ -1,35 +1,51 @@
 import { env } from 'node:process';
 import {
-  SESClient,
+  SESv2Client,
   SendEmailCommand,
   type SendEmailCommandInput,
-  SESServiceException,
-} from '@aws-sdk/client-ses';
+  SESv2ServiceException,
+} from '@aws-sdk/client-sesv2';
 
 import { loadMailerConfig, type MailerConfig } from '../config';
 import { RateLimiter } from './rate-limiter';
 import type { MailMessage, MailProvider, Recipient, SendResult, BatchOptions, BatchResult } from '../types';
+
+const SES_UNSUBSCRIBE_PLACEHOLDER = '{{amazonSESUnsubscribeUrl}}';
 
 function resolveCredentials() {
   if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
     return {
       accessKeyId: env.AWS_ACCESS_KEY_ID,
       secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+      ...(env.AWS_SESSION_TOKEN ? { sessionToken: env.AWS_SESSION_TOKEN } : {}),
     };
   }
   return undefined;
 }
 
+function assertHeaderSafe(value: string, field: string): void {
+  if (/[\r\n]/.test(value)) {
+    throw new Error(`${field} cannot contain line breaks.`);
+  }
+}
+
 function formatRecipient(recipient: Recipient): string {
   if (typeof recipient === 'string') {
-    return recipient;
+    const value = recipient.trim();
+    assertHeaderSafe(value, 'Recipient');
+    return value;
   }
+
+  const email = recipient.email.trim();
+  assertHeaderSafe(email, 'Recipient email');
 
   if (recipient.name) {
-    return `${recipient.name} <${recipient.email}>`;
+    const name = recipient.name.trim();
+    assertHeaderSafe(name, 'Recipient name');
+    return `${name} <${email}>`;
   }
 
-  return recipient.email;
+  return email;
 }
 
 function toAddressList(value?: Recipient | Recipient[]): string[] | undefined {
@@ -47,11 +63,23 @@ function toTags(tags?: Record<string, string>) {
 }
 
 function isRetryable(error: unknown): boolean {
-  if (error instanceof SESServiceException) {
-    const retryable = ['Throttling', 'TooManyRequests', 'ServiceUnavailable', 'RequestTimeout'];
+  if (error instanceof SESv2ServiceException) {
+    const retryable = [
+      'ThrottlingException',
+      'TooManyRequestsException',
+      'ServiceUnavailableException',
+      'RequestTimeout',
+    ];
     return retryable.includes(error.name) || error.$metadata?.httpStatusCode === 429;
   }
   return false;
+}
+
+function hasUnsubscribePlaceholder(message: MailMessage): boolean {
+  return Boolean(
+    message.htmlBody?.includes(SES_UNSUBSCRIBE_PLACEHOLDER) ||
+      message.textBody?.includes(SES_UNSUBSCRIBE_PLACEHOLDER)
+  );
 }
 
 async function delay(ms: number) {
@@ -62,15 +90,15 @@ async function delay(ms: number) {
 
 export class SESProvider implements MailProvider {
   private readonly config: MailerConfig;
-  private readonly client: SESClient;
+  private readonly client: SESv2Client;
   private readonly rateLimiter: RateLimiter;
 
   constructor(config: MailerConfig = loadMailerConfig()) {
     this.config = config;
-    this.client = new SESClient({
+    this.client = new SESv2Client({
       region: config.region,
       credentials: resolveCredentials(),
-      maxAttempts: config.maxRetries,
+      maxAttempts: 1,
     });
     this.rateLimiter = new RateLimiter(config.maxRatePerSecond);
   }
@@ -82,6 +110,10 @@ export class SESProvider implements MailProvider {
     if (!htmlBody && !textBody) {
       throw new Error('Email payload must include htmlBody or textBody.');
     }
+    if (!message.subject.trim()) {
+      throw new Error('Email payload must include a subject.');
+    }
+    assertHeaderSafe(message.subject, 'Email subject');
 
     const destination = {
       ToAddresses: toAddressList(message.to) ?? [],
@@ -93,8 +125,62 @@ export class SESProvider implements MailProvider {
       throw new Error('Email payload must include at least one recipient.');
     }
 
-  type EmailBody = NonNullable<SendEmailCommandInput['Message']>['Body'];
-  const body: EmailBody = {};
+    const delivery = message.delivery ?? { stream: 'transactional' as const };
+    const includesUnsubscribePlaceholder = hasUnsubscribePlaceholder(message);
+    let fromAddress = this.config.fromAddress;
+    let configurationSetName = this.config.transactionalConfigurationSet;
+    let listManagementOptions: SendEmailCommandInput['ListManagementOptions'];
+
+    if (delivery.stream === 'marketing') {
+      const recipientCount =
+        destination.ToAddresses.length +
+        (destination.CcAddresses?.length ?? 0) +
+        (destination.BccAddresses?.length ?? 0);
+      if (recipientCount !== 1) {
+        throw new Error('Marketing email must have exactly one recipient.');
+      }
+
+      const topicName = delivery.topicName.trim();
+      if (!topicName) {
+        throw new Error('Marketing email must include a non-empty topicName.');
+      }
+      if (!includesUnsubscribePlaceholder) {
+        throw new Error(
+          `Marketing email must include ${SES_UNSUBSCRIBE_PLACEHOLDER}.`
+        );
+      }
+      if (!this.config.marketingFromAddress) {
+        throw new Error('AWS_SES_MARKETING_FROM_EMAIL is not configured.');
+      }
+      if (!this.config.marketingConfigurationSet) {
+        throw new Error(
+          'AWS_SES_MARKETING_CONFIGURATION_SET is not configured.'
+        );
+      }
+      if (!this.config.marketingContactListName) {
+        throw new Error('AWS_SES_MARKETING_CONTACT_LIST is not configured.');
+      }
+
+      fromAddress = this.config.marketingFromAddress;
+      configurationSetName = this.config.marketingConfigurationSet;
+      listManagementOptions = {
+        ContactListName: this.config.marketingContactListName,
+        TopicName: topicName,
+      };
+    } else if (includesUnsubscribePlaceholder) {
+      throw new Error(
+        `Transactional email cannot include ${SES_UNSUBSCRIBE_PLACEHOLDER}.`
+      );
+    }
+
+    assertHeaderSafe(fromAddress, 'From address');
+
+    type EmailBody = NonNullable<
+      NonNullable<
+        NonNullable<SendEmailCommandInput['Content']>['Simple']
+      >['Body']
+    >;
+    const body: EmailBody = {};
     if (htmlBody) {
       body.Html = {
         Data: htmlBody,
@@ -109,17 +195,24 @@ export class SESProvider implements MailProvider {
     }
 
     return {
-      Source: this.config.fromAddress,
+      FromEmailAddress: fromAddress,
       Destination: destination,
-      Message: {
-        Subject: {
-          Data: message.subject,
-          Charset: 'UTF-8',
+      Content: {
+        Simple: {
+          Subject: {
+            Data: message.subject,
+            Charset: 'UTF-8',
+          },
+          Body: body,
         },
-        Body: body,
       },
       ReplyToAddresses: toAddressList(message.replyTo),
-      Tags: toTags(message.tags),
+      EmailTags: toTags({
+        ...message.tags,
+        email_stream: delivery.stream,
+      }),
+      ConfigurationSetName: configurationSetName,
+      ListManagementOptions: listManagementOptions,
     };
   }
 
@@ -251,13 +344,16 @@ export class SESProvider implements MailProvider {
   }
 
   async verifyConfiguration(): Promise<boolean> {
-    if (!env.AWS_ACCESS_KEY_ID || !env.AWS_SECRET_ACCESS_KEY) {
+    if (!this.config.fromAddress.trim() || !this.config.region.trim()) {
       return false;
     }
-    if (!this.config.fromAddress) {
+
+    try {
+      await this.client.config.credentials();
+      return true;
+    } catch {
       return false;
     }
-    return true;
   }
 }
 
