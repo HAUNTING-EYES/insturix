@@ -318,15 +318,18 @@ provider identity, license identity, and attribution requirements. Silence remai
 6. P7E (done): metadata-first FSD50K harvest. Pin the official version/checksums, retain the
    complete CC0 rights-eligible pool, preserve per-clip and dataset provenance, and report
    provisional role signals and gaps. Do not download the 24.7 GB audio archive in this phase.
-7. P7F (in progress; P7F1 done): P7F1 deterministically samples a role-balanced, risk-free subset
+7. P7F (in progress; P7F1 and conditioning gate done): P7F1 deterministically samples a
+   role-balanced, risk-free subset
    backed by FSD50K ground-truth labels, re-verifies each source as CC0 through the Freesound API,
-   downloads HQ screening audio, and runs the production controlled-ingest acoustic gate. The
-   2026-07-28 real run selected 35 sources, retained 14 measured files (2.67 MB), and rejected 21
-   at the final `-1 dBTP` peak ceiling; every retained file matched its receipt hash and rights ID.
-   Because catalog review already conditions hot sources before publication, P7F2 must distinguish
-   conditionable source peaks from irrecoverable acoustic rejection before embedding/classifier
-   analysis, near-duplicate clustering, and representative ranking. The sample remains explicitly
-   non-publishable. Human review applies to representatives, not every source clip.
+   downloads HQ screening audio, and runs the production controlled-ingest acoustic gate. The first
+   2026-07-28 real run selected 35 sources, retained 14 measured files, and exposed that raw provider
+   peaks were being tested against the final `-1 dBTP` delivery ceiling before conditioning. The
+   controlled ingest now decodes and conditions each recoverable source before enforcing final
+   acoustic quality. A fresh battle run accepted all 35 conditioned sources across seven roles:
+   every artifact is a 48 kHz WAV, every peak is at or below `-1 dBTP`, and every file matches its
+   receipt hash and CC0 rights ID. The sample remains explicitly non-publishable. P7F still requires
+   pinned audio-embedding/classifier analysis, near-duplicate clustering, and representative
+   ranking. Human review applies to representatives, not every source clip.
 8. P7G: publish the approved catalog to controlled storage, add a rights-cleared provider lane and
    CassetteAI generated fallback, then run a rendered transition/MG/SFX canary.
 

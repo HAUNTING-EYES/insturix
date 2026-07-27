@@ -27,7 +27,9 @@ import {
   type SfxCatalogSelectionReport,
 } from '@/lib/pipeline/sfx-catalog';
 import {
+  conditionSfxCatalogAsset,
   inspectEncodedSfxAudio,
+  type ConditionSfxCatalogAssetResult,
   type EncodedSfxInspection,
 } from '@/lib/pipeline/audio-conditioning';
 import {
@@ -158,6 +160,7 @@ interface FreesoundSfxIngestDependencies {
   upload?: typeof uploadMedia;
   persist?: (record: PersistedFreesoundSfx) => Promise<void>;
   cleanupUpload?: (upload: UploadResult) => Promise<void>;
+  conditionAudio?: typeof conditionSfxCatalogAsset;
   inspectAudio?: typeof inspectEncodedSfxAudio;
 }
 
@@ -397,22 +400,27 @@ export async function ingestFreesoundSfxById(
       422,
     );
   }
-  const measurement = await inspectAndValidateSfxAudio(
+  const conditioned = await conditionControlledSfxAudio(
     buffer,
-    dependencies.inspectAudio ?? inspectEncodedSfxAudio,
+    dependencies.conditionAudio ?? conditionSfxCatalogAsset,
+  );
+  const conditionedBuffer = conditioned.buffer;
+  const measurement = await inspectAndValidateSfxAudio(
+    conditionedBuffer,
+    dependencies.inspectAudio ?? (async () => conditioned.output),
   );
   const measuredDurationSec = measurement.durationMs / 1000;
 
   const assetId = `sfx_fs_${canonicalProviderAssetId}_${nanoid(8)}`;
-  const filename = `${assetId}.${detectedType.ext}`;
+  const filename = `${assetId}.${conditioned.filenameExtension}`;
   const upload = dependencies.upload ?? uploadMedia;
   let uploadResult: UploadResult;
   try {
     uploadResult = await upload(
-      buffer,
+      conditionedBuffer,
       userId,
       filename,
-      detectedType.mime,
+      conditioned.contentType,
       { customAssetId: assetId },
     );
   } catch {
@@ -447,7 +455,7 @@ export async function ingestFreesoundSfxById(
         ? metadata.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 32)
         : [],
       filename,
-      bufferSize: buffer.length,
+      bufferSize: conditionedBuffer.length,
       upload: uploadResult,
       audioRights,
       measurement,
@@ -1021,6 +1029,36 @@ export function audioDescriptionToSearchQuery(audioDescription: string): string 
  */
 export function isSFXLibraryAvailable(): boolean {
   return BUNDLED_SFX_CATALOG.entries.length > 0 || Boolean(process.env.FREESOUND_API_KEY?.trim());
+}
+
+async function conditionControlledSfxAudio(
+  buffer: Buffer,
+  conditionAudio: typeof conditionSfxCatalogAsset,
+): Promise<ConditionSfxCatalogAssetResult> {
+  try {
+    return await conditionAudio(buffer);
+  } catch (error) {
+    const code = isRecord(error) ? stringValue(error.code) : undefined;
+    if (code === 'AUDIO_SILENT') {
+      throw new SfxLibraryIngestError(
+        'SFX_AUDIO_SILENT',
+        'The selected sound is silent or below the catalog loudness floor',
+        422,
+      );
+    }
+    if (code === 'TRUE_PEAK_EXCEEDED') {
+      throw new SfxLibraryIngestError(
+        'SFX_AUDIO_CLIPPING',
+        'The selected sound could not be conditioned below the catalog peak ceiling',
+        422,
+      );
+    }
+    throw new SfxLibraryIngestError(
+      'SFX_INVALID_AUDIO',
+      'The selected sound could not be decoded and conditioned',
+      422,
+    );
+  }
 }
 
 async function inspectAndValidateSfxAudio(

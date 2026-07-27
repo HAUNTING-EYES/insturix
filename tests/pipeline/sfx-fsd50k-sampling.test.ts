@@ -87,7 +87,11 @@ describe('FSD50K audio sampling', () => {
       maxTotal: 1,
       seed: 'receipt-test',
     });
-    const audioBytes = Buffer.from([0xff, 0xfb, 0x90, 0x64, 0, 0, 0, 0]);
+    const audioBytes = Buffer.from([
+      0x52, 0x49, 0x46, 0x46,
+      0x00, 0x00, 0x00, 0x00,
+      0x57, 0x41, 0x56, 0x45,
+    ]);
     const measurement = {
       version: 'sfx-acoustic-measurement-v1' as const,
       algorithm: 'ffmpeg-ebur128-v1' as const,
@@ -109,8 +113,8 @@ describe('FSD50K audio sampling', () => {
       const upload = await dependencies.upload!(
         audioBytes,
         userId,
-        `source-${providerAssetId}.mp3`,
-        'audio/mpeg',
+        `source-${providerAssetId}.wav`,
+        'audio/wav',
         { customAssetId: `sfx_fs_${providerAssetId}_test` },
       );
       const audioRights = {
@@ -131,7 +135,7 @@ describe('FSD50K audio sampling', () => {
         title: 'Bell',
         durationSec: 3,
         tags: ['bell', 'shimmer'],
-        filename: `source-${providerAssetId}.mp3`,
+        filename: `source-${providerAssetId}.wav`,
         bufferSize: audioBytes.length,
         upload,
         audioRights,
@@ -170,7 +174,7 @@ describe('FSD50K audio sampling', () => {
       productionCatalogMutationAllowed: false,
       providerLicenseReverified: true,
     });
-    await expect(readFile(path.join(outputDirectory, 'audio', '221.mp3')))
+    await expect(readFile(path.join(outputDirectory, 'audio', '221.wav')))
       .resolves.toEqual(audioBytes);
     const storedReport = JSON.parse(
       await readFile(path.join(outputDirectory, 'sample-report.json'), 'utf8'),

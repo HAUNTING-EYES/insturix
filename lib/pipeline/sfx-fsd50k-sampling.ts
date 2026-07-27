@@ -546,9 +546,10 @@ function boundedInteger(value: number, min: number, max: number, name: string): 
   return value;
 }
 
-function extensionForAudioContentType(contentType: string): 'mp3' | 'ogg' {
+function extensionForAudioContentType(contentType: string): 'mp3' | 'ogg' | 'wav' {
   if (contentType === 'audio/mpeg') return 'mp3';
   if (contentType === 'audio/ogg' || contentType === 'application/ogg') return 'ogg';
+  if (contentType === 'audio/wav' || contentType === 'audio/x-wav') return 'wav';
   throw new Fsd50kSamplingError(
     'UNSUPPORTED_SAMPLE_CONTENT_TYPE',
     `Unsupported Freesound screening content type: ${contentType}`,

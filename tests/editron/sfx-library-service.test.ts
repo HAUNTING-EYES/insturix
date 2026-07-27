@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => {
   const collection = vi.fn(() => ({ updateOne }));
   return {
     collection,
+    conditionSfxCatalogAsset: vi.fn(),
     inspectEncodedSfxAudio: vi.fn(),
     updateOne,
     uploadMedia: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock('@/lib/editron/services/upload-service', () => ({
 }));
 
 vi.mock('@/lib/pipeline/audio-conditioning', () => ({
+  conditionSfxCatalogAsset: mocks.conditionSfxCatalogAsset,
   inspectEncodedSfxAudio: mocks.inspectEncodedSfxAudio,
 }));
 
@@ -698,6 +700,12 @@ describe('controlled Freesound SFX ingest', () => {
     0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00,
   ]);
+  const conditionedAudioBytes = Buffer.from([
+    0x52, 0x49, 0x46, 0x46,
+    0x00, 0x00, 0x00, 0x00,
+    0x57, 0x41, 0x56, 0x45,
+    0x66, 0x6d, 0x74, 0x20,
+  ]);
 
   function detailResponse(overrides: Record<string, unknown> = {}): Response {
     return new Response(JSON.stringify({
@@ -723,20 +731,30 @@ describe('controlled Freesound SFX ingest', () => {
       gcsPath: null,
       r2Key: 'sfx_fs_90210_selected',
       urlExpiresAt: null,
-      size: audioBytes.length,
-      contentType: 'audio/mpeg',
+      size: conditionedAudioBytes.length,
+      contentType: 'audio/wav',
     };
   }
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.inspectEncodedSfxAudio.mockResolvedValue({
+    const inspection = {
       durationMs: 760,
       sampleRate: 48_000,
       channels: 2,
       loudness: { metric: 'integrated-lufs', valueDb: -18 },
       truePeakDbtp: -3,
       clippingRisk: false,
+    };
+    mocks.inspectEncodedSfxAudio.mockResolvedValue(inspection);
+    mocks.conditionSfxCatalogAsset.mockResolvedValue({
+      buffer: conditionedAudioBytes,
+      contentType: 'audio/wav',
+      filenameExtension: 'wav',
+      gainDb: 0,
+      targetTruePeakDbtp: -1,
+      source: inspection,
+      output: inspection,
     });
   });
 
@@ -772,17 +790,19 @@ describe('controlled Freesound SFX ingest', () => {
     expect(fetchImpl.mock.calls[0][1]).toEqual(expect.objectContaining({
       headers: { Authorization: 'Token server-only-key' },
     }));
+    expect(mocks.conditionSfxCatalogAsset).toHaveBeenCalledWith(audioBytes);
     expect(upload).toHaveBeenCalledWith(
-      audioBytes,
+      conditionedAudioBytes,
       'user-1',
-      expect.stringMatching(/^sfx_fs_90210_[A-Za-z0-9_-]+\.mp3$/),
-      'audio/mpeg',
+      expect.stringMatching(/^sfx_fs_90210_[A-Za-z0-9_-]+\.wav$/),
+      'audio/wav',
       { customAssetId: expect.stringMatching(/^sfx_fs_90210_[A-Za-z0-9_-]+$/) },
     );
     expect(persist).toHaveBeenCalledWith(expect.objectContaining({
       userId: 'user-1',
       providerAssetId: '90210',
       provider: 'freesound',
+      bufferSize: conditionedAudioBytes.length,
       measurement: expect.objectContaining({
         version: 'sfx-acoustic-measurement-v1',
         algorithm: 'ffmpeg-ebur128-v1',
@@ -819,14 +839,77 @@ describe('controlled Freesound SFX ingest', () => {
     }));
   });
 
+  it('conditions a recoverably hot source before enforcing the final peak ceiling', async () => {
+    const hotSource = {
+      durationMs: 800,
+      sampleRate: 44_100,
+      channels: 2,
+      loudness: { metric: 'integrated-lufs' as const, valueDb: -10 },
+      truePeakDbtp: -0.1,
+      clippingRisk: true,
+    };
+    const conditionedOutput = {
+      ...hotSource,
+      sampleRate: 48_000,
+      truePeakDbtp: -1.2,
+      clippingRisk: false,
+    };
+    mocks.conditionSfxCatalogAsset.mockResolvedValue({
+      buffer: conditionedAudioBytes,
+      contentType: 'audio/wav',
+      filenameExtension: 'wav',
+      gainDb: -1.1,
+      targetTruePeakDbtp: -1,
+      source: hotSource,
+      output: conditionedOutput,
+    });
+    const fetchImpl = vi.fn(async (input: string | URL | Request) =>
+      String(input).includes('/apiv2/sounds/')
+        ? detailResponse()
+        : new Response(audioBytes, {
+            status: 200,
+            headers: { 'content-type': 'audio/mpeg' },
+          }));
+    const upload = vi.fn(async () => uploadResult());
+
+    const result = await ingestFreesoundSfxById('90210', 'user-1', {
+      apiKey: 'server-only-key',
+      fetchImpl: fetchImpl as typeof fetch,
+      upload,
+      persist: vi.fn(async () => undefined),
+    });
+
+    expect(result.measurement).toMatchObject({
+      truePeakDbtp: -1.2,
+      sampleRateHz: 48_000,
+    });
+    expect(upload).toHaveBeenCalledWith(
+      conditionedAudioBytes,
+      'user-1',
+      expect.stringMatching(/\.wav$/),
+      'audio/wav',
+      expect.any(Object),
+    );
+  });
+
   it('keeps a fractional sub-400ms RMS receipt below the integrated-LUFS boundary', async () => {
-    mocks.inspectEncodedSfxAudio.mockResolvedValue({
+    const shortInspection = {
       durationMs: 399.6,
       sampleRate: 48_000,
       channels: 1,
       loudness: { metric: 'rms-dbfs', valueDb: -18 },
       truePeakDbtp: -3,
       clippingRisk: false,
+    };
+    mocks.inspectEncodedSfxAudio.mockResolvedValue(shortInspection);
+    mocks.conditionSfxCatalogAsset.mockResolvedValue({
+      buffer: conditionedAudioBytes,
+      contentType: 'audio/wav',
+      filenameExtension: 'wav',
+      gainDb: 0,
+      targetTruePeakDbtp: -1,
+      source: shortInspection,
+      output: shortInspection,
     });
     const fetchImpl = vi.fn(async (input: string | URL | Request) =>
       String(input).includes('/apiv2/sounds/')
