@@ -23,6 +23,8 @@ import {
   createProjectFromMediaUploadBatch,
   uploadMediaFiles,
 } from '@/components/editron/editor/version-7.0.0/utils/media-upload';
+import type { EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
+import type { NativeVideoAudioRightsAttestation } from '@/lib/editron/services/native-video-audio-rights';
 
 /** Auto-edit config from the dialog. Forwarded verbatim to /auto-edit/from-asset,
     which already reads these fields (they were previously dropped here). */
@@ -31,6 +33,8 @@ export interface FootageAutoEditOptions {
   platform?: string;
   userIntent?: string;
   script?: string;
+  editorialPreferences?: EditorialPreferences;
+  sourceMediaRightsAttestation?: NativeVideoAudioRightsAttestation;
   captionStyle?: string;
   transitionPreference?: string;
   zoomBehavior?: string;
@@ -60,6 +64,10 @@ export function useFootageAutoEdit(): FootageAutoEditState {
     setRunning(true);
     setError(null);
     try {
+      const { sourceMediaRightsAttestation, ...editOptions } = options;
+      if (!sourceMediaRightsAttestation) {
+        throw new Error('Confirm that you own or have permission to use the uploaded media.');
+      }
       const wantsProxy = shouldCompress(file);
       let uploadFile = file;
       let useProxy = false;
@@ -105,6 +113,7 @@ export function useFootageAutoEdit(): FootageAutoEditState {
           assetId, gcsPath: null, readUrl,
           readUrlExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
           filename: file.name, contentType: file.type, size: file.size, type: mediaType,
+          sourceMediaRightsAttestation,
           ...(useProxy && { isProxy: true }),
           ...(videoDuration > 0 && { duration: String(videoDuration) }),
         }),
@@ -122,7 +131,7 @@ export function useFootageAutoEdit(): FootageAutoEditState {
           assetId,
           title: file.name.replace(/\.[^.]+$/, ''),
           brandId: getActiveBrandIdFromStorage(),
-          ...options, // aspectRatio/platform/captions/pacing/… from the dialog
+          ...editOptions,
         }),
       });
       if (!editRes.ok) {
@@ -174,6 +183,13 @@ export function useFootageAutoEdit(): FootageAutoEditState {
   }, [router, toast]);
 
   const runMany = useCallback(async (files: File[], options: FootageAutoEditOptions = {}) => {
+    const { sourceMediaRightsAttestation, ...editOptions } = options;
+    if (!sourceMediaRightsAttestation) {
+      const msg = 'Confirm that you own or have permission to use the uploaded media.';
+      setError(msg);
+      toast({ variant: 'destructive', title: 'Rights confirmation required', description: msg });
+      return;
+    }
     const selectedFiles = files.filter((file) => file.type.startsWith('video/') || file.type.startsWith('image/'));
     if (selectedFiles.length === 0) {
       const msg = 'Select at least one video or image file.';
@@ -193,7 +209,10 @@ export function useFootageAutoEdit(): FootageAutoEditState {
     setProgress(`Uploading ${selectedFiles.length} files...`);
 
     try {
-      const result = await uploadMediaFiles(selectedFiles, { uploadBatchIntake: options });
+      const result = await uploadMediaFiles(selectedFiles, {
+        uploadBatchIntake: editOptions,
+        sourceMediaRightsAttestation,
+      });
       const uploadedCount = result.uploaded.length;
       if (uploadedCount === 0) {
         const firstError = result.failed[0]?.error || 'No files uploaded.';
@@ -204,8 +223,8 @@ export function useFootageAutoEdit(): FootageAutoEditState {
       // The browser can navigate away immediately without orphaning the edit.
       setProgress('Starting durable multi-source analysis...');
       const batchProject = await createProjectFromMediaUploadBatch(result.uploadBatchId, {
-        ...options,
-        title: options.userIntent || result.uploaded[0]?.filename?.replace(/\.[^.]+$/, ''),
+        ...editOptions,
+        title: editOptions.userIntent || result.uploaded[0]?.filename?.replace(/\.[^.]+$/, ''),
         brandId: getActiveBrandIdFromStorage(),
       });
       toast({

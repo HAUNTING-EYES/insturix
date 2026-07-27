@@ -270,6 +270,7 @@ export default function ProjectDashboard() {
           assetId, gcsPath: null, readUrl,
           readUrlExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
           filename: file.name, contentType: file.type, size: file.size, type: mediaType,
+          sourceMediaRightsAttestation: options.sourceMediaRightsAttestation,
           ...(useProxy && { isProxy: true }),
           ...(videoDuration > 0 && { duration: String(videoDuration) }),
         }),

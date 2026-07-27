@@ -10,6 +10,9 @@
  * Also provides helpers for thumbnails, duration, and dimensions.
  */
 
+import type { EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
+import type { NativeVideoAudioRightsAttestation } from '@/lib/editron/services/native-video-audio-rights';
+
 export interface UploadedMedia {
   assetId: string;
   url: string;
@@ -33,12 +36,14 @@ export interface UploadMediaBatchIntake {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
+  editorialPreferences?: EditorialPreferences;
 }
 
 export interface UploadMediaFileOptions {
   projectId?: string;
   uploadBatchId?: string;
   uploadBatchIntake?: UploadMediaBatchIntake;
+  sourceMediaRightsAttestation?: NativeVideoAudioRightsAttestation;
 }
 
 export interface UploadMediaBatchResult {
@@ -198,6 +203,7 @@ export const uploadMediaFile = async (
     projectId: options.projectId,
     uploadBatchId: options.uploadBatchId,
     uploadBatchIntake: options.uploadBatchIntake,
+    sourceMediaRightsAttestation: options.sourceMediaRightsAttestation,
     thumbnail: thumbnailDataUrl || undefined,
     duration,
     dimensions,
@@ -342,6 +348,7 @@ async function registerAssetMetadata(meta: {
   projectId?: string;
   uploadBatchId?: string;
   uploadBatchIntake?: UploadMediaBatchIntake;
+  sourceMediaRightsAttestation?: NativeVideoAudioRightsAttestation;
   thumbnail?: string;
   duration?: number;
   dimensions?: { width: number; height: number };
