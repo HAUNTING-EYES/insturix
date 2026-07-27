@@ -132,6 +132,7 @@ async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepR
         ...(job.voiceId ? { voice: job.voiceId } : {}),
         language: 'en',
         contentType: 'dialogue',
+        mediaRole: 'dubbing',
       });
       generatedThisStep.push(voice.audioAssetId);
       const targetDurationMs = ((phrase.timelineEndFrame - phrase.timelineStartFrame) / job.fps) * 1000;
@@ -146,6 +147,8 @@ async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepR
       phrase.voiceUrl = voice.audioUrl;
       phrase.voiceDurationMs = voice.durationMs;
       phrase.playbackRate = round(playbackRate, 4);
+      phrase.voiceAudioRights = voice.audioRights;
+      phrase.generatedAudioReceipt = voice.generatedAudioReceipt;
       generatedAssetIds.push(voice.audioAssetId);
     }
   } catch (error) {
@@ -169,8 +172,21 @@ async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepR
 async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult> {
   const phrases = job.progress.phrases ?? [];
   const background = job.progress.background;
-  if (!background || phrases.length === 0 || phrases.some((phrase) => !phrase.voiceAssetId || !phrase.voiceUrl || !phrase.playbackRate)) {
-    throw new TerminalDubbingError('incomplete-dubbing-assets', 'All phrase audio and the background stem are required before commit.');
+  if (
+    !background
+    || phrases.length === 0
+    || phrases.some((phrase) =>
+      !phrase.voiceAssetId
+      || !phrase.voiceUrl
+      || !phrase.playbackRate
+      || !phrase.voiceAudioRights
+      || !phrase.generatedAudioReceipt
+    )
+  ) {
+    throw new TerminalDubbingError(
+      'incomplete-dubbing-assets',
+      'All phrase audio, generated-audio provenance, and the background stem are required before commit.',
+    );
   }
   const db = await getDatabase();
   const project = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId: job.projectId, userId: job.userId });
@@ -210,6 +226,7 @@ async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult
     src: phrase.voiceUrl!,
     content: phrase.voiceUrl!,
     playbackRate: phrase.playbackRate,
+    audioRights: phrase.voiceAudioRights,
     styles: { volume: 0.9 },
     metadata: {
       isVoiceover: true,

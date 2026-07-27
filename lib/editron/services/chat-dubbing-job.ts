@@ -3,8 +3,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Client } from '@upstash/qstash';
 
 import { buildChatProjectRevision } from '@/lib/editron/agent/chat-edit-postconditions';
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
+import type { GeneratedAudioReceipt } from '@/lib/pipeline/tts-service';
 
-export const CHAT_DUBBING_JOB_VERSION = 'editron-chat-dubbing-job-v1' as const;
+export const CHAT_DUBBING_JOB_VERSION = 'editron-chat-dubbing-job-v2' as const;
 export const CHAT_DUBBING_MAX_FAILURES = 2;
 
 const JOB_LEASE_MS = 5 * 60 * 1000;
@@ -33,6 +35,8 @@ export interface DubbingPhraseProgress {
   voiceUrl?: string;
   voiceDurationMs?: number;
   playbackRate?: number;
+  voiceAudioRights?: AudioRightsContract;
+  generatedAudioReceipt?: GeneratedAudioReceipt;
 }
 
 export interface DubbingMediaProgress {
