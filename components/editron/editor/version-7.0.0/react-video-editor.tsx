@@ -39,6 +39,13 @@ import { useAutosave } from "./hooks/use-autosave";
 import { LocalMediaProvider } from "./contexts/local-media-context";
 import { KeyframeProvider } from "./contexts/keyframe-context";
 import { AssetLoadingProvider } from "./contexts/asset-loading-context";
+import { NativeVideoAudioRightsDialog } from "./components/rendering/native-video-audio-rights-dialog";
+import {
+  confirmAndReloadNativeVideoAudioRights,
+  findUnverifiedNativeAudioAssetIds,
+} from "./utils/native-video-audio-rights-client";
+import type { RenderMusicDeliveryMode } from "@/lib/editron/services/render-delivery-manifest";
+import { useCallback } from "react";
 
 export default function ReactVideoEditor({ projectId, variant = "v1" }: { projectId: string; variant?: "v1" | "v2" }) {
   const [isSaving, setIsSaving] = useState(false);
@@ -46,6 +53,10 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [markers, setMarkers] = useState<NamedMarker[]>([]);
+  const [pendingRightsRenderMode, setPendingRightsRenderMode] =
+    useState<RenderMusicDeliveryMode | null>(null);
+  const [resumeRightsRenderMode, setResumeRightsRenderMode] =
+    useState<RenderMusicDeliveryMode | null>(null);
 
   // Overlay management hooks
   const {
@@ -105,6 +116,44 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
     RENDER_TYPE,
     projectId // Enable resume-on-refresh
   );
+  const unverifiedNativeAudioAssetIds = useMemo(
+    () => findUnverifiedNativeAudioAssetIds(overlays),
+    [overlays],
+  );
+  const requestRender = useCallback(async (
+    musicDeliveryMode: RenderMusicDeliveryMode = "embedded",
+  ) => {
+    if (unverifiedNativeAudioAssetIds.length > 0) {
+      setPendingRightsRenderMode(musicDeliveryMode);
+      return;
+    }
+    await renderMedia(musicDeliveryMode);
+  }, [renderMedia, unverifiedNativeAudioAssetIds.length]);
+  const confirmNativeAudioRights = useCallback(async () => {
+    if (!pendingRightsRenderMode) return;
+    const refreshedOverlays = await confirmAndReloadNativeVideoAudioRights({
+      projectId,
+    });
+    setOverlays(refreshedOverlays);
+    setResumeRightsRenderMode(pendingRightsRenderMode);
+    setPendingRightsRenderMode(null);
+  }, [pendingRightsRenderMode, projectId, setOverlays]);
+
+  useEffect(() => {
+    if (
+      !resumeRightsRenderMode
+      || unverifiedNativeAudioAssetIds.length > 0
+    ) {
+      return;
+    }
+    const musicDeliveryMode = resumeRightsRenderMode;
+    setResumeRightsRenderMode(null);
+    void renderMedia(musicDeliveryMode);
+  }, [
+    renderMedia,
+    resumeRightsRenderMode,
+    unverifiedNativeAudioAssetIds.length,
+  ]);
 
   // Replace history management code with hook
   const { undo, redo, canUndo, canRedo } = useHistory(overlays, setOverlays);
@@ -215,7 +264,7 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
     // Add renderType to the context
     renderType: RENDER_TYPE,
     projectId,
-    renderMedia,
+    renderMedia: requestRender,
     cancelRender,
     state,
 
@@ -290,6 +339,13 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
                   <AutosaveStatus
                     isSaving={isSaving}
                     lastSaveTime={lastSaveTime}
+                  />
+
+                  <NativeVideoAudioRightsDialog
+                    open={pendingRightsRenderMode !== null}
+                    sourceCount={unverifiedNativeAudioAssetIds.length}
+                    onCancel={() => setPendingRightsRenderMode(null)}
+                    onConfirm={confirmNativeAudioRights}
                   />
 
                   {/* AI Tools Debug Panel (Development) */}
