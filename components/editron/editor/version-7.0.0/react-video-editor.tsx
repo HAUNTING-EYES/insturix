@@ -32,7 +32,6 @@ import {
 import { TimelineProvider } from "./contexts/timeline-context";
 
 // Autosave Components
-import { AutosaveRecoveryDialog } from "./components/autosave/autosave-recovery-dialog";
 import { AutosaveStatus } from "./components/autosave/autosave-status";
 import { AIToolsDebugPanel } from "./components/debug/ai-tools-debug-panel";
 import { useState, useEffect, useMemo } from "react";
@@ -42,14 +41,8 @@ import { KeyframeProvider } from "./contexts/keyframe-context";
 import { AssetLoadingProvider } from "./contexts/asset-loading-context";
 
 export default function ReactVideoEditor({ projectId, variant = "v1" }: { projectId: string; variant?: "v1" | "v2" }) {
-  // Autosave state
-  const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
-  const [autosaveTimestamp, setAutosaveTimestamp] = useState<number | null>(
-    null
-  );
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaveTime, setLastSaveTime] = useState<number | null>(null);
-  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [markers, setMarkers] = useState<NamedMarker[]>([]);
@@ -157,11 +150,6 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
     },
   });
 
-  // Mark initial load as complete after component mounts
-  useEffect(() => {
-    setInitialLoadComplete(true);
-  }, []);
-
   // Load project state on mount
   useEffect(() => {
     const loadProjectState = async () => {
@@ -181,17 +169,6 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
     loadProjectState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]); // Only run when projectId changes (loadState is stable)
-
-  // Handle recovery dialog actions
-  const handleRecoverAutosave = async () => {
-    const loadedState = await loadState();
-    console.log("loadedState", loadedState);
-    setShowRecoveryDialog(false);
-  };
-
-  const handleDiscardAutosave = () => {
-    setShowRecoveryDialog(false);
-  };
 
   // Manual save function for use in keyboard shortcuts or save button
   const handleManualSave = async () => {
@@ -326,17 +303,6 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
                     isSaving={isSaving}
                     lastSaveTime={lastSaveTime}
                   />
-
-                  {/* Autosave Recovery Dialog */}
-                  {showRecoveryDialog && autosaveTimestamp && (
-                    <AutosaveRecoveryDialog
-                      projectId={projectId}
-                      timestamp={autosaveTimestamp}
-                      onRecover={handleRecoverAutosave}
-                      onDiscard={handleDiscardAutosave}
-                      onClose={() => setShowRecoveryDialog(false)}
-                    />
-                  )}
 
                   {/* AI Tools Debug Panel (Development) */}
                   {process.env.NODE_ENV === "development" && (
