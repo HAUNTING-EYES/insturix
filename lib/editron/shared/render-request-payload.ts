@@ -32,7 +32,7 @@ type AudioRightsAttestationVersion =
   | typeof AUDIO_RIGHTS_ATTESTATION_VERSION;
 
 export interface AudioRightsContract {
-  mediaRole?: "music" | "sfx" | "voiceover" | "dubbing" | "other";
+  mediaRole?: "music" | "sfx" | "voiceover" | "dubbing" | "native-video" | "other";
   source: "user-upload" | "library" | "generated" | "preview-only";
   userChoice: "swap" | "no-music" | "attested";
   licensed: boolean;
@@ -89,6 +89,7 @@ const AUDIO_MEDIA_ROLES = new Set<NonNullable<AudioRightsContract["mediaRole"]>>
   "sfx",
   "voiceover",
   "dubbing",
+  "native-video",
   "other",
 ]);
 const STOCK_PREVIEW_HOST = "rwxrdxvxndclnqvznxfj.supabase.co";

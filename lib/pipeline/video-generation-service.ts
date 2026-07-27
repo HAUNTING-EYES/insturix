@@ -8,18 +8,27 @@
  * replaces the static image on the Editron timeline.
  */
 
+import { execFile } from 'node:child_process';
+import { rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
 import { fal } from '@fal-ai/client';
 import { nanoid } from 'nanoid';
+import { COLLECTIONS, getDatabase } from '@/lib/editron/db/mongodb';
+import { getFFmpegPath } from '@/lib/editron/services/media/ffmpeg-runtime';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import {
   getVideoModelConfig,
   getVideoModelEndpoint,
   buildVideoInputFromConfig,
-  modelHasNativeAudio,
   VIDEO_MODEL_REGISTRY,
   type VideoModelConfig,
 } from './adapters/video-model-configs';
 import { falRetry } from './fal-retry';
+
+const execFileAsync = promisify(execFile);
 
 // Configure fal.ai if key exists
 let _falConfigured = false;
@@ -113,6 +122,26 @@ export const FAL_VIDEO_MODEL_LABELS: Record<string, string> = Object.fromEntries
 
 export type VideoProvider = 'fal-ai' | 'kie-ai';
 
+export const GENERATED_VIDEO_RECEIPT_VERSION = 'editron-generated-video-receipt-v1' as const;
+
+export type NativeAudioRequestMode = 'enabled' | 'disabled' | 'provider-fixed' | 'not-supported';
+
+export interface GeneratedVideoReceipt {
+  version: typeof GENERATED_VIDEO_RECEIPT_VERSION;
+  provider: VideoProvider;
+  model: string;
+  assetId: string;
+  providerJobId?: string;
+  generatedAt: string;
+  nativeAudio: {
+    requestMode: NativeAudioRequestMode;
+    present: boolean;
+    probe: 'ffmpeg-audio-stream-decode';
+    probedAt: string;
+    licenseId?: string;
+  };
+}
+
 export interface VideoGenerationRequest {
   /** Storyboard image URL to animate */
   imageUrl: string;
@@ -148,6 +177,10 @@ export interface VideoGenerationResult {
    *  When true, SFX generation should be skipped for this scene — audio is baked in.
    *  Remotion's <Video> component auto-plays embedded audio. */
   hasNativeAudio?: boolean;
+  /** Canonical rights receipt for an audio stream measured inside the generated MP4. */
+  nativeAudioRights?: AudioRightsContract;
+  /** Durable provider and audio-probe receipt for the generated video asset. */
+  generatedVideoReceipt?: GeneratedVideoReceipt;
 }
 
 type FalVideoErrorStage = 'generation' | 'post-generation';
@@ -190,6 +223,55 @@ function shouldFallbackFromFalModel(error: unknown): boolean {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function getNativeAudioRequestMode(
+  config: VideoModelConfig,
+  input: Record<string, any>,
+): NativeAudioRequestMode {
+  if (!config.nativeAudio) return 'not-supported';
+  if (!config.nativeAudio.paramName) return 'provider-fixed';
+  return input[config.nativeAudio.paramName] === true ? 'enabled' : 'disabled';
+}
+
+function getProcessErrorText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const stderr = 'stderr' in error && typeof error.stderr === 'string'
+    ? error.stderr
+    : '';
+  return `${error.message}\n${stderr}`;
+}
+
+async function measureNativeAudioStream(buffer: Buffer, assetId: string): Promise<boolean> {
+  const tempPath = path.join(tmpdir(), `editron-native-audio-${assetId}-${nanoid(6)}.mp4`);
+  try {
+    await writeFile(tempPath, buffer);
+    await execFileAsync(
+      getFFmpegPath(),
+      [
+        '-hide_banner',
+        '-v', 'error',
+        '-i', tempPath,
+        '-map', '0:a:0',
+        '-frames:a', '1',
+        '-f', 'null',
+        '-',
+      ],
+      {
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+    return true;
+  } catch (error) {
+    const errorText = getProcessErrorText(error);
+    if (/stream map .* matches no streams|does not contain any stream/i.test(errorText)) {
+      return false;
+    }
+    throw error;
+  } finally {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+  }
 }
 // ─── fal.ai Video Generation ────────────────────────────────────
 
@@ -427,6 +509,17 @@ async function generateVideoWithFal(
   const buffer = Buffer.from(await response.arrayBuffer());
 
   const assetId = `video_${nanoid(12)}`;
+  let hasNativeAudio: boolean;
+  try {
+    hasNativeAudio = await measureNativeAudioStream(buffer, assetId);
+  } catch (err) {
+    throw new FalVideoGenerationError(`Failed to inspect generated video audio (${modelKey}): ${getErrorMessage(err)}`, {
+      stage: 'post-generation',
+      modelKey,
+      cause: err,
+    });
+  }
+
   const filename = `${assetId}.mp4`;
   // R2 primary (browser) + GCS secondary (Gemini 5-Track analysis needs gs:// URIs)
   let uploadResult: Awaited<ReturnType<typeof uploadMedia>>;
@@ -444,35 +537,97 @@ async function generateVideoWithFal(
   // Models snap to fixed enums (Kling: 5/10s, Veo: 4/6/8s, etc.)
   // Using requested duration causes scene stretching in the timeline.
   const actualDuration = getActualModelDuration(modelKey, duration);
-  console.log(`[VideoGen] Scene complete: model=${modelKey}, requested=${duration}s, actual=${actualDuration}s, totalMs=${Date.now() - startTime}, assetId=${assetId}`);
+  const canonicalAssetId = uploadResult.assetId || assetId;
+  const providerJobId = result?.request_id ?? result?.requestId ?? result?.data?.request_id ?? result?.data?.requestId;
+  const generatedAt = new Date().toISOString();
+  const licenseId = hasNativeAudio
+    ? `fal-ai:${modelKey}:service-output-terms`
+    : undefined;
+  const nativeAudioRights: AudioRightsContract | undefined = hasNativeAudio
+    ? {
+        mediaRole: 'native-video',
+        source: 'generated',
+        userChoice: 'attested',
+        licensed: true,
+        evidence: {
+          kind: 'generated-provider',
+          sourceAssetId: canonicalAssetId,
+          licenseId: licenseId!,
+        },
+      }
+    : undefined;
+  const generatedVideoReceipt: GeneratedVideoReceipt = {
+    version: GENERATED_VIDEO_RECEIPT_VERSION,
+    provider: 'fal-ai',
+    model: modelKey,
+    assetId: canonicalAssetId,
+    ...(providerJobId ? { providerJobId } : {}),
+    generatedAt,
+    nativeAudio: {
+      requestMode: getNativeAudioRequestMode(modelConfig, input),
+      present: hasNativeAudio,
+      probe: 'ffmpeg-audio-stream-decode',
+      probedAt: generatedAt,
+      ...(licenseId ? { licenseId } : {}),
+    },
+  };
+  const mediaAssetUpdate: Record<string, any> = {
+    $set: {
+      cachedUrl: uploadResult.signedUrl,
+      gcsPath: uploadResult.gcsPath ?? null,
+      r2Key: uploadResult.r2Key,
+      urlExpiresAt: uploadResult.urlExpiresAt,
+      durationMs: actualDuration * 1000,
+      source: 'generated',
+      videoProvider: 'fal-ai',
+      videoModel: modelKey,
+      providerJobId: providerJobId ?? null,
+      hasNativeAudio,
+      generatedVideoReceipt,
+      updatedAt: new Date(),
+      ...(nativeAudioRights ? { audioRights: nativeAudioRights } : {}),
+    },
+    $setOnInsert: {
+      assetId: canonicalAssetId,
+      userId,
+      type: 'video',
+      filename,
+      size: uploadResult.size,
+      contentType: uploadResult.contentType,
+      uploadedAt: new Date(),
+    },
+    ...(!nativeAudioRights ? { $unset: { audioRights: '' } } : {}),
+  };
 
-  // hasNativeAudio must reflect whether native audio was enabled for this scene,
-  // not just whether the model can produce it. For models with a documented
-  // audio toggle, video-model-configs.ts sends false when the scene has
-  // voiceover. For fixed native-audio models without a toggle, this flag stays
-  // false on voiceover scenes so downstream SFX/BGM logic still treats TTS as
-  // the primary audio authority.
-  //
-  // OLD: modelHasNativeAudio(modelKey) -> always true for Seedance, regardless of
-  //      whether audio was disabled for this specific generation. Caused:
-  //      - SFX skipped for voiceover scenes (finalize line 764 filters on hasNativeAudio)
-  //      - BGM ducked under silence (audio-ducking runs on hasNativeAudio videos)
-  // NEW: Check model config AND whether voiceover disabled it.
-  const nativeAudioConfig = getVideoModelConfig(modelKey).nativeAudio;
-  const audioWasRequested = nativeAudioConfig
-    ? (nativeAudioConfig.default && !request.hasVoiceover)
-    : false;
+  try {
+    const db = await getDatabase();
+    await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+      { assetId: canonicalAssetId },
+      mediaAssetUpdate,
+      { upsert: true },
+    );
+  } catch (err) {
+    throw new FalVideoGenerationError(`Failed to persist generated video provenance (${modelKey}): ${getErrorMessage(err)}`, {
+      stage: 'post-generation',
+      modelKey,
+      cause: err,
+    });
+  }
+
+  console.log(`[VideoGen] Scene complete: model=${modelKey}, requested=${duration}s, actual=${actualDuration}s, nativeAudio=${hasNativeAudio}, totalMs=${Date.now() - startTime}, assetId=${canonicalAssetId}`);
 
   return {
     videoUrl: uploadResult.signedUrl,
     gcsPath: uploadResult.gcsPath!,
     r2Key: uploadResult.r2Key ?? undefined,
-    assetId,
+    assetId: canonicalAssetId,
     provider: 'fal-ai',
     durationMs: actualDuration * 1000,
     modelUsed: modelKey,
-    providerJobId: result?.request_id ?? result?.requestId ?? result?.data?.request_id ?? result?.data?.requestId,
-    hasNativeAudio: audioWasRequested,
+    providerJobId,
+    hasNativeAudio,
+    nativeAudioRights,
+    generatedVideoReceipt,
   };
 }
 

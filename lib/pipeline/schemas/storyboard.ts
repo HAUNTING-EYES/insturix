@@ -7,6 +7,7 @@
 
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import type { GeneratedAudioReceipt } from '@/lib/pipeline/tts-service';
+import type { GeneratedVideoReceipt } from '@/lib/pipeline/video-generation-service';
 
 /**
  * SubShot — a cut point within a generated video clip.
@@ -49,7 +50,12 @@ export interface SubShot {
   /** Video clip for this sub-shot (set after video gen) */
   videoUrl?: string;
   videoAssetId?: string;
+  videoProvider?: string;
+  videoModel?: string;
   videoDurationMs?: number;
+  hasNativeAudio?: boolean;
+  nativeAudioRights?: AudioRightsContract;
+  generatedVideoReceipt?: GeneratedVideoReceipt;
   /** Generation status */
   status?: 'pending' | 'generating' | 'generated' | 'failed';
 
@@ -236,6 +242,7 @@ export interface StoryboardScene {
   videoUrl?: string;
   videoGcsPath?: string;
   videoProvider?: string;
+  videoModel?: string;
   videoDurationMs?: number;
   /** Avatar Vault render job lineage for ThinkForge-cast scenes. */
   avatarPipelineJobId?: string;
@@ -246,6 +253,8 @@ export interface StoryboardScene {
   /** True if the video model generated native audio with the video (e.g., Seedance 1.5 Pro).
    *  When true, SFX generation is skipped — audio is baked into the video file. */
   hasNativeAudio?: boolean;
+  nativeAudioRights?: AudioRightsContract;
+  generatedVideoReceipt?: GeneratedVideoReceipt;
   /** Set to true when scene skips AI video generation (asset type is non-video) */
   videoSkipped?: boolean;
   /** Reason scene skipped video generation */
