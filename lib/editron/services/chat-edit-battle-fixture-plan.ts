@@ -37,6 +37,8 @@ export interface ChatBattleFixturePlan {
   preserveSoundOverlays: boolean;
   requiresImageAssetAlias: boolean;
   requiresUploadBatchClone: boolean;
+  seedTimelineGapFrames?: number;
+  alignSelectedWithOverlayType?: string;
   requiredSourceCapabilities: ChatBattleFixtureCapability[];
 }
 
@@ -114,6 +116,10 @@ export function planChatBattleFixture(
     requiresImageAssetAlias: scenario.id === 'explicit-asset',
     requiresUploadBatchClone: scenario.id === 'multiasset-script-intake'
       || scenario.id === 'multiasset-script-chat',
+    ...(scenario.id === 'close-timeline-gaps' ? { seedTimelineGapFrames: 30 } : {}),
+    ...(scenario.id === 'reorder-overlay-layer'
+      ? { alignSelectedWithOverlayType: 'image' }
+      : {}),
     requiredSourceCapabilities: resolveRequiredSourceCapabilities(scenario.id),
   };
 }

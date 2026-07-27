@@ -29,7 +29,9 @@ export type ChatBattleFixtureRequirement =
   | 'ai-edit-checkpoint'
   | 'prior-idempotency-record'
   | 'durable-reference-asset'
-  | 'completed-clip-analysis-job';
+  | 'completed-clip-analysis-job'
+  | 'timeline-gap'
+  | 'selected-image-overlap';
 
 export interface ChatBattleArgumentProhibition {
   tool: string;
@@ -352,7 +354,7 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('trim-selected-overlay', 'Trim selected clip', 'Trim one second from the end of the selected clip.', { requiredToolSequence: [READ_PROJECT, 'trim_overlay'] }),
   scenario('delete-selected-overlay', 'Delete selected overlay', 'Delete the selected overlay and nothing else.', { requiredToolSequence: [READ_PROJECT, 'delete_overlay'] }),
   scenario('sync-overlay-style', 'Sync overlay style', 'Copy the selected title style to the other title overlays without changing their text.', { requiredToolSequence: [READ_PROJECT, 'sync_style'] }),
-  scenario('close-timeline-gaps', 'Close timeline gaps', 'Close all empty gaps between the main video clips while preserving their order.', { requiredToolSequence: [READ_PROJECT, 'close_gaps'] }),
+  scenario('close-timeline-gaps', 'Close timeline gaps', 'Close all empty gaps between the main video clips while preserving their order.', { requiredToolSequence: [READ_PROJECT, 'close_gaps'], fixtureRequirements: ['timeline-gap'] }),
   scenario('transcript-overview', 'Read full timeline transcript', 'Show me the full transcript in timeline order. Do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['get_video_transcription'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('transcript-moment-search', 'Find spoken phrase', 'Find where I explain the pricing model and give me the matching frame candidates. Do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['find_transcript_moment'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('visual-moment-search', 'Find visual moment', 'Find the shot where the garment sketch is measured and give me the matching frame candidates. Do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['find_visual_moment'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
@@ -362,7 +364,7 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('audio-anchored-camera-shake', 'Audio-anchored camera shake', 'Add one subtle camera shake exactly on the strongest impact beat.', { requiredToolSequence: ['resolve_audio_edit', 'apply_camera_shake'] }),
   scenario('visual-speed-ramp', 'Visual action speed ramp', 'Speed-ramp only the shot where the fabric is thrown into frame, centered on that action.', { requiredToolSequence: ['resolve_visual_edit', 'apply_speed_ramp'] }),
   scenario('selected-overlay-fade', 'Fade selected overlay', 'Fade the selected overlay in and out smoothly without moving it.', { requiredToolSequence: [READ_PROJECT, 'apply_fade'] }),
-  scenario('reorder-overlay-layer', 'Reorder overlay layer', 'Move the selected title in front of the image overlay without changing timing.', { requiredToolSequence: [READ_PROJECT, 'reorder_layer'] }),
+  scenario('reorder-overlay-layer', 'Reorder overlay layer', 'Move the selected title in front of the image overlay without changing timing.', { requiredToolSequence: [READ_PROJECT, 'reorder_layer'], fixtureRequirements: ['selected-image-overlap'] }),
   scenario('move-retime-overlay', 'Move and retime overlay', 'Move the selected title to start at 4 seconds and keep it on screen for 2 seconds.', { requiredToolSequence: [READ_PROJECT, 'move_retime_overlay'] }),
   scenario('selected-clip-filter', 'Apply explicit clip filter', 'Warm the selected video clip slightly and add a little contrast. Do not grade the other clips.', { requiredToolSequence: [READ_PROJECT, 'apply_filter'] }),
   scenario('selected-dialogue-dubbing', 'Translate and dub selected dialogue', 'Translate and dub the selected video clip\'s spoken dialogue into Hindi. Preserve the original speech timing, keep the background sound natural, and do not change the other clips.', { requiredToolSequence: ['dub_selected_dialogue', 'get_dubbing_job_result'], requireEvidenceBeforeMutation: false }),
@@ -1125,6 +1127,10 @@ function chatBattleFixtureRequirementSatisfied(
       return truthyFixtureFlag(fixture, 'hasCompletedClipAnalysisJob')
         || stringValue(fixture.completedClipAnalysisJobId) != null
         || projectHasCompletedClipAnalysisJob(project);
+    case 'timeline-gap':
+      return projectHasTimelineGap(project);
+    case 'selected-image-overlap':
+      return projectHasSelectedImageOverlap(project, clientContext);
   }
 }
 
@@ -1161,6 +1167,45 @@ function projectHasCompletedClipAnalysisJob(project: Record<string, unknown>): b
   ];
   return jobs.some((job) => stringValue(job.status) === 'completed'
     && (stringValue(job.jobId ?? job.id) != null || Object.keys(asRecord(job.result)).length > 0));
+}
+
+function projectHasTimelineGap(project: Record<string, unknown>): boolean {
+  const videos = readRecordArray(project.overlays)
+    .filter((overlay) => stringValue(overlay.type) === 'video')
+    .map((overlay) => ({
+      from: finiteNumber(overlay.from),
+      durationInFrames: finiteNumber(overlay.durationInFrames),
+    }))
+    .filter((overlay) => overlay.durationInFrames > 0)
+    .sort((left, right) => left.from - right.from);
+
+  return videos.some((video, index) => (
+    index > 0
+    && video.from > videos[index - 1].from + videos[index - 1].durationInFrames
+  ));
+}
+
+function projectHasSelectedImageOverlap(
+  project: Record<string, unknown>,
+  clientContext?: Record<string, unknown>,
+): boolean {
+  const selectedOverlayId = identifierValue(clientContext?.selectedOverlayId);
+  if (!selectedOverlayId) return false;
+  const overlays = readRecordArray(project.overlays);
+  const selected = overlays.find(
+    (overlay) => identifierValue(overlay.id) === selectedOverlayId,
+  );
+  if (!selected || stringValue(selected.type) !== 'text') return false;
+
+  const selectedStart = finiteNumber(selected.from);
+  const selectedEnd = selectedStart + finiteNumber(selected.durationInFrames);
+  if (selectedEnd <= selectedStart) return false;
+  return overlays.some((overlay) => {
+    if (stringValue(overlay.type) !== 'image') return false;
+    const start = finiteNumber(overlay.from);
+    const end = start + finiteNumber(overlay.durationInFrames);
+    return end > selectedStart && start < selectedEnd;
+  });
 }
 
 function requiredSequenceResult(

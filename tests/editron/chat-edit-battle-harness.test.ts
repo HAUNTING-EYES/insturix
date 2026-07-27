@@ -1700,6 +1700,34 @@ describe('chat edit battle harness', () => {
     })).toMatchObject({ ok: true, satisfied: ['completed-clip-analysis-job'] });
   });
 
+  it('requires the concrete timeline condition named by gap and layer scenarios', () => {
+    const gapScenario = getChatEditBattleScenario('close-timeline-gaps')!;
+    const layerScenario = getChatEditBattleScenario('reorder-overlay-layer')!;
+    const timeline = project([
+      { id: 'video-1', type: 'video', from: 0, durationInFrames: 60, row: 0 },
+      { id: 'video-2', type: 'video', from: 90, durationInFrames: 60, row: 0 },
+      { id: 'title-1', type: 'text', from: 30, durationInFrames: 60, row: 1 },
+      { id: 'image-1', type: 'image', from: 45, durationInFrames: 30, row: 2 },
+    ]);
+
+    expect(evaluateChatBattleFixturePreconditions(gapScenario, timeline)).toMatchObject({
+      ok: true,
+      satisfied: ['timeline-gap'],
+    });
+    expect(evaluateChatBattleFixturePreconditions(layerScenario, timeline, {
+      selectedOverlayId: 'title-1',
+    })).toMatchObject({
+      ok: true,
+      satisfied: ['selected-image-overlap'],
+    });
+    expect(evaluateChatBattleFixturePreconditions(layerScenario, timeline, {
+      selectedOverlayId: 'video-1',
+    })).toMatchObject({
+      ok: false,
+      missing: ['selected-image-overlap'],
+    });
+  });
+
   it('fails a stale rendered artifact even when tools and Mongo mutation look healthy', () => {
     const scenario = getChatEditBattleScenario('explicit-text')!;
     const before = buildChatBattleProjectSnapshot(project([]), 'mongo-before', '2026-07-16T10:00:00.000Z');

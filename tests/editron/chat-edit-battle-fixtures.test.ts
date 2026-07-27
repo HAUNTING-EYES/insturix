@@ -48,6 +48,11 @@ describe('chat edit battle fixtures', () => {
       requiresUploadBatchClone: true,
       requiredSourceCapabilities: ['multi-asset', 'semantic-visual-all-video-assets'],
     });
+    expect(plan('close-timeline-gaps')).toMatchObject({ seedTimelineGapFrames: 30 });
+    expect(plan('reorder-overlay-layer')).toMatchObject({
+      selectedOverlayType: 'text',
+      alignSelectedWithOverlayType: 'image',
+    });
     expect(plan('selected-overlay-edit')).toMatchObject({ requiredSourceCapabilities: [] });
   });
 
@@ -129,6 +134,52 @@ describe('chat edit battle fixtures', () => {
     expect(prepared.selectedOverlayId).toBe('title-1');
     expect(prepared.clientContext).toMatchObject({ selectedOverlayId: 'title-1', activePanel: 'ai-chat' });
     expect(overlays(prepared.project).some((overlay) => overlay.type === 'sound')).toBe(false);
+  });
+
+  it('seeds a real main-video gap only for the gap-closing scenario', () => {
+    const source = sourceProject();
+    source.overlays.push({
+      id: 'video-2',
+      type: 'video',
+      from: 900,
+      durationInFrames: 120,
+      row: 0,
+      assetId: 'video-asset-2',
+    });
+    source.durationInFrames = 1_020;
+    const snapshot = structuredClone(source);
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_gap1',
+      plan: plan('close-timeline-gaps'),
+      now: NOW,
+    });
+    const videos = overlays(prepared.project).filter((overlay) => overlay.type === 'video');
+
+    expect(source).toEqual(snapshot);
+    expect(videos[1].from).toBe(930);
+    expect(prepared.project.durationInFrames).toBe(1_050);
+  });
+
+  it('makes the selected title and image overlap for a meaningful layer-order test', () => {
+    const source = sourceProject();
+    const snapshot = structuredClone(source);
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_layer1',
+      plan: plan('reorder-overlay-layer'),
+      now: NOW,
+    });
+    const preparedOverlays = overlays(prepared.project);
+    const selected = preparedOverlays.find((overlay) => overlay.id === prepared.selectedOverlayId);
+    const image = preparedOverlays.find((overlay) => overlay.type === 'image');
+
+    expect(source).toEqual(snapshot);
+    expect(selected).toMatchObject({ type: 'text' });
+    expect(image).toMatchObject({
+      from: selected?.from,
+      durationInFrames: selected?.durationInFrames,
+    });
   });
 
   it('fails fixture preflight immediately when an audio scenario inherits unlicensed sound', () => {

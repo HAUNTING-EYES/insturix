@@ -99,9 +99,14 @@ export function prepareChatBattleFixture(input: {
   delete project._id;
 
   const overlays = cloneOverlays(project.overlays);
-  const scenarioOverlays = input.plan.preserveSoundOverlays
+  const retainedOverlays = input.plan.preserveSoundOverlays
     ? overlays
     : overlays.filter((overlay) => stringValue(overlay.type) !== 'sound');
+  const scenarioOverlays = applyScenarioTimelineSeeds(
+    retainedOverlays,
+    project,
+    input.plan,
+  );
   let transcriptAssetAlias: ChatBattleTranscriptAssetAlias | undefined;
   if (input.plan.removeCaptionTrack) {
     project.overlays = scenarioOverlays.filter((overlay) => !isCaptionOverlay(overlay));
@@ -443,6 +448,70 @@ function assertFixtureAudioIsRenderable(
 
 function cloneOverlays(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? structuredClone(value).map(asRecord) : [];
+}
+
+function applyScenarioTimelineSeeds(
+  overlays: Record<string, unknown>[],
+  project: Record<string, unknown>,
+  plan: ChatBattleFixturePlan,
+): Record<string, unknown>[] {
+  if (plan.seedTimelineGapFrames) {
+    seedTimelineGap(overlays, project, plan.seedTimelineGapFrames, plan);
+  }
+  if (plan.alignSelectedWithOverlayType) {
+    alignSelectedOverlayWithType(overlays, plan);
+  }
+  return overlays;
+}
+
+function seedTimelineGap(
+  overlays: Record<string, unknown>[],
+  project: Record<string, unknown>,
+  gapFrames: number,
+  plan: ChatBattleFixturePlan,
+): void {
+  const videos = overlays
+    .filter((overlay) => stringValue(overlay.type) === 'video')
+    .sort((left, right) => finiteFrame(left.from) - finiteFrame(right.from));
+  if (videos.length < 2) {
+    throw new Error(
+      `Fixture source ${plan.sourceProjectId} needs at least two video clips for ${plan.scenarioId}.`,
+    );
+  }
+  const existingGap = videos.some((video, index) => (
+    index > 0
+    && finiteFrame(video.from)
+      > finiteFrame(videos[index - 1].from) + finiteFrame(videos[index - 1].durationInFrames)
+  ));
+  if (existingGap) return;
+
+  const boundary = finiteFrame(videos[1].from);
+  for (const overlay of overlays) {
+    const from = finiteFrame(overlay.from);
+    if (from >= boundary) overlay.from = from + gapFrames;
+  }
+  const currentDuration = positiveInteger(project.durationInFrames) ?? maxOverlayEnd(overlays);
+  project.durationInFrames = Math.max(currentDuration + gapFrames, maxOverlayEnd(overlays));
+}
+
+function alignSelectedOverlayWithType(
+  overlays: Record<string, unknown>[],
+  plan: ChatBattleFixturePlan,
+): void {
+  const selected = overlays.find(
+    (overlay) => stringValue(overlay.type) === plan.selectedOverlayType,
+  );
+  const reference = overlays.find(
+    (overlay) => stringValue(overlay.type) === plan.alignSelectedWithOverlayType,
+  );
+  if (!selected || !reference) {
+    throw new Error(
+      `Fixture source ${plan.sourceProjectId} cannot create the selected ${plan.selectedOverlayType ?? 'overlay'} `
+      + `/ ${plan.alignSelectedWithOverlayType} overlap required by ${plan.scenarioId}.`,
+    );
+  }
+  reference.from = finiteFrame(selected.from);
+  reference.durationInFrames = Math.max(1, finiteFrame(selected.durationInFrames));
 }
 
 function hasTimeLocalizedSemanticVisual(analysis: Record<string, unknown> | undefined): boolean {
