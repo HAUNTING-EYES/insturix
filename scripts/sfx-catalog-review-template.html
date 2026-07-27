@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Editron SFX Catalog Review</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0c0d0f;
+      --panel: #141619;
+      --line: #30343a;
+      --text: #f4f6f8;
+      --muted: #9da4ad;
+      --green: #4ade80;
+      --amber: #fbbf24;
+      --red: #fb7185;
+      --cyan: #67e8f9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 Inter, ui-sans-serif, system-ui, sans-serif;
+      letter-spacing: 0;
+    }
+    button, input, select { font: inherit; }
+    .shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 60px; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
+    h1 { margin: 0; font-size: 24px; line-height: 1.2; }
+    .sub { margin-top: 6px; color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; }
+    .summary { display: grid; grid-template-columns: repeat(3, minmax(90px, 1fr)); gap: 1px; border: 1px solid var(--line); background: var(--line); }
+    .summary div { min-width: 108px; padding: 10px 12px; background: var(--panel); }
+    .summary strong { display: block; font-size: 18px; }
+    .summary span { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+    .coverage { display: flex; flex-wrap: wrap; gap: 6px; margin: 22px 0; }
+    .role { border: 1px solid var(--line); padding: 5px 8px; border-radius: 4px; color: var(--muted); }
+    .role.covered { border-color: #245d3a; color: var(--green); }
+    .role.gap { border-color: #7f1d1d; color: var(--red); }
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) 170px 170px auto auto;
+      gap: 10px;
+      align-items: end;
+      padding: 14px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      position: sticky;
+      top: 0;
+      z-index: 3;
+    }
+    label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; text-transform: uppercase; }
+    input, select, button {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: #0f1113;
+      color: var(--text);
+      padding: 8px 10px;
+    }
+    button { cursor: pointer; }
+    button.primary { border-color: #166534; background: #14532d; }
+    button.secondary { border-color: #36505a; color: var(--cyan); }
+    button:focus-visible, input:focus-visible, select:focus-visible, audio:focus-visible {
+      outline: 2px solid var(--cyan);
+      outline-offset: 2px;
+    }
+    #message { min-height: 24px; margin: 12px 0 4px; color: var(--amber); }
+    .list { border-top: 1px solid var(--line); }
+    .candidate {
+      display: grid;
+      grid-template-columns: minmax(240px, 1.2fr) minmax(250px, 1fr) minmax(250px, 1fr);
+      gap: 18px;
+      padding: 18px 4px;
+      border-bottom: 1px solid var(--line);
+      align-items: center;
+    }
+    .candidate[hidden] { display: none; }
+    .title { font-size: 16px; font-weight: 650; }
+    .path { margin-top: 3px; color: var(--muted); font: 11px/1.4 ui-monospace, monospace; overflow-wrap: anywhere; }
+    .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+    .tag { padding: 2px 5px; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); font-size: 11px; }
+    audio { display: block; width: 100%; height: 36px; }
+    .metrics { display: flex; gap: 12px; margin-top: 8px; color: var(--muted); font: 11px ui-monospace, monospace; }
+    .decision { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .decision button { min-width: 0; }
+    .decision button[data-active="true"][data-value="approved"] { border-color: #166534; color: var(--green); }
+    .decision button[data-active="true"][data-value="rejected"] { border-color: #9f1239; color: var(--red); }
+    .decision button[data-active="true"][data-value="pending"] { border-color: #a16207; color: var(--amber); }
+    .note { width: 100%; margin-top: 7px; min-height: 34px; }
+    @media (max-width: 860px) {
+      header { display: block; }
+      .summary { margin-top: 18px; }
+      .toolbar { grid-template-columns: 1fr 1fr; }
+      .candidate { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <h1>SFX Catalog Review</h1>
+        <div class="sub" id="build-id"></div>
+      </div>
+      <div class="summary">
+        <div><strong id="approved-count">0</strong><span>Approved</span></div>
+        <div><strong id="rejected-count">0</strong><span>Rejected</span></div>
+        <div><strong id="pending-count">0</strong><span>Pending</span></div>
+      </div>
+    </header>
+    <section class="coverage" id="coverage"></section>
+    <section class="toolbar">
+      <label>Reviewer
+        <input id="reviewer" autocomplete="name" maxlength="80" placeholder="Reviewer ID">
+      </label>
+      <label>Role
+        <select id="role-filter"><option value="all">All roles</option></select>
+      </label>
+      <label>Status
+        <select id="status-filter">
+          <option value="all">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </label>
+      <button class="secondary" id="receipt-export">Review receipt</button>
+      <button class="primary" id="curation-export">Approved JSON</button>
+    </section>
+    <div id="message" role="status" aria-live="polite"></div>
+    <section class="list" id="candidate-list"></section>
+  </main>
+  <script type="application/json" id="review-data">__SFX_REVIEW_DATA__</script>
+  <script>
+    const report = JSON.parse(document.getElementById('review-data').textContent);
+    const storageKey = `editron-sfx-review:${report.sourceSetHashSha256}`;
+    const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    const decisions = saved.decisions || {};
+    const reviewerInput = document.getElementById('reviewer');
+    reviewerInput.value = saved.reviewer || '';
+    const list = document.getElementById('candidate-list');
+    const roleFilter = document.getElementById('role-filter');
+    const statusFilter = document.getElementById('status-filter');
+    const message = document.getElementById('message');
+    document.getElementById('build-id').textContent =
+      `${report.generatedAt} / ${report.sourceSetHashSha256.slice(0, 16)}`;
+
+    for (const item of report.coverage) {
+      const node = document.createElement('span');
+      node.className = `role ${item.status}`;
+      node.textContent = `${item.role} ${item.candidateCount || 'GAP'}`;
+      document.getElementById('coverage').append(node);
+      const option = document.createElement('option');
+      option.value = item.role;
+      option.textContent = item.role;
+      roleFilter.append(option);
+    }
+
+    const rows = report.candidates.map(candidate => {
+      decisions[candidate.reviewId] ||= { status: 'pending', note: '' };
+      const row = document.createElement('article');
+      row.className = 'candidate';
+      row.dataset.reviewId = candidate.reviewId;
+      row.dataset.roles = candidate.curation.eventRoles.join(',');
+
+      const identity = document.createElement('div');
+      const title = document.createElement('div');
+      title.className = 'title';
+      title.textContent = candidate.curation.title;
+      const source = document.createElement('div');
+      source.className = 'path';
+      source.textContent = candidate.originalSourcePath;
+      const tags = document.createElement('div');
+      tags.className = 'tags';
+      [...candidate.curation.eventRoles, ...candidate.curation.surfaces].forEach(value => {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = value;
+        tags.append(tag);
+      });
+      identity.append(title, source, tags);
+
+      const audition = document.createElement('div');
+      const audio = document.createElement('audio');
+      audio.controls = true;
+      audio.preload = 'none';
+      audio.src = candidate.audioPath;
+      const metrics = document.createElement('div');
+      metrics.className = 'metrics';
+      metrics.textContent =
+        `${Math.round(candidate.outputInspection.durationMs)}ms  ` +
+        `${candidate.outputInspection.truePeakDbtp.toFixed(1)}dBTP  ` +
+        `${candidate.gainDb.toFixed(1)}dB gain`;
+      audition.append(audio, metrics);
+
+      const review = document.createElement('div');
+      const controls = document.createElement('div');
+      controls.className = 'decision';
+      ['approved', 'rejected', 'pending'].forEach(value => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.value = value;
+        button.textContent = value[0].toUpperCase() + value.slice(1);
+        button.addEventListener('click', () => {
+          decisions[candidate.reviewId].status = value;
+          persist();
+          refresh();
+        });
+        controls.append(button);
+      });
+      const note = document.createElement('input');
+      note.className = 'note';
+      note.placeholder = 'Review note';
+      note.value = decisions[candidate.reviewId].note;
+      note.addEventListener('input', () => {
+        decisions[candidate.reviewId].note = note.value;
+        persist();
+      });
+      review.append(controls, note);
+      row.append(identity, audition, review);
+      list.append(row);
+      return { candidate, row, controls };
+    });
+
+    function persist() {
+      localStorage.setItem(storageKey, JSON.stringify({
+        reviewer: reviewerInput.value.trim(),
+        decisions,
+      }));
+    }
+
+    function refresh() {
+      const counts = { approved: 0, rejected: 0, pending: 0 };
+      for (const item of rows) {
+        const decision = decisions[item.candidate.reviewId];
+        counts[decision.status] += 1;
+        item.controls.querySelectorAll('button').forEach(button => {
+          button.dataset.active = String(button.dataset.value === decision.status);
+        });
+        const roleVisible = roleFilter.value === 'all'
+          || item.candidate.curation.eventRoles.includes(roleFilter.value);
+        const statusVisible = statusFilter.value === 'all'
+          || decision.status === statusFilter.value;
+        item.row.hidden = !roleVisible || !statusVisible;
+      }
+      document.getElementById('approved-count').textContent = counts.approved;
+      document.getElementById('rejected-count').textContent = counts.rejected;
+      document.getElementById('pending-count').textContent = counts.pending;
+    }
+
+    function reviewerId() {
+      const value = reviewerInput.value.trim();
+      if (!value) {
+        message.textContent = 'Reviewer ID is required.';
+        reviewerInput.focus();
+        return null;
+      }
+      return value;
+    }
+
+    function downloadJson(filename, value) {
+      const blob = new Blob([`${JSON.stringify(value, null, 2)}\n`], {
+        type: 'application/json',
+      });
+      const anchor = document.createElement('a');
+      anchor.href = URL.createObjectURL(blob);
+      anchor.download = filename;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(anchor.href), 1000);
+    }
+
+    document.getElementById('curation-export').addEventListener('click', () => {
+      const reviewer = reviewerId();
+      if (!reviewer) return;
+      const reviewedAt = new Date().toISOString();
+      const approved = report.candidates.filter(candidate => (
+        decisions[candidate.reviewId].status === 'approved'
+      ));
+      if (approved.length === 0) {
+        message.textContent = 'No assets are approved.';
+        return;
+      }
+      downloadJson('sfx-catalog-curation-approved.json', {
+        version: 'sfx-catalog-curation-spec-v1',
+        assets: approved.map(candidate => ({
+          ...candidate.curation,
+          approval: { status: 'approved', reviewerId: reviewer, reviewedAt },
+        })),
+      });
+      message.textContent = `Exported ${approved.length} approved assets.`;
+    });
+
+    document.getElementById('receipt-export').addEventListener('click', () => {
+      const reviewer = reviewerId();
+      if (!reviewer) return;
+      downloadJson('sfx-catalog-review-receipt.json', {
+        version: 'sfx-catalog-review-decisions-v1',
+        sourceSetHashSha256: report.sourceSetHashSha256,
+        reviewerId: reviewer,
+        reviewedAt: new Date().toISOString(),
+        decisions: report.candidates.map(candidate => ({
+          reviewId: candidate.reviewId,
+          providerAssetId: candidate.curation.provenance.providerAssetId,
+          conditionedHashSha256: candidate.conditionedHashSha256,
+          status: decisions[candidate.reviewId].status,
+          note: decisions[candidate.reviewId].note.trim(),
+        })),
+      });
+      message.textContent = 'Exported review receipt.';
+    });
+
+    reviewerInput.addEventListener('input', persist);
+    roleFilter.addEventListener('change', refresh);
+    statusFilter.addEventListener('change', refresh);
+    document.addEventListener('play', event => {
+      if (!(event.target instanceof HTMLAudioElement)) return;
+      document.querySelectorAll('audio').forEach(audio => {
+        if (audio !== event.target) audio.pause();
+      });
+    }, true);
+    refresh();
+  </script>
+</body>
+</html>
