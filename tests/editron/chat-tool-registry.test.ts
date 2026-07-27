@@ -3,7 +3,11 @@ import { join } from 'path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createChatDubbingTools } from '@/lib/editron/agent/chat-dubbing-tools';
-import type { ChatDubbingJob } from '@/lib/editron/services/chat-dubbing-job';
+import {
+  TerminalDubbingError,
+  type ChatDubbingJob,
+  type ResolveChatDubbingRequest,
+} from '@/lib/editron/services/chat-dubbing-job';
 
 import {
   CHAT_TOOL_REGISTRY,
@@ -154,6 +158,41 @@ describe('chat tool registry', () => {
 
     const crossProject = JSON.parse(String(await resultTool.invoke({ jobId: 'chat_dub_1' })));
     expect(crossProject).toMatchObject({ status: 'error', error: expect.stringContaining('not found') });
+  });
+
+  it('preserves unsupported target language truth without queueing a fallback dub', async () => {
+    const resolveJob = vi.fn(async (request: ResolveChatDubbingRequest) => {
+      throw new TerminalDubbingError(
+        'unsupported-target-language',
+        `The requested language ${request.targetLanguage} is unsupported.`,
+      );
+    });
+    const queueJob = vi.fn();
+    const tools = createChatDubbingTools(
+      { userId: 'user-1', projectId: 'project-1' },
+      { resolveJob, queueJob },
+    );
+    const dubTool = tools.find((candidate) => candidate.name === 'dub_selected_dialogue');
+    if (!dubTool) throw new Error('Dubbing tool was not declared.');
+
+    const declined = JSON.parse(String(await dubTool.invoke({
+      overlayId: 17,
+      targetLanguage: 'Hindi',
+    })));
+
+    expect(resolveJob).toHaveBeenCalledWith(expect.objectContaining({
+      overlayId: 17,
+      targetLanguage: 'Hindi',
+    }));
+    expect(queueJob).not.toHaveBeenCalled();
+    expect(declined).toMatchObject({
+      status: 'declined',
+      data: {
+        requestedLanguage: 'Hindi',
+        supportedLanguages: ['English'],
+      },
+      error: null,
+    });
   });
 
   it('keeps cardinality in the tool contract instead of a second hardcoded analyzer limiter', () => {

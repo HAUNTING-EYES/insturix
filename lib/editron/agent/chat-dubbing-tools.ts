@@ -5,6 +5,7 @@ import {
   getChatDubbingJob,
   queueChatDubbingJob,
   resolveChatDubbingJob,
+  TerminalDubbingError,
   type ChatDubbingJob,
   type ChatDubbingJobStatus,
   type ResolveChatDubbingRequest,
@@ -14,7 +15,7 @@ const identifierSchema = z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9:_-
 
 export const dubSelectedDialogueSchema = z.object({
   overlayId: z.union([identifierSchema, z.number().int().nonnegative()]),
-  targetLanguage: z.enum(['English']).default('English'),
+  targetLanguage: z.string().trim().min(1).max(80).default('English'),
   voiceId: identifierSchema.optional(),
 }).strict();
 
@@ -61,6 +62,17 @@ export function createChatDubbingTools(
             : 'Dubbing is processing durably. Tell the user it is processing and stop; check it later with get_dubbing_job_result.',
         );
       } catch (error) {
+        if (error instanceof TerminalDubbingError && error.code === 'unsupported-target-language') {
+          return envelope(
+            'declined',
+            {
+              requestedLanguage: input.targetLanguage,
+              supportedLanguages: ['English'],
+            },
+            null,
+            'Explain that the requested language is not supported by the licensed dubbing lane. Do not queue work, translate to a different language, or substitute a generic voiceover.',
+          );
+        }
         return envelope(
           'error',
           null,
