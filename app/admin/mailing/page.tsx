@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { 
-  Mail, Clock, Users, AlertCircle, CheckCircle2, Send, Loader2, TestTube, 
+import {
+  Mail, Users, AlertCircle, CheckCircle2, Send, Loader2, TestTube,
   ArrowLeft, Shield, AlertTriangle, MessageSquare, Bold, Italic, List, Underline, Type
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -18,12 +18,10 @@ import Link from 'next/link';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
 
 interface CooldownStatus {
   lastSent: string | null;
@@ -34,12 +32,6 @@ interface CooldownStatus {
 interface SendResult {
   ok: boolean;
   message: string;
-  stats?: {
-    total: number;
-    successful: number;
-    failed: number;
-  };
-  failedEmails?: Array<{ email: string; error?: string }>;
 }
 
 export default function MailingDashboard() {
@@ -68,7 +60,6 @@ export default function MailingDashboard() {
   const [showFinalConfirmDialog, setShowFinalConfirmDialog] = useState(false);
   const [showCustomConfirmDialog, setShowCustomConfirmDialog] = useState(false);
   const [showCustomFinalConfirmDialog, setShowCustomFinalConfirmDialog] = useState(false);
-  const [resetting, setResetting] = useState(false);
   const [bulkEmailTemplate, setBulkEmailTemplate] = useState<string>('promotional');
   const { toast } = useToast();
   const { user } = useUser();
@@ -368,14 +359,6 @@ export default function MailingDashboard() {
           description: data.message,
         });
 
-        // Show detailed stats if available
-        if (data.stats) {
-          console.log('Email send stats:', data.stats);
-          if (data.stats.failed > 0 && data.failedEmails) {
-            console.error('Failed emails:', data.failedEmails);
-          }
-        }
-
         // Refresh cooldown status
         await fetchCooldownStatus();
       } else {
@@ -393,57 +376,6 @@ export default function MailingDashboard() {
       });
     } finally {
       setSending(false);
-    }
-  };
-
-  // Reset cooldown timer
-  const handleResetCooldown = async () => {
-    if (!bulkEmailTemplate) {
-      toast({
-        title: 'Error',
-        description: 'Please select a template first',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    try {
-      setResetting(true);
-      const endpoint = '/api/admin/mailing/reset-cooldown';
-      
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          emailType: 'bulk-template',
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.ok) {
-        toast({
-          title: 'Cooldown Reset! 🔄',
-          description: data.message,
-        });
-
-        // Refresh cooldown status
-        await fetchCooldownStatus();
-      } else {
-        toast({
-          title: 'Error',
-          description: data.message || 'Failed to reset cooldown',
-          variant: 'destructive',
-        });
-      }
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error?.message || 'Failed to reset cooldown',
-        variant: 'destructive',
-      });
-    } finally {
-      setResetting(false);
     }
   };
 
@@ -489,14 +421,6 @@ export default function MailingDashboard() {
           description: data.message,
         });
 
-        // Show detailed stats if available
-        if (data.stats) {
-          console.log('Custom mailing stats:', data.stats);
-          if (data.stats.failed > 0 && data.failedEmails) {
-            console.error('Failed emails:', data.failedEmails);
-          }
-        }
-
         // Clear form and refresh cooldown status
         setCustomSubject('');
         setCustomMessage('');
@@ -527,25 +451,6 @@ export default function MailingDashboard() {
       dateStyle: 'medium',
       timeStyle: 'short',
     });
-  };
-
-  // Calculate time until next available
-  const getTimeUntilAvailable = (nextAvailable: string | null) => {
-    if (!nextAvailable) return null;
-
-    const now = new Date();
-    const next = new Date(nextAvailable);
-    const diff = next.getTime() - now.getTime();
-
-    if (diff <= 0) return 'Available now';
-
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-
-    if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-    if (hours > 0) return `${hours}h ${minutes}m`;
-    return `${minutes}m`;
   };
 
   if (loading) {
