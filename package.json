@@ -32,6 +32,7 @@
     "calibrate:editron:auto": "tsx scripts/calibrate/calibrate.ts --shuffle",
     "calibrate:vjepa": "tsx scripts/probe-vjepa-coverage.ts",
     "calibrate:bundles": "tsx scripts/build-moment-bundles.ts",
+    "curate:sfx": "tsx scripts/curate-sfx-catalog.ts",
     "deploy:remotion:dev": "bash scripts/deploy-remotion-site.sh dev",
     "deploy:remotion:prod": "bash scripts/deploy-remotion-site.sh prod",
     "deploy:remotion:function": "bash scripts/deploy-remotion-function.sh"

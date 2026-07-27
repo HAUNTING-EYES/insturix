@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { z } from 'zod';
 
 export const MIN_EBUR128_INTEGRATED_DURATION_MS = 400;
@@ -66,3 +68,47 @@ export const sfxAcousticMeasurementSchema = z.discriminatedUnion('loudnessMetric
 });
 
 export type SfxAcousticMeasurement = z.infer<typeof sfxAcousticMeasurementSchema>;
+
+export interface SfxAcousticInspectionInput {
+  durationMs: number;
+  sampleRate: number;
+  channels: number;
+  loudness: {
+    metric: 'integrated-lufs' | 'rms-dbfs';
+    valueDb: number;
+  };
+  truePeakDbtp: number;
+}
+
+export function buildSfxAcousticMeasurement(
+  sourceBuffer: Buffer,
+  inspection: SfxAcousticInspectionInput,
+  measuredAt: Date = new Date(),
+): SfxAcousticMeasurement {
+  const loudnessDb = inspection.loudness.valueDb;
+  const sharedReceipt = {
+    version: 'sfx-acoustic-measurement-v1' as const,
+    loudnessDb,
+    truePeakDbtp: inspection.truePeakDbtp,
+    sampleRateHz: inspection.sampleRate,
+    channelCount: inspection.channels,
+    durationMs: Math.floor(inspection.durationMs),
+    measuredAt: measuredAt.toISOString(),
+    sourceHashSha256: createHash('sha256').update(sourceBuffer).digest('hex'),
+  };
+  const receipt = inspection.loudness.metric === 'integrated-lufs'
+    ? {
+      ...sharedReceipt,
+      algorithm: 'ffmpeg-ebur128-v1' as const,
+      loudnessMetric: 'integrated-lufs' as const,
+      integratedLufs: loudnessDb,
+    }
+    : {
+      ...sharedReceipt,
+      algorithm: 'pcm-rms+ffmpeg-true-peak-v1' as const,
+      loudnessMetric: 'rms-dbfs' as const,
+      shortWindowRmsDbfs: loudnessDb,
+    };
+
+  return sfxAcousticMeasurementSchema.parse(receipt);
+}

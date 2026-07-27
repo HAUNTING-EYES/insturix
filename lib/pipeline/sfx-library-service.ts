@@ -13,8 +13,6 @@
  *   // Returns { url, filename, duration, source }
  */
 
-import { createHash } from 'node:crypto';
-
 import { uploadMedia, type UploadResult } from '@/lib/editron/services/upload-service';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import {
@@ -32,7 +30,10 @@ import {
   inspectEncodedSfxAudio,
   type EncodedSfxInspection,
 } from '@/lib/pipeline/audio-conditioning';
-import type { SfxAcousticMeasurement } from '@/lib/pipeline/sfx-acoustic-measurement';
+import {
+  buildSfxAcousticMeasurement,
+  type SfxAcousticMeasurement,
+} from '@/lib/pipeline/sfx-acoustic-measurement';
 import { fileTypeFromBuffer } from 'file-type';
 import { nanoid } from 'nanoid';
 
@@ -1091,30 +1092,7 @@ async function inspectAndValidateSfxAudio(
     );
   }
 
-  const sharedReceipt = {
-    version: 'sfx-acoustic-measurement-v1' as const,
-    loudnessDb,
-    truePeakDbtp: inspection.truePeakDbtp,
-    sampleRateHz: inspection.sampleRate,
-    channelCount: inspection.channels,
-    durationMs: Math.floor(inspection.durationMs),
-    measuredAt: new Date().toISOString(),
-    sourceHashSha256: createHash('sha256').update(buffer).digest('hex'),
-  };
-  if (inspection.loudness.metric === 'integrated-lufs') {
-    return {
-      ...sharedReceipt,
-      algorithm: 'ffmpeg-ebur128-v1',
-      loudnessMetric: 'integrated-lufs',
-      integratedLufs: loudnessDb,
-    };
-  }
-  return {
-    ...sharedReceipt,
-    algorithm: 'pcm-rms+ffmpeg-true-peak-v1',
-    loudnessMetric: 'rms-dbfs',
-    shortWindowRmsDbfs: loudnessDb,
-  };
+  return buildSfxAcousticMeasurement(buffer, inspection);
 }
 
 function canonicalFreesoundAssetId(value: string): string {
