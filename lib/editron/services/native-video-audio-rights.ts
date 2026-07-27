@@ -80,16 +80,34 @@ export function readStoredNativeVideoAudioRights(
 ): AudioRightsContract | null {
   const record = asRecord(asset);
   const assetId = nonEmptyString(record?.assetId);
-  const rights = asRecord(record?.audioRights);
-  const evidence = asRecord(rights?.evidence);
 
   if (
     !record
     || record.type !== 'video'
     || record.source !== 'user-upload'
     || !assetId
+  ) {
+    return null;
+  }
+
+  const rights = readNativeVideoAudioRightsClaim(record, assetId);
+  return rights?.source === 'user-upload' ? rights : null;
+}
+
+export function readNativeVideoAudioRightsClaim(
+  value: unknown,
+  expectedAssetId?: string,
+): AudioRightsContract | null {
+  const record = asRecord(value);
+  const assetId = nonEmptyString(expectedAssetId) ?? nonEmptyString(record?.assetId);
+  const rights = asRecord(record?.audioRights);
+  const evidence = asRecord(rights?.evidence);
+
+  if (
+    !record
+    || !assetId
     || rights?.mediaRole !== 'native-video'
-    || rights.source !== 'user-upload'
+    || rights.licensed !== true
     || evidence?.sourceAssetId !== assetId
     || getAudioRightsContractIssue(rights) !== null
   ) {
