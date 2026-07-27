@@ -43,6 +43,7 @@ export type AtomicCaptionAesthetic = {
 
 export type AtomicCaptionPresentationInput = {
   requestedStyle?: string;
+  requestedStyleAuthority?: 'hint' | 'user';
   profileStyle?: string;
   displayMode?: string;
   wordsPerGroup?: number;
@@ -246,6 +247,7 @@ function captionAesthetic(
 
 export function resolveAtomicCaptionPresentation(input: AtomicCaptionPresentationInput): AtomicCaptionPresentation {
   const requestedStyle = normalizeStyle(input.requestedStyle);
+  const userStyle = input.requestedStyleAuthority === 'user' ? requestedStyle : undefined;
   const profileStyle = normalizeStyle(input.profileStyle);
   const explicitDisplay = normalizeDisplayMode(input.displayMode);
   const displayHint = explicitModeFromStyleHint(input.requestedStyle)
@@ -253,13 +255,15 @@ export function resolveAtomicCaptionPresentation(input: AtomicCaptionPresentatio
   const signalPresentation = presentationFromSignals(input.genreParams);
   const strongStyle = requestedStyle && STRONG_STYLE_HINTS.has(requestedStyle) ? requestedStyle : undefined;
 
-  const style = strongStyle
+  const style = userStyle
+    ?? strongStyle
     ?? signalPresentation?.style
     ?? requestedStyle
     ?? profileStyle
     ?? 'subtitle';
   const resolvedExplicitDisplay = resolveSafeExplicitDisplay(explicitDisplay, signalPresentation?.signals);
   const displayMode = resolvedExplicitDisplay
+    ?? (userStyle ? displayHint ?? DISPLAY_BY_STYLE[userStyle] : undefined)
     ?? (strongStyle ? displayHint : undefined)
     ?? signalPresentation?.displayMode
     ?? displayHint
@@ -268,6 +272,7 @@ export function resolveAtomicCaptionPresentation(input: AtomicCaptionPresentatio
   const wordsPerGroup = Math.max(1, Math.min(12, Math.round(
     input.wordsPerGroup
       ?? (resolvedExplicitDisplay ? WORDS_BY_MODE[resolvedExplicitDisplay] : undefined)
+      ?? (userStyle ? WORDS_BY_MODE[displayMode] : undefined)
       ?? (strongStyle && displayHint ? WORDS_BY_MODE[displayHint] : undefined)
       ?? signalPresentation?.wordsPerGroup
       ?? (displayHint ? WORDS_BY_MODE[displayHint] : undefined)
@@ -286,7 +291,7 @@ export function resolveAtomicCaptionPresentation(input: AtomicCaptionPresentatio
     style,
     displayMode,
     wordsPerGroup,
-    source: strongStyle
+    source: userStyle || strongStyle
       ? 'strong-style-hint'
       : signalPresentation
         ? 'signals'

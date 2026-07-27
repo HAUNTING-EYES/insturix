@@ -2709,56 +2709,64 @@ Use overwrite only to regenerate an existing generated track. Manually edited ca
       try {
         const input = coerceInput(rawInput);
         const project = await loadProject();
-        
-        // Find the caption overlay
         const captionOverlay: any = project.overlays.find(
           (o: any) => o.id === input.captionOverlayId && o.type === 'caption'
         );
-        
         if (!captionOverlay) {
           return JSON.stringify({ status: 'error', message: 'Caption overlay not found' });
         }
-        
-        // Find the linked video
-        if (!captionOverlay.sourceVideoId) {
-          return JSON.stringify({ status: 'error', message: 'Caption is not linked to a video (no sourceVideoId)' });
-        }
-        
-        const videoOverlay = project.overlays.find(
-          (o: any) => o.id === captionOverlay.sourceVideoId && o.type === 'video'
+
+        const { planChatCanonicalCaptionTrack } = await import(
+          '../services/chat-canonical-caption-adapter'
         );
-        
-        if (!videoOverlay) {
-          return JSON.stringify({ status: 'error', message: 'Linked video overlay not found (may have been deleted)' });
+        const plan = planChatCanonicalCaptionTrack(project as any, {
+          requestedStyle: input.newStyle,
+          overwrite: true,
+        });
+        if (plan.status !== 'generated') {
+          return JSON.stringify({
+            status: plan.status,
+            data: { reason: plan.reason, message: plan.message },
+            error: null,
+            nextAction: plan.status === 'needs-choice' ? 'ask_clarification' : 'stop',
+          });
         }
-        
-        const canvas = getCanvasDimensions(project);
-        const fps = project.fps || 30;
-        
-        // Use refresh function
-        const { refreshCaptions } = await import('../services/media');
-        const updatedCaption = await refreshCaptions({
-          captionOverlay,
-          videoOverlay: videoOverlay as any,
+
+        const revision = project.updatedAt instanceof Date
+          ? project.updatedAt
+          : new Date(project.updatedAt);
+        if (Number.isNaN(revision.getTime())) {
+          return JSON.stringify({
+            status: 'error',
+            data: null,
+            error: {
+              code: 'CHAT_CAPTION_PROJECT_REVISION_MISSING',
+              message: 'The canonical project revision is unavailable; captions were not refreshed.',
+            },
+            nextAction: 'retry',
+          });
+        }
+        const replaced = await projectService.replaceOverlayFamilyAtomic(
           userId,
-          playerDimensions: canvas,
-          fps,
-          preserveStyle: !input.newStyle,
-          newStyle: input.newStyle,
+          projectId,
+          { expectedUpdatedAt: revision, overlays: plan.overlays },
+        );
+        if (!replaced) {
+          return JSON.stringify({
+            status: 'replan-required',
+            data: { reason: 'project-revision-changed' },
+            error: null,
+            nextAction: 'Re-read the current timeline and retry caption refresh once.',
+          });
+        }
+
+        return successEnvelope({
+          captionId: plan.captionOverlay.id,
+          captionCount: plan.result.captionCount,
+          style: plan.presentation.style,
+          producer: 'canonical-caption-track',
+          message: `Refreshed one canonical caption track with ${plan.result.captionCount} readable groups.`,
         });
-        
-        // Update in database (replace the caption)
-        await projectService.deleteOverlay(userId, projectId, captionOverlay.id);
-        await projectService.addOverlay(userId, projectId, updatedCaption as any);
-        
-        return JSON.stringify({
-          status: 'success',
-          captionId: updatedCaption.id,
-          captionCount: updatedCaption.captions.length,
-          style: input.newStyle || 'preserved',
-          message: `Refreshed captions (${updatedCaption.captions.length} segments) synced to current video timing`,
-        });
-        
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
       }
@@ -6103,18 +6111,20 @@ Examples:
 
   // ─── Batch Caption Edit Tool ─────────────────────────────────────
   const batchEditCaptionsSchema = z.object({
-    style: z.string().optional().describe("Caption style to apply to ALL captions (e.g., 'tiktok', 'subtitle', 'karaoke', 'kinetic')"),
-    fontSize: z.string().optional().describe("Font size for all captions (e.g., '24px', '32px')"),
-    color: z.string().optional().describe("Text color for all captions (e.g., '#ffffff', 'yellow')"),
-    backgroundColor: z.string().optional().describe("Background color (e.g., 'rgba(0,0,0,0.7)', 'transparent')"),
-    position: z.string().optional().describe("Position: 'top', 'center', 'bottom'"),
-    fontFamily: z.string().optional().describe("Font family (e.g., 'font-bold', 'font-mono')"),
-    fontWeight: z.string().optional().describe("Font weight (e.g., '400', '600', '700', '900')"),
-  });
+    style: z.enum(['tiktok', 'minimal', 'bold', 'karaoke', 'subtitle', 'hormozi', 'mrbeast', 'ali-abdaal', 'corporate', 'kinetic', 'sentence']).optional().describe("Requested caption aesthetic for every track"),
+    fontSize: z.string().max(16).regex(/^\d+(?:\.\d+)?px$/i).optional().describe("Preferred font size in pixels; canonical text fitting remains authoritative"),
+    color: z.string().max(64).optional().describe("Preferred text color; canonical contrast remains authoritative"),
+    backgroundColor: z.string().max(64).optional().describe("Preferred caption surface color; canonical contrast remains authoritative"),
+    position: z.enum(['top', 'center', 'bottom']).optional().describe("Preferred safe region; protected-region avoidance remains authoritative"),
+    fontFamily: z.string().max(80).optional().describe("Preferred readable font family"),
+    fontWeight: z.coerce.number().int().min(100).max(900).optional().describe("Preferred font weight"),
+    textCase: z.enum(['sentence', 'uppercase', 'lowercase', 'capitalize']).optional().describe("Requested caption casing"),
+  }).strict();
 
   const batchEditCaptions = tool(
-    async (input: z.infer<typeof batchEditCaptionsSchema>) => {
+    async (rawInput: z.infer<typeof batchEditCaptionsSchema>) => {
       try {
+        const input = coerceInput(rawInput);
         const project = await loadProject();
         const captions = (project as any).overlays?.filter((o: any) => o.type === 'caption') || [];
 
@@ -6122,41 +6132,63 @@ Examples:
           return JSON.stringify({ status: 'error', message: 'No captions found in this project. Add captions first.' });
         }
 
-        const updates: Record<string, any> = {};
-        if (input.fontSize) updates['styles.fontSize'] = input.fontSize;
-        if (input.color) updates['styles.color'] = input.color;
-        if (input.backgroundColor) updates['styles.backgroundColor'] = input.backgroundColor;
-        if (input.fontFamily) updates['styles.fontFamily'] = input.fontFamily;
-        if (input.fontWeight) updates['styles.fontWeight'] = input.fontWeight;
-
-        // Style preset overrides
-        if (input.style) updates['template'] = input.style;
-
-        let modified = 0;
-        for (const caption of captions) {
-          try {
-            const styleUpdate: any = { ...caption.styles };
-            if (input.fontSize) styleUpdate.fontSize = input.fontSize;
-            if (input.color) styleUpdate.color = input.color;
-            if (input.backgroundColor) styleUpdate.backgroundColor = input.backgroundColor;
-            if (input.fontFamily) styleUpdate.fontFamily = input.fontFamily;
-            if (input.fontWeight) styleUpdate.fontWeight = input.fontWeight;
-
-            await projectService.updateOverlay(userId, projectId, caption.id, {
-              styles: styleUpdate,
-              ...(input.style ? { template: input.style } : {}),
-              ...(input.position ? { position: input.position } : {}),
-            } as any);
-            modified++;
-          } catch (err: any) {
-            console.warn(`[batch_edit_captions] Failed for caption ${caption.id}: ${err.message}`);
-          }
+        const { planChatCanonicalCaptionRestyle } = await import(
+          '../services/chat-canonical-caption-adapter'
+        );
+        const plan = planChatCanonicalCaptionRestyle(project as any, {
+          requestedStyle: input.style,
+          fontSize: input.fontSize,
+          color: input.color,
+          backgroundColor: input.backgroundColor,
+          position: input.position,
+          fontFamily: input.fontFamily,
+          fontWeight: input.fontWeight,
+          textCase: input.textCase,
+        });
+        if (plan.status !== 'updated') {
+          return JSON.stringify({
+            status: plan.status,
+            data: { reason: plan.reason, message: plan.message },
+            error: null,
+            nextAction: 'stop',
+          });
         }
 
-        return JSON.stringify({
-          status: 'success',
-          data: { modified, total: captions.length },
-          message: `Updated ${modified}/${captions.length} captions`,
+        const revision = project.updatedAt instanceof Date
+          ? project.updatedAt
+          : new Date(project.updatedAt);
+        if (Number.isNaN(revision.getTime())) {
+          return JSON.stringify({
+            status: 'error',
+            data: null,
+            error: {
+              code: 'CHAT_CAPTION_PROJECT_REVISION_MISSING',
+              message: 'The canonical project revision is unavailable; caption styling was not written.',
+            },
+            nextAction: 'retry',
+          });
+        }
+        const replaced = await projectService.replaceOverlayFamilyAtomic(
+          userId,
+          projectId,
+          { expectedUpdatedAt: revision, overlays: plan.overlays },
+        );
+        if (!replaced) {
+          return JSON.stringify({
+            status: 'replan-required',
+            data: { reason: 'project-revision-changed' },
+            error: null,
+            nextAction: 'Re-read the current timeline and retry caption styling once.',
+          });
+        }
+
+        return successEnvelope({
+          modified: plan.result.updated,
+          total: captions.length,
+          style: plan.presentation.style,
+          producer: 'canonical-caption-track',
+          styleAudit: plan.result.styleAudit,
+          message: `Updated ${plan.result.updated}/${captions.length} caption tracks through the canonical caption owner.`,
         });
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
