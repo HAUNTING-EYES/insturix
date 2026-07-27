@@ -41,11 +41,11 @@ Editron's audio is its weakest layer. Fix the quality floor first, then build a 
 - **`regenerate_bgm` runs NO beat alignment after replacing music** — cuts stay on the old rhythm. No music-first path anywhere.
 
 ### SFX
-- One provider (Freesound CC0 only; Pixabay removed dead code `lib/editron/services/sfx-library-service.ts:181-184`; `SFX_SEARCH_PROVIDERS` = Freesound only `:92-97`; `isSFXLibraryAvailable()` returns `true` even without `FREESOUND_API_KEY` `:605` → silent starvation).
+- Two runtime sources: the measured, rights-cleared bundled catalog first, then Freesound CC0 as provider fallback. `isSFXLibraryAvailable()` (`lib/pipeline/sfx-library-service.ts:1030`) returns `true` only when at least one source can serve audio.
 - The atomic form (`lib/editron/services/sfx-form.ts`) is genuinely good engineering, but acceptance ultimately gates on **title/tag string-match** (`:224` `tokenTitleMatches`, hard-reject `:248-250`), no audio content analysis; a metadata-light file BYPASSES the gate (`+0.22` bonus `:242`). Library miss on the "smart" paths (EDL `edl-executor.ts:2598`) → SILENCE.
 - Chat `add_sfx` (`lib/editron/agent/tools.ts:5391-5528`) takes raw Freesound `results[0]`, NO gate.
 - Computed `duckUnderSpeech` (`sfx-form.ts:649-655`) is DISCARDED — the executor never attaches `duckingConfig` to the SFX overlay (`edl-executor.ts:2672`).
-- **No curated pack** — `public/sfx/` and `manifest.json` do not exist.
+- **Curated starter pack shipped:** `public/sfx/manifest.json` contains 29 human-approved CC0 assets across whoosh, impact, tick, pop, shimmer, ambience, and foley. Each entry carries content-addressed storage, an acoustic measurement, provenance, and a rights receipt.
 
 ### Ducking (a founder-challenged claim — verified verdict)
 - VO/TTS overlays: ONE continuous duck across the whole overlay (`audio-ducking.ts:59-64`), no sentence gaps. **CONFIRMED weak.**
@@ -134,7 +134,7 @@ conditionAudio({ buffer|url, targetFrames, fps, platform }) →
 - E2: attach the already-computed `duckUnderSpeech` config to SFX overlays (`sfx-form.ts:649` → `edl-executor.ts:2672`, currently discarded); add SFX one-shots as duck sources for music.
 
 ### F5. Fail-loud
-- `isSFXLibraryAvailable()` (`sfx-library-service.ts:605`) must return `false` without `FREESOUND_API_KEY` (today it lies → budgets silently starve).
+- Completed: `isSFXLibraryAvailable()` returns `false` only when both the bundled catalog is empty and `FREESOUND_API_KEY` is absent, so callers neither starve valid bundled assets nor reserve impossible provider work.
 
 ---
 

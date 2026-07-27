@@ -143,6 +143,13 @@ function validCatalogManifest(): SfxCatalogManifest {
   });
 }
 
+function emptyCatalogManifest(): SfxCatalogManifest {
+  return {
+    ...validCatalogManifest(),
+    entries: [],
+  };
+}
+
 function catalogManifestWithMeasurement(
   measurement: Record<string, unknown>,
   durationMs: number,
@@ -191,12 +198,13 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
     vi.unstubAllGlobals();
   });
 
-  it('reports library availability truthfully from its provider credential', () => {
+  it('reports library availability from either the bundled catalog or provider credential', () => {
     delete process.env.FREESOUND_API_KEY;
-    expect(isSFXLibraryAvailable()).toBe(false);
+    expect(isSFXLibraryAvailable(emptyCatalogManifest())).toBe(false);
+    expect(isSFXLibraryAvailable()).toBe(true);
 
     process.env.FREESOUND_API_KEY = 'configured';
-    expect(isSFXLibraryAvailable()).toBe(true);
+    expect(isSFXLibraryAvailable(emptyCatalogManifest())).toBe(true);
   });
 
   it('scores provider candidates before downloading and uploads only the accepted SFX', async () => {
@@ -239,7 +247,14 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
     });
 
     const reports: SFXLibrarySearchReport[] = [];
-    const result = await searchAndDownloadSFX('whoosh cinematic sweep', 'user-1', 2, form, report => reports.push(report));
+    const result = await searchAndDownloadSFX(
+      'whoosh cinematic sweep',
+      'user-1',
+      2,
+      form,
+      report => reports.push(report),
+      emptyCatalogManifest(),
+    );
 
     expect(reports).toHaveLength(1);
     expect(reports[0]).toEqual(expect.objectContaining({

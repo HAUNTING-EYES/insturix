@@ -1027,8 +1027,10 @@ export function audioDescriptionToSearchQuery(audioDescription: string): string 
  * Callers must not reserve SFX budget when the only library provider cannot run.
  * Unfulfilled intent belongs in the quality receipt, not a fake capability.
  */
-export function isSFXLibraryAvailable(): boolean {
-  return BUNDLED_SFX_CATALOG.entries.length > 0 || Boolean(process.env.FREESOUND_API_KEY?.trim());
+export function isSFXLibraryAvailable(
+  catalogManifest: SfxCatalogManifest = BUNDLED_SFX_CATALOG,
+): boolean {
+  return catalogManifest.entries.length > 0 || Boolean(process.env.FREESOUND_API_KEY?.trim());
 }
 
 async function conditionControlledSfxAudio(
