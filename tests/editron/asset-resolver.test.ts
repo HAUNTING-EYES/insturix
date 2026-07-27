@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   collection: vi.fn(),
   find: vi.fn(),
+  findOne: vi.fn(),
   toArray: vi.fn(),
   updateOne: vi.fn(),
   refreshSignedUrl: vi.fn(),
@@ -24,12 +25,14 @@ describe("assetResolver", () => {
     vi.resetModules();
     mocks.collection.mockReset();
     mocks.find.mockReset();
+    mocks.findOne.mockReset();
     mocks.toArray.mockReset();
     mocks.updateOne.mockReset();
     mocks.refreshSignedUrl.mockReset();
 
     mocks.collection.mockReturnValue({
       find: mocks.find,
+      findOne: mocks.findOne,
       updateOne: mocks.updateOne,
     });
     mocks.find.mockReturnValue({ toArray: mocks.toArray });
@@ -93,6 +96,28 @@ describe("assetResolver", () => {
       src: "https://cdn.example.test/asset/upload_physical_source",
       content: "https://cdn.example.test/asset/upload_physical_source",
     });
+  });
+
+  it("uses the persisted physical R2 key for direct backend asset resolution", async () => {
+    vi.stubEnv("CDN_WORKER_URL", "https://cdn.example.test");
+    mocks.findOne.mockResolvedValue({
+      assetId: "battle_fixture_asset",
+      userId: "user_1",
+      r2Key: "upload_physical_source",
+      type: "video",
+      source: "user-upload",
+      gcsPath: null,
+      cachedUrl: "",
+    });
+    const { assetResolver } = await import("@/lib/editron/services/asset-resolver");
+
+    const resolved = await assetResolver.resolveAssetUrl("battle_fixture_asset", "user_1");
+
+    expect(mocks.findOne).toHaveBeenCalledWith({
+      assetId: "battle_fixture_asset",
+      userId: "user_1",
+    });
+    expect(resolved).toBe("https://cdn.example.test/asset/upload_physical_source");
   });
 
   it("keeps legacy asset-id addressing when no physical R2 key was persisted", async () => {

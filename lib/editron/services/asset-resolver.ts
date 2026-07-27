@@ -370,7 +370,8 @@ export class AssetResolver {
     // The Cloudflare Worker handles R2 caching + GCS fallback transparently.
     const cdnWorkerUrl = process.env.CDN_WORKER_URL;
     if (cdnWorkerUrl && asset.assetId) {
-      return `https://${cdnWorkerUrl.replace(/^https?:\/\//, '')}/asset/${asset.assetId}`;
+      const storageKey = asset.r2Key?.trim() || asset.assetId;
+      return `https://${cdnWorkerUrl.replace(/^https?:\/\//, '')}/asset/${storageKey}`;
     }
 
     // Fallback: GCS signed URL flow (when CDN not configured)
