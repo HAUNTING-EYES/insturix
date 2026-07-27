@@ -63,6 +63,11 @@ function installProjectStore(project: FixtureProject) {
       project.overlays.push(structuredClone(overlay) as Record<string, any>);
     },
   );
+  const deleteOverlay = vi.spyOn(projectService, 'deleteOverlay').mockImplementation(
+    async (_userId, _projectId, overlayId) => {
+      project.overlays = project.overlays.filter((candidate) => candidate.id !== overlayId);
+    },
+  );
   const updateProject = vi.spyOn(projectService, 'updateProject').mockImplementation(
     async (_userId, _projectId, patch) => {
       Object.assign(project, structuredClone(patch));
@@ -73,7 +78,7 @@ function installProjectStore(project: FixtureProject) {
       Object.assign(project, structuredClone(nextProject));
     },
   );
-  return { updateOverlay, addOverlay, updateProject, saveProject };
+  return { updateOverlay, addOverlay, deleteOverlay, updateProject, saveProject };
 }
 
 function toolNamed(name: string) {
@@ -87,7 +92,7 @@ function toolNamed(name: string) {
 
 function parseEnvelope(raw: string) {
   return JSON.parse(raw) as {
-    status: 'success' | 'error';
+    status: 'success' | 'error' | 'no-op';
     data: Record<string, any> | null;
     error: { code?: string; message: string; details?: Record<string, any> } | null;
   };
@@ -117,6 +122,7 @@ describe('chat mechanical tool contracts', () => {
       data: {
         firstPart: { id: 1, from: 30, duration: 40 },
         secondPart: { from: 70, duration: 50 },
+        affectedFrameRanges: [{ startFrame: 69, endFrame: 72 }],
       },
     });
     expect(project.overlays).toHaveLength(2);
@@ -351,6 +357,7 @@ describe('chat mechanical tool contracts', () => {
           { id: 11, status: 'success' },
           { id: 999, status: 'error', message: 'Not found' },
         ],
+        affectedFrameRanges: [{ startFrame: 90, endFrame: 180 }],
       },
     });
     expect(project.overlays.find((overlay) => overlay.id === 11)?.styles).toEqual({
@@ -375,7 +382,17 @@ describe('chat mechanical tool contracts', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      data: { clipsMoved: 5, totalFramesClosed: 60, totalSecondsClosed: 2 },
+      data: {
+        clipsMoved: 5,
+        totalFramesClosed: 60,
+        totalSecondsClosed: 2,
+        affectedFrameRanges: expect.arrayContaining([
+          { startFrame: 0, endFrame: 60 },
+          { startFrame: 30, endFrame: 90 },
+          { startFrame: 60, endFrame: 180 },
+          { startFrame: 120, endFrame: 240 },
+        ]),
+      },
     });
     expect(Object.fromEntries(project.overlays.map((overlay) => [overlay.id, overlay.from]))).toEqual({
       20: 0,
@@ -391,6 +408,57 @@ describe('chat mechanical tool contracts', () => {
       'proj_mechanical_tools',
       { durationInFrames: 180 },
     );
+  });
+
+  it('reports old and new windows for generic update, trim, batch, and delete mutations', async () => {
+    const project = makeProject([
+      { id: 40, type: 'text', from: 10, durationInFrames: 30, row: 2, content: 'Move' },
+      {
+        id: 41,
+        type: 'video',
+        from: 0,
+        durationInFrames: 100,
+        row: 0,
+        videoStartTime: 12,
+      },
+      { id: 42, type: 'image', from: 120, durationInFrames: 30, row: 2 },
+      { id: 43, type: 'text', from: 150, durationInFrames: 30, row: 3, styles: { color: '#fff' } },
+    ], 240);
+    installProjectStore(project);
+
+    const update = parseEnvelope(await toolNamed('update_overlay').invoke({
+      id: 40,
+      start: 50,
+    }));
+    expect(update.data?.affectedFrameRanges).toEqual([
+      { startFrame: 10, endFrame: 40 },
+      { startFrame: 50, endFrame: 80 },
+    ]);
+
+    const trim = parseEnvelope(await toolNamed('trim_overlay').invoke({
+      id: 41,
+      trimStart: 10,
+      trimEnd: 20,
+    }));
+    expect(trim.data?.affectedFrameRanges).toEqual([
+      { startFrame: 0, endFrame: 10 },
+      { startFrame: 80, endFrame: 100 },
+    ]);
+
+    const batch = parseEnvelope(await toolNamed('batch_update_overlays').invoke({
+      updates: [{
+        id: 43,
+        start: 180,
+        styles: { color: '#ffd166' },
+      }],
+    }));
+    expect(batch.data?.affectedFrameRanges).toEqual([
+      { startFrame: 150, endFrame: 180 },
+      { startFrame: 180, endFrame: 210 },
+    ]);
+
+    const deletion = parseEnvelope(await toolNamed('delete_overlay').invoke({ id: 42 }));
+    expect(deletion.data?.affectedFrameRanges).toEqual([{ startFrame: 120, endFrame: 150 }]);
   });
 
   it('atomically removes a timeline range while preserving source continuity across overlay families', async () => {

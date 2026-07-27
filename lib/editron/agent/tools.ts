@@ -383,6 +383,45 @@ export const createTools = (userId: string, projectId: string) => {
     }
   }
 
+  type ChatMutationFrameRange = { startFrame: number; endFrame: number };
+
+  function overlayMutationFrameRange(overlay: any): ChatMutationFrameRange {
+    const startFrame = Math.max(0, Math.round(Number(overlay?.from) || 0));
+    const durationInFrames = Math.max(0, Math.round(Number(overlay?.durationInFrames) || 0));
+    return { startFrame, endFrame: startFrame + durationInFrames };
+  }
+
+  function normalizeChatMutationFrameRanges(
+    ranges: ChatMutationFrameRange[],
+  ): ChatMutationFrameRange[] {
+    const unique = new Map<string, ChatMutationFrameRange>();
+    for (const range of ranges) {
+      if (!Number.isFinite(range.startFrame) || !Number.isFinite(range.endFrame)) continue;
+      const startFrame = Math.max(0, Math.round(range.startFrame));
+      const endFrame = Math.max(0, Math.round(range.endFrame));
+      if (endFrame <= startFrame) continue;
+      unique.set(`${startFrame}:${endFrame}`, { startFrame, endFrame });
+    }
+    return Array.from(unique.values()).sort(
+      (left, right) => left.startFrame - right.startFrame || left.endFrame - right.endFrame,
+    );
+  }
+
+  function overlayUpdateMutationFrameRanges(
+    overlay: any,
+    updates: Record<string, unknown>,
+  ): ChatMutationFrameRange[] {
+    const previous = overlayMutationFrameRange(overlay);
+    const next = overlayMutationFrameRange({
+      ...overlay,
+      ...(updates.from !== undefined ? { from: updates.from } : {}),
+      ...(updates.durationInFrames !== undefined
+        ? { durationInFrames: updates.durationInFrames }
+        : {}),
+    });
+    return normalizeChatMutationFrameRanges([previous, next]);
+  }
+
   // Helper to get canvas dimensions from project
   // IMPORTANT: Always use composition dimensions for overlay positioning.
   // playerDimensions is the preview container size and will cause positioning
@@ -1271,9 +1310,24 @@ TYPE-SPECIFIC FIELDS:
             requestedStyles: input.styles,
           });
         }
+
+        if (Object.keys(updates).length === 0) {
+          return JSON.stringify({
+            status: 'no-op',
+            data: { overlayId: input.id, message: `Overlay ${input.id} has no applicable requested changes.` },
+            error: null,
+            nextAction: 'stop',
+          });
+        }
+        const affectedFrameRanges = overlayUpdateMutationFrameRanges(overlay, updates);
         
         await projectService.updateOverlay(userId, projectId, input.id, updates);
-        return JSON.stringify({ status: 'success', message: `Overlay ${input.id} updated`, updates });
+        return JSON.stringify({
+          status: 'success',
+          message: `Overlay ${input.id} updated`,
+          updates,
+          affectedFrameRanges,
+        });
         
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
@@ -1310,6 +1364,7 @@ TYPE-SPECIFIC FIELDS:
         const project = await loadProject();
         const canvas = getCanvasDimensions(project);
         const results: any[] = [];
+        const mutationRanges: ChatMutationFrameRange[] = [];
         
         for (const update of input.updates) {
           const overlay = project.overlays.find((o: any) => o.id === update.id);
@@ -1366,15 +1421,31 @@ TYPE-SPECIFIC FIELDS:
           if (update.styles) {
             updates.styles = { ...overlay.styles, ...update.styles };
           }
+
+          if (Object.keys(updates).length === 0) {
+            results.push({ id: update.id, status: 'no-op', message: 'No applicable requested changes' });
+            continue;
+          }
           
           await projectService.updateOverlay(userId, projectId, update.id, updates);
+          mutationRanges.push(...overlayUpdateMutationFrameRanges(overlay, updates));
           results.push({ id: update.id, status: 'success' });
         }
-        
+
+        const affectedFrameRanges = normalizeChatMutationFrameRanges(mutationRanges);
+        if (affectedFrameRanges.length === 0) {
+          return JSON.stringify({
+            status: 'no-op',
+            data: { results, message: 'No requested overlay changes could be applied.' },
+            error: null,
+            nextAction: 'stop',
+          });
+        }
         return JSON.stringify({ 
           status: 'success', 
           message: `Batch updated ${results.filter(r => r.status === 'success').length}/${input.updates.length} overlays`,
-          results 
+          results,
+          affectedFrameRanges,
         });
         
       } catch (e: any) {
@@ -1450,7 +1521,11 @@ TYPE-SPECIFIC FIELDS:
           status: 'success',
           message: `Split overlay ${input.id} at frame ${input.atFrame}`,
           firstPart: { id: input.id, from: overlay.from, duration: firstDuration },
-          secondPart: { id: newId, from: input.atFrame, duration: secondDuration }
+          secondPart: { id: newId, from: input.atFrame, duration: secondDuration },
+          affectedFrameRanges: [{
+            startFrame: Math.max(overlay.from, input.atFrame - 1),
+            endFrame: Math.min(overlayEnd, input.atFrame + 2),
+          }],
         });
 
       } catch (e: any) {
@@ -1512,6 +1587,25 @@ TYPE-SPECIFIC FIELDS:
             message: `Trim too large: overlay is ${overlay.durationInFrames} frames, but tried to trim ${totalTrim} frames. Max trimEnd: ${overlay.durationInFrames - 1}`,
           });
         }
+
+        const previousRange = overlayMutationFrameRange(overlay);
+        const nextEndFrame = newFrom + newDuration;
+        const affectedFrameRanges = normalizeChatMutationFrameRanges([
+          ...(newFrom > previousRange.startFrame
+            ? [{ startFrame: previousRange.startFrame, endFrame: newFrom }]
+            : []),
+          ...(nextEndFrame < previousRange.endFrame
+            ? [{ startFrame: nextEndFrame, endFrame: previousRange.endFrame }]
+            : []),
+        ]);
+        if (affectedFrameRanges.length === 0) {
+          return JSON.stringify({
+            status: 'no-op',
+            data: { overlayId: input.id, message: `Overlay ${input.id} has no positive trim to apply.` },
+            error: null,
+            nextAction: 'stop',
+          });
+        }
         
         updates.from = newFrom;
         updates.durationInFrames = newDuration;
@@ -1523,7 +1617,8 @@ TYPE-SPECIFIC FIELDS:
         return JSON.stringify({
           status: 'success',
           message: `Trimmed overlay ${input.id}`,
-          newTiming: { from: newFrom, duration: newDuration }
+          newTiming: { from: newFrom, duration: newDuration },
+          affectedFrameRanges,
         });
 
       } catch (e: any) {
@@ -1548,9 +1643,13 @@ TYPE-SPECIFIC FIELDS:
       try {
         const project = await loadProject();
         const overlay = project.overlays.find((o: any) => o.id === input.id);
-        
+        if (!overlay) {
+          return JSON.stringify({ status: 'error', message: `Overlay ${input.id} not found` });
+        }
+        const deletedOverlays = [overlay];
+
         // If deleting a video, cascade delete linked captions, transitions, and fancy captions
-        if (overlay?.type === 'video') {
+        if (overlay.type === 'video') {
           const linkedOverlays = project.overlays.filter(
             (o: any) =>
               // Captions linked to this video
@@ -1559,6 +1658,7 @@ TYPE-SPECIFIC FIELDS:
               // Transitions referencing this video as clip A or B
               (o.type === 'transition' && (o.clipAId === input.id || o.clipBId === input.id))
           );
+          deletedOverlays.push(...linkedOverlays);
           // PERF FIX: Delete linked overlays in parallel (Priyank's optimization)
           await Promise.all(
             linkedOverlays.map((linked: any) =>
@@ -1571,7 +1671,13 @@ TYPE-SPECIFIC FIELDS:
 
         await recalculateProjectDuration();
 
-        return JSON.stringify({ status: 'success', message: `Overlay ${input.id} deleted${overlay?.type === 'video' ? ' (and linked captions/fancy captions)' : ''}` });
+        return JSON.stringify({
+          status: 'success',
+          message: `Overlay ${input.id} deleted${overlay.type === 'video' ? ' (and linked captions/fancy captions)' : ''}`,
+          affectedFrameRanges: normalizeChatMutationFrameRanges(
+            deletedOverlays.map(overlayMutationFrameRange),
+          ),
+        });
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
       }
@@ -1603,6 +1709,7 @@ TYPE-SPECIFIC FIELDS:
         
         const sourceStyles = source.styles || {};
         const results: any[] = [];
+        const mutationRanges: ChatMutationFrameRange[] = [];
         
         for (const targetId of input.targetIds) {
           const target = project.overlays.find((o: any) => o.id === targetId);
@@ -1627,17 +1734,31 @@ TYPE-SPECIFIC FIELDS:
             stylesToApply = { ...sourceStyles };
           }
           
-          await projectService.updateOverlay(userId, projectId, targetId, {
-            styles: { ...target.styles, ...stylesToApply }
-          });
+          const nextStyles = { ...target.styles, ...stylesToApply };
+          if (JSON.stringify(nextStyles) === JSON.stringify(target.styles ?? {})) {
+            results.push({ id: targetId, status: 'no-op', message: 'Requested styles already match' });
+            continue;
+          }
+          await projectService.updateOverlay(userId, projectId, targetId, { styles: nextStyles });
+          mutationRanges.push(overlayMutationFrameRange(target));
           
           results.push({ id: targetId, status: 'success' });
         }
-        
+
+        const affectedFrameRanges = normalizeChatMutationFrameRanges(mutationRanges);
+        if (affectedFrameRanges.length === 0) {
+          return JSON.stringify({
+            status: 'no-op',
+            data: { results, message: 'No target overlay needed a style change.' },
+            error: null,
+            nextAction: 'stop',
+          });
+        }
         return JSON.stringify({
           status: 'success',
           message: `Synced styles from ${input.sourceId} to ${results.filter(r => r.status === 'success').length} overlays`,
-          results
+          results,
+          affectedFrameRanges,
         });
         
       } catch (e: any) {
@@ -2671,11 +2792,21 @@ Optionally apply a new style while refreshing.`,
           .sort((a: any, b: any) => a.from - b.from);
 
         if (videoClips.length === 0) {
-          return JSON.stringify({ status: 'success', message: 'No video clips found to close gaps for' });
+          return JSON.stringify({
+            status: 'no-op',
+            data: { message: 'No video clips found to close gaps for' },
+            error: null,
+            nextAction: 'stop',
+          });
         }
 
         let totalFramesClosed = 0;
-        const moves: Array<{ id: number; oldFrom: number; newFrom: number }> = [];
+        const moves: Array<{
+          id: number;
+          oldFrom: number;
+          newFrom: number;
+          durationInFrames: number;
+        }> = [];
 
         // Build a list of gaps between video clips (including gap before first clip)
         const gaps: Array<{ gapStart: number; gapEnd: number; shift: number }> = [];
@@ -2693,7 +2824,12 @@ Optionally apply a new style while refreshing.`,
         }
 
         if (gaps.length === 0) {
-          return JSON.stringify({ status: 'success', message: 'No gaps found to close' });
+          return JSON.stringify({
+            status: 'no-op',
+            data: { message: 'No gaps found to close' },
+            error: null,
+            nextAction: 'stop',
+          });
         }
 
         // BUG 2 FIX: Shift ALL overlays (not just video + captions)
@@ -2716,7 +2852,12 @@ Optionally apply a new style while refreshing.`,
 
           if (shiftAmount > 0 && !alreadyMoved.has(overlay.id)) {
             const newFrom = overlayStart - shiftAmount;
-            moves.push({ id: overlay.id, oldFrom: overlayStart, newFrom });
+            moves.push({
+              id: overlay.id,
+              oldFrom: overlayStart,
+              newFrom,
+              durationInFrames: Math.max(0, Math.round(Number(overlay.durationInFrames) || 0)),
+            });
             await projectService.updateOverlay(userId, projectId, overlay.id, { from: newFrom });
             alreadyMoved.add(overlay.id);
           }
@@ -2725,11 +2866,24 @@ Optionally apply a new style while refreshing.`,
         await recalculateProjectDuration();
 
         const fps = project.fps || 30;
+        const affectedFrameRanges = normalizeChatMutationFrameRanges(
+          moves.flatMap((move) => [
+            {
+              startFrame: move.oldFrom,
+              endFrame: move.oldFrom + move.durationInFrames,
+            },
+            {
+              startFrame: move.newFrom,
+              endFrame: move.newFrom + move.durationInFrames,
+            },
+          ]),
+        );
         return JSON.stringify({
           status: 'success',
           clipsMoved: moves.length,
           totalFramesClosed,
           totalSecondsClosed: Math.round((totalFramesClosed / fps) * 10) / 10,
+          affectedFrameRanges,
           message: moves.length > 0
             ? `Closed ${moves.length} gap(s), saved ${Math.round((totalFramesClosed / fps) * 10) / 10}s`
             : 'No gaps found to close',
