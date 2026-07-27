@@ -84,7 +84,7 @@ export function createKimiOwnerGenerator(
         response_format: { type: 'json_object' },
         reasoning_effort: reasoningEffort,
         max_completion_tokens: 4_096,
-        temperature: 0,
+        temperature: 1,
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });

@@ -12,7 +12,10 @@ describe('chat model bakeoff', () => {
   it('drives a Kimi JSON response through the real classifier and licenses explicit BGM', async () => {
     const scenario = getChatEditBattleScenario('bgm-explicit');
     expect(scenario).toBeDefined();
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+    const fetchImpl = vi.fn(async (
+      _input: string | URL | Request,
+      _init?: RequestInit,
+    ) => new Response(JSON.stringify({
       choices: [{
         message: {
           content: JSON.stringify({
@@ -46,10 +49,11 @@ describe('chat model bakeoff', () => {
       apiKey: 'test-key',
       fetchImpl: fetchImpl as typeof fetch,
     });
+    const addUsage = vi.fn();
 
     const license = await classifyChatRequestOwner(
       buildChatModelBakeoffInput(scenario!),
-      { generate },
+      { generate, addUsage },
     );
     const score = scoreChatModelRouting(scenario!, license);
 
@@ -57,6 +61,19 @@ describe('chat model bakeoff', () => {
     expect(score.licensedTools).toContain('regenerate_bgm');
     expect(score.licensedTools).not.toContain('apply_audio_ducking');
     expect(fetchImpl).toHaveBeenCalledOnce();
+    const request = fetchImpl.mock.calls[0]?.[1];
+    expect(request).toBeDefined();
+    const body = JSON.parse(String(request?.body)) as {
+      model?: string;
+      temperature?: number;
+    };
+    expect(body.model).toBe('kimi-k3');
+    expect(body.temperature).toBe(1);
+    expect(addUsage).toHaveBeenCalledWith({
+      promptTokenCount: 120,
+      candidatesTokenCount: 80,
+      totalTokenCount: 200,
+    });
   });
 
   it('fails closed before a request when no Kimi credential is available', async () => {

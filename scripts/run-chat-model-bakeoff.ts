@@ -30,6 +30,11 @@ interface ScenarioResult {
   status: 'passed' | 'failed' | 'error';
   score?: ReturnType<typeof scoreChatModelRouting>;
   error?: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 }
 
 const args = parseArgs(process.argv.slice(2));
@@ -56,6 +61,11 @@ const report = {
     failed: number;
     errors: number;
     averageLatencyMs: number;
+    usage: {
+      inputTokens: number;
+      outputTokens: number;
+      totalTokens: number;
+    };
     results: ScenarioResult[];
   }>,
 };
@@ -64,10 +74,23 @@ for (const model of models) {
   const results: ScenarioResult[] = [];
   for (const scenario of scenarios) {
     const startedAt = performance.now();
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let totalTokens = 0;
+    const addUsage = (usage: {
+      promptTokenCount?: number;
+      candidatesTokenCount?: number;
+      totalTokenCount?: number;
+    }) => {
+      inputTokens += usage.promptTokenCount ?? 0;
+      outputTokens += usage.candidatesTokenCount ?? 0;
+      totalTokens += usage.totalTokenCount
+        ?? (usage.promptTokenCount ?? 0) + (usage.candidatesTokenCount ?? 0);
+    };
     try {
       const license = await classifyChatRequestOwner(
         buildChatModelBakeoffInput(scenario),
-        model.generate ? { generate: model.generate } : {},
+        model.generate ? { generate: model.generate, addUsage } : { addUsage },
       );
       const score = scoreChatModelRouting(scenario, license);
       results.push({
@@ -75,6 +98,7 @@ for (const model of models) {
         latencyMs: Math.round(performance.now() - startedAt),
         status: score.passed ? 'passed' : 'failed',
         score,
+        usage: totalTokens > 0 ? { inputTokens, outputTokens, totalTokens } : undefined,
       });
     } catch (error) {
       results.push({
@@ -82,6 +106,7 @@ for (const model of models) {
         latencyMs: Math.round(performance.now() - startedAt),
         status: 'error',
         error: error instanceof Error ? error.message : String(error),
+        usage: totalTokens > 0 ? { inputTokens, outputTokens, totalTokens } : undefined,
       });
     }
   }
@@ -93,6 +118,14 @@ for (const model of models) {
     errors: results.filter((result) => result.status === 'error').length,
     averageLatencyMs: Math.round(
       results.reduce((total, result) => total + result.latencyMs, 0) / results.length,
+    ),
+    usage: results.reduce(
+      (total, result) => ({
+        inputTokens: total.inputTokens + (result.usage?.inputTokens ?? 0),
+        outputTokens: total.outputTokens + (result.usage?.outputTokens ?? 0),
+        totalTokens: total.totalTokens + (result.usage?.totalTokens ?? 0),
+      }),
+      { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
     ),
     results,
   });
@@ -108,7 +141,7 @@ for (const model of report.models) {
   console.log(
     `${model.model}: ${model.passed}/${report.scenarioCount} routing passes, `
       + `${model.failed} failures, ${model.errors} provider errors, `
-      + `${model.averageLatencyMs}ms average`,
+      + `${model.averageLatencyMs}ms average, ${model.usage.totalTokens} tokens`,
   );
 }
 console.log(`Report: ${outputPath}`);
