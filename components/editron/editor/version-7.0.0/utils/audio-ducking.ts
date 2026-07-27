@@ -31,6 +31,89 @@ interface OverlayTimeRange {
 
 type VolumeCallback = (frame: number) => number;
 
+export interface AtomicSfxRenderMix {
+  baseVolume: number;
+  duckingConfig?: DuckingConfig;
+  fadeInFrames: number;
+  fadeOutFrames: number;
+}
+
+interface AudioFadeEnvelope {
+  fadeInFrames?: number;
+  fadeOutFrames?: number;
+}
+
+const ATOMIC_SFX_DUCK_TIMING_MS = {
+  rampDownMs: 300,
+  rampUpMs: 600,
+  lookAheadMs: 150,
+} as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isUnitNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function isNonNegativeFrame(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+/**
+ * Converts the resolved atomic SFX mix into values the renderer can consume.
+ * The persisted overlay volume remains authoritative because policy/user edits
+ * may intentionally reduce the form volume after resolution.
+ */
+export function resolveAtomicSfxRenderMix(
+  metadata: unknown,
+  persistedVolume: number | undefined,
+): AtomicSfxRenderMix | null {
+  if (!isRecord(metadata) || metadata.atomicSfxForm === undefined) return null;
+  const form = metadata.atomicSfxForm;
+  const mix = isRecord(form) ? form.mix : undefined;
+  if (
+    !isRecord(mix)
+    || !isUnitNumber(mix.volume)
+    || !isUnitNumber(mix.loudnessTarget)
+    || typeof mix.duckUnderSpeech !== 'boolean'
+    || !isUnitNumber(mix.duckLevel)
+    || !isNonNegativeFrame(mix.fadeInFrames)
+    || !isNonNegativeFrame(mix.fadeOutFrames)
+  ) {
+    throw new Error('Invalid atomic SFX render mix: resolved form metadata is incomplete or out of range.');
+  }
+
+  const baseVolume = typeof persistedVolume === 'number' && Number.isFinite(persistedVolume) && persistedVolume >= 0
+    ? persistedVolume
+    : mix.volume;
+  const duckingConfig = mix.duckUnderSpeech
+    ? {
+        enabled: true,
+        duckLevel: Number((baseVolume * mix.duckLevel).toFixed(6)),
+        ...ATOMIC_SFX_DUCK_TIMING_MS,
+      }
+    : undefined;
+
+  return {
+    baseVolume,
+    duckingConfig,
+    fadeInFrames: mix.fadeInFrames,
+    fadeOutFrames: mix.fadeOutFrames,
+  };
+}
+
+export function toOverlayLocalRanges(
+  ranges: OverlayTimeRange[],
+  overlayStartFrame: number,
+): OverlayTimeRange[] {
+  return ranges.map((range) => ({
+    from: range.from - overlayStartFrame,
+    durationInFrames: range.durationInFrames,
+  }));
+}
+
 /**
  * Create a volume callback that ducks BGM under voiceover.
  *
@@ -105,31 +188,54 @@ export function createDuckingVolume(
     return minVolume;
   };
 }
-export function createTailFadeVolume(
+
+export function createAudioFadeEnvelope(
   baseVolume: number | VolumeCallback,
   durationInFrames: number,
-  fadeOutFrames: number,
+  envelope: AudioFadeEnvelope,
 ): VolumeCallback {
   const baseVolumeAt = typeof baseVolume === 'function'
     ? baseVolume
     : () => baseVolume;
   const duration = Math.max(1, Math.floor(durationInFrames));
-  const fadeFrames = Math.max(1, Math.min(duration, Math.floor(fadeOutFrames)));
-  const fadeStart = Math.max(0, duration - fadeFrames);
-  const fadeEnd = Math.max(fadeStart, duration - 1);
+  const fadeInFrames = Math.max(0, Math.min(duration, Math.floor(envelope.fadeInFrames ?? 0)));
+  const fadeOutFrames = Math.max(0, Math.min(duration, Math.floor(envelope.fadeOutFrames ?? 0)));
+  const fadeInEnd = Math.max(0, fadeInFrames - 1);
+  const fadeOutStart = Math.max(0, duration - fadeOutFrames);
+  const fadeOutEnd = duration - 1;
 
   return (frame: number): number => {
-    const base = baseVolumeAt(frame);
-    if (frame < fadeStart) return base;
-    if (fadeEnd === fadeStart) return 0;
+    let multiplier = 1;
 
-    const multiplier = interpolate(
-      frame,
-      [fadeStart, fadeEnd],
-      [1, 0],
-      { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.in(Easing.quad) },
-    );
+    if (fadeInFrames > 1 && frame < fadeInFrames) {
+      multiplier *= interpolate(
+        frame,
+        [0, fadeInEnd],
+        [0, 1],
+        { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.quad) },
+      );
+    }
 
-    return base * multiplier;
+    if (fadeOutFrames > 0 && frame >= fadeOutStart) {
+      const fadeOutMultiplier = fadeOutEnd === fadeOutStart
+        ? 0
+        : interpolate(
+            frame,
+            [fadeOutStart, fadeOutEnd],
+            [1, 0],
+            { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.in(Easing.quad) },
+          );
+      multiplier *= fadeOutMultiplier;
+    }
+
+    return baseVolumeAt(frame) * multiplier;
   };
+}
+
+export function createTailFadeVolume(
+  baseVolume: number | VolumeCallback,
+  durationInFrames: number,
+  fadeOutFrames: number,
+): VolumeCallback {
+  return createAudioFadeEnvelope(baseVolume, durationInFrames, { fadeOutFrames });
 }

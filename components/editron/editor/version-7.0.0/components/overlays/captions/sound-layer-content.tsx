@@ -1,9 +1,15 @@
-import { Audio, Sequence, useCurrentFrame } from "remotion";
+import { Audio, Sequence, useVideoConfig } from "remotion";
 import { useMemo } from "react";
 import { SoundOverlay } from "../../../types";
 import { toAbsoluteUrl } from "../../../utils/url-helper";
 import { useAllOverlays } from "../../../contexts/rendering-context";
-import { createDuckingVolume, createTailFadeVolume, type DuckingConfig } from "../../../utils/audio-ducking";
+import {
+  createAudioFadeEnvelope,
+  createDuckingVolume,
+  resolveAtomicSfxRenderMix,
+  toOverlayLocalRanges,
+  type DuckingConfig,
+} from "../../../utils/audio-ducking";
 import { getNativeAudioDuckRegions } from "@/lib/editron/services/native-audio-evidence";
 
 const CANONICAL_VOICEOVER_ROW = 3;
@@ -27,9 +33,21 @@ function resolveFadeOutFrames(styles: SoundOverlay["styles"] | undefined, durati
   return Math.max(1, Math.min(durationInFrames, Math.round(durationSeconds * fps)));
 }
 
-function applyTailFade(volume: VolumeValue, styles: SoundOverlay["styles"] | undefined, durationInFrames: number, fps: number): VolumeValue {
-  const fadeOutFrames = resolveFadeOutFrames(styles, durationInFrames, fps);
-  return fadeOutFrames ? createTailFadeVolume(volume, durationInFrames, fadeOutFrames) : volume;
+function applyFadeEnvelope(
+  volume: VolumeValue,
+  styles: SoundOverlay["styles"] | undefined,
+  durationInFrames: number,
+  fps: number,
+  atomicFadeInFrames: number,
+  atomicFadeOutFrames: number,
+): VolumeValue {
+  const legacyFadeOutFrames = resolveFadeOutFrames(styles, durationInFrames, fps) ?? 0;
+  const fadeOutFrames = Math.max(legacyFadeOutFrames, atomicFadeOutFrames);
+  if (atomicFadeInFrames === 0 && fadeOutFrames === 0) return volume;
+  return createAudioFadeEnvelope(volume, durationInFrames, {
+    fadeInFrames: atomicFadeInFrames,
+    fadeOutFrames,
+  });
 }
 
 interface SoundLayerContentProps {
@@ -42,7 +60,11 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
   baseUrl,
 }) => {
   const allOverlays = useAllOverlays();
-  const fps = 30; // TODO: get from composition if needed
+  const { fps } = useVideoConfig();
+  const metadata = (overlay as SoundOverlay & { metadata?: unknown }).metadata;
+  const persistedVolume = typeof overlay.styles?.volume === 'number' ? overlay.styles.volume : undefined;
+  const atomicSfxMix = resolveAtomicSfxRenderMix(metadata, persistedVolume);
+  const baseVolume = atomicSfxMix?.baseVolume ?? persistedVolume ?? 1;
 
   // Determine the audio source URL
   let audioSrc = overlay.src || overlay.content || '';
@@ -58,7 +80,8 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
   }
 
   // Build ducking volume callback if ducking is enabled on this overlay
-  const duckingConfig = (overlay.styles as any)?.duckingConfig as DuckingConfig | undefined;
+  const explicitDuckingConfig = (overlay.styles as { duckingConfig?: DuckingConfig } | undefined)?.duckingConfig;
+  const duckingConfig = explicitDuckingConfig ?? atomicSfxMix?.duckingConfig;
 
   const volumeCallback = useMemo(() => {
     if (!duckingConfig?.enabled) return undefined;
@@ -96,9 +119,14 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
 
     if (voiceoverOverlays.length === 0) return undefined;
 
-    const baseVolume = overlay.styles?.volume ?? 1;
-    return createDuckingVolume(baseVolume, voiceoverOverlays, fps, duckingConfig);
-  }, [duckingConfig, allOverlays, overlay.id, overlay.styles?.volume, overlay.row, fps]);
+    const audioTimelineStart = overlay.audioStartFrame ?? overlay.from;
+    return createDuckingVolume(
+      baseVolume,
+      toOverlayLocalRanges(voiceoverOverlays, audioTimelineStart),
+      fps,
+      duckingConfig,
+    );
+  }, [duckingConfig, allOverlays, overlay.id, overlay.audioStartFrame, overlay.from, overlay.row, baseVolume, fps]);
 
   // L-cut/J-cut: audio boundaries can be decoupled from the visual overlay.
   // audioStartFrame < overlay.from -> J-cut (audio starts before video)
@@ -110,11 +138,12 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
   // Resolve volume: if ducking callback exists AND is a valid function, use it.
   // Remotion's <Audio volume> accepts either a number or a frame=>number callback.
   // If createDuckingVolume returns something unexpected, fall back to static number.
-  const baseVolume = typeof overlay.styles?.volume === 'number' ? overlay.styles.volume : 1;
   const resolvedVolume = volumeCallback && typeof volumeCallback === 'function'
     ? volumeCallback
     : baseVolume;
   const playbackRate = resolveSoundPlaybackRate(overlay.playbackRate);
+  const atomicFadeInFrames = atomicSfxMix?.fadeInFrames ?? 0;
+  const atomicFadeOutFrames = atomicSfxMix?.fadeOutFrames ?? 0;
 
   if (hasDecoupledAudio) {
     // audioStartFrame/audioEndFrame are ABSOLUTE global frame numbers (set by finalize.ts),
@@ -130,7 +159,14 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
           src={audioSrc}
           startFrom={audioSourceOffset}
           playbackRate={playbackRate}
-          volume={applyTailFade(resolvedVolume, overlay.styles, audioDuration, fps)}
+          volume={applyFadeEnvelope(
+            resolvedVolume,
+            overlay.styles,
+            audioDuration,
+            fps,
+            atomicFadeInFrames,
+            atomicFadeOutFrames,
+          )}
         />
       </Sequence>
     );
@@ -141,7 +177,14 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
       src={audioSrc}
       startFrom={audioSourceOffset}
       playbackRate={playbackRate}
-      volume={applyTailFade(resolvedVolume, overlay.styles, overlay.durationInFrames, fps)}
+      volume={applyFadeEnvelope(
+        resolvedVolume,
+        overlay.styles,
+        overlay.durationInFrames,
+        fps,
+        atomicFadeInFrames,
+        atomicFadeOutFrames,
+      )}
     />
   );
 };
