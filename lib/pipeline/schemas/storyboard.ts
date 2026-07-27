@@ -5,6 +5,9 @@
  * visual reference / stencils for video production in Editron.
  */
 
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
+import type { GeneratedAudioReceipt } from '@/lib/pipeline/tts-service';
+
 /**
  * SubShot — a cut point within a generated video clip.
  * The assembly step uses these to cut one 5s video into multiple timeline segments.
@@ -211,6 +214,9 @@ export interface SceneVoiceover {
   audioAssetId: string;
   audioDurationMs: number;
   gcsPath?: string;
+  r2Key: string | null;
+  audioRights: AudioRightsContract;
+  generatedAudioReceipt: GeneratedAudioReceipt;
   /** Word-level timing for caption sync (populated after STT on TTS output) */
   words?: Array<{
     word: string;

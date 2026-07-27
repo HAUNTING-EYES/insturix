@@ -640,6 +640,7 @@ export async function POST(
           content: scene.voiceover.audioUrl,
           src: scene.voiceover.audioUrl,
           assetId: scene.voiceover.audioAssetId,
+          audioRights: scene.voiceover.audioRights,
           // Do NOT set audioStartFrame/audioEndFrame by default.
           // Setting them causes: (1) L-cut/J-cut handles showing unnecessarily,
           // (2) audio delay bug when applyEditDirections shifts overlay.from
@@ -774,20 +775,25 @@ export async function POST(
         await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
           { assetId: scene.voiceover.audioAssetId },
           {
+            $set: {
+              source: 'generated',
+              gcsPath: scene.voiceover.gcsPath || null,
+              r2Key: scene.voiceover.r2Key || scene.voiceover.audioAssetId,
+              cachedUrl: scene.voiceover.audioUrl,
+              urlExpiresAt: scene.voiceover.audioUrl.includes('workers.dev')
+                ? null
+                : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              durationMs: scene.voiceover.audioDurationMs || null,
+              audioDurationMs: scene.voiceover.audioDurationMs || null,
+              audioRights: scene.voiceover.audioRights,
+              generatedAudioReceipt: scene.voiceover.generatedAudioReceipt,
+              updatedAt: new Date(),
+            },
             $setOnInsert: {
               assetId: scene.voiceover.audioAssetId,
               userId,
               type: 'audio',
               filename: `${scene.voiceover.audioAssetId}.wav`,
-              source: 'user-upload',
-              gcsPath: (scene.voiceover as any).gcsPath || null,
-              r2Key: (scene.voiceover as any).r2Key || scene.voiceover.audioAssetId || null,
-              cachedUrl: scene.voiceover.audioUrl,
-              urlExpiresAt: scene.voiceover.audioUrl?.includes('workers.dev') ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-              // Store duration so transcription-service can generate accurate synthetic timings
-              // without needing to download the audio file
-              durationMs: scene.voiceover.audioDurationMs || null,
-              audioDurationMs: scene.voiceover.audioDurationMs || null,
               size: 0,
               uploadedAt: new Date(),
             },

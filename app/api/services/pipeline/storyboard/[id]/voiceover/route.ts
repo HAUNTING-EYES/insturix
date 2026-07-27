@@ -152,7 +152,7 @@ export async function POST(
           const result = await generateVoiceover(
             scene.descriptor.narration,
             userId,
-            { voice, language, contentType },
+            { voice, language, contentType, mediaRole: 'voiceover' },
           );
 
           await updateStoryboardScene(id, scene.sceneIndex, {
@@ -161,6 +161,9 @@ export async function POST(
               audioAssetId: result.audioAssetId,
               audioDurationMs: result.durationMs,
               gcsPath: result.gcsPath,
+              r2Key: result.r2Key,
+              audioRights: result.audioRights,
+              generatedAudioReceipt: result.generatedAudioReceipt,
             },
           });
 

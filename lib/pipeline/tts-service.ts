@@ -11,6 +11,7 @@ import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { nanoid } from 'nanoid';
 import { TTS_VOICES, TTS_SPEED_MAP, TTS_PAUSE_CONFIG } from './config/tts-config';
 import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 export type { TTSVoice } from './config/tts-config';
 export { TTS_VOICES };
 
@@ -90,13 +91,31 @@ function splitTextByPauses(text: string): { segment: string; pauseType: keyof ty
 
 // ─── Core Generation ────────────────────────────────────────────
 
-interface TTSResult {
+export const GENERATED_AUDIO_RECEIPT_VERSION = 'editron-generated-audio-receipt-v1' as const;
+
+export type GeneratedSpeechRole = 'voiceover' | 'dubbing';
+
+type GeneratedSpeechProvider = 'fal-ai' | 'deepgram';
+
+export interface GeneratedAudioReceipt {
+  version: typeof GENERATED_AUDIO_RECEIPT_VERSION;
+  provider: GeneratedSpeechProvider;
+  model: string;
+  licenseId: string;
+  assetId: string;
+  mediaRole: GeneratedSpeechRole;
+  generatedAt: string;
+}
+
+export interface TTSResult {
   audioBuffer: Buffer;
   durationMs: number;
   audioUrl: string;
   audioAssetId: string;
   gcsPath?: string;
   r2Key: string | null;
+  audioRights: AudioRightsContract;
+  generatedAudioReceipt: GeneratedAudioReceipt;
 }
 
 async function recordPipelineTTSProviderCost(input: {
@@ -155,11 +174,13 @@ export async function generateVoiceover(
     voice?: string;
     language?: string;
     contentType?: string; // New: content type for pacing
+    mediaRole?: GeneratedSpeechRole;
   } = {},
 ): Promise<TTSResult> {
   const voiceId = options.voice || 'kokoro-heart';
   const voiceConfig = TTS_VOICES.find(v => v.id === voiceId);
   const provider = voiceConfig?.provider || (voiceId.startsWith('kokoro-') ? 'kokoro' : 'deepgram');
+  const mediaRole = options.mediaRole ?? 'voiceover';
 
   console.log(`[TTS] Generating: provider=${provider}, voice=${voiceId}, chars=${text.length}`);
 
@@ -168,13 +189,24 @@ export async function generateVoiceover(
   const ttsSpeed = contentType && TTS_SPEED_MAP[contentType] ? TTS_SPEED_MAP[contentType] : 1.0;
   if (provider === 'kokoro') {
     try {
-      return await generateWithKokoro(text, userId, voiceConfig?.providerVoiceId || 'af_heart', ttsSpeed);
+      return await generateWithKokoro(
+        text,
+        userId,
+        voiceConfig?.providerVoiceId || 'af_heart',
+        ttsSpeed,
+        mediaRole,
+      );
     } catch (err: any) {
       console.warn(`[TTS] Kokoro failed (${err.message}), falling back to Deepgram`);
-      return await generateWithDeepgram(text, userId, 'aura-asteria-en');
+      return await generateWithDeepgram(text, userId, 'aura-asteria-en', mediaRole);
     }
   } else {
-    return await generateWithDeepgram(text, userId, voiceConfig?.providerVoiceId || voiceId);
+    return await generateWithDeepgram(
+      text,
+      userId,
+      voiceConfig?.providerVoiceId || voiceId,
+      mediaRole,
+    );
   }
 }
 
@@ -185,6 +217,7 @@ async function generateWithKokoro(
   userId: string,
   kokoroVoice: string,
   ttsSpeedOverride?: number,
+  mediaRole: GeneratedSpeechRole = 'voiceover',
 ): Promise<TTSResult> {
   const costStartMs = Date.now();
   let requestCount = 0;
@@ -252,7 +285,11 @@ async function generateWithKokoro(
     const durationMs = Math.round((pcmBytes / bytesPerSecond) * 1000);
 
     const assetId = `voiceover_${nanoid(12)}`;
-    const uploaded = await uploadVoiceoverAudio(audioBuffer, userId, assetId, durationMs);
+    const uploaded = await uploadVoiceoverAudio(audioBuffer, userId, assetId, durationMs, {
+      provider: 'fal-ai',
+      model: 'fal-ai/kokoro/american-english',
+      mediaRole,
+    });
 
     await recordPipelineTTSProviderCost({
       status: 'success',
@@ -295,6 +332,7 @@ async function generateWithDeepgram(
   text: string,
   userId: string,
   deepgramVoice: string,
+  mediaRole: GeneratedSpeechRole = 'voiceover',
 ): Promise<TTSResult> {
   const costStartMs = Date.now();
   const { createClient } = await import('@deepgram/sdk');
@@ -347,7 +385,11 @@ async function generateWithDeepgram(
     const durationMs = Math.round((pcmBytes / bytesPerSecond) * 1000);
 
     const assetId = `voiceover_${nanoid(12)}`;
-    const uploaded = await uploadVoiceoverAudio(audioBuffer, userId, assetId, durationMs);
+    const uploaded = await uploadVoiceoverAudio(audioBuffer, userId, assetId, durationMs, {
+      provider: 'deepgram',
+      model: deepgramVoice,
+      mediaRole,
+    });
 
     await recordPipelineTTSProviderCost({
       status: 'success',
@@ -391,10 +433,46 @@ async function uploadVoiceoverAudio(
   userId: string,
   assetId: string,
   durationMs: number,
-): Promise<Pick<TTSResult, 'audioUrl' | 'audioAssetId' | 'gcsPath' | 'r2Key'>> {
+  provenance: {
+    provider: GeneratedSpeechProvider;
+    model: string;
+    mediaRole: GeneratedSpeechRole;
+  },
+): Promise<Pick<
+  TTSResult,
+  | 'audioUrl'
+  | 'audioAssetId'
+  | 'gcsPath'
+  | 'r2Key'
+  | 'audioRights'
+  | 'generatedAudioReceipt'
+>> {
   const filename = `${assetId}.wav`;
   const uploadResult = await uploadMedia(audioBuffer, userId, filename, 'audio/wav', { customAssetId: assetId });
   const urlExpiresAt = uploadResult.urlExpiresAt ?? new Date('2099-12-31T00:00:00.000Z');
+  const licenseId = provenance.provider === 'fal-ai'
+    ? `fal-ai:${provenance.model.replace(/^fal-ai\//, '')}:commercial-use`
+    : `deepgram:${provenance.model}:service-output-terms`;
+  const audioRights: AudioRightsContract = {
+    mediaRole: provenance.mediaRole,
+    source: 'generated',
+    userChoice: 'attested',
+    licensed: true,
+    evidence: {
+      kind: 'generated-provider',
+      sourceAssetId: uploadResult.assetId,
+      licenseId,
+    },
+  };
+  const generatedAudioReceipt: GeneratedAudioReceipt = {
+    version: GENERATED_AUDIO_RECEIPT_VERSION,
+    provider: provenance.provider,
+    model: provenance.model,
+    licenseId,
+    assetId: uploadResult.assetId,
+    mediaRole: provenance.mediaRole,
+    generatedAt: new Date().toISOString(),
+  };
 
   const db = await getDatabase();
   await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
@@ -407,6 +485,9 @@ async function uploadVoiceoverAudio(
         urlExpiresAt,
         durationMs,
         audioDurationMs: durationMs,
+        source: 'generated',
+        audioRights,
+        generatedAudioReceipt,
         updatedAt: new Date(),
       },
       $setOnInsert: {
@@ -414,7 +495,6 @@ async function uploadVoiceoverAudio(
         userId,
         type: 'audio',
         filename,
-        source: 'user-upload',
         size: uploadResult.size,
         contentType: uploadResult.contentType,
         uploadedAt: new Date(),
@@ -428,6 +508,8 @@ async function uploadVoiceoverAudio(
     audioAssetId: uploadResult.assetId,
     gcsPath: uploadResult.gcsPath ?? undefined,
     r2Key: uploadResult.r2Key,
+    audioRights,
+    generatedAudioReceipt,
   };
 }
 
