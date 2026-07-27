@@ -3,14 +3,19 @@ import { describe, expect, it } from 'vitest';
 
 import {
   conditionAudio,
+  conditionSfxCatalogAsset,
   fitPcmToExactDuration,
   inspectEncodedSfxAudio,
 } from '../../lib/pipeline/audio-conditioning';
 import { resolveAudioLoudnessTarget } from '../../lib/editron/constants/audio-standards';
 
-function createWav(durationSeconds: number, options: { silent?: boolean } = {}): Buffer {
+function createWav(
+  durationSeconds: number,
+  options: { amplitude?: number; silent?: boolean } = {},
+): Buffer {
   const sampleRate = 48_000;
   const channels = 2;
+  const amplitude = options.amplitude ?? 0.08;
   const samplesPerChannel = Math.round(durationSeconds * sampleRate);
   const dataBytes = samplesPerChannel * channels * 2;
   const wav = Buffer.allocUnsafe(44 + dataBytes);
@@ -31,10 +36,10 @@ function createWav(durationSeconds: number, options: { silent?: boolean } = {}):
   for (let frame = 0; frame < samplesPerChannel; frame += 1) {
     const left = options.silent
       ? 0
-      : 0.08 * Math.sin((2 * Math.PI * 440 * frame) / sampleRate);
+      : amplitude * Math.sin((2 * Math.PI * 440 * frame) / sampleRate);
     const right = options.silent
       ? 0
-      : 0.07 * Math.sin((2 * Math.PI * 523.25 * frame) / sampleRate);
+      : amplitude * 0.875 * Math.sin((2 * Math.PI * 523.25 * frame) / sampleRate);
     wav.writeInt16LE(Math.round(left * 32767), 44 + frame * 4);
     wav.writeInt16LE(Math.round(right * 32767), 46 + frame * 4);
   }
@@ -145,5 +150,32 @@ describe('audio conditioning', () => {
     });
     expect(inspection.loudness.valueDb).toBeGreaterThan(-60);
     expect(Number.isFinite(inspection.truePeakDbtp)).toBe(true);
+  }, 30_000);
+
+  it('losslessly conditions hot catalog SFX below the CKG-backed true-peak ceiling', async () => {
+    const result = await conditionSfxCatalogAsset(createWav(0.08, { amplitude: 0.95 }));
+    const decoded = await decode(result.buffer);
+
+    expect(result.buffer.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(result.contentType).toBe('audio/wav');
+    expect(result.filenameExtension).toBe('wav');
+    expect(result.gainDb).toBeLessThan(0);
+    expect(result.output.truePeakDbtp).toBeLessThanOrEqual(result.targetTruePeakDbtp);
+    expect(result.output.clippingRisk).toBe(false);
+    expect(decoded.sampleRate).toBe(48_000);
+    expect(decoded.channelData).toHaveLength(2);
+    expect(result.output.durationMs).toBeCloseTo(result.source.durationMs, 0);
+  }, 30_000);
+
+  it('does not amplify safe catalog SFX and rejects silence', async () => {
+    const safe = await conditionSfxCatalogAsset(createWav(0.08));
+
+    expect(safe.gainDb).toBe(0);
+    expect(safe.output.truePeakDbtp).toBeLessThanOrEqual(safe.targetTruePeakDbtp);
+    await expect(conditionSfxCatalogAsset(
+      createWav(0.08, { silent: true }),
+    )).rejects.toMatchObject({
+      code: 'AUDIO_SILENT',
+    });
   }, 30_000);
 });

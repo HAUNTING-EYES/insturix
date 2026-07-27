@@ -113,6 +113,16 @@ export interface EncodedSfxInspection {
   clippingRisk: boolean;
 }
 
+export interface ConditionSfxCatalogAssetResult {
+  buffer: Buffer;
+  contentType: 'audio/wav';
+  filenameExtension: 'wav';
+  gainDb: number;
+  targetTruePeakDbtp: number;
+  source: EncodedSfxInspection;
+  output: EncodedSfxInspection;
+}
+
 interface FfmpegResult {
   stdout: Buffer;
   stderr: string;
@@ -446,6 +456,44 @@ export async function inspectEncodedSfxAudio(buffer: Buffer): Promise<EncodedSfx
     loudness,
     truePeakDbtp: measurements.truePeakDbtp,
     clippingRisk: measurements.truePeakDbtp > truePeakCeiling,
+  };
+}
+
+export async function conditionSfxCatalogAsset(
+  buffer: Buffer,
+): Promise<ConditionSfxCatalogAssetResult> {
+  const source = await inspectEncodedSfxAudio(buffer);
+  const targetTruePeakDbtp = resolveAudioLoudnessTarget(null).truePeakDbtp;
+  const gainDb = Math.min(0, targetTruePeakDbtp - source.truePeakDbtp);
+  const conditioned = await runFfmpeg([
+    '-hide_banner',
+    '-loglevel', 'error',
+    '-i', 'pipe:0',
+    '-map_metadata', '-1',
+    '-af', `volume=${gainDb.toFixed(3)}dB`,
+    '-ar', '48000',
+    '-ac', String(source.channels),
+    '-codec:a', 'pcm_s16le',
+    '-f', 'wav',
+    'pipe:1',
+  ], buffer);
+  const output = await inspectEncodedSfxAudio(conditioned.stdout);
+
+  if (output.truePeakDbtp > targetTruePeakDbtp) {
+    throw new AudioConditioningError(
+      'TRUE_PEAK_EXCEEDED',
+      `Conditioned SFX true peak ${output.truePeakDbtp} dBTP exceeds ${targetTruePeakDbtp} dBTP`,
+    );
+  }
+
+  return {
+    buffer: conditioned.stdout,
+    contentType: 'audio/wav',
+    filenameExtension: 'wav',
+    gainDb,
+    targetTruePeakDbtp,
+    source,
+    output,
   };
 }
 
