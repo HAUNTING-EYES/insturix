@@ -774,6 +774,83 @@ describe("Editron render request payloads", () => {
     })).rejects.toThrowError(/stored rights evidence is not a video asset/);
   });
 
+  it("CRITICAL: verifies a separated dubbing bed against its native-video source", async () => {
+    const sourceRights = generatedNativeVideoRights("video_dubbing_source");
+    const derivativeRights = {
+      ...sourceRights,
+      mediaRole: "other" as const,
+    };
+    const separationReceipt = {
+      version: "editron-audio-separation-receipt-v1",
+      provider: "fal-ai",
+      model: "fal-ai/demucs:mdx_extra",
+      operation: "preserve-non-vocal-background",
+      stem: "other",
+      sourceAssetId: "video_dubbing_source",
+      derivativeAssetId: "dub_bed_authority",
+      jobId: "chat_dub_authority",
+      createdAt: "2026-07-27T00:00:00.000Z",
+    };
+    const overlay = {
+      id: "dubbing-background-authority",
+      type: "sound",
+      row: 0,
+      assetId: "dub_bed_authority",
+      audioRights: derivativeRights,
+      metadata: {
+        isDubbingBackgroundStem: true,
+        audioSeparationReceipt: separationReceipt,
+      },
+    };
+    const storedStem = {
+      assetId: "dub_bed_authority",
+      userId: "user_1",
+      projectId: "project_1",
+      type: "audio",
+      source: "generated",
+      parentAssetId: "video_dubbing_source",
+      assignmentStatus: "attached",
+      audioRights: derivativeRights,
+      audioSeparationReceipt: separationReceipt,
+    };
+    const storedSource = {
+      assetId: "video_dubbing_source",
+      userId: "user_1",
+      projectId: "project_1",
+      type: "video",
+      source: "generated",
+      audioRights: sourceRights,
+      generatedVideoReceipt: generatedNativeVideoReceipt("video_dubbing_source"),
+    };
+
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      overlays: [overlay],
+    }, {
+      loadAssets: async () => [storedStem, storedSource],
+    })).resolves.toBeUndefined();
+
+    expect(() => resolveRenderableAudioInputProps({
+      ...inputProps,
+      overlays: [overlay],
+    })).not.toThrow();
+
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      overlays: [overlay],
+    }, {
+      loadAssets: async () => [{
+        ...storedStem,
+        audioSeparationReceipt: {
+          ...separationReceipt,
+          jobId: "forged-job",
+        },
+      }, storedSource],
+    })).rejects.toThrowError(/stored audio-separation receipt does not match/);
+  });
+
   it("finalize propagates measured native-audio evidence per generated video asset", () => {
     const finalizeSource = readFileSync(
       "app/api/services/pipeline/storyboard/[id]/finalize/route.ts",

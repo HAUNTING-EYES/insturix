@@ -9,12 +9,18 @@ import { sampleAudioClip } from '@/lib/editron/services/media/analysis-service';
 import { getTranscription } from '@/lib/editron/services/media/transcription-service';
 import { segmentNarrativeBeats } from '@/lib/editron/services/narrative-beat-producer';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
+import {
+  getGeneratedNativeVideoReceiptIssue,
+  resolveAudioRightsClaim,
+  type AudioRightsContract,
+} from '@/lib/editron/shared/render-request-payload';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { generateVoiceover } from '@/lib/pipeline/tts-service';
 import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
 
 import {
   TerminalDubbingError,
+  type AudioSeparationReceipt,
   type ChatDubbingJob,
   type ChatDubbingProgress,
   type ChatDubbingStepResult,
@@ -174,6 +180,8 @@ async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult
   const background = job.progress.background;
   if (
     !background
+    || !background.audioRights
+    || !background.audioSeparationReceipt
     || phrases.length === 0
     || phrases.some((phrase) =>
       !phrase.voiceAssetId
@@ -207,15 +215,21 @@ async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult
     id: id++,
     from: job.timelineStartFrame,
     durationInFrames: job.timelineEndFrame - job.timelineStartFrame,
-    row: ROW.BGM,
+    row: ROW.SFX,
     assetId: background.assetId,
     src: background.url,
     content: background.url,
+    audioRights: background.audioRights,
     styles: {
       volume: 0.9,
       duckingConfig: { enabled: true, duckLevel: 0.1, rampDownMs: 180, rampUpMs: 350, lookAheadMs: 100 },
     } as SoundOverlay['styles'],
-    metadata: { isDubbingBackgroundStem: true, dubbingJobId: job._id, sourceOverlayId: job.overlayId },
+    metadata: {
+      isDubbingBackgroundStem: true,
+      dubbingJobId: job._id,
+      sourceOverlayId: job.overlayId,
+      audioSeparationReceipt: background.audioSeparationReceipt,
+    },
   }, 'preserve-separated-background');
   const voiceOverlays = phrases.map((phrase) => stampDubbingSound({
     id: id++,
@@ -251,6 +265,7 @@ async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult
           targetLanguage: job.targetLanguage,
           phraseCount: phrases.length,
           backgroundAssetId: background.assetId,
+          audioSeparationReceipt: background.audioSeparationReceipt,
           voiceAssetIds: phrases.map((phrase) => phrase.voiceAssetId),
           committedAt: now,
         },
@@ -310,6 +325,11 @@ async function translatePhrases(input: Array<{ id: number; text: string }>, targ
 }
 
 async function separateAndPersistBackground(job: ChatDubbingJob, sampledPath: string): Promise<DubbingMediaProgress> {
+  const sourceAudioRights = await loadDubbingSourceAudioRights(job);
+  const audioRights: AudioRightsContract = {
+    ...sourceAudioRights,
+    mediaRole: 'other',
+  };
   const { fal } = await import('@fal-ai/client');
   const key = process.env.FAL_AI_API_KEY || process.env.FAL_KEY;
   if (!key) throw new TerminalDubbingError('fal-key-missing', 'FAL credentials are required for vocal separation.');
@@ -331,27 +351,46 @@ async function separateAndPersistBackground(job: ChatDubbingJob, sampledPath: st
     const assetId = `dub_bed_${nanoid(12)}`;
     const uploaded = await uploadMedia(stem, job.userId, `${assetId}.wav`, 'audio/wav', { customAssetId: assetId });
     const durationMs = Math.round(((job.timelineEndFrame - job.timelineStartFrame) / job.fps) * 1000);
+    const createdAt = new Date();
+    const vendorRequestId = (response as { requestId?: string }).requestId;
+    const audioSeparationReceipt: AudioSeparationReceipt = {
+      version: 'editron-audio-separation-receipt-v1',
+      provider: 'fal-ai',
+      model: 'fal-ai/demucs:mdx_extra',
+      operation: 'preserve-non-vocal-background',
+      stem: 'other',
+      sourceAssetId: job.assetId,
+      derivativeAssetId: assetId,
+      jobId: job._id,
+      createdAt: createdAt.toISOString(),
+      ...(vendorRequestId ? { vendorRequestId } : {}),
+    };
     await (await getDatabase()).collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
       { assetId, userId: job.userId },
       {
         $set: {
+          projectId: job.projectId,
+          type: 'audio',
+          source: sourceAudioRights.source,
           cachedUrl: uploaded.signedUrl,
           gcsPath: uploaded.gcsPath,
           r2Key: uploaded.r2Key,
           urlExpiresAt: uploaded.urlExpiresAt ?? new Date('2099-12-31T00:00:00.000Z'),
           durationMs,
           audioDurationMs: durationMs,
-          updatedAt: new Date(),
+          parentAssetId: job.assetId,
+          assignmentStatus: 'attached',
+          audioRights,
+          audioSeparationReceipt,
+          updatedAt: createdAt,
         },
         $setOnInsert: {
           assetId,
           userId: job.userId,
-          type: 'audio',
           filename: `${assetId}.wav`,
-          source: 'generated',
           size: uploaded.size,
           contentType: uploaded.contentType,
-          uploadedAt: new Date(),
+          uploadedAt: createdAt,
         },
       },
       { upsert: true },
@@ -366,10 +405,17 @@ async function separateAndPersistBackground(job: ChatDubbingJob, sampledPath: st
       provider: 'fal-ai',
       model: 'fal-ai/demucs:mdx_extra',
       operation: 'audio_source_separation',
-      vendorRequestId: (response as { requestId?: string }).requestId,
+      vendorRequestId,
       units: { mediaSeconds: durationMs / 1000, bytesIn: buffer.length, bytesOut: stem.length, functionMs: Date.now() - startedAt },
     });
-    return { assetId, url: uploaded.signedUrl, r2Key: uploaded.r2Key, gcsPath: uploaded.gcsPath };
+    return {
+      assetId,
+      url: uploaded.signedUrl,
+      r2Key: uploaded.r2Key,
+      gcsPath: uploaded.gcsPath,
+      audioRights,
+      audioSeparationReceipt,
+    };
   } catch (error) {
     await recordProviderCostEvent({
       idempotencyKey: `${job._id}:demucs:failed:${job.failureCount}`,
@@ -385,6 +431,45 @@ async function separateAndPersistBackground(job: ChatDubbingJob, sampledPath: st
     });
     throw error;
   }
+}
+
+async function loadDubbingSourceAudioRights(job: ChatDubbingJob): Promise<AudioRightsContract> {
+  const sourceAsset = await (await getDatabase()).collection(COLLECTIONS.MEDIA_ASSETS).findOne({
+    assetId: job.assetId,
+    userId: job.userId,
+    type: 'video',
+  });
+  const claim = sourceAsset ? resolveAudioRightsClaim(sourceAsset) : null;
+  const rights = claim?.rights;
+  if (
+    !sourceAsset
+    || claim?.issue
+    || !rights
+    || !rights.licensed
+    || rights.mediaRole !== 'native-video'
+    || rights.evidence?.sourceAssetId !== job.assetId
+  ) {
+    throw new TerminalDubbingError(
+      'source-audio-rights-unverified',
+      claim?.issue ?? 'The selected video lacks stored, licensed native-audio rights.',
+    );
+  }
+  if (rights.source === 'generated') {
+    const receiptIssue = getGeneratedNativeVideoReceiptIssue(
+      sourceAsset.generatedVideoReceipt,
+      {
+        assetId: job.assetId,
+        licenseId: rights.evidence?.licenseId,
+      },
+    );
+    if (receiptIssue) {
+      throw new TerminalDubbingError(
+        'source-audio-rights-unverified',
+        `The selected generated video has invalid native-audio provenance: ${receiptIssue}`,
+      );
+    }
+  }
+  return rights;
 }
 
 function stampDubbingSound(

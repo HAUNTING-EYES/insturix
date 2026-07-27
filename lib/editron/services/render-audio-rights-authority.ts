@@ -22,10 +22,35 @@ interface StoredAudioAsset extends UnknownRecord {
   assignmentStatus?: unknown;
   musicRights?: unknown;
   audioRights?: unknown;
+  audioSeparationReceipt?: unknown;
   generatedVideoReceipt?: unknown;
   libraryLicenseReceipt?: unknown;
   sfxLibrarySource?: unknown;
   sfxProviderId?: unknown;
+}
+
+interface AudioSeparationReceipt extends UnknownRecord {
+  version: 'editron-audio-separation-receipt-v1';
+  provider: 'fal-ai';
+  model: 'fal-ai/demucs:mdx_extra';
+  operation: 'preserve-non-vocal-background';
+  stem: 'other';
+  sourceAssetId: string;
+  derivativeAssetId: string;
+  jobId: string;
+  createdAt: string;
+  vendorRequestId?: string;
+}
+
+interface RenderAudioClaim {
+  overlay: UnknownRecord;
+  rights: AudioRightsContract;
+  overlayAssetId: string;
+  sourceAssetId: string;
+  requiresStoredEvidence: boolean;
+  expectedAssetType: 'audio' | 'video';
+  expectedSourceAssetType: 'audio' | 'video';
+  audioSeparationReceipt: AudioSeparationReceipt | null;
 }
 
 export interface RenderAudioRightsAuthorityDependencies {
@@ -112,6 +137,7 @@ export async function verifyRenderAudioRightsAuthority(
     );
     assertRightsMatch(overlayAsset, claim.rights, claim.overlay, 'render asset');
     assertGeneratedNativeVideoReceiptAuthority(overlayAsset, claim);
+    assertAudioSeparationReceiptAuthority(overlayAsset, claim);
 
     const sourceAsset = assetsById.get(claim.sourceAssetId);
     if (!sourceAsset) {
@@ -122,7 +148,7 @@ export async function verifyRenderAudioRightsAuthority(
       input.projectId,
       allowedUserIds,
       claim.overlay,
-      claim.expectedAssetType,
+      claim.expectedSourceAssetType,
     );
     assertNotRevoked(overlayAsset, claim.overlay);
     assertNotRevoked(sourceAsset, claim.overlay);
@@ -139,8 +165,20 @@ export async function verifyRenderAudioRightsAuthority(
       }
     }
 
+    const sourceRights = claim.audioSeparationReceipt
+      ? { ...claim.rights, mediaRole: 'native-video' as const }
+      : claim.rights;
+    if (claim.audioSeparationReceipt) {
+      assertRightsMatch(
+        sourceAsset,
+        sourceRights,
+        claim.overlay,
+        'separated-audio source asset',
+      );
+      assertSeparatedNativeVideoSourceAuthority(sourceAsset, sourceRights, claim);
+    }
     assertSourceAuthority({
-      rights: claim.rights,
+      rights: sourceRights,
       sourceAsset,
       projectId: input.projectId,
       allowedUserIds,
@@ -149,14 +187,7 @@ export async function verifyRenderAudioRightsAuthority(
   }
 }
 
-function readAudioClaim(overlay: unknown): {
-  overlay: UnknownRecord;
-  rights: AudioRightsContract;
-  overlayAssetId: string;
-  sourceAssetId: string;
-  requiresStoredEvidence: boolean;
-  expectedAssetType: 'audio' | 'video';
-} {
+function readAudioClaim(overlay: unknown): RenderAudioClaim {
   const record = asRecord(overlay);
   if (!record) throw authorityError(overlay, 'audio overlay is malformed');
   const claim = resolveAudioRightsClaim(record);
@@ -190,6 +221,8 @@ function readAudioClaim(overlay: unknown): {
       sourceAssetId: '',
       requiresStoredEvidence: false,
       expectedAssetType: 'audio',
+      expectedSourceAssetType: 'audio',
+      audioSeparationReceipt: null,
     };
   }
   if (!rights.licensed) {
@@ -201,6 +234,12 @@ function readAudioClaim(overlay: unknown): {
   if (!overlayAssetId || !sourceAssetId) {
     throw authorityError(record, 'licensed audio requires stored render and source asset identities');
   }
+  const audioSeparationReceipt = readAudioSeparationReceipt(
+    record,
+    overlayAssetId,
+    sourceAssetId,
+    rights,
+  );
   if (
     nativeVideoOverlay
     && rights.source === 'generated'
@@ -230,6 +269,10 @@ function readAudioClaim(overlay: unknown): {
     sourceAssetId,
     requiresStoredEvidence: true,
     expectedAssetType: nativeVideoOverlay ? 'video' : 'audio',
+    expectedSourceAssetType: audioSeparationReceipt
+      ? 'video'
+      : nativeVideoOverlay ? 'video' : 'audio',
+    audioSeparationReceipt,
   };
 }
 
@@ -273,12 +316,7 @@ function assertAudioAssetScope(
 
 function assertGeneratedNativeVideoReceiptAuthority(
   asset: StoredAudioAsset,
-  claim: {
-    overlay: UnknownRecord;
-    rights: AudioRightsContract;
-    overlayAssetId: string;
-    expectedAssetType: 'audio' | 'video';
-  },
+  claim: RenderAudioClaim,
 ): void {
   if (
     claim.expectedAssetType !== 'video'
@@ -306,6 +344,45 @@ function assertGeneratedNativeVideoReceiptAuthority(
     throw authorityError(
       claim.overlay,
       'stored generated-video receipt does not match the render claim',
+    );
+  }
+}
+
+function assertAudioSeparationReceiptAuthority(
+  asset: StoredAudioAsset,
+  claim: RenderAudioClaim,
+): void {
+  if (!claim.audioSeparationReceipt) return;
+  const storedReceipt = readAudioSeparationReceiptValue(asset.audioSeparationReceipt);
+  if (
+    !storedReceipt
+    || canonicalAudioSeparationReceipt(storedReceipt)
+      !== canonicalAudioSeparationReceipt(claim.audioSeparationReceipt)
+  ) {
+    throw authorityError(
+      claim.overlay,
+      'stored audio-separation receipt does not match the render claim',
+    );
+  }
+}
+
+function assertSeparatedNativeVideoSourceAuthority(
+  sourceAsset: StoredAudioAsset,
+  sourceRights: AudioRightsContract,
+  claim: RenderAudioClaim,
+): void {
+  if (sourceRights.source !== 'generated') return;
+  const receiptIssue = getGeneratedNativeVideoReceiptIssue(
+    sourceAsset.generatedVideoReceipt,
+    {
+      assetId: claim.sourceAssetId,
+      licenseId: sourceRights.evidence?.licenseId,
+    },
+  );
+  if (receiptIssue) {
+    throw authorityError(
+      claim.overlay,
+      `separated audio source has invalid generated-video provenance: ${receiptIssue}`,
     );
   }
 }
@@ -481,6 +558,71 @@ function canonicalGeneratedVideoReceipt(value: unknown): string {
       probedAt: nativeAudio?.probedAt ?? null,
       licenseId: nativeAudio?.licenseId ?? null,
     },
+  });
+}
+
+function readAudioSeparationReceipt(
+  overlay: UnknownRecord,
+  overlayAssetId: string,
+  sourceAssetId: string,
+  rights: AudioRightsContract,
+): AudioSeparationReceipt | null {
+  const metadata = asRecord(overlay.metadata);
+  const isDubbingBackgroundStem = metadata?.isDubbingBackgroundStem === true;
+  const receipt = readAudioSeparationReceiptValue(metadata?.audioSeparationReceipt);
+  if (!receipt) {
+    if (isDubbingBackgroundStem) {
+      throw authorityError(overlay, 'dubbing background stem lacks an audio-separation receipt');
+    }
+    return null;
+  }
+  if (
+    overlay.type !== 'sound'
+    || rights.mediaRole !== 'other'
+    || receipt.sourceAssetId !== sourceAssetId
+    || receipt.derivativeAssetId !== overlayAssetId
+  ) {
+    throw authorityError(overlay, 'audio-separation receipt does not match the render claim');
+  }
+  return receipt;
+}
+
+function readAudioSeparationReceiptValue(value: unknown): AudioSeparationReceipt | null {
+  const receipt = asRecord(value);
+  const createdAt = nonEmptyString(receipt?.createdAt);
+  if (
+    receipt?.version !== 'editron-audio-separation-receipt-v1'
+    || receipt.provider !== 'fal-ai'
+    || receipt.model !== 'fal-ai/demucs:mdx_extra'
+    || receipt.operation !== 'preserve-non-vocal-background'
+    || receipt.stem !== 'other'
+    || !nonEmptyString(receipt.sourceAssetId)
+    || !nonEmptyString(receipt.derivativeAssetId)
+    || !nonEmptyString(receipt.jobId)
+    || !createdAt
+    || !Number.isFinite(Date.parse(createdAt))
+    || (
+      receipt.vendorRequestId !== undefined
+      && !nonEmptyString(receipt.vendorRequestId)
+    )
+  ) {
+    return null;
+  }
+  return receipt as AudioSeparationReceipt;
+}
+
+function canonicalAudioSeparationReceipt(receipt: AudioSeparationReceipt): string {
+  return JSON.stringify({
+    version: receipt.version,
+    provider: receipt.provider,
+    model: receipt.model,
+    operation: receipt.operation,
+    stem: receipt.stem,
+    sourceAssetId: receipt.sourceAssetId,
+    derivativeAssetId: receipt.derivativeAssetId,
+    jobId: receipt.jobId,
+    createdAt: receipt.createdAt,
+    vendorRequestId: receipt.vendorRequestId ?? null,
   });
 }
 

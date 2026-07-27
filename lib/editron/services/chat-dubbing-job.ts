@@ -39,11 +39,26 @@ export interface DubbingPhraseProgress {
   generatedAudioReceipt?: GeneratedAudioReceipt;
 }
 
+export interface AudioSeparationReceipt {
+  version: 'editron-audio-separation-receipt-v1';
+  provider: 'fal-ai';
+  model: 'fal-ai/demucs:mdx_extra';
+  operation: 'preserve-non-vocal-background';
+  stem: 'other';
+  sourceAssetId: string;
+  derivativeAssetId: string;
+  jobId: string;
+  createdAt: string;
+  vendorRequestId?: string;
+}
+
 export interface DubbingMediaProgress {
   assetId: string;
   url: string;
   r2Key?: string | null;
   gcsPath?: string | null;
+  audioRights?: AudioRightsContract;
+  audioSeparationReceipt?: AudioSeparationReceipt;
 }
 
 export interface ChatDubbingProgress {
