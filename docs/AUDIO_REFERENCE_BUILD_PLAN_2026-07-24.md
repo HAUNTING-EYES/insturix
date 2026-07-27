@@ -303,8 +303,11 @@ provider identity, license identity, and attribution requirements. Silence remai
 1. P6A (done): canonical catalog contract, Epidemic adapter, authenticated search, mocked tests.
 2. P6B (code complete, operationally gated): entitlement/download, controlled storage ingest,
    acoustic analysis, and durable `library-license` receipt exist. A live branch-scoped Epidemic
-   search passed on 2026-07-28. Controlled download remains fail-closed until the deployment
-   operator configures `EPIDEMIC_SOUND_LICENSE_AGREEMENT_ID`.
+   search passed on 2026-07-28. Epidemic's API does not issue an agreement-ID credential:
+   commercial and sublicensing rights come from the partner plan. The current
+   `EPIDEMIC_SOUND_LICENSE_AGREEMENT_ID` is only Editron's internal operator-supplied audit
+   reference, and must not be fabricated from the API key. Controlled production ingest remains
+   fail-closed until the operator records a real partner-contract reference.
 3. P6C (done): one-click AI choice plus visible upload/library picker using the existing assignment
    path.
 4. P6D (partial): clean-master output and platform-native handoff receipt exist. Local-feature
@@ -315,9 +318,15 @@ provider identity, license identity, and attribution requirements. Silence remai
 6. P7E (done): metadata-first FSD50K harvest. Pin the official version/checksums, retain the
    complete CC0 rights-eligible pool, preserve per-clip and dataset provenance, and report
    provisional role signals and gaps. Do not download the 24.7 GB audio archive in this phase.
-7. P7F: download only the selected candidate subset, run acoustic rejection plus an audio
-   embedding/classifier, cluster near-duplicates, and rank representative sounds. Human review
-   applies to representatives, not every source clip.
+7. P7F (in progress; P7F1 done): P7F1 deterministically samples a role-balanced, risk-free subset
+   backed by FSD50K ground-truth labels, re-verifies each source as CC0 through the Freesound API,
+   downloads HQ screening audio, and runs the production controlled-ingest acoustic gate. The
+   2026-07-28 real run selected 35 sources, retained 14 measured files (2.67 MB), and rejected 21
+   at the final `-1 dBTP` peak ceiling; every retained file matched its receipt hash and rights ID.
+   Because catalog review already conditions hot sources before publication, P7F2 must distinguish
+   conditionable source peaks from irrecoverable acoustic rejection before embedding/classifier
+   analysis, near-duplicate clustering, and representative ranking. The sample remains explicitly
+   non-publishable. Human review applies to representatives, not every source clip.
 8. P7G: publish the approved catalog to controlled storage, add a rights-cleared provider lane and
    CassetteAI generated fallback, then run a rendered transition/MG/SFX canary.
 
