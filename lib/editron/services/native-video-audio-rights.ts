@@ -11,6 +11,12 @@ export interface NativeVideoAudioRightsAttestation {
   version: typeof AUDIO_RIGHTS_ATTESTATION_VERSION;
 }
 
+export const CURRENT_NATIVE_VIDEO_AUDIO_RIGHTS_ATTESTATION:
+NativeVideoAudioRightsAttestation = Object.freeze({
+  accepted: true,
+  version: AUDIO_RIGHTS_ATTESTATION_VERSION,
+});
+
 export interface BuildNativeVideoAudioRightsInput {
   sourceAssetId: string;
   userId: string;

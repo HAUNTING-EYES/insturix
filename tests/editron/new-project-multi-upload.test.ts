@@ -65,4 +65,28 @@ describe('new project multi-upload intake', () => {
     expect(batchDialogSource).toContain('normalizeEditorialPreferences');
     expect(batchDialogSource).not.toContain('musicPreference');
   });
+
+  it('requires the same explicit source-media rights confirmation in both intake paths', () => {
+    const singleDialogSource = readFileSync(
+      join(process.cwd(), 'components/editron/project/auto-edit-dialog.tsx'),
+      'utf8',
+    );
+    const batchDialogSource = readFileSync(
+      join(process.cwd(), 'components/editron/project/footage-batch-intake-dialog.tsx'),
+      'utf8',
+    );
+    const rightsControlSource = readFileSync(
+      join(process.cwd(), 'components/editron/project/source-media-rights-control.tsx'),
+      'utf8',
+    );
+
+    expect(singleDialogSource).toContain('<SourceMediaRightsControl');
+    expect(singleDialogSource).toContain('disabled={!rightsAttested}');
+    expect(singleDialogSource).toContain('sourceMediaRightsAttestation');
+    expect(batchDialogSource).toContain('<SourceMediaRightsControl');
+    expect(batchDialogSource).toContain('disabled={files.length === 0 || !rightsAttested}');
+    expect(batchDialogSource).toContain('sourceMediaRightsAttestation');
+    expect(rightsControlSource).toContain('I own this media or have permission to use it');
+    expect(rightsControlSource).toContain('including any embedded audio');
+  });
 });
