@@ -1,5 +1,6 @@
 import { getGenAI } from '@/lib/editron/utils/gemini-model-factory';
 import type { TokenUsageMetadata } from '@/lib/editron/utils/token-tracker';
+import { GEMINI_OWNER_RESPONSE_SCHEMA } from '@/lib/editron/agent/chat-request-owner';
 
 export interface ChatModelGenerationResult {
   text: string;
@@ -37,6 +38,7 @@ export interface KimiOwnerGeneratorOptions {
 
 export interface GeminiOwnerGeneratorOptions {
   model: string;
+  getGenAIImpl?: typeof getGenAI;
 }
 
 const DEFAULT_KIMI_BASE_URL = 'https://api.moonshot.ai/v1';
@@ -115,7 +117,7 @@ export function createGeminiOwnerGenerator(
   options: GeminiOwnerGeneratorOptions,
 ): (prompt: string, attempt: number) => Promise<ChatModelGenerationResult> {
   return async (prompt) => {
-    const genAI = await getGenAI();
+    const genAI = await (options.getGenAIImpl ?? getGenAI)();
     const model = genAI.getGenerativeModel({ model: options.model });
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -123,6 +125,7 @@ export function createGeminiOwnerGenerator(
         temperature: 0,
         maxOutputTokens: 1_200,
         responseMimeType: 'application/json',
+        responseSchema: GEMINI_OWNER_RESPONSE_SCHEMA,
       },
     });
     return {

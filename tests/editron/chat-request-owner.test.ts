@@ -177,6 +177,42 @@ describe('chat request owner classification', () => {
     expect(prompt).toContain('source separation, translation, timing, and commit owner');
   });
 
+  it('accepts durable selected-dialogue dubbing without a shadow localized mutation', async () => {
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: true,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'selected-dialogue-dubbing',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [],
+          requestedCapabilities: ['selected-dialogue-dubbing'],
+          familyDirectives: [],
+        },
+        confidence: 0.99,
+        reason: 'The selected clip needs the durable dubbing workflow.',
+      }),
+    }));
+
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage: 'Translate and dub the selected clip into Hindi.',
+      selectedOverlayPresent: true,
+    }, { generate });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'selected-dialogue-dubbing',
+    });
+    expect(generate).toHaveBeenCalledOnce();
+  });
+
   it('extracts family scope without choosing renderer form', () => {
     const prompt = buildChatRequestOwnerPrompt({
       ...baseInput,
@@ -187,6 +223,9 @@ describe('chat request owner classification', () => {
     expect(prompt).toContain('SFX at the strongest beat');
     expect(prompt).toContain('This scopes ownership only');
     expect(prompt).toContain('requestsBroadEditorialOutcome');
+    expect(prompt).toContain(
+      'localizedEdits=[{"modality":"audio","operation":"sound-effect","query":"strongest visual or spoken beat"}]',
+    );
   });
 
   it('derives an exclusive family lock instead of trusting the model with final authority', async () => {
@@ -442,6 +481,23 @@ describe('chat request owner classification', () => {
       requestedCapabilities: [],
       familyDirectives: [],
       familyScopeExclusive: false,
+    })).toBe('semantic-editorial-planner');
+  });
+
+  it('keeps explicit editorial-family mutations with the semantic family owner', () => {
+    expect(deriveChatRequestOwner({
+      requestsMutation: true,
+      requestsAnalysis: false,
+      requiresContentLocalization: false,
+      requiresEditorialJudgment: false,
+      requestsReferenceStyle: false,
+      requestsBroadEditorialOutcome: false,
+      durableOperation: 'none',
+      operationFullySpecified: true,
+      targetFullySpecified: true,
+      requestedCapabilities: ['audio-ducking'],
+      familyDirectives: [{ family: 'music', mode: 'prefer' }],
+      familyScopeExclusive: true,
     })).toBe('semantic-editorial-planner');
   });
 
@@ -815,7 +871,7 @@ describe('chat request owner capability filtering', () => {
         durableOperation: 'none',
         operationFullySpecified: false,
         targetFullySpecified: false,
-        requestedCapabilities: [],
+        requestedCapabilities: ['audio-ducking', 'project-edit'],
         familyDirectives: [{ family: 'music', mode: 'prefer' }],
         familyScopeExclusive: true,
       },
