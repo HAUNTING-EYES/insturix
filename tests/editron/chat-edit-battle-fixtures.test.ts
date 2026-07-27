@@ -144,6 +144,21 @@ describe('chat edit battle fixtures', () => {
     })).toThrow(/unrenderable audio required by mixed-multi-step/);
   });
 
+  it('fails fixture preflight when retained video embeds unlicensed native audio', () => {
+    const source = sourceProject();
+    const video = overlays(source).find((overlay) => overlay.type === 'video');
+    if (!video) throw new Error('Expected video fixture.');
+    video.hasNativeAudio = true;
+    delete video.audioRights;
+
+    expect(() => prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_native_audio_rights1',
+      plan: plan('selected-overlay-edit'),
+      now: NOW,
+    })).toThrow(/embedded native audio has no durable rights receipt/);
+  });
+
   it('seeds exact multilingual and speech-anchor words as timed caption truth', () => {
     const prepared = prepareChatBattleFixture({
       sourceProject: sourceProject(),

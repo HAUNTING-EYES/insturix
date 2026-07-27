@@ -427,10 +427,10 @@ function assertFixtureAudioIsRenderable(
   overlays: unknown,
   plan: ChatBattleFixturePlan,
 ): void {
-  if (!plan.preserveSoundOverlays) return;
   for (const overlay of asRecords(overlays)) {
-    if (stringValue(overlay.type) !== 'sound') continue;
     try {
+      // Canonical render authority identifies both sound overlays and videos
+      // with embedded native audio; unrelated overlays pass through unchanged.
       resolveRenderableAudio(overlay);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
