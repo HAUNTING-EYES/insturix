@@ -32,11 +32,57 @@ export interface SfxCatalogReviewCollection {
   licenseEvidencePath: string;
 }
 
+export interface SfxCatalogReviewSourceEvidence {
+  version: 'sfx-clap-review-source-v1';
+  sourceCandidatePoolSha256: string;
+  sourceReceiptSha256: string;
+  analysisDigestSha256: string;
+  model: {
+    provider: string;
+    packageVersion: string;
+    modelId: string;
+    revision: string;
+    dtype: string;
+    sampleRateHz: number;
+    embeddingDimension: number;
+    windowing: string;
+  };
+}
+
+export interface SfxCatalogReviewEvidence {
+  version: 'sfx-clap-review-candidate-v1';
+  evidenceKind: 'ground-truth-role-plus-clap-screening';
+  sourceId: string;
+  sourceHashSha256: string;
+  assignedRole: SfxCatalogEventRole;
+  topRole: SfxCatalogEventRole;
+  topRoleScore: number;
+  assignedRoleScore: number;
+  assignedRoleRank: number;
+  roleAgreement: boolean;
+  semanticRoles: Array<{
+    role: SfxCatalogEventRole;
+    cosineSimilarity: number;
+  }>;
+  nearestNeighbor?: {
+    sourceId: string;
+    cosineSimilarity: number;
+  };
+  cluster: {
+    clusterId: string;
+    duplicateCandidate: boolean;
+    memberSourceIds: string[];
+    representativeSourceId: string;
+  };
+  metadataBasis: 'role-prior-pending-human-approval';
+}
+
 export interface SfxCatalogReviewCandidate {
   collectionId: string;
   sourcePath: string;
   providerAssetId: string;
   metadata: SfxCatalogReviewMetadata;
+  reviewEvidence?: SfxCatalogReviewEvidence;
 }
 
 export interface SfxCatalogReviewSeed {
@@ -44,6 +90,7 @@ export interface SfxCatalogReviewSeed {
   requiredRoles: SfxCatalogEventRole[];
   collections: SfxCatalogReviewCollection[];
   candidates: SfxCatalogReviewCandidate[];
+  sourceEvidence?: SfxCatalogReviewSourceEvidence;
 }
 
 const interfaceBase: Pick<
