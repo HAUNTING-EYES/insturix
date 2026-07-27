@@ -92,6 +92,14 @@ const AUDIO_MEDIA_ROLES = new Set<NonNullable<AudioRightsContract["mediaRole"]>>
   "native-video",
   "other",
 ]);
+const GENERATED_VIDEO_RECEIPT_VERSION = "editron-generated-video-receipt-v1";
+const GENERATED_VIDEO_PROVIDERS = new Set(["fal-ai", "kie-ai"]);
+const NATIVE_AUDIO_REQUEST_MODES = new Set([
+  "enabled",
+  "disabled",
+  "provider-fixed",
+  "not-supported",
+]);
 const STOCK_PREVIEW_HOST = "rwxrdxvxndclnqvznxfj.supabase.co";
 const STOCK_PREVIEW_PATH = "/storage/v1/object/public/sounds/";
 
@@ -123,6 +131,7 @@ const RENDER_DROPPABLE_OVERLAY_KEYS = [
   "atomicMomentBundles",
   "contentStructure",
   "decisionAuthority",
+  "generatedVideoReceipt",
   "mgExpressionAuthority",
   "qualityReview",
   "semanticAtoms",
@@ -194,11 +203,17 @@ export function resolveRenderableAudioInputProps<T extends RenderInputProps>(
 export function resolveRenderableAudio(
   overlay: unknown
 ): RenderableAudioDecision {
-  if (!isRecord(overlay) || overlay.type !== "sound") {
+  if (!isRecord(overlay)) {
+    return { overlay };
+  }
+  const nativeVideoOverlay =
+    overlay.type === "video" && overlay.hasNativeAudio === true;
+  if (overlay.type !== "sound" && !nativeVideoOverlay) {
     return { overlay };
   }
 
-  const knownPreviewSource = hasKnownStockPreviewSource(overlay);
+  const knownPreviewSource =
+    overlay.type === "sound" && hasKnownStockPreviewSource(overlay);
   const musicOverlay = isCanonicalMusicOverlay(overlay);
   const rightsClaim = resolveAudioRightsClaim(overlay);
   if (rightsClaim.issue) {
@@ -208,7 +223,8 @@ export function resolveRenderableAudio(
   if (
     rightsValue === null &&
     !knownPreviewSource &&
-    !musicOverlay
+    !musicOverlay &&
+    !nativeVideoOverlay
   ) {
     return { overlay };
   }
@@ -219,11 +235,31 @@ export function resolveRenderableAudio(
         ? "bundled preview source has no resolved rights decision"
         : musicOverlay
           ? "background music has no durable rights receipt"
-          : "audio rights metadata is missing"
+          : nativeVideoOverlay
+            ? "embedded native audio has no durable rights receipt"
+            : "audio rights metadata is missing"
     );
   }
   const audioRights = rightsValue;
 
+  if (
+    nativeVideoOverlay &&
+    audioRights.mediaRole !== "native-video"
+  ) {
+    throw new UnlicensedAudioInRenderError(
+      overlay,
+      `native video cannot use ${audioRights.mediaRole ?? "unspecified"} rights evidence`
+    );
+  }
+  if (
+    overlay.type === "sound" &&
+    audioRights.mediaRole === "native-video"
+  ) {
+    throw new UnlicensedAudioInRenderError(
+      overlay,
+      "sound overlay cannot use native-video rights evidence"
+    );
+  }
   if (
     musicOverlay &&
     audioRights.mediaRole !== undefined &&
@@ -240,6 +276,28 @@ export function resolveRenderableAudio(
       overlay,
       `bundled preview source contradicts declared ${audioRights.source} provenance`
     );
+  }
+
+  if (nativeVideoOverlay && audioRights.source === "preview-only") {
+    throw new UnlicensedAudioInRenderError(
+      overlay,
+      "preview-only audio cannot remain embedded in a rendered video"
+    );
+  }
+  if (nativeVideoOverlay && audioRights.source === "generated") {
+    const receiptIssue = getGeneratedNativeVideoReceiptIssue(
+      overlay.generatedVideoReceipt,
+      {
+        assetId: overlay.assetId,
+        licenseId: audioRights.evidence?.licenseId,
+      }
+    );
+    if (receiptIssue) {
+      throw new UnlicensedAudioInRenderError(
+        overlay,
+        `generated native audio requires a matching FFmpeg probe receipt: ${receiptIssue}`
+      );
+    }
   }
 
   if (audioRights.source === "preview-only" || knownPreviewSource) {
@@ -419,6 +477,68 @@ export function getAudioRightsContractIssue(value: unknown): string | null {
       : "user-attested audio requires a current durable attestation receipt";
   }
   return "audio rights source is unsupported";
+}
+
+export function getGeneratedNativeVideoReceiptIssue(
+  value: unknown,
+  expectation: {
+    assetId: unknown;
+    licenseId: unknown;
+  }
+): string | null {
+  if (!isRecord(value)) return "generation receipt is missing or malformed";
+  if (value.version !== GENERATED_VIDEO_RECEIPT_VERSION) {
+    return "generation receipt version is missing or unsupported";
+  }
+  if (
+    typeof value.provider !== "string" ||
+    !GENERATED_VIDEO_PROVIDERS.has(value.provider)
+  ) {
+    return "generation provider is missing or unsupported";
+  }
+  if (!nonEmptyString(value.model)) return "generation model is missing";
+  const expectedAssetId = nonEmptyString(expectation.assetId);
+  if (
+    !expectedAssetId ||
+    nonEmptyString(value.assetId) !== expectedAssetId
+  ) {
+    return "generation receipt asset does not match the video overlay";
+  }
+  if (!isValidDateString(value.generatedAt)) {
+    return "generation timestamp is missing or malformed";
+  }
+  if (
+    value.providerJobId !== undefined &&
+    !nonEmptyString(value.providerJobId)
+  ) {
+    return "provider job identity is malformed";
+  }
+
+  const nativeAudio = value.nativeAudio;
+  if (!isRecord(nativeAudio)) return "native-audio probe evidence is missing";
+  if (
+    typeof nativeAudio.requestMode !== "string" ||
+    !NATIVE_AUDIO_REQUEST_MODES.has(nativeAudio.requestMode)
+  ) {
+    return "native-audio request mode is missing or unsupported";
+  }
+  if (nativeAudio.present !== true) {
+    return "native-audio probe did not confirm an embedded stream";
+  }
+  if (nativeAudio.probe !== "ffmpeg-audio-stream-decode") {
+    return "native-audio stream was not verified by FFmpeg decode";
+  }
+  if (!isValidDateString(nativeAudio.probedAt)) {
+    return "native-audio probe timestamp is missing or malformed";
+  }
+  const expectedLicenseId = nonEmptyString(expectation.licenseId);
+  if (
+    !expectedLicenseId ||
+    nonEmptyString(nativeAudio.licenseId) !== expectedLicenseId
+  ) {
+    return "native-audio license does not match the rights receipt";
+  }
+  return null;
 }
 
 export function resolveAudioRightsClaim(

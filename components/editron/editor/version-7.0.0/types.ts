@@ -2,6 +2,7 @@ import type {
   AudioRightsContract,
   MusicRightsContract,
 } from "@/lib/editron/shared/render-request-payload";
+import type { GeneratedVideoReceipt } from "@/lib/pipeline/video-generation-service";
 
 // Define overlay types enum
 export enum OverlayType {
@@ -153,6 +154,10 @@ export type ClipOverlay = BaseOverlay & {
    *  SFX generation is skipped for this scene. Audio ducking should duck
    *  native video audio under voiceover (same as BGM ducking). */
   hasNativeAudio?: boolean;
+  /** Render/export rights for an embedded audio stream. Required when hasNativeAudio is true. */
+  audioRights?: AudioRightsContract;
+  /** Provider and FFmpeg-probe audit evidence for generated video. */
+  generatedVideoReceipt?: GeneratedVideoReceipt;
   /** Variable speed curve � overrides constant `speed` when present.
    *  Each keyframe specifies a playback rate at a local frame offset.
    *  Video is split into segments, each with its own constant rate. */

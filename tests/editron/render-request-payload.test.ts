@@ -35,6 +35,37 @@ const inputProps = {
   src: "",
 } as any;
 
+function generatedNativeVideoRights(assetId: string) {
+  return {
+    mediaRole: "native-video" as const,
+    source: "generated" as const,
+    userChoice: "attested" as const,
+    licensed: true,
+    evidence: {
+      kind: "generated-provider" as const,
+      sourceAssetId: assetId,
+      licenseId: "fal-ai:seedance-v1.5-pro:service-output-terms",
+    },
+  };
+}
+
+function generatedNativeVideoReceipt(assetId: string) {
+  return {
+    version: "editron-generated-video-receipt-v1" as const,
+    provider: "fal-ai" as const,
+    model: "seedance-v1.5-pro",
+    assetId,
+    generatedAt: "2026-07-27T00:00:00.000Z",
+    nativeAudio: {
+      requestMode: "enabled" as const,
+      present: true,
+      probe: "ffmpeg-audio-stream-decode" as const,
+      probedAt: "2026-07-27T00:00:00.000Z",
+      licenseId: generatedNativeVideoRights(assetId).evidence.licenseId,
+    },
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -256,6 +287,75 @@ describe("Editron render request payloads", () => {
 
     expect(build).toThrow(UnlicensedAudioInRenderError);
     expect(build).toThrow(/Cannot render unlicensed audio overlay 77/);
+  });
+
+  it("CRITICAL: rejects embedded video audio without valid native-video rights", () => {
+    expect(() => buildLambdaRenderInputProps({
+      overlays: [{
+        id: "native-video-missing-rights",
+        type: "video",
+        assetId: "video_native_missing",
+        hasNativeAudio: true,
+      }],
+    })).toThrowError(/embedded native audio has no durable rights receipt/);
+
+    expect(() => buildLambdaRenderInputProps({
+      overlays: [{
+        id: "native-video-wrong-role",
+        type: "video",
+        assetId: "video_native_wrong_role",
+        hasNativeAudio: true,
+        audioRights: {
+          ...generatedNativeVideoRights("video_native_wrong_role"),
+          mediaRole: "sfx",
+        },
+      }],
+    })).toThrowError(/native video cannot use sfx rights evidence/);
+
+    expect(() => buildLambdaRenderInputProps({
+      overlays: [{
+        id: "native-video-missing-probe",
+        type: "video",
+        assetId: "video_native_missing_probe",
+        hasNativeAudio: true,
+        audioRights: generatedNativeVideoRights("video_native_missing_probe"),
+      }],
+    })).toThrowError(/generated native audio requires a matching FFmpeg probe receipt/);
+  });
+
+  it("keeps licensed native video audio and strips its audit-only generation receipt before Lambda", () => {
+    const rights = generatedNativeVideoRights("video_native_1");
+    const compact = buildLambdaRenderInputProps({
+      overlays: [{
+        id: "native-video-licensed",
+        type: "video",
+        assetId: "video_native_1",
+        hasNativeAudio: true,
+        audioRights: rights,
+        generatedVideoReceipt: generatedNativeVideoReceipt("video_native_1"),
+      }, {
+        id: "silent-video",
+        type: "video",
+        assetId: "video_silent",
+        hasNativeAudio: false,
+      }],
+    });
+
+    expect(compact.overlays).toEqual([
+      {
+        id: "native-video-licensed",
+        type: "video",
+        assetId: "video_native_1",
+        hasNativeAudio: true,
+        audioRights: rights,
+      },
+      {
+        id: "silent-video",
+        type: "video",
+        assetId: "video_silent",
+        hasNativeAudio: false,
+      },
+    ]);
   });
 
   it("rejects the bundled legacy preview URL regardless of its old timeline row", () => {
@@ -601,6 +701,92 @@ describe("Editron render request payloads", () => {
     }, {
       loadAssets: async () => [],
     })).rejects.toBeInstanceOf(RenderAudioRightsAuthorityError);
+  });
+
+  it("CRITICAL: verifies native-video receipts against matching stored video authority", async () => {
+    const rights = generatedNativeVideoRights("video_native_authority");
+    const overlay = {
+      id: "native-video-authority",
+      type: "video",
+      assetId: "video_native_authority",
+      hasNativeAudio: true,
+      audioRights: rights,
+      generatedVideoReceipt: generatedNativeVideoReceipt("video_native_authority"),
+    };
+
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      overlays: [overlay],
+    }, {
+      loadAssets: async () => [],
+    })).rejects.toBeInstanceOf(RenderAudioRightsAuthorityError);
+
+    const loadAssets = vi.fn(async () => [{
+      assetId: "video_native_authority",
+      userId: "user_1",
+      projectId: "project_1",
+      type: "video",
+      source: "generated",
+      audioRights: rights,
+      generatedVideoReceipt: generatedNativeVideoReceipt("video_native_authority"),
+    }]);
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      overlays: [overlay],
+    }, { loadAssets })).resolves.toBeUndefined();
+    expect(loadAssets).toHaveBeenCalledWith(["video_native_authority"]);
+
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      overlays: [overlay],
+    }, {
+      loadAssets: async () => [{
+        assetId: "video_native_authority",
+        userId: "user_1",
+        projectId: "project_1",
+        type: "video",
+        source: "generated",
+        audioRights: rights,
+        generatedVideoReceipt: {
+          ...generatedNativeVideoReceipt("video_native_authority"),
+          generatedAt: "2026-07-27T01:00:00.000Z",
+        },
+      }],
+    })).rejects.toThrowError(/stored generated-video receipt does not match the render claim/);
+
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      overlays: [overlay],
+    }, {
+      loadAssets: async () => [{
+        assetId: "video_native_authority",
+        userId: "user_1",
+        projectId: "project_1",
+        type: "audio",
+        source: "generated",
+        audioRights: rights,
+        generatedVideoReceipt: generatedNativeVideoReceipt("video_native_authority"),
+      }],
+    })).rejects.toThrowError(/stored rights evidence is not a video asset/);
+  });
+
+  it("finalize propagates measured native-audio evidence per generated video asset", () => {
+    const finalizeSource = readFileSync(
+      "app/api/services/pipeline/storyboard/[id]/finalize/route.ts",
+      "utf8",
+    );
+
+    expect(finalizeSource).toContain("hasNativeAudio: sub.hasNativeAudio ?? false");
+    expect(finalizeSource).toContain("audioRights: sub.nativeAudioRights");
+    expect(finalizeSource).toContain("generatedVideoReceipt: sub.generatedVideoReceipt");
+    expect(finalizeSource).toContain("hasNativeAudio: scene.hasNativeAudio ?? false");
+    expect(finalizeSource).toContain("audioRights: scene.nativeAudioRights");
+    expect(finalizeSource).toContain("generatedVideoReceipt: scene.generatedVideoReceipt");
+    expect(finalizeSource).not.toContain("parentHasNativeAudio");
   });
 
   it("accepts a Freesound CC0 SFX only when its stored provider evidence matches", async () => {
