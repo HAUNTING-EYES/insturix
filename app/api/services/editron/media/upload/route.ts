@@ -13,6 +13,11 @@ import { auth } from '@clerk/nextjs/server';
 import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 import { persistMediaUploadBatchAsset } from '@/lib/editron/services/media-upload-batch';
+import {
+  NativeVideoAudioRightsError,
+  buildNativeVideoAudioRights,
+} from '@/lib/editron/services/native-video-audio-rights';
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 
 export const runtime = 'nodejs';
 
@@ -73,6 +78,7 @@ export async function POST(request: NextRequest) {
       isProxy,
       uploadBatchId,
       uploadBatchIntake,
+      sourceMediaRightsAttestation,
     } = body;
 
     // Validate required fields — gcsPath is optional (R2 uploads don't have one)
@@ -214,6 +220,24 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    let nativeVideoAudioRights: AudioRightsContract | undefined;
+    if (fileType === 'video' && sourceMediaRightsAttestation !== undefined) {
+      try {
+        nativeVideoAudioRights = buildNativeVideoAudioRights({
+          sourceAssetId: assetId,
+          userId,
+          attestation: sourceMediaRightsAttestation,
+        });
+      } catch (error) {
+        if (error instanceof NativeVideoAudioRightsError) {
+          return NextResponse.json(
+            { success: false, error: error.message, code: error.code },
+            { status: 400 },
+          );
+        }
+        throw error;
+      }
+    }
 
     // ── Server-side video duration verification ──
     // Browser's HTMLVideoElement.duration is unreliable for improperly indexed MP4s.
@@ -279,7 +303,9 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
-    const mediaAsset: MediaAsset & ThumbnailStorageFields = {
+    const mediaAsset: MediaAsset & ThumbnailStorageFields & {
+      audioRights?: AudioRightsContract;
+    } = {
       assetId,
       userId,
       orgId: orgId || undefined, // org-shared storage pool (undefined for solo users)
@@ -300,6 +326,7 @@ export async function POST(request: NextRequest) {
       dimensions: parsedDimensions,
       uploadedAt: now,
       lastUsedAt: now, // seed the LRU signal at upload time
+      ...(nativeVideoAudioRights && { audioRights: nativeVideoAudioRights }),
       ...(cleanUploadBatchId && { uploadBatchId: cleanUploadBatchId }),
       ...(!gcsPath && { r2Key: assetId }),
       ...(isProxy && { isProxy: true }),
