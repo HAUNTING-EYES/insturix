@@ -85,6 +85,7 @@ import {
 } from './chat-request-owner';
 import { filterChatToolsForWorkflowPhase } from './chat-tool-workflow-phase';
 import { resolveServerOwnedChatWorkflowStep } from './chat-server-workflow';
+import { buildDeterministicGeminiFunctionCallPart } from './gemini-function-call-history';
 
 // PERF FIX: Singleton GenAI client — reuse across all requests instead of
 // instantiating `new GoogleGenerativeAI(...)` on every callModel call.
@@ -393,12 +394,14 @@ export const createAgent = (
           `Server-owned workflow produced unlicensed tool ${serverWorkflowStep.toolCall.name}.`,
         );
       }
+      const toolCall = {
+        type: 'tool_call',
+        ...serverWorkflowStep.toolCall,
+      };
       return processResponse({
         content: '',
-        tool_calls: [{
-          type: 'tool_call',
-          ...serverWorkflowStep.toolCall,
-        }],
+        tool_calls: [toolCall],
+        geminiParts: [buildDeterministicGeminiFunctionCallPart(toolCall)],
       });
     }
     if (serverWorkflowStep?.kind === 'complete' || serverWorkflowStep?.kind === 'halt') {
