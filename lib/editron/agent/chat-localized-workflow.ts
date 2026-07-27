@@ -20,11 +20,9 @@ export type ServerOwnedLocalizedWorkflowStep =
   | { kind: 'complete'; message: string }
   | { kind: 'halt'; message: string };
 
-const FINAL_MUTATION_OUTCOMES = new Set<ChatToolExecutionOutcome>([
+const COMPLETED_MUTATION_OUTCOMES = new Set<ChatToolExecutionOutcome>([
   'success',
   'no-op',
-  'declined',
-  'needs-choice',
 ]);
 
 export function resolveServerOwnedLocalizedWorkflowStep(input: {
@@ -80,7 +78,7 @@ export function resolveServerOwnedLocalizedWorkflowStep(input: {
       )
       : null;
 
-    if (mutation && FINAL_MUTATION_OUTCOMES.has(mutation.outcome)) {
+    if (mutation && COMPLETED_MUTATION_OUTCOMES.has(mutation.outcome)) {
       continue;
     }
     if (mutation) {
@@ -135,8 +133,8 @@ export function resolveServerOwnedLocalizedWorkflowStep(input: {
   return {
     kind: 'complete',
     message: edits.length === 1
-      ? 'Done. I grounded the requested moment and applied the authorized edit.'
-      : `Done. I grounded and applied all ${edits.length} requested edits in order.`,
+      ? 'Done. I grounded the requested moment and completed the authorized workflow.'
+      : `Done. I grounded and completed all ${edits.length} authorized workflows in order.`,
   };
 }
 

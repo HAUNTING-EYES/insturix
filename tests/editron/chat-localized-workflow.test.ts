@@ -223,6 +223,98 @@ describe('server-owned localized chat workflow', () => {
     });
   });
 
+  it.each([
+    ['declined', 'The requested cut would remove required context.'],
+    ['needs-choice', 'Two safe cut ranges match this phrase.'],
+  ] as const)('halts truthfully when an authorized mutation is %s', (outcome, message) => {
+    const owner = license(routingFacts(
+      [{ modality: 'transcript', operation: 'remove', query: 'pricing is simple' }],
+      ['localized-cut'],
+    ));
+    const cutArgs = { startFrame: 120, endFrame: 150 };
+    const resolver = execution('resolve_transcript_edit', {
+      query: 'pricing is simple',
+      action: 'cut_phrase',
+    }, {
+      evidenceReceipts: [receipt('transcript-target', 'resolve_transcript_edit', [{
+        toolName: 'cut_section',
+        args: cutArgs,
+      }])],
+    });
+    const mutation = execution('cut_section', cutArgs, {
+      outcome,
+      output: JSON.stringify({
+        status: outcome,
+        data: { message },
+        error: null,
+        nextAction: null,
+      }),
+    });
+
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, resolver, mutation),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toEqual({ kind: 'halt', message });
+  });
+
+  it('refreshes timeline evidence before resolving the next edit after a mutation', () => {
+    const owner = license(routingFacts(
+      [
+        { modality: 'transcript', operation: 'remove', query: 'first phrase' },
+        { modality: 'transcript', operation: 'remove', query: 'second phrase' },
+      ],
+      ['localized-cut'],
+    ));
+    const firstCutArgs = { startFrame: 60, endFrame: 90 };
+    const firstResolver = execution('resolve_transcript_edit', {
+      query: 'first phrase',
+      action: 'cut_phrase',
+    }, {
+      evidenceReceipts: [receipt('transcript-target', 'resolve_transcript_edit', [{
+        toolName: 'cut_section',
+        args: firstCutArgs,
+      }])],
+    });
+    const firstCut = execution('cut_section', firstCutArgs);
+    const afterFirstCut = ledger(timelineExecution, firstResolver, firstCut);
+
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: afterFirstCut,
+      projectId: PROJECT_ID,
+      projectRevision: 'revision-2',
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: { name: 'get_timeline_view' },
+    });
+
+    const refreshedTimeline = execution('get_timeline_view', {
+      granularity: 'detailed',
+    }, {
+      evidenceReceipts: [receipt(
+        'timeline-state',
+        'get_timeline_view',
+        undefined,
+        'revision-2',
+      )],
+    });
+
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, firstResolver, firstCut, refreshedTimeline),
+      projectId: PROJECT_ID,
+      projectRevision: 'revision-2',
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: {
+        name: 'resolve_transcript_edit',
+        args: { query: 'second phrase', action: 'cut_phrase' },
+      },
+    });
+  });
+
   it('re-reads the current timeline instead of replaying stale resolver authorization', () => {
     const owner = license(routingFacts(
       [{ modality: 'transcript', operation: 'remove', query: 'pricing is simple' }],
