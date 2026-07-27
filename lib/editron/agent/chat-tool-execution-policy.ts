@@ -198,15 +198,37 @@ export function decideChatToolExecution(input: {
   const sameToolExecutions = input.ledger.completedExecutions.filter(
     (execution) => execution.name === input.toolName,
   );
-  const completedOwnerExecutions = sameToolExecutions.filter(isCompletedOwnerExecution);
+  const cardinalityOwnerExecutions = sameToolExecutions.filter(
+    isCardinalityConsumingOwnerExecution,
+  );
   const targetKey = policy.cardinality === 'once-per-target'
     ? resolveExecutionTargetKey(policy, input.args)
     : null;
   const scopedExecutions = targetKey === null
-    ? completedOwnerExecutions
-    : completedOwnerExecutions.filter(
+    ? cardinalityOwnerExecutions
+    : cardinalityOwnerExecutions.filter(
       (execution) => resolveExecutionTargetKey(policy, execution.args) === targetKey,
     );
+  const sameTargetExecutions = targetKey === null
+    ? sameToolExecutions
+    : sameToolExecutions.filter(
+      (execution) => resolveExecutionTargetKey(policy, execution.args) === targetKey,
+    );
+  const identicalNoOpExecution = [...sameTargetExecutions].reverse().find(
+    (execution) =>
+      execution.outcome === 'no-op'
+      && stableStringify(execution.args) === stableStringify(input.args),
+  );
+  if (
+    identicalNoOpExecution
+    && !hasSuccessfulMutationAfter(input.ledger.completedExecutions, identicalNoOpExecution)
+  ) {
+    return {
+      action: 'replay',
+      output: identicalNoOpExecution.output,
+      reason: 'identical-call',
+    };
+  }
   const identicalExecution = scopedExecutions.find(
     (execution) => stableStringify(execution.args) === stableStringify(input.args),
   );
@@ -237,12 +259,12 @@ export function decideChatToolExecution(input: {
   });
   if (localizedMutationDecision) return localizedMutationDecision;
 
-  if (policy.cardinality === 'once-per-turn' && completedOwnerExecutions.length >= 1) {
+  if (policy.cardinality === 'once-per-turn' && cardinalityOwnerExecutions.length >= 1) {
     return blockedDecision({
       reason: 'turn-limit',
       code: 'CHAT_TOOL_TURN_LIMIT',
       toolName: input.toolName,
-      message: `${input.toolName} already completed ${completedOwnerExecutions.length} time(s) in this turn.`,
+      message: `${input.toolName} already completed ${cardinalityOwnerExecutions.length} time(s) in this turn.`,
       nextAction: 'Stop repeating this tool and explain the completed result.',
     });
   }
@@ -666,12 +688,28 @@ function isCompletedOwnerExecution(execution: CompletedChatToolExecution): boole
   return isCompletedOwnerOutcome(execution.outcome);
 }
 
+function isCardinalityConsumingOwnerExecution(execution: CompletedChatToolExecution): boolean {
+  return execution.outcome !== 'no-op' && isCompletedOwnerExecution(execution);
+}
+
 function isCompletedOwnerOutcome(outcome: ChatToolExecutionOutcome): boolean {
   return outcome === 'success'
     || outcome === 'advisory'
     || outcome === 'no-op'
     || outcome === 'declined'
     || outcome === 'needs-choice';
+}
+
+function hasSuccessfulMutationAfter(
+  executions: CompletedChatToolExecution[],
+  target: CompletedChatToolExecution,
+): boolean {
+  const targetIndex = executions.indexOf(target);
+  if (targetIndex < 0) return false;
+  return executions.slice(targetIndex + 1).some((execution) =>
+    execution.outcome === 'success'
+    && getChatToolMetadata(execution.name)?.mutatesProject === true,
+  );
 }
 
 function resolveExecutionTargetKey(

@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 
 import { requiredToolSequenceForChatCapability } from '@/lib/editron/agent/chat-command-authority';
+import {
+  classifyChatToolExecutionOutcome,
+} from '@/lib/editron/agent/chat-tool-execution-policy';
 import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
 
 export const CHAT_EDIT_BATTLE_HARNESS_VERSION = 'editron-chat-battle-v1' as const;
@@ -8,6 +11,12 @@ export const CHAT_EDIT_BATTLE_HARNESS_VERSION = 'editron-chat-battle-v1' as cons
 export type ChatBattleRuntimeMode = 'deterministic-fixture' | 'live-provider';
 export type ChatBattleExecutionLane = 'live' | 'deterministic-contract';
 export type ChatBattleMutationExpectation = 'required' | 'forbidden' | 'conditional';
+export type ChatBattleMutationTerminalOutcome =
+  | 'mutated'
+  | 'no-op'
+  | 'needs-input'
+  | 'declined'
+  | 'failed';
 export type ChatBattleStatus = 'pass' | 'warn' | 'fail';
 export type ChatBattleProjectMode = 'auto' | 'assist';
 export type ChatBattleResolverOutcome =
@@ -283,7 +292,7 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('multiasset-script-intake', 'Multi-asset script with editorial constraints', 'Rebuild this edit from all relevant uploaded footage. Script: Open on the models wearing black and gold garments. Then show the garment-making process: fabric assembly, pattern sketching, and embroidery. End on the strongest finished-garment reveal. Preserve factual order, skip unrelated footage, keep natural audio understandable, and do not add decorative motion graphics.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['auto_edit_from_script'], requireRenderedEvidence: false }),
   scenario('multiasset-script-chat', 'Multi-asset script through chat', 'Use all relevant uploaded footage and reorder it around this script. Script: Begin with the black-and-gold fashion reveal. Move through hands assembling fabric, drawing the design, and embroidering the garment. Finish with the clearest model or finished-garment shot. Preserve factual order and skip footage that does not support the script.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['auto_edit_from_script'], requireRenderedEvidence: false }),
   scenario('vague-enhance', 'Vague enhancement request', 'Enhance this video so it feels professionally edited.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], minimumSuccessfulMutations: 1, forbiddenTools: ['add_transition', 'add_motion_graphic', 'auto_motion_graphics'] }),
-  scenario('vague-transitions', 'Content-owned transitions', 'Add transitions where they genuinely help the edit.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['add_transition'] }),
+  scenario('vague-transitions', 'Content-owned transitions', 'Add transitions where they genuinely help the edit.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['add_transition'] }),
   scenario('vague-motion-graphics', 'Signal-owned motion graphics', 'Add motion graphics only where the idea is visually explainable.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['auto_motion_graphics', 'add_motion_graphic'] }),
   scenario('motivated-zoom', 'Motivated zoom', 'Use a subtle zoom on the strongest spoken emphasis, if the shot supports it.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: requiredToolSequenceForChatCapability('localized-camera-motion', 'set_keyframes'), forbiddenTools: ['apply_editorial_intent'] }),
   scenario('vague-sfx-beat', 'SFX on a grounded beat', 'Add a subtle impact on the strongest visual or spoken beat.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: requiredToolSequenceForChatCapability('localized-sfx', 'add_sfx'), forbiddenTools: ['apply_editorial_intent'] }),
@@ -526,12 +535,16 @@ export function evaluateChatEditBattleJourney(input: {
 
   const events = input.invocation.toolEvents;
   const completedEvents = events.filter((event) => Boolean(event.completedAt));
-  const successfulMutations = completedEvents.filter(
-    (event) => isMutatingTool(event.name) && isSuccessfulMutationEvent(event, input.invocation),
-  );
-  const failedMutations = completedEvents.filter(
-    (event) => isMutatingTool(event.name) && isFailedMutationEvent(event, input.invocation),
-  );
+  const mutationTerminals = completedEvents.flatMap((event) => {
+    const outcome = classifyChatBattleMutationTerminalOutcome(event, input.invocation);
+    return outcome ? [{ event, outcome }] : [];
+  });
+  const successfulMutations = mutationTerminals
+    .filter((terminal) => terminal.outcome === 'mutated')
+    .map((terminal) => terminal.event);
+  const failedMutations = mutationTerminals
+    .filter((terminal) => terminal.outcome === 'failed')
+    .map((terminal) => terminal.event);
   const stateChanged = input.mongoBefore.digest !== input.mongoAfter.digest;
   const groundedClarification = findAcceptedResolverOutcome(
     completedEvents,
@@ -625,7 +638,7 @@ export function evaluateChatEditBattleJourney(input: {
   }
 
   const firstMutationIndex = events.findIndex(
-    (event) => isMutatingTool(event.name) && isSuccessfulToolOutput(event.output),
+    (event) => classifyChatBattleMutationTerminalOutcome(event, input.invocation) === 'mutated',
   );
   const priorEvidenceReads = firstMutationIndex > 0
     ? events.slice(0, firstMutationIndex).filter((event) => !isMutatingTool(event.name) && isSuccessfulToolOutput(event.output))
@@ -652,10 +665,9 @@ export function evaluateChatEditBattleJourney(input: {
     },
   ));
 
-  const mutationStatus = mutationCheckStatus(
+  const mutationStatus = evaluateChatBattleMutationTruth(
     input.scenario,
-    successfulMutations.length,
-    failedMutations.length,
+    mutationTerminals.map((terminal) => terminal.outcome),
     stateChanged,
     acceptedGroundedClarification,
   );
@@ -668,6 +680,10 @@ export function evaluateChatEditBattleJourney(input: {
       expectation: input.scenario.mutationExpectation,
       successfulMutations: successfulMutations.map((event) => event.name),
       failedMutations: failedMutations.map((event) => event.name),
+      terminalOutcomes: mutationTerminals.map((terminal) => ({
+        toolName: terminal.event.name,
+        outcome: terminal.outcome,
+      })),
       durableOperations: input.invocation.durableOperations ?? [],
       stateChanged,
       beforeDigest: input.mongoBefore.digest,
@@ -1182,29 +1198,39 @@ function resolverOnlySequence(
   return prefix;
 }
 
-function mutationCheckStatus(
+export function evaluateChatBattleMutationTruth(
   scenarioDefinition: ChatBattleScenario,
-  successfulMutationCount: number,
-  failedMutationCount: number,
+  terminalOutcomes: readonly ChatBattleMutationTerminalOutcome[],
   stateChanged: boolean,
   acceptedGroundedClarification: boolean,
 ): ChatBattleStatus {
+  const mutatedCount = terminalOutcomes.filter((outcome) => outcome === 'mutated').length;
+  const noOpCount = terminalOutcomes.filter((outcome) => outcome === 'no-op').length;
+  const failedCount = terminalOutcomes.filter((outcome) => outcome === 'failed').length;
+  const acceptedConditionalCount = terminalOutcomes.filter(
+    (outcome) => outcome === 'no-op' || outcome === 'needs-input' || outcome === 'declined',
+  ).length;
   if (scenarioDefinition.mutationExpectation === 'forbidden') {
-    return successfulMutationCount === 0 && !stateChanged ? 'pass' : 'fail';
+    return terminalOutcomes.length === 0 && !stateChanged ? 'pass' : 'fail';
   }
+  if (failedCount > 0) return 'fail';
   if (
     scenarioDefinition.mutationExpectation === 'conditional'
     && acceptedGroundedClarification
-    && successfulMutationCount === 0
-    && failedMutationCount === 0
+    && terminalOutcomes.length === 0
     && !stateChanged
   ) {
     return 'pass';
   }
-  if (scenarioDefinition.mutationExpectation === 'conditional' && failedMutationCount > 0) {
-    return stateChanged ? 'fail' : 'pass';
+  if (scenarioDefinition.mutationExpectation === 'conditional') {
+    if (mutatedCount > 0) return stateChanged ? 'pass' : 'fail';
+    return acceptedConditionalCount > 0 && !stateChanged ? 'pass' : 'fail';
   }
-  return successfulMutationCount >= scenarioDefinition.minimumSuccessfulMutations && stateChanged ? 'pass' : 'fail';
+  const satisfiedCount = mutatedCount + noOpCount;
+  const stateMatchesOutcome = mutatedCount > 0 ? stateChanged : !stateChanged;
+  return satisfiedCount >= scenarioDefinition.minimumSuccessfulMutations && stateMatchesOutcome
+    ? 'pass'
+    : 'fail';
 }
 
 function findAcceptedResolverOutcome(
@@ -1236,27 +1262,29 @@ export function chatBattleInvocationHasSuccessfulMutation(
 ): boolean {
   return invocation.toolEvents.some((event) =>
     Boolean(event.completedAt)
-    && isMutatingTool(event.name)
-    && isSuccessfulMutationEvent(event, invocation),
+    && classifyChatBattleMutationTerminalOutcome(event, invocation) === 'mutated',
   );
 }
 
-function isSuccessfulMutationEvent(
+export function classifyChatBattleMutationTerminalOutcome(
   event: ChatBattleToolEvent,
   invocation: ChatBattleInvocationEvidence,
-): boolean {
-  if (!isSuccessfulToolOutput(event.output)) return false;
-  const durable = durableOperationForEvent(event, invocation.durableOperations ?? []);
-  return durable ? durable.materialChange : true;
-}
+): ChatBattleMutationTerminalOutcome | null {
+  if (!isMutatingTool(event.name)) return null;
+  const output = typeof event.output === 'string'
+    ? event.output
+    : JSON.stringify(event.output ?? null);
+  const executionOutcome = classifyChatToolExecutionOutcome(output);
+  if (executionOutcome === 'no-op') return 'no-op';
+  if (executionOutcome === 'needs-choice') return 'needs-input';
+  if (executionOutcome === 'declined') return 'declined';
+  if (executionOutcome !== 'success') return 'failed';
 
-function isFailedMutationEvent(
-  event: ChatBattleToolEvent,
-  invocation: ChatBattleInvocationEvidence,
-): boolean {
-  if (!isSuccessfulToolOutput(event.output)) return true;
   const durable = durableOperationForEvent(event, invocation.durableOperations ?? []);
-  return durable ? !durable.materialChange : false;
+  if (!durable) return 'mutated';
+  if (durable.status === 'declined') return 'declined';
+  if (durable.status === 'completed' && !durable.materialChange) return 'no-op';
+  return durable.materialChange ? 'mutated' : 'failed';
 }
 
 function durableOperationForEvent(
@@ -1285,8 +1313,19 @@ function isSuccessfulToolOutput(output: unknown): boolean {
 
 function hasDeterministicToolEnvelope(output: unknown): boolean {
   const parsed = parseToolOutput(output);
+  const status = String(parsed?.status ?? '').toLowerCase().replaceAll('_', '-');
   return parsed != null
-    && (parsed.status === 'success' || parsed.status === 'advisory' || parsed.status === 'error')
+    && [
+      'success',
+      'advisory',
+      'error',
+      'no-op',
+      'noop',
+      'skipped',
+      'declined',
+      'needs-choice',
+      'replan-required',
+    ].includes(status)
     && Object.prototype.hasOwnProperty.call(parsed, 'data')
     && Object.prototype.hasOwnProperty.call(parsed, 'error')
     && Object.prototype.hasOwnProperty.call(parsed, 'nextAction');
