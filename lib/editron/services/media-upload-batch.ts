@@ -1,8 +1,23 @@
+import {
+  normalizeEditorialPreferences,
+  type EditorialPreferences,
+} from '@/lib/editron/production-brief/editorial-preferences';
+
 export const MEDIA_UPLOAD_BATCHES_COLLECTION = 'mediaUploadBatches';
 
 export type MediaUploadBatchAssetType = 'video' | 'image' | 'audio';
 export type MediaUploadAssetReadiness = 'uploaded' | 'queued' | 'analyzing' | 'ready' | 'failed' | 'skipped';
 export type MediaUploadBatchReadiness = 'empty' | 'uploaded' | 'analyzing' | 'ready' | 'needs_attention';
+export type SemanticVisualReadiness = 'not-required' | 'ready' | 'pending' | 'retryable' | 'failed';
+
+export const DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT = 2;
+
+export interface MediaUploadAnalysisRequirements {
+  semanticVisual?: {
+    version: number;
+    maxRetries?: number;
+  };
+}
 
 export interface MediaUploadBatchAssetManifestInput {
   assetId: string;
@@ -14,6 +29,20 @@ export interface MediaUploadBatchAssetManifestInput {
   thumbnail?: string;
 }
 
+export interface MediaUploadBatchIntake {
+  aspectRatio?: string;
+  platform?: string;
+  userIntent?: string;
+  script?: string;
+  captionStyle?: string;
+  transitionPreference?: string;
+  zoomBehavior?: string;
+  motionGraphics?: string;
+  pacingFeel?: string;
+  musicPreference?: string;
+  editorialPreferences?: EditorialPreferences;
+}
+
 export interface MediaUploadBatchAssetStatusInput extends MediaUploadBatchAssetManifestInput {
   analysisStatus?: string | null;
   analysisError?: string | null;
@@ -22,10 +51,20 @@ export interface MediaUploadBatchAssetStatusInput extends MediaUploadBatchAssetM
   analysisStartedAt?: Date | string | null;
   analysisCompletedAt?: Date | string | null;
   uploadedAt?: Date | string | null;
+  deepAnalysisStatus?: string | null;
+  deepAnalysisVersion?: number | null;
+  deepAnalysisTargetVersion?: number | null;
+  deepAnalysisRetryVersion?: number | null;
+  deepAnalysisRetryCount?: number | null;
+  deepAnalysisDiagnostics?: {
+    semanticVisualWindowCount?: number | null;
+    providers?: { semanticVisual?: string | null } | null;
+  } | null;
 }
 
 export interface MediaUploadBatchAssetStatus extends MediaUploadBatchAssetStatusInput {
   readiness: MediaUploadAssetReadiness;
+  semanticVisualReadiness: SemanticVisualReadiness;
   blockingReason: string | null;
   needsAttention: boolean;
 }
@@ -59,12 +98,45 @@ export function encodeUploadBatchAssetKey(assetId: string): string {
   return Buffer.from(trimmed, 'utf8').toString('base64url');
 }
 
+const INTAKE_TEXT_LIMITS: Record<Exclude<keyof MediaUploadBatchIntake, 'editorialPreferences'>, number> = {
+  aspectRatio: 64,
+  platform: 64,
+  userIntent: 4000,
+  script: 12000,
+  captionStyle: 128,
+  transitionPreference: 128,
+  zoomBehavior: 128,
+  motionGraphics: 128,
+  pacingFeel: 128,
+  musicPreference: 512,
+};
+
+export function normalizeMediaUploadBatchIntake(raw: unknown): MediaUploadBatchIntake | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+
+  const source = raw as Partial<Record<keyof MediaUploadBatchIntake, unknown>>;
+  const normalized: MediaUploadBatchIntake = {};
+  for (const [key, limit] of Object.entries(INTAKE_TEXT_LIMITS) as Array<[Exclude<keyof MediaUploadBatchIntake, 'editorialPreferences'>, number]>) {
+    const value = source[key];
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    normalized[key] = trimmed.slice(0, limit);
+  }
+
+  const editorialPreferences = normalizeEditorialPreferences(source.editorialPreferences);
+  if (editorialPreferences) normalized.editorialPreferences = editorialPreferences;
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
 export function buildMediaUploadBatchAssetUpsert(
   params: {
     uploadBatchId: string;
     userId: string;
     orgId?: string | null;
     projectId?: string | null;
+    intake?: unknown;
     asset: MediaUploadBatchAssetManifestInput;
   },
   now: Date,
@@ -106,6 +178,9 @@ export function buildMediaUploadBatchAssetUpsert(
   if (params.orgId) set.orgId = params.orgId;
   if (params.projectId) set.projectId = params.projectId;
 
+  const intake = normalizeMediaUploadBatchIntake(params.intake);
+  if (intake) set.productionBriefIntake = intake;
+
   return {
     filter: { uploadBatchId, userId },
     update: {
@@ -130,15 +205,65 @@ export async function persistMediaUploadBatchAsset(
   );
 }
 
-export function resolveMediaUploadAssetReadiness(asset: MediaUploadBatchAssetStatusInput): MediaUploadBatchAssetStatus {
+function semanticVisualReadiness(
+  asset: MediaUploadBatchAssetStatusInput,
+  requirements?: MediaUploadAnalysisRequirements,
+): SemanticVisualReadiness {
+  const requirement = requirements?.semanticVisual;
+  if (!requirement || asset.type !== 'video') return 'not-required';
+
+  const requiredVersion = Math.max(1, Math.round(requirement.version));
+  const retryLimit = Math.max(
+    0,
+    Math.round(requirement.maxRetries ?? DEFAULT_SEMANTIC_VISUAL_RETRY_LIMIT),
+  );
+  const deepStatus = asset.deepAnalysisStatus ?? null;
+  const semanticWindowCount = Math.max(
+    0,
+    Math.round(asset.deepAnalysisDiagnostics?.semanticVisualWindowCount ?? 0),
+  );
+  const semanticProvider = asset.deepAnalysisDiagnostics?.providers?.semanticVisual ?? null;
+
+  if (deepStatus === 'queued' || deepStatus === 'analyzing') return 'pending';
+  if (
+    asset.deepAnalysisVersion === requiredVersion
+    && semanticProvider === 'complete'
+    && semanticWindowCount > 0
+  ) {
+    return 'ready';
+  }
+
+  const retriesUsed = asset.deepAnalysisRetryVersion === requiredVersion
+    ? Math.max(0, Math.round(asset.deepAnalysisRetryCount ?? 0))
+    : 0;
+  return retriesUsed < retryLimit ? 'retryable' : 'failed';
+}
+
+export function resolveMediaUploadAssetReadiness(
+  asset: MediaUploadBatchAssetStatusInput,
+  requirements?: MediaUploadAnalysisRequirements,
+): MediaUploadBatchAssetStatus {
   const analysisStatus = asset.analysisStatus ?? null;
+  const semanticReadiness = semanticVisualReadiness(asset, requirements);
   let readiness: MediaUploadAssetReadiness = 'uploaded';
   let blockingReason: string | null = 'analysis_not_started';
   let needsAttention = false;
 
   if (analysisStatus === 'complete') {
-    readiness = 'ready';
-    blockingReason = null;
+    if (semanticReadiness === 'pending') {
+      readiness = asset.deepAnalysisStatus === 'analyzing' ? 'analyzing' : 'queued';
+      blockingReason = 'semantic_visual_analysis_running';
+    } else if (semanticReadiness === 'retryable') {
+      readiness = 'queued';
+      blockingReason = 'semantic_visual_analysis_required';
+    } else if (semanticReadiness === 'failed') {
+      readiness = 'failed';
+      blockingReason = 'semantic_visual_analysis_unavailable';
+      needsAttention = true;
+    } else {
+      readiness = 'ready';
+      blockingReason = null;
+    }
   } else if (analysisStatus === 'queued') {
     readiness = 'queued';
     blockingReason = 'analysis_queued';
@@ -155,11 +280,20 @@ export function resolveMediaUploadAssetReadiness(asset: MediaUploadBatchAssetSta
     needsAttention = true;
   }
 
-  return { ...asset, readiness, blockingReason, needsAttention };
+  return {
+    ...asset,
+    readiness,
+    semanticVisualReadiness: semanticReadiness,
+    blockingReason,
+    needsAttention,
+  };
 }
 
-export function buildMediaUploadBatchSummary(assets: MediaUploadBatchAssetStatusInput[]): MediaUploadBatchSummary {
-  const resolvedAssets = assets.map(resolveMediaUploadAssetReadiness);
+export function buildMediaUploadBatchSummary(
+  assets: MediaUploadBatchAssetStatusInput[],
+  requirements?: MediaUploadAnalysisRequirements,
+): MediaUploadBatchSummary {
+  const resolvedAssets = assets.map((asset) => resolveMediaUploadAssetReadiness(asset, requirements));
   const counts: MediaUploadBatchSummary['counts'] = {
     total: resolvedAssets.length,
     uploaded: 0,

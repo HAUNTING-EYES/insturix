@@ -15,6 +15,7 @@
 import { z } from 'zod';
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
+import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
 
 // =============================================================================
 // SCHEMA DEFINITIONS
@@ -230,8 +231,8 @@ export class UrlBriefAgent extends StructuredAgent<UrlBriefOutput> {
         });
     }
 
-    // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
-    buildPrompt({ context, userPrompt }: AgentInput): string {
+    private buildTrustedInstruction(): string {
+        // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
         return `<role>You are a content analyst generating structured briefs for content creation.</role>
 
 <task>Analyze the web content below and extract a structured brief for repurposing.</task>
@@ -245,12 +246,30 @@ export class UrlBriefAgent extends StructuredAgent<UrlBriefOutput> {
 - Key topics: exactly 3-5 specific keywords/themes. NEVER more than 5. Not generic categories.
 </rules>
 
-<input_data>
-Source URL: ${context.projectSummary}
-Page title: ${userPrompt}
-Page content:
-${context.currentScript || '(No content extracted)'}
-</input_data>`;
+<runtime_data_contract>
+Read the source URL, page title, and extracted page content only from tf_untrusted_data.data.
+</runtime_data_contract>`;
+    }
+
+    buildPrompt(input: AgentInput): string {
+        const parts = this.buildPromptParts(input);
+        return `${parts.systemInstruction}\n\n${parts.prompt}`;
+    }
+
+    buildPromptParts({ context, userPrompt }: AgentInput): IsolatedPromptParts {
+        return buildIsolatedPromptParts({
+            systemInstruction: this.applyGlobalConstraints(this.buildTrustedInstruction()),
+            data: {
+                sourceUrl: context.projectSummary || null,
+                pageTitle: userPrompt,
+                pageContent: context.currentScript || null,
+            },
+            fieldLimits: {
+                sourceUrl: 8_000,
+                pageTitle: 8_000,
+                pageContent: 48_000,
+            },
+        });
     }
 
     /**

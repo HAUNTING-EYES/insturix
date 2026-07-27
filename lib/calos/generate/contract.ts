@@ -22,6 +22,10 @@ export interface GenerateResult {
    *  produced a draft/brief (e.g. graphics: copy + image prompt, image still pending) returns
    *  'drafting' so we don't claim a finished asset. */
   status?: "generated" | "drafting";
+  /** Image-generation prompt the writer emitted for a graphics format (PostWriter's
+   *  clickatron.singleImagePrompt). Carried so the dispatcher can kick off Clickatron image
+   *  generation for the card; absent for text/video formats. */
+  imagePrompt?: string;
   error?: string;
 }
 

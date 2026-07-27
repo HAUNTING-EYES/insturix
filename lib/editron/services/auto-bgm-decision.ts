@@ -1,8 +1,11 @@
 import { getDatabase } from '@/lib/editron/db/mongodb';
+import type { MusicGenerationPolicy } from '@/lib/pipeline/bgm-conditioning-contract';
 import type { AudioDispatchResult } from './audio-worker-dispatch';
+import type { EditorialDecisionPolicy } from './editorial-decision-policy';
 
 export type AutoBgmDecisionStatus =
   | 'missing-recommendation'
+  | 'user-disabled'
   | 'not-recommended'
   | 'storyboard-owned'
   | 'provider-unavailable'
@@ -26,6 +29,7 @@ export interface AutoBgmDecisionEvidence {
   version: 'auto-bgm-decision-v1';
   status: AutoBgmDecisionStatus;
   shouldAddBgm: boolean | null;
+  signalShouldAddBgm: boolean | null;
   reason: string;
   recommendationReason?: string;
   params?: AutoBgmRecommendationInput['params'];
@@ -38,6 +42,8 @@ export interface AutoBgmDecisionEvidence {
   pacing?: string;
   musicPrompt?: string;
   dispatch?: AudioDispatchResult;
+  editorialPolicy?: EditorialDecisionPolicy;
+  musicGenerationPolicy?: MusicGenerationPolicy;
   error?: string;
   evaluatedAt: string;
 }
@@ -53,11 +59,17 @@ export function buildAutoBgmDecisionEvidence(input: {
   pacing?: string;
   musicPrompt?: string;
   dispatchResult?: AudioDispatchResult | null;
+  editorialPolicy?: EditorialDecisionPolicy;
+  musicGenerationPolicy?: MusicGenerationPolicy;
   error?: unknown;
   evaluatedAt?: string | Date;
 }): AutoBgmDecisionEvidence {
   const recommendation = input.recommendation ?? null;
-  const shouldAddBgm = typeof recommendation?.shouldAddBgm === 'boolean' ? recommendation.shouldAddBgm : null;
+  const signalShouldAddBgm = typeof recommendation?.shouldAddBgm === 'boolean' ? recommendation.shouldAddBgm : null;
+  const generationBlocked = input.musicGenerationPolicy?.allowed === false;
+  const editorialBlocked = input.editorialPolicy?.executionAllowed === false;
+  const userBlocked = generationBlocked || editorialBlocked;
+  const shouldAddBgm = userBlocked ? false : signalShouldAddBgm;
   const storyboardOwned = input.isStoryboardProject === true;
   const durationSec = finitePositiveNumber(input.durationSec);
   const dispatchError = errorMessage(input.error) ?? input.dispatchResult?.error;
@@ -68,7 +80,12 @@ export function buildAutoBgmDecisionEvidence(input: {
   let status: AutoBgmDecisionStatus;
   let reason: string;
 
-  if (!recommendation) {
+  if (userBlocked) {
+    status = 'user-disabled';
+    reason = input.musicGenerationPolicy?.reason
+      ?? input.editorialPolicy?.reason
+      ?? 'user-policy-off:music';
+  } else if (!recommendation) {
     status = 'missing-recommendation';
     reason = 'No BGM recommendation was available from signal-computed genre parameters.';
   } else if (shouldAddBgm === false) {
@@ -98,6 +115,7 @@ export function buildAutoBgmDecisionEvidence(input: {
     version: 'auto-bgm-decision-v1',
     status,
     shouldAddBgm,
+    signalShouldAddBgm,
     reason,
     ...(recommendation?.reason ? { recommendationReason: recommendation.reason } : {}),
     ...(recommendation?.params ? { params: recommendation.params } : {}),
@@ -110,6 +128,8 @@ export function buildAutoBgmDecisionEvidence(input: {
     ...(input.pacing ? { pacing: input.pacing } : {}),
     ...(input.musicPrompt ? { musicPrompt: input.musicPrompt.slice(0, 500) } : {}),
     ...(input.dispatchResult ? { dispatch: input.dispatchResult } : {}),
+    ...(input.editorialPolicy ? { editorialPolicy: input.editorialPolicy } : {}),
+    ...(input.musicGenerationPolicy ? { musicGenerationPolicy: input.musicGenerationPolicy } : {}),
     ...(dispatchError ? { error: dispatchError } : {}),
     evaluatedAt,
   };

@@ -4,12 +4,14 @@ import {
   assessVjepaReliability,
   auditVjepaCoverage,
   resolveVjepaScreenContextPolicy,
+  summarizeVideoTimelineDurationMs,
   type VjepaCoverageAudit,
   type VjepaCoverageSegment,
 } from './vjepa-coverage-audit';
 import type { PersistedQualityReviewIssue } from './quality-review-persistence';
 import type { Phase0RenderArtifactPack } from './phase0-render-artifact-pack';
 import { summarizeFinalOverlayChoreographyBypasses } from './cross-overlay-final-overlays';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 
 export const PHASE0_FIXTURE_VERSION = 'editron-phase0-fixture-v1' as const;
 
@@ -80,6 +82,10 @@ export interface Phase0RenderedAestheticReportLike {
   summary?: {
     status?: Phase0RenderedAestheticStatus;
     score?: number;
+    absoluteQualityStatus?: Phase0RenderedAestheticStatus;
+    absoluteQualityScore?: number;
+    mutationStatus?: 'not-required' | 'pass' | 'fail';
+    mutationChangedFrameCount?: number;
     passFrames?: number;
     warnFrames?: number;
     failFrames?: number;
@@ -369,7 +375,7 @@ export function buildPhase0RenderedQualityEvidencePayload(
 }
 
 function summarizeCutContinuity(overlays: Phase0OverlayLike[], durationFrames: number) {
-  const clips = videoClips(overlays);
+  const clips = primaryVisualClips(overlays);
   const transitions = transitionOverlays(overlays);
   const gaps: Array<{ afterClipId: string; beforeClipId: string; startFrame: number; endFrame: number; durationFrames: number }> = [];
   const overlaps: Array<{
@@ -1243,9 +1249,13 @@ function summarizeVjepaCoverage(project: Phase0FixtureProject, overlays: Phase0O
     };
   }
 
+  const rawFootageRecord = isRecord(project.rawFootageAnalysis) ? project.rawFootageAnalysis : null;
   const audit = auditVjepaCoverage({
     fps,
     originalDurationMs: readNullableNumber(project.rawFootageAnalysis?.originalDurationMs) ?? undefined,
+    eligibleDurationMs: isRecord(rawFootageRecord?.multiAssetProvenance)
+      ? summarizeVideoTimelineDurationMs(overlays, fps)
+      : undefined,
     cleanDurationMs: readNullableNumber(project.rawFootageAnalysis?.estimatedCleanDurationMs) ?? undefined,
     vjepaSegments: segments,
     rawFootageSegments: project.vjepaAnalysis?.rawFootageSegments,
@@ -1570,6 +1580,12 @@ function resolveDurationFrames(project: Phase0FixtureProject, overlays: Phase0Ov
 function videoClips(overlays: Phase0OverlayLike[]) {
   return overlays
     .filter((overlay) => overlay.type === 'video')
+    .sort((a, b) => readFrame(a.from) - readFrame(b.from));
+}
+
+function primaryVisualClips(overlays: Phase0OverlayLike[]) {
+  return overlays
+    .filter((overlay) => overlay.type === 'video' || (overlay.type === 'image' && overlay.row === ROW.VIDEO))
     .sort((a, b) => readFrame(a.from) - readFrame(b.from));
 }
 

@@ -37,6 +37,7 @@ export type VjepaFaceEmotion =
   | 'fearful' | 'disgusted' | 'neutral' | 'contempt';
 
 export interface VjepaPrimitiveBox {
+  /** Normalized top-left coordinates in edited/source frame space. */
   x: number;
   y: number;
   width: number;
@@ -154,7 +155,12 @@ const VALID_FACE_EMOTIONS: Set<string> = new Set([
   'fearful', 'disgusted', 'neutral', 'contempt',
 ]);
 
-const REQUEST_TIMEOUT_MS = readPositiveIntEnv('MODAL_VJEPA_REQUEST_TIMEOUT_MS', 90_000);
+// Modal allows a request to run for 600s and V-JEPA encodes each segment sequentially. The old 90s client
+// timeout aborted healthy short-video batches (live proof: one 5s/64-frame segment takes ~15s on a warm A10G),
+// then retried while the abandoned Modal work could still be consuming GPU time. Keep a separate 300s request
+// ceiling so a normal batch can finish while the 600s total deadline still reserves time for partial salvage.
+// Tunable through env as before; the default must be calibrated further from production latency receipts.
+const REQUEST_TIMEOUT_MS = readPositiveIntEnv('MODAL_VJEPA_REQUEST_TIMEOUT_MS', 300_000);
 const BATCH_SIZE = readPositiveIntEnv('MODAL_VJEPA_BATCH_SIZE', 20);
 const RETRY_BATCH_SIZE = readPositiveIntEnv('MODAL_VJEPA_RETRY_BATCH_SIZE', 5);
 const TOTAL_TIMEOUT_MS = readPositiveIntEnv('MODAL_VJEPA_TOTAL_TIMEOUT_MS', 600_000);

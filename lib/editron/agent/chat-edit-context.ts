@@ -1,18 +1,36 @@
 type OverlayId = string | number;
 
+export type ChatEditRangeSource =
+  | 'selected-overlay'
+  | 'explicit-selection'
+  | 'timeline-viewport';
+
+export interface ChatEditClientRange {
+  startFrame?: number;
+  endFrame?: number;
+  source?: ChatEditRangeSource;
+}
+
+export interface ChatEditSpatialCursor {
+  surface: 'preview' | 'timeline';
+  frame?: number;
+  normalizedX?: number;
+  normalizedY?: number;
+  canvasX?: number;
+  canvasY?: number;
+  capturedAtMs: number;
+  source: 'last-editor-pointer';
+}
+
 export interface ChatEditClientContext {
   currentFrame?: number;
   selectedOverlayId?: OverlayId | null;
-  selectedRange?: {
-    startFrame?: number;
-    endFrame?: number;
-  } | null;
-  visibleTimeline?: {
-    startFrame?: number;
-    endFrame?: number;
-  } | null;
+  selectedRange?: ChatEditClientRange | null;
+  visibleTimeline?: ChatEditClientRange | null;
   durationInFrames?: number;
   overlayCount?: number;
+  activePanel?: string | null;
+  spatialCursor?: ChatEditSpatialCursor | null;
   canvas?: {
     width?: number;
     height?: number;
@@ -26,12 +44,43 @@ export interface ChatEditClientContext {
 export interface ChatEditContextOptions {
   clientContext?: ChatEditClientContext | null;
   selectedOverlayId?: OverlayId | null;
+  contextNowMs?: number;
 }
 
 export interface ChatEditRangeSummary {
   startFrame: number;
   endFrame: number;
   durationInFrames: number;
+  source?: ChatEditRangeSource;
+}
+
+export interface ChatEditClientContextInput {
+  currentFrame?: number;
+  selectedOverlayId?: OverlayId | null;
+  selectedOverlay?: {
+    id?: OverlayId;
+    from?: number;
+    durationInFrames?: number;
+  } | null;
+  durationInFrames?: number;
+  overlayCount?: number;
+  activePanel?: string | null;
+  canvas?: ChatEditClientContext['canvas'];
+  playerDimensions?: ChatEditClientContext['playerDimensions'];
+  timelineViewport?: {
+    scrollLeft?: number;
+    viewportWidth?: number;
+    contentWidth?: number;
+    zoomScale?: number;
+  } | null;
+  spatialCursor?: ChatEditSpatialCursor | null;
+  nowMs?: number;
+}
+
+export interface ChatProjectResponseGuardInput {
+  expectedProjectId: string;
+  activeProjectId: string;
+  aborted?: boolean;
 }
 
 export interface ChatEditOverlaySummary {
@@ -67,6 +116,10 @@ export interface ChatEditContextBundle {
   };
   selectedRange?: ChatEditRangeSummary;
   visibleTimeline?: ChatEditRangeSummary;
+  activePanel?: string;
+  spatialCursor?: ChatEditSpatialCursor & {
+    ageMs: number;
+  };
   overlayCountsByType: Record<string, number>;
   overlays: ChatEditOverlaySummary[];
   transcript: {
@@ -97,6 +150,63 @@ export interface ChatEditContextBundle {
 const DEFAULT_FPS = 30;
 const DEFAULT_CANVAS = { width: 1920, height: 1080 };
 const OVERLAY_PROMPT_LIMIT = 18;
+export const CHAT_SPATIAL_CURSOR_MAX_AGE_MS = 30_000;
+
+export function buildChatEditClientContext(
+  input: ChatEditClientContextInput,
+): ChatEditClientContext {
+  const durationInFrames = Math.max(0, integer(input.durationInFrames) ?? 0);
+  const selectedOverlayId = input.selectedOverlayId ?? input.selectedOverlay?.id ?? null;
+  const selectedOverlayMatches = Boolean(
+    input.selectedOverlay
+      && selectedOverlayId != null
+      && String(input.selectedOverlay.id) === String(selectedOverlayId),
+  );
+  const selectedStart = selectedOverlayMatches
+    ? clampFrame(integer(input.selectedOverlay?.from) ?? 0, durationInFrames)
+    : undefined;
+  const selectedDuration = selectedOverlayMatches
+    ? Math.max(0, integer(input.selectedOverlay?.durationInFrames) ?? 0)
+    : 0;
+  const selectedEnd = selectedStart == null
+    ? undefined
+    : clampFrame(selectedStart + selectedDuration, durationInFrames);
+  const selectedRange = selectedStart != null && selectedEnd != null && selectedEnd > selectedStart
+    ? {
+        startFrame: selectedStart,
+        endFrame: selectedEnd,
+        source: 'selected-overlay' as const,
+      }
+    : null;
+  const nowMs = finiteNumber(input.nowMs) ?? Date.now();
+
+  return {
+    currentFrame: clampFrame(integer(input.currentFrame) ?? 0, durationInFrames),
+    selectedOverlayId,
+    selectedRange,
+    visibleTimeline: deriveVisibleTimelineRange(input.timelineViewport, durationInFrames),
+    durationInFrames,
+    overlayCount: Math.max(0, integer(input.overlayCount) ?? 0),
+    activePanel: sanitizeLabel(input.activePanel),
+    spatialCursor: sanitizeSpatialCursor(
+      input.spatialCursor,
+      durationInFrames,
+      input.canvas,
+      nowMs,
+    ),
+    canvas: sanitizeDimensions(input.canvas),
+    playerDimensions: sanitizeDimensions(input.playerDimensions),
+  };
+}
+
+export function canApplyChatProjectResponse(
+  input: ChatProjectResponseGuardInput,
+): boolean {
+  if (input.aborted) return false;
+  const expectedProjectId = input.expectedProjectId.trim();
+  const activeProjectId = input.activeProjectId.trim();
+  return Boolean(expectedProjectId) && expectedProjectId === activeProjectId;
+}
 
 export function buildChatEditContextBundle(
   project: any,
@@ -142,6 +252,13 @@ export function buildChatEditContextBundle(
       : undefined,
     selectedRange: summarizeRange(options.clientContext?.selectedRange, durationInFrames),
     visibleTimeline: summarizeRange(options.clientContext?.visibleTimeline, durationInFrames),
+    activePanel: sanitizeLabel(options.clientContext?.activePanel),
+    spatialCursor: summarizeSpatialCursor(
+      options.clientContext?.spatialCursor,
+      durationInFrames,
+      canvas,
+      finiteNumber(options.contextNowMs) ?? Date.now(),
+    ),
     overlayCountsByType: countByType(overlaySummaries),
     overlays: overlaySummaries.slice(0, OVERLAY_PROMPT_LIMIT),
     transcript: summarizeTranscript(project, overlays),
@@ -168,11 +285,15 @@ export function formatChatEditContextForPrompt(bundle: ChatEditContextBundle): s
     'CHAT EDIT CONTEXT BUNDLE',
     `Project: fps=${bundle.project.fps}, duration=${bundle.project.durationInFrames} frames (${bundle.project.durationSeconds}s), canvas=${bundle.project.canvas.width}x${bundle.project.canvas.height}, overlays=${bundle.project.overlayCount}.`,
     `Playhead: frame=${bundle.playhead.frame}, time=${bundle.playhead.timecode}, activeOverlayIds=${bundle.playhead.activeOverlayIds.join(', ') || 'none'}.`,
+    `Active editor panel: ${bundle.activePanel ?? 'unknown'}.`,
+    bundle.spatialCursor
+      ? `Last editor pointer: surface=${bundle.spatialCursor.surface}, frame=${bundle.spatialCursor.frame ?? 'n/a'}, normalized=(${bundle.spatialCursor.normalizedX ?? 'n/a'}, ${bundle.spatialCursor.normalizedY ?? 'n/a'}), canvas=(${bundle.spatialCursor.canvasX ?? 'n/a'}, ${bundle.spatialCursor.canvasY ?? 'n/a'}), ageMs=${bundle.spatialCursor.ageMs}.`
+      : 'Last editor pointer: unavailable or stale.',
     selected,
     'Reference rule: when the user says "this", "the selected", "this clip", "this scene", "here", or "regenerate this", resolve it to the selected overlay if present; otherwise resolve it from playhead and active overlays. Do not ask for a timeframe when this context is enough.',
     `Overlay counts: ${formatCounts(bundle.overlayCountsByType)}.`,
-    bundle.selectedRange ? `Selected range: frames=${bundle.selectedRange.startFrame}-${bundle.selectedRange.endFrame}, duration=${bundle.selectedRange.durationInFrames}.` : 'Selected range: none.',
-    bundle.visibleTimeline ? `Visible timeline: frames=${bundle.visibleTimeline.startFrame}-${bundle.visibleTimeline.endFrame}, duration=${bundle.visibleTimeline.durationInFrames}.` : 'Visible timeline: unavailable.',
+    bundle.selectedRange ? `Selected range: frames=${bundle.selectedRange.startFrame}-${bundle.selectedRange.endFrame}, duration=${bundle.selectedRange.durationInFrames}, source=${bundle.selectedRange.source ?? 'unspecified'}.` : 'Selected range: none.',
+    bundle.visibleTimeline ? `Visible timeline: frames=${bundle.visibleTimeline.startFrame}-${bundle.visibleTimeline.endFrame}, duration=${bundle.visibleTimeline.durationInFrames}, source=${bundle.visibleTimeline.source ?? 'unspecified'}.` : 'Visible timeline: unavailable.',
     `Transcript: captionOverlays=${bundle.transcript.captionOverlayCount}, captionSegments=${bundle.transcript.captionSegmentCount}, captionWords=${bundle.transcript.captionWordCount}, rawSegments=${bundle.transcript.rawSegmentCount}, rawWords=${bundle.transcript.rawWordCount}, hasWordTimestamps=${bundle.transcript.hasWordTimestamps}.`,
     `Audio: soundOverlays=${bundle.audio.soundOverlayCount}, nativeAudioVideoOverlays=${bundle.audio.nativeAudioVideoCount}.`,
     `Media refs: ${bundle.mediaRefs.length ? bundle.mediaRefs.map((ref) => `${ref.assetId}(${ref.types.join('+')}: overlays ${ref.overlayIds.join(',')})`).join('; ') : 'none from timeline overlays'}.`,
@@ -254,7 +375,87 @@ function summarizeRange(rangeValue: ChatEditClientContext['selectedRange'], dura
   const startFrame = clampFrame(integer(rangeValue.startFrame) ?? 0, durationInFrames);
   const endFrame = clampFrame(integer(rangeValue.endFrame) ?? startFrame, durationInFrames);
   if (endFrame <= startFrame) return undefined;
-  return { startFrame, endFrame, durationInFrames: endFrame - startFrame };
+  const source = sanitizeRangeSource(rangeValue.source);
+  return {
+    startFrame,
+    endFrame,
+    durationInFrames: endFrame - startFrame,
+    ...(source ? { source } : {}),
+  };
+}
+
+function deriveVisibleTimelineRange(
+  viewport: ChatEditClientContextInput['timelineViewport'],
+  durationInFrames: number,
+): ChatEditClientRange | null {
+  if (!viewport || durationInFrames <= 0) return null;
+  const viewportWidth = positiveNumber(viewport.viewportWidth);
+  if (!viewportWidth) return null;
+  const zoomScale = positiveNumber(viewport.zoomScale) ?? 1;
+  const contentWidth = Math.max(
+    positiveNumber(viewport.contentWidth) ?? 0,
+    viewportWidth * zoomScale,
+    viewportWidth,
+  );
+  const maxScrollLeft = Math.max(0, contentWidth - viewportWidth);
+  const scrollLeft = Math.min(
+    Math.max(0, finiteNumber(viewport.scrollLeft) ?? 0),
+    maxScrollLeft,
+  );
+  const startFrame = clampFrame(
+    Math.floor((scrollLeft / contentWidth) * durationInFrames),
+    durationInFrames,
+  );
+  const endFrame = clampFrame(
+    Math.ceil(((scrollLeft + viewportWidth) / contentWidth) * durationInFrames),
+    durationInFrames,
+  );
+  if (endFrame <= startFrame) return null;
+  return { startFrame, endFrame, source: 'timeline-viewport' };
+}
+
+function summarizeSpatialCursor(
+  cursor: ChatEditSpatialCursor | null | undefined,
+  durationInFrames: number,
+  canvas: ChatEditClientContext['canvas'],
+  nowMs: number,
+): ChatEditContextBundle['spatialCursor'] {
+  const sanitized = sanitizeSpatialCursor(cursor, durationInFrames, canvas, nowMs);
+  if (!sanitized) return undefined;
+  return {
+    ...sanitized,
+    ageMs: Math.max(0, Math.round(nowMs - sanitized.capturedAtMs)),
+  };
+}
+
+function sanitizeSpatialCursor(
+  cursor: ChatEditSpatialCursor | null | undefined,
+  durationInFrames: number,
+  canvas: ChatEditClientContext['canvas'],
+  nowMs: number,
+): ChatEditSpatialCursor | undefined {
+  if (!cursor || (cursor.surface !== 'preview' && cursor.surface !== 'timeline')) return undefined;
+  const capturedAtMs = finiteNumber(cursor.capturedAtMs);
+  if (capturedAtMs == null) return undefined;
+  const ageMs = nowMs - capturedAtMs;
+  if (ageMs < -5_000 || ageMs > CHAT_SPATIAL_CURSOR_MAX_AGE_MS) return undefined;
+  const dimensions = sanitizeDimensions(canvas);
+  const frameValue = integer(cursor.frame);
+  const normalizedX = unitNumber(cursor.normalizedX);
+  const normalizedY = unitNumber(cursor.normalizedY);
+  const canvasX = dimensions ? boundedNumber(cursor.canvasX, 0, dimensions.width) : undefined;
+  const canvasY = dimensions ? boundedNumber(cursor.canvasY, 0, dimensions.height) : undefined;
+
+  return {
+    surface: cursor.surface,
+    ...(frameValue == null ? {} : { frame: clampFrame(frameValue, durationInFrames) }),
+    ...(normalizedX == null ? {} : { normalizedX }),
+    ...(normalizedY == null ? {} : { normalizedY }),
+    ...(canvasX == null ? {} : { canvasX: Math.round(canvasX) }),
+    ...(canvasY == null ? {} : { canvasY: Math.round(canvasY) }),
+    capturedAtMs: Math.round(capturedAtMs),
+    source: 'last-editor-pointer',
+  };
 }
 
 function summarizeTranscript(project: any, overlays: any[]): ChatEditContextBundle['transcript'] {
@@ -378,6 +579,42 @@ function formatTimecode(frameNumber: number, fps: number): string {
 function formatCounts(counts: Record<string, number>): string {
   const entries = Object.entries(counts).sort(([a], [b]) => a.localeCompare(b));
   return entries.length ? entries.map(([type, count]) => `${type}=${count}`).join(', ') : 'none';
+}
+
+function sanitizeRangeSource(value: unknown): ChatEditRangeSource | undefined {
+  return value === 'selected-overlay'
+    || value === 'explicit-selection'
+    || value === 'timeline-viewport'
+    ? value
+    : undefined;
+}
+
+function sanitizeDimensions(
+  value: ChatEditClientContext['canvas'] | ChatEditClientContext['playerDimensions'],
+): { width: number; height: number } | null {
+  const width = positiveNumber(value?.width);
+  const height = positiveNumber(value?.height);
+  return width && height
+    ? { width: Math.round(width), height: Math.round(height) }
+    : null;
+}
+
+function sanitizeLabel(value: unknown): string | undefined {
+  const label = stringValue(value);
+  return label ? truncate(label, 64) : undefined;
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function unitNumber(value: unknown): number | undefined {
+  return boundedNumber(value, 0, 1);
+}
+
+function boundedNumber(value: unknown, minimum: number, maximum: number): number | undefined {
+  const number = finiteNumber(value);
+  return number == null ? undefined : Math.max(minimum, Math.min(number, maximum));
 }
 
 function clampFrame(value: number, durationInFrames: number): number {

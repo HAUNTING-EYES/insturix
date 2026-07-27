@@ -28,6 +28,7 @@ interface VideoAttachedZoomEvidence {
 const AUDITED_OVERLAY_TYPES: AuditedOverlayType[] = [
   { type: 'generated-scene', family: 'motion-graphic', evidenceKind: 'visual' },
   { type: 'motion-graphic', family: 'motion-graphic', evidenceKind: 'visual' },
+  { type: 'mg-sequence', family: 'motion-graphic', evidenceKind: 'visual' },
   { type: 'text', family: 'text', evidenceKind: 'visual' },
   { type: 'caption', family: 'caption', evidenceKind: 'visual' },
   { type: 'shape', family: 'shape', evidenceKind: 'visual' },

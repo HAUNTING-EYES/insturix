@@ -19,6 +19,7 @@ export interface EditDNA {
   profileId: string;
   sourceName: string;
   sourceUrl?: string;
+  sourceAssetId?: string;
 
   cutRhythm: {
     avgCutsPerMinute: number;
@@ -144,11 +145,31 @@ function isExternalUrl(url: string): boolean {
  * frames internally, so we don't need to extract frames ourselves — we just
  * pass the video URL and ask Gemini to analyze the editing style.
  */
-async function resolveVideoUrl(
+async function resolveOwnedVideoAsset(
+  assetId: string,
+  userId: string,
+): Promise<{ url: string; sourceName: string; assetId: string }> {
+  const asset = await assetResolver.getAsset(assetId, userId);
+  if (!asset) throw new Error(`Video asset ${assetId} was not found or is not owned by this user`);
+  if (asset.type !== "video") {
+    throw new Error(`Asset ${assetId} is not a video (type: ${asset.type})`);
+  }
+
+  const url = await assetResolver.resolveAssetUrl(assetId, userId);
+  if (!url) throw new Error(`Could not resolve video asset ${assetId}`);
+
+  return {
+    url,
+    sourceName: asset.filename || "Reference Video",
+    assetId,
+  };
+}
+
+async function resolveVideoOverlayTarget(
   overlayId: string,
   userId: string,
   projectId: string,
-): Promise<string> {
+): Promise<{ url: string; sourceName: string; assetId: string }> {
   const project = await projectService.loadProject(userId, projectId);
   if (!project) throw new Error("Project not found");
 
@@ -161,11 +182,7 @@ async function resolveVideoUrl(
 
   const assetId = (overlay as any).assetId;
   if (!assetId) throw new Error("Video overlay has no assetId");
-
-  const resolved = await assetResolver.resolveAssetUrl(assetId, userId);
-  if (!resolved) throw new Error("Could not resolve video asset URL");
-
-  return resolved;
+  return resolveOwnedVideoAsset(String(assetId), userId);
 }
 
 /* ====================================================================== */
@@ -226,18 +243,21 @@ RULE 2 — Return ONLY valid JSON, no markdown, no explanation.
 </output_format>`;
 
 export async function extractEditDNA(params: {
+  assetId?: string;
   videoOverlayId?: string;
   videoUrl?: string;
   sourceName?: string;
   userId: string;
   projectId?: string;
 }): Promise<EditDNA> {
-  const { videoOverlayId, videoUrl, sourceName, userId, projectId } = params;
+  const { assetId, videoOverlayId, videoUrl, sourceName, userId, projectId } = params;
 
-  // Validate: we need either an overlay ID (with projectId) or a direct URL
-  if (!videoOverlayId && !videoUrl) {
+  const providedTargets = [assetId, videoOverlayId, videoUrl].filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+  if (providedTargets.length !== 1) {
     throw new Error(
-      "Either videoOverlayId (with projectId) or videoUrl is required",
+      "Provide exactly one reference target: assetId, videoOverlayId, or videoUrl",
     );
   }
 
@@ -252,15 +272,27 @@ export async function extractEditDNA(params: {
 
   // Resolve the video asset URL
   let resolvedUrl: string;
-  if (videoOverlayId && projectId) {
-    resolvedUrl = await resolveVideoUrl(videoOverlayId, userId, projectId);
+  let resolvedSourceName = sourceName;
+  let resolvedAssetId: string | undefined;
+  if (assetId) {
+    const target = await resolveOwnedVideoAsset(assetId, userId);
+    resolvedUrl = target.url;
+    resolvedSourceName ||= target.sourceName;
+    resolvedAssetId = target.assetId;
+  } else if (videoOverlayId && projectId) {
+    const target = await resolveVideoOverlayTarget(videoOverlayId, userId, projectId);
+    resolvedUrl = target.url;
+    resolvedSourceName ||= target.sourceName;
+    resolvedAssetId = target.assetId;
   } else if (videoUrl) {
     resolvedUrl = videoUrl;
   } else {
     throw new Error("projectId is required when using videoOverlayId");
   }
 
-  // OLD: hardcoded gemini-2.5-flash. NEW: Gemma 4 via factory.
+  const { uploadReferenceVideoToGemini } = await import('./reference-content-extractor');
+  const fileUri = await uploadReferenceVideoToGemini(resolvedUrl);
+
   const { getAnalysisModel } = await import('@/lib/editron/utils/gemini-model-factory');
   const model = await getAnalysisModel();
 
@@ -270,7 +302,7 @@ export async function extractEditDNA(params: {
     {
       fileData: {
         mimeType: "video/mp4",
-        fileUri: resolvedUrl,
+        fileUri,
       },
     },
     { text: EDIT_DNA_PROMPT },
@@ -298,8 +330,9 @@ export async function extractEditDNA(params: {
   const profileId = `style_${nanoid(12)}`;
   const dna: EditDNA = {
     profileId,
-    sourceName: sourceName || "Reference Video",
+    sourceName: resolvedSourceName || "Reference Video",
     sourceUrl: videoUrl || undefined,
+    sourceAssetId: resolvedAssetId,
 
     cutRhythm: {
       avgCutsPerMinute: Number(parsed.cutRhythm?.avgCutsPerMinute) || 10,

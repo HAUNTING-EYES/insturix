@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { computeSpeedSegments } from '../../components/editron/editor/version-7.0.0/utils/keyframe-evaluator';
+import {
+  computeSpeedSegments,
+  evaluateKeyframeTrack,
+} from '../../components/editron/editor/version-7.0.0/utils/keyframe-evaluator';
 
 describe('computeSpeedSegments', () => {
   it('keeps fast tail ramps inside the selected clip source range', () => {
@@ -54,6 +57,28 @@ describe('computeSpeedSegments', () => {
       },
     ]);
     expect(maxSourceEnd(segments)).toBe(99);
+  });
+});
+
+describe('evaluateKeyframeTrack', () => {
+  it.each([
+    ['linear', [0.25, 0.5, 0.75]],
+    ['ease-in', [0.09346465071882487, 0.31535681257253934, 0.6218618691748903]],
+    ['ease-out', [0.3781381308251097, 0.6846431874274607, 0.9065353492811752]],
+    ['ease-in-out', [0.15767840628626967, 0.5, 0.8423215937137303]],
+    ['snap-out', [0.68359375, 0.9375, 0.99609375]],
+  ] as const)('preserves the deployed %s easing curve', (easing, expected) => {
+    const track = {
+      property: 'scale' as const,
+      keyframes: [
+        { frame: 0, value: 0, easing },
+        { frame: 100, value: 1, easing: 'linear' as const },
+      ],
+    };
+
+    [25, 50, 75].forEach((frame, index) => {
+      expect(evaluateKeyframeTrack(track, frame)).toBeCloseTo(expected[index], 7);
+    });
   });
 });
 

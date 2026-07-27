@@ -17,23 +17,44 @@ export const dynamic = 'force-dynamic';
  * Handles get or create session with full state loading
  */
 export async function POST(req: Request) {
+  const requestStartedAt = performance.now();
   const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   let sessionId: string | undefined;
+  let scriptId: string | undefined;
   let projectMeta: ProjectMeta | undefined;
+  let claimInitialDraft = false;
 
   try {
     const body = await req.json();
     sessionId = body?.sessionId ? String(body.sessionId) : undefined;
+    scriptId = body?.scriptId ? String(body.scriptId) : undefined;
     projectMeta = body?.projectMeta;
+    claimInitialDraft = body?.claimInitialDraft === true;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
   try {
+    if (claimInitialDraft) {
+      if (!sessionId) {
+        return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
+      }
+
+      const existingSession = await db.getSession(sessionId, userId, orgId);
+      if (!existingSession) {
+        return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+      }
+
+      const initialDraftClaimed = await db.claimInitialDraftIntent(sessionId);
+      return NextResponse.json({
+        sessionId,
+        initialDraftClaimed,
+      });
+    }
     // Get creator name for org context display (only for new sessions)
     let createdByName: string | undefined;
     if (orgId && !sessionId) {
@@ -85,14 +106,16 @@ export async function POST(req: Request) {
       }
     }
 
-    // Load script for session
-    const script = await db.getScript(session._id);
-
-    // Load chat history (last 50 messages)
-    const chat = await db.getChatHistory(session._id, 50);
-
-    // Load user preferences
-    const preferences = await db.getUserPreferences(userId);
+    // These reads share only the authorized canonical identity, so running them
+    // together keeps hydration atomic without paying their latency serially.
+    const stateReadStartedAt = performance.now();
+    const [script, chat, preferences] = await Promise.all([
+      db.getScript(session._id, scriptId),
+      db.getChatHistory(session._id, 50, 'default'),
+      db.getUserPreferences(userId),
+    ]);
+    const stateReadMs = performance.now() - stateReadStartedAt;
+    const totalMs = performance.now() - requestStartedAt;
 
     return NextResponse.json({
       sessionId: session._id,
@@ -102,12 +125,23 @@ export async function POST(req: Request) {
       projectMeta: session.projectMeta || {},
       preferences,
       script: script ? {
+        sessionId: script.sessionId,
+        scriptId: script.scriptId || scriptId || 'default',
         title: script.title,
         content: script.content,
-        blocks: script.blocks || []
+        blocks: script.blocks || [],
+        richText: script.richText,
+        metadata: script.metadata || {},
+        version: script.version,
+        documentType: script.documentType,
+        contentContract: script.contentContract,
       } : null,
       activeGeneration: session.activeGeneration || null,
       chat
+    }, {
+      headers: {
+        'Server-Timing': `tf-session-state;dur=${stateReadMs.toFixed(1)}, tf-session-total;dur=${totalMs.toFixed(1)}`,
+      },
     });
   } catch (error: any) {
     console.error('Error in session endpoint:', error);

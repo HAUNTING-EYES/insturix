@@ -5,13 +5,23 @@ import { createJob } from '@/lib/editron/services/render-job-service';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { projectService } from '@/lib/editron/services/project-service';
 import {
+  RenderAudioRightsAuthorityError,
+  verifyRenderAudioRightsAuthority,
+} from '@/lib/editron/services/render-audio-rights-authority';
+import {
   buildChapterRenderApiData,
   buildLambdaRenderInputProps,
   buildProjectRenderInputProps,
-  shouldHydrateRenderInputFromProject,
+  resolveRenderableAudioInputProps,
+  UnlicensedAudioInRenderError,
 } from '@/lib/editron/shared/render-request-payload';
 import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from '@/lib/editron/services/remotion-constants';
 import { assertRemotionSiteFresh } from '@/lib/editron/services/remotion-site-version';
+import {
+  buildRenderDeliveryManifest,
+  RenderDeliveryContractError,
+  resolveRenderDeliveryPlan,
+} from '@/lib/editron/services/render-delivery-manifest';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 
 export async function POST(request: Request) {
@@ -28,7 +38,14 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { inputProps, compositionId, projectId } = body;
+    const { inputProps, compositionId, projectId, musicDeliveryMode } = body;
+    if (typeof projectId !== 'string' || !projectId.trim()) {
+      return NextResponse.json(
+        { type: 'error', message: 'A persisted projectId is required for rendering' },
+        { status: 400 },
+      );
+    }
+    const canonicalProjectId = projectId.trim();
 
     // AWS Lambda configuration from environment
     const functionName = process.env.REMOTION_LAMBDA_FUNCTION_NAME;
@@ -61,24 +78,46 @@ export async function POST(request: Request) {
     // Resolve asset URLs before sending to Lambda - ensure all overlays have valid URLs.
     // Uses CDN proxy URLs (default) which Lambda was successfully using before.
     // forceGCS is NOT used - many assets lack gcsPath and would get empty URLs.
-    let resolvedProps = inputProps || {};
-    if (projectId && shouldHydrateRenderInputFromProject(resolvedProps)) {
-      const project = await projectService.loadProject(userId, projectId);
-      if (!project) {
-        return NextResponse.json(
-          { type: 'error', message: 'Project not found' },
-          { status: 404 }
-        );
-      }
-      resolvedProps = buildProjectRenderInputProps(project, resolvedProps);
-      console.log(`[Render] Hydrated render props from project ${projectId} (${project.overlays?.length || 0} overlays)`);
+    const project = await projectService.loadProject(userId, canonicalProjectId);
+    if (!project) {
+      return NextResponse.json(
+        { type: 'error', message: 'Project not found' },
+        { status: 404 }
+      );
     }
+    let resolvedProps = buildProjectRenderInputProps(project, inputProps || {});
+    console.log(`[Render] Hydrated render props from project ${canonicalProjectId} (${project.overlays?.length || 0} overlays)`);
 
-    if (resolvedProps.overlays?.length > 0) {
+    await verifyRenderAudioRightsAuthority({
+      userId,
+      projectId: canonicalProjectId,
+      projectOwnerId: project.userId,
+      overlays: Array.isArray(resolvedProps.overlays) ? resolvedProps.overlays : [],
+    });
+
+    // Resolve preview choices only after durable licensed claims have been
+    // matched to the authoritative stored project assets.
+    resolvedProps = resolveRenderableAudioInputProps(resolvedProps);
+    const deliveryPlan = resolveRenderDeliveryPlan({
+      requestedMode: musicDeliveryMode,
+      overlays: resolvedProps.overlays,
+      fps: resolvedProps.fps,
+      durationInFrames: resolvedProps.durationInFrames,
+      destinationPlatform: readProjectDestinationPlatform(project),
+    });
+    resolvedProps = {
+      ...resolvedProps,
+      overlays: deliveryPlan.overlays,
+    };
+    let renderOverlays = Array.isArray(resolvedProps.overlays)
+      ? resolvedProps.overlays as any[]
+      : [];
+
+    if (renderOverlays.length > 0) {
       try {
-        const resolvedOverlays = await assetResolver.resolveProjectAssets(resolvedProps.overlays);
-        resolvedProps = { ...resolvedProps, overlays: resolvedOverlays };
-        console.log(`[Render] Resolved ${resolvedOverlays.length} overlay asset URLs`);
+        renderOverlays = await assetResolver.resolveProjectAssets(renderOverlays);
+        resolvedProps = { ...resolvedProps, overlays: renderOverlays };
+        console.log(`[Render] Resolved ${renderOverlays.length} overlay asset URLs`);
       } catch (err: any) {
         console.warn('[Render] Asset URL resolution failed, using raw props:', err.message);
       }
@@ -112,13 +151,13 @@ export async function POST(request: Request) {
     if (usesChapterRendering) {
       console.log(`[Render] Long video detected (${totalFrames} frames). Using chapter-based rendering.`);
       const fps = renderFps;
-      const width = resolvedProps.width || 1920;
-      const height = resolvedProps.height || 1080;
+      const width = Number(resolvedProps.width) || 1920;
+      const height = Number(resolvedProps.height) || 1080;
 
       const { jobId, chapters } = await startChapterRender(
-        projectId || 'unknown',
+        canonicalProjectId,
         userId,
-        lambdaRenderProps.overlays || [],
+        (lambdaRenderProps.overlays || []) as any[],
         totalFrames,
         fps,
         width,
@@ -129,13 +168,26 @@ export async function POST(request: Request) {
       renderStarted = true;
 
       // Save job reference
+      const deliveryManifest = buildRenderDeliveryManifest({
+        plan: deliveryPlan,
+        renderId: jobId,
+      });
       try {
-        await createJob(jobId, userId, projectId || 'unknown', 'chapter-render');
+        await createJob(
+          jobId,
+          userId,
+          canonicalProjectId,
+          'chapter-render',
+          deliveryManifest,
+        );
       } catch (err: unknown) { console.warn('[Render] chapter render job save failed:', err instanceof Error ? err.message : err); }
 
       return NextResponse.json({
         type: 'success',
-        data: buildChapterRenderApiData({ jobId, region, chapters }),
+        data: {
+          ...buildChapterRenderApiData({ jobId, region, chapters }),
+          deliveryManifest,
+        },
       });
     }
 
@@ -160,8 +212,18 @@ export async function POST(request: Request) {
     console.log('Lambda render started:', { renderId, bucketName });
 
     // Save job to database for persistence (wrapped in try-catch)
+    const deliveryManifest = buildRenderDeliveryManifest({
+      plan: deliveryPlan,
+      renderId,
+    });
     try {
-      await createJob(renderId, userId, projectId || 'unknown', bucketName);
+      await createJob(
+        renderId,
+        userId,
+        canonicalProjectId,
+        bucketName,
+        deliveryManifest,
+      );
       console.log('Render job saved to database:', renderId);
     } catch (dbError) {
       console.error('Failed to save render job to DB:', dbError);
@@ -170,27 +232,25 @@ export async function POST(request: Request) {
     // Threshold calibration: process decision outcomes (async, non-blocking)
     // Filter to editing overlays only - exclude video clips and audio tracks
     // which would corrupt bandit feedback via type-blind proximity matching.
-    if (projectId && resolvedProps.overlays?.length > 0) {
-      const editingOverlays = resolvedProps.overlays.filter(
+    if (renderOverlays.length > 0) {
+      const editingOverlays = renderOverlays.filter(
         (o: any) => o.type !== 'video' && o.type !== 'sound',
       );
       if (editingOverlays.length > 0) {
         import('@/lib/editron/services/threshold-bandit')
           .then(({ processDecisionOutcomes }) =>
-            processDecisionOutcomes(projectId, userId, editingOverlays))
+            processDecisionOutcomes(canonicalProjectId, userId, editingOverlays))
           .catch((err: any) =>
             console.warn(`[Render] Decision outcome processing failed: ${err.message}`));
       }
     }
 
     // Brand Intelligence: transition to rendering
-    if (projectId) {
-      try {
-        const { transitionProjectStatus } = await import('@/lib/shared/project-status');
-        await transitionProjectStatus(projectId, userId, 'rendering', 'render_started');
-      } catch (brandErr: any) {
-        console.warn(`[Render] Status transition failed: ${brandErr.message}`);
-      }
+    try {
+      const { transitionProjectStatus } = await import('@/lib/shared/project-status');
+      await transitionProjectStatus(canonicalProjectId, userId, 'rendering', 'render_started');
+    } catch (brandErr: any) {
+      console.warn(`[Render] Status transition failed: ${brandErr.message}`);
     }
 
     // Return the render ID and bucket info
@@ -201,6 +261,7 @@ export async function POST(request: Request) {
         bucketName,
         region,
         functionName,
+        deliveryManifest,
         // Progress endpoint for polling
         progressUrl: `/api/services/editron/cloudrun/progress?renderId=${renderId}&bucketName=${bucketName}&region=${region}`,
       }
@@ -210,12 +271,18 @@ export async function POST(request: Request) {
       await refundRenderExportCredits(renderCreditCheck, 'Render/export failed before render start');
     }
     console.error('Lambda render error:', error);
+    const rightsError = (
+      error instanceof UnlicensedAudioInRenderError
+      || error instanceof RenderAudioRightsAuthorityError
+    );
+    const deliveryError = error instanceof RenderDeliveryContractError;
     return NextResponse.json(
-      { 
-        type: 'error', 
-        message: error.message || 'Failed to trigger render' 
+      {
+        type: 'error',
+        message: error.message || 'Failed to trigger render',
+        ...((rightsError || deliveryError) ? { code: error.code } : {}),
       },
-      { status: 500 }
+      { status: rightsError ? 422 : deliveryError ? 400 : 500 }
     );
   }
 }
@@ -244,4 +311,19 @@ async function refundRenderExportCredits(creditCheck: CreditCheckResult, reason:
   } catch (error) {
     console.error('[Render] render/export credit refund failed:', error);
   }
+}
+
+function readProjectDestinationPlatform(project: unknown): unknown {
+  const record = asRecord(project);
+  const productionBrief = asRecord(record?.productionBrief);
+  const productionBriefOutput = asRecord(productionBrief?.output);
+  const intake = asRecord(record?.productionBriefIntake);
+  const intakeOutput = asRecord(intake?.output);
+  return productionBriefOutput?.platform ?? intakeOutput?.platform ?? record?.platform;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }

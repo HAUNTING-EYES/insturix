@@ -1,11 +1,19 @@
 {
   "crons": [
     {
+      "path": "/api/cron/fetch-trends",
+      "schedule": "0 4 */3 * *"
+    },
+    {
       "path": "/api/cron/storage-overage",
       "schedule": "0 3 1 * *"
     },
     {
       "path": "/api/cron/check-task-timeouts",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/sweep-mg-render-jobs",
       "schedule": "*/15 * * * *"
     },
     {
@@ -51,6 +59,14 @@
     {
       "path": "/api/cron/process-publish-queue",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/process-calos-trend-watch",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/process-calos-trend-opportunities",
+      "schedule": "17 */6 * * *"
     }
   ]
 }

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  buildChatEditRenderedAudioEvidence,
   buildPhase0RenderedEvidenceClaimFilter,
   buildPhase0RenderedEvidenceClaimRelease,
   buildPhase0RenderedEvidenceClaimUpdate,
@@ -14,6 +15,7 @@ import {
 } from '../../lib/editron/services/phase0-rendered-evidence-worker';
 import {
   buildPhase0RenderedAestheticEvidence,
+  measureRenderedOverlayPixelEvidence,
   type RawRenderedStillImage,
 } from '../../lib/editron/services/phase0-rendered-aesthetic-scoring';
 import { buildPhase0FixtureManifest } from '../../lib/editron/services/phase0-fixture-manifest';
@@ -49,6 +51,74 @@ describe('phase0 rendered evidence worker service', () => {
     expect(set).not.toHaveProperty('autoEditStatus');
   });
 
+  it('blocks unlicensed music before credentials or the Phase-0 audio renderer', async () => {
+    const prepareCredentials = vi.fn(async () => {});
+    const renderAudioWindow = vi.fn();
+    const project = audioEvidenceProject({
+      source: 'preview-only',
+      userChoice: 'attested',
+      licensed: false,
+      mediaRole: 'music',
+    });
+
+    await expect(buildChatEditRenderedAudioEvidence(
+      project,
+      structuredClone(project),
+      audioVerificationRequest(),
+      {
+        env: configuredEnv(),
+        prepareCredentials,
+        renderAudioWindow,
+      },
+    )).rejects.toThrow('preview-only music is not licensed for rendering');
+
+    expect(prepareCredentials).not.toHaveBeenCalled();
+    expect(renderAudioWindow).not.toHaveBeenCalled();
+  });
+
+  it('strips an explicit no-music decision before Phase-0 audio rendering', async () => {
+    let renderCount = 0;
+    const renderAudioWindow = vi.fn(async (_input: any) => {
+      renderCount += 1;
+      return {
+        url: `https://example.com/audio-${renderCount}.wav`,
+        renderId: `audio-render-${renderCount}`,
+        bucketName: 'render-bucket',
+        pcmSha256: `pcm-${renderCount}`,
+        rms: 0,
+        peak: 0,
+      };
+    });
+    const project = audioEvidenceProject({
+      source: 'preview-only',
+      userChoice: 'no-music',
+      licensed: false,
+      mediaRole: 'music',
+    });
+
+    await buildChatEditRenderedAudioEvidence(
+      project,
+      structuredClone(project),
+      audioVerificationRequest(),
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        renderAudioWindow,
+      },
+    );
+
+    expect(renderAudioWindow).toHaveBeenCalledTimes(2);
+    for (const [input] of renderAudioWindow.mock.calls) {
+      expect(input.inputProps.overlays).toEqual([]);
+      expect(input.inputProps.audioRightsNotices).toEqual([
+        expect.objectContaining({
+          code: 'PREVIEW_AUDIO_REMOVED_NO_MUSIC',
+          action: 'stripped',
+        }),
+      ]);
+    }
+  });
+
   it('renders paired full and baseline sampled stills with the configured Lambda render stack', async () => {
     const renderStill = vi.fn(async (input: any) => {
       const overlayIds = (input.inputProps.overlays ?? []).map((overlay: any) => overlay.id);
@@ -82,7 +152,7 @@ describe('phase0 rendered evidence worker service', () => {
       serveUrl: 'https://remotion-site.example.com',
       imageFormat: 'png',
       privacy: 'public',
-      maxRetries: 1,
+      maxRetries: 0,
     });
     expect((renderStill.mock.calls[0]?.[0] as any).inputProps.isRendering).toBe(true);
     expect((renderStill.mock.calls[0]?.[0] as any).inputProps.overlays.map((overlay: any) => overlay.id)).toEqual(['bg', 1]);
@@ -110,6 +180,105 @@ describe('phase0 rendered evidence worker service', () => {
       },
     });
     expect(evidence.phase0LiveTruth?.failureClasses.map((item) => item.id)).not.toContain('render.artifact_pack_missing');
+  });
+
+  it('renders independent frame pairs concurrently with a bounded worker count', async () => {
+    let activeRenders = 0;
+    let maximumActiveRenders = 0;
+    const renderStill = vi.fn(async (input: any) => {
+      activeRenders += 1;
+      maximumActiveRenders = Math.max(maximumActiveRenders, activeRenders);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      activeRenders -= 1;
+      const overlayIds = (input.inputProps.overlays ?? []).map((overlay: any) => overlay.id);
+      const kind = overlayIds.includes(1) ? 'full' : 'baseline';
+      return {
+        estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+        url: `https://example.com/${kind}-f${input.frame}.png`,
+        outKey: `phase0/${kind}-f${input.frame}.png`,
+        bucketName: 'remotion-bucket',
+        renderId: `${kind}-render-${input.frame}`,
+        cloudWatchLogs: 'https://logs.example.com',
+        sizeInBytes: 512,
+        artifacts: [],
+      };
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(projectFixture(), {
+      capturedAt: '2026-06-30T00:00:00.000Z',
+      env: configuredEnv({ EDITRON_PHASE0_RENDERED_EVIDENCE_MAX_SAMPLES: '3' }),
+      renderStill: renderStill as any,
+      readImage: visibleImageReader(),
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.status).toBe('completed');
+    expect(renderStill).toHaveBeenCalledTimes(6);
+    expect(maximumActiveRenders).toBe(6);
+    expect(evidence.renderedFrames.map((frame) => frame.frame)).toEqual(evidence.requestedSampleFrames);
+  });
+
+  it('measures text contrast against each changed pixel local background', () => {
+    const baseline = rawRenderedImageFromLumas([210, 210, 210, 210, 20, 20, 20, 20, 20, 20]);
+    const full = rawRenderedImageFromLumas([255, 255, 255, 255, 255, 255, 255, 255, 255, 255]);
+
+    const mixedEvidence = measureRenderedOverlayPixelEvidence(
+      full,
+      baseline,
+      { x: 0, y: 0, width: 10, height: 1 },
+      10,
+      1,
+    );
+
+    expect(mixedEvidence.contrastRatio).toBeGreaterThan(3);
+    expect(mixedEvidence.localBackgroundLuma).toBeLessThan(100);
+    expect(mixedEvidence.foregroundLuma).toBe(255);
+
+    const brightBaseline = rawRenderedImageFromLumas(Array.from({ length: 10 }, () => 210));
+    const brightEvidence = measureRenderedOverlayPixelEvidence(
+      full,
+      brightBaseline,
+      { x: 0, y: 0, width: 10, height: 1 },
+      10,
+      1,
+    );
+
+    expect(brightEvidence.contrastRatio).toBeLessThan(3);
+  });
+
+  it('measures outlined text from supported glyph and halo layers without blessing bright-on-bright text', () => {
+    const baseline = rawRenderedImageFromLumas(Array.from({ length: 30 }, () => 210));
+    const outlinedText = rawRenderedImageFromLumas([
+      ...Array.from({ length: 5 }, () => 255),
+      ...Array.from({ length: 5 }, () => 20),
+      ...Array.from({ length: 10 }, () => 225),
+      ...Array.from({ length: 10 }, () => 195),
+    ]);
+
+    const outlinedEvidence = measureRenderedOverlayPixelEvidence(
+      outlinedText,
+      baseline,
+      { x: 0, y: 0, width: 30, height: 1 },
+      30,
+      1,
+      { allowLayeredForegroundContrast: true },
+    );
+
+    expect(outlinedEvidence.contrastRatio).toBeGreaterThan(3);
+
+    const brightOnly = rawRenderedImageFromLumas(Array.from({ length: 30 }, (_, index) => (
+      index < 5 ? 255 : 225
+    )));
+    const brightOnlyEvidence = measureRenderedOverlayPixelEvidence(
+      brightOnly,
+      baseline,
+      { x: 0, y: 0, width: 30, height: 1 },
+      30,
+      1,
+      { allowLayeredForegroundContrast: true },
+    );
+
+    expect(brightOnlyEvidence.contrastRatio).toBeLessThan(3);
   });
 
   it('fails rendered quality evidence when full and baseline stills are visually unchanged', async () => {
@@ -333,6 +502,15 @@ describe('phase0 rendered evidence worker service', () => {
     expect(source).toContain('statusReason: evidence.statusReason');
   });
 
+  it('preserves exact chat mutation ranges through the rendered-evidence worker trust boundary', () => {
+    const source = readFileSync('app/api/internal/workers/phase0-rendered-evidence/route.ts', 'utf8');
+
+    expect(source).toContain('const rawMutationRanges = Array.isArray(request.mutationRanges)');
+    expect(source).toContain('if (rawMutationRanges.length > 64) return null');
+    expect(source).toContain('endFrame <= startFrame');
+    expect(source).toContain('...(mutationRanges.length > 0 ? { mutationRanges } : {})');
+  });
+
   it('builds durable dispatch breadcrumbs for Phase 0 rendered evidence requests', () => {
     expect(buildPhase0RenderedEvidenceDispatchPersistSet(
       { dispatched: true, messageId: 'msg_123' },
@@ -363,6 +541,40 @@ describe('phase0 rendered evidence worker service', () => {
       'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchStatus': 'not_dispatched',
       'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchReason': 'missing_qstash_token',
     });
+  });
+
+  it('prefers the bounded Phase 0 still-render function over the long media-render function', () => {
+    expect(resolvePhase0RenderedEvidenceConfig(configuredEnv({
+      REMOTION_PHASE0_LAMBDA_FUNCTION_NAME: 'phase0-still-180sec',
+      REMOTION_LAMBDA_FUNCTION_NAME: 'general-media-900sec',
+    }))).toMatchObject({
+      configured: true,
+      functionName: 'phase0-still-180sec',
+    });
+  });
+
+  it('wires QStash failure callbacks so async rendered evidence jobs cannot hang silently', () => {
+    const serviceSource = readFileSync('lib/editron/services/phase0-rendered-evidence-worker.ts', 'utf8');
+    const routeSource = readFileSync('app/api/internal/workers/phase0-rendered-evidence/route.ts', 'utf8');
+
+    expect(serviceSource).toContain('failureCallback');
+    expect(serviceSource).toContain('/api/internal/workers/phase0-rendered-evidence');
+    expect(serviceSource).toContain('?qstashFailure=1');
+    expect(routeSource).toContain("request.nextUrl.searchParams.get('qstashFailure') === '1'");
+    expect(routeSource).toContain('markChatEditRenderVerificationDeliveryFailed');
+    expect(routeSource).toContain('qstash_delivery_failed');
+  });
+
+  it('claims render ownership before persisting retry-delivery progress', () => {
+    const source = readFileSync('app/api/internal/workers/phase0-rendered-evidence/route.ts', 'utf8');
+    const handlerStart = source.indexOf('async function handleChatEditRenderVerification');
+    const handlerEnd = source.indexOf('async function handleQstashFailureCallback');
+    const handlerSource = source.slice(handlerStart, handlerEnd);
+
+    expect(handlerSource.indexOf('const claim = await checkpoints.updateOne')).toBeGreaterThan(-1);
+    expect(handlerSource).not.toContain('persistChatEditVerificationProgress');
+    expect(handlerSource.indexOf('const claim = await checkpoints.updateOne'))
+      .toBeLessThan(handlerSource.indexOf("'intelligence.latestChatEditRenderVerification': runningRecord"));
   });
 
   it('builds a project-level claim for the expensive rendered-evidence worker', () => {
@@ -426,6 +638,47 @@ function configuredEnv(extra: Record<string, string> = {}) {
   };
 }
 
+function audioVerificationRequest() {
+  return {
+    version: 'editron-chat-render-verification-v1' as const,
+    operationId: 'op_audio_rights',
+    sessionId: 'session_audio_rights',
+    beforeCheckpointId: 'checkpoint_before',
+    afterCheckpointId: 'checkpoint_after',
+    requestedAt: '2026-07-26T00:00:00.000Z',
+    modalities: ['audio' as const],
+    expectedEffect: 'mutation-delta' as const,
+    targets: [{
+      overlayId: 'music_1',
+      overlayType: 'sound',
+      state: 'updated' as const,
+      from: 0,
+      endFrame: 120,
+    }],
+    sampleFrames: [0],
+  };
+}
+
+function audioEvidenceProject(audioRights: Record<string, unknown>) {
+  return {
+    projectId: 'proj_phase0_audio_rights',
+    userId: 'user_phase0_audio_rights',
+    durationInFrames: 120,
+    fps: 30,
+    playerDimensions: { width: 320, height: 180 },
+    overlays: [{
+      id: 'music_1',
+      assetId: 'bgm_phase0_audio_rights',
+      type: OverlayType.SOUND,
+      row: 1,
+      from: 0,
+      durationInFrames: 120,
+      src: 'https://example.com/music.mp3',
+      audioRights,
+    }],
+  } as any;
+}
+
 function visibleImageReader() {
   return async (url: string) => url.includes('/full-')
     ? rawRenderedImage('visible')
@@ -462,6 +715,20 @@ function rawRenderedImage(kind: 'baseline' | 'visible'): RawRenderedStillImage {
   }
 
   return { data, width, height, channels };
+}
+
+function rawRenderedImageFromLumas(lumas: number[]): RawRenderedStillImage {
+  const channels = 4;
+  const data = Buffer.alloc(lumas.length * channels);
+  for (let index = 0; index < lumas.length; index += 1) {
+    const offset = index * channels;
+    const luma = lumas[index] ?? 0;
+    data[offset] = luma;
+    data[offset + 1] = luma;
+    data[offset + 2] = luma;
+    data[offset + 3] = 255;
+  }
+  return { data, width: lumas.length, height: 1, channels };
 }
 
 function projectFixture() {

@@ -86,6 +86,7 @@ export function isAtomicOverlayReceiptCurrent(overlay: Overlay): boolean {
     && optionalAtomMatches(receipt, "text-content", "content.text", text ? text.slice(0, 240) : undefined)
     && optionalAtomMatches(receipt, "opacity", "overlay.opacity", styleLike.opacity)
     && optionalAtomMatches(receipt, "volume", "audio.volume", styleLike.volume)
+    && optionalAtomMatches(receipt, "playback-speed", "audio.playback_rate", "playbackRate" in overlay ? overlay.playbackRate : undefined)
     && optionalAtomMatches(receipt, "font-family", "text.font_family", styleLike.fontFamily)
     && optionalAtomMatches(receipt, "font-size", "text.font_size", styleLike.fontSize)
     && optionalAtomMatches(receipt, "font-weight", "text.font_weight", styleLike.fontWeight)
@@ -189,6 +190,7 @@ function overlayFamily(type: string): AtomicOverlayFamily {
     case "transition":
       return "transition";
     case "motion-graphic":
+    case "mg-sequence":
       return "motion-graphic";
     case "sticker":
     case "lottie":
@@ -263,6 +265,9 @@ function overlayAtoms(
   }
   if ("audioEndFrame" in overlay && overlay.audioEndFrame !== undefined) {
     atoms.push(overlayAtom("end-frame", "media.audio_end_frame", overlay.audioEndFrame, 1, "decision-param"));
+  }
+  if ("playbackRate" in overlay && typeof overlay.playbackRate === "number") {
+    atoms.push(overlayAtom("playback-speed", "audio.playback_rate", overlay.playbackRate, Math.min(Math.abs(overlay.playbackRate - 1), 1), "decision-param"));
   }
   if ("videoStartTime" in overlay && overlay.videoStartTime !== undefined) {
     atoms.push(overlayAtom("media-start-frame", "media.start_frame", overlay.videoStartTime, 1, "decision-param"));
@@ -628,12 +633,25 @@ function colorToRgb(color: unknown): { r: number; g: number; b: number } | undef
 }
 
 function overlayText(overlay: Overlay): string {
-  if ("captions" in overlay) return overlay.captions.map((caption) => caption.text).join(" ");
-  if ("content" in overlay && typeof overlay.content === "string") return overlay.content;
-  if ("content" in overlay && isRecord(overlay.content)) {
-    return Object.values(overlay.content).filter((value) => typeof value === "string").join(" ");
+  switch (String(overlay.type)) {
+    case "caption":
+      return "captions" in overlay
+        ? overlay.captions.map((caption) => caption.text).join(" ")
+        : "";
+    case "text":
+      return "content" in overlay && typeof overlay.content === "string"
+        ? overlay.content
+        : "";
+    case "motion-graphic":
+      if ("content" in overlay && isRecord(overlay.content)) {
+        return Object.values(overlay.content)
+          .filter((value) => typeof value === "string")
+          .join(" ");
+      }
+      return "";
+    default:
+      return "";
   }
-  return "";
 }
 
 function overlayRegion(overlay: Overlay): string {

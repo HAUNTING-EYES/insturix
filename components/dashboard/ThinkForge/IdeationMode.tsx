@@ -1,9 +1,14 @@
 "use client";
 
 import React from "react";
+import { TrendingUp } from "lucide-react";
+import { useState } from "react";
 import { PromptPanel, UrlBriefResult } from "@/components/dashboard/ThinkForge/PromptPanel";
 import { IdeaGrid, IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
 import SessionMetadataSettings from "@/components/dashboard/ThinkForge/SessionMetadataSettings";
+import { TrendWorkflowPanel, type TrendTarget } from "@/components/dashboard/ThinkForge/TrendWorkflowPanel";
+import type { SelectedTrend } from "@/lib/thinkforge/trends/selected-trend";
+import type { TrendCandidate } from "@/lib/thinkforge/trends/trend-evidence";
 
 interface IdeationModeProps {
   phase: 'PROMPT' | 'IDEAS' | 'SELECTED';
@@ -20,6 +25,9 @@ interface IdeationModeProps {
   onGoBackToIdeas: () => void;
   onUpdateIdea: (updated: IdeaCardData) => void;
   onManualSetup: () => void;
+  sessionId?: string | null;
+  onEnsureTrendSession?: (candidate: TrendCandidate, target: TrendTarget) => Promise<string | null>;
+  onTrendDraft?: (input: { prompt: string; sessionId: string; target: TrendTarget; selectedTrend: SelectedTrend }) => void;
   isVisible: boolean;
   sessionCount?: number;
   onUrlSubmit?: (urls: string[], originalPrompt: string) => void;
@@ -42,16 +50,27 @@ export default function IdeationMode({
   onGoBackToIdeas,
   onUpdateIdea,
   onManualSetup,
+  sessionId,
+  onEnsureTrendSession,
+  onTrendDraft,
   isVisible,
   sessionCount = 0,
   onUrlSubmit,
   briefLoading,
   briefResults,
 }: IdeationModeProps) {
+  const [trendWorkflowOpen, setTrendWorkflowOpen] = useState(false);
+
   return (
     <div style={{ display: isVisible ? 'flex' : 'none', flexDirection: 'column', flex: 1, width: '100%' }}>
       {(phase === 'PROMPT' || phase === 'IDEAS') && (
         <>
+          <div className="flex justify-end px-4 pt-4">
+            <button type="button" onClick={() => setTrendWorkflowOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-[#D4A652]/50 px-3 py-2 text-xs font-semibold text-[#D4A652] hover:bg-[#D4A652]/10">
+              <TrendingUp className="h-3.5 w-3.5" />
+              Use a trend
+            </button>
+          </div>
           <PromptPanel
             prompt={prompt}
             setPrompt={setPrompt}
@@ -60,11 +79,23 @@ export default function IdeationMode({
             onSubmit={onSubmit}
             onRegenerate={onRegenerate}
             onManualSetup={onManualSetup}
+
             onUrlSubmit={onUrlSubmit}
             briefLoading={briefLoading}
             briefResults={briefResults}
           />
-          <IdeaGrid ideas={ideas} loading={loading} hasSubmitted={hasSubmitted} prompt={prompt} onSelect={onSelectIdea} />
+          <IdeaGrid ideas={ideas} loading={loading} hasSubmitted={hasSubmitted} prompt={prompt} onSelect={onSelectIdea} onRegenerate={onRegenerate} />
+          <TrendWorkflowPanel
+            open={trendWorkflowOpen}
+            sessionId={sessionId}
+            initialTarget="script"
+            onClose={() => setTrendWorkflowOpen(false)}
+            onEnsureSession={onEnsureTrendSession}
+            onGenerate={(draftPrompt, trendSessionId, target, selectedTrend) => {
+              onTrendDraft?.({ prompt: draftPrompt, sessionId: trendSessionId, target, selectedTrend });
+              setTrendWorkflowOpen(false);
+            }}
+          />
         </>
       )}
 

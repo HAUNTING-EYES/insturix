@@ -6,6 +6,7 @@ import type { AvatarProfileStatus, AvatarReferenceRole } from '@/lib/avatar/avat
 import type { AvatarProfileRecord } from '@/lib/avatar/avatar-lifecycle';
 import type {
   AvatarRenderAudioInput,
+  AvatarRenderModality,
   AvatarRenderRecipe,
   AvatarRenderTarget,
   AvatarRenderUseCase,
@@ -89,6 +90,7 @@ export interface UploadAvatarReferenceInput {
 export interface PlanAvatarRenderInput {
   recordId: string;
   useCase: AvatarRenderUseCase;
+  renderModality?: AvatarRenderModality;
   prompt: string;
   script?: string;
   negativePrompt?: string;
@@ -183,7 +185,7 @@ export function useAvatarRenderJobMutation() {
   });
 }
 
-/** Create a job on the PROVEN pipeline path: Chatterbox voice → OmniHuman face → Remotion composite. */
+/** Create a job on the PROVEN pipeline path: Chatterbox voice → avatar face → Remotion composite. */
 export function useAvatarPipelineJobMutation() {
   return useMutation({
     mutationFn: createAvatarPipelineJobRequest,

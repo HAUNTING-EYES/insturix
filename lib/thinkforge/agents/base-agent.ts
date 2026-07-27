@@ -14,8 +14,9 @@
 import { streamText, generateObject, generateText } from 'ai';
 import type { LanguageModel } from 'ai';
 import type { z } from 'zod';
-import { createThinkForgeModel, ModelTier, validateTierForTask } from './model-factory';
+import { createThinkForgeModel, ModelTier } from './model-factory';
 import { parseJsonLenient } from '@/lib/thinkforge/json';
+import type { IsolatedPromptParts } from './prompt-boundary';
 import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
@@ -55,11 +56,8 @@ const SCRIPT_AGENT_TYPES = new Set(['script_draft', 'script_author', 'script_ref
 // Forward declaration - actual implementation in logging.ts
 // We inline basic logging here to avoid circular dependency
 function logInvocation(event: any): void {
-  const logLevel = event.success ? 'info' : 'error';
-  if (logLevel === 'error') {
+  if (!event.success) {
     console.error('[ThinkForge AI]', `agent=${event.agent} model=${event.model} success=${event.success} error="${event.error}"`);
-  } else if (process.env.NODE_ENV === 'development') {
-    console.log('[ThinkForge AI]', `agent=${event.agent} model=${event.model} success=${event.success}${event.durationMs ? ` duration=${event.durationMs}ms` : ''}`);
   }
 }
 import type {
@@ -77,6 +75,10 @@ type ThinkForgeUsage = {
 };
 
 type ThinkForgeCostOperation = 'llm_stream' | 'llm_structured' | 'llm_structured_fallback';
+
+type AgentGenerationOverrides = Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>> & {
+  seed?: number;
+};
 
 async function recordThinkForgeAgentCost(input: {
   status: ProviderCostEventStatus;
@@ -172,6 +174,11 @@ function sumOptional(a?: number, b?: number): number | undefined {
   return (a ?? 0) + (b ?? 0);
 }
 
+function normalizeGenerationSeed(seed?: number): number {
+  if (typeof seed !== 'number' || !Number.isFinite(seed)) return 42;
+  return Math.max(0, Math.min(0xffffffff, Math.trunc(seed)));
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -212,7 +219,6 @@ export interface AgentConfig {
 export abstract class BaseAgent {
   protected model: LanguageModel;
   protected config: Required<AgentConfig>;
-  protected modelTier?: ModelTier;
   protected abortSignal?: AbortSignal;
 
   constructor(config: AgentConfig) {
@@ -224,7 +230,6 @@ export abstract class BaseAgent {
       modelTier: config.modelTier ?? ModelTier.Reasoning,
       documentType: config.documentType ?? '',
     };
-    this.modelTier = config.modelTier;
     this.model = createThinkForgeModel(this.config.modelName);
   }
 
@@ -235,13 +240,26 @@ export abstract class BaseAgent {
   abstract buildPrompt(input: AgentInput): string;
 
   /**
+   * Split trusted instructions from runtime data when an agent supports it.
+   * The default preserves legacy agents exactly until each prompt owner opts in.
+   */
+  buildPromptParts(input: AgentInput): IsolatedPromptParts {
+    return {
+      systemInstruction: '',
+      prompt: this.applyGlobalConstraints(this.buildPrompt(input)),
+      truncatedFields: [],
+    };
+  }
+
+  /**
    * Optional per-invocation overrides for token/temperature budgets
    * to allow orchestration layers to tune stages independently.
    */
-  protected resolveGenConfig(overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>) {
+  protected resolveGenConfig(overrides?: AgentGenerationOverrides) {
     return {
       maxTokens: overrides?.maxTokens ?? this.config.maxTokens,
       temperature: overrides?.temperature ?? this.config.temperature,
+      seed: normalizeGenerationSeed(overrides?.seed),
     } as const;
   }
 
@@ -270,22 +288,26 @@ export abstract class BaseAgent {
 
   async run(
     input: AgentInput,
-    overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
+    overrides?: AgentGenerationOverrides,
     abortSignal?: AbortSignal
   ): Promise<AgentStreamOutput> {
     const startTime = Date.now();
-    const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
+    const promptParts = this.buildPromptParts(input);
+    const prompt = promptParts.prompt;
+    const systemInstruction = promptParts.systemInstruction.trim();
+    const promptChars = prompt.length + systemInstruction.length;
     const gen = this.resolveGenConfig(overrides);
     const signal = abortSignal ?? this.abortSignal;
 
     try {
       const result = streamText({
         model: this.model,
+        system: systemInstruction || undefined,
         prompt,
         temperature: gen.temperature,
         // @ts-ignore - Vercel AI SDK version mismatch on maxTokens
         maxTokens: gen.maxTokens,
-        seed: 42,
+        seed: gen.seed,
         abortSignal: signal,
       });
 
@@ -310,7 +332,7 @@ export abstract class BaseAgent {
             operation: 'llm_stream',
             route: 'lib/thinkforge/agents/base-agent.run',
             sourceInput: input,
-            promptChars: prompt.length,
+            promptChars,
             outputChars,
             functionMs: Date.now() - startTime,
             usage: await readAiSdkUsage((result as { usage?: unknown }).usage),
@@ -337,7 +359,7 @@ export abstract class BaseAgent {
             operation: 'llm_stream',
             route: 'lib/thinkforge/agents/base-agent.run',
             sourceInput: input,
-            promptChars: prompt.length,
+            promptChars,
             outputChars,
             functionMs: Date.now() - startTime,
             maxTokens: gen.maxTokens,
@@ -384,7 +406,7 @@ export abstract class BaseAgent {
    */
   async runComplete(
     input: AgentInput,
-    overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
+    overrides?: AgentGenerationOverrides,
     abortSignal?: AbortSignal
   ): Promise<{ text: string; metadata?: AgentMetadata }> {
     const { stream, metadata } = await this.run(input, overrides, abortSignal);
@@ -415,11 +437,14 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
    */
   async runStructured(
     input: AgentInput,
-    overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
+    overrides?: AgentGenerationOverrides,
     abortSignal?: AbortSignal
   ): Promise<AgentStructuredOutput<TOutput>> {
     const startTime = Date.now();
-    const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
+    const promptParts = this.buildPromptParts(input);
+    const prompt = promptParts.prompt;
+    const systemInstruction = promptParts.systemInstruction.trim();
+    const promptChars = prompt.length + systemInstruction.length;
     const gen = this.resolveGenConfig(overrides);
     const signal = abortSignal ?? this.abortSignal;
 
@@ -427,11 +452,12 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
       const result = await generateObject({
         model: this.model,
         schema: this.schema,
+        system: systemInstruction || undefined,
         prompt,
         temperature: gen.temperature,
         // @ts-ignore
         maxTokens: gen.maxTokens,
-        seed: 42,
+        seed: gen.seed,
         abortSignal: signal,
       });
 
@@ -442,7 +468,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         operation: 'llm_structured',
         route: 'lib/thinkforge/agents/base-agent.runStructured',
         sourceInput: input,
-        promptChars: prompt.length,
+        promptChars,
         outputChars: safeJsonLength(result.object),
         functionMs: Date.now() - startTime,
         usage: await readAiSdkUsage((result as { usage?: unknown }).usage),
@@ -479,7 +505,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
           operation: 'llm_structured',
           route: 'lib/thinkforge/agents/base-agent.runStructured',
           sourceInput: input,
-          promptChars: prompt.length,
+          promptChars,
           functionMs: Date.now() - startTime,
           maxTokens: gen.maxTokens,
           temperature: gen.temperature,
@@ -493,11 +519,12 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         try {
           fallback = await generateText({
             model: this.model,
+            system: systemInstruction || undefined,
             prompt: `${prompt}\n\nReturn ONLY valid JSON that matches this schema (no markdown): ${this.schema.toString()}`,
             temperature: gen.temperature,
             // @ts-ignore
             maxTokens: gen.maxTokens,
-            seed: 42,
+            seed: gen.seed,
             abortSignal: signal,
           });
         } catch (fallbackError) {
@@ -508,7 +535,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
             operation: 'llm_structured_fallback',
             route: 'lib/thinkforge/agents/base-agent.runStructured',
             sourceInput: input,
-            promptChars: prompt.length,
+            promptChars,
             functionMs: Date.now() - startTime,
             maxTokens: gen.maxTokens,
             temperature: gen.temperature,
@@ -535,7 +562,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
             operation: 'llm_structured_fallback',
             route: 'lib/thinkforge/agents/base-agent.runStructured',
             sourceInput: input,
-            promptChars: prompt.length,
+            promptChars,
             outputChars: jsonText.length,
             functionMs: Date.now() - startTime,
             usage: fallbackUsage,
@@ -568,7 +595,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
             operation: 'llm_structured_fallback',
             route: 'lib/thinkforge/agents/base-agent.runStructured',
             sourceInput: input,
-            promptChars: prompt.length,
+            promptChars,
             outputChars: jsonText.length,
             functionMs: Date.now() - startTime,
             usage: fallbackUsage,
@@ -600,7 +627,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         operation: 'llm_structured',
         route: 'lib/thinkforge/agents/base-agent.runStructured',
         sourceInput: input,
-        promptChars: prompt.length,
+        promptChars,
         functionMs: Date.now() - startTime,
         maxTokens: gen.maxTokens,
         temperature: gen.temperature,

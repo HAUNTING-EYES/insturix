@@ -23,6 +23,12 @@ import {
 } from '@/lib/pipeline/script-to-scenes';
 import { tiptapJSONToThinkForgeBlocks } from '@/lib/thinkforge/mappers/tiptap-to-thinkforge';
 import { extractPlainText, isTiptapJSON } from '@/lib/thinkforge/schemas/tiptap-validation';
+import {
+  buildThinkForgeEditronHandoffContext,
+  mapScriptSidecarToEditronExport,
+  type ThinkForgeEditronHandoffContext,
+  type ScriptSidecarEditronExport,
+} from '@/lib/thinkforge/export/script-sidecar-to-editron';
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
 
 export const runtime = 'nodejs';
@@ -42,6 +48,8 @@ interface ExportSource {
   rawContent: string;
   title: string;
   scenePreview: SceneDescriptor[];
+  sidecarExport?: ScriptSidecarEditronExport;
+  thinkforgeContext?: ThinkForgeEditronHandoffContext;
 }
 
 function isParserSentinelScene(scene: Pick<SceneDescriptor, 'title'>): boolean {
@@ -105,6 +113,10 @@ function chooseRawContent(blocks: any[] | undefined, plainText: unknown): string
   if (!plain) return fromBlocks;
   if (!fromBlocks) return plain;
   return fromBlocks.length > plain.length ? fromBlocks : plain;
+}
+
+function exportContentMatches(left: string, right: string): boolean {
+  return left.replace(/\s+/g, ' ').trim() === right.replace(/\s+/g, ' ').trim();
 }
 
 function previewScenesForSource(source: Pick<ExportSource, 'blocks' | 'cir' | 'rawContent'>): SceneDescriptor[] {
@@ -191,12 +203,36 @@ async function loadStoredScriptSource(
       ? script.content
       : richTextPlain;
 
-    return buildExportSource({
+    const storedSource = buildExportSource({
       source: 'stored-script',
       blocks,
       plainText,
       titleFallback: script.title,
     });
+    if (!storedSource) return null;
+
+    const metadata = script.metadata && typeof script.metadata === 'object' && !Array.isArray(script.metadata)
+      ? script.metadata as Record<string, unknown>
+      : undefined;
+    const writerOutput = metadata?.writerOutput && typeof metadata.writerOutput === 'object' && !Array.isArray(metadata.writerOutput)
+      ? metadata.writerOutput as Record<string, unknown>
+      : undefined;
+    if (!writerOutput?.scriptSidecar) return storedSource;
+
+    try {
+      return {
+        ...storedSource,
+        sidecarExport: mapScriptSidecarToEditronExport(writerOutput.scriptSidecar),
+        thinkforgeContext: buildThinkForgeEditronHandoffContext({
+          sidecar: writerOutput.scriptSidecar,
+          briefSnapshot: metadata?.briefSnapshot,
+          sourceLedger: writerOutput.sourceLedger,
+        }),
+      };
+    } catch {
+      console.warn('[export-for-editron] Ignoring an invalid persisted script sidecar');
+      return storedSource;
+    }
   } catch (error: any) {
     console.warn('[export-for-editron] Stored script recovery failed:', error?.message || error);
     return null;
@@ -253,10 +289,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // A generated script's sidecar is authoritative only when it describes the
+    // exact script being exported. User edits intentionally fall back to parsing.
+    const storedSource = await loadStoredScriptSource(sessionId, scriptId, userId);
     let activeSource = requestSource;
     let storedScriptRecovered = false;
     if (requestSource.scenePreview.length === 0) {
-      const storedSource = await loadStoredScriptSource(sessionId, scriptId, userId);
       if (storedSource && storedSource.scenePreview.length > 0) {
         activeSource = storedSource;
         storedScriptRecovered = true;
@@ -269,6 +307,13 @@ export async function POST(request: NextRequest) {
         }));
       }
     }
+    const sidecarSource = activeSource.source === 'stored-script'
+      ? activeSource
+      : storedSource && exportContentMatches(requestSource.rawContent, storedSource.rawContent)
+        ? storedSource
+        : undefined;
+    const sidecarExport = sidecarSource?.sidecarExport;
+    const thinkforgeContext = sidecarSource?.thinkforgeContext;
 
     const blocks = activeSource.blocks;
     const plainText = activeSource.plainText;
@@ -284,7 +329,7 @@ export async function POST(request: NextRequest) {
     const targetDurationSeconds = scriptTargetDuration.seconds;
     const targetDurationSource = scriptTargetDuration.source;
 
-    if (rawContent.length > EXPORT_FOR_EDITRON_MAX_PARSER_INPUT_CHARS) {
+    if (!sidecarExport && rawContent.length > EXPORT_FOR_EDITRON_MAX_PARSER_INPUT_CHARS) {
       const diagnostic = {
         rawContentLength: rawContent.length,
         maxParserInputChars: EXPORT_FOR_EDITRON_MAX_PARSER_INPUT_CHARS,
@@ -311,7 +356,16 @@ export async function POST(request: NextRequest) {
     const rawContentLength = rawContent.length;
     console.log(`[export-for-editron] LLM available: ${llmAvailable}, rawContent length: ${rawContentLength}, blocks: ${blocks?.length ?? 0}, hasPlainText: ${!!plainText}, hasCir: ${!!cir}`);
 
-    if (llmAvailable && rawContentLength > 0) {
+    if (sidecarExport) {
+      scenes = sidecarExport.scenes;
+      overallMusicPrompt = sidecarExport.overallMusicPrompt;
+      characterDescriptions = sidecarExport.characterDescriptions;
+      colorPalette = sidecarExport.colorPalette;
+      environmentNotes = sidecarExport.environmentNotes;
+      globalEditDirections = sidecarExport.globalEditDirections;
+      suggestedProfileCategory = sidecarExport.suggestedProfileCategory;
+      console.log(`[export-for-editron] Used persisted script sidecar for ${scenes.length} scenes`);
+    } else if (llmAvailable && rawContentLength > 0) {
       try {
         console.log('[export-for-editron] Using LLM parser (Gemini Flash)');
         const llmResult = await parseScriptWithLLM(rawContent, {
@@ -545,7 +599,11 @@ export async function POST(request: NextRequest) {
         maxInputChars: EXPORT_FOR_EDITRON_MAX_PARSER_INPUT_CHARS,
         source: exportSource,
         storedScriptRecovered,
+        sidecarUsed: Boolean(sidecarExport),
+        sidecarVersion: sidecarExport?.sidecarVersion,
+        sidecarSource: sidecarExport ? 'stored-script' : undefined,
       },
+      ...(thinkforgeContext ? { thinkforgeContext } : {}),
       warnings: targetDurationSeconds
         ? []
         : ['target-duration-missing-parser-used-short-form-defaults'],

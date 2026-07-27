@@ -590,10 +590,16 @@ async function handler(request: NextRequest) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
-        await db.collection('projects').updateOne(
-          { projectId: trackedProjectId },
-          { $set: { autoEditStatus: 'failed', autoEditError: msg } },
-        );
+        const { settleAssistScanFailure } = await import('@/lib/editron/services/assist-lane');
+        // Assist lane: a TRIBE-stage failure must refund (from-asset deducted at
+        // intake) and surface scan_failed — not silently keep the charge as 'failed'.
+        const settlement = await settleAssistScanFailure(db, trackedProjectId, msg);
+        if (settlement === 'not-assist') {
+          await db.collection('projects').updateOne(
+            { projectId: trackedProjectId },
+            { $set: { autoEditStatus: 'failed', autoEditError: msg } },
+          );
+        }
       } catch (e) { console.warn(`[TribeWorker] Status update failed:`, e instanceof Error ? e.message : e); }
     }
 

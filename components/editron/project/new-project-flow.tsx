@@ -23,18 +23,20 @@ import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/
 import { useAcceptedBrandVaultBrands } from '@/components/dashboard/BrandVault/useBrandVault';
 import { useFootageAutoEdit } from '@/hooks/editron/use-footage-auto-edit';
 import { collectFootageFiles } from '@/components/editron/project/footage-selection';
+import { AutoEditDialog, type AutoEditOptions } from '@/components/editron/project/auto-edit-dialog';
+import { FootageBatchIntakeDialog } from '@/components/editron/project/footage-batch-intake-dialog';
+import { AutoEditProcessing } from '@/components/editron/project/auto-edit/auto-edit-processing';
 
-type Screen = 'idle' | 'upload' | 'generate' | 'script' | 'saas' | 'onair';
+type Screen = 'idle' | 'upload' | 'generate' | 'script' | 'onair';
 
 const META: Record<Screen, { h: string; sub: string; bc: string; wm: string; st: string; air: boolean }> = {
   idle: { h: 'What are we<br/><span>making?</span>', sub: '', bc: 'Editron / New project', wm: 'MAKE', st: 'STANDBY', air: false },
   upload: { h: 'Drop your<br/><span>footage.</span>', sub: 'Editron auto-edits your raw clips into a first cut.', bc: 'New project / <b>Upload</b>', wm: 'REEL', st: 'STANDBY', air: false },
   generate: { h: 'What are we<br/><span>generating?</span>', sub: '', bc: 'New project / <b>Generate</b>', wm: 'GEN', st: 'STANDBY', air: false },
   script: { h: 'Paste your<br/><span>script.</span>', sub: 'Bring the words — Editron cuts the video to them.', bc: 'New project / Generate / <b>Script &#8594; video</b>', wm: 'SCRIPT', st: 'STANDBY', air: false },
-  saas: { h: 'Brief the<br/><span>explainer.</span>', sub: 'Give Editron the brand and the goal — it writes, edits and scores it.', bc: 'New project / Generate / <b>SaaS explainer</b>', wm: 'SAAS', st: 'STANDBY', air: false },
   onair: { h: '', sub: '', bc: 'Editron / <b>On air</b>', wm: '', st: 'ON AIR', air: true },
 };
-const BACK: Record<Screen, Screen> = { idle: 'idle', upload: 'idle', generate: 'idle', script: 'generate', saas: 'generate', onair: 'idle' };
+const BACK: Record<Screen, Screen> = { idle: 'idle', upload: 'idle', generate: 'idle', script: 'generate', onair: 'idle' };
 
 const CSS = `
 .enp{--bg:#0B0B0A;--surface:#0F0F0E;--raised:#131312;--well:#1B1A18;--border:#1C1B19;--bs:#282724;
@@ -67,7 +69,7 @@ const CSS = `
 .enp .hero .h{font-weight:800;font-size:clamp(38px,6.4vw,76px);letter-spacing:-.045em;line-height:.94;transition:opacity .4s var(--film)}
 .enp .hero .h span{color:var(--gold)}
 .enp .hero .sub{color:var(--soft);font-size:15px;margin-top:14px;max-width:52ch;opacity:0;height:0;transition:opacity .4s var(--film)}
-.enp .screen[data-s="upload"] .hero .sub,.enp .screen[data-s="script"] .hero .sub,.enp .screen[data-s="saas"] .hero .sub{opacity:1;height:auto}
+.enp .screen[data-s="upload"] .hero .sub,.enp .screen[data-s="script"] .hero .sub{opacity:1;height:auto}
 .enp .panels{flex:1;position:relative;margin-top:26px;min-height:0}
 .enp .panel{position:absolute;inset:0;opacity:0;pointer-events:none;transform:translateY(14px);transition:opacity .35s var(--film),transform .4s var(--film)}
 .enp .panel.on{opacity:1;pointer-events:auto;transform:none}
@@ -120,8 +122,13 @@ const CSS = `
 .enp .in{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;color:var(--text);font-size:13.5px;outline:none}
 .enp .in:focus{border-color:var(--gold)}
 .enp .seg{display:flex;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:3px}
-.enp .seg b{flex:1;text-align:center;padding:7px 4px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.06em;color:var(--soft);cursor:pointer;font-weight:400}
-.enp .seg b.on{background:var(--gold);color:var(--bg);font-weight:700}
+/* border reserved on the base rule so selecting a mode never shifts layout by 1px */
+.enp .seg b{flex:1;text-align:center;padding:7px 4px;border:1px solid transparent;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.06em;color:var(--soft);cursor:pointer;font-weight:400;transition:color .2s,border-color .2s,background .2s}
+.enp .seg b:hover{color:var(--text);border-color:var(--bs)}
+/* gold here follows the console's language (border + text + 10% tint, as .beta/.drop .ar)
+   — a solid gold fill outshouted the drop zone, which is the actual primary action */
+.enp .seg b.on{background:rgba(212,166,82,.10);border-color:var(--gold);color:var(--gold);font-weight:500}
+.enp .fld .s{display:block;font-size:12px;line-height:1.5;color:var(--soft);margin-top:7px}
 .enp .ctx{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
 .enp .ctx .sw{display:flex;gap:5px}.enp .ctx .sw i{width:22px;height:22px;border-radius:4px;border:1px solid var(--border)}
 .enp .err{color:var(--red);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.04em}
@@ -139,6 +146,14 @@ const CSS = `
 .enp .monitor .clips i{height:38px;border-radius:3px;background:var(--well);border:1px solid var(--border)}
 .enp .monitor .rec{position:absolute;top:14px;left:16px;display:inline-flex;gap:6px;align-items:center}
 .enp .monitor .ph{position:relative;height:2px;background:var(--border)}.enp .monitor .ph i{position:absolute;left:36%;top:-6px;width:2px;height:14px;background:var(--gold)}
+.enp .monitor .core{position:absolute;left:20px;right:20px;top:44px;bottom:74px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center}
+.enp .monitor .core .ring{width:38px;height:38px;border-radius:50%;border:2px solid var(--bs);border-top-color:var(--gold);animation:enpSpin .9s linear infinite}
+.enp .monitor .core .pt{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.03em;color:var(--text);max-width:88%;line-height:1.4}
+.enp .monitor .core .sub{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.enp .monitor .clips i{position:relative;overflow:hidden}
+.enp .monitor .clips.live i::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(212,166,82,.16),transparent);transform:translateX(-100%);animation:enpSweep 1.5s ease-in-out infinite}
+@keyframes enpSpin{to{transform:rotate(360deg)}}
+@keyframes enpSweep{100%{transform:translateX(100%)}}
 @media(max-width:640px){.enp .body{padding:70px 22px 30px}.enp .grid2{grid-template-columns:1fr}.enp .doors{flex-direction:column;height:auto}.enp .door{padding:18px 22px}.enp .door.g{border-left:none;border-top:1.5px solid var(--gold)}}
 `;
 
@@ -164,7 +179,13 @@ export default function NewProjectFlow() {
   const [screen, setScreen] = useState<Screen>('idle');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [elapsed, setElapsed] = useState(0);
+
+  // Director Mode (assist lane): the toggle renders only when the deploy flag is
+  // on. The intake routes enforce the same flag server-side — hiding the toggle
+  // alone is never the gate.
+  const assistAvailable = process.env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED === 'true'
+    || process.env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED === '1';
+  const [laneMode, setLaneMode] = useState<'auto' | 'assist'>('auto');
 
   // Beta notice — dismissible, remembered per browser. Starts hidden until the
   // effect confirms it wasn't dismissed (SSR-safe: no localStorage read on render).
@@ -177,15 +198,6 @@ export default function NewProjectFlow() {
     setBetaBar(false);
     try { localStorage.setItem('editron_beta_dismissed', '1'); } catch { /* ignore */ }
   }, []);
-
-  const working = busy || footage.running;
-
-  // Elapsed timer while a create/generate/auto-edit is in flight.
-  useEffect(() => {
-    if (!working) { setElapsed(0); return; }
-    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
-    return () => clearInterval(t);
-  }, [working]);
 
   // Footage auto-edit failed → drop back to the upload panel with the error.
   useEffect(() => {
@@ -208,13 +220,9 @@ export default function NewProjectFlow() {
   const [scriptName, setScriptName] = useState('');
   const [scriptAspect, setScriptAspect] = useState('16:9');
   const [brandId, setBrandId] = useState('');
-  const [saasProduct, setSaasProduct] = useState('');
-  const [saasOutcome, setSaasOutcome] = useState('');
-  const [saasDuration, setSaasDuration] = useState('30s');
-  const [saasAspect, setSaasAspect] = useState('16:9');
 
   const [projName, setProjName] = useState('untitled');
-  const [projType, setProjType] = useState('—');
+  const [pendingFootageFiles, setPendingFootageFiles] = useState<File[]>([]);
 
   const go = useCallback((s: Screen) => { setError(null); setScreen(s); }, []);
 
@@ -223,7 +231,7 @@ export default function NewProjectFlow() {
     if (busy) return;
     const name = scriptName.trim() || 'untitled_script';
     setBusy(true); setError(null);
-    setProjName(name); setProjType('Script → video'); setScreen('onair');
+    setProjName(name); setScreen('onair');
     try {
       const res = await fetch('/api/services/editron/projects/create', {
         method: 'POST',
@@ -239,37 +247,30 @@ export default function NewProjectFlow() {
     }
   }, [busy, scriptName, router]);
 
-  // SAAS → real saas-explainer generate (inline), then navigate to the returned project.
-  const commitSaas = useCallback(async () => {
-    if (busy) return;
-    setBusy(true); setError(null);
-    setProjName(saasProduct.trim() || 'explainer'); setProjType('SaaS explainer'); setScreen('onair');
-    try {
-      const res = await fetch('/api/services/editron/saas-explainer/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          productName: saasProduct,
-          outcome: saasOutcome,
-          durationSec: DUR_SEC[saasDuration] ?? 30,
-          aspectRatio: saasAspect,
-          brandId: brandId || getActiveBrandIdFromStorage() || undefined,
-        }),
-      });
-      const data = (await res.json()) as { success?: boolean; projectUrl?: string; error?: string };
-      if (!res.ok || !data.success || !data.projectUrl) {
-        throw new Error(data.error || 'Could not create this explainer.');
-      }
-      router.push(data.projectUrl);
-    } catch (e) {
-      setBusy(false); setScreen('saas');
-      setError(e instanceof Error ? e.message : 'Could not create this explainer.');
-    }
-  }, [busy, saasProduct, saasOutcome, saasDuration, saasAspect, brandId, router]);
 
   // UPLOAD → inline footage auto-edit. Reopen existing projects → the dashboard/upload route.
   const goProjects = useCallback(() => router.push('/dashboard/editron/projects'), [router]);
+  const startFootageFiles = useCallback((files: File[], options: AutoEditOptions = {}) => {
+    if (footage.running || files.length === 0) return;
+    setPendingFootageFiles([]);
+    setError(null);
+    setProjName(files.length === 1 ? files[0].name : `${files.length} files`);
+    setScreen('onair');
+    footage.startMany(files, {
+      ...options,
+      ...(assistAvailable && laneMode === 'assist' ? { editMode: 'assist' as const } : {}),
+    });
+  }, [footage, assistAvailable, laneMode]);
+  const cancelPendingFootage = useCallback(() => {
+    setPendingFootageFiles([]);
+    setScreen('upload');
+  }, []);
+  const onSingleFootageConfirm = useCallback((file: File, options: AutoEditOptions) => {
+    startFootageFiles([file], options);
+  }, [startFootageFiles]);
+  const onBatchFootageConfirm = useCallback((options: AutoEditOptions) => {
+    startFootageFiles(pendingFootageFiles, options);
+  }, [pendingFootageFiles, startFootageFiles]);
   const onFootageFiles = useCallback((selection: FileList | File[] | null | undefined) => {
     if (footage.running) return;
     const { files, rejected } = collectFootageFiles(selection);
@@ -278,17 +279,46 @@ export default function NewProjectFlow() {
       return;
     }
     setError(null);
-    setProjName(files.length === 1 ? files[0].name : `${files.length} files`);
-    setProjType(files.length === 1 ? 'Edit footage' : 'Upload batch');
-    setScreen('onair');
-    footage.startMany(files);
-  }, [footage]);
+    setPendingFootageFiles(files);
+    setScreen('upload');
+  }, [footage.running]);
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     onFootageFiles(e.dataTransfer.files);
   }, [onFootageFiles]);
 
   const m = META[screen];
+  // Director lane changes what happens AFTER the scan, so every promise on the upload
+  // screen has to change with it — otherwise the headline and the drop zone keep
+  // advertising an automatic first cut that Director mode deliberately does not make.
+  const directorLane = assistAvailable && laneMode === 'assist';
+  const heroSub =
+    screen === 'upload' && directorLane
+      ? 'Editron scans every clip, then hands you the timeline to direct.'
+      : m.sub;
+  const pendingSingleVideo =
+    pendingFootageFiles.length === 1 && pendingFootageFiles[0]?.type.startsWith('video/')
+      ? pendingFootageFiles[0]
+      : null;
+  const pendingBatchFiles = pendingSingleVideo ? [] : pendingFootageFiles;
+
+  // When the edit is on air, THIS screen is the auto-edit processing view — render it as
+  // the page (same as /dashboard/editron/auto-edit/[projectId] does), NOT as a fixed overlay
+  // on top of the console. Overlaying failed at the root: <body> is `position:relative` +
+  // `overflow-x:clip`, so a portaled `fixed inset-0` never anchored to the viewport and the
+  // console bled through underneath. One screen, normal flow — no overlap, no flash.
+  if (screen === 'onair') {
+    return (
+      <AutoEditProcessing
+        filename={projName}
+        stageIndex={0}
+        percent={/(analy|edit)/i.test(footage.progress) ? 20 : /regist/i.test(footage.progress) ? 14 : /upload/i.test(footage.progress) ? 8 : 4}
+        done={false}
+        logLines={footage.progress ? [footage.progress] : []}
+        onSkip={goProjects}
+      />
+    );
+  }
 
   return (
     <div className="enp">
@@ -318,7 +348,7 @@ export default function NewProjectFlow() {
         <div className="body">
           <div className="hero">
             {m.h ? <div className="h" dangerouslySetInnerHTML={{ __html: m.h }} /> : null}
-            <div className="sub">{m.sub}</div>
+            <div className="sub">{heroSub}</div>
           </div>
 
           <div className="panels">
@@ -361,6 +391,23 @@ export default function NewProjectFlow() {
 
             {/* upload — inline footage auto-edit */}
             <div className={screen === 'upload' ? 'panel on' : 'panel'}>
+              {assistAvailable ? (
+                <label className="fld" style={{ marginBottom: 10 }}>
+                  <span className="l">Editing mode</span>
+                  <Seg
+                    options={['Auto edit', 'Director']}
+                    value={laneMode === 'assist' ? 'Director' : 'Auto edit'}
+                    onChange={(v) => setLaneMode(v === 'Director' ? 'assist' : 'auto')}
+                  />
+                  {/* Shown for BOTH modes: the lanes differ only in what happens after the
+                      scan, and the user has to be able to compare them BEFORE uploading. */}
+                  <span className="s">
+                    {directorLane
+                      ? 'Scans everything, edits nothing. When the scan finishes you get the timeline plus a chat, and you direct every cut.'
+                      : 'Scans everything, then cuts it into a first pass you can refine.'}
+                  </span>
+                </label>
+              ) : null}
               <input
                 ref={fileRef}
                 type="file"
@@ -378,7 +425,9 @@ export default function NewProjectFlow() {
               >
                 <span className="ar">&#8613;</span>
                 <span className="t">Drop footage or browse</span>
-                <span className="s">Editron cuts your raw clips automatically</span>
+                <span className="s">
+                  {directorLane ? 'Editron scans your clips — you direct the cuts' : 'Editron cuts your raw clips automatically'}
+                </span>
                 {screen === 'upload' && error ? <span className="err" style={{ marginTop: 4 }}>{error}</span> : null}
               </button>
             </div>
@@ -389,7 +438,7 @@ export default function NewProjectFlow() {
                 <button type="button" className="type" onClick={() => go('script')}>
                   <span className="ix">01</span><span className="nm">Script &#8594; video</span><span className="ds">you have a script</span>
                 </button>
-                <button type="button" className="type" onClick={() => go('saas')}>
+                <button type="button" className="type" onClick={() => router.push('/dashboard/editron/saas-explainer/studio')}>
                   <span className="ix">02</span><span className="nm">SaaS explainer</span><span className="ds">brand-driven explainer</span>
                 </button>
                 <div className="type soon"><span className="ix">03</span><span className="nm">Ad</span><span className="ds">soon</span></div>
@@ -419,74 +468,24 @@ export default function NewProjectFlow() {
               </div>
             </div>
 
-            {/* saas intake */}
-            <div className={screen === 'saas' ? 'panel on' : 'panel'}>
-              <div className="form">
-                <div className="grid2">
-                  <label className="fld"><span className="l">Brand vault</span>
-                    <select className="in" value={brandId} onChange={(e) => setBrandId(e.target.value)}>
-                      <option value="">{brands.length ? 'Select a brand…' : 'No accepted brands yet'}</option>
-                      {brands.map((b) => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}
-                    </select>
-                  </label>
-                  <label className="fld"><span className="l">Product</span>
-                    <input className="in" placeholder="e.g. Insturix" value={saasProduct} onChange={(e) => setSaasProduct(e.target.value)} />
-                  </label>
-                </div>
-                <label className="fld"><span className="l">Outcome / goal</span>
-                  <input className="in" placeholder="What should the viewer do or feel?" value={saasOutcome} onChange={(e) => setSaasOutcome(e.target.value)} />
-                </label>
-                <div className="grid2">
-                  <label className="fld"><span className="l">Duration</span>
-                    <Seg options={['15s', '30s', '60s']} value={saasDuration} onChange={setSaasDuration} />
-                  </label>
-                  <label className="fld"><span className="l">Aspect</span>
-                    <Seg options={['16:9', '9:16', '1:1']} value={saasAspect} onChange={setSaasAspect} />
-                  </label>
-                </div>
-                <div className="ctx">
-                  <span className="m" style={{ fontSize: 9, letterSpacing: '.1em', color: 'var(--gold)' }}>BRAND CONTEXT</span>
-                  <div className="sw"><i style={{ background: '#B5532A' }} /><i style={{ background: '#E8C07A' }} /><i style={{ background: '#2E2A24' }} /></div>
-                  <span className="m" style={{ fontSize: 9, color: 'var(--muted)' }}>{brandId ? 'BRAND LINKED' : 'PICK A BRAND'}</span>
-                </div>
-                {screen === 'saas' && error ? <div className="err">{error}</div> : null}
-                <div className="row-act">
-                  <button type="button" className="gen-btn" onClick={commitSaas} disabled={busy}><span className="d" />Generate</button>
-                </div>
-              </div>
-            </div>
-
-            {/* on air — commit / generating */}
-            <div className={screen === 'onair' ? 'panel on' : 'panel'}>
-              <div className="onair">
-                <div className="nowbar">
-                  <div className="l">
-                    <span className="m" style={{ fontSize: 9, letterSpacing: '.1em', color: 'var(--red)' }}>{working ? 'WORKING' : 'NOW EDITING'}</span>
-                    <span className="m" style={{ fontSize: 12, color: 'var(--text)' }}>{projName}</span>
-                  </div>
-                  <span className="m" style={{ fontSize: 9, color: 'var(--muted)' }}>{projType}</span>
-                </div>
-                <div className="monitor">
-                  <div className="rec">
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', display: 'inline-block', animation: 'enpPl 1.4s infinite' }} />
-                    <span className="m" style={{ fontSize: 9, color: 'var(--red)' }}>{footage.running && footage.progress ? footage.progress : working ? `WORKING · ${elapsed}s` : 'REC 00:12'}</span>
-                  </div>
-                  <div className="tl">
-                    <div className="clips">
-                      <i style={{ flex: 3 }} /><i style={{ flex: 1.4, borderColor: 'var(--gold)' }} /><i style={{ flex: 2.6 }} /><i style={{ flex: 1 }} /><i style={{ flex: 1.8 }} />
-                    </div>
-                    <div className="ph"><i /></div>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
-        {screen !== 'idle' && screen !== 'onair' ? (
+        {screen !== 'idle' ? (
           <button type="button" className="back" onClick={() => go(BACK[screen])}>&#9666; Back</button>
         ) : null}
       </div>
+      <AutoEditDialog
+        file={pendingSingleVideo}
+        onConfirm={onSingleFootageConfirm}
+        onCancel={cancelPendingFootage}
+      />
+      <FootageBatchIntakeDialog
+        files={pendingBatchFiles}
+        open={pendingBatchFiles.length > 0}
+        onConfirm={onBatchFootageConfirm}
+        onCancel={cancelPendingFootage}
+      />
     </div>
   );
 }

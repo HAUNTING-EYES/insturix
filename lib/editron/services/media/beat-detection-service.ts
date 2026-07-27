@@ -45,6 +45,11 @@ export async function analyzeBeatsFull(
   audioBuffer: { sampleRate: number; length: number; numberOfChannels: number; getChannelData: (ch: number) => Float32Array; duration: number },
   options: BeatDetectionOptions = {},
 ): Promise<BeatAnalysis> {
+  const samples = extractMono(audioBuffer);
+  const sampleRate = Number(audioBuffer?.sampleRate);
+  if (!samples || !Number.isFinite(sampleRate) || sampleRate <= 0) {
+    return emptyBeatAnalysis(audioBuffer, options);
+  }
   const fftSize = options.fftSize ?? DEFAULT_FFT_SIZE;
   const hopSize = options.hopSize ?? DEFAULT_HOP_SIZE;
   const minBPM = options.minBPM ?? DEFAULT_MIN_BPM;
@@ -53,10 +58,8 @@ export async function analyzeBeatsFull(
   const topEnergyPeaks = options.topEnergyPeaks ?? DEFAULT_TOP_ENERGY_PEAKS;
   const energySnapMs = options.energySnapToleranceMs ?? DEFAULT_ENERGY_SNAP_TOLERANCE_MS;
 
-  // Step 0: Extract mono PCM
-  const samples = extractMono(audioBuffer);
-  const sampleRate = audioBuffer.sampleRate;
-  const durationMs = (audioBuffer.length / sampleRate) * 1000;
+  // Step 0: PCM was validated and mixed before analysis.
+  const durationMs = (samples.length / sampleRate) * 1000;
 
   // Step 1: Multi-band spectral flux
   const fluxCurve = computeMultiBandSpectralFlux(samples, sampleRate, fftSize, hopSize);
@@ -125,20 +128,60 @@ export function beatAnalysisToFrames(
 
 // ─── Internal: Audio Processing ──────────────────────────────────
 
+function emptyBeatAnalysis(
+  audioBuffer: Partial<{ sampleRate: number; length: number; duration: number }> | null | undefined,
+  options: BeatDetectionOptions,
+): BeatAnalysis {
+  const explicitDuration = Number(audioBuffer?.duration);
+  const sampleRate = Number(audioBuffer?.sampleRate);
+  const length = Number(audioBuffer?.length);
+  const durationMs = Number.isFinite(explicitDuration) && explicitDuration > 0
+    ? explicitDuration * 1000
+    : Number.isFinite(sampleRate) && sampleRate > 0 && Number.isFinite(length) && length > 0
+      ? (length / sampleRate) * 1000
+      : 0;
+  return {
+    beats: [],
+    bpm: 0,
+    bpmConfidence: 0,
+    durationMs,
+    timeSignatureNumerator: options.timeSignature ?? DEFAULT_TIME_SIGNATURE,
+    energyPeaks: [],
+    rawOnsets: [],
+  };
+}
+
 function extractMono(
-  audioBuffer: { numberOfChannels: number; getChannelData: (ch: number) => Float32Array; length: number },
-): Float32Array {
-  if (audioBuffer.numberOfChannels === 1) {
-    return audioBuffer.getChannelData(0);
+  audioBuffer: { numberOfChannels: number; getChannelData: (ch: number) => Float32Array; length: number } | null | undefined,
+): Float32Array | null {
+  if (
+    !audioBuffer
+    || typeof audioBuffer.getChannelData !== 'function'
+    || !Number.isInteger(audioBuffer.numberOfChannels)
+    || audioBuffer.numberOfChannels < 1
+    || !Number.isFinite(audioBuffer.length)
+    || audioBuffer.length <= 0
+  ) {
+    return null;
   }
-  // Mix to mono
-  const ch0 = audioBuffer.getChannelData(0);
-  const ch1 = audioBuffer.getChannelData(1);
-  const mono = new Float32Array(audioBuffer.length);
-  for (let i = 0; i < mono.length; i++) {
-    mono[i] = (ch0[i] + ch1[i]) * 0.5;
+  try {
+    const ch0 = audioBuffer.getChannelData(0);
+    if (!(ch0 instanceof Float32Array) || ch0.length === 0) return null;
+    if (audioBuffer.numberOfChannels === 1) {
+      return ch0.subarray(0, Math.min(audioBuffer.length, ch0.length));
+    }
+    const ch1 = audioBuffer.getChannelData(1);
+    if (!(ch1 instanceof Float32Array) || ch1.length === 0) return null;
+    const length = Math.min(audioBuffer.length, ch0.length, ch1.length);
+    if (length <= 0) return null;
+    const mono = new Float32Array(length);
+    for (let i = 0; i < length; i++) {
+      mono[i] = (ch0[i] + ch1[i]) * 0.5;
+    }
+    return mono;
+  } catch {
+    return null;
   }
-  return mono;
 }
 
 // ─── Step 1: Multi-Band Spectral Flux ────────────────────────────

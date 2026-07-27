@@ -4,6 +4,7 @@ import { Types } from "mongoose";
 import { parseISO, isValid } from "date-fns";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosCampaign, { type CalosCadenceRule } from "@/schemas/calos-campaign";
+import CalosDeliverable from "@/schemas/calos-deliverable";
 import { proposeCadenceCards } from "@/lib/calos/cadence";
 import { persistDraftDeliverables } from "@/lib/calos/persist-deliverables";
 import { calosScope } from "@/lib/calos/scope";
@@ -67,8 +68,30 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Fill GAPS, not duplicates. Skip any (platform, day) this campaign already has a card for, so
+    // running Auto-fill after AI-plan (or twice) tops up empty slots instead of piling on repeats.
+    const existing = await CalosDeliverable.find({
+      ...calosScope({ userId, orgId }, brandId),
+      campaignId,
+      deletedAt: null,
+    })
+      .select("platform plannedDates")
+      .lean<Array<{ platform?: string; plannedDates?: string[] }>>();
+    const taken = new Set(
+      existing.flatMap((d) =>
+        (d.plannedDates ?? []).map((iso) => `${d.platform ?? "generic"}|${iso.slice(0, 10)}`),
+      ),
+    );
+    const fresh = proposals.filter((p) => !taken.has(`${p.platform}|${p.date.slice(0, 10)}`));
+    if (fresh.length === 0) {
+      return NextResponse.json({
+        created: 0,
+        note: "This cadence is already on the calendar for that range — nothing new to add.",
+      });
+    }
+
     const created = await persistDraftDeliverables(
-      proposals.map((p) => ({ ...p, campaignId })),
+      fresh.map((p) => ({ ...p, campaignId })),
       { userId, brandId, orgId },
     );
     return NextResponse.json({ created }, { status: 201 });

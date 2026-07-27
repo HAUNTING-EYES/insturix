@@ -117,14 +117,25 @@ export function Seg<T extends string>({ opts, val, on }: { opts: Array<[T, strin
 
 /** Upload drop-zone. `busy` shows an uploading state; `filled` = has an asset. */
 export function Drop({
-  label, big, filled, busy, onClick,
+  label, big, filled, busy, onClick, imageUrl,
 }: {
-  label: string; big?: boolean; filled?: boolean; busy?: boolean; onClick?: () => void;
+  label: string; big?: boolean; filled?: boolean; busy?: boolean; onClick?: () => void; imageUrl?: string;
 }) {
+  const showThumb = Boolean(filled && imageUrl && !busy);
   return (
-    <button className="av-fr" onClick={onClick} disabled={busy} style={{ cursor: busy ? 'wait' : 'pointer', width: '100%', height: big ? 180 : 92, borderRadius: 10, border: `1.5px dashed ${filled ? C.gold : C.bs}`, background: filled ? 'rgba(212,166,82,.05)' : C.bg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: filled ? C.gold : C.muted }}>
-      <span style={{ fontSize: big ? 26 : 18 }}>{busy ? '…' : filled ? '✓' : '↥'}</span>
-      <Mono s={9} c={filled ? C.gold : C.muted}>{busy ? 'Uploading' : filled ? 'Uploaded' : label}</Mono>
+    <button className="av-fr" onClick={onClick} disabled={busy} style={{ position: 'relative', overflow: 'hidden', cursor: busy ? 'wait' : 'pointer', width: '100%', height: big ? 180 : 92, borderRadius: 10, border: `1.5px dashed ${filled ? C.gold : C.bs}`, background: filled ? 'rgba(212,166,82,.05)' : C.bg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: filled ? C.gold : C.muted }}>
+      {showThumb ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={imageUrl} alt={`${label} preview`} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+          <span style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 5 }}>✓ Replace</span>
+        </>
+      ) : (
+        <>
+          <span style={{ fontSize: big ? 26 : 18 }}>{busy ? '…' : filled ? '✓' : '↥'}</span>
+          <Mono s={9} c={filled ? C.gold : C.muted}>{busy ? 'Uploading' : filled ? 'Uploaded' : label}</Mono>
+        </>
+      )}
     </button>
   );
 }

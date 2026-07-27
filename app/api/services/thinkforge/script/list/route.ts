@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  * POST /api/services/thinkforge/script/list { sessionId }
  */
 export async function GET(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -24,7 +24,12 @@ export async function GET(req: Request) {
   }
 
   try {
-    const scripts = await db.listScripts(sessionId);
+    const session = await db.getSession(sessionId, userId, orgId);
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    const scripts = await db.listScripts(session._id);
     return NextResponse.json({ scripts });
   } catch (error: any) {
     console.error('Error listing scripts:', error);
@@ -36,7 +41,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -54,7 +59,12 @@ export async function POST(req: Request) {
   }
 
   try {
-    const scripts = await db.listScripts(sessionId);
+    const session = await db.getSession(sessionId, userId, orgId);
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    const scripts = await db.listScripts(session._id);
     return NextResponse.json({ scripts });
   } catch (error: any) {
     console.error('Error listing scripts:', error);

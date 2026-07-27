@@ -1,9 +1,9 @@
 /**
- * Avatar composition stage: turn the raw OmniHuman face video into a finished,
+ * Avatar composition stage: turn the raw avatar face video into a finished,
  * Editron-owned MP4 by rendering it through the existing Remotion Lambda pipeline
  * (the same `renderMediaOnLambda` path the editor's /cloudrun/render route uses).
  *
- * MVP: one full-frame video overlay. OmniHuman output already has the spoken audio
+ * MVP: one full-frame video overlay. the face model output already has the spoken audio
  * muxed in (hasNativeAudio), so no separate audio track is needed yet. Background,
  * captions, and product overlays are the next visual pass, not this slice.
  *
@@ -31,8 +31,26 @@ interface AvatarVideoOverlay {
   isDragging: boolean;
   rotation: number;
   hasNativeAudio: boolean;
+  keyframeTracks?: AvatarKeyframeTrack[];
   styles: { objectFit: 'cover' };
 }
+
+// Mirrors Keyframe/KeyframeTrack in the editor's types.ts. The composition renderer
+// (layer.tsx → evaluateAllTracks) interpolates these per frame and applies `scale`
+// as a transform about center, `x`/`y` as absolute position — so camera moves are
+// deterministic and drift-free (the model animates the person, Remotion the camera).
+interface AvatarKeyframe {
+  frame: number;
+  value: number;
+  easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+}
+
+interface AvatarKeyframeTrack {
+  property: 'x' | 'y' | 'scale' | 'opacity' | 'rotation';
+  keyframes: AvatarKeyframe[];
+}
+
+export type AvatarCameraMove = 'static' | 'push_in' | 'pull_out';
 
 interface AvatarTextOverlay {
   id: number;
@@ -80,6 +98,7 @@ export interface AvatarCompositionInput {
   resolution: string; // '720p' | '1080p'
   displayName?: string;
   script?: string;
+  cameraMove?: AvatarCameraMove;
 }
 
 export interface AvatarCompositionRenderProps {
@@ -111,6 +130,7 @@ export function buildAvatarCompositionProps(input: AvatarCompositionInput): Avat
   const fps = FPS;
   const durationInFrames = Math.max(1, Math.round(input.durationSeconds * fps));
   const { width, height } = compositionDimensions(input.resolution, input.aspectRatio);
+  const cameraTracks = buildCameraKeyframeTracks(input.cameraMove, durationInFrames);
 
   const faceOverlay: AvatarVideoOverlay = {
     id: 1,
@@ -126,7 +146,8 @@ export function buildAvatarCompositionProps(input: AvatarCompositionInput): Avat
     row: 0,
     isDragging: false,
     rotation: 0,
-    hasNativeAudio: true, // OmniHuman muxes the spoken audio into the clip.
+    hasNativeAudio: true, // the face model muxes the spoken audio into the clip.
+    ...(cameraTracks.length ? { keyframeTracks: cameraTracks } : {}),
     styles: { objectFit: 'cover' },
   };
 
@@ -197,6 +218,37 @@ function buildCaptionOverlays(
     frame += dur;
   });
   return overlays;
+}
+
+// Camera moves live in the composition layer, not the model — deterministic and
+// drift-free. A push-in is a `scale` track about center; the clip is full-frame
+// objectFit:cover, so scaling up zooms into the framed subject with no black edges.
+const CAMERA_PUSH_IN_SCALE = 1.06; // subtle slow push-in ← cinematography slow-push range ~5-8%
+
+function buildCameraKeyframeTracks(
+  cameraMove: AvatarCameraMove | undefined,
+  durationInFrames: number,
+): AvatarKeyframeTrack[] {
+  const endFrame = Math.max(1, durationInFrames - 1);
+  switch (cameraMove) {
+    case 'push_in':
+      return [scaleTrack(1, CAMERA_PUSH_IN_SCALE, endFrame)];
+    case 'pull_out':
+      return [scaleTrack(CAMERA_PUSH_IN_SCALE, 1, endFrame)];
+    case 'static':
+    default:
+      return [];
+  }
+}
+
+function scaleTrack(from: number, to: number, endFrame: number): AvatarKeyframeTrack {
+  return {
+    property: 'scale',
+    keyframes: [
+      { frame: 0, value: from, easing: 'ease-in-out' },
+      { frame: endFrame, value: to, easing: 'ease-in-out' },
+    ],
+  };
 }
 
 /** Even-numbered W/H (h264 requires even dimensions) for the target format. */

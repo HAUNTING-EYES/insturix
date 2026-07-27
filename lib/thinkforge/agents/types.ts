@@ -46,6 +46,17 @@ export interface AgentInput {
   userPrompt: string;
   /** Generation mode selector */
   generationMode?: 'manual' | 'playbook' | 'narrative';
+  /** Orchestration-owned identity for deterministic creative regeneration. */
+  generationIdentity?: {
+    variationIndex: number;
+    rejectedIdeas?: Array<{
+      title: string;
+      purpose?: string;
+      style?: string;
+    }>;
+    /** Server-produced quality-gate evidence for one bounded repair attempt. */
+    qualityRepairIssues?: string[];
+  };
 }
 
 /**

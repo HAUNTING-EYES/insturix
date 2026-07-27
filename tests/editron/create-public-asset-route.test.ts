@@ -72,7 +72,7 @@ describe('Editron public asset creation route', () => {
     }));
   });
 
-  it('accepts the bundled stock sound provider without a client userId', async () => {
+  it('rejects bundled stock previews before asset creation', async () => {
     const response = await POST(request({
       publicUrl: 'https://rwxrdxvxndclnqvznxfj.supabase.co/storage/v1/object/public/sounds/sound-1.mp3?t=2024-11-04T03%3A52%3A06.297Z',
       type: 'audio',
@@ -80,12 +80,11 @@ describe('Editron public asset creation route', () => {
       duration: 15,
     }));
 
-    expect(response.status).toBe(200);
-    expect(mocks.createPublicAsset).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'audio',
-      userId: 'user_123',
-      duration: 15,
-    }));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Invalid type. Must be video or image',
+    });
+    expect(mocks.createPublicAsset).not.toHaveBeenCalled();
   });
 
   it('rejects arbitrary external public URLs', async () => {

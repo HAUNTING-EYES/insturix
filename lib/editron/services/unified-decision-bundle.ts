@@ -6,6 +6,19 @@ import { enrichDecisionsWithOverlayTimelineMemory } from './overlay-timeline-mem
 import { resolveSemanticMgLedgerGate } from '@/lib/editron/motion-graphics/engine/semantic-mg-candidates';
 import { normalizeMotionGraphicContent } from './mg-content-atoms';
 import { applyCrossOverlayChoreography, type CrossOverlayChoreographyReport } from './cross-overlay-choreography';
+import type { EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
+import type { EditorialExecutionScope } from '@/lib/editron/data/edit-profile-types';
+import {
+  resolveEditorialDecisionPolicy,
+  type EditorialDecisionPolicy,
+} from './editorial-decision-policy';
+import {
+  resolveEditorialFrequencySelection,
+  type EditorialFrequencyCandidate,
+  type EditorialFrequencyFamily,
+  type EditorialFrequencySelectionEvidence,
+  type EditorialFrequencySelectionReport,
+} from './editorial-frequency-selection';
 
 type LegacyCompatibleDecisionType = ReactiveEditDecision['type'] | 'slow-motion' | 'filter';
 
@@ -423,6 +436,18 @@ export interface UnifiedSignalDecisionAuditReport {
   samples: UnifiedSignalDecisionEvidence[];
 }
 
+export interface UnifiedOverlayTimelineContextDecision {
+  type: ReactiveEditDecision['type'];
+  frame: number;
+  durationFrames?: number;
+  priority: number;
+  source: string;
+  signal: string;
+  reason: string;
+  confidence: number;
+  params?: Record<string, unknown>;
+}
+
 export interface UnifiedDecisionBundleEvidence {
   primaryDecisionCount: number;
   signalDecisionCount: number;
@@ -433,6 +458,8 @@ export interface UnifiedDecisionBundleEvidence {
   evidenceOnlySignalDecisions: UnifiedSignalDecisionEvidence[];
   signalDecisionAudit: UnifiedSignalDecisionAuditReport;
   crossOverlayChoreography?: CrossOverlayChoreographyReport;
+  editorialFrequencySelection?: EditorialFrequencySelectionReport;
+  overlayTimelineContextDecisions?: UnifiedOverlayTimelineContextDecision[];
 }
 
 export interface UnifiedDecisionBundle {
@@ -448,6 +475,7 @@ export interface UnifiedDecisionBundle {
 interface CreateUnifiedDecisionBundleOptions {
   source: UnifiedDecisionCandidateProducer;
   edl: CompatibleEditDecisionList;
+  editorialPreferences?: EditorialPreferences;
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal';
   expectedExecuted?: number;
   expectedSkipped?: number;
@@ -457,6 +485,8 @@ export type UnifiedDecisionProducerCandidate = CreateUnifiedDecisionBundleOption
 
 interface MergeSignalDrivenBundleOptions {
   maxNearFrameWindow?: number;
+  choreographyReservations?: ReactiveEditDecision[];
+  executionScope?: EditorialExecutionScope;
 }
 
 const DEFAULT_MAX_NEAR_FRAME_WINDOW = 24;
@@ -464,8 +494,13 @@ const DEFAULT_MAX_NEAR_FRAME_WINDOW = 24;
 export function createUnifiedDecisionBundle(options: CreateUnifiedDecisionBundleOptions): UnifiedDecisionBundle {
   const rawEdl = normalizeEdl(options.edl);
   const isSignalSource = options.source === 'signal-driven';
-  const primaryLicensing = licensePrimaryProducerDecisions(options.source, rawEdl.decisions);
-  const edl = primaryLicensing.rejectedCount > 0
+  const primaryLicensing = licensePrimaryProducerDecisions(
+    options.source,
+    rawEdl.decisions,
+    options.editorialPreferences,
+  );
+  const overlayTimelineContextDecisions = buildOverlayTimelineContext(rawEdl.decisions);
+  const edl = primaryLicensing.rejectedCount > 0 || options.editorialPreferences
     ? normalizeEdl({ ...rawEdl, decisions: primaryLicensing.decisions })
     : rawEdl;
   const enrichedEdl = isSignalSource
@@ -487,6 +522,7 @@ export function createUnifiedDecisionBundle(options: CreateUnifiedDecisionBundle
       evidenceOnlySignalDecisionCount: primaryLicensing.rejectedCount,
       evidenceOnlySignalDecisions: primaryLicensing.evidenceOnlyDecisions,
       signalDecisionAudit: primaryLicensing.signalDecisionAudit,
+      overlayTimelineContextDecisions,
     },
   };
 }
@@ -589,43 +625,58 @@ function sourceAuthorityForPlannerCandidate(
 function licensePrimaryProducerDecisions(
   source: UnifiedDecisionCandidateProducer,
   decisions: ReactiveEditDecision[],
+  editorialPreferences?: EditorialPreferences,
 ): {
   decisions: ReactiveEditDecision[];
   rejectedCount: number;
   evidenceOnlyDecisions: UnifiedSignalDecisionEvidence[];
   signalDecisionAudit: UnifiedSignalDecisionAuditReport;
 } {
-  if (source !== 'creative-brief') {
-    return {
-      decisions,
-      rejectedCount: 0,
-      evidenceOnlyDecisions: [],
-      signalDecisionAudit: createEmptySignalDecisionAudit(),
-    };
-  }
-
   const audit = createSignalDecisionAuditBuilder(createEmptySignalDecisionAudit());
   const accepted: ReactiveEditDecision[] = [];
   const evidenceOnlyDecisions: UnifiedSignalDecisionEvidence[] = [];
 
   for (const decision of decisions) {
-    const license = resolvePrimaryCreativeDecisionLicense(decision, {
-      requireFamilyAtoms: isCreativeBriefFamilyCandidate(decision),
-    });
-    if (license.executable) {
-      accepted.push(decision);
+    const editorialPolicy = resolveEditorialDecisionPolicy(
+      editorialPreferences,
+      familyForSignalDecision(decision),
+    );
+    if (!editorialPolicy.executionAllowed) {
+      recordSignalDecisionAudit(audit, decision, 'evidence-only', editorialPolicy.reason);
+      if (evidenceOnlyDecisions.length < SIGNAL_EVIDENCE_DETAIL_LIMIT) {
+        evidenceOnlyDecisions.push(summarizeSignalDecisionEvidence(
+          decision,
+          normalizeSignalExecutionCandidate(decision),
+          'evidence-only',
+          editorialPolicy.reason,
+        ));
+      }
       continue;
     }
 
-    const reasonPrefix = decision.type === 'graphic'
+    const policyDecision = stampEditorialPolicyDecision(decision, editorialPolicy);
+    if (source !== 'creative-brief') {
+      accepted.push(policyDecision);
+      continue;
+    }
+
+    const license = resolvePrimaryCreativeDecisionLicense(policyDecision, {
+      requireFamilyAtoms: isCreativeBriefFamilyCandidate(policyDecision),
+    });
+    if (license.executable) {
+      accepted.push(policyDecision);
+      continue;
+    }
+
+    const reasonPrefix = policyDecision.type === 'graphic'
       ? 'primary-graphic-unlicensed'
       : 'primary-family-unlicensed';
-    const reason = `${reasonPrefix}:${license.reason}`;
-    recordSignalDecisionAudit(audit, decision, 'evidence-only', reason);
+    const reason = reasonPrefix + ':' + license.reason;
+    recordSignalDecisionAudit(audit, policyDecision, 'evidence-only', reason);
     if (evidenceOnlyDecisions.length < SIGNAL_EVIDENCE_DETAIL_LIMIT) {
       evidenceOnlyDecisions.push(summarizeSignalDecisionEvidence(
-        decision,
-        normalizeSignalExecutionCandidate(decision),
+        policyDecision,
+        normalizeSignalExecutionCandidate(policyDecision),
         'evidence-only',
         reason,
       ));
@@ -698,7 +749,11 @@ export function planUnifiedDecisionBundleFromCandidates(
   if (candidates.length === 0) return null;
 
   const producerSet = new Set(candidates.map((candidate) => candidate.source));
-  if (producerSet.has('signal-driven')) {
+  if (
+    producerSet.has('signal-driven')
+    || (options.choreographyReservations?.length ?? 0) > 0
+    || options.executionScope !== undefined
+  ) {
     return planUnifiedDecisionBundleFromRankedCandidates(candidates, options);
   }
 
@@ -715,36 +770,59 @@ function planUnifiedDecisionBundleFromRankedCandidates(
 ): UnifiedDecisionBundle {
   const maxNearFrameWindow = options.maxNearFrameWindow ?? DEFAULT_MAX_NEAR_FRAME_WINDOW;
   const orderedProducerCandidates = orderProducerCandidates(candidates);
+  const editorialPreferences = orderedProducerCandidates
+    .find((candidate) => candidate.editorialPreferences)?.editorialPreferences;
   const creativeDecisions = orderedProducerCandidates
     .filter((candidate) => candidate.source === 'creative-brief')
     .flatMap((candidate) => normalizeEdl(candidate.edl).decisions);
   const rawSignalDecisions = orderedProducerCandidates
     .filter((candidate) => candidate.source === 'signal-driven')
     .flatMap((candidate) => normalizeEdl(candidate.edl).decisions);
-  const signalDecisions = enrichDecisionsWithOverlayTimelineMemory(rawSignalDecisions, creativeDecisions);
+  const choreographyReservations = options.choreographyReservations ?? [];
+  const signalDecisions = enrichDecisionsWithOverlayTimelineMemory(
+    rawSignalDecisions,
+    [...creativeDecisions, ...choreographyReservations],
+  );
+  const overlayTimelineContextDecisions = buildOverlayTimelineContext([
+    ...creativeDecisions,
+    ...signalDecisions,
+    ...choreographyReservations,
+  ]);
   const signalExecutionBudgets = buildSignalExecutionBudgets(signalDecisions);
   const signalDecisionAudit = createSignalDecisionAuditBuilder(createEmptySignalDecisionAudit());
   const evidenceOnlySignalDecisions: UnifiedSignalDecisionEvidence[] = [];
-  const selectedEntries: PlannedDecision[] = [];
+  const selectedEntries: RankedPlannedDecision[] = [];
   let validatedDecisionCount = 0;
   let suppressedSignalDuplicateCount = 0;
   let evidenceOnlySignalDecisionCount = 0;
 
-  const plannerEntries = [
-    ...creativeDecisions.map((decision) => toPlannedDecision({ decision, source: 'creative-brief' })),
-    ...signalDecisions.map((decision) => toPlannedDecision({ decision, source: 'signal-driven' })),
+  const plannerEntries: RankedPlannedDecision[] = [
+    ...creativeDecisions.map((decision) => toPlannedDecision({ decision, source: 'creative-brief', editorialPreferences })),
+    ...signalDecisions.map((decision) => toPlannedDecision({ decision, source: 'signal-driven', editorialPreferences })),
   ].sort((a, b) => (
     b.score - a.score
+    || b.editorialPolicy.rankingPriority - a.editorialPolicy.rankingPriority
     || b.decision.confidence - a.decision.confidence
     || a.decision.frame - b.decision.frame
     || producerRank(a.source) - producerRank(b.source)
     || a.decision.type.localeCompare(b.decision.type)
-  ));
+  )).map((entry, index) => ({
+    ...entry,
+    candidateKey: `${decisionSelectionKey(entry.decision)}|${entry.source}|${index}`,
+  }));
+
+  const frequencySelection = buildEditorialFrequencySelectionForPlanner(
+    plannerEntries,
+    maxNearFrameWindow,
+  );
+  const frequencySelectionByCandidateKey = new Map(
+    frequencySelection.selections.map((selection) => [selection.candidateKey, selection]),
+  );
 
   const selectedDecisions = () => selectedEntries.map((entry) => entry.decision);
 
   const keepAsEvidence = (
-    entry: PlannedDecision,
+    entry: RankedPlannedDecision,
     outcome: UnifiedSignalDecisionOutcome,
     reason: string,
   ): void => {
@@ -761,6 +839,28 @@ function planUnifiedDecisionBundleFromRankedCandidates(
   };
 
   for (const entry of plannerEntries) {
+    const executionScopePolicy = resolvePlannerExecutionScopePolicy(
+      entry.editorialPolicy,
+      options.executionScope,
+    );
+    if (!executionScopePolicy.executionAllowed) {
+      keepAsEvidence(entry, 'evidence-only', executionScopePolicy.reason);
+      continue;
+    }
+    if (!entry.editorialPolicy.executionAllowed) {
+      keepAsEvidence(entry, 'evidence-only', entry.editorialPolicy.reason);
+      continue;
+    }
+    const independentLicense = resolveIndependentPlannerLicense(entry);
+    if (!independentLicense.executable) {
+      keepAsEvidence(entry, 'evidence-only', independentLicense.reason);
+      continue;
+    }
+    const editorialFrequency = frequencySelectionByCandidateKey.get(entry.candidateKey);
+    if (editorialFrequency && !editorialFrequency.selected) {
+      keepAsEvidence(entry, 'evidence-only', editorialFrequency.reason);
+      continue;
+    }
     const license = entry.source === 'signal-driven'
       ? resolveSignalExecutionLicense(selectedDecisions(), entry.decision, signalExecutionBudgets)
       : resolvePrimaryCreativeDecisionLicense(entry.decision, { requireFamilyAtoms: true });
@@ -784,11 +884,15 @@ function planUnifiedDecisionBundleFromRankedCandidates(
       continue;
     }
 
+    const policyDecision = stampEditorialFrequencySelectionDecision(
+      stampEditorialPolicyDecision(entry.decision, entry.editorialPolicy),
+      editorialFrequency,
+    );
     selectedEntries.push({
       ...entry,
       decision: entry.source === 'signal-driven'
-        ? markPlannerSelectedSignal(entry.decision, license.reason)
-        : markPlannerSelectedPrimary(entry.decision, license.reason),
+        ? markPlannerSelectedSignal(policyDecision, license.reason)
+        : markPlannerSelectedPrimary(policyDecision, license.reason),
     });
   }
 
@@ -800,7 +904,10 @@ function planUnifiedDecisionBundleFromRankedCandidates(
     selectedEntrySourceByKey.get(decisionSelectionKey(decision))
       ?? (isSignalSourceDecision(decision) ? 'signal-driven' : 'creative-brief')
   );
-  const choreographyResult = applyCrossOverlayChoreography(selectedEntries.map((entry) => entry.decision));
+  const choreographyResult = applyCrossOverlayChoreography(
+    selectedEntries.map((entry) => entry.decision),
+    choreographyReservations,
+  );
 
   for (const suppression of choreographyResult.suppressed) {
     const suppressedProducer = selectedProducerForDecision(suppression.decision);
@@ -858,8 +965,35 @@ function planUnifiedDecisionBundleFromRankedCandidates(
       evidenceOnlySignalDecisions,
       signalDecisionAudit: finalizeSignalDecisionAudit(signalDecisionAudit),
       crossOverlayChoreography: choreographyResult.report,
+      ...(frequencySelection.selections.length > 0
+        ? { editorialFrequencySelection: frequencySelection.report }
+        : {}),
+      overlayTimelineContextDecisions: buildOverlayTimelineContext([
+        ...overlayTimelineContextDecisions,
+        ...choreographyResult.decisions,
+        ...choreographyResult.suppressed.map((suppression) => suppression.decision),
+      ]),
     },
   };
+}
+
+function resolvePlannerExecutionScopePolicy(
+  editorialPolicy: EditorialDecisionPolicy,
+  executionScope?: EditorialExecutionScope,
+): { executionAllowed: boolean; reason: string } {
+  if (!executionScope) {
+    return { executionAllowed: true, reason: 'unscoped-director-run' };
+  }
+  const family = editorialPolicy.editorialFamily;
+  if (!family || family === 'pacing') {
+    return {
+      executionAllowed: false,
+      reason: `execution-scope-unowned:${editorialPolicy.decisionFamily}`,
+    };
+  }
+  return executionScope.families.includes(family)
+    ? { executionAllowed: true, reason: `execution-scope-requested:${family}` }
+    : { executionAllowed: false, reason: `execution-scope-unrequested:${family}` };
 }
 export function mergeSignalDrivenBundle(
   primaryBundle: UnifiedDecisionBundle,
@@ -879,9 +1013,10 @@ export function mergeSignalDrivenBundle(
   }
 
   const maxNearFrameWindow = options.maxNearFrameWindow ?? DEFAULT_MAX_NEAR_FRAME_WINDOW;
+  const overlayTimelineContext = overlayTimelineContextDecisionsForBundle(primaryBundle);
   const signalDecisions = enrichDecisionsWithOverlayTimelineMemory(
     cloneDecisions(signalEdl.decisions),
-    primaryBundle.edl.decisions,
+    overlayTimelineContext,
   );
   const resolvedIncomingProducer = incomingProducer
     ?? inferIncomingProducer(signalDecisions, primaryBundle.source);
@@ -1003,6 +1138,14 @@ export function mergeSignalDrivenBundle(
         ...evidenceOnlySignalDecisions,
       ].slice(0, SIGNAL_EVIDENCE_DETAIL_LIMIT),
       signalDecisionAudit: finalizeSignalDecisionAudit(signalDecisionAudit),
+      ...(primaryBundle.evidence.crossOverlayChoreography
+        ? { crossOverlayChoreography: primaryBundle.evidence.crossOverlayChoreography }
+        : {}),
+      overlayTimelineContextDecisions: buildOverlayTimelineContext([
+        ...overlayTimelineContext,
+        ...signalDecisions,
+        ...mergedEdl.decisions,
+      ]),
     },
   };
 }
@@ -1011,14 +1154,136 @@ type PlannedDecision = {
   decision: ReactiveEditDecision;
   source: UnifiedDecisionCandidateProducer;
   score: number;
+  editorialPolicy: EditorialDecisionPolicy;
 };
 
-function toPlannedDecision(params: { decision: ReactiveEditDecision; source: UnifiedDecisionCandidateProducer }): PlannedDecision {
+type RankedPlannedDecision = PlannedDecision & {
+  candidateKey: string;
+};
+
+function toPlannedDecision(params: {
+  decision: ReactiveEditDecision;
+  source: UnifiedDecisionCandidateProducer;
+  editorialPreferences?: EditorialPreferences;
+}): PlannedDecision {
+  const editorialPolicy = resolveEditorialDecisionPolicy(
+    params.editorialPreferences,
+    familyForSignalDecision(params.decision),
+  );
   return {
     decision: params.decision,
     source: params.source,
     score: scoreUnifiedDecision(params.decision, params.source),
+    editorialPolicy,
   };
+}
+
+function stampEditorialPolicyDecision(
+  decision: ReactiveEditDecision,
+  policy: EditorialDecisionPolicy,
+): ReactiveEditDecision {
+  if (policy.mode !== 'prefer') return decision;
+  return {
+    ...decision,
+    params: {
+      ...decision.params,
+      editorialPreferencePolicy: {
+        version: policy.version,
+        decisionFamily: policy.decisionFamily,
+        editorialFamily: policy.editorialFamily,
+        mode: policy.mode,
+        frequency: policy.frequency,
+        intensity: policy.intensity,
+        source: policy.source,
+        formAuthority: 'family-resolver',
+      },
+    },
+  };
+}
+
+function stampEditorialFrequencySelectionDecision(
+  decision: ReactiveEditDecision,
+  selection: EditorialFrequencySelectionEvidence | undefined,
+): ReactiveEditDecision {
+  if (!selection) return decision;
+  return {
+    ...decision,
+    params: {
+      ...decision.params,
+      editorialFrequencySelection: selection,
+    },
+  };
+}
+
+function buildEditorialFrequencySelectionForPlanner(
+  entries: RankedPlannedDecision[],
+  maxNearFrameWindow: number,
+): ReturnType<typeof resolveEditorialFrequencySelection> {
+  const representatives: Array<{
+    family: EditorialFrequencyFamily;
+    decision: ReactiveEditDecision;
+    opportunityKey: string;
+  }> = [];
+  const frequencyCandidates: EditorialFrequencyCandidate[] = [];
+
+  for (const entry of [...entries].sort((a, b) => (
+    a.decision.frame - b.decision.frame
+    || a.candidateKey.localeCompare(b.candidateKey)
+  ))) {
+    const family = toEditorialFrequencyFamily(entry.editorialPolicy);
+    if (!family || entry.editorialPolicy.frequency === null) continue;
+    if (!resolveIndependentPlannerLicense(entry).executable) continue;
+
+    const representativeIndex = representatives.findIndex((representative) => (
+      representative.family === family
+      && findNearEquivalentDecisionIndex(
+        [representative.decision],
+        entry.decision,
+        maxNearFrameWindow,
+      ) === 0
+    ));
+    const opportunityKey = representativeIndex >= 0
+      ? representatives[representativeIndex].opportunityKey
+      : `${family}|${entry.decision.type}|${entry.decision.frame}|${representatives.length}`;
+
+    if (representativeIndex < 0) {
+      representatives.push({ family, decision: entry.decision, opportunityKey });
+    }
+    frequencyCandidates.push({
+      candidateKey: entry.candidateKey,
+      opportunityKey,
+      family,
+      score: entry.score,
+      frame: entry.decision.frame,
+      requestedFrequency: entry.editorialPolicy.frequency,
+    });
+  }
+
+  return resolveEditorialFrequencySelection(frequencyCandidates);
+}
+
+function resolveIndependentPlannerLicense(
+  entry: PlannedDecision,
+): { executable: boolean; reason: string } {
+  return entry.source === 'signal-driven'
+    ? resolveSignalIndependentExecutionLicense(entry.decision)
+    : resolvePrimaryCreativeDecisionLicense(entry.decision, { requireFamilyAtoms: true });
+}
+
+function toEditorialFrequencyFamily(
+  policy: EditorialDecisionPolicy,
+): EditorialFrequencyFamily | null {
+  if (policy.mode !== 'prefer' || policy.frequency === null) return null;
+  switch (policy.editorialFamily) {
+    case 'captions':
+    case 'motionGraphics':
+    case 'zoom':
+    case 'transitions':
+    case 'sfx':
+      return policy.editorialFamily;
+    default:
+      return null;
+  }
 }
 
 function scoreUnifiedDecision(
@@ -1094,6 +1359,7 @@ const SIGNAL_EVIDENCE_DETAIL_LIMIT = 64;
 const SIGNAL_AUDIT_SAMPLE_LIMIT = 128;
 const SIGNAL_AUDIT_FRAME_SAMPLE_LIMIT = 12;
 const SIGNAL_AUDIT_CANDIDATE_LIMIT = 256;
+const OVERLAY_TIMELINE_CONTEXT_LIMIT = 256;
 const FPS = 30;
 const MIN_BUDGET_WINDOW_MINUTES = 0.25;
 const SIGNAL_EXECUTION_MIN_CONFIDENCE: Partial<Record<ReactiveEditDecision['type'], number>> = {
@@ -1163,6 +1429,79 @@ const SIGNAL_EVIDENCE_PARAM_KEYS = new Set([
   'transType',
   'type',
 ]);
+const OVERLAY_TIMELINE_CONTEXT_PARAM_KEYS = new Set([
+  'anchorFrame',
+  'beatFrame',
+  'boundaryFrame',
+  'motionVectorX',
+  'motionVectorY',
+  'semanticRole',
+  'sfxType',
+  'transitionType',
+  'type',
+  'visual_motion_x',
+  'visual_motion_y',
+]);
+
+function overlayTimelineContextDecisionsForBundle(bundle: UnifiedDecisionBundle): ReactiveEditDecision[] {
+  const context = bundle.evidence.overlayTimelineContextDecisions;
+  if (context?.length) return cloneDecisions(context);
+  return cloneDecisions(bundle.edl.decisions);
+}
+
+function buildOverlayTimelineContext(
+  decisions: Array<ReactiveEditDecision | UnifiedOverlayTimelineContextDecision>,
+): UnifiedOverlayTimelineContextDecision[] {
+  const seen = new Set<string>();
+  const context: UnifiedOverlayTimelineContextDecision[] = [];
+  for (const decision of [...decisions].sort((a, b) => a.frame - b.frame || a.type.localeCompare(b.type))) {
+    const summary = summarizeOverlayTimelineContextDecision(decision);
+    const key = [summary.type, summary.frame, summary.durationFrames ?? 1, summary.source, summary.signal].join(':');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    context.push(summary);
+    if (context.length >= OVERLAY_TIMELINE_CONTEXT_LIMIT) break;
+  }
+  return context;
+}
+
+function summarizeOverlayTimelineContextDecision(
+  decision: ReactiveEditDecision | UnifiedOverlayTimelineContextDecision,
+): UnifiedOverlayTimelineContextDecision {
+  const params = compactOverlayTimelineContextParams(decision.params ?? {});
+  return {
+    type: decision.type,
+    frame: decision.frame,
+    durationFrames: Math.max(1, decision.durationFrames ?? 1),
+    priority: decision.priority,
+    source: decision.source,
+    signal: decision.signal,
+    reason: decision.reason,
+    confidence: decision.confidence,
+    ...(params ? { params } : {}),
+  };
+}
+
+function compactOverlayTimelineContextParams(params: Record<string, unknown>): Record<string, unknown> | undefined {
+  const compact: Record<string, unknown> = {};
+  copyOverlayTimelineContextParams(compact, params);
+  const signals = recordParam(params.signals);
+  if (signals) {
+    const compactSignals: Record<string, unknown> = {};
+    copyOverlayTimelineContextParams(compactSignals, signals);
+    if (Object.keys(compactSignals).length > 0) {
+      compact.signals = compactSignals;
+    }
+  }
+  return Object.keys(compact).length > 0 ? compact : undefined;
+}
+
+function copyOverlayTimelineContextParams(target: Record<string, unknown>, source: Record<string, unknown>): void {
+  for (const key of OVERLAY_TIMELINE_CONTEXT_PARAM_KEYS) {
+    const value = primitiveSignalValue(source[key]);
+    if (value !== undefined) target[key] = value;
+  }
+}
 
 type MutableSignalDecisionAuditBucket = UnifiedSignalDecisionAuditBucket & {
   confidenceSum: number;
@@ -3782,27 +4121,8 @@ function resolveSignalExecutionLicense(
   signalDecision: ReactiveEditDecision,
   budgets: Partial<Record<ReactiveEditDecision['type'], number>>,
 ): { executable: boolean; reason: string } {
-  const candidate = normalizeSignalExecutionCandidate(signalDecision);
-  const minConfidence = SIGNAL_EXECUTION_MIN_CONFIDENCE[signalDecision.type];
-  if (minConfidence === undefined) {
-    return { executable: false, reason: 'unsupported-signal-decision-type' };
-  }
-
-  if (candidate.confidence < minConfidence) {
-    return { executable: false, reason: 'below-signal-confidence-floor' };
-  }
-
-  if (signalDecision.type === 'sfx' || signalDecision.type === 'sfx-trigger') {
-    const sfxType = normalizeParamString(signalDecision.params.sfxType ?? signalDecision.params.type);
-    if (!sfxType || sfxType === 'none') {
-      return { executable: false, reason: 'missing-sfx-intent' };
-    }
-  }
-
-  const familyLicense = resolveFamilyExecutionLicense(signalDecision);
-  if (!familyLicense.executable) {
-    return familyLicense;
-  }
+  const independentLicense = resolveSignalIndependentExecutionLicense(signalDecision);
+  if (!independentLicense.executable) return independentLicense;
 
   const budget = budgets[signalDecision.type] ?? 0;
   const executableCountForType = mergedDecisions
@@ -3821,7 +4141,45 @@ function resolveSignalExecutionLicense(
     return { executable: false, reason: 'nearby-executable-same-type' };
   }
 
-  return familyLicense;
+  return independentLicense;
+}
+
+function resolveSignalIndependentExecutionLicense(
+  signalDecision: ReactiveEditDecision,
+): { executable: boolean; reason: string } {
+  const candidate = normalizeSignalExecutionCandidate(signalDecision);
+  const minConfidence = SIGNAL_EXECUTION_MIN_CONFIDENCE[signalDecision.type];
+  if (minConfidence === undefined) {
+    return { executable: false, reason: 'unsupported-signal-decision-type' };
+  }
+
+  // A narrative beat is a grounded opportunity for the MG designer, not a confidence-ranked render command.
+  // Its transcript span and semantic ledger license it into planning; the design pre-pass remains the only
+  // authority that can turn the opportunity into a generated MG.
+  if (isGroundedNarrativeMgOpportunity(signalDecision)) {
+    return { executable: true, reason: 'licensed-grounded-narrative-mg-opportunity' };
+  }
+
+  if (candidate.confidence < minConfidence) {
+    return { executable: false, reason: 'below-signal-confidence-floor' };
+  }
+
+  if (signalDecision.type === 'sfx' || signalDecision.type === 'sfx-trigger') {
+    const sfxType = normalizeParamString(signalDecision.params.sfxType ?? signalDecision.params.type);
+    if (!sfxType || sfxType === 'none') {
+      return { executable: false, reason: 'missing-sfx-intent' };
+    }
+  }
+
+  return resolveFamilyExecutionLicense(signalDecision);
+}
+
+function isGroundedNarrativeMgOpportunity(decision: ReactiveEditDecision): boolean {
+  if (decision.type !== 'graphic' || decision.source !== 'narrative-beat-producer:p3.5') return false;
+  const normalized = normalizeMotionGraphicContent(decision.params ?? {});
+  const gate = resolveSemanticMgLedgerGate(normalized.semanticMgCandidateLedger);
+  return gate.allow
+    && normalized.semanticMgCandidateLedger.candidates.some((candidate) => candidate.factKind === 'narrative');
 }
 
 function resolveFamilyExecutionLicense(

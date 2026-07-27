@@ -19,10 +19,10 @@
 
 import { getDatabase, COLLECTIONS } from '../db/mongodb';
 import { deleteFromGCS } from './gcs-service';
-import { deleteFromR2 } from './r2-service';
+import { deleteFromR2, deleteR2Prefix } from './r2-service';
 import { recordStorageUsage, type StorageOwner } from '@/lib/services/storage-quota-service';
 import { bytesToFree, ownerAssetFilter } from './storage-eviction-policy';
-import type { MediaAsset } from './asset-resolver';
+import type { StoredMediaAsset } from './asset-resolver';
 
 export interface MakeRoomResult {
   /** Bytes actually reclaimed. */
@@ -45,8 +45,11 @@ async function projectReferencedAssetIds(db: any, candidateIds: string[]): Promi
 }
 
 /** Delete the underlying bytes (GCS or R2). Throws on failure so the caller can skip the doc. */
-async function deleteAssetBytes(a: MediaAsset): Promise<void> {
-  if (a.gcsPath) {
+async function deleteAssetBytes(a: StoredMediaAsset): Promise<void> {
+  if (a.type === 'sequence') {
+    if (!a.r2Prefix) throw new Error(`Sequence asset ${a.assetId} is missing r2Prefix`);
+    await deleteR2Prefix(a.r2Prefix);
+  } else if (a.gcsPath) {
     await deleteFromGCS(a.gcsPath);
   } else if (a.r2Key) {
     await deleteFromR2(a.r2Key);
@@ -72,13 +75,13 @@ export async function makeRoomForUpload(
   }
 
   const db = await getDatabase();
-  // LRU candidates: this owner's user-uploads, not pinned, least-recently-used first
+  // LRU candidates: this owner's uploads/generated artifacts, not pinned, least-recently-used first
   // (tiebreak: oldest upload). Public/stock assets and pinned assets are excluded.
   const candidates = (await db
     .collection(COLLECTIONS.MEDIA_ASSETS)
-    .find({ ...ownerAssetFilter(owner), source: 'user-upload', pinned: { $ne: true } })
+    .find({ ...ownerAssetFilter(owner), source: { $in: ['user-upload', 'generated'] }, pinned: { $ne: true } })
     .sort({ lastUsedAt: 1, uploadedAt: 1 })
-    .toArray()) as unknown as MediaAsset[];
+    .toArray()) as unknown as StoredMediaAsset[];
 
   const protectedIds = await projectReferencedAssetIds(db, candidates.map((c) => c.assetId));
 

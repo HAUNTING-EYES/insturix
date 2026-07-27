@@ -150,6 +150,86 @@ export const TRANSITION_SOUND_PAIRING: Record<string, string> = {
   'match-cut': 'sustained tone or silence',
 };
 
+// ─── Sequencing / Ordering Moves (narrative-ordering lane) ──────
+
+/**
+ * SEQUENCING_MOVES — how to ORDER clips into a narrative. This is the layer the
+ * PACING / TRANSITIONS / COLOR / SOUND menus above do NOT cover: those say how to
+ * CUT and DECORATE a timeline; this says which clip opens, what builds, and how one
+ * clip should follow another.
+ *
+ * Same philosophy as the rest of the doc (see file header): "No rules — only menus
+ * of techniques with honest descriptions of their emotional effects. The LLM selects
+ * based on script intent, not by following rules." These are PRIORS the ordering LLM
+ * leans on, not a fixed template and NOT a named-arc menu the user picks.
+ *
+ * `signalsFor` names the EDITING signals (creative-knowledge-graph.json:
+ * signal:entity.* / signal:composite.* / signal:structural.* / signal:speech.*) that
+ * make each move appropriate — all verified to exist. Consumed by the narrative-ordering
+ * pass in lib/editron/storyline (ordering-plan.ts), which validates its output against
+ * hard contracts (source-order coherence, budget, hook-first). Nothing here is forced.
+ *
+ * NOTE on narrative phase: signal:entity.narrative_phase is position-computed today
+ * (first 15% = opening … final 15% = closing). The ordering LLM derives a clip's phase
+ * from its CONTENT, not its position, so these moves reason about phase semantically.
+ */
+export const SEQUENCING_MOVES = {
+  'hook-first': {
+    effect: 'Open on the strongest moment (a claim, a question, a peak), not the chronological start. Buys attention before context.',
+    signalsFor: [
+      'entity_narrative_phase: opening or climax',
+      'entity_rhetorical_question',
+      'high composite_narrative_pressure',
+      'high speech_energy',
+    ],
+    whenNotTo: 'Slow-burn / meditative content where a cold open breaks the mood (asmr-relaxation, k-drama-emotional).',
+  },
+  'therefore-but-join': {
+    effect: 'Each clip should follow the last by consequence ("therefore") or reversal ("but"), never mere sequence ("and then"). Consequence/reversal is what makes an order feel like a story instead of a list.',
+    signalsFor: [
+      'entity_topic_boundary (a shift wants a but/therefore, not a smash)',
+      'entity_claim_strength change',
+    ],
+    whenNotTo: 'Deliberate montage (composite_montage_mode) where rhythm, not logic, drives the sequence.',
+  },
+  'setup-before-payoff': {
+    effect: 'A payoff clip must come AFTER its setup; a raised question must be answered later; never show a conclusion whose premise the viewer has not seen.',
+    signalsFor: [
+      'entity_rhetorical_question -> its later answer',
+      'entity_topic_boundary recurrence (a topic reintroduced pays off its earlier setup)',
+    ],
+    whenNotTo: 'In-medias-res openings that intentionally withhold, then backfill — allowed, but the backfill must still arrive.',
+  },
+  'group-by-topic': {
+    effect: 'Keep clips about one idea adjacent so the argument builds, instead of scattering a topic across the timeline.',
+    signalsFor: [
+      'entity_topic_boundary',
+      'composite_narrative_pressure clusters toward the peak',
+    ],
+    whenNotTo: 'Contrast/parallel edits where interleaving two topics IS the point.',
+  },
+  'pacing-variation': {
+    effect: 'Vary intensity across the sequence — build toward a peak, then release. Do not stack all high-energy or all low-energy clips.',
+    signalsFor: [
+      'speech_energy_delta',
+      'composite_movement_phrase_phase',
+      'entity_narrative_phase: build -> climax -> resolve',
+    ],
+    whenNotTo: 'Sustained-tone formats (asmr, meditative) where flatness is intended.',
+  },
+  'end-on-resolution': {
+    effect: 'Close on the payoff / resolution the sequence built toward (and the CTA if present) — not a limp filler shot.',
+    signalsFor: [
+      'entity_cta + structural_position_in_video > 0.8',
+      'entity_narrative_phase: resolve | cta | closing',
+    ],
+    whenNotTo: 'Loop-optimized short-form where the end feeds back to the start.',
+  },
+} as const;
+
+/** Stable ids of the ordering moves — lets the composer key/validate against the menu type-safely. */
+export type SequencingMove = keyof typeof SEQUENCING_MOVES;
+
 // ─── Prompt Text Export ──────────────────────────────────────────
 
 /**

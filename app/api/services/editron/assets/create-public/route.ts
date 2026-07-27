@@ -2,10 +2,9 @@ import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
 
-type PublicAssetType = 'video' | 'audio' | 'image';
+type PublicAssetType = 'video' | 'image';
 
-const PUBLIC_ASSET_TYPES = new Set<PublicAssetType>(['video', 'audio', 'image']);
-const STOCK_SOUND_HOST = 'rwxrdxvxndclnqvznxfj.supabase.co';
+const PUBLIC_ASSET_TYPES = new Set<PublicAssetType>(['video', 'image']);
 const MAX_FILENAME_LENGTH = 160;
 const MAX_DURATION_SECONDS = 6 * 60 * 60;
 const MAX_DIMENSION = 8192;
@@ -31,10 +30,6 @@ function normalizePublicAssetUrl(value: unknown, type: PublicAssetType): string 
     }
 
     if (type === 'image' && host === 'images.pexels.com') {
-      return url.toString();
-    }
-
-    if (type === 'audio' && host === STOCK_SOUND_HOST && url.pathname.startsWith('/storage/v1/object/public/sounds/')) {
       return url.toString();
     }
   } catch {
@@ -120,7 +115,7 @@ export async function POST(request: Request) {
     const input = body as Record<string, unknown>;
     const { type } = input;
     if (!isPublicAssetType(type)) {
-      return NextResponse.json({ error: 'Invalid type. Must be video, audio, or image' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid type. Must be video or image' }, { status: 400 });
     }
 
     const publicUrl = normalizePublicAssetUrl(input.publicUrl, type);

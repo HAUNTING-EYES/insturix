@@ -343,4 +343,31 @@ describe('V-JEPA coverage audit', () => {
     expect(summary.maxGapMs).toBe(2_000);
     expect(summary.coverageRatio).toBe(0.5);
   });
+
+  it('uses only V-JEPA-eligible video duration for a canonical mixed-media timeline', () => {
+    const audit = auditVjepaCoverage({
+      fps: 30,
+      originalDurationMs: 28_500,
+      eligibleDurationMs: 24_500,
+      vjepaSegments: [
+        {
+          startMs: 0,
+          endMs: 24_500,
+          visualSignificance: 0.5,
+          motionIntensity: 0.4,
+          actionType: 'other',
+          motionType: 'stable',
+        },
+      ],
+      overlays: [
+        { id: 'video', type: 'video', from: 0, durationInFrames: 735, sourceStartFrame: 0 },
+        { id: 'still', type: 'image', from: 735, durationInFrames: 120 },
+      ],
+    });
+
+    expect(audit.expectedDurationMs).toBe(24_500);
+    expect(audit.durationBasis).toBe('vjepa-eligible-video-timeline');
+    expect(audit.segmentCoverage.coverageRatio).toBe(1);
+    expect(audit.issues).not.toContain('warn:low-vjepa-duration-coverage:86%');
+  });
 });

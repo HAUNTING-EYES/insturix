@@ -10,6 +10,7 @@ import type { ScriptPayload } from '../schemas/route-validation';
 export interface ScriptOperation {
   sessionId: string;
   userId: string;
+  orgId?: string | null;
   action: 'get' | 'save' | 'update';
   scriptId?: string;
   baseVersion?: number;
@@ -20,11 +21,16 @@ export interface ScriptOperation {
  * Execute script operation
  */
 export async function executeScriptOperation(operation: ScriptOperation): Promise<Script | null> {
-  const { sessionId, action, script, scriptId, userId, baseVersion } = operation;
+  const { sessionId, action, script, scriptId, userId, orgId, baseVersion } = operation;
+  const session = await db.getSession(sessionId, userId, orgId);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+  const canonicalSessionId = session._id;
   
   switch (action) {
     case 'get':
-      return await db.getScript(sessionId, scriptId || null);
+      return await db.getScript(canonicalSessionId, scriptId || null);
     
     case 'save':
       if (!script) {
@@ -33,7 +39,7 @@ export async function executeScriptOperation(operation: ScriptOperation): Promis
       {
         const result = await applyCommand({
           type: 'ReplaceDocument',
-          sessionId,
+          sessionId: canonicalSessionId,
           baseVersion: typeof baseVersion === 'number' ? baseVersion : 0,
           source: 'user',
           payload: {
@@ -41,9 +47,11 @@ export async function executeScriptOperation(operation: ScriptOperation): Promis
             title: script.title || 'Untitled Script',
             content: script.content || '',
             blocks: script.blocks || [],
-            richText: script.richText
+            richText: script.richText,
+            documentType: script.documentType,
+            contentContract: script.contentContract,
           }
-        }, userId);
+        }, userId, orgId);
         if (!result.ok) {
           throw new Error(result.error);
         }
@@ -57,7 +65,7 @@ export async function executeScriptOperation(operation: ScriptOperation): Promis
       {
         const result = await applyCommand({
           type: 'ReplaceDocument',
-          sessionId,
+          sessionId: canonicalSessionId,
           baseVersion: typeof baseVersion === 'number' ? baseVersion : 0,
           source: 'user',
           payload: {
@@ -65,9 +73,11 @@ export async function executeScriptOperation(operation: ScriptOperation): Promis
             title: script.title || 'Untitled Script',
             content: script.content || '',
             blocks: script.blocks || [],
-            richText: script.richText
+            richText: script.richText,
+            documentType: script.documentType,
+            contentContract: script.contentContract,
           }
-        }, userId);
+        }, userId, orgId);
         if (!result.ok) {
           throw new Error(result.error);
         }

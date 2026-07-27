@@ -12,12 +12,22 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
-import { generateBackgroundMusic, buildMusicPrompt } from '@/lib/pipeline/bgm-service';
+import { generateBackgroundMusic } from '@/lib/pipeline/bgm-service';
+import {
+  assertConditionedBGMResult,
+  resolveAudioPlatformEvidence,
+  resolveMusicGenerationPolicy,
+} from '@/lib/pipeline/bgm-conditioning-contract';
 import { ROW, alignCutsToBeats } from '@/lib/pipeline/scene-to-editron';
 import { generateSFXForScenes } from '@/lib/pipeline/sfx-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { createPipelineWarnings } from '@/lib/editron/services/pipeline-warnings';
-import { analyzeBeatsFull } from '@/lib/editron/services/media/beat-detection-service';
+import { DEFAULT_BGM_MIX_LEVELS } from '@/lib/editron/services/bgm-mix-levels';
+import { analyzeConditionedMusicBeatGrid } from '@/lib/editron/services/music-beat-grid';
+import {
+  buildMusicCoverageOverlays,
+  resolveRuntimeMusicCoveragePlan,
+} from '@/lib/editron/services/music-coverage-runtime';
 
 /**
  * Persist pipeline warnings from this worker run to the project doc.
@@ -58,6 +68,13 @@ interface AudioWorkerPayload {
   totalDurationSec?: number;
   totalFrames?: number;
   fps?: number;
+  platform?: string | null;
+  musicPreference?: string | null;
+  editorialPreferences?: unknown;
+  musicCoveragePlan?: unknown;
+  // Signal-driven BGM mix levels (bgm-mix-levels.ts, CKG-bounded). Absent → DEFAULT_BGM_MIX_LEVELS.
+  bgmBaseVolume?: number;
+  bgmDuckLevel?: number;
   // SFX fields
   sfxInputs?: Array<{
     sceneIndex: number;
@@ -97,7 +114,39 @@ async function handler(request: NextRequest) {
     }
 
     if (type === 'bgm') {
-      const { musicPrompt, totalDurationSec, totalFrames, fps } = payload;
+      const musicGenerationPolicy = resolveMusicGenerationPolicy({
+        musicPreferences: [
+          { value: payload.musicPreference, source: 'audio-worker-payload.musicPreference' },
+          { value: project.musicPreference, source: 'project.musicPreference' },
+          { value: project.productionBrief?.musicPreference, source: 'project.productionBrief.musicPreference' },
+          { value: project.productionBriefIntake?.musicPreference, source: 'project.productionBriefIntake.musicPreference' },
+          { value: project.creativeBrief?.musicPreference, source: 'project.creativeBrief.musicPreference' },
+        ],
+        editorialPreferences: [
+          { value: payload.editorialPreferences, source: 'audio-worker-payload.editorialPreferences' },
+          { value: project.editorialPreferences, source: 'project.editorialPreferences' },
+          { value: project.productionBrief?.editorialPreferences, source: 'project.productionBrief.editorialPreferences' },
+          { value: project.productionBriefIntake?.editorialPreferences, source: 'project.productionBriefIntake.editorialPreferences' },
+          { value: project.creativeBrief?.editorialPreferences, source: 'project.creativeBrief.editorialPreferences' },
+        ],
+      });
+      if (!musicGenerationPolicy.allowed) {
+        console.log(
+          `[AudioWorker] BGM skipped by ${musicGenerationPolicy.reason} `
+          + `(source=${musicGenerationPolicy.musicPreferenceSource !== 'unresolved'
+            ? musicGenerationPolicy.musicPreferenceSource
+            : musicGenerationPolicy.editorialPreferencesSource})`,
+        );
+        return NextResponse.json({
+          success: true,
+          type: 'bgm',
+          skipped: true,
+          reason: musicGenerationPolicy.reason,
+          musicGenerationPolicy,
+        });
+      }
+
+      const { musicPrompt, totalDurationSec, totalFrames, fps, bgmBaseVolume, bgmDuckLevel } = payload;
       if (!musicPrompt || !totalDurationSec || !totalFrames || !fps) {
         console.error('[AudioWorker] BGM: missing required fields');
         warnings.add({ severity: 'error', phase: 'bgm', message: 'Missing required fields for BGM generation', details: { hasPrompt: !!musicPrompt, totalDurationSec, totalFrames, fps } });
@@ -105,18 +154,100 @@ async function handler(request: NextRequest) {
         return NextResponse.json({ success: false, error: 'Missing BGM fields' }, { status: 400 });
       }
 
+      let musicCoveragePlan;
+      try {
+        musicCoveragePlan = resolveRuntimeMusicCoveragePlan({
+          totalFrames,
+          fps,
+          project,
+          musicPreference: musicGenerationPolicy.musicPreference,
+          precomputedPlan: payload.musicCoveragePlan,
+        });
+      } catch (coverageErr: any) {
+        warnings.add({
+          severity: 'error',
+          phase: 'bgm',
+          message: `Invalid music coverage evidence: ${coverageErr.message}`,
+          details: { code: coverageErr.code },
+        });
+        await persistWarnings(db, projectId, warnings);
+        return NextResponse.json({
+          success: false,
+          error: `Music coverage planning failed: ${coverageErr.message}`,
+        }, { status: 400 });
+      }
+
+      if (musicCoveragePlan.mode === 'none') {
+        await db.collection(COLLECTIONS.PROJECTS).updateOne(
+          { projectId },
+          {
+            $set: {
+              musicCoveragePlan,
+              'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
+              updatedAt: new Date(),
+            },
+          },
+        );
+        console.log(`[AudioWorker] BGM skipped by coverage plan: ${musicCoveragePlan.reasonCodes.join(',')}`);
+        return NextResponse.json({
+          success: true,
+          type: 'bgm',
+          skipped: true,
+          reason: 'music-coverage-none',
+          musicCoveragePlan,
+        });
+      }
+
+      const audioPlatformEvidence = resolveAudioPlatformEvidence([
+        { value: payload.platform, source: 'audio-worker-payload.platform' },
+        { value: project.productionBrief?.output?.platform, source: 'project.productionBrief.output.platform' },
+        { value: project.syntheticStoryboard?.platform, source: 'project.syntheticStoryboard.platform' },
+        { value: project.platform, source: 'project.platform' },
+      ]);
+
       let bgm;
       try {
-        bgm = await generateBackgroundMusic(musicPrompt, userId, totalDurationSec);
+        bgm = await generateBackgroundMusic(musicPrompt, userId, totalDurationSec, {
+          conditioning: {
+            targetFrames: totalFrames,
+            fps,
+            platform: audioPlatformEvidence.platform,
+          },
+        });
+        assertConditionedBGMResult(bgm, totalFrames, audioPlatformEvidence.platform);
       } catch (bgmErr: any) {
         warnings.errorSwallowed('bgm', bgmErr, `CassetteAI BGM generation for "${musicPrompt.substring(0, 60)}"`);
         await persistWarnings(db, projectId, warnings);
         return NextResponse.json({ success: false, error: `BGM generation failed: ${bgmErr.message}` }, { status: 500 });
       }
 
+      let beatEvidence: Awaited<ReturnType<typeof analyzeConditionedMusicBeatGrid>> | null = null;
+      try {
+        beatEvidence = await analyzeConditionedMusicBeatGrid({
+          buffer: bgm.buffer,
+          fps,
+          totalFrames,
+        });
+        console.log(
+          `[AudioWorker] Beat grid analyzed: ${beatEvidence.beatGrid.bpm} BPM, `
+          + `${beatEvidence.beatGrid.beats.length} beats`,
+        );
+      } catch (beatErr: any) {
+        console.error(`[AudioWorker] Beat analysis failed: ${beatErr.message}`);
+        warnings.add({
+          severity: 'warning',
+          phase: 'bgm',
+          message: `Beat analysis failed: ${beatErr.message}. Music was preserved, but cuts were not realigned.`,
+          details: {
+            code: beatErr.code,
+            stack: beatErr.stack?.split('\n').slice(0, 3).join(' -> '),
+          },
+        });
+      }
+
       // A5 FIX: Use timestamp + crypto random for guaranteed unique IDs across concurrent workers
       const overlayId = Date.now() * 1000 + Math.floor(Math.random() * 999999);
-      const bgmOverlay = {
+      const bgmOverlayBase = {
         id: overlayId,
         type: 'sound',
         from: 0,
@@ -127,29 +258,51 @@ async function handler(request: NextRequest) {
         content: bgm.audioUrl,
         src: bgm.audioUrl,
         assetId: bgm.audioAssetId,
+        musicRights: bgm.musicRights,
         styles: {
-          volume: 0.75,
+          // Signal-driven levels from the director (CKG solo/under-speech dB ranges); CKG-compliant default when
+          // dispatched without them (finalize/storyboard). Replaces the old fixed 0.75/0.20 (music too loud in gaps).
+          volume: typeof bgmBaseVolume === 'number' ? bgmBaseVolume : DEFAULT_BGM_MIX_LEVELS.baseVolume,
           opacity: 1,
           animation: { exit: 'fade', duration: 1 },
           duckingConfig: {
             enabled: true,
-            duckLevel: 0.20,
+            duckLevel: typeof bgmDuckLevel === 'number' ? bgmDuckLevel : DEFAULT_BGM_MIX_LEVELS.duckLevel,
             rampDownMs: 300,
             rampUpMs: 600,
             lookAheadMs: 200,
           },
         },
+        metadata: {
+          source: 'audio-worker',
+          audioConditioning: {
+            requestedPlatform: audioPlatformEvidence.platform,
+            platformEvidenceSource: audioPlatformEvidence.source,
+            ...bgm.conditioning,
+          },
+          ...(beatEvidence ? { beatGrid: beatEvidence.beatGrid } : {}),
+        },
+        _workerAdded: true,
       };
 
       // F6.6 FIX: Push to overlays AND mark as worker-added.
       // The _workerAdded flag tells saveProject to preserve these overlays
       // even when the user saves (browser autosave would otherwise clobber them).
-      const markedBgm = { ...bgmOverlay, _workerAdded: true };
+      const markedBgm = buildMusicCoverageOverlays({
+        baseOverlay: bgmOverlayBase,
+        plan: musicCoveragePlan,
+        totalFrames,
+        idFactory: sectionIndex => overlayId + sectionIndex,
+      });
       await db.collection(COLLECTIONS.PROJECTS).updateOne(
         { projectId },
         {
-          $push: { 'overlays': markedBgm as any },
-          $set: { updatedAt: new Date() },
+          $push: { overlays: { $each: markedBgm } } as any,
+          $set: {
+            musicCoveragePlan,
+            'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
+            updatedAt: new Date(),
+          },
         },
       );
 
@@ -157,12 +310,29 @@ async function handler(request: NextRequest) {
       await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
         { assetId: bgm.audioAssetId },
         {
+          $set: {
+            cachedUrl: bgm.audioUrl,
+            lastUsedAt: new Date(),
+            musicRights: bgm.musicRights,
+            ...(beatEvidence ? {
+              beatAnalysis: beatEvidence.beatAnalysis,
+              beatGrid: beatEvidence.beatGrid,
+            } : {}),
+          },
           $setOnInsert: {
             assetId: bgm.audioAssetId, userId, type: 'audio',
-            filename: `${bgm.audioAssetId}.mp3`, source: 'user-upload',
-            gcsPath: bgm.gcsPath, cachedUrl: bgm.audioUrl,
+            filename: bgm.filename, contentType: bgm.contentType, source: 'generated',
+            gcsPath: bgm.gcsPath,
             urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-            size: 0, uploadedAt: new Date(),
+            size: bgm.buffer.length, durationMs: bgm.durationMs,
+            metadata: {
+              audioConditioning: {
+                requestedPlatform: audioPlatformEvidence.platform,
+                platformEvidenceSource: audioPlatformEvidence.source,
+                ...bgm.conditioning,
+              },
+            },
+            uploadedAt: new Date(),
           },
         },
         { upsert: true },
@@ -170,69 +340,50 @@ async function handler(request: NextRequest) {
 
       console.log(`[AudioWorker] BGM complete: ${bgm.audioAssetId} (${Date.now() - startMs}ms)`);
       
-      // Phase A10 FIX: Use the alignCutsToBeats function as part of the "pipeline flow".
-      // This automatically snaps script-driven montage sub-shots to the beats of the 
-      // newly generated BGM.
-      try {
-        console.log(`[AudioWorker] Starting automatic beat alignment for montages...`);
-        // OLD: node-web-audio-api AudioContext — requires libasound.so.2 (ALSA) which
-        // doesn't exist on Vercel serverless. Crashed with:
-        //   "libasound.so.2: cannot open shared object file: No such file or directory"
-        // NEW: audio-decode — pure WASM MP3/WAV decoder, no native dependencies.
-        // Returns AudioBuffer-compatible object (sampleRate, getChannelData, duration, length).
-        if (!bgm.buffer) throw new Error('No audio buffer returned from BGM generation');
-        const arrayBuffer = bgm.buffer.buffer.slice(bgm.buffer.byteOffset, bgm.buffer.byteOffset + bgm.buffer.byteLength) as ArrayBuffer;
-        const decode = (await import('audio-decode')).default;
-        const decoded = await decode(arrayBuffer);
-        // Adapt audio-decode's AudioData → the duck-typed AudioBuffer shape
-        // that analyzeBeatsFull expects (sampleRate, length, numberOfChannels, getChannelData, duration).
-        const audioBuffer = {
-          sampleRate: decoded.sampleRate,
-          length: decoded.channelData[0]?.length ?? 0,
-          numberOfChannels: decoded.channelData.length,
-          getChannelData: (ch: number) => decoded.channelData[ch] ?? decoded.channelData[0],
-          duration: (decoded.channelData[0]?.length ?? 0) / decoded.sampleRate,
-        };
-
-        const beatAnalysis = await analyzeBeatsFull(audioBuffer);
-        const beatFrames = beatAnalysis.beats.map(b => ({
-          frame: Math.round((b.timeMs / 1000) * fps),
-          isDownbeat: b.isDownbeat
-        }));
-
-        // Reload project to get latest overlays (after the BGM push above)
-        const updatedProject = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId }) as any;
-        if (updatedProject && updatedProject.overlays) {
-          const snappedCount = alignCutsToBeats(updatedProject.overlays, beatFrames, fps);
-          if (snappedCount > 0) {
-            await db.collection(COLLECTIONS.PROJECTS).updateOne(
-              { projectId },
-              { 
-                $set: { 
-                  overlays: updatedProject.overlays,
-                  updatedAt: new Date() 
-                } 
-              }
+      if (beatEvidence) {
+        try {
+          console.log('[AudioWorker] Starting automatic cut alignment to analyzed beats...');
+          const updatedProject = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId }) as any;
+          if (updatedProject && updatedProject.overlays) {
+            const snappedCount = alignCutsToBeats(
+              updatedProject.overlays,
+              beatEvidence.beatGrid.beats,
+              fps,
             );
-            console.log(`[AudioWorker] Pipeline Flow: Aligned ${snappedCount} montage cuts to BGM beats`);
-          } else {
-            console.log(`[AudioWorker] Pipeline Flow: No montage cuts required alignment`);
+            if (snappedCount > 0) {
+              await db.collection(COLLECTIONS.PROJECTS).updateOne(
+                { projectId },
+                {
+                  $set: {
+                    overlays: updatedProject.overlays,
+                    updatedAt: new Date(),
+                  },
+                },
+              );
+              console.log(`[AudioWorker] Pipeline Flow: Aligned ${snappedCount} cuts to BGM beats`);
+            } else {
+              console.log('[AudioWorker] Pipeline Flow: No cuts required alignment');
+            }
           }
+        } catch (alignErr: any) {
+          console.error(`[AudioWorker] Beat alignment enhancement failed: ${alignErr.message}`);
+          warnings.add({
+            severity: 'warning',
+            phase: 'bgm',
+            message: `Beat alignment failed: ${alignErr.message}. Cuts may not sync to music beats.`,
+            details: { stack: alignErr.stack?.split('\n').slice(0, 3).join(' -> ') },
+          });
         }
-      } catch (alignErr: any) {
-        console.error(`[AudioWorker] Beat alignment enhancement failed: ${alignErr.message}`);
-        // Non-critical: worker still succeeds (BGM is already saved).
-        // But Rule 18N: fail VISIBLE — surface in project warnings so it's not invisible.
-        warnings.add({
-          severity: 'warning',
-          phase: 'bgm',
-          message: `Beat alignment failed: ${alignErr.message}. Montage cuts may not sync to music beats.`,
-          details: { stack: alignErr.stack?.split('\n').slice(0, 3).join(' → ') },
-        });
       }
 
       await persistWarnings(db, projectId, warnings);
-      return NextResponse.json({ success: true, type: 'bgm', assetId: bgm.audioAssetId, warnings: warnings.getAll() });
+      return NextResponse.json({
+        success: true,
+        type: 'bgm',
+        assetId: bgm.audioAssetId,
+        musicCoveragePlan,
+        warnings: warnings.getAll(),
+      });
 
     } else if (type === 'sfx') {
       const { sfxInputs, sceneFrameMap } = payload;
@@ -283,6 +434,7 @@ async function handler(request: NextRequest) {
           content: sfx.audioUrl,
           src: sfx.audioUrl,
           assetId: sfx.audioAssetId,
+          audioRights: sfx.audioRights,
           styles: { volume: 0.3, opacity: 1 }, // 30% — SFX should complement, not overpower narration
         });
 
@@ -290,9 +442,14 @@ async function handler(request: NextRequest) {
         await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
           { assetId: sfx.audioAssetId },
           {
+            $set: {
+              audioRights: sfx.audioRights,
+              cachedUrl: sfx.audioUrl,
+              lastUsedAt: new Date(),
+            },
             $setOnInsert: {
               assetId: sfx.audioAssetId, userId, type: 'audio',
-              filename: `${sfx.audioAssetId}.mp3`, source: 'user-upload',
+              filename: `${sfx.audioAssetId}.mp3`, source: sfx.audioRights.source,
               gcsPath: sfx.gcsPath, cachedUrl: sfx.audioUrl,
               urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               size: 0, uploadedAt: new Date(),

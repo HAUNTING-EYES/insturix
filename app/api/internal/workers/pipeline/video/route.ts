@@ -13,8 +13,8 @@ import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import {
   generateVideoClip,
 } from '@/lib/pipeline/video-generation-service';
-import { updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
-import { getDatabase } from '@/lib/editron/db/mongodb';
+import { getStoryboard, updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
+import { COLLECTIONS, getDatabase } from '@/lib/editron/db/mongodb';
 import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
 
 export const runtime = 'nodejs';
@@ -170,6 +170,13 @@ async function handler(request: NextRequest) {
       userId,
     );
 
+    let storyboardBeforeVideoUpdate: Awaited<ReturnType<typeof getStoryboard>> = null;
+    try {
+      storyboardBeforeVideoUpdate = await getStoryboard(storyboardId, userId);
+    } catch (snapshotErr: any) {
+      console.warn(`[VideoWorker] Could not snapshot storyboard before video update: ${snapshotErr.message}`);
+    }
+
     await recordPipelineVideoProviderCost({
       payload,
       status: 'success',
@@ -178,6 +185,12 @@ async function handler(request: NextRequest) {
       chargedCredits,
     });
     providerCostRecorded = true;
+
+    const sceneVideoProvenance = {
+      videoModel: result.modelUsed || videoModel,
+      ...(result.nativeAudioRights ? { nativeAudioRights: result.nativeAudioRights } : {}),
+      ...(result.generatedVideoReceipt ? { generatedVideoReceipt: result.generatedVideoReceipt } : {}),
+    };
 
     // Update storyboard scene — include videoDurationMs so finalize
     // uses the actual clip length (not the script's word-count estimate)
@@ -191,8 +204,16 @@ async function handler(request: NextRequest) {
           [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoUrl`]: result.videoUrl,
           [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoAssetId`]: result.assetId,
           [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoR2Key`]: (result as any).r2Key || result.assetId || null,
+          [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoProvider`]: result.provider || 'fal-ai',
+          [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoModel`]: result.modelUsed || videoModel,
           [`scenes.$[elem].descriptor.subShots.${subShotIndex}.videoDurationMs`]: result.durationMs || (durationSeconds * 1000),
           [`scenes.$[elem].descriptor.subShots.${subShotIndex}.hasNativeAudio`]: result.hasNativeAudio || false,
+          ...(result.nativeAudioRights ? {
+            [`scenes.$[elem].descriptor.subShots.${subShotIndex}.nativeAudioRights`]: result.nativeAudioRights,
+          } : {}),
+          ...(result.generatedVideoReceipt ? {
+            [`scenes.$[elem].descriptor.subShots.${subShotIndex}.generatedVideoReceipt`]: result.generatedVideoReceipt,
+          } : {}),
           updatedAt: new Date(),
         }},
         { arrayFilters: [{ 'elem.sceneIndex': sceneIndex }] },
@@ -209,6 +230,7 @@ async function handler(request: NextRequest) {
           videoProvider: result.provider || 'fal-ai',
           videoDurationMs: result.durationMs || (durationSeconds * 1000),
           hasNativeAudio: result.hasNativeAudio || false,
+          ...sceneVideoProvenance,
         });
       }
     } else {
@@ -221,14 +243,48 @@ async function handler(request: NextRequest) {
         videoProvider: result.provider || 'fal-ai',
         videoDurationMs: result.durationMs || (durationSeconds * 1000),
         hasNativeAudio: result.hasNativeAudio || false,
+        ...sceneVideoProvenance,
       });
+    }
+
+    if (
+      (subShotIndex === undefined || subShotIndex === null || subShotIndex === 0)
+      && (!result.nativeAudioRights || !result.generatedVideoReceipt)
+    ) {
+      await db.collection('storyboards').updateOne(
+        { storyboardId },
+        {
+          $unset: {
+            ...(!result.nativeAudioRights ? { 'scenes.$[elem].nativeAudioRights': '' } : {}),
+            ...(!result.generatedVideoReceipt ? { 'scenes.$[elem].generatedVideoReceipt': '' } : {}),
+          },
+        },
+        { arrayFilters: [{ 'elem.sceneIndex': sceneIndex }] },
+      );
+    }
+
+    if (
+      subShotIndex !== undefined
+      && subShotIndex !== null
+      && (!result.nativeAudioRights || !result.generatedVideoReceipt)
+    ) {
+      const subShotPath = `scenes.$[elem].descriptor.subShots.${subShotIndex}`;
+      await db.collection('storyboards').updateOne(
+        { storyboardId },
+        {
+          $unset: {
+            ...(!result.nativeAudioRights ? { [`${subShotPath}.nativeAudioRights`]: '' } : {}),
+            ...(!result.generatedVideoReceipt ? { [`${subShotPath}.generatedVideoReceipt`]: '' } : {}),
+          },
+        },
+        { arrayFilters: [{ 'elem.sceneIndex': sceneIndex }] },
+      );
     }
 
     // Also update the Editron project overlay if this storyboard is linked to a project.
     // Without this, video regen updates the storyboard but the editor still shows the old clip.
     try {
-      const { getStoryboard } = await import('@/lib/pipeline/storyboard-db');
-      const sb = await getStoryboard(storyboardId, userId);
+      const sb = storyboardBeforeVideoUpdate ?? await getStoryboard(storyboardId, userId);
       const linkedProjectId = sb?.projectId;
       if (linkedProjectId) {
         // Find the video overlay for this scene (by matching assetId or from-frame position)
@@ -236,18 +292,31 @@ async function handler(request: NextRequest) {
         const oldAssetId = scene?.videoAssetId;
 
         // Register the new asset first
-        await db.collection('media_assets').updateOne(
+        await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
           { assetId: result.assetId },
           {
+            $set: {
+              source: result.provider === 'fal-ai' ? 'generated' : 'video-regen',
+              hasNativeAudio: result.hasNativeAudio || false,
+              ...(result.nativeAudioRights ? { audioRights: result.nativeAudioRights } : {}),
+              ...(result.generatedVideoReceipt ? { generatedVideoReceipt: result.generatedVideoReceipt } : {}),
+              updatedAt: new Date(),
+            },
             $setOnInsert: {
               assetId: result.assetId, userId, type: 'video',
-              filename: `${result.assetId}.mp4`, source: 'video-regen',
+              filename: `${result.assetId}.mp4`,
               gcsPath: result.gcsPath,
               r2Key: (result as any).r2Key || result.assetId || null,
               cachedUrl: result.videoUrl,
               urlExpiresAt: result.videoUrl?.includes('workers.dev') ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               uploadedAt: new Date(),
             },
+            ...(!result.nativeAudioRights || !result.generatedVideoReceipt ? {
+              $unset: {
+                ...(!result.nativeAudioRights ? { audioRights: '' } : {}),
+                ...(!result.generatedVideoReceipt ? { generatedVideoReceipt: '' } : {}),
+              },
+            } : {}),
           },
           { upsert: true },
         );
@@ -262,8 +331,17 @@ async function handler(request: NextRequest) {
                 'overlays.$.content': result.videoUrl,
                 'overlays.$.assetId': result.assetId,
                 'overlays.$.videoDurationMs': result.durationMs || (durationSeconds * 1000),
+                'overlays.$.hasNativeAudio': result.hasNativeAudio || false,
+                ...(result.nativeAudioRights ? { 'overlays.$.audioRights': result.nativeAudioRights } : {}),
+                ...(result.generatedVideoReceipt ? { 'overlays.$.generatedVideoReceipt': result.generatedVideoReceipt } : {}),
                 updatedAt: new Date(),
               },
+              ...(!result.nativeAudioRights || !result.generatedVideoReceipt ? {
+                $unset: {
+                  ...(!result.nativeAudioRights ? { 'overlays.$.audioRights': '' } : {}),
+                  ...(!result.generatedVideoReceipt ? { 'overlays.$.generatedVideoReceipt': '' } : {}),
+                },
+              } : {}),
             },
           );
           console.log(`[VideoWorker] Updated Editron project ${linkedProjectId} overlay: ${oldAssetId} → ${result.assetId}`);
@@ -274,8 +352,7 @@ async function handler(request: NextRequest) {
       console.warn(`[VideoWorker] Project overlay update failed (attempt 1): ${projErr.message}`);
       try {
         await new Promise(r => setTimeout(r, 1000)); // Brief delay before retry
-        const { getStoryboard: getStoryboard2 } = await import('@/lib/pipeline/storyboard-db');
-        const sb2 = await getStoryboard2(storyboardId, userId);
+        const sb2 = storyboardBeforeVideoUpdate ?? await getStoryboard(storyboardId, userId);
         const linkedProjectId2 = sb2?.projectId;
         if (linkedProjectId2) {
           const scene2 = sb2.scenes?.find((s: any) => s.sceneIndex === sceneIndex);
@@ -289,8 +366,17 @@ async function handler(request: NextRequest) {
                   'overlays.$.content': result.videoUrl,
                   'overlays.$.assetId': result.assetId,
                   'overlays.$.videoDurationMs': result.durationMs || (durationSeconds * 1000),
+                  'overlays.$.hasNativeAudio': result.hasNativeAudio || false,
+                  ...(result.nativeAudioRights ? { 'overlays.$.audioRights': result.nativeAudioRights } : {}),
+                  ...(result.generatedVideoReceipt ? { 'overlays.$.generatedVideoReceipt': result.generatedVideoReceipt } : {}),
                   updatedAt: new Date(),
                 },
+                ...(!result.nativeAudioRights || !result.generatedVideoReceipt ? {
+                  $unset: {
+                    ...(!result.nativeAudioRights ? { 'overlays.$.audioRights': '' } : {}),
+                    ...(!result.generatedVideoReceipt ? { 'overlays.$.generatedVideoReceipt': '' } : {}),
+                  },
+                } : {}),
               },
             );
             console.log(`[VideoWorker] Project overlay update succeeded on retry`);
@@ -493,6 +579,9 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
           videoAssetId: result.assetId,
           videoGcsPath: result.gcsPath,
           modelUsed: (result as any).modelUsed || videoModel,
+          hasNativeAudio: result.hasNativeAudio || false,
+          ...(result.nativeAudioRights ? { nativeAudioRights: result.nativeAudioRights } : {}),
+          ...(result.generatedVideoReceipt ? { generatedVideoReceipt: result.generatedVideoReceipt } : {}),
           completedAt: new Date(),
         },
       },
@@ -506,7 +595,13 @@ Reply with ONLY a JSON object: {"score": N, "issues": ["issue1", "issue2"]}`
     await updateBatchStatus(batchId);
 
     console.log(`[VideoWorker] Job ${jobId} completed: ${result.assetId}`);
-    return NextResponse.json({ success: true, jobId, videoUrl: result.videoUrl });
+    return NextResponse.json({
+      success: true,
+      jobId,
+      videoUrl: result.videoUrl,
+      hasNativeAudio: result.hasNativeAudio || false,
+      generatedVideoReceipt: result.generatedVideoReceipt,
+    });
   } catch (error: any) {
     console.error('[VideoWorker] Error:', error.message);
 

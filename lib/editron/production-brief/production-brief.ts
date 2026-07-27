@@ -37,7 +37,16 @@ export type OutputFormat = 'reel' | 'auto-edit';
 export type IntakeEntryPoint = 'upload' | 'script' | 'thinkforge' | 'generate' | 'idea';
 
 /** The user-editable knobs we track confidence for (the spec-card fields). */
-export type BriefField = 'platform' | 'targetDurationSec' | 'aspectRatio' | 'count' | 'intent' | 'style';
+export type BriefField =
+  | 'platform'
+  | 'targetDurationSec'
+  | 'aspectRatio'
+  | 'count'
+  | 'intent'
+  | 'style'
+  | 'voiceLanguages'
+  | 'captionLanguages'
+  | 'deliverables';
 
 export interface BriefOutputSpec {
   /** Where it's going. Master knob - drives aspect + default duration. */
@@ -51,6 +60,12 @@ export interface BriefOutputSpec {
   intent?: string;
   /** Style params (never a mode name). Vibe mainly comes from the brand, not here. */
   style?: Record<string, number | string>;
+  /** Spoken voice languages requested for production. Explicit user/session intake only. */
+  voiceLanguages?: string[];
+  /** Caption/subtitle languages requested for production. Explicit user/session intake only. */
+  captionLanguages?: string[];
+  /** Concrete requested output deliverables. Explicit user/session intake only. */
+  deliverables?: string[];
   /** DERIVED internal ordering hint (condensed vs faithful). Never asked/shown. */
   format: OutputFormat;
 }
@@ -64,6 +79,59 @@ export interface BriefResolution {
   inferred: BriefField[];
 }
 
+export interface BriefTrendCopyField {
+  id: string;
+  role: string;
+  template: string;
+  maxChars?: number;
+}
+
+export interface BriefTrendConstraint {
+  id: string;
+  layer: string;
+  feature: string;
+  value?: string | number;
+  dist?: { mean: number; sd: number };
+  support: number;
+  anchor?: { beat?: number; sectionId?: string };
+}
+
+export interface BriefTrendChoice {
+  id: string;
+  layer: string;
+  feature: string;
+  freedomRange?: { min?: number; max?: number } | string[];
+}
+
+export interface BriefTrendContext {
+  trendId: string;
+  alignmentFrame: 'beat-space' | 'slot-space';
+  naturalDurationSec: number;
+  selectedDurationSec: number;
+  durationBoundariesSec: number[];
+  copyFields: BriefTrendCopyField[];
+  constraints: BriefTrendConstraint[];
+  choices: BriefTrendChoice[];
+  performanceScript: string;
+  hashtags?: string[];
+  warnings?: string[];
+}
+
+export interface BriefCasting {
+  /** sidecar character.id -> avatar/voice binding. */
+  map: Record<string, CharacterCasting>;
+}
+
+export interface CharacterCasting {
+  /** Accepted Avatar Vault profile this character is. Absent = not avatar-cast. */
+  avatarProfileId?: string;
+  /** Voice for this character's spoken lines. */
+  voice:
+    | { mode: 'cloned'; voiceReferenceUrl: string }
+    | { mode: 'preset'; ttsVoiceId: string }
+    | { mode: 'none' };
+}
+
 export interface ProductionBrief {
   output: BriefOutputSpec;
   /** Optional brand context ref (brand drives vibe). Brand-optional, user-primary. */
@@ -72,6 +140,10 @@ export interface ProductionBrief {
   entryPoint: IntakeEntryPoint;
   /** Total source seconds available - caps output length + drives the format derivation. */
   sourceDurationSec?: number | null;
+  /** Optional TrendSpec consumption metadata; final edit/render form stays owned downstream. */
+  trend?: BriefTrendContext;
+  /** Optional character -> avatar/voice binding resolved by ThinkForge intake. */
+  casting?: BriefCasting;
 }
 
 /**
@@ -139,6 +211,9 @@ const OUTPUT_FIELD_KEYS: readonly BriefField[] = [
   'count',
   'intent',
   'style',
+  'voiceLanguages',
+  'captionLanguages',
+  'deliverables',
 ];
 
 /** Shape knobs a platform change re-defaults (unless the same edit sets them explicitly). */

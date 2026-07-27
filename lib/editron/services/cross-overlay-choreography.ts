@@ -51,6 +51,8 @@ export interface CrossOverlayChoreographyReport {
   outputDecisionCount: number;
   suppressedDecisionCount: number;
   annotatedDecisionCount: number;
+  reservationCount: number;
+  reservations: CrossOverlayChoreographyDecisionSummary[];
   calibrationStatus: 'invented-needs-calibration';
   laneLoad: Record<CrossOverlayChoreographyLane, number>;
   syncGroups: CrossOverlayChoreographySyncGroup[];
@@ -86,9 +88,12 @@ const MOTION_SYNC_WINDOW_FRAMES = 18;
 const AUDIO_SYNC_WINDOW_FRAMES = 12;
 const MAX_ACTIVE_VISUAL_FAMILIES = 3;
 
-export function applyCrossOverlayChoreography(decisions: EditDecision[]): CrossOverlayChoreographyResult {
+export function applyCrossOverlayChoreography(
+  decisions: EditDecision[],
+  reservations: EditDecision[] = [],
+): CrossOverlayChoreographyResult {
   if (decisions.length === 0) {
-    return buildResult([], []);
+    return buildResult([], [], [], reservations);
   }
 
   const ordered = [...decisions].sort((a, b) => (
@@ -96,37 +101,41 @@ export function applyCrossOverlayChoreography(decisions: EditDecision[]): CrossO
     || decisionStrength(b) - decisionStrength(a)
     || a.frame - b.frame
   ));
-  const kept: EditDecision[] = [];
+  const kept: EditDecision[] = [...reservations];
+  const keptExecutable: EditDecision[] = [];
   const suppressed: CrossOverlayChoreographySuppression[] = [];
   const shaped: CrossOverlayChoreographyShape[] = [];
 
   for (const decision of ordered) {
-    const conflict = findChoreographyConflict(decision, kept);
+    const coordinatedDecision = coordinateMgWithCaptionReservations(decision, kept);
+    const conflict = findChoreographyConflict(coordinatedDecision, kept);
     if (conflict) {
-      const shapedDecision = shapeDecisionAwayFromConflict(decision, conflict, kept);
+      const shapedDecision = shapeDecisionAwayFromConflict(coordinatedDecision, conflict, kept);
       if (shapedDecision) {
         kept.push(shapedDecision.decision);
+        keptExecutable.push(shapedDecision.decision);
         shaped.push(shapedDecision);
         continue;
       }
       suppressed.push({
-        decision,
+        decision: coordinatedDecision,
         reason: conflict.reason,
-        family: familyForDecision(decision),
-        frame: decision.frame,
+        family: familyForDecision(coordinatedDecision),
+        frame: coordinatedDecision.frame,
         conflictingWith: summarizeDecision(conflict.conflictingWith),
         calibrationStatus: 'invented-needs-calibration',
       });
       continue;
     }
-    kept.push(decision);
+    kept.push(coordinatedDecision);
+    keptExecutable.push(coordinatedDecision);
   }
 
-  const annotated = kept
+  const annotated = keptExecutable
     .sort((a, b) => a.frame - b.frame || a.priority - b.priority)
     .map((decision) => annotateKeptDecision(decision, kept, suppressed));
 
-  return buildResult(annotated, suppressed, shaped);
+  return buildResult(annotated, suppressed, shaped, reservations);
 }
 
 function findChoreographyConflict(
@@ -139,7 +148,8 @@ function findChoreographyConflict(
     const existingFamily = familyForDecision(existing);
     const frameDistance = Math.abs(candidate.frame - existing.frame);
 
-    if (isTextLaneFamily(family) && isTextLaneFamily(existingFamily) && frameDistance <= TEXT_LANE_WINDOW_FRAMES) {
+    if (isTextLaneFamily(family) && isTextLaneFamily(existingFamily)
+      && (frameDistance <= TEXT_LANE_WINDOW_FRAMES || framesNear(candidate, existing, 0))) {
       if (!isCaptionMgCoordinationAllowed(candidate, existing)) {
         return { reason: 'text-lane-stack', conflictingWith: existing };
       }
@@ -170,6 +180,72 @@ function findChoreographyConflict(
   }
 
   return null;
+}
+
+function coordinateMgWithCaptionReservations(
+  decision: EditDecision,
+  kept: EditDecision[],
+): EditDecision {
+  if (familyForDecision(decision) !== 'mg') return decision;
+  const regions = kept
+    .filter((candidate) => (
+      candidate.source === 'canonical-caption-track'
+      && familyForDecision(candidate) === 'caption'
+      && framesNear(decision, candidate, 0)
+    ))
+    .map((candidate) => captionProtectedRegion(candidate.params?.captionProtectedRegion))
+    .filter((region): region is CaptionPlacementRegion => region !== null);
+  const uniqueRegions = [...new Map(regions.map((region) => [
+    [region.x, region.y, region.width, region.height].join(':'),
+    region,
+  ])).values()];
+  if (uniqueRegions.length === 0) return decision;
+
+  return {
+    ...decision,
+    params: {
+      ...(decision.params ?? {}),
+      coordinateWithCaptions: true,
+      captionPlacementReservations: {
+        version: 'caption-placement-reservations-v1',
+        source: 'canonical-caption-track',
+        regions: uniqueRegions,
+      },
+    },
+  };
+}
+
+interface CaptionPlacementRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  reason: string;
+  strength: number;
+}
+
+function captionProtectedRegion(value: unknown): CaptionPlacementRegion | null {
+  const record = recordParam(value);
+  if (!record) return null;
+  const x = finiteFraction(record.x);
+  const y = finiteFraction(record.y);
+  const width = finiteFraction(record.width);
+  const height = finiteFraction(record.height);
+  if (x === null || y === null || width === null || height === null || width <= 0 || height <= 0) return null;
+  return {
+    x,
+    y,
+    width: Math.min(width, 1 - x),
+    height: Math.min(height, 1 - y),
+    reason: typeof record.reason === 'string' ? record.reason : 'canonical-caption-region',
+    strength: typeof record.strength === 'number' && Number.isFinite(record.strength)
+      ? clamp01(record.strength)
+      : 1,
+  };
+}
+
+function finiteFraction(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? clamp01(value) : null;
 }
 
 function shapeDecisionAwayFromConflict(
@@ -276,6 +352,7 @@ function buildResult(
   decisions: EditDecision[],
   suppressed: CrossOverlayChoreographySuppression[],
   shaped: CrossOverlayChoreographyShape[] = [],
+  reservations: EditDecision[] = [],
 ): CrossOverlayChoreographyResult {
   return {
     decisions,
@@ -289,6 +366,8 @@ function buildResult(
       shapedDecisionCount: shaped.length,
       annotatedDecisionCount: decisions.length,
       calibrationStatus: 'invented-needs-calibration',
+      reservationCount: reservations.length,
+      reservations: reservations.slice(0, 100).map(summarizeDecision),
       laneLoad: buildLaneLoad(decisions),
       syncGroups: buildSyncGroups(decisions),
       suppressed: suppressed.map(({ decision: _decision, ...rest }) => rest),

@@ -9,9 +9,13 @@ export interface ProjectLink {
   brandId?: string;
   sessionId?: string;
   sourceScriptId?: string;
+  /** The ProductionBrief this project was authored from (§5.2.7). */
+  briefId?: string;
   storyboardIds: string[];
   projectIds: string[];
   videoIds: string[];
+  /** Source Ledger referenceIds this project is based on — inherited by Editron/Clickatron (§5.5). */
+  referenceIds?: string[];
   thumbnailIds?: string[];
   schemaVersion: number;
   metadata?: Record<string, unknown>;
@@ -47,9 +51,11 @@ export async function createProjectLink(
   fields: {
     sessionId?: string;
     sourceScriptId?: string;
+    briefId?: string;
     storyboardId?: string;
     projectId?: string;
     brandId?: string;
+    referenceIds?: string[];
     metadata?: Record<string, unknown>;
   },
 ): Promise<ProjectLink> {
@@ -62,9 +68,11 @@ export async function createProjectLink(
     brandId: fields.brandId,
     sessionId: fields.sessionId,
     sourceScriptId: fields.sourceScriptId,
+    briefId: fields.briefId,
     storyboardIds: fields.storyboardId ? [fields.storyboardId] : [],
     projectIds: fields.projectId ? [fields.projectId] : [],
     videoIds: [],
+    referenceIds: fields.referenceIds ?? [],
     thumbnailIds: [],
     schemaVersion: 1,
     metadata: fields.metadata,
@@ -126,6 +134,40 @@ export async function addVideoToLink(
     { $addToSet: { videoIds: videoId }, $set: { updatedAt: new Date() } },
   );
   return result.matchedCount > 0;
+}
+
+export async function addReferenceToLink(
+  userId: string,
+  universalId: string,
+  referenceId: string,
+): Promise<boolean> {
+  const col = await getCollection();
+  const result = await col.updateOne(
+    { userId, universalId },
+    { $addToSet: { referenceIds: referenceId }, $set: { updatedAt: new Date() } },
+  );
+  return result.matchedCount > 0;
+}
+
+export async function setBriefOnLink(
+  userId: string,
+  universalId: string,
+  briefId: string,
+): Promise<boolean> {
+  const col = await getCollection();
+  const result = await col.updateOne(
+    { userId, universalId },
+    { $set: { briefId, updatedAt: new Date() } },
+  );
+  return result.matchedCount > 0;
+}
+
+export async function findLinkByReferenceId(
+  userId: string,
+  referenceId: string,
+): Promise<ProjectLink | null> {
+  const col = await getCollection();
+  return col.findOne({ userId, referenceIds: referenceId }) as Promise<ProjectLink | null>;
 }
 
 export async function recordThumbnailOnLink(

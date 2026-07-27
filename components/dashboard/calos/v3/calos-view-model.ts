@@ -35,6 +35,19 @@ export const PLABEL: Record<string, string> = {
 export const platGlyph = (p: string) => PLAT[p] ?? PLAT.generic;
 export const platLabel = (p: string) => PLABEL[p] ?? PLABEL.generic;
 
+/** The natural still-image ratio for a platform — the default when generating an image for a card
+    (override-able in the content modal). All values are Clickatron-model-supported. */
+export const platformDefaultAspect = (platform: string): string => {
+  switch (platform) {
+    case 'instagram': return '4:5';
+    case 'tiktok': return '9:16';
+    case 'youtube':
+    case 'x':
+    case 'twitter': return '16:9';
+    default: return '1:1'; // linkedin, facebook, generic
+  }
+};
+
 /** Ordered editorial pipeline — matches EDITORIAL_STAGE_META keys (changes_requested
     is a side-state, not a pipeline step, so it's excluded from the ordered rail). */
 export const STAGES = ['idea', 'drafting', 'generated', 'in_review', 'approved'] as const;

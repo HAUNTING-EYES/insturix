@@ -53,8 +53,15 @@ function blockMutation(collection: string, operation: string): never {
 }
 
 import type { ChatMessage, ProjectMeta, ScriptState } from '../state/types';
+import type { SelectedTrend } from '../trends/selected-trend';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import type { CIRDocument, CIRSection } from '../schemas/cir';
+import {
+  ThinkForgeDocumentContractSchema,
+  createThinkForgeWriterContract,
+  normalizeThinkForgeDocumentContract,
+  type ThinkForgeDocumentContract,
+} from '../schemas/document-contract';
 
 // ==================== ThinkForge Database Connection ====================
 // All ThinkForge collections live in the 'thinkforge_db' database
@@ -113,12 +120,9 @@ async function connectToThinkForgeDb(): Promise<mongoose.Connection> {
     connectTimeoutMS: 10000, // 10s timeout for initial connection
   };
 
-  console.log('[ThinkForge] Connecting to database using createConnection...');
   thinkforgeDbCached.promise = mongoose.createConnection(mongoUri, opts).asPromise();
   
-  thinkforgeDbCached.promise.then(() => {
-    console.log(`[ThinkForge] Connected to database: ${THINKFORGE_DB_NAME}`);
-  }).catch((err) => {
+  thinkforgeDbCached.promise.catch((err) => {
     console.error('[ThinkForge] Failed to connect to database:', err?.message || err);
     thinkforgeDbCached.promise = null;
     thinkforgeDbCached.conn = null;
@@ -155,6 +159,25 @@ export interface GenerationState {
   startedAt: Date;
   updatedAt: Date;
   message?: string;
+  commitClaimedAt?: Date;
+  billing?: GenerationBilling;
+}
+
+export interface GenerationBilling {
+  transactionId: string;
+  userId: string;
+  amount: number;
+  service: 'thinkforge';
+  action: 'chat_message';
+  status: 'reserved' | 'refund_pending' | 'refunding' | 'refunded' | 'settled';
+  updatedAt: Date;
+}
+
+export class GenerationStateConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GenerationStateConflictError';
+  }
 }
 
 export interface Session {
@@ -179,11 +202,89 @@ export interface Script {
   metadata?: Record<string, any>;
   version?: number;
   documentType?: string;
+  contentContract?: ThinkForgeDocumentContract;
   parentScriptId?: string;
   forkReason?: string;
   createdFromIntent?: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+type ScriptClassification = Pick<Script, 'documentType' | 'contentContract'>;
+
+function canonicalDocumentType(contract: ThinkForgeDocumentContract): string {
+  return contract.documentKind === 'document' ? contract.artifactType : contract.outputKind;
+}
+
+function documentContractsMatch(
+  left: ThinkForgeDocumentContract,
+  right: ThinkForgeDocumentContract,
+): boolean {
+  return left.version === right.version
+    && left.documentKind === right.documentKind
+    && left.outputKind === right.outputKind
+    && left.artifactType === right.artifactType;
+}
+
+function parseScriptClassification(
+  input?: { documentType?: unknown; contentContract?: unknown } | null,
+): ThinkForgeDocumentContract | null {
+  if (!input) return null;
+
+  const contractResult = input.contentContract !== undefined && input.contentContract !== null
+    ? ThinkForgeDocumentContractSchema.safeParse(input.contentContract)
+    : null;
+  if (contractResult && !contractResult.success) {
+    throw new Error('Invalid persisted ThinkForge document contract');
+  }
+
+  const typeContract = typeof input.documentType === 'string' && input.documentType.trim()
+    ? normalizeThinkForgeDocumentContract(input.documentType)
+    : null;
+  if (typeof input.documentType === 'string' && input.documentType.trim() && !typeContract) {
+    throw new Error(`Unsupported persisted ThinkForge document type: ${input.documentType}`);
+  }
+
+  if (contractResult?.success && typeContract
+    && !documentContractsMatch(contractResult.data, typeContract)) {
+    throw new Error('Persisted ThinkForge document contract conflicts with document type');
+  }
+
+  return contractResult?.success ? contractResult.data : typeContract;
+}
+
+function resolveScriptClassification(
+  input?: { documentType?: unknown; contentContract?: unknown } | null,
+  fallback?: { documentType?: unknown; contentContract?: unknown } | null,
+): ScriptClassification {
+  const contract = parseScriptClassification(input)
+    ?? parseScriptClassification(fallback)
+    ?? createThinkForgeWriterContract('video_script');
+  return {
+    documentType: canonicalDocumentType(contract),
+    contentContract: contract,
+  };
+}
+
+function mapStoredScript(doc: any, effectiveScriptId = 'default'): Script {
+  const classification = resolveScriptClassification(doc);
+  return {
+    _id: String(doc._id),
+    sessionId: doc.sessionId,
+    scriptId: doc.scriptId || effectiveScriptId,
+    title: doc.title || 'Untitled Script',
+    content: doc.content || '',
+    blocks: enforceThinkForgeBlocks(doc.blocks),
+    richText: doc.richText,
+    metadata: doc.metadata || {},
+    version: typeof doc.version === 'number' ? doc.version : 1,
+    ...classification,
+    parentScriptId: doc.parentScriptId,
+    forkReason: doc.forkReason,
+    createdFromIntent: doc.createdFromIntent,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+  };
 }
 
 export interface ChatMessageDoc {
@@ -748,6 +849,7 @@ const ScriptSchema = new Schema({
   metadata: { type: Schema.Types.Mixed, default: {} },
   version: { type: Number, default: 1 },
   documentType: { type: String, default: 'screenplay' },
+  contentContract: { type: Schema.Types.Mixed },
   parentScriptId: { type: String },
   forkReason: { type: String },
   createdFromIntent: { type: String },
@@ -1075,12 +1177,164 @@ export async function getOrCreateSession(
   }
 }
 
-export async function setActiveGeneration(sessionId: string, generation: GenerationState): Promise<void> {
+async function settleGenerationRefund(
+  sessionId: string,
+  generation: GenerationState,
+): Promise<GenerationState> {
+  const billing = generation.billing;
+  if (
+    !billing
+    || (generation.status !== 'failed' && generation.status !== 'cancelled')
+    || billing.status === 'refunded'
+    || billing.status === 'settled'
+  ) {
+    return generation;
+  }
+
   const { SessionModel } = await getModels();
-  await SessionModel.updateOne(
-    { _id: sessionId },
-    { $set: { activeGeneration: generation, updatedAt: new Date() } }
+  const now = new Date();
+  const staleRefundLease = new Date(now.getTime() - 2 * 60_000);
+  const claimed = await SessionModel.findOneAndUpdate(
+    {
+      _id: sessionId,
+      'activeGeneration.id': generation.id,
+      'activeGeneration.status': generation.status,
+      $or: [
+        { 'activeGeneration.billing.status': 'refund_pending' },
+        {
+          'activeGeneration.billing.status': 'refunding',
+          'activeGeneration.billing.updatedAt': { $lt: staleRefundLease },
+        },
+      ],
+    },
+    {
+      $set: {
+        'activeGeneration.billing.status': 'refunding',
+        'activeGeneration.billing.updatedAt': now,
+        updatedAt: now,
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+
+  if (!claimed?.activeGeneration) {
+    const latest = await SessionModel.findOne({ _id: sessionId }).lean() as any;
+    return latest?.activeGeneration || generation;
+  }
+
+  const claimedGeneration = claimed.activeGeneration as GenerationState;
+  const claimedBilling = claimedGeneration.billing;
+  const hasRefundableCharge = Boolean(
+    claimedBilling
+    && typeof claimedBilling.userId === 'string'
+    && typeof claimedBilling.transactionId === 'string'
+    && typeof claimedBilling.amount === 'number'
+    && Number.isFinite(claimedBilling.amount),
   );
+  let refundSucceeded = !hasRefundableCharge
+    || claimedBilling?.transactionId === 'no_charge'
+    || (claimedBilling?.amount ?? 0) <= 0;
+  let refundError: string | undefined;
+
+  if (!refundSucceeded && claimedBilling && hasRefundableCharge) {
+    const { CreditsService } = await import('@/lib/services/creditsService');
+    const refund = await CreditsService.refundCredits(
+      claimedBilling.userId,
+      claimedBilling.amount,
+      claimedGeneration.message || `ThinkForge generation ${claimedGeneration.status}`,
+      {
+        service: claimedBilling.service,
+        action: claimedBilling.action,
+        originalTransactionId: claimedBilling.transactionId,
+      },
+    );
+    refundSucceeded = refund.success;
+    refundError = refund.error;
+  }
+
+  const settledAt = new Date();
+  if (!refundSucceeded) {
+    await SessionModel.updateOne(
+      {
+        _id: sessionId,
+        'activeGeneration.id': generation.id,
+        'activeGeneration.billing.status': 'refunding',
+      },
+      {
+        $set: {
+          'activeGeneration.billing.status': 'refund_pending',
+          'activeGeneration.billing.updatedAt': settledAt,
+          updatedAt: settledAt,
+        },
+      },
+    );
+    throw new Error(refundError || `Failed to refund ThinkForge generation ${generation.id}`);
+  }
+
+  const settled = await SessionModel.findOneAndUpdate(
+    {
+      _id: sessionId,
+      'activeGeneration.id': generation.id,
+      'activeGeneration.billing.status': 'refunding',
+    },
+    {
+      $set: {
+        'activeGeneration.billing.status': 'refunded',
+        'activeGeneration.billing.updatedAt': settledAt,
+        updatedAt: settledAt,
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+
+  return settled?.activeGeneration || claimedGeneration;
+}
+
+export async function setActiveGeneration(
+  sessionId: string,
+  userId: string,
+  generation: GenerationState,
+): Promise<boolean> {
+  const { SessionModel } = await getModels();
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const session = await SessionModel.findOne({ _id: sessionId, userId }).lean() as any;
+    if (!session) return false;
+
+    const active = session.activeGeneration as GenerationState | null;
+    if (active?.status === 'running') {
+      if (active.commitClaimedAt) return false;
+      await updateGenerationState(sessionId, active.id, {
+        status: 'cancelled',
+        message: 'Superseded by a newer generation',
+      });
+      continue;
+    }
+
+    if (active?.billing?.status === 'refund_pending' || active?.billing?.status === 'refunding') {
+      await settleGenerationRefund(sessionId, active);
+      continue;
+    }
+
+    const ownershipFilter = active
+      ? {
+          'activeGeneration.id': active.id,
+          'activeGeneration.status': active.status,
+        }
+      : {
+          $or: [
+            { activeGeneration: null },
+            { activeGeneration: { $exists: false } },
+          ],
+        };
+    const admitted = await SessionModel.updateOne(
+      { _id: sessionId, userId, ...ownershipFilter },
+      { $set: { activeGeneration: generation, updatedAt: new Date() } },
+    );
+    if (admitted.modifiedCount === 1) return true;
+  }
+
+  throw new GenerationStateConflictError('Could not acquire ThinkForge generation ownership');
 }
 
 export async function clearActiveGeneration(sessionId: string): Promise<void> {
@@ -1091,33 +1345,177 @@ export async function clearActiveGeneration(sessionId: string): Promise<void> {
   );
 }
 
+export async function claimInitialDraftIntent(sessionId: string): Promise<boolean> {
+  const { SessionModel } = await getModels();
+  const now = new Date();
+  const session = await SessionModel.findOneAndUpdate(
+    {
+      _id: sessionId,
+      'projectMeta.initialDraftIntent.status': 'pending',
+    },
+    {
+      $set: {
+        'projectMeta.initialDraftIntent.status': 'claimed',
+        'projectMeta.initialDraftIntent.claimedAt': now,
+        updatedAt: now,
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+
+  return Boolean(session);
+}
+
+/** Atomically records a user-confirmed trend without overwriting other session metadata. */
+export async function setSessionSelectedTrend(sessionId: string, selectedTrend: SelectedTrend): Promise<ProjectMeta> {
+  const { SessionModel } = await getModels();
+  const doc = await SessionModel.findByIdAndUpdate(
+    sessionId,
+    {
+      $set: {
+        'projectMeta.selectedTrend': selectedTrend,
+        updatedAt: new Date(),
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+
+  if (!doc) {
+    throw new Error(`Session ${sessionId} not found`);
+  }
+
+  return doc.projectMeta || {};
+}
+
+/**
+ * Attaches analysis only if the same trend is still selected. This prevents a
+ * slow media-analysis result from overwriting a newer user selection.
+ */
+export async function setSessionSelectedTrendAnalysis(
+  sessionId: string,
+  candidateId: string,
+  selectedTrend: SelectedTrend,
+  options: {
+    expectedAnalysisJobId?: string;
+    requireNoQueuedAnalysis?: boolean;
+  } = {},
+): Promise<ProjectMeta | null> {
+  const { SessionModel } = await getModels();
+  const query: Record<string, unknown> = {
+    _id: sessionId,
+    'projectMeta.selectedTrend.candidate.candidateId': candidateId,
+  };
+  if (options.expectedAnalysisJobId) {
+    query['projectMeta.selectedTrend.analysis.status'] = 'queued';
+    query['projectMeta.selectedTrend.analysis.jobId'] = options.expectedAnalysisJobId;
+  } else if (options.requireNoQueuedAnalysis) {
+    query.$or = [
+      { 'projectMeta.selectedTrend.analysis': { $exists: false } },
+      { 'projectMeta.selectedTrend.analysis.status': { $ne: 'queued' } },
+    ];
+  }
+  const doc = await SessionModel.findOneAndUpdate(
+    query,
+    {
+      $set: {
+        'projectMeta.selectedTrend': selectedTrend,
+        updatedAt: new Date(),
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+
+  return doc?.projectMeta || null;
+}
+
 export async function getActiveGeneration(sessionId: string): Promise<GenerationState | null> {
   const { SessionModel } = await getModels();
   const doc = await SessionModel.findOne({ _id: sessionId }).lean() as any;
-  return doc?.activeGeneration || null;
+  const generation = doc?.activeGeneration as GenerationState | null;
+  if (generation?.billing?.status === 'refund_pending' || generation?.billing?.status === 'refunding') {
+    return settleGenerationRefund(sessionId, generation);
+  }
+  return generation || null;
+}
+
+export async function claimGenerationCommit(sessionId: string, generationId: string): Promise<boolean> {
+  const { SessionModel } = await getModels();
+  const now = new Date();
+  const claimed = await SessionModel.updateOne(
+    {
+      _id: sessionId,
+      'activeGeneration.id': generationId,
+      'activeGeneration.status': 'running',
+      'activeGeneration.commitClaimedAt': { $exists: false },
+    },
+    {
+      $set: {
+        'activeGeneration.commitClaimedAt': now,
+        'activeGeneration.updatedAt': now,
+        updatedAt: now,
+      },
+    },
+  );
+  return claimed.modifiedCount === 1;
 }
 
 export async function updateGenerationState(
   sessionId: string,
   generationId: string,
   updates: Partial<GenerationState>
-): Promise<void> {
+): Promise<GenerationState | null> {
   const { SessionModel } = await getModels();
-  const session = await SessionModel.findOne({ _id: sessionId }).lean() as any;
-  if (!session || !session.activeGeneration || session.activeGeneration.id !== generationId) {
-    return;
+  const now = new Date();
+  const query: Record<string, unknown> = {
+    _id: sessionId,
+    'activeGeneration.id': generationId,
+    'activeGeneration.status': 'running',
+  };
+  if (updates.status === 'cancelled') {
+    query['activeGeneration.commitClaimedAt'] = { $exists: false };
   }
 
-  const updatedGen = {
-    ...session.activeGeneration,
-    ...updates,
-    updatedAt: new Date()
+  const setFields: Record<string, unknown> = {
+    'activeGeneration.updatedAt': now,
+    updatedAt: now,
   };
+  for (const [key, value] of Object.entries(updates)) {
+    if (key !== 'updatedAt' && value !== undefined) {
+      setFields[`activeGeneration.${key}`] = value;
+    }
+  }
+  if (updates.status === 'completed') {
+    setFields['activeGeneration.billing.status'] = 'settled';
+    setFields['activeGeneration.billing.updatedAt'] = now;
+  } else if (updates.status === 'failed' || updates.status === 'cancelled') {
+    setFields['activeGeneration.billing.status'] = 'refund_pending';
+    setFields['activeGeneration.billing.updatedAt'] = now;
+  }
 
-  await SessionModel.updateOne(
-    { _id: sessionId },
-    { $set: { activeGeneration: updatedGen, updatedAt: new Date() } }
-  );
+  const updated = await SessionModel.findOneAndUpdate(
+    query,
+    { $set: setFields },
+    { new: true, lean: true },
+  ) as any;
+  if (updated?.activeGeneration) {
+    const generation = updated.activeGeneration as GenerationState;
+    if (generation.status === 'failed' || generation.status === 'cancelled') {
+      return settleGenerationRefund(sessionId, generation);
+    }
+    return generation;
+  }
+
+  const current = await SessionModel.findOne({ _id: sessionId }).lean() as any;
+  const active = current?.activeGeneration as GenerationState | null;
+  if (active?.id === generationId && active.status === updates.status) {
+    return settleGenerationRefund(sessionId, active);
+  }
+  if (updates.status) {
+    throw new GenerationStateConflictError(
+      `Generation ${generationId} cannot transition to ${updates.status}; ownership or terminal state changed`,
+    );
+  }
+  return null;
 }
 
 export async function updateSession(sessionId: string, updates: Partial<Session>): Promise<Session> {
@@ -1206,7 +1604,6 @@ export async function deleteSession(sessionId: string, userId: string): Promise<
       RateUsageModel.deleteMany({ sessionId })
     ]);
 
-    console.log(`Deleted session ${sessionId} and all associated data`);
     return true;
   } catch (error) {
     console.error('Error deleting session:', error);
@@ -1246,24 +1643,10 @@ export async function getScript(sessionId: string, scriptId?: string | null): Pr
 
     if (!doc) return null;
 
-    const blocks = enforceThinkForgeBlocks(doc.blocks);
-
-    return {
-      _id: String(doc._id),
-      sessionId: doc.sessionId,
-      scriptId: doc.scriptId || 'default',
-      title: doc.title,
-      content: doc.content || '',
-      blocks,
-      richText: doc.richText, // Tiptap JSON AST
-      metadata: doc.metadata || {},
-      version: typeof doc.version === 'number' ? doc.version : 1,
-      createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt
-    };
+    return mapStoredScript(doc);
   } catch (error) {
     console.error('Error getting script:', error);
-    return null;
+    throw error;
   }
 }
 
@@ -1275,12 +1658,14 @@ export async function saveScript(sessionId: string, script: Partial<Script>, scr
 
     // Check if script exists
     const existing = await ScriptModel.findOne({ sessionId, scriptId: effectiveScriptId }).sort({ updatedAt: -1 });
+    const classification = resolveScriptClassification(script, existing as any);
 
     if (existing) {
       // Update existing
       const blocks = script.blocks !== undefined ? enforceThinkForgeBlocks(script.blocks) : enforceThinkForgeBlocks(existing.blocks);
       const nextVersion = (typeof existing.version === 'number' ? existing.version : 1) + 1;
       const updateDoc: Record<string, any> = {
+        ...classification,
         scriptId: effectiveScriptId,
         title: script.title ?? existing.title,
         content: script.content ?? existing.content,
@@ -1301,23 +1686,12 @@ export async function saveScript(sessionId: string, script: Partial<Script>, scr
       const updated = await ScriptModel.findById(existing._id).lean() as any;
       if (!updated) throw new Error('Failed to update script');
 
-      return {
-        _id: String(updated._id),
-        sessionId: updated.sessionId,
-        scriptId: updated.scriptId || effectiveScriptId,
-        title: updated.title,
-        content: updated.content || '',
-        blocks: updated.blocks,
-        richText: updated.richText,
-        metadata: updated.metadata || {},
-        version: typeof updated.version === 'number' ? updated.version : nextVersion,
-        createdAt: updated.createdAt,
-        updatedAt: updated.updatedAt
-      };
+      return mapStoredScript(updated, effectiveScriptId);
     } else {
       // Create new
       const blocks = enforceThinkForgeBlocks(script.blocks || []);
       const doc: Record<string, any> = {
+        ...classification,
         sessionId,
         scriptId: effectiveScriptId,
         title: script.title || 'Untitled Script',
@@ -1337,19 +1711,7 @@ export async function saveScript(sessionId: string, script: Partial<Script>, scr
       }
 
       const created = await ScriptModel.create(doc);
-      return {
-        _id: String(created._id),
-        sessionId: created.sessionId,
-        scriptId: (created as any).scriptId || effectiveScriptId,
-        title: created.title,
-        content: created.content || '',
-        blocks: created.blocks,
-        richText: (created as any).richText,
-        metadata: (created as any).metadata || {},
-        version: typeof (created as any).version === 'number' ? (created as any).version : 1,
-        createdAt: created.createdAt,
-        updatedAt: created.updatedAt
-      };
+      return mapStoredScript(created, effectiveScriptId);
     }
   } catch (error) {
     console.error('Error saving script:', error);
@@ -1373,6 +1735,7 @@ export async function saveScriptWithVersion(
     const effectiveScriptId = scriptId || (script as any)?.scriptId || 'default';
 
     const existing = await ScriptModel.findOne({ sessionId, scriptId: effectiveScriptId }).sort({ updatedAt: -1 });
+    const classification = resolveScriptClassification(script, existing as any);
     if (!existing) {
       if (baseVersion > 0) {
         return { ok: false, error: 'Version conflict', currentVersion: 0 };
@@ -1385,7 +1748,7 @@ export async function saveScriptWithVersion(
         title: script.title || 'Untitled Script',
         content: script.content || '',
         blocks,
-        documentType: script.documentType || 'screenplay',
+        ...classification,
         version: 1,
         createdAt: now,
         updatedAt: now,
@@ -1400,20 +1763,7 @@ export async function saveScriptWithVersion(
       const created = await ScriptModel.create(doc);
       return {
         ok: true,
-        script: {
-          _id: String(created._id),
-          sessionId: created.sessionId,
-          scriptId: (created as any).scriptId || effectiveScriptId,
-          title: created.title,
-          content: created.content || '',
-          blocks: created.blocks,
-          richText: (created as any).richText,
-          metadata: (created as any).metadata || {},
-          documentType: (created as any).documentType || 'screenplay',
-          version: typeof (created as any).version === 'number' ? (created as any).version : 1,
-          createdAt: created.createdAt,
-          updatedAt: created.updatedAt,
-        },
+        script: mapStoredScript(created, effectiveScriptId),
       };
     }
 
@@ -1425,7 +1775,7 @@ export async function saveScriptWithVersion(
       title: script.title ?? existing.title,
       content: script.content ?? existing.content,
       blocks,
-      documentType: script.documentType ?? (existing as any).documentType ?? 'screenplay',
+      ...classification,
       version: baseVersion + 1,
       updatedAt: now,
     };
@@ -1452,20 +1802,7 @@ export async function saveScriptWithVersion(
 
     return {
       ok: true,
-      script: {
-        _id: String(updated._id),
-        sessionId: updated.sessionId,
-        scriptId: updated.scriptId || effectiveScriptId,
-        title: updated.title,
-        content: updated.content || '',
-        blocks: updated.blocks,
-        richText: updated.richText,
-        metadata: updated.metadata || {},
-        documentType: updated.documentType || 'screenplay',
-        version: typeof updated.version === 'number' ? updated.version : baseVersion + 1,
-        createdAt: updated.createdAt,
-        updatedAt: updated.updatedAt,
-      },
+      script: mapStoredScript(updated, effectiveScriptId),
     };
   } catch (error) {
     console.error('Error saving script with version check:', error);
@@ -1483,8 +1820,10 @@ export async function updateScript(sessionId: string, updates: Partial<Script>, 
       throw new Error(`Script not found for session ${sessionId}`);
     }
     const nextVersion = (typeof (existing as any).version === 'number' ? (existing as any).version : 1) + 1;
+    const classification = resolveScriptClassification(updates, existing as any);
     const updateDoc = {
       ...updates,
+      ...classification,
       scriptId: effectiveScriptId,
       version: nextVersion,
       updatedAt: new Date()
@@ -1494,18 +1833,7 @@ export async function updateScript(sessionId: string, updates: Partial<Script>, 
     const updated = await ScriptModel.findById(existing._id).lean() as any;
     if (!updated) throw new Error('Failed to update script');
 
-    return {
-      _id: String(updated._id),
-      sessionId: updated.sessionId,
-      scriptId: updated.scriptId || effectiveScriptId,
-      title: updated.title,
-      content: updated.content || '',
-      blocks: enforceThinkForgeBlocks(updated.blocks),
-      richText: updated.richText,
-      version: typeof updated.version === 'number' ? updated.version : nextVersion,
-      createdAt: updated.createdAt,
-      updatedAt: updated.updatedAt
-    };
+    return mapStoredScript(updated, effectiveScriptId);
   } catch (error) {
     console.error('Error updating script:', error);
     throw error;
@@ -1525,7 +1853,7 @@ export async function listScripts(sessionId: string): Promise<Array<{ scriptId: 
       items.push({
         scriptId: sid,
         title: doc.title || 'Untitled Script',
-        documentType: doc.documentType || 'screenplay',
+        documentType: resolveScriptClassification(doc).documentType!,
         version: doc.version || 1,
         updatedAt: doc.updatedAt || doc.createdAt,
         createdAt: doc.createdAt,
@@ -1557,7 +1885,7 @@ export async function listScriptsByUser(
         scriptId: sid,
         sessionId: doc.sessionId,
         title: doc.title || 'Untitled Script',
-        documentType: doc.documentType || 'screenplay',
+        documentType: resolveScriptClassification(doc).documentType!,
         version: doc.version || 1,
         updatedAt: doc.updatedAt || doc.createdAt,
         createdAt: doc.createdAt,
@@ -2002,7 +2330,6 @@ export async function deleteProject(projectId: string, userId: string): Promise<
     // Note: ContentBlocks are NOT deleted (they may be referenced by other versions)
     // Garbage collection for orphaned blocks should be a separate maintenance task
 
-    console.log(`Deleted project ${projectId} and all associated data`);
     return true;
   } catch (error) {
     console.error('Error deleting project:', error);

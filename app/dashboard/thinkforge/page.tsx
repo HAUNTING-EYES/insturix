@@ -4,6 +4,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import { FolderOpen, Lightbulb, FileText, Calendar, Brain, Library } from "lucide-react";
 import { toast } from '@/hooks/use-toast';
 import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
+import type { SelectedTrend } from "@/lib/thinkforge/trends/selected-trend";
+import type { TrendCandidate } from "@/lib/thinkforge/trends/trend-evidence";
+import type { TrendTarget } from "@/components/dashboard/ThinkForge/TrendWorkflowPanel";
 import { LibraryPanel, SessionMeta } from "@/components/dashboard/ThinkForge/LibraryPanel";
 import { BackgroundDecor } from "@/components/dashboard/ThinkForge/BackgroundDecor";
 import { Script } from "@/app/dashboard/thinkforge/types";
@@ -17,6 +20,12 @@ import StoryboardingMode from "@/components/dashboard/ThinkForge/StoryboardingMo
 import PlanningMode from "@/components/dashboard/ThinkForge/PlanningMode";
 import { PipelineBreadcrumb } from "@/components/dashboard/shared/PipelineBreadcrumb";
 
+import {
+	normalizeThinkForgeDocumentContract,
+	resolveCarouselSlideCount,
+} from "@/lib/thinkforge/schemas/document-contract";
+import { matchesThinkForgeDocumentIdentity } from "@/lib/thinkforge/client-document-identity";
+import { resolveThinkForgeSessionOpenAction } from "@/lib/thinkforge/session-open-policy";
 const PROJECT_META_PASSTHROUGH_KEYS = [
 	'brandId',
 	'brandBrief',
@@ -54,27 +63,46 @@ const hasMissingProjectMetaPassthrough = (target: unknown, source: unknown): boo
 	});
 };
 
-const buildProjectMetaPayload = (idea: IdeaCardData | null | undefined): Record<string, string> => ({
-	idea: idea?.idea || '',
-	purpose: (idea as any)?.purpose || '',
-	style: (idea as any)?.style || '',
-	format: (idea as any)?.format || '',
-	platform: (idea as any)?.platform || '',
-	tone: idea?.tone || 'blue',
-	sessionName: (idea as any)?.sessionName || '',
-	originalPrompt: (idea as any)?.originalPrompt || '',
-	brandBrief: (idea as any)?.brandBrief || '',
-	...pickProjectMetaPassthrough(idea),
-});
+const resolveIdeaDocumentContract = (idea: IdeaCardData | null | undefined) => {
+	const contract = normalizeThinkForgeDocumentContract(idea?.format);
+	if (contract?.outputKind !== 'carousel') return contract;
+	const carouselSlideCount = resolveCarouselSlideCount(idea?.originalPrompt);
+	return carouselSlideCount === undefined ? contract : { ...contract, carouselSlideCount };
+};
 
+const buildProjectMetaPayload = (
+	idea: IdeaCardData | null | undefined,
+	initialDraftIntent?: Record<string, unknown>,
+): Record<string, unknown> => {
+	const contentContract = resolveIdeaDocumentContract(idea);
+	return {
+		idea: idea?.idea || '',
+		purpose: (idea as any)?.purpose || '',
+		style: (idea as any)?.style || '',
+		format: (idea as any)?.format || '',
+		...(contentContract ? { contentContract } : {}),
+		platform: (idea as any)?.platform || '',
+		tone: idea?.tone || 'blue',
+		sessionName: (idea as any)?.sessionName || '',
+		originalPrompt: (idea as any)?.originalPrompt || '',
+		brandBrief: (idea as any)?.brandBrief || '',
+		...pickProjectMetaPassthrough(idea),
+		...(initialDraftIntent ? { initialDraftIntent } : {}),
+	};
+};
 const buildIdeaGenerationPayload = (
 	prompt: string,
 	projectMeta?: Record<string, unknown> | null,
+	variationIndex = 0,
+	rejectedIdeas: Array<{ title: string; purpose: string; style: string }> = [],
 ): Record<string, unknown> => {
 	const scopedMeta = pickProjectMetaPassthrough(projectMeta);
-	return Object.keys(scopedMeta).length > 0
-		? { prompt, projectMeta: scopedMeta }
-		: { prompt };
+	return {
+		prompt,
+		variationIndex,
+		rejectedIdeas,
+		...(Object.keys(scopedMeta).length > 0 ? { projectMeta: scopedMeta } : {}),
+	};
 };
 
 
@@ -101,12 +129,15 @@ export default function ThinkForgeLanding() {
 	const [ideationPhase, setIdeationPhase] = useState<'PROMPT' | 'IDEAS' | 'SELECTED'>('PROMPT');
 
 	const [sessions, setSessions] = useState<SessionMeta[]>([]);
+	const initialDraftRequestedRef = useRef(false);
+	const successfulIdeaVariationRef = useRef(-1);
+	const rejectedIdeasRef = useRef<Array<{ title: string; purpose: string; style: string }>>([]);
 
 	// Modular hooks
 	const session = useThinkForgeSession();
 	const activeSessionId = pendingSessionId || session.sessionId;
 	const [tabsRefreshCounter, setTabsRefreshCounter] = useState(0);
-	const scriptHook = useThinkForgeScript(activeSessionId, activeScriptId);
+	const scriptHook = useThinkForgeScript(activeSessionId, activeScriptId, session.hydratedScriptSnapshot);
 
 	useEffect(() => {
 		if (activeSessionId) {
@@ -144,16 +175,33 @@ export default function ThinkForgeLanding() {
 	const panelRef = useRef<HTMLElement | null>(null);
 	const edgeHoverTimeout = useRef<NodeJS.Timeout | null>(null);
 
-	const generateIdeas = useCallback(async (promptOverride?: string) => {
+	const generateIdeas = useCallback(async (
+		promptOverride?: string,
+		options?: { variationIndex?: number; rejectedIdeas?: Array<{ title: string; purpose: string; style: string }> },
+	) => {
 		const ideaPrompt = promptOverride || prompt;
 		if (!ideaPrompt.trim()) return;
+		const variationIndex = options?.variationIndex ?? 0;
+		const rejectedIdeas = options?.rejectedIdeas || [];
+		if (variationIndex === 0 && rejectedIdeas.length === 0) {
+			successfulIdeaVariationRef.current = -1;
+			rejectedIdeasRef.current = [];
+		}
+		setIdeas([]);
+		setSelectedIdea(null);
+		setIdeationPhase('IDEAS');
 		setLoading(true);
 		setHasSubmitted(true);
 		try {
 			const res = await fetch('/api/services/thinkforge/ideas', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(buildIdeaGenerationPayload(ideaPrompt, session.projectMeta))
+				body: JSON.stringify(buildIdeaGenerationPayload(
+					ideaPrompt,
+					session.projectMeta,
+					variationIndex,
+					rejectedIdeas,
+				))
 			});
 			// Handle insufficient credits (new credits system)
 			if (res.status === 402) {
@@ -183,6 +231,7 @@ export default function ThinkForgeLanding() {
 			const data = await res.json();
 			const list: IdeaCardData[] = Array.isArray(data?.ideas) ? data.ideas : (Array.isArray(data) ? data : []);
 			if (list.length !== 4) throw new Error('Idea generation returned an invalid idea set');
+			successfulIdeaVariationRef.current = variationIndex;
 			setIdeas(list.map((idea) => ({ ...idea, originalPrompt: ideaPrompt })));
 			setIdeationPhase('IDEAS');
 		} catch (error: any) {
@@ -204,7 +253,19 @@ export default function ThinkForgeLanding() {
 
 	const regenerate = () => {
 		if (loading) return;
-		generateIdeas();
+		const rejectedIdeasByTitle = new Map(
+			[...rejectedIdeasRef.current, ...ideas.map((idea) => ({
+				title: idea.idea,
+				purpose: idea.purpose,
+				style: idea.style,
+			}))].map((idea) => [idea.title.trim().toLowerCase(), idea]),
+		);
+		const rejectedIdeas = [...rejectedIdeasByTitle.values()].slice(-12);
+		rejectedIdeasRef.current = rejectedIdeas;
+		generateIdeas(undefined, {
+			variationIndex: successfulIdeaVariationRef.current + 1,
+			rejectedIdeas,
+		});
 	};
 
 	/**
@@ -313,6 +374,15 @@ export default function ThinkForgeLanding() {
 	// (The old code auto-opened the library when hovering near the right edge of the screen)
 
 	const handleSelectIdea = async (idea: IdeaCardData) => {
+		if (!resolveIdeaDocumentContract(idea)) {
+			toast({
+				title: 'Content format required',
+				description: 'Choose a post, carousel, or video-script format before starting the draft.',
+				variant: 'destructive',
+			});
+			return;
+		}
+		initialDraftRequestedRef.current = true;
 		// Auto-generate a session name from the idea if not present
 		const sessionName = idea.sessionName || (idea.idea || 'New Session').split('–')[0].trim().slice(0, 40);
 		// Persist URL brief data into the idea so it survives the ideation→scripting transition
@@ -331,7 +401,16 @@ export default function ThinkForgeLanding() {
 	};
 
 	const handleProceedToScript = async (updatedIdea?: IdeaCardData) => {
+		initialDraftRequestedRef.current = false;
 		const targetIdea = updatedIdea || selectedIdea;
+		if (!resolveIdeaDocumentContract(targetIdea)) {
+			toast({
+				title: 'Content format required',
+				description: 'Choose a post, carousel, or video-script format before continuing.',
+				variant: 'destructive',
+			});
+			return;
+		}
 		const name = (targetIdea?.sessionName || '').trim();
 		if (!name || name.length > 100) {
 			toast({
@@ -353,6 +432,62 @@ export default function ThinkForgeLanding() {
 		setHasSubmitted(false);
 		setPrompt("");
 	};
+
+	const handleEnsureTrendSession = useCallback(async (candidate: TrendCandidate, target: TrendTarget): Promise<string | null> => {
+		const title = candidate.title.trim().slice(0, 80);
+		const contentContract = normalizeThinkForgeDocumentContract(target);
+		if (!contentContract) {
+			toast({
+				title: 'Unsupported trend format',
+				description: 'Choose a supported post, carousel, or video-script target.',
+				variant: 'destructive',
+			});
+			return null;
+		}
+		const created = await session.hydrate({
+			projectMeta: {
+				idea: 'Create a ' + target + ' using the analyzed trend: ' + title,
+				purpose: 'Apply an analyzed public trend format to a brand-specific original draft.',
+				style: 'Original, brand-safe adaptation of the analyzed trend mechanics.',
+				format: target,
+				contentContract,
+				platform: candidate.platform === 'unknown' ? '' : candidate.platform,
+				tone: 'blue',
+				sessionName: ('Trend - ' + title).slice(0, 100),
+				originalPrompt: 'Create a ' + target + ' using the analyzed trend: ' + title,
+				initialDraftIntent: { status: 'pending', requestedAt: new Date().toISOString() },
+			},
+		});
+		if (created?.sessionId) {
+			setPendingSessionId(created.sessionId);
+			return created.sessionId;
+		}
+		return null;
+	}, [session]);
+
+	const handleTrendDraft = useCallback((input: { prompt: string; sessionId: string; target: TrendTarget; selectedTrend: SelectedTrend }) => {
+		const title = input.selectedTrend.candidate.title.trim();
+		const platform = input.selectedTrend.candidate.platform === 'unknown' ? '' : input.selectedTrend.candidate.platform;
+		setSelectedIdea({
+			id: 'trend-' + input.selectedTrend.candidate.candidateId,
+			idea: 'Create a ' + input.target + ' using the analyzed trend: ' + title,
+			purpose: input.prompt,
+			style: 'Original, brand-safe adaptation of the analyzed trend mechanics.',
+			format: input.target,
+			platform,
+			tone: 'blue',
+			sessionName: ('Trend - ' + title).slice(0, 100),
+			originalPrompt: input.prompt,
+		});
+		initialDraftRequestedRef.current = false;
+		setPendingSessionId(input.sessionId);
+		setActiveScriptId('default');
+		setIdeationPhase('PROMPT');
+		setIdeas([]);
+		setHasSubmitted(false);
+		setPrompt('');
+		setWorkspaceMode('scripting');
+	}, []);
 
 	const handleJumpToSettings = () => {
 		// Initialize empty idea
@@ -404,7 +539,10 @@ export default function ThinkForgeLanding() {
 			// Skip if we're still in ideation phase (no active session yet)
 			const activeSessionId = session.sessionId || pendingSessionId;
 			if (activeSessionId && workspaceMode === 'scripting') {
-				const projectMetaPayload = buildProjectMetaPayload(updated);
+				const projectMetaPayload = buildProjectMetaPayload(
+					updated,
+					session.projectMeta?.initialDraftIntent as Record<string, unknown> | undefined,
+				);
 
 				try {
 					const res = await fetch('/api/services/thinkforge/session/update', {
@@ -457,8 +595,8 @@ export default function ThinkForgeLanding() {
 	// Hydrate backend session when entering SCRIPTING mode
 	const hasHydratedRef = useRef(false);
 	const creationTimerRef = useRef<NodeJS.Timeout | null>(null);
-	const isMountedRef = useRef(true); // Track mount state to prevent post-unmount execution
-	const hydratingRef = useRef(false); // STEP 1: Hydration mutex - prevents overlapping hydration calls
+	const isMountedRef = useRef(true);
+	const hydratingRef = useRef(false);
 
 	// Track mounted state for cleanup
 	useEffect(() => {
@@ -473,14 +611,12 @@ export default function ThinkForgeLanding() {
 		};
 	}, []);
 
-	// Cache stable primitive values to avoid effect retriggers (STEP 4)
 	const currentSessionId = session.sessionId;
 	const selectedIdeaId = selectedIdea?.id;
 	const selectedIdeaText = selectedIdea?.idea;
 	const selectedIdeaTone = selectedIdea?.tone;
 
 	useEffect(() => {
-		// STEP 2: Strengthened guard - all conditions must pass
 		if (workspaceMode !== 'scripting') return;
 		if (!selectedIdea) return;
 		if (currentSessionId || pendingSessionId) return;
@@ -498,7 +634,6 @@ export default function ThinkForgeLanding() {
 				console.warn('[ThinkForge] Hydration aborted - component unmounted');
 				return;
 			}
-			// Re-check ALL conditions at execution time (STEP 2)
 			if (workspaceMode !== 'scripting' || !selectedIdea) return;
 			if (currentSessionId || pendingSessionId) return;
 			if (hasHydratedRef.current) return;
@@ -507,9 +642,7 @@ export default function ThinkForgeLanding() {
 				return;
 			}
 
-			// STEP 1: Acquire mutex
 			hydratingRef.current = true;
-			console.log('[ThinkForge] Hydration start');
 
 			try {
 				if (!isMountedRef.current) return;
@@ -517,8 +650,11 @@ export default function ThinkForgeLanding() {
 				await session.closeSession();
 				// Ensure UI is cleared before creating a fresh session
 				scriptHook.resetSessionState();
+				const initialDraftIntent = initialDraftRequestedRef.current
+					? { status: 'pending', requestedAt: new Date().toISOString() }
+					: undefined;
 				const created = await session.hydrate({
-					projectMeta: buildProjectMetaPayload(selectedIdea)
+					projectMeta: buildProjectMetaPayload(selectedIdea, initialDraftIntent)
 				});
 				// Check mount state after async operations
 				if (!isMountedRef.current) {
@@ -526,12 +662,10 @@ export default function ThinkForgeLanding() {
 					return;
 				}
 				if (created?.sessionId) {
-					// STEP 3: Immediately persist sessionId - hydration is now complete
-					// hasHydratedRef stays true to prevent any future hydration until idea resets
 					hasHydratedRef.current = true;
+					initialDraftRequestedRef.current = false;
 					setPendingSessionId(created.sessionId);
 					scriptHook.resetSessionState();
-					console.log('[ThinkForge] Hydration success', created.sessionId);
 				} else {
 					// Hydration returned null - allow retry by NOT setting hasHydratedRef
 					console.error('[ThinkForge] Hydration returned null, allowing retry');
@@ -553,14 +687,13 @@ export default function ThinkForgeLanding() {
 				}
 			}
 			finally {
-				// STEP 1: Release mutex in finally block
 				hydratingRef.current = false;
 				if (isMountedRef.current) {
 					setOpeningSession(false);
 				}
 			}
 		}, 220);
-	}, [workspaceMode, selectedIdeaId, currentSessionId, pendingSessionId]); // STEP 4: Stable primitives only
+	}, [workspaceMode, selectedIdeaId, currentSessionId, pendingSessionId]);
 
 	// Clear temporary pendingSessionId once the hook has the active sessionId
 	useEffect(() => {
@@ -717,6 +850,24 @@ export default function ThinkForgeLanding() {
 				// When sessions prop is omitted, component fetches via hook
 				onOpenSession={async (id) => {
 					try {
+						const openAction = resolveThinkForgeSessionOpenAction({
+							targetSessionId: id,
+							activeSessionId,
+							workspaceMode,
+							hasHydratedWorkspace: Boolean(
+								selectedIdea
+								&& matchesThinkForgeDocumentIdentity(scriptHook.script, {
+									sessionId: id,
+									scriptId: activeScriptId || 'default',
+								}),
+							),
+						});
+						if (openAction === 'focus_current') {
+							setLibraryOpen(false);
+							setWorkspaceMode('scripting');
+							return;
+						}
+
 						// Ensure current script is saved before switching sessions
 						if (scriptHook.script) {
 							await scriptHook.autosave(scriptHook.script);
@@ -726,7 +877,7 @@ export default function ThinkForgeLanding() {
 						setLibraryOpen(false);
 						setOpeningSession(true);
 						// Hydrate backend with target session and immediately use returned data
-						const data = await session.hydrate({ sessionId: id });
+						const data = await session.hydrate({ sessionId: id, scriptId: 'default' });
 						if (!data) { setOpeningSession(false); return; }
 						const sid = data.sessionId;
 						setPendingSessionId(sid);
@@ -795,6 +946,9 @@ export default function ThinkForgeLanding() {
 				onGoBackToIdeas={() => setIdeationPhase('IDEAS')}
 				onUpdateIdea={handleUpdateIdea}
 				onManualSetup={handleJumpToSettings}
+				sessionId={activeSessionId}
+				onEnsureTrendSession={handleEnsureTrendSession}
+				onTrendDraft={handleTrendDraft}
 				isVisible={workspaceMode === 'ideation'}
 				sessionCount={sessions.length}
 				onUrlSubmit={handleUrlSubmit}
@@ -810,6 +964,11 @@ export default function ThinkForgeLanding() {
 				tabsRefreshTrigger={tabsRefreshCounter}
 				script={scriptFromHook}
 				isScriptLoading={scriptHook.isLoading}
+				initialChatMessages={
+					session.hydratedChatSnapshot?.sessionId === activeSessionId
+						? session.hydratedChatSnapshot.messages
+						: undefined
+				}
 				isSaving={scriptHook.isSaving}
 				onApplyEdit={handleApplyEdit}
 				onRunEdit={handleRunEdit}
@@ -872,7 +1031,7 @@ export default function ThinkForgeLanding() {
 						scriptHook.resetSessionState();
 						setOpeningSession(true);
 						// Hydrate backend with target session and immediately use returned data
-						const data = await session.hydrate({ sessionId: id });
+						const data = await session.hydrate({ sessionId: id, scriptId: 'default' });
 						if (!data) { setOpeningSession(false); return; }
 						const sid = data.sessionId;
 						setPendingSessionId(sid);
@@ -929,7 +1088,7 @@ export default function ThinkForgeLanding() {
 						scriptHook.resetSessionState();
 
 						// Hydrate the session from content card
-						const data = await session.hydrate({ sessionId });
+						const data = await session.hydrate({ sessionId, scriptId: 'default' });
 						if (data?.sessionId) {
 							setPendingSessionId(data.sessionId);
 							scriptHook.resetSessionState();

@@ -53,6 +53,79 @@ describe('rendered frame aesthetic scoring', () => {
     expect(result.issues).toHaveLength(0);
   });
 
+  it('warns captions centered inside platform unsafe zones', () => {
+    const receipt = captionReceipt({
+      words: ['this', 'is', 'covered'],
+      maxWordsPerLine: 3,
+      durationFrames: 66,
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 10.5, alphaMean: 1 },
+      overlays: [{
+        id: 'caption-bottom-ui-zone',
+        receipt,
+        box: {
+          x: 220,
+          y: 1580,
+          width: 640,
+          height: 180,
+          opacity: 1,
+          visiblePixelRatio: 0.08,
+          contrastRatio: 5.8,
+          textPixelHeight: 68,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('warn');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'safe-area',
+        severity: 'warn',
+        message: expect.stringContaining('caption_unsafe_zone'),
+        evidence: expect.stringContaining('constraint=overlay.caption_unsafe_zone'),
+      }),
+    ]));
+  });
+
+  it('warns captions centered in the top platform unsafe zone', () => {
+    const receipt = captionReceipt({
+      words: ['too', 'high'],
+      maxWordsPerLine: 2,
+      durationFrames: 66,
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 10.5, alphaMean: 1 },
+      overlays: [{
+        id: 'caption-top-ui-zone',
+        receipt,
+        box: {
+          x: 220,
+          y: 40,
+          width: 640,
+          height: 180,
+          opacity: 1,
+          visiblePixelRatio: 0.08,
+          contrastRatio: 5.8,
+          textPixelHeight: 68,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('warn');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'safe-area',
+        severity: 'warn',
+        message: expect.stringContaining('caption_unsafe_zone'),
+      }),
+    ]));
+  });
+
   it('does not fail captions against their own text-occupancy placement hint', () => {
     const receipt = captionReceipt({
       words: ['one', 'clear', 'idea', 'wins'],
@@ -226,6 +299,47 @@ describe('rendered frame aesthetic scoring', () => {
     expect(result.issues).toHaveLength(0);
   });
 
+  it('does not treat a full-frame HTML scene canvas as its inner text rectangle', () => {
+    const receipt = buildOverlayAtomicReceipt({
+      family: 'html-scene',
+      intent: 'process-explanation',
+      frame: 42,
+      durationFrames: 90,
+      target: { x: 0, y: 0, width: FRAME.width, height: FRAME.height },
+      atoms: [
+        overlayAtom('text-content', 'content.text', 'Workflow Overview', 1, 'transcript'),
+        overlayAtom('font-size', 'text.font_size', '72', 1, 'decision-param'),
+        overlayAtom('text-color', 'text.color', '#ffffff', 1, 'decision-param'),
+      ],
+    });
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 11, alphaMean: 1 },
+      overlays: [{
+        id: 'full-frame-html-scene',
+        receipt,
+        box: {
+          x: 0,
+          y: 0,
+          width: FRAME.width,
+          height: FRAME.height,
+          opacity: 1,
+          visiblePixelRatio: 0.08,
+          contrastRatio: 5.1,
+          textPixelHeight: 72,
+        },
+      }],
+    });
+
+    expect(result.issues).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'safe-area',
+        message: expect.stringContaining('title-safe'),
+      }),
+    ]));
+  });
+
   it('fails dense one-row captions with low local contrast', () => {
     const receipt = captionReceipt({
       words: ['this', 'is', 'the', 'one', 'thing', 'that', 'changed', 'everything', 'forever'],
@@ -348,8 +462,90 @@ describe('rendered frame aesthetic scoring', () => {
 
     expect(result.status).toBe('fail');
     expect(result.issues).toEqual(expect.arrayContaining([
-      expect.objectContaining({ dimension: 'overlap', severity: 'fail' }),
+      expect.objectContaining({
+        dimension: 'overlap',
+        severity: 'warn',
+        message: expect.stringContaining('overlay_spatial_overlap'),
+        evidence: expect.stringContaining('constraint=overlay.overlay_spatial_overlap'),
+      }),
       expect.objectContaining({ dimension: 'clutter', severity: 'fail' }),
+    ]));
+  });
+
+  it('warns caption and graphic reading-task overlap even below generic overlap threshold', () => {
+    const caption = captionReceipt({
+      words: ['read', 'one', 'thing'],
+      maxWordsPerLine: 3,
+      durationFrames: 60,
+    });
+    const graphic = motionGraphicReceipt('the other thing');
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 15, alphaMean: 1 },
+      overlays: [
+        {
+          id: 'caption-zone-caption',
+          receipt: caption,
+          box: {
+            x: 220,
+            y: 1280,
+            width: 640,
+            height: 180,
+            opacity: 1,
+            visiblePixelRatio: 0.08,
+            contrastRatio: 5.8,
+            textPixelHeight: 68,
+          },
+        },
+        {
+          id: 'caption-zone-mg',
+          receipt: graphic,
+          box: {
+            x: 712,
+            y: 1430,
+            width: 260,
+            height: 160,
+            opacity: 1,
+            visiblePixelRatio: 0.032,
+            contrastRatio: 5.2,
+            textPixelHeight: 74,
+          },
+        },
+      ],
+    });
+
+    expect(result.status).toBe('warn');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'overlap',
+        severity: 'warn',
+        message: expect.stringContaining('graphic_in_caption_zone'),
+        evidence: expect.stringContaining('constraint=overlay.graphic_in_caption_zone'),
+      }),
+    ]));
+  });
+
+  it('warns clean overlay pairs above the CRG spatial-overlap threshold', () => {
+    const overlays = [
+      visualOverlay('shape-a', 'shape', { x: 240, y: 620, width: 300, height: 200 }),
+      visualOverlay('shape-b', 'shape', { x: 477, y: 620, width: 300, height: 200 }),
+    ];
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 15, alphaMean: 1 },
+      overlays,
+    });
+
+    expect(result.status).toBe('warn');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'overlap',
+        severity: 'warn',
+        message: expect.stringContaining('overlay_spatial_overlap'),
+        evidence: expect.stringContaining('ratio=0.21'),
+      }),
     ]));
   });
 
@@ -486,6 +682,39 @@ describe('rendered frame aesthetic scoring', () => {
     expect(result.status).toBe('pass');
     expect(result.issues).toHaveLength(0);
     expect(result.subscores['motion-graphic']).toBe(1);
+  });
+
+  it('warns rendered MG text below the CRG graphic-too-small floor', () => {
+    const receipt = motionGraphicReceipt('clear but tiny claim');
+
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      image: { lumaStdDev: 11, alphaMean: 1 },
+      overlays: [{
+        id: 'undersized-mg-text',
+        receipt,
+        box: {
+          x: 220,
+          y: 760,
+          width: 640,
+          height: 240,
+          opacity: 1,
+          visiblePixelRatio: 0.032,
+          contrastRatio: 5.2,
+          textPixelHeight: 54,
+        },
+      }],
+    });
+
+    expect(result.status).toBe('warn');
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'text',
+        severity: 'warn',
+        message: expect.stringContaining('graphic_too_small'),
+        evidence: expect.stringContaining('requiredPx=72.0'),
+      }),
+    ]));
   });
 
   it('fails tiny concept MGs even when the renderer technically paints pixels', () => {

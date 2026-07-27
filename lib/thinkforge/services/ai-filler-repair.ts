@@ -11,6 +11,7 @@
 import { generateText } from 'ai';
 import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
 import { createThinkForgeModel } from '../agents/model-factory';
+import { buildIsolatedPromptParts } from '../agents/prompt-boundary';
 import { readAiSdkUsage, recordThinkForgeDirectCost } from './provider-cost-telemetry';
 
 const FILLER_PATTERNS = getAntiAiConstraintBundle().fillerPatterns.map((pattern) => ({
@@ -34,22 +35,29 @@ export async function repairAiFillerContent(
   const hits = detectAiFiller(content);
   if (hits.length === 0) return content;
 
-  const prompt = [
-    `The copy below contains banned AI-filler phrases: ${hits.join(', ')}.`,
+  const systemInstruction = [
+    'The supplied copy contains banned AI-filler phrases.',
     'Rewrite it to REMOVE every one of those phrases, replacing each with plain, specific language a real practitioner would use.',
     'Preserve ALL facts, numbers, dates, prices, names, URLs, hashtags, structure, markdown, and approximate length. Do NOT add new claims, do NOT change meaning, do NOT add commentary.',
     'Return ONLY the rewritten copy.',
-    '',
-    'COPY:',
-    content,
   ].join('\n');
+  const promptParts = buildIsolatedPromptParts({
+    systemInstruction,
+    data: {
+      bannedPhrases: hits,
+      copy: content,
+    },
+    fieldLimits: { copy: 64_000 },
+  });
+  const promptChars = promptParts.systemInstruction.length + promptParts.prompt.length;
   const startedAt = Date.now();
 
   try {
     const model = createThinkForgeModel(modelName);
     const result = await generateText({
       model,
-      prompt,
+      system: promptParts.systemInstruction,
+      prompt: promptParts.prompt,
       temperature: 0.3,
       // @ts-ignore - seed is supported by the provider; matches base-agent usage.
       seed: 42,
@@ -63,7 +71,7 @@ export async function repairAiFillerContent(
       provider: 'gemini',
       modelName,
       operation: 'llm_text_direct',
-      promptChars: prompt.length,
+      promptChars,
       outputChars: text?.length,
       functionMs: Date.now() - startedAt,
       usage: await readAiSdkUsage((result as { usage?: unknown }).usage),
@@ -88,7 +96,7 @@ export async function repairAiFillerContent(
       provider: 'gemini',
       modelName,
       operation: 'llm_text_direct',
-      promptChars: prompt.length,
+      promptChars,
       functionMs: Date.now() - startedAt,
       routePurpose: 'creative_authoring',
       privacyClass: 'business_confidential',

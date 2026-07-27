@@ -9,6 +9,7 @@ import {
   validateReferenceVideoUrlForAutoEditIntake,
   validateReferenceVideoUrlForIntake,
   type ReferenceVideoAssetResolver,
+  type ReferenceVideoInstagramImporter,
   type ReferenceVideoYoutubeImporter,
 } from '../../lib/editron/reference-video/reference-video-source';
 import {
@@ -126,6 +127,84 @@ describe('reference video source intake', () => {
       sourceLabel: 'SaaS demo reference',
       sourceFingerprint: 'youtube|abc12345678|asset:ref_yt_imported',
     });
+  });
+
+  it('lets model-native consumers use a canonical YouTube URL without invoking the asset importer', async () => {
+    const importer: ReferenceVideoYoutubeImporter = async () => {
+      throw new Error('The importer must not run in provider-direct mode.');
+    };
+
+    const result = await resolveReferenceVideoSource({
+      userId: 'user_123',
+      referenceVideoUrl: 'https://youtube.com/shorts/abc12345678?feature=share',
+      assetResolver: emptyAssetResolver(),
+      youtubeImporter: importer,
+      youtubeMode: 'provider-direct',
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      source: {
+        kind: 'remote-url',
+        referenceId: expect.stringMatching(/^ref_youtube_[a-f0-9]{16}$/),
+        videoUrl: 'https://www.youtube.com/watch?v=abc12345678',
+        sourceLabel: 'YouTube reference abc12345678',
+        sourceFingerprint: 'youtube|abc12345678',
+        asset: null,
+      },
+    });
+  });
+
+  it('accepts canonical Instagram references and resolves them to owned assets', async () => {
+    const validation = validateReferenceVideoUrlForAutoEditIntake('https://www.instagram.com/reel/C9Example_1/?utm_source=share');
+    expect(validation).toMatchObject({
+      ok: true,
+      sourceKind: 'instagram-url',
+      sourceFingerprint: 'instagram|C9Example_1',
+    });
+    if (!validation.ok) return;
+    expect(validation.url.toString()).toBe('https://www.instagram.com/reel/C9Example_1/');
+
+    const importedAsset = videoAsset({
+      assetId: 'ref_ig_imported',
+      filename: 'instagram-reference-C9Example_1.mp4',
+      duration: 24,
+      cachedUrl: 'https://cdn.example.com/assets/ref_ig_imported.mp4',
+    });
+    const importer: ReferenceVideoInstagramImporter = async (input) => ({
+      asset: importedAsset,
+      videoUrl: importedAsset.cachedUrl,
+      durationSec: importedAsset.duration,
+      sourceLabel: 'Instagram reference C9Example_1',
+      sourceFingerprint: `${input.sourceFingerprint}|asset:${importedAsset.assetId}`,
+    });
+    const result = await resolveReferenceVideoSource({
+      userId: 'user_123',
+      referenceVideoUrl: 'https://instagram.com/p/C9Example_1/',
+      assetResolver: emptyAssetResolver(),
+      instagramImporter: importer,
+      youtubeMode: 'provider-direct',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      source: {
+        kind: 'asset',
+        referenceId: 'ref_ig_imported',
+        durationSec: 24,
+        sourceFingerprint: 'instagram|C9Example_1|asset:ref_ig_imported',
+      },
+    });
+  });
+
+  it('rejects Instagram profiles, stories, and lookalike hosts', () => {
+    for (const url of [
+      'https://www.instagram.com/example_brand/',
+      'https://www.instagram.com/stories/example_brand/123/',
+      'https://instagram.com.evil.example/reel/C9Example_1/',
+    ]) {
+      expect(validateReferenceVideoUrlForAutoEditIntake(url).ok).toBe(false);
+    }
   });
 
   it('downloads and registers bounded YouTube references without live network calls', async () => {

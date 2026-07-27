@@ -8,13 +8,17 @@ import { VoiceRecorder } from '@/components/dashboard/AvatarVault/VoiceRecorder'
 import { C } from './av-tokens';
 import { Mono, Btn, Field, inp, Portrait, Toggle, Seg } from './av-atoms';
 import {
-  AUDIO_MODE_OPTIONS, buildPlanInput, initialPlannerState, isProductUseCase, isSpeechUseCase,
+  AUDIO_MODE_OPTIONS, MODALITY_OPTIONS, buildPlanInput, initialPlannerState, isProductUseCase, isSpeechUseCase,
   speechInputProblem, useCaseOptionsForRecord as renderUseCaseOptions, type PlannerState,
 } from './av-planner-logic';
+import {
+  thinkForgeGenerateHref, extractScriptList, extractScriptContent, scriptGetUrl,
+  type ThinkForgeScriptListItem,
+} from './av-thinkforge-import';
 
 /* ═══ Avatar Vault v2 · render planner ════════════════════════════════
    Wired to the PROVEN pipeline: /pipeline-jobs → Chatterbox voice clone →
-   fal OmniHuman face video → Remotion composite. One "Generate" button;
+   avatar face video → Remotion composite. One "Generate" button;
    live-polls the three real stages and surfaces the final video. */
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v : undefined);
@@ -45,6 +49,62 @@ function StageRow({ stage }: { stage: AvatarPipelineStageSnapshot }) {
   );
 }
 
+/* Script entry points: write it in ThinkForge (routes there), or import an existing
+   ThinkForge script into the planner. Reuses ThinkForge's own list-all/get endpoints. */
+function ScriptSource({ avatarId, onImport }: { avatarId: string; onImport: (script: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [scripts, setScripts] = useState<ThinkForgeScriptListItem[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+
+  const openPicker = async () => {
+    if (open) { setOpen(false); return; }
+    setOpen(true); setErr(null); setLoading(true);
+    try {
+      const res = await fetch('/api/services/thinkforge/script/list-all?limit=50');
+      setScripts(extractScriptList(await res.json().catch(() => null)));
+    } catch { setErr('Could not load your ThinkForge scripts.'); }
+    finally { setLoading(false); }
+  };
+
+  const pick = async (item: ThinkForgeScriptListItem) => {
+    setErr(null); setLoading(true);
+    try {
+      const res = await fetch(scriptGetUrl(item));
+      const content = extractScriptContent(await res.json().catch(() => null));
+      if (!content) { setErr('That script has no text yet.'); return; }
+      onImport(content); setOpen(false);
+    } catch { setErr('Could not load that script.'); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <Btn size="sm" variant="ghost" onClick={() => { window.location.href = thinkForgeGenerateHref(avatarId); }}>✨ Generate with AI</Btn>
+        <Btn size="sm" variant="ghost" onClick={openPicker}>{open ? 'Close' : 'Import from ThinkForge'}</Btn>
+      </div>
+      {open && (
+        <div style={{ marginTop: 8, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 8, maxHeight: 200, overflowY: 'auto' }}>
+          {loading && <Mono s={9} c={C.muted}>Loading…</Mono>}
+          {err && <Mono s={9} c={C.coral}>{err}</Mono>}
+          {!loading && !err && scripts.length === 0 && <Mono s={9} c={C.muted}>No ThinkForge scripts yet — use “Generate with AI”.</Mono>}
+          {!loading && scripts.map((sc) => (
+            <button
+              key={`${sc.sessionId}:${sc.scriptId}`}
+              className="av-fr"
+              onClick={() => pick(sc)}
+              style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderBottom: `1px solid ${C.border}`, padding: '8px 4px', cursor: 'pointer', color: C.text, fontSize: 12.5, fontWeight: 700 }}
+            >
+              {sc.title}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AvatarRenderPlanner({ record }: { record: AvatarProfileRecord }) {
   const generate = useAvatarPipelineJobMutation();
   const [jobId, setJobId] = useState<string | null>(null);
@@ -54,6 +114,9 @@ export function AvatarRenderPlanner({ record }: { record: AvatarProfileRecord })
 
   const set = <K extends keyof PlannerState>(k: K, v: PlannerState[K]) => { setS((cur) => ({ ...cur, [k]: v })); setClientError(null); };
   const useCaseOpts = useMemo(() => renderUseCaseOptions(record).map((o) => [o.id, o.label] as [PlannerState['useCase'], string]), [record]);
+  // Full body (lane B) is capped at the 10s relip budget; talking head can run longer.
+  const secondsBase = s.renderModality === 'body_motion' ? ['5', '10'] : ['8', '15', '30'];
+  const secondsChoices = secondsBase.includes(s.durationSeconds) ? secondsBase : [s.durationSeconds, ...secondsBase];
 
   const job = jobQuery.data ?? generate.data?.job;
   const composition = job?.stages.find((st) => st.id === 'composition_remotion');
@@ -93,10 +156,24 @@ export function AvatarRenderPlanner({ record }: { record: AvatarProfileRecord })
           {/* use case + prompt */}
           <div style={{ background: C.raised, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18 }}>
             <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 10 }}>Use case</Mono>
-            <Seg opts={useCaseOpts} val={s.useCase} on={(v) => set('useCase', v)} />
+            <Seg opts={useCaseOpts} val={s.useCase} on={(v) => { set('useCase', v); if (!isSpeechUseCase(v)) set('renderModality', 'talking_head'); }} />
+            {isSpeechUseCase(s.useCase) && (
+              <div style={{ marginTop: 16 }}>
+                <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 10 }}>Motion</Mono>
+                <Seg opts={MODALITY_OPTIONS} val={s.renderModality} on={(v) => { set('renderModality', v); if (v === 'body_motion' && Number(s.durationSeconds) > 10) set('durationSeconds', '10'); }} />
+                {s.renderModality === 'body_motion' && (
+                  <Mono s={8} c={C.muted} st={{ display: 'block', marginTop: 8 }}>Full-body shots are capped at 10s per shot — keep the script short, or use talking head for longer takes.</Mono>
+                )}
+              </div>
+            )}
             <div style={{ marginTop: 16 }}><Field label="Scene prompt" hint="required"><textarea value={s.prompt} onChange={(e) => set('prompt', e.target.value)} rows={2} placeholder="Describe the scene, framing, mood…" style={{ ...inp, resize: 'vertical' }} /></Field></div>
             <div style={{ marginTop: 14 }}><Field label="Negative prompt" hint="optional"><input value={s.negativePrompt} onChange={(e) => set('negativePrompt', e.target.value)} placeholder="What to avoid…" style={inp} /></Field></div>
-            {isSpeechUseCase(s.useCase) && <div style={{ marginTop: 14 }}><Field label="Script" hint="what they say"><textarea value={s.script} onChange={(e) => set('script', e.target.value)} rows={3} placeholder="Type what the avatar should say…" style={{ ...inp, resize: 'vertical' }} /></Field></div>}
+            {isSpeechUseCase(s.useCase) && (
+              <div style={{ marginTop: 14 }}>
+                <ScriptSource avatarId={record.id} onImport={(script) => set('script', script)} />
+                <Field label="Script" hint="what they say"><textarea value={s.script} onChange={(e) => set('script', e.target.value)} rows={3} placeholder="Type what the avatar should say…" style={{ ...inp, resize: 'vertical' }} /></Field>
+              </div>
+            )}
             {isProductUseCase(s.useCase) && <div style={{ marginTop: 14 }}><Field label="Product image URLs" hint="one per line"><textarea value={s.productImageUrls} onChange={(e) => set('productImageUrls', e.target.value)} rows={2} placeholder="https://…" style={{ ...inp, resize: 'vertical' }} /></Field></div>}
           </div>
 
@@ -125,7 +202,7 @@ export function AvatarRenderPlanner({ record }: { record: AvatarProfileRecord })
               <Field label="Aspect"><Seg opts={[['9:16', '9:16'], ['16:9', '16:9'], ['1:1', '1:1'], ['4:5', '4:5']]} val={s.aspectRatio} on={(v) => set('aspectRatio', v)} /></Field>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <Field label="Resolution"><select value={s.resolution} onChange={(e) => set('resolution', e.target.value)} style={inp}><option value="720p">720p</option><option value="1080p">1080p</option></select></Field>
-                <Field label="Seconds"><input inputMode="decimal" value={s.durationSeconds} onChange={(e) => set('durationSeconds', e.target.value)} style={inp} /></Field>
+                <Field label="Seconds"><select value={s.durationSeconds} onChange={(e) => set('durationSeconds', e.target.value)} style={inp}>{secondsChoices.map((sec) => <option key={sec} value={sec}>{sec}</option>)}</select></Field>
               </div>
             </div>
           </div>

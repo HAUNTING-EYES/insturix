@@ -1,5 +1,6 @@
-import React from "react";
-import { Overlay } from "../../types";
+import React, { useEffect, useMemo } from "react";
+import { Img, prefetch, useCurrentFrame } from "remotion";
+import { MgSequenceOverlay, Overlay } from "../../types";
 import { TextLayerContent } from "../overlays/text/text-layer-content";
 import { OverlayType } from "../../types";
 import { CaptionLayerContent } from "../overlays/captions/caption-layer-content";
@@ -10,7 +11,46 @@ import { StickerLayerContent } from "../overlays/stickers/sticker-layer-content"
 import { HtmlSceneLayerContent } from "../overlays/html/html-scene-layer-content";
 import { TransitionLayerContent } from "../overlays/transitions/transition-layer-content";
 import { MotionGraphicLayerContent } from "../overlays/motion-graphic/motion-graphic-layer-content";
+import { ShapeLayerContent } from "../overlays/shapes/shape-layer-content";
 import { GeneratedSceneLayerContent } from "./generated-scene-layer-content";
+import {
+  sequenceFrameIndex,
+  sequenceFrameUrls,
+} from "@/lib/editron/motion-graphics/codegen/render/sequence-playback";
+
+const MgSequenceLayerContent: React.FC<{ overlay: MgSequenceOverlay }> = ({ overlay }) => {
+  const localFrame = useCurrentFrame();
+  const sequence = overlay.sequence;
+  const address = useMemo(() => {
+    if (!sequence) {
+      throw new Error(`[MgSequenceLayer] Overlay ${overlay.id} (${overlay.assetId}) is missing hydrated sequence playback data`);
+    }
+    if (sequence.transparent !== true || sequence.frameFormat !== 'webp') {
+      throw new Error(`[MgSequenceLayer] Overlay ${overlay.id} has an unsupported sequence format`);
+    }
+    return {
+      sequenceId: sequence.sequenceId,
+      frameCount: sequence.frameCount,
+      cdnBaseUrl: sequence.cdnBaseUrl,
+    };
+  }, [overlay.assetId, overlay.id, sequence]);
+  const urls = useMemo(() => sequenceFrameUrls(address), [address]);
+
+  useEffect(() => {
+    const handles = urls.flatMap((url) => {
+      try {
+        return [prefetch(url, { method: 'blob-url' })];
+      } catch (error) {
+        console.warn(`[MgSequenceLayer] Prefetch failed for ${overlay.assetId}:`, error);
+        return [];
+      }
+    });
+    return () => handles.forEach((handle) => handle.free());
+  }, [overlay.assetId, urls]);
+
+  const frameIndex = sequenceFrameIndex(localFrame, address.frameCount);
+  return <Img src={urls[frameIndex]} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />;
+};
 
 /**
  * Props for the LayerContent component
@@ -79,6 +119,13 @@ export const LayerContent: React.FC<LayerContentProps> = ({
         </div>
       );
 
+    case OverlayType.SHAPE:
+      return (
+        <div style={{ ...commonStyle }}>
+          <ShapeLayerContent overlay={overlay} />
+        </div>
+      );
+
     case OverlayType.IMAGE:
       return (
         <div style={{ ...commonStyle }}>
@@ -139,6 +186,12 @@ export const LayerContent: React.FC<LayerContentProps> = ({
         </div>
       );
 
+    case OverlayType.MG_SEQUENCE:
+      return (
+        <div style={{ ...commonStyle }}>
+          <MgSequenceLayerContent overlay={overlay} />
+        </div>
+      );
     default:
       return null;
   }

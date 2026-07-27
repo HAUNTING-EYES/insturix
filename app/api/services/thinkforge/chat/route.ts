@@ -5,6 +5,8 @@ import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
 import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
+import { getCreditCost } from '@/lib/config/creditCosts';
+import * as db from '@/lib/thinkforge/services/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,7 +18,7 @@ export const maxDuration = 60;
  * Uses SSE format like Editron for consistent streaming
  */
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -34,7 +36,9 @@ export async function POST(req: Request) {
   let threadId: string | undefined;
   let intentContext: any | undefined;
   let blueprintArtifacts: Array<{ type: string; label: string; description?: string; priority?: string }> | undefined;
-  
+  let silent: boolean | undefined;
+  let generationAdmitted = false;
+
   try {
     const body = await req.json();
     prompt = (body?.prompt ?? '').toString();
@@ -50,6 +54,7 @@ export async function POST(req: Request) {
     if (body?.threadId) threadId = String(body.threadId);
     if (body?.intentContext) intentContext = body.intentContext;
     if (Array.isArray(body?.blueprintArtifacts)) blueprintArtifacts = body.blueprintArtifacts;
+    if (typeof body?.silent === 'boolean') silent = body.silent;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
@@ -64,13 +69,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Missing sessionId - session must be created first' }, { status: 400 });
   }
 
+  let authorizedSession: Awaited<ReturnType<typeof db.getSession>>;
+  try {
+    authorizedSession = await db.getSession(sessionId, userId, orgId);
+  } catch (error) {
+    console.error('[ThinkForge Chat] Session authorization failed:', error);
+    return NextResponse.json({ error: 'Failed to authorize session' }, { status: 500 });
+  }
+  if (!authorizedSession) {
+    return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+  }
+  const canonicalSessionId = authorizedSession._id;
+
   // Ensure user exists and is migrated
   await CreditsMigrationService.ensureMigrated(userId);
 
   // Check credits before processing
   // TODO: Add model detection from intentContext or processChat response
   const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message', {
-    taskId: sessionId,
+    taskId: canonicalSessionId,
   });
 
   if (!creditCheck.allowed) {
@@ -78,11 +95,35 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Deduct credits before starting the stream
-    await creditCheck.deduct();
+    const deduction = await creditCheck.deduct();
+    generationId = generationId || `gen_${crypto.randomUUID()}`;
+    const now = new Date();
+    generationAdmitted = await db.setActiveGeneration(canonicalSessionId, userId, {
+      id: generationId,
+      type: 'chat',
+      status: 'running',
+      intent: 'chat_request',
+      progress: 0,
+      message: 'Request accepted',
+      startedAt: now,
+      updatedAt: now,
+      billing: {
+        transactionId: deduction.transactionId,
+        userId,
+        amount: getCreditCost('thinkforge', 'chat_message'),
+        service: 'thinkforge',
+        action: 'chat_message',
+        status: 'reserved',
+        updatedAt: now,
+      },
+    });
+    if (!generationAdmitted) {
+      throw new Error('This session is finishing another generation. Please retry in a moment.');
+    }
 
     const stream = await retryOnceOnOverload(() => processChat({
-      sessionId,
+      sessionId: canonicalSessionId,
+      orgId,
       prompt,
       selection,
       userId,
@@ -96,6 +137,7 @@ export async function POST(req: Request) {
       threadId,
       intentContext,
       blueprintArtifacts,
+      silent,
     }));
 
     return new Response(stream, {
@@ -108,10 +150,23 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error('Error in chat endpoint:', error);
-    
-    // Refund credits on failure
-    await creditCheck.refund(error?.message || 'Chat processing failed');
-    
+
+    let lifecycleSettled = false;
+    if (generationAdmitted && generationId) {
+      try {
+        await db.updateGenerationState(canonicalSessionId, generationId, {
+          status: 'failed',
+          message: error?.message || 'Chat processing failed',
+        });
+        lifecycleSettled = true;
+      } catch (lifecycleError) {
+        console.error('[ThinkForge Chat] Failed to settle generation lifecycle:', lifecycleError);
+      }
+    }
+    if (!lifecycleSettled) {
+      await creditCheck.refund(error?.message || 'Chat processing failed');
+    }
+
     // Handle rate limit errors
     if (error.message?.includes('limit reached')) {
       return NextResponse.json(

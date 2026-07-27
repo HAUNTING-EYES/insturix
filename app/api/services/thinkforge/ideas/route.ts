@@ -20,6 +20,12 @@ type BrandCandidate = {
 	updatedAt?: string;
 };
 
+type RejectedIdeaEvidence = {
+	title: string;
+	purpose?: string;
+	style?: string;
+};
+
 const BRAND_GROUNDED_INTENT = /\b(my brand|our brand|brand'?s|brand voice|brand context|brand icp|icp)\b/i;
 
 function toNonEmptyString(value: unknown): string | undefined {
@@ -148,12 +154,32 @@ export async function POST(req: Request) {
 	let prompt: string = '';
 	let requestedBrandId: string | undefined;
 	let brandBrief: string | undefined;
+	let variationIndex = 0;
+	let rejectedIdeas: RejectedIdeaEvidence[] = [];
 	try {
 		const body = await req.json();
 		prompt = String(body?.prompt || '');
 		const projectMeta = toProjectMeta(body?.projectMeta);
 		requestedBrandId = toNonEmptyString(body?.brandId) || toNonEmptyString(projectMeta.brandId);
 		brandBrief = toNonEmptyString(body?.brandBrief) || toNonEmptyString(projectMeta.brandBrief);
+		if (Number.isInteger(body?.variationIndex) && body.variationIndex >= 0 && body.variationIndex <= 1000) {
+			variationIndex = body.variationIndex;
+		}
+		if (Array.isArray(body?.rejectedIdeas)) {
+			rejectedIdeas = body.rejectedIdeas
+				.map((value: unknown): RejectedIdeaEvidence | null => {
+					const item = toProjectMeta(value);
+					const title = toNonEmptyString(item.title)?.slice(0, 120);
+					if (!title) return null;
+					return {
+						title,
+						purpose: toNonEmptyString(item.purpose)?.slice(0, 240),
+						style: toNonEmptyString(item.style)?.slice(0, 120),
+					};
+				})
+				.filter((idea: RejectedIdeaEvidence | null): idea is RejectedIdeaEvidence => Boolean(idea))
+				.slice(0, 12);
+		}
 	} catch {
 		return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
 	}
@@ -225,6 +251,8 @@ export async function POST(req: Request) {
 			brandId: brandScope.brandId,
 			brandName: brandScope.brandName,
 			requireBrandGrounding: requiresBrandContext,
+			variationIndex,
+			rejectedIdeas,
 		});
 		const scopedIdeas = ideas.map((idea) => ({
 			...idea,
@@ -236,6 +264,10 @@ export async function POST(req: Request) {
 			grounding: {
 				brandId: brandScope.brandId ?? null,
 				brandName: brandScope.brandName ?? null,
+			},
+			generation: {
+				variationIndex,
+				rejectedIdeaCount: rejectedIdeas.length,
 			},
 		});
 	} catch (error: any) {

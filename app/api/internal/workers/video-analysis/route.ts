@@ -31,9 +31,29 @@ import {
   type ProviderCostEventStatus,
 } from '@/lib/financials/provider-cost-events';
 import type { ProviderCostBasis, ProviderCostUnits } from '@/lib/financials/provider-cost-estimates';
+import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
+import {
+  normalizeEditorialPreferences,
+  type EditorialPreferences,
+} from '@/lib/editron/production-brief/editorial-preferences';
 
 export const runtime = 'nodejs';
 export const maxDuration = 800; // Steps 1-3 only (~215s typical). TRIBE Phase 2 runs in separate worker.
+
+type MusicPreference = NonNullable<ProjectBrief['musicPreference']>;
+
+const MUSIC_PREFERENCES = new Set<MusicPreference>([
+  'none',
+  'subtle_bed',
+  'energetic',
+  'match_video',
+]);
+
+function normalizeMusicPreference(value: unknown): MusicPreference | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase() as MusicPreference;
+  return MUSIC_PREFERENCES.has(normalized) ? normalized : undefined;
+}
 
 interface VideoAnalysisPayload {
   projectId: string;
@@ -57,6 +77,7 @@ interface VideoAnalysisPayload {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
+  editorialPreferences?: EditorialPreferences;
   creditTransactionId?: string;
   chargedCredits?: number;
 }
@@ -74,6 +95,7 @@ async function handler(request: NextRequest) {
       title, profileId: initialProfileId,
       userIntent, referenceAssetId, referenceVideoUrl, script, platform,
       captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference,
+      editorialPreferences,
     } = payload;
     trackedProjectId = projectId;
 
@@ -85,11 +107,31 @@ async function handler(request: NextRequest) {
 
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
+    const normalizedMusicPreference = normalizeMusicPreference(musicPreference);
+    const normalizedEditorialPreferences = normalizeEditorialPreferences(editorialPreferences);
+
+    // Director Mode (assist lane): scans run, but NOTHING is cut. Read the lane
+    // once up front so the destructive stage (silence removal) is skipped — the
+    // battle lane found this path was trimming footage before the pen was laid
+    // down, violating the zero-edit invariant on the primary single-video path.
+    const scanLaneDoc = await db.collection('projects').findOne(
+      { projectId },
+      { projection: { editMode: 1 } },
+    );
+    const { isAssistProject: isAssistScanLane } = await import('@/lib/editron/services/assist-lane');
+    const isAssistScan = isAssistScanLane(scanLaneDoc);
 
     // Mark project as analyzing
     await db.collection('projects').updateOne(
       { projectId },
-      { $set: { autoEditStatus: 'analyzing', autoEditStartedAt: new Date() } },
+      {
+        $set: {
+          autoEditStatus: 'analyzing',
+          autoEditStartedAt: new Date(),
+          ...(normalizedMusicPreference ? { musicPreference: normalizedMusicPreference } : {}),
+          ...(normalizedEditorialPreferences ? { editorialPreferences: normalizedEditorialPreferences } : {}),
+        },
+      },
     );
 
     // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1: Transcription + Cuts FIRST Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
@@ -385,14 +427,20 @@ async function handler(request: NextRequest) {
     // and ensures future lookups find the correct duration).
     if (rawFootageAnalysis?.transcription?.words?.length > 0) {
       const lastWord = rawFootageAnalysis.transcription.words[rawFootageAnalysis.transcription.words.length - 1];
-      const actualDurationMs = lastWord.endMs;
-      const actualDurationSec = actualDurationMs / 1000;
+      const transcriptEndSec = lastWord.endMs / 1000;
+      // The file CONTAINER is the source of truth for how long the video is; the transcript only marks when the
+      // talking stops (it undershoots any trailing footage / outro). Read the real length from the bytes and let
+      // the transcript be a fallback only — so a correct duration is never dragged down to end-of-speech.
+      const { resolveVideoDurationSec, extractMP4Duration } = await import('@/lib/editron/services/mp4-duration-service');
+      const containerSec = await extractMP4Duration(videoUrl).catch(() => null);
+      const resolved = resolveVideoDurationSec({ containerSec, transcriptEndSec, reportedSec: durationSec });
+      const actualDurationSec = resolved.seconds;
+      const actualDurationMs = Math.round(actualDurationSec * 1000);
       const reportedDuration = durationSec;
 
-      // Fix duration if transcript reveals different length (guard: actualDuration must be > 10s)
-      if (actualDurationSec > 10 && Math.abs(actualDurationSec - reportedDuration) > 5) {
+      if (resolved.corrected) {
         const actualFrames = Math.round(actualDurationSec * 30);
-        console.log(`[VideoAnalysisWorker] Duration mismatch: reported=${reportedDuration}s, actual=${actualDurationSec.toFixed(1)}s. Correcting.`);
+        console.log(`[VideoAnalysisWorker] Duration corrected via ${resolved.source}: reported=${reportedDuration}s → ${actualDurationSec.toFixed(1)}s (speech ends ${transcriptEndSec.toFixed(1)}s).`);
 
         await db.collection('projects').updateOne(
           { projectId },
@@ -549,7 +597,10 @@ async function handler(request: NextRequest) {
       }
     }
     // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Step 1.6: Execute Silence Removal (BEFORE Director) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    if (rawFootageAnalysis?.silenceRemovalPlan?.length > 0) {
+    // ZERO-EDIT: assist projects are scanned, never cut. The silence plan is still
+    // computed and persisted above (so chat can offer "cut N silences"), but it is
+    // NOT executed here — the user directs each cut later.
+    if (!isAssistScan && rawFootageAnalysis?.silenceRemovalPlan?.length > 0) {
       try {
         await db.collection('projects').updateOne(
           { projectId },
@@ -824,7 +875,9 @@ async function handler(request: NextRequest) {
       profileId: initialProfileId,
       title, platform, userIntent,
       captionStyle, transitionPreference, zoomBehavior,
-      motionGraphics, pacingFeel, musicPreference,
+      motionGraphics, pacingFeel,
+      musicPreference: normalizedMusicPreference,
+      editorialPreferences: normalizedEditorialPreferences,
     };
 
     const hasSegments = rawFootageAnalysis?.segments?.length > 0;
@@ -1067,6 +1120,24 @@ async function handler(request: NextRequest) {
       }
     }
 
+    // Director Mode (assist lane): scans are complete and persisted — hand the
+    // pen to the user instead of running the inline Director (dev path). The
+    // production Stage-3 director worker carries the same guard.
+    const { isAssistProject: isAssistLaneProject, ASSIST_STATUS_READY: assistReadyStatus } = await import('@/lib/editron/services/assist-lane');
+    const assistLaneOwner = await db.collection('projects').findOne(
+      { projectId },
+      { projection: { editMode: 1 } },
+    );
+    if (isAssistLaneProject(assistLaneOwner)) {
+      await db.collection('projects').updateOne(
+        // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
+        { projectId, autoEditStatus: { $ne: 'scan_failed' } },
+        { $set: { autoEditStatus: assistReadyStatus, autoEditCompletedAt: new Date() } },
+      );
+      console.log(`[DirectorMode] Assist scan complete — inline director skipped (project ${projectId}).`);
+      return NextResponse.json({ success: true, projectId, status: assistReadyStatus, directorSkipped: true });
+    }
+
     // Run Director inline
     await db.collection('projects').updateOne(
       { projectId },
@@ -1087,7 +1158,8 @@ async function handler(request: NextRequest) {
       ...(zoomBehavior && { zoomBehavior }),
       ...(motionGraphics && { motionGraphics }),
       ...(pacingFeel && { pacingFeel }),
-      ...(musicPreference && { musicPreference }),
+      ...(normalizedMusicPreference && { musicPreference: normalizedMusicPreference }),
+      ...(normalizedEditorialPreferences && { editorialPreferences: normalizedEditorialPreferences }),
       ...(platform && { platform }),
       ...(userIntent && { intent: userIntent }),
     };
@@ -1180,10 +1252,16 @@ async function handler(request: NextRequest) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
-        await db.collection('projects').updateOne(
-          { projectId: trackedProjectId },
-          { $set: { autoEditStatus: 'failed', autoEditError: msg } },
-        );
+        const { settleAssistScanFailure } = await import('@/lib/editron/services/assist-lane');
+        // Assist lane: atomic scan_failed + refund-where-deducted (handles QStash
+        // redelivery + cancel races). Returns 'not-assist' for auto → fall through.
+        const settlement = await settleAssistScanFailure(db, trackedProjectId, msg);
+        if (settlement === 'not-assist') {
+          await db.collection('projects').updateOne(
+            { projectId: trackedProjectId },
+            { $set: { autoEditStatus: 'failed', autoEditError: msg } },
+          );
+        }
       } catch (err: unknown) { console.warn('[VideoAnalysisWorker] best-effort status update failed:', err instanceof Error ? err.message : err); }
     }
 

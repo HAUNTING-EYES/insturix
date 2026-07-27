@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
  * GET /api/services/thinkforge/script/get?sessionId=...&scriptId=...
  */
 export async function GET(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -24,7 +24,12 @@ export async function GET(req: Request) {
   }
 
   try {
-    const script = await db.getScript(sessionId, scriptId || null);
+    const session = await db.getSession(sessionId, userId, orgId);
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    const script = await db.getScript(session._id, scriptId || null);
     if (!script) {
       return NextResponse.json({ script: null });
     }
@@ -38,6 +43,8 @@ export async function GET(req: Request) {
         richText: script.richText || null,
         metadata: script.metadata || {},
         version: script.version ?? 1,
+        documentType: script.documentType,
+        contentContract: script.contentContract,
         updatedAt: script.updatedAt,
         createdAt: script.createdAt,
       }

@@ -1,18 +1,19 @@
 type EnvLike = Record<string, string | undefined>;
 
 export type RemotionSiteFreshnessReason =
-  | 'verified_env_commit'
-  | 'verified_url_commit'
+  | 'verified_env_bundle'
+  | 'verified_url_bundle'
   | 'unverified_no_app_commit'
-  | 'missing_remotion_site_commit'
-  | 'remotion_site_commit_mismatch';
+  | 'unverified_no_expected_bundle'
+  | 'missing_remotion_site_bundle'
+  | 'remotion_site_bundle_mismatch';
 
 export interface RemotionSiteFreshness {
   ok: boolean;
   reason: RemotionSiteFreshnessReason;
   serveUrl: string;
-  appCommit: string | null;
-  serveCommit: string | null;
+  expectedBundle: string | null;
+  serveBundle: string | null;
   source: 'env' | 'url' | 'none';
 }
 
@@ -25,40 +26,66 @@ export function resolveRemotionSiteFreshness(input: {
 }): RemotionSiteFreshness {
   const env = input.env ?? process.env;
   const serveUrl = input.serveUrl || '';
-  const appCommit = normalizeCommit(
-    env.EDITRON_APP_BUILD_SHA
-    ?? env.VERCEL_GIT_COMMIT_SHA
-    ?? env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA,
-  );
+  const expectedBundle = normalizeSha(env.EDITRON_REMOTION_BUNDLE_SHA);
 
-  const envServeCommit = normalizeCommit(
-    env.REMOTION_LAMBDA_SERVE_COMMIT_SHA
-    ?? env.REMOTION_SITE_COMMIT_SHA,
+  const envServeBundle = normalizeSha(
+    env.REMOTION_LAMBDA_SERVE_BUNDLE_SHA
+    ?? env.REMOTION_SITE_BUNDLE_SHA,
   );
-  const urlServeCommit = envServeCommit ? null : findCommitInServeUrl(serveUrl);
-  const serveCommit = envServeCommit ?? urlServeCommit;
-  const source: RemotionSiteFreshness['source'] = envServeCommit ? 'env' : urlServeCommit ? 'url' : 'none';
+  const urlServeBundle = envServeBundle ? null : findShaInServeUrl(serveUrl);
+  const serveBundle = envServeBundle ?? urlServeBundle;
+  const source: RemotionSiteFreshness['source'] = envServeBundle
+    ? 'env'
+    : urlServeBundle
+      ? 'url'
+      : 'none';
 
-  if (!appCommit) {
-    return { ok: true, reason: 'unverified_no_app_commit', serveUrl, appCommit: null, serveCommit, source };
+  if (!expectedBundle) {
+    const appCommit = normalizeSha(
+      env.EDITRON_APP_BUILD_SHA
+      ?? env.VERCEL_GIT_COMMIT_SHA
+      ?? env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA,
+    );
+    return {
+      ok: true,
+      reason: appCommit ? 'unverified_no_expected_bundle' : 'unverified_no_app_commit',
+      serveUrl,
+      expectedBundle: null,
+      serveBundle,
+      source,
+    };
   }
 
-  if (!serveCommit) {
-    return { ok: false, reason: 'missing_remotion_site_commit', serveUrl, appCommit, serveCommit: null, source };
+  if (!serveBundle) {
+    return {
+      ok: false,
+      reason: 'missing_remotion_site_bundle',
+      serveUrl,
+      expectedBundle,
+      serveBundle: null,
+      source,
+    };
   }
 
-  const compareLength = Math.min(appCommit.length, serveCommit.length, DEFAULT_COMPARE_LENGTH);
-  const matches = appCommit.slice(0, compareLength) === serveCommit.slice(0, compareLength);
+  const compareLength = Math.min(expectedBundle.length, serveBundle.length, DEFAULT_COMPARE_LENGTH);
+  const matches = expectedBundle.slice(0, compareLength) === serveBundle.slice(0, compareLength);
   if (!matches) {
-    return { ok: false, reason: 'remotion_site_commit_mismatch', serveUrl, appCommit, serveCommit, source };
+    return {
+      ok: false,
+      reason: 'remotion_site_bundle_mismatch',
+      serveUrl,
+      expectedBundle,
+      serveBundle,
+      source,
+    };
   }
 
   return {
     ok: true,
-    reason: source === 'env' ? 'verified_env_commit' : 'verified_url_commit',
+    reason: source === 'env' ? 'verified_env_bundle' : 'verified_url_bundle',
     serveUrl,
-    appCommit,
-    serveCommit,
+    expectedBundle,
+    serveBundle,
     source,
   };
 }
@@ -75,22 +102,22 @@ export function assertRemotionSiteFresh(input: {
 }
 
 export function formatRemotionSiteFreshnessError(status: RemotionSiteFreshness): string {
-  if (status.reason === 'missing_remotion_site_commit') {
-    return 'REMOTION_LAMBDA_SERVE_URL is not version-pinned for this app deploy. Set REMOTION_LAMBDA_SERVE_COMMIT_SHA to the Remotion site commit or deploy a serve URL containing the current commit.';
+  if (status.reason === 'missing_remotion_site_bundle') {
+    return 'REMOTION_LAMBDA_SERVE_URL is not pinned to the expected renderer bundle. Deploy a hash-named Remotion site or set REMOTION_LAMBDA_SERVE_BUNDLE_SHA.';
   }
-  if (status.reason === 'remotion_site_commit_mismatch') {
-    return `REMOTION_LAMBDA_SERVE_URL points at commit ${status.serveCommit ?? 'unknown'}, but the app deploy is ${status.appCommit ?? 'unknown'}. Redeploy the Remotion site and update REMOTION_LAMBDA_SERVE_URL/REMOTION_LAMBDA_SERVE_COMMIT_SHA.`;
+  if (status.reason === 'remotion_site_bundle_mismatch') {
+    return `REMOTION_LAMBDA_SERVE_URL points at renderer bundle ${status.serveBundle ?? 'unknown'}, but this app expects ${status.expectedBundle ?? 'unknown'}. Redeploy the Remotion site and update REMOTION_LAMBDA_SERVE_URL/REMOTION_LAMBDA_SERVE_BUNDLE_SHA.`;
   }
   return `REMOTION_LAMBDA_SERVE_URL failed version check: ${status.reason}`;
 }
 
-function normalizeCommit(value: string | undefined): string | null {
+function normalizeSha(value: string | undefined): string | null {
   if (!value) return null;
   const match = value.trim().toLowerCase().match(/^[a-f0-9]{7,40}$/);
   return match ? match[0] : null;
 }
 
-function findCommitInServeUrl(serveUrl: string): string | null {
+function findShaInServeUrl(serveUrl: string): string | null {
   const matches = serveUrl.toLowerCase().match(SHA_RE) ?? [];
-  return matches.find((candidate) => normalizeCommit(candidate)) ?? null;
+  return matches.find((candidate) => normalizeSha(candidate)) ?? null;
 }

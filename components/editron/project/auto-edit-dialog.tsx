@@ -9,10 +9,9 @@
  * Pattern: DaVinci Resolve "New Timeline Using Selected Clips" — file first,
  * options second, all optional, smart defaults, one-click quick path.
  *
- * Backend fields supported (from-asset/route.ts):
- *   script, userIntent, platform, aspectRatio, captionStyle,
- *   transitionPreference, zoomBehavior, motionGraphics, pacingFeel,
- *   musicPreference, referenceAssetId, imageAssetIds.
+ * The dialog emits editorialPreferences as user policy: auto/brand authority,
+ * hard family vetoes, or soft frequency/intensity direction. Legacy named-style
+ * fields remain API compatibility inputs for older clients and are not emitted here.
  */
 
 import { useState, useCallback } from 'react';
@@ -20,7 +19,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -34,6 +32,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { FileVideo, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  normalizeEditorialPreferences,
+  type EditorialPreferences,
+} from '@/lib/editron/production-brief/editorial-preferences';
+import { EditorialPreferenceControls } from '@/components/editron/project/editorial-preference-controls';
 
 /** Options forwarded to the from-asset backend endpoint. */
 export interface AutoEditOptions {
@@ -41,11 +44,18 @@ export interface AutoEditOptions {
   platform?: string;
   script?: string;
   aspectRatio?: string;
+  editorialPreferences?: EditorialPreferences;
+  /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   captionStyle?: 'word_by_word' | 'sentence' | 'key_phrases' | 'none';
+  /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   transitionPreference?: 'minimal' | 'subtle' | 'dynamic' | 'energetic';
+  /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   zoomBehavior?: 'none' | 'subtle' | 'moderate' | 'aggressive';
+  /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   motionGraphics?: 'none' | 'stats_only' | 'full';
+  /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   pacingFeel?: 'calm' | 'balanced' | 'energetic' | 'fast';
+  /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   musicPreference?: 'none' | 'subtle_bed' | 'energetic' | 'match_video';
 }
 
@@ -80,12 +90,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [userIntent, setUserIntent] = useState('');
   const [script, setScript] = useState('');
-  const [captionStyle, setCaptionStyle] = useState<AutoEditOptions['captionStyle']>(undefined);
-  const [transitionPreference, setTransitionPreference] = useState<AutoEditOptions['transitionPreference']>(undefined);
-  const [zoomBehavior, setZoomBehavior] = useState<AutoEditOptions['zoomBehavior']>(undefined);
-  const [motionGraphics, setMotionGraphics] = useState<AutoEditOptions['motionGraphics']>(undefined);
-  const [pacingFeel, setPacingFeel] = useState<AutoEditOptions['pacingFeel']>(undefined);
-  const [musicPreference, setMusicPreference] = useState<AutoEditOptions['musicPreference']>(undefined);
+  const [editorialPreferences, setEditorialPreferences] = useState<EditorialPreferences>({});
 
   const resetState = useCallback(() => {
     setShowAdvanced(true);
@@ -93,12 +98,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
     setAspectRatio('16:9');
     setUserIntent('');
     setScript('');
-    setCaptionStyle(undefined);
-    setTransitionPreference(undefined);
-    setZoomBehavior(undefined);
-    setMotionGraphics(undefined);
-    setPacingFeel(undefined);
-    setMusicPreference(undefined);
+    setEditorialPreferences({});
   }, []);
 
   const handleQuickEdit = useCallback(() => {
@@ -115,16 +115,11 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
     if (aspectRatio && aspectRatio !== '16:9') options.aspectRatio = aspectRatio;
     if (userIntent.trim()) options.userIntent = userIntent.trim();
     if (script.trim()) options.script = script.trim();
-    if (captionStyle) options.captionStyle = captionStyle;
-    if (transitionPreference) options.transitionPreference = transitionPreference;
-    if (zoomBehavior) options.zoomBehavior = zoomBehavior;
-    if (motionGraphics) options.motionGraphics = motionGraphics;
-    if (pacingFeel) options.pacingFeel = pacingFeel;
-    if (musicPreference) options.musicPreference = musicPreference;
+    const normalizedPreferences = normalizeEditorialPreferences(editorialPreferences);
+    if (normalizedPreferences) options.editorialPreferences = normalizedPreferences;
     onConfirm(file, options);
     resetState();
-  }, [file, platform, aspectRatio, userIntent, script, captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference, onConfirm, resetState]);
-
+  }, [file, platform, aspectRatio, userIntent, script, editorialPreferences, onConfirm, resetState]);
   const handleOpenChange = useCallback((open: boolean) => {
     if (!open) {
       onCancel();
@@ -136,7 +131,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
 
   return (
     <Dialog open={file !== null} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-[640px] max-h-none p-0 bg-[#131312] border-[#282724] rounded-lg">
+      <DialogContent className="max-w-[680px] max-h-[92vh] overflow-y-auto p-0 bg-[#131312] border-[#282724] rounded-lg">
         <DialogHeader className="sr-only">
           <DialogDescription>
             Configure how AI edits your video
@@ -303,98 +298,10 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
                 />
               </div>
 
-              {/* Editing Style Preferences */}
-              <div className="mt-3.5 pt-3 border-t border-[#1C1B19]">
-                <p className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-2">
-                  Editing Style
-                  <span className="ml-1 text-[#454340] normal-case tracking-normal">(leave blank for AI to decide)</span>
-                </p>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <Label htmlFor="ae-captions" className="font-mono text-[9px] tracking-[0.06em] uppercase text-[#454340] mb-0.5 block">Captions</Label>
-                    <Select value={captionStyle || ''} onValueChange={(v) => setCaptionStyle(v as AutoEditOptions['captionStyle'])}>
-                      <SelectTrigger id="ae-captions" className="h-[30px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[12px] focus:border-[#D4A652]/35">
-                        <SelectValue placeholder="Auto" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#1B1A18] border-[#282724]">
-                        <SelectItem value="word_by_word">Word-by-word</SelectItem>
-                        <SelectItem value="sentence">Sentence</SelectItem>
-                        <SelectItem value="key_phrases">Key phrases</SelectItem>
-                        <SelectItem value="none">None</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor="ae-transitions" className="font-mono text-[9px] tracking-[0.06em] uppercase text-[#454340] mb-0.5 block">Transitions</Label>
-                    <Select value={transitionPreference || ''} onValueChange={(v) => setTransitionPreference(v as AutoEditOptions['transitionPreference'])}>
-                      <SelectTrigger id="ae-transitions" className="h-[30px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[12px] focus:border-[#D4A652]/35">
-                        <SelectValue placeholder="Auto" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#1B1A18] border-[#282724]">
-                        <SelectItem value="minimal">Minimal</SelectItem>
-                        <SelectItem value="subtle">Subtle</SelectItem>
-                        <SelectItem value="dynamic">Dynamic</SelectItem>
-                        <SelectItem value="energetic">Energetic</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor="ae-zoom" className="font-mono text-[9px] tracking-[0.06em] uppercase text-[#454340] mb-0.5 block">Zoom</Label>
-                    <Select value={zoomBehavior || ''} onValueChange={(v) => setZoomBehavior(v as AutoEditOptions['zoomBehavior'])}>
-                      <SelectTrigger id="ae-zoom" className="h-[30px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[12px] focus:border-[#D4A652]/35">
-                        <SelectValue placeholder="Auto" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#1B1A18] border-[#282724]">
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="subtle">Subtle</SelectItem>
-                        <SelectItem value="moderate">Moderate</SelectItem>
-                        <SelectItem value="aggressive">Aggressive</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor="ae-graphics" className="font-mono text-[9px] tracking-[0.06em] uppercase text-[#454340] mb-0.5 block">Graphics</Label>
-                    <Select value={motionGraphics || ''} onValueChange={(v) => setMotionGraphics(v as AutoEditOptions['motionGraphics'])}>
-                      <SelectTrigger id="ae-graphics" className="h-[30px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[12px] focus:border-[#D4A652]/35">
-                        <SelectValue placeholder="Auto" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#1B1A18] border-[#282724]">
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="stats_only">Stats only</SelectItem>
-                        <SelectItem value="full">Full</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor="ae-pacing" className="font-mono text-[9px] tracking-[0.06em] uppercase text-[#454340] mb-0.5 block">Pacing</Label>
-                    <Select value={pacingFeel || ''} onValueChange={(v) => setPacingFeel(v as AutoEditOptions['pacingFeel'])}>
-                      <SelectTrigger id="ae-pacing" className="h-[30px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[12px] focus:border-[#D4A652]/35">
-                        <SelectValue placeholder="Auto" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#1B1A18] border-[#282724]">
-                        <SelectItem value="calm">Calm</SelectItem>
-                        <SelectItem value="balanced">Balanced</SelectItem>
-                        <SelectItem value="energetic">Energetic</SelectItem>
-                        <SelectItem value="fast">Fast</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label htmlFor="ae-music" className="font-mono text-[9px] tracking-[0.06em] uppercase text-[#454340] mb-0.5 block">Music</Label>
-                    <Select value={musicPreference || ''} onValueChange={(v) => setMusicPreference(v as AutoEditOptions['musicPreference'])}>
-                      <SelectTrigger id="ae-music" className="h-[30px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] text-[12px] focus:border-[#D4A652]/35">
-                        <SelectValue placeholder="Auto" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#1B1A18] border-[#282724]">
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="subtle_bed">Subtle bed</SelectItem>
-                        <SelectItem value="energetic">Energetic</SelectItem>
-                        <SelectItem value="match_video">Match video</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </div>
+              <EditorialPreferenceControls
+                value={editorialPreferences}
+                onChange={setEditorialPreferences}
+              />
 
               {/* Footer */}
               <div className="flex items-center justify-end gap-2 mt-3.5 pt-3 border-t border-[#1C1B19]">

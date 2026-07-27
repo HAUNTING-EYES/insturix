@@ -24,8 +24,9 @@ import { V2Modals, type V2ModalKind } from './modals/v2-modals';
 
 export function V2Editor() {
   const [isMobile, setIsMobile] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(true);
   const [modal, setModal] = useState<V2ModalKind>(null);
+  const [leftOpen, setLeftOpen] = useState(true);
 
   // Mobile detect (mirrors Editor).
   useEffect(() => {
@@ -79,12 +80,25 @@ export function V2Editor() {
     setSelectedOverlayId(null);
   }, { keydown: true, preventDefault: true });
 
+  // Esc: close an open modal first, else collapse the side panels to focus
+  // on the video. Panels reopen from the tool rail / on selecting a clip / AI.
+  useHotkeys('escape', () => {
+    if (modal) { setModal(null); return; }
+    setLeftOpen(false);
+    setAiOpen(false);
+  }, { enableOnFormTags: false }, [modal]);
+
+  // Selecting a clip opens the left panel (which then shows its settings).
+  useEffect(() => {
+    if (selectedOverlayId !== null) setLeftOpen(true);
+  }, [selectedOverlayId]);
+
   if (isMobile && DISABLE_MOBILE_LAYOUT) {
     return (
       <div className="flex h-screen items-center justify-center bg-surface-canvas p-6 text-center">
         <div>
-          <h2 className="mb-3 text-[18px] font-bold text-ds-primary">Editron</h2>
-          <p className="text-sm text-ds-muted">Editron is a full-screen desktop experience. Mobile is coming. 👀</p>
+          <h2 className="mb-3 text-[18px] font-bold text-ds-primary">Editor</h2>
+          <p className="text-sm text-ds-muted">The editor is a full-screen desktop experience. Mobile is coming. 👀</p>
         </div>
       </div>
     );
@@ -92,9 +106,13 @@ export function V2Editor() {
 
   return (
     <div
-      className="flex flex-col overflow-hidden bg-surface-canvas font-sans text-ds-primary"
+      className="v2-warm flex flex-col overflow-hidden bg-surface-canvas font-sans text-ds-primary"
       style={{ height: 'calc(var(--vh, 1vh) * 100)', maxHeight: '-webkit-fill-available' }}
     >
+      {/* Warmth + depth, gold-only: re-tint the surface/border tokens warmer
+          with bigger steps between layers (panels read as raised) — scoped to
+          the editor via .v2-warm, so the global design tokens are untouched. */}
+      <style>{`.v2-warm{--bg-canvas:#0A0908;--bg-raised:#14110D;--bg-deeper:#1B1712;--bg-well:#241E17;--border-subtle:#2A241C;--border-emphasis:#3A3227;}`}</style>
       <V2Header
         projectName={projectId ?? 'Project'}
         aiOpen={aiOpen}
@@ -105,16 +123,24 @@ export function V2Editor() {
       />
 
       <div className="flex min-h-0 flex-1">
-        <V2ToolRail aiOpen={aiOpen} onToggleAi={() => setAiOpen((o) => !o)} />
-        <V2ToolPanel />
+        <V2ToolRail
+          aiOpen={aiOpen}
+          onToggleAi={() => setAiOpen((o) => !o)}
+          onOpenTool={() => { setSelectedOverlayId(null); setLeftOpen(true); }}
+        />
+        {/* Left panel is contextual: overlay settings when a clip is selected,
+            otherwise the active tool's browse. (Editing lives on the LEFT.) */}
+        {leftOpen && (selectedOverlayId !== null
+          ? <V2PropsPanel onClose={() => setLeftOpen(false)} />
+          : <V2ToolPanel onClose={() => setLeftOpen(false)} />)}
 
         <div className="flex min-w-0 flex-1 flex-col">
           <V2Canvas />
           <V2Transport />
         </div>
 
-        <V2PropsPanel />
-        {aiOpen && <V2AiPanel />}
+        {/* AI chat lives on the RIGHT, open by default (collapsible). */}
+        {aiOpen && <V2AiPanel onClose={() => setAiOpen(false)} />}
       </div>
 
       {/* Phase 4: v2-skinned timeline (re-skins the real Timeline's chrome;

@@ -65,6 +65,7 @@ export const COLLECTIONS = {
   PROJECTS: 'projects',
   CHECKPOINTS: 'checkpoints',
   CHAT_SESSIONS: 'chatSessions',
+  CHAT_REFERENCE_ATTACHMENTS: 'editron_chat_reference_attachments',
   MEDIA_ASSETS: 'mediaAssets',
   MEDIA_UPLOADS: 'mediaUploads',
   MEDIA_UPLOAD_BATCHES: 'mediaUploadBatches',
@@ -72,6 +73,14 @@ export const COLLECTIONS = {
   MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
   STYLE_PROFILES: 'styleProfiles',
   PROJECT_LINKS: 'project_links',
+  MG_RENDER_JOBS: 'editron_mg_render_jobs',
+  CHAT_REFERENCE_STYLE_JOBS: 'editron_chat_reference_style_jobs',
+  CHAT_EDITORIAL_INTENT_JOBS: 'editron_chat_editorial_intent_jobs',
+  CHAT_DEEP_ANALYSIS_JOBS: 'editron_chat_deep_analysis_jobs',
+  CHAT_DUBBING_JOBS: 'editron_chat_dubbing_jobs',
+  LEDGER: 'ledger',
+  TREND_REQUESTS: 'trend_requests',
+  TRENDS: 'trends',
 } as const;
 
 /**
@@ -113,7 +122,7 @@ export async function initializeIndexes(): Promise<void> {
 
   // Media assets indexes
   await db.collection(COLLECTIONS.MEDIA_ASSETS).createIndexes([
-    { key: { userId: 1, uploadedAt: -1 }, name: 'userId_uploadedAt' },
+    { key: { userId: 1, uploadedAt: -1, assetId: -1 }, name: 'userId_uploadedAt_assetId' },
     { key: { projectId: 1 }, name: 'projectId' },
     { key: { assetId: 1, userId: 1 }, name: 'assetId_userId', unique: true },
     // LRU eviction candidate queries (ownerAssetFilter + sort by lastUsedAt asc).
@@ -152,6 +161,86 @@ export async function initializeIndexes(): Promise<void> {
     { key: { userId: 1, storyboardIds: 1 }, name: 'userId_storyboardIds' },
     { key: { userId: 1, projectIds: 1 }, name: 'userId_projectIds' },
     { key: { userId: 1, videoIds: 1 }, name: 'userId_videoIds' },
+    { key: { userId: 1, referenceIds: 1 }, name: 'userId_referenceIds' },
+    { key: { userId: 1, briefId: 1 }, name: 'userId_briefId' },
+  ]);
+
+  // Isolated MG renderer jobs. `_id` is a deterministic request hash, so retries and duplicate
+  // Director deliveries converge on one job instead of charging/rendering twice.
+  await db.collection(COLLECTIONS.MG_RENDER_JOBS).createIndexes([
+    { key: { idempotencyKey: 1 }, name: 'idempotencyKey_unique', unique: true },
+    { key: { status: 1, nextAttemptAt: 1, createdAt: 1 }, name: 'status_nextAttempt_createdAt' },
+    { key: { status: 1, leaseExpiresAt: 1 }, name: 'status_leaseExpiresAt' },
+    { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
+    { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // Project-scoped documents and public URLs attached to AI chat. The extracted content is persisted
+  // once so later turns never need to trust a caller URL or re-parse an upload.
+  await db.collection(COLLECTIONS.CHAT_REFERENCE_ATTACHMENTS).createIndexes([
+    { key: { referenceId: 1 }, name: 'referenceId_unique', unique: true },
+    { key: { projectId: 1, updatedAt: -1 }, name: 'projectId_updatedAt' },
+    { key: { projectId: 1, status: 1, leaseExpiresAt: 1 }, name: 'project_status_lease' },
+  ]);
+
+  // Durable chat reference-style workflows. A deterministic idempotency key prevents
+  // retries or duplicate model calls from extracting/applying the same reference twice.
+  await db.collection(COLLECTIONS.CHAT_REFERENCE_STYLE_JOBS).createIndexes([
+    { key: { idempotencyKey: 1 }, name: 'idempotencyKey_unique', unique: true },
+    { key: { status: 1, leaseExpiresAt: 1, createdAt: 1 }, name: 'status_lease_createdAt' },
+    { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
+    { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // Project-wide chat intent execution can outlive an HTTP/SSE turn. Dedicated leased jobs keep
+  // Director retries idempotent and preserve terminal receipts without bloating the project doc.
+  await db.collection(COLLECTIONS.CHAT_EDITORIAL_INTENT_JOBS).createIndexes([
+    { key: { idempotencyKey: 1 }, name: 'idempotencyKey_unique', unique: true },
+    { key: { status: 1, leaseExpiresAt: 1, createdAt: 1 }, name: 'status_lease_createdAt' },
+    {
+      key: { status: 1, pendingChildJobIds: 1, projectId: 1, userId: 1 },
+      name: 'status_pendingChild_project_user',
+    },
+    { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
+    { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // Chat subclip analysis is resolved against an immutable project revision, then executed by a
+  // leased worker. TTL cleanup keeps completed and abandoned read-only jobs bounded.
+  await db.collection(COLLECTIONS.CHAT_DEEP_ANALYSIS_JOBS).createIndexes([
+    { key: { status: 1, leaseExpiresAt: 1 }, name: 'status_leaseExpiresAt' },
+    { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
+    { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // Dialogue dubbing can span translation, source separation and multiple TTS requests.
+  // Leases plus TTL make every stage resumable without keeping a Vercel request open.
+  await db.collection(COLLECTIONS.CHAT_DUBBING_JOBS).createIndexes([
+    { key: { idempotencyKey: 1 }, name: 'idempotencyKey_unique', unique: true },
+    { key: { status: 1, leaseExpiresAt: 1 }, name: 'status_leaseExpiresAt' },
+    { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
+    { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // Source Ledger — analyze-once store keyed by referenceId, deduped by platform URL/ID +
+  // chromaprint, scoped to the owner (org for agencies, else the individual user).
+  await db.collection(COLLECTIONS.LEDGER).createIndexes([
+    { key: { referenceId: 1 }, name: 'referenceId_unique', unique: true },
+    { key: { 'owner.userId': 1, dedupeKeys: 1 }, name: 'ownerUser_dedupeKeys' },
+    { key: { 'owner.orgId': 1, dedupeKeys: 1 }, name: 'ownerOrg_dedupeKeys' },
+    { key: { 'owner.userId': 1, analyzedAt: -1 }, name: 'ownerUser_analyzedAt' },
+  ]);
+
+  // Insturix Trends demand signal — one row per (trend, user). The unique index makes
+  // countDocuments({trendKey}) a DISTINCT-user count (a repeat request can't inflate demand).
+  await db.collection(COLLECTIONS.TREND_REQUESTS).createIndexes([
+    { key: { trendKey: 1, userId: 1 }, name: 'trendKey_userId_unique', unique: true },
+  ]);
+
+  // Insturix Trends — the ranked trend list the cron persists for the UI (one row per trend).
+  await db.collection(COLLECTIONS.TRENDS).createIndexes([
+    { key: { trendKey: 1 }, name: 'trendKey_unique', unique: true },
+    { key: { rankScore: -1 }, name: 'rankScore' },
   ]);
 
   console.log('Database indexes initialized successfully');

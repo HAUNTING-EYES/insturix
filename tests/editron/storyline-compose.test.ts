@@ -54,6 +54,57 @@ describe('selectScenes', () => {
   });
 });
 
+describe('defaultSceneScorer - ranks on real fused importance when present', () => {
+  it('importance is the spine: a higher-importance scene outranks a lower one', () => {
+    const b = brief();
+    expect(defaultSceneScorer(scene({ importance: 0.9 }), b))
+      .toBeGreaterThan(defaultSceneScorer(scene({ importance: 0.2 }), b));
+  });
+
+  it('★ does NOT double-count speech: a SILENT high-importance scene beats a SPEAKING trivial one', () => {
+    const silentImportant = scene({ importance: 0.9, transcription: '' });
+    const speakingTrivial = scene({ importance: 0.15, transcription: 'blah blah words' });
+    expect(defaultSceneScorer(silentImportant, brief()))
+      .toBeGreaterThan(defaultSceneScorer(speakingTrivial, brief()));
+  });
+
+  it('with no intent tokens, the score IS the importance (no invented base added)', () => {
+    expect(defaultSceneScorer(scene({ importance: 0.73 }), brief({ intent: undefined }))).toBe(0.73);
+  });
+
+  it('blends a small intent-relevance lift on top of importance (0.8*imp + 0.2*rel)', () => {
+    const s = scene({ importance: 0.5, transcription: 'pricing tiers explained' });
+    const matched = defaultSceneScorer(s, brief({ intent: 'pricing' }));
+    const unmatched = defaultSceneScorer(s, brief({ intent: 'gardening' }));
+    expect(matched).toBeCloseTo(0.6); // 0.8*0.5 + 0.2*1.0
+    expect(unmatched).toBeCloseTo(0.4); // 0.8*0.5 + 0.2*0.0
+    expect(matched).toBeGreaterThan(unmatched);
+  });
+
+  it('falls back to the heuristic (speech reward) ONLY when importance is absent', () => {
+    const withSpeech = scene({ transcription: 'launch the product today' });
+    const silent = scene({ transcription: '' });
+    const b = brief({ intent: 'product launch' });
+    expect(defaultSceneScorer(withSpeech, b)).toBeGreaterThan(defaultSceneScorer(silent, b));
+  });
+});
+
+describe('defaultSceneScorer - intent matching is multilingual (Unicode-aware)', () => {
+  it('★ matches a Devanagari (Hindi) intent that the old [a-z0-9] regex erased to nothing', () => {
+    const b = brief({ intent: 'कैमरा' }); // "camera"
+    const match = scene({ transcription: 'मेरे पास सबसे अच्छा कैमरा है' }); // "...the best camera..."
+    const noMatch = scene({ transcription: 'यह एक कुर्सी है' }); // "this is a chair"
+    expect(defaultSceneScorer(match, b)).toBeGreaterThan(defaultSceneScorer(noMatch, b));
+  });
+
+  it('matches code-mixed Hinglish intent against a code-mixed transcript', () => {
+    const b = brief({ intent: 'कैमरा quality' }); // Hindi + English in one intent
+    const match = scene({ transcription: 'yaar is phone ka कैमरा quality best hai' });
+    const noMatch = scene({ transcription: 'aaj main ghar par hoon' });
+    expect(defaultSceneScorer(match, b)).toBeGreaterThan(defaultSceneScorer(noMatch, b));
+  });
+});
+
 describe('fitToDuration', () => {
   it('null target keeps everything', () => {
     const scored = selectScenes([scene({ endTime: 2 }), scene({ source: 'b', endTime: 3 })], brief());
@@ -78,18 +129,32 @@ describe('fitToDuration', () => {
 });
 
 describe('orderScenes', () => {
-  it('orders auto-edit chronologically (createdAt, then startTime)', () => {
+  it('faithful (ratio 1) orders chronologically by createdAt, blocks intact', () => {
     const a = scene({ source: 'x', startTime: 10, endTime: 12, createdAt: 200 });
     const b = scene({ source: 'y', startTime: 0, endTime: 2, createdAt: 100 });
-    const ordered = orderScenes(selectScenes([a, b], brief()), 'auto-edit');
+    const ordered = orderScenes(selectScenes([a, b], brief()), 1);
     expect(ordered.map((s) => s.scene.source)).toEqual(['y', 'x']);
   });
 
-  it('orders reel by score descending (hook first)', () => {
-    const dull = scene({ source: 'x', startTime: 0, endTime: 2 });
-    const punchy = scene({ source: 'y', startTime: 0, endTime: 2, transcription: 'wow' });
-    const ordered = orderScenes(selectScenes([dull, punchy], brief({ format: 'reel' })), 'reel');
-    expect(ordered[0].scene.source).toBe('y');
+  it('★ condensed (low ratio) leads with the highest-importance block, against source time', () => {
+    const early = scene({ source: 'x', startTime: 0, endTime: 2, importance: 0.2, createdAt: 100 });
+    const late = scene({ source: 'y', startTime: 0, endTime: 2, importance: 0.9, createdAt: 200 });
+    const ordered = orderScenes(selectScenes([early, late], brief()), 0.2);
+    expect(ordered[0].scene.source).toBe('y'); // importance wins when condensing
+  });
+
+  it('faithful keeps chronology even when a later block is more important', () => {
+    const early = scene({ source: 'x', startTime: 0, endTime: 2, importance: 0.2, createdAt: 100 });
+    const late = scene({ source: 'y', startTime: 0, endTime: 2, importance: 0.9, createdAt: 200 });
+    const ordered = orderScenes(selectScenes([early, late], brief()), 1);
+    expect(ordered.map((s) => s.scene.source)).toEqual(['x', 'y']); // chronology wins when faithful
+  });
+
+  it('★ never reorders WITHIN a source, even heavily condensed (no split thoughts)', () => {
+    const s1 = scene({ source: 'pod', startTime: 0, endTime: 2, importance: 0.1, createdAt: 100 });
+    const s2 = scene({ source: 'pod', startTime: 2, endTime: 4, importance: 0.9, createdAt: 100 });
+    const ordered = orderScenes(selectScenes([s1, s2], brief()), 0.1);
+    expect(ordered.map((s) => s.scene.startTime)).toEqual([0, 2]); // source order preserved
   });
 });
 
@@ -100,8 +165,9 @@ describe('composeStoryline', () => {
       scene({ source: 'b', startTime: 0, endTime: 4 }),
       scene({ source: 'c', startTime: 0, endTime: 4, transcription: 'the point' }),
     ];
-    const story = composeStoryline(scenes, brief({ format: 'reel', aspectRatio: '9:16', targetDurationSec: 8 }));
-    expect(story.format).toBe('reel');
+    const story = composeStoryline(scenes, brief({ aspectRatio: '9:16', targetDurationSec: 8 }));
+    expect(story.condensationRatio).toBeCloseTo(8 / 12); // kept 8s of 12s available
+    expect(story.condensationRatio).toBeLessThan(1); // condensed, not faithful
     expect(story.renderTarget).toMatchObject({ width: 1080, height: 1920 });
     expect(story.totalDurationSec).toBeLessThanOrEqual(8);
     expect(story.clips[0].role).toBe('hook');

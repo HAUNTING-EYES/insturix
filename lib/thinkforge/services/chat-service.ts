@@ -3,6 +3,7 @@
  * Uses SSE format like Editron for consistent streaming
  */
 
+import { generateText } from 'ai';
 import { chatAgent } from '../agents/chat-agent';
 import { runResearchAgent } from '../agents/research-agent';
 import { generateScriptDraft } from '../agents/script-draft-agent';
@@ -29,8 +30,14 @@ import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
 import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
-import { resolveThinkForgeDocumentIntent } from '../agents/prompt-utils';
+import { createThinkForgeModelForRoute } from '../agents/model-factory';
+import { buildIsolatedPromptParts } from '../agents/prompt-boundary';
+import { resolveThinkForgeDocumentIntent, resolveThinkForgeGenerationDocumentIntent } from '../agents/prompt-utils';
 import { resolveThinkForgeTrendContext } from './trend-context';
+import { resolveThinkForgeProductionBrief } from '../brief/resolve-production-brief';
+import { resolveThinkForgeAvatarCasting, type ThinkForgeCastingMetadata } from '../casting/resolve-casting';
+import { buildKnobParserSystemInstruction, parsePromptUnderstanding } from '../intake/prompt-knob-parser';
+import { buildThinkForgeSourceLedger } from '../provenance/source-ledger';
 import {
   resolveContentSignalProfile,
   formatContentSignalProfileForPrompt,
@@ -42,29 +49,34 @@ import {
 import { buildThinkForgeSignalTrace } from '../signals/signal-trace';
 import crypto from 'crypto';
 
+const PROMPT_UNDERSTANDING_SEED = 7;
+
+export async function resolveScriptPromptUnderstanding(userPrompt: string) {
+  return parsePromptUnderstanding(userPrompt, async () => {
+    const promptParts = buildIsolatedPromptParts({
+      systemInstruction: buildKnobParserSystemInstruction(),
+      data: { userPrompt },
+      fieldLimits: { userPrompt: 24_000 },
+      totalLimit: 32_000,
+    });
+    const { text } = await generateText({
+      model: createThinkForgeModelForRoute({
+        routePurpose: 'structural',
+        privacyClass: 'business_confidential',
+      }),
+      system: promptParts.systemInstruction,
+      prompt: promptParts.prompt,
+      temperature: 0,
+      seed: PROMPT_UNDERSTANDING_SEED,
+    });
+    return text;
+  });
+}
+
 // Generator may be imperfect. Renderer must never fail.
 
 function normalizeText(value: string | undefined | null): string {
   return (value || '').toLowerCase();
-}
-
-function blockToPlainText(block: any): string {
-  // ThinkForge block
-  if (block && Array.isArray((block as any).content)) {
-    return extractTextFromRichText((block as any).content as any);
-  }
-  const children = Array.isArray(block?.children) ? block.children : [];
-  const texts: string[] = [];
-  for (const child of children) {
-    if (child && typeof child === 'object') {
-      if (typeof (child as any).text === 'string') {
-        texts.push((child as any).text);
-      } else if (Array.isArray((child as any).children)) {
-        texts.push(blockToPlainText(child));
-      }
-    }
-  }
-  return texts.join(' ').trim();
 }
 
 function getBlockIdsFromSelectionBlocks(blocks?: ThinkForgeBlock[] | null): string[] {
@@ -145,6 +157,7 @@ export interface ChatRequest {
   prompt: string;
   selection?: string;
   userId: string;
+  orgId?: string | null;
   script?: { title?: string; content?: string; blocks?: ThinkForgeBlock[] | any[] } | null;
   project?: ProjectMeta | null;
   blockIds?: string[];
@@ -156,18 +169,9 @@ export interface ChatRequest {
   threadId?: string | null;
   intentContext?: IntentContextSignals;
   blueprintArtifacts?: Array<{ type: string; label: string; description?: string; priority?: string }>;
-}
-
-function formatBlocksForPrompt(blocks: { blockId: string; text: string; type?: string }[]): string {
-  if (!Array.isArray(blocks) || blocks.length === 0) return '';
-  return blocks
-    .map((b) => {
-      const label = b.type ? `(${b.type}) ` : '';
-      const text = typeof b.text === 'string' ? b.text : '';
-      return `[${b.blockId}] ${label}${text}`.trim();
-    })
-    .filter(Boolean)
-    .join('\n');
+  /** Silent generation (auto-starter draft): run the draft but do NOT persist the triggering
+   *  prompt as a visible user chat message. The assistant progress + script still stream. */
+  silent?: boolean;
 }
 
 function detectFullRegenerate(prompt: string): boolean {
@@ -185,6 +189,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     prompt,
     selection,
     userId,
+    orgId,
     script: providedScript,
     project: providedProject,
     blockIds: providedBlockIds,
@@ -196,12 +201,13 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     threadId: providedThreadId,
     intentContext: providedIntentContext,
     blueprintArtifacts: providedBlueprintArtifacts,
+    silent: isSilent = false,
   } = request;
   const threadId = providedThreadId || 'default';
 
   // STEP 5: Explicit session existence verification before processing
   // Load session - require it to exist (no auto-create for chat operations)
-  let session = sessionId ? await db.getSession(sessionId, userId) : null;
+  const session = sessionId ? await db.getSession(sessionId, userId, orgId) : null;
   if (!session && sessionId) {
     // Session doesn't exist - this is an error condition for chat operations
     // The client should have created the session via hydrate first
@@ -213,13 +219,14 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     // No sessionId provided - also an error for chat operations
     throw new Error('sessionId is required for chat operations');
   }
+  const canonicalSessionId = session._id;
 
   let effectiveScriptId = typeof providedScriptId === 'string' && providedScriptId.trim()
     ? providedScriptId
     : null;
 
   // Load script if session exists (prefer provided script)
-  const script = providedScript || (session ? await db.getScript(sessionId || session._id, effectiveScriptId) : null);
+  const script = providedScript || (session ? await db.getScript(canonicalSessionId, effectiveScriptId) : null);
 
   const thinkforgeBlocks = validateThinkForgeBlocks(Array.isArray((script as any)?.blocks) ? (script as any).blocks : []);
   if (script && thinkforgeBlocks.length !== ((script as any)?.blocks?.length || 0)) {
@@ -231,12 +238,12 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   const baseProjectMeta = mergeThinkForgeProjectMetadata(session.projectMeta, providedProject);
   const retrievalBrandId = resolveProjectMetaBrandId(baseProjectMeta);
   const [chatHistory, preferences, retrievedCtx] = await Promise.all([
-    session ? db.getChatHistory(sessionId || session._id, 50, threadId) : Promise.resolve([]),
+    session ? db.getChatHistory(canonicalSessionId, 50, threadId) : Promise.resolve([]),
     db.getUserPreferences(userId),
     fetchContextSources({
       userId,
-      projectId: sessionId || undefined,
-      sessionId: sessionId || undefined,
+      projectId: canonicalSessionId,
+      sessionId: canonicalSessionId,
       brandId: retrievalBrandId,
       orgId: session.orgId ?? null,
       currentPrompt: prompt,
@@ -259,7 +266,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
   // Build session state
   const sessionState: SessionState = {
-    sessionId: session?._id || 'temp',
+    sessionId: canonicalSessionId,
     userId,
     chat: chatHistory,
     script: currentScriptState,
@@ -288,7 +295,6 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       // Stream was closed (client aborted)
       if (error?.name === 'InvalidStateError' || error?.code === 'ERR_INVALID_STATE') {
         isStreamClosed = true;
-        console.log('[ThinkForge] Stream closed by client');
         return false;
       }
       throw error;
@@ -296,7 +302,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   };
 
   const emitEvent = async (eventType: string, payload: Record<string, any>): Promise<boolean> => {
-    const sid = sessionId || session?._id || 'temp';
+    const sid = canonicalSessionId;
     const record = appendEvent(sid, eventType, payload, threadId);
     const data = {
       ...payload,
@@ -309,8 +315,37 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
   // Run in background
   (async () => {
-    let activeGenerationId: string | null = null;
+    const activeGenerationId = providedGenerationId || `gen_${crypto.randomUUID()}`;
+    let generationTerminalized = false;
+    let commitOwnershipClaimed = false;
+    let commitPersisted = false;
+    let terminalFailureMessage: string | null = null;
+
+    const claimCommitOwnership = async (): Promise<void> => {
+      if (commitOwnershipClaimed) return;
+      if (!session) throw new Error('Cannot claim generation commit without a session');
+      const claimed = await db.claimGenerationCommit(canonicalSessionId, activeGenerationId);
+      if (!claimed) {
+        throw new db.GenerationStateConflictError(
+          `Generation ${activeGenerationId} was cancelled or superseded before commit`,
+        );
+      }
+      commitOwnershipClaimed = true;
+    };
+
     try {
+      if (!providedGenerationId) {
+        const now = new Date();
+        const admitted = await db.setActiveGeneration(canonicalSessionId, userId, {
+          id: activeGenerationId,
+          type: 'chat',
+          status: 'running',
+          startedAt: now,
+          updatedAt: now,
+        });
+        if (!admitted) throw new Error('Could not acquire generation ownership');
+      }
+
       let finalResponse = '';
       const hasExistingScript = !!script && thinkforgeBlocks.length > 0;
 
@@ -331,18 +366,27 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           resetAt: chatLimit.resetAt,
         };
         await emitEvent('error', { error: 'Chat limit reached. Please upgrade your plan.', quota });
-        await emitEvent('done', { sessionId: session?._id, quota });
+        terminalFailureMessage = 'Chat limit reached. Please upgrade your plan.';
+        await emitEvent('done', { sessionId: canonicalSessionId, quota });
         return;
       }
 
-      // Persist user message
+      // Persist user message (skipped for silent auto-starter drafts so the triggering prompt
+      // never shows as a user bubble — on first render or on reload. Usage is still recorded.)
       if (session) {
-        await db.appendChatMessage(sessionId || session._id, 'user', prompt, threadId);
-        await db.recordChatUsage(userId, sessionId || session._id, chatLimit.planName);
+        if (!isSilent) {
+          await db.appendChatMessage(canonicalSessionId, 'user', prompt, threadId);
+        }
+        await db.recordChatUsage(userId, canonicalSessionId, chatLimit.planName);
       }
 
       // Blueprint initialization — skip intent classification, run full draft pipeline per artifact
       if (Array.isArray(providedBlueprintArtifacts) && providedBlueprintArtifacts.length > 0) {
+        await db.updateGenerationState(canonicalSessionId, activeGenerationId, {
+          type: 'script_generate',
+          intent: 'blueprint',
+          message: 'Generating blueprint documents',
+        });
         const artifacts = providedBlueprintArtifacts;
         const total = artifacts.length;
         const projectDesc = sessionState.metadata.idea
@@ -406,9 +450,10 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             );
 
             // Save document
+            await claimCommitOwnership();
             const saveResult = await applyCommand({
               type: 'ReplaceDocument',
-              sessionId: sessionId || session!._id,
+              sessionId: canonicalSessionId,
               baseVersion: 0,
               source: 'ai',
               payload: {
@@ -424,13 +469,14 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
                   ...(draft.signalTrace ? { signalTrace: draft.signalTrace } : {}),
                 },
               },
-            }, userId);
+            }, userId, orgId);
 
             if (!saveResult.ok) {
               if (!(await emitEvent('token', { content: `Failed to save "${title}": ${saveResult.error}\n` }))) return;
               continue;
             }
 
+            commitPersisted = true;
             createdDocs.push({ scriptId: newScriptId, title: draft.title || title, documentType: docType });
             await emitEvent('script_created', { scriptId: newScriptId, title: draft.title || title, documentType: docType });
             if (!(await emitEvent('token', { content: `\n✓ ${draft.title || title}\n` }))) return;
@@ -455,11 +501,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         if (!(await emitEvent('token', { content: summaryMsg }))) return;
 
         if (session) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', `Blueprint initialized: ${createdDocs.map(d => d.title).join(', ')}`, threadId);
+          await db.appendChatMessage(canonicalSessionId, 'assistant', `Blueprint initialized: ${createdDocs.map(d => d.title).join(', ')}`, threadId);
         }
 
         await emitEvent('progress', { progress: 1, message: 'Blueprint complete' });
-        await emitEvent('done', { sessionId: session?._id });
+        await emitEvent('done', { sessionId: canonicalSessionId });
         if (!isStreamClosed) {
           try { await writer.close(); } catch { /* stream already closed */ }
         }
@@ -501,16 +547,14 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               reason: 'confirmed_proposal',
               executable: true,
               signals: ['proposal_confirmed'],
-              textSample: effectivePrompt.substring(0, 50),
               usedFallback: false
             };
-            console.log('[ThinkForge][Proposal] Confirmed by user');
           }
         } else if (isMatch(prompt, REJECT_PATTERNS)) {
           finalResponse = "Understood. I've cancelled that suggestion. What would you like to do instead?";
           if (!(await emitEvent('token', { content: finalResponse }))) return;
-          if (!(await emitEvent('done', { sessionId: session?._id }))) return;
-          if (session) await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
+          if (!(await emitEvent('done', { sessionId: canonicalSessionId }))) return;
+          if (session) await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
           return;
         }
       }
@@ -565,8 +609,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           if (sectionIds.length === 0) {
             const clarification = 'Which section should I edit? Place your cursor inside the section or select the section heading.';
             if (!(await emitEvent('token', { content: clarification }))) return;
-            if (!(await emitEvent('done', { sessionId: session?._id }))) return;
-            if (session) await db.appendChatMessage(sessionId || session._id, 'assistant', clarification, threadId);
+            if (!(await emitEvent('done', { sessionId: canonicalSessionId }))) return;
+            if (session) await db.appendChatMessage(canonicalSessionId, 'assistant', clarification, threadId);
             return;
           }
           blockIds = sectionIds;
@@ -581,7 +625,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       if (intentResult.intent === 'edit' && !hasExistingScript) {
         finalResponse = 'No script open. Open a script or start a new one before editing.';
         if (!(await emitEvent('token', { content: finalResponse }))) return;
-        if (!(await emitEvent('done', { sessionId: session?._id }))) return;
+        if (!(await emitEvent('done', { sessionId: canonicalSessionId }))) return;
         return;
       }
 
@@ -595,9 +639,9 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           finalResponse = 'I need a specific target. Please select the exact block(s) or place your cursor in the section you want to edit.';
         }
         if (!(await emitEvent('token', { content: finalResponse }))) return;
-        if (!(await emitEvent('done', { sessionId: session?._id }))) return;
+        if (!(await emitEvent('done', { sessionId: canonicalSessionId }))) return;
         if (session) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
+          await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
         }
         return;
       }
@@ -606,13 +650,21 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       const isGenerateIntent = intentResult.intent === 'draft';
       const shouldRunGeneration = isGenerateIntent || (hasExistingScript && wantsFullRegenerate);
       const shouldRunEdit = intentResult.intent === 'edit' || intentResult.intent === 'hybrid';
+      const documentIntentOrigin = providedIntentContext?.lastUserAction === 'initial_draft_claim'
+        ? 'initial_draft_claim'
+        : 'user_request';
       const requestedDocumentIntent = shouldRunGeneration
-        ? resolveThinkForgeDocumentIntent(effectivePrompt, sessionState.metadata.format)
+        ? resolveThinkForgeGenerationDocumentIntent(
+            effectivePrompt,
+            sessionState.metadata.format,
+            documentIntentOrigin,
+            sessionState.metadata.contentContract,
+          )
         : null;
       const requestedContentPath = requestedDocumentIntent?.contentPath ?? null;
       const requestedDocumentType = requestedDocumentIntent?.documentType ?? 'screenplay';
       const requestedDocumentLabel = requestedDocumentIntent?.documentLabel ?? 'script';
-      const eventSessionId = sessionId || session?._id;
+      const eventSessionId = canonicalSessionId;
 
       const isCanvasEmpty = (() => {
         if (!script) return true;
@@ -636,41 +688,24 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         } else {
           const newScriptId = crypto.randomUUID();
           const initialTitle = requestedContentPath === 'post' ? 'New Post' : 'New Script';
-          const createResult = await applyCommand({
-            type: 'ReplaceDocument',
-            sessionId: sessionId || session._id,
-            baseVersion: 0,
-            source: 'ai',
-            payload: {
-              scriptId: newScriptId,
-              title: initialTitle,
-              content: '',
-              blocks: [],
-              documentType: requestedDocumentType,
-              metadata: {
-                workflow: 'create',
-                source: 'ai',
-                initializing: true,
-              },
-            }
-          }, userId);
-
-          if (!createResult.ok) {
-            finalResponse = createResult.error || `Failed to create new ${requestedDocumentLabel}.`;
-            if (!(await emitEvent('token', { content: finalResponse }))) return;
-            if (!(await emitEvent('done', { sessionId: session?._id }))) return;
-            return;
-          }
-
           effectiveScriptId = newScriptId;
           await emitEvent('script_created', { scriptId: newScriptId, sessionId: eventSessionId, title: initialTitle, documentType: requestedDocumentType });
         }
       }
 
+      if (shouldRunGeneration || shouldRunEdit) {
+        const generationType = shouldRunGeneration ? 'script_generate' : 'script_edit';
+        const updatedGeneration = await db.updateGenerationState(canonicalSessionId, activeGenerationId, {
+          type: generationType,
+          scriptId: effectiveScriptId || undefined,
+          intent: shouldRunGeneration ? 'draft' : 'edit',
+        });
+        if (!updatedGeneration) throw new Error('Generation ownership was lost before execution');
+      }
       if ((shouldRunGeneration || shouldRunEdit) && !effectiveScriptId) {
         finalResponse = `No active ${requestedDocumentLabel}. Create a new ${requestedDocumentLabel} first, then generate.`;
         if (!(await emitEvent('token', { content: finalResponse }))) return;
-        if (!(await emitEvent('done', { sessionId: session?._id }))) return;
+        if (!(await emitEvent('done', { sessionId: canonicalSessionId }))) return;
         return;
       }
       if (shouldRunEdit && hasExistingScript && !wantsFullRegenerate) {
@@ -751,7 +786,9 @@ CRITICAL: You are editing a SELECTION from a larger document.
             }
           };
 
+          await claimCommitOwnership();
           if (!(await emitEvent('script_update', scriptUpdate))) return;
+          commitPersisted = true;
         } else {
           // Traditional block-based editing
           const anchorId = blockIds[0];
@@ -768,11 +805,12 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
           let savedVersion: number | undefined;
           if (session) {
-            const latest = await db.getScript(sessionId || session._id, effectiveScriptId);
+            await claimCommitOwnership();
+            const latest = await db.getScript(canonicalSessionId, effectiveScriptId);
             let baseVersion = latest?.version ?? 0;
             const saveResult = await applyCommand({
               type: 'ReplaceDocument',
-              sessionId: sessionId || session._id,
+              sessionId: canonicalSessionId,
               baseVersion,
               source: 'ai',
               payload: {
@@ -786,11 +824,12 @@ CRITICAL: You are editing a SELECTION from a larger document.
                   source: 'ai',
                 },
               }
-            }, userId);
+            }, userId, orgId);
             if (!saveResult.ok) {
               throw new Error(saveResult.error);
             }
             savedVersion = saveResult.script.version;
+            commitPersisted = true;
           }
 
           const scriptUpdate = {
@@ -821,7 +860,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         if (!(await emitEvent('token', { content: finalResponse }))) return;
 
         if (session) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
+          await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
         }
       } else if (shouldRunGeneration) {
         // Generate a new document from scratch
@@ -830,7 +869,11 @@ CRITICAL: You are editing a SELECTION from a larger document.
         if (!(await emitEvent('token', { content: workingMsg }))) return;
 
         // Run Thinking Agent before draft ONLY for video scripts or explicit doc types
-        const documentIntent = requestedDocumentIntent || resolveThinkForgeDocumentIntent(effectivePrompt, sessionState.metadata.format);
+        const documentIntent = requestedDocumentIntent || resolveThinkForgeDocumentIntent(
+          effectivePrompt,
+          sessionState.metadata.format,
+          sessionState.metadata.contentContract,
+        );
         const contentPath = documentIntent.contentPath;
         const generatedDocumentType = documentIntent.documentType;
         const generatedDocumentLabel = documentIntent.documentLabel;
@@ -854,20 +897,12 @@ CRITICAL: You are editing a SELECTION from a larger document.
           }
         }
 
-        activeGenerationId = providedGenerationId || `gen_${Date.now()}`;
-        if (session) {
-          await db.setActiveGeneration(sessionId || session._id, {
-            id: activeGenerationId,
-            type: 'script_generate',
-            scriptId: effectiveScriptId || undefined,
-            status: 'running',
-            intent: 'draft',
-            progress: 0.01,
-            message: 'Starting content generation',
-            startedAt: new Date(),
-            updatedAt: new Date(),
-          });
-        }
+        await db.updateGenerationState(canonicalSessionId, activeGenerationId, {
+          type: 'script_generate',
+          scriptId: effectiveScriptId || undefined,
+          progress: 0.01,
+          message: 'Starting content generation',
+        });
         if (!(await emitEvent('progress', { progress: 0.01, message: 'Starting content generation' }))) return;
 
         let finalTitle = contentPath === 'post' ? 'New Post' : 'New Script';
@@ -875,6 +910,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         let finalBlocks: ThinkForgeBlock[] = [];
         let finalRichText: TiptapJSON = { type: 'doc', content: [] } as any;
         let signalTrace: any = undefined;
+        let briefSnapshot: ReturnType<typeof resolveThinkForgeProductionBrief> | undefined;
         let writerOutputMetadata: Record<string, any> | undefined;
 
         // Phase 4: resolve the content signal profile and fold it into systemBrief so the writers
@@ -887,6 +923,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
         // signals, not just the folded brief. Fails soft to the un-grounded brief.
         let resolvedSignalProfile: ThinkForgeContentSignalProfile | undefined;
         let trendContextMetadata: Record<string, any> | undefined;
+        let castingContextMetadata: ThinkForgeCastingMetadata | undefined;
+        let promptUnderstanding: Awaited<ReturnType<typeof resolveScriptPromptUnderstanding>> | undefined;
         try {
           const contentSignalProfile = resolveContentSignalProfile({
             userPrompt: effectivePrompt,
@@ -904,26 +942,66 @@ CRITICAL: You are editing a SELECTION from a larger document.
           console.warn('[chat-service] content signal profile resolution failed; generating without it:', profileErr);
         }
 
-        try {
-          const trendContext = await resolveThinkForgeTrendContext({
-            userPrompt: effectivePrompt,
-            project: sessionState.metadata,
-            brandId: sessionState.metadata.brandId,
-            contentPath,
-          });
-          if (trendContext?.promptBlock) {
-            groundedSystemBrief = [groundedSystemBrief, trendContext.promptBlock]
-              .filter(Boolean)
-              .join('\n\n');
+        const hasCompletedSelectedTrend = sessionState.metadata.selectedTrend?.analysis?.status === 'completed';
+        if (!hasCompletedSelectedTrend) {
+          try {
+            const trendContext = await resolveThinkForgeTrendContext({
+              userPrompt: effectivePrompt,
+              project: sessionState.metadata,
+              brandId: sessionState.metadata.brandId,
+              contentPath,
+            });
+            if (trendContext?.promptBlock) {
+              groundedSystemBrief = [groundedSystemBrief, trendContext.promptBlock]
+                .filter(Boolean)
+                .join('\n\n');
+            }
+            if (trendContext?.metadata) {
+              trendContextMetadata = trendContext.metadata;
+            }
+          } catch (trendErr) {
+            console.warn('[chat-service] public trend context failed; generating without it:', trendErr);
           }
-          if (trendContext?.metadata) {
-            trendContextMetadata = trendContext.metadata;
-          }
-        } catch (trendErr) {
-          console.warn('[chat-service] public trend context failed; generating without it:', trendErr);
+        }
+
+        if (contentPath !== 'post') {
+          promptUnderstanding = await resolveScriptPromptUnderstanding(effectivePrompt);
         }
 
         try {
+          briefSnapshot = resolveThinkForgeProductionBrief({
+            userPrompt: effectivePrompt,
+            project: sessionState.metadata,
+            documentType: generatedDocumentType,
+            contentPath,
+            brandId: sessionState.metadata.brandId,
+          });
+          if (contentPath !== 'post') {
+            const castingResolution = await resolveThinkForgeAvatarCasting({
+              brief: briefSnapshot,
+              project: sessionState.metadata,
+              userId,
+              orgId: session.orgId ?? null,
+              brandId: sessionState.metadata.brandId,
+              castingIntent: promptUnderstanding?.castingIntent,
+            });
+            briefSnapshot = castingResolution.brief;
+            if (castingResolution.metadata.status !== 'not_requested') {
+              castingContextMetadata = castingResolution.metadata;
+            }
+          }
+        } catch (briefErr) {
+          console.warn('[chat-service] production brief resolution failed; generating without briefSnapshot:', briefErr);
+        }
+
+        try {
+          const sourceLedger = buildThinkForgeSourceLedger({
+            userPrompt: effectivePrompt,
+            retrievedContext: retrievedCtx || undefined,
+            brandId: sessionState.metadata.brandId,
+            sessionId: sessionState.sessionId,
+          });
+
           const baseInput = {
             context: quickAssembleContext(
               'script_draft',
@@ -939,6 +1017,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
             sessionId: sessionState.sessionId,
             brandId: sessionState.metadata.brandId,
             contentSignalProfile: resolvedSignalProfile,
+            productionBrief: briefSnapshot,
+            sourceLedger,
           };
 
           if (contentPath === 'post') {
@@ -969,9 +1049,6 @@ CRITICAL: You are editing a SELECTION from a larger document.
             );
             finalRichText = thinkForgeBlocksToTiptapJSON(finalBlocks);
             
-            // Log analytics
-            console.log(`[ThinkForge:PostWriter] Score: ${result.contentAnalysis?.qualityScore}`);
-
           } else {
             const writer = new ScriptWriterAgent();
             const { result } = await writer.runStructured(baseInput as ScriptWriterInput);
@@ -981,8 +1058,12 @@ CRITICAL: You are editing a SELECTION from a larger document.
               writerType: 'script',
               contentAnalysis: result.contentAnalysis,
               visualPrompts: result.visualMetadata,
+              scriptSidecar: result.sidecar,
+              sidecarVersion: result.sidecar.sidecarVersion,
+              sourceLedger,
               writerMetadata: result.metadata,
               ...(trendContextMetadata ? { trendContext: trendContextMetadata } : {}),
+              ...(castingContextMetadata ? { castingContext: castingContextMetadata } : {}),
             };
 
             // Build structural blocks for script
@@ -1000,8 +1081,6 @@ CRITICAL: You are editing a SELECTION from a larger document.
             );
             finalRichText = thinkForgeBlocksToTiptapJSON(finalBlocks);
             
-            // Log analytics
-            console.log(`[ThinkForge:ScriptWriter] Score: ${result.contentAnalysis?.qualityScore}`);
           }
 
           // Stack A profile-compliance: run the same post-gen scoring Stack B runs (forbidden
@@ -1033,11 +1112,12 @@ CRITICAL: You are editing a SELECTION from a larger document.
         // Save new script with richText (Tiptap JSON AST)
         let savedVersion: number | undefined;
         if (session) {
-          const latest = await db.getScript(sessionId || session._id, effectiveScriptId);
+          await claimCommitOwnership();
+          const latest = await db.getScript(canonicalSessionId, effectiveScriptId);
           let baseVersion = latest?.version ?? 0;
           const saveResult = await applyCommand({
             type: 'ReplaceDocument',
-            sessionId: sessionId || session._id,
+            sessionId: canonicalSessionId,
             baseVersion,
             source: 'ai',
             payload: {
@@ -1047,19 +1127,22 @@ CRITICAL: You are editing a SELECTION from a larger document.
               blocks: finalBlocks,
               richText: finalRichText as any,
               documentType: generatedDocumentType,
+              contentContract: documentIntent.contract,
               metadata: {
                 workflow: 'create',
                 source: 'ai',
                 documentType: generatedDocumentType,
                 ...(signalTrace ? { signalTrace } : {}),
+                ...(briefSnapshot ? { briefSnapshot } : {}),
                 ...(writerOutputMetadata ? { writerOutput: writerOutputMetadata } : {}),
               },
             }
-          }, userId);
+          }, userId, orgId);
           if (!saveResult.ok) {
             throw new Error(saveResult.error);
           }
           savedVersion = saveResult.script.version;
+          commitPersisted = true;
 
           // Passive exemplar collection (fire-and-forget, never blocks save)
           const detectedType = /post|linkedin|twitter|instagram/i.test(prompt) ? 'post' : 'video_script';
@@ -1077,9 +1160,10 @@ CRITICAL: You are editing a SELECTION from a larger document.
             content: finalContent,
             version: savedVersion,
             documentType: generatedDocumentType,
-            // signalTrace/writerOutput intentionally NOT emitted to the client: internal
-            // reasoning the browser never reads. Still persisted server-side (ReplaceDocument
-            // above) and fed to the Clickatron handoff from the DB, not over the wire.
+            contentContract: documentIntent.contract,
+            // signalTrace/briefSnapshot/writerOutput intentionally NOT emitted to the client:
+            // internal reasoning the browser never reads. Still persisted server-side
+            // (ReplaceDocument above) and fed to handoffs from the DB, not over the wire.
           },
           metadata: {
             workflow: 'create',
@@ -1096,15 +1180,6 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
         if (!(await emitEvent('script_update', scriptUpdate))) return;
 
-        if (session) {
-          await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
-            status: 'completed',
-            scriptId: effectiveScriptId || undefined,
-            progress: 1,
-            message: 'Content generated',
-          });
-        }
-
         // Send completion response
         const completionLabel = contentPath === 'post' ? 'Post' : 'Script';
         finalResponse = `\n\n${completionLabel} "${finalTitle}" created successfully!`;
@@ -1112,7 +1187,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
         // Persist assistant message
         if (session) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', `Creating your ${generatedDocumentLabel}...\n\n${completionLabel} "${finalTitle}" created successfully!`, threadId);
+          await db.appendChatMessage(canonicalSessionId, 'assistant', `Creating your ${generatedDocumentLabel}...\n\n${completionLabel} "${finalTitle}" created successfully!`, threadId);
       }
       } else if (intentResult.intent === 'research') {
         // Research intent - use search-grounded agent (non-streaming for metadata access)
@@ -1136,13 +1211,13 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
           // Persist assistant message
           if (session && finalResponse) {
-            await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
+            await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
           }
 
           // Auto-save research to DataBank (with verified sources)
           try {
             await db.addDataBankEntry(
-              sessionId || session._id,
+              canonicalSessionId,
               userId,
               {
                 type: 'research',
@@ -1165,7 +1240,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
           if (!(await emitEvent('token', { content: errorMsg }))) return;
           finalResponse += errorMsg;
           if (session) {
-            await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
+            await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
           }
         }
       } else {
@@ -1206,37 +1281,70 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
         // Persist assistant message
         if (session && finalResponse) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
+          await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
         }
       }
 
       // Send done event (only if stream is still open)
       if (!isStreamClosed) {
-        await emitEvent('done', { sessionId: session?._id });
+        await emitEvent('done', { sessionId: canonicalSessionId });
       }
     } catch (error: any) {
-      // Check if error is due to stream being closed (abort)
       const isAbortError = error?.name === 'InvalidStateError' ||
         error?.code === 'ERR_INVALID_STATE' ||
         error?.message?.includes('WritableStream is closed') ||
         error?.message?.includes('ResponseAborted');
+      const wasAborted = isAbortError || isStreamClosed;
+      const terminalStatus = commitPersisted
+        ? 'completed'
+        : wasAborted
+          ? 'cancelled'
+          : 'failed';
+      generationTerminalized = true;
 
-      if (isAbortError || isStreamClosed) {
-        console.log('[ThinkForge] Stream aborted by client');
-        return; // Exit early, don't try to write error
+      if (session) {
+        try {
+          await db.updateGenerationState(canonicalSessionId, activeGenerationId, {
+            status: terminalStatus,
+            scriptId: effectiveScriptId || undefined,
+            progress: terminalStatus === 'completed' ? 1 : undefined,
+            message: commitPersisted
+              ? 'Content saved before the response ended'
+              : error?.message || (wasAborted ? 'Generation cancelled' : 'Generation failed'),
+          });
+        } catch (lifecycleError) {
+          if (!(lifecycleError instanceof db.GenerationStateConflictError)) {
+            console.error('[ThinkForge] Failed to settle generation after stream error:', lifecycleError);
+          }
+        }
       }
 
+      if (wasAborted) return;
       console.error('Error in chat stream:', error);
-      if (session && activeGenerationId) {
-        await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
-          status: 'failed',
-          message: error?.message || 'Generation failed',
-        });
-      }
-      // Try to send error, but don't fail if stream is closed
       await emitEvent('error', { error: error.message || 'Chat failed' });
     } finally {
-      // CRITICAL: Only close if stream is still open
+      if (session && !generationTerminalized) {
+        const terminalStatus = terminalFailureMessage
+          ? 'failed'
+          : commitPersisted || !isStreamClosed
+            ? 'completed'
+            : 'cancelled';
+        try {
+          await db.updateGenerationState(canonicalSessionId, activeGenerationId, {
+            status: terminalStatus,
+            scriptId: effectiveScriptId || undefined,
+            progress: terminalStatus === 'completed' ? 1 : undefined,
+            message: terminalFailureMessage
+              || (terminalStatus === 'completed' ? 'Request completed' : 'Generation cancelled'),
+          });
+        } catch (lifecycleError) {
+          if (!(lifecycleError instanceof db.GenerationStateConflictError)) {
+            console.error('[ThinkForge] Failed to finalize generation lifecycle:', lifecycleError);
+          }
+        }
+        generationTerminalized = true;
+      }
+
       if (!isStreamClosed) {
         try {
           await writer.close();

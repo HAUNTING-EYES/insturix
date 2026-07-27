@@ -1,20 +1,30 @@
 /**
  * POST /api/services/editron/chat/tool-call
  *
- * Direct tool invocation endpoint — bypasses AI chat LLM.
- * Used by UI panels (transition browser, SFX library, motion graphics)
- * to call tools directly without going through the AI agent.
- *
- * This is the "fast path" for UI-driven actions. The AI chat stream
- * is for conversational tool use. This endpoint is for button clicks.
+ * Narrow direct invocation endpoint for deterministic UI editing actions.
+ * Provider-backed agent tools are intentionally not reachable here.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { z } from 'zod';
 import { createTools } from '@/lib/editron/agent/tools';
+import { projectService } from '@/lib/editron/services/project-service';
+import { checkDirectToolRateLimit } from '@/lib/editron/utils/rate-limiter';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
+
+const directToolNames = ['add_transition', 'batch_edit_captions'] as const;
+const directToolRequestSchema = z.object({
+  projectId: z.string().min(1).max(128),
+  toolName: z.string().min(1).max(128),
+  params: z.record(z.string(), z.unknown()).optional().default({}),
+}).strict();
+
+function isDirectToolName(toolName: string): toolName is typeof directToolNames[number] {
+  return directToolNames.includes(toolName as typeof directToolNames[number]);
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,44 +32,80 @@ export async function POST(req: NextRequest) {
     try {
       const authResult = await auth();
       userId = authResult.userId;
-    } catch (err: unknown) { console.warn('[ToolCall] auth fallback:', err instanceof Error ? err.message : err); }
+    } catch (err: unknown) {
+      console.warn('[ToolCall] auth failed:', err instanceof Error ? err.message : err);
+    }
 
     if (!userId) {
       return NextResponse.json({ status: 'error', message: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await req.json();
-    const { projectId, toolName, params } = body;
+    const parsed = directToolRequestSchema.safeParse(await req.json());
+    if (!parsed.success) {
+      return NextResponse.json({ status: 'error', message: 'Invalid direct tool request' }, { status: 400 });
+    }
+    const { projectId, toolName, params } = parsed.data;
 
-    if (!projectId || !toolName) {
-      return NextResponse.json({ status: 'error', message: 'projectId and toolName required' }, { status: 400 });
+    if (!isDirectToolName(toolName)) {
+      return NextResponse.json(
+        { status: 'error', message: 'Tool is not available for direct invocation' },
+        { status: 403 },
+      );
     }
 
-    // Create the tools with the user's context
+    const rateLimit = await checkDirectToolRateLimit(userId);
+    if (!rateLimit.success) {
+      const unavailable = rateLimit.reason === 'unavailable';
+      return NextResponse.json(
+        {
+          status: 'error',
+          message: unavailable
+            ? 'Direct editing is temporarily unavailable'
+            : 'Too many direct edit requests',
+        },
+        {
+          status: unavailable ? 503 : 429,
+          headers: { 'X-RateLimit-Reset': String(rateLimit.reset) },
+        },
+      );
+    }
+
+    const project = await projectService.loadProject(userId, projectId);
+    if (!project) {
+      return NextResponse.json({ status: 'error', message: 'Project not found' }, { status: 404 });
+    }
+    // Director Mode: a refunded scan_failed assist project is inert to mutation
+    // — the same gate chat/stream enforces (battle-lane P1-6, loophole closed).
+    const { isRefundedAssistProject } = await import('@/lib/editron/services/assist-lane');
+    if (isRefundedAssistProject(project)) {
+      return NextResponse.json(
+        { status: 'error', message: 'This project\'s scan failed and its credits were refunded.', code: 'assist_scan_failed' },
+        { status: 403 },
+      );
+    }
+
     const tools = createTools(userId, projectId);
-
-    // Find the requested tool
-    const targetTool = tools.find((t: any) => t.name === toolName);
+    const targetTool = tools.find((tool: { name: string }) => tool.name === toolName);
     if (!targetTool) {
-      return NextResponse.json({
-        status: 'error',
-        message: `Tool "${toolName}" not found. Available: ${tools.map((t: any) => t.name).join(', ')}`,
-      }, { status: 404 });
+      return NextResponse.json(
+        { status: 'error', message: 'Direct tool capability is unavailable' },
+        { status: 404 },
+      );
     }
 
-    // Invoke the tool directly
-    const resultStr = await (targetTool as any).invoke(params || {});
-    let result: any;
+    const resultStr = await (targetTool as { invoke: (input: Record<string, unknown>) => Promise<string> }).invoke(params);
+    let result: unknown;
     try {
       result = JSON.parse(resultStr);
     } catch (err: unknown) {
-      console.warn('[ToolCall] result JSON parse failed, wrapping as string:', err instanceof Error ? err.message : err);
+      console.warn('[ToolCall] result JSON parse failed:', err instanceof Error ? err.message : err);
       result = { status: 'success', data: resultStr };
     }
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[tool-call]', error);
-    return NextResponse.json({ status: 'error', message: error.message }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Direct tool invocation failed';
+    return NextResponse.json({ status: 'error', message }, { status: 500 });
   }
 }

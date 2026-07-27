@@ -19,6 +19,8 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
   HeadObjectCommand,
   CreateMultipartUploadCommand,
   UploadPartCommand,
@@ -165,6 +167,53 @@ export async function deleteFromR2(r2Key: string): Promise<void> {
 
 // ─── Check Existence ──────────────────────────────────────────────
 
+type R2CommandClient = {
+  send(command: unknown): Promise<any>;
+};
+
+/** Delete every object belonging to one MG sequence. Rejects broad/arbitrary prefixes. */
+export async function deleteR2Prefix(
+  r2Prefix: string,
+  client: R2CommandClient = getS3Client(),
+): Promise<number> {
+  if (!/^mgseq_[A-Za-z0-9_-]+_$/.test(r2Prefix)) {
+    throw new Error(`Refusing unsafe R2 sequence prefix: ${r2Prefix}`);
+  }
+
+  let continuationToken: string | undefined;
+  let deletedCount = 0;
+  do {
+    const page = await client.send(new ListObjectsV2Command({
+      Bucket: R2_BUCKET_NAME,
+      Prefix: r2Prefix,
+      ContinuationToken: continuationToken,
+    }));
+    const keys = (page.Contents ?? [])
+      .map((entry: { Key?: string }) => entry.Key)
+      .filter((key: string | undefined): key is string => Boolean(key));
+
+    for (let offset = 0; offset < keys.length; offset += 1000) {
+      const batch = keys.slice(offset, offset + 1000);
+      const result = await client.send(new DeleteObjectsCommand({
+        Bucket: R2_BUCKET_NAME,
+        Delete: { Objects: batch.map((Key: string) => ({ Key })), Quiet: false },
+      }));
+      if (Array.isArray(result.Errors) && result.Errors.length > 0) {
+        const failed = result.Errors.map((error: { Key?: string; Code?: string }) => `${error.Key ?? 'unknown'}:${error.Code ?? 'unknown'}`);
+        throw new Error(`R2 sequence prefix deletion failed: ${failed.join(', ')}`);
+      }
+      deletedCount += batch.length;
+    }
+
+    if (page.IsTruncated && !page.NextContinuationToken) {
+      throw new Error(`R2 sequence prefix listing truncated without continuation token: ${r2Prefix}`);
+    }
+    continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (continuationToken);
+
+  console.log(`[R2] Deleted ${deletedCount} objects under ${r2Prefix}`);
+  return deletedCount;
+}
 /**
  * Check if file exists in R2.
  */

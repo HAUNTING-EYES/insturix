@@ -13,6 +13,32 @@ export interface CalosCadenceRule {
   preferredDays: number[]; // 0=Sun .. 6=Sat (date-fns convention)
 }
 
+/** A source material the user attaches to a campaign so generation writes FROM it, not just the brand
+ *  voice. `link`/`pdf`/`doc`/`text` are deconstructed (ThinkForge IngestorAgent) into `ingested` facts
+ *  fed to the writers; `image` is a visual reference kept for image generation (Clickatron
+ *  referenceImageRefs) — deferred wire, but the schema supports it now. */
+export type CalosReferenceType = "link" | "pdf" | "doc" | "image" | "text";
+export type CalosReferenceStatus = "pending" | "ready" | "failed";
+
+/** IngestorAgent output flattened for reuse by the writers (atomic facts + hooks + a summary). */
+export interface CalosIngestedFacts {
+  summary?: string;
+  atomicFacts: string[];
+  viralHooks: string[];
+}
+
+export interface CalosCampaignReference {
+  id: string; // nanoid
+  type: CalosReferenceType;
+  name: string; // filename, link title, or "Pasted note"
+  url?: string | null; // link URL, or the R2 URL for an uploaded pdf/doc/image
+  text?: string | null; // pasted text, or extracted text (cached from link-fetch / pdf-parse)
+  ingested?: CalosIngestedFacts | null; // null until deconstructed; images skip ingestion
+  status: CalosReferenceStatus; // pending -> ready | failed (extraction + ingestion outcome)
+  error?: string | null;
+  addedAt: Date;
+}
+
 /**
  * CalOS campaign = the strategy container for a client/brand. It owns cadence + goals + a
  * date range; deliverables reference it via campaignId. Brand-scoped, owner-scoped (mirrors
@@ -28,6 +54,7 @@ export interface ICalosCampaign extends Document {
   theme?: string; // the campaign's big idea / through-line every post ladders up to
   status: CalosCampaignStatus;
   cadenceRules: CalosCadenceRule[];
+  references: CalosCampaignReference[]; // source materials fed to generation (Phase A)
   startDate?: string | null;
   endDate?: string | null;
   deletedAt?: Date | null;
@@ -40,6 +67,30 @@ const CadenceRuleSchema = new Schema<CalosCadenceRule>(
     platform: { type: String, required: true },
     perWeek: { type: Number, required: true, default: 1 },
     preferredDays: { type: [Number], default: [] },
+  },
+  { _id: false }
+);
+
+const IngestedFactsSchema = new Schema<CalosIngestedFacts>(
+  {
+    summary: { type: String },
+    atomicFacts: { type: [String], default: [] },
+    viralHooks: { type: [String], default: [] },
+  },
+  { _id: false }
+);
+
+export const CampaignReferenceSchema = new Schema<CalosCampaignReference>(
+  {
+    id: { type: String, required: true },
+    type: { type: String, required: true, enum: ["link", "pdf", "doc", "image", "text"] },
+    name: { type: String, required: true },
+    url: { type: String, default: null },
+    text: { type: String, default: null },
+    ingested: { type: IngestedFactsSchema, default: null },
+    status: { type: String, required: true, enum: ["pending", "ready", "failed"], default: "pending" },
+    error: { type: String, default: null },
+    addedAt: { type: Date, default: () => new Date() },
   },
   { _id: false }
 );
@@ -64,6 +115,7 @@ const CalosCampaignSchema = new Schema<ICalosCampaign>(
       default: "active",
     },
     cadenceRules: { type: [CadenceRuleSchema], default: [] },
+    references: { type: [CampaignReferenceSchema], default: [] },
     startDate: { type: String, default: null },
     endDate: { type: String, default: null },
     deletedAt: { type: Date, default: null },

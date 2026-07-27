@@ -1,6 +1,7 @@
 import { BRAND_CONFIDENCE } from './brand-confidence';
 import type { BrandSignalLearningWeight } from './brand-signal-edit-weighting';
 import type { UnifiedBrand } from './brand-registry';
+import type { BrandProductUiModel } from './brand-vault-vision-decode';
 
 export type BrandSignalTrustLevel =
   | 'manual_user_entry'
@@ -86,6 +87,9 @@ export interface BrandSignalProfile {
   assets?: {
     productImages: BrandSignal<string[]>;
     socialPreviewImages?: BrandSignal<string[]>;
+    /** Ordered rendered-UI section screenshots (hero + sections + product pages) — actionable scan evidence
+     *  the vision-decode stage reads into a Product UI Model. Durable R2 URLs. */
+    uiScreenshots?: BrandSignal<string[]>;
   };
   palette: {
     primary?: BrandSignal<string>;
@@ -143,6 +147,13 @@ export interface BrandSignalProfile {
     hookArchetypes: BrandSignal<string[]>;
   };
   evidence: BrandSignalEvidence[];
+  /** Vision-decoded Product UI Model (brand tokens + screens + aha flow) from the scan's UI screenshots.
+   *  The contract the explainer agent consumes; present only when vision-decode ran. */
+  productUiModel?: BrandProductUiModel;
+  /** ISO timestamp of the last product-UI decode attempt (set by the cron backfill). Cooldown marker so a
+   *  draft whose decode keeps failing is retried on a schedule instead of every tick — and never starves
+   *  other pending drafts. Absent = never attempted by the backfill. */
+  productUiModelDecodeAttemptedAt?: string;
 }
 
 export interface DeriveBrandSignalProfileOptions {

@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useRef } from "react";
 import clsx from "clsx";
-import { FileText, MessageSquare, X, Video } from "lucide-react";
+import { Clapperboard, FileText, X } from "lucide-react";
 import { ChatPanel } from "@/components/dashboard/ThinkForge/ChatPanel";
 import { ScriptPanel } from "@/components/dashboard/ThinkForge/ScriptPanel";
 import { KnowledgePanel } from "@/components/dashboard/ThinkForge/KnowledgePanel";
 import { ExportToEditronDialog } from "@/components/dashboard/ThinkForge/export/ExportToEditronDialog";
 import { ClickatronHandoffDialog } from "@/components/dashboard/ThinkForge/export/ClickatronHandoffDialog";
+import { ShootKitDialog } from "@/components/dashboard/ThinkForge/production/ShootKitDialog";
 import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
 import { Script } from "@/app/dashboard/thinkforge/types";
@@ -22,6 +23,7 @@ interface StoryboardingModeProps {
   tabsRefreshTrigger?: number;
   script: Script | null;
   isScriptLoading?: boolean;
+  initialChatMessages?: any[];
   isSaving: boolean;
   onApplyEdit: (updated: Script) => void;
   onRunEdit: (instruction: string, selection?: string) => Promise<any>;
@@ -44,6 +46,7 @@ export default function StoryboardingMode({
   tabsRefreshTrigger,
   script,
   isScriptLoading,
+  initialChatMessages,
   isSaving,
   onApplyEdit,
   onRunEdit,
@@ -61,6 +64,7 @@ export default function StoryboardingMode({
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showClickatronDialog, setShowClickatronDialog] = useState(false);
+  const [showShootKit, setShowShootKit] = useState(false);
 
   // Selection editing state
   const [editingSelection, setEditingSelection] = useState<{ text: string, range: { from: number, to: number }, blocks: any[] } | null>(null);
@@ -148,6 +152,20 @@ export default function StoryboardingMode({
             </div>
           </div>
           <div className="sidebar-section">
+            <div className="mono sidebar-label" style={{ color: 'var(--text-muted)' }}>production</div>
+            <div className="sidebar-items">
+              <button
+                className="sidebar-item"
+                onClick={() => setShowShootKit(true)}
+                disabled={!script || !sessionId}
+                title="Turn this script into a capability-aware shot plan"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Clapperboard size={13} className="shrink-0" /> Shoot Kit
+              </button>
+            </div>
+          </div>
+          <div className="sidebar-section">
             <div className="mono sidebar-label" style={{ color: 'var(--text-muted)' }}>export</div>
             <div className="sidebar-items">
               <button className="sidebar-item" onClick={() => setShowClickatronDialog(true)} disabled={!script || !sessionId}>-&gt; Clickatron</button>
@@ -215,6 +233,7 @@ export default function StoryboardingMode({
             script={script}
             scriptId={scriptId}
             isScriptLoading={isScriptLoading}
+            initialMessages={initialChatMessages}
             onApplyEdit={onApplyEdit}
             onRunEdit={onRunEdit}
             sessionId={sessionId}
@@ -257,6 +276,13 @@ export default function StoryboardingMode({
         sessionId={sessionId || undefined}
         scriptId={scriptId || undefined}
         title={script?.title || selectedIdea.idea}
+      />
+
+      <ShootKitDialog
+        open={showShootKit}
+        onOpenChange={setShowShootKit}
+        sessionId={sessionId || undefined}
+        scriptId={scriptId || undefined}
       />
 
       <AnimatePresence>

@@ -226,13 +226,15 @@ describe('ScriptDraftAgent retrieved context wiring', () => {
     expect(captured.authorInput?.context.systemBrief).toContain('Characteristic phrases: "approval loop"');
     expect(captured.authorInput?.context.systemBrief).toContain('<voice_example index="1" type="linkedin">');
 
-    const authorPrompt = new ScriptAuthorAgent().buildPrompt(captured.authorInput!);
-    expect(authorPrompt).toContain('<brand_context>');
-    expect(authorPrompt).toContain('<voice_fingerprint samples="4">');
-    expect(authorPrompt).toContain('<voice_example index="1" type="linkedin">');
-    expect(authorPrompt).toContain('<content_signal_profile>');
-    expect(authorPrompt).toContain('"enthusiasm": 0.83');
-    expect(authorPrompt).toContain('brand_vault:');
+    const authorParts = new ScriptAuthorAgent().buildPromptParts(captured.authorInput!);
+    expect(authorParts.systemInstruction).not.toContain('## Brand DNA');
+    expect(authorParts.systemInstruction).not.toContain('<voice_fingerprint');
+    expect(authorParts.prompt).toContain('"brandContext"');
+    expect(authorParts.prompt).toContain('voice_fingerprint samples=\\"4\\"');
+    expect(authorParts.prompt).toContain('voice_example index=\\"1\\" type=\\"linkedin\\"');
+    expect(authorParts.prompt).toContain('"contentSignalProfile"');
+    expect(authorParts.prompt).toContain('"enthusiasm": 0.83');
+    expect(authorParts.prompt).toContain('brand_vault:');
     expect(JSON.stringify(result.signalTrace)).not.toContain('## Brand DNA');
   });
 });

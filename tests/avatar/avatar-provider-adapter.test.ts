@@ -73,6 +73,8 @@ function readyRecipe(overrides: {
     orgId: null,
     brandId: null,
     useCase: overrides.useCase ?? 'speech_delivery',
+    faceProvider: 'kling_standard',
+    renderModality: 'talking_head',
     readiness: {
       ready: overrides.ready ?? true,
       errors: [],

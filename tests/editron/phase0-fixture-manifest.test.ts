@@ -263,6 +263,8 @@ function baseProject(overrides: Partial<Phase0FixtureProject> = {}): Phase0Fixtu
         status: 'warn',
         issues: ['warn:test coverage gap'],
         fps,
+        expectedDurationMs: 3000,
+        durationBasis: 'original-media',
         overlayHitRate: 0.5,
         overlayHits: [],
         segmentCoverage: {
@@ -828,6 +830,30 @@ describe('phase0 fixture manifest', () => {
     });
     expect(manifest.canonicalTimeline.status).toBe('unsafe');
     expect(manifest.canonicalTimeline.issue).toContain('source mapping');
+  });
+
+  it('treats a primary-row image as picture continuity without inventing video source mapping', () => {
+    const manifest = buildPhase0FixtureManifest(baseProject({
+      durationInFrames: 120,
+      overlays: [
+        { id: 'clip-1', type: 'video', row: 2, from: 0, durationInFrames: 90, sourceStartFrame: 0 },
+        { id: 'image-1', type: 'image', row: 2, from: 90, durationInFrames: 30 },
+        { id: 'graphic-image', type: 'image', row: 6, from: 100, durationInFrames: 20 },
+      ],
+    }));
+
+    expect(manifest.cutContinuity).toMatchObject({
+      clipCount: 2,
+      lastEndFrame: 120,
+      tailGapFrames: 0,
+      midTimelineGapCount: 0,
+    });
+    expect(manifest.sourceMapping).toMatchObject({
+      clipCount: 1,
+      mappedClipCount: 1,
+      missingSourceMappingCount: 0,
+      hasCompleteSourceMapping: true,
+    });
   });
 
   it('classifies video overlaps covered by transition handles separately from broken overlaps', () => {

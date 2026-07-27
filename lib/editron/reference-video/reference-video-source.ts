@@ -1,5 +1,4 @@
 import { createHash } from 'crypto';
-import { isIP } from 'net';
 
 import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
 import {
@@ -12,10 +11,24 @@ import {
   type ImportYoutubeReferenceVideoInput,
   type YoutubeReferenceImportFailureReason,
 } from './youtube-reference-importer';
+import {
+  assertPublicReferenceDnsResolution,
+  isUnsafeReferenceHostname,
+  type ReferenceVideoDnsLookup,
+} from './reference-video-network-safety';
+import {
+  buildInstagramReferenceFingerprint,
+  importInstagramReferenceVideo,
+  InstagramReferenceImportError,
+  parseInstagramReferenceUrl,
+  type ImportedInstagramReferenceVideo,
+  type ImportInstagramReferenceVideoInput,
+  type InstagramReferenceImportFailureReason,
+} from './instagram-reference-importer';
 
-export type ReferenceVideoSourceKind = 'asset' | 'remote-url' | 'youtube-url';
+type ReferenceVideoSourceKind = 'asset' | 'remote-url' | 'youtube-url' | 'instagram-url';
 
-export type ReferenceVideoSourceRejectionReason =
+type ReferenceVideoSourceRejectionReason =
   | 'conflicting_reference_video_sources'
   | 'missing_reference_video_source'
   | 'reference_asset_not_found'
@@ -28,10 +41,12 @@ export type ReferenceVideoSourceRejectionReason =
   | 'youtube_reference_download_timeout'
   | 'youtube_reference_clip_timeout'
   | 'youtube_reference_ingestion_failed'
-  | 'youtube_reference_ingestion_not_supported';
+  | 'youtube_reference_ingestion_not_supported'
+  | InstagramReferenceImportFailureReason
+  | 'instagram_reference_ingestion_not_supported';
 
 export interface ReferenceVideoSource {
-  kind: Exclude<ReferenceVideoSourceKind, 'youtube-url'>;
+  kind: Exclude<ReferenceVideoSourceKind, 'youtube-url' | 'instagram-url'>;
   referenceId: string;
   videoUrl: string;
   durationSec?: number;
@@ -40,7 +55,7 @@ export interface ReferenceVideoSource {
   asset?: MediaAsset | null;
 }
 
-export type ReferenceVideoSourceResult =
+type ReferenceVideoSourceResult =
   | { ok: true; source: ReferenceVideoSource }
   | {
       ok: false;
@@ -54,20 +69,18 @@ export interface ReferenceVideoAssetResolver {
   resolveAssetUrl(assetId: string, userId: string): Promise<string | null>;
 }
 
-export interface ResolveReferenceVideoSourceInput {
+interface ResolveReferenceVideoSourceInput {
   userId: string;
   referenceAssetId?: string;
   referenceVideoUrl?: string;
   assetResolver: ReferenceVideoAssetResolver;
   dnsLookup?: ReferenceVideoDnsLookup;
   youtubeImporter?: ReferenceVideoYoutubeImporter;
+  youtubeMode?: 'import' | 'provider-direct';
+  instagramImporter?: ReferenceVideoInstagramImporter;
 }
 
-export type ReferenceVideoDnsLookup = (
-  hostname: string,
-) => Promise<readonly { address: string; family: number }[]>;
-
-export interface ReferenceVideoUrlValidationOk {
+interface ReferenceVideoUrlValidationOk {
   ok: true;
   url: URL;
   referenceId: string;
@@ -76,7 +89,7 @@ export interface ReferenceVideoUrlValidationOk {
   sourceKind: 'remote-url';
 }
 
-export interface ReferenceYoutubeVideoUrlValidationOk {
+interface ReferenceYoutubeVideoUrlValidationOk {
   ok: true;
   url: URL;
   referenceId: string;
@@ -85,11 +98,24 @@ export interface ReferenceYoutubeVideoUrlValidationOk {
   sourceKind: 'youtube-url';
 }
 
+interface ReferenceInstagramVideoUrlValidationOk {
+  ok: true;
+  url: URL;
+  referenceId: string;
+  sourceLabel: string;
+  sourceFingerprint: string;
+  sourceKind: 'instagram-url';
+}
+
 export type ReferenceVideoYoutubeImporter = (
   input: ImportYoutubeReferenceVideoInput,
 ) => Promise<ImportedYoutubeReferenceVideo>;
 
-export type ReferenceVideoUrlValidationResult =
+export type ReferenceVideoInstagramImporter = (
+  input: ImportInstagramReferenceVideoInput,
+) => Promise<ImportedInstagramReferenceVideo>;
+
+type ReferenceVideoUrlValidationResult =
   | ReferenceVideoUrlValidationOk
   | {
       ok: false;
@@ -101,6 +127,7 @@ export type ReferenceVideoUrlValidationResult =
 export type ReferenceVideoAutoEditUrlValidationResult =
   | ReferenceVideoUrlValidationOk
   | ReferenceYoutubeVideoUrlValidationOk
+  | ReferenceInstagramVideoUrlValidationOk
   | {
       ok: false;
       reason: ReferenceVideoSourceRejectionReason;
@@ -189,6 +216,20 @@ export async function resolveReferenceVideoSource(
   if (!validation.ok) return validation;
 
   if (validation.sourceKind === 'youtube-url') {
+    if (input.youtubeMode === 'provider-direct') {
+      return {
+        ok: true,
+        source: {
+          kind: 'remote-url',
+          referenceId: validation.referenceId,
+          videoUrl: validation.url.toString(),
+          sourceLabel: validation.sourceLabel,
+          sourceFingerprint: validation.sourceFingerprint,
+          asset: null,
+        },
+      };
+    }
+
     try {
       const imported = await (input.youtubeImporter ?? importYoutubeReferenceVideo)({
         userId: input.userId,
@@ -218,7 +259,37 @@ export async function resolveReferenceVideoSource(
     }
   }
 
-  const dnsCheck = await assertPublicDnsResolution(validation.url.hostname, input.dnsLookup);
+  if (validation.sourceKind === 'instagram-url') {
+    try {
+      const imported = await (input.instagramImporter ?? importInstagramReferenceVideo)({
+        userId: input.userId,
+        instagramUrl: validation.url.toString(),
+        sourceFingerprint: validation.sourceFingerprint,
+      });
+      return {
+        ok: true,
+        source: {
+          kind: 'asset',
+          referenceId: imported.asset.assetId,
+          videoUrl: imported.videoUrl,
+          durationSec: imported.durationSec ?? imported.asset.duration ?? undefined,
+          sourceLabel: imported.sourceLabel || imported.asset.filename || validation.sourceLabel,
+          sourceFingerprint: imported.sourceFingerprint,
+          asset: imported.asset,
+        },
+      };
+    } catch (error) {
+      const normalized = normalizeInstagramReferenceImportError(error);
+      return {
+        ok: false,
+        reason: normalized.reason,
+        diagnostics: normalized.diagnostics,
+        sourceKind: 'instagram-url',
+      };
+    }
+  }
+
+  const dnsCheck = await assertPublicReferenceDnsResolution(validation.url.hostname, input.dnsLookup);
   if (!dnsCheck.ok) {
     return {
       ok: false,
@@ -259,6 +330,17 @@ export function validateReferenceVideoUrlForIntake(
     };
   }
 
+  if (isInstagramReferenceHost(url)) {
+    return {
+      ok: false,
+      reason: parseInstagramReferenceUrl(url)
+        ? 'instagram_reference_ingestion_not_supported'
+        : 'unsupported_reference_video_url',
+      diagnostics: ['Instagram references must use a public reel, post, or TV URL with a shortcode.'],
+      sourceKind: 'instagram-url',
+    };
+  }
+
   if (url.username || url.password) {
     return {
       ok: false,
@@ -268,7 +350,7 @@ export function validateReferenceVideoUrlForIntake(
     };
   }
 
-  if (isUnsafeHostname(url.hostname)) {
+  if (isUnsafeReferenceHostname(url.hostname)) {
     return {
       ok: false,
       reason: 'unsafe_reference_video_url',
@@ -310,12 +392,26 @@ export function validateReferenceVideoUrlForAutoEditIntake(
   rawUrl?: string,
 ): ReferenceVideoAutoEditUrlValidationResult {
   const directValidation = validateReferenceVideoUrlForIntake(rawUrl);
-  if (directValidation.ok || directValidation.sourceKind !== 'youtube-url') {
+  if (directValidation.ok) {
     return directValidation;
   }
 
   const parsed = parseHttpReferenceVideoUrl(rawUrl);
   if (!parsed.ok) return parsed;
+  if (directValidation.sourceKind === 'instagram-url') {
+    const instagram = parseInstagramReferenceUrl(parsed.url);
+    if (!instagram) return directValidation;
+    return {
+      ok: true,
+      url: new URL(instagram.canonicalUrl),
+      referenceId: `ref_instagram_${shortHash(instagram.shortcode)}`,
+      sourceLabel: `Instagram reference ${instagram.shortcode}`,
+      sourceFingerprint: buildInstagramReferenceFingerprint(instagram.shortcode),
+      sourceKind: 'instagram-url',
+    };
+  }
+  if (directValidation.sourceKind !== 'youtube-url') return directValidation;
+
   const videoId = parseYouTubeVideoId(parsed.url);
   if (!videoId) {
     return {
@@ -337,7 +433,12 @@ export function validateReferenceVideoUrlForAutoEditIntake(
   };
 }
 
-export function isYoutubeReferenceUrl(url: URL): boolean {
+function isInstagramReferenceHost(url: URL): boolean {
+  const hostname = url.hostname.toLowerCase();
+  return hostname === 'instagram.com' || hostname === 'www.instagram.com';
+}
+
+function isYoutubeReferenceUrl(url: URL): boolean {
   const hostname = url.hostname.toLowerCase();
   return hostname === 'youtu.be'
     || hostname.endsWith('.youtu.be')
@@ -347,38 +448,6 @@ export function isYoutubeReferenceUrl(url: URL): boolean {
     || hostname.endsWith('.youtube-nocookie.com')
     || hostname === 'googlevideo.com'
     || hostname.endsWith('.googlevideo.com');
-}
-
-async function assertPublicDnsResolution(
-  hostname: string,
-  dnsLookup?: ReferenceVideoDnsLookup,
-): Promise<{ ok: true } | { ok: false; diagnostics: string[] }> {
-  if (isIP(cleanHostname(hostname)) !== 0) return { ok: true };
-
-  try {
-    const addresses = await (dnsLookup ?? defaultDnsLookup)(hostname);
-    if (addresses.length === 0) {
-      return { ok: false, diagnostics: [`referenceVideoUrl host ${hostname} did not resolve.`] };
-    }
-    const unsafe = addresses.filter((entry) => isUnsafeIpAddress(entry.address));
-    if (unsafe.length > 0) {
-      return {
-        ok: false,
-        diagnostics: [`referenceVideoUrl host ${hostname} resolves to unsafe address(es): ${unsafe.map((entry) => entry.address).join(', ')}.`],
-      };
-    }
-    return { ok: true };
-  } catch (error) {
-    return {
-      ok: false,
-      diagnostics: [`Could not verify public DNS for referenceVideoUrl host ${hostname}: ${error instanceof Error ? error.message : String(error)}.`],
-    };
-  }
-}
-
-async function defaultDnsLookup(hostname: string): Promise<readonly { address: string; family: number }[]> {
-  const { lookup } = await import('dns/promises');
-  return lookup(hostname, { all: true, verbatim: true });
 }
 
 function parseHttpReferenceVideoUrl(rawUrl?: string): ReferenceVideoUrlValidationResult {
@@ -448,35 +517,16 @@ function normalizeYoutubeReferenceImportError(
   };
 }
 
-function isUnsafeHostname(hostname: string): boolean {
-  const clean = cleanHostname(hostname);
-  if (!clean) return true;
-  if (clean === 'localhost' || clean.endsWith('.localhost')) return true;
-  if (clean.endsWith('.local') || clean.endsWith('.internal') || clean.endsWith('.lan')) return true;
-  const ipKind = isIP(clean);
-  return ipKind !== 0 ? isUnsafeIpAddress(clean) : false;
-}
-
-function isUnsafeIpAddress(address: string): boolean {
-  const clean = cleanHostname(address);
-  const ipKind = isIP(clean);
-  if (ipKind === 4) return isUnsafeIpv4(clean);
-  if (ipKind === 6) return true;
-  return false;
-}
-
-function isUnsafeIpv4(address: string): boolean {
-  const parts = address.split('.').map((part) => Number.parseInt(part, 10));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
-  const [a, b] = parts;
-  if (a === 0 || a === 10 || a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 192 && b === 0) return true;
-  if (a === 198 && (b === 18 || b === 19)) return true;
-  return a >= 224;
+function normalizeInstagramReferenceImportError(
+  error: unknown,
+): { reason: InstagramReferenceImportFailureReason; diagnostics: string[] } {
+  if (error instanceof InstagramReferenceImportError) {
+    return { reason: error.reason, diagnostics: error.diagnostics };
+  }
+  return {
+    reason: 'instagram_reference_ingestion_failed',
+    diagnostics: [error instanceof Error ? error.message : String(error)],
+  };
 }
 
 function hasAllowedVideoExtension(pathname: string): boolean {
@@ -516,10 +566,6 @@ function normalizeDate(value: unknown): string {
   if (!value) return '';
   const date = value instanceof Date ? value : new Date(String(value));
   return Number.isFinite(date.getTime()) ? date.toISOString() : String(value);
-}
-
-function cleanHostname(hostname: string): string {
-  return hostname.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
 }
 
 function shortHash(value: string): string {

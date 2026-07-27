@@ -11,7 +11,10 @@ export type SemanticMgFactKind =
   | 'identity'
   | 'concept'
   | 'refutation'
-  | 'list';
+  | 'list'
+  /** P3.5 door (2026-07-18): a plain transcript beat with no extracted fact — licensed by the DESIGNER within
+   *  the density budget, never by this ledger. Carries no data props; data-lane guards ignore it by design. */
+  | 'narrative';
 
 export type SemanticMgLicense =
   | 'bounded-proportion'
@@ -312,6 +315,23 @@ function buildDrafts(
     });
   }
 
+  // P3.5 door (2026-07-21): a plain transcript beat with no extracted fact, carried as its verbatim spoken
+  // words in `content.line` (fact producers never set `line`, so this never collides with data drafts). The
+  // ledger's hard gate still demands transcript grounding (sourceSpan) — but the RENDER license is the
+  // DESIGNER's approved plan within the density budget, enforced in applyGraphic (never free-form). Lowest
+  // selection priority (factKindPriority): any data fact on the same content always outranks the beat.
+  if (stringValue(content.line)) {
+    drafts.push({
+      factKind: 'narrative',
+      content: pickContent(content, ['line']),
+      roles: [],
+      evidenceKeys: ['line'],
+      licenses: withSourceLicense([], salience),
+      salience,
+      rhetoricalRole: 'literal',
+    });
+  }
+
   return drafts;
 }
 
@@ -536,6 +556,8 @@ function factKindPriority(factKind: SemanticMgFactKind): number {
       return 8;
     case 'weak-stat':
       return 9;
+    case 'narrative': // P3.5: a beat never outranks a data fact on the same content
+      return 10;
     default:
       return 10;
   }

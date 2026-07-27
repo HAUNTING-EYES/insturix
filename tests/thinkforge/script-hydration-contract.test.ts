@@ -1,6 +1,10 @@
 import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
-import { detectContentPath, resolveThinkForgeDocumentIntent } from '@/lib/thinkforge/agents/prompt-utils';
+import {
+  detectContentPath,
+  resolveThinkForgeDocumentIntent,
+  resolveThinkForgeGenerationDocumentIntent,
+} from '@/lib/thinkforge/agents/prompt-utils';
 
 function read(path: string): string {
   return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
@@ -13,6 +17,26 @@ describe('ThinkForge script hydration contract', () => {
     expect(detectContentPath('Write an Instagram reel script with camera direction.', 'post')).toBe('script');
     expect(resolveThinkForgeDocumentIntent('make an Instagram carousel for this campaign', 'video_script')).toMatchObject({
       contentPath: 'post',
+      source: 'user_prompt',
+    });
+  });
+
+  it('uses the selected format for silent initial drafts without weakening user overrides', () => {
+    expect(resolveThinkForgeGenerationDocumentIntent(
+      'Create the complete first script draft for this idea.',
+      'Instagram post',
+      'initial_draft_claim',
+    )).toMatchObject({
+      contentPath: 'post',
+      source: 'document_type',
+    });
+
+    expect(resolveThinkForgeGenerationDocumentIntent(
+      'Turn this into an Instagram reel script with camera direction.',
+      'Instagram post',
+      'user_request',
+    )).toMatchObject({
+      contentPath: 'script',
       source: 'user_prompt',
     });
   });
@@ -36,12 +60,17 @@ describe('ThinkForge script hydration contract', () => {
     const chatHook = read('app/dashboard/thinkforge/hooks/useThinkForgeChat.ts');
 
     expect(chatPanel).toContain('onRemoteScriptUpdate: handleScriptUpdate');
+    expect(chatPanel).toContain('getActiveScriptId: () => scriptIdRef.current');
     expect(chatPanel).not.toContain('onScriptUpdate: handleScriptUpdate');
+    expect(chatPanel).not.toContain('[ChatPanel.handleSend]');
     expect(page).toContain("const isRemoteAiUpdate = metadata.source === 'ai';");
     expect(page).toContain('scriptHook.setScriptWithoutSave(model);');
     expect(chatHook).toContain('function normalizeRemoteScriptUpdate');
     expect(chatHook).toContain('scriptId: data?.script?.scriptId');
-    expect(chatHook).toContain('scriptId: gen.scriptId || data.script?.scriptId');
+    expect(chatHook).toContain('const completedScriptId = gen.scriptId || data.script?.scriptId');
+    expect(chatHook).toContain('activeScriptId: optionsRef.current?.getActiveScriptId?.()');
+    expect(chatHook).toContain("if (delivery.type === 'switch_document')");
+    expect(chatHook).toContain("delivery.type === 'apply_current_document'");
     expect(chatHook).toContain("source: context.forceSource || 'ai'");
     expect(chatHook).not.toContain('optionsRef.current.onRemoteScriptUpdate(data);');
     expect(chatHook).not.toContain('optionsRef.current.onRemoteScriptUpdate(data.script);');
@@ -64,15 +93,26 @@ describe('ThinkForge script hydration contract', () => {
     expect(scriptHook).toContain('Server remains the source of truth');
     expect(scriptHook).toContain('Ignoring remote script update for inactive script');
   });
-  it('does not auto-send draft prompts when the chat panel mounts', () => {
+  it('creates an initial draft only from an explicit session intent and claims it once', () => {
+    const page = read('app/dashboard/thinkforge/page.tsx');
     const chatPanel = read('components/dashboard/ThinkForge/ChatPanel.tsx');
+    const sessionRoute = read('app/api/services/thinkforge/session/route.ts');
+    const db = read('lib/thinkforge/services/db.ts');
 
-    expect(chatPanel).not.toContain('auto_start');
-    expect(chatPanel).not.toContain('autoPrompt');
-    expect(chatPanel).not.toContain('Auto-starter');
-    expect(chatPanel).not.toContain('Write a ${prefix} from the original user brief');
+    expect(page).toContain('initialDraftRequestedRef.current = true');
+    expect(page).toContain("status: 'pending'");
+    expect(page).toContain('initialDraftRequestedRef.current = false');
+    expect(chatPanel).toContain('isScriptLoading');
+    expect(chatPanel).toContain('claimInitialDraft: true');
+    expect(chatPanel).toContain("lastUserAction: 'initial_draft_claim'");
+    expect(chatPanel).toContain('Create the complete first draft for this idea');
+    expect(chatPanel).not.toContain('complete first script draft');
+    expect(chatPanel).not.toContain('autoStartFired');
+    expect(chatPanel).not.toContain("lastUserAction: 'auto_start'");
+    expect(sessionRoute).toContain('db.claimInitialDraftIntent(sessionId)');
+    expect(db).toContain("'projectMeta.initialDraftIntent.status': 'pending'");
+    expect(db).toContain("'projectMeta.initialDraftIntent.status': 'claimed'");
   });
-
   it('resolves Clickatron export preview through the server context route', () => {
     const exportHook = read('components/dashboard/ThinkForge/export/hooks/useExportPipeline.ts');
 
@@ -81,5 +121,16 @@ describe('ThinkForge script hydration contract', () => {
     expect(exportHook).toContain('fetch("/api/services/thinkforge/clickatron-context"');
     expect(exportHook).toContain('body: JSON.stringify(clickatronContextRequestBody)');
     expect(exportHook).toContain('resolvedClickatronContext?.key === clickatronContextRequestKey');
+  });
+  it('treats Clickatron controls as explicit overrides instead of fake initial selections', () => {
+    const dialog = read('components/dashboard/ThinkForge/export/ClickatronHandoffDialog.tsx');
+    const panel = read('components/dashboard/ThinkForge/export/ClickatronHandoffPanel.tsx');
+
+    expect(dialog).toContain('useState<ThinkToClickUserVisualChoices>({})');
+    expect(dialog).not.toContain('DEFAULT_VISUAL_CHOICES');
+    expect(panel).toContain('const resolvedVisualChoices = display?.visualChoices');
+    expect(panel).toContain('visualChoices.kind || resolvedVisualChoices?.kind || display?.kind');
+    expect(panel).toContain('visualChoices.platform || resolvedVisualChoices?.platform || display?.platform');
+    expect(panel).toContain('visualChoices.aspectRatio || resolvedVisualChoices?.aspectRatio || display?.aspectRatio');
   });
 });

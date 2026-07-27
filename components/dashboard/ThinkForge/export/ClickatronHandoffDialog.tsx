@@ -14,6 +14,8 @@ import {
   buildThinkToClickContext,
   buildVisibleContentClickatronCreativeSpec,
   findClickatronCreativeSpecInBlocks,
+  MAX_CAROUSEL_SLIDES,
+  MIN_CAROUSEL_SLIDES,
   type ThinkToClickContext,
 } from "@/lib/thinkforge/clickatron-context";
 import {
@@ -34,14 +36,6 @@ interface ClickatronHandoffDialogProps {
   title?: string;
 }
 
-const DEFAULT_VISUAL_CHOICES: ThinkToClickUserVisualChoices = {
-  kind: "single_post_visual",
-  platform: "linkedin",
-  aspectRatio: "1:1",
-  visualMode: "text_forward_graphic",
-  textDensity: "medium",
-};
-
 export function ClickatronHandoffDialog({
   open,
   onOpenChange,
@@ -51,7 +45,7 @@ export function ClickatronHandoffDialog({
   title,
 }: ClickatronHandoffDialogProps) {
   const createClickatronSession = useClickatronStore((state) => state.createSession);
-  const [visualChoices, setVisualChoices] = useState<ThinkToClickUserVisualChoices>(DEFAULT_VISUAL_CHOICES);
+  const [visualChoices, setVisualChoices] = useState<ThinkToClickUserVisualChoices>({});
   const [resolvedContext, setResolvedContext] = useState<ThinkToClickContext | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -99,6 +93,7 @@ export function ClickatronHandoffDialog({
     }
 
     setContextLoading(true);
+    setResolvedContext(null);
     setError("");
     try {
       const contextRes = await fetch("/api/services/thinkforge/clickatron-context", {
@@ -116,6 +111,7 @@ export function ClickatronHandoffDialog({
           vibe: visualChoices.vibe,
           imageStyle: visualChoices.imageStyle,
           notes: visualChoices.notes,
+          slideCount: visualChoices.slideCount,
         }),
       });
       const contextData = await contextRes.json().catch(() => ({}));
@@ -214,6 +210,38 @@ export function ClickatronHandoffDialog({
         </DialogHeader>
 
         <div className="space-y-3 px-4 py-4">
+          {(visualChoices.kind || handoffState?.display.kind) === "carousel" && (
+            <div className="flex items-center justify-between gap-3 border-b border-[#282724] pb-3">
+              <label htmlFor="thinkforge-carousel-slide-count" className="text-[10px] font-semibold uppercase text-[#8B887F]">
+                Slides
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="thinkforge-carousel-slide-count"
+                  type="number"
+                  min={MIN_CAROUSEL_SLIDES}
+                  max={MAX_CAROUSEL_SLIDES}
+                  step={1}
+                  value={visualChoices.slideCount ?? handoffState?.display.slideCount ?? ""}
+                  onChange={(event) => setVisualChoice("slideCount", event.target.value)}
+                  className="h-8 w-16 rounded-[4px] border border-[#34322E] bg-[#0F0F0E] px-2 text-center text-[12px] text-[#ECE9E1] outline-none focus:border-[#D4A652]"
+                  aria-label="Carousel slide count"
+                />
+                <button
+                  type="button"
+                  onClick={() => setVisualChoice("slideCount", "")}
+                  className={`h-8 rounded-[4px] border px-3 text-[10px] font-semibold uppercase transition-colors ${
+                    visualChoices.slideCount === undefined
+                      ? "border-[#D4A652] text-[#D4A652]"
+                      : "border-[#34322E] text-[#8B887F] hover:text-[#ECE9E1]"
+                  }`}
+                >
+                  Auto
+                </button>
+              </div>
+            </div>
+          )}
+
           <ClickatronHandoffPanel
             handoffState={handoffState}
             visualChoices={visualChoices}
@@ -244,7 +272,7 @@ export function ClickatronHandoffDialog({
             {creating
               ? "Creating Session"
               : canSend
-                ? visualChoices.kind === "carousel" ? "Send Carousel" : "Send Post"
+                ? (visualChoices.kind || handoffState?.display.kind) === "carousel" ? "Send Carousel" : "Send Post"
                 : handoffState?.display.statusLabel || "Handoff unavailable"}
           </button>
         </div>

@@ -20,9 +20,8 @@ import { shouldCompress, compressToProxy, getVideoDuration } from '@/lib/editron
 import { MultipartUploader } from '@/lib/editron/client/multipart-uploader';
 import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import {
-  getMediaUploadBatchStatus,
+  createProjectFromMediaUploadBatch,
   uploadMediaFiles,
-  type MediaUploadBatchStatus,
 } from '@/components/editron/editor/version-7.0.0/utils/media-upload';
 
 /** Auto-edit config from the dialog. Forwarded verbatim to /auto-edit/from-asset,
@@ -38,30 +37,17 @@ export interface FootageAutoEditOptions {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
+  /** Director Mode (assist lane): 'assist' = scans only, zero AI edits, user directs via chat. */
+  editMode?: 'auto' | 'assist';
 }
 
 export interface FootageAutoEditState {
   running: boolean;
   progress: string;
   error: string | null;
-  batchStatus: MediaUploadBatchStatus | null;
   start: (file: File, options?: FootageAutoEditOptions) => void;
   startMany: (files: File[], options?: FootageAutoEditOptions) => void;
 }
-
-const POLL_STATUS_LABELS: Record<string, string> = {
-  queued: 'Queued for processing…',
-  analyzing: 'AI is analyzing your video…',
-  transcribing: 'Transcribing speech…',
-  cleaning: 'Removing silence and fillers…',
-  computing_params: 'Computing editing parameters…',
-  analyzing_deep: 'Deep visual + audio analysis…',
-  analysis_complete: 'Analysis complete, preparing edit…',
-  directing_queued: 'Queued for editing…',
-  directing: 'Applying edits, transitions, captions…',
-  editing: 'Applying edits, transitions, captions…',
-  needs_review: 'Edit complete, review needed…',
-};
 
 export function useFootageAutoEdit(): FootageAutoEditState {
   const router = useRouter();
@@ -69,7 +55,6 @@ export function useFootageAutoEdit(): FootageAutoEditState {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [batchStatus, setBatchStatus] = useState<MediaUploadBatchStatus | null>(null);
 
   const run = useCallback(async (file: File, options: FootageAutoEditOptions = {}) => {
     setRunning(true);
@@ -175,34 +160,10 @@ export function useFootageAutoEdit(): FootageAutoEditState {
         uploader.start();
       }
 
-      setProgress('AI is analyzing your video…');
-      const maxPolls = 60;
-      for (let i = 0; i < maxPolls; i++) {
-        await new Promise((r) => setTimeout(r, 5000));
-        try {
-          const statusRes = await fetch(`/api/services/editron/projects/${projectId}`);
-          if (statusRes.ok) {
-            const proj = await statusRes.json();
-            const status = proj.project?.autoEditStatus || proj.autoEditStatus;
-            if (status === 'complete') {
-              toast({ title: 'Video edited!', description: 'Opening in editor…' });
-              router.push(`/dashboard/editron/project/${projectId}`);
-              return;
-            }
-            if (status === 'needs_review') {
-              toast({ title: 'Edit needs review', description: proj.project?.autoEditWarning || proj.autoEditWarning || 'AI edit completed, but the quality check needs review.' });
-              router.push(`/dashboard/editron/project/${projectId}`);
-              return;
-            }
-            if (status === 'failed') throw new Error(proj.project?.autoEditError || 'AI editing failed');
-            setProgress(POLL_STATUS_LABELS[status] || `Processing (${status})…`);
-          }
-        } catch (pollErr) {
-          if ((pollErr as Error).message?.includes('failed')) throw pollErr;
-        }
-      }
-      toast({ title: 'Processing taking longer than expected', description: 'Opening project — editing may still be in progress.' });
-      router.push(`/dashboard/editron/project/${projectId}`);
+      // Hand off to the full-screen auto-edit processing route, which polls
+      // the coarse autoEditStatus, shows the assembling screen, and opens the
+      // editor when the edit is ready.
+      router.push(`/dashboard/editron/auto-edit/${projectId}`);
     } catch (e) {
       const msg = getUserFriendlyErrorMessage(e);
       setError(msg);
@@ -229,34 +190,29 @@ export function useFootageAutoEdit(): FootageAutoEditState {
 
     setRunning(true);
     setError(null);
-    setBatchStatus(null);
     setProgress(`Uploading ${selectedFiles.length} files...`);
 
     try {
-      const result = await uploadMediaFiles(selectedFiles);
+      const result = await uploadMediaFiles(selectedFiles, { uploadBatchIntake: options });
       const uploadedCount = result.uploaded.length;
       if (uploadedCount === 0) {
         const firstError = result.failed[0]?.error || 'No files uploaded.';
         throw new Error(firstError);
       }
 
-      let status: MediaUploadBatchStatus | null = null;
-      try {
-        status = await getMediaUploadBatchStatus(result.uploadBatchId);
-        setBatchStatus(status);
-      } catch (statusError) {
-        console.warn('[NewProjectFlow] Batch status lookup failed:', statusError);
-      }
-
-      const failedSuffix = result.failed.length > 0 ? ` ${result.failed.length} failed.` : '';
-      const readySuffix = status?.canCreateProject
-        ? ' Batch is ready for multi-source project assembly.'
-        : ' Batch is analyzing; refresh the media library for readiness.';
-      setProgress(`Uploaded ${uploadedCount}/${selectedFiles.length} files.${failedSuffix}${readySuffix}`);
-      toast({
-        title: 'Footage batch uploaded',
-        description: `Saved ${uploadedCount} file${uploadedCount === 1 ? '' : 's'} to your Editron media library.`,
+      // The server persists the request and owns analysis polling through QStash.
+      // The browser can navigate away immediately without orphaning the edit.
+      setProgress('Starting durable multi-source analysis...');
+      const batchProject = await createProjectFromMediaUploadBatch(result.uploadBatchId, {
+        ...options,
+        title: options.userIntent || result.uploaded[0]?.filename?.replace(/\.[^.]+$/, ''),
+        brandId: getActiveBrandIdFromStorage(),
       });
+      toast({
+        title: batchProject.status === 'existing' ? 'Opening existing edit' : 'Multi-source edit started',
+        description: `Assembling ${uploadedCount} file${uploadedCount === 1 ? '' : 's'} into one Editron project.`,
+      });
+      router.push(`/dashboard/editron/auto-edit/${batchProject.projectId}`);
     } catch (e) {
       const msg = getUserFriendlyErrorMessage(e);
       setError(msg);
@@ -265,9 +221,9 @@ export function useFootageAutoEdit(): FootageAutoEditState {
     } finally {
       setRunning(false);
     }
-  }, [run, toast]);
+  }, [router, run, toast]);
   const start = useCallback((file: File, options?: FootageAutoEditOptions) => { void run(file, options); }, [run]);
   const startMany = useCallback((files: File[], options?: FootageAutoEditOptions) => { void runMany(files, options); }, [runMany]);
 
-  return { running, progress, error, batchStatus, start, startMany };
+  return { running, progress, error, start, startMany };
 }

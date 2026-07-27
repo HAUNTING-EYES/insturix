@@ -23,6 +23,8 @@ import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { validateReferenceVideoUrlForAutoEditIntake } from '@/lib/editron/reference-video/reference-video-source';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
+import { normalizeEditorialPreferences, type EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
+import { ASSIST_STATUS_READY, isAssistIntakeEnabled, parseEditMode } from '@/lib/editron/services/assist-lane';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -46,6 +48,8 @@ interface FromAssetRequest {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
+  editorialPreferences?: EditorialPreferences;
+  editMode?: string;         // Director Mode (assist lane): 'assist' = scans only, user directs via chat
 }
 
 export async function POST(request: NextRequest) {
@@ -63,14 +67,22 @@ export async function POST(request: NextRequest) {
 
     const body: FromAssetRequest = await request.json();
     const { assetId, title, aspectRatio = '16:9', script, referenceAssetId, referenceVideoUrl, imageAssetIds, userIntent, platform, brandId, captionStyle, transitionPreference, zoomBehavior, motionGraphics, pacingFeel, musicPreference } = body;
+    const editorialPreferences = normalizeEditorialPreferences(body.editorialPreferences);
 
     if (!assetId) {
       return NextResponse.json({ success: false, error: 'assetId is required' }, { status: 400 });
     }
 
+    // Director Mode (assist lane): enum-validated, server-side flag enforced —
+    // hiding the toggle in the UI alone would not make the lane dark.
+    const requestedEditMode = parseEditMode(body.editMode) ?? 'auto';
+    if (requestedEditMode === 'assist' && !isAssistIntakeEnabled()) {
+      return NextResponse.json({ success: false, error: 'Director Mode is not available.' }, { status: 403 });
+    }
+
     const trimmedReferenceVideoUrl = referenceVideoUrl?.trim();
     let normalizedReferenceVideoUrl: string | undefined;
-    let referenceVideoUrlMetadata: { kind: 'remote-url' | 'youtube-url'; sourceLabel: string; sourceFingerprint: string } | undefined;
+    let referenceVideoUrlMetadata: { kind: 'remote-url' | 'youtube-url' | 'instagram-url'; sourceLabel: string; sourceFingerprint: string } | undefined;
 
     if (referenceAssetId && trimmedReferenceVideoUrl) {
       return NextResponse.json({
@@ -250,6 +262,25 @@ export async function POST(request: NextRequest) {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const db = await getDatabase();
 
+    // Persist the lane BEFORE any worker dispatch — the video-analysis worker
+    // consults project.editMode at its director-invocation site and must never
+    // race an unset flag.
+    if (requestedEditMode === 'assist') {
+      await db.collection('projects').updateOne(
+        { projectId },
+        {
+          $set: {
+            editMode: 'assist',
+            // Persisted so the worker (and any future cancel flow) can refund by
+            // transaction if the scan fails — from-asset deducted at intake.
+            assistCreditTransactionId: autoEditCreditTransactionId ?? null,
+            assistChargedCredits: autoEditChargedCredits ?? null,
+          },
+        },
+      );
+      console.log(`[DirectorMode] Assist intake accepted for project ${projectId} (asset ${assetId}).`);
+    }
+
     await db.collection('projects').updateOne(
       { projectId },
       {
@@ -262,6 +293,7 @@ export async function POST(request: NextRequest) {
             referenceVideoSource: referenceVideoUrlMetadata,
           }),
           ...(imageAssetIds?.length && { referenceImageAssetIds: imageAssetIds }),
+          ...(editorialPreferences && { editorialPreferences }),
           updatedAt: new Date(),
         },
       },
@@ -305,6 +337,7 @@ export async function POST(request: NextRequest) {
           motionGraphics,
           pacingFeel,
           musicPreference,
+          editorialPreferences,
           creditTransactionId: autoEditCreditTransactionId,
           chargedCredits: autoEditChargedCredits,
         }),
@@ -336,16 +369,27 @@ export async function POST(request: NextRequest) {
       const ssb = await analyzeVideo(serverVideoUrl, durationSec, userIntent || projectName);
       if (ssb) {
         await db.collection('projects').updateOne(
-          { projectId },
-          { $set: { syntheticStoryboard: ssb, autoEditStatus: 'editing' } },
+          // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
+          { projectId, ...(requestedEditMode === 'assist' ? { autoEditStatus: { $ne: 'scan_failed' } } : {}) },
+          { $set: { syntheticStoryboard: ssb, autoEditStatus: requestedEditMode === 'assist' ? ASSIST_STATUS_READY : 'editing' } },
         );
       }
-      const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
-      await executeDirectorPlan(projectId, userId, 'A-01');
-      await db.collection('projects').updateOne(
-        { projectId },
-        { $set: { autoEditStatus: 'complete' } },
-      );
+      if (requestedEditMode === 'assist') {
+        // Director Mode: the single clip already IS the timeline (saved at create).
+        // Scans persisted above — hand the pen to the user, never run the Director.
+        await db.collection('projects').updateOne(
+          { projectId, autoEditStatus: { $ne: 'scan_failed' } },
+          { $set: { autoEditStatus: ASSIST_STATUS_READY } },
+        );
+        console.log(`[DirectorMode] Assist scan complete inline — director skipped (project ${projectId}).`);
+      } else {
+        const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
+        await executeDirectorPlan(projectId, userId, 'A-01');
+        await db.collection('projects').updateOne(
+          { projectId },
+          { $set: { autoEditStatus: 'complete' } },
+        );
+      }
     }
 
     const totalMs = Date.now() - startMs;

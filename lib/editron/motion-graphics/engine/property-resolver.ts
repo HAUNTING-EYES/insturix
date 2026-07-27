@@ -111,7 +111,9 @@ export function resolveElements(
       resolvedProps[key] = resolveBinding(expr, tokens, content);
     }
 
-    const enterOrder = ROLE_ENTER_ORDER[el.role] ?? 5;
+    const enterOrder = typeof el.enterOrder === 'number' && isFinite(el.enterOrder)
+      ? el.enterOrder
+      : ROLE_ENTER_ORDER[el.role] ?? 5;
     const entrancePattern = el.entranceOverride ?? ROLE_ENTRANCE_DEFAULTS[el.role] ?? tokens.animation.entrancePattern;
     const exitPattern = el.exitOverride ?? ROLE_EXIT_DEFAULTS[el.role] ?? tokens.animation.exitPattern;
 

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Sparkles, ChevronDown, ChevronUp, Play, Zap, Film, Music, Type, Palette } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { bindAbortToPageLifecycle } from '../../utils/request-lifecycle';
 
 interface EDLSuggestion {
   type: string;
@@ -42,11 +43,20 @@ export function EDLSuggestions({ projectId, onSuggestionClick }: EDLSuggestionsP
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (loaded || !projectId || projectId === 'default') return;
-    loadSuggestions();
+    if (!projectId || projectId === 'default') return;
+    const controller = new AbortController();
+    const detachPageLifecycle = bindAbortToPageLifecycle(controller);
+    setSuggestions([]);
+    setLoaded(false);
+    setError(null);
+    void loadSuggestions(controller.signal);
+    return () => {
+      detachPageLifecycle();
+      controller.abort();
+    };
   }, [projectId]);
 
-  const loadSuggestions = async () => {
+  const loadSuggestions = async (signal: AbortSignal) => {
     setLoading(true);
     setError(null);
     try {
@@ -54,14 +64,19 @@ export function EDLSuggestions({ projectId, onSuggestionClick }: EDLSuggestionsP
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectId, mode: 'cached-suggestions' }),
+        signal,
       });
 
       if (!res.ok) {
-        if (res.status === 401) return; // Not logged in, skip silently
+        if (res.status === 401) {
+          if (!signal.aborted) setLoaded(true);
+          return;
+        }
         throw new Error(`Analysis failed: ${res.status}`);
       }
 
       const data = await res.json();
+      if (signal.aborted) return;
       if (!data.success || !data.editDecisionList?.decisions?.length) {
         setLoaded(true);
         return; // No suggestions available
@@ -123,12 +138,14 @@ export function EDLSuggestions({ projectId, onSuggestionClick }: EDLSuggestionsP
 
       setSuggestions(mapped);
       setLoaded(true);
-    } catch (err: any) {
-      console.error('[EDL-Suggestions] Error:', err.message);
-      setError(err.message);
+    } catch (error: unknown) {
+      if (signal.aborted) return;
+      const message = error instanceof Error ? error.message : 'Failed to load suggestions';
+      console.error('[EDL-Suggestions] Error:', message);
+      setError(message);
       setLoaded(true);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   };
 

@@ -17,6 +17,7 @@ import { Overlay, OverlayType } from "../../types";
 import GhostMarker from "./ghost-marker";
 import TimelineGrid from "./timeline-grid";
 import TimelineMarker from "./timeline-marker";
+import { ScanMarkerStrip } from "./scan-marker-strip";
 import TimeMarkers from "./timeline-markers";
 import { Grip, Loader2 } from "lucide-react";
 import {
@@ -462,6 +463,10 @@ const Timeline: React.FC<TimelineProps> = ({
             onClick={onTimelineClick}
           >
             <div className="relative h-full">
+              {/* Director Mode: silence + scene markers from the scan (non-interactive,
+                  self-gates to assist projects). Behind the playhead, over the grid. */}
+              <ScanMarkerStrip />
+
               {/* Current frame indicator */}
               <TimelineMarker
                 currentFrame={currentFrame}

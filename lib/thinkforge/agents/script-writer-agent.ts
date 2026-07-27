@@ -1,32 +1,70 @@
 import { z } from 'zod';
+import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
-import type { ThinkForgeContentSignalProfile } from '../signals';
-import { generateWithWritingContextCache } from '../services/gemini-writing-context-cache';
-import { parseAgentJson } from '../protocol/parse-agent-json';
+import { generateStructuredWithWritingContextCache } from '../services/gemini-writing-context-cache';
 import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
-import { repairAiFillerContent } from '../services/ai-filler-repair';
+import {
+  DEFAULT_ON_CAMERA_RATIO,
+  WRITER_CAPABILITIES,
+  canSpeakLanguage,
+  speakingBeatNeedsSplit,
+} from '../writer-capabilities';
+import {
+  parseScriptSidecar,
+  SCRIPT_SIDECAR_VERSION,
+  ScriptSidecarSchema,
+  type ScriptSidecar,
+} from '../schemas/script-sidecar';
+import {
+  findSourceLedgerIssuesForSidecar,
+  formatSourceLedgerForPrompt,
+  type SourceLedger,
+} from '../provenance/source-ledger';
+import { formatTrendBriefForPrompt } from './trend-brief-context';
+import { formatCastingBriefForPrompt, getAvatarCastingEntries } from './casting-brief-context';
+import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
 
-// Flat ScriptWriter Output Contract
-export const ScriptWriterResultSchema = z.object({
-  content: z.string().describe('The actual script text, formatted in markdown with scenes'),
-  contentAnalysis: z.object({
-    hooks: z.array(z.string()).describe('List of key hooks utilized in the script'),
-    theme: z.string().describe('The core theme of the script'),
-    emphasisPoints: z.array(z.string()).describe('Key moments intended for emphasis'),
-    qualityScore: z.number().min(0).max(100).describe('Self-evaluated quality score (0-100) based on specificity and engagement'),
-  }),
+const ContentAnalysisSchema = z.object({
+  hooks: z.array(z.string()).describe('List of key hooks utilized in the script'),
+  theme: z.string().describe('The core theme of the script'),
+  emphasisPoints: z.array(z.string()).describe('Key moments intended for emphasis'),
+  qualityScore: z.number().min(0).max(100).describe('Self-evaluated quality score (0-100) based on specificity and engagement'),
+});
+
+const WriterMetadataSchema = z.object({
+  estimatedTimeSeconds: z.number().describe('Estimated duration of the script in seconds'),
+  platform: z.string().describe('The targeted platform (e.g., youtube, tiktok)'),
+  voiceLanguage: z.string().default(WRITER_CAPABILITIES.voiceLanguages[0] ?? 'en'),
+});
+
+const ScriptVisualMetadataSchema = z.object({
+  motionInfo: z.string().describe('General motion graphic styling instructions'),
+  scenePrompts: z.array(z.string()).describe('One deterministic visual prompt per Script Sidecar scene.'),
+});
+
+// The model authors one canonical scene representation. The visible markdown and scene prompts
+// are derived from it so downstream consumers cannot receive divergent scene counts.
+export const ScriptWriterModelOutputSchema = z.object({
+  contentAnalysis: ContentAnalysisSchema,
   visualMetadata: z.object({
     motionInfo: z.string().describe('General motion graphic styling instructions'),
-    scenePrompts: z.array(z.string()).describe('Detailed prompts per scene to generate visuals. MUST include specific physical props/elements and explicitly define any Text Overlays (headings, dates, locations, quotes).'),
   }),
-  metadata: z.object({
-    estimatedTimeSeconds: z.number().describe('Estimated duration of the script in seconds'),
-    platform: z.string().describe('The targeted platform (e.g., youtube, tiktok)'),
-  }),
+  metadata: WriterMetadataSchema,
+  sidecar: ScriptSidecarSchema.describe('Canonical Script Sidecar v1 emitted in the single writer pass'),
+});
+
+// Public writer result consumed by the editor and exports after deterministic materialization.
+export const ScriptWriterResultSchema = z.object({
+  content: z.string().describe('The actual script text, formatted in markdown with scenes'),
+  contentAnalysis: ContentAnalysisSchema,
+  visualMetadata: ScriptVisualMetadataSchema,
+  metadata: WriterMetadataSchema,
+  sidecar: ScriptSidecarSchema,
 });
 
 export type ScriptWriterResult = z.infer<typeof ScriptWriterResultSchema>;
+export type ScriptWriterModelOutput = z.infer<typeof ScriptWriterModelOutputSchema>;
 
 /**
  * Edit framing for the revise-existing-content path (P5).
@@ -46,9 +84,15 @@ export interface ScriptWriterEditContext {
 }
 
 export interface ScriptWriterInput extends AgentInput {
-  contentSignalProfile?: ThinkForgeContentSignalProfile;
+  productionBrief?: ProductionBrief | null;
+  sourceLedger?: SourceLedger | null;
   /** When set, switches the writer into edit/revise mode (see ScriptWriterEditContext). */
   editContext?: ScriptWriterEditContext;
+}
+
+export interface ScriptWriterValidationOptions {
+  sourceLedger?: SourceLedger | null;
+  productionBrief?: ProductionBrief | null;
 }
 
 const CACHED_SCRIPT_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((pattern) => ({
@@ -66,15 +110,179 @@ const SCHEMA_ARTIFACT_PATTERNS = [
   /^\s*(?:header|paragraph|blockquote|list)\s*[:{]/im,
 ];
 
+const RELIP_UNSAFE_OCCLUSION_PATTERN = /\b(masked|mask covering|face covered|covered face|hidden face|occluded face|heavy occlusion|silhouette|back turned|turned away|profile only)\b/i;
+const RELIP_UNSAFE_MOTION_PATTERN = /\b(rapid|chaotic|whip pan|spinning|running|shaky|handheld chase|fast motion)\b/i;
+const CAPABILITY_REPAIR_FAILURE_PATTERN = /\b(?:relip_safe_not_true|relip_face_visibility_undeclared|relip_occlusion_unsafe|relip_motion_unsafe|relip_unsafe_occlusion|relip_unsafe_motion|on_camera_scene_exceeds_relip_limit|on_camera_ratio_exceeded|unsupported_voice_language|missing_shot_intent|shot_intent_[a-z_]+)\b/;
+
+function narrationForScene(scene: ScriptSidecar['scenes'][number]): string {
+  const narration = scene.narration.trim();
+  if (narration) return narration;
+
+  return scene.lines
+    .filter((line) => line.delivery !== 'on-screen-text')
+    .map((line) => line.text.trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
+function promptForScene(scene: ScriptSidecar['scenes'][number], index: number): string {
+  const overlays = scene.editDirections?.onScreenText?.filter((text) => text.trim().length > 0) ?? [];
+  const parts = [
+    `Scene ${index + 1}: ${scene.visualDescription.trim()}`,
+    scene.videoMotionPrompt.trim(),
+    scene.imageQualityTokens.trim(),
+    scene.videoQualityTokens.trim(),
+    overlays.length > 0 ? `Text overlays: ${overlays.join(' | ')}` : '',
+  ].filter(Boolean);
+
+  return parts.join('. ');
+}
+
+export function materializeScriptWriterResult(modelOutput: ScriptWriterModelOutput): ScriptWriterResult {
+  const sidecar = parseScriptSidecar(modelOutput.sidecar);
+  const content = sidecar.scenes
+    .map((scene, index) => [
+      `## Scene ${index + 1}: ${scene.title.trim()}`,
+      `**Narration:** ${narrationForScene(scene)}`,
+      `**Visual:** ${scene.visualDescription.trim()}`,
+    ].join('\n'))
+    .join('\n\n');
+
+  return {
+    content,
+    contentAnalysis: modelOutput.contentAnalysis,
+    visualMetadata: {
+      motionInfo: modelOutput.visualMetadata.motionInfo,
+      scenePrompts: sidecar.scenes.map(promptForScene),
+    },
+    metadata: modelOutput.metadata,
+    sidecar,
+  };
+}
+function validateWriterCapabilityCompliance(
+  result: ScriptWriterResult,
+  sidecar: ReturnType<typeof parseScriptSidecar>,
+  failures: string[],
+): void {
+  sidecar.scenes.forEach((scene, sceneIndex) => {
+    if (!scene.shotIntent) failures.push(`missing_shot_intent:scene_${sceneIndex + 1}`);
+  });
+
+  const voiceLanguage = result.metadata.voiceLanguage || WRITER_CAPABILITIES.voiceLanguages[0] || 'en';
+  if (!canSpeakLanguage(voiceLanguage)) {
+    failures.push(`unsupported_voice_language:${voiceLanguage}`);
+  }
+
+  const spokenLines = sidecar.scenes.flatMap((scene, sceneIndex) =>
+    scene.lines
+      .map((line) => ({ sceneIndex, line }))
+      .filter(({ line }) => line.delivery !== 'on-screen-text'),
+  );
+  const onCameraSpeakingLines = spokenLines.filter(
+    ({ line }) => line.onCamera && line.delivery === 'sync-dialogue',
+  );
+  if (spokenLines.length > 0) {
+    const maxOnCameraLines = Math.ceil(spokenLines.length * DEFAULT_ON_CAMERA_RATIO);
+    if (onCameraSpeakingLines.length > maxOnCameraLines) {
+      failures.push(`on_camera_ratio_exceeded:${onCameraSpeakingLines.length}/${spokenLines.length},max_${maxOnCameraLines}`);
+    }
+  }
+
+  const scenesWithOnCameraSpeech = new Set(onCameraSpeakingLines.map(({ sceneIndex }) => sceneIndex));
+  for (const sceneIndex of scenesWithOnCameraSpeech) {
+    const scene = sidecar.scenes[sceneIndex];
+    if (!scene) continue;
+    const sceneLabel = `scene_${sceneIndex + 1}`;
+    const visualText = `${scene.visualDescription} ${scene.videoMotionPrompt}`;
+
+    if (scene.relipSafe !== true) failures.push(`relip_safe_not_true:${sceneLabel}`);
+    if (scene.relipSafety?.faceVisibility !== 'visible') {
+      failures.push(`relip_face_visibility_undeclared:${sceneLabel}`);
+    }
+    if (!scene.relipSafety || !['none', 'light'].includes(scene.relipSafety.occlusion)) {
+      failures.push(`relip_occlusion_unsafe:${sceneLabel}`);
+    }
+    if (!scene.relipSafety || !['still', 'moderate'].includes(scene.relipSafety.motion)) {
+      failures.push(`relip_motion_unsafe:${sceneLabel}`);
+    }
+    if (RELIP_UNSAFE_OCCLUSION_PATTERN.test(visualText)) {
+      failures.push(`relip_unsafe_occlusion:${sceneLabel}`);
+    }
+    if (RELIP_UNSAFE_MOTION_PATTERN.test(visualText)) {
+      failures.push(`relip_unsafe_motion:${sceneLabel}`);
+    }
+
+    // Editron receives avatar directives per canonical scene. Montage sub-shots do not
+    // split an on-camera relip job, so the parent scene itself must fit the rig cap.
+    if (speakingBeatNeedsSplit(scene.durationSeconds)) {
+      failures.push(`on_camera_scene_exceeds_relip_limit:${sceneLabel}:${scene.durationSeconds}s`);
+    }
+  }
+}
+
+function isCapabilityRepairableError(error: unknown): error is Error {
+  return error instanceof Error && CAPABILITY_REPAIR_FAILURE_PATTERN.test(error.message);
+}
+
+function buildCapabilityRepairSystemInstruction(systemInstruction: string, failure: Error): string {
+  return `${systemInstruction}
+
+<writer_capability_repair>
+The previous structured output failed a production writer contract:
+${failure.message}
+
+Return a complete replacement object using the same JSON schema. Preserve the brief's facts, brand intent, source references, casting, and overall narrative. Repair only the capability or shot-intent violations.
+
+Critical rules:
+- Every scene requires a complete shotIntent that matches its visible performers and sync-dialogue lines. shotIntent.spokenAudio means speech captured on set; it is false for voiceover-only scenes.
+- Every scene that contains on-camera sync-dialogue is one actual relip job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. Do not use subShots to bypass this limit. Split an overlong on-camera beat into multiple consecutive sidecar.scenes instead, each with its own duration, visual direction, lines, relip safety data, and shot intent. Do not silently turn required on-camera cast speech into voiceover.
+</writer_capability_repair>`;
+}
+
+function validateCastingBriefCompliance(
+  sidecar: ReturnType<typeof parseScriptSidecar>,
+  productionBrief: ProductionBrief | null | undefined,
+  failures: string[],
+): void {
+  const castingEntries = getAvatarCastingEntries(productionBrief);
+  if (castingEntries.length === 0) return;
+
+  const characterIds = new Set(sidecar.characters.map((character) => character.id));
+  for (const [characterId] of castingEntries) {
+    if (!characterIds.has(characterId)) {
+      failures.push(`missing_cast_character:${characterId}`);
+      continue;
+    }
+
+    let used = false;
+    sidecar.scenes.forEach((scene, sceneIndex) => {
+      if (scene.charactersPresent.includes(characterId)) used = true;
+      scene.lines.forEach((line) => {
+        if (line.speakerId !== characterId) return;
+        used = true;
+        if (line.delivery !== 'on-screen-text' && (line.delivery !== 'sync-dialogue' || !line.onCamera)) {
+          failures.push(`cast_character_speech_not_sync_dialogue:${characterId}:scene_${sceneIndex + 1}`);
+        }
+      });
+    });
+
+    if (!used) failures.push(`unused_cast_character:${characterId}`);
+  }
+}
+
 function countMatches(text: string, pattern: RegExp): number {
   return Array.from(text.matchAll(pattern)).length;
 }
 
-export function assertUsableScriptWriterResult(result: ScriptWriterResult): void {
+export function assertUsableScriptWriterResult(
+  result: ScriptWriterResult,
+  options: ScriptWriterValidationOptions = {},
+): void {
   const content = result.content?.trim() ?? '';
   const scenePrompts = result.visualMetadata?.scenePrompts ?? [];
   const sceneCount = countMatches(content, MARKDOWN_SCENE_HEADER_PATTERN);
   const failures: string[] = [];
+  let sidecarSceneCount = 0;
 
   if (content.length < 150) failures.push('content_under_150_chars');
   if (SCHEMA_ARTIFACT_PATTERNS.some((pattern) => pattern.test(content))) failures.push('schema_artifact_content');
@@ -84,6 +292,20 @@ export function assertUsableScriptWriterResult(result: ScriptWriterResult): void
   if (scenePrompts.length === 0) failures.push('missing_scene_prompts');
   if (sceneCount > 0 && scenePrompts.length > 0 && scenePrompts.length !== sceneCount) {
     failures.push(`scene_prompt_count_mismatch:${scenePrompts.length}/${sceneCount}`);
+  }
+
+  try {
+    const sidecar = parseScriptSidecar(result.sidecar);
+    sidecarSceneCount = sidecar.scenes.length;
+    validateWriterCapabilityCompliance(result, sidecar, failures);
+    validateCastingBriefCompliance(sidecar, options.productionBrief, failures);
+    failures.push(...findSourceLedgerIssuesForSidecar(sidecar, options.sourceLedger));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'unknown';
+    failures.push(`invalid_sidecar:${message}`);
+  }
+  if (sceneCount > 0 && sidecarSceneCount > 0 && sidecarSceneCount !== sceneCount) {
+    failures.push(`sidecar_scene_count_mismatch:${sidecarSceneCount}/${sceneCount}`);
   }
 
   const filler = CACHED_SCRIPT_AI_FILLER.find((pattern) => pattern.regex.test(content));
@@ -108,8 +330,15 @@ export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
     });
   }
 
-  buildPrompt(input: ScriptWriterInput): string {
-    const { context, userPrompt, retrievedContext, editContext } = input;
+  private buildTrustedTemplate(input: ScriptWriterInput): string {
+    const { context, userPrompt, retrievedContext, editContext, productionBrief, sourceLedger } = input;
+    const requestedVoiceLanguages = productionBrief?.output.voiceLanguages ?? [];
+    const unsupportedVoiceLanguages = requestedVoiceLanguages.filter((language) => !canSpeakLanguage(language));
+    const defaultVoiceLanguage = WRITER_CAPABILITIES.voiceLanguages[0] ?? 'en';
+    const sourceLedgerBlock = sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : '';
+    const trendBriefBlock = formatTrendBriefForPrompt(productionBrief);
+    const castingBriefBlock = formatCastingBriefForPrompt(productionBrief);
+
 
     // NOTE: the writing knowledge graph block is deliberately NOT injected here. A 10-seed A/B
     // (graph ON vs OFF) showed it regresses the script writer — min 92% -> 75% and variance
@@ -129,11 +358,10 @@ ${editContext.selection ? `\n## Focused Selection (the change targets this text)
 ${editContext.instruction}
 
 ## Edit Rules (mandatory)
-1. Return the ENTIRE revised script in the \`content\` field — not a diff, not only the changed part. Every scene the user keeps must reappear unless the change requires altering it.
-2. Preserve the existing scene order, headings, and structure except where the change demands otherwise.
-3. Preserve all supplied facts verbatim: dates, times, locations, brand/event/product names, offers, prices, statistics, CTA links, and required logo/text mentions — in both kept and revised scenes.
-4. Keep the scene format: every scene begins with \`## Scene N: ...\` and includes **Narration:** and **Visual:** labels.
-
+1. Return the complete revised scene plan in \`sidecar.scenes\` - not a diff and not only the changed beat. Every scene the user keeps must reappear unless the change requires altering it.
+2. Preserve the existing scene order and narrative structure except where the change demands otherwise.
+3. Preserve all supplied facts verbatim: dates, times, locations, brand/event/product names, offers, prices, statistics, CTA links, and required logo/text mentions.
+4. For each scene, keep narration in \`narration\` and the image/video direction in \`visualDescription\` plus \`videoMotionPrompt\`.
 `
       : `You are an elite Video Scriptwriter and Creative Director.
 Your task is to write a high-retention, engaging video script.
@@ -159,88 +387,203 @@ Your task is to write a high-retention, engaging video script.
       prompt += '\n';
     }
 
+    if (trendBriefBlock) {
+      prompt += `${trendBriefBlock}\n\n`;
+    }
+
+    if (castingBriefBlock) {
+      prompt += `${castingBriefBlock}\n\n`;
+    }
+
+    if (sourceLedgerBlock) {
+      prompt += `${sourceLedgerBlock}\n\n`;
+    }
+
     // 3. Script Writing Rules
     prompt += `## Generation Requirements
-1. **Content Formatting:** Write the FINAL script in markdown. Every scene must start exactly like \`## Scene 1: The Hook\`, \`## Scene 2: The Problem\`, etc. Each scene must include bold \`**Narration:**\` and \`**Visual:**\` labels. Do NOT include JSON, block arrays, rich-text objects, \`header\`/\`paragraph\`/\`list\`/\`blockquote\` labels, or meta-commentary inside the content string.
-2. **Narration & Visuals:** For each scene, clearly denote **Narration:** and **Visual:** (what the viewer sees). Visual direction serves the narration.
-3. **Factual Source Of Truth:** Treat the original user brief as mandatory factual input. If an idea/angle is present, use it only as creative framing. Preserve exact dates, times, locations, brand names, event names, product/service names, offers, prices, statistics, CTA links/instructions, contact details, and required logo/text/tagline mentions.
+1. **Canonical scenes:** Author the complete script only in \`sidecar.scenes\`. The server deterministically creates the visible markdown script and one Clickatron/Editron scene prompt from each sidecar scene. Do not create duplicate scene lists or beat-only entries: one \`sidecar.scenes[N]\` is one published script scene.
+2. **Narration & visuals:** Each scene's \`narration\` is the spoken script; \`visualDescription\` is what the viewer sees. Visual direction serves the narration.
+3. **Factual source of truth:** Treat the original user brief as mandatory factual input. If an idea/angle is present, use it only as creative framing. Preserve exact dates, times, locations, brand names, event names, product/service names, offers, prices, statistics, CTA links/instructions, contact details, and required logo/text/tagline mentions.
 4. **Quality:** Do NOT use filler. Be specific. Use facts provided in the context. Ensure a strong hook in Scene 1.
-5. **Visual Metadata:** Provide detailed \`scenePrompts\` mapping 1:1 with the scenes in your script. These prompts will be fed into a visual generation engine (Clickatron/Editron). 
-   - **Source Facts Are Mandatory:** Every scene prompt must carry the relevant source facts from the brief: brand name, logo placement if mentioned, event name, date, time, location, audience, product/service, offer, handouts/freebies, required colors/brand style, and exact words that must appear.
-   - **Include Specific Props/Elements:** Explicitly list relevant physical objects that should appear in the visuals (e.g., for a blood donation drive, specify "blood drops, syringes"; for a clothes drive, specify "folded clothes, donation boxes").
-   - **Include Text Overlays:** Explicitly define exact text overlays from the brief, including heading, brand name, date, location, CTA, and short tagline when available. If a logo is requested, say "Place [Brand Name] logo at [position]" rather than omitting it.
-   - **No Generic Scene Prompts:** Never return prompts like "cinematic scene", "modern visual", or "professional graphic" without the concrete factual details above.
-   - Include \`motionInfo\` to guide pacing and graphic overlays.
+5. **Visual specificity:** Put all renderable facts in each scene's \`visualDescription\` and \`videoMotionPrompt\`: physical props/elements, composition, relevant source facts, brand/logo placement when supplied, and exact intended text overlays through \`editDirections.onScreenText\`. Never use generic visual direction such as "cinematic scene", "modern visual", or "professional graphic" without concrete details. Include \`motionInfo\` for overall pacing and graphic overlays.
+6. **Script Sidecar v1:** In the SAME JSON response, include a \`sidecar\` object with \`sidecarVersion: ${SCRIPT_SIDECAR_VERSION}\`. It is the canonical script contract:
+   - Include \`characters\`. Always include \`{ "id": "narrator", "name": "Narrator", "role": "narrator" }\`. Add one \`host\` character only if someone speaks on camera.
+   - Each scene includes required parser fields: \`title\`, \`narration\`, \`visualDescription\`, \`videoMotionPrompt\`, \`audioDescription\`, \`musicDescription\`, \`sfxDescription\`, \`durationSeconds\`, \`mood\`, \`imageQualityTokens\`, \`videoQualityTokens\`, \`generationUnitId\`, \`primaryVisualForUnit\`, \`sceneType\`, and \`assetRecommendation\`.
+   - Each scene includes \`lines\` with \`text\`, \`speakerId\`, \`onCamera\`, and \`delivery\`. Use \`delivery: "voiceover"\` for narrator voiceover and \`delivery: "sync-dialogue"\` only for visible on-camera speech.
+   - Each scene includes one complete \`shotIntent\` authored from that same scene. It expresses creative intent only; never invent equipment, room dimensions, coordinates, costs, or setup instructions.
+   - If any line has \`onCamera: true\` and \`delivery: "sync-dialogue"\`, set that scene's \`relipSafe: true\` and \`relipSafety: { "faceVisibility": "visible", "occlusion": "none" or "light", "motion": "still" or "moderate" }\`. The object must match the visual description. Otherwise set \`relipSafe: false\` and omit \`relipSafety\`.
+   - \`sourceRefs\` are provenance IDs only. If a Source Ledger is present, use ONLY referenceId values listed there (\`brief_user\`, \`source_1\`, etc.). Every numeric/date/price/URL/proof/testimonial claim must carry sourceRefs on the line and scene. A line or scene \`sourceRefs\` value must also appear in top-level \`sidecar.sourceRefs\`. If no factual sources are used, use empty arrays.
+7. **Writer capability limits:** Author only what the downstream avatar/video rig can produce:
+   - Supported spoken voice languages: ${WRITER_CAPABILITIES.voiceLanguages.join(', ') || 'none'}. Requested spoken languages: ${requestedVoiceLanguages.length ? requestedVoiceLanguages.join(', ') : 'none supplied'}. Unsupported requested spoken languages: ${unsupportedVoiceLanguages.length ? unsupportedVoiceLanguages.join(', ') : 'none'}. If any requested spoken language is unsupported, keep spoken narration/dialogue in ${defaultVoiceLanguage}; unsupported languages may be captions/on-screen text only.
+   - Set \`metadata.voiceLanguage\` to the supported spoken language actually used.
+   - On-camera sync dialogue is expensive. Keep on-camera sync dialogue to about ${Math.round(DEFAULT_ON_CAMERA_RATIO * 100)}% of spoken lines; use voiceover over visuals for the rest.
+   - For every on-camera sync-dialogue scene, make \`visualDescription\` match its structured \`relipSafety\`: visible face, front/on-camera framing, no more than light occlusion, and still/moderate motion.
+   - Every on-camera sync-dialogue scene is one actual lip-sync job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. When a spoken beat runs longer, split it into multiple consecutive \`sidecar.scenes\`; do not use \`subShots\` to bypass this limit.
+8. **Production shot intent:** For every sidecar scene, author \`shotIntent\` in the same response:
+   - State \`narrativePurpose\`, \`emotionalBeat\`, \`energy\` from 0 to 1, and the concrete \`visualPriority\` that must remain readable.
+   - Select \`action\`, \`desiredFraming\`, \`desiredAngle\`, and \`desiredMovement\` from the schema. Any movement other than \`static\` requires \`movementMotivation\` explaining the story reason for moving the camera.
+   - \`performance\` contains only characters physically visible in the shot. Use each visible character once, copy its exact \`characterId\`, and describe stance, emotion, intensity, gaze, posture, gesture, and movement. Set \`simultaneousPerformers\` to the number of these unique visible characters. Use an empty array and 0 for object/B-roll/graphics scenes with no visible character.
+   - Set \`spokenAudio: true\` only when the scene captures on-camera sync dialogue. Set it false for voiceover, music, ambient sound, on-screen text, and silent B-roll.
+   - Use \`continuity\` only for wardrobe, props, screen direction, and links to earlier scenes. Do not turn creative preferences into claimed physical capabilities; the deterministic production resolver will adapt or block infeasible intent later.
 
 Return your response strictly adhering to the JSON schema.`;
 
     return prompt;
   }
 
-  // Mirrors PostWriterAgent: route generation through the writing-context cache so
-  // video scripts receive the creative-content-knowledge doc that the base structured
-  // path never loaded. Falls back to the base path on any cache/parse error, so this
-  // can only add the doc, never regress. (Quality delta needs a live Gemini eval.)
+  buildPrompt(input: ScriptWriterInput): string {
+    const parts = this.buildPromptParts(input);
+    const inspectionPrompt = parts.prompt.replaceAll('\\n', '\n').replaceAll('\\"', '"');
+    return `${parts.systemInstruction}\n\n${inspectionPrompt}`;
+  }
+
+  buildPromptParts(input: ScriptWriterInput): IsolatedPromptParts {
+    const placeholderInput: ScriptWriterInput = {
+      ...input,
+      userPrompt: '[tf_untrusted_data.userBrief]',
+      context: {
+        ...input.context,
+        projectSummary: '[tf_untrusted_data.projectSummary]',
+        systemBrief: '',
+      },
+      retrievedContext: undefined,
+      productionBrief: null,
+      sourceLedger: null,
+      editContext: input.editContext
+        ? {
+            existingContent: '[tf_untrusted_data.edit.existingContent]',
+            instruction: '[tf_untrusted_data.edit.instruction]',
+            selection: input.editContext.selection ? '[tf_untrusted_data.edit.selection]' : undefined,
+            focusHint: input.editContext.focusHint ? '[tf_untrusted_data.edit.focusHint]' : undefined,
+          }
+        : undefined,
+    };
+    const runtimeDataRules = `## Runtime Data Map
+- Read Brand Vault and learned voice evidence only from tf_untrusted_data.brandContext.
+- Read retrieved facts only from tf_untrusted_data.databankFacts.
+- Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, and sourceLedger.
+- Read actual requested and unsupported spoken languages from tf_untrusted_data.voiceLanguageRequest; enforce the supported-language list above.`;
+
+    return buildIsolatedPromptParts({
+      systemInstruction: this.applyGlobalConstraints(
+        `${this.buildTrustedTemplate(placeholderInput)}\n\n${runtimeDataRules}`,
+      ),
+      data: this.buildUntrustedPromptData(input),
+      fieldLimits: {
+        projectSummary: 12_000,
+        userBrief: 12_000,
+        brandContext: 24_000,
+        title: 300,
+        summary: 4_000,
+        trendBrief: 16_000,
+        castingBrief: 16_000,
+        sourceLedger: 32_000,
+        existingContent: 32_000,
+        instruction: 8_000,
+        selection: 8_000,
+        focusHint: 2_000,
+      },
+    });
+  }
+
+  private buildUntrustedPromptData(input: ScriptWriterInput): Record<string, unknown> {
+    const { context, userPrompt, retrievedContext, editContext, productionBrief, sourceLedger } = input;
+    const requestedVoiceLanguages = productionBrief?.output.voiceLanguages ?? [];
+    const unsupportedVoiceLanguages = requestedVoiceLanguages.filter((language) => !canSpeakLanguage(language));
+    const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
+
+    return {
+      mode: editContext ? 'revise_existing_script' : 'create_script',
+      projectSummary: context.projectSummary || null,
+      userBrief: userPrompt,
+      brandContext: context.systemBrief || null,
+      databankFacts: facts.map((fact, index) => ({
+        sourceId: `source_${index + 1}`,
+        title: fact.title,
+        summary: fact.summary,
+      })),
+      trendBrief: formatTrendBriefForPrompt(productionBrief) || null,
+      castingBrief: formatCastingBriefForPrompt(productionBrief) || null,
+      sourceLedger: sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : null,
+      voiceLanguageRequest: {
+        requested: requestedVoiceLanguages,
+        unsupported: unsupportedVoiceLanguages,
+        fallback: WRITER_CAPABILITIES.voiceLanguages[0] ?? 'en',
+      },
+      edit: editContext
+        ? {
+            existingContent: editContext.existingContent || null,
+            instruction: editContext.instruction,
+            selection: editContext.selection || null,
+            focusHint: editContext.focusHint || null,
+          }
+        : null,
+    };
+  }
+
+  // One schema-constrained completion is the canonical source of a script. A single,
+  // low-temperature replacement is allowed after a proven capability or shot-intent failure.
   async runStructured(
     input: ScriptWriterInput,
     overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
     abortSignal?: AbortSignal,
   ): Promise<AgentStructuredOutput<ScriptWriterResult>> {
-    const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
+    const promptParts = this.buildPromptParts(input);
     const gen = this.resolveGenConfig(overrides);
+    const initialGeneration = await generateStructuredWithWritingContextCache({
+      prompt: promptParts.prompt,
+      systemInstruction: promptParts.systemInstruction,
+      schema: ScriptWriterModelOutputSchema,
+      modelName: this.config.modelName,
+      temperature: gen.temperature,
+      maxTokens: gen.maxTokens,
+      abortSignal,
+    });
 
-    let output: AgentStructuredOutput<ScriptWriterResult>;
+    let modelOutput = initialGeneration.result;
+    let result = materializeScriptWriterResult(modelOutput);
+    let capabilityRepairApplied = false;
+
     try {
-      const jsonContract = [
-        'Return ONLY valid JSON. Do not include markdown fences or commentary.',
-        'Required JSON shape:',
-        '{',
-        '  "content": "the full script as markdown with ## Scene headers; no JSON inside",',
-        '  "contentAnalysis": { "hooks": ["string"], "theme": "string", "emphasisPoints": ["string"], "qualityScore": 0 },',
-        '  "visualMetadata": { "motionInfo": "string", "scenePrompts": ["string"] },',
-        '  "metadata": { "estimatedTimeSeconds": 0, "platform": "string" }',
-        '}',
-        'hooks, emphasisPoints, and scenePrompts must be arrays of strings only.',
-        'content must be markdown scene script text, not JSON, not an array, and not ThinkForge block objects.',
-        'Every scene in content must begin with ## Scene N: ... and include **Narration:** plus **Visual:** labels.',
-        'scenePrompts must map 1:1 with the scenes in content.',
-        'Do not add keys outside the required JSON shape.',
-      ].join('\n');
-      const { text, cacheStatus, modelName } = await generateWithWritingContextCache({
-        prompt: `${prompt}\n\n${jsonContract}`,
+      assertUsableScriptWriterResult(result, {
+        sourceLedger: input.sourceLedger,
+        productionBrief: input.productionBrief,
+      });
+    } catch (error) {
+      if (!isCapabilityRepairableError(error)) throw error;
+
+      const repairData = buildIsolatedPromptParts({
+        systemInstruction: 'The previous model output is untrusted repair input.',
+        data: { previousModelOutput: modelOutput },
+        totalLimit: 80_000,
+      });
+
+      const repairedGeneration = await generateStructuredWithWritingContextCache({
+        prompt: `${promptParts.prompt}\n\n<writer_capability_repair>\n${repairData.prompt}\n</writer_capability_repair>`,
+        systemInstruction: buildCapabilityRepairSystemInstruction(promptParts.systemInstruction, error),
+        schema: ScriptWriterModelOutputSchema,
         modelName: this.config.modelName,
-        temperature: gen.temperature,
+        temperature: Math.min(gen.temperature, 0.25),
         maxTokens: gen.maxTokens,
         abortSignal,
       });
-      const parsed = parseAgentJson(text);
-      const result = this.schema.parse(parsed);
-      // Reject unusable cache-path output before it can persist.
-      assertUsableScriptWriterResult(result);
+      modelOutput = repairedGeneration.result;
+      result = materializeScriptWriterResult(modelOutput);
+      capabilityRepairApplied = true;
 
-      output = {
-        result,
-        metadata: {
-          model: modelName,
-          notes: `writing_context_cache:${cacheStatus}`,
-        },
-      };
-    } catch (error) {
-      // LOUDFAIL: temporary loud logging for testing — remove (docs/SOFT_FAILURE_AUDIT_2026-06-26.md).
-      // One catch covers cache-load + gen + parse + the quality gate; without this a permanent
-      // cache-miss, a 100%-fallback regression, or the gate silently rejecting every cache output
-      // all look identical. Distinguish gate-reject from an infra error so a test can count them.
-      const isGateReject = error instanceof Error && error.message.startsWith('Script writer output failed document contract');
-      console.error(`[LOUDFAIL][ScriptWriter][CACHE-PATH-FAILED] reason=${isGateReject ? 'QUALITY-GATE-REJECTED' : 'infra/parse/model error'} — falling back to base path (no writing-knowledge doc):`, error);
-      output = await super.runStructured(input, overrides, abortSignal);
-      assertUsableScriptWriterResult(output.result);
+      assertUsableScriptWriterResult(result, {
+        sourceLedger: input.sourceLedger,
+        productionBrief: input.productionBrief,
+      });
     }
 
-    // Filler self-repair: one in-context rewrite if a banned phrase slipped through either path.
-    // Fail-soft — keeps the original unless the rewrite strictly reduced filler (see ai-filler-repair).
-    output.result.content = await repairAiFillerContent(output.result.content, this.config.modelName, abortSignal);
-    assertUsableScriptWriterResult(output.result);
-    return output;
+    return {
+      result,
+      metadata: {
+        model: initialGeneration.modelName,
+        notes: `writing_context_cache:${initialGeneration.cacheStatus}${capabilityRepairApplied ? ';capability_repair:applied' : ''}`,
+      },
+    };
   }
 }
 

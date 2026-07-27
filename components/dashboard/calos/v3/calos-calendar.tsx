@@ -7,7 +7,7 @@ import { toast } from '@/hooks/use-toast';
 import {
   C, MONO, SANS, DOW, PLAT, STAGES,
   toItem, toPlacements, groupPlacementsByDay, monthCells, weekDays, dateKey, sameDay,
-  monthTitle, dayTitle, addMonths, addDays, platGlyph, platLabel, stageLabel, stageTick,
+  monthTitle, dayTitle, addMonths, addDays, platGlyph, platLabel, stageLabel, stageTick, platformDefaultAspect,
 } from './calos-view-model';
 import type { CalItem, Placement } from './calos-view-model';
 import { Mono, Glyph, StatusMark, Btn, Chip, Confirm } from './calos-atoms';
@@ -17,6 +17,9 @@ import { CalosWorkspace, type WorkspaceCampaign } from './calos-workspace';
 import { CalosShareScreen } from './calos-share-screen';
 import { CalosCadenceModal } from './calos-cadence-modal';
 import BrandConnections from '@/app/dashboard/calos/BrandConnections';
+import { CalosBrandReferencesModal } from './calos-brand-references-modal';
+import { useActiveBrand } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
+import { CalosTrendOpportunityReview } from './calos-trend-opportunity-review';
 
 /* ═══ CalOS v3 · calendar (Phase 1 spine) ═════════════════════════════
    The founder's calos-v3.jsx design, wired to the real deliverables service.
@@ -25,17 +28,17 @@ import BrandConnections from '@/app/dashboard/calos/BrandConnections';
    and /client-view endpoints. Campaign bar, generation modals, publishing,
    workspace, and the read-only Share screen land in Phases 2–3. */
 
-interface BrandOption { brandId: string; name: string }
-const LS_SELECTED_BRAND = 'calos_selected_brand';
 const DEFAULT_BRAND = 'default'; // personal space when the user has no explicit brand
 
 type View = 'month' | 'week' | 'day';
 
 export default function CalosCalendarV3() {
   const router = useRouter();
-  const [brands, setBrands] = useState<BrandOption[]>([]);
-  const [brandId, setBrandId] = useState<string | null>(null);
-  const [brandLoading, setBrandLoading] = useState(true);
+  // Brand list + selection come from the GLOBAL ActiveBrandProvider (union of editron + scanned
+  // Brand Vault brands, shared across the whole dashboard). CalOS used to fetch only the editron
+  // registry, so a scanned brand was invisible here → the "shows Personal despite a scan" bug.
+  const { brands, activeBrandId, setActiveBrandId, isLoading: brandLoading } = useActiveBrand();
+  const brandId = activeBrandId ?? DEFAULT_BRAND;
   const [brandOpen, setBrandOpen] = useState(false);
 
   const [view, setView] = useState<View>('month');
@@ -47,6 +50,10 @@ export default function CalosCalendarV3() {
   const [wsCampaign, setWsCampaign] = useState<WorkspaceCampaign | null>(null);
   const [wsEditOpen, setWsEditOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [brandRefsOpen, setBrandRefsOpen] = useState(false);
+  const [trendOpportunitiesOpen, setTrendOpportunitiesOpen] = useState(false);
+  const [pubStatus, setPubStatus] = useState<Record<string, { platform: string; status: string; postUrl: string | null; error: string | null }>>({});
+  const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [filterStage, setFilterStage] = useState<string | null>(null);
 
@@ -63,35 +70,6 @@ export default function CalosCalendarV3() {
       });
     }, 60_000);
     return () => clearInterval(id);
-  }, []);
-
-  // Brand loading — mirrors the live CalOS page: 0 brands → personal default,
-  // exactly 1 → that brand, many → last-selected or first. No forced picker.
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const res = await fetch('/api/services/editron/brands', { cache: 'no-store' });
-        const data = await res.json();
-        const list: BrandOption[] = Array.isArray(data?.brands)
-          ? data.brands.map((b: { brandId: string; name: string }) => ({ brandId: b.brandId, name: b.name }))
-          : [];
-        if (!active) return;
-        setBrands(list);
-        let effective = DEFAULT_BRAND;
-        if (list.length === 1) effective = list[0].brandId;
-        else if (list.length > 1) {
-          const saved = typeof window !== 'undefined' ? localStorage.getItem(LS_SELECTED_BRAND) : null;
-          effective = saved && list.some((b) => b.brandId === saved) ? saved : list[0].brandId;
-        }
-        setBrandId(effective);
-      } catch {
-        if (active) { setBrands([]); setBrandId(DEFAULT_BRAND); }
-      } finally {
-        if (active) setBrandLoading(false);
-      }
-    })();
-    return () => { active = false; };
   }, []);
 
   const { cards, loading, createCard, updateCard, deleteCard, deleteCardsForDate, clearAll, refresh } =
@@ -117,10 +95,39 @@ export default function CalosCalendarV3() {
   const brandInitials = brandName.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
   const selectBrand = (id: string) => {
-    setBrandId(id);
+    setActiveBrandId(id); // writes the shared context + localStorage (brand_vault_selected_brand_id)
     setBrandOpen(false);
-    try { localStorage.setItem(LS_SELECTED_BRAND, id); } catch { /* in-memory only */ }
   };
+
+  // Delivery visibility: per-card publish state + which platforms are connected, so an approved
+  // card isn't a black box and we can prompt "connect X to publish" instead of failing silently.
+  const loadPubStatus = React.useCallback(async () => {
+    if (!brandId) return;
+    try {
+      const res = await fetch(`/api/services/calos/publish-status?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      setPubStatus(data?.statuses && typeof data.statuses === 'object' ? data.statuses : {});
+      setConnectedPlatforms(Array.isArray(data?.connectedPlatforms) ? data.connectedPlatforms : []);
+    } catch {
+      /* best-effort — visibility only, never blocks the calendar */
+    }
+  }, [brandId]);
+  useEffect(() => { void loadPubStatus(); }, [loadPubStatus]);
+
+  // Auto-refresh while an image job is in flight, so the finished still lands on the card without a
+  // manual reload. Polls (every 12s) only while at least one card is 'generating'; stops as soon as
+  // none are, so an idle calendar makes no requests.
+  const anyImageGenerating = useMemo(
+    () => items.some((it) => it.raw.imageStatus === 'generating'),
+    [items],
+  );
+  const refreshRef = React.useRef(refresh);
+  useEffect(() => { refreshRef.current = refresh; }, [refresh]);
+  useEffect(() => {
+    if (!anyImageGenerating) return;
+    const id = setInterval(() => { void refreshRef.current(); }, 12_000);
+    return () => clearInterval(id);
+  }, [anyImageGenerating]);
 
   /* ── mutations ── */
   const handleDecision = async (id: string, decision: 'approved' | 'changes_requested') => {
@@ -132,7 +139,17 @@ export default function CalosCalendarV3() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { toast({ title: data?.error || `Decision failed (${res.status})`, variant: 'destructive' }); return; }
-      toast({ title: decision === 'approved' ? 'Approved' : 'Sent back for changes' });
+      if (decision === 'approved') {
+        const plat = items.find((d) => d.id === id)?.platform;
+        if (plat && !connectedPlatforms.includes(plat)) {
+          toast({ title: `Approved — ${platLabel(plat)} isn't connected`, description: 'Open Publishing to connect it, or it won’t post.' });
+        } else {
+          toast({ title: 'Approved — queued to publish' });
+        }
+        void loadPubStatus();
+      } else {
+        toast({ title: 'Sent back for changes' });
+      }
       refresh();
     } catch (err) {
       toast({ title: 'Decision failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
@@ -187,6 +204,49 @@ export default function CalosCalendarV3() {
     } catch (err) {
       toast({ title: 'Generate failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     }
+  };
+
+  const handleMakeImage = async (id: string, aspectRatio: string) => {
+    if (!brandId) return;
+    try {
+      const res = await fetch('/api/services/calos/make-image', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandId, deliverableId: id, aspectRatio }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast({ title: data?.error || `Couldn't start image (${res.status})`, variant: 'destructive' }); return; }
+      toast({ title: 'Image generating', description: 'It lands on the card when it’s ready.' });
+      refresh();
+    } catch (err) {
+      toast({ title: 'Image kickoff failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+    }
+  };
+
+  // Cards whose caption is written + image prompt stashed but no image made yet — the batch target.
+  const pendingImageItems = useMemo(
+    () => items.filter((it) => it.raw.imageStatus === 'promptReady'),
+    [items],
+  );
+  // Batch: make an image for every promptReady card, one by one (never spikes credits), each at its
+  // platform's default aspect. The in-flight poll then surfaces them as they finish.
+  const handleMakeAllImages = async () => {
+    if (!brandId || !pendingImageItems.length) return;
+    let ok = 0;
+    for (const it of pendingImageItems) {
+      try {
+        const res = await fetch('/api/services/calos/make-image', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ brandId, deliverableId: it.id, aspectRatio: platformDefaultAspect(it.platform) }),
+        });
+        if (res.ok) ok++;
+      } catch { /* continue — one card failing must not abort the batch */ }
+    }
+    refresh();
+    toast({
+      title: `Started ${ok}/${pendingImageItems.length} image${pendingImageItems.length === 1 ? '' : 's'}`,
+      description: ok < pendingImageItems.length ? 'Some couldn’t start — open them to retry.' : 'They’ll appear as they finish.',
+      ...(ok === 0 ? { variant: 'destructive' as const } : {}),
+    });
   };
 
   const handleDelete = async (id: string) => { await deleteCard(id); };
@@ -258,7 +318,7 @@ export default function CalosCalendarV3() {
         .calos-fr:focus-visible{outline:2px solid ${C.gold};outline-offset:2px}
         .calos-chip:hover{border-color:${C.bs};background:#181614}
         .calos-ns::-webkit-scrollbar{height:7px;width:7px}.calos-ns::-webkit-scrollbar-thumb{background:${C.bs};border-radius:4px}
-        .calos-grid{display:grid;grid-template-columns:repeat(7,1fr)}
+        .calos-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
         .calos-tw{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
         .calos-wrap{display:grid;grid-template-columns:minmax(190px,18%) minmax(0,1fr);gap:16px;align-items:start}
         .calos-trend-select{height:34px;max-width:180px;background:${C.surface};color:${C.soft};border:1px solid ${C.border};border-radius:7px;padding:0 10px;font-family:${MONO};font-size:11px;letter-spacing:0.03em;outline:none;cursor:pointer}
@@ -295,7 +355,9 @@ export default function CalosCalendarV3() {
             <button className="calos-fr" title={`${reviews.length} awaiting review`} onClick={() => toast({ title: reviews.length ? `${reviews.length} awaiting your review` : 'Nothing to review' })} style={{ position: 'relative', cursor: 'pointer', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, width: 34, height: 34, color: C.soft }}>◔
               {reviews.length > 0 && <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: C.gold, color: '#241B08', fontFamily: MONO, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{reviews.length}</span>}
             </button>
+            <Btn size="sm" onClick={() => setTrendOpportunitiesOpen(true)}>Trend ideas</Btn>
             <Btn size="sm" onClick={() => setScreen('share')}>Share</Btn>
+            <Btn size="sm" onClick={() => setBrandRefsOpen(true)}>References</Btn>
             <Btn size="sm" onClick={() => setConnectionsOpen(true)}>Publishing</Btn>
             <Btn size="sm" variant="danger" onClick={() => setConfirm({ kind: 'clearall' })}>Clear all</Btn>
           </div>
@@ -324,6 +386,9 @@ export default function CalosCalendarV3() {
                 <button key={v} className="calos-fr" onClick={() => setView(v)} style={{ cursor: 'pointer', border: 'none', borderRadius: 5, padding: '6px 12px', fontFamily: MONO, fontSize: 10, textTransform: 'uppercase', background: view === v ? C.gold : 'transparent', color: view === v ? '#241B08' : C.muted, fontWeight: view === v ? 700 : 400 }}>{v}</button>
               ))}
             </div>
+            {pendingImageItems.length > 0 && (
+              <Btn size="sm" onClick={handleMakeAllImages} title="Make images for every card whose prompt is ready">🎨 All images ({pendingImageItems.length})</Btn>
+            )}
             <Btn size="sm" variant="primary" onClick={handleNew}>+ New</Btn>
           </div>
         </div>
@@ -480,8 +545,12 @@ export default function CalosCalendarV3() {
           onSaveTags={handleSaveTags}
           onDecision={handleDecision}
           onGenerate={handleGenerate}
+          onMakeImage={handleMakeImage}
           onDelete={handleDelete}
           onOpenScript={handleOpenScript}
+          pubState={pubStatus[openItem.id]}
+          connected={connectedPlatforms.includes(openItem.platform)}
+          onOpenPublishing={() => { setOpenId(null); setConnectionsOpen(true); }}
         />
       )}
       {confirm?.kind === 'clearall' && (
@@ -495,6 +564,13 @@ export default function CalosCalendarV3() {
       )}
       {brandId && (
         <BrandConnections brandId={brandId} brandName={brandName} open={connectionsOpen} onClose={() => setConnectionsOpen(false)} />
+      )}
+      {brandId && trendOpportunitiesOpen && (
+        <CalosTrendOpportunityReview brandId={brandId} brandName={brandName} onClose={() => setTrendOpportunitiesOpen(false)} onAccepted={() => void refresh()} />
+      )}
+
+      {brandId && brandRefsOpen && (
+        <CalosBrandReferencesModal brandId={brandId} brandName={brandName} onClose={() => setBrandRefsOpen(false)} />
       )}
     </div>
   );

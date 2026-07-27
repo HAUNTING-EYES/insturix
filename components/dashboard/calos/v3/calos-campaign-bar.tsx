@@ -10,6 +10,7 @@ import TrendMarketSelector, {
   useResolvedTrendLocation,
 } from '@/app/dashboard/calos/TrendMarketSelector';
 import type { ContentCard } from '@/app/dashboard/thinkforge/types';
+import type { CalosCampaignReference } from '@/schemas/calos-campaign';
 import { C, MONO, SANS, toItem } from './calos-view-model';
 import type { CalItem } from './calos-view-model';
 import { Btn } from './calos-atoms';
@@ -36,6 +37,7 @@ interface Campaign {
   cadenceRules: CadenceRule[];
   objective?: CalosObjective;
   theme?: string;
+  references?: CalosCampaignReference[];
 }
 
 interface Review {
@@ -44,7 +46,7 @@ interface Review {
   items: CalItem[];
 }
 
-type Pending = '' | 'create' | 'auto' | 'ai';
+type Pending = '' | 'create' | 'auto' | 'ai' | 'dist';
 type GenPeriod = 'Week' | 'Month' | 'Quarter';
 
 const GEN_PERIODS: GenPeriod[] = ['Week', 'Month', 'Quarter'];
@@ -83,10 +85,11 @@ export default function CalosCampaignBar({
       const res = await fetch(`/api/services/calos/campaigns?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' });
       const data = await res.json();
       const list: Campaign[] = Array.isArray(data?.campaigns)
-        ? data.campaigns.map((c: { _id: string; name: string; cadenceRules?: CadenceRule[]; objective?: CalosObjective; theme?: string }) => ({
+        ? data.campaigns.map((c: { _id: string; name: string; cadenceRules?: CadenceRule[]; objective?: CalosObjective; theme?: string; references?: CalosCampaignReference[] }) => ({
             _id: c._id, name: c.name,
             cadenceRules: Array.isArray(c.cadenceRules) ? c.cadenceRules : [],
             objective: c.objective, theme: c.theme,
+            references: Array.isArray(c.references) ? c.references : [],
           }))
         : [];
       setCampaigns(list);
@@ -203,12 +206,95 @@ export default function CalosCampaignBar({
       const market = typeof data?.trendLocation === 'string' && data.trendLocation ? data.trendLocation : 'global';
       onAfterGenerate();
       if (created > 0) {
-        await reviewNew(beforeIds, 'AI plan · review', `${created} idea${created === 1 ? '' : 's'} · ${trendsUsed} trend${trendsUsed === 1 ? '' : 's'} in ${market} via ${data?.provider ?? 'none'}`, { campaignId: campaignId || undefined, expectedCount: created });
+        await reviewNew(beforeIds, 'AI plan · review', `${created} idea${created === 1 ? '' : 's'} · ${trendsUsed} trend${trendsUsed === 1 ? '' : 's'} in ${market}`, { campaignId: campaignId || undefined, expectedCount: created });
       } else {
         toast({ title: 'No ideas drafted', description: data?.note || 'Try a wider window or a different market.' });
       }
     } catch (err) {
       toast({ title: 'AI plan failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+    } finally {
+      setPending('');
+    }
+  };
+
+  /** Accept-and-generate: sequentially generate a script/post for each kept idea (one by one so we
+      never spike credits or the writer's rate limit). Best-effort per card — one failure doesn't abort
+      the batch; the calendar refreshes after each so drafts appear as they land. */
+  const generateAll = async (ids: string[]) => {
+    if (!ids.length) return;
+    let ok = 0;
+    for (const id of ids) {
+      try {
+        const res = await fetch('/api/services/calos/generate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ brandId, deliverableId: id }),
+        });
+        if (res.ok) ok++;
+      } catch { /* continue — a single failure must not abort the whole batch */ }
+      onAfterGenerate();
+    }
+    toast({
+      title: `Generated ${ok}/${ids.length}`,
+      description: ok < ids.length ? 'Some failed — open them to retry.' : 'Scripts are ready.',
+      ...(ok === 0 ? { variant: 'destructive' as const } : {}),
+    });
+  };
+
+  // Auto-distribute: spread the campaign's schedulable (not-yet-approved) cards across its cadence's
+  // preferred days, one card per slot per platform, starting tomorrow. Re-dates cards, so it's guarded
+  // by a two-click confirm on the button. (auto-fill/ai-plan already place cards at creation — this is
+  // for re-spreading a pile, e.g. manually-made or clustered cards.)
+  const [distArmed, setDistArmed] = useState(false);
+  const distributeAcrossCadence = async () => {
+    if (!selected) { toast({ title: 'Pick a campaign first', variant: 'destructive' }); return; }
+    if (!selected.cadenceRules.length) { toast({ title: 'This campaign has no cadence to distribute across', variant: 'destructive' }); return; }
+    setPending('dist');
+    try {
+      const SCHEDULABLE = new Set(['idea', 'drafting', 'generated', 'changes_requested']);
+      const cards = (await fetchCards()).filter(
+        (c) => c.campaignId === selected._id && SCHEDULABLE.has(c.editorialStatus ?? 'idea'),
+      );
+      if (!cards.length) { toast({ title: 'No schedulable cards', description: 'Generate or accept some ideas first.' }); return; }
+
+      const ruleByPlatform = new Map(selected.cadenceRules.map((r) => [r.platform, r]));
+      const byPlatform = new Map<string, ContentCard[]>();
+      for (const c of cards) {
+        const p = c.platform ?? 'generic';
+        const bucket = byPlatform.get(p);
+        if (bucket) bucket.push(c); else byPlatform.set(p, [c]);
+      }
+
+      const start = new Date();
+      start.setHours(10, 0, 0, 0);
+      start.setDate(start.getDate() + 1); // begin tomorrow
+
+      const updates: { id: string; iso: string }[] = [];
+      for (const [platform, pcards] of byPlatform) {
+        const rule = ruleByPlatform.get(platform);
+        if (!rule?.preferredDays?.length) continue; // no cadence for this platform → leave as-is
+        const days = new Set(rule.preferredDays);
+        const cursor = new Date(start);
+        let placed = 0, guard = 0;
+        while (placed < pcards.length && guard < 730) { // 2-year guard against an empty day set
+          if (days.has(cursor.getDay())) { updates.push({ id: pcards[placed].id, iso: new Date(cursor).toISOString() }); placed++; }
+          cursor.setDate(cursor.getDate() + 1);
+          guard++;
+        }
+      }
+      if (!updates.length) { toast({ title: 'Nothing distributed', description: 'No cards match the cadence platforms.' }); return; }
+
+      let ok = 0;
+      for (const u of updates) {
+        try {
+          const res = await fetch(`/api/services/calos/deliverables/${encodeURIComponent(u.id)}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ brandId, updates: { plannedDates: [u.iso], date: u.iso } }),
+          });
+          if (res.ok) ok++;
+        } catch { /* continue — one failure must not abort the batch */ }
+      }
+      onAfterGenerate();
+      toast({ title: `Distributed ${ok}/${updates.length} across the cadence` });
     } finally {
       setPending('');
     }
@@ -236,6 +322,14 @@ export default function CalosCampaignBar({
         <TrendMarketSelector value={trendMarket} onChange={setTrendMarket} disabled={busy} className="calos-fr calos-trend-select" />
         <Btn size="sm" onClick={autoFill} disabled={busy || !campaignId}>{pending === 'auto' ? 'Working…' : '⤢ Auto-fill'}</Btn>
         <Btn size="sm" variant="primary" onClick={aiPlan} disabled={busy || waitingForTrendLocation}>{pending === 'ai' ? 'Working…' : '✨ AI plan'}</Btn>
+        <Btn
+          size="sm"
+          onClick={() => { if (distArmed) { setDistArmed(false); void distributeAcrossCadence(); } else { setDistArmed(true); } }}
+          disabled={busy || !campaignId}
+          title="Spread this campaign's un-approved cards across its cadence days"
+        >
+          {pending === 'dist' ? 'Distributing…' : distArmed ? 'Confirm · re-dates cards' : '📆 Distribute'}
+        </Btn>
       </div>
 
       {editorOpen && selected && (
@@ -245,7 +339,7 @@ export default function CalosCampaignBar({
         <CalosCadenceModal campaign={null} brandId={brandId} initialRules={suggestedRules} onClose={() => setCreateOpen(false)} onSaved={(newId) => { void loadCampaigns(); if (newId) setCampaignId(newId); }} />
       )}
       {review && (
-        <GenerationReview title={review.title} sub={review.sub} items={review.items} onRemove={removeDraft} onClose={() => setReview(null)} />
+        <GenerationReview title={review.title} sub={review.sub} items={review.items} onRemove={removeDraft} onClose={() => setReview(null)} onGenerateAll={generateAll} />
       )}
     </div>
   );

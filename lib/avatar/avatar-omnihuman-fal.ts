@@ -2,7 +2,7 @@ import { fal } from '@fal-ai/client';
 
 export const OMNIHUMAN_FAL_MODEL_ID = 'fal-ai/bytedance/omnihuman/v1.5';
 
-export interface OmniHumanFalSubmitInput {
+export interface TalkingHeadFalSubmitInput {
   imageUrl: string;
   audioUrl: string;
   prompt?: string;
@@ -10,13 +10,13 @@ export interface OmniHumanFalSubmitInput {
   turboMode?: boolean;
 }
 
-export interface OmniHumanFalSubmitResult {
+export interface TalkingHeadFalSubmitResult {
   modelId: string;
   requestId: string;
   input: Record<string, unknown>;
 }
 
-export interface OmniHumanFalRefreshResult {
+export interface TalkingHeadFalRefreshResult {
   modelId: string;
   requestId: string;
   status: 'queued' | 'running' | 'succeeded' | 'failed';
@@ -27,43 +27,45 @@ export interface OmniHumanFalRefreshResult {
   errorMessage?: string;
 }
 
-export interface OmniHumanFalClient {
-  submit(input: OmniHumanFalSubmitInput): Promise<OmniHumanFalSubmitResult>;
-  refresh(requestId: string): Promise<OmniHumanFalRefreshResult>;
+export interface TalkingHeadFalClient {
+  submit(input: TalkingHeadFalSubmitInput): Promise<TalkingHeadFalSubmitResult>;
+  refresh(requestId: string): Promise<TalkingHeadFalRefreshResult>;
 }
 
 let falConfigured = false;
 
-export function createDefaultOmniHumanFalClient(
+export type TalkingHeadFalInputBuilder = (input: TalkingHeadFalSubmitInput) => Record<string, unknown>;
+
+/**
+ * Generic fal talking-head client (submit → poll → video URL). OmniHuman and Kling
+ * AI Avatar share the exact same queue contract and result shape, so they differ
+ * only by model ID and how the input object is keyed — everything else is shared.
+ */
+export function createFalTalkingHeadClient(
+  modelId: string,
+  buildInput: TalkingHeadFalInputBuilder,
   env: Record<string, string | undefined> = process.env,
-): OmniHumanFalClient {
+): TalkingHeadFalClient {
   return {
     async submit(input) {
       ensureFalConfigured(env);
-      const queueInput = buildOmniHumanFalInput(input);
-      const handle = await fal.queue.submit(OMNIHUMAN_FAL_MODEL_ID as string, { input: queueInput });
+      const queueInput = buildInput(input);
+      const handle = await fal.queue.submit(modelId, { input: queueInput });
       const requestId = extractRequestId(handle);
       if (!requestId) {
-        throw new Error('fal OmniHuman queue did not return a request id.');
+        throw new Error(`fal talking-head queue (${modelId}) did not return a request id.`);
       }
-      return {
-        modelId: OMNIHUMAN_FAL_MODEL_ID,
-        requestId,
-        input: queueInput,
-      };
+      return { modelId, requestId, input: queueInput };
     },
     async refresh(requestId) {
       ensureFalConfigured(env);
-      const queueStatus = await fal.queue.status(OMNIHUMAN_FAL_MODEL_ID as string, {
-        requestId,
-        logs: false,
-      });
+      const queueStatus = await fal.queue.status(modelId, { requestId, logs: false });
       const providerStatus = String(readPath(queueStatus, ['status']) ?? '').toUpperCase();
       const normalizedStatus = normalizeFalQueueStatus(providerStatus);
 
       if (normalizedStatus !== 'succeeded') {
         return {
-          modelId: OMNIHUMAN_FAL_MODEL_ID,
+          modelId,
           requestId,
           status: normalizedStatus,
           providerStatus,
@@ -72,9 +74,9 @@ export function createDefaultOmniHumanFalClient(
         };
       }
 
-      const result = await fal.queue.result(OMNIHUMAN_FAL_MODEL_ID as string, { requestId });
+      const result = await fal.queue.result(modelId, { requestId });
       return {
-        modelId: OMNIHUMAN_FAL_MODEL_ID,
+        modelId,
         requestId,
         status: 'succeeded',
         providerStatus,
@@ -86,7 +88,37 @@ export function createDefaultOmniHumanFalClient(
   };
 }
 
-export function buildOmniHumanFalInput(input: OmniHumanFalSubmitInput): Record<string, unknown> {
+export function createDefaultTalkingHeadFalClient(
+  env: Record<string, string | undefined> = process.env,
+): TalkingHeadFalClient {
+  return createFalTalkingHeadClient(OMNIHUMAN_FAL_MODEL_ID, buildTalkingHeadFalInput, env);
+}
+
+// Kling AI Avatar — better identity retention + ~3x cheaper than OmniHuman (bake-off 2026-07-06).
+export type KlingAvatarTier = 'standard' | 'pro';
+
+export const KLING_AVATAR_MODEL_IDS: Record<KlingAvatarTier, string> = {
+  standard: 'fal-ai/kling-video/v1/standard/ai-avatar',
+  pro: 'fal-ai/kling-video/ai-avatar/v2/pro',
+};
+
+export function buildKlingAvatarFalInput(input: TalkingHeadFalSubmitInput): Record<string, unknown> {
+  // Kling AI Avatar length is driven by the audio; resolution/turbo are not accepted.
+  return {
+    image_url: input.imageUrl,
+    audio_url: input.audioUrl,
+    ...(input.prompt ? { prompt: input.prompt } : {}),
+  };
+}
+
+export function createKlingAvatarFalClient(
+  env: Record<string, string | undefined> = process.env,
+  tier: KlingAvatarTier = 'standard',
+): TalkingHeadFalClient {
+  return createFalTalkingHeadClient(KLING_AVATAR_MODEL_IDS[tier], buildKlingAvatarFalInput, env);
+}
+
+export function buildTalkingHeadFalInput(input: TalkingHeadFalSubmitInput): Record<string, unknown> {
   return {
     image_url: input.imageUrl,
     audio_url: input.audioUrl,
@@ -107,7 +139,7 @@ function ensureFalConfigured(env: Record<string, string | undefined>): void {
   }
 }
 
-function normalizeFalQueueStatus(providerStatus: string): OmniHumanFalRefreshResult['status'] {
+function normalizeFalQueueStatus(providerStatus: string): TalkingHeadFalRefreshResult['status'] {
   if (providerStatus === 'COMPLETED') return 'succeeded';
   if (providerStatus === 'IN_PROGRESS') return 'running';
   if (providerStatus === 'IN_QUEUE') return 'queued';

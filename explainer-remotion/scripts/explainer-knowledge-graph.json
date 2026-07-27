@@ -1,0 +1,173 @@
+{
+  "meta": {
+    "name": "explainer-knowledge-graph",
+    "version": "1.0.0",
+    "created": "2026-06-27",
+    "purpose": "Machine-readable rules + parameters + patterns for generating SaaS explainer videos. Consumed by Editron 'Explainer Mode' (LLM scene-planner emits a SceneGraph; the generative composer + renderer turn it into a recipe of primitives). The LLM never writes render code (Rule 30); this graph bounds what it plans and how the engine composes.",
+    "source_doc": "01-Research/SaaS-Explainer-Video-Knowledge-Base-2026-06-27.md",
+    "consumer_status": "NOT yet wired — canonical source artifact. When Explainer Mode is built, copy to lib/editron/data/explainer-knowledge-graph.json.",
+    "evidence_legend": {
+      "E": "Established — peer-reviewed or near-universal craft law. Trust.",
+      "I": "Industry data/heuristic — credible first-party/practitioner data. Default; A/B if it matters.",
+      "T": "Tunable default — starting value to CALIBRATE on real renders + watch-through (Rule 31). Never ship as fact.",
+      "M": "Marketing-claim — single secondary source, directional only."
+    },
+    "calibration_note": "Every node with confidence 'T' is a starting default, not a fact. Calibrate against real Editron renders and watch-through data per Rule 31."
+  },
+
+  "laws": [
+    {"id": "L1", "statement": "ONE message per video; two selling points dilute both.", "category": "script", "confidence": "E", "refs": ["SR-script-one-message"]},
+    {"id": "L2", "statement": "Win the hook in <=3s with a felt problem, an outcome/aha (open loop), or a pattern interrupt; never open with self-introduction.", "category": "script", "confidence": "I", "refs": ["P-hook-window", "role-hook"]},
+    {"id": "L3", "statement": "VO words <= 2.2 x seconds; talk fills <=85% of runtime, leaving silence for visuals/aha.", "category": "script", "confidence": "I", "refs": ["PARAM-vo-pace", "PARAM-talk-density"]},
+    {"id": "L4", "statement": "Spine = ordered scene ROLES (hook -> stakes -> solution -> capability beats -> proof -> cta), not fixed templates.", "category": "structure", "confidence": "I", "refs": ["scene_roles", "scene_graph_schema"]},
+    {"id": "L5", "statement": "Benefit-led and specific; raise desire and remove confusion (Purchase = Desire - Labor - Confusion).", "category": "script", "confidence": "E", "refs": ["FW-storybrand", "SR-specificity"]},
+    {"id": "L6", "statement": "No triple redundancy (narration + identical on-screen text + redundant graphic); cut extraneous cognitive load.", "category": "cognitive", "confidence": "E", "refs": ["PR-mayer-redundancy", "PR-cognitive-load"]},
+    {"id": "L7", "statement": "Dwell long enough to read comprehension beats; keep mechanical motion fast; cut to music BPM; insert breathers.", "category": "pacing", "confidence": "E", "refs": ["PARAM-beat-length", "PR-pacing-slow-fast"]},
+    {"id": "L8", "statement": "Front-load value; open a curiosity loop early and close it at the payoff.", "category": "psychology", "confidence": "E", "refs": ["PR-front-load", "PR-open-loop"]},
+    {"id": "L9", "statement": "Captions always (sound-off default); narrate complex visuals; let aha beats breathe in silence.", "category": "psychology", "confidence": "E", "refs": ["P-sound-off", "PR-mayer-modality"]},
+    {"id": "L10", "statement": "Motion congruent with meaning; ease + stagger + anticipation; choreography computed from tokens, never hardcoded frames.", "category": "motion", "confidence": "E", "refs": ["PR-motion-congruence", "PR-disney-12", "PARAM-easing"]},
+    {"id": "L11", "statement": "Brand hue sovereign; semantic colors fixed (green/red/amber/blue); mood via saturation+brightness+temperature; WCAG contrast floors are hard.", "category": "color", "confidence": "E", "refs": ["PR-color-semantic", "PR-color-mood", "PARAM-contrast"]},
+    {"id": "L12", "statement": "Use match cuts (carry one meaningful element across the cut) and premium product-UI camera (zoom/track/click) for the expensive feel.", "category": "motion", "confidence": "E", "refs": ["PR-match-cut", "PARAM-ui-zoom"]},
+    {"id": "L13", "statement": "Music builds to the payoff and resolves at the end (real outro); SFX punctuate sparingly and varied (overuse = fatigue).", "category": "sound", "confidence": "E", "refs": ["PR-music-arc", "PR-sfx-punctuation"]},
+    {"id": "L14", "statement": "One visual voice per video + 3 signature easing curves (motion equity); generate form from tokens, never select a template.", "category": "system", "confidence": "E", "refs": ["PARAM-signature-eases", "PR-no-templates"]},
+    {"id": "L15", "statement": "Length and aspect are a function of format x platform; end on exactly ONE call to action.", "category": "format", "confidence": "I", "refs": ["formats", "CON-aspect-ratio", "role-cta"]}
+  ],
+
+  "frameworks": [
+    {"id": "FW-backbone", "name": "Hook-Problem-Solution-CTA", "note": "Universal backbone; PAS/AIDA/BAB/StoryBrand all rearrange this.", "confidence": "E"},
+    {"id": "FW-pas", "name": "Problem-Agitate-Solve", "expands_to": "FW-backbone", "use_case": "pain-driven, deep connection; sales/retargeting", "default_length_s": [15, 30], "confidence": "I"},
+    {"id": "FW-aida", "name": "Attention-Interest-Desire-Action", "expands_to": "FW-backbone", "use_case": "buildup; launches, landing pages, cold audiences", "default_length_s": [30, 60], "confidence": "I"},
+    {"id": "FW-bab", "name": "Before-After-Bridge", "expands_to": "FW-backbone", "use_case": "transformation; short explainers/promos", "default_length_s": [15, 60], "confidence": "I"},
+    {"id": "FW-storybrand", "name": "StoryBrand SB7", "expands_to": "FW-backbone", "use_case": "homepage/hero; customer=hero, product=guide with a plan + CTA, avoiding failure -> success", "rule": "Never make the product the hero.", "confidence": "E"}
+  ],
+
+  "scene_roles": [
+    {"id": "role-hook", "role": "hook", "purpose": "Stop the scroll; state the felt problem or show the outcome (open loop).", "typical_duration_s": [2, 5], "pacing": "fast", "must": "land the felt problem/outcome by ~2.5s"},
+    {"id": "role-stakes", "role": "stakes", "purpose": "Agitate the problem / show the painful status quo.", "typical_duration_s": [3, 8], "pacing": "medium"},
+    {"id": "role-solution", "role": "solution", "purpose": "Introduce the product as the inevitable answer (meet the guide).", "typical_duration_s": [3, 8], "pacing": "medium"},
+    {"id": "role-capability_beat", "role": "capability_beat", "purpose": "One benefit, shown not told (UI/demo). Repeat 2-4x.", "typical_duration_s": [5, 12], "pacing": "slow-on-read", "repeat": [2, 4]},
+    {"id": "role-proof", "role": "proof", "purpose": "Social proof / metric / testimonial.", "typical_duration_s": [4, 8], "pacing": "medium"},
+    {"id": "role-cta", "role": "cta", "purpose": "ONE clear next action.", "typical_duration_s": [2, 5], "pacing": "medium"},
+    {"id": "role-breather", "role": "breather", "purpose": "Optional silence/space beat between dense sections.", "typical_duration_s": [1, 2], "pacing": "hold"}
+  ],
+
+  "scene_graph_schema": {
+    "description": "The structured output the LLM scene-planner emits (DATA, not code). The generative composer turns each scene into a recipe of primitives bounded by this graph's laws/params.",
+    "shape": {
+      "meta": {"format": "string (format id)", "platform": "string", "target_duration_s": "number", "aspect": "string (16:9 | 9:16 | 1:1)", "framework": "string (framework id)", "brand_id": "string", "core_message": "string (the ONE message)", "visual_voice": {"type_system": "string", "motion_character": "string", "accent_strategy": "string"}},
+      "scenes": [{
+        "role": "string (scene_role id: hook|stakes|solution|capability_beat|proof|cta|breather)",
+        "copy": "string (on-screen headline/phrase — short, never the VO verbatim)",
+        "vo_line": "string (narration for this scene; obey words<=2.2*duration)",
+        "claims": ["string (specific, falsifiable benefit/data points)"],
+        "intent": "string (emotional/communicative goal, e.g. tension|relief|aspiration|proof|action)",
+        "duration_hint_s": "number",
+        "data": "object|null (numbers/series for data-viz primitives)",
+        "ui_demo": "object|null ({zoom_target, cursor_path, clicks} for product-demo scenes)"
+      }],
+      "audio": {"music_arc": "string (build->payoff->resolve)", "sfx_density": "low|medium"}
+    }
+  },
+
+  "formats": [
+    {"id": "fmt-homepage_hero", "format": "homepage/hero film", "length_s": {"min": 60, "max": 90}, "aspect_default": "16:9", "structure": "problem -> product -> transformation", "framework_default": "FW-storybrand", "confidence": "I"},
+    {"id": "fmt-product_demo", "format": "product demo/walkthrough", "length_s": {"min": 90, "max": 180}, "aspect_default": "16:9", "structure": "UI-driven, 2-4 capability beats", "framework_default": "FW-aida", "confidence": "I"},
+    {"id": "fmt-feature_launch", "format": "feature launch", "length_s": {"min": 30, "max": 60}, "aspect_default": "16:9", "structure": "ONE feature, before/after", "framework_default": "FW-bab", "confidence": "I"},
+    {"id": "fmt-onboarding", "format": "onboarding/how-to", "length_s": {"min": 30, "max": 90}, "aspect_default": "16:9", "structure": "one task, step-by-step", "framework_default": "FW-backbone", "confidence": "I"},
+    {"id": "fmt-social_ad", "format": "social ad cutdown", "length_s": {"min": 6, "max": 30}, "aspect_default": "9:16", "structure": "hook-heavy, single benefit", "framework_default": "FW-pas", "confidence": "I"},
+    {"id": "fmt-fundraising", "format": "fundraising/sizzle", "length_s": {"min": 60, "max": 120}, "aspect_default": "16:9", "structure": "vision + traction + team", "framework_default": "FW-storybrand", "confidence": "M"}
+  ],
+
+  "parameters": [
+    {"id": "PARAM-vo-pace", "name": "vo_words_per_second", "value": 2.2, "range": [2.0, 2.5], "unit": "words/sec", "note": "120-150 wpm conversational; ~140 for narration; 160-170 only short/simple.", "confidence": "I", "source": "ncvs_vo_calculators"},
+    {"id": "PARAM-talk-density", "name": "max_talk_fraction", "value": 0.85, "unit": "fraction_of_runtime", "confidence": "T", "source": "craft"},
+    {"id": "PARAM-beat-length", "name": "scene_beat_length", "value": 5, "range": [4, 6], "unit": "sec", "note": "comprehension beats +1-2s; mechanical beats shorter.", "confidence": "I", "source": "studiobinder_editing"},
+    {"id": "PARAM-hook-land", "name": "hook_land_by", "value": 2.5, "unit": "sec", "confidence": "I", "source": "facebook_3s"},
+    {"id": "PARAM-ui-zoom", "name": "ui_demo_zoom", "value": 2.0, "range": [1.5, 3.0], "unit": "x", "note": "1.5x if UI already readable; 3x is the cap (claustrophobic beyond).", "confidence": "T", "source": "screen_studio"},
+    {"id": "PARAM-ui-zoom-hold", "name": "ui_zoom_hold", "value": [800, 2000], "unit": "ms", "note": "800-1200ms instant actions; 1500-2000ms text-heavy; never <600ms.", "confidence": "T", "source": "screen_studio"},
+    {"id": "PARAM-easing", "name": "ui_motion_duration", "value": [200, 600], "unit": "ms", "note": "hover ~300, transition ~500; zoom 350-500 gentle / ~200 snappy; never linear.", "confidence": "T", "source": "disney_ui_apple_hig"},
+    {"id": "PARAM-signature-eases", "name": "signature_bezier_count", "value": 3, "note": "ease-out / ease-in / ease-in-out custom curves reused everywhere = motion equity.", "confidence": "E", "source": "design_systems_motion"},
+    {"id": "PARAM-title-safe", "name": "title_safe", "value": 0.90, "unit": "fraction", "confidence": "E", "source": "broadcast_safe"},
+    {"id": "PARAM-action-safe", "name": "action_safe", "value": 0.93, "unit": "fraction", "confidence": "E", "source": "broadcast_safe"},
+    {"id": "PARAM-contrast", "name": "min_contrast_ratio", "value": {"body": 4.5, "large": 3.0}, "unit": "WCAG ratio", "confidence": "E", "source": "wcag"},
+    {"id": "PARAM-text-settle-hold", "name": "kinetic_text_min_hold_after_settle", "value": 0.5, "unit": "sec", "confidence": "I", "source": "kinetic_type"},
+    {"id": "PARAM-record-fps", "name": "ui_capture_min_fps", "value": 60, "unit": "fps", "note": "needed for clean cursor-path Bezier smoothing.", "confidence": "I", "source": "screen_studio"}
+  ],
+
+  "principles": {
+    "cognitive": [
+      {"id": "PR-mayer-multimedia", "name": "Multimedia", "rule": "Words + pictures beat words alone; never narrate over a blank/text-only frame.", "confidence": "E"},
+      {"id": "PR-mayer-coherence", "name": "Coherence", "rule": "Cut anything not serving the goal (decorative stings, gratuitous b-roll).", "confidence": "E"},
+      {"id": "PR-mayer-signaling", "name": "Signaling", "rule": "Cue the ONE element being discussed now (highlight/scale/motion).", "confidence": "E"},
+      {"id": "PR-mayer-redundancy", "name": "Redundancy", "rule": "Narration + identical full on-screen text LOWERS retention; reserve text for short labels.", "confidence": "E"},
+      {"id": "PR-mayer-contiguity", "name": "Spatial/Temporal contiguity", "rule": "Labels touch the thing; show the visual the moment the VO names it.", "confidence": "E"},
+      {"id": "PR-mayer-segmenting", "name": "Segmenting", "rule": "Discrete beats with micro-pauses, learner-paced; not one unbroken rush.", "confidence": "E"},
+      {"id": "PR-mayer-modality", "name": "Modality", "rule": "Narrate complex visuals (audio) rather than piling text on animation.", "confidence": "E"},
+      {"id": "PR-mayer-voice", "name": "Voice/Personalization", "rule": "Conversational + human-sounding voice beats formal/robotic (d~0.78; modern TTS narrows it).", "confidence": "E"},
+      {"id": "PR-cognitive-load", "name": "Cognitive Load Theory", "rule": "Working memory ~4 chunks; cut extraneous load so intrinsic load fits.", "confidence": "E"}
+    ],
+    "psychology": [
+      {"id": "PR-front-load", "name": "Front-load value", "rule": "Get to the point within ~10s; halves early viewership loss.", "confidence": "I"},
+      {"id": "PR-open-loop", "name": "Curiosity gap / open loop", "rule": "Pose the question/promise up front, resolve at the payoff (Loewenstein, Zeigarnik). Keep the gap small/manageable.", "confidence": "E"}
+    ],
+    "pacing": [
+      {"id": "PR-pacing-slow-fast", "name": "Variable pacing", "rule": "Slow on comprehension beats (read/understand), fast on mechanical (cursor/transition); cut to BPM; breathers between dense beats.", "confidence": "I"}
+    ],
+    "motion": [
+      {"id": "PR-disney-12", "name": "Disney 12 -> UI/MG", "rule": "Slow-in/out (never linear), anticipation, staging, follow-through=stagger, arcs, squash/stretch, secondary action.", "confidence": "E"},
+      {"id": "PR-motion-congruence", "name": "Motion congruence (HARD law)", "rule": "Kinematics must match meaning; bigger/heavier => slower; wrong motion reads as different meaning.", "confidence": "E"},
+      {"id": "PR-match-cut", "name": "Match cut", "rule": "Carry one meaningful element across the cut (graphic match / match on action / color match / sound bridge).", "confidence": "E"},
+      {"id": "PR-kinetic-type", "name": "Kinetic typography", "rule": "Settle fast then hold readable >=0.5s; hierarchy via sequence; one kinetic moment per section; never break a word; fit title-safe.", "confidence": "E"},
+      {"id": "PR-no-templates", "name": "Generate, never select", "rule": "Compose form from tokens (stagger x order x easing) bounded by legibility laws; no fixed component library / template menu.", "confidence": "E"}
+    ],
+    "color": [
+      {"id": "PR-color-semantic", "name": "Semantic color fixed", "rule": "green=good/gain, red=bad/loss, amber=warning, blue=info; follow the data's meaning, never mood.", "confidence": "E"},
+      {"id": "PR-color-mood", "name": "Mood via sat/bright/temp", "rule": "Mood = saturation + brightness + temperature, NOT hue; brand hue stays sovereign (Valdez & Mehrabian 1994).", "confidence": "E"},
+      {"id": "PR-color-legibility", "name": "Legibility floor", "rule": "WCAG 4.5:1 body / 3:1 large; on low-contrast footage escalate flip->shadow->stroke->scrim. Legibility beats mood.", "confidence": "E"}
+    ],
+    "sound": [
+      {"id": "PR-music-arc", "name": "Music arc", "rule": "Build tempo/layers toward the payoff; resolve at the end (real outro).", "confidence": "I"},
+      {"id": "PR-sfx-punctuation", "name": "SFX as punctuation", "rule": "Use for emphasis/transitions/clicks/data-lands; sparingly + varied timbre; overuse (esp. repeated high-freq) = listener fatigue; silence on clean cuts/fades.", "confidence": "I"}
+    ]
+  },
+
+  "metrics": [
+    {"id": "MET-hook-rate", "name": "hook_rate", "definition": "2-3s views / impressions", "benchmark": {"table_stakes": 0.25, "good": 0.30, "elite": 0.40}, "note": "65-75% of paid views drop before 3s.", "confidence": "I"},
+    {"id": "MET-hold-rate", "name": "hold_rate", "definition": "3-15s engagement", "benchmark": {"min": 0.25, "standard": 0.45}, "note": "<25% after a strong hook = pacing problem.", "confidence": "I"},
+    {"id": "MET-watch-through", "name": "avg_watch_through", "benchmark": {"under_2min": [0.50, 0.70], "5_15min": [0.40, 0.55]}, "confidence": "I"},
+    {"id": "MET-completion", "name": "completion_by_length", "data": {"under_1min": 0.65, "1_2min": 0.56, "2_10min": 0.50, "10_20min": 0.39, "20min_plus": 0.21}, "source": "vidyard_943k", "confidence": "I"},
+    {"id": "MET-conversion", "name": "landing_page_conversion_lift", "value": [0.80, 0.86], "confidence": "M"}
+  ],
+
+  "contradictions": [
+    {"id": "CON-aspect-ratio", "topic": "aspect ratio", "resolution": "Platform-dependent: 9:16 vertical wins on social feeds; 16:9 horizontal wins on LinkedIn/B2B (beat 9:16 by 2-4x on a $140k test) and YouTube. Pick by platform+audience, do NOT hardcode 'vertical always'."},
+    {"id": "CON-sound-off", "topic": "sound-off %", "resolution": "85% (Facebook) vs 92-95% (mobile/internal). Treat captions as mandatory regardless of which figure."},
+    {"id": "CON-shortform-length", "topic": "short-form sweet-spot lengths", "resolution": "AI-blog sourced numbers are inconsistent (M). Only Wistia/Vidyard length-vs-retention curves are benchmark-grade. Calibrate per channel."},
+    {"id": "CON-human-vs-tts", "topic": "human vs synthetic voice", "resolution": "Classic d~0.78 favored human, but modern TTS (edge-tts) narrows it. Validate by ear; do not assume a robotic penalty."}
+  ],
+
+  "sources": {
+    "ncvs_vo_calculators": "lanceblairvo.com/voiceover-script-timer ; boords.com/script-timer",
+    "facebook_3s": "scenith.in/blogs/three-second-rule",
+    "vidyard_943k": "vidyard.com/business-video-benchmarks",
+    "wistia_retention": "wistia.com/learn/marketing/understanding-audience-retention",
+    "captions_verizon_publicis": "3playmedia.com/blog/verizon-media-and-publicis-media-find-viewers-want-captions",
+    "linkedin_aspect": "b2linked.com/blog/ep160",
+    "mayer": "educationaltechnology.net/mayers-principles-of-multimedia-learning",
+    "mayer_redundancy": "ncbi.nlm.nih.gov/pmc/articles/PMC4088922",
+    "mayer_voice": "files.eric.ed.gov/fulltext/EJ1341358.pdf",
+    "cognitive_load": "en.wikipedia.org/wiki/Cognitive_load",
+    "curiosity_gap": "cmu.edu/dietrich/sds/docs/golman/golman_loewenstein_curiosity.pdf",
+    "storybrand": "storybrand.com/downloads/your-brand-is-not-the-hero.pdf",
+    "shapiro": "julian.com/guide/startup/landing-pages",
+    "screen_studio": "screenify.studio/blog ; screen.studio",
+    "disney_ui_apple_hig": "ixdf.org disney-12-principles-ui ; developer.apple.com/design/human-interface-guidelines/motion",
+    "design_systems_motion": "designsystems.com/5-steps-motion ; everything.design/motion-brand-guidelines",
+    "valdez_mehrabian": "Valdez & Mehrabian 1994 ; Wilms & Oberfeld 2018 (uni-mainz.de)",
+    "studiobinder_editing": "studiobinder.com (rhythm/pace) ; match-cuts",
+    "sfx": "sfxengine.com/blog",
+    "remotion": "remotion.dev/docs/the-fundamentals ; /using-randomness",
+    "ai_video_landscape": "knowlify.com/articles/best-ai-explainer-video-generator",
+    "metrics": "billo.app/blog/hook-rate-to-hold-rate ; amraandelma.com/best-video-ad-completion-rate-statistics"
+  }
+}

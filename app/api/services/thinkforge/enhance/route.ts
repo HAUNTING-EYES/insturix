@@ -4,6 +4,8 @@ import { createThinkForgeModelForRoute, resolveThinkForgeProviderRoute } from '@
 import { auth } from '@clerk/nextjs/server';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { readAiSdkUsage, recordThinkForgeDirectCost } from '@/lib/thinkforge/services/provider-cost-telemetry';
+import { buildIsolatedPromptParts } from '@/lib/thinkforge/agents/prompt-boundary';
+import { assertProviderPromptAllowed } from '@/lib/thinkforge/privacy/provider-privacy-gateway';
 
 export const maxDuration = 30;
 
@@ -35,13 +37,28 @@ export async function POST(req: NextRequest) {
             modelName: modelRoute.model,
         });
         const system = "<role>You are an expert creative director and YouTube producer.</role>\n<task>The user will give you a very short, generic idea or niche. Return a highly detailed, exciting, and specific 2-3 sentence video concept. Make it cinematic, trendy, and highly specific.</task>\n<rules>\n1. Do not include any conversational filler (no 'Here is an idea:')\n2. Just return the enhanced prompt directly\n3. Do not use quotes\n</rules>\n<output_format>2-3 sentence detailed video concept. No preamble, no quotes, no filler - just the concept.</output_format>";
+        const promptParts = buildIsolatedPromptParts({
+            systemInstruction: system,
+            data: { userPrompt: prompt },
+            fieldLimits: { userPrompt: 8_000 },
+            totalLimit: 8_000,
+        });
+        const privacy = assertProviderPromptAllowed({
+            provider: modelRoute.provider,
+            model: modelRoute.model,
+            routePurpose,
+            declaredPrivacyClass: privacyClass,
+            prompt: promptParts.prompt,
+            fieldsSent: ['userPrompt'],
+        });
+        console.info('[ThinkForgePrivacy] Provider prompt approved', privacy.audit);
         const startedAt = Date.now();
 
         // Stream back enhanced prompt
         const result = streamText({
             model,
-            system,
-            prompt,
+            system: promptParts.systemInstruction,
+            prompt: privacy.prompt,
             temperature: 0.8,
             onFinish: async ({ text, usage, finishReason }) => {
                 await recordThinkForgeDirectCost({
@@ -52,12 +69,12 @@ export async function POST(req: NextRequest) {
                     modelName: modelRoute.model,
                     operation: 'llm_stream_direct',
                     userId,
-                    promptChars: system.length + prompt.length,
+                    promptChars: promptParts.systemInstruction.length + privacy.prompt.length,
                     outputChars: text?.length,
                     functionMs: Date.now() - startedAt,
                     usage: await readAiSdkUsage(usage),
                     routePurpose,
-                    privacyClass,
+                    privacyClass: privacy.audit.privacyClass,
                     temperature: 0.8,
                     sourceKind: 'prompt_panel_enhance',
                     finishReason,

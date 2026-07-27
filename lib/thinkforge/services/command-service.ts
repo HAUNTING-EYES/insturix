@@ -6,6 +6,12 @@ import { applyThinkForgeBlockPatches, extractTextFromRichText, type ThinkForgeBl
 import { preserveExportMetaForUnchangedBlocks } from '@/lib/thinkforge/utils/preserve-export-meta';
 import type { TiptapJSON } from '@/lib/thinkforge/schemas/tiptap-schema';
 import * as db from '@/lib/thinkforge/services/db';
+import {
+  ThinkForgeDocumentContractSchema,
+  createThinkForgeWriterContract,
+  normalizeThinkForgeDocumentContract,
+  type ThinkForgeDocumentContract,
+} from '@/lib/thinkforge/schemas/document-contract';
 
 export type CommandType = 'UpdateBlock' | 'InsertBlock' | 'DeleteBlock' | 'ReplaceDocument';
 export type CommandSource = 'user' | 'ai';
@@ -37,15 +43,42 @@ function computeContentFromBlocks(blocks: ThinkForgeBlock[]): string {
   return blocks.map((b) => extractTextFromRichText(b.content)).join('\n\n');
 }
 
-export async function applyCommand(request: CommandRequest, userId: string): Promise<CommandResult> {
+function canonicalDocumentType(contract: ThinkForgeDocumentContract): string {
+  return contract.documentKind === 'document' ? contract.artifactType : contract.outputKind;
+}
+
+function contractsMatch(
+  left: ThinkForgeDocumentContract,
+  right: ThinkForgeDocumentContract,
+): boolean {
+  return left.version === right.version
+    && left.documentKind === right.documentKind
+    && left.outputKind === right.outputKind
+    && left.artifactType === right.artifactType;
+}
+
+function parseStoredContract(script: db.Script): ThinkForgeDocumentContract | null {
+  if (script.contentContract) {
+    return ThinkForgeDocumentContractSchema.parse(script.contentContract);
+  }
+  if (!script.documentType) return null;
+  return normalizeThinkForgeDocumentContract(script.documentType);
+}
+
+export async function applyCommand(
+  request: CommandRequest,
+  userId: string,
+  orgId?: string | null,
+): Promise<CommandResult> {
   const { type, payload, sessionId, baseVersion } = request;
-  const session = await db.getSession(sessionId, userId);
+  const session = await db.getSession(sessionId, userId, orgId);
   if (!session) {
     return { ok: false, error: 'Session not found' };
   }
+  const canonicalSessionId = session._id;
 
   const scriptId = typeof payload.scriptId === 'string' ? payload.scriptId : 'default';
-  const existing = await db.getScript(sessionId, scriptId);
+  const existing = await db.getScript(canonicalSessionId, scriptId);
   const currentVersion = existing?.version ?? 0;
 
   let effectiveBaseVersion = baseVersion;
@@ -62,7 +95,18 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
   let nextTitle = existing?.title || 'Untitled Script';
   let nextRichText: TiptapJSON | null = existing?.richText ? (existing.richText as TiptapJSON) : null;
   let nextMetadata = existing?.metadata;
-  let nextDocumentType = existing?.documentType || 'screenplay';
+  let nextContract: ThinkForgeDocumentContract;
+  try {
+    const storedContract = existing ? parseStoredContract(existing) : null;
+    if (existing?.documentType && !storedContract) {
+      return { ok: false, error: 'Stored script has an unsupported document type' };
+    }
+    nextContract = storedContract
+      ?? normalizeThinkForgeDocumentContract(session.projectMeta?.format)
+      ?? createThinkForgeWriterContract('video_script');
+  } catch {
+    return { ok: false, error: 'Stored script has an invalid document contract' };
+  }
 
   if (type === 'ReplaceDocument') {
     nextBlocks = preserveExportMetaForUnchangedBlocks(normalizeBlocksFromPayload(payload), nextBlocks);
@@ -71,9 +115,30 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
     nextMetadata = payload.metadata && typeof payload.metadata === 'object' && !Array.isArray(payload.metadata)
       ? payload.metadata
       : nextMetadata;
-    nextDocumentType = typeof payload.documentType === 'string' && payload.documentType.trim()
-      ? payload.documentType.trim()
-      : nextDocumentType;
+    const explicitContract = payload.contentContract !== undefined
+      ? ThinkForgeDocumentContractSchema.safeParse(payload.contentContract)
+      : null;
+    if (explicitContract && !explicitContract.success) {
+      return { ok: false, error: 'Invalid document contract' };
+    }
+
+    const explicitDocumentType = typeof payload.documentType === 'string' && payload.documentType.trim()
+      ? normalizeThinkForgeDocumentContract(payload.documentType)
+      : null;
+    if (typeof payload.documentType === 'string' && payload.documentType.trim() && !explicitDocumentType) {
+      return { ok: false, error: 'Unsupported document type' };
+    }
+
+    if (explicitContract?.success && explicitDocumentType
+      && !contractsMatch(explicitContract.data, explicitDocumentType)) {
+      return { ok: false, error: 'Document contract conflicts with document type' };
+    }
+
+    if (explicitContract?.success) {
+      nextContract = explicitContract.data;
+    } else if (explicitDocumentType) {
+      nextContract = explicitDocumentType;
+    }
   }
 
   if (type === 'UpdateBlock') {
@@ -125,14 +190,15 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
     : computeContentFromBlocks(nextBlocks);
 
   const saveResult = await db.saveScriptWithVersion(
-    sessionId,
+    canonicalSessionId,
     {
       title: nextTitle,
       content: nextContent,
       blocks: nextBlocks,
       richText: nextRichText || undefined,
       metadata: nextMetadata,
-      documentType: nextDocumentType,
+      documentType: canonicalDocumentType(nextContract),
+      contentContract: nextContract,
     },
     effectiveBaseVersion,
     scriptId

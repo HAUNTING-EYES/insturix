@@ -1,5 +1,6 @@
 "use client";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { RefreshCw } from "lucide-react";
 
 interface IdeaGridProps {
   ideas: IdeaCardData[];
@@ -7,10 +8,15 @@ interface IdeaGridProps {
   hasSubmitted: boolean;
   prompt: string;
   onSelect: (idea: IdeaCardData) => void;
+  onRegenerate: () => void;
 }
 
-export const IdeaGrid: React.FC<IdeaGridProps> = ({ ideas, loading, hasSubmitted, prompt, onSelect }) => {
+export const IdeaGrid: React.FC<IdeaGridProps> = ({ ideas, loading, hasSubmitted, prompt, onSelect, onRegenerate }) => {
   const [expandedIdea, setExpandedIdea] = useState<IdeaCardData | null>(null);
+
+  useEffect(() => {
+    setExpandedIdea(null);
+  }, [ideas, loading]);
 
   if (!hasSubmitted) return null;
 
@@ -18,7 +24,7 @@ export const IdeaGrid: React.FC<IdeaGridProps> = ({ ideas, loading, hasSubmitted
     <div className="ideas-view" id="s2" style={{ display: 'block' }}>
       <div className="echo-bar">
         <div className="echo-prompt" id="echoPrompt">{prompt}</div>
-        <button className="echo-regen" onClick={() => window.location.reload()}>↻</button>
+        <button className="echo-regen" onClick={onRegenerate} disabled={loading} aria-label="Generate a new set of ideas" title="Generate a new set of ideas"><RefreshCw className="h-4 w-4" /></button>
       </div>
       
       <div className="ideas-grid" id="ideasGrid">

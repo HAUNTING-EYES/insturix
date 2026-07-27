@@ -65,6 +65,13 @@ export async function POST(
     const { id } = await params;
     const body = await req.json();
     const { voice, language, contentType: bodyContentType } = body;
+    const requestedSceneIndices = Array.isArray(body.sceneIndices)
+      ? new Set(
+        body.sceneIndices.filter(
+          (value: unknown): value is number => Number.isInteger(value),
+        ),
+      )
+      : null;
 
     const storyboard = await getStoryboard(id, userId);
     if (!storyboard) {
@@ -84,7 +91,8 @@ export async function POST(
     if (!contentType) contentType = 'narration';
 
     const scenesWithNarration = storyboard.scenes.filter(
-      (s) => s.descriptor.narration?.trim(),
+      (s) => s.descriptor.narration?.trim()
+        && (!requestedSceneIndices || requestedSceneIndices.has(s.sceneIndex)),
     );
 
     if (scenesWithNarration.length === 0) {
@@ -144,7 +152,7 @@ export async function POST(
           const result = await generateVoiceover(
             scene.descriptor.narration,
             userId,
-            { voice, language, contentType },
+            { voice, language, contentType, mediaRole: 'voiceover' },
           );
 
           await updateStoryboardScene(id, scene.sceneIndex, {
@@ -153,6 +161,9 @@ export async function POST(
               audioAssetId: result.audioAssetId,
               audioDurationMs: result.durationMs,
               gcsPath: result.gcsPath,
+              r2Key: result.r2Key,
+              audioRights: result.audioRights,
+              generatedAudioReceipt: result.generatedAudioReceipt,
             },
           });
 

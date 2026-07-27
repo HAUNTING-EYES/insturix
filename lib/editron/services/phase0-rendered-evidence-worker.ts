@@ -1,14 +1,25 @@
-import { Client } from '@upstash/qstash';
-import { renderStillOnLambda, type RenderStillOnLambdaOutput } from '@remotion/lambda/client';
+import { createHash } from 'crypto';
 
-import { REMOTION_COMPOSITION_ID } from './remotion-constants';
+import { Client } from '@upstash/qstash';
+import {
+  getRenderProgress,
+  renderMediaOnLambda,
+  renderStillOnLambda,
+  type RenderStillOnLambdaOutput,
+} from '@remotion/lambda/client';
+
+import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from './remotion-constants';
 import {
   buildPhase0FixtureManifest,
   type Phase0FixtureProject,
+  type Phase0OverlayLike,
   type Phase0RenderedAestheticReportLike,
   type Phase0RenderedQualityEvidencePayload,
 } from './phase0-fixture-manifest';
-import { buildPhase0RenderArtifactPack } from './phase0-render-artifact-pack';
+import {
+  buildPhase0RenderArtifactPack,
+  type Phase0RenderInput,
+} from './phase0-render-artifact-pack';
 import {
   buildPhase0RenderedAestheticEvidence,
   type ReadRenderedStillImage,
@@ -17,9 +28,22 @@ import { buildPhase0RenderedQualityGate } from './editron-learning-gate';
 import { buildPhase0LiveTruthSnapshot, type Phase0LiveTruthSnapshot } from './phase0-live-truth';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
 import { resolveRemotionSiteFreshness } from './remotion-site-version';
+import {
+  inspectMediaAudioTrack,
+  type InspectMediaAudioTrack,
+  type MediaAudioTrackInspection,
+} from './media-audio-track-service';
+import { verifyRenderAudioRightsAuthority } from './render-audio-rights-authority';
+import {
+  buildLambdaRenderInputProps,
+  isCanonicalMusicOverlay,
+} from '@/lib/editron/shared/render-request-payload';
 
 export const PHASE0_RENDERED_STILL_EVIDENCE_VERSION = 'editron-phase0-rendered-still-evidence-v1' as const;
 const DEFAULT_PHASE0_RENDERED_EVIDENCE_LOCK_STALE_MS = 20 * 60 * 1000;
+const PHASE0_RENDER_STILL_TIMEOUT_MS = 90_000;
+const PHASE0_RENDER_STILL_TRANSIENT_REPAIR_BUDGET = 2;
+const PHASE0_RENDER_STILL_LAMBDA_RETRIES = 0;
 
 type Phase0RenderedStillEvidenceStatus = 'completed' | 'partial' | 'failed' | 'skipped';
 
@@ -29,6 +53,105 @@ export interface Phase0RenderedEvidenceDispatchPayload {
   projectId: string;
   userId: string;
   requestedAt?: string;
+  chatEditVerification?: ChatEditRenderVerificationRequest;
+}
+
+export type ChatEditRenderVerificationModality = 'visual' | 'audio';
+export type ChatEditRenderVerificationExpectation =
+  | 'mutation-delta'
+  | 'continuity-preserved';
+
+export interface ChatEditRenderVerificationTarget {
+  overlayId: string;
+  overlayType: string;
+  state: 'created' | 'updated' | 'deleted';
+  from: number | null;
+  endFrame: number | null;
+}
+
+export interface ChatEditRenderVerificationMutationRange {
+  startFrame: number;
+  endFrame: number;
+  toolName: string;
+}
+
+export interface ChatEditRenderVerificationRequest {
+  version: 'editron-chat-render-verification-v1';
+  operationId: string;
+  sessionId: string;
+  beforeCheckpointId: string;
+  afterCheckpointId: string;
+  requestedAt: string;
+  modalities: ChatEditRenderVerificationModality[];
+  expectedEffect?: ChatEditRenderVerificationExpectation;
+  targets: ChatEditRenderVerificationTarget[];
+  mutationRanges?: ChatEditRenderVerificationMutationRange[];
+  inheritedRenderEligibilityOverlayIds?: string[];
+  sampleFrames: number[];
+}
+
+export function normalizeChatEditInheritedRenderEligibilityOverlayIds(
+  value: unknown,
+): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 64) return null;
+
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') return null;
+    const overlayId = entry.trim();
+    if (
+      overlayId.length < 1
+      || overlayId.length > 180
+      || /[\u0000-\u001F\u007F]/.test(overlayId)
+    ) return null;
+    if (!normalized.includes(overlayId)) normalized.push(overlayId);
+  }
+  return normalized;
+}
+
+export function omitInheritedRenderDebtFromChatDeltaProject(
+  project: Phase0FixtureProject,
+  overlayIds: readonly string[] = [],
+): Phase0FixtureProject {
+  if (overlayIds.length === 0 || !Array.isArray(project.overlays)) return project;
+  const omittedIds = new Set(overlayIds);
+  return {
+    ...project,
+    overlays: project.overlays.filter((overlay) => !omittedIds.has(String(overlay.id ?? ''))),
+  };
+}
+
+export interface ChatEditRenderedAudioWindowEvidence {
+  startFrame: number;
+  endFrame: number;
+  beforeUrl: string | null;
+  afterUrl: string | null;
+  beforePcmSha256: string | null;
+  afterPcmSha256: string | null;
+  beforeRms: number | null;
+  afterRms: number | null;
+  beforePeak: number | null;
+  afterPeak: number | null;
+  changed: boolean;
+  error: string | null;
+}
+
+export interface ChatEditRenderedAudioEvidence {
+  version: 'editron-chat-rendered-audio-v1';
+  status: 'pass' | 'fail' | 'missing';
+  capturedAt: string;
+  windows: ChatEditRenderedAudioWindowEvidence[];
+  skippedWindows?: ChatEditRenderedAudioSkippedWindow[];
+  reason: string | null;
+}
+
+export interface ChatEditRenderedAudioSkippedWindow {
+  startFrame: number;
+  endFrame: number;
+  beforeStatus: MediaAudioTrackInspection['status'];
+  afterStatus: MediaAudioTrackInspection['status'];
+  reason: string;
 }
 
 export interface Phase0RenderedEvidenceDispatchResult {
@@ -144,7 +267,9 @@ type RenderStill = typeof renderStillOnLambda;
 
 export function resolvePhase0RenderedEvidenceConfig(env: EnvLike = process.env) {
   const enabled = !isExplicitlyFalse(env.EDITRON_PHASE0_RENDERED_EVIDENCE_AUTO);
-  const functionName = env.REMOTION_LAMBDA_FUNCTION_NAME || '';
+  const functionName = env.REMOTION_PHASE0_LAMBDA_FUNCTION_NAME
+    || env.REMOTION_LAMBDA_FUNCTION_NAME
+    || '';
   const serveUrl = env.REMOTION_LAMBDA_SERVE_URL || '';
   const region = env.REMOTION_AWS_REGION || 'us-east-1';
   const sampleLimit = clampSampleLimit(env.EDITRON_PHASE0_RENDERED_EVIDENCE_MAX_SAMPLES);
@@ -188,9 +313,11 @@ export async function dispatchPhase0RenderedEvidenceJob(
     ? `https://${env.VERCEL_URL}`
     : env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
   const url = `${baseUrl}/api/internal/workers/phase0-rendered-evidence`;
+  const failureCallback = `${url}?qstashFailure=1`;
   const qstash = new Client({ token, baseUrl: env.QSTASH_URL || undefined });
   const result = await qstash.publishJSON({
     url,
+    failureCallback,
     body: {
       ...payload,
       requestedAt: payload.requestedAt ?? new Date().toISOString(),
@@ -243,6 +370,10 @@ export async function buildPhase0RenderedStillEvidence(
     prepareCredentials?: () => Promise<void>;
     readImage?: ReadRenderedStillImage;
     env?: EnvLike;
+    requestedSampleFrames?: number[];
+    baselineProject?: Phase0FixtureProject;
+    auditedOverlayIds?: Array<string | number>;
+    comparisonMode?: 'mutation-delta' | 'continuity-preserved';
   } = {},
 ): Promise<Phase0RenderedStillEvidence> {
   const capturedAt = options.capturedAt ?? new Date().toISOString();
@@ -255,7 +386,24 @@ export async function buildPhase0RenderedStillEvidence(
     artifactDir: `.calibration-temp/phase0-live/${safeSegment(manifest.projectId)}/${safeSegment(capturedAt)}`,
     maxSamples: config.sampleLimit,
   });
-  const requestedSampleFrames = artifactPack.samplePlan.sampledFrames.slice(0, config.sampleLimit);
+  const operationDurationInFrames = options.baselineProject
+    ? Math.max(
+        1,
+        finitePositiveNumber(project.durationInFrames) ?? 1,
+        finitePositiveNumber(options.baselineProject.durationInFrames) ?? 1,
+        ...(options.requestedSampleFrames ?? []).map((frame) => Number.isFinite(frame) ? Math.round(frame) + 1 : 1),
+      )
+    : Math.max(1, Math.round(finitePositiveNumber(project.durationInFrames) ?? 1));
+  const requestedSampleFrames = resolveRequestedSampleFrames({
+    requested: options.requestedSampleFrames,
+    fallback: artifactPack.samplePlan.sampledFrames,
+    durationInFrames: operationDurationInFrames,
+    sampleLimit: config.sampleLimit,
+  });
+  const operationRenderReady = Boolean(options.baselineProject)
+    && hasUsableOperationalRenderInput(artifactPack.renderInput);
+  const effectiveArtifactPackStatus: Phase0RenderedStillEvidence['artifactPackStatus'] = operationRenderReady
+    ? 'ready' : artifactPack.status;
 
   if (!config.configured) {
     return baseEvidence({
@@ -270,12 +418,12 @@ export async function buildPhase0RenderedStillEvidence(
     });
   }
 
-  if (artifactPack.status !== 'ready') {
+  if (effectiveArtifactPackStatus !== 'ready') {
     return baseEvidence({
       projectId: manifest.projectId,
       capturedAt,
       config,
-      artifactPackStatus: artifactPack.status,
+      artifactPackStatus: effectiveArtifactPackStatus,
       artifactPackIssues: artifactPack.issues,
       requestedSampleFrames,
       status: 'skipped',
@@ -288,29 +436,94 @@ export async function buildPhase0RenderedStillEvidence(
   const renderStill = options.renderStill ?? renderStillOnLambda;
   const renderedFrames: Phase0RenderedStillFrameEvidence[] = [];
   const failedFrames: Phase0RenderedStillEvidence['failedFrames'] = [];
-  const overlayOnlyInputProps = {
-    ...artifactPack.renderInput,
-    overlays: buildOverlayOnlyRenderOverlays(
-      artifactPack.renderInput.overlays,
-      artifactPack.renderInput.width,
-      artifactPack.renderInput.height,
-    ),
-    isRendering: true,
-  } as Record<string, unknown>;
-  const baselineInputProps = {
-    ...artifactPack.renderInput,
-    overlays: buildBaselineOverlays(
-      artifactPack.renderInput.overlays,
-      artifactPack.renderInput.width,
-      artifactPack.renderInput.height,
-    ),
-    isRendering: true,
-  } as Record<string, unknown>;
+  const operationBaselinePack = options.baselineProject
+    ? buildPhase0RenderArtifactPack(
+        options.baselineProject,
+        buildPhase0FixtureManifest(options.baselineProject, {
+          capturedAt,
+          source: 'phase0-rendered-evidence-worker',
+        }),
+        {
+          artifactDir: `.calibration-temp/phase0-live/${safeSegment(manifest.projectId)}/${safeSegment(capturedAt)}-before`,
+          maxSamples: config.sampleLimit,
+        },
+      )
+    : null;
+  const overlayOnlyInputProps = options.baselineProject
+    ? {
+        ...artifactPack.renderInput,
+        durationInFrames: operationDurationInFrames,
+        isRendering: true,
+      }
+    : {
+        ...artifactPack.renderInput,
+        overlays: buildOverlayOnlyRenderOverlays(
+          artifactPack.renderInput.overlays,
+          artifactPack.renderInput.width,
+          artifactPack.renderInput.height,
+        ),
+        isRendering: true,
+      };
+  const baselineInputProps = operationBaselinePack
+    ? {
+        ...operationBaselinePack.renderInput,
+        durationInFrames: operationDurationInFrames,
+        isRendering: true,
+      }
+    : {
+        ...artifactPack.renderInput,
+        overlays: buildBaselineOverlays(
+          artifactPack.renderInput.overlays,
+          artifactPack.renderInput.width,
+          artifactPack.renderInput.height,
+        ),
+        isRendering: true,
+      };
 
-  for (const frame of requestedSampleFrames) {
-    let fullStill: RenderStillOnLambdaOutput | null = null;
-    try {
-      fullStill = await renderStill({
+  const frameResults = await mapWithConcurrency(
+    requestedSampleFrames,
+    3,
+    async (frame) => {
+      const [fullResult, baselineResult] = await Promise.allSettled([
+        renderStillForEvidence(renderStill, {
+          region: config.region as any,
+          functionName: config.functionName,
+          serveUrl: config.serveUrl,
+          composition: REMOTION_COMPOSITION_ID,
+          inputProps: overlayOnlyInputProps,
+          imageFormat: 'png',
+          privacy: 'public',
+          frame,
+          maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
+        }),
+        renderStillForEvidence(renderStill, {
+          region: config.region as any,
+          functionName: config.functionName,
+          serveUrl: config.serveUrl,
+          composition: REMOTION_COMPOSITION_ID,
+          inputProps: baselineInputProps,
+          imageFormat: 'png',
+          privacy: 'public',
+          frame,
+          maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
+        }),
+      ]);
+      return { frame, fullResult, baselineResult };
+    },
+  );
+
+  // A transient failure must not retry while the initial Lambda fan-out is
+  // still consuming render capacity. Preserve every successful still, then
+  // repair only failed transient calls sequentially under a global budget.
+  let transientRepairBudget = PHASE0_RENDER_STILL_TRANSIENT_REPAIR_BUDGET;
+  for (const frameResult of frameResults) {
+    if (
+      transientRepairBudget > 0
+      && frameResult.fullResult.status === 'rejected'
+      && isTransientRenderedStillFailure(frameResult.fullResult.reason)
+    ) {
+      transientRepairBudget -= 1;
+      frameResult.fullResult = await settleRenderedStillForEvidence(renderStill, {
         region: config.region as any,
         functionName: config.functionName,
         serveUrl: config.serveUrl,
@@ -318,20 +531,17 @@ export async function buildPhase0RenderedStillEvidence(
         inputProps: overlayOnlyInputProps,
         imageFormat: 'png',
         privacy: 'public',
-        frame,
-        maxRetries: 1,
+        frame: frameResult.frame,
+        maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
       });
-    } catch (err: unknown) {
-      failedFrames.push({
-        frame,
-        renderKind: 'full',
-        error: err instanceof Error ? err.message : String(err),
-      });
-      continue;
     }
-
-    try {
-      const baselineStill = await renderStill({
+    if (
+      transientRepairBudget > 0
+      && frameResult.baselineResult.status === 'rejected'
+      && isTransientRenderedStillFailure(frameResult.baselineResult.reason)
+    ) {
+      transientRepairBudget -= 1;
+      frameResult.baselineResult = await settleRenderedStillForEvidence(renderStill, {
         region: config.region as any,
         functionName: config.functionName,
         serveUrl: config.serveUrl,
@@ -339,18 +549,31 @@ export async function buildPhase0RenderedStillEvidence(
         inputProps: baselineInputProps,
         imageFormat: 'png',
         privacy: 'public',
-        frame,
-        maxRetries: 1,
+        frame: frameResult.frame,
+        maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
       });
-      renderedFrames.push(toFrameEvidence(frame, fullStill, baselineStill));
-    } catch (err: unknown) {
+    }
+  }
+
+  for (const { frame, fullResult, baselineResult } of frameResults) {
+    if (fullResult.status === 'rejected') {
       failedFrames.push({
         frame,
-        renderKind: 'baseline',
-        error: err instanceof Error ? err.message : String(err),
+        renderKind: 'full',
+        error: settledError(fullResult.reason),
       });
-      renderedFrames.push(toFrameEvidence(frame, fullStill));
+      continue;
     }
+    if (baselineResult.status === 'fulfilled') {
+      renderedFrames.push(toFrameEvidence(frame, fullResult.value, baselineResult.value));
+      continue;
+    }
+    failedFrames.push({
+      frame,
+      renderKind: 'baseline',
+      error: settledError(baselineResult.reason),
+    });
+    renderedFrames.push(toFrameEvidence(frame, fullResult.value));
   }
 
   const pairedFrameCount = renderedFrames.filter((frame) => frame.baselineUrl).length;
@@ -370,7 +593,7 @@ export async function buildPhase0RenderedStillEvidence(
       projectId: manifest.projectId,
       capturedAt,
       config,
-      artifactPackStatus: artifactPack.status,
+      artifactPackStatus: effectiveArtifactPackStatus,
       artifactPackIssues: artifactPack.issues,
       requestedSampleFrames,
       status,
@@ -387,7 +610,12 @@ export async function buildPhase0RenderedStillEvidence(
         manifest,
         artifactPack,
         { renderedFrames },
-        { readImage: options.readImage },
+        {
+          readImage: options.readImage,
+          auditedOverlayIds: options.auditedOverlayIds,
+          comparisonMode: options.comparisonMode
+            ?? (options.baselineProject ? 'mutation-delta' : 'overlay-visibility'),
+        },
       );
       if (aestheticEvidence) {
         const phase0LiveTruth = buildPhase0LiveTruthSnapshot(project, {
@@ -423,6 +651,601 @@ export async function buildPhase0RenderedStillEvidence(
   }
 
   return evidence;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  maximumConcurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  const workerCount = Math.max(1, Math.min(items.length, Math.floor(maximumConcurrency)));
+  let nextIndex = 0;
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index] as T, index);
+    }
+  }));
+  return results;
+}
+
+function settledError(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
+async function renderStillForEvidence(
+  renderStill: RenderStill,
+  input: Parameters<RenderStill>[0],
+): Promise<RenderStillOnLambdaOutput> {
+  return renderStill({
+    ...input,
+    timeoutInMilliseconds: PHASE0_RENDER_STILL_TIMEOUT_MS,
+  });
+}
+
+async function settleRenderedStillForEvidence(
+  renderStill: RenderStill,
+  input: Parameters<RenderStill>[0],
+): Promise<PromiseSettledResult<RenderStillOnLambdaOutput>> {
+  try {
+    return {
+      status: 'fulfilled',
+      value: await renderStillForEvidence(renderStill, input),
+    };
+  } catch (reason: unknown) {
+    return {
+      status: 'rejected',
+      reason,
+    };
+  }
+}
+
+function isTransientRenderedStillFailure(error: unknown): boolean {
+  const message = settledError(error).toLowerCase();
+  return [
+    'timeout',
+    'timed out',
+    'econnreset',
+    'etimedout',
+    'socket hang up',
+    'stream prematurely closed',
+    'service unavailable',
+    'internal server error',
+    'throttl',
+  ].some((token) => message.includes(token));
+}
+
+interface RenderedAudioArtifact {
+  url: string;
+  renderId: string;
+  bucketName: string;
+  pcmSha256: string;
+  rms: number;
+  peak: number;
+}
+
+type RenderAudioWindow = (input: {
+  inputProps: Record<string, unknown>;
+  startFrame: number;
+  endFrame: number;
+  config: ReturnType<typeof resolvePhase0RenderedEvidenceConfig>;
+}) => Promise<RenderedAudioArtifact>;
+
+type AudioWindow = {
+  startFrame: number;
+  endFrame: number;
+};
+
+type AudioWindowTrackState = {
+  status: MediaAudioTrackInspection['status'];
+  reason: string | null;
+};
+
+type ClassifiedAudioWindow = AudioWindow & {
+  before: AudioWindowTrackState;
+  after: AudioWindowTrackState;
+};
+
+const EMPTY_AUDIO_PCM_SHA256 = createHash('sha256').update(Buffer.alloc(0)).digest('hex');
+
+export async function buildChatEditRenderedAudioEvidence(
+  project: Phase0FixtureProject,
+  baselineProject: Phase0FixtureProject,
+  request: ChatEditRenderVerificationRequest,
+  options: {
+    capturedAt?: string;
+    env?: EnvLike;
+    prepareCredentials?: () => Promise<void>;
+    renderAudioWindow?: RenderAudioWindow;
+    inspectAudioTrack?: InspectMediaAudioTrack;
+  } = {},
+): Promise<ChatEditRenderedAudioEvidence> {
+  const capturedAt = options.capturedAt ?? new Date().toISOString();
+  const config = resolvePhase0RenderedEvidenceConfig(options.env);
+  const fps = finitePositiveNumber(project.fps) ?? 30;
+  const durationInFrames = Math.max(
+    1,
+    Math.round(finitePositiveNumber(project.durationInFrames) ?? 1),
+    Math.round(finitePositiveNumber(baselineProject.durationInFrames) ?? 1),
+    ...request.targets.map((target) => Math.max(target.from == null ? 0 : target.from + 1, target.endFrame ?? 0)),
+  );
+  const windows = buildChatEditAudioVerificationWindows({
+    targets: request.targets,
+    mutationRanges: request.mutationRanges,
+    durationInFrames,
+    fps,
+    sampleLimit: config.sampleLimit,
+  });
+  const inspectAudioTrack = memoizeAudioTrackInspection(
+    options.inspectAudioTrack ?? inspectMediaAudioTrack,
+  );
+  const classifiedWindows = await Promise.all(
+    windows.map(async (window): Promise<ClassifiedAudioWindow> => ({
+      ...window,
+      before: await resolveAudioWindowTrackState(
+        baselineProject.overlays,
+        window,
+        inspectAudioTrack,
+      ),
+      after: await resolveAudioWindowTrackState(
+        project.overlays,
+        window,
+        inspectAudioTrack,
+      ),
+    })),
+  );
+  const unknownWindow = classifiedWindows.find(
+    (window) => window.before.status === 'unknown' || window.after.status === 'unknown',
+  );
+  const skippedWindows = classifiedWindows
+    .filter((window) => window.before.status === 'absent' && window.after.status === 'absent')
+    .map((window): ChatEditRenderedAudioSkippedWindow => ({
+      startFrame: window.startFrame,
+      endFrame: window.endFrame,
+      beforeStatus: window.before.status,
+      afterStatus: window.after.status,
+      reason: 'no_audio_stream_in_requested_window',
+    }));
+
+  if (unknownWindow) {
+    return {
+      version: 'editron-chat-rendered-audio-v1',
+      status: 'missing',
+      capturedAt,
+      windows: [],
+      skippedWindows,
+      reason: `audio_stream_presence_unknown:${
+        unknownWindow.before.reason
+        ?? unknownWindow.after.reason
+        ?? 'unresolved_media_track'
+      }`,
+    };
+  }
+
+  const applicableWindows = classifiedWindows.filter(
+    (window) => window.before.status === 'present' || window.after.status === 'present',
+  );
+  if (applicableWindows.length === 0) {
+    const hasExplicitAudioTarget = request.targets.some((target) =>
+      ['audio', 'sound'].includes(target.overlayType.toLowerCase()),
+    );
+    return {
+      version: 'editron-chat-rendered-audio-v1',
+      status: hasExplicitAudioTarget ? 'fail' : 'pass',
+      capturedAt,
+      windows: [],
+      skippedWindows,
+      reason: hasExplicitAudioTarget
+        ? 'expected_audio_stream_missing_in_requested_windows'
+        : 'no_audio_stream_in_requested_windows',
+    };
+  }
+
+  if (!config.configured) {
+    return {
+      version: 'editron-chat-rendered-audio-v1',
+      status: 'missing',
+      capturedAt,
+      windows: [],
+      skippedWindows,
+      reason: config.reason ?? 'audio_render_not_configured',
+    };
+  }
+
+  const afterManifest = buildPhase0FixtureManifest(project, {
+    capturedAt,
+    source: 'phase0-rendered-evidence-worker',
+  });
+  const beforeManifest = buildPhase0FixtureManifest(baselineProject, {
+    capturedAt,
+    source: 'phase0-rendered-evidence-worker',
+  });
+  const afterPack = buildPhase0RenderArtifactPack(project, afterManifest, {
+    artifactDir: `.calibration-temp/chat-edit/${safeSegment(request.operationId)}/after`,
+    maxSamples: config.sampleLimit,
+  });
+  const beforePack = buildPhase0RenderArtifactPack(baselineProject, beforeManifest, {
+    artifactDir: `.calibration-temp/chat-edit/${safeSegment(request.operationId)}/before`,
+    maxSamples: config.sampleLimit,
+  });
+  if (
+    !hasUsableOperationalRenderInput(afterPack.renderInput)
+    || !hasUsableOperationalRenderInput(beforePack.renderInput)
+  ) {
+    return {
+      version: 'editron-chat-rendered-audio-v1',
+      status: 'missing',
+      capturedAt,
+      windows: [],
+      skippedWindows,
+      reason: `audio_artifact_pack_not_renderable:${[
+        ...afterPack.issues,
+        ...beforePack.issues,
+      ].slice(0, 4).join('|')}`,
+    };
+  }
+
+  const beforeInputProps = {
+    ...beforePack.renderInput,
+    durationInFrames,
+    isRendering: true,
+    renderMediaMode: 'audio-only',
+  };
+  const afterInputProps = {
+    ...afterPack.renderInput,
+    durationInFrames,
+    isRendering: true,
+    renderMediaMode: 'audio-only',
+  };
+  const musicOverlays = [
+    ...beforeInputProps.overlays,
+    ...afterInputProps.overlays,
+  ].filter(isCanonicalMusicOverlay);
+  if (musicOverlays.length > 0) {
+    const projectId = readNonEmptyString(project.projectId);
+    const baselineProjectId = readNonEmptyString(baselineProject.projectId);
+    const userId = readNonEmptyString(project.userId)
+      ?? readNonEmptyString(baselineProject.userId);
+    if (!projectId || !userId || (baselineProjectId && baselineProjectId !== projectId)) {
+      throw new Error('Phase-0 audio rights authority requires one authenticated project identity.');
+    }
+    await verifyRenderAudioRightsAuthority({
+      projectId,
+      userId,
+      overlays: musicOverlays,
+    });
+  }
+  const authorizedBeforeInputProps = buildLambdaRenderInputProps(beforeInputProps);
+  const authorizedAfterInputProps = buildLambdaRenderInputProps(afterInputProps);
+
+  await (options.prepareCredentials ?? setAWSCredentials)();
+  const renderAudioWindow = options.renderAudioWindow ?? renderLambdaAudioWindow;
+  const evidenceWindows: ChatEditRenderedAudioWindowEvidence[] = [];
+  for (const window of applicableWindows) {
+    try {
+      const [before, after] = await Promise.all([
+        window.before.status === 'present'
+          ? renderAudioWindow({
+              inputProps: authorizedBeforeInputProps,
+              startFrame: window.startFrame,
+              endFrame: window.endFrame,
+              config,
+            })
+          : Promise.resolve(null),
+        window.after.status === 'present'
+          ? renderAudioWindow({
+              inputProps: authorizedAfterInputProps,
+              startFrame: window.startFrame,
+              endFrame: window.endFrame,
+              config,
+            })
+          : Promise.resolve(null),
+      ]);
+      const beforePcmSha256 = before?.pcmSha256 ?? EMPTY_AUDIO_PCM_SHA256;
+      const afterPcmSha256 = after?.pcmSha256 ?? EMPTY_AUDIO_PCM_SHA256;
+      evidenceWindows.push({
+        ...window,
+        beforeUrl: before?.url ?? null,
+        afterUrl: after?.url ?? null,
+        beforePcmSha256,
+        afterPcmSha256,
+        beforeRms: before?.rms ?? 0,
+        afterRms: after?.rms ?? 0,
+        beforePeak: before?.peak ?? 0,
+        afterPeak: after?.peak ?? 0,
+        changed: beforePcmSha256 !== afterPcmSha256,
+        error: null,
+      });
+    } catch (error: unknown) {
+      evidenceWindows.push({
+        ...window,
+        beforeUrl: null,
+        afterUrl: null,
+        beforePcmSha256: null,
+        afterPcmSha256: null,
+        beforeRms: null,
+        afterRms: null,
+        beforePeak: null,
+        afterPeak: null,
+        changed: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const expectsContinuity = request.expectedEffect === 'continuity-preserved';
+  const failed = evidenceWindows.filter((window) =>
+    Boolean(window.error) || (expectsContinuity ? window.changed : !window.changed),
+  );
+  return {
+    version: 'editron-chat-rendered-audio-v1',
+    status: evidenceWindows.length > 0 && failed.length === 0 ? 'pass' : 'fail',
+    capturedAt,
+    windows: evidenceWindows,
+    skippedWindows,
+    reason: failed.length === 0
+      ? null
+      : failed[0]?.error
+        ?? (expectsContinuity
+          ? 'rendered_audio_changed_across_continuity_preserving_edit'
+          : 'rendered_audio_did_not_change_in_the_requested_window'),
+  };
+}
+
+function memoizeAudioTrackInspection(
+  inspect: InspectMediaAudioTrack,
+): InspectMediaAudioTrack {
+  const cache = new Map<string, Promise<MediaAudioTrackInspection>>();
+  return (url) => {
+    const existing = cache.get(url);
+    if (existing) return existing;
+    const pending = inspect(url);
+    cache.set(url, pending);
+    return pending;
+  };
+}
+
+async function resolveAudioWindowTrackState(
+  overlays: Phase0FixtureProject['overlays'],
+  window: AudioWindow,
+  inspect: InspectMediaAudioTrack,
+): Promise<AudioWindowTrackState> {
+  const active = (Array.isArray(overlays) ? overlays : []).filter(
+    (overlay) => overlayIntersectsAudioWindow(overlay, window) && overlayCanProduceAudio(overlay),
+  );
+  if (active.length === 0) return { status: 'absent', reason: null };
+
+  const explicitAudio = active.find((overlay) =>
+    ['audio', 'sound'].includes(String(overlay.type ?? '').toLowerCase()),
+  );
+  if (explicitAudio) return { status: 'present', reason: null };
+
+  const videoUrls = Array.from(new Set(
+    active
+      .filter((overlay) => String(overlay.type ?? '').toLowerCase() === 'video')
+      .map(mediaUrlOf)
+      .filter((url): url is string => Boolean(url)),
+  ));
+  const hasVideoWithoutUrl = active.some(
+    (overlay) =>
+      String(overlay.type ?? '').toLowerCase() === 'video'
+      && !mediaUrlOf(overlay),
+  );
+  const inspections = await Promise.all(videoUrls.map(inspect));
+  if (inspections.some((result) => result.status === 'present')) {
+    return { status: 'present', reason: null };
+  }
+  const unknown = inspections.find((result) => result.status === 'unknown');
+  if (unknown || hasVideoWithoutUrl) {
+    return {
+      status: 'unknown',
+      reason: unknown?.reason ?? 'video_audio_source_url_missing',
+    };
+  }
+  return { status: 'absent', reason: null };
+}
+
+function overlayIntersectsAudioWindow(
+  overlay: Phase0OverlayLike,
+  window: AudioWindow,
+): boolean {
+  const from = numberValue(overlay.from) ?? 0;
+  const duration = Math.max(1, numberValue(overlay.durationInFrames) ?? 1);
+  return from < window.endFrame && from + duration > window.startFrame;
+}
+
+function overlayCanProduceAudio(overlay: Phase0OverlayLike): boolean {
+  const type = String(overlay.type ?? '').toLowerCase();
+  if (!['video', 'audio', 'sound'].includes(type)) return false;
+  const styles = recordValue(overlay.styles);
+  const muted = overlay.muted === true || styles?.muted === true;
+  const volume = numberValue(styles?.volume) ?? numberValue(overlay.volume) ?? 1;
+  return !muted && volume > 0;
+}
+
+function mediaUrlOf(overlay: Phase0OverlayLike): string | null {
+  for (const value of [overlay.src, overlay.content]) {
+    if (typeof value !== 'string') continue;
+    try {
+      const url = new URL(value);
+      if (url.protocol === 'https:' || url.protocol === 'http:') return url.toString();
+    } catch {
+      // Asset IDs and display labels are not media URLs.
+    }
+  }
+  return null;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+export function buildChatEditAudioVerificationWindows(input: {
+  targets: ChatEditRenderVerificationTarget[];
+  mutationRanges?: ChatEditRenderVerificationMutationRange[];
+  durationInFrames: number;
+  fps: number;
+  sampleLimit: number;
+}): Array<{ startFrame: number; endFrame: number }> {
+  const duration = Math.max(1, Math.round(input.durationInFrames));
+  const maxWindowFrames = Math.max(1, Math.round(input.fps * 6));
+  const candidates: Array<{ startFrame: number; endFrame: number }> = [];
+  const mutationContextFrames = Math.max(1, Math.round(input.fps * 2));
+
+  for (const range of input.mutationRanges ?? []) {
+    const start = clampFrame(range.startFrame, duration);
+    const end = Math.max(start + 1, Math.min(duration, Math.round(range.endFrame)));
+    candidates.push({
+      startFrame: Math.max(0, start - mutationContextFrames),
+      endFrame: Math.min(duration, end + mutationContextFrames),
+    });
+  }
+
+  if (candidates.length > 0) {
+    return dedupeAudioVerificationWindows(candidates, input.sampleLimit);
+  }
+
+  const audioTargets = input.targets.filter((target) =>
+    ['audio', 'sound', 'video'].includes(target.overlayType.toLowerCase()),
+  );
+
+  for (const target of audioTargets) {
+    const start = clampFrame(target.from ?? 0, duration);
+    const end = Math.max(start + 1, Math.min(duration, Math.round(target.endFrame ?? duration)));
+    const length = end - start;
+    if (length <= maxWindowFrames) {
+      candidates.push({ startFrame: start, endFrame: end });
+      continue;
+    }
+    const midpoint = Math.round((start + end) / 2);
+    candidates.push(
+      { startFrame: start, endFrame: Math.min(end, start + maxWindowFrames) },
+      boundedWindowAround(midpoint, maxWindowFrames, duration),
+      { startFrame: Math.max(start, end - maxWindowFrames), endFrame: end },
+    );
+  }
+
+  if (candidates.length === 0) {
+    candidates.push({ startFrame: 0, endFrame: Math.min(duration, maxWindowFrames) });
+  }
+  return dedupeAudioVerificationWindows(candidates, input.sampleLimit);
+}
+
+function dedupeAudioVerificationWindows(
+  candidates: Array<{ startFrame: number; endFrame: number }>,
+  sampleLimit: number,
+): Array<{ startFrame: number; endFrame: number }> {
+  const unique = new Map<string, { startFrame: number; endFrame: number }>();
+  for (const candidate of candidates) {
+    unique.set(`${candidate.startFrame}:${candidate.endFrame}`, candidate);
+  }
+  return Array.from(unique.values()).slice(0, Math.max(1, Math.min(12, sampleLimit)));
+}
+
+async function renderLambdaAudioWindow(input: {
+  inputProps: Record<string, unknown>;
+  startFrame: number;
+  endFrame: number;
+  config: ReturnType<typeof resolvePhase0RenderedEvidenceConfig>;
+}): Promise<RenderedAudioArtifact> {
+  const { renderId, bucketName } = await renderMediaOnLambda({
+    region: input.config.region as any,
+    functionName: input.config.functionName,
+    serveUrl: input.config.serveUrl,
+    composition: REMOTION_COMPOSITION_ID,
+    inputProps: input.inputProps,
+    codec: 'wav',
+    audioCodec: 'pcm-16',
+    privacy: 'public',
+    maxRetries: 1,
+    framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,
+    timeoutInMilliseconds: 600_000,
+    frameRange: [input.startFrame, Math.max(input.startFrame, input.endFrame - 1)],
+  });
+  const deadline = Date.now() + 8 * 60_000;
+  let outputFile = '';
+  while (Date.now() < deadline) {
+    const progress = await getRenderProgress({
+      renderId,
+      bucketName,
+      region: input.config.region as any,
+      functionName: input.config.functionName,
+      skipLambdaInvocation: true,
+    });
+    if (progress.fatalErrorEncountered) {
+      throw new Error(progress.errors?.[0]?.message ?? `Audio render ${renderId} failed.`);
+    }
+    if (progress.done) {
+      outputFile = String(progress.outputFile ?? '');
+      break;
+    }
+    await delay(1_500);
+  }
+  if (!outputFile) throw new Error(`Audio render ${renderId} did not finish before the verification deadline.`);
+
+  const response = await fetch(outputFile);
+  if (!response.ok) throw new Error(`Audio artifact download failed: ${response.status}`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const pcm = inspectPcm16Wav(bytes);
+  return {
+    url: outputFile,
+    renderId,
+    bucketName,
+    ...pcm,
+  };
+}
+
+function inspectPcm16Wav(bytes: Buffer): { pcmSha256: string; rms: number; peak: number } {
+  if (bytes.length < 44 || bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error('Rendered audio artifact is not a valid WAV file.');
+  }
+  let offset = 12;
+  let format = 0;
+  let bitsPerSample = 0;
+  let data: Buffer | null = null;
+  while (offset + 8 <= bytes.length) {
+    const id = bytes.toString('ascii', offset, offset + 4);
+    const size = bytes.readUInt32LE(offset + 4);
+    const start = offset + 8;
+    const end = Math.min(bytes.length, start + size);
+    if (id === 'fmt ' && end - start >= 16) {
+      format = bytes.readUInt16LE(start);
+      bitsPerSample = bytes.readUInt16LE(start + 14);
+    }
+    if (id === 'data') {
+      data = bytes.subarray(start, end);
+      break;
+    }
+    offset = start + size + (size % 2);
+  }
+  if (format !== 1 || bitsPerSample !== 16 || !data || data.length < 2) {
+    throw new Error('Rendered audio artifact is not PCM-16 WAV data.');
+  }
+
+  let energy = 0;
+  let peak = 0;
+  const sampleCount = Math.floor(data.length / 2);
+  for (let index = 0; index < sampleCount; index++) {
+    const normalized = data.readInt16LE(index * 2) / 32768;
+    energy += normalized * normalized;
+    peak = Math.max(peak, Math.abs(normalized));
+  }
+  return {
+    pcmSha256: createHash('sha256').update(data).digest('hex'),
+    rms: Math.sqrt(energy / sampleCount),
+    peak,
+  };
 }
 
 
@@ -652,6 +1475,49 @@ function clampSampleLimit(raw: string | undefined): number {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return 8;
   return Math.max(1, Math.min(24, Math.floor(parsed)));
+}
+
+function hasUsableOperationalRenderInput(input: Phase0RenderInput): boolean {
+  return finitePositiveNumber(input.width) !== null
+    && finitePositiveNumber(input.height) !== null
+    && finitePositiveNumber(input.fps) !== null
+    && finitePositiveNumber(input.durationInFrames) !== null
+    && Array.isArray(input.overlays);
+}
+
+function resolveRequestedSampleFrames(input: {
+  requested?: number[];
+  fallback: number[];
+  durationInFrames: number;
+  sampleLimit: number;
+}): number[] {
+  const duration = Math.max(1, Math.round(Number.isFinite(input.durationInFrames) ? input.durationInFrames : 1));
+  const source = input.requested?.length ? input.requested : input.fallback;
+  const frames = source
+    .filter((frame) => Number.isFinite(frame))
+    .map((frame) => clampFrame(frame, duration));
+  return Array.from(new Set(frames)).slice(0, input.sampleLimit);
+}
+
+function boundedWindowAround(frame: number, length: number, duration: number) {
+  const startFrame = Math.max(0, Math.min(duration - 1, Math.round(frame - length / 2)));
+  return {
+    startFrame,
+    endFrame: Math.min(duration, Math.max(startFrame + 1, startFrame + length)),
+  };
+}
+
+function clampFrame(frame: number, duration: number): number {
+  return Math.max(0, Math.min(Math.max(0, duration - 1), Math.round(frame)));
+}
+
+function finitePositiveNumber(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isExplicitlyFalse(value: string | undefined): boolean {

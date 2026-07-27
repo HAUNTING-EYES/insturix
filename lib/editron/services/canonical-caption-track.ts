@@ -8,11 +8,16 @@ import {
 } from '@/components/editron/editor/version-7.0.0/types';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import type { AtomicCaptionPresentation } from './caption-form';
+import type { EditDecision } from './reactive-edit-engine';
 import type { EditedTimelineContext } from './edited-timeline-context';
 import type { SegmentAnalysis, SegmentRecord } from '../types/segment-analysis';
 import type { VjepaTextBox } from './vjepa-service';
 import { createDisplayConfig, groupWordsIntoCaptions } from '../utils/caption-utils';
 import { selectCaptionPreset } from './caption-preset-registry';
+import {
+  EDITRON_CAPTION_SAFE_BOTTOM_MARGIN,
+  EDITRON_CAPTION_SAFE_TOP_MARGIN,
+} from '../shared/overlay-safe-zone-contract';
 
 export const CANONICAL_CAPTION_TRACK_SOURCE = 'canonical-caption-track';
 const SOURCE_TEXT_PROTECTED_REGION_REASON = 'source-text-box';
@@ -23,6 +28,7 @@ export interface InstallCanonicalCaptionTrackInput {
   segmentAnalysis?: SegmentAnalysis | null;
   playerDimensions?: { width: number; height: number } | null;
   presentation: AtomicCaptionPresentation;
+  choreographyReservationCount?: number;
 }
 
 export interface InstallCanonicalCaptionTrackResult {
@@ -75,6 +81,43 @@ export function installCanonicalCaptionTrack(input: InstallCanonicalCaptionTrack
   };
 }
 
+export function buildCanonicalCaptionChoreographyReservations(
+  input: InstallCanonicalCaptionTrackInput,
+): EditDecision[] {
+  const overlay = createCanonicalCaptionTrack(input);
+  if (!overlay) return [];
+  const fps = input.editedTimelineContext.fps > 0 ? input.editedTimelineContext.fps : 30;
+  const dimensions = input.playerDimensions ?? { width: 1920, height: 1080 };
+  const captionProtectedRegion = {
+    x: clamp01(overlay.left / Math.max(1, dimensions.width)),
+    y: clamp01(overlay.top / Math.max(1, dimensions.height)),
+    width: clamp01(overlay.width / Math.max(1, dimensions.width)),
+    height: clamp01(overlay.height / Math.max(1, dimensions.height)),
+    reason: 'canonical-caption-region',
+    strength: 1,
+  };
+  return overlay.captions.map((caption, index) => {
+    const frame = Math.max(0, Math.floor((caption.startMs / 1000) * fps));
+    const endFrame = Math.max(frame + 1, Math.ceil((caption.endMs / 1000) * fps));
+    return {
+      type: 'caption-emphasis',
+      frame,
+      durationFrames: endFrame - frame,
+      priority: 1,
+      source: CANONICAL_CAPTION_TRACK_SOURCE,
+      signal: 'caption-group-active',
+      reason: 'Reserve the text-attention lane while a canonical caption group is visible.',
+      params: {
+        choreographyReservationOnly: true,
+        captionGroupIndex: index,
+        captionStartMs: caption.startMs,
+        captionEndMs: caption.endMs,
+        captionProtectedRegion,
+      },
+      confidence: 1,
+    };
+  });
+}
 export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackInput): (CaptionOverlay & { metadata: Record<string, unknown>; words: CaptionWord[] }) | null {
   const words = input.editedTimelineContext.transcription
     .map((word): CaptionWord => ({
@@ -143,6 +186,12 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
       version: 'canonical-caption-track-v1',
       timeline: 'cut',
       generated: true,
+      crossOverlayChoreographyReservations: {
+        version: 'canonical-caption-reservations-v1',
+        status: input.choreographyReservationCount === captions.length ? 'scheduled' : 'unreserved',
+        reservationCount: input.choreographyReservationCount ?? 0,
+        activeGroupCount: captions.length,
+      },
       captionPresentation: input.presentation,
       evidence: {
         editedWordCount: words.length,
@@ -512,16 +561,29 @@ function captionGeometry(
   ));
   const bottomMargin = Math.round(dimensions.height * aesthetic.bottomMarginFraction);
   const lowerTop = dimensions.height - height - bottomMargin;
+  const safeCenterMin = dimensions.height * EDITRON_CAPTION_SAFE_TOP_MARGIN;
+  const safeCenterMax = dimensions.height * (1 - EDITRON_CAPTION_SAFE_BOTTOM_MARGIN);
+  const safeTopMin = Math.max(0, Math.ceil(safeCenterMin - (height / 2)));
+  const safeTopMax = Math.min(
+    dimensions.height - height,
+    Math.floor(safeCenterMax - (height / 2)),
+  );
+  const clampTopToSafeCenter = (top: number) => Math.max(
+    safeTopMin,
+    Math.min(safeTopMax, Math.round(top)),
+  );
   const candidates = [
     {
       region: 'bottom-center' as const,
       left: Math.round((dimensions.width - width) / 2),
-      top: Math.round(Math.max(dimensions.height * 0.58, Math.min(lowerTop, dimensions.height * 0.82))),
+      top: clampTopToSafeCenter(
+        Math.max(dimensions.height * 0.58, Math.min(lowerTop, dimensions.height * 0.82)),
+      ),
     },
     {
       region: 'top-center' as const,
       left: Math.round((dimensions.width - width) / 2),
-      top: Math.round(dimensions.height * 0.12),
+      top: clampTopToSafeCenter(dimensions.height * 0.12),
     },
   ];
   const selected = candidates

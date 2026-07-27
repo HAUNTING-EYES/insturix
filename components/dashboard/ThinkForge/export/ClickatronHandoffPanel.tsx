@@ -97,6 +97,7 @@ export function ClickatronHandoffPanel({
   const statusMeta = STATUS_META[statusKey];
   const StatusIcon = statusMeta.icon;
   const display = handoffState?.display;
+  const resolvedVisualChoices = display?.visualChoices;
   const sourceSnippets = display?.sourceSnippets || [];
   const slides = display?.slides || [];
   const visibleIssues = [
@@ -165,28 +166,28 @@ export function ClickatronHandoffPanel({
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))", gap: 7, marginBottom: 8 }}>
         <FieldLabel label="Output">
-          <select value={visualChoices.kind || "single_post_visual"} onChange={(e) => setVisualChoice("kind", e.target.value)} style={fieldStyle}>
+          <select value={visualChoices.kind || resolvedVisualChoices?.kind || display?.kind || "single_post_visual"} onChange={(e) => setVisualChoice("kind", e.target.value)} style={fieldStyle}>
             <option value="single_post_visual">Single post</option>
             <option value="carousel">Carousel</option>
           </select>
         </FieldLabel>
         <FieldLabel label="Platform">
-          <select value={visualChoices.platform || "linkedin"} onChange={(e) => setVisualChoice("platform", e.target.value)} style={fieldStyle}>
+          <select value={visualChoices.platform || resolvedVisualChoices?.platform || display?.platform || "generic"} onChange={(e) => setVisualChoice("platform", e.target.value)} style={fieldStyle}>
             {PLATFORMS.map((platform) => <option key={platform} value={platform}>{platform}</option>)}
           </select>
         </FieldLabel>
         <FieldLabel label="Aspect">
-          <select value={visualChoices.aspectRatio || DEFAULT_CLICKATRON_HANDOFF_ASPECT_RATIO} onChange={(e) => setVisualChoice("aspectRatio", e.target.value)} style={fieldStyle}>
+          <select value={visualChoices.aspectRatio || resolvedVisualChoices?.aspectRatio || display?.aspectRatio || DEFAULT_CLICKATRON_HANDOFF_ASPECT_RATIO} onChange={(e) => setVisualChoice("aspectRatio", e.target.value)} style={fieldStyle}>
             {ASPECT_RATIOS.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
           </select>
         </FieldLabel>
         <FieldLabel label="Visual">
-          <select value={visualChoices.visualMode || "text_forward_graphic"} onChange={(e) => setVisualChoice("visualMode", e.target.value)} style={fieldStyle}>
+          <select value={visualChoices.visualMode || resolvedVisualChoices?.visualMode || "text_forward_graphic"} onChange={(e) => setVisualChoice("visualMode", e.target.value)} style={fieldStyle}>
             {VISUAL_MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </FieldLabel>
         <FieldLabel label="Copy">
-          <select value={visualChoices.textDensity || "medium"} onChange={(e) => setVisualChoice("textDensity", e.target.value)} style={fieldStyle}>
+          <select value={visualChoices.textDensity || resolvedVisualChoices?.textDensity || "medium"} onChange={(e) => setVisualChoice("textDensity", e.target.value)} style={fieldStyle}>
             {TEXT_DENSITIES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </FieldLabel>

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { getUserId } from "../utils/user-id";
 import { serializeEditorStateForSave } from "@/lib/editron/shared/project-save-payload";
+import { bindAbortToPageLifecycle } from "../utils/request-lifecycle";
 
 interface AutosaveOptions {
   /**
@@ -31,6 +32,10 @@ interface AutosaveOptions {
   onAutosaveDetected?: (timestamp: number) => void;
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 /**
  * Hook for automatically saving editor state to MongoDB via API
  *
@@ -48,47 +53,72 @@ export const useAutosave = (
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedStateRef = useRef<string>("");
-  const [hasCheckedForAutosave, setHasCheckedForAutosave] = useState(false);
+  const hasLoadedRef = useRef(false);
+  const checkedAutosaveProjectRef = useRef<string | null>(null);
+  const loadControllerRef = useRef<AbortController | null>(null);
+  const stateRef = useRef(state);
+  const pauseAutosaveRef = useRef(pauseAutosave);
+  const callbacksRef = useRef({ onLoad, onSave, onAutosaveDetected });
+
+  stateRef.current = state;
+  pauseAutosaveRef.current = pauseAutosave;
+  callbacksRef.current = { onLoad, onSave, onAutosaveDetected };
 
   const userId = getUserId();
 
-  // Check for existing autosave on mount, but only once
   useEffect(() => {
-    const checkForAutosave = async () => {
-      if (hasCheckedForAutosave) return;
+    hasLoadedRef.current = false;
+    lastSavedStateRef.current = "";
+    checkedAutosaveProjectRef.current = null;
+    loadControllerRef.current?.abort();
+    loadControllerRef.current = null;
 
+    return () => {
+      loadControllerRef.current?.abort();
+      loadControllerRef.current = null;
+    };
+  }, [projectId]);
+
+  // Check for an existing autosave once per project.
+  useEffect(() => {
+    if (!projectId || checkedAutosaveProjectRef.current === projectId) return;
+    const controller = new AbortController();
+    const detachPageLifecycle = bindAbortToPageLifecycle(controller);
+
+    const checkForAutosave = async () => {
       try {
-        // Load project to check for autosave
-        const response = await fetch(`/api/services/editron/projects/${projectId}`);
+        const response = await fetch(`/api/services/editron/projects/${projectId}`, {
+          signal: controller.signal,
+        });
         if (response.ok) {
           const data = await response.json();
           if (data.success && data.project?.lastAutosaveAt) {
             const timestamp = new Date(data.project.lastAutosaveAt).getTime();
-            if (onAutosaveDetected) {
-              onAutosaveDetected(timestamp);
-            }
+            callbacksRef.current.onAutosaveDetected?.(timestamp);
           }
         }
-        setHasCheckedForAutosave(true);
+        if (!controller.signal.aborted) checkedAutosaveProjectRef.current = projectId;
       } catch (error) {
+        if (controller.signal.aborted || isAbortError(error)) return;
         console.error("Failed to check for autosave:", error);
-        setHasCheckedForAutosave(true);
+        checkedAutosaveProjectRef.current = projectId;
+      } finally {
+        detachPageLifecycle();
       }
     };
 
-    if (projectId) {
-      checkForAutosave();
-    }
-  }, [projectId, onAutosaveDetected, hasCheckedForAutosave]);
-
-  // Track whether initial load has completed — prevents autosave from
-  // overwriting imported data with empty default overlays.
-  const hasLoadedRef = useRef(false);
-
+    void checkForAutosave();
+    return () => {
+      detachPageLifecycle();
+      controller.abort();
+    };
+  }, [projectId]);
   // Set up autosave timer
   useEffect(() => {
     // Don't start autosave if projectId is not valid
     if (!projectId || !userId) return;
+    const controller = new AbortController();
+    const detachPageLifecycle = bindAbortToPageLifecycle(controller);
 
     const saveIfChanged = async () => {
       // CRITICAL: never autosave before the initial load completes.
@@ -99,9 +129,9 @@ export const useAutosave = (
       // CRITICAL: never autosave while AI is processing.
       // The AI agent modifies overlays directly in the DB. Autosaving during
       // this window would overwrite the AI's changes with stale client state.
-      if (pauseAutosave) return;
+      if (pauseAutosaveRef.current) return;
 
-      const body = serializeEditorStateForSave(state);
+      const body = serializeEditorStateForSave(stateRef.current);
       if (!body) return;
 
       // Only save if state has changed since last save
@@ -113,15 +143,17 @@ export const useAutosave = (
               'Content-Type': 'application/json',
             },
             body,
+            signal: controller.signal,
           });
 
           if (response.ok) {
             lastSavedStateRef.current = body;
-            if (onSave) onSave();
+            callbacksRef.current.onSave?.();
           } else {
             console.error("Autosave failed:", await response.text());
           }
         } catch (error) {
+          if (controller.signal.aborted || isAbortError(error)) return;
           console.error("Autosave failed:", error);
         }
       }
@@ -132,52 +164,69 @@ export const useAutosave = (
 
     // Clean up timer on unmount
     return () => {
+      detachPageLifecycle();
+      controller.abort();
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
     };
-  }, [projectId, userId, state, interval, pauseAutosave, onSave]);
+  }, [projectId, userId, interval]);
 
   // Function to manually save state
-  const saveState = async () => {
+  const saveState = useCallback(async () => {
     if (!userId) {
       console.error("User not authenticated");
       return false;
     }
 
+    const controller = new AbortController();
+    const detachPageLifecycle = bindAbortToPageLifecycle(controller);
+    const body = serializeEditorStateForSave(stateRef.current);
     try {
       const response = await fetch(`/api/services/editron/projects/${projectId}/save`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: serializeEditorStateForSave(state),
+        body,
+        signal: controller.signal,
       });
 
       if (response.ok) {
-        lastSavedStateRef.current = serializeEditorStateForSave(state);
-        if (onSave) onSave();
+        lastSavedStateRef.current = body;
+        callbacksRef.current.onSave?.();
         return true;
       } else {
         console.error("Manual save failed:", await response.text());
         return false;
       }
     } catch (error) {
+      if (controller.signal.aborted || isAbortError(error)) return false;
       console.error("Manual save failed:", error);
       return false;
+    } finally {
+      detachPageLifecycle();
     }
-  };
+  }, [projectId, userId]);
 
   // Function to manually load state
-  const loadState = async () => {
+  const loadState = useCallback(async () => {
     if (!userId) {
       console.error("User not authenticated");
       return null;
     }
 
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    const detachPageLifecycle = bindAbortToPageLifecycle(controller);
+    loadControllerRef.current = controller;
+    hasLoadedRef.current = false;
+
     try {
-      const response = await fetch(`/api/services/editron/projects/${projectId}`);
+      const response = await fetch(`/api/services/editron/projects/${projectId}`, {
+        signal: controller.signal,
+      });
 
       if (response.ok) {
         const data = await response.json();
@@ -200,30 +249,31 @@ export const useAutosave = (
           // Mark initial load as done — autosave is now safe to run.
           hasLoadedRef.current = true;
 
-          if (onLoad) {
-            onLoad(loadedState);
-          }
+          callbacksRef.current.onLoad?.(loadedState);
           return loadedState;
         }
-      } else if (response.status === 404) {
-        // Project not found — still mark as loaded so autosave can proceed
-        hasLoadedRef.current = true;
+      }
+      if (response.status === 404) {
         throw new Error('PROJECT_NOT_FOUND');
       }
-      // No data but request succeeded — allow autosave
-      hasLoadedRef.current = true;
-      return null;
+      if (!response.ok) {
+        throw new Error(`PROJECT_LOAD_FAILED_${response.status}`);
+      }
+      throw new Error('PROJECT_LOAD_INVALID_RESPONSE');
     } catch (error) {
-      // Re-throw PROJECT_NOT_FOUND errors
+      if (controller.signal.aborted || isAbortError(error)) return null;
       if (error instanceof Error && error.message === 'PROJECT_NOT_FOUND') {
         throw error;
       }
-      // Allow autosave even if load fails so we don't block forever
-      hasLoadedRef.current = true;
       console.error("Load failed:", error);
       return null;
+    } finally {
+      detachPageLifecycle();
+      if (loadControllerRef.current === controller) {
+        loadControllerRef.current = null;
+      }
     }
-  };
+  }, [projectId, userId]);
 
   return {
     saveState,

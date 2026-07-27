@@ -3,7 +3,15 @@
  */
 
 import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
+import {
+  normalizeThinkForgeDocumentContract,
+  ThinkForgeDocumentContractSchema,
+  type ThinkForgeCanonicalDocumentType,
+  type ThinkForgeDocumentContract,
+  type ThinkForgeLegacyDocumentType,
+} from '../schemas/document-contract';
 import type { ScriptIntent } from '../protocol/intent';
+import type { SelectedTrend } from '../trends/selected-trend';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -41,6 +49,7 @@ export interface ProjectMeta {
   purpose?: string;
   style?: string;
   format?: string;
+  contentContract?: ThinkForgeDocumentContract;
   platform?: string;
   tone?: string;
   sessionName?: string;
@@ -53,6 +62,7 @@ export interface ProjectMeta {
   seriesId?: string;
   calendarItemId?: string;
   contentCardId?: string;
+  selectedTrend?: SelectedTrend;
   preferences?: Record<string, any>;
 }
 
@@ -82,6 +92,19 @@ function firstNonEmptyString(...values: unknown[]): string | undefined {
   return undefined;
 }
 
+export function resolveProjectMetaContentContract(
+  projectMeta?: ProjectMeta | null,
+): ThinkForgeDocumentContract | null {
+  if (projectMeta?.contentContract !== undefined) {
+    const parsed = ThinkForgeDocumentContractSchema.safeParse(projectMeta.contentContract);
+    if (!parsed.success) {
+      throw new Error('ThinkForge project metadata contains an invalid document contract');
+    }
+    return parsed.data;
+  }
+  return normalizeThinkForgeDocumentContract(projectMeta?.format);
+}
+
 export function mergeThinkForgeProjectMetadata(
   sessionProjectMeta?: ProjectMeta | null,
   providedProject?: ProjectMeta | null,
@@ -91,6 +114,12 @@ export function mergeThinkForgeProjectMetadata(
     ...(sessionProjectMeta || {}),
     ...(providedProject || {}),
   };
+
+  const contentContract = resolveProjectMetaContentContract(sessionProjectMeta)
+    ?? resolveProjectMetaContentContract(providedProject);
+  if (contentContract) {
+    merged.contentContract = contentContract;
+  }
 
   for (const key of SOURCE_OF_TRUTH_PROJECT_META_KEYS) {
     const providedValue = providedProject?.[key];
@@ -115,17 +144,8 @@ export function resolveProjectMetaBrandId(projectMeta?: ProjectMeta | null): str
 // Document Type & Complexity (Dynamic Blueprints)
 // ---------------------------------------------------------------------------
 
-export type DocumentType =
-  | 'screenplay'
-  | 'vfx_brief'
-  | 'budget'
-  | 'shot_list'
-  | 'character_bible'
-  | 'world_bible'
-  | 'interview_questions'
-  | 'score_direction'
-  | 'research_brief'
-  | 'custom';
+/** New writes use canonical document values. Legacy aliases remain readable during migration. */
+export type DocumentType = ThinkForgeCanonicalDocumentType | ThinkForgeLegacyDocumentType;
 
 export type ProjectComplexity = 'solo_ugc' | 'brand_doc' | 'short_film' | 'feature_film' | 'epic';
 

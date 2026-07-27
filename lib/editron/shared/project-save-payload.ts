@@ -8,10 +8,12 @@ type EditorSaveStateLike = {
 const SERVER_OWNED_ROOT_KEYS = [
   'atomicMomentBundle',
   'atomicMomentBundles',
+  'audioRights',
   'contentSignals',
   'contentStructure',
   'decisionAuthority',
   'mgExpressionAuthority',
+  'musicRights',
   'qualityReview',
   'recipe',
   'resolvedTokens',
@@ -60,12 +62,13 @@ export function mergeServerOwnedOverlayDataForSave(
   incomingOverlays: Overlay[],
   currentOverlays: Overlay[] | undefined,
 ): Overlay[] {
-  if (!Array.isArray(currentOverlays) || currentOverlays.length === 0) return incomingOverlays;
-
-  const currentById = new Map(currentOverlays.map((overlay) => [String(overlay.id), overlay]));
+  const currentById = new Map(
+    (Array.isArray(currentOverlays) ? currentOverlays : [])
+      .map((overlay) => [String(overlay.id), overlay]),
+  );
   return incomingOverlays.map((incoming) => {
     const current = currentById.get(String(incoming.id));
-    return current ? mergeOverlayServerOwnedData(incoming, current) : incoming;
+    return mergeOverlayServerOwnedData(incoming, current);
   });
 }
 
@@ -97,17 +100,18 @@ function compactMetadataForSave(metadata: Record<string, unknown>): Record<strin
   return Object.keys(compact).length > 0 ? compact : undefined;
 }
 
-function mergeOverlayServerOwnedData<T extends Overlay>(incoming: T, current: Overlay): T {
+function mergeOverlayServerOwnedData<T extends Overlay>(incoming: T, current?: Overlay): T {
   const merged = { ...incoming } as Record<string, unknown>;
 
   for (const key of SERVER_OWNED_ROOT_KEYS) {
-    if (merged[key] === undefined && (current as Record<string, unknown>)[key] !== undefined) {
+    delete merged[key];
+    if (current && (current as Record<string, unknown>)[key] !== undefined) {
       merged[key] = (current as Record<string, unknown>)[key];
     }
   }
 
   const incomingMetadata = isRecord(merged.metadata) ? merged.metadata : undefined;
-  const currentMetadata = isRecord((current as Record<string, unknown>).metadata)
+  const currentMetadata = current && isRecord((current as Record<string, unknown>).metadata)
     ? (current as Record<string, unknown>).metadata as Record<string, unknown>
     : undefined;
 

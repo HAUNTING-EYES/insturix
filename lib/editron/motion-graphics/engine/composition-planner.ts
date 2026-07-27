@@ -81,6 +81,68 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+function isContentRevealElement(element: RecipeElement): boolean {
+  return element.layer === 'foreground'
+    || element.primitive === 'text'
+    || element.primitive === 'data-viz'
+    || element.primitive === 'image'
+    || element.primitive === 'video-clip';
+}
+
+function isScaffoldRevealElement(element: RecipeElement): boolean {
+  return element.layer === 'background'
+    || element.layer === 'midground'
+    || element.primitive === 'container'
+    || element.primitive === 'shape'
+    || element.primitive === 'decoration'
+    || element.primitive === 'gradient'
+    || element.primitive === 'pattern'
+    || element.primitive === 'mask'
+    || element.primitive === 'particle';
+}
+
+function roundEnterOrder(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function applySignalDrivenEnterOrder(
+  elements: RecipeElement[],
+  strategy: CompositionStrategy,
+  signals: PlannerSignals,
+): void {
+  const momentPressure = clamp01(Math.max(
+    signalNum(signals, 'cinematic_moment', 'composite.cinematic_moment'),
+    signalNum(signals, 'narrative_pressure', 'composite.narrative_pressure'),
+    signalNum(signals, 'word_importance', 'text.word_importance'),
+    signalNum(signals, 'phrase_impact', 'text.phrase_impact') * 0.9,
+    signalNum(signals, 'speech_energy', 'speech.energy') * 0.82,
+    signals.visceral_impact * 0.76,
+  ));
+  const scaffoldPressure = clamp01(Math.max(
+    visualFormRisk(signals),
+    signalNum(signals, 'text_on_screen', 'visual.text_on_screen'),
+    signalNum(signals, 'text_coverage', 'visual.text_coverage'),
+    signalNum(signals, 'caption_pressure', 'caption.pressure'),
+    signals.formality * 0.64,
+    (strategy.complexityBudget / 5) * 0.32,
+  ));
+
+  const contentLeads = momentPressure >= 0.62 && momentPressure > scaffoldPressure + 0.05;
+  const scaffoldLeads = scaffoldPressure >= 0.55 && scaffoldPressure >= momentPressure;
+  if (!contentLeads && !scaffoldLeads) return;
+
+  elements.forEach((element, index) => {
+    const contentElement = isContentRevealElement(element);
+    const scaffoldElement = isScaffoldRevealElement(element);
+    let band = 2;
+    if (contentLeads) band = contentElement ? 1 : scaffoldElement ? 3 : 2;
+    if (scaffoldLeads) band = scaffoldElement ? 1 : contentElement ? 3 : 2;
+
+    element.enterOrder = roundEnterOrder(band + index / 100);
+    if (element.children?.length) applySignalDrivenEnterOrder(element.children, strategy, signals);
+  });
+}
+
 function textLoad(text: string | undefined): { charCount: number; wordCount: number } {
   const normalized = String(text ?? '').replace(/\s+/g, ' ').trim();
   return {
@@ -517,6 +579,7 @@ function composeElements(
   // structural elements (rules, bars, kicker) stay stable — no ambient bob. Replaces
   // the old inline makeContainer/makeAccentLine with overlay-scored selection.
   runStructuralMoves(elements, language, signals, budget, content, mgScores);
+  applySignalDrivenEnterOrder(elements, strategy, signals);
 
   // Brand pattern: subtle background texture derived from brand tokens
   // Budget >= 4 required — pattern is lowest priority decorative element

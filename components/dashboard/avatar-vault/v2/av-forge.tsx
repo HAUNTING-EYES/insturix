@@ -53,6 +53,57 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
   const set = <K extends keyof AvatarVaultDraftFormState>(k: K, v: AvatarVaultDraftFormState[K]) =>
     setF((s) => ({ ...s, [k]: v }));
 
+  // Infer appearance from the uploaded photos instead of interrogating the user. Runs once
+  // the portrait is in, fills ONLY empty fields (never overwrites what you typed), and
+  // surfaces a photo-quality check. Fail-soft — a dead vision call just leaves fields blank.
+  const [inferState, setInferState] = useState<'idle' | 'running' | 'done' | 'failed'>('idle');
+  const [detected, setDetected] = useState<string[]>([]);
+  const [photoIssues, setPhotoIssues] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (inferState !== 'idle' || !f.portraitImageUrl) return;
+    const imageUrls = [f.portraitImageUrl, f.fullBodyImageUrl, f.sideProfileImageUrl].filter(Boolean);
+    setInferState('running');
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/avatar-vault/infer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageUrls }),
+        });
+        const data = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!data?.ok) { setInferState('failed'); return; }
+        const patch = data.patch ?? {};
+        const quality = data.attributes?.quality;
+        const det: string[] = [];
+        setF((cur) => {
+          const next = { ...cur };
+          if (!next.hair.trim() && patch.bodyProfile?.hair) { next.hair = patch.bodyProfile.hair; det.push('hair'); }
+          if (!next.notableTraits.trim() && patch.bodyProfile?.notableTraits?.length) {
+            next.notableTraits = patch.bodyProfile.notableTraits.join(', '); det.push('traits');
+          }
+          if (!next.bodyDescription.trim() && (patch.identityDescription || patch.bodyProfile?.build)) {
+            next.bodyDescription = [patch.identityDescription, patch.bodyProfile?.build && `build: ${patch.bodyProfile.build}`, patch.bodyProfile?.skinTone && `skin: ${patch.bodyProfile.skinTone}`].filter(Boolean).join('. ');
+            det.push('body');
+          }
+          if (!next.portraitDescription.trim() && patch.identityDescription) { next.portraitDescription = patch.identityDescription; det.push('face'); }
+          if (!next.defaultLook.trim() && patch.defaultLook) { next.defaultLook = patch.defaultLook; det.push('look'); }
+          return next;
+        });
+        setDetected(det);
+        setPhotoIssues(quality && (!quality.usable || (quality.issues?.length ?? 0) > 0)
+          ? (quality.issues?.length ? quality.issues : ['These photos may not be a clear solo portrait.'])
+          : []);
+        setInferState('done');
+      } catch {
+        if (!cancelled) setInferState('failed');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [f.portraitImageUrl, f.fullBodyImageUrl, f.sideProfileImageUrl, inferState]);
+
   // Brand list for binding (multi-brand is core) — same source the rest of the app uses.
   useEffect(() => {
     let active = true;
@@ -140,10 +191,10 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <Field label="Display name"><input value={f.displayName} onChange={(e) => set('displayName', e.target.value)} placeholder="e.g. Maya Chen" style={inp} /></Field>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Portrait · required</Mono><Drop label="Drop face" big filled={!!f.portraitImageUrl} busy={uploadingRole === 'face_front'} onClick={() => pickFile('face_front')} /></div>
+                <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Portrait · required</Mono><Drop label="Drop face" big filled={!!f.portraitImageUrl} imageUrl={f.portraitImageUrl || undefined} busy={uploadingRole === 'face_front'} onClick={() => pickFile('face_front')} /></div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Full body · required</Mono><Drop label="Optional" filled={!!f.fullBodyImageUrl} busy={uploadingRole === 'full_body_front'} onClick={() => pickFile('full_body_front')} /></div>
-                  <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Side profile</Mono><Drop label="Optional" filled={!!f.sideProfileImageUrl} busy={uploadingRole === 'face_side'} onClick={() => pickFile('face_side')} /></div>
+                  <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Full body · required</Mono><Drop label="Optional" filled={!!f.fullBodyImageUrl} imageUrl={f.fullBodyImageUrl || undefined} busy={uploadingRole === 'full_body_front'} onClick={() => pickFile('full_body_front')} /></div>
+                  <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Side profile</Mono><Drop label="Optional" filled={!!f.sideProfileImageUrl} imageUrl={f.sideProfileImageUrl || undefined} busy={uploadingRole === 'face_side'} onClick={() => pickFile('face_side')} /></div>
                 </div>
               </div>
               <div>
@@ -158,6 +209,9 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
                   <Btn size="sm" disabled={uploadingRole === 'expression'} onClick={() => pickFile('expression')}>{uploadingRole === 'expression' ? '…' : '+ Add expression'}</Btn>
                 </div>
               </div>
+              {inferState === 'running' && <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 2 }}>✨ Reading your photos…</Mono>}
+              {inferState === 'done' && detected.length > 0 && <Mono s={9} c={C.gold} st={{ display: 'block', marginBottom: 2 }}>✨ Filled {detected.join(', ')} from your photos — edit anything that&rsquo;s off.</Mono>}
+              {photoIssues.length > 0 && <Mono s={9} c={C.coral} st={{ display: 'block', marginBottom: 2 }}>⚠ Photo check: {photoIssues.join('; ')}</Mono>}
               <Field label="Portrait description" hint="text · optional"><textarea value={f.portraitDescription} onChange={(e) => set('portraitDescription', e.target.value)} rows={2} placeholder="Describe the face in words (supplements the image)…" style={{ ...inp, resize: 'vertical' }} /></Field>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <Field label="Hair"><input value={f.hair} onChange={(e) => set('hair', e.target.value)} placeholder="e.g. shoulder-length, dark" style={inp} /></Field>
@@ -214,8 +268,12 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
                       }}
                     />
                   </Field>
-                  <Field label="Voice sample URL" hint="saved voice reference"><input value={f.voiceSampleUrl} onChange={(e) => set('voiceSampleUrl', e.target.value)} placeholder="https://" style={inp} /></Field>
-                  <Field label="Voice sample asset ID" hint="optional storage id"><input value={f.voiceSampleAssetId} onChange={(e) => set('voiceSampleAssetId', e.target.value)} placeholder="asset_..." style={inp} /></Field>
+                  {f.voiceSampleUrl.trim()
+                    ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: C.bg, border: '1px solid rgba(94,201,126,.35)', borderRadius: 8 }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: C.green }}>✓ Voice sample saved</span>
+                        <button type="button" onClick={() => { set('voiceSampleUrl', ''); set('voiceSampleAssetId', ''); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.muted, fontSize: 11, textDecoration: 'underline' }}>Replace</button>
+                      </div>
+                    : <Field label="Voice sample URL" hint="or paste a saved reference"><input value={f.voiceSampleUrl} onChange={(e) => set('voiceSampleUrl', e.target.value)} placeholder="https://" style={inp} /></Field>}
                 </div>
               )}
               {f.voiceMode === 'selected_tts_voice' && (
@@ -255,7 +313,7 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
                 <Field label="Brand">
                   {brands.length > 0
                     ? <select value={f.brandId} onChange={(e) => set('brandId', e.target.value)} style={inp}><option value="">Select a brand…</option>{brands.map((b) => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}</select>
-                    : <input value={f.brandId} onChange={(e) => set('brandId', e.target.value)} placeholder="brand id" style={inp} />}
+                    : <Mono s={9} c={C.muted}>No brands yet — create one in Brand Vault first, then it appears here.</Mono>}
                 </Field>
               )}
               <Field label="Rights notes" hint="optional"><textarea value={f.rightsNotes} onChange={(e) => set('rightsNotes', e.target.value)} rows={2} placeholder="Any usage limits, expiry, territory…" style={{ ...inp, resize: 'vertical' }} /></Field>

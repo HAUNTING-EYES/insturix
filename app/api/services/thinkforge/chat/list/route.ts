@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
  * GET /api/services/thinkforge/chat/list?sessionId=...&limit=50&offset=0
  */
 export async function GET(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -26,7 +26,12 @@ export async function GET(req: Request) {
   }
 
   try {
-    const messages = await db.getChatHistory(sessionId, limit, threadId || null);
+    const session = await db.getSession(sessionId, userId, orgId);
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    const messages = await db.getChatHistory(session._id, limit, threadId || null);
     
     // Format messages for frontend
     const items = messages.map((msg: any, idx: number) => ({

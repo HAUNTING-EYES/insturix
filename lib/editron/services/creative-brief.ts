@@ -328,6 +328,20 @@ export interface VideoContext {
 // ─── Main Function ──────────────────────────────────────────────────────────
 
 const CONFIDENCE_THRESHOLD = 0.5;
+const DEFAULT_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS = 90_000;
+const MIN_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS = 15_000;
+const MAX_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS = 180_000;
+
+export function resolveCreativeBriefRequestTimeoutMs(
+  raw: string | undefined = process.env.EDITRON_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS,
+): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return DEFAULT_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS;
+  return Math.min(
+    MAX_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS,
+    Math.max(MIN_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS, Math.round(parsed)),
+  );
+}
 
 // ─── Content Mode Routing (D-004) ──────────────────────────────────────────
 
@@ -404,6 +418,7 @@ export async function generateCreativeBrief(
       seed: 42,
       maxOutputTokens: 65536,
     };
+    const requestTimeoutMs = resolveCreativeBriefRequestTimeoutMs();
 
     const parts: any[] = [{ text: prompt }];
 
@@ -420,13 +435,23 @@ export async function generateCreativeBrief(
     // Different seeds produce different completion paths, often fixing truncation.
     const seeds = [generationConfig.seed, 7, 99];
     for (const seed of seeds) {
+      let result: Awaited<ReturnType<typeof model.generateContent>>;
       try {
         console.log(`[CreativeBrief] Calling Gemini (seed=${seed})...`);
-        const result = await model.generateContent({
+        result = await model.generateContent({
           contents: [{ role: 'user', parts }],
           generationConfig: { ...generationConfig, seed },
-        });
+        }, { timeout: requestTimeoutMs });
+      } catch (requestErr: any) {
+        const requestError = requestErr instanceof Error ? requestErr : new Error(String(requestErr));
+        console.error(
+          `[CreativeBrief] Gemini request failed (seed=${seed}, timeout=${requestTimeoutMs}ms): ${requestError.message}`,
+        );
+        pipelineWarnings?.errorSwallowed('director', requestError, 'creative brief model request');
+        return null;
+      }
 
+      try {
         const responseText = result.response?.text?.() || result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!responseText) {
           console.warn(`[CreativeBrief] Empty response (seed=${seed}), retrying...`);

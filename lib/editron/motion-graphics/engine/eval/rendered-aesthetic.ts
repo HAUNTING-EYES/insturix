@@ -6,6 +6,14 @@ import type {
 } from '../../../engine/atomic-overlay-core';
 import type { RenderValidityInput } from './render-validity';
 import { classifyRenderValidity } from './render-validity';
+import {
+  EDITRON_ACTION_SAFE_MARGIN,
+  EDITRON_TITLE_SAFE_MARGIN,
+} from '../../../agent/chat-overlay-safe-placement';
+import {
+  EDITRON_CAPTION_SAFE_BOTTOM_MARGIN,
+  EDITRON_CAPTION_SAFE_TOP_MARGIN,
+} from '../../../shared/overlay-safe-zone-contract';
 
 export type RenderedAestheticDimension =
   | 'render'
@@ -120,6 +128,15 @@ const VISUAL_FAMILIES = new Set<AtomicOverlayFamily>([
 ]);
 
 const TEXT_FAMILIES = new Set<AtomicOverlayFamily>(['motion-graphic', 'text', 'caption', 'html-scene']);
+const GRAPHIC_TEXT_FAMILIES = new Set<AtomicOverlayFamily>(['motion-graphic', 'html-scene']);
+const BASELINE_OUTPUT_SHORT_EDGE_PX = 1080;
+const MIN_BODY_TEXT_PX_AT_1080 = 24;
+const MIN_CAPTION_TEXT_PX_AT_1080 = 34;
+const MIN_GRAPHIC_TEXT_PX_AT_1080 = 72;
+const OVERLAY_SPATIAL_OVERLAP_RATIO = 0.2;
+const OVERLAY_PARTIAL_OVERLAP_RATIO = 0.1;
+const CAPTION_TOP_UNSAFE_RATIO = EDITRON_CAPTION_SAFE_TOP_MARGIN;
+const CAPTION_BOTTOM_UNSAFE_RATIO = 1 - EDITRON_CAPTION_SAFE_BOTTOM_MARGIN;
 
 export function scoreRenderedFrameAesthetic(input: RenderedFrameAestheticInput): RenderedFrameAestheticReport {
   const penalties = emptyPenaltyMap();
@@ -226,9 +243,15 @@ function scoreSafeArea(overlay: NormalizedOverlay, input: RenderedFrameAesthetic
       severity: 'fail',
     });
   }
-  if (isIntentionalFullFrameMotionGraphic(overlay)) return;
+  if (isIntentionalFullFrameScene(overlay, input)) return;
 
-  const margin = isTextFamily(overlay.family) ? 0.1 : 0.05;
+  if (overlay.family === 'caption') {
+    scoreCaptionPlatformSafeZone(overlay, input, addIssue);
+  }
+
+  const margin = isTextFamily(overlay.family)
+    ? EDITRON_TITLE_SAFE_MARGIN
+    : EDITRON_ACTION_SAFE_MARGIN;
   const safe = safeBox(input.width, input.height, margin);
   const safeOverflow = overflowAmount(overlay.box, safe);
   if (safeOverflow > 24) {
@@ -287,14 +310,21 @@ function scoreOverlayOverlap(normalized: NormalizedOverlay[], addIssue: AddIssue
       const b = visual[j];
       if (!a?.box || !b?.box) continue;
       const ratio = intersectionRatio(a.box, b.box);
-      if (ratio >= 0.24) {
-        addIssue('overlap', 0.2, 'visual overlays substantially overlap', {
+      if (ratio > 0 && isGraphicCaptionPair(a, b)) {
+        addIssue('overlap', 0.12, 'caption and graphic violate constraint:overlay.graphic_in_caption_zone', {
+          overlay: a.family === 'caption' ? b.item : a.item,
+          relatedOverlay: a.family === 'caption' ? a.item : b.item,
+          evidence: `ratio=${ratio.toFixed(2)}; constraint=overlay.graphic_in_caption_zone`,
+          severity: 'warn',
+        });
+      } else if (ratio > OVERLAY_SPATIAL_OVERLAP_RATIO) {
+        addIssue('overlap', 0.12, 'visual overlays violate constraint:overlay.overlay_spatial_overlap', {
           overlay: a.item,
           relatedOverlay: b.item,
-          evidence: `ratio=${ratio.toFixed(2)}`,
-          severity: 'fail',
+          evidence: `ratio=${ratio.toFixed(2)}; threshold>${OVERLAY_SPATIAL_OVERLAP_RATIO.toFixed(2)}; constraint=overlay.overlay_spatial_overlap`,
+          severity: 'warn',
         });
-      } else if (ratio >= 0.1) {
+      } else if (ratio >= OVERLAY_PARTIAL_OVERLAP_RATIO) {
         addIssue('overlap', 0.1, 'visual overlays partially overlap', {
           overlay: a.item,
           relatedOverlay: b.item,
@@ -315,11 +345,18 @@ function scoreText(overlay: NormalizedOverlay, input: RenderedFrameAestheticInpu
   const rowCapacity = text.composition.rowCapacity ?? text.display?.maxWordsPerLine ?? wordCount;
   const targetRows = text.composition.targetRowCount;
 
-  if (fontSize !== undefined && fontSize < (isCaption ? 34 : 24)) {
-    addIssue('text', 0.16, 'rendered text is too small to read', {
-      overlay: overlay.item,
-      evidence: `fontPx=${fontSize.toFixed(1)}`,
-    });
+  if (fontSize !== undefined) {
+    const minimumFontSize = minimumReadableTextPx(overlay.family, text, input);
+    if (fontSize < minimumFontSize) {
+      const isGraphicText = isGraphicTextFamily(overlay.family);
+      addIssue('text', isGraphicText ? 0.12 : 0.16, isGraphicText
+        ? 'graphic text violates constraint:overlay.graphic_too_small'
+        : 'rendered text is too small to read', {
+        overlay: overlay.item,
+        evidence: `fontPx=${fontSize.toFixed(1)}; requiredPx=${minimumFontSize.toFixed(1)}${isGraphicText ? '; constraint=overlay.graphic_too_small' : ''}`,
+        severity: isGraphicText ? 'warn' : undefined,
+      });
+    }
   }
 
   if (isCaption && rowCapacity > 6) {
@@ -561,6 +598,34 @@ function placementBoxToPixels(box: AtomicPlacementBox, input: RenderedFrameAesth
   };
 }
 
+function scoreCaptionPlatformSafeZone(
+  overlay: NormalizedOverlay,
+  input: RenderedFrameAestheticInput,
+  addIssue: AddIssue,
+): void {
+  if (!overlay.box || input.height <= 0) return;
+  const centerYRatio = (overlay.box.y + overlay.box.height / 2) / input.height;
+  if (centerYRatio >= CAPTION_TOP_UNSAFE_RATIO && centerYRatio <= CAPTION_BOTTOM_UNSAFE_RATIO) return;
+
+  addIssue('safe-area', 0.12, 'caption violates constraint:overlay.caption_unsafe_zone', {
+    overlay: overlay.item,
+    evidence: `centerYRatio=${centerYRatio.toFixed(2)}; safeRange=${CAPTION_TOP_UNSAFE_RATIO.toFixed(2)}-${CAPTION_BOTTOM_UNSAFE_RATIO.toFixed(2)}; constraint=overlay.caption_unsafe_zone`,
+    severity: 'warn',
+  });
+}
+
+function isIntentionalFullFrameScene(
+  overlay: NormalizedOverlay,
+  input: RenderedFrameAestheticInput,
+): boolean {
+  if (isIntentionalFullFrameMotionGraphic(overlay)) return true;
+  if (overlay.family !== 'html-scene' || !overlay.box) return false;
+  return overlay.box.x <= 1
+    && overlay.box.y <= 1
+    && overlay.box.x + overlay.box.width >= input.width - 1
+    && overlay.box.y + overlay.box.height >= input.height - 1;
+}
+
 function safeBox(width: number, height: number, margin: number): PixelBox {
   return {
     x: width * margin,
@@ -682,6 +747,32 @@ function isVisualFamily(family: AtomicOverlayFamily | undefined): boolean {
 
 function isTextFamily(family: AtomicOverlayFamily | undefined): boolean {
   return family !== undefined && TEXT_FAMILIES.has(family);
+}
+
+function isGraphicTextFamily(family: AtomicOverlayFamily | undefined): boolean {
+  return family !== undefined && GRAPHIC_TEXT_FAMILIES.has(family);
+}
+
+function isGraphicCaptionPair(a: NormalizedOverlay, b: NormalizedOverlay): boolean {
+  return (a.family === 'caption' && isGraphicTextFamily(b.family))
+    || (b.family === 'caption' && isGraphicTextFamily(a.family));
+}
+
+function minimumReadableTextPx(
+  family: AtomicOverlayFamily | undefined,
+  text: AtomicTextForm,
+  input: RenderedFrameAestheticInput,
+): number {
+  const scale = outputShortEdgeScale(input);
+  if (text.channel === 'caption') return MIN_CAPTION_TEXT_PX_AT_1080 * scale;
+  if (isGraphicTextFamily(family)) return MIN_GRAPHIC_TEXT_PX_AT_1080 * scale;
+  return MIN_BODY_TEXT_PX_AT_1080 * scale;
+}
+
+function outputShortEdgeScale(input: RenderedFrameAestheticInput): number {
+  const shortEdge = Math.min(input.width, input.height);
+  if (!Number.isFinite(shortEdge) || shortEdge <= 0) return 1;
+  return shortEdge / BASELINE_OUTPUT_SHORT_EDGE_PX;
 }
 
 function severityForPenalty(penalty: number): RenderedAestheticSeverity {

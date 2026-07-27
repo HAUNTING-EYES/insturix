@@ -1,34 +1,44 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { applyCommand, type CommandRequest } from '@/lib/thinkforge/services/command-service';
+import { z } from 'zod';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const CommandRequestSchema = z.object({
+  type: z.enum(['UpdateBlock', 'InsertBlock', 'DeleteBlock', 'ReplaceDocument']),
+  payload: z.record(z.string(), z.unknown()),
+  sessionId: z.string().trim().min(1),
+  baseVersion: z.number().int().min(0),
+  source: z.enum(['user', 'ai']),
+}).strict();
 
 /**
  * Unified command endpoint for ThinkForge mutations
  * POST /api/commands
  */
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let command: CommandRequest | null = null;
+  let raw: unknown;
   try {
-    const body = await req.json();
-    command = body as CommandRequest;
+    raw = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  if (!command?.sessionId || !command.type || typeof command.baseVersion !== 'number') {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+  const parsed = CommandRequestSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid command', details: parsed.error.issues }, { status: 400 });
   }
+  const command = parsed.data as CommandRequest;
 
   try {
-    const result = await applyCommand(command, userId);
+    const result = await applyCommand(command, userId, orgId);
     if (!result.ok) {
       const status = result.error === 'Version conflict' ? 409 : result.error === 'Session not found' ? 404 : 400;
       return NextResponse.json({ error: result.error, currentVersion: result.currentVersion }, { status });

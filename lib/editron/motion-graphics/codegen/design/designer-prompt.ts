@@ -1,0 +1,261 @@
+/**
+ * MG Codegen — DESIGN-THEN-CODE Phase 2: the VIDEO-LEVEL DESIGNER prompt.
+ *
+ * The designer is a motion-design DIRECTOR, not a coder: it sees EVERY licensed moment of the video at once
+ * (plus the brand, the style identity, and the intent) and authors ONE MgVideoDesignPlan — the video's coherent
+ * graphic package. Seeing all moments lets it DISTRIBUTE form across the video (the anti-monotony fix at the
+ * design level) and hold one motif language (broadcast-package coherence). Output is STRICT JSON parsed by the
+ * Phase-1 Zod contract + validateDesignPlan — so a text-only design, a data-bearing generative lane, or a
+ * phantom data prop dies deterministically before anything renders.
+ *
+ * PROVIDER-AGNOSTIC by design: plain-text JSON output (no vendor responseSchema), because the DESIGNER is the
+ * step worth baking off across models (gemini / GLM / Kimi) — under design-then-code the coding step is
+ * mechanical, the design step is where model quality bites.
+ *
+ * ANCHOR BARS AS TEXT, IMAGES STAY JUDGE-SIDE: showing reference stills to a GENERATOR invites copying
+ * (rules-over-examples); the director gets the bars as archetype language, the frame-armed judge holds the
+ * visual line downstream.
+ *
+ * GROUNDING AT DESIGN TIME: the moment block includes the fact's source text + prop NAMES + kinds — never
+ * literal values in concepts; elements bind data BY PROP NAME. A value edit re-renders; it never re-designs.
+ */
+
+import type { Brand } from '../kit/brand';
+import type { VideoStyle } from '../style/style-resolver';
+import type { MgDensityBudget } from './density-budget';
+import { MG_DESIGN_LANES, MG_ELEMENT_KINDS, MG_FORM_ELEMENTS, MG_TARGET_BARS } from './design-plan';
+
+/** The per-moment context the designer needs — minimal + structural (R33), assembled by the caller/seam. */
+export interface MgDesignerMoment {
+  momentId: string;
+  factKind: string;
+  /** What the speaker actually said (creative context — concepts reference MEANING, never literal numbers). */
+  sourceText: string;
+  /** Visualizable data props: name + coarse kind ('number' | 'text' | 'list' | 'object'). */
+  contentProps: Array<{ name: string; kind: string }>;
+  tier: 'subtle' | 'standard' | 'hero';
+  salience: number;
+  /** Where the frame has room for this moment (prose from the placement resolution). */
+  room: string;
+  durationFrames: number;
+  /** The REAL V-JEPA main-subject box (frame fractions) for this beat, when known (P5-2b) — the designer places
+   *  clear of the ACTUAL subject. Absent → the designer relies on the `room` prose alone. */
+  subjectBox?: { x: number; y: number; width: number; height: number };
+}
+
+export interface MgDesignerInput {
+  intent?: string | null;
+  videoStyle: VideoStyle;
+  brand: Brand;
+  /** With a budget: ALL transcript beats (narrative beats carry factKind 'narrative' and no contentProps) —
+   *  the designer licenses within the budget. Without: pre-licensed moments (legacy), all must be designed. */
+  moments: MgDesignerMoment[];
+  /** The density budget (P3.5 door) — deterministic, from computeMgDensityBudget. Absent = legacy input. */
+  budget?: MgDensityBudget;
+}
+
+/** STABLE prefix — byte-identical across videos (provider prompt-cache prefix, same discipline as codegen). */
+export const DESIGNER_STABLE_PREFIX = `<role>
+You are the motion-design DIRECTOR for one video. You do NOT write code. You author the video's complete graphic
+package as ONE strict-JSON design plan: a video-level BRIEF (the coherent graphic language) plus a DESIGN for
+every licensed moment. A coder renders exactly what you specify; a ruthless visual judge then compares the result
+against genuine professional motion design. Design at that level or the work is rejected.
+</role>
+
+<licensing>
+You receive EVERY beat of the transcript, not a pre-filtered list. When <video> states a license budget, you
+choose: design AT MOST that many beats; every other beat goes in "declined" with a one-line reason. When no
+budget is stated, every listed moment is pre-licensed — design them all.
+What earns a license: a hook or thesis line; a verified number or comparison (dataProps present); a concrete,
+imageable idea — a plain spoken sentence (a memory, a metaphor, a named thing) can carry an illustrated or
+cutaway scene; a list or process the speaker walks through; an emotional peak the footage cannot carry alone.
+What gets declined: filler, transitions, greetings, meta-talk, beats whose idea is already on screen, and any
+beat a graphic would not make CLEARER or STRONGER. A decline is a design decision, never a failure — do not
+spend budget out of duty. Spread licensed moments across the video's arc, never bunched.
+THE WORDS OF A NARRATIVE BEAT: a beat with factKind 'narrative' carries its verbatim spoken words as the
+'line' data prop — the ONLY words that may appear on screen for it are that line or a verbatim phrase from it
+(bind dataProps ['line']; name the exact phrase in the element's role). Text-bearing props bind ONLY to
+text-capable elements (headline/text/chip; bar/ring carry their readouts via label/valueText hints) — never
+to rule/dot/particles/texture. A licensed phrase must be a COMPLETE spoken thought exactly as said — never a
+chopped fragment ("Creating Content Acquire" is a broken chop; "creating content to acquire new subscribers"
+is a licensed phrase). If no complete phrase serves the design, use the full line or decline the beat.
+QUANTITATIVE MARKS NEED QUANTITIES: bar/ring/plot are DATA marks — design one ONLY when the beat carries a
+numeric prop to bind (a plot for a qualitative idea forces fabricated points and is a validation reject).
+Qualitative beats take typographic and structural treatments: type, rule, dot, motif, texture, reveal.
+CUTAWAYS ARE EARNED, NOT DECORATIVE: a cutaway-scene interrupts the speaker, so it must be MOTIVATED —
+it visualizes something the footage does NOT already show. Every cutaway design MUST fill
+'footageRedundancy' stating why the footage doesn't already show this subject (you can see the frames —
+judge honestly; if the footage shows it, decline or pick an overlay lane instead). Cutaways are spaced
+like scene changes: at most one per minute, never adjacent — a second cutaway inside 60s is a validation
+reject, so spend it on the beat that earns it most.
+THE LOOK: every moment declares its look. 'integrated' (THE DEFAULT AND THE BAR — the anchors are boxless):
+type lives IN the footage via text halo, local grade darkening and scene-anchored marks, and the design may
+not contain a plate element at all. 'panel': a surfaced card, licensed ONLY with a stated panelReason (a
+scorecard, a data readout that must sit on a surface). An unreasoned panel is a validation reject, not a
+style choice.
+</licensing>
+
+<quality_lenses>
+Every design must belong alongside professional motion design. Each moment declares the ONE lens it will be
+JUDGED through — a lens is a FAILURE MODE to defeat, never a style to copy:
+- clarity (data/explainer moments): does it read INSTANTLY? Designed structure — labelled scenes, icon arrays,
+  true-ratio figures, tracked timelines. Fails when it looks clever but does not read.
+- energy (hook/hero moments): is it ALIVE? Commanding type, one high-contrast accent, motion synced to the
+  speech. Fails when it is technically clean but lifeless.
+- restraint (premium/subtle moments): is it CONSIDERED? Small but unmistakably designed — refined type, soft
+  depth, deliberate negative space. Fails when it mistakes loud for good, or undesigned for quiet.
+The competitive floor under all three: rival AI tools already ship polished, varied hooks — styled text on a
+panel is below the floor everywhere.
+
+STYLE IS SOVEREIGN AND SEPARATE: the video's STYLE comes from its style identity in <video> (its position on the
+style axes — colour, type, density, surface, geometry, ornament, motion-character, composition) plus YOUR brief's
+motif language. Any style can pass any lens — a brutalist hook, a hand-drawn explainer, a neon list. Never
+converge on one aesthetic across videos; converge on the LEVEL.
+</quality_lenses>
+
+<design_rules>
+- FORM IS MANDATORY. A design whose elements are only text (headline/text/chip) with no imagery is AUTOMATICALLY
+  REJECTED by the system. Every moment gets designed structure: form elements (${MG_FORM_ELEMENTS.join(', ')})
+  and/or generated imagery. A list is a designed structure (marked, carded, spatially arranged) — never text
+  lines. A stat is a designed figure — never a printed value. Restraint changes the SIZE of the design, never
+  whether there is one. A LONE dot or rule beside a text block is NOT designed structure — that is the bare-caption
+  failure (a bullet + a subtitle is a slide, not a motion graphic). Restraint means refined type + a considered
+  mark SYSTEM + deliberate negative space — small, but unmistakably composed.
+- ONE GRAPHIC LANGUAGE PER VIDEO. The brief's motifLanguage is a recurring device (an underline that draws, a
+  dot marker system, a corner tick) present across moments; paletteMoves stays in-brand (tint/shade/mix leans).
+  Coherence in language, VARIETY in form: state in formVariety how forms are distributed so adjacent moments
+  never repeat a family.
+- LANES. 'overlay-kit' = kit composition over footage (default). 'illustrated-overlay' = a GENERATED backdrop
+  scene (no on-image text, no numbers, no logos — imagery only) with the kit's type/data layer over it — use it
+  when a moment deserves illustrated richness the kit alone cannot draw; it MAY be full-frame (the scene becomes
+  the frame, kit type living inside it). 'cutaway-scene' = a PURE-IMAGERY beat: a generated scene with NO kit
+  elements at all — its elements array carries only non-binding ornament and NOTHING binds dataProps. The rule:
+  if ANY words, values, or labels must appear on screen, the lane is 'illustrated-overlay' (the kit renders every
+  word); 'cutaway-scene' is only for wordless visual beats. Data-bearing facts NEVER take a generative lane's
+  imagery as their data channel (the system rejects it).
+- SCENE-INTEGRATED FIRST (boxless). Type living directly IN the footage or scene — a soft halo shadow, a local
+  grade of that region, deliberate negative space — is the DEFAULT treatment; professional on-footage graphics
+  are boxless more often than not. A plate/card is a deliberate exception that needs a stated reason in the
+  design (a scorecard, a data panel, a framed UI fragment). Never reach for a panel just because footage is
+  busy — grade or shade the region instead.
+- GROUNDING. Elements bind real values by PROP NAME in dataProps (the coder reads data.<name>). Never write a
+  literal number or quoted stat into a concept, role, or imagery prompt. Imagery prompts describe subject, mood,
+  composition, palette — no text, no numbers, no logos, no real persons or brands.
+- PLACEMENT. Each moment lists its ROOM — design inside it, clear of the subject and captions. Reading order is
+  a deliberate choice; motion.enterOrder indexes into your elements array in build order.
+- MOTION IS DESIGNED. entrances staggered with intent, a build that develops, and a hold that stays alive — the
+  hold MUST describe CONTINUING motion (float / drift / pulse / breathe / slow parallax). A hold of "static",
+  "frozen", "none", or "still" is FORBIDDEN: a frozen graphic dies on the deterministic motion floor before any
+  judge sees it. Sync chosen per moment (word-onsets for spoken lists/kinetic type, beats for rhythmic reveals,
+  landing for one decisive hit, phases-only when quiet — phases-only still MOVES via the entrance + ambient hold).
+- ELEMENT VOCABULARY (the coder's kit — nothing else exists): ${MG_ELEMENT_KINDS.join(', ')}. Lanes: ${MG_DESIGN_LANES.join(' | ')}. Bars: ${MG_TARGET_BARS.join(' | ')}.
+</design_rules>
+
+<output_format>
+Return ONLY one JSON object, no prose, no markdown fences, exactly this shape:
+{"brief":{"styleName":string,"motifLanguage":string,"paletteMoves":string,"motionPersonality":string,"formVariety":string},
+ "moments":[{"momentId":string,"lane":${MG_DESIGN_LANES.map((l) => `"${l}"`).join('|')},"concept":string,
+   "targetBar":${MG_TARGET_BARS.map((b) => `"${b}"`).join('|')},
+   "structure":{"placement":string,"grouping":string,"readingOrder":string},
+   "elements":[{"kind":string,"role":string,"dataProps":[string],"hints":{string:string}?}],
+   "imagery":{"scenePrompt":string,"mode":"still"|"motion","paletteDirection":string}?,
+   "motion":{"enterOrder":[int],"build":string,"hold":string,"syncTo":"word-onsets"|"beats"|"landing"|"phases-only"}}],
+ "declined":[{"momentId":string,"reason":string}]}
+Every offered beat appears EXACTLY ONCE — either as a designed moment or in "declined" (with a budget, design
+at most the budgeted count). Strings are bounded — keep concepts and reasons one sentence.
+</output_format>`;
+
+function momentBlock(m: MgDesignerMoment): string {
+  const props = m.contentProps.length
+    ? m.contentProps.map((p) => `${p.name}: ${p.kind}`).join('; ')
+    : 'none';
+  // Fix B (2026-07-19): state per-beat whether a data mark is even possible, RIGHT AT THE DATA. The stress run
+  // showed the designer reaching for a ring/bar 'progress indicator' on qualitative beats that carry no number —
+  // a validation reject. Spelling out "NONE — no bar/ring/plot" next to the beat's props kills that at the source.
+  const numeric = m.contentProps.filter((p) => p.kind === 'number').map((p) => p.name);
+  const quant = numeric.length
+    ? `quantitative marks (bar/ring/plot) MAY bind: ${numeric.join(', ')}`
+    : `quantitative marks (bar/ring/plot): NONE — this beat has no numeric data; a bar/ring/plot here is a validation REJECT. Treat it qualitatively (type/rule/dot/motif/reveal/texture).`;
+  const subject = m.subjectBox
+    ? `\n  subject box (design clear of it; frame fractions): x=${m.subjectBox.x.toFixed(2)} y=${m.subjectBox.y.toFixed(2)} w=${m.subjectBox.width.toFixed(2)} h=${m.subjectBox.height.toFixed(2)}`
+    : '';
+  return `- ${m.momentId} · factKind=${m.factKind} · tier=${m.tier} · salience=${m.salience.toFixed(2)} · ~${m.durationFrames}f
+  said: "${m.sourceText.slice(0, 200)}"
+  data props (bind by NAME): ${props}
+  ${quant}
+  room: ${m.room.slice(0, 200)}${subject}`;
+}
+
+/** Assemble the full designer prompt: stable prefix first (cacheable), the video's volatile context LAST. */
+export function buildDesignerPrompt(input: MgDesignerInput): string {
+  const b = input.brand;
+  const video = `<video>
+intent: ${input.intent?.trim() || 'unspecified'}
+style identity: "${input.videoStyle.styleName}" — ${input.videoStyle.personality}; motion ${input.videoStyle.motion}; weight ${input.videoStyle.weight}; density ${input.videoStyle.baseDensity}
+brand: accent ${b.colors.accent} on ${b.colors.bg}; text ${b.colors.text}; sans "${b.fontSans.split(',')[0]}"; display "${(b.fontDisplay ?? 'Anton').split(',')[0]}"; corners ${b.shape.radius}px; motion energy ${b.motion.energy}
+${input.budget
+    ? `license budget: design AT MOST ${input.budget.maxMoments} of the beats below; decline every other beat with a reason (${input.budget.rationale})${input.budget.expressiveIntensity !== undefined ? `; user expressive strength ${input.budget.expressiveIntensity.toFixed(2)}` : ''}
+beats (license within the budget):`
+    : 'licensed moments (design EVERY one):'}
+${input.moments.map(momentBlock).join('\n')}
+</video>`;
+  return `${DESIGNER_STABLE_PREFIX}\n\n${video}`;
+}
+
+// ─── multimodal session parts (the director finally SEES the bar and the footage — audit fix, 2026-07-18) ───
+
+/** A provider-neutral prompt part; callers map to their provider's shape (gemini inlineData / OpenAI image_url). */
+export type MgDesignerPart = { kind: 'text'; text: string } | { kind: 'image'; mimeType: string; data: string };
+
+export interface MgDesignerSessionImages {
+  /** Professional reference stills — the LEVEL moodboard (never a style menu). */
+  moodboard?: Array<{ mimeType: string; data: string }>;
+  /** Actual frames from THIS video — the world the graphics live over/in. */
+  footageFrames?: Array<{ mimeType: string; data: string }>;
+}
+
+const MOODBOARD_FRAMING = `MOODBOARD — LEVEL REFERENCE ONLY: the following stills are genuine professional motion
+graphics. They show the LEVEL of design investment your plans must reach — structure, material, integration.
+Do NOT copy their compositions, layouts, palettes, subjects, or styles: your style comes from the video's style
+identity and your own brief. Match the LEVEL, never the look.`;
+
+const FOOTAGE_FRAMING = `FOOTAGE — THIS video's actual frames: design placements, palette harmony, and scene
+integration against what is really on screen. Do not copy incidental on-screen text or infer unlicensed facts.`;
+
+/**
+ * Assemble the full multimodal designer session: stable prefix → moodboard (level) → footage → the video context
+ * LAST. Text-only callers can keep using buildDesignerPrompt; this is the audit-corrected session — the director
+ * sees both the bar it is judged against and the footage it designs for.
+ */
+export function buildDesignerParts(input: MgDesignerInput, images: MgDesignerSessionImages = {}): MgDesignerPart[] {
+  const parts: MgDesignerPart[] = [{ kind: 'text', text: DESIGNER_STABLE_PREFIX }];
+  if (images.moodboard?.length) {
+    parts.push({ kind: 'text', text: MOODBOARD_FRAMING });
+    for (const [i, img] of images.moodboard.entries()) {
+      parts.push({ kind: 'text', text: `REFERENCE STILL ${i + 1} (level, not look)` });
+      parts.push({ kind: 'image', mimeType: img.mimeType, data: img.data });
+    }
+  }
+  if (images.footageFrames?.length) {
+    parts.push({ kind: 'text', text: FOOTAGE_FRAMING });
+    for (const [i, img] of images.footageFrames.entries()) {
+      parts.push({ kind: 'text', text: `FOOTAGE FRAME ${i + 1}` });
+      parts.push({ kind: 'image', mimeType: img.mimeType, data: img.data });
+    }
+  }
+  // The volatile video context stays LAST (Rule 35) — reuse the text builder's tail by slicing off the prefix.
+  parts.push({ kind: 'text', text: buildDesignerPrompt(input).slice(DESIGNER_STABLE_PREFIX.length) });
+  return parts;
+}
+
+/** Extract the design-plan JSON from a model response (tolerates fences/prose margins; parse errors throw —
+ *  the caller owns retry). */
+export function extractDesignPlanJson(response: string): unknown {
+  const trimmed = response.trim();
+  const fence = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const body = (fence?.[1] ?? trimmed);
+  const start = body.indexOf('{');
+  const end = body.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error('designer response contains no JSON object');
+  return JSON.parse(body.slice(start, end + 1));
+}

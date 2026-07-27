@@ -4,40 +4,58 @@ import React, { useState, useCallback } from "react";
 import { useEditorContext } from "../../contexts/editor-context";
 import { Search, Play, Plus, Loader2, Volume2 } from "lucide-react";
 import { OverlayType } from "../../types";
+import type { AudioRightsContract } from "@/lib/editron/shared/render-request-payload";
 
 interface SFXResult {
+  providerAssetId: string;
   title: string;
   url: string;
   duration: number;
-  source: string;
+  source: 'Freesound';
+  license: 'CC0-1.0';
+  attributionRequired: false;
+}
+
+interface ControlledSfxIngestResult {
+  audioUrl: string;
+  audioAssetId: string;
+  durationMs: number;
+  providerAssetId: string;
+  originalTitle?: string;
+  audioRights: AudioRightsContract;
 }
 
 /**
- * SFX Library Panel — browse and add sound effects from Freesound/Pixabay.
+ * SFX Library Panel — browse and add verified CC0 effects from Freesound.
  * Search by keyword, preview clips, drag or click to add to timeline.
  */
 export const SFXLibraryPanel: React.FC = () => {
-  const { addOverlay, overlays } = useEditorContext();
+  const { addOverlay } = useEditorContext();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SFXResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [audioRef] = useState(() => typeof Audio !== 'undefined' ? new Audio() : null);
   const [adding, setAdding] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSearch = useCallback(async () => {
     if (!query.trim()) return;
     setLoading(true);
     setResults([]);
+    setError(null);
 
     try {
       const res = await fetch(`/api/services/editron/sfx-library/search?q=${encodeURIComponent(query)}&limit=12`);
       const data = await res.json().catch(() => ({}));
-      if (data.results) {
-        setResults(data.results);
+      if (!res.ok) {
+        setError(typeof data.error === 'string' ? data.error : 'Sound search failed');
+        return;
       }
+      setResults(Array.isArray(data.results) ? data.results : []);
     } catch (err) {
       console.error('[SFXLibrary] Search failed:', err);
+      setError('Sound search failed');
     } finally {
       setLoading(false);
     }
@@ -57,16 +75,27 @@ export const SFXLibraryPanel: React.FC = () => {
   }, [audioRef, previewUrl]);
 
   const handleAddToTimeline = useCallback(async (sfx: SFXResult) => {
-    setAdding(sfx.url);
+    setAdding(sfx.providerAssetId);
+    setError(null);
     try {
-      // Find the latest frame position (end of last overlay)
-      const maxFrame = overlays.reduce((max, o) => Math.max(max, o.from + o.durationInFrames), 0);
+      const response = await fetch('/api/services/editron/sfx-library/ingest', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ providerAssetId: sfx.providerAssetId }),
+      });
+      const data: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(apiErrorMessage(data, 'Sound ingest failed'));
+      }
+      if (!isControlledSfxIngestResult(data)) {
+        throw new Error('Sound ingest returned an invalid asset receipt');
+      }
       const fps = 30;
 
       addOverlay({
         type: OverlayType.SOUND,
         from: 0, // Place at start — user can drag to desired position
-        durationInFrames: Math.round(sfx.duration * fps),
+        durationInFrames: Math.max(1, Math.round((data.durationMs / 1000) * fps)),
         row: 0, // ROW.SFX — sound effects on track 0, not MOTION_GRAPHICS (was 6)
         left: 0,
         top: 0,
@@ -74,16 +103,25 @@ export const SFXLibraryPanel: React.FC = () => {
         height: 0,
         isDragging: false,
         rotation: 0,
-        content: sfx.url,
-        src: sfx.url,
+        content: data.audioUrl,
+        src: data.audioUrl,
+        assetId: data.audioAssetId,
+        audioRights: data.audioRights,
         styles: { volume: 0.5, opacity: 1 },
+        metadata: {
+          providerId: data.providerAssetId,
+          source: 'freesound-cc0-controlled',
+          title: data.originalTitle ?? sfx.title,
+          durationMs: data.durationMs,
+        },
       } as any);
     } catch (err) {
       console.error('[SFXLibrary] Add failed:', err);
+      setError(err instanceof Error ? err.message : 'Sound ingest failed');
     } finally {
       setAdding(null);
     }
-  }, [addOverlay, overlays]);
+  }, [addOverlay]);
 
   // Quick search suggestions
   const suggestions = [
@@ -135,9 +173,11 @@ export const SFXLibraryPanel: React.FC = () => {
           <div className="text-center py-8">
             <Volume2 className="h-8 w-8 text-zinc-600 mx-auto mb-2" />
             <p className="text-[11px] text-zinc-500">Search for sound effects</p>
-            <p className="text-[10px] text-zinc-600 mt-1">Freesound CC0 library — free for commercial use</p>
+            <p className="text-[10px] text-zinc-600 mt-1">Verified Freesound CC0</p>
           </div>
         )}
+
+        {error && <p className="px-2 py-3 text-[10px] text-red-400">{error}</p>}
 
         {loading && (
           <div className="flex items-center justify-center py-8">
@@ -160,16 +200,16 @@ export const SFXLibraryPanel: React.FC = () => {
 
               <div className="flex-1 min-w-0">
                 <p className="text-[11px] text-zinc-200 truncate">{sfx.title}</p>
-                <p className="text-[10px] text-zinc-500">{sfx.duration}s • {sfx.source}</p>
+                <p className="text-[10px] text-zinc-500">{sfx.duration}s • {sfx.source} • {sfx.license}</p>
               </div>
 
               <button
                 onClick={() => handleAddToTimeline(sfx)}
-                disabled={adding === sfx.url}
+                disabled={adding === sfx.providerAssetId}
                 className="flex-shrink-0 p-1.5 rounded-md bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity"
                 title="Add to timeline"
               >
-                {adding === sfx.url ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                {adding === sfx.providerAssetId ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
               </button>
             </div>
           ))}
@@ -178,3 +218,22 @@ export const SFXLibraryPanel: React.FC = () => {
     </div>
   );
 };
+
+function isControlledSfxIngestResult(value: unknown): value is ControlledSfxIngestResult {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const result = value as Record<string, unknown>;
+  return typeof result.audioUrl === 'string'
+    && typeof result.audioAssetId === 'string'
+    && typeof result.durationMs === 'number'
+    && Number.isFinite(result.durationMs)
+    && result.durationMs > 0
+    && typeof result.providerAssetId === 'string'
+    && Boolean(result.audioRights)
+    && typeof result.audioRights === 'object';
+}
+
+function apiErrorMessage(value: unknown, fallback: string): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback;
+  const error = (value as Record<string, unknown>).error;
+  return typeof error === 'string' && error.trim() ? error : fallback;
+}

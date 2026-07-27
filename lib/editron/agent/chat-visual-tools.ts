@@ -2,6 +2,20 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
 import { DEFAULT_CONFIG } from "../config/editron-config";
+import type { ChatFrameEvidence } from "./chat-frame-evidence";
+import {
+  searchCanonicalChatEvidence,
+  type CanonicalChatEvidenceCandidate,
+} from "../services/chat-multimodal-evidence";
+import {
+  verifyChatFrameVisualMatch,
+  type ChatFrameVisualVerification,
+} from "../services/chat-frame-visual-verification";
+import { PROJECT_ASSET_ANALYSES_COLLECTION } from "../services/project-analysis-storage";
+import {
+  buildSubjectAwareReframePlan,
+  type SubjectReframePlan,
+} from "../services/subject-reframe-plan";
 
 type OverlayId = string | number;
 
@@ -38,16 +52,23 @@ export interface VisualMomentCandidate {
   durationFrames: number;
   confidence: number;
   confidenceLabel: "high" | "medium" | "low";
-  matchType: "exact-phrase" | "token-overlap" | "character-vector";
+  matchType: "exact-phrase" | "token-overlap" | "character-vector" | "multimodal-semantic";
   matchReasons: string[];
   evidenceText: string;
   boundingBox?: VisualBoundingBox;
   source: {
-    type: "overlay" | "analysis";
+    type: "overlay" | "analysis" | "multimodal-evidence";
     overlayId?: OverlayId;
     assetId?: string;
     overlayType?: string;
     path: string;
+    evidenceId?: string;
+    auditId?: string;
+    scores?: CanonicalChatEvidenceCandidate["scores"];
+    missingModalities?: string[];
+    rejectionReasons?: string[];
+    frameVerificationReceiptId?: string;
+    verifiedFrame?: number;
   };
   safeForAutoEdit: boolean;
   useWith: {
@@ -61,6 +82,15 @@ export interface VisualMomentCandidate {
 interface CreateChatVisualToolsOptions {
   userId: string;
   projectId: string;
+  subjectReframeDependencies?: SubjectReframeDependencies;
+  frameVerifier?: typeof verifyChatFrameVisualMatch;
+}
+
+export interface SubjectReframeDependencies {
+  loadProject(userId: string, projectId: string): Promise<Record<string, any> | null>;
+  loadAnalyses(projectId: string, assetIds: string[]): Promise<unknown[]>;
+  saveProject(userId: string, projectId: string, project: Record<string, any>): Promise<void>;
+  updateProject(userId: string, projectId: string, updates: Record<string, unknown>): Promise<void>;
 }
 
 interface VisualMomentOptions {
@@ -70,12 +100,13 @@ interface VisualMomentOptions {
   includeOverlayText?: boolean;
 }
 
-export type VisualEditAction = "highlight" | "inspect" | "cut_range" | "keyframe_anchor";
+export type VisualEditAction = "highlight" | "inspect" | "cut_range" | "keyframe_anchor" | "speed_ramp";
 export type VisualEditResolutionStatus = "ready" | "no-match" | "ambiguous" | "no-placement";
 
 export interface VisualEditResolveOptions extends VisualMomentOptions {
   action?: VisualEditAction;
   durationFrames?: number;
+  precomputedCandidates?: VisualMomentCandidate[];
 }
 
 export interface VisualEditResolution {
@@ -88,6 +119,11 @@ export interface VisualEditResolution {
   message: string;
   useWith?: {
     add_overlay?: VisualHighlightOverlayHint;
+    apply_speed_ramp?: {
+      targetFrame: number;
+      durationFrames: number;
+      videoOverlayId?: OverlayId;
+    };
     cut_section?: VisualMomentCandidate["useWith"]["cut_section"];
     set_keyframes?: VisualMomentCandidate["useWith"]["set_keyframes"];
     visual_inspect_frame?: VisualMomentCandidate["useWith"]["visual_inspect_frame"];
@@ -346,6 +382,7 @@ interface VisualEvidence {
 const DEFAULT_FPS = 30;
 const DEFAULT_CLIP_DURATION_FRAMES = 30;
 const DEFAULT_HIGHLIGHT_DURATION_FRAMES = 45;
+const DEFAULT_SPEED_RAMP_DURATION_FRAMES = 30;
 
 const visualMomentSchema = z.object({
   query: z.string().min(1).describe("Natural-language visual event, object, action, scene, or on-screen text to locate in the timeline."),
@@ -357,12 +394,12 @@ const visualMomentSchema = z.object({
 
 const visualEditSchema = z.object({
   query: z.string().min(1).describe("Visual event, object, action, scene, or on-screen text that anchors the edit."),
-  action: z.enum(["highlight", "inspect", "cut_range", "keyframe_anchor"]).default("highlight").describe("Requested downstream operation. Highlight needs a bounding box; inspect/cut/keyframe need only an unambiguous visual moment."),
+  action: z.enum(["highlight", "inspect", "cut_range", "keyframe_anchor", "speed_ramp"]).default("highlight").describe("Requested downstream operation. Highlight needs a bounding box; inspect/cut/keyframe/speed-ramp need an unambiguous visual moment."),
   videoOverlayId: z.union([z.string(), z.number()]).optional().describe("Optional timeline video overlay id to constrain the search."),
   limit: z.coerce.number().int().min(1).max(12).default(5).describe("Maximum visual candidates to inspect before resolving ambiguity."),
   minConfidence: z.coerce.number().min(0).max(1).default(0.35).describe("Minimum candidate confidence."),
   includeOverlayText: z.boolean().default(true).describe("Also search text already attached to timeline overlays."),
-  durationFrames: z.coerce.number().int().min(1).max(300).default(DEFAULT_HIGHLIGHT_DURATION_FRAMES).describe("Duration for a resolved highlight overlay."),
+  durationFrames: z.coerce.number().int().min(1).max(300).optional().describe("Optional operation window. Defaults are operation-specific."),
 });
 
 const cameraShakeSchema = z.object({
@@ -448,6 +485,10 @@ const filterSchema = z.object({
   replaceExistingFilter: z.boolean().default(false).describe("Allow replacing an existing overlay-level filter. Keep false unless the user explicitly wants to override a current manual filter."),
   allowCaptionFilter: z.boolean().default(false).describe("Allow filtering captions/subtitles. Keep false unless captions were explicitly targeted."),
   allowBrandFilter: z.boolean().default(false).describe("Allow filtering likely logo/brand/watermark overlays. Keep false unless the brand element was explicitly targeted."),
+});
+
+const subjectReframeSchema = z.object({
+  targetAspectRatio: z.enum(["16:9", "9:16", "1:1", "4:5"]).describe("Required output aspect ratio. Use the ratio explicitly requested by the user."),
 });
 
 const PROJECT_VISUAL_ROOT_KEYS = [
@@ -629,7 +670,12 @@ const STOP_WORDS = new Set([
   "with",
 ]);
 
-export function createChatVisualTools({ userId, projectId }: CreateChatVisualToolsOptions) {
+export function createChatVisualTools({
+  userId,
+  projectId,
+  subjectReframeDependencies,
+  frameVerifier = verifyChatFrameVisualMatch,
+}: CreateChatVisualToolsOptions) {
   const findVisualMoment = tool(
     async (input: z.infer<typeof visualMomentSchema>) => {
       const { projectService } = await import("../services/project-service");
@@ -638,12 +684,17 @@ export function createChatVisualTools({ userId, projectId }: CreateChatVisualToo
         videoOverlayId: input.videoOverlayId,
         includeOverlayText: input.includeOverlayText,
       });
-      const candidates = findVisualMomentCandidates(project, input.query, {
+      const lexicalCandidates = findVisualMomentCandidates(project, input.query, {
         videoOverlayId: input.videoOverlayId,
         limit: input.limit,
         minConfidence: input.minConfidence,
         includeOverlayText: input.includeOverlayText,
       });
+      const retrieval = await enrichVisualCandidatesWithCanonicalEvidence({
+        project, projectId, userId, query: input.query,
+        overlayId: input.videoOverlayId, limit: input.limit, lexicalCandidates,
+      });
+      const candidates = retrieval.candidates;
 
       return JSON.stringify({
         status: "success",
@@ -652,8 +703,9 @@ export function createChatVisualTools({ userId, projectId }: CreateChatVisualToo
           searchedEvidenceCount: evidence.length,
           returned: candidates.length,
           candidates,
+          canonicalEvidence: retrieval.audit,
           message: candidates.length
-            ? `Found ${candidates.length} visual moment candidate(s). Use frame/startFrame/endFrame directly when confidence is high.`
+            ? `Found ${candidates.length} visual moment candidate(s). This is discovery evidence only; call resolve_visual_edit before any mutation.`
             : `No stored visual evidence matched "${input.query}". Use analyze_clip_video/analyze_video_content first, or ask once for a clearer visual phrase.`,
         },
       });
@@ -661,7 +713,7 @@ export function createChatVisualTools({ userId, projectId }: CreateChatVisualToo
     {
       name: "find_visual_moment",
       description: `Find when a stored visual event, object, scene, action, gesture, OCR text, or overlay visual label appears in the edited timeline.
-Use before edit requests such as "cut when the logo appears", "zoom when he points", "add a motion graphic on the shot with the laptop", or "inspect the frame where the product is visible".
+Use for read-only discovery and questions about where something appears. For any mutation, call resolve_visual_edit directly because it performs the same retrieval and returns the only mutation-authorizing contract.
 Returns deterministic frame candidates, confidence, source evidence, and exact frame hints for cut_section, add_motion_graphic, set_keyframes, and visual_inspect_frame.
 Do not make a destructive edit from a low-confidence or ambiguous candidate; present the candidates and ask once.`,
       schema: visualMomentSchema,
@@ -669,13 +721,92 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
   );
 
   const resolveVisualEdit = tool(
-    async (input: z.infer<typeof visualEditSchema>) => {
+    async (input: z.infer<typeof visualEditSchema>, config) => {
       const { projectService } = await import("../services/project-service");
       const project = await projectService.loadProject(userId, projectId);
       const evidence = buildVisualEvidence(project, {
         videoOverlayId: input.videoOverlayId,
         includeOverlayText: input.includeOverlayText,
       });
+      const lexicalCandidates = findVisualMomentCandidates(project, input.query, {
+        videoOverlayId: input.videoOverlayId,
+        limit: input.limit,
+        minConfidence: input.minConfidence,
+        includeOverlayText: input.includeOverlayText,
+      });
+      const retrieval = await enrichVisualCandidatesWithCanonicalEvidence({
+        project, projectId, userId, query: input.query,
+        overlayId: input.videoOverlayId, limit: input.limit, lexicalCandidates,
+      });
+      let candidates = retrieval.candidates;
+      let frameVerification: ChatFrameVisualVerification | undefined;
+      const resolutionEnvelope = (
+        data: Record<string, unknown>,
+        message: string,
+        ready = false,
+      ) => JSON.stringify({
+        status: ready ? "success" : "error",
+        data,
+        error: ready
+          ? null
+          : {
+              code: "VISUAL_RESOLUTION_REQUIRED",
+              message,
+              details: { resolverStatus: data.status ?? "unknown" },
+            },
+        nextAction: ready ? "continue" : "ask_clarification",
+      });
+      const frameEvidence = config?.configurable?.chatFrameEvidence as ChatFrameEvidence | undefined;
+      if (frameEvidence) {
+        const candidate = selectVisualCandidateForFrame(candidates, frameEvidence.frame);
+        if (!candidate) {
+          return resolutionEnvelope(
+            {
+              status: "no-match",
+              action: input.action,
+              query: input.query,
+              candidates,
+              warnings: [],
+              canonicalEvidence: retrieval.audit,
+            },
+            `The attached rendered frame ${frameEvidence.frame} does not belong to a retrieved visual candidate for "${input.query}".`,
+          );
+        }
+        try {
+          frameVerification = await frameVerifier({
+            query: input.query,
+            evidence: frameEvidence,
+            candidateContext: candidate.evidenceText,
+          });
+        } catch (error) {
+          return resolutionEnvelope(
+            {
+              status: "ambiguous",
+              action: input.action,
+              query: input.query,
+              candidates,
+              warnings: ["frame-verification-provider-failed"],
+              canonicalEvidence: retrieval.audit,
+            },
+            `The rendered frame could not be independently verified: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        if (frameVerification.status !== "confirmed") {
+          return resolutionEnvelope(
+            {
+              status: "ambiguous",
+              action: input.action,
+              query: input.query,
+              candidates,
+              warnings: ["frame-verification-rejected"],
+              canonicalEvidence: retrieval.audit,
+              frameVerification,
+            },
+            `The rendered frame did not visibly confirm "${input.query}". No edit was authorized.`,
+          );
+        }
+        candidates = promoteFrameVerifiedCandidate(candidates, candidate, frameVerification);
+      }
       const plan = resolveVisualEditPlacement(project, input.query, {
         action: input.action,
         videoOverlayId: input.videoOverlayId,
@@ -683,21 +814,24 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
         minConfidence: input.minConfidence,
         includeOverlayText: input.includeOverlayText,
         durationFrames: input.durationFrames,
+        precomputedCandidates: candidates,
       });
 
-      return JSON.stringify({
-        status: plan.status === "ready" ? "success" : "error",
-        data: {
+      return resolutionEnvelope(
+        {
           ...plan,
           searchedEvidenceCount: evidence.length,
+          canonicalEvidence: retrieval.audit,
+          ...(frameVerification ? { frameVerification } : {}),
         },
-        message: plan.message,
-      });
+        plan.message,
+        plan.status === "ready",
+      );
     },
     {
       name: "resolve_visual_edit",
       description: `Resolve a stored visual event into safe edit parameters for downstream tools.
-Use before requests like "when the logo appears, add a highlight", "cut the shot with the laptop", "inspect the product frame", or "zoom/keyframe on the object".
+Call this directly for requests like "when the logo appears, add a highlight", "cut the shot with the laptop", or "zoom/keyframe on the object"; do not call find_visual_moment first.
 Returns add_overlay placement only when the matched visual fact has a bounding box. Otherwise it returns an inspection frame and fails loud instead of guessing coordinates. It never mutates the project by itself.`,
       schema: visualEditSchema,
     },
@@ -939,7 +1073,269 @@ Writes only overlay.styles.filter, which is already consumed by the renderer. It
     },
   );
 
-  return [findVisualMoment, resolveVisualEdit, resolveKeyframeEdit, applyCameraShake, applySpeedRamp, applyFade, reorderLayer, moveRetimeOverlay, applyFilter];
+  const reframeProject = tool(
+    async (input: z.infer<typeof subjectReframeSchema>) => {
+      try {
+        const dependencies = subjectReframeDependencies ?? await createSubjectReframeDependencies();
+        const project = await dependencies.loadProject(userId, projectId);
+        if (!project) {
+          return JSON.stringify({ status: "error", message: `Project ${projectId} was not found or is not accessible.` });
+        }
+
+        const assetIds = Array.from(new Set(
+          (Array.isArray(project.overlays) ? project.overlays : [])
+            .filter((overlay: any) => overlay?.type === "video" || overlay?.type === "image")
+            .map((overlay: any) => typeof overlay.assetId === "string" ? overlay.assetId.trim() : "")
+            .filter(Boolean),
+        ));
+        const analyses = await dependencies.loadAnalyses(projectId, assetIds);
+        const plan = await applySubjectReframeMutation({
+          userId,
+          projectId,
+          project,
+          analyses,
+          targetAspectRatio: input.targetAspectRatio,
+        }, dependencies);
+
+        return JSON.stringify({
+          status: plan.status === "changed" ? "success" : "error",
+          data: plan,
+          message: plan.message,
+        });
+      } catch (error: any) {
+        return JSON.stringify({ status: "error", message: error?.message ?? "Failed to reframe the project." });
+      }
+    },
+    {
+      name: "reframe_project",
+      description: `Reframe the full edited project to an explicitly requested aspect ratio while keeping grounded subjects visible.
+Uses persisted per-asset spatial evidence to build subject-following focal tracks. Full-canvas media without usable subject evidence is safely contained; authored picture-in-picture and other non-full-canvas layouts are preserved.
+Use for direct requests such as "make this 9:16 and keep the subject in frame". This tool owns its evidence lookup and mutation; do not route the request through apply_editorial_intent.`,
+      schema: subjectReframeSchema,
+    },
+  );
+
+  return [findVisualMoment, resolveVisualEdit, resolveKeyframeEdit, applyCameraShake, applySpeedRamp, applyFade, reorderLayer, moveRetimeOverlay, applyFilter, reframeProject];
+}
+
+export async function applySubjectReframeMutation(
+  input: {
+    userId: string;
+    projectId: string;
+    project: Record<string, any>;
+    analyses: unknown[];
+    targetAspectRatio: "16:9" | "9:16" | "1:1" | "4:5";
+  },
+  dependencies: SubjectReframeDependencies,
+): Promise<SubjectReframePlan> {
+  const plan = buildSubjectAwareReframePlan({
+    project: input.project,
+    analyses: input.analyses,
+    targetAspectRatio: input.targetAspectRatio,
+  });
+  if (plan.status !== "changed") return plan;
+
+  const updatesById = new Map(plan.overlayUpdates.map((update) => [update.overlayId, update.updates]));
+  const overlays = (Array.isArray(input.project.overlays) ? input.project.overlays : []).map((overlay: any) => {
+    const updates = updatesById.get(Number(overlay?.id));
+    return updates ? { ...overlay, ...updates } : overlay;
+  });
+  const auditReceipt = plan.projectUpdates["intelligence.lastSubjectReframe"];
+  await dependencies.saveProject(input.userId, input.projectId, {
+    ...input.project,
+    overlays,
+    aspectRatio: plan.projectUpdates.aspectRatio,
+    playerDimensions: plan.projectUpdates.playerDimensions,
+  });
+  if (auditReceipt) {
+    await dependencies.updateProject(input.userId, input.projectId, {
+      "intelligence.lastSubjectReframe": auditReceipt,
+    });
+  }
+  return plan;
+}
+
+async function createSubjectReframeDependencies(): Promise<SubjectReframeDependencies> {
+  const [{ projectService }, { getDatabase }] = await Promise.all([
+    import("../services/project-service"),
+    import("../db/mongodb"),
+  ]);
+  const db = await getDatabase();
+  return {
+    loadProject: (userId, projectId) => projectService.loadProject(userId, projectId) as Promise<Record<string, any> | null>,
+    loadAnalyses: async (projectId, assetIds) => {
+      if (assetIds.length === 0) return [];
+      return db.collection(PROJECT_ASSET_ANALYSES_COLLECTION).find({
+        projectId,
+        assetId: { $in: assetIds },
+      }).toArray();
+    },
+    saveProject: (userId, projectId, project) => projectService.saveProject(userId, projectId, project as any),
+    updateProject: (userId, projectId, updates) => projectService.updateProject(userId, projectId, updates),
+  };
+}
+
+async function enrichVisualCandidatesWithCanonicalEvidence(input: {
+  project: unknown;
+  projectId: string;
+  userId: string;
+  query: string;
+  overlayId?: OverlayId;
+  limit: number;
+  lexicalCandidates: VisualMomentCandidate[];
+}): Promise<{
+  candidates: VisualMomentCandidate[];
+  audit: {
+    mode: "lexical-exact" | "canonical-multimodal";
+    auditId: string | null;
+    analyzedDocumentCount: number;
+    embeddedDocumentCount: number;
+  };
+}> {
+  if (input.lexicalCandidates.some((candidate) => candidate.safeForAutoEdit && candidate.matchType === "exact-phrase")) {
+    return {
+      candidates: input.lexicalCandidates,
+      audit: {
+        mode: "lexical-exact",
+        auditId: null,
+        analyzedDocumentCount: 0,
+        embeddedDocumentCount: 0,
+      },
+    };
+  }
+
+  const evidence = await searchCanonicalChatEvidence({
+    projectId: input.projectId,
+    userId: input.userId,
+    project: input.project,
+    query: input.query,
+    intent: "visual",
+    overlayId: input.overlayId,
+    limit: input.limit,
+  });
+  const semanticCandidates = evidence.candidates
+    .filter((candidate) => candidate.startFrame != null && candidate.endFrame != null)
+    .map((candidate) => canonicalVisualCandidate(candidate, evidence.auditId, input.query));
+  return {
+    candidates: mergeVisualCandidates(input.lexicalCandidates, semanticCandidates, input.limit),
+    audit: {
+      mode: "canonical-multimodal",
+      auditId: evidence.auditId,
+      analyzedDocumentCount: evidence.analyzedDocumentCount,
+      embeddedDocumentCount: evidence.embeddedDocumentCount,
+    },
+  };
+}
+
+function selectVisualCandidateForFrame(
+  candidates: VisualMomentCandidate[],
+  frame: number,
+): VisualMomentCandidate | undefined {
+  return candidates
+    .filter((candidate) => frame >= candidate.startFrame && frame <= candidate.endFrame)
+    .sort((left, right) => (
+      Number(right.safeForAutoEdit) - Number(left.safeForAutoEdit)
+      || right.confidence - left.confidence
+      || Math.abs(left.frame - frame) - Math.abs(right.frame - frame)
+    ))[0];
+}
+
+function promoteFrameVerifiedCandidate(
+  candidates: VisualMomentCandidate[],
+  selected: VisualMomentCandidate,
+  verification: ChatFrameVisualVerification,
+): VisualMomentCandidate[] {
+  const promoted: VisualMomentCandidate = {
+    ...selected,
+    ...(verification.boundingBox ? { boundingBox: verification.boundingBox } : {}),
+    safeForAutoEdit: true,
+    matchReasons: [
+      ...selected.matchReasons,
+      `frame-verified=${verification.receiptId}`,
+      `frame-match=${verification.matchQuality}`,
+    ],
+    source: {
+      ...selected.source,
+      frameVerificationReceiptId: verification.receiptId,
+      verifiedFrame: verification.frame,
+    },
+  };
+  return [
+    promoted,
+    ...candidates.filter((candidate) => candidate !== selected),
+  ];
+}
+
+function canonicalVisualCandidate(
+  candidate: CanonicalChatEvidenceCandidate,
+  auditId: string,
+  query: string,
+): VisualMomentCandidate {
+  const startFrame = candidate.startFrame!;
+  const endFrame = Math.max(startFrame + 1, candidate.endFrame!);
+  const frame = Math.round((startFrame + endFrame) / 2);
+  return {
+    text: truncate(candidate.visualText || candidate.text, 140),
+    frame,
+    startFrame,
+    endFrame,
+    durationFrames: endFrame - startFrame,
+    confidence: round3(candidate.score),
+    confidenceLabel: confidenceLabel(candidate.score),
+    matchType: "multimodal-semantic",
+    matchReasons: [
+      `canonical-match=${candidate.matchType}`,
+      `text-semantic=${candidate.scores.textSemantic ?? "missing"}`,
+      `image-semantic=${candidate.scores.imageSemantic ?? "missing"}`,
+      `lexical=${candidate.scores.lexical}`,
+      `audit=${auditId}`,
+    ],
+    evidenceText: candidate.visualText || candidate.text,
+    ...(candidate.boundingBox ? { boundingBox: candidate.boundingBox } : {}),
+    source: {
+      type: "multimodal-evidence",
+      ...(candidate.overlayId != null ? { overlayId: candidate.overlayId } : {}),
+      assetId: candidate.assetId,
+      ...(candidate.overlayType ? { overlayType: candidate.overlayType } : {}),
+      path: candidate.sourcePaths.join(" | "),
+      evidenceId: candidate.evidenceId,
+      auditId,
+      scores: candidate.scores,
+      missingModalities: candidate.missingModalities,
+      rejectionReasons: candidate.rejectionReasons,
+    },
+    safeForAutoEdit: candidate.safeForAutomaticMutation,
+    useWith: {
+      cut_section: {
+        startFrame,
+        endFrame,
+        note: "Semantic visual segment only. Confirm the range before removing footage.",
+      },
+      add_motion_graphic: { frame, text: truncate(query, 80) },
+      set_keyframes: { frame, note: "Use as a visually grounded emphasis anchor after inspection." },
+      visual_inspect_frame: { frame, question: `Verify canonical visual match for: ${truncate(query, 80)}` },
+    },
+  };
+}
+
+function mergeVisualCandidates(
+  lexical: VisualMomentCandidate[],
+  semantic: VisualMomentCandidate[],
+  limit: number,
+): VisualMomentCandidate[] {
+  const candidates = new Map<string, VisualMomentCandidate>();
+  for (const candidate of [...lexical, ...semantic]) {
+    const key = `${String(candidate.source.overlayId ?? "")}:${candidate.startFrame}:${candidate.endFrame}`;
+    const existing = candidates.get(key);
+    if (!existing || candidate.safeForAutoEdit || (!existing.safeForAutoEdit && candidate.confidence > existing.confidence)) {
+      candidates.set(key, candidate);
+    }
+  }
+  return [...candidates.values()]
+    .sort((left, right) => Number(right.safeForAutoEdit) - Number(left.safeForAutoEdit)
+      || right.confidence - left.confidence
+      || left.startFrame - right.startFrame)
+    .slice(0, clampInt(limit, 1, 12));
 }
 
 export function resolveKeyframeEditParams(
@@ -2891,7 +3287,10 @@ export function findVisualMomentCandidates(
 
   return candidates.map((candidate, index) => ({
     ...candidate,
-    safeForAutoEdit: index === 0 && !ambiguous && candidate.confidence >= 0.78,
+    safeForAutoEdit: index === 0
+      && !ambiguous
+      && candidate.matchType === "exact-phrase"
+      && candidate.confidence >= 0.78,
   }));
 }
 
@@ -2901,12 +3300,12 @@ export function resolveVisualEditPlacement(
   options: VisualEditResolveOptions = {},
 ): VisualEditResolution {
   const action = options.action ?? "highlight";
-  const candidates = findVisualMomentCandidates(project, query, {
-    videoOverlayId: options.videoOverlayId,
-    limit: options.limit ?? 5,
-    minConfidence: options.minConfidence ?? 0.35,
-    includeOverlayText: options.includeOverlayText,
-  });
+  const candidates = options.precomputedCandidates ?? findVisualMomentCandidates(project, query, {
+      videoOverlayId: options.videoOverlayId,
+      limit: options.limit ?? 5,
+      minConfidence: options.minConfidence ?? 0.35,
+      includeOverlayText: options.includeOverlayText,
+    });
   const warnings: string[] = [];
 
   if (!candidates.length) {
@@ -2932,7 +3331,10 @@ export function resolveVisualEditPlacement(
     };
   }
 
-  if (!candidate.safeForAutoEdit) {
+  const semanticCutRequiresConfirmation = action === "cut_range"
+    && candidate.matchType === "multimodal-semantic";
+  const readOnlyInspection = action === "inspect";
+  if ((!candidate.safeForAutoEdit && !readOnlyInspection) || semanticCutRequiresConfirmation) {
     const second = candidates[1];
     return {
       status: "ambiguous",
@@ -2983,6 +3385,31 @@ export function resolveVisualEditPlacement(
       warnings,
       useWith: { set_keyframes: candidate.useWith.set_keyframes },
       message: `Resolved keyframe anchor for "${candidate.text}" at frame ${candidate.frame}.`,
+    };
+  }
+
+  if (action === "speed_ramp") {
+    return {
+      status: "ready",
+      action,
+      query,
+      candidates,
+      candidate,
+      warnings,
+      useWith: {
+        apply_speed_ramp: {
+          targetFrame: candidate.frame,
+          durationFrames: clampInt(
+            options.durationFrames ?? DEFAULT_SPEED_RAMP_DURATION_FRAMES,
+            3,
+            300,
+          ),
+          ...(candidate.source.overlayId != null
+            ? { videoOverlayId: candidate.source.overlayId }
+            : {}),
+        },
+      },
+      message: `Resolved speed-ramp anchor for "${candidate.text}" at frame ${candidate.frame}.`,
     };
   }
 
@@ -3042,16 +3469,16 @@ function buildVisualHighlightOverlay(
 function visualBoxToOverlayPosition(box: VisualBoundingBox): Pick<VisualHighlightOverlayHint, "x" | "y" | "width" | "height"> {
   if (box.units === "normalized") {
     return {
-      x: `${round3(box.x * 100)}%`,
-      y: `${round3(box.y * 100)}%`,
+      x: `${round3((box.x + box.width / 2) * 100)}%`,
+      y: `${round3((box.y + box.height / 2) * 100)}%`,
       width: `${round3(box.width * 100)}%`,
       height: `${round3(box.height * 100)}%`,
     };
   }
 
   return {
-    x: Math.round(box.x),
-    y: Math.round(box.y),
+    x: Math.round(box.x + box.width / 2),
+    y: Math.round(box.y + box.height / 2),
     width: Math.round(box.width),
     height: Math.round(box.height),
   };

@@ -47,13 +47,36 @@ export function toDeliverableDoc(card: ContentCard, scope: DeliverableScope) {
 
 type DeliverableProjection = Pick<
   ICalosDeliverable,
-  "card" | "plannedDates" | "platform" | "brandId" | "campaignId" | "editorialStatus"
+  | "card"
+  | "plannedDates"
+  | "platform"
+  | "brandId"
+  | "campaignId"
+  | "editorialStatus"
+  | "assetUrl"
+  | "imagePrompt"
+  | "serviceRef"
+  | "errorMessage"
 >;
+
+/** Lifecycle of a graphics card's still image, derived from the deliverable's top-level columns.
+ *  Drives the "Make image" affordance in the content modal. */
+export type CalosImageStatus = "none" | "promptReady" | "generating" | "ready" | "failed";
+
+function deriveImageStatus(doc: DeliverableProjection): CalosImageStatus {
+  if (doc.assetUrl) return "ready";
+  const jobId = doc.serviceRef?.jobId;
+  if (jobId && doc.errorMessage) return "failed"; // kicked off then failed — retryable
+  if (jobId) return "generating";
+  if (doc.imagePrompt) return "promptReady"; // caption written, image not yet kicked off
+  return "none";
+}
 
 /**
  * Project a stored deliverable back into the ContentCard shape the calendar consumes.
  * Hoisted columns (plannedDates/platform/brandId/campaignId) are authoritative over the
- * embedded payload, since the API edits them at the top level.
+ * embedded payload, since the API edits them at the top level. Image fields (assetUrl/imagePrompt +
+ * the derived imageStatus) are surfaced so the modal can offer the explicit "Make image" action.
  */
 export function toContentCard(doc: DeliverableProjection): ContentCard {
   return {
@@ -63,5 +86,9 @@ export function toContentCard(doc: DeliverableProjection): ContentCard {
     brandId: doc.brandId ?? doc.card.brandId,
     campaignId: doc.campaignId ?? doc.card.campaignId,
     editorialStatus: doc.editorialStatus,
+    assetUrl: doc.assetUrl ?? null,
+    imagePrompt: doc.imagePrompt ?? null,
+    imageStatus: deriveImageStatus(doc),
+    imageError: doc.errorMessage ?? null,
   };
 }

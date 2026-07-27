@@ -12,6 +12,7 @@
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput } from './types';
 import { z } from 'zod';
+import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
 
 const ShotSchema = z.object({
   shotNumber: z.number(),
@@ -56,9 +57,7 @@ export class ArchitectAgent extends StructuredAgent<ArchitectResult> {
     });
   }
 
-  buildPrompt(input: AgentInput): string {
-    const { context, userPrompt } = input;
-
+  private buildTrustedInstruction(): string {
     // ─── Prompt: XML-structured per Rule 35 (2026-05-14) ────────────
     return `<role>You are the Architect, a production visualizer for a creative studio tool.</role>
 
@@ -74,11 +73,30 @@ export class ArchitectAgent extends StructuredAgent<ArchitectResult> {
 - Return valid JSON matching the schema.
 </rules>
 
-<input_data>
-${context.projectSummary ? `Project context: ${context.projectSummary}` : ''}
-${context.currentScript ? `Full script:\n${context.currentScript}` : ''}
-Script section to storyboard: ${userPrompt}
-</input_data>`;
+<runtime_data_contract>
+Read project context, the full script, and the selected section to storyboard only from tf_untrusted_data.data.
+</runtime_data_contract>`;
+  }
+
+  buildPrompt(input: AgentInput): string {
+    const parts = this.buildPromptParts(input);
+    return `${parts.systemInstruction}\n\n${parts.prompt}`;
+  }
+
+  buildPromptParts({ context, userPrompt }: AgentInput): IsolatedPromptParts {
+    return buildIsolatedPromptParts({
+      systemInstruction: this.applyGlobalConstraints(this.buildTrustedInstruction()),
+      data: {
+        projectSummary: context.projectSummary || null,
+        fullScript: context.currentScript || null,
+        selectedScriptSection: userPrompt,
+      },
+      fieldLimits: {
+        projectSummary: 12_000,
+        fullScript: 48_000,
+        selectedScriptSection: 24_000,
+      },
+    });
   }
 
   async storyboard(

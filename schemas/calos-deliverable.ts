@@ -39,13 +39,19 @@ export interface CalosApproval {
 export interface ICalosDeliverable extends Document {
   ownerUserId: string; // creator; also the connected-account owner for downstream publish
   orgId?: string | null; // optional agency/team-share layer (future); P0 scopes by ownerUserId + brandId
-  brandId: string; // client brand — scoping
+  brandId: string; // client brand -- scoping
   campaignId?: string | null;
+  /** Immutable provenance for a draft created from one accepted CalOS trend opportunity. */
+  sourceTrendOpportunityId?: string;
   editorialStatus: CalosEditorialStatus;
   version: number; // bumped on content edits; approvals bind to a version
   serviceRef?: CalosServiceRef;
   assetUrl?: string | null;
   assetText?: string | null;
+  /** Pending image-generation prompt for a graphics card (PostWriter's singleImagePrompt), stashed at
+   *  generate time so the explicit "Make image" action can kick off Clickatron later. Null once no
+   *  image is pending (never generated, or already produced -> see assetUrl). */
+  imagePrompt?: string | null;
   errorMessage?: string | null;
   approvals: CalosApproval[];
   // Hoisted for calendar window queries + indexing:
@@ -90,6 +96,7 @@ const CalosDeliverableSchema = new Schema<ICalosDeliverable>(
     orgId: { type: String, default: null },
     brandId: { type: String, required: true },
     campaignId: { type: String, default: null },
+    sourceTrendOpportunityId: { type: String, immutable: true },
     editorialStatus: {
       type: String,
       required: true,
@@ -100,6 +107,7 @@ const CalosDeliverableSchema = new Schema<ICalosDeliverable>(
     serviceRef: { type: ServiceRefSchema, default: undefined },
     assetUrl: { type: String, default: null },
     assetText: { type: String, default: null },
+    imagePrompt: { type: String, default: null },
     errorMessage: { type: String, default: null },
     approvals: { type: [ApprovalSchema], default: [] },
     plannedDates: { type: [String], default: [] },
@@ -114,6 +122,8 @@ const CalosDeliverableSchema = new Schema<ICalosDeliverable>(
 CalosDeliverableSchema.index({ ownerUserId: 1, brandId: 1, plannedDates: 1 });
 CalosDeliverableSchema.index({ ownerUserId: 1, brandId: 1, editorialStatus: 1 });
 CalosDeliverableSchema.index({ campaignId: 1 });
+// Retries after a client timeout reuse the original trend draft instead of creating a duplicate.
+CalosDeliverableSchema.index({ sourceTrendOpportunityId: 1 }, { unique: true, sparse: true });
 
 const CalosDeliverable =
   mongoose.models.CalosDeliverable ||

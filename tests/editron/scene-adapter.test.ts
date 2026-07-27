@@ -167,3 +167,66 @@ describe('scenesFromAssets - multi-media -> one combined Scene[]', () => {
     expect(scenes.map((s) => s.source)).toEqual(['b.mp4']);
   });
 });
+
+describe('sceneFromSegment - analysis signals (the report card)', () => {
+  it('maps moment-weight finalWeight -> importance (+ confidence)', () => {
+    const s = sceneFromSegment(seg({ weight: { finalWeight: 0.82, confidence: 'high' } }), asset());
+    expect(s.importance).toBe(0.82);
+    expect(s.importanceConfidence).toBe('high');
+  });
+
+  it('★ importance is undefined (NOT 0) when no weight is present - honest "no signal"', () => {
+    expect(sceneFromSegment(seg({ weight: null }), asset()).importance).toBeUndefined();
+    expect(sceneFromSegment(seg(), asset()).importance).toBeUndefined();
+    expect(sceneFromSegment(seg({ weight: { finalWeight: null } }), asset()).importance).toBeUndefined();
+  });
+
+  it('clamps out-of-range importance/salience into 0..1', () => {
+    const s = sceneFromSegment(
+      seg({ weight: { finalWeight: 1.4 }, semanticVisual: { salience: -0.2 } }),
+      asset(),
+    );
+    expect(s.importance).toBe(1);
+    expect(s.salience).toBe(0);
+  });
+
+  it('maps the vocal channel: energy, arousal, and valence LABEL (not a number)', () => {
+    const s = sceneFromSegment(
+      seg({ vocal: { energy: 0.7, emotionIntensity: 0.6, emotionalValence: 'positive' } }),
+      asset(),
+    );
+    expect(s.vocalEnergy).toBe(0.7);
+    expect(s.vocalArousal).toBe(0.6);
+    expect(s.vocalValence).toBe('positive');
+  });
+
+  it('★ maps primaryVisualMode to visualMode, NOT description (description stays unset)', () => {
+    const s = sceneFromSegment(seg({ semanticVisual: { primaryVisualMode: 'screen-share' } }), asset());
+    expect(s.visualMode).toBe('screen-share');
+    expect(s.description).toBeUndefined();
+  });
+
+  it('maps visual action/motion + semanticVisual salience/visuallyExplains', () => {
+    const s = sceneFromSegment(
+      seg({
+        visual: { actionType: 'demonstrating', motionIntensity: 0.5 },
+        semanticVisual: { salience: 0.9, visuallyExplains: true },
+      }),
+      asset(),
+    );
+    expect(s.actionType).toBe('demonstrating');
+    expect(s.motionIntensity).toBe(0.5);
+    expect(s.salience).toBe(0.9);
+    expect(s.visuallyExplains).toBe(true);
+  });
+
+  it('all signal channels absent -> all signal fields undefined (no fabrication)', () => {
+    const s = sceneFromSegment({ startMs: 0, endMs: 3000 }, asset());
+    for (const v of [
+      s.importance, s.importanceConfidence, s.visualMode, s.salience, s.visuallyExplains,
+      s.actionType, s.motionIntensity, s.vocalEnergy, s.vocalArousal, s.vocalValence,
+    ]) {
+      expect(v).toBeUndefined();
+    }
+  });
+});

@@ -2,7 +2,7 @@
  * Backfill script: regenerate media asset semantic embeddings.
  *
  * Fills missing or stale semanticEmbedding fields in mediaAssets using the current
- * Editron embedding model (text-embedding-005) and updates
+ * Editron embedding model (gemini-embedding-001, 768 dimensions) and updates
  * semanticEmbeddingModel + semanticEmbeddingUpdatedAt.
  *
  * Idempotent and safe to run multiple times. Supports dry-run and row limit for

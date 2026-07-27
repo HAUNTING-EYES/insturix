@@ -24,6 +24,7 @@ export function normalizeMotionGraphicContent(
     applySemanticAtoms(atoms, content);
   }
   sanitizeMotionGraphicContentInPlace(content);
+  applyDerivedQuantityKind(content);
   const structure = deriveContentStructure(content);
   const sourceSpan = resolveSemanticSourceSpan(content);
   const semanticMgCandidateLedger = buildSemanticMgCandidateLedger({
@@ -46,6 +47,64 @@ export function normalizeMotionGraphicContent(
     semanticMgCandidateLedger,
     ...(atoms ? { semanticAtoms: atoms } : {}),
   };
+}
+
+/* ─── Quantity-kind derivation (2026-07-21) ────────────────────────────────────────────────────────────────
+ * WHY: the semantic MG ledger licenses a stat by its quantity kind — percent/fraction/ratio → bounded-stat
+ * (semantic-mg-candidates.ts hasBoundedEvidence), magnitude/currency → magnitude-stat (hasMagnitudeEvidence).
+ * But no producer on the live path ever SET `quantityKind`, so every plain spoken number ("this is thirty-five
+ * US" → value '35', title 'US Dollars') classified as `weak-stat` and was hard-blocked by the salience gate —
+ * 0 motion graphics across 124 real projects while lab fixtures ('47%') passed.
+ *
+ * This derives the kind the speaker actually used, from fields the model explicitly attached (value + title/
+ * label/keyword/targetWord) — NEVER from loose context, and NEVER overriding an explicit quantityKind. If
+ * nothing matches, the kind stays unset and the weak-stat gate keeps doing its job (Rule 32: fix the facts,
+ * not the gate).
+ *
+ * Taxonomy ← CKG signal:entity.number: "type (count | percentage | currency | duration | comparison)" —
+ * "Natural stat-graphic anchor points". Format examples ← technique:graphic.stat_counter: "numeric (300%) |
+ * currency ($49) | count (10x)". Word lists are standard notation (ISO-4217-common currencies, common time
+ * units), deliberately conservative allowlists.
+ * NOTE: only percent/currency gain a license today (the ledger's existing bounded/magnitude rules); duration/
+ * count are stamped truthfully but still classify weak-stat — extending magnitude evidence to typed durations
+ * is a separate, founder-gated ledger change. */
+
+const QK_CURRENCY_SYMBOL = /[$€£¥₹]/;
+const QK_CURRENCY_WORDS = /\b(dollars?|usd|euros?|eur|pounds?|gbp|rupees?|inr|yen|jpy|cents?|bucks?)\b/i;
+const QK_PERCENT_WORDS = /\b(percent(?:age)?|pct)\b/i;
+const QK_DURATION_WORDS = /\b(years?|months?|weeks?|days?|hours?|minutes?|mins?|seconds?|secs?)\b/i;
+const QK_MULTIPLIER_VALUE = /^\s*\d+(?:[.,]\d+)?\s*[x×]\s*$/i;
+
+/** Derive `quantityKind` (+ `unit` for durations) for a stat whose kind the producer left unset. Pure and
+ *  conservative: reads only value/number + the labels the model attached; fills EMPTY fields only. */
+function applyDerivedQuantityKind(content: Record<string, unknown>): void {
+  if (content.value == null && content.number == null) return;
+  if (stringValue(content.quantityKind)) return; // explicit kind always wins — never overridden
+
+  const value = String(content.value ?? content.number ?? '').trim();
+  if (!value) return;
+  const labels = [content.label, content.title, content.keyword, content.targetWord]
+    .map((v) => stringValue(v))
+    .filter((v): v is string => Boolean(v))
+    .join(' ');
+
+  if (value.includes('%') || QK_PERCENT_WORDS.test(value) || QK_PERCENT_WORDS.test(labels)) {
+    content.quantityKind = 'percent';
+    return;
+  }
+  if (QK_CURRENCY_SYMBOL.test(value) || QK_CURRENCY_WORDS.test(value) || QK_CURRENCY_WORDS.test(labels)) {
+    content.quantityKind = 'currency';
+    return;
+  }
+  const duration = value.match(QK_DURATION_WORDS) ?? labels.match(QK_DURATION_WORDS);
+  if (duration) {
+    content.quantityKind = 'duration';
+    if (content.unit == null) content.unit = duration[0].toLowerCase();
+    return;
+  }
+  if (QK_MULTIPLIER_VALUE.test(value)) {
+    content.quantityKind = 'count';
+  }
 }
 
 const KG_EXAMPLE_PLACEHOLDERS = new Set([

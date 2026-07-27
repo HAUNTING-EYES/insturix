@@ -16,8 +16,16 @@ export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 const STUCK_THRESHOLD_MS = 30 * 60 * 1000;
-// Auto-edit stages run via QStash with 300s max each. 10 min is generous.
-const AUTO_EDIT_STUCK_THRESHOLD_MS = 10 * 60 * 1000;
+// The heaviest auto-edit workers (video-analysis, tribe-analysis, director) run to
+// maxDuration = 800s / 13.3 min on long videos, and can be legitimately SILENT for
+// most of it — a single long operation only bumps updatedAt when it emits progress.
+// The threshold MUST exceed 800s or the cron flips a still-ALIVE worker to `failed`.
+// For `directing` that is not a cosmetic false-failure: a failed auto-edit is
+// Director-Mode-rescuable, so the premature flip opens a rescue window and the
+// finishing director then resurrects the rescued project (see the ownership guard in
+// workers/director/route.ts). 20 min = 800s worker budget + margin for clock skew
+// and the post-executor completion writes (quality review + bandit).
+const AUTO_EDIT_STUCK_THRESHOLD_MS = 20 * 60 * 1000; // ← director maxDuration 800s (workers/director/route.ts:33) + margin
 
 const ACTIVE_STATES: ProjectStatus[] = [
   'scripting',

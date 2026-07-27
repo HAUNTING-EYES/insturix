@@ -1,6 +1,6 @@
 import type { AvatarProfileRecord } from '@/lib/avatar/avatar-lifecycle';
 import type { AvatarProviderId, AvatarProviderSelection, AvatarProviderReadinessIssue } from '@/lib/avatar/avatar-provider-adapter';
-import type { AvatarRenderAudioMode, AvatarRenderIssue, AvatarRenderUseCase } from '@/lib/avatar/avatar-render-recipe';
+import type { AvatarRenderAudioMode, AvatarRenderIssue, AvatarRenderModality, AvatarRenderUseCase } from '@/lib/avatar/avatar-render-recipe';
 import type { PlanAvatarRenderInput } from '@/components/dashboard/AvatarVault/useAvatarVault';
 
 /* ═══ Avatar Vault v2 · planner logic ═════════════════════════════════
@@ -12,6 +12,7 @@ import type { PlanAvatarRenderInput } from '@/components/dashboard/AvatarVault/u
 
 export interface PlannerState {
   useCase: AvatarRenderUseCase;
+  renderModality: AvatarRenderModality;
   prompt: string;
   script: string;
   negativePrompt: string;
@@ -35,6 +36,14 @@ export const USE_CASE_OPTIONS: Array<{ id: AvatarRenderUseCase; label: string }>
   { id: 'generic_clip', label: 'Generic clip' },
 ];
 
+// Talking head = the single-model lip-synced lane (any length ≤ provider cap).
+// Full body = lane B (Kling i2v body → relip); "more than talking", ≤10s per shot.
+// Both are speech-driven, so the toggle is only shown for speech use cases.
+export const MODALITY_OPTIONS: Array<[AvatarRenderModality, string]> = [
+  ['talking_head', 'Talking head'],
+  ['body_motion', 'Full body'],
+];
+
 export const AUDIO_MODE_OPTIONS: Array<[AvatarRenderAudioMode, string]> = [
   ['tts_voiceover', 'TTS / profile'],
   ['uploaded_voiceover', 'Voiceover URL'],
@@ -46,6 +55,7 @@ export const AUDIO_MODE_OPTIONS: Array<[AvatarRenderAudioMode, string]> = [
 export function initialPlannerState(record: AvatarProfileRecord): PlannerState {
   return {
     useCase: defaultUseCase(record),
+    renderModality: 'talking_head',
     prompt: defaultPrompt(record),
     script: '',
     negativePrompt: '',
@@ -70,6 +80,7 @@ export function buildPlanInput(recordId: string, state: PlannerState, prompt: st
   return {
     recordId,
     useCase: state.useCase,
+    renderModality: state.renderModality,
     prompt,
     ...(script ? { script } : {}),
     ...(negativePrompt ? { negativePrompt } : {}),

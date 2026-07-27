@@ -11,6 +11,7 @@ import {
   Archive,
   CalendarDays,
   FolderOpen,
+  UserRound,
 } from "lucide-react"
 import type { Product } from "./types"
 
@@ -108,6 +109,15 @@ export const growthLegalTools: Product[] = [
     description: "Brand memory",
     color: "#D4A652",
     hoverColor: "#D4A652",
+    isPro: false,
+  },
+  {
+    name: "Avatar",
+    path: "/dashboard/avatar-vault",
+    icon: UserRound,
+    description: "Your AI presenter",
+    color: "#9088D4",
+    hoverColor: "#A49CDE",
     isPro: false,
   },
   {

@@ -10,6 +10,10 @@ export interface RenderImageStats {
   lumaStdDev?: number;
   /** Ratio of non-background/visible pixels when an image diff pipeline provides it. */
   visiblePixelRatio?: number;
+  /** Before/after delta. Mutation evidence must never be interpreted as absolute frame visibility. */
+  mutationPixelRatio?: number;
+  mutationPixelCount?: number;
+  sampledPixelCount?: number;
   /** Ratio of opaque pixels when alpha-aware stats are available. */
   opaquePixelRatio?: number;
   /** Average alpha in [0,1]. */

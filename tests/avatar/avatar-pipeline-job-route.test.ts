@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildAvatarPipelineStages,
   createAvatarPipelineJobFromRequest,
   createInMemoryAvatarPipelineJobStore,
   refreshAvatarPipelineJobFromRequest,
 } from '../../lib/avatar/avatar-pipeline-job';
+import { buildAvatarRenderRecipe } from '../../lib/avatar/avatar-render-recipe';
 import { createInMemoryAvatarProfileRepository } from '../../lib/avatar/avatar-repository';
 import type { AvatarProfileRecord } from '../../lib/avatar/avatar-lifecycle';
 import type { AvatarProfile } from '../../lib/avatar/avatar-profile';
 import type { ChatterboxClient, ChatterboxSynthesizeInput } from '../../lib/avatar/avatar-chatterbox-client';
-import type { OmniHumanFalClient, OmniHumanFalSubmitInput } from '../../lib/avatar/avatar-omnihuman-fal';
+import type { TalkingHeadFalClient, TalkingHeadFalSubmitInput } from '../../lib/avatar/avatar-omnihuman-fal';
 
 const NOW = '2026-07-04T00:00:00.000Z';
 
@@ -66,7 +68,7 @@ describe('Avatar pipeline-job API', () => {
     );
     expect(result.body.job.stages[1]).toEqual(
       expect.objectContaining({
-        providerId: 'fal_omnihuman_v1_5',
+        providerId: 'fal_kling_avatar',
         status: 'blocked',
         dispatchCode: 'missing_fal_key',
         requiredEnvKeys: ['FAL_AI_API_KEY', 'FAL_KEY'],
@@ -75,13 +77,13 @@ describe('Avatar pipeline-job API', () => {
     expect(pipelineJobStore.getPipelineJobSnapshot('avatar_pipeline_job_1')).toEqual(result.body.job);
   });
 
-  it('queues OmniHuman on fal when env and uploaded voiceover audio exist', async () => {
+  it('queues the default face model (Kling) on fal when env and uploaded voiceover audio exist', async () => {
     const profileStore = createInMemoryAvatarProfileRepository({
       records: [acceptedRecord('avatar_pipeline_ready', { userId: 'user_avatar' })],
     });
     const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
-    const submittedInputs: OmniHumanFalSubmitInput[] = [];
-    const omniHumanClient: OmniHumanFalClient = {
+    const submittedInputs: TalkingHeadFalSubmitInput[] = [];
+    const talkingHeadClient: TalkingHeadFalClient = {
       async submit(input) {
         submittedInputs.push(input);
         return {
@@ -121,7 +123,8 @@ describe('Avatar pipeline-job API', () => {
         pipelineJobStore,
         now: () => NOW,
         idGenerator: () => 'avatar_pipeline_job_2',
-        omniHumanClient,
+        talkingHeadClient,
+        stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
         env: {
           CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
           FAL_AI_API_KEY: 'fal_test_key',
@@ -153,7 +156,7 @@ describe('Avatar pipeline-job API', () => {
         dispatchCode: 'omnihuman_queued',
         providerRequestId: 'fal_request_123',
         input: expect.objectContaining({
-          model: 'fal-ai/bytedance/omnihuman/v1.5',
+          model: 'fal-ai/kling-video/v1/standard/ai-avatar',
           audio: { sourceUrl: 'https://cdn.example.test/audio/rishi-voiceover.wav' },
           fal: expect.objectContaining({
             modelId: 'fal-ai/bytedance/omnihuman/v1.5',
@@ -161,15 +164,22 @@ describe('Avatar pipeline-job API', () => {
         }),
       }),
     );
-    expect(submittedInputs).toEqual([
-      {
-        imageUrl: 'https://cdn.example.test/avatar/face.png',
+    expect(submittedInputs).toHaveLength(1);
+    // Staging is enabled (the profile has a speechLook wardrobe), so the face model
+    // animates the Nano Banana-staged still, not the raw portrait.
+    expect(submittedInputs[0]).toEqual(
+      expect.objectContaining({
+        imageUrl: 'https://cdn.example.test/avatar/staged.png',
         audioUrl: 'https://cdn.example.test/audio/rishi-voiceover.wav',
-        prompt: 'Rishi appears as a presenter in a clean room background.',
         resolution: '720p',
         turboMode: false,
-      },
-    ]);
+      }),
+    );
+    // Motion Director composes real performance direction (gesture/camera/mood) and
+    // preserves the scene prompt at the end — not the bare scene text we used to send.
+    expect(submittedInputs[0].prompt).toContain('Rishi appears as a presenter in a clean room background.');
+    expect(submittedInputs[0].prompt).toContain('Speaking directly to the camera');
+    expect(submittedInputs[0].prompt).not.toBe('Rishi appears as a presenter in a clean room background.');
     expect(pipelineJobStore.getPipelineJobSnapshot('avatar_pipeline_job_2')).toEqual(result.body.job);
   });
 
@@ -179,7 +189,7 @@ describe('Avatar pipeline-job API', () => {
     });
     const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
     const chatterboxInputs: ChatterboxSynthesizeInput[] = [];
-    const omniHumanInputs: OmniHumanFalSubmitInput[] = [];
+    const talkingHeadInputs: TalkingHeadFalSubmitInput[] = [];
     const chatterboxClient: ChatterboxClient = {
       async synthesize(input) {
         chatterboxInputs.push(input);
@@ -191,9 +201,9 @@ describe('Avatar pipeline-job API', () => {
         };
       },
     };
-    const omniHumanClient: OmniHumanFalClient = {
+    const talkingHeadClient: TalkingHeadFalClient = {
       async submit(input) {
-        omniHumanInputs.push(input);
+        talkingHeadInputs.push(input);
         return {
           modelId: 'fal-ai/bytedance/omnihuman/v1.5',
           requestId: 'fal_request_from_chatterbox',
@@ -226,7 +236,8 @@ describe('Avatar pipeline-job API', () => {
         now: () => NOW,
         idGenerator: () => 'avatar_pipeline_job_voice_clone',
         chatterboxClient,
-        omniHumanClient,
+        talkingHeadClient,
+        stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
         env: {
           CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
           FAL_AI_API_KEY: 'fal_test_key',
@@ -255,9 +266,9 @@ describe('Avatar pipeline-job API', () => {
         },
       }),
     ]);
-    expect(omniHumanInputs).toEqual([
+    expect(talkingHeadInputs).toEqual([
       expect.objectContaining({
-        imageUrl: 'https://cdn.example.test/avatar/face.png',
+        imageUrl: 'https://cdn.example.test/avatar/staged.png',
         audioUrl: 'https://cdn.example.test/audio/generated-rishi-chatterbox.wav',
       }),
     ]);
@@ -305,7 +316,7 @@ describe('Avatar pipeline-job API', () => {
     });
     const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
     const chatterboxInputs: ChatterboxSynthesizeInput[] = [];
-    const omniHumanInputs: OmniHumanFalSubmitInput[] = [];
+    const talkingHeadInputs: TalkingHeadFalSubmitInput[] = [];
     const chatterboxClient: ChatterboxClient = {
       async synthesize(input) {
         chatterboxInputs.push(input);
@@ -317,9 +328,9 @@ describe('Avatar pipeline-job API', () => {
         };
       },
     };
-    const omniHumanClient: OmniHumanFalClient = {
+    const talkingHeadClient: TalkingHeadFalClient = {
       async submit(input) {
-        omniHumanInputs.push(input);
+        talkingHeadInputs.push(input);
         return {
           modelId: 'fal-ai/bytedance/omnihuman/v1.5',
           requestId: 'fal_request_from_reference_url',
@@ -356,7 +367,8 @@ describe('Avatar pipeline-job API', () => {
         now: () => NOW,
         idGenerator: () => 'avatar_pipeline_job_reference_url',
         chatterboxClient,
-        omniHumanClient,
+        talkingHeadClient,
+        stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
         env: {
           CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
           FAL_AI_API_KEY: 'fal_test_key',
@@ -381,9 +393,9 @@ describe('Avatar pipeline-job API', () => {
         },
       }),
     ]);
-    expect(omniHumanInputs).toEqual([
+    expect(talkingHeadInputs).toEqual([
       expect.objectContaining({
-        imageUrl: 'https://cdn.example.test/avatar/face.png',
+        imageUrl: 'https://cdn.example.test/avatar/staged.png',
         audioUrl: 'https://cdn.example.test/audio/generated-from-request-reference.wav',
       }),
     ]);
@@ -412,7 +424,7 @@ describe('Avatar pipeline-job API', () => {
       records: [acceptedRecord('avatar_pipeline_refresh', { userId: 'user_avatar' })],
     });
     const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
-    const omniHumanClient: OmniHumanFalClient = {
+    const talkingHeadClient: TalkingHeadFalClient = {
       async submit(input) {
         return {
           modelId: 'fal-ai/bytedance/omnihuman/v1.5',
@@ -455,7 +467,8 @@ describe('Avatar pipeline-job API', () => {
         pipelineJobStore,
         now: () => NOW,
         idGenerator: () => 'avatar_pipeline_job_3',
-        omniHumanClient,
+        talkingHeadClient,
+        stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
         env: { FAL_AI_API_KEY: 'fal_test_key' },
       },
     );
@@ -465,7 +478,7 @@ describe('Avatar pipeline-job API', () => {
       { userId: 'user_avatar', orgId: null, jobId: 'avatar_pipeline_job_3' },
       {
         pipelineJobStore,
-        omniHumanClient,
+        talkingHeadClient,
         now: () => '2026-07-04T00:01:00.000Z',
         env: { FAL_AI_API_KEY: 'fal_test_key' },
       },
@@ -495,7 +508,7 @@ describe('Avatar pipeline-job API', () => {
     expect(refreshed.body.job.stages[2].input).toEqual(
       expect.objectContaining({
         faceVideo: {
-          providerId: 'fal_omnihuman_v1_5',
+          providerId: 'fal_kling_avatar',
           requestId: 'fal_request_done',
           videoUrl: 'https://fal.example.test/omnihuman/rishi.mp4',
           durationSeconds: 8,
@@ -534,7 +547,567 @@ describe('Avatar pipeline-job API', () => {
     expect(result.body.error.code).toBe('recipe_not_ready');
     expect(pipelineJobStore.listPipelineJobSnapshots()).toEqual([]);
   });
+
+  it('stages the reference (wardrobe/scene) before animating, then animates the staged still', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [acceptedRecord('avatar_staging_on', { userId: 'user_avatar' })],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+    const stagingCalls: Array<{ sourceImageUrls: string[]; scenePrompt: string }> = [];
+    const submittedInputs: TalkingHeadFalSubmitInput[] = [];
+    const talkingHeadClient: TalkingHeadFalClient = {
+      async submit(input) {
+        submittedInputs.push(input);
+        return { modelId: 'fal-ai/kling-video/v1/standard/ai-avatar', requestId: 'fal_req_staged', input: {} };
+      },
+      async refresh() {
+        throw new Error('refresh should not run during creation');
+      },
+    };
+
+    const result = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_staging_on',
+        body: {
+          useCase: 'speech_delivery',
+          prompt: 'Rishi presents the launch update from a clean room.',
+          script: 'Here is the launch update.',
+          audio: { mode: 'uploaded_voiceover', sourceUrl: 'https://cdn.example.test/audio/vo.wav' },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'avatar_staging_job',
+        talkingHeadClient,
+        stageReference: async (input) => {
+          stagingCalls.push(input);
+          return { imageUrl: 'https://cdn.example.test/avatar/staged.png' };
+        },
+        env: { FAL_AI_API_KEY: 'fal_test_key' },
+      },
+    );
+
+    expect(result.status).toBe(201);
+    expect(result.body.ok).toBe(true);
+    if (!result.body.ok) throw new Error('Expected pipeline job.');
+    // Staging ran once, with the wardrobe/look as the scene prompt and the person's photos.
+    expect(stagingCalls).toHaveLength(1);
+    expect(stagingCalls[0].scenePrompt).toContain('clean founder-presenter outfit');
+    expect(stagingCalls[0].sourceImageUrls.length).toBeGreaterThan(0);
+    expect(stagingCalls[0].sourceImageUrls.every((url) => url.includes('/avatar/'))).toBe(true);
+    // The face model animates the STAGED still, not the raw portrait.
+    expect(submittedInputs).toHaveLength(1);
+    expect(submittedInputs[0].imageUrl).toBe('https://cdn.example.test/avatar/staged.png');
+    // The staged URL is recorded on the face stage (input + output) for provenance.
+    const faceStage = result.body.job.stages.find((stage) => stage.id === 'face_omnihuman_fal');
+    expect(faceStage?.output).toEqual(
+      expect.objectContaining({ stagedImageUrl: 'https://cdn.example.test/avatar/staged.png' }),
+    );
+    expect(faceStage?.input).toEqual(
+      expect.objectContaining({ stagedImageUrl: 'https://cdn.example.test/avatar/staged.png' }),
+    );
+  });
+
+  it('skips staging and animates the raw reference when no wardrobe/look is configured', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [
+        acceptedRecord('avatar_staging_off', {
+          userId: 'user_avatar',
+          stylePack: { wardrobePresets: [] },
+        }),
+      ],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+    let stagingCalled = false;
+    const submittedInputs: TalkingHeadFalSubmitInput[] = [];
+    const talkingHeadClient: TalkingHeadFalClient = {
+      async submit(input) {
+        submittedInputs.push(input);
+        return { modelId: 'fal-ai/kling-video/v1/standard/ai-avatar', requestId: 'fal_req_raw', input: {} };
+      },
+      async refresh() {
+        throw new Error('refresh should not run during creation');
+      },
+    };
+
+    const result = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_staging_off',
+        body: {
+          useCase: 'speech_delivery',
+          prompt: 'Rishi presents the launch update from a clean room.',
+          script: 'Here is the launch update.',
+          audio: { mode: 'uploaded_voiceover', sourceUrl: 'https://cdn.example.test/audio/vo.wav' },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'avatar_staging_off_job',
+        talkingHeadClient,
+        stageReference: async () => {
+          stagingCalled = true;
+          return { imageUrl: 'https://cdn.example.test/avatar/should-not-be-used.png' };
+        },
+        env: { FAL_AI_API_KEY: 'fal_test_key' },
+      },
+    );
+
+    expect(result.status).toBe(201);
+    expect(result.body.ok).toBe(true);
+    if (!result.body.ok) throw new Error('Expected pipeline job.');
+    expect(stagingCalled).toBe(false);
+    // No wardrobe ⇒ the raw reference (close-frame face) is animated, exactly as before.
+    expect(submittedInputs).toHaveLength(1);
+    expect(submittedInputs[0].imageUrl).toBe('https://cdn.example.test/avatar/face.png');
+    const faceStage = result.body.job.stages.find((stage) => stage.id === 'face_omnihuman_fal');
+    expect(faceStage?.output).not.toHaveProperty('stagedImageUrl');
+  });
+
+  it('fails the job loud when reference staging fails, never animating the un-staged portrait', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [acceptedRecord('avatar_staging_fail', { userId: 'user_avatar' })],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+    const submittedInputs: TalkingHeadFalSubmitInput[] = [];
+    const talkingHeadClient: TalkingHeadFalClient = {
+      async submit(input) {
+        submittedInputs.push(input);
+        return { modelId: 'fal-ai/kling-video/v1/standard/ai-avatar', requestId: 'fal_req_never', input: {} };
+      },
+      async refresh() {
+        throw new Error('refresh should not run during creation');
+      },
+    };
+
+    const result = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_staging_fail',
+        body: {
+          useCase: 'speech_delivery',
+          prompt: 'Rishi presents the launch update from a clean room.',
+          script: 'Here is the launch update.',
+          audio: { mode: 'uploaded_voiceover', sourceUrl: 'https://cdn.example.test/audio/vo.wav' },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'avatar_staging_fail_job',
+        talkingHeadClient,
+        stageReference: async () => {
+          throw new Error('nano banana exploded');
+        },
+        env: { FAL_AI_API_KEY: 'fal_test_key' },
+      },
+    );
+
+    expect(result.status).toBe(201);
+    expect(result.body.ok).toBe(true);
+    if (!result.body.ok) throw new Error('Expected pipeline job.');
+    expect(result.body.job.status).toBe('failed');
+    expect(result.body.job.dispatchCode).toBe('omnihuman_failed');
+    expect(result.body.job.statusReason).toContain('Reference staging failed');
+    expect(result.body.job.statusReason).toContain('nano banana exploded');
+    // Never fall back to animating the un-staged portrait.
+    expect(submittedInputs).toHaveLength(0);
+  });
+
+  it('builds the lane B (body_motion) stages: voice → body i2v → relip → composition', () => {
+    // Pure construction (buildAvatarPipelineStages) — no dispatch, so this asserts the
+    // stage shape independent of the async body/relip wiring exercised below.
+    const recipe = buildAvatarRenderRecipe({
+      profileRecord: acceptedRecord('avatar_body_motion', { userId: 'user_avatar' }),
+      useCase: 'speech_delivery',
+      renderModality: 'body_motion',
+      prompt: 'Rishi walks and gestures while presenting from a clean room.',
+      script: 'Here is the launch update.',
+      audio: { mode: 'uploaded_voiceover', sourceUrl: 'https://cdn.example.test/audio/vo.wav' },
+    });
+    expect(recipe.renderModality).toBe('body_motion');
+
+    const stages = buildAvatarPipelineStages(recipe, { FAL_AI_API_KEY: 'fal_test_key' });
+    // Lane B swaps the single talking-head stage for two async stages.
+    expect(stages.map((stage) => stage.id)).toEqual([
+      'voice_chatterbox',
+      'body_i2v_fal',
+      'relip_kling_fal',
+      'composition_remotion',
+    ]);
+    const body = stages.find((stage) => stage.id === 'body_i2v_fal');
+    expect(body).toEqual(
+      expect.objectContaining({
+        status: 'ready',
+        dispatchCode: 'stage_ready',
+        providerId: 'fal_kling_i2v',
+        input: expect.objectContaining({
+          model: 'fal-ai/kling-video/v2.6/pro/image-to-video',
+          durationSeconds: 8,
+          // Full-body framing prompt (not the talking-head one) so i2v renders a body, not a closeup.
+          prompt: expect.stringContaining('Full-body'),
+          // The reference is staged (reframed to full body) before the body model animates it.
+          staging: expect.objectContaining({ enabled: true }),
+        }),
+      }),
+    );
+    // Body i2v is image-only motion — the voice arrives at the relip stage, not here.
+    expect(body?.input).not.toHaveProperty('audio');
+    const relip = stages.find((stage) => stage.id === 'relip_kling_fal');
+    expect(relip).toEqual(
+      expect.objectContaining({
+        status: 'waiting',
+        dispatchCode: 'waiting_for_body_video',
+        providerId: 'fal_kling_lipsync',
+        input: expect.objectContaining({
+          model: 'fal-ai/kling-video/lipsync/audio-to-video',
+          dependsOnBodyStageId: 'body_i2v_fal',
+          dependsOnVoiceStageId: 'voice_chatterbox',
+        }),
+      }),
+    );
+  });
+
+  it('still stages the body_motion reference even with no wardrobe (full-body reframing)', () => {
+    // Lane B needs full-body framing regardless of wardrobe, so staging runs whenever
+    // there are photos — otherwise a face crop → talking-head closeup (the reported bug).
+    const recipe = buildAvatarRenderRecipe({
+      profileRecord: acceptedRecord('avatar_body_no_look', {
+        userId: 'user_avatar',
+        stylePack: { wardrobePresets: [] }, // no look → no wardrobe
+      }),
+      useCase: 'speech_delivery',
+      renderModality: 'body_motion',
+      prompt: 'presenting in a studio',
+      script: 'Short line.',
+      audio: { mode: 'uploaded_voiceover', sourceUrl: 'https://cdn.example.test/audio/vo.wav' },
+    });
+    const stages = buildAvatarPipelineStages(recipe, { FAL_AI_API_KEY: 'fal_test_key' });
+    const body = stages.find((stage) => stage.id === 'body_i2v_fal');
+    expect((body?.input as { staging?: { enabled?: boolean } }).staging?.enabled).toBe(true);
+    expect((body?.input as { prompt?: string }).prompt).toContain('Full-body');
+  });
+
+  it('blocks the body_motion stage when the shot exceeds the 10s relip cap', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [acceptedRecord('avatar_body_too_long', { userId: 'user_avatar' })],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+
+    const result = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_body_too_long',
+        body: {
+          useCase: 'speech_delivery',
+          renderModality: 'body_motion',
+          prompt: 'Rishi presents for a long stretch.',
+          script: 'A very long launch update that would overrun a single shot.',
+          audio: { mode: 'uploaded_voiceover', sourceUrl: 'https://cdn.example.test/audio/vo.wav' },
+          target: { durationSeconds: 15 },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'avatar_body_too_long_job',
+        env: { FAL_AI_API_KEY: 'fal_test_key' },
+      },
+    );
+
+    expect(result.status).toBe(201);
+    expect(result.body.ok).toBe(true);
+    if (!result.body.ok) throw new Error('Expected pipeline job.');
+    const body = result.body.job.stages.find((stage) => stage.id === 'body_i2v_fal');
+    expect(body?.status).toBe('blocked');
+    expect(body?.dispatchCode).toBe('body_duration_limit');
+  });
+
+  it('runs the lane B chain: voice measured+fit → body i2v submit → relip submit → composition input', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [acceptedRecord('avatar_lane_b', { userId: 'user_avatar' })],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+    const chatterboxClient: ChatterboxClient = {
+      async synthesize() {
+        return { audioUrl: 'https://cdn.example.test/audio/cloned.wav', audioAssetId: 'asset_cloned', providerRequestId: 'cbx_1', raw: {} };
+      },
+    };
+    const voiceWav = makeWav(6); // 6s cloned voice — fits the 10s budget
+    const i2vSubmits: Array<Record<string, unknown>> = [];
+    const klingI2vClient = {
+      async submit(input: Record<string, unknown>) {
+        i2vSubmits.push(input);
+        return { requestId: 'i2v_req_1', modelId: 'fal-ai/kling-video/v2.6/pro/image-to-video', input };
+      },
+      async refresh() {
+        return { status: 'succeeded' as const, requestId: 'i2v_req_1', videoUrl: 'https://fal.example.test/body.mp4', durationSeconds: 10 };
+      },
+    };
+    const lipsyncSubmits: Array<Record<string, unknown>> = [];
+    const uploads: Buffer[] = [];
+    const klingLipsyncClient = {
+      async submit(input: Record<string, unknown>) {
+        lipsyncSubmits.push(input);
+        return { requestId: 'relip_req_1', modelId: 'fal-ai/kling-video/lipsync/audio-to-video', input };
+      },
+      async refresh() {
+        return { status: 'succeeded' as const, requestId: 'relip_req_1', videoUrl: 'https://fal.example.test/relipped.mp4' };
+      },
+    };
+
+    const created = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_lane_b',
+        body: {
+          useCase: 'speech_delivery',
+          renderModality: 'body_motion',
+          prompt: 'Rishi walks and gestures while presenting.',
+          script: 'Hey there. This is a quick body-motion test.',
+          audio: { mode: 'tts_voiceover' },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'lane_b_job',
+        chatterboxClient,
+        stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
+        fetchAudioBytes: async () => voiceWav,
+        klingI2vClient,
+        env: {
+          CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
+          FAL_AI_API_KEY: 'fal_test_key',
+        },
+      },
+    );
+
+    // Create: voice synthesized + measured + fit ok → body i2v submitted (on the STAGED image).
+    expect(created.status).toBe(201);
+    expect(created.body.ok).toBe(true);
+    if (!created.body.ok) throw new Error('Expected pipeline job.');
+    expect(created.body.job.dispatchCode).toBe('body_queued');
+    expect(i2vSubmits).toHaveLength(1);
+    expect(JSON.stringify(i2vSubmits[0])).toContain('https://cdn.example.test/avatar/staged.png');
+    const voiceStage = created.body.job.stages.find((stage) => stage.id === 'voice_chatterbox');
+    expect(voiceStage?.output).toEqual(expect.objectContaining({ measuredDurationSec: 6 }));
+
+    const refreshDeps = {
+      pipelineJobStore,
+      now: () => NOW,
+      klingI2vClient,
+      klingLipsyncClient,
+      fetchAudioBytes: async () => voiceWav,
+      uploadAudio: async (wav: Buffer) => {
+        uploads.push(wav);
+        return { audioUrl: 'https://cdn.example.test/audio/aligned.wav' };
+      },
+      measureVideoDurationSec: async () => 10, // body came out 10s
+      env: { FAL_AI_API_KEY: 'fal_test_key' },
+    };
+
+    // Refresh 1: body poll succeeds → voice padded to body length + relip submitted.
+    const r1 = await refreshAvatarPipelineJobFromRequest({ userId: 'user_avatar', orgId: null, jobId: 'lane_b_job' }, refreshDeps);
+    expect(r1.body.ok).toBe(true);
+    if (!r1.body.ok) throw new Error('Expected refreshed job.');
+    expect(r1.body.job.dispatchCode).toBe('relip_queued');
+    expect(uploads).toHaveLength(1); // the aligned WAV was uploaded
+    expect(lipsyncSubmits).toHaveLength(1);
+    expect(lipsyncSubmits[0]).toEqual(
+      expect.objectContaining({ video_url: 'https://fal.example.test/body.mp4', audio_url: 'https://cdn.example.test/audio/aligned.wav' }),
+    );
+    const bodyStageDone = r1.body.job.stages.find((stage) => stage.id === 'body_i2v_fal');
+    expect(bodyStageDone).toEqual(
+      expect.objectContaining({ status: 'succeeded', output: expect.objectContaining({ videoUrl: 'https://fal.example.test/body.mp4' }) }),
+    );
+
+    // Refresh 2: relip poll succeeds → relipped video fed to composition (lane-agnostic slot).
+    const r2 = await refreshAvatarPipelineJobFromRequest({ userId: 'user_avatar', orgId: null, jobId: 'lane_b_job' }, refreshDeps);
+    expect(r2.body.ok).toBe(true);
+    if (!r2.body.ok) throw new Error('Expected refreshed job.');
+    expect(r2.body.job.dispatchCode).toBe('relip_succeeded');
+    const relipStage = r2.body.job.stages.find((stage) => stage.id === 'relip_kling_fal');
+    expect(relipStage).toEqual(
+      expect.objectContaining({ status: 'succeeded', output: expect.objectContaining({ videoUrl: 'https://fal.example.test/relipped.mp4' }) }),
+    );
+    const composition = r2.body.job.stages.find((stage) => stage.id === 'composition_remotion');
+    expect((composition?.input as { faceVideo?: { videoUrl?: string } }).faceVideo?.videoUrl).toBe('https://fal.example.test/relipped.mp4');
+  });
+
+  it('stops body_motion at needs_fit when the measured voice overruns the shot budget (no body spend)', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [acceptedRecord('avatar_lane_b_overrun', { userId: 'user_avatar' })],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+    const chatterboxClient: ChatterboxClient = {
+      async synthesize() {
+        return { audioUrl: 'https://cdn.example.test/audio/long.wav', audioAssetId: 'asset_long', providerRequestId: 'cbx_2', raw: {} };
+      },
+    };
+    let i2vSubmitted = false;
+    const klingI2vClient = {
+      async submit(input: Record<string, unknown>) {
+        i2vSubmitted = true;
+        return { requestId: 'never', modelId: 'x', input };
+      },
+      async refresh() {
+        return { status: 'succeeded' as const, requestId: 'never' };
+      },
+    };
+
+    const created = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_lane_b_overrun',
+        body: {
+          useCase: 'speech_delivery',
+          renderModality: 'body_motion',
+          prompt: 'Rishi presents at length.',
+          script: 'A line whose spoken form runs well past a single ten second shot budget.',
+          audio: { mode: 'tts_voiceover' },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'lane_b_overrun_job',
+        chatterboxClient,
+        fetchAudioBytes: async () => makeWav(13), // 13s > 10s budget → needs_fit
+        klingI2vClient,
+        env: {
+          CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize',
+          FAL_AI_API_KEY: 'fal_test_key',
+        },
+      },
+    );
+
+    expect(created.status).toBe(201);
+    expect(created.body.ok).toBe(true);
+    if (!created.body.ok) throw new Error('Expected pipeline job.');
+    expect(created.body.job.dispatchCode).toBe('body_motion_needs_fit');
+    // The fit gate fires BEFORE spending on the body render.
+    expect(i2vSubmitted).toBe(false);
+    const bodyStage = created.body.job.stages.find((stage) => stage.id === 'body_i2v_fal');
+    expect(bodyStage?.status).toBe('blocked');
+  });
+
+  it('fails body_motion loud when the body video is shorter than the voice (would cut words)', async () => {
+    const profileStore = createInMemoryAvatarProfileRepository({
+      records: [acceptedRecord('avatar_lane_b_short', { userId: 'user_avatar' })],
+    });
+    const pipelineJobStore = createInMemoryAvatarPipelineJobStore();
+    const chatterboxClient: ChatterboxClient = {
+      async synthesize() {
+        return { audioUrl: 'https://cdn.example.test/audio/six.wav', audioAssetId: 'asset_six', providerRequestId: 'cbx_3', raw: {} };
+      },
+    };
+    let relipSubmitted = false;
+    const klingI2vClient = {
+      async submit(input: Record<string, unknown>) {
+        return { requestId: 'i2v_short', modelId: 'x', input };
+      },
+      async refresh() {
+        return { status: 'succeeded' as const, requestId: 'i2v_short', videoUrl: 'https://fal.example.test/short-body.mp4', durationSeconds: 4 };
+      },
+    };
+    const klingLipsyncClient = {
+      async submit(input: Record<string, unknown>) {
+        relipSubmitted = true;
+        return { requestId: 'never', modelId: 'x', input };
+      },
+      async refresh() {
+        return { status: 'succeeded' as const, requestId: 'never' };
+      },
+    };
+
+    const created = await createAvatarPipelineJobFromRequest(
+      {
+        userId: 'user_avatar',
+        orgId: null,
+        recordId: 'avatar_lane_b_short',
+        body: {
+          useCase: 'speech_delivery',
+          renderModality: 'body_motion',
+          prompt: 'Rishi presents.',
+          script: 'This is a six second line of speech to read.',
+          audio: { mode: 'tts_voiceover' },
+        },
+      },
+      {
+        profileStore,
+        pipelineJobStore,
+        now: () => NOW,
+        idGenerator: () => 'lane_b_short_job',
+        chatterboxClient,
+        stageReference: async () => ({ imageUrl: 'https://cdn.example.test/avatar/staged.png' }),
+        fetchAudioBytes: async () => makeWav(6),
+        klingI2vClient,
+        env: { CHATTERBOX_TTS_ENDPOINT: 'https://chatterbox.internal/synthesize', FAL_AI_API_KEY: 'fal_test_key' },
+      },
+    );
+    expect(created.body.ok).toBe(true);
+
+    const r1 = await refreshAvatarPipelineJobFromRequest(
+      { userId: 'user_avatar', orgId: null, jobId: 'lane_b_short_job' },
+      {
+        pipelineJobStore,
+        now: () => NOW,
+        klingI2vClient,
+        klingLipsyncClient,
+        fetchAudioBytes: async () => makeWav(6),
+        uploadAudio: async () => ({ audioUrl: 'https://cdn.example.test/audio/aligned.wav' }),
+        measureVideoDurationSec: async () => 4, // body only 4s vs 6s voice
+        env: { FAL_AI_API_KEY: 'fal_test_key' },
+      },
+    );
+
+    expect(r1.body.ok).toBe(true);
+    if (!r1.body.ok) throw new Error('Expected refreshed job.');
+    expect(r1.body.job.status).toBe('failed');
+    expect(r1.body.job.dispatchCode).toBe('body_failed');
+    expect(r1.body.job.statusReason).toContain('shorter than the voice');
+    // Never relip a shot that would cut words.
+    expect(relipSubmitted).toBe(false);
+  });
 });
+
+// Minimal valid PCM WAV of a given duration, so measureWavDurationSec parses a real length.
+function makeWav(durationSec: number, sampleRate = 8000, channels = 1, bitsPerSample = 8): Buffer {
+  const blockAlign = channels * (bitsPerSample / 8);
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = Math.round(durationSec * byteRate);
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(dataSize, 40);
+  return Buffer.concat([header, Buffer.alloc(dataSize)]);
+}
 
 function acceptedRecord(id: string, overrides: Partial<AvatarProfile> = {}): AvatarProfileRecord {
   const profile = avatar({ status: 'accepted', ...overrides });

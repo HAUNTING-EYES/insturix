@@ -29,22 +29,8 @@ import { nanoid } from "nanoid";
 import { assetResolver } from "../asset-resolver";
 import { assertRemotionSiteFresh } from "../remotion-site-version";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { createRequire } from "module";
-
-export function getFFmpegPath(): string {
-  if (typeof window !== "undefined") {
-    throw new Error("FFmpeg can only be used on the server");
-  }
-
-  const require = createRequire(import.meta.url);
-  const ffmpegInstaller = require("@ffmpeg-installer/ffmpeg");
-
-  if (!ffmpegInstaller?.path) {
-    throw new Error("FFmpeg binary not found");
-  }
-
-  return ffmpegInstaller.path;
-}
+export { getFFmpegPath } from "./ffmpeg-runtime";
+import { getFFmpegPath } from "./ffmpeg-runtime";
 
 /* ====================================================== */
 /* Helpers */
@@ -130,12 +116,6 @@ export async function sampleAudioClip(params: {
   /* ===============================
      ASSET PATH (FFmpeg)
      =============================== */
-
-  if (!getFFmpegPath()) {
-    throw new Error(
-      "FFmpeg binary not found. Install ffmpeg-static to enable asset audio sampling.",
-    );
-  }
 
   // Resolve asset URL
   let srcUrl = params.assetUrl;
@@ -258,12 +238,6 @@ export async function sampleVideoClip(params: {
      ASSET PATH (FFmpeg)
      =============================== */
 
-  if (!getFFmpegPath()) {
-    throw new Error(
-      "FFmpeg binary not found. Install ffmpeg-static to enable asset video analysis.",
-    );
-  }
-
   // Resolve asset URL
   let srcUrl = params.assetUrl;
   if (!srcUrl && params.assetId) {
@@ -287,12 +261,6 @@ export async function sampleVideoClip(params: {
   }
 
   const output = await tempFile("mp4");
-
-  if (!getFFmpegPath()) {
-    throw new Error(
-      "FFmpeg binary not found. Install ffmpeg-static to enable asset video analysis.",
-    );
-  }
 
   const ffmpeg = getFFmpegPath();
 
@@ -489,11 +457,7 @@ RULE 9 — If nothing found, return empty arrays but always provide a summary.
       statusText: error?.statusText,
     });
 
-    return {
-      silences: [],
-      fillers: [],
-      summary: `Error analyzing audio: ${error?.message || "Unknown error"}`,
-    };
+    throw new Error(`Gemini audio analysis failed: ${error?.message || 'Unknown error'}`, { cause: error });
   }
 }
 
@@ -584,14 +548,7 @@ RULE 9 — Return ONLY valid JSON (no markdown, no explanation).
     };
   } catch (error: any) {
     console.error("[GEMINI-VIDEO] Error:", error);
-    return {
-      sceneChanges: [],
-      deadVisualRanges: [],
-      gestures: [],
-      onScreenText: [],
-      summary: "Error analyzing video",
-      theme: "other",
-    };
+    throw new Error(`Gemini video analysis failed: ${error?.message || 'Unknown error'}`, { cause: error });
   }
 }
 
@@ -604,6 +561,7 @@ export async function analyzeClipAudioService(params: {
   userId: string;
   source: "timeline" | "asset";
   assetId?: string;
+  timelineStartFrame?: number;
   startFrame: number;
   endFrame: number;
   fps: number;
@@ -644,8 +602,9 @@ export async function analyzeClipAudioService(params: {
   console.log("[ANALYZE-CLIP-AUDIO] Gemini result:", geminiResult);
 
   // 3) Convert seconds to timeline frames
+  const outputStartFrame = params.timelineStartFrame ?? params.startFrame;
   const toFrame = (sec: number) =>
-    params.startFrame + Math.round(sec * params.fps);
+    outputStartFrame + Math.round(sec * params.fps);
 
   // 4) Process silences
   const silenceGapsFrames = geminiResult.silences.map((s) => ({

@@ -49,6 +49,11 @@ import type { EditProfile } from '@/lib/editron/data/edit-profile-types';
 import type { PipelineWarningCollector } from '@/lib/editron/services/pipeline-warnings';
 import { buildOverlayAtomicReceipt, overlayAtom } from '@/lib/editron/engine/atomic-overlay-core';
 import {
+  deriveTransitionKineticSfxHint,
+  placeMotionGraphicKineticSFX,
+  type MotionGraphicKineticSfxResult,
+} from '@/lib/editron/services/kinetic-sfx-service';
+import {
   evaluateAtomicSfxAssetCandidate,
   resolveAtomicSfxForm,
   type AtomicSfxCandidateEvaluation,
@@ -91,53 +96,7 @@ const MIN_TRANSITION_SFX_GAP_FRAMES = 15;
  * intentionally gets silence (hard-cut / dip-to-black / dip-to-white).
  */
 function mapTransitionStyleToSFXHint(style: string): TransitionSFXHint | null {
-  switch (style) {
-    // A-001: non-hard-cut motion transitions — whoosh
-    case 'dissolve':
-    case 'wipe-left':
-    case 'wipe-right':
-    case 'wipe-up':
-    case 'wipe-down':
-    case 'iris-wipe':
-    case 'blur-transition':
-    case 'slide-push':
-      return { cue: 'subtle transition whoosh', rule: 'A-001' };
-
-    // slide-up / slide-down — directional motion, whoosh
-    case 'slide-up':
-    case 'slide-down':
-      return { cue: 'directional whoosh sweep', rule: 'A-001' };
-
-    // film-burn — organic, no SFX (the crackle IS the sound)
-    case 'film-burn':
-      return null;
-
-    // glitch — percussive digital artifact
-    case 'glitch':
-      return { cue: 'digital glitch tick', rule: 'A-002', role: 'digital-tick' };
-
-    // whip-pan — fast directional motion
-    case 'whip-pan':
-      return { cue: 'fast whoosh whip sweep', rule: 'A-001', role: 'fast-whoosh' };
-
-    // soft-cut — gentle, no SFX (barely visible transition)
-    case 'soft-cut':
-      return null;
-
-    // A-002: percussive transitions — impact
-    case 'zoom-punch':
-    case 'flash':
-      return { cue: 'impact hit punch', rule: 'A-002', role: 'impact' };
-
-    // Silence wins — dip-to-black is end-of-chapter, dip-to-white is flashbulb
-    case 'dip-to-black':
-    case 'dip-to-white':
-      return null;
-
-    // Unknown / hard-cut / not in enum — no SFX
-    default:
-      return null;
-  }
+  return deriveTransitionKineticSfxHint(style);
 }
 
 function mapAtomicTransitionRoleToSFXHint(role: unknown): TransitionSFXHint | null | undefined {
@@ -328,6 +287,7 @@ interface SFXOverlayShape {
   content: string;
   src: string;
   assetId?: string;
+  audioRights: SFXLibraryResult['audioRights'];
   styles: { volume: number; opacity: number };
   metadata?: Record<string, any>;
 }
@@ -542,6 +502,7 @@ export interface TransitionSFXResult {
   skipped: number;
   skipReasons: Record<string, number>;
   tokensUsed: string[];
+  motionGraphics: MotionGraphicKineticSfxResult;
 }
 
 type TransitionSfxPlacementStatus = 'placed' | 'skipped' | 'suppressed';
@@ -602,7 +563,9 @@ export async function placeTransitionSFX(
     skipped: 0,
     skipReasons: {},
     tokensUsed: [],
+    motionGraphics: emptyMotionGraphicResult(),
   };
+  const policy = resolvePolicy(profile);
 
   // Find all transition overlays (TransitionOverlay tiles from EDL or edit-direction-applier)
   const transitions: TransitionOverlayShape[] = overlays.filter(
@@ -610,14 +573,17 @@ export async function placeTransitionSFX(
   );
 
   if (transitions.length === 0) {
-    console.log('[TransitionSFX] No transitions in project — nothing to do');
+    result.motionGraphics = await placeMotionGraphicKineticSFX(overlays, userId, policy);
+    console.log(
+      `[TransitionSFX] No transitions; MG kinetic SFX: ${result.motionGraphics.placed} placed, ` +
+      `${result.motionGraphics.skipped} skipped`,
+    );
     return result;
   }
 
   // Profile policy check — 'off' profiles skip transition SFX entirely.
   // This is the opinionated path (documentary / luxury / minimalist profiles
   // that deliberately use silence or natural-only audio).
-  const policy = resolvePolicy(profile);
   if (policy === 'off') {
     for (const transition of transitions) {
       recordTransitionSfxPlacement(transition, {
@@ -632,6 +598,7 @@ export async function placeTransitionSFX(
       `[TransitionSFX] Profile ${profile?.profileId || '(none)'} has transitionSFXPolicy='off' — ` +
       `skipping all transition SFX by design (silence is the aesthetic)`
     );
+    result.motionGraphics = await placeMotionGraphicKineticSFX(overlays, userId, policy);
     return result;
   }
 
@@ -650,6 +617,7 @@ export async function placeTransitionSFX(
     if (warnings) {
       warnings.degraded('sfx', 'transition-placer', 'No SFX library API keys configured — transition SFX skipped');
     }
+    result.motionGraphics = await placeMotionGraphicKineticSFX(overlays, userId, policy);
     return result;
   }
 
@@ -788,6 +756,7 @@ export async function placeTransitionSFX(
       content: sfx.result.audioUrl,
       src: sfx.result.audioUrl,
       assetId: sfx.result.audioAssetId,
+      audioRights: sfx.result.audioRights,
       styles: {
         volume: adjustVolumeForPolicy(spec.volume, policy),
         opacity: 1,
@@ -835,5 +804,10 @@ export async function placeTransitionSFX(
     `Skip reasons: ${JSON.stringify(result.skipReasons)}`
   );
 
+  result.motionGraphics = await placeMotionGraphicKineticSFX(overlays, userId, policy);
   return result;
+}
+
+function emptyMotionGraphicResult(): MotionGraphicKineticSfxResult {
+  return { placed: 0, skipped: 0, skipReasons: {}, eventKindsUsed: [] };
 }

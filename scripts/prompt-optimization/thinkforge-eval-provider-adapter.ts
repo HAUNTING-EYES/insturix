@@ -101,6 +101,7 @@ const DEFAULT_PRICE_HINTS: Record<string, PriceHint> = {
 
 const DEFAULT_TRANSIENT_RETRY_ATTEMPTS = 3;
 const DEFAULT_TRANSIENT_RETRY_BASE_MS = 400;
+const DEFAULT_REQUEST_TIMEOUT_MS = 90_000;
 
 export function parseEvalProviders(value: string | undefined): EvalProvider[] {
   const raw = value ?? 'gemini,deepseek';
@@ -169,15 +170,21 @@ async function runProviderPromptWithRetry(
 ): Promise<RawEvalRunResult> {
   const attempts = readPositiveIntEnv('THINKFORGE_EVAL_TRANSIENT_RETRY_ATTEMPTS')
     ?? DEFAULT_TRANSIENT_RETRY_ATTEMPTS;
+  const requestTimeoutMs = readPositiveIntEnv('THINKFORGE_EVAL_REQUEST_TIMEOUT_MS')
+    ?? DEFAULT_REQUEST_TIMEOUT_MS;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      return config.provider === 'gemini'
-        ? await runGeminiPrompt(config, prompt)
-        : config.provider === 'anthropic'
-          ? await runAnthropicPrompt(config, prompt)
-          : await runOpenAICompatiblePrompt(config, prompt);
+      return await withEvalTimeout(
+        (abortSignal) => config.provider === 'gemini'
+          ? runGeminiPrompt(config, prompt, abortSignal)
+          : config.provider === 'anthropic'
+            ? runAnthropicPrompt(config, prompt, abortSignal)
+            : runOpenAICompatiblePrompt(config, prompt, abortSignal),
+        requestTimeoutMs,
+        `${config.provider}/${config.model}`,
+      );
     } catch (error) {
       lastError = error;
       if (attempt >= attempts || !isTransientProviderError(error)) {
@@ -208,6 +215,29 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export async function withEvalTimeout<T>(
+  operation: (abortSignal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation(controller.signal),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          const reason = new Error(`Eval provider request timed out after ${timeoutMs}ms (${label}).`);
+          controller.abort(reason);
+          reject(reason);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function readApiKey(provider: EvalProvider): string {
   const key = provider === 'gemini'
     ? process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY
@@ -234,16 +264,20 @@ function readApiKey(provider: EvalProvider): string {
 async function runGeminiPrompt(
   config: EvalProviderConfig,
   prompt: string,
+  abortSignal: AbortSignal,
 ): Promise<RawEvalRunResult> {
   const genai = new GoogleGenerativeAI(config.apiKey);
   const model = genai.getGenerativeModel({ model: config.model });
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: config.temperature,
-      maxOutputTokens: config.maxOutputTokens,
+  const result = await model.generateContent(
+    {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: config.temperature,
+        maxOutputTokens: config.maxOutputTokens,
+      },
     },
-  });
+    { signal: abortSignal },
+  );
 
   const usage = result.response.usageMetadata as
     | {
@@ -268,6 +302,7 @@ async function runGeminiPrompt(
 async function runOpenAICompatiblePrompt(
   config: EvalProviderConfig,
   prompt: string,
+  abortSignal: AbortSignal,
 ): Promise<RawEvalRunResult> {
   const baseUrl = config.provider === 'deepseek'
     ? process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com'
@@ -286,6 +321,7 @@ async function runOpenAICompatiblePrompt(
   const response = await fetch(endpoint, {
     method: 'POST',
     headers,
+    signal: abortSignal,
     body: JSON.stringify({
       model: config.model,
       messages: [{ role: 'user', content: prompt }],
@@ -331,12 +367,14 @@ interface AnthropicMessagesResponse {
 async function runAnthropicPrompt(
   config: EvalProviderConfig,
   prompt: string,
+  abortSignal: AbortSignal,
 ): Promise<RawEvalRunResult> {
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com';
   const endpoint = `${baseUrl.replace(/\/$/, '')}/v1/messages`;
 
   const response = await fetch(endpoint, {
     method: 'POST',
+    signal: abortSignal,
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': config.apiKey,

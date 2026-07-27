@@ -32,9 +32,15 @@ import {
   type BrandVaultVisualAssetStorageProvider,
 } from './brand-vault-visual-asset-storage';
 import {
+  createBrandVaultSectionScreenshotCaptureFromEnvironment,
   createBrandVaultWebsiteScreenshotCaptureFromEnvironment,
+  type CaptureBrandVaultSectionScreenshots,
   type CaptureBrandVaultWebsiteScreenshot,
 } from './brand-vault-website-screenshot';
+import {
+  createBrandVaultVisionDecoderFromEnvironment,
+  type DecodeBrandVaultProductUiModel,
+} from './brand-vault-vision-decode';
 import type {
   BrandEvidenceCandidate,
   BrandVaultCrawlOptions,
@@ -238,6 +244,8 @@ type BrandVaultRefineryJobExecutionDependencies = {
   textEvidenceCompiler?: BrandVaultTextEvidenceCompiler;
   visualAssetStorage?: BrandVaultVisualAssetStorageProvider | null;
   captureWebsiteScreenshot?: CaptureBrandVaultWebsiteScreenshot | null;
+  captureSectionScreenshots?: CaptureBrandVaultSectionScreenshots | null;
+  decodeProductUiModel?: DecodeBrandVaultProductUiModel | null;
 };
 
 export type ProcessQueuedBrandVaultRefineryJobResult = {
@@ -465,6 +473,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
       textEvidenceCompiler: dependencies.textEvidenceCompiler,
       visualAssetStorage: resolveVisualAssetStorageProvider(dependencies),
       captureWebsiteScreenshot: resolveWebsiteScreenshotCapture(dependencies),
+      captureSectionScreenshots: resolveSectionScreenshotCapture(dependencies),
     },
   );
 
@@ -504,6 +513,17 @@ export async function createBrandVaultRefineryJobFromWebsite(
     reviewPayload,
   });
 
+  // Vision DECODE runs HERE — after the draft record + snapshot are persisted and the scan is already
+  // reviewable — because it is slow (~45-100s, GLM vision) and pure enrichment. Keeping it off the scan's
+  // critical path means a decode timeout can never lose the whole draft (it did, before). Fail-soft.
+  await runProductUiDecodeFollowUp({
+    decoder: resolveVisionDecoder(dependencies),
+    store: dependencies.store,
+    record: result.record,
+    sourceUrl: result.normalizedUrl,
+    options: { actorId: args.actorId ?? args.userId, now: dependencies.clock?.() },
+  });
+
   return {
     status: 201,
     body: {
@@ -514,6 +534,101 @@ export async function createBrandVaultRefineryJobFromWebsite(
       candidates: result.candidates,
     },
   };
+}
+
+/**
+ * Decode the draft's stored UI screenshots into a Product UI Model and attach it to the persisted record.
+ * Runs AFTER the draft is saved (so it never blocks review) and is best-effort: no decoder, no screenshots,
+ * a null model, or any error all leave the already-saved draft untouched.
+ */
+async function runProductUiDecodeFollowUp(args: {
+  decoder: DecodeBrandVaultProductUiModel | null;
+  store: BrandVaultRefineryStore;
+  record: BrandSignalProfileRecord;
+  sourceUrl: string;
+  options?: BrandSignalLifecycleOptions;
+}): Promise<void> {
+  if (!args.decoder) return;
+  const screenshotUrls = args.record.profile.assets?.uiScreenshots?.value;
+  if (!Array.isArray(screenshotUrls) || screenshotUrls.length === 0) return;
+  try {
+    const productUiModel = await args.decoder({ url: args.sourceUrl, screenshotUrls });
+    if (!productUiModel) return;
+    args.record.profile.productUiModel = productUiModel;
+    await args.store.saveRecord(args.record, args.options);
+  } catch (error) {
+    console.warn(
+      '[BrandVault:visionDecode] product UI decode follow-up skipped:',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+// Cron backfill: re-decode drafts whose inline decode never landed (function killed mid-decode, or a
+// transient GLM/network error). Retry no more than once per cooldown per record so a permanently
+// un-decodable draft (e.g. its screenshots were pruned) can't starve the others.
+const PRODUCT_UI_DECODE_RETRY_COOLDOWN_MS = 30 * 60 * 1000; // 30 min ← retry backoff; cron fires every minute
+const PRODUCT_UI_DECODE_SCAN_LIMIT = 25; // ← matches listJobSnapshots default page size
+
+export type ProcessPendingProductUiDecodeResult = {
+  processed: boolean;
+  recordId?: string;
+  /** True when this pass produced a productUiModel; false when the attempt ran but decode returned nothing. */
+  decoded?: boolean;
+  reason?: 'decode_disabled' | 'store_does_not_support_listing' | 'nothing_pending';
+};
+
+/**
+ * Find the oldest needs-review draft that captured UI screenshots but still has no productUiModel (its inline
+ * decode never completed) and decode it. Best-effort + cooldown-gated: stamps the attempt BEFORE decoding and
+ * persists it, so even a mid-decode function kill applies the cooldown instead of hot-looping on one record.
+ */
+export async function processNextPendingProductUiDecode(
+  dependencies: BrandVaultRefineryJobExecutionDependencies,
+): Promise<ProcessPendingProductUiDecodeResult> {
+  const decoder = resolveVisionDecoder(dependencies);
+  if (!decoder) return { processed: false, reason: 'decode_disabled' };
+  if (!dependencies.store.listJobSnapshots) return { processed: false, reason: 'store_does_not_support_listing' };
+
+  const now = dependencies.clock?.() ?? new Date().toISOString();
+  const cooldownCutoffMs = Date.parse(now) - PRODUCT_UI_DECODE_RETRY_COOLDOWN_MS;
+  const snapshots = await dependencies.store.listJobSnapshots({
+    statuses: ['needs_review'],
+    limit: PRODUCT_UI_DECODE_SCAN_LIMIT,
+    sort: 'updatedAtAsc',
+  });
+
+  for (const snapshot of snapshots) {
+    if (!snapshot.recordId) continue;
+    const record = await dependencies.store.getRecord(snapshot.recordId);
+    if (!record || !recordNeedsProductUiDecode(record, cooldownCutoffMs)) continue;
+
+    // Stamp + persist the attempt BEFORE decoding: a kill mid-decode still applies the cooldown.
+    const options: BrandSignalLifecycleOptions = { actorId: record.profile.userId ?? 'system', now };
+    record.profile.productUiModelDecodeAttemptedAt = now;
+    await dependencies.store.saveRecord(record, options);
+
+    await runProductUiDecodeFollowUp({
+      decoder,
+      store: dependencies.store,
+      record,
+      sourceUrl: snapshot.normalizedUrl ?? snapshot.job.inputs.websiteUrl ?? '',
+      options,
+    });
+    return { processed: true, recordId: snapshot.recordId, decoded: Boolean(record.profile.productUiModel) };
+  }
+  return { processed: false, reason: 'nothing_pending' };
+}
+
+function recordNeedsProductUiDecode(record: BrandSignalProfileRecord, cooldownCutoffMs: number): boolean {
+  const urls = record.profile.assets?.uiScreenshots?.value;
+  if (!Array.isArray(urls) || urls.length === 0) return false; // nothing to decode
+  if (record.profile.productUiModel) return false; // already decoded
+  const attemptedAt = record.profile.productUiModelDecodeAttemptedAt;
+  if (!attemptedAt) return true; // never attempted by the backfill
+  const attemptedMs = Date.parse(attemptedAt);
+  if (!Number.isFinite(attemptedMs)) return true; // unparseable marker -> allow a retry
+  return !Number.isFinite(cooldownCutoffMs) || attemptedMs < cooldownCutoffMs; // cooldown elapsed
 }
 
 export async function startQueuedBrandVaultRefineryJobFromWebsite(
@@ -735,6 +850,20 @@ function resolveWebsiteScreenshotCapture(
 ): CaptureBrandVaultWebsiteScreenshot | null {
   if (dependencies.captureWebsiteScreenshot !== undefined) return dependencies.captureWebsiteScreenshot;
   return createBrandVaultWebsiteScreenshotCaptureFromEnvironment() ?? null;
+}
+
+function resolveSectionScreenshotCapture(
+  dependencies: BrandVaultRefineryJobExecutionDependencies,
+): CaptureBrandVaultSectionScreenshots | null {
+  if (dependencies.captureSectionScreenshots !== undefined) return dependencies.captureSectionScreenshots;
+  return createBrandVaultSectionScreenshotCaptureFromEnvironment() ?? null;
+}
+
+function resolveVisionDecoder(
+  dependencies: BrandVaultRefineryJobExecutionDependencies,
+): DecodeBrandVaultProductUiModel | null {
+  if (dependencies.decodeProductUiModel !== undefined) return dependencies.decodeProductUiModel;
+  return createBrandVaultVisionDecoderFromEnvironment() ?? null;
 }
 
 function mergeWarnings(...groups: string[][]): string[] {

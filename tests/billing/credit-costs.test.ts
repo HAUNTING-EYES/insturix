@@ -146,8 +146,10 @@ describe("credit pricing", () => {
     expect(source).toContain("requestType: BGM_BILLING_PROVIDER");
     expect(source).toContain("requestType: getSfxGenerationRequestType(sfxInputs)");
     expect(source).toContain("refundPipelineAudioCredits");
+    const conditionedBgmGeneration = "generateBackgroundMusic(musicPrompt, userId, totalDurationSec, {";
+    expect(source).toContain(conditionedBgmGeneration);
     expect(source.indexOf("bgmCreditCharge = await deductPipelineAudioCredits")).toBeLessThan(
-      source.indexOf("generateBackgroundMusic(musicPrompt, userId, totalDurationSec)"),
+      source.indexOf(conditionedBgmGeneration),
     );
     expect(source.indexOf("action: 'sfx_generation'")).toBeLessThan(
       source.indexOf("type: 'sfx'"),

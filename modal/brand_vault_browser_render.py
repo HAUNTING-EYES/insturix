@@ -66,6 +66,17 @@ SCREENSHOT_VIEWPORT_WIDTH = 1280
 SCREENSHOT_VIEWPORT_HEIGHT = 800
 MAX_SCREENSHOT_BYTES = 8_000_000   # ~8 MB — matches the app's visual-asset store cap
 MAX_SCREENSHOT_WAIT_MS = 5_000     # extra post-load settle before the shot
+# Section screenshots (mode == "screenshots"): the glm-capture recipe — an ordered set of viewport shots down
+# the page (hero + scrolled sections) so the scan sees the rendered UI a SPA hides from an HTML parser.
+SECTION_VIEWPORT_WIDTH = 1600
+SECTION_VIEWPORT_HEIGHT = 1000
+SECTION_DEVICE_SCALE = 2
+SECTION_SCROLL_STEP = 950
+SECTION_HYDRATION_WAIT_MS = 2_800   # late-hydration settle before the first shot
+SECTION_STEP_WAIT_MS = 900          # settle after each scroll
+DEFAULT_SECTIONS = 3
+MAX_SECTIONS = 8
+MAX_SECTION_TOTAL_BYTES = 40_000_000  # cap the whole ordered set
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36 BrandVaultRenderer/1.0"
@@ -524,6 +535,56 @@ async def screenshot_capture(
             await browser.close()
 
 
+async def section_screenshots_capture(
+    url: str,
+    user_agent: str,
+    goto_timeout_ms: int,
+    wait_until: str,
+    sections: int,
+    hydration_wait_ms: int,
+) -> Optional[dict]:
+    """glm-capture recipe: 1600x1000 @2x viewport, networkidle + late-hydration wait, then scroll in ~950px
+    steps and screenshot each section. Returns {"screenshots": [{"screenshotBase64","contentType"}]} (ordered),
+    or None if no usable shot was produced."""
+    from playwright.async_api import async_playwright
+
+    sections = max(1, min(sections, MAX_SECTIONS))
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True, args=LAUNCH_ARGS)
+        try:
+            context = await browser.new_context(
+                user_agent=user_agent,
+                viewport={"width": SECTION_VIEWPORT_WIDTH, "height": SECTION_VIEWPORT_HEIGHT},
+                device_scale_factor=SECTION_DEVICE_SCALE,
+            )
+            page = await context.new_page()
+            await page.goto(url, timeout=goto_timeout_ms, wait_until=wait_until)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=SETTLE_TIMEOUT_MS)
+            except Exception:
+                pass
+            await page.wait_for_timeout(min(max(hydration_wait_ms, 0), 6_000))
+
+            page_h = await page.evaluate("() => (document.body ? document.body.scrollHeight : 0)")
+            shots = []
+            total = 0
+            for i in range(sections):
+                y = min(i * SECTION_SCROLL_STEP, max(0, page_h - SECTION_VIEWPORT_HEIGHT))
+                await page.evaluate("(yy) => window.scrollTo(0, yy)", y)
+                await page.wait_for_timeout(SECTION_STEP_WAIT_MS)
+                png = await page.screenshot(type="png")
+                if png and 0 < len(png) <= MAX_SCREENSHOT_BYTES:
+                    total += len(png)
+                    if total > MAX_SECTION_TOTAL_BYTES:
+                        break
+                    shots.append({"screenshotBase64": base64.b64encode(png).decode("ascii"), "contentType": "image/png"})
+                if y >= max(0, page_h - SECTION_VIEWPORT_HEIGHT):
+                    break
+            return {"screenshots": shots} if shots else None
+        finally:
+            await browser.close()
+
+
 @app.function(
     image=image,
     secrets=[render_secret],
@@ -585,6 +646,19 @@ async def render(request: fastapi.Request):
         if not shot:
             return error(502, "screenshot_failed", "Brand Vault browser render did not produce a screenshot.")
         return JSONResponse(status_code=200, content={"ok": True, "normalizedUrl": normalized, **shot})
+
+    if isinstance(mode_value, str) and mode_value.strip().lower() == "screenshots":
+        raw_sections = body.get("sections")
+        sections = raw_sections if isinstance(raw_sections, int) and not isinstance(raw_sections, bool) else DEFAULT_SECTIONS
+        raw_wait = body.get("waitFor")
+        hydration_wait_ms = raw_wait if isinstance(raw_wait, int) and not isinstance(raw_wait, bool) else SECTION_HYDRATION_WAIT_MS
+        try:
+            shots = await section_screenshots_capture(normalized, user_agent, goto_timeout_ms, wait_until, sections, hydration_wait_ms)
+        except Exception as exc:  # noqa: BLE001 - surface a clean failure, never a stack trace
+            return error(502, "screenshots_failed", f"Brand Vault section screenshots failed: {type(exc).__name__}.")
+        if not shots:
+            return error(502, "screenshots_failed", "Brand Vault browser render did not produce any section screenshots.")
+        return JSONResponse(status_code=200, content={"ok": True, "normalizedUrl": normalized, **shots})
 
     try:
         snapshot = await render_snapshot(normalized, user_agent, goto_timeout_ms, wait_until, http_status)

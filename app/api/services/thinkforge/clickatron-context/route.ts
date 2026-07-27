@@ -5,6 +5,7 @@ import { createProjectLink, findLinkBySessionId } from "@/lib/shared/project-lin
 import {
   buildThinkToClickContext,
   findClickatronCreativeSpecInBlocks,
+  normalizeRequestedCarouselSlideCount,
   toNonEmptyString,
   type ThinkToClickVisibleContentChoices,
 } from "@/lib/thinkforge/clickatron-context";
@@ -33,6 +34,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
   }
 
+  const rawVisualChoices =
+    body.userVisualChoices && typeof body.userVisualChoices === "object" && !Array.isArray(body.userVisualChoices)
+      ? body.userVisualChoices as Record<string, unknown>
+      : body;
+  let slideCount: number | undefined;
+  try {
+    slideCount = normalizeRequestedCarouselSlideCount(rawVisualChoices.slideCount);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Invalid slideCount" },
+      { status: 400 },
+    );
+  }
+
   try {
     const session = await db.getSession(sessionId, userId, orgId);
     if (!session) {
@@ -54,10 +69,6 @@ export async function POST(request: Request) {
       });
     }
 
-    const rawVisualChoices =
-      body.userVisualChoices && typeof body.userVisualChoices === "object" && !Array.isArray(body.userVisualChoices)
-        ? body.userVisualChoices as Record<string, unknown>
-        : body;
     const userVisualChoices: ThinkToClickVisibleContentChoices = {
       kind: toNonEmptyString(rawVisualChoices.kind) as ThinkToClickVisibleContentChoices["kind"],
       platform: toNonEmptyString(rawVisualChoices.platform) as ThinkToClickVisibleContentChoices["platform"],
@@ -67,6 +78,7 @@ export async function POST(request: Request) {
       vibe: toNonEmptyString(rawVisualChoices.vibe),
       imageStyle: toNonEmptyString(rawVisualChoices.imageStyle),
       notes: toNonEmptyString(rawVisualChoices.notes),
+      slideCount,
     };
 
     const context = buildThinkToClickContext({

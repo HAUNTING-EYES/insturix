@@ -1,0 +1,42 @@
+# SaaS Explainer render worker — Google Cloud Run (Job mode).
+#
+# Deploy as a Cloud Run JOB (not a Service) and trigger it on a schedule with Cloud Scheduler. The job runs
+# EXPLAINER_WORKER_ONCE=1 → it drains the queued explainer jobs, then exits (scales to zero, pay-per-run).
+#
+# Build context = repo root (editron-worktree). See DEPLOY-CLOUD-RUN.md for the gcloud commands + env vars.
+FROM node:20-bookworm-slim
+
+# System deps:
+#  - ffmpeg               → VO muxing + reference-frame extraction
+#  - python3 + edge-tts   → free VO synthesis (glm-voice-fit.py)
+#  - the shared libs headless Chromium needs (Remotion renderStill downloads Chrome Headless Shell at runtime;
+#    these are its runtime dependencies) + fonts so rendered text isn't tofu.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ffmpeg python3 python3-pip \
+      ca-certificates fonts-liberation fonts-noto-color-emoji \
+      libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 \
+      libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 \
+      libcairo2 libasound2 libatspi2.0-0 libx11-6 libxcb1 libxext6 libxi6 \
+    && pip3 install --no-cache-dir --break-system-packages edge-tts \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# The editron root uses PNPM (see "packageManager" in package.json); explainer-remotion is a standalone npm
+# sub-project with its own package-lock.json. Install each with its own package manager.
+RUN corepack enable
+COPY . .
+RUN pnpm install --no-frozen-lockfile
+# npm ci (NOT `|| npm install`): the fallback silently re-resolved ^4.0.x carets and pulled a skewed @remotion
+# version that imported a missing export (HtmlInCanvas), breaking the bundle. Fail loud on a bad lockfile instead.
+RUN cd explainer-remotion && npm ci --legacy-peer-deps
+
+# Pre-fetch the Remotion browser so the first render doesn't pay the download (best-effort).
+RUN cd explainer-remotion && (npx remotion browser ensure || true)
+
+ENV NODE_ENV=production \
+    EXPLAINER_WORKER_ONCE=1 \
+    EXPLAINER_REMOTION_DIR=/app/explainer-remotion
+
+# Cloud Run Job entrypoint: claim + render every queued job, then exit.
+CMD ["npx", "tsx", "scripts/explainer-worker.ts"]

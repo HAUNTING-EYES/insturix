@@ -115,13 +115,30 @@ export async function POST(req: NextRequest) {
       ...calosScope({ userId, orgId }, brandId),
       deletedAt: null,
     })
-      .select("card")
+      .select("card platform plannedDates")
       .limit(200)
-      .lean<{ card?: { title?: string } }[]>();
+      .lean<{ card?: { title?: string }; platform?: string; plannedDates?: string[] }[]>();
     const existingIdeas = existingDocs
       .map((d) => d?.card?.title)
       .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
       .slice(0, 100);
+
+    // Fill EMPTY slots only: skip any (platform, day) the calendar already has, so re-running AI-plan
+    // (e.g. after deleting a few inaccurate ideas) tops up the gaps with FRESH ideas instead of
+    // duplicating the ones kept. If nothing's empty, refund the deduction and no-op.
+    const taken = new Set(
+      existingDocs.flatMap((d) =>
+        (d.plannedDates ?? []).map((iso) => `${d.platform ?? "generic"}|${iso.slice(0, 10)}`),
+      ),
+    );
+    const freshSlots = slots.filter((s) => !taken.has(`${s.platform}|${s.date.slice(0, 10)}`));
+    if (freshSlots.length === 0) {
+      await refundAiPlanCredits("CalOS AI plan: calendar already covers this cadence");
+      return NextResponse.json({
+        created: 0,
+        note: "This cadence is already on the calendar — nothing empty to fill. Widen the window or add platforms/days.",
+      });
+    }
 
     // Brand context — force the vault ON (enabled:true) so CalOS always uses the rich brand profile,
     // not the thin legacy fallback, regardless of the per-service rollout flag.
@@ -163,7 +180,7 @@ export async function POST(req: NextRequest) {
         objective,
         theme,
         goal,
-        slots,
+        slots: freshSlots,
         trends,
         existingIdeas,
       });
@@ -179,7 +196,7 @@ export async function POST(req: NextRequest) {
     const ideaByIndex = new Map(ideas.map((i) => [i.index, i]));
     const trendByTitle = new Map(trends.map((t) => [t.title.toLowerCase(), t]));
 
-    const partials = slots.map((slot, index): Partial<ContentCard> => {
+    const partials = freshSlots.map((slot, index): Partial<ContentCard> => {
       const idea = ideaByIndex.get(index);
       const matchedTrend = idea?.trendTitle
         ? trendByTitle.get(idea.trendTitle.toLowerCase())

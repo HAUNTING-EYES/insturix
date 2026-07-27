@@ -1,0 +1,63 @@
+# Auto-rebuild the MG render-worker snapshot ONLY when the MG rendering code changes, then point Vercel at it.
+# Most commits never touch these paths → this never runs → no rebuild. When it does run it is ~1-2 min.
+# Required repo secrets: VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID, MG_SNAPSHOT_GH_TOKEN.
+# Optional: VERCEL_DEPLOY_HOOK_URL (to auto-redeploy after the env vars update; else next deploy picks them up).
+name: MG Render Snapshot
+
+on:
+  push:
+    branches: [infrastructure-improvs-+Editron, main]
+    paths:
+      - 'lib/editron/motion-graphics/codegen/**'
+      - 'scripts/editron-mg-render-worker.ts'
+      - 'scripts/mg-build-render-snapshot.ts'
+  workflow_dispatch: {}   # allow a manual rebuild from the Actions tab
+
+concurrency:
+  group: mg-render-snapshot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build MG render snapshot
+        id: build
+        env:
+          GITHUB_TOKEN: ${{ secrets.MG_SNAPSHOT_GH_TOKEN }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          MG_SNAPSHOT_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          npx tsx scripts/mg-build-render-snapshot.ts "${{ github.sha }}" | tee build.log
+          SNAP=$(grep -oE 'MG_RENDER_SANDBOX_SNAPSHOT_ID=[^ ]+' build.log | head -1 | cut -d= -f2)
+          if [ -z "$SNAP" ]; then echo "::error::snapshot id not found in build output"; exit 1; fi
+          echo "snapshot_id=$SNAP" >> "$GITHUB_OUTPUT"
+
+      - name: Point Vercel at the new snapshot
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+          MG_RENDER_SANDBOX_SNAPSHOT_ID: ${{ steps.build.outputs.snapshot_id }}
+          MG_RENDER_SANDBOX_APP_COMMIT: ${{ github.sha }}
+        run: npx tsx scripts/mg-update-vercel-env.ts
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### MG snapshot" >> "$GITHUB_STEP_SUMMARY"
+          echo "- snapshot: \`${{ steps.build.outputs.snapshot_id }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- app commit: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"

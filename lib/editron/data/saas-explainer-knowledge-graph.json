@@ -2063,7 +2063,8 @@
           "text_driven_cuts_and_card_sets",
           "ambient_demo"
         ],
-        "tolerance": "on_beat_to_2_frames_early"
+        "tolerance": "on_beat_to_2_frames_early",
+        "enforcement": "prompt"
       }
     }
   },

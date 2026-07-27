@@ -1,10 +1,13 @@
 import type { MomentWeightMap } from './moment-weight-service';
 import type {
   EventSignal,
-  RawFootageAnalysis,
+  RawFootageAnalysis as SignalRawFootageAnalysis,
   SignalSnapshot,
   SignalTimeline,
 } from './signal-registry';
+import type { RawFootageAnalysis as ProcessedRawFootageAnalysis } from './raw-footage-processor';
+
+type RawFootageAnalysis = SignalRawFootageAnalysis | ProcessedRawFootageAnalysis;
 
 export interface EditedTimelineClip {
   from: number;
@@ -46,6 +49,7 @@ export interface EditedTimelineContext {
     hasSourceMapping: boolean;
     isCanonicalDecisionTimeline: boolean;
     requiresSourceMapping: boolean;
+    sourceAlreadyCanonical?: boolean;
     inputClipCount: number;
     mappedClipCount: number;
     missingSourceMappingCount: number;
@@ -66,9 +70,11 @@ export interface BuildEditedTimelineContextOptions {
 export function buildEditedTimelineContext(options: BuildEditedTimelineContextOptions): EditedTimelineContext {
   const fps = normalizeFps(options.fps);
   const clipExtraction = extractSourceClips(options.overlays);
-  const sourceClips = clipExtraction.sourceClips;
+  const sourceAlreadyCanonical = (options.rawFootage as RawFootageAnalysis & { timelineCoordinateSpace?: string }).timelineCoordinateSpace
+    === 'canonical-edited-v1';
+  const sourceClips = sourceAlreadyCanonical ? [] : clipExtraction.sourceClips;
   const hasSourceMapping = sourceClips.length > 0;
-  const requiresSourceMapping = clipExtraction.inputClipCount > 1;
+  const requiresSourceMapping = sourceAlreadyCanonical ? false : clipExtraction.inputClipCount > 1;
   const isCanonicalDecisionTimeline = !requiresSourceMapping || hasSourceMapping;
   const durationFrames = resolveDurationFrames(options.projectDurationFrames, options.rawFootage, sourceClips, fps);
   const rawWords = extractRawWords(options.rawFootage);
@@ -83,7 +89,7 @@ export function buildEditedTimelineContext(options: BuildEditedTimelineContextOp
       }));
 
   const durationMs = framesToMs(durationFrames, fps);
-  const editedRawFootage = buildEditedRawFootage(options.rawFootage, transcription, durationMs);
+  const editedRawFootage = sourceAlreadyCanonical ? options.rawFootage : buildEditedRawFootage(options.rawFootage, transcription, durationMs);
 
   return {
     version: 'edited-timeline-context-v1',
@@ -98,6 +104,7 @@ export function buildEditedTimelineContext(options: BuildEditedTimelineContextOp
       hasSourceMapping,
       isCanonicalDecisionTimeline,
       requiresSourceMapping,
+      sourceAlreadyCanonical,
       inputClipCount: clipExtraction.inputClipCount,
       mappedClipCount: clipExtraction.mappedClipCount,
       missingSourceMappingCount: clipExtraction.missingSourceMappingCount,

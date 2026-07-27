@@ -675,6 +675,41 @@ export class ProjectService {
   }
 
   /**
+   * Replace a complete overlay family and related project evidence in one
+   * compare-and-swap write. A concurrent editor save wins; callers must retry
+   * from fresh project state instead of overwriting it.
+   */
+  async replaceOverlayFamilyAtomic(
+    userId: string,
+    projectId: string,
+    input: {
+      expectedUpdatedAt: Date;
+      overlays: Overlay[];
+      projectUpdates?: Record<string, any>;
+    },
+  ): Promise<boolean> {
+    if (!(input.expectedUpdatedAt instanceof Date) || Number.isNaN(input.expectedUpdatedAt.getTime())) {
+      throw new Error('replaceOverlayFamilyAtomic requires a valid project revision timestamp');
+    }
+    const cleanOverlays = stampPersistedOverlays(
+      assetResolver.stripUrlsForLLM(input.overlays),
+      'project-service-replace-overlay-family',
+    );
+    const db = await getDatabase();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      { projectId, userId, updatedAt: input.expectedUpdatedAt },
+      {
+        $set: {
+          ...(input.projectUpdates ?? {}),
+          overlays: cleanOverlays,
+          updatedAt: new Date(),
+        },
+      },
+    );
+    return result.matchedCount === 1;
+  }
+
+  /**
    * Update project-level fields atomically (e.g., durationInFrames)
    */
   async updateProject(userId: string, projectId: string, updates: Record<string, any>): Promise<void> {

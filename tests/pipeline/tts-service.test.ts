@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -75,6 +76,26 @@ describe("generateVoiceover", () => {
     });
 
     expect(result.audioAssetId).toMatch(/^voiceover_/);
+    expect(result.audioRights).toEqual({
+      mediaRole: "voiceover",
+      source: "generated",
+      userChoice: "attested",
+      licensed: true,
+      evidence: {
+        kind: "generated-provider",
+        sourceAssetId: result.audioAssetId,
+        licenseId: "deepgram:aura-asteria-en:service-output-terms",
+      },
+    });
+    expect(result.generatedAudioReceipt).toEqual({
+      version: "editron-generated-audio-receipt-v1",
+      provider: "deepgram",
+      model: "aura-asteria-en",
+      licenseId: "deepgram:aura-asteria-en:service-output-terms",
+      assetId: result.audioAssetId,
+      mediaRole: "voiceover",
+      generatedAt: expect.any(String),
+    });
     expect(mocks.uploadMedia).toHaveBeenCalledWith(
       expect.any(Buffer),
       "user_1",
@@ -91,17 +112,47 @@ describe("generateVoiceover", () => {
           r2Key: null,
           durationMs: result.durationMs,
           audioDurationMs: result.durationMs,
+          source: "generated",
+          audioRights: result.audioRights,
+          generatedAudioReceipt: result.generatedAudioReceipt,
         }),
         $setOnInsert: expect.objectContaining({
           assetId: result.audioAssetId,
           userId: "user_1",
           type: "audio",
           filename: `${result.audioAssetId}.wav`,
-          source: "user-upload",
           contentType: "audio/wav",
         }),
       }),
       { upsert: true },
+    );
+  });
+
+  it("carries generated narration provenance through storyboard storage and finalize", () => {
+    const voiceoverRoute = readFileSync(
+      new URL(
+        "../../app/api/services/pipeline/storyboard/[id]/voiceover/route.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const finalizeRoute = readFileSync(
+      new URL(
+        "../../app/api/services/pipeline/storyboard/[id]/finalize/route.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    expect(voiceoverRoute).toContain("audioRights: result.audioRights");
+    expect(voiceoverRoute).toContain(
+      "generatedAudioReceipt: result.generatedAudioReceipt",
+    );
+    expect(finalizeRoute).toContain(
+      "audioRights: scene.voiceover.audioRights",
+    );
+    expect(finalizeRoute).toContain(
+      "generatedAudioReceipt: scene.voiceover.generatedAudioReceipt",
     );
   });
 });

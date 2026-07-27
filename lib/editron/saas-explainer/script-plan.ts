@@ -1,0 +1,488 @@
+/**
+ * SaaS Explainer — SCRIPT PLAN spine for the PREMIUM (craft-agent) path.
+ *
+ * The existing generator (`createSaasExplainerProject`) runs seven build steps — brand context → evidence pack →
+ * director contract → script draft → parse into scenes → ensure-min → THEN creates a full draft Editron project
+ * (overlays + old TTS + persistence). The premium path wants ONLY the first steps: an editable script + the
+ * director contract + the evidence pack, mapped into the craft worker's `plan.json` / `product-model.json` shape.
+ * It never creates a draft project — the user finalizes into a bespoke Lambda render instead.
+ *
+ * This is a SEPARATE spine (not a refactor of the 926-line generator) so the live draft path is untouched. It
+ * reuses the generator's exported building blocks (resolve brand context, build evidence pack, build director
+ * contract, ScriptDraftAgent, parseScriptWithLLM, normalizeScenes, ensureMinimumSaasExplainerScenes) — no logic
+ * is re-implemented; only the ORCHESTRATION front-half is expressed here without the project-creation tail.
+ *
+ * Plan is built SCENE-DRIVEN (one plan scene per storyboard scene, `vo` = the scene's narration) so every
+ * rendered scene is guaranteed real spoken narration. The director contract supplies only the `form` vibe hint
+ * per scene (aligned by index), never a constraint — the uncaged craft agent designs bespoke.
+ */
+import type { SceneDescriptor } from "@/lib/pipeline/schemas/storyboard";
+import { isLLMParserAvailable, parseScriptWithLLM } from "@/lib/pipeline/llm-scene-parser";
+import { ScriptDraftAgent } from "@/lib/thinkforge/agents/script-draft-agent";
+import {
+  buildSaasExplainerAuthorPrompt,
+  buildSaasExplainerProjectSummary,
+  type NormalizedSaasExplainerIntake,
+} from "@/lib/editron/saas-explainer/intake";
+import { resolveSaasExplainerBrandContext } from "@/lib/editron/saas-explainer/brand-context";
+import {
+  buildSaasProductEvidencePack,
+  formatSaasProductEvidencePromptBlock,
+  type SaasProductEvidencePack,
+} from "@/lib/editron/saas-explainer/product-evidence-pack";
+import {
+  buildSaasDirectorContract,
+  formatSaasDirectorPromptBlock,
+  type SaasDirectorContract,
+  type SaasDirectorSceneBeat,
+} from "@/lib/editron/saas-explainer/director-contract";
+import { resolveSaasStructureStyleBrief } from "@/lib/editron/saas-explainer/structure-doctrine";
+import {
+  ensureMinimumSaasExplainerScenes,
+  normalizeScenes,
+  SaasExplainerGenerationError,
+} from "@/lib/editron/saas-explainer/scene-helpers";
+import {
+  assignAudioTreatments,
+  type AudioSceneInput,
+  type AudioTreatment,
+} from "@/lib/editron/saas-explainer/audio-treatment";
+import {
+  writeFlowingVoScript,
+  voLinesToStoryboard,
+  type VoScriptBeat,
+} from "@/lib/editron/saas-explainer/vo-script";
+import {
+  evidencePackToProductModel,
+  type ExplainerPlan,
+  type ExplainerPlanScene,
+  type ExplainerProductModel,
+} from "@/lib/editron/saas-explainer/director-to-plan";
+
+/** Premium-path fps (the craft worker's default; prep-audio re-fits per-scene duration to the VO at render). */
+const PLAN_FPS = 60;
+
+/** One editable script beat the front-end shows on the "script" screen. */
+export interface ScriptPlanScene {
+  index: number;
+  title: string;
+  /** The spoken VO line — this is what the user edits/regenerates. */
+  narration: string;
+  durationSec: number;
+  /** Loose vibe hint (archetype/family) from the aligned director beat. */
+  form: string;
+  /** Audio treatment decided by the audio-treatment resolver: `vo` = spoken; `music_beat` = deliberate voice-silent hold
+   *  (music + on-screen text carry it). `music_beat` scenes intentionally carry an empty `narration`. Optional so
+   *  older/edited scenes without it default to spoken. */
+  audioTreatment?: AudioTreatment;
+  /** Optional user visual-edit directive ("make it bolder", "redo the layout") — the Claude craft agent honors it. */
+  editDirective?: string;
+}
+
+export interface SaasExplainerScriptPlan {
+  /** Editable, human-facing script beats (the "select / change / regenerate the script" surface). */
+  scenes: ScriptPlanScene[];
+  /** Craft-worker `plan.json` (vo already filled from narration). Re-derivable from edited scenes via rebuildPlan(). */
+  plan: ExplainerPlan;
+  /** Craft-worker `product-model.json`. */
+  productModel: ExplainerProductModel;
+  /** Underlying contracts, returned so the client can round-trip them back to /finalize. */
+  directorContract: SaasDirectorContract;
+  productEvidencePack: SaasProductEvidencePack;
+  message: string;
+  warnings: string[];
+}
+
+export interface BuildSaasExplainerScriptPlanInput {
+  userId: string;
+  orgId?: string | null;
+  input: NormalizedSaasExplainerIntake;
+  productUrl?: string;
+  extraProductImageUrls?: string[];
+  /** Extracted text from an uploaded doc/PDF (a new-product spec, brief, one-pager). Understood by the script
+   *  agent as the video's TOPIC/source material — NOT quoted verbatim. Brand still supplies style/voice. */
+  sourceMaterial?: string;
+}
+
+/** Cap source material fed to the script agent (well above a one-pager, below prompt-bloat). */
+const MAX_SOURCE_MATERIAL = 8_000;
+
+/**
+ * Produce the editable script + craft-worker plan/model from an intake — WITHOUT creating a draft project.
+ * Mirrors the generator's front-half orchestration; reuses its exported building blocks.
+ */
+export async function buildSaasExplainerScriptPlan(
+  args: BuildSaasExplainerScriptPlanInput,
+): Promise<SaasExplainerScriptPlan> {
+  const { userId, orgId, input, productUrl } = args;
+  if (!isLLMParserAvailable()) {
+    throw new SaasExplainerGenerationError(
+      503,
+      "scene_parser_unavailable",
+      "SaaS explainer scripting requires the scene parser model to be configured.",
+    );
+  }
+
+  const brandContext = await resolveSaasExplainerBrandContext({ userId, orgId, brandId: input.brandId });
+  const generationInput = applyBrandDefaults(input, brandContext);
+  const brandContextPrompt = brandContext.promptBlock || undefined;
+
+  const productEvidencePack = buildSaasProductEvidencePack({
+    input: generationInput,
+    originalInput: input,
+    productUrl,
+    brandContext,
+  });
+  const productEvidencePrompt = formatSaasProductEvidencePromptBlock(productEvidencePack);
+
+  // Premium path has no reference-video analysis step (that LLM pass belongs to the draft generator). Fall back to
+  // the structure doctrine's default style brief — the same default the generator resolves when no reference exists.
+  const effectiveStyleBrief = resolveSaasStructureStyleBrief(undefined);
+  const directorContract = buildSaasDirectorContract({
+    input: generationInput,
+    productEvidencePack,
+    referenceStyleBrief: effectiveStyleBrief,
+    referenceProvided: false,
+  });
+  const directorPrompt = formatSaasDirectorPromptBlock(directorContract);
+
+  const sourceSessionId = `saas_plan_${crypto.randomUUID()}`;
+  const baseProjectSummary = buildSaasExplainerProjectSummary(generationInput, productUrl);
+  const projectSummary = [baseProjectSummary, brandContextPrompt, productEvidencePrompt, directorPrompt]
+    .filter(Boolean)
+    .join("\n\n");
+  const systemBrief = [
+    "Author a production SaaS explainer; keep product UI proof readable and avoid unverifiable claims.",
+    brandContextPrompt,
+    productEvidencePrompt,
+    directorPrompt,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  // User-provided source material (uploaded doc/PDF about the product/topic) — the video is ABOUT this, in the
+  // brand's voice. Understand it; do NOT copy it verbatim (it may be a spec/one-pager, not a script).
+  const sourceMaterial = (args.sourceMaterial ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_SOURCE_MATERIAL);
+
+  // Two strategies for turning the director's beat sequence into a narrated storyboard:
+  //   scenes-first (default): author a full draft, then re-parse it into scenes (the proven path).
+  //   narration-led (Part A, flag-gated + EVAL-GATED per Rule 35): author ONE flowing VO across the beats. It falls
+  //   back to scenes-first on any failure, so flipping the flag can never 500 the route.
+  const scenesFirst = () =>
+    buildScenesFirstStoryboard({
+      generationInput,
+      productUrl,
+      userId,
+      sourceMaterial,
+      projectSummary,
+      systemBrief,
+      productEvidencePrompt,
+      directorPrompt,
+      sourceSessionId,
+    });
+  const storyboard =
+    process.env.SAAS_EXPLAINER_NARRATION_LED === "1"
+      ? await buildNarrationLedStoryboard({
+          directorContract,
+          generationInput,
+          brandContextPrompt,
+          productEvidencePrompt,
+          sourceMaterial,
+          fallback: scenesFirst,
+        })
+      : await scenesFirst();
+
+  const message =
+    generationInput.outcome ||
+    baseProjectSummary ||
+    `${generationInput.productName || "Your product"} — a clear SaaS explainer.`;
+
+  // Audio treatment: decide per scene whether it is spoken or a deliberate voice-silent beat (music + on-screen
+  // text). This replaces "force VO everywhere" AND "accidentally silent" — silence is now a ruled choice.
+  const audioInputs: AudioSceneInput[] = storyboard.map((scene, order) => ({
+    index: order,
+    family: resolveDirectorBeat(directorContract, scene, order)?.family ?? "hook",
+    hasAuthoredVo: resolveSceneNarration(scene).source === "authored",
+    durationSec: sceneDurationSec(scene, directorContract, generationInput),
+  }));
+  const treatments = assignAudioTreatments(audioInputs);
+
+  const scriptScenes = storyboard.map((scene, order) =>
+    toScriptPlanScene(scene, order, directorContract, generationInput, treatments[order].treatment),
+  );
+  const plan = scriptScenesToPlan(scriptScenes, message);
+  const productModel = evidencePackToProductModel(productEvidencePack, args.extraProductImageUrls ?? []);
+
+  // Warnings: only a SPOKEN scene that ended up without words is a real problem. `music_beat` scenes are
+  // intentionally silent (an info line keeps the empty-VO boxes on the script screen from reading as broken).
+  const backfilledFromOnScreen = storyboard.filter(
+    (scene, order) =>
+      treatments[order].treatment === "vo" && resolveSceneNarration(scene).source === "onscreen_text",
+  ).length;
+  const spokenButEmpty = storyboard
+    .map((scene, order) =>
+      treatments[order].treatment === "vo" && resolveSceneNarration(scene).source === "empty" ? order + 1 : null,
+    )
+    .filter((v): v is number => v !== null);
+  const musicBeats = treatments.filter((t) => t.treatment === "music_beat").length;
+
+  const warnings = [
+    ...(brandContext.metadata.acceptedProfile
+      ? []
+      : ["Brand Vault context is missing or not accepted; scripting continued with reduced brand context."]),
+    ...productEvidencePack.degradations
+      .filter((d) => d.severity !== "info")
+      .map((d) => `SaaS product evidence: ${d.message}`),
+    ...directorContract.evidenceAudit.degradations
+      .filter((d) => d.severity !== "info")
+      .map((d) => `SaaS director: ${d.message}`),
+    ...(backfilledFromOnScreen > 0
+      ? [`${backfilledFromOnScreen} narrated scene(s) had no written voiceover; used their on-screen text — review on the script screen.`]
+      : []),
+    ...(spokenButEmpty.length > 0
+      ? [`Scene(s) ${spokenButEmpty.join(", ")} are meant to be spoken but have no line yet — add one or they render silent.`]
+      : []),
+    ...(musicBeats > 0
+      ? [`${musicBeats} scene(s) are music beats (music + visuals, no voiceover by design).`]
+      : []),
+  ];
+
+  return { scenes: scriptScenes, plan, productModel, directorContract, productEvidencePack, message, warnings };
+}
+
+/** Scenes-first (proven default): author a full draft, then re-parse it into scenes. */
+async function buildScenesFirstStoryboard(args: {
+  generationInput: NormalizedSaasExplainerIntake;
+  productUrl?: string;
+  userId: string;
+  sourceMaterial: string;
+  projectSummary: string;
+  systemBrief: string;
+  productEvidencePrompt: string;
+  directorPrompt: string;
+  sourceSessionId: string;
+}): Promise<SceneDescriptor[]> {
+  const { generationInput, productUrl, userId, sourceMaterial, projectSummary, systemBrief, productEvidencePrompt, directorPrompt, sourceSessionId } = args;
+  const sourceMaterialBlock = sourceMaterial
+    ? `SOURCE MATERIAL the user provided about the product/topic this video is about. Base the script's SUBSTANCE on ` +
+      `this (it may describe a new product). Understand and synthesize it into clear spoken narration in the brand's ` +
+      `voice — do NOT quote it verbatim, do NOT invent facts beyond it:\n"""\n${sourceMaterial}\n"""`
+    : "";
+
+  const draft = await new ScriptDraftAgent({ maxTokens: 2600 }).generateScript({
+    userPrompt: [
+      buildSaasExplainerAuthorPrompt(generationInput, productUrl),
+      sourceMaterialBlock,
+      productEvidencePrompt,
+      directorPrompt,
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    sessionId: sourceSessionId,
+    brandId: generationInput.brandId,
+    generationMode: "manual",
+    project: {
+      idea: "SaaS explainer video",
+      purpose: generationInput.outcome || "Create a clear SaaS explainer video.",
+      style: "clear product-led SaaS demo",
+      format: "video_script",
+      platform: platformForAspectRatio(generationInput.aspectRatio),
+      projectName: projectNameFor(generationInput, productUrl),
+      originalPrompt: generationInput.outcome || generationInput.script || "SaaS explainer",
+      brandId: generationInput.brandId,
+    },
+    context: { projectSummary, systemBrief },
+  });
+
+  const parsed = await parseScriptWithLLM(draft.content, {
+    aspectRatio: generationInput.aspectRatio,
+    artStyle: "SaaS product demo with readable UI proof moments",
+    brandId: generationInput.brandId,
+    userId,
+  });
+  const parsedScenes = normalizeScenes(parsed.scenes);
+  if (parsedScenes.length === 0) {
+    throw new SaasExplainerGenerationError(
+      422,
+      "no_scenes_generated",
+      "The generated script did not produce valid scenes.",
+    );
+  }
+  return ensureMinimumSaasExplainerScenes(parsedScenes, generationInput);
+}
+
+/**
+ * Narration-led (Part A, flag-gated + EVAL-GATED per Rule 35): author ONE flowing VO across the director's beats,
+ * then hang scenes on it. Falls back to scenes-first on ANY failure so flipping the flag can never break the route.
+ */
+async function buildNarrationLedStoryboard(args: {
+  directorContract: SaasDirectorContract;
+  generationInput: NormalizedSaasExplainerIntake;
+  brandContextPrompt?: string;
+  productEvidencePrompt: string;
+  sourceMaterial: string;
+  fallback: () => Promise<SceneDescriptor[]>;
+}): Promise<SceneDescriptor[]> {
+  const { directorContract, generationInput, brandContextPrompt, productEvidencePrompt, sourceMaterial, fallback } = args;
+  try {
+    const voBeats: VoScriptBeat[] = directorContract.sequence.map((beat) => ({
+      index: beat.index,
+      family: beat.family,
+      copyRole: beat.copyRole,
+      directorNotes: beat.directorNotes,
+      durationSec: beat.durationSec,
+    }));
+    const { lines } = await writeFlowingVoScript({
+      beats: voBeats,
+      totalDurationSec: generationInput.durationSec,
+      brandContextPrompt,
+      productEvidencePrompt,
+      sourceMaterial: sourceMaterial || undefined,
+    });
+    const storyboard = ensureMinimumSaasExplainerScenes(voLinesToStoryboard(voBeats, lines), generationInput);
+    if (storyboard.length === 0) throw new Error("narration-led produced no scenes");
+    return storyboard;
+  } catch (e) {
+    console.warn("[saas-explainer] narration-led VO failed; falling back to scenes-first:", e);
+    return fallback();
+  }
+}
+
+/**
+ * Rebuild the craft-worker plan from (possibly edited) script scenes — the /finalize route calls this after the
+ * user edits narration on the script screen, so the render uses exactly what they approved.
+ */
+export function scriptScenesToPlan(scenes: ScriptPlanScene[], message: string): ExplainerPlan {
+  const planScenes: ExplainerPlanScene[] = scenes.map((s) => {
+    // Effective treatment reflects reality: if a line is present (author or user-typed), the scene is spoken
+    // regardless of the original decision; only a genuinely wordless scene stays a `music_beat`.
+    const effectiveTreatment: AudioTreatment = s.narration.trim() ? "vo" : s.audioTreatment ?? "vo";
+    return {
+      form: s.form,
+      durationInFrames: Math.max(1, Math.round(s.durationSec * PLAN_FPS)),
+      vo: s.narration,
+      props: {
+        index: s.index,
+        copyRole: s.form,
+        audioTreatment: effectiveTreatment,
+        // user visual-edit directive flows into the craft brief so Claude re-designs this scene honoring it.
+        ...(s.editDirective && s.editDirective.trim() ? { editDirective: s.editDirective.trim() } : {}),
+      },
+    };
+  });
+  return {
+    fps: PLAN_FPS,
+    transitionFrames: Math.round(PLAN_FPS * 0.37),
+    message,
+    scenes: planScenes,
+  };
+}
+
+/** Estimated (pre VO-fit) scene duration in seconds — the scene's own value, else an even split of the target. */
+function sceneDurationSec(
+  scene: SceneDescriptor,
+  contract: SaasDirectorContract,
+  input: NormalizedSaasExplainerIntake,
+): number {
+  const sceneCount = Math.max(1, contract.sequence.length);
+  const fallbackDuration = Math.max(3, Math.round(input.durationSec / sceneCount));
+  return typeof scene.durationSeconds === "number" && scene.durationSeconds > 0
+    ? scene.durationSeconds
+    : fallbackDuration;
+}
+
+function toScriptPlanScene(
+  scene: SceneDescriptor,
+  order: number,
+  contract: SaasDirectorContract,
+  input: NormalizedSaasExplainerIntake,
+  treatment: AudioTreatment,
+): ScriptPlanScene {
+  const beat = resolveDirectorBeat(contract, scene, order);
+  const form = beat ? `${beat.visualArchetype}/${beat.family}` : "TYPE_ONLY/hook";
+  // A `music_beat` is deliberately voice-silent — leave narration empty. A `vo` scene must end up with words,
+  // so fall back to the scene's own on-screen text if the author left the spoken line blank.
+  const narration = treatment === "music_beat" ? "" : resolveSceneNarration(scene).narration;
+  return {
+    index: order,
+    title: cleanLine(scene.title || `Scene ${order + 1}`, 72),
+    narration,
+    durationSec: sceneDurationSec(scene, contract, input),
+    form,
+    audioTreatment: treatment,
+  };
+}
+
+/**
+ * Guarantee a spoken VO line for a scene. The premium plan is scene-driven (vo = narration), so a scene with
+ * empty narration renders SILENT — wrong for a voiceover explainer. The author prompt mandates a VO line per
+ * scene; this is the deterministic safety net for the rare slip (the shared author agent can still pick a
+ * "Text Overlay" / silent scene): fall back to the scene's OWN on-screen text — real authored copy, spoken
+ * aloud. Never fabricate a claim: if there is neither narration nor on-screen text, leave it empty and let the
+ * caller surface a warning (the user edits VO directly on the script screen).
+ */
+export function resolveSceneNarration(
+  scene: SceneDescriptor,
+): { narration: string; source: "authored" | "onscreen_text" | "empty" } {
+  const authored = cleanLine(scene.narration || "", 320);
+  if (authored) return { narration: authored, source: "authored" };
+
+  const onScreen = (scene.editDirections?.onScreenText ?? [])
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(". ");
+  const fromOnScreen = cleanLine(onScreen, 320);
+  if (fromOnScreen) return { narration: fromOnScreen, source: "onscreen_text" };
+
+  return { narration: "", source: "empty" };
+}
+
+function resolveDirectorBeat(
+  contract: SaasDirectorContract,
+  scene: SceneDescriptor,
+  order: number,
+): SaasDirectorSceneBeat | undefined {
+  return contract.sequence.find((beat) => beat.index === scene.sceneIndex) ?? contract.sequence[order];
+}
+
+// --- helpers mirrored from generator.ts (pure; kept local so the live draft path is untouched) ---
+
+function applyBrandDefaults(
+  input: NormalizedSaasExplainerIntake,
+  brandContext: Awaited<ReturnType<typeof resolveSaasExplainerBrandContext>>,
+): NormalizedSaasExplainerIntake {
+  const brief = brandContext.defaults.brief;
+  return {
+    ...input,
+    productName: input.productName || brief.productName,
+    audience: input.audience || brief.audience.join(", ") || undefined,
+    outcome: input.outcome || brief.outcomeHint,
+  };
+}
+
+function projectNameFor(input: NormalizedSaasExplainerIntake, productUrl?: string): string {
+  if (input.productName) return `${input.productName} SaaS Explainer`;
+  if (productUrl) {
+    try {
+      return `${new URL(productUrl).hostname.replace(/^www\./, "")} SaaS Explainer`;
+    } catch {
+      return "SaaS Explainer";
+    }
+  }
+  return "SaaS Explainer";
+}
+
+function platformForAspectRatio(aspectRatio: NormalizedSaasExplainerIntake["aspectRatio"]): string {
+  if (aspectRatio === "9:16") return "short-form video";
+  if (aspectRatio === "1:1") return "square social video";
+  return "website and product demo video";
+}
+
+function cleanLine(value: string, maxLength: number): string {
+  const cleaned = value
+    .replace(/^\s*(visual|voiceover|vo|narration|audio|camera|motion)\s*:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (cleaned.length <= maxLength) return cleaned;
+  return `${cleaned.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}

@@ -161,6 +161,15 @@ export function buildSaasExplainerAuthorPrompt(
   return [
     buildSaasExplainerProjectSummary(input, productUrl, referenceLabel, referenceStyleEvidence),
     "Write a complete SaaS explainer script with scene-by-scene structure, narration, and concrete visual direction.",
+    // Voiceover is the BACKBONE of this explainer (each scene renders its narration as the VO), but silence is a
+    // deliberate craft choice, not a default — pros narrate ~3/4 of an explainer and drop to voice-silent beats
+    // only when motivated. Guidance below encodes that; the real fix (a Director-assigned per-scene audio
+    // treatment) is the next redesign. Interim rule = coverage + motivated-silence, NOT "every scene must speak".
+    "Voiceover is the backbone: MOST scenes are narrated and the VO should read as one continuous through-line " +
+      "(write a **VO:** line for each narrated scene). A scene may be voice-silent (music + on-screen text carry " +
+      "it) ONLY as a deliberate, short contrast beat — a brief UI-proof hold or a tagline punch — never for " +
+      "explanatory content, and never two silent scenes in a row. The CTA is always narrated. Aim for spoken " +
+      "voiceover across roughly three-quarters of the runtime; on-screen text is additive, not a VO replacement.",
     "Prefer real product-demo beats, UI callouts, problem-to-solution flow, proof moments, and a concise CTA.",
     "Do not invent unverifiable metrics, customer names, integrations, or claims.",
     input.script ? `User-provided source script/copy:\n${input.script}` : null,

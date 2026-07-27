@@ -29,6 +29,8 @@ import {
   type ProviderCostEventStatus,
 } from '@/lib/financials/provider-cost-events';
 import type { ProviderCostBasis, ProviderCostUnits } from '@/lib/financials/provider-cost-estimates';
+import type { TranscriptionData } from '@/lib/editron/services/media/types';
+import { buildAssetDeepAnalysisTimeline } from '@/lib/editron/services/asset-deep-analysis';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -47,10 +49,11 @@ interface AssetAnalysisPayload {
 
 async function handler(request: NextRequest) {
   console.log('[AssetAnalysis] Worker started');
+  let payload: AssetAnalysisPayload | null = null;
 
   try {
-    const payload: AssetAnalysisPayload = await request.json();
-    const { assetId, userId, type, url, duration, filename } = payload;
+    payload = await request.json() as AssetAnalysisPayload;
+    const { assetId, userId, type, url, duration, filename } = payload as AssetAnalysisPayload;
 
     if (!assetId || !userId || !url) {
       console.error('[AssetAnalysis] Missing required fields');
@@ -79,7 +82,73 @@ async function handler(request: NextRequest) {
       });
     }
 
-    const tags: string[] = [];
+    const mediaAsset = type === 'video'
+      ? await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne(
+        { assetId, userId },
+        {
+          projection: {
+            transcription: 1,
+            batchTranscriptionStatus: 1,
+            batchTranscriptionSkipReason: 1,
+          },
+        },
+      ) as {
+        transcription?: TranscriptionData | null;
+        batchTranscriptionStatus?: string | null;
+        batchTranscriptionSkipReason?: string | null;
+      } | null
+      : null;
+    const transcriptionCandidate = mediaAsset?.transcription ?? null;
+    const transcription = transcriptionCandidate
+      && Array.isArray(transcriptionCandidate.words)
+      && typeof transcriptionCandidate.language === 'string'
+      ? transcriptionCandidate
+      : null;
+    const visualOnlyReason = typeof mediaAsset?.batchTranscriptionSkipReason === 'string'
+      ? mediaAsset.batchTranscriptionSkipReason.trim() || null
+      : null;
+    if (type === 'video' && !transcription && (
+      mediaAsset?.batchTranscriptionStatus !== 'complete'
+      || !visualOnlyReason
+    )) {
+      throw new Error(`Transcription stage incomplete for video asset ${assetId}`);
+    }
+
+    const analysisInputMode = type !== 'video'
+      ? 'not-applicable' as const
+      : transcription
+        ? 'speech-and-visual' as const
+        : 'visual-only' as const;
+    const durationMs = Math.round((duration || 0) * 1000);
+    if (type === 'video') {
+      let speechSegments: Array<{ startMs: number; endMs: number; text: string }> = [];
+      if (transcription) {
+        const transcriptTimeline = buildAssetDeepAnalysisTimeline({
+          videoUrl: url,
+          durationMs,
+          sourceAnalysis: { durationMs, transcription },
+        });
+        speechSegments = (transcriptTimeline.rawFootageAnalysis.segments ?? [])
+          .filter((segment) => segment.text.trim().length > 0)
+          .map((segment) => ({ startMs: segment.startMs, endMs: segment.endMs, text: segment.text }));
+      }
+      await db.collection('asset_analyses').updateOne(
+        { assetId, userId },
+        {
+          $set: {
+            durationMs,
+            analysisInputMode,
+            transcriptionSkipReason: visualOnlyReason,
+            status: 'complete',
+            ...(transcription ? { transcription, speechSegments } : {}),
+          },
+          ...(transcription ? {} : { $unset: { transcription: '', speechSegments: '' } }),
+        },
+        { upsert: true },
+      );
+    }
+
+    const tags: string[] = analysisInputMode === 'visual-only' ? ['video', 'visual-only'] : [];
     let embedding: number[] | null = null;
 
     // ─── Video Analysis (full 5-Track) ──────────────────────────
@@ -94,7 +163,10 @@ async function handler(request: NextRequest) {
 
           analysis = await runFullAnalysis(assetId, userId, {
             videoUrl: url,
+            audioUrl: url,
             durationMs,
+            transcript: transcription?.transcript,
+            words: transcription?.words,
             sourceType: 'real-footage',
           });
         } else {
@@ -312,9 +384,25 @@ Return JSON only:
     }
 
     // ─── Update MediaAsset with tags + embedding + status ───────
+    const qstashToken = process.env.QSTASH_TOKEN;
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+    const shouldQueueDeepAnalysis = type === 'video' && Boolean(qstashToken);
+
     const updateDoc: any = {
-      analysisStatus: 'complete',
-      analysisCompletedAt: new Date(),
+      analysisStatus: shouldQueueDeepAnalysis ? 'analyzing' : 'complete',
+      ...(type === 'video' ? {
+        analysisInputMode,
+        ...(analysisInputMode === 'visual-only' ? { visualOnlyReason } : {}),
+      } : {}),
+
+      ...(shouldQueueDeepAnalysis
+        ? { deepAnalysisStatus: 'queued', deepAnalysisQueuedAt: new Date() }
+        : type === 'video'
+          ? { deepAnalysisStatus: 'skipped_no_qstash' }
+          : {}),
+      ...(!shouldQueueDeepAnalysis && { analysisCompletedAt: new Date() }),
       tags: [...new Set(tags)].slice(0, 30), // Dedupe, cap at 30 tags
     };
     if (embedding) {
@@ -325,19 +413,40 @@ Return JSON only:
 
     await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
       { assetId, userId },
-      { $set: updateDoc },
+      {
+        $set: updateDoc,
+        ...(type === 'video' && analysisInputMode !== 'visual-only' ? { $unset: { visualOnlyReason: '' } } : {}),
+      },
     );
 
-    console.log(`[AssetAnalysis] ${assetId}: complete. ${tags.length} tags, embedding: ${!!embedding}`);
+    let deepAnalysisQueued = false;
+    if (shouldQueueDeepAnalysis && qstashToken) {
+      const deepAnalysisRes = await fetch(
+        `${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/asset-deep-analysis`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${qstashToken}`,
+            'Content-Type': 'application/json',
+            'Upstash-Retries': '2',
+            'Upstash-Timeout': '300s',
+          },
+          body: JSON.stringify({ assetId, userId, url, duration }),
+        },
+      );
+      if (!deepAnalysisRes.ok) {
+        const body = await deepAnalysisRes.text().catch(() => 'no body');
+        throw new Error(`Deep asset analysis dispatch failed: HTTP ${deepAnalysisRes.status} - ${body}`);
+      }
+      deepAnalysisQueued = true;
+      console.log(`[AssetAnalysis] ${assetId}: base analysis complete; deep multimodal analysis queued`);
+    } else {
+      console.log(`[AssetAnalysis] ${assetId}: complete. ${tags.length} tags, embedding: ${!!embedding}`);
+    }
 
     // ─── Enrich Neo4j Asset node via graph-sync worker ─────────
     if (embedding) {
       try {
-        const qstashToken = process.env.QSTASH_TOKEN;
-        const baseUrl = process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}`
-          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-
         if (qstashToken) {
           const { compressAnalysisToBriefing } = await import('@/lib/editron/services/asset-briefing');
           const analysisDoc = await db.collection('asset_analyses').findOne({ assetId });
@@ -441,20 +550,30 @@ Return JSON only:
     return NextResponse.json({
       success: true,
       assetId,
+      analysisInputMode,
       tags: updateDoc.tags,
       hasEmbedding: !!embedding,
+      deepAnalysisQueued,
     });
   } catch (error: any) {
     console.error('[AssetAnalysis] Worker error:', error);
 
     // Try to mark as failed
     try {
-      const body = await request.clone().json().catch(() => null);
-      if (body?.assetId && body?.userId) {
+      if (payload?.assetId && payload.userId) {
         const db = await getDatabase();
         await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-          { assetId: body.assetId, userId: body.userId },
-          { $set: { analysisStatus: 'failed', analysisError: error.message } },
+          { assetId: payload.assetId, userId: payload.userId },
+          {
+            $set: {
+              analysisStatus: 'failed',
+              analysisError: error.message,
+              ...(payload.type === 'video' && {
+                deepAnalysisStatus: 'failed',
+                deepAnalysisError: error.message,
+              }),
+            },
+          },
         );
       }
     } catch (err: unknown) { console.warn('[AssetAnalysis] best-effort failure mark failed:', err instanceof Error ? err.message : err); }

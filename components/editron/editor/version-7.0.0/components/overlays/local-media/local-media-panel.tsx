@@ -7,6 +7,10 @@ import { useTimeline } from "../../../contexts/timeline-context";
 import { Overlay, OverlayType } from "../../../types";
 import { LocalMediaGallery } from "../../local-media/local-media-gallery";
 import { getMediaDimensionsFromUrl } from "../../../utils/media-upload";
+import {
+  UploadedAudioAssignmentDialog,
+  useUploadedAudioAssignment,
+} from "../sounds/uploaded-audio-assignment-dialog";
 
 /**
  * LocalMediaPanel Component
@@ -23,6 +27,8 @@ export const LocalMediaPanel: React.FC = () => {
   const { findNextAvailablePosition } = useTimelinePositioning();
   const { getAspectRatioDimensions, calculateFitToFrameDimensions } = useAspectRatio();
   const { visibleRows } = useTimeline();
+  const uploadedAudioAssignment = useUploadedAudioAssignment();
+  const { requestAssignment: requestUploadedAudioAssignment } = uploadedAudioAssignment;
 
   /**
    * Add a media file to the timeline
@@ -65,6 +71,22 @@ export const LocalMediaPanel: React.FC = () => {
       visibleRows,
       durationInFrames
     );
+
+    if (file.type === "audio") {
+      requestUploadedAudioAssignment(
+        {
+          assetId: file.assetId,
+          name: file.name,
+        },
+        {
+          from,
+          durationInFrames: file.duration ? Math.round(file.duration * 30) : 200,
+          requestedRow: row,
+          startFromSound: 0,
+        },
+      );
+      return;
+    }
 
     let newOverlay: Overlay;
 
@@ -116,26 +138,6 @@ export const LocalMediaPanel: React.FC = () => {
           },
         },
       };
-    } else if (file.type === "audio") {
-      newOverlay = {
-        left: 0,
-        top: 0,
-        width: 0,
-        height: 0,
-        durationInFrames: file.duration ? Math.round(file.duration * 30) : 200,
-        from,
-        id: Date.now(),
-        rotation: 0,
-        row,
-        isDragging: false,
-        type: OverlayType.SOUND,
-        assetId: file.assetId, // Store assetId for MongoDB
-        content: file.name,
-        src: file.path, // Signed URL for display
-        styles: {
-          volume: 1,
-        },
-      };
     } else {
       return; // Unsupported file type
     }
@@ -145,6 +147,7 @@ export const LocalMediaPanel: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-4 p-4 bg-transparent dark:bg-transparent h-full">
+      <UploadedAudioAssignmentDialog controller={uploadedAudioAssignment} />
       <LocalMediaGallery onSelectMedia={handleAddToTimeline} />
     </div>
   );

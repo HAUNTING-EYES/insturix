@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
  * GET /api/services/thinkforge/chat/threads?sessionId=...
  */
 export async function GET(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -23,7 +23,12 @@ export async function GET(req: Request) {
   }
 
   try {
-    const threads = await db.listChatThreads(sessionId);
+    const session = await db.getSession(sessionId, userId, orgId);
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    const threads = await db.listChatThreads(session._id);
     return NextResponse.json({ threads });
   } catch (error: any) {
     console.error('Error listing chat threads:', error);

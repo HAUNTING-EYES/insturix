@@ -6,6 +6,10 @@ import {
 } from '@/lib/editron/services/canonical-caption-track';
 import type { EditedTimelineContext } from '@/lib/editron/services/edited-timeline-context';
 import { resolveAtomicCaptionPresentation, type AtomicCaptionPresentation } from '@/lib/editron/services/caption-form';
+import {
+  EDITRON_CAPTION_SAFE_BOTTOM_MARGIN,
+  EDITRON_CAPTION_SAFE_TOP_MARGIN,
+} from '@/lib/editron/shared/overlay-safe-zone-contract';
 
 const presentation: AtomicCaptionPresentation = {
   version: 'atomic-caption-form-v1',
@@ -69,6 +73,22 @@ function context(words = ['this', 'is', 'finally', 'canonical', 'captioning']): 
 }
 
 describe('canonical caption track', () => {
+  it('keeps the final caption center inside the shared platform safe zone', () => {
+    const overlays: any[] = [];
+    installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: context(),
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation,
+    });
+
+    const overlay = overlays.find((candidate) => candidate.type === 'caption');
+    expect(overlay).toBeDefined();
+    const centerY = (overlay.top + (overlay.height / 2)) / 1080;
+    expect(centerY).toBeGreaterThanOrEqual(EDITRON_CAPTION_SAFE_TOP_MARGIN);
+    expect(centerY).toBeLessThanOrEqual(1 - EDITRON_CAPTION_SAFE_BOTTOM_MARGIN);
+  });
+
   it('creates one final-timeline caption track from canonical transcript words', () => {
     const overlays: any[] = [
       { id: 10, type: 'video', from: 0, durationInFrames: 90, sourceStartFrame: 300 },
@@ -287,7 +307,8 @@ describe('canonical caption track', () => {
     expect(caption.displayConfig).toMatchObject({ mode: 'phrase', wordsPerGroup: 1, maxWordsPerLine: 4 });
     expect(caption.width).toBe(1120);
     expect(caption.height).toBeLessThanOrEqual(150);
-    expect(caption.top).toBeGreaterThan(800);
+    expect(caption.top).toBeGreaterThan(700);
+    expect((caption.top + (caption.height / 2)) / 1080).toBeLessThanOrEqual(0.8);
     // Signal-resolved: formality 0.7 / energy 0.45 selects the registry `minimal` preset
     // (clean dark pill + blue active-word box) â€” a signal-driven aesthetic, not a fixed band.
     expect(caption.styles).toMatchObject({
@@ -501,7 +522,8 @@ describe('canonical caption track', () => {
 
     expect(result.created).toBe(1);
     const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
-    expect(caption.top).toBeGreaterThan(800);
+    expect(caption.top).toBeGreaterThan(700);
+    expect((caption.top + (caption.height / 2)) / 1080).toBeLessThanOrEqual(0.8);
     expect(caption.metadata.evidence).toMatchObject({
       protectedRegionCount: 0,
       selectedRegion: 'bottom-center',
@@ -595,7 +617,8 @@ describe('canonical caption track', () => {
 
     expect(result.created).toBe(1);
     const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
-    expect(caption.top).toBeGreaterThan(800);
+    expect(caption.top).toBeGreaterThan(700);
+    expect((caption.top + (caption.height / 2)) / 1080).toBeLessThanOrEqual(0.8);
     expect(caption.metadata.evidence).toMatchObject({
       protectedRegionCount: 0,
       sourceTextProtectedRegionCount: 0,
@@ -703,7 +726,8 @@ describe('canonical caption track', () => {
 
     expect(result.created).toBe(1);
     const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
-    expect(caption.top).toBeGreaterThan(800);
+    expect(caption.top).toBeGreaterThan(700);
+    expect((caption.top + (caption.height / 2)) / 1080).toBeLessThanOrEqual(0.8);
     expect(caption.metadata.evidence).toMatchObject({
       protectedRegionCount: 0,
       selectedRegion: 'bottom-center',

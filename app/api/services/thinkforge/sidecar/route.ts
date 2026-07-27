@@ -3,14 +3,13 @@ import { auth } from '@clerk/nextjs/server';
 import { createIngestorAgent } from '@/lib/thinkforge/agents/ingestor-agent';
 import { createArchitectAgent } from '@/lib/thinkforge/agents/architect-agent';
 import { createStylistAgent } from '@/lib/thinkforge/agents/stylist-agent';
-import { createSupervisorAgent, type NullAgentDefinition } from '@/lib/thinkforge/agents/supervisor-agent';
+import { createSupervisorAgent } from '@/lib/thinkforge/agents/supervisor-agent';
 import { createNullAgent } from '@/lib/thinkforge/agents/null-agent';
 import { createScopeDetectorAgent } from '@/lib/thinkforge/agents/scope-detector-agent';
 import { createDiscoveryAgent, type DiscoveryAgentInput } from '@/lib/thinkforge/agents/discovery-agent';
 import { quickAssembleContext, fetchContextSources, formatSystemBrief } from '@/lib/thinkforge/context';
 import * as db from '@/lib/thinkforge/services/db';
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
-import { appendEvent } from '@/lib/thinkforge/services/event-log';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { parseMarkdownToBlocks } from '@/lib/thinkforge/normalization/markdown-parser';
@@ -39,7 +38,7 @@ const SidecarSchema = z.object({
 }).passthrough();
 
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -55,32 +54,73 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid request body', details: parsed.error.issues }, { status: 400 });
   }
-  const { action, sessionId, content, scriptId, specialistRequest, threadId, artifacts: blueprintArtifacts } = parsed.data;
+  const { action, sessionId, content, scriptId, specialistRequest } = parsed.data;
+  const actionContent = content?.trim() ?? '';
+  const specialistInstruction = specialistRequest?.trim() ?? '';
+  if (action === 'initialize_blueprint') {
+    return NextResponse.json({
+      error: 'Blueprint initialization has moved to the chat stream. Use the /api/services/thinkforge/chat endpoint with blueprintArtifacts.',
+      code: 'DEPRECATED_ENDPOINT',
+    }, { status: 410 });
+  }
+  if (action === 'deconstruct' && !actionContent) {
+    return NextResponse.json({ error: 'No content to deconstruct' }, { status: 400 });
+  }
+  if (action === 'storyboard' && !actionContent) {
+    return NextResponse.json({ error: 'No content to storyboard' }, { status: 400 });
+  }
+  if (action === 'summon_specialist' && !specialistInstruction) {
+    return NextResponse.json({ error: 'Missing specialist request' }, { status: 400 });
+  }
+  if (action === 'detect_scope' && !actionContent) {
+    return NextResponse.json({ error: 'No project description to analyze' }, { status: 400 });
+  }
+  if (action === 'discover_blueprint' && !actionContent) {
+    return NextResponse.json({ error: 'No project description' }, { status: 400 });
+  }
 
-  const creditCheck = await checkCredits(userId, 'thinkforge', 'document_creation', { taskId: sessionId });
+  let session: NonNullable<Awaited<ReturnType<typeof db.getSession>>>;
+  let script: Awaited<ReturnType<typeof db.getScript>>;
+  try {
+    const authorizedSession = await db.getSession(sessionId, userId, orgId);
+    if (!authorizedSession) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+    session = authorizedSession;
+    script = await db.getScript(session._id, scriptId || undefined);
+  } catch (error) {
+    console.error('[ThinkForge Sidecar] Session authorization failed:', error);
+    return NextResponse.json({ error: 'Failed to authorize session' }, { status: 500 });
+  }
+
+  const canonicalSessionId = session._id;
+  const scriptContent = script?.content || '';
+  const draftContent = actionContent || scriptContent;
+  if (action === 'refine_voice' && !draftContent.trim()) {
+    return NextResponse.json({ error: 'No draft content to analyze' }, { status: 400 });
+  }
+
+  const creditCheck = await checkCredits(
+    userId,
+    'thinkforge',
+    'document_creation',
+    { taskId: canonicalSessionId },
+  );
   if (!creditCheck.allowed) return creditCheck.errorResponse;
   await creditCheck.deduct();
 
-  const session = await db.getSession(sessionId, userId);
-  if (!session) {
-    return NextResponse.json({ error: 'Session not found' }, { status: 404 });
-  }
-
   try {
-    const script = await db.getScript(sessionId, scriptId || undefined);
-    const scriptContent = script?.content || '';
-
     const [preferences, retrievedCtx] = await Promise.all([
       db.getUserPreferences(userId),
       fetchContextSources({
         userId,
-        projectId: sessionId,
-        sessionId,
+        projectId: canonicalSessionId,
+        sessionId: canonicalSessionId,
         brandId: typeof session.projectMeta?.brandId === 'string'
           ? session.projectMeta.brandId
           : undefined,
         orgId: session.orgId ?? null,
-        currentPrompt: content || '',
+        currentPrompt: actionContent,
         currentScript: scriptContent,
         maxFacts: 5,
         interactionWindowDays: 30,
@@ -101,11 +141,8 @@ export async function POST(req: Request) {
 
     switch (action) {
       case 'deconstruct': {
-        if (!content?.trim()) {
-          return NextResponse.json({ error: 'No content to deconstruct' }, { status: 400 });
-        }
         const agent = createIngestorAgent();
-        const result = await agent.deconstruct({ context, userPrompt: content });
+        const result = await agent.deconstruct({ context, userPrompt: actionContent });
         return NextResponse.json({
           type: 'asset',
           card: {
@@ -129,11 +166,8 @@ export async function POST(req: Request) {
       }
 
       case 'storyboard': {
-        if (!content?.trim()) {
-          return NextResponse.json({ error: 'No content to storyboard' }, { status: 400 });
-        }
         const agent = createArchitectAgent();
-        const result = await agent.storyboard({ context, userPrompt: content });
+        const result = await agent.storyboard({ context, userPrompt: actionContent });
         return NextResponse.json({
           type: 'asset',
           card: {
@@ -158,10 +192,6 @@ export async function POST(req: Request) {
       }
 
       case 'refine_voice': {
-        const draftContent = content || scriptContent;
-        if (!draftContent?.trim()) {
-          return NextResponse.json({ error: 'No draft content to analyze' }, { status: 400 });
-        }
         const agent = createStylistAgent();
         const result = await agent.checkVoice({ context, userPrompt: draftContent });
         return NextResponse.json({
@@ -186,18 +216,15 @@ export async function POST(req: Request) {
       }
 
       case 'summon_specialist': {
-        if (!specialistRequest?.trim()) {
-          return NextResponse.json({ error: 'Missing specialist request' }, { status: 400 });
-        }
 
         const supervisor = createSupervisorAgent();
         const definition = await supervisor.synthesizeAgent({
           context,
-          userPrompt: specialistRequest,
+          userPrompt: specialistInstruction,
         });
 
         const nullAgent = createNullAgent(definition);
-        const { stream } = await nullAgent.execute({ context, userPrompt: specialistRequest });
+        const { stream } = await nullAgent.execute({ context, userPrompt: specialistInstruction });
 
         let markdown = '';
         for await (const chunk of stream) {
@@ -209,9 +236,9 @@ export async function POST(req: Request) {
         const richText = thinkForgeBlocksToTiptapJSON(blocks);
 
         const newScriptId = crypto.randomUUID();
-        await applyCommand({
+        const saveResult = await applyCommand({
           type: 'ReplaceDocument',
-          sessionId,
+          sessionId: canonicalSessionId,
           baseVersion: 0,
           source: 'ai',
           payload: {
@@ -222,7 +249,10 @@ export async function POST(req: Request) {
             richText,
             documentType: definition.documentType,
           },
-        }, userId);
+        }, userId, orgId);
+        if (!saveResult.ok) {
+          throw new Error('Specialist document save failed: ' + saveResult.error);
+        }
 
         return NextResponse.json({
           type: 'specialist_result',
@@ -245,11 +275,8 @@ export async function POST(req: Request) {
       }
 
       case 'detect_scope': {
-        if (!content?.trim()) {
-          return NextResponse.json({ error: 'No project description to analyze' }, { status: 400 });
-        }
         const agent = createScopeDetectorAgent();
-        const result = await agent.detectScope({ context, userPrompt: content });
+        const result = await agent.detectScope({ context, userPrompt: actionContent });
         return NextResponse.json({
           type: 'context',
           card: {
@@ -270,17 +297,14 @@ export async function POST(req: Request) {
       }
 
       case 'discover_blueprint': {
-        if (!content?.trim()) {
-          return NextResponse.json({ error: 'No project description' }, { status: 400 });
-        }
 
         const scopeAgent = createScopeDetectorAgent();
-        const scope = await scopeAgent.detectScope({ context, userPrompt: content });
+        const scope = await scopeAgent.detectScope({ context, userPrompt: actionContent });
 
         const discoveryAgent = createDiscoveryAgent();
         const proposal = await discoveryAgent.proposeBlueprint({
           context,
-          userPrompt: content,
+          userPrompt: actionContent,
           scope,
         } as DiscoveryAgentInput);
 
@@ -306,12 +330,6 @@ export async function POST(req: Request) {
         });
       }
 
-      case 'initialize_blueprint': {
-        return NextResponse.json({
-          error: 'Blueprint initialization has moved to the chat stream. Use the /api/services/thinkforge/chat endpoint with blueprintArtifacts.',
-          code: 'DEPRECATED_ENDPOINT',
-        }, { status: 410 });
-      }
 
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });

@@ -24,7 +24,6 @@ interface SampleQuality {
 function consentScript(subjectName?: string): string {
   const who = subjectName?.trim() || '[your name]';
   return `I, ${who}, consent to having my voice cloned and used to generate avatar videos. `
-    + `The quick brown fox jumps over the lazy dog. `
     + `I'm speaking clearly, at a natural pace, in a quiet room.`;
 }
 

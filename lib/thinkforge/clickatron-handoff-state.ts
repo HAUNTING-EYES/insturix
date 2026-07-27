@@ -22,6 +22,7 @@ export interface ThinkToClickUserVisualChoices {
   vibe?: string;
   imageStyle?: string;
   notes?: string;
+  slideCount?: number | string;
   approvedVisualPlan?: boolean | string;
 }
 
@@ -344,6 +345,7 @@ function resolvedChoices(spec: ClickatronCreativeSpec, choices?: ThinkToClickUse
     vibe: toNonEmptyString(choices?.vibe),
     imageStyle: toNonEmptyString(choices?.imageStyle),
     notes: toNonEmptyString(choices?.notes),
+    slideCount: choices?.slideCount ?? (spec.kind === "carousel" ? spec.renderPlan.slides?.length : undefined),
     approvedVisualPlan: hasApprovedVisualPlan(choices) || undefined,
   });
 }

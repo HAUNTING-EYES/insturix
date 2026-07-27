@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Mono } from '@/components/primitives';
 import { useEditorContext } from '../../contexts/editor-context';
@@ -68,15 +68,22 @@ function ActivityTab() {
   );
 }
 
-export function V2AiPanel() {
+export function V2AiPanel({ onClose }: { onClose?: () => void }) {
   const [tab, setTab] = useState<Tab>('chat');
 
   return (
     <div className="flex w-[300px] shrink-0 flex-col border-l border-ds-subtle bg-surface-raised">
       <div className="border-b border-ds-subtle px-3.5 pt-3">
-        <div className="mb-2.5 flex items-center gap-1.5">
-          <Sparkles size={14} className="text-gold" />
-          <Mono size="10" className="text-gold">Editron AI</Mono>
+        <div className="mb-2.5 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Sparkles size={14} className="text-gold" />
+            <Mono size="10" className="text-gold">AI Assistant</Mono>
+          </div>
+          {onClose && (
+            <button type="button" onClick={onClose} title="Close panel (Esc)" className="flex h-6 w-6 items-center justify-center rounded text-ds-muted transition-colors hover:bg-surface-well hover:text-ds-secondary focus-visible:outline-hidden">
+              <X size={14} />
+            </button>
+          )}
         </div>
         <div className="flex gap-0.5">
           {TABS.map((t) => (

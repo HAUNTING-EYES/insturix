@@ -34,8 +34,22 @@ vi.mock('@/lib/pipeline/sfx-library-service', () => ({
     });
     return {
       audioUrl: 'https://cdn.example.com/whoosh.mp3',
+      gcsPath: null,
       audioAssetId: 'sfx-whoosh-1',
       durationMs: 420,
+      source: 'catalog',
+      originalTitle: `Mock catalog ${query}`,
+      audioRights: {
+        mediaRole: 'sfx',
+        source: 'library',
+        userChoice: 'attested',
+        licensed: true,
+        evidence: {
+          kind: 'library-license',
+          sourceAssetId: 'sfx-whoosh-1',
+          licenseId: 'test-license-1',
+        },
+      },
     };
   }),
 }));
@@ -45,6 +59,8 @@ import { placeTransitionSFX } from '../../lib/editron/services/transition-sfx-pl
 import { buildOverlayAtomicReceipt } from '../../lib/editron/engine/atomic-overlay-core';
 import type { SceneDescriptor } from '../../lib/pipeline/schemas/storyboard';
 import { searchAndDownloadSFX } from '@/lib/pipeline/sfx-library-service';
+import { resolveMotionTokens } from '../../lib/editron/data/motion-theme-resolver';
+import { deriveCodegenKineticSfxEvents } from '../../lib/editron/services/kinetic-sfx-service';
 
 describe('non-MG atomic overlay receipts', () => {
   beforeEach(() => {
@@ -361,5 +377,133 @@ describe('non-MG atomic overlay receipts', () => {
     ]));
     expect(receipt.form.motion.entry).toBe('audio-hit');
     expect(receipt.form.compatibility.sfxRole).toBe('impact');
+  });
+
+  it('places sparse MG SFX on resolved choreography and preserves licensed provenance', async () => {
+    const tokens = resolveMotionTokens({
+      motion_intensity: 0.9,
+      visual_significance: 0.9,
+      speech_energy: 0.2,
+    } as any, {});
+    const makeStatOverlay = (id: number, from: number) => ({
+      id,
+      type: 'motion-graphic',
+      from,
+      durationInFrames: 120,
+      row: 1,
+      recipe: {
+        id: `stat-${id}`,
+        elements: [{
+          primitive: 'text',
+          role: 'value',
+          animation: 'count-up',
+          bind: {},
+          enterOrder: 1,
+        }],
+        layout: { position: 'center' },
+        exitStyle: 'reverse-stagger',
+      },
+      resolvedTokens: tokens,
+      content: { value: '42%' },
+      contentSignals: {
+        motion_intensity: 0.9,
+        visual_significance: 0.9,
+        speech_energy: 0.2,
+      },
+      metadata: {
+        graphicType: 'stat-counter',
+        atomicOverlayPlan: { intensity: { overall: 0.9 } },
+      },
+    });
+    const overlays: any[] = [
+      makeStatOverlay(901, 300),
+      makeStatOverlay(902, 390),
+    ];
+
+    const result = await placeTransitionSFX(overlays, 'user-1', null);
+    const sounds = overlays.filter(overlay => overlay.type === 'sound');
+
+    expect(result.placed).toBe(0);
+    expect(result.motionGraphics.placed).toBe(1);
+    expect(result.motionGraphics.skipped).toBe(1);
+    expect(result.motionGraphics.eventKindsUsed).toEqual(['count-settle-tick']);
+    expect(result.motionGraphics.skipReasons).toEqual(expect.objectContaining({
+      'editorial-sfx-too-dense-90f': 1,
+    }));
+    expect(sounds).toHaveLength(1);
+    expect(sounds[0].metadata.kineticSfxEvent).toEqual(expect.objectContaining({
+      version: 'kinetic-sfx-event-v1',
+      surface: 'motion-graphic',
+      kind: 'count-settle-tick',
+      ruleId: 'mapping:sound.sfx_for_editorial_moments',
+    }));
+    expect(sounds[0].metadata.atomicSfxForm.timing.anchor).toBe('mg-landing');
+    expect(sounds[0].audioRights).toEqual(expect.objectContaining({
+      mediaRole: 'sfx',
+      source: 'library',
+      licensed: true,
+    }));
+    expect(searchAndDownloadSFX).toHaveBeenCalledTimes(1);
+  });
+
+  it('materializes a generated MG event only when codegen supplied a landing anchor', async () => {
+    const baseInput = {
+      candidate: { id: 'fact-quote', factKind: 'quote' },
+      window: { startFrame: 600, endFrame: 720, fps: 30 },
+      expressiveness: { tier: 'hero', intensity: 0.9, emphasisScale: 1.2 },
+    } as any;
+    expect(deriveCodegenKineticSfxEvents(baseInput, 9901)).toEqual([]);
+
+    const events = deriveCodegenKineticSfxEvents({
+      ...baseInput,
+      anchors: { landingFrame: 18 },
+    }, 9901, {
+      speechEnergy: 0.24,
+      evidence: ['policy:subtle', 'profile:D-01', 'speech-source:moment-signals'],
+    });
+    expect(deriveCodegenKineticSfxEvents({
+      ...baseInput,
+      anchors: { landingFrame: 18 },
+    }, 9901, {
+      speechEnergy: 0.9,
+      evidence: ['speech-source:moment-signals'],
+    })).toEqual([]);
+    const overlays: any[] = [{
+      id: 9901,
+      type: 'mg-sequence',
+      from: 600,
+      durationInFrames: 120,
+      metadata: { kineticSfxEvents: events },
+    }];
+
+    const result = await placeTransitionSFX(overlays, 'user-1', null);
+    const sound = overlays.find(overlay => overlay.type === 'sound');
+
+    expect(events).toEqual([expect.objectContaining({
+      kind: 'quote-card-rustle',
+      anchorFrame: 618,
+    })]);
+    expect(result.motionGraphics.placed).toBe(1);
+    expect(sound.metadata.kineticSfxEvent.kind).toBe('quote-card-rustle');
+    expect(sound.metadata.atomicSfxForm.timing.syncFrame).toBe(618);
+    expect(overlays[0].metadata.kineticSfxPlacement).toEqual(expect.objectContaining({
+      version: 'kinetic-sfx-placement-v1',
+      status: 'placed',
+      soundOverlayId: sound.id,
+    }));
+
+    const suppressedOverlays: any[] = [{
+      id: 9901,
+      type: 'mg-sequence',
+      from: 600,
+      durationInFrames: 120,
+      metadata: { kineticSfxEvents: events },
+    }];
+    const suppressed = await placeTransitionSFX(suppressedOverlays, 'user-1', {
+      profileId: 'D-02',
+      transitionSFXPolicy: 'off',
+    } as any);
+    expect(suppressed.motionGraphics.skipReasons).toEqual({ 'profile-policy-off': 1 });
+    expect(suppressedOverlays.some(overlay => overlay.type === 'sound')).toBe(false);
   });
 });

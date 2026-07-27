@@ -44,6 +44,7 @@ import { useEditorContext } from "../../contexts/editor-context";
 import { AIChatPanel } from "../ai-chat/ai-chat-panel";
 import { AISuggestionsPanel } from "../ai-suggestions/ai-suggestions-panel";
 import { QualityReviewPanel } from "../quality-review/quality-review-panel";
+import { ScanReportPanel } from "../scan-report/scan-report-panel";
 import { TransitionBrowserPanel } from "../transitions/transition-browser-panel";
 import { SFXLibraryPanel } from "../sfx-library/sfx-library-panel";
 import { LottiePanel } from "../lottie/lottie-panel";
@@ -91,6 +92,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         return "Sticker";
       case OverlayType.QUALITY_REVIEW:
         return "Quality";
+      case OverlayType.SCAN_REPORT:
+        return "Scan report";
       case OverlayType.TRANSITIONS:
       case OverlayType.TRANSITION: // Singular — when a transition tile is selected
         return "Transitions";
@@ -146,6 +149,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     { type: OverlayType.AI_CHAT, element: <AIChatPanel /> },
     { type: OverlayType.AI_SUGGESTIONS, element: <AISuggestionsPanel /> },
     { type: OverlayType.QUALITY_REVIEW, element: <QualityReviewPanel /> },
+    { type: OverlayType.SCAN_REPORT, element: <ScanReportPanel /> },
     { type: OverlayType.TRANSITIONS, element: <TransitionBrowserPanel /> },
     // When user clicks a transition tile on the timeline, it sets activePanel
     // to OverlayType.TRANSITION (singular). Map it to the same browser panel.

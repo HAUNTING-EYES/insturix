@@ -13,6 +13,17 @@ export interface Checkpoint {
   type: CheckpointType;
 }
 
+export interface RestoredCheckpoint {
+  checkpointId: string;
+  projectId: string;
+  project: Record<string, unknown> & { overlays: Overlay[] };
+  restoredFields: string[];
+  verification: {
+    expectedStateHash: string;
+    actualStateHash?: string;
+  };
+}
+
 /**
  * Create a checkpoint via API
  * Returns the checkpoint if created, or null if skipped (no changes)
@@ -201,27 +212,45 @@ export const getCheckpoint = async (checkpointId: string): Promise<Checkpoint | 
 };
 
 /**
- * Restore overlays from a checkpoint via API
+ * Restore a verified checkpoint and reload the complete canonical project.
  */
-export const restoreCheckpoint = async (checkpointId: string): Promise<Overlay[] | null> => {
+export const restoreCheckpoint = async (
+  projectId: string,
+  checkpointId: string,
+): Promise<RestoredCheckpoint | null> => {
   try {
     // Check if running server-side
     if (typeof window === 'undefined') {
-      // Server-side: Use checkpoint service directly
+      // Server-side: use the same verified full-state owner as automatic rollback.
       const { checkpointService } = await import('@/lib/editron/services/checkpoint-service');
+      const { projectService } = await import('@/lib/editron/services/project-service');
       const userId = getUserId();
-      
+
       const checkpoint = await checkpointService.getCheckpoint(checkpointId, userId);
-      return checkpoint ? checkpoint.overlays : null;
+      if (!checkpoint || checkpoint.projectId !== projectId) return null;
+      const verification = await checkpointService.restoreProjectCheckpoint(checkpointId, userId);
+      if (!verification.restored) return null;
+      const project = await projectService.loadProject(userId, projectId);
+      if (!project) return null;
+      return {
+        checkpointId,
+        projectId,
+        project: project as unknown as RestoredCheckpoint['project'],
+        restoredFields: checkpoint.projectState?.presentFields ?? [],
+        verification: {
+          expectedStateHash: verification.expectedStateHash,
+          actualStateHash: verification.actualStateHash,
+        },
+      };
     }
-    
-    // Client-side: Use fetch API
+
+    // Client-side: restore first, then reload the canonical project separately.
     const response = await fetch('/api/services/editron/checkpoints/restore', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ checkpointId }),
+      body: JSON.stringify({ checkpointId, projectId }),
     });
 
     if (!response.ok) {
@@ -229,8 +258,33 @@ export const restoreCheckpoint = async (checkpointId: string): Promise<Overlay[]
       return null;
     }
 
-    const data = await response.json();
-    return data.overlays;
+    const receipt = await response.json() as Omit<RestoredCheckpoint, 'project'> & {
+      success: boolean;
+      reloadProject: boolean;
+    };
+    if (!receipt.success || !receipt.reloadProject || receipt.projectId !== projectId) return null;
+
+    const projectResponse = await fetch(
+      `/api/services/editron/projects/${encodeURIComponent(projectId)}`,
+      { cache: 'no-store' },
+    );
+    if (!projectResponse.ok) {
+      console.error('Checkpoint restored but canonical project reload failed:', await projectResponse.text());
+      return null;
+    }
+    const projectPayload = await projectResponse.json() as {
+      success: boolean;
+      project?: RestoredCheckpoint['project'];
+    };
+    if (!projectPayload.success || !projectPayload.project) return null;
+
+    return {
+      checkpointId: receipt.checkpointId,
+      projectId: receipt.projectId,
+      project: projectPayload.project,
+      restoredFields: receipt.restoredFields,
+      verification: receipt.verification,
+    };
   } catch (error) {
     console.error('Error restoring checkpoint:', error);
     return null;

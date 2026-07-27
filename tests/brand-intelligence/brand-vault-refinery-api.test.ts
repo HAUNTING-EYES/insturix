@@ -4,6 +4,7 @@ import {
   createInMemoryBrandVaultRefineryStore,
   getBrandVaultRefineryJob,
   getBrandVaultSignalProfile,
+  processNextPendingProductUiDecode,
   processNextQueuedBrandVaultRefineryJob,
   reviewBrandVaultSignalProfileDraft,
   startQueuedBrandVaultRefineryJobFromWebsite,
@@ -2476,5 +2477,150 @@ describe('Brand Vault refinery API boundary', () => {
 
     expect(badAction.status).toBe(400);
     expect(badAction.body.ok).toBe(false);
+  });
+
+  it('runs vision decode as a post-save follow-up (draft persisted BEFORE decode) and attaches productUiModel', async () => {
+    const store = createPromiseBackedStore();
+    let recordIdAtDecode: string | undefined;
+    let screenshotUrlsAtDecode: string[] = [];
+
+    const result = await createBrandVaultRefineryJobFromWebsite(
+      { userId: 'user_decode', body: { websiteUrl: 'vaultline.example' }, jobId: 'job_decode_followup' },
+      {
+        store,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        captureSectionScreenshots: async () => [{ source: 'url', url: 'https://raw.example/s1.png' }],
+        visualAssetStorage: {
+          mirrorAsset: async (input) => ({ ok: true, provider: 'test_r2', storageKey: input.assetId, publicUrl: `https://cdn.ui.example/${input.assetId}`, contentType: 'image/png', sizeBytes: 100, storedAt: NOW }),
+        },
+        decodeProductUiModel: async ({ screenshotUrls }) => {
+          // Proof the draft is already persisted when decode runs: its snapshot (with recordId) exists now.
+          const snap = await store.getJobSnapshot('job_decode_followup');
+          recordIdAtDecode = snap?.recordId;
+          screenshotUrlsAtDecode = screenshotUrls;
+          return { brand: { accent: '#ffcc33', theme: 'light' }, screens: [{ name: 'hero' }] };
+        },
+        clock: () => NOW,
+      },
+    );
+
+    expect(result.status).toBe(201);
+    if (!result.body.ok) throw new Error(result.body.error.message);
+    // Decode ran AFTER the draft snapshot was saved (off the critical path) and was fed the mirrored R2 urls.
+    expect(recordIdAtDecode).toBe(result.body.record.id);
+    expect(screenshotUrlsAtDecode.length).toBeGreaterThanOrEqual(1);
+    expect(screenshotUrlsAtDecode.every((u) => u.startsWith('https://cdn.ui.example/'))).toBe(true);
+    // productUiModel is attached to the persisted record.
+    expect(result.body.record.profile.productUiModel?.brand).toMatchObject({ accent: '#ffcc33', theme: 'light' });
+    const stored = await store.getRecord(result.body.record.id);
+    expect(stored?.profile.productUiModel?.screens?.[0]?.name).toBe('hero');
+  });
+
+  it('leaves the saved draft fully intact when the vision decode follow-up throws', async () => {
+    const store = createPromiseBackedStore();
+
+    const result = await createBrandVaultRefineryJobFromWebsite(
+      { userId: 'user_decode_fail', body: { websiteUrl: 'vaultline.example' }, jobId: 'job_decode_fail' },
+      {
+        store,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        captureSectionScreenshots: async () => [{ source: 'url', url: 'https://raw.example/s1.png' }],
+        visualAssetStorage: {
+          mirrorAsset: async (input) => ({ ok: true, provider: 'test_r2', storageKey: input.assetId, publicUrl: `https://cdn.ui.example/${input.assetId}`, contentType: 'image/png', sizeBytes: 100, storedAt: NOW }),
+        },
+        decodeProductUiModel: async () => { throw new Error('vision exploded'); },
+        clock: () => NOW,
+      },
+    );
+
+    expect(result.status).toBe(201);
+    if (!result.body.ok) throw new Error(result.body.error.message);
+    // The draft is saved + reviewable; only the enrichment is missing — a decode failure never loses it.
+    const stored = await store.getRecord(result.body.record.id);
+    expect(stored).not.toBeNull();
+    expect((stored?.profile.assets?.uiScreenshots?.value ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(stored?.profile.productUiModel).toBeUndefined();
+  });
+
+  it('cron backfill decodes a needs-review draft that captured screenshots but never got a productUiModel', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    // A scan with the inline decoder disabled: the draft is saved with uiScreenshots but no productUiModel.
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      { userId: 'user_backfill', body: { websiteUrl: 'vaultline.example' }, jobId: 'job_backfill' },
+      {
+        store,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        captureSectionScreenshots: async () => [{ source: 'url', url: 'https://raw.example/s1.png' }],
+        visualAssetStorage: {
+          mirrorAsset: async (input) => ({ ok: true, provider: 'test_r2', storageKey: input.assetId, publicUrl: `https://cdn.ui.example/${input.assetId}`, contentType: 'image/png', sizeBytes: 100, storedAt: NOW }),
+        },
+        decodeProductUiModel: null,
+        clock: () => NOW,
+      },
+    );
+    if (!created.body.ok) throw new Error(created.body.error.message);
+    const recordId = created.body.record.id;
+    expect((await store.getRecord(recordId))?.profile.productUiModel).toBeUndefined();
+
+    // The cron backfill picks up that pending draft and decodes it.
+    let decodeCalls = 0;
+    const result = await processNextPendingProductUiDecode({
+      store,
+      decodeProductUiModel: async () => {
+        decodeCalls += 1;
+        return { brand: { theme: 'dark' }, screens: [{ name: 'hero' }] };
+      },
+      clock: () => NOW,
+    });
+    expect(result).toMatchObject({ processed: true, recordId, decoded: true });
+    expect(decodeCalls).toBe(1);
+    expect((await store.getRecord(recordId))?.profile.productUiModel?.brand?.theme).toBe('dark');
+  });
+
+  it('cron backfill stamps the attempt and respects the cooldown (no hot-loop, no starvation)', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      { userId: 'user_cooldown', body: { websiteUrl: 'vaultline.example' }, jobId: 'job_cooldown' },
+      {
+        store,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        captureSectionScreenshots: async () => [{ source: 'url', url: 'https://raw.example/s1.png' }],
+        visualAssetStorage: {
+          mirrorAsset: async (input) => ({ ok: true, provider: 'test_r2', storageKey: input.assetId, publicUrl: `https://cdn.ui.example/${input.assetId}`, contentType: 'image/png', sizeBytes: 100, storedAt: NOW }),
+        },
+        decodeProductUiModel: null,
+        clock: () => NOW,
+      },
+    );
+    if (!created.body.ok) throw new Error(created.body.error.message);
+    const recordId = created.body.record.id;
+
+    let decodeCalls = 0;
+    const failingDecoder = async () => {
+      decodeCalls += 1;
+      return null; // decode ran but produced nothing usable
+    };
+
+    // First pass: attempts, stamps productUiModelDecodeAttemptedAt, decoded:false.
+    const first = await processNextPendingProductUiDecode({ store, decodeProductUiModel: failingDecoder, clock: () => NOW });
+    expect(first).toMatchObject({ processed: true, recordId, decoded: false });
+    expect((await store.getRecord(recordId))?.profile.productUiModelDecodeAttemptedAt).toBe(NOW);
+
+    // Second pass at the SAME instant: cooldown skips it, decoder is NOT called again.
+    const second = await processNextPendingProductUiDecode({ store, decodeProductUiModel: failingDecoder, clock: () => NOW });
+    expect(second).toMatchObject({ processed: false, reason: 'nothing_pending' });
+    expect(decodeCalls).toBe(1);
+
+    // Once the cooldown elapses, it becomes eligible again.
+    const later = new Date(Date.parse(NOW) + 31 * 60 * 1000).toISOString();
+    const third = await processNextPendingProductUiDecode({ store, decodeProductUiModel: failingDecoder, clock: () => later });
+    expect(third).toMatchObject({ processed: true, recordId });
+    expect(decodeCalls).toBe(2);
+  });
+
+  it('cron backfill is a no-op when no vision decoder is configured', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const result = await processNextPendingProductUiDecode({ store, decodeProductUiModel: null, clock: () => NOW });
+    expect(result).toEqual({ processed: false, reason: 'decode_disabled' });
   });
 });

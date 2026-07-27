@@ -16,11 +16,28 @@ import { persistMediaUploadBatchAsset } from '@/lib/editron/services/media-uploa
 
 export const runtime = 'nodejs';
 
+type ThumbnailStorageFields = {
+  thumbnailSize?: number;
+  thumbnailR2Key?: string;
+  thumbnailGcsPath?: string;
+  thumbnailUrlExpiresAt?: Date;
+};
+
+type StoredThumbnail = {
+  url: string;
+  size: number;
+  r2Key: string | null;
+  gcsPath: string | null;
+  urlExpiresAt: Date | null;
+};
+
 export async function POST(request: NextRequest) {
   let analysisCreditCheck: CreditCheckResult | null = null;
   let analysisQueued = false;
   let analysisCreditTransactionId: string | undefined;
   let analysisChargedCredits: number | undefined;
+  let uploadedThumbnail: StoredThumbnail | null = null;
+  let mediaAssetInserted = false;
 
   try {
     // Hard limit at 3GB to prevent abuse (user footage can be large)
@@ -55,6 +72,7 @@ export async function POST(request: NextRequest) {
       dimensions,
       isProxy,
       uploadBatchId,
+      uploadBatchIntake,
     } = body;
 
     // Validate required fields — gcsPath is optional (R2 uploads don't have one)
@@ -62,6 +80,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: 'Missing required fields: assetId, readUrl, filename, contentType' },
         { status: 400 }
+      );
+    }
+    if (typeof assetId !== 'string' || !/^[A-Za-z0-9_-]{3,200}$/.test(assetId)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid assetId' },
+        { status: 400 },
       );
     }
 
@@ -132,8 +156,9 @@ export async function POST(request: NextRequest) {
     });
     const storageAlreadyRecorded = Boolean(completedMultipartUpload);
     const storedSizeBytes = actualSize ?? (typeof size === 'number' ? size : Number(size) || 0);
+    let normalizedThumbnail = await normalizeThumbnailDataUrl(thumbnail);
 
-    if (!storageAlreadyRecorded) {
+    if (!storageAlreadyRecorded && storedSizeBytes > 0) {
       const { reserveStorageForUpload } = await import('@/lib/services/storage-reserve-service');
       const { formatStorageBytes } = await import('@/lib/services/storage-quota-service');
       // Over cap → LRU-evict non-protected assets (or allow paid overage if the
@@ -157,6 +182,19 @@ export async function POST(request: NextRequest) {
       }
       if (reservation.evictedAssetIds.length) {
         console.log(`[Upload] LRU-evicted ${reservation.evictedAssetIds.length} asset(s) to fit ${assetId}`);
+      }
+    }
+
+    if (normalizedThumbnail) {
+      const { reserveStorageForUpload } = await import('@/lib/services/storage-reserve-service');
+      const thumbnailReservation = await reserveStorageForUpload(userId, orgId, normalizedThumbnail.length);
+      if (!thumbnailReservation.allowed) {
+        normalizedThumbnail = null;
+        console.warn(`[Upload] Thumbnail omitted for ${assetId}: storage quota is full`);
+      } else if (thumbnailReservation.evictedAssetIds.length) {
+        console.log(
+          `[Upload] LRU-evicted ${thumbnailReservation.evictedAssetIds.length} asset(s) to fit the ${assetId} thumbnail`,
+        );
       }
     }
 
@@ -215,8 +253,33 @@ export async function POST(request: NextRequest) {
         ? uploadBatchId.trim().slice(0, 128)
         : undefined;
 
+    if (normalizedThumbnail) {
+      try {
+        const { uploadMedia } = await import('@/lib/editron/services/upload-service');
+        const thumbnailUpload = await uploadMedia(
+          normalizedThumbnail,
+          userId,
+          `${assetId}.thumbnail.webp`,
+          'image/webp',
+          { customAssetId: `thumb_${assetId}` },
+        );
+        uploadedThumbnail = {
+          url: thumbnailUpload.signedUrl,
+          size: thumbnailUpload.size,
+          r2Key: thumbnailUpload.r2Key,
+          gcsPath: thumbnailUpload.gcsPath,
+          urlExpiresAt: thumbnailUpload.urlExpiresAt,
+        };
+      } catch (thumbnailError: unknown) {
+        console.warn(
+          `[Upload] Thumbnail storage failed for ${assetId}; original asset remains usable:`,
+          thumbnailError instanceof Error ? thumbnailError.message : thumbnailError,
+        );
+      }
+    }
+
     const now = new Date();
-    const mediaAsset: MediaAsset = {
+    const mediaAsset: MediaAsset & ThumbnailStorageFields = {
       assetId,
       userId,
       orgId: orgId || undefined, // org-shared storage pool (undefined for solo users)
@@ -228,7 +291,11 @@ export async function POST(request: NextRequest) {
       cachedUrl: readUrl,
       urlExpiresAt: new Date(readUrlExpiresAt),
       size: storedSizeBytes,
-      thumbnail: thumbnail || undefined,
+      thumbnail: uploadedThumbnail?.url,
+      thumbnailSize: uploadedThumbnail?.size,
+      thumbnailR2Key: uploadedThumbnail?.r2Key || undefined,
+      thumbnailGcsPath: uploadedThumbnail?.gcsPath || undefined,
+      thumbnailUrlExpiresAt: uploadedThumbnail?.urlExpiresAt || undefined,
       duration: verifiedDuration,
       dimensions: parsedDimensions,
       uploadedAt: now,
@@ -239,6 +306,7 @@ export async function POST(request: NextRequest) {
     };
 
     await db.collection(COLLECTIONS.MEDIA_ASSETS).insertOne(mediaAsset);
+    mediaAssetInserted = true;
     if (cleanUploadBatchId) {
       try {
         await persistMediaUploadBatchAsset(db, {
@@ -246,6 +314,7 @@ export async function POST(request: NextRequest) {
           userId,
           orgId: orgId || undefined,
           projectId: projectId || undefined,
+          intake: uploadBatchIntake,
           asset: {
             assetId,
             filename,
@@ -253,16 +322,20 @@ export async function POST(request: NextRequest) {
             size: storedSizeBytes,
             duration: verifiedDuration,
             dimensions: parsedDimensions,
-            thumbnail: thumbnail || undefined,
+            thumbnail: uploadedThumbnail?.url,
           },
         }, now);
       } catch (batchErr: unknown) {
         console.warn('[Upload] batch manifest update failed:', batchErr instanceof Error ? batchErr.message : batchErr);
       }
     }
-    if (!storageAlreadyRecorded) {
+    if (!storageAlreadyRecorded && storedSizeBytes > 0) {
       const { recordStorageUsage, resolveStorageOwner } = await import('@/lib/services/storage-quota-service');
       await recordStorageUsage(resolveStorageOwner(userId, orgId), storedSizeBytes);
+    }
+    if (uploadedThumbnail?.size) {
+      const { recordStorageUsage, resolveStorageOwner } = await import('@/lib/services/storage-quota-service');
+      await recordStorageUsage(resolveStorageOwner(userId, orgId), uploadedThumbnail.size);
     }
 
     // ── Trigger async asset analysis via QStash ──
@@ -299,7 +372,8 @@ export async function POST(request: NextRequest) {
               url: readUrl,
               type: fileType,
               filename,
-              size: size || 0,
+              size: storedSizeBytes,
+              thumbnail: uploadedThumbnail?.url,
               analysisQueued: false,
               analysisSkippedReason: 'insufficient_credits',
               uploadBatchId: cleanUploadBatchId,
@@ -333,7 +407,8 @@ export async function POST(request: NextRequest) {
             url: readUrl,
             type: fileType,
             filename,
-            size: size || 0,
+            size: storedSizeBytes,
+            thumbnail: uploadedThumbnail?.url,
             analysisQueued: false,
             analysisSkippedReason: 'credit_deduction_failed',
             uploadBatchId: cleanUploadBatchId,
@@ -345,7 +420,10 @@ export async function POST(request: NextRequest) {
           { $set: { analysisStatus: 'queued', analysisQueuedAt: new Date() } },
         );
 
-        const analysisRes = await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}/api/internal/workers/asset-analysis`, {
+        const analysisWorkerPath = fileType === 'image'
+          ? '/api/internal/workers/asset-analysis'
+          : '/api/internal/workers/asset-transcription';
+        const analysisRes = await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${baseUrl}${analysisWorkerPath}`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${qstashToken}`,
@@ -420,16 +498,93 @@ export async function POST(request: NextRequest) {
       url: readUrl,
       type: fileType,
       filename,
-      size: size || 0,
+      size: storedSizeBytes,
+      thumbnail: uploadedThumbnail?.url,
       analysisQueued,
       uploadBatchId: cleanUploadBatchId,
     });
   } catch (error: any) {
+    if (uploadedThumbnail && !mediaAssetInserted) {
+      try {
+        await deleteStoredThumbnail(uploadedThumbnail);
+      } catch (cleanupError: unknown) {
+        console.error(
+          '[Upload] Failed to clean up unregistered thumbnail:',
+          cleanupError instanceof Error ? cleanupError.message : cleanupError,
+        );
+      }
+    }
     console.error('Error registering media asset:', error);
     return NextResponse.json(
       { success: false, error: error.message || 'Failed to register media asset' },
       { status: 500 }
     );
+  }
+}
+
+const MAX_THUMBNAIL_INPUT_BYTES = 3 * 1024 * 1024;
+const MAX_THUMBNAIL_OUTPUT_BYTES = 160 * 1024;
+
+async function normalizeThumbnailDataUrl(value: unknown): Promise<Buffer | null> {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') {
+    console.warn('[Upload] Ignoring non-string thumbnail payload');
+    return null;
+  }
+
+  const match = /^data:image\/(?:jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(value);
+  if (!match) {
+    console.warn('[Upload] Ignoring thumbnail payload outside the supported data-image contract');
+    return null;
+  }
+
+  const estimatedBytes = Math.floor(match[1].length * 0.75);
+  if (estimatedBytes > MAX_THUMBNAIL_INPUT_BYTES) {
+    console.warn(`[Upload] Ignoring oversized thumbnail payload (${estimatedBytes} bytes)`);
+    return null;
+  }
+
+  try {
+    const input = Buffer.from(match[1], 'base64');
+    const sharp = (await import('sharp')).default;
+    for (const attempt of [
+      { edge: 480, quality: 74 },
+      { edge: 360, quality: 58 },
+      { edge: 240, quality: 46 },
+    ]) {
+      const output = await sharp(input, { limitInputPixels: 40_000_000, sequentialRead: true })
+        .rotate()
+        .resize({
+          width: attempt.edge,
+          height: attempt.edge,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .webp({ quality: attempt.quality, effort: 4 })
+        .toBuffer();
+      if (output.length <= MAX_THUMBNAIL_OUTPUT_BYTES) return output;
+    }
+  } catch (error: unknown) {
+    console.warn(
+      '[Upload] Thumbnail payload could not be decoded:',
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+
+  console.warn(`[Upload] Thumbnail could not be normalized below ${MAX_THUMBNAIL_OUTPUT_BYTES} bytes`);
+  return null;
+}
+
+async function deleteStoredThumbnail(thumbnail: StoredThumbnail): Promise<void> {
+  if (thumbnail.r2Key) {
+    const { deleteFromR2 } = await import('@/lib/editron/services/r2-service');
+    await deleteFromR2(thumbnail.r2Key);
+    return;
+  }
+  if (thumbnail.gcsPath) {
+    const { deleteFromGCS } = await import('@/lib/editron/services/gcs-service');
+    await deleteFromGCS(thumbnail.gcsPath);
   }
 }
 

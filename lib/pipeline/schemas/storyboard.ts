@@ -5,6 +5,10 @@
  * visual reference / stencils for video production in Editron.
  */
 
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
+import type { GeneratedAudioReceipt } from '@/lib/pipeline/tts-service';
+import type { GeneratedVideoReceipt } from '@/lib/pipeline/video-generation-service';
+
 /**
  * SubShot — a cut point within a generated video clip.
  * The assembly step uses these to cut one 5s video into multiple timeline segments.
@@ -46,7 +50,12 @@ export interface SubShot {
   /** Video clip for this sub-shot (set after video gen) */
   videoUrl?: string;
   videoAssetId?: string;
+  videoProvider?: string;
+  videoModel?: string;
   videoDurationMs?: number;
+  hasNativeAudio?: boolean;
+  nativeAudioRights?: AudioRightsContract;
+  generatedVideoReceipt?: GeneratedVideoReceipt;
   /** Generation status */
   status?: 'pending' | 'generating' | 'generated' | 'failed';
 
@@ -211,6 +220,9 @@ export interface SceneVoiceover {
   audioAssetId: string;
   audioDurationMs: number;
   gcsPath?: string;
+  r2Key: string | null;
+  audioRights: AudioRightsContract;
+  generatedAudioReceipt: GeneratedAudioReceipt;
   /** Word-level timing for caption sync (populated after STT on TTS output) */
   words?: Array<{
     word: string;
@@ -230,12 +242,19 @@ export interface StoryboardScene {
   videoUrl?: string;
   videoGcsPath?: string;
   videoProvider?: string;
+  videoModel?: string;
   videoDurationMs?: number;
+  /** Avatar Vault render job lineage for ThinkForge-cast scenes. */
+  avatarPipelineJobId?: string;
+  avatarPipelineStatus?: 'blocked' | 'queued' | 'running' | 'succeeded' | 'failed';
+  avatarPipelineError?: string;
   /** R2 storage key for the video asset */
   videoR2Key?: string;
   /** True if the video model generated native audio with the video (e.g., Seedance 1.5 Pro).
    *  When true, SFX generation is skipped — audio is baked into the video file. */
   hasNativeAudio?: boolean;
+  nativeAudioRights?: AudioRightsContract;
+  generatedVideoReceipt?: GeneratedVideoReceipt;
   /** Set to true when scene skips AI video generation (asset type is non-video) */
   videoSkipped?: boolean;
   /** Reason scene skipped video generation */
@@ -288,6 +307,25 @@ export interface EditronProductionManifest {
   targetDurationSeconds?: number;
   coveragePolicy: 'production-require-all-scenes' | 'draft-partial-allowed';
   warnings: string[];
+  /** Server-resolved ThinkForge brief, casting, and provenance carried to downstream consumers. */
+  thinkforgeContext?: {
+    version: number;
+    briefSnapshot?: Record<string, unknown>;
+    sourceLedger?: Record<string, unknown>;
+    sidecarSourceRefs: string[];
+    avatarDirectives: Array<{
+      sceneIndex: number;
+      durationSeconds: number;
+      relipSafe?: boolean;
+      speakers: Array<{
+        characterId: string;
+        avatarProfileId?: string;
+        voiceMode: 'cloned' | 'preset' | 'none' | 'unbound';
+        lineText: string;
+        sourceRefs?: string[];
+      }>;
+    }>;
+  };
 }
 
 export type ApprovedStoryboardReferenceProvenance =

@@ -1,0 +1,17 @@
+# Keep the build context small — deps are reinstalled inside the image, build/cache dirs aren't needed.
+node_modules
+**/node_modules
+.next
+.git
+explainer-remotion/out
+explainer-remotion/public/audio
+explainer-remotion/public/reference
+# generated scene output is excluded, BUT ship the placeholder manifest so the Remotion bundle resolves
+# ./gen/manifest on a fresh render box (agent-craft overwrites it with the real one during craft).
+explainer-remotion/src/bricks/gen/*
+!explainer-remotion/src/bricks/gen/manifest.ts
+reference-repos
+tmp
+outputs
+.codex-digest
+*.log

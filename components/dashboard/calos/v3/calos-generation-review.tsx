@@ -13,7 +13,7 @@ import { Sheet, Btn, Glyph, Mono } from './calos-atoms';
    as preview → place without any backend change. */
 
 export function GenerationReview({
-  title, sub, items, onRemove, onClose,
+  title, sub, items, onRemove, onClose, onGenerateAll,
 }: {
   title: string;
   sub?: string;
@@ -21,7 +21,21 @@ export function GenerationReview({
   /** Real delete of a just-created draft. */
   onRemove: (id: string) => void;
   onClose: () => void;
+  /** Accept the kept ideas and generate every one's script/post (sequential, in the parent). When
+   *  absent, the sheet is keep-only. */
+  onGenerateAll?: (ids: string[]) => Promise<void> | void;
 }) {
+  const [busy, setBusy] = React.useState(false);
+  const acceptAndGenerate = async () => {
+    if (busy || !onGenerateAll) return;
+    setBusy(true);
+    try {
+      await onGenerateAll(items.map((d) => d.id));
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <Sheet title={title} sub={sub} onClose={onClose} w={560}>
       {items.length === 0 ? (
@@ -40,7 +54,16 @@ export function GenerationReview({
             ))}
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-            <Btn size="sm" variant="primary" onClick={onClose}>Done · keep {items.length}</Btn>
+            {onGenerateAll ? (
+              <>
+                <Btn size="sm" onClick={onClose} disabled={busy}>Just keep</Btn>
+                <Btn size="sm" variant="primary" onClick={acceptAndGenerate} disabled={busy}>
+                  {busy ? `Generating ${items.length}…` : `✨ Accept & generate all ${items.length}`}
+                </Btn>
+              </>
+            ) : (
+              <Btn size="sm" variant="primary" onClick={onClose}>Done · keep {items.length}</Btn>
+            )}
           </div>
         </>
       )}

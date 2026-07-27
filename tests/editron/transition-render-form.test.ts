@@ -36,6 +36,15 @@ const baseForm: AtomicTransitionForm = {
   maskFeather: 0.18,
   intensity: 0.9,
   visualPressure: 0.2,
+  editorialPreference: {
+    version: 'editorial-preference-intensity-v1',
+    editorialFamily: 'transitions',
+    mode: 'signal-only',
+    signalIntensity: 0.9,
+    requestedIntensity: null,
+    resolvedIntensity: 0.9,
+    method: 'identity',
+  },
   keyframeBased: false,
   sfxRole: 'fast-whoosh',
 };

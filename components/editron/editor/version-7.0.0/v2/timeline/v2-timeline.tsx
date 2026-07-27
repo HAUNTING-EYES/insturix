@@ -27,7 +27,7 @@ import { useAssetLoading } from '../../contexts/asset-loading-context';
 import { useEditorContext } from '../../contexts/editor-context';
 import { Overlay, OverlayType } from '../../types';
 import GhostMarker from '../../components/timeline/ghost-marker';
-import TimelineGrid from '../../components/timeline/timeline-grid';
+import { V2TimelineGrid } from './v2-timeline-grid';
 import TimelineMarker from '../../components/timeline/timeline-marker';
 import TimeMarkers from '../../components/timeline/timeline-markers';
 import { TimelineRowLabel } from '../../components/timeline/timeline-row-label';
@@ -415,7 +415,7 @@ export function V2Timeline({
 
               <GhostMarker position={ghostMarkerPosition} isDragging={isDragging} isContextMenuOpen={isContextMenuOpen} />
 
-              <TimelineGrid
+              <V2TimelineGrid
                 overlays={overlays}
                 currentFrame={currentFrame}
                 isDragging={isDragging}

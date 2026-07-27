@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+import {
+  RenderDeliveryManifestSchema,
+  type RenderDeliveryManifest,
+} from '@/lib/editron/services/render-delivery-manifest';
+
 /**
  * Schema for Remotion Lambda render jobs stored in MongoDB
  * Collection: editron_render_jobs
@@ -14,6 +19,7 @@ export const RenderJobSchema = z.object({
   progress: z.number().min(0).max(1).default(0),
   outputUrl: z.string().optional(),
   outputSize: z.number().optional(),
+  deliveryManifest: RenderDeliveryManifestSchema.optional(),
   startedAt: z.date(),
   completedAt: z.date().optional(),
   error: z.string().optional(),
@@ -33,7 +39,8 @@ export function createRenderJob(
   renderId: string,
   userId: string,
   projectId: string,
-  bucketName?: string
+  bucketName?: string,
+  deliveryManifest?: RenderDeliveryManifest,
 ): RenderJob {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + DEFAULT_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
@@ -46,6 +53,7 @@ export function createRenderJob(
     progress: 0,
     startedAt: now,
     bucketName,
+    ...(deliveryManifest ? { deliveryManifest } : {}),
     region: 'us-east-1',
     expiresAt,
   };

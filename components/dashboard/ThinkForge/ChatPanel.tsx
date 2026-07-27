@@ -15,6 +15,7 @@ import { toast } from "@/hooks/use-toast";
 import { extractUrls } from "./PromptPanel";
 import { logShadowEvent } from "@/lib/thinkforge/services/shadow-logger";
 import { BlueprintCustomizer } from "./chat/BlueprintCustomizer";
+import { TrendWorkflowPanel } from "./TrendWorkflowPanel";
 
 interface ChatPanelProps {
   selectedIdea: Idea;
@@ -148,6 +149,7 @@ function modelToScript(m: ScriptModel | null): Script | null {
 export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: string) => void }> = ({
   selectedIdea,
   script,
+  isScriptLoading,
   onApplyEdit,
   sessionId,
   scriptId,
@@ -169,6 +171,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   const [activeThreadId, setActiveThreadId] = useState<string>('default');
   const [threadRegistry, setThreadRegistry] = useState<Array<{ id: string; name: string; lastEdited: number }>>([]);
   const scriptIdRef = React.useRef<string | null>(scriptId || null);
+  const initialDraftClaimedSessionRef = React.useRef<string | null>(null);
   const [briefExtracting, setBriefExtracting] = useState(false);
   const justStoppedStreamRef = React.useRef(false);
   const [sidecarLoading, setSidecarLoading] = useState<SidecarActionType | null>(null);
@@ -177,6 +180,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     cardId: string;
     artifacts: Array<{ type: string; label: string; description?: string; priority?: string }>;
   } | null>(null);
+  const [trendWorkflowOpen, setTrendWorkflowOpen] = useState(false);
 
   useEffect(() => {
     scriptIdRef.current = scriptId || null;
@@ -245,6 +249,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   const chat = useThinkForgeChat(sessionId || null, activeThreadId || null, initialMessages, {
     onRemoteScriptUpdate: handleScriptUpdate,
     onScriptCreated,
+    getActiveScriptId: () => scriptIdRef.current,
   });
 
   // Initialize context-aware suggestions
@@ -272,14 +277,78 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   // Build script payload
   const scriptPayload = useMemo(() => scriptToModel(script), [script]);
 
+  // An initial document draft is created only after an explicit Start Drafting action
+  // persists a pending intent on the session. Mounting an old session never creates one.
+  useEffect(() => {
+    if (!sessionId || isScriptLoading) return;
+    if (initialDraftClaimedSessionRef.current === sessionId) return;
+    if (!selectedIdea?.idea || chat.messages.length > 0 || chat.isStreaming) return;
+
+    const hasScript = Boolean(
+      script?.content ||
+      (Array.isArray(script?.blocks) && script.blocks.length > 0),
+    );
+    if (hasScript) return;
+
+    void (async () => {
+      try {
+        const response = await fetch('/api/services/thinkforge/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, claimInitialDraft: true }),
+        });
+        if (!response.ok) {
+          throw new Error(`Initial draft claim failed: ${response.status}`);
+        }
+
+        const claim = await response.json();
+        initialDraftClaimedSessionRef.current = sessionId;
+        if (claim?.initialDraftClaimed !== true) return;
+
+        const initialDraftPrompt = `Create the complete first draft for this idea: "${selectedIdea.idea}". Follow the selected document format and platform. Keep the content specific to the idea, begin with a strong hook, and include a clear ending.`;
+        void chat.sendMessage(initialDraftPrompt, {
+          silent: true,
+          script: scriptPayload,
+          project: sessionPayload,
+          onTokenStream,
+          onScriptCreated,
+          scriptId: scriptIdRef.current || undefined,
+          intentContext: {
+            editorFocused: false,
+            hasSelection: false,
+            workspaceMode,
+            lastUserAction: 'initial_draft_claim',
+          },
+        });
+      } catch (error) {
+        console.error('[ThinkForge] Initial draft claim failed:', error);
+        toast({
+          title: 'Could not start the first draft',
+          description: 'Please try again from the editor.',
+          variant: 'destructive',
+        });
+      }
+    })();
+  }, [
+    sessionId,
+    isScriptLoading,
+    selectedIdea?.idea,
+    script?.content,
+    script?.blocks,
+    chat.messages.length,
+    chat.isStreaming,
+    chat.sendMessage,
+    scriptPayload,
+    sessionPayload,
+    onTokenStream,
+    onScriptCreated,
+    workspaceMode,
+  ]);
   const handleSend = useCallback(() => {
-    console.log('[ChatPanel.handleSend] called', { inputValue: inputValue.trim(), sessionId, isStreaming: chat.isStreaming });
     if (!inputValue.trim()) {
-      console.log('[ChatPanel.handleSend] No input value, returning');
       return;
     }
     if (!sessionId) {
-      console.log('[ChatPanel.handleSend] No sessionId, returning');
       toast({
         title: "Session not ready",
         description: "Please wait a moment while the session loads, then try again.",
@@ -665,6 +734,10 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     // Cards are embedded in messages; dismissal is a no-op for now
   }, []);
 
+  const handleGenerateFromTrend = useCallback((prompt: string) => {
+    sendChatMessage(prompt);
+  }, [sendChatMessage]);
+
   const hasEditorSelection = useMemo(() => {
     if (editingSelection) return true;
     return false;
@@ -724,6 +797,14 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         <div className="absolute bottom-0 left-0 right-0 h-8 bg-linear-to-t from-neutral-900/60 to-transparent pointer-events-none" />
       </div>
 
+      <TrendWorkflowPanel
+        open={trendWorkflowOpen}
+        sessionId={sessionId}
+        initialTarget={workspaceMode === "script" ? "script" : "post"}
+        onClose={() => setTrendWorkflowOpen(false)}
+        onGenerate={handleGenerateFromTrend}
+      />
+
       <ChatInput
         value={inputValue}
         onChange={setInputValue}
@@ -737,6 +818,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         suggestions={suggestions}
         editingSelection={editingSelection}
         onCancelEditSelection={handleCancelEditSelection}
+        onOpenTrendWorkflow={() => setTrendWorkflowOpen(true)}
       />
 
       {/* Chat History Panel */}

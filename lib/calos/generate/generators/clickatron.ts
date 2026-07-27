@@ -11,12 +11,13 @@ import { runPostWriter } from "./_post-writer";
  */
 export async function clickatronGenerator(params: GenerateParams): Promise<GenerateResult> {
   try {
-    const content = await runPostWriter(params);
+    const { content, imagePrompt } = await runPostWriter(params);
     if (!content) return { ok: false, error: "PostWriter returned empty caption" };
-    // v1: produce the on-brand CAPTION only (visible). The image is made in Clickatron via
-    // ThinkForge's export flow, where the image prompt is generated + HIDDEN from the user; that
-    // lands the image on the card in the completion-callback phase -> status stays 'drafting'.
-    return { ok: true, assetText: content, status: "drafting" };
+    // v1: produce the on-brand CAPTION (visible) + carry the writer's tailored image prompt so the
+    // dispatcher can kick off Clickatron image generation for this card. The image itself is made
+    // async in Clickatron (credit-charged) and pulled back onto the card by the completion callback,
+    // so status stays 'drafting' until the asset lands.
+    return { ok: true, assetText: content, status: "drafting", ...(imagePrompt ? { imagePrompt } : {}) };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Clickatron generation failed" };
   }

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { EditDecision } from '../../lib/editron/services/reactive-edit-engine';
 import { applyCrossOverlayChoreography } from '../../lib/editron/services/cross-overlay-choreography';
-import { annotateFinalOverlayChoreographyBypasses } from '../../lib/editron/services/cross-overlay-final-overlays';
+import {
+  annotateFinalOverlayChoreographyBypasses,
+  summarizeFinalOverlayChoreographyBypasses,
+} from '../../lib/editron/services/cross-overlay-final-overlays';
+import { buildCanonicalCaptionChoreographyReservations } from '../../lib/editron/services/canonical-caption-track';
+import { resolveAtomicCaptionPresentation } from '../../lib/editron/services/caption-form';
+import { resolveAtomicPlacement } from '../../lib/editron/services/atomic-placement';
 
 describe('cross-overlay choreography scheduler', () => {
   it('keeps one text-lane owner when MG and caption emphasis compete on the same moment', () => {
@@ -53,6 +59,94 @@ describe('cross-overlay choreography scheduler', () => {
     }));
   });
 
+  it('uses real canonical caption groups as non-executable planner reservations', () => {
+    const reservations = buildCanonicalCaptionChoreographyReservations({
+      overlays: [],
+      editedTimelineContext: {
+        version: 'edited-timeline-context-v1',
+        fps: 30,
+        durationFrames: 180,
+        durationMs: 6_000,
+        sourceClips: [{ from: 0, durationInFrames: 180, sourceStartFrame: 0 }],
+        transcription: [
+          { word: 'This', startMs: 1_000, endMs: 1_240, originalStartMs: 1_000, originalEndMs: 1_240 },
+          { word: 'matters', startMs: 1_280, endMs: 1_760, originalStartMs: 1_280, originalEndMs: 1_760 },
+        ],
+        sourceRawFootage: {},
+        editedRawFootage: {},
+        evidence: {},
+      } as any,
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: resolveAtomicCaptionPresentation({ requestedStyle: 'bold' }),
+    });
+
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0]).toMatchObject({
+      type: 'caption-emphasis',
+      frame: 30,
+      durationFrames: 23,
+      source: 'canonical-caption-track',
+      params: {
+        choreographyReservationOnly: true,
+        captionProtectedRegion: {
+          reason: 'canonical-caption-region',
+          strength: 1,
+        },
+      },
+    });
+
+    const result = applyCrossOverlayChoreography([
+      decision({
+        type: 'graphic',
+        frame: 36,
+        durationFrames: 36,
+        confidence: 0.92,
+        source: 'signal-executor:mg',
+      }),
+    ], reservations);
+
+    expect(result.decisions).toEqual([expect.objectContaining({
+      type: 'graphic',
+      frame: 36,
+      params: expect.objectContaining({
+        coordinateWithCaptions: true,
+        captionPlacementReservations: expect.objectContaining({
+          version: 'caption-placement-reservations-v1',
+          source: 'canonical-caption-track',
+          regions: [expect.objectContaining({
+            reason: 'canonical-caption-region',
+            strength: 1,
+          })],
+        }),
+      }),
+    })]);
+    expect(result.suppressed).toEqual([]);
+    expect(result.shaped).toEqual([]);
+    expect(result.report).toMatchObject({
+      inputDecisionCount: 1,
+      outputDecisionCount: 1,
+      shapedDecisionCount: 0,
+      reservationCount: 1,
+      reservations: [expect.objectContaining({ source: 'canonical-caption-track', family: 'caption' })],
+    });
+
+    const placementReservations = result.decisions[0].params.captionPlacementReservations as {
+      regions: Array<{ x: number; y: number; width: number; height: number; reason: string; strength: number }>;
+    };
+    const placement = resolveAtomicPlacement({
+      family: 'graphic',
+      requestedRegion: 'full-frame',
+      protectedRegions: placementReservations.regions,
+    });
+    expect(placement.placementHints.avoid).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        reason: 'text-occupancy',
+        source: 'layout-analysis',
+        strength: 1,
+      }),
+    ]));
+    expect(placement.placementHints.constraints).toContain('protect-caption-reservation');
+  });
   it('shapes a text-lane decision when a small timing nudge seats both overlays', () => {
     const result = applyCrossOverlayChoreography([
       decision({
@@ -331,6 +425,72 @@ describe('cross-overlay choreography scheduler', () => {
       family: 'camera',
     }));
     expect(overlays[3].metadata.crossOverlayFinalChoreography).toBeUndefined();
+  });
+  it('summarizes final bypasses without mutating canonical overlays', () => {
+    const overlays: any[] = [{
+      id: 'bgm-1',
+      type: 'sound',
+      from: 0,
+      durationInFrames: 300,
+      row: 1,
+      _workerAdded: true,
+      metadata: { role: 'bgm' },
+    }];
+    const before = structuredClone(overlays);
+
+    const report = summarizeFinalOverlayChoreographyBypasses(overlays);
+
+    expect(report).toMatchObject({
+      bypassOverlayCount: 1,
+      countsByProducer: { 'async-worker-audio': 1 },
+    });
+    expect(overlays).toEqual(before);
+  });
+  it('clears canonical caption bypass only when the persisted reservation receipt is complete', () => {
+    const scheduledCaption = {
+      id: 'caption-scheduled',
+      type: 'caption',
+      from: 0,
+      durationInFrames: 300,
+      metadata: {
+        source: 'canonical-caption-track',
+        crossOverlayChoreographyReservations: {
+          version: 'canonical-caption-reservations-v1',
+          status: 'scheduled',
+          reservationCount: 2,
+          activeGroupCount: 2,
+        },
+      },
+    };
+    const incompleteCaption = {
+      id: 'caption-incomplete',
+      type: 'caption',
+      from: 0,
+      durationInFrames: 300,
+      metadata: {
+        source: 'canonical-caption-track',
+        crossOverlayChoreographyReservations: {
+          version: 'canonical-caption-reservations-v1',
+          status: 'scheduled',
+          reservationCount: 1,
+          activeGroupCount: 2,
+        },
+      },
+    };
+    const overlays: any[] = [scheduledCaption, incompleteCaption];
+
+    const report = annotateFinalOverlayChoreographyBypasses(overlays);
+
+    expect(report).toMatchObject({
+      overlayCount: 2,
+      bypassOverlayCount: 1,
+      countsByProducer: { 'canonical-caption-track': 1 },
+      bypasses: [expect.objectContaining({ overlayId: 'caption-incomplete' })],
+    });
+    expect(overlays[0].metadata.crossOverlayFinalChoreography).toBeUndefined();
+    expect(overlays[1].metadata.crossOverlayFinalChoreography).toEqual(expect.objectContaining({
+      producer: 'canonical-caption-track',
+    }));
   });
   it('keeps linked SFX when it lands inside the sync window of its visual beat', () => {
     const result = applyCrossOverlayChoreography([

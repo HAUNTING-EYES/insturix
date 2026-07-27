@@ -22,7 +22,7 @@ export const maxDuration = 60;
  * POST /api/services/thinkforge/script/edit-blocks
  */
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -51,6 +51,13 @@ export async function POST(req: Request) {
   }
 
   try {
+    if (sessionId) {
+      const session = await db.getSession(sessionId, userId, orgId);
+      if (!session) {
+        return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+      }
+      sessionId = session._id;
+    }
     // Get existing script if not provided
     let existingScript = script;
     let baseVersion = typeof script?.version === 'number' ? script.version : 0;
@@ -85,7 +92,7 @@ export async function POST(req: Request) {
     if (sessionId && existingContent.trim().length > 0 && existingBlocksForEdit.length > 0) {
       try {
         const revised = await reviseDocumentViaFlatWriter({
-          userId, sessionId, scriptId, existingScript, existingContent,
+          userId, orgId, sessionId, scriptId, existingScript, existingContent,
           instruction: enrichedInstruction, selection, baseVersion,
         });
         return NextResponse.json({
@@ -141,7 +148,7 @@ export async function POST(req: Request) {
 
       let currentVersion = baseVersion;
       for (const command of commands) {
-        const result = await applyCommand({ ...command, baseVersion: currentVersion }, userId);
+        const result = await applyCommand({ ...command, baseVersion: currentVersion }, userId, orgId);
         if (!result.ok) {
           throw new Error(result.error);
         }

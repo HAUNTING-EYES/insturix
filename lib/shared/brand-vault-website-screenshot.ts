@@ -31,6 +31,7 @@ export interface BrandVaultScreenshotEnvironment {
   BRAND_VAULT_SCREENSHOT_TIMEOUT_MS?: string;
   BRAND_VAULT_SCREENSHOT_WAIT_MS?: string;
   BRAND_VAULT_SCREENSHOT_FULL_PAGE?: string;
+  BRAND_VAULT_SCREENSHOT_SECTIONS?: string;
   BRAND_VAULT_MODAL_RENDER_ENDPOINT?: string;
   BRAND_VAULT_MODAL_RENDER_TOKEN?: string;
   BRAND_VAULT_BROWSER_RENDER_ENDPOINT?: string;
@@ -51,6 +52,11 @@ export type CapturedBrandVaultScreenshot =
 export type CaptureBrandVaultWebsiteScreenshot = (
   websiteUrl: string,
 ) => Promise<CapturedBrandVaultScreenshot | undefined>;
+
+/** Captures an ORDERED SET of section screenshots (hero + scrolled sections). Empty when unavailable. */
+export type CaptureBrandVaultSectionScreenshots = (
+  websiteUrl: string,
+) => Promise<CapturedBrandVaultScreenshot[]>;
 
 const DEFAULT_SCREENSHOT_TIMEOUT_MS = 15_000;
 const MIN_SCREENSHOT_TIMEOUT_MS = 2_000;
@@ -191,6 +197,123 @@ async function captureEndpointScreenshot(args: {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+const DEFAULT_SCREENSHOT_SECTIONS = 3;
+const MAX_SCREENSHOT_SECTIONS = 8;
+const DEFAULT_SECTION_HYDRATION_WAIT_MS = 2_800;
+const MAX_SECTION_CAPTURE_TIMEOUT_MS = 60_000;
+
+/**
+ * Build a SECTION-screenshot capture from the environment (ordered hero + scrolled-section shots), or
+ * `undefined` when no provider is configured. Same provider order + free-default gate as the single-shot
+ * capture: a self-hosted / Modal render endpoint (mode: 'screenshots') is preferred; Firecrawl falls back to
+ * a single full-page shot (paid opt-in) — so the "free forever" stance never regresses.
+ */
+export function createBrandVaultSectionScreenshotCaptureFromEnvironment(
+  env: BrandVaultScreenshotEnvironment = process.env,
+  fetchFn: BrandVaultScreenshotFetch = fetch,
+): CaptureBrandVaultSectionScreenshots | undefined {
+  const explicit = parseProvider(env.BRAND_VAULT_SCREENSHOT_PROVIDER);
+  if (explicit === 'off') return undefined;
+
+  const endpoint = firstString(
+    env.BRAND_VAULT_SCREENSHOT_ENDPOINT,
+    env.BRAND_VAULT_MODAL_RENDER_ENDPOINT,
+    env.BRAND_VAULT_BROWSER_RENDER_ENDPOINT,
+  );
+  const apiKey = env.FIRECRAWL_API_KEY?.trim();
+  const provider: BrandVaultScreenshotProvider | undefined =
+    explicit ?? (endpoint ? 'endpoint' : apiKey ? 'firecrawl' : undefined);
+  if (!provider) return undefined;
+
+  const timeoutMs = parseBoundedInteger(
+    env.BRAND_VAULT_SCREENSHOT_TIMEOUT_MS,
+    MIN_SCREENSHOT_TIMEOUT_MS,
+    MAX_SCREENSHOT_TIMEOUT_MS,
+    DEFAULT_SCREENSHOT_TIMEOUT_MS,
+  );
+  // Sections need late-hydration settle before the first shot (the glm-capture recipe waits ~2.8s).
+  const waitMs = parseBoundedInteger(env.BRAND_VAULT_SCREENSHOT_WAIT_MS, 0, MAX_SECTION_CAPTURE_TIMEOUT_MS, DEFAULT_SECTION_HYDRATION_WAIT_MS);
+  const sections = parseBoundedInteger(env.BRAND_VAULT_SCREENSHOT_SECTIONS, 1, MAX_SCREENSHOT_SECTIONS, DEFAULT_SCREENSHOT_SECTIONS);
+
+  if (provider === 'endpoint') {
+    if (!endpoint) return undefined;
+    const token = firstString(
+      env.BRAND_VAULT_SCREENSHOT_TOKEN,
+      env.BRAND_VAULT_MODAL_RENDER_TOKEN,
+      env.BRAND_VAULT_BROWSER_RENDER_TOKEN,
+    );
+    return async (websiteUrl) =>
+      captureEndpointSectionScreenshots({ endpoint, token, websiteUrl, timeoutMs, waitMs, sections, fetchFn });
+  }
+
+  if (!apiKey) return undefined;
+  const firecrawlEndpoint = env.FIRECRAWL_API_URL?.trim() || DEFAULT_FIRECRAWL_API_URL;
+  // Firecrawl has no native section-scroll; a single full-page shot is the paid-opt-in fallback.
+  return async (websiteUrl) => {
+    const one = await captureFirecrawlScreenshot({ apiKey, endpoint: firecrawlEndpoint, websiteUrl, timeoutMs, waitMs, fullPage: true, fetchFn });
+    return one ? [one] : [];
+  };
+}
+
+async function captureEndpointSectionScreenshots(args: {
+  endpoint: string;
+  token?: string;
+  websiteUrl: string;
+  timeoutMs: number;
+  waitMs: number;
+  sections: number;
+  fetchFn: BrandVaultScreenshotFetch;
+}): Promise<CapturedBrandVaultScreenshot[]> {
+  const target = normalizeHttpUrl(args.websiteUrl);
+  if (!target) return [];
+
+  const controller = new AbortController();
+  // Section capture (goto + hydrate + N scroll/shot cycles) is slower than a single shot; give it room.
+  const timeout = setTimeout(() => controller.abort(), MAX_SECTION_CAPTURE_TIMEOUT_MS);
+  try {
+    const headers: Record<string, string> = { accept: 'application/json', 'content-type': 'application/json' };
+    if (args.token) headers.authorization = `Bearer ${args.token}`;
+    const response = await args.fetchFn(args.endpoint, {
+      method: 'POST',
+      signal: controller.signal,
+      headers,
+      body: JSON.stringify({
+        url: target,
+        normalizedUrl: target,
+        mode: 'screenshots',
+        sections: args.sections,
+        waitFor: args.waitMs,
+        timeout: args.timeoutMs,
+      }),
+    });
+    if (!response.ok) return [];
+    const payload = await response.json().catch(() => null);
+    return parseCapturedScreenshots(payload);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Parse a render-endpoint `mode:'screenshots'` response (an ordered `screenshots[]` of url/bytes items). */
+export function parseCapturedScreenshots(payload: unknown): CapturedBrandVaultScreenshot[] {
+  const root = objectRecord(payload);
+  if (!root) return [];
+  const data = objectRecord(root.data) ?? root;
+  const rawList = Array.isArray(data.screenshots)
+    ? data.screenshots
+    : Array.isArray(root.screenshots)
+      ? root.screenshots
+      : [];
+  const out: CapturedBrandVaultScreenshot[] = [];
+  for (const item of rawList) {
+    const captured = parseCapturedScreenshot(typeof item === 'string' ? { screenshot: item } : item);
+    if (captured) out.push(captured);
+  }
+  return out;
 }
 
 /** Pull the screenshot URL out of a Firecrawl v2 scrape response, tolerant of shape drift. */
@@ -405,6 +528,84 @@ export function buildWebsiteScreenshotCandidate(input: {
     authorityClass: 'owned',
     observedAt: input.observedAt,
     extractorId: SCREENSHOT_EXTRACTOR,
+  };
+}
+
+const UI_SCREENSHOTS_EXTRACTOR = 'brand-vault-ui-screenshots.v1';
+const MAX_UI_SCREENSHOT_URLS = 12;
+
+/**
+ * The URL set to capture for a brand: the given page, plus — when it's an app/dashboard subdomain (usually
+ * auth-walled) — its root marketing site, the www variant, and /examples, where the real product + brand
+ * shots live. Deduped + capped. Pure.
+ */
+export function resolveBrandCaptureUrls(websiteUrl: string, max = 3): string[] {
+  const normalized = normalizeHttpUrl(websiteUrl);
+  if (!normalized) return [];
+  const out: string[] = [normalized];
+  try {
+    const url = new URL(normalized);
+    const host = url.hostname.toLowerCase();
+    const appSub = /^(?:app|dashboard|my|portal|console|dash)\./.exec(host);
+    if (appSub) {
+      const root = host.slice(appSub[0].length);
+      out.push(`${url.protocol}//${root}/`, `${url.protocol}//www.${root}/`, `${url.protocol}//${root}/examples`);
+    } else {
+      out.push(`${url.origin}/examples`);
+    }
+  } catch {
+    // keep just the normalized url
+  }
+  return uniqueStrings(out).slice(0, Math.max(1, max));
+}
+
+/**
+ * Merge durable section-screenshot URLs into `assets.uiScreenshots` as actionable first-party scan evidence
+ * (the rendered product UI a SPA hides from an HTML parser) — the input the vision-decode stage reads into a
+ * Product UI Model. Distinct from `socialPreviewImages` (single hero preview). Pure; no-op for no valid urls.
+ */
+export function applyUiScreenshotsToProfile(
+  profile: BrandSignalProfile,
+  input: { screenshotUrls: string[]; observedAt: string; sourceUrl?: string },
+): BrandSignalProfile {
+  const urls = uniqueStrings(input.screenshotUrls).filter((url) => /^https?:\/\/\S+/i.test(url));
+  if (urls.length === 0) return profile;
+
+  const evidenceId = `evidence_ui_screenshots_${stableHash(urls.join('|'))}`;
+  const evidence: BrandSignalEvidence = {
+    id: evidenceId,
+    signalPath: 'assets.uiScreenshots',
+    sourceType: 'first_party_website',
+    sourceField: 'website.sectionScreenshots',
+    sourceUrl: input.sourceUrl?.trim() || urls[0],
+    excerpt: `${urls.length} rendered UI section screenshot${urls.length === 1 ? '' : 's'} captured during the Brand Vault scan.`,
+    confidence: SCREENSHOT_SIGNAL_CONFIDENCE,
+    trustLevel: 'first_party_website',
+    authorityClass: 'brand_fact',
+    observedAt: input.observedAt,
+    extractor: UI_SCREENSHOTS_EXTRACTOR,
+  };
+
+  const existing = profile.assets?.uiScreenshots;
+  const existingUrls = Array.isArray(existing?.value) ? existing.value : [];
+  const value = [...urls, ...existingUrls.filter((url) => !urls.includes(url))].slice(0, MAX_UI_SCREENSHOT_URLS);
+  const uiScreenshots: BrandSignal<string[]> = {
+    value,
+    confidence: Math.max(SCREENSHOT_SIGNAL_CONFIDENCE, existing?.confidence ?? 0),
+    trustLevel: 'first_party_website',
+    authorityClass: 'brand_fact',
+    evidenceIds: uniqueStrings([evidenceId, ...(existing?.evidenceIds ?? [])]),
+  };
+
+  const assets = profile.assets
+    ? { ...profile.assets, uiScreenshots }
+    : { productImages: emptyProductImagesSignal(), uiScreenshots };
+
+  const alreadyRecorded = profile.evidence.some((item) => item.id === evidenceId);
+  return {
+    ...profile,
+    assets,
+    evidence: alreadyRecorded ? profile.evidence : [...profile.evidence, evidence],
   };
 }
 

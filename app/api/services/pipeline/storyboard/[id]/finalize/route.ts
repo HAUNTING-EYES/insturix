@@ -7,6 +7,11 @@ import { CreditsService } from '@/lib/services/creditsService';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import type { Storyboard } from '@/lib/pipeline/schemas/storyboard';
 import { buildMusicPrompt, isBGMAvailable } from '@/lib/pipeline/bgm-service';
+import {
+  assertConditionedBGMResult,
+  resolveAudioPlatformEvidence,
+  resolveMusicGenerationPolicy,
+} from '@/lib/pipeline/bgm-conditioning-contract';
 import { dispatchAudioJob } from '@/lib/editron/services/audio-worker-dispatch';
 import { isSFXAvailable } from '@/lib/pipeline/sfx-service';
 import { applyEditDirections } from '@/lib/pipeline/edit-direction-applier';
@@ -15,6 +20,11 @@ import { getAnalysis, selectBestSegment } from '@/lib/editron/services/five-trac
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { addProjectToLink } from '@/lib/shared/project-links';
 import { resolveStoryboardBrandReferenceIssue } from '@/lib/pipeline/storyboard-brand-reference-guard';
+import {
+  buildMusicCoverageOverlays,
+  resolveRuntimeMusicCoveragePlan,
+} from '@/lib/editron/services/music-coverage-runtime';
+import { analyzeConditionedMusicBeatGrid } from '@/lib/editron/services/music-beat-grid';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // Reduced — no longer generates audio inline
@@ -211,12 +221,26 @@ export async function POST(
       includeCaptions = true,
       brandId,
       requireVideoCoverage = true,
+      musicPreference,
+      editorialPreferences,
     } = body;
 
     const storyboard = await getStoryboard(id, userId);
     if (!storyboard) {
       return NextResponse.json({ error: 'Storyboard not found' }, { status: 404 });
     }
+
+    const briefSnapshot = storyboard.productionManifest?.thinkforgeContext?.briefSnapshot;
+    const briefOutput = briefSnapshot && typeof briefSnapshot.output === 'object' && briefSnapshot.output !== null
+      ? briefSnapshot.output as Record<string, unknown>
+      : undefined;
+    const audioPlatformEvidence = resolveAudioPlatformEvidence([
+      {
+        value: briefOutput?.platform,
+        source: 'storyboard.productionManifest.thinkforgeContext.briefSnapshot.output.platform',
+      },
+      { value: (storyboard as any).platform, source: 'storyboard.platform' },
+    ]);
 
     const coverageIssue = resolveProductionCoverageIssue(storyboard, {
       requireVideoCoverage: requireVideoCoverage !== false,
@@ -370,14 +394,6 @@ export async function POST(
           // Users can still add stock manually via editor's searchStockFootage tool.
           if (sub.videoUrl) {
             // Priority 1: AI-generated video clip
-            // Phase A3.5.13 fix: inherit `hasNativeAudio` from parent scene. If the scene
-            // was generated with Seedance 1.5 (or any model with nativeAudio:true in
-            // video-model-configs.ts), the scene-level video has the flag set. All
-            // sub-shots of that scene used the same model, so they should too.
-            // Without this, SFX worker filter `!hasNativeAudio` lets sub-shot SFX through
-            // even though the video already has embedded foley → audio collision + wasted credits.
-            // Proper fix (per-sub-shot model detection) belongs in the video worker — Phase 2.
-            const parentHasNativeAudio = (scene as any).hasNativeAudio || (sub as any).hasNativeAudio || false;
             const subOverlay: any = {
               id: overlayId++,
               type: 'video',
@@ -391,7 +407,9 @@ export async function POST(
               assetId: sub.videoAssetId,
               posterUrl: sub.imageUrl || scene.imageUrl || undefined,
               styles: { objectFit: 'cover', opacity: 1 },
-              hasNativeAudio: parentHasNativeAudio,
+              hasNativeAudio: sub.hasNativeAudio ?? false,
+              audioRights: sub.nativeAudioRights,
+              generatedVideoReceipt: sub.generatedVideoReceipt,
               metadata: {
                 sceneIndex: scene.sceneIndex,
                 subShotDescription: sub.description,
@@ -560,7 +578,9 @@ export async function POST(
             objectFit: 'cover',
             opacity: 1,
           },
-          hasNativeAudio: (scene as any).hasNativeAudio || false,
+          hasNativeAudio: scene.hasNativeAudio ?? false,
+          audioRights: scene.nativeAudioRights,
+          generatedVideoReceipt: scene.generatedVideoReceipt,
         };
         // Smart clip selection: if clip is longer than scene, pick best segment.
         // Slop-aware: AI artifacts (morphing, teleports, object count changes) in the
@@ -616,6 +636,7 @@ export async function POST(
           content: scene.voiceover.audioUrl,
           src: scene.voiceover.audioUrl,
           assetId: scene.voiceover.audioAssetId,
+          audioRights: scene.voiceover.audioRights,
           // Do NOT set audioStartFrame/audioEndFrame by default.
           // Setting them causes: (1) L-cut/J-cut handles showing unnecessarily,
           // (2) audio delay bug when applyEditDirections shifts overlay.from
@@ -750,20 +771,25 @@ export async function POST(
         await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
           { assetId: scene.voiceover.audioAssetId },
           {
+            $set: {
+              source: 'generated',
+              gcsPath: scene.voiceover.gcsPath || null,
+              r2Key: scene.voiceover.r2Key || scene.voiceover.audioAssetId,
+              cachedUrl: scene.voiceover.audioUrl,
+              urlExpiresAt: scene.voiceover.audioUrl.includes('workers.dev')
+                ? null
+                : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              durationMs: scene.voiceover.audioDurationMs || null,
+              audioDurationMs: scene.voiceover.audioDurationMs || null,
+              audioRights: scene.voiceover.audioRights,
+              generatedAudioReceipt: scene.voiceover.generatedAudioReceipt,
+              updatedAt: new Date(),
+            },
             $setOnInsert: {
               assetId: scene.voiceover.audioAssetId,
               userId,
               type: 'audio',
               filename: `${scene.voiceover.audioAssetId}.wav`,
-              source: 'user-upload',
-              gcsPath: (scene.voiceover as any).gcsPath || null,
-              r2Key: (scene.voiceover as any).r2Key || scene.voiceover.audioAssetId || null,
-              cachedUrl: scene.voiceover.audioUrl,
-              urlExpiresAt: scene.voiceover.audioUrl?.includes('workers.dev') ? null : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-              // Store duration so transcription-service can generate accurate synthetic timings
-              // without needing to download the audio file
-              durationMs: scene.voiceover.audioDurationMs || null,
-              audioDurationMs: scene.voiceover.audioDurationMs || null,
               size: 0,
               uploadedAt: new Date(),
             },
@@ -908,6 +934,55 @@ export async function POST(
       brandId,
       sourceSessionId: storyboardSourceSessionId,
     });
+    const projectRecord = project as any;
+    const musicGenerationPolicy = resolveMusicGenerationPolicy({
+      musicPreferences: [
+        { value: musicPreference, source: 'finalize-request.musicPreference' },
+        { value: (storyboard as any).musicPreference, source: 'storyboard.musicPreference' },
+        {
+          value: (briefSnapshot as any)?.musicPreference,
+          source: 'storyboard.productionManifest.thinkforgeContext.briefSnapshot.musicPreference',
+        },
+        { value: projectRecord.musicPreference, source: 'project.musicPreference' },
+        { value: projectRecord.productionBrief?.musicPreference, source: 'project.productionBrief.musicPreference' },
+        { value: projectRecord.productionBriefIntake?.musicPreference, source: 'project.productionBriefIntake.musicPreference' },
+        { value: projectRecord.creativeBrief?.musicPreference, source: 'project.creativeBrief.musicPreference' },
+      ],
+      editorialPreferences: [
+        { value: editorialPreferences, source: 'finalize-request.editorialPreferences' },
+        { value: (storyboard as any).editorialPreferences, source: 'storyboard.editorialPreferences' },
+        {
+          value: (briefSnapshot as any)?.editorialPreferences,
+          source: 'storyboard.productionManifest.thinkforgeContext.briefSnapshot.editorialPreferences',
+        },
+        { value: projectRecord.editorialPreferences, source: 'project.editorialPreferences' },
+        { value: projectRecord.productionBrief?.editorialPreferences, source: 'project.productionBrief.editorialPreferences' },
+        { value: projectRecord.productionBriefIntake?.editorialPreferences, source: 'project.productionBriefIntake.editorialPreferences' },
+        { value: projectRecord.creativeBrief?.editorialPreferences, source: 'project.creativeBrief.editorialPreferences' },
+      ],
+    });
+    if (!musicGenerationPolicy.allowed) {
+      console.log(`[Finalize] BGM disabled by ${musicGenerationPolicy.reason}`);
+    }
+    const authoredMusicPrompt = nonEmptyString(storyboard.overallMusicPrompt);
+    const musicCoveragePlan = musicGenerationPolicy.allowed
+      ? resolveRuntimeMusicCoveragePlan({
+          totalFrames: currentFrame,
+          fps,
+          project: projectRecord,
+          overlays,
+          contentType: nonEmptyString((briefSnapshot as any)?.contentType),
+          musicPreference: musicGenerationPolicy.musicPreference,
+          authoredMusicIntent: authoredMusicPrompt
+            ? { coverage: 'full', source: 'storyboard.overallMusicPrompt' }
+            : null,
+          storyboardScenes: storyboard.scenes,
+          sceneFrameMap,
+        })
+      : null;
+    if (musicCoveragePlan?.mode === 'none') {
+      console.log(`[Finalize] BGM skipped by coverage plan: ${musicCoveragePlan.reasonCodes.join(',')}`);
+    }
 
     // Update name + stage on reused project (it was created with a possibly-different title)
     if (existingProject) {
@@ -947,6 +1022,17 @@ export async function POST(
       {
         $set: {
           sourceStoryboardId: id,
+          musicGenerationPolicy,
+          ...(musicCoveragePlan ? {
+            musicCoveragePlan,
+            'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
+          } : {}),
+          ...(musicGenerationPolicy.musicPreference
+            ? { musicPreference: musicGenerationPolicy.musicPreference }
+            : {}),
+          ...(musicGenerationPolicy.editorialPreferences
+            ? { editorialPreferences: musicGenerationPolicy.editorialPreferences }
+            : {}),
           updatedAt: new Date(),
           // Bundle 4 Toyota B.silent.1 fix: if applyEditDirections failed,
           // persist that flag on the project so the editor UI can show a
@@ -1045,8 +1131,16 @@ export async function POST(
     let bgmSyncCompleted = false;
     let bgmGenerationBlockedByCredits = false;
     let bgmCreditCharge: PipelineAudioCreditCharge | null = null;
+    let audioGenerationQueued = false;
 
-    if (isBGMAvailable() && currentFrame > 0 && beatSyncActive) {
+    if (
+      musicGenerationPolicy.allowed
+      && musicCoveragePlan
+      && musicCoveragePlan.mode !== 'none'
+      && isBGMAvailable()
+      && currentFrame > 0
+      && beatSyncActive
+    ) {
       const totalDurationSec = Math.round(currentFrame / fps);
       bgmCreditCharge = await deductPipelineAudioCredits({
         userId,
@@ -1074,37 +1168,45 @@ export async function POST(
           );
           const { generateBackgroundMusic } = await import('@/lib/pipeline/bgm-service');
           const bgm = await Promise.race([
-            generateBackgroundMusic(musicPrompt, userId, totalDurationSec),
+            generateBackgroundMusic(musicPrompt, userId, totalDurationSec, {
+              conditioning: {
+                targetFrames: currentFrame,
+                fps,
+                platform: audioPlatformEvidence.platform,
+              },
+            }),
             new Promise<never>((_, reject) =>
               setTimeout(() => reject(new Error('BGM sync timeout (120s)')), 120_000),
             ),
           ]);
+          assertConditionedBGMResult(bgm, currentFrame, audioPlatformEvidence.platform);
 
-          // Detect beats (heuristic from BPM — upgrade path to audio analysis
-          // documented in beat-detection-service.ts header).
-          const { detectBeats } = await import('@/lib/editron/services/beat-detection-service');
-          const beatGrid = await detectBeats({
-            audioUrl: bgm.audioUrl,
-            bpm: (storyboard as any).bpm,
-            durationFrames: currentFrame,
-            fps,
-            hints: {
-              mood: storyboard.scenes[0]?.descriptor.mood,
-              profileId: (project as any).pendingDirectorProfileId,
-            },
-          });
-
-          console.log(
-            `[Finalize] Beat grid computed: ${beatGrid.bpm} BPM, ` +
-            `${beatGrid.beats.length} beats, ${beatGrid.downbeats.length} downbeats, ` +
-            `source=${beatGrid.source}`
-          );
+          let beatEvidence: Awaited<ReturnType<typeof analyzeConditionedMusicBeatGrid>> | null = null;
+          try {
+            beatEvidence = await analyzeConditionedMusicBeatGrid({
+              buffer: bgm.buffer,
+              fps,
+              totalFrames: currentFrame,
+            });
+            console.log(
+              `[Finalize] Beat grid analyzed: ${beatEvidence.beatGrid.bpm} BPM, `
+              + `${beatEvidence.beatGrid.beats.length} beats, `
+              + `${beatEvidence.beatGrid.downbeats.length} downbeats`,
+            );
+          } catch (beatErr: any) {
+            console.warn(`[Finalize] Beat analysis failed without discarding conditioned BGM: ${beatErr.message}`);
+            pipelineWarnings.degraded(
+              'bgm',
+              'beat-grid-analysis',
+              `Conditioned BGM was preserved, but beat analysis failed: ${beatErr.message}. Cuts were not realigned.`,
+            );
+          }
 
           // Build BGM overlay mirroring audio worker's shape (route.ts:118-140)
           // so downstream Director + editor treat it identically to async-generated BGM.
           // Beat grid stored on overlay metadata so Director reads from the BGM source itself.
           const bgmOverlayId = Date.now() * 1000 + Math.floor(Math.random() * 999999);
-          overlays.push({
+          const bgmOverlayBase = {
             id: bgmOverlayId,
             type: 'sound',
             from: 0,
@@ -1115,12 +1217,15 @@ export async function POST(
             content: bgm.audioUrl,
             src: bgm.audioUrl,
             assetId: bgm.audioAssetId,
+            musicRights: bgm.musicRights,
             styles: {
-              volume: 0.75,
+              // CKG-compliant levels (bgm-mix-levels.ts, from CKG music_solo/under_speech dB ranges). Were 0.75/0.20,
+              // ~9dB/~5dB hotter than the CKG's own ranges (the "BGM too loud" defect).
+              volume: 0.355,
               opacity: 1,
               duckingConfig: {
                 enabled: true,
-                duckLevel: 0.20,
+                duckLevel: 0.089,
                 rampDownMs: 300,
                 rampUpMs: 600,
                 lookAheadMs: 200,
@@ -1129,32 +1234,78 @@ export async function POST(
             metadata: {
               source: 'finalize-sync-beat-sync',
               beatSyncActive: true,
-              beatGrid,
+              ...(beatEvidence ? { beatGrid: beatEvidence.beatGrid } : {}),
+              audioConditioning: {
+                requestedPlatform: audioPlatformEvidence.platform,
+                platformEvidenceSource: audioPlatformEvidence.source,
+                ...bgm.conditioning,
+              },
             },
-          } as any);
+            _workerAdded: true,
+          } as any;
+          const bgmOverlays = buildMusicCoverageOverlays({
+            baseOverlay: bgmOverlayBase,
+            plan: musicCoveragePlan,
+            totalFrames: currentFrame,
+            idFactory: sectionIndex => bgmOverlayId + sectionIndex,
+          });
 
           // Register asset (same as audio worker does after generation)
           await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
             { assetId: bgm.audioAssetId },
             {
+              $set: {
+                cachedUrl: bgm.audioUrl,
+                lastUsedAt: new Date(),
+                musicRights: bgm.musicRights,
+                ...(beatEvidence ? {
+                  beatAnalysis: beatEvidence.beatAnalysis,
+                  beatGrid: beatEvidence.beatGrid,
+                } : {}),
+              },
               $setOnInsert: {
                 assetId: bgm.audioAssetId,
                 userId,
                 type: 'audio',
-                filename: `${bgm.audioAssetId}.mp3`,
-                source: 'user-upload',
+                filename: bgm.filename,
+                contentType: bgm.contentType,
+                source: 'generated',
                 gcsPath: bgm.gcsPath,
-                cachedUrl: bgm.audioUrl,
                 urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-                size: 0,
+                size: bgm.buffer.length,
+                durationMs: bgm.durationMs,
+                metadata: {
+                  audioConditioning: {
+                    requestedPlatform: audioPlatformEvidence.platform,
+                    platformEvidenceSource: audioPlatformEvidence.source,
+                    ...bgm.conditioning,
+                  },
+                },
                 uploadedAt: new Date(),
               },
             },
             { upsert: true },
           );
 
+          await db.collection(COLLECTIONS.PROJECTS).updateOne(
+            { projectId: project.projectId },
+            {
+              $push: { overlays: { $each: bgmOverlays } } as any,
+              $set: {
+                musicCoveragePlan,
+                'intelligence.audio.musicCoveragePlan': musicCoveragePlan,
+                updatedAt: new Date(),
+              },
+            },
+          );
+          overlays.push(...bgmOverlays);
+
           bgmSyncCompleted = true;
-          console.log(`[Finalize] Sync BGM + beat grid ready for Director`);
+          console.log(
+            beatEvidence
+              ? '[Finalize] Sync BGM + analyzed beat grid ready for Director'
+              : '[Finalize] Sync BGM ready; beat alignment unavailable and reported',
+          );
         } catch (syncBgmErr: any) {
           console.error(`[Finalize] Sync BGM failed: ${syncBgmErr.message} — falling back to async (beat-sync degraded)`);
           pipelineWarnings.degraded(
@@ -1167,7 +1318,15 @@ export async function POST(
       }
     }
 
-    if (isBGMAvailable() && currentFrame > 0 && !bgmSyncCompleted && !bgmGenerationBlockedByCredits) {
+    if (
+      musicGenerationPolicy.allowed
+      && musicCoveragePlan
+      && musicCoveragePlan.mode !== 'none'
+      && isBGMAvailable()
+      && currentFrame > 0
+      && !bgmSyncCompleted
+      && !bgmGenerationBlockedByCredits
+    ) {
       const totalDurationSec = Math.round(currentFrame / fps);
       const musicPrompt = storyboard.overallMusicPrompt
         || buildMusicPrompt(
@@ -1199,10 +1358,16 @@ export async function POST(
           totalDurationSec,
           totalFrames: currentFrame,
           fps,
+          platform: audioPlatformEvidence.platform,
+          musicPreference: musicGenerationPolicy.musicPreference,
+          editorialPreferences: musicGenerationPolicy.editorialPreferences,
+          musicCoveragePlan,
         }, 'BGM');
         if (!bgmDispatch.dispatched) {
           await refundPipelineAudioCredits(userId, bgmCreditCharge, 'BGM dispatch failed before worker execution');
           bgmCreditCharge = null;
+        } else {
+          audioGenerationQueued = true;
         }
       }
     }
@@ -1298,6 +1463,8 @@ export async function POST(
           }, 'SFX');
           if (!sfxDispatch.dispatched) {
             await refundPipelineAudioCredits(userId, sfxCreditCharge, 'SFX dispatch failed before worker execution');
+          } else {
+            audioGenerationQueued = true;
           }
         }
       } else if (hasSfxIntent > 0 && nativeAudioSceneCount > 0) {
@@ -1358,7 +1525,7 @@ export async function POST(
       name: projectName,
       overlayCount: overlays.length,
       totalDurationFrames: currentFrame,
-      audioGenerating: true,
+      audioGenerating: audioGenerationQueued,
       directorQueued: true,
       ...(warnings.length > 0 && { warnings }),
       pipelineHealth: pipelineWarnings.count(),

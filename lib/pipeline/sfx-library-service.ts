@@ -13,28 +13,85 @@
  *   // Returns { url, filename, duration, source }
  */
 
-import { uploadMedia } from '@/lib/editron/services/upload-service';
+import { uploadMedia, type UploadResult } from '@/lib/editron/services/upload-service';
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import {
   evaluateAtomicSfxAssetCandidate,
   type AtomicSfxCandidateEvaluation,
   type AtomicSfxForm,
 } from '@/lib/editron/services/sfx-form';
+import {
+  BUNDLED_SFX_CATALOG,
+  selectSfxCatalogEntry,
+  type SfxCatalogManifest,
+  type SfxCatalogSelectionReport,
+} from '@/lib/pipeline/sfx-catalog';
+import {
+  conditionSfxCatalogAsset,
+  inspectEncodedSfxAudio,
+  type ConditionSfxCatalogAssetResult,
+  type EncodedSfxInspection,
+} from '@/lib/pipeline/audio-conditioning';
+import {
+  buildSfxAcousticMeasurement,
+  type SfxAcousticMeasurement,
+} from '@/lib/pipeline/sfx-acoustic-measurement';
+import { fileTypeFromBuffer } from 'file-type';
 import { nanoid } from 'nanoid';
+
+export type { SfxAcousticMeasurement } from '@/lib/pipeline/sfx-acoustic-measurement';
+
+// ROADMAP LOCK: populate the measured curated catalog and add actual-audio
+// embedding/classifier retrieval before claiming production semantic similarity.
 
 export interface SFXLibraryResult {
   audioUrl: string;
-  gcsPath: string;
+  gcsPath: string | null;
   audioAssetId: string;
   durationMs: number;
-  source: 'pixabay' | 'freesound';
+  audioRights: AudioRightsContract;
+  source: 'catalog' | 'pixabay' | 'freesound';
   originalTitle?: string;
+  providerAssetId?: string;
+  measurement?: SfxAcousticMeasurement;
+}
+
+export type SfxLibraryIngestErrorCode =
+  | 'SFX_INVALID_PROVIDER_ASSET_ID'
+  | 'SFX_CATALOG_NOT_CONFIGURED'
+  | 'SFX_PROVIDER_NOT_FOUND'
+  | 'SFX_PROVIDER_UNAVAILABLE'
+  | 'SFX_PROVIDER_INVALID_RESPONSE'
+  | 'SFX_PROVIDER_ID_MISMATCH'
+  | 'SFX_LICENSE_NOT_EXPORTABLE'
+  | 'SFX_DURATION_NOT_ALLOWED'
+  | 'SFX_AUDIO_DOWNLOAD_FAILED'
+  | 'SFX_AUDIO_TOO_LARGE'
+  | 'SFX_INVALID_AUDIO'
+  | 'SFX_AUDIO_SILENT'
+  | 'SFX_AUDIO_CLIPPING'
+  | 'SFX_AUDIO_QUALITY_REJECTED'
+  | 'SFX_UPLOAD_FAILED'
+  | 'SFX_RECEIPT_PERSIST_FAILED';
+
+export class SfxLibraryIngestError extends Error {
+  constructor(
+    public readonly code: SfxLibraryIngestErrorCode,
+    message: string,
+    public readonly httpStatus: number,
+  ) {
+    super(message);
+    this.name = 'SfxLibraryIngestError';
+  }
 }
 
 export type SFXLibrarySearchFailureReason =
   | 'no-provider-candidates'
   | 'all-candidates-rejected'
+  | 'form-resolved-silence'
   | 'download-failed'
   | 'non-audio-download'
+  | 'acoustic-rejected'
   | 'upload-failed';
 
 export interface SFXLibraryCandidateReport {
@@ -56,6 +113,8 @@ export interface SFXLibrarySearchReport {
   query: string;
   maxDurationSec?: number;
   atomicGate: boolean;
+  selectionLane: 'catalog' | 'provider' | 'none';
+  catalog: SfxCatalogSelectionReport;
   providerCandidateCount: number;
   acceptedCandidateCount: number;
   rejectedCandidateCount: number;
@@ -67,7 +126,7 @@ export interface SFXLibrarySearchReport {
 export type SFXLibrarySearchReporter = (report: SFXLibrarySearchReport) => void;
 
 interface SFXProviderCandidate {
-  id?: string;
+  id: string;
   url: string;
   title: string;
   duration: number;
@@ -79,6 +138,30 @@ interface SFXProviderCandidate {
 interface SFXSearchProvider {
   source: SFXProviderCandidate['source'];
   search(query: string, maxDuration?: number): Promise<SFXProviderCandidate[]>;
+}
+
+interface PersistedFreesoundSfx {
+  userId: string;
+  provider: 'freesound';
+  providerAssetId: string;
+  title: string;
+  durationSec: number;
+  tags: string[];
+  filename: string;
+  bufferSize: number;
+  upload: UploadResult;
+  audioRights: AudioRightsContract;
+  measurement: SfxAcousticMeasurement;
+}
+
+interface FreesoundSfxIngestDependencies {
+  apiKey?: string;
+  fetchImpl?: typeof fetch;
+  upload?: typeof uploadMedia;
+  persist?: (record: PersistedFreesoundSfx) => Promise<void>;
+  cleanupUpload?: (upload: UploadResult) => Promise<void>;
+  conditionAudio?: typeof conditionSfxCatalogAsset;
+  inspectAudio?: typeof inspectEncodedSfxAudio;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -138,8 +221,9 @@ async function searchFreesound(
         const previews = isRecord(item.previews) ? item.previews : {};
         const previewUrl = stringValue(previews['preview-hq-mp3']) || stringValue(previews['preview-lq-mp3']);
         if (!previewUrl) return null;
+        if (item.id === undefined || item.id === null) return null;
         return {
-          id: item.id !== undefined ? String(item.id) : undefined,
+          id: String(item.id),
           url: previewUrl,
           title: stringValue(item.name) || query,
           duration: Math.max(0.1, Number(item.duration) || 5),
@@ -157,6 +241,254 @@ async function searchFreesound(
 
 // ─── Public API ──────────────────────────────────────────────────
 
+const CONTROLLED_SFX_MAX_DURATION_SEC = 30;
+const CONTROLLED_SFX_MAX_BYTES = 16 * 1024 * 1024;
+const FREESOUND_METADATA_TIMEOUT_MS = 8_000;
+const FREESOUND_AUDIO_TIMEOUT_MS = 20_000;
+
+/**
+ * Materialize one exact Freesound result selected in the editor.
+ *
+ * Client search metadata is intentionally ignored. Provider identity, license,
+ * audio bytes, storage and rights persistence are all re-established here.
+ */
+export async function ingestFreesoundSfxById(
+  providerAssetId: string,
+  userId: string,
+  dependencies: FreesoundSfxIngestDependencies = {},
+): Promise<SFXLibraryResult> {
+  const canonicalProviderAssetId = canonicalFreesoundAssetId(providerAssetId);
+  const apiKey = dependencies.apiKey ?? process.env.FREESOUND_API_KEY;
+  if (!apiKey?.trim()) {
+    throw new SfxLibraryIngestError(
+      'SFX_CATALOG_NOT_CONFIGURED',
+      'The SFX catalog is not configured',
+      503,
+    );
+  }
+
+  const fetchImpl = dependencies.fetchImpl ?? fetch;
+  const metadataUrl = new URL(
+    `https://freesound.org/apiv2/sounds/${canonicalProviderAssetId}/`,
+  );
+  metadataUrl.searchParams.set(
+    'fields',
+    'id,name,duration,previews,license,tags,type,filesize',
+  );
+
+  let metadataResponse: Response;
+  try {
+    metadataResponse = await fetchImpl(metadataUrl, {
+      headers: { Authorization: `Token ${apiKey.trim()}` },
+      signal: AbortSignal.timeout(FREESOUND_METADATA_TIMEOUT_MS),
+    });
+  } catch {
+    throw new SfxLibraryIngestError(
+      'SFX_PROVIDER_UNAVAILABLE',
+      'The SFX catalog is temporarily unavailable',
+      502,
+    );
+  }
+  if (metadataResponse.status === 404) {
+    throw new SfxLibraryIngestError(
+      'SFX_PROVIDER_NOT_FOUND',
+      'The selected sound no longer exists',
+      404,
+    );
+  }
+  if (!metadataResponse.ok) {
+    throw new SfxLibraryIngestError(
+      'SFX_PROVIDER_UNAVAILABLE',
+      'The SFX catalog could not verify the selected sound',
+      502,
+    );
+  }
+
+  let metadata: Record<string, unknown>;
+  try {
+    const value: unknown = await metadataResponse.json();
+    if (!isRecord(value)) throw new TypeError('Sound metadata must be an object');
+    metadata = value;
+  } catch {
+    throw new SfxLibraryIngestError(
+      'SFX_PROVIDER_INVALID_RESPONSE',
+      'The SFX catalog returned invalid sound metadata',
+      502,
+    );
+  }
+
+  if (String(metadata.id) !== canonicalProviderAssetId) {
+    throw new SfxLibraryIngestError(
+      'SFX_PROVIDER_ID_MISMATCH',
+      'The SFX provider returned a different sound',
+      502,
+    );
+  }
+  if (!isVerifiedCc0License(metadata.license)) {
+    throw new SfxLibraryIngestError(
+      'SFX_LICENSE_NOT_EXPORTABLE',
+      'The selected sound is not verified CC0',
+      422,
+    );
+  }
+
+  const durationSec = finitePositiveNumber(metadata.duration);
+  if (durationSec === null || durationSec > CONTROLLED_SFX_MAX_DURATION_SEC) {
+    throw new SfxLibraryIngestError(
+      'SFX_DURATION_NOT_ALLOWED',
+      'The selected sound exceeds the supported SFX duration',
+      422,
+    );
+  }
+  const previews = isRecord(metadata.previews) ? metadata.previews : {};
+  const previewUrl = stringValue(previews['preview-hq-mp3'])
+    ?? stringValue(previews['preview-hq-ogg'])
+    ?? stringValue(previews['preview-lq-mp3'])
+    ?? stringValue(previews['preview-lq-ogg']);
+  if (!previewUrl || !isTrustedFreesoundAudioUrl(previewUrl)) {
+    throw new SfxLibraryIngestError(
+      'SFX_PROVIDER_INVALID_RESPONSE',
+      'The SFX provider returned an invalid audio location',
+      502,
+    );
+  }
+
+  let audioResponse: Response;
+  try {
+    audioResponse = await fetchImpl(previewUrl, {
+      signal: AbortSignal.timeout(FREESOUND_AUDIO_TIMEOUT_MS),
+    });
+  } catch {
+    throw new SfxLibraryIngestError(
+      'SFX_AUDIO_DOWNLOAD_FAILED',
+      'The selected sound could not be downloaded',
+      502,
+    );
+  }
+  if (!audioResponse.ok) {
+    throw new SfxLibraryIngestError(
+      'SFX_AUDIO_DOWNLOAD_FAILED',
+      'The selected sound could not be downloaded',
+      502,
+    );
+  }
+  const declaredSize = Number(audioResponse.headers.get('content-length'));
+  if (Number.isFinite(declaredSize) && declaredSize > CONTROLLED_SFX_MAX_BYTES) {
+    throw new SfxLibraryIngestError(
+      'SFX_AUDIO_TOO_LARGE',
+      'The selected sound is too large to ingest',
+      413,
+    );
+  }
+
+  const buffer = await readResponseBufferWithLimit(
+    audioResponse,
+    CONTROLLED_SFX_MAX_BYTES,
+  );
+  if (buffer.length === 0) {
+    throw new SfxLibraryIngestError(
+      'SFX_INVALID_AUDIO',
+      'The selected sound contains no audio',
+      422,
+    );
+  }
+  const detectedType = await fileTypeFromBuffer(buffer);
+  if (!detectedType?.mime.startsWith('audio/')) {
+    throw new SfxLibraryIngestError(
+      'SFX_INVALID_AUDIO',
+      'The selected sound download is not valid audio',
+      422,
+    );
+  }
+  const conditioned = await conditionControlledSfxAudio(
+    buffer,
+    dependencies.conditionAudio ?? conditionSfxCatalogAsset,
+  );
+  const conditionedBuffer = conditioned.buffer;
+  const measurement = await inspectAndValidateSfxAudio(
+    conditionedBuffer,
+    dependencies.inspectAudio ?? (async () => conditioned.output),
+  );
+  const measuredDurationSec = measurement.durationMs / 1000;
+
+  const assetId = `sfx_fs_${canonicalProviderAssetId}_${nanoid(8)}`;
+  const filename = `${assetId}.${conditioned.filenameExtension}`;
+  const upload = dependencies.upload ?? uploadMedia;
+  let uploadResult: UploadResult;
+  try {
+    uploadResult = await upload(
+      conditionedBuffer,
+      userId,
+      filename,
+      conditioned.contentType,
+      { customAssetId: assetId },
+    );
+  } catch {
+    throw new SfxLibraryIngestError(
+      'SFX_UPLOAD_FAILED',
+      'The selected sound could not be stored',
+      502,
+    );
+  }
+
+  const audioRights: AudioRightsContract = {
+    mediaRole: 'sfx',
+    source: 'library',
+    userChoice: 'attested',
+    licensed: true,
+    evidence: {
+      kind: 'library-license',
+      sourceAssetId: uploadResult.assetId,
+      licenseId: `freesound:${canonicalProviderAssetId}:creative-commons-0`,
+    },
+  };
+  const persist = dependencies.persist ?? persistFreesoundSfx;
+  const cleanupUpload = dependencies.cleanupUpload ?? cleanupControlledSfxUpload;
+  try {
+    await persist({
+      userId,
+      provider: 'freesound',
+      providerAssetId: canonicalProviderAssetId,
+      title: stringValue(metadata.name) ?? `Freesound ${canonicalProviderAssetId}`,
+      durationSec: measuredDurationSec,
+      tags: Array.isArray(metadata.tags)
+        ? metadata.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 32)
+        : [],
+      filename,
+      bufferSize: conditionedBuffer.length,
+      upload: uploadResult,
+      audioRights,
+      measurement,
+    });
+  } catch {
+    try {
+      await cleanupUpload(uploadResult);
+    } catch (cleanupError) {
+      console.error('[SFXLib] Failed to clean up uncommitted SFX upload', {
+        assetId: uploadResult.assetId,
+        reason: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+      });
+    }
+    throw new SfxLibraryIngestError(
+      'SFX_RECEIPT_PERSIST_FAILED',
+      'The selected sound could not be committed to the media library',
+      500,
+    );
+  }
+
+  return {
+    audioUrl: uploadResult.signedUrl,
+    gcsPath: uploadResult.gcsPath ?? null,
+    audioAssetId: uploadResult.assetId,
+    durationMs: measurement.durationMs,
+    audioRights,
+    source: 'freesound',
+    originalTitle: stringValue(metadata.name) ?? `Freesound ${canonicalProviderAssetId}`,
+    providerAssetId: canonicalProviderAssetId,
+    measurement,
+  };
+}
+
 /**
  * Search for a sound effect from provider APIs.
  * Atomic forms score provider candidates before any download/upload happens.
@@ -173,7 +505,68 @@ export async function searchAndDownloadSFX(
   maxDurationSec?: number,
   atomicForm?: AtomicSfxForm,
   reportSearch?: SFXLibrarySearchReporter,
+  catalogManifest: SfxCatalogManifest = BUNDLED_SFX_CATALOG,
 ): Promise<SFXLibraryResult | null> {
+  const catalogSelection = selectSfxCatalogEntry(catalogManifest, {
+    query,
+    maxDurationSec,
+    form: atomicForm,
+  });
+  if (catalogSelection.entry) {
+    const entry = catalogSelection.entry;
+    const candidateReport = catalogSelection.report.candidates.find(candidate => candidate.assetId === entry.assetId);
+    reportSearch?.({
+      version: 'sfx-library-search-report-v1',
+      query,
+      maxDurationSec,
+      atomicGate: Boolean(atomicForm),
+      selectionLane: 'catalog',
+      catalog: catalogSelection.report,
+      providerCandidateCount: 0,
+      acceptedCandidateCount: 1,
+      rejectedCandidateCount: catalogSelection.report.rejectedCandidateCount,
+      selectedCandidate: {
+        providerId: entry.provenance.providerAssetId,
+        source: 'catalog',
+        title: entry.title,
+        durationMs: entry.durationMs,
+        score: candidateReport?.score ?? 0,
+        accepted: true,
+        decision: 'accept',
+        reasons: candidateReport?.reasons ?? ['catalog-candidate-accepted'],
+      },
+      candidates: [],
+    });
+    console.log(`[SFXLib] Selected catalog asset: "${entry.title}" (${entry.durationMs}ms)`);
+    return {
+      audioUrl: entry.audioUrl,
+      gcsPath: entry.storagePath ?? null,
+      audioAssetId: entry.assetId,
+      durationMs: entry.durationMs,
+      audioRights: entry.audioRights,
+      source: 'catalog',
+      originalTitle: entry.title,
+      measurement: entry.measurement,
+    };
+  }
+
+  if (catalogSelection.report.decision === 'silence') {
+    reportSearch?.({
+      version: 'sfx-library-search-report-v1',
+      query,
+      maxDurationSec,
+      atomicGate: Boolean(atomicForm),
+      selectionLane: 'none',
+      catalog: catalogSelection.report,
+      providerCandidateCount: 0,
+      acceptedCandidateCount: 0,
+      rejectedCandidateCount: 0,
+      failureReason: 'form-resolved-silence',
+      candidates: [],
+    });
+    return null;
+  }
+
   console.log(`[SFXLib] Searching providers: "${query}" (maxDuration=${maxDurationSec || 'any'}s)`);
 
   const candidates = await searchProviderCandidates(query, maxDurationSec);
@@ -186,7 +579,14 @@ export async function searchAndDownloadSFX(
   const ranked = rankProviderCandidates(query, candidates, maxDurationSec, atomicForm);
   const threshold = atomicForm ? 0 : 0.52;
   const selected = ranked.find((item) => item.score >= threshold) ?? null;
-  let report = buildSfxSearchReport(query, maxDurationSec, atomicForm, ranked, selected);
+  let report = buildSfxSearchReport(
+    query,
+    maxDurationSec,
+    atomicForm,
+    catalogSelection.report,
+    ranked,
+    selected,
+  );
   if (!selected) {
     report = {
       ...report,
@@ -228,9 +628,32 @@ export async function searchAndDownloadSFX(
       }
     }
 
+    let measurement: SfxAcousticMeasurement;
+    try {
+      measurement = await inspectAndValidateSfxAudio(buffer);
+    } catch (inspectionError) {
+      reportSearch?.({ ...report, failureReason: 'acoustic-rejected' });
+      console.error('[SFXLib] Downloaded SFX failed acoustic inspection', {
+        providerId: candidate.id,
+        reason: inspectionError instanceof Error ? inspectionError.message : String(inspectionError),
+      });
+      return null;
+    }
+
     const assetId = `sfx_lib_${nanoid(8)}`;
     const ext = candidate.url.includes('.wav') ? 'wav' : 'mp3';
     const uploadResult = await uploadMedia(buffer, userId, `${assetId}.${ext}`, `audio/${ext === 'wav' ? 'wav' : 'mpeg'}`, { customAssetId: assetId });
+    const audioRights: AudioRightsContract = {
+      mediaRole: 'sfx',
+      source: 'library',
+      userChoice: 'attested',
+      licensed: true,
+      evidence: {
+        kind: 'library-license',
+        sourceAssetId: uploadResult.assetId,
+        licenseId: `freesound:${candidate.id}:creative-commons-0`,
+      },
+    };
 
     // Persist to media_assets so asset-resolver can find it later.
     // Without this, SFX overlays reference assetIds that don't exist in MongoDB
@@ -241,6 +664,9 @@ export async function searchAndDownloadSFX(
       await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
         { assetId: uploadResult.assetId },
         {
+          $set: {
+            audioRights,
+          },
           $setOnInsert: {
             assetId: uploadResult.assetId,
             userId,
@@ -250,7 +676,7 @@ export async function searchAndDownloadSFX(
             cachedUrl: uploadResult.signedUrl,
             gcsPath: uploadResult.gcsPath,
             r2Key: uploadResult.r2Key,
-            duration: candidate.duration,
+            duration: measurement.durationMs / 1000,
             size: buffer.length,
             originalTitle: candidate.title,
             sfxQuery: query,
@@ -261,6 +687,7 @@ export async function searchAndDownloadSFX(
             assetQualityScore: quality?.score,
             assetQualityFloor: quality?.qualityFloor,
             assetQualityReasons: quality?.reasons,
+            sfxAcousticMeasurement: measurement,
             uploadedAt: new Date(),
           },
         },
@@ -273,11 +700,14 @@ export async function searchAndDownloadSFX(
 
     return {
       audioUrl: uploadResult.signedUrl,
-      gcsPath: uploadResult.gcsPath ?? '',
+      gcsPath: uploadResult.gcsPath ?? null,
       audioAssetId: uploadResult.assetId,
-      durationMs: Math.round(candidate.duration * 1000),
+      durationMs: measurement.durationMs,
+      audioRights,
       source: candidate.source,
       originalTitle: candidate.title,
+      providerAssetId: candidate.id,
+      measurement,
     };
   } catch (err: any) {
     reportSearch?.({ ...report, failureReason: 'upload-failed' });
@@ -330,6 +760,7 @@ function buildSfxSearchReport(
   query: string,
   maxDurationSec: number | undefined,
   atomicForm: AtomicSfxForm | undefined,
+  catalog: SfxCatalogSelectionReport,
   ranked: Array<{ candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation }>,
   selected: { candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation } | null,
 ): SFXLibrarySearchReport {
@@ -341,6 +772,8 @@ function buildSfxSearchReport(
     query,
     maxDurationSec,
     atomicGate: Boolean(atomicForm),
+    selectionLane: selected ? 'provider' : 'none',
+    catalog,
     providerCandidateCount: ranked.length,
     acceptedCandidateCount: ranked.filter((item) => item.score >= threshold).length,
     rejectedCandidateCount: ranked.filter((item) => item.score < threshold).length,
@@ -591,17 +1024,225 @@ export function audioDescriptionToSearchQuery(audioDescription: string): string 
 /**
  * Check if SFX library search can return results.
  *
- * OLD: returned false when FREESOUND_API_KEY was missing → EDL executor skipped
- * ALL sfx-trigger decisions → zero SFX in output. Silent failure (Rule 18N violation).
- *
- * NEW: Always returns true. The search function handles missing credentials by
- * logging a loud warning and returning null PER SEARCH — but the EDL executor
- * still processes SFX decisions for budget tracking and quality review accounting.
- * This means:
- *   - Budget system correctly counts SFX (prevents over-allocation on retry)
- *   - Quality review can detect "SFX requested but unfulfilled"
- *   - Setting the env var immediately unlocks audio without code changes
+ * Callers must not reserve SFX budget when the only library provider cannot run.
+ * Unfulfilled intent belongs in the quality receipt, not a fake capability.
  */
 export function isSFXLibraryAvailable(): boolean {
-  return true;
+  return BUNDLED_SFX_CATALOG.entries.length > 0 || Boolean(process.env.FREESOUND_API_KEY?.trim());
+}
+
+async function conditionControlledSfxAudio(
+  buffer: Buffer,
+  conditionAudio: typeof conditionSfxCatalogAsset,
+): Promise<ConditionSfxCatalogAssetResult> {
+  try {
+    return await conditionAudio(buffer);
+  } catch (error) {
+    const code = isRecord(error) ? stringValue(error.code) : undefined;
+    if (code === 'AUDIO_SILENT') {
+      throw new SfxLibraryIngestError(
+        'SFX_AUDIO_SILENT',
+        'The selected sound is silent or below the catalog loudness floor',
+        422,
+      );
+    }
+    if (code === 'TRUE_PEAK_EXCEEDED') {
+      throw new SfxLibraryIngestError(
+        'SFX_AUDIO_CLIPPING',
+        'The selected sound could not be conditioned below the catalog peak ceiling',
+        422,
+      );
+    }
+    throw new SfxLibraryIngestError(
+      'SFX_INVALID_AUDIO',
+      'The selected sound could not be decoded and conditioned',
+      422,
+    );
+  }
+}
+
+async function inspectAndValidateSfxAudio(
+  buffer: Buffer,
+  inspectAudio: typeof inspectEncodedSfxAudio = inspectEncodedSfxAudio,
+): Promise<SfxAcousticMeasurement> {
+  let inspection: EncodedSfxInspection;
+  try {
+    inspection = await inspectAudio(buffer);
+  } catch (error) {
+    const code = isRecord(error) ? stringValue(error.code) : undefined;
+    if (code === 'AUDIO_SILENT') {
+      throw new SfxLibraryIngestError(
+        'SFX_AUDIO_SILENT',
+        'The selected sound is silent or below the catalog loudness floor',
+        422,
+      );
+    }
+    throw new SfxLibraryIngestError(
+      'SFX_INVALID_AUDIO',
+      'The selected sound could not be decoded and measured',
+      422,
+    );
+  }
+
+  const policy = BUNDLED_SFX_CATALOG.qualityPolicy;
+  const loudnessDb = inspection.loudness.valueDb;
+  if (!Number.isFinite(loudnessDb) || loudnessDb <= policy.silenceFloorLufs) {
+    throw new SfxLibraryIngestError(
+      'SFX_AUDIO_SILENT',
+      'The selected sound is silent or below the catalog loudness floor',
+      422,
+    );
+  }
+  if (!Number.isFinite(inspection.truePeakDbtp)) {
+    throw new SfxLibraryIngestError(
+      'SFX_INVALID_AUDIO',
+      'The selected sound has no measurable true peak',
+      422,
+    );
+  }
+  if (inspection.truePeakDbtp > policy.maxTruePeakDbtp) {
+    throw new SfxLibraryIngestError(
+      'SFX_AUDIO_CLIPPING',
+      `The selected sound exceeds the ${policy.maxTruePeakDbtp} dBTP catalog ceiling`,
+      422,
+    );
+  }
+  if (
+    !Number.isFinite(inspection.sampleRate)
+    || inspection.sampleRate < policy.minSampleRateHz
+    || !policy.allowedChannelCounts.includes(inspection.channels)
+  ) {
+    throw new SfxLibraryIngestError(
+      'SFX_AUDIO_QUALITY_REJECTED',
+      'The selected sound does not meet the catalog sample-rate or channel requirements',
+      422,
+    );
+  }
+  if (
+    !Number.isFinite(inspection.durationMs)
+    || inspection.durationMs <= 0
+    || inspection.durationMs > CONTROLLED_SFX_MAX_DURATION_SEC * 1000
+  ) {
+    throw new SfxLibraryIngestError(
+      'SFX_DURATION_NOT_ALLOWED',
+      'The selected sound exceeds the supported SFX duration',
+      422,
+    );
+  }
+
+  return buildSfxAcousticMeasurement(buffer, inspection);
+}
+
+function canonicalFreesoundAssetId(value: string): string {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  if (!/^[1-9]\d{0,14}$/.test(trimmed) || !Number.isSafeInteger(Number(trimmed))) {
+    throw new SfxLibraryIngestError(
+      'SFX_INVALID_PROVIDER_ASSET_ID',
+      'A valid Freesound asset ID is required',
+      400,
+    );
+  }
+  return trimmed;
+}
+
+function isVerifiedCc0License(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'creative commons 0'
+    || normalized === 'cc0'
+    || normalized.includes('publicdomain/zero/1.0');
+}
+
+function finitePositiveNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
+
+function isTrustedFreesoundAudioUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:'
+      && (url.hostname === 'freesound.org' || url.hostname.endsWith('.freesound.org'));
+  } catch {
+    return false;
+  }
+}
+
+async function readResponseBufferWithLimit(
+  response: Response,
+  maxBytes: number,
+): Promise<Buffer> {
+  const reader = response.body?.getReader();
+  if (!reader) return Buffer.alloc(0);
+
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      throw new SfxLibraryIngestError(
+        'SFX_AUDIO_TOO_LARGE',
+        'The selected sound is too large to ingest',
+        413,
+      );
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks, totalBytes);
+}
+
+async function persistFreesoundSfx(record: PersistedFreesoundSfx): Promise<void> {
+  const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
+  const db = await getDatabase();
+  const result = await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+    { assetId: record.upload.assetId },
+    {
+      $set: {
+        audioRights: record.audioRights,
+      },
+      $setOnInsert: {
+        assetId: record.upload.assetId,
+        userId: record.userId,
+        type: 'audio',
+        filename: record.filename,
+        source: 'sfx-provider-freesound',
+        cachedUrl: record.upload.signedUrl,
+        gcsPath: record.upload.gcsPath,
+        r2Key: record.upload.r2Key,
+        duration: record.durationSec,
+        size: record.bufferSize,
+        originalTitle: record.title,
+        sfxProviderId: record.providerAssetId,
+        sfxLibrarySource: record.provider,
+        tags: record.tags,
+        providerCandidateAccepted: true,
+        controlledIngest: true,
+        sfxAcousticMeasurement: record.measurement,
+        uploadedAt: new Date(),
+      },
+    },
+    { upsert: true },
+  );
+  if (!result.acknowledged) {
+    throw new Error('SFX media receipt write was not acknowledged');
+  }
+}
+
+async function cleanupControlledSfxUpload(upload: UploadResult): Promise<void> {
+  if (upload.r2Key) {
+    const { deleteFromR2 } = await import('@/lib/editron/services/r2-service');
+    await deleteFromR2(upload.r2Key);
+    return;
+  }
+  if (upload.gcsPath) {
+    const { deleteFromGCS } = await import('@/lib/editron/services/gcs-service');
+    await deleteFromGCS(upload.gcsPath);
+    return;
+  }
+  throw new Error(`Controlled SFX upload ${upload.assetId} has no storage key`);
 }

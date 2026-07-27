@@ -6,7 +6,8 @@
 
 import { getDatabase, COLLECTIONS } from '../db/mongodb';
 import { refreshSignedUrl } from './gcs-service';
-import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
+import { OverlayType, type MgSequenceOverlay, type Overlay } from '@/components/editron/editor/version-7.0.0/types';
+import { normalizeSequenceCdnBaseUrl } from '@/lib/editron/motion-graphics/codegen/render/sequence-playback';
 import type { TranscriptionData } from './media/types';
 
 export interface MediaAsset {
@@ -45,6 +46,69 @@ export interface MediaAsset {
   transcription?: TranscriptionData;
 }
 
+/** Persisted generated MG sequence. Kept distinct from searchable user media. */
+export interface SequenceMediaAsset extends Omit<MediaAsset, 'type' | 'source'> {
+  type: 'sequence';
+  source: 'generated';
+  sequenceId: string;
+  frameCount: number;
+  fps: number;
+  frameFormat: 'webp';
+  transparent: true;
+  status: 'processing' | 'ready' | 'failed' | 'deleting';
+  r2Prefix: string;
+}
+
+export type StoredMediaAsset = MediaAsset | SequenceMediaAsset;
+
+export function hydrateMgSequenceOverlay(
+  overlay: MgSequenceOverlay,
+  asset: StoredMediaAsset | undefined,
+  cdnBaseUrl: string | undefined,
+): MgSequenceOverlay {
+  if (!asset || asset.type !== 'sequence') {
+    throw new Error(`[AssetResolver] MG sequence asset ${overlay.assetId} is missing or has the wrong type`);
+  }
+  if (asset.status !== 'ready') {
+    throw new Error(`[AssetResolver] MG sequence asset ${overlay.assetId} is not ready (status=${asset.status ?? 'missing'})`);
+  }
+  if (!asset.sequenceId || !/^[A-Za-z0-9_-]+$/.test(asset.sequenceId)) {
+    throw new Error(`[AssetResolver] MG sequence asset ${overlay.assetId} has an invalid sequenceId`);
+  }
+  const frameCount = asset.frameCount;
+  const fps = asset.fps;
+  const dimensions = asset.dimensions;
+  if (typeof frameCount !== 'number' || !Number.isInteger(frameCount) || frameCount <= 0) {
+    throw new Error(`[AssetResolver] MG sequence asset ${overlay.assetId} has an invalid frameCount`);
+  }
+  if (typeof fps !== 'number' || !Number.isFinite(fps) || fps <= 0) {
+    throw new Error(`[AssetResolver] MG sequence asset ${overlay.assetId} has an invalid fps`);
+  }
+  if (!dimensions || !Number.isFinite(dimensions.width) || !Number.isFinite(dimensions.height) || dimensions.width <= 0 || dimensions.height <= 0) {
+    throw new Error(`[AssetResolver] MG sequence asset ${overlay.assetId} has invalid dimensions`);
+  }
+  if (asset.frameFormat !== 'webp' || asset.transparent !== true) {
+    throw new Error(`[AssetResolver] MG sequence asset ${overlay.assetId} has an unsupported frame contract`);
+  }
+  const expectedPrefix = `mgseq_${asset.sequenceId}_`;
+  if (asset.r2Prefix !== expectedPrefix) {
+    throw new Error(`[AssetResolver] MG sequence asset ${overlay.assetId} has an invalid R2 prefix`);
+  }
+
+  return {
+    ...overlay,
+    sequence: {
+      sequenceId: asset.sequenceId,
+      frameCount,
+      fps,
+      width: dimensions.width,
+      height: dimensions.height,
+      transparent: true,
+      frameFormat: 'webp',
+      cdnBaseUrl: normalizeSequenceCdnBaseUrl(cdnBaseUrl ?? ''),
+    },
+  };
+}
 /** Don't rewrite lastUsedAt more than once per hour per asset (avoids write amplification). */
 const LRU_TOUCH_THROTTLE_MS = 60 * 60 * 1000;
 
@@ -159,7 +223,7 @@ export class AssetResolver {
     const assets = await db
       .collection(COLLECTIONS.MEDIA_ASSETS)
       .find({ assetId: { $in: Array.from(assetIds) } })
-      .toArray() as unknown as MediaAsset[];
+      .toArray() as unknown as StoredMediaAsset[];
 
     // LRU: mark the resolved assets as recently used (fire-and-forget, throttled).
     void touchAssetsLastUsed(db, assets.map(a => a.assetId));
@@ -168,6 +232,7 @@ export class AssetResolver {
 
     // Log unresolved assets
     const foundIds = new Set(assets.map(a => a.assetId));
+    const assetsById = new Map(assets.map(asset => [asset.assetId, asset]));
     for (const id of assetIds) {
       if (!foundIds.has(id)) {
         console.warn(`[AssetResolver] Asset NOT FOUND in media_assets: ${id}`);
@@ -186,6 +251,7 @@ export class AssetResolver {
     }
 
     for (const asset of assets) {
+      if (asset.type === 'sequence') continue;
       try {
         // CDN Worker URL is the canonical path for R2 assets.
         // The assetId IS the R2 key — CDN Worker resolves it directly.
@@ -196,7 +262,8 @@ export class AssetResolver {
         // Worker — the Worker only serves R2 objects, not GCS.
         const isGcsOnly = !!asset.gcsPath && !asset.r2Key && !asset.cachedUrl?.includes(cdnBaseUrl);
         if (cdnBaseUrl && asset.assetId && !isGcsOnly) {
-          assetMap.set(asset.assetId, `${cdnBaseUrl}/asset/${asset.assetId}`);
+          const storageKey = asset.r2Key?.trim() || asset.assetId;
+          assetMap.set(asset.assetId, `${cdnBaseUrl}/asset/${storageKey}`);
           console.log(`[AssetResolver] ${asset.assetId}: CDN proxy URL`);
         } else if (cdnBaseUrl && asset.cachedUrl && !asset.cachedUrl.includes('storage.googleapis.com')) {
           assetMap.set(asset.assetId, asset.cachedUrl);
@@ -242,6 +309,13 @@ export class AssetResolver {
     // OLD: Empty resolvedUrl overwrote working proxy URLs → Lambda got src:'' → hung forever.
     // NEW: Only replace if we actually have a valid resolved URL.
     return overlays.map(overlay => {
+      if (overlay.type === OverlayType.MG_SEQUENCE) {
+        return hydrateMgSequenceOverlay(
+          overlay,
+          assetsById.get(overlay.assetId),
+          process.env.CDN_WORKER_URL,
+        );
+      }
       if ('assetId' in overlay && overlay.assetId) {
         const resolvedUrl = assetMap.get(overlay.assetId as string) || '';
         const existingSrc = (overlay as any).src || (overlay as any).content || '';
@@ -348,6 +422,12 @@ export class AssetResolver {
     return overlays.map(overlay => {
       let modified = overlay as any;
       let changed = false;
+
+      if (overlay.type === OverlayType.MG_SEQUENCE && 'sequence' in modified) {
+        const { sequence: _, ...persistable } = modified;
+        modified = persistable;
+        changed = true;
+      }
 
       // Strip temporary URLs from src field (GCS signed + fal.ai CDN)
       // F9.5: fal.ai URLs expire after ~24h — must be stripped like GCS

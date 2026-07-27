@@ -182,7 +182,6 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
                 onClick={(e) => {
                   const target = e.target as HTMLElement;
                   if (target.closest('button')) return;
-                  if (s.id === activeSessionId) return;
                   onOpenSession?.(s.id);
                 }}
                 title="Open session"

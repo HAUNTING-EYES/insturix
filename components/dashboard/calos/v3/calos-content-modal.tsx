@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { C, SANS, MONO, STAGES, stageLabel, platLabel, dayTitle } from './calos-view-model';
+import { C, SANS, MONO, STAGES, stageLabel, platLabel, dayTitle, platformDefaultAspect } from './calos-view-model';
 import type { CalItem } from './calos-view-model';
 import { Sheet, Btn, Glyph, StatusMark, Mono } from './calos-atoms';
 
@@ -17,8 +17,17 @@ const toLocalInput = (d: Date): string => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
+/** Image sizes offered at "Make image" time. All are Clickatron-model-supported (see
+ *  clickatron-models allowedAspectRatios). The user picks; the platform sets the default. */
+const ASPECTS = [
+  { v: '1:1', label: 'Square' },
+  { v: '4:5', label: 'Portrait' },
+  { v: '9:16', label: 'Story / vertical' },
+  { v: '16:9', label: 'Landscape' },
+] as const;
+
 export function ContentModal({
-  item, onClose, onSaveTitle, onSaveDates, onSaveDetails, onSaveTags, onDecision, onGenerate, onDelete, onOpenScript, onPublish,
+  item, onClose, onSaveTitle, onSaveDates, onSaveDetails, onSaveTags, onDecision, onGenerate, onDelete, onOpenScript, onPublish, onMakeImage, pubState, connected, onOpenPublishing,
 }: {
   item: CalItem;
   onClose: () => void;
@@ -30,8 +39,16 @@ export function ContentModal({
   onGenerate: (id: string) => void;
   onDelete: (id: string) => void;
   onOpenScript: (item: CalItem) => void;
+  /** Kick off the still image for a graphics card at the chosen aspect ratio (explicit, spends an
+   *  image credit). Absent = the Make-image affordance is hidden. */
+  onMakeImage?: (id: string, aspectRatio: string) => void;
   /** Optional — publishing lands in Phase 3. When absent, no Publish action shows. */
   onPublish?: (item: CalItem) => void;
+  /** Delivery visibility: the card's publish-queue row, whether its platform is connected, and a
+   *  jump to the Publishing (connect socials) screen. */
+  pubState?: { platform: string; status: string; postUrl: string | null; error: string | null };
+  connected?: boolean;
+  onOpenPublishing?: () => void;
 }) {
   const d = item;
   const [title, setTitle] = useState(d.title);
@@ -40,6 +57,8 @@ export function ContentModal({
   );
   const [adding, setAdding] = useState(false);
   const [newDate, setNewDate] = useState('');
+  const [making, setMaking] = useState(false); // optimistic: kicked off "Make image", awaiting refetch
+  const [aspect, setAspect] = useState<string>(() => platformDefaultAspect(d.platform)); // user-chosen image size
 
   const removeDate = (iso: string) => {
     if (dates.length <= 1) return; // a deliverable always keeps at least one date
@@ -58,6 +77,30 @@ export function ContentModal({
     onSaveDates(d.id, next);
     setNewDate('');
     setAdding(false);
+  };
+
+  // Edit an existing planned date's date+time in place (the direct time control) — click a chip to
+  // open a datetime picker on it; save replaces just that date and persists via onSaveDates.
+  const [editingIso, setEditingIso] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const startEdit = (iso: string) => {
+    setAdding(false);
+    setEditingIso(iso);
+    setEditValue(toLocalInput(new Date(iso)));
+  };
+  const saveEdit = () => {
+    if (!editingIso) return;
+    const dt = new Date(editValue);
+    if (!editValue || Number.isNaN(dt.getTime())) { setEditingIso(null); setEditValue(''); return; }
+    const iso = dt.toISOString();
+    // Replace the edited date; a Set collapses any collision with an existing date so we never dupe.
+    const next = Array.from(new Set(dates.map((x) => (x === editingIso ? iso : x)))).sort(
+      (a, b) => new Date(a).getTime() - new Date(b).getTime(),
+    );
+    setDates(next);
+    onSaveDates(d.id, next);
+    setEditingIso(null);
+    setEditValue('');
   };
 
   const [details, setDetails] = useState(d.brief);
@@ -150,9 +193,20 @@ export function ContentModal({
             {dates.map((iso) => {
               const dt = new Date(iso);
               const valid = !Number.isNaN(dt.getTime());
+              if (editingIso === iso) {
+                return (
+                  <span key={iso} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <input type="datetime-local" value={editValue} autoFocus onChange={(e) => setEditValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveEdit(); } }} className="calos-fr" style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: '6px 8px', color: C.text, fontSize: 12, fontFamily: SANS, outline: 'none', colorScheme: 'dark' }} />
+                    <button type="button" className="calos-fr" onClick={saveEdit} style={{ cursor: 'pointer', padding: '6px 10px', background: 'transparent', border: '1px solid rgba(212,166,82,.4)', borderRadius: 6, color: C.gold, fontFamily: MONO, fontSize: 9 }}>SAVE</button>
+                    <button type="button" className="calos-fr" onClick={() => { setEditingIso(null); setEditValue(''); }} title="Cancel" style={{ cursor: 'pointer', background: 'none', border: 'none', color: C.muted }}>✕</button>
+                  </span>
+                );
+              }
               return (
                 <span key={iso} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6 }}>
-                  <Mono s={9} c={C.soft}>{valid ? `${dayTitle(dt)} · ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}` : 'Unscheduled'}</Mono>
+                  <button type="button" className="calos-fr" onClick={() => startEdit(iso)} title="Edit date & time" style={{ cursor: 'pointer', background: 'none', border: 'none', padding: 0, margin: 0, color: 'inherit', display: 'inline-flex', alignItems: 'center' }}>
+                    <Mono s={9} c={C.soft}>{valid ? `${dayTitle(dt)} · ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}` : 'Unscheduled'}</Mono>
+                  </button>
                   {dates.length > 1 && <span onClick={() => removeDate(iso)} title="Remove this date" style={{ color: C.coral, cursor: 'pointer', fontSize: 11 }}>✕</span>}
                 </span>
               );
@@ -198,6 +252,76 @@ export function ContentModal({
           {d.hasScript ? d.raw.scriptPreview : 'Generate to write the script.'}
         </div>
       </div>
+
+      {d.raw.imageStatus && d.raw.imageStatus !== 'none' && (
+        <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 18 }}>
+          <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 8 }}>Image</Mono>
+          {d.raw.imageStatus === 'ready' && d.raw.assetUrl ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={d.raw.assetUrl} alt="Generated still" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 6, border: `1px solid ${C.border}` }} />
+              <Mono s={11} c={C.gold}>✓ Image ready</Mono>
+              <a href={d.raw.assetUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.gold, textDecoration: 'underline' }}>Open</a>
+            </div>
+          ) : making || d.raw.imageStatus === 'generating' ? (
+            <Mono s={11} c={C.soft}>● Generating image… it lands on the card when it’s ready.</Mono>
+          ) : (
+            // promptReady OR failed — both offer the make/retry action with a user-chosen size.
+            <div>
+              {d.raw.imageStatus === 'failed' ? (
+                <Mono s={11} c={C.coral} st={{ display: 'block', marginBottom: 8 }}>Image didn’t generate{d.raw.imageError ? `: ${d.raw.imageError}` : '.'} Pick a size and try again:</Mono>
+              ) : (
+                <Mono s={11} c={C.soft} st={{ display: 'block', marginBottom: 8 }}>Image prompt ready — pick a size, then generate (uses an image credit).</Mono>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ display: 'inline-flex', gap: 4 }}>
+                  {ASPECTS.map((a) => (
+                    <button
+                      key={a.v}
+                      type="button"
+                      className="calos-fr"
+                      onClick={() => setAspect(a.v)}
+                      title={a.label}
+                      style={{ cursor: 'pointer', padding: '5px 9px', borderRadius: 6, fontFamily: MONO, fontSize: 9, background: aspect === a.v ? 'rgba(212,166,82,.12)' : 'transparent', border: `1px solid ${aspect === a.v ? 'rgba(212,166,82,.5)' : C.bs}`, color: aspect === a.v ? C.gold : C.soft }}
+                    >
+                      {a.v}
+                    </button>
+                  ))}
+                </div>
+                {onMakeImage && (
+                  <Btn size="sm" variant="primary" onClick={() => { setMaking(true); onMakeImage(d.id, aspect); }}>
+                    {d.raw.imageStatus === 'failed' ? 'Retry' : '🎨 Make image'}
+                  </Btn>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {(d.stage === 'approved' || pubState) && (
+        <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 18 }}>
+          <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Delivery</Mono>
+          {connected === false ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <Mono s={11} c={C.coral}>{platLabel(d.platform)} isn’t connected — it won’t post.</Mono>
+              {onOpenPublishing && <Btn size="sm" onClick={onOpenPublishing}>Connect</Btn>}
+            </div>
+          ) : pubState?.status === 'published' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Mono s={11} c={C.gold}>✓ Posted to {platLabel(d.platform)}</Mono>
+              {pubState.postUrl && <a href={pubState.postUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.gold, textDecoration: 'underline' }}>View post</a>}
+            </div>
+          ) : pubState?.status === 'failed' ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <Mono s={11} c={C.coral}>Didn’t post{pubState.error ? `: ${pubState.error}` : '.'}</Mono>
+              {onOpenPublishing && <Btn size="sm" onClick={onOpenPublishing}>Publishing</Btn>}
+            </div>
+          ) : (
+            <Mono s={11} c={C.soft}>Queued — auto-posts on the scheduled date.</Mono>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Btn size="sm" onClick={() => onOpenScript(d)}>Open script</Btn>

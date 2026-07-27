@@ -7,7 +7,7 @@ import {
   withEditorAtomicOverlayReceipt,
 } from "../../components/editron/editor/version-7.0.0/utils/atomic-overlay-receipts";
 import { buildAtomicMomentBundle } from "../../lib/editron/services/moment-bundle";
-import { OverlayType, type CaptionOverlay, type MotionGraphicOverlay, type SoundOverlay, type TextOverlay } from "../../components/editron/editor/version-7.0.0/types";
+import { OverlayType, type CaptionOverlay, type MotionGraphicOverlay, type ShapeOverlay, type SoundOverlay, type TextOverlay } from "../../components/editron/editor/version-7.0.0/types";
 
 describe("editor atomic overlay receipts", () => {
   it("stamps editor text overlays with geometry, typography, and text atoms", () => {
@@ -103,6 +103,43 @@ describe("editor atomic overlay receipts", () => {
     ]));
   });
 
+  it("does not treat shape control values as visible text evidence", () => {
+    const overlay: ShapeOverlay = {
+      id: 12,
+      type: OverlayType.SHAPE,
+      from: 336,
+      durationInFrames: 45,
+      row: 0,
+      left: 270,
+      top: 288,
+      width: 540,
+      height: 1344,
+      isDragging: false,
+      rotation: 0,
+      content: "rectangle",
+      styles: {
+        fill: "transparent",
+        stroke: "#ffcc00",
+        strokeWidth: 4,
+        opacity: 0.95,
+        borderRadius: "10px",
+      },
+    };
+
+    const stamped = withEditorAtomicOverlayReceipt(overlay, { source: "test-editor" }) as any;
+    const receipt = stamped.metadata.atomicOverlayReceipt;
+
+    expect(receipt.family).toBe("shape");
+    expect(receipt.visualContext.textOnScreen).toBe(0);
+    expect(receipt.placementHints.avoid).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: "text-occupancy" }),
+    ]));
+    expect(receipt.atoms).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "text-content" }),
+    ]));
+    expect(receipt.form.text).toBeUndefined();
+  });
+
   it("stamps editor caption and sound overlays with caption words and media timing atoms", () => {
     const caption: CaptionOverlay = {
       id: 11,
@@ -170,6 +207,7 @@ describe("editor atomic overlay receipts", () => {
       src: "https://cdn.example.com/hit.wav",
       assetId: "sfx-hit-1",
       startFromSound: 12,
+      playbackRate: 1.15,
       styles: { volume: 0.42 },
     };
 
@@ -252,8 +290,11 @@ describe("editor atomic overlay receipts", () => {
       expect.objectContaining({ kind: "media-source", key: "media.src", value: sound.src }),
       expect.objectContaining({ kind: "asset-id", key: "media.asset_id", value: "sfx-hit-1" }),
       expect.objectContaining({ kind: "media-start-frame", key: "media.start_frame", value: 12 }),
+      expect.objectContaining({ kind: "playback-speed", key: "audio.playback_rate", value: 1.15 }),
       expect.objectContaining({ kind: "volume", key: "audio.volume", value: 0.42 }),
     ]));
+    expect(isAtomicOverlayReceiptCurrent(stampedSound)).toBe(true);
+    expect(isAtomicOverlayReceiptCurrent({ ...stampedSound, playbackRate: 0.9 })).toBe(false);
   });
 
   it("derives caption text color, font, and row atoms from signals plus brand theme inputs", () => {

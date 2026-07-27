@@ -3,11 +3,14 @@ import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildChatEditClientContext,
   buildChatEditContextBundle,
+  canApplyChatProjectResponse,
   formatChatEditContextForPrompt,
 } from '@/lib/editron/agent/chat-edit-context';
 import {
   applyAudioDuckingToProject,
+  buildAudioEditResolutionEnvelope,
   findAudioMomentCandidates,
   resolveAudioEditTiming,
 } from '@/lib/editron/agent/chat-audio-tools';
@@ -22,6 +25,7 @@ import {
   type TranscriptSearchWord,
 } from '@/lib/editron/agent/chat-transcript-tools';
 import {
+  applySubjectReframeMutation,
   applyCameraShakeToProject,
   applyFadeToProject,
   applyFilterToProject,
@@ -33,6 +37,7 @@ import {
   resolveVisualEditPlacement,
 } from '@/lib/editron/agent/chat-visual-tools';
 import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
+import { AUDIO_LEVELS } from '@/lib/editron/constants/audio-standards';
 
 describe('chat edit context bundle', () => {
   const project = {
@@ -171,6 +176,119 @@ describe('chat edit context bundle', () => {
     expect(bundle.resolverStatus.userMediaSearchAvailableToChat).toBe(true);
   });
 
+  it('builds explicit editor context from selection, viewport, panel, and recent pointer', () => {
+    const nowMs = 2_000_000;
+    const clientContext = buildChatEditClientContext({
+      currentFrame: 95,
+      selectedOverlayId: 0,
+      selectedOverlay: {
+        id: 0,
+        from: 60,
+        durationInFrames: 45,
+      },
+      durationInFrames: 300,
+      overlayCount: 4,
+      activePanel: 'ai-chat',
+      canvas: { width: 1280, height: 720 },
+      playerDimensions: { width: 960, height: 540 },
+      timelineViewport: {
+        scrollLeft: 320,
+        viewportWidth: 640,
+        contentWidth: 1280,
+        zoomScale: 2,
+      },
+      spatialCursor: {
+        surface: 'preview',
+        frame: 95,
+        normalizedX: 0.25,
+        normalizedY: 0.5,
+        canvasX: 320,
+        canvasY: 360,
+        capturedAtMs: nowMs - 1_000,
+        source: 'last-editor-pointer',
+      },
+      nowMs,
+    });
+
+    expect(clientContext).toMatchObject({
+      currentFrame: 95,
+      selectedOverlayId: 0,
+      selectedRange: {
+        startFrame: 60,
+        endFrame: 105,
+        source: 'selected-overlay',
+      },
+      visibleTimeline: {
+        startFrame: 75,
+        endFrame: 225,
+        source: 'timeline-viewport',
+      },
+      activePanel: 'ai-chat',
+      spatialCursor: {
+        surface: 'preview',
+        frame: 95,
+        normalizedX: 0.25,
+        normalizedY: 0.5,
+        canvasX: 320,
+        canvasY: 360,
+      },
+    });
+
+    const bundle = buildChatEditContextBundle(project, { clientContext, contextNowMs: nowMs });
+    expect(bundle.selectedRange).toEqual({
+      startFrame: 60,
+      endFrame: 105,
+      durationInFrames: 45,
+      source: 'selected-overlay',
+    });
+    expect(bundle.visibleTimeline).toEqual({
+      startFrame: 75,
+      endFrame: 225,
+      durationInFrames: 150,
+      source: 'timeline-viewport',
+    });
+    expect(bundle.spatialCursor).toMatchObject({ surface: 'preview', frame: 95, ageMs: 1_000 });
+    expect(formatChatEditContextForPrompt(bundle)).toContain(
+      'Last editor pointer: surface=preview, frame=95',
+    );
+  });
+
+  it('expires stale pointer evidence and rejects stale or aborted project responses', () => {
+    const nowMs = 5_000_000;
+    const clientContext = buildChatEditClientContext({
+      durationInFrames: 300,
+      spatialCursor: {
+        surface: 'timeline',
+        frame: 120,
+        capturedAtMs: nowMs - 30_001,
+        source: 'last-editor-pointer',
+      },
+      nowMs,
+    });
+
+    expect(clientContext.spatialCursor).toBeUndefined();
+    expect(canApplyChatProjectResponse({ expectedProjectId: 'proj_a', activeProjectId: 'proj_a' })).toBe(true);
+    expect(canApplyChatProjectResponse({ expectedProjectId: 'proj_a', activeProjectId: 'proj_b' })).toBe(false);
+    expect(canApplyChatProjectResponse({
+      expectedProjectId: 'proj_a',
+      activeProjectId: 'proj_a',
+      aborted: true,
+    })).toBe(false);
+  });
+
+  it('funnels every chat project overlay reload through the post-await project guard', () => {
+    const source = readFileSync(join(
+      process.cwd(),
+      'components/editron/editor/version-7.0.0/components/ai-chat/ai-chat-panel.tsx',
+    ), 'utf8');
+
+    expect(source.match(/setOverlays\(/g)).toHaveLength(1);
+    expect(source).toContain('const projectData = await projectResponse.json()');
+    expect(source.indexOf('canApplyChatProjectResponse({')).toBeLessThan(
+      source.indexOf('setOverlays(projectData.project.overlays)'),
+    );
+  });
+
   it('covers user asset tools with registry metadata without importing Mongo-backed tools', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-asset-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
@@ -237,10 +355,13 @@ describe('chat edit context bundle', () => {
         },
       },
     });
-    expect(plan.useWith?.add_overlay.x).toBeGreaterThan(900);
-    expect(plan.useWith?.add_overlay.y).toBeGreaterThan(500);
-    expect(plan.useWith?.add_overlay.width).toBeGreaterThanOrEqual(96);
-    expect(plan.useWith?.add_overlay.height).toBeGreaterThanOrEqual(36);
+    const addOverlay = plan.useWith?.add_overlay;
+    expect(addOverlay).toBeDefined();
+    if (!addOverlay) throw new Error('Expected placement resolution to authorize add_overlay.');
+    expect(addOverlay.x).toBeGreaterThan(900);
+    expect(addOverlay.y).toBeGreaterThan(500);
+    expect(addOverlay.width).toBeGreaterThanOrEqual(96);
+    expect(addOverlay.height).toBeGreaterThanOrEqual(36);
 
     const ambiguous = resolveUserAssetOverlayPlacement(project, [
       logoCandidate,
@@ -254,6 +375,64 @@ describe('chat edit context bundle', () => {
     ], { query: 'Use my logo in the corner during the intro' });
     expect(lowConfidence.status).toBe('low-confidence');
     expect(lowConfidence.useWith).toBeUndefined();
+
+    const videoCandidate: NormalizedAssetCandidate = {
+      ...logoCandidate,
+      assetId: 'asset_embroidery',
+      type: 'video',
+      name: 'embroidery.mp4',
+      duration: 12,
+      confidence: 0.94,
+      score: 0.94,
+      confidenceLabel: 'high',
+      useWith: {
+        tool: 'use_matching_footage',
+        assetId: 'asset_embroidery',
+        note: 'Use when replacing an existing generated scene; provide the sceneIndex plus this assetId.',
+      },
+    };
+    const replacement = resolveUserAssetOverlayPlacement(project, [videoCandidate], {
+      query: 'Replace the selected scene with my embroidery clip',
+      operation: 'replace',
+      targetOverlayId: 17,
+      sourceStartFrame: 24,
+    });
+    expect(replacement).toMatchObject({
+      status: 'ready',
+      operation: 'replace',
+      useWith: {
+        use_matching_footage: {
+          overlayId: 17,
+          assetId: 'asset_embroidery',
+          sourceStartFrame: 24,
+        },
+      },
+    });
+    expect(replacement.useWith).not.toHaveProperty('add_overlay');
+
+    const missingReplacementTarget = resolveUserAssetOverlayPlacement(project, [videoCandidate], {
+      query: 'Replace a scene with my embroidery clip',
+      operation: 'replace',
+    });
+    expect(missingReplacementTarget.status).toBe('no-target');
+    expect(missingReplacementTarget.useWith).toBeUndefined();
+
+    const conflictingReplacementTarget = resolveUserAssetOverlayPlacement(project, [videoCandidate], {
+      query: 'Replace a scene with my embroidery clip',
+      operation: 'replace',
+      targetOverlayId: 17,
+      targetSceneIndex: 2,
+    });
+    expect(conflictingReplacementTarget.status).toBe('conflicting-target');
+    expect(conflictingReplacementTarget.useWith).toBeUndefined();
+
+    const invalidReplacementSource = resolveUserAssetOverlayPlacement(project, [logoCandidate], {
+      query: 'Replace this video with my logo',
+      operation: 'replace',
+      targetOverlayId: 17,
+    });
+    expect(invalidReplacementSource.status).toBe('unsupported-type');
+    expect(invalidReplacementSource.useWith).toBeUndefined();
   });
 
   it('covers transcript moment search and transcript edit resolution with registry metadata without importing Mongo-backed tools', () => {
@@ -288,7 +467,7 @@ describe('chat edit context bundle', () => {
     const source = readFileSync(join(process.cwd(), 'lib/editron/agent/chat-visual-tools.ts'), 'utf8');
     const toolNames = [...source.matchAll(/name:\s*["']([^"']+)["']/g)].map((match) => match[1]);
 
-    expect(toolNames).toEqual(['find_visual_moment', 'resolve_visual_edit', 'resolve_keyframe_edit', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer', 'move_retime_overlay', 'apply_filter']);
+    expect(toolNames).toEqual(['find_visual_moment', 'resolve_visual_edit', 'resolve_keyframe_edit', 'apply_camera_shake', 'apply_speed_ramp', 'apply_fade', 'reorder_layer', 'move_retime_overlay', 'apply_filter', 'reframe_project']);
     expect(getChatToolMetadata('find_visual_moment')).toMatchObject({
       label: 'Finding visual moment',
       shortLabel: 'Find visual',
@@ -358,6 +537,86 @@ describe('chat edit context bundle', () => {
       requiresProjectReload: true,
       riskLevel: 'medium',
     });
+    expect(getChatToolMetadata('reframe_project')).toMatchObject({
+      label: 'Reframing project',
+      shortLabel: 'Reframe',
+      receiptLabel: 'Reframed project',
+      mutatesProject: true,
+      requiresProjectReload: true,
+      riskLevel: 'high',
+      turnContract: { owner: 'mechanical-editor', evidenceStrategy: 'preflight' },
+    });
+  });
+
+  it('persists one subject-aware reframe mutation with focal tracks and its audit receipt', async () => {
+    const saveProject = async (_userId: string, _projectId: string, state: Record<string, any>) => {
+      savedProject = state;
+    };
+    const updateProject = async (_userId: string, _projectId: string, updates: Record<string, unknown>) => {
+      savedAudit = updates;
+    };
+    let savedProject: Record<string, any> | null = null;
+    let savedAudit: Record<string, unknown> | null = null;
+    const reframeProject = {
+      projectId: 'proj-chat-reframe',
+      fps: 30,
+      durationInFrames: 90,
+      aspectRatio: '16:9',
+      playerDimensions: { width: 1920, height: 1080 },
+      overlays: [{
+        id: 41,
+        type: 'video',
+        assetId: 'asset-subject',
+        from: 0,
+        durationInFrames: 90,
+        left: 0,
+        top: 0,
+        width: 1920,
+        height: 1080,
+        styles: { objectFit: 'cover' },
+      }],
+    };
+
+    const plan = await applySubjectReframeMutation({
+      userId: 'user-1',
+      projectId: reframeProject.projectId,
+      project: reframeProject,
+      analyses: [{
+        projectId: reframeProject.projectId,
+        assetId: 'asset-subject',
+        segmentAnalysis: {
+          segments: [{
+            startMs: 0,
+            endMs: 3_000,
+            transcript: { text: '' },
+            visual: { mainSubject: { x: 0.65, y: 0.2, width: 0.2, height: 0.5 } },
+            weight: { finalWeight: 0.8 },
+          }],
+        },
+      }],
+      targetAspectRatio: '9:16',
+    }, {
+      loadProject: async () => reframeProject,
+      loadAnalyses: async () => [],
+      saveProject,
+      updateProject,
+    });
+
+    expect(plan).toMatchObject({ status: 'changed', subjectTrackedOverlayIds: [41] });
+    expect(savedProject).toMatchObject({
+      aspectRatio: '9:16',
+      playerDimensions: { width: 1080, height: 1920 },
+      overlays: [expect.objectContaining({
+        id: 41,
+        width: 1080,
+        height: 1920,
+        keyframeTracks: expect.arrayContaining([
+          expect.objectContaining({ property: 'objectPositionX' }),
+          expect.objectContaining({ property: 'objectPositionY' }),
+        ]),
+      })],
+    });
+    expect(savedAudit).toHaveProperty('intelligence.lastSubjectReframe');
   });
 
   it('covers audio moment search with registry metadata without importing Mongo-backed tools', () => {
@@ -417,7 +676,7 @@ describe('chat edit context bundle', () => {
     expect(plan.updates[0]).toMatchObject({
       overlayId: 10,
       nextStyles: {
-        volume: 0.75,
+        volume: AUDIO_LEVELS.BGM_WITHOUT_VO,
         duckingConfig: {
           enabled: true,
           duckLevel: 0.18,
@@ -664,8 +923,8 @@ describe('chat edit context bundle', () => {
           type: 'shape',
           start: 96,
           duration: 36,
-          x: '70%',
-          y: '10%',
+          x: '80%',
+          y: '16%',
           width: '20%',
           height: '12%',
           styles: {
@@ -681,6 +940,28 @@ describe('chat edit context bundle', () => {
         },
       },
     });
+  });
+
+  it('resolves a visual action into an exact speed-ramp authorization', () => {
+    const plan = resolveVisualEditPlacement(project, 'logo appears on laptop', {
+      action: 'speed_ramp',
+    });
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      action: 'speed_ramp',
+      candidate: {
+        frame: 96,
+      },
+      useWith: {
+        apply_speed_ramp: {
+          targetFrame: 96,
+          durationFrames: 30,
+        },
+      },
+    });
+    expect(plan.useWith?.add_overlay).toBeUndefined();
+    expect(plan.useWith?.set_keyframes).toBeUndefined();
   });
 
   it('refuses visual highlight placement when the visual fact has no bounding box', () => {
@@ -1285,6 +1566,12 @@ describe('chat edit context bundle', () => {
     const silenceCut = resolveAudioEditTiming(project, 'cut the long silence', {
       action: 'cut_section',
     });
+    const cameraShake = resolveAudioEditTiming(project, 'shake on the first beat drop', {
+      action: 'camera_shake',
+    });
+    const invalidCameraShake = resolveAudioEditTiming(project, 'shake on the long silence', {
+      action: 'camera_shake',
+    });
     const invalidBeatSync = resolveAudioEditTiming(project, 'sync cuts to the long silence', {
       action: 'sync_cuts_to_beats',
     });
@@ -1322,6 +1609,26 @@ describe('chat edit context bundle', () => {
         },
       },
     });
+    expect(cameraShake).toMatchObject({
+      status: 'ready',
+      action: 'camera_shake',
+      candidate: {
+        audioKind: 'beat-drop',
+        frame: 90,
+      },
+      useWith: {
+        apply_camera_shake: {
+          targetFrame: 90,
+        },
+      },
+    });
+    expect(invalidCameraShake).toMatchObject({
+      status: 'unsupported',
+      action: 'camera_shake',
+      candidate: {
+        audioKind: 'silence',
+      },
+    });
     expect(invalidBeatSync).toMatchObject({
       status: 'unsupported',
       action: 'sync_cuts_to_beats',
@@ -1333,6 +1640,66 @@ describe('chat edit context bundle', () => {
       status: 'no-match',
       action: 'add_sfx',
       searchedCandidateCount: 0,
+    });
+  });
+
+  it('preserves audio resolver terminal outcomes instead of reporting safe refusals as errors', () => {
+    const ready = buildAudioEditResolutionEnvelope({
+      status: 'ready',
+      action: 'add_sfx',
+      query: 'first beat',
+      searchedCandidateCount: 1,
+      candidates: [],
+      warnings: [],
+      message: 'Ready.',
+    });
+    const ambiguous = buildAudioEditResolutionEnvelope({
+      status: 'ambiguous',
+      action: 'add_sfx',
+      query: 'a beat',
+      searchedCandidateCount: 2,
+      candidates: [],
+      warnings: ['Two equal candidates.'],
+      message: 'Choose a beat.',
+    });
+    const missing = buildAudioEditResolutionEnvelope({
+      status: 'no-match',
+      action: 'add_sfx',
+      query: 'air horn',
+      searchedCandidateCount: 0,
+      candidates: [],
+      warnings: [],
+      message: 'No match.',
+    });
+    const unsupported = buildAudioEditResolutionEnvelope({
+      status: 'unsupported',
+      action: 'camera_shake',
+      query: 'long silence',
+      searchedCandidateCount: 1,
+      candidates: [],
+      warnings: [],
+      message: 'Not a point-like anchor.',
+    });
+
+    expect(ready).toMatchObject({
+      status: 'success',
+      error: null,
+      nextAction: 'continue',
+    });
+    expect(ambiguous).toMatchObject({
+      status: 'needs-choice',
+      error: null,
+      nextAction: 'ask_clarification',
+    });
+    expect(missing).toMatchObject({
+      status: 'declined',
+      error: null,
+      nextAction: 'stop',
+    });
+    expect(unsupported).toMatchObject({
+      status: 'declined',
+      error: null,
+      nextAction: 'stop',
     });
   });
 

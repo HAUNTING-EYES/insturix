@@ -112,6 +112,8 @@ export interface VjepaCoverageAudit {
   status: 'pass' | 'warn' | 'fail';
   issues: string[];
   fps: number;
+  expectedDurationMs: number | null;
+  durationBasis: 'vjepa-eligible-video-timeline' | 'original-media' | 'unknown';
   segmentCoverage: SegmentCoverageSummary;
   rawFootageCoverage?: SegmentCoverageSummary;
   overlayHitRate: number | null;
@@ -142,6 +144,7 @@ export interface VjepaScreenContextPolicy {
 interface AuditOptions {
   fps: number;
   originalDurationMs?: number;
+  eligibleDurationMs?: number;
   cleanDurationMs?: number;
   vjepaSegments: VjepaCoverageSegment[];
   rawFootageSegments?: VjepaCoverageSegment[];
@@ -163,7 +166,15 @@ const SOURCE_TYPES = new Set(['video']);
 export function auditVjepaCoverage(options: AuditOptions): VjepaCoverageAudit {
   const fps = Number.isFinite(options.fps) && options.fps > 0 ? options.fps : 30;
   const targetTypes = new Set(options.targetOverlayTypes ?? DEFAULT_TARGET_TYPES);
-  const segmentCoverage = summarizeSegments(options.vjepaSegments, options.originalDurationMs);
+  const eligibleDurationMs = positiveDuration(options.eligibleDurationMs);
+  const originalDurationMs = positiveDuration(options.originalDurationMs);
+  const expectedDurationMs = eligibleDurationMs ?? originalDurationMs;
+  const durationBasis = eligibleDurationMs != null
+    ? 'vjepa-eligible-video-timeline' as const
+    : originalDurationMs != null
+      ? 'original-media' as const
+      : 'unknown' as const;
+  const segmentCoverage = summarizeSegments(options.vjepaSegments, expectedDurationMs);
   const rawFootageCoverage = options.rawFootageSegments
     ? summarizeSegments(options.rawFootageSegments, options.originalDurationMs)
     : undefined;
@@ -182,11 +193,13 @@ export function auditVjepaCoverage(options: AuditOptions): VjepaCoverageAudit {
     : null;
 
   const reliability = assessVjepaReliability(segmentCoverage, overlayHitRate);
-  const issues = buildIssues(segmentCoverage, overlayHitRate, overlayHits, reliability, options.originalDurationMs);
+  const issues = buildIssues(segmentCoverage, overlayHitRate, overlayHits, reliability, expectedDurationMs);
   return {
     status: issues.some((issue) => issue.startsWith('fail:')) ? 'fail' : issues.length > 0 ? 'warn' : 'pass',
     issues,
     fps,
+    expectedDurationMs: expectedDurationMs ?? null,
+    durationBasis,
     segmentCoverage,
     rawFootageCoverage,
     overlayHitRate,
@@ -195,6 +208,38 @@ export function auditVjepaCoverage(options: AuditOptions): VjepaCoverageAudit {
   };
 }
 
+export function summarizeVideoTimelineDurationMs(
+  overlays: VjepaCoverageOverlay[],
+  fps: number,
+): number | undefined {
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  const intervals = overlays
+    .filter((overlay) => String(overlay.type ?? '') === 'video')
+    .map((overlay) => {
+      const start = readFrame(overlay.from);
+      const duration = readFrame(overlay.durationInFrames);
+      return { start, end: start + duration };
+    })
+    .filter((interval) => interval.end > interval.start)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  if (intervals.length === 0) return undefined;
+
+  let coveredFrames = 0;
+  let currentStart = intervals[0].start;
+  let currentEnd = intervals[0].end;
+  for (let index = 1; index < intervals.length; index++) {
+    const interval = intervals[index];
+    if (interval.start <= currentEnd) {
+      currentEnd = Math.max(currentEnd, interval.end);
+      continue;
+    }
+    coveredFrames += currentEnd - currentStart;
+    currentStart = interval.start;
+    currentEnd = interval.end;
+  }
+  coveredFrames += currentEnd - currentStart;
+  return coveredFrames > 0 ? (coveredFrames / safeFps) * 1000 : undefined;
+}
 export function summarizeSegments(
   segments: VjepaCoverageSegment[] = [],
   totalDurationMs?: number,
@@ -629,6 +674,10 @@ function toCoverageRatios(counts: Record<keyof SegmentCoverageSummary['fieldCove
 
 function readFrame(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function positiveDuration(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 function readSourceStartFrame(clip: VjepaCoverageOverlay): number {

@@ -1,6 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/hooks/use-toast";
+import {
+  resolveCompletedGenerationDelivery,
+  shouldProbeThinkForgeGeneration,
+  shouldScheduleThinkForgeGenerationPolling,
+} from "@/lib/thinkforge/client-generation-lifecycle";
 
 const LS_CHAT_PREFIX = "thinkforge_chat_";
 
@@ -18,6 +23,7 @@ export interface ChatMessage {
 type ChatHookOptions = {
   onRemoteScriptUpdate?: (script: any) => void;
   onScriptCreated?: (scriptId: string) => void;
+  getActiveScriptId?: () => string | null;
 };
 
 function saveLocal(sessionId: string, threadId: string, data: Partial<{ chat: ChatMessage[] }>) {
@@ -89,9 +95,9 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
   const [generationProgress, setGenerationProgress] = useState<number | null>(null);
   const [generationMessage, setGenerationMessage] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  // CRITICAL: Track cancellation state to ignore stale chunks
-  const isCancelledRef = useRef<boolean>(false);
   const generationIdRef = useRef<string | null>(null);
+  const activeStreamGenerationIdRef = useRef<string | null>(null);
+  const cancelledGenerationIdRef = useRef<string | null>(null);
   const optionsRef = useRef<ChatHookOptions | undefined>(options);
   const generationPollRef = useRef<NodeJS.Timeout | null>(null);
   const lastGenerationKeyRef = useRef<string | null>(null);
@@ -121,8 +127,9 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       setIsStreaming(false);
       setCurrentIntent(null);
       intentRef.current = null;
-      isCancelledRef.current = true;
       generationIdRef.current = null;
+      activeStreamGenerationIdRef.current = null;
+      cancelledGenerationIdRef.current = null;
       lastEventIdRef.current = null;
       setGenerationProgress(null);
       setGenerationMessage(null);
@@ -139,8 +146,9 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       setIsStreaming(false);
       setCurrentIntent(null);
       intentRef.current = null;
-      isCancelledRef.current = true;
       generationIdRef.current = null;
+      activeStreamGenerationIdRef.current = null;
+      cancelledGenerationIdRef.current = null;
       lastEventIdRef.current = null;
       setGenerationProgress(null);
       setGenerationMessage(null);
@@ -151,7 +159,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
     }
 
     // Use initial messages if provided
-    if (Array.isArray(initialMessages) && initialMessages.length > 0) {
+    if (Array.isArray(initialMessages)) {
       const normalized = initialMessages.map(normalizeMessage);
       setMessages(normalized);
       saveLocal(sessionId, threadId, { chat: normalized } as any);
@@ -180,13 +188,13 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
   }, [sessionId, threadId, initialMessages]);
 
   const stopStreaming = useCallback(() => {
-    // CRITICAL: Set cancellation flag FIRST to prevent processing stale chunks
-    isCancelledRef.current = true;
     if (rafFlushRef.current) {
       cancelAnimationFrame(rafFlushRef.current);
       rafFlushRef.current = null;
     }
     const activeGenerationId = generationIdRef.current;
+    cancelledGenerationIdRef.current = activeGenerationId;
+    activeStreamGenerationIdRef.current = null;
     const activeSessionId = sessionId;
     if (activeSessionId && activeGenerationId) {
       // Fire-and-forget stop request so backend halts generation
@@ -221,7 +229,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       selectionBlockIds?: string[]; // Selected block IDs from editor
       selectionRange?: { from: number; to: number }; // Selection range from editor
       scriptId?: string; // Active script tab id
-      onScriptUpdate?: (script: any) => void;
       onTokenStream?: (tokens: string) => void; // Callback for streaming tokens
       onScriptCreated?: (scriptId: string) => void;
       intentContext?: {
@@ -231,9 +238,10 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         lastUserAction?: string;
       };
       blueprintArtifacts?: Array<{ type: string; label: string; description?: string; priority?: string }>;
+      /** Silent auto-starter draft: trigger generation without showing/persisting a user bubble. */
+      silent?: boolean;
     }
   ) => {
-    console.log('[useThinkForgeChat.sendMessage] called', { sessionId, prompt: prompt.trim(), isStreaming });
     if (!sessionId || !threadId) {
       // STEP 7: Surface errors to UI instead of silent return
       console.error('[useThinkForgeChat.sendMessage] Missing sessionId or threadId - cannot send message');
@@ -245,11 +253,9 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       return;
     }
     if (!prompt.trim()) {
-      console.log('[useThinkForgeChat.sendMessage] No prompt, returning');
       return;
     }
     if (isStreaming) {
-      console.log('[useThinkForgeChat.sendMessage] Currently streaming, stopping...');
       // Cancel any stuck stream to allow new message
       stopStreaming();
     }
@@ -260,15 +266,17 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       generationPollRef.current = null;
     }
 
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: prompt,
-      timestamp: new Date(),
-      selectionText: options?.selection || null,
-    };
-
-    setMessages(prev => [...prev, userMsg]);
+    // Silent auto-starter: no visible user bubble (the server also skips persisting it).
+    if (!options?.silent) {
+      const userMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: prompt,
+        timestamp: new Date(),
+        selectionText: options?.selection || null,
+      };
+      setMessages(prev => [...prev, userMsg]);
+    }
     setIsStreaming(true);
     setCurrentIntent(null);
     intentRef.current = null;
@@ -277,6 +285,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
 
     const assistantId = crypto.randomUUID();
     const generationId = crypto.randomUUID();
+    let resolvedScriptId = options?.scriptId;
     const assistantMsg: ChatMessage = {
       id: assistantId,
       role: 'assistant',
@@ -285,16 +294,19 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       streaming: true,
     };
     setMessages(prev => [...prev, assistantMsg]);
+    const ownsLiveStream = () => (
+      activeStreamGenerationIdRef.current === generationId
+      && cancelledGenerationIdRef.current !== generationId
+    );
 
     try {
-      // Reset cancellation state for new generation
-      isCancelledRef.current = false;
+      cancelledGenerationIdRef.current = null;
       generationIdRef.current = generationId;
+      activeStreamGenerationIdRef.current = generationId;
 
       const controller = new AbortController();
       abortRef.current = controller;
 
-      console.log('[useThinkForgeChat.sendMessage] Making fetch request to /api/services/thinkforge/chat');
       const res = await fetch('/api/services/thinkforge/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -312,11 +324,11 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
           threadId,
           intentContext: options?.intentContext,
           blueprintArtifacts: options?.blueprintArtifacts,
+          silent: options?.silent,
         }),
         signal: controller.signal,
       });
 
-      console.log('[useThinkForgeChat.sendMessage] Fetch response received', { status: res.status, ok: res.ok });
 
       if (res.status === 429) {
         const errorMsg: ChatMessage = {
@@ -348,7 +360,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         if (rafFlushRef.current) return;
         rafFlushRef.current = requestAnimationFrame(() => {
           rafFlushRef.current = null;
-          if (isCancelledRef.current) return;
+          if (!ownsLiveStream()) return;
           setMessages(prev => prev.map(m =>
             m.id === assistantId ? { ...m, content: assistantContent, streaming: true } : m
           ));
@@ -360,6 +372,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       };
 
       const applyEventPayload = (data: any, eventId?: number | null) => {
+        if (!ownsLiveStream()) return;
         if (typeof eventId === 'number') {
           lastEventIdRef.current = eventId;
         } else if (typeof data?.eventId === 'number') {
@@ -387,8 +400,8 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
             generationId: data?.metadata?.generationId || generationIdRef.current,
             forceSource: 'ai',
           });
-          if (options?.onScriptUpdate) {
-            options.onScriptUpdate(remoteScript);
+          if (typeof remoteScript.scriptId === 'string') {
+            resolvedScriptId = remoteScript.scriptId;
           }
           if (optionsRef.current?.onRemoteScriptUpdate) {
             optionsRef.current.onRemoteScriptUpdate(remoteScript);
@@ -400,11 +413,13 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
             ));
           }
         } else if (data?.type === 'script_created') {
-          if (options?.onScriptCreated && typeof data?.scriptId === 'string') {
-            options.onScriptCreated(data.scriptId);
-          }
+          if (typeof data?.scriptId !== 'string') return;
+          resolvedScriptId = data.scriptId;
+          const notifyScriptCreated = options?.onScriptCreated || optionsRef.current?.onScriptCreated;
+          notifyScriptCreated?.(data.scriptId);
         } else if (data?.type === 'done') {
           doneReceivedRef.current = true;
+          generationIdRef.current = null;
         }
       };
 
@@ -449,15 +464,16 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         } catch (e) {
           console.error('[useThinkForgeChat] fallbackResync refreshMessages failed:', e);
         }
-        if (optionsRef.current?.onRemoteScriptUpdate && sessionId && options?.scriptId) {
+        const recoveryScriptId = resolvedScriptId || options?.scriptId;
+        if (optionsRef.current?.onRemoteScriptUpdate && sessionId && recoveryScriptId) {
           try {
-            const res = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(options.scriptId)}`, { cache: 'no-store' });
+            const res = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(recoveryScriptId)}`, { cache: 'no-store' });
             if (res.ok) {
               const data = await res.json();
               const fallbackWorkflow = intentRef.current === 'edit' ? 'edit' : 'create';
               optionsRef.current.onRemoteScriptUpdate(normalizeRemoteScriptUpdate(data, data?.metadata, fallbackWorkflow, {
                 sessionId,
-                scriptId: options.scriptId,
+                scriptId: recoveryScriptId,
                 generationId: generationIdRef.current,
                 forceSource: 'ai',
               }));
@@ -472,7 +488,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          if (isCancelledRef.current) break;
+          if (!ownsLiveStream()) break;
           buffer += decoder.decode(value, { stream: true });
           let idx = buffer.indexOf('\n\n');
           while (idx !== -1) {
@@ -483,10 +499,12 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
           }
         }
       } catch (readError) {
-        console.error('[useThinkForgeChat] Error reading stream:', readError);
+        if (ownsLiveStream() && !(readError instanceof DOMException && readError.name === 'AbortError')) {
+          console.error('[useThinkForgeChat] Error reading stream:', readError);
+        }
       }
 
-      setMessages(prev => {
+      if (ownsLiveStream()) setMessages(prev => {
         const updated = prev.map(m =>
           m.id === assistantId ? { ...m, content: assistantContent || '[No response received]', streaming: false } : m
         );
@@ -496,22 +514,17 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         return updated;
       });
 
-      if (!isCancelledRef.current && !doneReceivedRef.current) {
+      if (ownsLiveStream() && !doneReceivedRef.current) {
         const replayed = await replayEvents();
         if (!replayed) {
           await fallbackResync();
         }
       }
     } catch (e: any) {
-      console.error('[useThinkForgeChat.sendMessage] Error caught:', e?.name, e?.message, e);
-      if (e?.name === 'AbortError' || isCancelledRef.current) {
-        // Stream was cancelled - mark message as stopped
-        isCancelledRef.current = true;
-        setMessages(prev => prev.map(m =>
-          m.id === assistantId ? { ...m, streaming: false, content: m.content || '[Stopped]' } : m
-        ));
+      if (e?.name === 'AbortError' || !ownsLiveStream()) {
         return;
       }
+      console.error('[useThinkForgeChat.sendMessage] Error caught:', e?.name, e?.message, e);
       const errorMsg: ChatMessage = {
         id: assistantId,
         role: 'assistant',
@@ -520,14 +533,15 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       };
       setMessages(prev => prev.map(m => m.id === assistantId ? errorMsg : m));
     } finally {
-      console.log('[useThinkForgeChat.sendMessage] finally block - cleaning up');
-      setIsStreaming(false);
-      abortRef.current = null;
-      generationIdRef.current = null;
-      intentRef.current = null;
-      if (rafFlushRef.current) {
-        cancelAnimationFrame(rafFlushRef.current);
-        rafFlushRef.current = null;
+      if (activeStreamGenerationIdRef.current === generationId) {
+        activeStreamGenerationIdRef.current = null;
+        setIsStreaming(false);
+        abortRef.current = null;
+        intentRef.current = null;
+        if (rafFlushRef.current) {
+          cancelAnimationFrame(rafFlushRef.current);
+          rafFlushRef.current = null;
+        }
       }
     }
   }, [sessionId, threadId, isStreaming, stopStreaming]);
@@ -549,11 +563,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
 
   const pollGenerationStatus = useCallback(async () => {
     if (!sessionId) return;
-    // Don't poll if we recently cancelled - let the new stream take over
-    if (isCancelledRef.current) {
-      console.log('[useThinkForgeChat.pollGenerationStatus] Skipping - cancelled state active');
-      return;
-    }
     try {
       const res = await fetch(`/api/services/thinkforge/generation/status?sessionId=${encodeURIComponent(sessionId)}`, { cache: 'no-store' });
       if (!res.ok) return;
@@ -562,7 +571,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
 
       // If no generation or it's been cleared, reset state
       if (!gen) {
-        if (generationIdRef.current && !isCancelledRef.current) {
+        if (generationIdRef.current) {
           // Generation was cleared server-side
           generationIdRef.current = null;
           setIsStreaming(false);
@@ -575,12 +584,18 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       }
 
       const key = `${gen.id}:${gen.status}`;
+      if (cancelledGenerationIdRef.current === gen.id) {
+        if (gen.status !== 'running') {
+          cancelledGenerationIdRef.current = null;
+        }
+        return;
+      }
+
       if (lastGenerationKeyRef.current === key) return;
       lastGenerationKeyRef.current = key;
 
       // Don't update if we have a different active generation locally
       if (generationIdRef.current && generationIdRef.current !== gen.id) {
-        console.log('[useThinkForgeChat.pollGenerationStatus] Ignoring stale generation', { local: generationIdRef.current, remote: gen.id });
         return;
       }
 
@@ -607,14 +622,29 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         intentRef.current = null;
         setGenerationProgress(null);
         setGenerationMessage(null);
-        if (data.script && optionsRef.current?.onRemoteScriptUpdate) {
+        const completedScriptId = gen.scriptId || data.script?.scriptId;
+        const delivery = resolveCompletedGenerationDelivery({
+          activeScriptId: optionsRef.current?.getActiveScriptId?.(),
+          completedScriptId,
+          hasScriptPayload: Boolean(data.script),
+        });
+
+        if (delivery.type === 'switch_document') {
+          optionsRef.current?.onScriptCreated?.(delivery.scriptId);
+        } else if (delivery.type === 'apply_current_document' && optionsRef.current?.onRemoteScriptUpdate) {
           const fallbackWorkflow = gen.type === 'script_edit' ? 'edit' : 'create';
           optionsRef.current.onRemoteScriptUpdate(normalizeRemoteScriptUpdate(data.script, data.script?.metadata, fallbackWorkflow, {
             sessionId,
-            scriptId: gen.scriptId || data.script?.scriptId,
+            scriptId: completedScriptId,
             generationId: gen.id,
             forceSource: 'ai',
           }));
+        } else if (delivery.type === 'missing_document') {
+          toast({
+            title: 'Generated document unavailable',
+            description: 'Generation completed, but the saved document could not be loaded. Please retry.',
+            variant: 'destructive',
+          });
         }
         await refreshMessages();
       } else if (gen.status === 'cancelled') {
@@ -632,30 +662,71 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         intentRef.current = null;
         setGenerationProgress(null);
         setGenerationMessage(null);
+
+        const failureId = `generation-failed:${gen.id}`;
+        const failureMessage = typeof gen.message === 'string' && gen.message.trim()
+          ? gen.message.trim()
+          : 'Generation failed before content could be saved. Please try again.';
+        const generationLabel = gen.type === 'script_edit' ? 'script revision' : 'script';
+
+        setMessages(prev => {
+          if (prev.some(message => message.id === failureId)) return prev;
+          const next = [
+            ...prev,
+            {
+              id: failureId,
+              role: 'assistant' as const,
+              content: `Unable to complete the ${generationLabel}. ${failureMessage}`,
+              timestamp: new Date(),
+              streaming: false,
+            },
+          ];
+          if (sessionId && threadId) {
+            saveLocal(sessionId, threadId, { chat: next } as any);
+          }
+          return next;
+        });
+        toast({
+          title: 'Generation failed',
+          description: failureMessage,
+          variant: 'destructive',
+        });
       }
     } catch (error) {
       console.error('Failed to poll generation status:', error);
     }
   }, [sessionId, refreshMessages]);
 
-  // Keep UI aligned with backend generation status (reconnect / reload resilience)
+  // Keep UI aligned with backend generation status (reconnect / reload resilience).
+  // `isStreaming` is UI state; only an owned SSE generation suppresses polling.
   useEffect(() => {
-    if (!sessionId || !threadId) return;
-    if (!isStreaming) {
-      void pollGenerationStatus();
-    }
+    const hasLiveStream = activeStreamGenerationIdRef.current !== null;
+    const pollingInput = {
+      hasSession: Boolean(sessionId),
+      hasThread: Boolean(threadId),
+      hasLiveStream,
+      generationId: generationIdRef.current,
+    };
+
     if (generationPollRef.current) {
       clearInterval(generationPollRef.current);
       generationPollRef.current = null;
     }
 
-    // Only poll in the background when we are NOT streaming but a generation is active
-    if (!generationIdRef.current || isStreaming) {
-      return;
+    if (shouldProbeThinkForgeGeneration(pollingInput)) {
+      void pollGenerationStatus();
     }
 
+    if (!shouldScheduleThinkForgeGenerationPolling(pollingInput)) return;
+
     generationPollRef.current = setInterval(() => {
-      if (!generationIdRef.current || isStreaming) return;
+      const intervalInput = {
+        hasSession: Boolean(sessionId),
+        hasThread: Boolean(threadId),
+        hasLiveStream: activeStreamGenerationIdRef.current !== null,
+        generationId: generationIdRef.current,
+      };
+      if (!shouldScheduleThinkForgeGenerationPolling(intervalInput)) return;
       void pollGenerationStatus();
     }, 5000);
 

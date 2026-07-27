@@ -16,7 +16,21 @@ export async function GET(
       );
     }
 
-    const messages = await chatService.getSessionHistory(sessionId);
+    const projectId = request.nextUrl.searchParams.get('projectId')?.trim();
+    if (!projectId) {
+      return NextResponse.json(
+        { success: false, error: 'Missing projectId' },
+        { status: 400 },
+      );
+    }
+
+    const messages = await chatService.getSessionHistory(sessionId, userId, projectId);
+    if (!messages) {
+      return NextResponse.json(
+        { success: false, error: 'Chat session not found' },
+        { status: 404 },
+      );
+    }
 
     return NextResponse.json({
       success: true,

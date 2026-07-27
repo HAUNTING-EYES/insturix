@@ -1,0 +1,14 @@
+{
+  "productName": "Insturix",
+  "features": [
+    "Brand Vault — scan your website, auto-extract colors, fonts and voice into a brand kit",
+    "Script — a prompt becomes a production-ready script",
+    "Edit — chat to edit; days of editing done in minutes (no templates, no LLM slop)",
+    "Analyze — score a video before you publish",
+    "Distribute — one click to every platform and format",
+    "Content Calendar — plan a month of content, on-brand and on-trend"
+  ],
+  "outcomes": ["days of work in minutes", "on-brand by default", "one platform for the whole workflow"],
+  "cta": "insturix.com",
+  "shotList": ["dashboard / overview", "the single hero feature (e.g. chat-to-edit)", "before vs after"]
+}

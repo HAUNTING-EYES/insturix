@@ -12,12 +12,10 @@
 
 import type { EditDecision, EditDecisionList } from './reactive-edit-engine';
 import { DEFAULT_TRANSITION_FRAMES } from '@/lib/editron/data/transition-templates';
-import type { Overlay, Keyframe, KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
+import { OverlayType, type Overlay, type Keyframe, type KeyframeTrack } from '@/components/editron/editor/version-7.0.0/types';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { searchAndDownloadSFX, isSFXLibraryAvailable, type SFXLibraryResult, type SFXLibrarySearchReport } from '@/lib/pipeline/sfx-library-service';
-import { findBestTemplate } from '@/lib/editron/services/motion-graphics-service';
-import type { MotionGraphicTemplate } from '@/lib/editron/data/motion-graphic-templates';
 import { resolveMotionTokens, type BrandInputs, type DeepPartial, type MotionTokens } from '@/lib/editron/data/motion-theme-resolver';
 import { brandInputsFromUnifiedBrandAtomic } from '@/lib/editron/motion-graphics/engine/brand-composition-rules';
 import { brandInputsFromBrandSignalProfile, brandVaultToMotionOverrides } from '@/lib/editron/motion-graphics/engine/brand-vault-to-motion';
@@ -59,6 +57,18 @@ import {
 } from '@/lib/editron/engine/atomic-overlay-core';
 import type { OverlayCategory, OverlayDefinition, ScoringResult } from '@/lib/editron/engine/utility-types';
 import type { SignalCurves } from '@/lib/editron/motion-graphics/engine/primitive-renderers';
+import type { UnifiedBrandLike } from '@/lib/editron/motion-graphics/codegen/brand-mapper';
+import type { MgAnchors, MgMomentDesign, MgReceipt } from '@/lib/editron/motion-graphics/codegen/types';
+import type { FootageSignals } from '@/lib/editron/motion-graphics/codegen/style/footage-character';
+import { normalizeEditorialPreferences, type EditorialFamilyPreference } from '@/lib/editron/production-brief/editorial-preferences';
+import { computeMgMotionIntensity } from '@/lib/editron/motion-graphics/codegen/design/motion-intensity';
+// P5-1 Phase C 2/2 — the video-level DESIGN pre-pass (design-then-code producer). Dark until the flag flips.
+import { computeMgDensityBudget } from '@/lib/editron/motion-graphics/codegen/design/density-budget';
+import { resolveVideoStyle } from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
+import { runDesignPrepass, type MgDesignPrepassBeat } from '@/lib/editron/motion-graphics/codegen/design/design-prepass';
+import { defaultGeminiDesignerGenerate } from '@/lib/editron/motion-graphics/codegen/design/designer-client';
+import type { MgDesignerMoment } from '@/lib/editron/motion-graphics/codegen/design/designer-prompt';
+import type { MgDesignPlanMomentContext } from '@/lib/editron/motion-graphics/codegen/design/design-plan';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -201,9 +211,13 @@ function resolveAudioBoundaryTransitionKind(decision: EditDecision): AudioBounda
     .filter((value): value is string => typeof value === 'string')
     .map((value) => value.toLowerCase().replace(/_/g, '-'));
 
-  if (candidates.some((value) => value.includes('j-cut') || value === 'audio-leads-picture')) return 'j-cut';
-  if (candidates.some((value) => value.includes('l-cut') || value === 'audio-trails-picture')) return 'l-cut';
+  if (candidates.some((value) => isAudioBoundaryKindToken(value, 'j-cut') || value === 'audio-leads-picture')) return 'j-cut';
+  if (candidates.some((value) => isAudioBoundaryKindToken(value, 'l-cut') || value === 'audio-trails-picture')) return 'l-cut';
   return null;
+}
+
+function isAudioBoundaryKindToken(value: string, kind: AudioBoundaryTransitionKind): boolean {
+  return value === kind || value.endsWith(`-${kind}`) || value.endsWith(`.${kind}`) || value.endsWith(`:${kind}`);
 }
 
 function resolveAudioBoundaryOffsetFrames(decision: EditDecision): number {
@@ -409,9 +423,28 @@ export interface ExecutionResult {
 
 interface EDLSignalContext {
   vjepaSegments?: Array<Record<string, unknown>>;
+  codegenBrand?: UnifiedBrandLike;
+  hasConfiguredBrand?: boolean;
+  orgId?: string;
   wav2vecSegments?: Array<Record<string, unknown>>;
   musicAnalysis?: Record<string, unknown>;
   vjepaScreenContextPolicy?: VjepaScreenContextPolicy;
+  /** The user's stated PURPOSE (productionBriefIntake.userIntent) — drives the MG codegen style identity. */
+  intent?: string;
+  /** The video's aggregate signal character (energy/formality) — the SIGNAL-driven style identity primary. */
+  videoSignals?: { energy?: number; formality?: number };
+  /** The project's motionGraphics family preference (the user's dial: mode/frequency/intensity) — feeds the
+   *  density budget + motion-intensity resolver. Absent = 'auto' (no user push). */
+  motionGraphicsPref?: EditorialFamilyPreference;
+  kineticSfxPolicy?: {
+    policy: 'full' | 'subtle' | 'off';
+    profileId: string;
+    source: 'director-effective-profile';
+  };
+  /** P5-1 Phase C 2/2: per-decision approved designs from the video-level design pre-pass, keyed by the decision
+   *  object (by reference). applyGraphic looks its plan up here → renders via the coder prompt. Absent for a
+   *  decision (or the whole map) → free-form codegen (today's path). Dark until isLiveMgCodegenEnabled. */
+  mgDesignPlans?: Map<EditDecision, MgMomentDesign>;
 }
 
 type ScoreAllOverlaysFn = typeof import('@/lib/editron/engine/utility-scorer').scoreAllOverlays;
@@ -425,6 +458,7 @@ interface SfxCacheEntry {
   audioUrl: string;
   audioAssetId: string;
   durationMs: number;
+  audioRights: SFXLibraryResult['audioRights'];
   source?: SFXLibraryResult['source'];
   originalTitle?: string;
   assetQuality: AtomicSfxCandidateEvaluation;
@@ -767,13 +801,53 @@ export async function executeEDL(
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const projectDoc = await (await getDatabase()).collection('projects').findOne({ projectId });
+    const kineticPolicyReceipt = recordValue(projectDoc?.intelligence?.kineticSfxPolicy);
+    const kineticPolicyVersion = kineticPolicyReceipt ? readString(kineticPolicyReceipt, 'version') : undefined;
+    const kineticPolicy = kineticPolicyReceipt ? readString(kineticPolicyReceipt, 'policy') : undefined;
+    const kineticProfileId = kineticPolicyReceipt ? readString(kineticPolicyReceipt, 'profileId') : undefined;
+    const kineticPolicySource = kineticPolicyReceipt ? readString(kineticPolicyReceipt, 'source') : undefined;
+    const vjepaSegs = arrayOrUndefined(projectDoc?.vjepaAnalysis?.segments);
+    const wav2vecSegs = arrayOrUndefined(projectDoc?.wav2vecAnalysis?.segments);
+    // SIGNAL-driven MG style identity (Phase B): aggregate the video's ENERGY from its per-segment motion +
+    // emotion, and read the user's stated INTENT (productionBriefIntake.userIntent). These feed resolveVideoStyle
+    // at the codegen seam so the style comes from the video's signals + purpose, not the brand font. (Formality is
+    // not aggregated here yet — energy + intent are the primary drivers; styleFromSignals defaults formality to 0.5.)
+    const mgMeanOf = (segs: Array<Record<string, unknown>> | undefined, ...keys: string[]): number | undefined => {
+      const vals = (segs ?? []).map((s) => readNumber(s, ...keys)).filter((n): n is number => typeof n === 'number' && Number.isFinite(n));
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : undefined;
+    };
+    const mgMotion = mgMeanOf(vjepaSegs, 'motionIntensity', 'motion_intensity');
+    const mgArousal = mgMeanOf(wav2vecSegs, 'emotionIntensity', 'emotion_intensity');
+    const mgEnergy = mgMotion === undefined && mgArousal === undefined
+      ? undefined
+      : Math.max(0, Math.min(1, 0.5 * (mgMotion ?? mgArousal ?? 0) + 0.5 * (mgArousal ?? mgMotion ?? 0)));
+    const mgUserIntent = typeof projectDoc?.productionBriefIntake?.userIntent === 'string' && projectDoc.productionBriefIntake.userIntent.trim()
+      ? String(projectDoc.productionBriefIntake.userIntent)
+      : undefined;
+    // The user's motionGraphics dial (mode/frequency/intensity) — normalized defensively (absent/garbage →
+    // undefined = 'auto'). Feeds the density budget + the motion-intensity resolver at the codegen seam.
+    const mgPrefs = normalizeEditorialPreferences(projectDoc?.productionBriefIntake?.editorialPreferences ?? projectDoc?.editorialPreferences);
+    const mgGraphicsPref = mgPrefs?.families?.motionGraphics;
     projectSignalContext = {
-      vjepaSegments: arrayOrUndefined(projectDoc?.vjepaAnalysis?.segments),
-      wav2vecSegments: arrayOrUndefined(projectDoc?.wav2vecAnalysis?.segments),
+      codegenBrand: undefined,
+      hasConfiguredBrand: Boolean(projectDoc?.brandId),
+      orgId: typeof projectDoc?.orgId === 'string' ? projectDoc.orgId : undefined,
+      vjepaSegments: vjepaSegs,
+      wav2vecSegments: wav2vecSegs,
       musicAnalysis: recordValue(projectDoc?.musicAnalysis) ?? recordValue(projectDoc?.essentiaAnalysis) ?? undefined,
       vjepaScreenContextPolicy: projectDoc?.intelligence?.vjepaCoverageAudit
         ? resolveVjepaScreenContextPolicy(projectDoc.intelligence.vjepaCoverageAudit)
         : undefined,
+      intent: mgUserIntent,
+      videoSignals: mgEnergy !== undefined ? { energy: mgEnergy } : undefined,
+      motionGraphicsPref: mgGraphicsPref,
+      kineticSfxPolicy:
+        kineticPolicyVersion === 'kinetic-sfx-policy-v1'
+        && kineticPolicySource === 'director-effective-profile'
+        && (kineticPolicy === 'full' || kineticPolicy === 'subtle' || kineticPolicy === 'off')
+        && kineticProfileId
+          ? { policy: kineticPolicy, profileId: kineticProfileId, source: 'director-effective-profile' }
+          : undefined,
     };
     if (projectDoc?.brandId && userId) {
       const { resolveEffectiveBrandWithProfile } = await import('@/lib/shared/brand-effective-resolver');
@@ -781,6 +855,7 @@ export async function executeEDL(
         service: 'editron',
         orgId: projectDoc.orgId ?? null,
       });
+      projectSignalContext.codegenBrand = resolution.brand ?? undefined;
       projectBrand = resolution.acceptedProfile
         ? {
             ...brandInputsFromUnifiedBrandAtomic(resolution.brand),
@@ -905,6 +980,17 @@ export async function executeEDL(
   let budgetRejected = 0;
   let decisionIndex = 0;
   const usedGraphicTemplateIds = new Set<string>();
+
+  // P5-1 Phase C 2/2: author the video's coherent MgVideoDesignPlan ONCE before the loop (dark until the flag
+  // flips). Each per-moment design is keyed by its decision; applyGraphic renders it via the coder prompt instead
+  // of free-form codegen. Fail-safe: any failure leaves mgDesignPlans undefined → every decision free-forms.
+  if (isLiveMgCodegenEnabled()) {
+    try {
+      projectSignalContext.mgDesignPlans = await runMgDesignPrepass(actionable, overlays, projectSignalContext, graphicsDensity, canvasDimensions);
+    } catch (designPrepassErr) {
+      console.warn(`[EDL-MG-Design] pre-pass failed (non-fatal, free-form fallback): ${designPrepassErr instanceof Error ? designPrepassErr.message : designPrepassErr}`);
+    }
+  }
 
   for (const decision of actionable) {
     const currentDecisionIndex = decisionIndex++;
@@ -1072,6 +1158,34 @@ export async function executeEDL(
     console.log(`[EDL-Exec] REJECTION SUMMARY: ${result.rejectedDecisions.length} decisions rejected — ${Object.entries(grouped).map(([k, v]) => `${k}:${v}`).join(', ')}`);
   }
 
+  const mgCodegenOutcomes = actionable
+    .map((decision) => decision.params?.mgCodegenOutcome)
+    .filter((outcome): outcome is MgCodegenDecisionOutcome => (
+      Boolean(outcome)
+      && typeof outcome === 'object'
+      && ['queued', 'generated', 'declined', 'fallback'].includes((outcome as MgCodegenDecisionOutcome).status)
+    ));
+  if (mgCodegenOutcomes.length > 0) {
+    try {
+      const { getDatabase } = await import('@/lib/editron/db/mongodb');
+      await (await getDatabase()).collection('projects').updateOne(
+        { projectId, userId },
+        {
+          $set: {
+            'intelligence.mgCodegenRun.version': 'mg-codegen-run-v2',
+            'intelligence.mgCodegenRun.queuedCount': mgCodegenOutcomes.filter((outcome) => outcome.status === 'queued').length,
+            'intelligence.mgCodegenRun.generatedCount': mgCodegenOutcomes.filter((outcome) => outcome.status === 'generated').length,
+            'intelligence.mgCodegenRun.failedCount': mgCodegenOutcomes.filter((outcome) => outcome.status === 'declined' || outcome.status === 'fallback').length,
+            'intelligence.mgCodegenRun.outcomes': mgCodegenOutcomes.slice(0, 100),
+            'intelligence.mgCodegenRun.truncated': mgCodegenOutcomes.length > 100,
+            'intelligence.mgCodegenRun.completedAt': new Date(),
+          },
+        },
+      );
+    } catch (error) {
+      console.error('[EDL-MG-Codegen] failed to persist run evidence:', error);
+    }
+  }
   return result;
 }
 
@@ -1959,6 +2073,7 @@ function acceptedSfxCacheEntry(
     audioUrl: result.audioUrl,
     audioAssetId: result.audioAssetId,
     durationMs: result.durationMs,
+    audioRights: result.audioRights,
     source: result.source,
     originalTitle: result.originalTitle,
     assetQuality,
@@ -2573,6 +2688,7 @@ async function applyDecision(
         content: cached.audioUrl,
         src: cached.audioUrl,
         assetId: cached.audioAssetId,
+        audioRights: cached.audioRights,
         styles: { volume: atomicSfxForm.mix.volume, opacity: 1 },
         metadata: {
           source: 'edl-sfx-trigger',
@@ -2813,13 +2929,7 @@ function applyTransition(
   });
   const transType = transitionForm.compatibilityType;
   const durationFrames = transitionForm.durationFrames;
-
-  // hard-cut and editorial cuts don't produce visual transitions. Use the
-  // resolved atomic form, not the upstream hint, so strong motion/beat atoms can
-  // promote a default hard-cut into a motivated visual transition.
-  if (!audioBoundaryKind && ['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType)) {
-    return null;
-  }
+  const isEditorialCut = ['hard-cut', 'smash-cut', 'match-cut', 'jump-cut', 'cut-on-action'].includes(transType);
 
   // Snap decision frame to nearest actual clip boundary FIRST so the dedup
   // below can use clipA/clipB identity (authoritative) instead of frame
@@ -2839,6 +2949,25 @@ function applyTransition(
 
   if (audioBoundaryKind) {
     return applyAudioBoundaryTransition(audioBoundaryKind, decision, overlays, boundaryMatch, idEpoch, decisionIndex);
+  }
+
+  // Editorial cuts are already represented by the adjacent video clip boundary.
+  // They intentionally render no visual transition tile, but they are still a
+  // valid executed decision when anchored to a real boundary. Returning a
+  // zero-change result keeps Phase-0/quality audit from misclassifying a
+  // deliberate match-cut or hard-cut as a dropped executor path.
+  if (isEditorialCut) {
+    decision.params.transitionType = transType;
+    decision.params.transitionStyle = transType;
+    decision.params.atomicTransitionForm = transitionForm;
+    decision.params.editorialCutExecution = {
+      version: 'editorial-cut-execution-v1',
+      boundaryFrame: boundaryMatch.boundaryFrame,
+      clipAId: (boundaryMatch.clipA as any).id,
+      clipBId: (boundaryMatch.clipB as any).id,
+      compatibilityType: transType,
+    };
+    return { created: 0, modified: 0 };
   }
 
   // Check if a transition already exists for this clip pair. Clip-pair match
@@ -3482,78 +3611,6 @@ function sanitizeOpacityKeyframes(keyframes: Keyframe[], clipDuration: number): 
   return Array.from(byFrame.values()).sort((a, b) => a.frame - b.frame);
 }
 // ── Template-based graphic rendering helpers ──
-// Maps creative brief decision params to template slot values per graphic type.
-// Rule-based, deterministic, no AI. Each graphic type knows its slot schema.
-function mapDecisionParamsToSlots(
-  graphicType: string,
-  params: Record<string, any>,
-  template: MotionGraphicTemplate,
-): Record<string, string> {
-  const text = params.text || '';
-  const slots: Record<string, string> = {};
-
-  switch (graphicType) {
-    case 'stat-counter': {
-      slots.value = params.value ? String(params.value) : params.endValue ? String(params.endValue) : text;
-      slots.label = params.label || '';
-      slots.prefix = params.prefix || '';
-      slots.suffix = params.suffix || '';
-      break;
-    }
-    case 'lower-third': {
-      const parts = text.split(/[,\-–—]\s*/);
-      slots.name = parts[0]?.trim() || text;
-      slots.title = parts[1]?.trim() || params.title || '';
-      break;
-    }
-    case 'callout': {
-      slots.title = text;
-      slots.body = params.body || '';
-      break;
-    }
-    case 'quote-card': {
-      slots.quote = text;
-      slots.author = params.author || '';
-      break;
-    }
-    case 'logo-reveal': {
-      slots.text = text;
-      break;
-    }
-    case 'keyword-highlight':
-    default: {
-      const primaryTextSlot = template.slots.find(s => s.type === 'text');
-      if (primaryTextSlot) {
-        slots[primaryTextSlot.name] = text;
-      }
-      for (const s of template.slots) {
-        if (s.type === 'text' && !slots[s.name]) slots[s.name] = '';
-      }
-      break;
-    }
-  }
-
-  return slots;
-}
-
-function fillTemplateWithSlotValues(
-  template: MotionGraphicTemplate,
-  slotValues: Record<string, string>,
-): string {
-  let html = template.htmlTemplate;
-  for (const slot of template.slots) {
-    const value = slotValues[slot.name] ?? slot.default;
-    const safeValue = String(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#x27;');
-    html = html.replace(new RegExp(`\\{\\{${slot.name}\\}\\}`, 'g'), safeValue);
-  }
-  return html;
-}
-
 type OverlayPlacementRegion =
   | 'top-left'
   | 'top-center'
@@ -3647,6 +3704,34 @@ function readPlacementAdjustment(value: unknown): OverlayPlacementAdjustment | u
   };
 }
 
+function readCaptionPlacementReservations(value: unknown): Array<{
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  reason?: string;
+  strength?: number;
+}> | undefined {
+  if (!isObjectRecord(value) || !Array.isArray(value.regions)) return undefined;
+  const regions = value.regions.flatMap((item) => {
+    if (!isObjectRecord(item)) return [];
+    const x = readFiniteNumber(item.x);
+    const y = readFiniteNumber(item.y);
+    const width = readFiniteNumber(item.width);
+    const height = readFiniteNumber(item.height);
+    if (x === undefined || y === undefined || width === undefined || height === undefined) return [];
+    return [{
+      x,
+      y,
+      width,
+      height,
+      ...(typeof item.reason === 'string' ? { reason: item.reason } : {}),
+      ...(readFiniteNumber(item.strength) !== undefined ? { strength: readFiniteNumber(item.strength) } : {}),
+    }];
+  });
+  return regions.length > 0 ? regions : undefined;
+}
+
 function mergePlacementAdjustment(
   base: OverlayPlacementAdjustment | undefined,
   atomic: OverlayPlacementAdjustment | undefined,
@@ -3726,6 +3811,7 @@ function hasRenderableGraphicContent(params: Record<string, unknown>): boolean {
     'avatar',
     'mediaUrl',
     'imageUrl',
+    'line', // P3.5 narrative beat: the verbatim spoken words (designer-licensed; see narrative discipline below)
   ];
 
   if (renderableKeys.some((key) => hasNonEmptyValue(params[key]))) return true;
@@ -3817,7 +3903,8 @@ function readableGraphicWords(content: Record<string, unknown>): number {
 }
 
 function isGraphicOverlayForDedupe(overlay: Overlay): boolean {
-  return overlay.type === 'html-scene'
+  return overlay.type === OverlayType.MG_SEQUENCE
+    || overlay.type === 'html-scene'
     || overlay.type === 'motion-graphic'
     || (overlay as any).type === 'sticker';
 }
@@ -3891,6 +3978,262 @@ function normalizeGraphicDedupeToken(value: unknown): string {
     .replace(/\s+/g, ' ')
     .slice(0, 180);
 }
+
+interface MgCodegenDecisionOutcome {
+  status: 'queued' | 'generated' | 'declined' | 'fallback';
+  frame: number;
+  candidateId: string;
+  factKind: string;
+  reason?: string;
+  jobId?: string;
+  messageId?: string | null;
+  assetId?: string;
+  sequenceId?: string;
+  receipt?: MgReceipt;
+}
+
+// Exported for the narrative beat producer gate (director-agent) — ONE definition of the flag semantics.
+export function isLiveMgCodegenEnabled(): boolean {
+  const override = process.env.MG_CODEGEN_ENABLED?.trim().toLowerCase();
+  if (override === 'false' || override === '0') return false;
+  if (override === 'true' || override === '1') return true;
+  // OFF by default until the commit-pinned Sandbox snapshot and callback secret are deployed and smoke-tested.
+  // When explicitly enabled, applyGraphic sends only MgMomentInput to the isolated worker. Next.js never imports
+  // the Remotion compiler/Chromium runtime, and decline/failure never falls through to a legacy card.
+  return false;
+}
+
+function localMgAnchor(frame: unknown, startFrame: number, durationInFrames: number): number | undefined {
+  if (typeof frame !== 'number' || !Number.isFinite(frame)) return undefined;
+  const rounded = Math.round(frame);
+  if (rounded >= startFrame && rounded < startFrame + durationInFrames) return rounded - startFrame;
+  if (rounded >= 0 && rounded < durationInFrames) return rounded;
+  return undefined;
+}
+
+function buildMgCodegenAnchors(
+  decision: EditDecision,
+  startFrame: number,
+  durationInFrames: number,
+  signalCurves?: { curves: SignalCurves },
+): MgAnchors | undefined {
+  const params = decision.params ?? {};
+  const directWords = Array.isArray(params.wordFrames)
+    ? params.wordFrames
+    : Array.isArray(params.wordAnchorFrames)
+      ? params.wordAnchorFrames
+      : [];
+  const wordFrames = [...new Set(directWords
+    .map((frame: unknown) => localMgAnchor(frame, startFrame, durationInFrames))
+    .filter((frame: number | undefined): frame is number => frame !== undefined))]
+    .sort((a, b) => a - b)
+    .slice(0, 32);
+
+  const beatCurve = signalCurves?.curves.music_beat ?? signalCurves?.curves.beat_level;
+  const beatFrames: number[] = [];
+  if (Array.isArray(beatCurve)) {
+    for (let frame = 0; frame < beatCurve.length && beatFrames.length < 24; frame += 1) {
+      if ((beatCurve[frame] ?? 0) >= 0.5 && (beatFrames.length === 0 || frame - beatFrames[beatFrames.length - 1] >= 3)) {
+        beatFrames.push(frame);
+      }
+    }
+  }
+
+  const directLanding = [
+    params.mgLandingFrame,
+    params.landingFrame,
+    params.beatFrame,
+    params.targetBeatFrame,
+  ].map((frame) => localMgAnchor(frame, startFrame, durationInFrames)).find((frame) => frame !== undefined);
+  const onset = signalCurves?.curves.onset;
+  let strongestOnset: number | undefined;
+  if (directLanding === undefined && Array.isArray(onset) && onset.length > 0) {
+    let strength = 0;
+    onset.forEach((value, frame) => {
+      if (typeof value === 'number' && value > strength) {
+        strength = value;
+        strongestOnset = frame;
+      }
+    });
+  }
+
+  const anchors: MgAnchors = {};
+  if (wordFrames.length) anchors.wordFrames = wordFrames;
+  if (beatFrames.length) anchors.beatFrames = beatFrames;
+  if (directLanding !== undefined || strongestOnset !== undefined) {
+    anchors.landingFrame = directLanding ?? strongestOnset;
+  }
+  return Object.keys(anchors).length > 0 ? anchors : undefined;
+}
+
+function mgCodegenNotes(decision: EditDecision): string | undefined {
+  const notes = [decision.params?.notes, decision.params?.editorialNotes, decision.reason]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => value.trim());
+  return notes.length ? notes.join(' | ').slice(0, 400) : undefined;
+}
+
+// META content keys that are not visualizable data props (mirrors codegen-service.META_CONTENT_KEYS).
+const MG_DESIGN_META_KEYS = new Set(['sourceSpan', 'semanticAtoms', 'salience', 'evidencePhrase', 'contextStartMs', 'contextEndMs']);
+
+/** Classify a content value into a coarse data-prop KIND for the designer (never the literal value). */
+function classifyDesignPropKind(value: unknown): string {
+  if (typeof value === 'number') return 'number';
+  if (Array.isArray(value)) return 'list';
+  if (value && typeof value === 'object') return 'object';
+  if (typeof value === 'string') return /^-?\d+(?:\.\d+)?$/.test(value.trim()) ? 'number' : 'text';
+  return 'text';
+}
+
+/**
+ * P5-1 Phase C 2/2 — the video-level DESIGN pre-pass. Runs ONCE before the decision loop (dark until
+ * isLiveMgCodegenEnabled). For every graphic decision it derives the DESIGNER's view of the moment — reusing the
+ * SAME pure derivation applyGraphic runs (content normalize → ledger gate → candidate select → expression
+ * authority → placement; none of it touches overlay state) — then runs one design session and returns the approved
+ * per-moment designs keyed by their DECISION (by reference), so applyGraphic can render each via the coder prompt.
+ *
+ * DUPLICATION IS DELIBERATE (R33 over R3 here): the derivation mirrors applyGraphic's pure prefix rather than
+ * refactoring that live free-form path. Divergence is BOUNDED — a mismatched beat only wastes a design or falls
+ * back to free-form, NEVER a wrong render (the render uses applyGraphic's own momentInput; the pre-pass feeds only
+ * the designer's view). Fail-safe: any throw is caught by the caller → free-form fallback for every decision.
+ */
+async function runMgDesignPrepass(
+  decisions: EditDecision[],
+  overlays: Overlay[],
+  projectSignalContext: EDLSignalContext,
+  graphicsDensity: 'heavy' | 'moderate' | 'minimal' | undefined,
+  canvas: { width: number; height: number },
+): Promise<Map<EditDecision, MgMomentDesign> | undefined> {
+  const { brandToKit } = await import('@/lib/editron/motion-graphics/codegen/brand-mapper');
+  const mappedBrand = brandToKit(projectSignalContext.codegenBrand);
+  if (projectSignalContext.hasConfiguredBrand && mappedBrand.isDefault) return undefined; // same guard as applyGraphic
+
+  const fps = DEFAULT_CONFIG.timing.fps;
+  const beats: MgDesignPrepassBeat<EditDecision>[] = [];
+  let numericEvidenceCount = 0;
+  let beatIndex = 0;
+
+  for (const decision of decisions) {
+    if (decision.type !== 'graphic') continue; // caption-emphasis promotions build a NEW decision object → free-form
+
+    // ── mirror applyGraphic's PURE derivation prefix (decision-only; no overlay/loop-state dependency) ──
+    const requestedPlacementAdjustment = readPlacementAdjustment(decision.params.placementAdjustment);
+    const requestedPlacementRegion = requestedPlacementAdjustment?.candidateRegion ?? normalizePlacementRegion(decision.params.position);
+    const atomicPlacement = resolveAtomicPlacement({
+      family: 'graphic',
+      momentBundle: decisionMomentBundle(decision),
+      signals: decisionSignals(decision),
+      requestedRegion: requestedPlacementRegion,
+      protectedRegions: readCaptionPlacementReservations(decision.params.captionPlacementReservations),
+    });
+    const placementRegion = atomicPlacement.candidateRegion ?? requestedPlacementRegion;
+    const {
+      brand: _b, signals: _s, mgOverlayScores: _m, graphicType: _g, creativeDecisionType: _c,
+      placementAdjustment: _p, position: _pos, ...contentParams
+    } = decision.params;
+    const signalSalience = contentSalienceFromDecisionSignals(decision);
+    if (contentParams.salience == null && signalSalience != null) contentParams.salience = signalSalience;
+    const normalized = normalizeMotionGraphicContent(contentParams);
+    const contentMap = normalized.content;
+    if (!hasRenderableGraphicContent(contentMap)) continue;
+    if (!resolveSemanticMgLedgerGate(normalized.semanticMgCandidateLedger).allow) continue;
+    const selected = selectSemanticMgCandidate(normalized.semanticMgCandidateLedger).selectedCandidate;
+    if (!selected) continue;
+    const authority = resolveMgExpressionAuthority({
+      content: contentMap,
+      structure: normalized.structure,
+      semanticAtoms: normalized.semanticAtoms,
+      signals: buildMotionGraphicSignalSnapshot(decision),
+      momentBundle: decisionMomentBundle(decision),
+      placementRegion,
+      graphicsDensity,
+      semanticCandidate: selected,
+    });
+    // P3.5: authority is a DATA-relevance gate — it cannot judge a factless beat. Narrative beats are always
+    // OFFERED to the designer, whose approved plan (within the density budget) is their only render license.
+    if (!authority.allowMotionGraphic && selected.factKind !== 'narrative') continue;
+
+    // ── the designer's VIEW of the moment (design INPUT only; applyGraphic re-resolves the real render window) ──
+    const props = Object.entries((selected.content ?? {}) as Record<string, unknown>)
+      .filter(([key, value]) => value != null && !MG_DESIGN_META_KEYS.has(key));
+    const contentProps = props.map(([name, value]) => ({ name, kind: classifyDesignPropKind(value) }));
+    const numericProps = props.filter(([, value]) => classifyDesignPropKind(value) === 'number').map(([name]) => name);
+    if (numericProps.length > 0) numericEvidenceCount += 1;
+    const momentId = `beat-${beatIndex++}`;
+    const tier: MgDesignerMoment['tier'] = authority.qualityTier === 'suppressed' ? 'subtle' : authority.qualityTier;
+    const sourceText = String(
+      selected.sourceSpan?.text ?? contentMap.text ?? contentMap.keyword ?? contentMap.title ?? '',
+    ).trim();
+    const salience = typeof selected.salience === 'number' ? selected.salience : (authority.relevanceScore ?? 0.5);
+    const durationFrames = typeof decision.durationFrames === 'number' && decision.durationFrames > 0 ? decision.durationFrames : 90;
+
+    // P5-2(b): the real V-JEPA subject box for this beat (project-level segments — the pre-pass is pre-enrichment,
+    // so read the raw segment directly) → the designer designs clear of the ACTUAL subject. Best-effort: no segment
+    // → the `room` prose steers alone. Same box the seam feeds the coder/judge, so all three agree on the subject.
+    const beatFrameRef = resolveSourceFrame(decision.frame, overlays);
+    const beatVjepa = projectSignalContext.vjepaSegments
+      ? findTimeSegment(projectSignalContext.vjepaSegments, (beatFrameRef.sourceFrame / fps) * 1000)
+      : undefined;
+    const bsx = beatVjepa ? readNumber(beatVjepa, 'mainSubjectX', 'main_subject_x', 'subjectX', 'subject_x') : undefined;
+    const bsy = beatVjepa ? readNumber(beatVjepa, 'mainSubjectY', 'main_subject_y', 'subjectY', 'subject_y') : undefined;
+    const bsw = beatVjepa ? readNumber(beatVjepa, 'mainSubjectWidth', 'main_subject_width', 'subjectWidth', 'subject_width') : undefined;
+    const bsh = beatVjepa ? readNumber(beatVjepa, 'mainSubjectHeight', 'main_subject_height', 'subjectHeight', 'subject_height') : undefined;
+    const beatSubjectBox = bsx != null && bsy != null && bsw != null && bsh != null && bsw > 0 && bsh > 0
+      ? { x: clamp01(bsx), y: clamp01(bsy), width: clamp01(bsw), height: clamp01(bsh) }
+      : undefined;
+
+    beats.push({
+      key: decision,
+      moment: { momentId, factKind: selected.factKind, sourceText, contentProps, tier, salience, room: `${placementRegion ?? 'an open area'} — clear of the subject and captions`, durationFrames, subjectBox: beatSubjectBox },
+      context: { momentId, factKind: selected.factKind, contentProps: contentProps.map((p) => p.name), numericProps, startMs: Math.max(0, (decision.frame / fps) * 1000) },
+    });
+  }
+
+  if (beats.length === 0) return undefined;
+
+  const durationSec = Math.max(1, overlays.reduce((max, o) => Math.max(max, o.from + o.durationInFrames), 0) / fps);
+  const budget = computeMgDensityBudget({
+    durationSec,
+    beatCount: beats.length,
+    numericEvidenceCount,
+    brandMotionEnergy: mappedBrand.brand.motion.energy,
+    preference: projectSignalContext.motionGraphicsPref,
+  });
+  if (budget.maxMoments === 0) return undefined; // user veto / no license — every decision free-forms
+
+  let generate: ReturnType<typeof defaultGeminiDesignerGenerate>;
+  try {
+    generate = defaultGeminiDesignerGenerate();
+  } catch (keyErr) {
+    console.warn(`[EDL-MG-Design] designer model unavailable (${keyErr instanceof Error ? keyErr.message : keyErr}) — free-form fallback`);
+    return undefined;
+  }
+
+  const videoStyle = resolveVideoStyle({
+    brandFont: mappedBrand.brand.fontSans,
+    intent: projectSignalContext.intent,
+    videoSignals: projectSignalContext.videoSignals,
+  });
+
+  // P5-1 Phase D: sample a few real footage frames across the video so the designer designs for the ACTUAL palette
+  // and negative space (buildDesignerParts.footageFrames). Best-effort — any failure → a valid text-only session.
+  let images: { footageFrames: Array<{ mimeType: string; data: string }> } | undefined;
+  try {
+    const { captureMgDesignerFootageFrames } = await import('@/lib/editron/motion-graphics/codegen/visual-evidence');
+    const footageFrames = await captureMgDesignerFootageFrames({ overlays, canvas, fps, count: 4 });
+    if (footageFrames.length > 0) images = { footageFrames };
+  } catch (frameErr) {
+    console.warn(`[EDL-MG-Design] footage frame capture failed (non-fatal, text-only design): ${frameErr instanceof Error ? frameErr.message : frameErr}`);
+  }
+
+  const result = await runDesignPrepass(
+    { beats, intent: projectSignalContext.intent, videoStyle, brand: mappedBrand.brand, budget, images },
+    { generate },
+  );
+  console.log(`[EDL-MG-Design] pre-pass: ${beats.length} beats offered, budget ${budget.maxMoments}, ${result.plans.size} designed${result.reason ? ` (session: ${result.reason})` : ''}`);
+  return result.plans.size > 0 ? result.plans : undefined;
+}
+
 async function applyGraphic(
   decision: EditDecision,
   overlays: Overlay[],
@@ -3899,7 +4242,7 @@ async function applyGraphic(
   canvas: { width: number; height: number },
   idEpoch: number = 0,
   decisionIndex: number = 0,
-  usedTemplateIds?: Set<string>,
+  _usedTemplateIds?: Set<string>,
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
   analyses?: Map<string, any>,
   projectSignalContext: EDLSignalContext = {},
@@ -3912,6 +4255,7 @@ async function applyGraphic(
     momentBundle: decisionMomentBundle(decision),
     signals: decisionSignals(decision),
     requestedRegion: requestedPlacementRegion,
+    protectedRegions: readCaptionPlacementReservations(decision.params.captionPlacementReservations),
   });
   const placementRegion = atomicPlacement.candidateRegion ?? requestedPlacementRegion;
   const placementAdjustment = mergePlacementAdjustment(requestedPlacementAdjustment, atomicPlacement.placementAdjustment);
@@ -3944,10 +4288,9 @@ async function applyGraphic(
       ?? contentMap.value
       ?? '',
   ).trim();
-  const useCompositionEngine = DEFAULT_CONFIG.features?.useCompositionEngine === true;
 
   if (!hasRenderableGraphicContent(contentMap)) return null;
-  if (useCompositionEngine && isKeywordGraphicIntent(decision, graphicType) && !hasStandaloneGraphicStructure(contentMap)) {
+  if (isKeywordGraphicIntent(decision, graphicType) && !hasStandaloneGraphicStructure(contentMap)) {
     console.log(`[EDL-Exec] KEYWORD FILTER: skipped standalone keyword MG "${text}" - captions should carry naked word emphasis`);
     return null;
   }
@@ -3995,7 +4338,7 @@ async function applyGraphic(
   const existingGraphic = overlays.find(o =>
     isGraphicOverlayForDedupe(o)
     && Math.abs(o.from - decision.frame) <= 15
-    && graphicDedupeKeyFromOverlay(o) === currentGraphicKey
+    && (o.type === OverlayType.MG_SEQUENCE || graphicDedupeKeyFromOverlay(o) === currentGraphicKey)
   );
   if (existingGraphic) {
     console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: SKIPPED — duplicate ${currentGraphicKey} at frame ${existingGraphic.from}`);
@@ -4011,6 +4354,24 @@ async function applyGraphic(
     return null;
   }
   const semanticMgCandidateSelection = selectSemanticMgCandidate(normalizedGraphicContent.semanticMgCandidateLedger);
+
+  // ── P3.5 narrative discipline ──────────────────────────────────────────────────────────────────────────
+  // A factless beat has exactly ONE render license: the DESIGNER's approved plan from the video-level design
+  // pre-pass (within the density budget). No plan (declined, session failed, or codegen disabled) → skip.
+  // NEVER free-form and NEVER the legacy card path — a fabricated graphic for a factless moment is precisely
+  // what the ledger exists to prevent (fail honest, R2N).
+  const narrativeBeat = semanticMgCandidateSelection.selectedCandidate?.factKind === 'narrative';
+  const approvedNarrativeDesign = narrativeBeat ? projectSignalContext.mgDesignPlans?.get(decision) : undefined;
+  if (narrativeBeat && !(isLiveMgCodegenEnabled() && approvedNarrativeDesign)) {
+    console.log(
+      `[EDL-MG] Narrative beat at frame ${decision.frame}: SKIPPED — ` +
+      (isLiveMgCodegenEnabled()
+        ? 'designer declined it (or no design session)'
+        : 'MG codegen disabled') +
+      '; narrative renders ONLY via a designer-approved plan (P3.5), never free-form',
+    );
+    return null;
+  }
 
   // Type-specific durations (CRG-verified at 30fps)
   const GRAPHIC_DURATIONS: Record<string, number> = {
@@ -4031,10 +4392,10 @@ async function applyGraphic(
     || (durationGraphicType ? GRAPHIC_DURATIONS[durationGraphicType] : undefined)
     || 90;
 
-  // ── COMPOSITION ENGINE PATH (feature flag) ──
-  // When enabled, ALL graphic types route through planComposition → MOTION_GRAPHIC (Remotion).
-  // When disabled, stat-counter uses MOTION_GRAPHIC, everything else uses html-scene (old path).
-  if (useCompositionEngine) {
+  // ── COMPOSITION ENGINE PATH ──
+  // All EDL graphics route through planComposition → MOTION_GRAPHIC (Remotion).
+  // The old inline/template branch was removed so there is a single visual owner.
+  {
     const rawSignals = buildMotionGraphicSignalSnapshot(decision);
     const tokens = resolveMotionTokens(
       rawSignals,
@@ -4083,7 +4444,9 @@ async function applyGraphic(
         ? { semanticCandidate: semanticMgCandidateSelection.selectedCandidate }
         : {}),
     });
-    if (!mgExpressionAuthority.allowMotionGraphic) {
+    // P3.5: authority is a DATA-relevance gate; a narrative beat that reaches here carries a designer-approved
+    // plan (the discipline check above) — the designer's license stands, authority still shapes duration/scores.
+    if (!mgExpressionAuthority.allowMotionGraphic && !narrativeBeat) {
       console.log(
         `[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: SKIPPED by MG expression authority - ` +
         mgExpressionAuthority.reasons.join(', '),
@@ -4091,6 +4454,244 @@ async function applyGraphic(
       return null;
     }
     mgScores = applyMgExpressionAuthorityToScores(mgScores, mgExpressionAuthority);
+    const snappedFrame = findClipAtFrame(decision.frame, overlays, 20)?.snappedFrame ?? decision.frame;
+    const baseCompositionDuration = resolveGraphicDwellFrames(duration, decision.params, contentMap);
+    const compositionDuration = Math.max(
+      mgExpressionAuthority.duration.minFrames,
+      Math.min(
+        mgExpressionAuthority.duration.maxFrames,
+        Math.round(baseCompositionDuration * mgExpressionAuthority.duration.multiplier),
+      ),
+    );
+    const signalCurves = buildMotionGraphicSignalCurves(
+      decision,
+      overlays,
+      snappedFrame,
+      compositionDuration,
+      rawSignals,
+      analyses,
+      projectSignalContext,
+    );
+
+    if (isLiveMgCodegenEnabled()) {
+      const selectedCandidate = semanticMgCandidateSelection.selectedCandidate;
+      const outcomeBase = {
+        frame: snappedFrame,
+        candidateId: selectedCandidate?.id ?? 'none',
+        factKind: selectedCandidate?.factKind ?? 'none',
+      };
+      const rejectCodegenMoment = (
+        status: 'declined' | 'fallback',
+        reason: string,
+        receipt?: MgReceipt,
+      ): null => {
+        const outcome: MgCodegenDecisionOutcome = { ...outcomeBase, status, reason, ...(receipt ? { receipt } : {}) };
+        decision.params.mgCodegenOutcome = outcome;
+        console.error(`[EDL-MG-Codegen] ${status.toUpperCase()} ${outcome.candidateId} @${snappedFrame}: ${reason}`);
+        return null;
+      };
+
+      if (!selectedCandidate) {
+        return rejectCodegenMoment('declined', 'No licensed semantic candidate survived the MG ledger');
+      }
+
+      try {
+        const [
+          { brandToKit },
+          { buildMgMomentInput },
+          { captureMgVisualEvidence },
+          { enqueueDurableMgRenderJob, resolveMgRenderAppCommit },
+        ] = await Promise.all([
+          import('@/lib/editron/motion-graphics/codegen/brand-mapper'),
+          import('@/lib/editron/motion-graphics/codegen/moment-input'),
+          import('@/lib/editron/motion-graphics/codegen/visual-evidence'),
+          import('@/lib/editron/motion-graphics/codegen/mg-render-job-runner'),
+        ]);
+        const mappedBrand = brandToKit(projectSignalContext.codegenBrand);
+        if (projectSignalContext.hasConfiguredBrand && mappedBrand.isDefault) {
+          return rejectCodegenMoment('fallback', 'Configured brand could not be mapped to the MG kit');
+        }
+        // Resolved liveness (brand×video×user) — deterministic, identical across this video's moments; becomes
+        // the reserved data.motionIntensity the coder binds for every hold/entrance (P5-1 Phase B: the producer
+        // for the Phase-A socket). videoEnergy = the video's real aggregate (V-JEPA motion ⊕ audio emotion).
+        const mgMotionIntensity = computeMgMotionIntensity({
+          brandMotionEnergy: mappedBrand.brand.motion.energy,
+          videoEnergy: projectSignalContext.videoSignals?.energy,
+          preference: projectSignalContext.motionGraphicsPref,
+        }).intensity;
+
+        const codegenWindow = {
+          startFrame: snappedFrame,
+          endFrame: snappedFrame + compositionDuration,
+          fps: DEFAULT_CONFIG.timing.fps,
+        };
+        const codegenAnchors = buildMgCodegenAnchors(decision, snappedFrame, compositionDuration, signalCurves);
+        const visualEvidence = await captureMgVisualEvidence({
+          overlays,
+          window: codegenWindow,
+          canvas,
+          anchors: codegenAnchors,
+        });
+        // Seam pass 2 — THIS moment's footage character, read from its V-JEPA + wav2vec segment at the moment
+        // frame (same segment lookup the signal-curve builder uses). The R2/R3 resolver fixes need the motionType
+        // + faceEmotion STRINGS, which are NOT in the numeric signalCurves, so we read the segment directly. No
+        // segment → {} → undefined → the video style identity holds for this moment (graceful, deterministic).
+        const mgFrameRef = resolveSourceFrame(snappedFrame, overlays);
+        const mgSourceMs = (mgFrameRef.sourceFrame / DEFAULT_CONFIG.timing.fps) * 1000;
+        const mgAnalysis = analysisForAsset(analyses, mgFrameRef.assetId);
+        const mgVjepa = findTimeSegment(
+          arrayOrUndefined(mgAnalysis?.vjepaAnalysis?.segments) ?? arrayOrUndefined(mgAnalysis?.vjepa?.segments) ?? projectSignalContext.vjepaSegments,
+          mgSourceMs,
+        );
+        const mgWav2vec = findTimeSegment(
+          arrayOrUndefined(mgAnalysis?.wav2vecAnalysis?.segments) ?? arrayOrUndefined(mgAnalysis?.wav2vec?.segments) ?? projectSignalContext.wav2vecSegments,
+          mgSourceMs,
+        );
+        const mgFootage: FootageSignals = {};
+        const mgMotion = mgVjepa ? readNumber(mgVjepa, 'motionIntensity', 'motion_intensity') : undefined;
+        if (mgMotion != null) mgFootage.motionEnergy = clamp01(mgMotion);
+        const mgMotionType = mgVjepa ? readString(mgVjepa, 'motionType', 'motion_type') : undefined;
+        if (mgMotionType === 'subject_moving' || mgMotionType === 'camera_moving' || mgMotionType === 'both' || mgMotionType === 'static') mgFootage.motionType = mgMotionType;
+        const mgFace = mgVjepa ? readString(mgVjepa, 'faceEmotion', 'face_emotion') : undefined;
+        if (mgFace) mgFootage.faceEmotion = mgFace;
+        const mgArousal = mgWav2vec ? readNumber(mgWav2vec, 'emotionIntensity', 'emotion_intensity') : undefined;
+        if (mgArousal != null) mgFootage.arousal = clamp01(mgArousal);
+        // P5-2(b): the REAL V-JEPA main-subject box (frame fractions) for this moment. Feeds screen.subject so the
+        // coder places clear of the ACTUAL subject and the judge checks obstruction against real coordinates (a SOFT
+        // strengthening — the judge that sees the composite stays the owner, no deterministic veto). Absent → coarse.
+        const mgSubjectX = mgVjepa ? readNumber(mgVjepa, 'mainSubjectX', 'main_subject_x', 'subjectX', 'subject_x') : undefined;
+        const mgSubjectY = mgVjepa ? readNumber(mgVjepa, 'mainSubjectY', 'main_subject_y', 'subjectY', 'subject_y') : undefined;
+        const mgSubjectW = mgVjepa ? readNumber(mgVjepa, 'mainSubjectWidth', 'main_subject_width', 'subjectWidth', 'subject_width') : undefined;
+        const mgSubjectH = mgVjepa ? readNumber(mgVjepa, 'mainSubjectHeight', 'main_subject_height', 'subjectHeight', 'subject_height') : undefined;
+        const mgSubjectBox = mgSubjectX != null && mgSubjectY != null && mgSubjectW != null && mgSubjectH != null && mgSubjectW > 0 && mgSubjectH > 0
+          ? { x: mgSubjectX, y: mgSubjectY, width: mgSubjectW, height: mgSubjectH }
+          : undefined;
+        const momentId = `${projectId}:${snappedFrame}:${selectedCandidate.id}`;
+        const momentInput = buildMgMomentInput({
+          momentId,
+          candidate: selectedCandidate,
+          brand: mappedBrand.brand,
+          window: codegenWindow,
+          expression: mgExpressionAuthority,
+          placement: atomicPlacement,
+          anchors: codegenAnchors,
+          visualEvidence,
+          notes: mgCodegenNotes(decision),
+          intent: projectSignalContext.intent, // the user's stated purpose → signal-driven style identity
+          videoSignals: projectSignalContext.videoSignals, // the video's aggregate energy → style identity
+          footageSignals: Object.keys(mgFootage).length > 0 ? mgFootage : undefined,
+          motionIntensity: mgMotionIntensity, // brand×video×user liveness → reserved data.motionIntensity
+          // P5-1 Phase C 2/2: this decision's approved design (design-then-code) — keyed by the SAME decision the
+          // pre-pass saw. Present → the worker renders via the coder prompt; absent → free-form codegen (unchanged).
+          design: projectSignalContext.mgDesignPlans?.get(decision),
+          subjectBox: mgSubjectBox, // P5-2(b): real V-JEPA subject box → screen.subject (coder + judge context)
+        });
+        const signalSpeechEnergy = readNumber(rawSignals, 'speech_energy', 'speech.energy');
+        const segmentSpeechEnergy = mgWav2vec ? readNumber(mgWav2vec, 'energy', 'speech_energy') : undefined;
+        const speechEnergy = signalSpeechEnergy ?? segmentSpeechEnergy;
+        const kineticSfxContext = {
+          version: 'mg-kinetic-sfx-context-v1',
+          momentId,
+          policy: projectSignalContext.kineticSfxPolicy?.policy ?? null,
+          profileId: projectSignalContext.kineticSfxPolicy?.profileId ?? null,
+          policySource: projectSignalContext.kineticSfxPolicy?.source ?? 'unavailable',
+          speechEnergy: speechEnergy == null ? null : clamp01(speechEnergy),
+          speechSource: signalSpeechEnergy != null
+            ? 'moment-signals'
+            : segmentSpeechEnergy != null
+              ? 'wav2vec-segment'
+              : 'unavailable',
+          writtenAt: new Date(),
+        };
+        try {
+          const { getDatabase } = await import('@/lib/editron/db/mongodb');
+          const projects = (await getDatabase()).collection('projects');
+          const replaced = await projects.updateOne(
+            {
+              projectId,
+              'intelligence.mgKineticSfxContexts.momentId': momentId,
+            },
+            {
+              $set: {
+                'intelligence.mgKineticSfxContexts.$': kineticSfxContext,
+              },
+            },
+          );
+          if (replaced.matchedCount === 0) {
+            await projects.updateOne(
+              {
+                projectId,
+                'intelligence.mgKineticSfxContexts.momentId': { $ne: momentId },
+              },
+              {
+                $push: {
+                  'intelligence.mgKineticSfxContexts': {
+                    $each: [kineticSfxContext],
+                    $slice: -100,
+                  } as never,
+                },
+              },
+            );
+          }
+        } catch (error) {
+          console.warn(
+            `[EDL] MG kinetic SFX context persistence failed for ${momentId}; async SFX will suppress:`,
+            error instanceof Error ? error.message : error,
+          );
+        }
+        const enqueued = await enqueueDurableMgRenderJob({
+          projectId,
+          userId,
+          orgId: projectSignalContext.orgId ?? null,
+          appCommit: resolveMgRenderAppCommit(),
+          input: momentInput,
+          canvas,
+          sequenceNamespace: userId,
+        });
+
+        if (enqueued.status !== 'completed') {
+          const outcome: MgCodegenDecisionOutcome = {
+            ...outcomeBase,
+            status: 'queued',
+            jobId: enqueued.jobId,
+            messageId: enqueued.messageId,
+            reason: enqueued.status === 'running'
+              ? 'MG render job is already running in the isolated worker'
+              : 'MG render job queued for the isolated worker',
+          };
+          decision.params.mgCodegenOutcome = outcome;
+          console.log(`[EDL-MG-Codegen] QUEUED ${selectedCandidate.id} @${snappedFrame}: ${enqueued.jobId}`);
+          return { created: 0, modified: 0 };
+        }
+
+        const generated = enqueued.result;
+        if (!generated) {
+          return rejectCodegenMoment('fallback', `Completed MG render job ${enqueued.jobId} has no result`);
+        }
+        if (generated.status !== 'generated') {
+          return rejectCodegenMoment(generated.status, generated.reason, generated.receipt);
+        }
+
+        const sequence = generated.sequence;
+        // A completed idempotent job was already delivered by the worker. Report it without inserting twice.
+        const outcome: MgCodegenDecisionOutcome = {
+          ...outcomeBase,
+          status: 'generated',
+          jobId: enqueued.jobId,
+          assetId: `mgseq_${sequence.address.sequenceId}`,
+          sequenceId: sequence.address.sequenceId,
+          receipt: generated.receipt,
+          reason: 'Idempotent render job was already completed and delivered',
+        };
+        decision.params.mgCodegenOutcome = outcome;
+        return { created: 0, modified: 0 };
+      } catch (error) {
+        return rejectCodegenMoment(
+          'fallback',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
 
     // Overlays-as-signals: the mg.typography.font_weight dial (signal→curve→[300..800]) is the
     // source of boldness — feed it into the typography token every MG composer binds
@@ -4132,26 +4733,6 @@ async function applyGraphic(
     }
     const atomicOverlayPlan = buildAtomicOverlayPlan(recipe, tokens, contentMap, rawSignals, mgScores, decision.params.brand || {});
     const atomicOverlayDecision = decideAtomicOverlay(atomicOverlayPlan);
-
-    const snappedFrame = findClipAtFrame(decision.frame, overlays, 20)?.snappedFrame ?? decision.frame;
-    const baseCompositionDuration = resolveGraphicDwellFrames(duration, decision.params, contentMap);
-    const compositionDuration = Math.max(
-      mgExpressionAuthority.duration.minFrames,
-      Math.min(
-        mgExpressionAuthority.duration.maxFrames,
-        Math.round(baseCompositionDuration * mgExpressionAuthority.duration.multiplier),
-      ),
-    );
-
-    const signalCurves = buildMotionGraphicSignalCurves(
-      decision,
-      overlays,
-      snappedFrame,
-      compositionDuration,
-      rawSignals,
-      analyses,
-      projectSignalContext,
-    );
 
     const motionOverlay = {
       id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
@@ -4200,299 +4781,7 @@ async function applyGraphic(
       `${recipe.elements.length} elements, layout=${recipe.layout.position}`,
     );
     return { created: 1, modified: 0 };
-  }
-  // Full HTML entity escaping — prevents XSS if Gemini outputs malicious text
-  const safeText = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;');
-
-  // Aspect-ratio-aware positioning
-  const isPortrait = canvas.height > canvas.width;
-  const _isSquare = Math.abs(canvas.width - canvas.height) < 100;
-  const safeMargin = canvas.width * 0.05;
-
-  // Position + dimensions per graphic type (responsive)
-  let left = safeMargin;
-  let top = canvas.height * 0.8;
-  let width = canvas.width * 0.4;
-  let height = 80;
-
-  // ── Build HTML per graphic type (5 distinct templates) ──
-  let html = '';
-
-  switch (graphicType) {
-    case 'stat-counter': {
-      // Big number center-screen with accent bar — for statistics, percentages
-      left = isPortrait ? canvas.width * 0.08 : canvas.width * 0.2;
-      top = isPortrait ? canvas.height * 0.35 : canvas.height * 0.3;
-      width = isPortrait ? canvas.width * 0.84 : canvas.width * 0.6;
-      height = isPortrait ? canvas.height * 0.2 : canvas.height * 0.35;
-      html = `
-<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;padding:24px;">
-  <div style="background:linear-gradient(135deg,rgba(0,0,0,0.85),rgba(20,20,40,0.9));backdrop-filter:blur(16px);border-radius:16px;padding:32px 48px;border:1px solid rgba(255,255,255,0.08);box-shadow:0 20px 60px rgba(0,0,0,0.5);animation:statIn 0.5s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
-    <div style="width:40px;height:3px;background:linear-gradient(90deg,#6366f1,#8b5cf6);border-radius:2px;margin-bottom:16px;"></div>
-    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:48px;font-weight:900;text-align:center;letter-spacing:-0.02em;line-height:1.1;">
-      ${safeText}
-    </div>
-    <div style="width:40px;height:3px;background:linear-gradient(90deg,#8b5cf6,#6366f1);border-radius:2px;margin-top:16px;"></div>
-  </div>
-</div>
-<style>
-@keyframes statIn { 0% { opacity:0; transform:scale(0.8) translateY(20px); } 100% { opacity:1; transform:scale(1) translateY(0); } }
-</style>`;
-      break;
-    }
-
-    case 'callout': {
-      // Positioned near subject with arrow indicator — for product/feature callouts
-      if (isPointPosition(position)) {
-        left = Math.min(Math.max((position.x || 0.5) * canvas.width - 150, 20), canvas.width - 340);
-        top = Math.max(20, ((position.y || 0.5) * canvas.height) - 60);
-      }
-      width = Math.round(canvas.width * 0.18); // 18% of canvas, not fixed 320px
-      height = 70;
-      html = `
-<div style="display:flex;align-items:center;gap:10px;width:100%;height:100%;padding:8px;">
-  <div style="width:4px;height:36px;background:#f59e0b;border-radius:2px;flex-shrink:0;animation:barIn 0.3s ease-out forwards;"></div>
-  <div style="background:rgba(0,0,0,0.8);backdrop-filter:blur(12px);border-radius:10px;padding:10px 18px;border:1px solid rgba(245,158,11,0.3);animation:callIn 0.35s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
-    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:17px;font-weight:600;letter-spacing:0.01em;">
-      ${safeText}
-    </div>
-  </div>
-</div>
-<style>
-@keyframes callIn { 0% { opacity:0; transform:translateX(-12px); } 100% { opacity:1; transform:translateX(0); } }
-@keyframes barIn { 0% { height:0; } 100% { height:36px; } }
-</style>`;
-      break;
-    }
-
-    case 'lower-third': {
-      // Bottom-left name/title bar — for person introductions
-      left = isPortrait ? canvas.width * 0.05 : canvas.width * 0.04;
-      top = canvas.height * 0.78;
-      width = isPortrait ? canvas.width * 0.9 : canvas.width * 0.45;
-      height = 80;
-      html = `
-<div style="display:flex;align-items:flex-end;width:100%;height:100%;padding:8px 0;">
-  <div style="position:relative;animation:ltIn 0.4s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
-    <div style="background:rgba(255,255,255,0.95);padding:8px 24px 8px 16px;border-radius:0 8px 8px 0;">
-      <div style="color:#111;font-family:system-ui,-apple-system,sans-serif;font-size:18px;font-weight:700;letter-spacing:0.01em;">
-        ${safeText}
-      </div>
-    </div>
-    <div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:#ef4444;border-radius:2px 0 0 2px;"></div>
-  </div>
-</div>
-<style>
-@keyframes ltIn { 0% { opacity:0; transform:translateX(-30px); } 100% { opacity:1; transform:translateX(0); } }
-</style>`;
-      break;
-    }
-
-    case 'quote-card': {
-      // Centered quote with quotation marks — for direct quotes, testimonials
-      left = canvas.width * 0.15;
-      top = canvas.height * 0.3;
-      width = canvas.width * 0.7;
-      height = canvas.height * 0.35;
-      html = `
-<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:24px;">
-  <div style="background:rgba(0,0,0,0.8);backdrop-filter:blur(20px);border-radius:16px;padding:28px 36px;border:1px solid rgba(255,255,255,0.06);max-width:600px;animation:quoteIn 0.5s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
-    <div style="color:rgba(255,255,255,0.3);font-size:40px;font-family:Georgia,serif;line-height:1;margin-bottom:-8px;">\u201C</div>
-    <div style="color:#fff;font-family:Georgia,serif;font-size:22px;font-weight:400;font-style:italic;text-align:center;line-height:1.5;letter-spacing:0.01em;">
-      ${safeText}
-    </div>
-    <div style="color:rgba(255,255,255,0.3);font-size:40px;font-family:Georgia,serif;line-height:1;text-align:right;margin-top:-8px;">\u201D</div>
-  </div>
-</div>
-<style>
-@keyframes quoteIn { 0% { opacity:0; transform:scale(0.95); } 100% { opacity:1; transform:scale(1); } }
-</style>`;
-      break;
-    }
-
-    case 'logo-reveal': {
-      // Centered brand logo text with cinematic reveal — for final scenes
-      left = canvas.width * 0.15;
-      top = canvas.height * 0.35;
-      width = canvas.width * 0.7;
-      height = canvas.height * 0.3;
-      html = `
-<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;padding:24px;">
-  <div style="animation:logoReveal 1.2s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0;">
-    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:64px;font-weight:900;text-align:center;letter-spacing:-0.03em;text-shadow:0 4px 20px rgba(0,0,0,0.5);">
-      ${safeText}
-    </div>
-    <div style="width:80px;height:4px;background:linear-gradient(90deg,#FFD700,#FFA500);border-radius:2px;margin:16px auto 0;animation:barExpand 0.6s ease-out 0.4s both;"></div>
-  </div>
-</div>
-<style>
-@keyframes logoReveal { 0% { opacity:0; transform:scale(0.8) translateY(20px); } 50% { opacity:1; } 100% { opacity:1; transform:scale(1) translateY(0); } }
-@keyframes barExpand { 0% { width:0; } 100% { width:80px; } }
-</style>`;
-      break;
-    }
-
-    case 'keyword-highlight':
-    default: {
-      // Compact pop-up keyword — positioned in top third to avoid caption zone
-      // CRG constraint:overlay.graphic_in_caption_zone — bottom 15-25% is reserved for captions
-      left = isPortrait ? canvas.width * 0.08 : canvas.width * 0.05;
-      top = isPortrait ? canvas.height * 0.12 : canvas.height * 0.10;
-      width = Math.min(canvas.width * 0.5, Math.max(200, safeText.length * 14 + 60));
-      height = 56;
-      html = `
-<div style="display:flex;align-items:center;width:100%;height:100%;padding:6px;">
-  <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(0,0,0,0.85);backdrop-filter:blur(12px);border-radius:8px;padding:8px 18px;border:1px solid rgba(255,255,255,0.1);animation:kwIn 0.3s cubic-bezier(0.34,1.56,0.64,1) forwards;opacity:0;transform-origin:left center;">
-    <div style="width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0;"></div>
-    <div style="color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:16px;font-weight:700;letter-spacing:0.02em;text-transform:uppercase;">
-      ${safeText}
-    </div>
-  </div>
-</div>
-<style>
-@keyframes kwIn { 0% { opacity:0; transform:scale(0.7); } 100% { opacity:1; transform:scale(1); } }
-</style>`;
-      break;
-    }
-  }
-
-  const placedGeometry = applyPlacementRegionGeometry(placementRegion, { left, top, width, height }, canvas, safeMargin);
-  left = placedGeometry.left;
-  top = placedGeometry.top;
-  width = placedGeometry.width;
-  height = placedGeometry.height;
-
-  // ── Template upgrade: replace inline CSS with curated template if available ──
-  // Runs at pipeline time (Director phase) so async MongoDB access is safe.
-  // Falls back to the inline CSS html from the switch above if no template matches.
-  try {
-    const templateSearchQuery = graphicType.replace(/-/g, ' ');
-    const templateMatch = await findBestTemplate(templateSearchQuery, usedTemplateIds);
-    if (templateMatch && templateMatch.score >= 0.15) {
-      usedTemplateIds?.add(templateMatch.template.templateId);
-      const slotValues = mapDecisionParamsToSlots(graphicType, decision.params, templateMatch.template);
-      html = fillTemplateWithSlotValues(templateMatch.template, slotValues);
-      if (templateMatch.template.defaultDuration && !decision.durationFrames) {
-        duration = templateMatch.template.defaultDuration;
-      }
-      console.log(`[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: template '${templateMatch.template.templateId}' (score: ${templateMatch.score.toFixed(2)})`);
-    }
-  } catch (err) {
-    console.warn(`[EDL-Exec] Template lookup failed for '${graphicType}', using inline CSS:`, (err as Error).message);
-  }
-
-  // Snap graphic to nearest containing clip (handles pacing drift).
-  // If decision.frame falls in a gap between clips, snap to nearest clip start.
-  const graphicClipMatch = findClipAtFrame(decision.frame, overlays, 20);
-  const snappedGraphicFrame = graphicClipMatch ? graphicClipMatch.snappedFrame : decision.frame;
-  if (graphicClipMatch && graphicClipMatch.drift > 0) {
-    console.log(`[EDL-Exec] Graphic at frame ${decision.frame}: snapped to ${snappedGraphicFrame} (drift: ${graphicClipMatch.drift} frames)`);
-  }
-
-  // Stat-counter uses the React-rendered MOTION_GRAPHIC path (Structure × Theme).
-  // All other types use html-scene (Shadow DOM) until their structure components exist.
-  if (graphicType === 'stat-counter') {
-    const tokens = resolveMotionTokens(
-      decision.params.signals || {},
-      decision.params.brand || {},
-      decision.params.brandMotionOverrides as DeepPartial<MotionTokens> | undefined,
-    );
-    const contentMap: Record<string, string> = {
-      value: decision.params.value ? String(decision.params.value) : decision.params.endValue ? String(decision.params.endValue) : text,
-      prefix: decision.params.prefix || '',
-      suffix: decision.params.suffix || '',
-      label: decision.params.label || '',
-    };
-
-    const rawSignals = decision.params.signals || {};
-    const motionOverlay = {
-      id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
-      type: 'motion-graphic' as const,
-      from: snappedGraphicFrame,
-      durationInFrames: duration,
-      row: ROW.BGM, // z-idx 90, same as html-scene graphics (see E3 z-index comment)
-      left,
-      top,
-      width,
-      height,
-      isDragging: false,
-      rotation: 0,
-      structureType: 'stat-counter',
-      content: contentMap,
-      resolvedTokens: tokens,
-      contentSignals: {
-        formality: rawSignals.formality ?? 0,
-        enthusiasm: rawSignals.enthusiasm ?? 0.5,
-        warmth: rawSignals.warmth ?? 0.5,
-        emotional_arousal: rawSignals.emotional_arousal ?? 0.4,
-        pacing_velocity: rawSignals.pacing_velocity ?? 0.5,
-        humor: rawSignals.humor ?? 0.1,
-        visceral_impact: rawSignals.visceral_impact ?? 0.3,
-        visual_dependency: rawSignals.visual_dependency ?? 0.5,
-      },
-      styles: {
-        opacity: 1,
-        backgroundColor: 'transparent',
-      },
-      metadata: {
-        sourceType: 'edl-graphic',
-        graphicType,
-        placementRegion,
-        placementAdjustment,
-        atomicPlacement,
-        ...atomicMomentBundleMetadata(decision),
-        edlSource: decision.source,
-        edlReason: decision.reason,
-      },
-    };
-
-    overlays.push(motionOverlay as any);
-    console.log(`[EDL-Exec] Graphic '${graphicType}' at frame ${decision.frame}: MOTION_GRAPHIC overlay (React-rendered)`);
-    return { created: 1, modified: 0 };
-  }
-
-  // All other graphic types: html-scene overlay (Shadow DOM, template or inline CSS)
-  const graphicOverlay = {
-    id: deterministicOverlayId(idEpoch, 'graphic', decision.frame, decisionIndex),
-    type: 'html-scene' as const,
-    from: snappedGraphicFrame,
-    durationInFrames: duration,
-    // Row 1 (above video on row 2, below captions-exception at z-index 95).
-    // Graphics need z-index above video (row 2 = z-idx 80) and z-idx formula is 100-row*10,
-    // so row 1 = z-idx 90. Moving to canonical ROW.MOTION_GRAPHICS (6) would yield z-idx 40
-    // which is BELOW video — graphics would be invisible. This is an intentional exception.
-    row: ROW.BGM, // = 1, see comment above
-    left,
-    top,
-    width,
-    height,
-    isDragging: false,
-    rotation: 0,
-    content: html,
-    styles: {
-      opacity: 1,
-      backgroundColor: 'transparent',
-    },
-    metadata: {
-      sourceType: 'edl-graphic',
-      graphicType,
-      placementRegion,
-      placementAdjustment,
-      atomicPlacement,
-      ...atomicMomentBundleMetadata(decision),
-      edlSource: decision.source,
-      edlReason: decision.reason,
-    },
-  };
-
-  overlays.push(graphicOverlay as any);
-  return { created: 1, modified: 0 };
-}
+  }}
 
 function applyAudioDuck(
   decision: EditDecision,
@@ -4505,7 +4794,8 @@ function applyAudioDuck(
   // Already has ducking? Skip.
   if (bgm.styles?.duckingConfig?.enabled) return null;
 
-  const { duckLevel = 0.20, rampDownMs = 300, rampUpMs = 600 } = decision.params;
+  // Default ~-21 dB, CKG music_under_speech_level_range (bgm-mix-levels.ts). Was 0.20 (~-14dB, too hot under speech).
+  const { duckLevel = 0.089, rampDownMs = 300, rampUpMs = 600 } = decision.params;
 
   if (!bgm.styles) bgm.styles = {};
   bgm.styles.duckingConfig = {

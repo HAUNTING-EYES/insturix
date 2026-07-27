@@ -38,10 +38,14 @@ import {
   type UnifiedDecisionProducerCandidate,
 } from '@/lib/editron/services/unified-decision-bundle';
 import { enforceCanonicalDecisionTimeline } from '@/lib/editron/services/decision-timeline-guard';
+import { resolveEditorialDecisionPolicy } from '@/lib/editron/services/editorial-decision-policy';
+import { resolveMusicGenerationPolicy } from '@/lib/pipeline/bgm-conditioning-contract';
 import {
   shouldInjectGlobalCaptionAction,
+  shouldRunDirectorScopedEffect,
   shouldRunPostBundleProfileAction,
   shouldRunPostEdlUtilityScoring,
+  shouldRunProfileActionWithinExecutionScope,
   shouldRunUtilityLiveProducer,
 } from '@/lib/editron/agent/post-edl-action-policy';
 import {
@@ -49,11 +53,15 @@ import {
   formatVjepaCoverageAuditWarning,
   shouldRunLegacyIntelligenceFallback,
 } from '@/lib/editron/agent/director-observability';
-import { installCanonicalCaptionTrack } from '@/lib/editron/services/canonical-caption-track';
+import {
+  buildCanonicalCaptionChoreographyReservations,
+  installCanonicalCaptionTrack,
+} from '@/lib/editron/services/canonical-caption-track';
 import { buildPersistedQualityReview } from '@/lib/editron/services/quality-review-persistence';
 import { buildPhase0LiveTruthSnapshot } from '@/lib/editron/services/phase0-live-truth';
 import { buildPhase0FixtureManifest } from '@/lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '@/lib/editron/services/phase0-render-artifact-pack';
+import { buildStorylineSeamTransitionEdl } from '@/lib/editron/services/storyline-seam-transitions';
 import {
   buildPhase0RenderedEvidenceDispatchPersistSet,
   dispatchPhase0RenderedEvidenceJob,
@@ -468,6 +476,7 @@ export async function executeDirectorPlan(
   // Scoring happens after signal timeline build (Step D.4c) where real signals exist.
   const useUtilityEngine = process.env.USE_UTILITY_ENGINE === 'true';
   const useUtilityLive = process.env.USE_UTILITY_LIVE === 'true';
+  const editorialExecutionScope = brief?.executionScope;
 
   // Pipeline warning collector for structured error visibility
   const { createPipelineWarnings } = await import('@/lib/editron/services/pipeline-warnings');
@@ -491,6 +500,7 @@ export async function executeDirectorPlan(
       evidenceOnlySignalDecisionCount: 0,
       totalDecisions: 0,
       executedDecisions: 0,
+      ...(editorialExecutionScope ? { executionScope: editorialExecutionScope } : {}),
     },
     actionsExecuted: 0,
     actionsSkipped: [],
@@ -506,9 +516,22 @@ export async function executeDirectorPlan(
     // Prevents browser autosave from clobbering Director changes.
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const lockDb = await getDatabase();
+    const kineticSfxPolicy = effectiveProfile.transitionSFXPolicy ?? 'full';
     await lockDb.collection('projects').updateOne(
       { projectId },
-      { $set: { directorLock: true, directorLockAt: new Date() } },
+      {
+        $set: {
+          directorLock: true,
+          directorLockAt: new Date(),
+          'intelligence.kineticSfxPolicy': {
+            version: 'kinetic-sfx-policy-v1',
+            policy: kineticSfxPolicy,
+            profileId: effectiveProfile.profileId,
+            source: 'director-effective-profile',
+            resolvedAt: new Date(),
+          },
+        },
+      },
     );
 
     // ─── Step 1: Load project state ──────────────────────────
@@ -517,6 +540,7 @@ export async function executeDirectorPlan(
       throw new Error(`Project ${projectId} not found`);
     }
 
+    const directorProjectRecord = project as any;
     const overlays = project.overlays || [];
     result.checkpointId = `director_${Date.now()}`;
 
@@ -538,6 +562,31 @@ export async function executeDirectorPlan(
     let pathDGenreParams: any | undefined;
     let pathEGenreParams: any | undefined;
     let briefCaptionStyle: string | undefined;
+    const captionEditorialPolicy = resolveEditorialDecisionPolicy(
+      brief?.editorialPreferences,
+      'caption',
+    );
+    const captionExecutionScopePolicy = shouldRunDirectorScopedEffect({
+      effect: 'canonical-captions',
+      executionScope: editorialExecutionScope,
+    });
+    const musicGenerationPolicy = resolveMusicGenerationPolicy({
+      musicPreferences: [
+        { value: brief?.musicPreference, source: 'director-brief.musicPreference' },
+        { value: directorProjectRecord.musicPreference, source: 'project.musicPreference' },
+        { value: directorProjectRecord.productionBrief?.musicPreference, source: 'project.productionBrief.musicPreference' },
+        { value: directorProjectRecord.productionBriefIntake?.musicPreference, source: 'project.productionBriefIntake.musicPreference' },
+        { value: directorProjectRecord.creativeBrief?.musicPreference, source: 'project.creativeBrief.musicPreference' },
+      ],
+      editorialPreferences: [
+        { value: brief?.editorialPreferences, source: 'director-brief.editorialPreferences' },
+        { value: directorProjectRecord.editorialPreferences, source: 'project.editorialPreferences' },
+        { value: directorProjectRecord.productionBrief?.editorialPreferences, source: 'project.productionBrief.editorialPreferences' },
+        { value: directorProjectRecord.productionBriefIntake?.editorialPreferences, source: 'project.productionBriefIntake.editorialPreferences' },
+        { value: directorProjectRecord.creativeBrief?.editorialPreferences, source: 'project.creativeBrief.editorialPreferences' },
+      ],
+    });
+    const musicEditorialPolicy = musicGenerationPolicy.editorialPolicy;
     let briefPacing: string | undefined;
     let briefSignalContext: Record<string, number> = {};
     let unifiedDecisionBundleExecuted = false;
@@ -1005,7 +1054,9 @@ export async function executeDirectorPlan(
             // resolves against the CUT timeline, so they'd land "out of range" and get dropped (regression
             // from the 2026-06-13 editedTimelineContext switch). Map them onto the cut timeline first.
             let briefDecisionsForExecutor = creativeBrief.decisions;
-            if (editedTimelineContext?.sourceClips?.length) {
+            if (editedTimelineContext?.evidence.sourceAlreadyCanonical) {
+              // Batch analyses are already projected onto the final cut timeline.
+            } else if (editedTimelineContext?.sourceClips?.length) {
               const { remapBriefTimestampsToEditedTimeline } = await import('@/lib/editron/services/edited-timeline-context');
               briefDecisionsForExecutor = remapBriefTimestampsToEditedTimeline(creativeBrief.decisions, editedTimelineContext.sourceClips, pathEFps);
             } else if (editedTimelineContext) {
@@ -1165,6 +1216,7 @@ export async function executeDirectorPlan(
 
             unifiedDecisionCandidates.push({
               source: 'creative-brief',
+              editorialPreferences: brief?.editorialPreferences,
               edl: briefResult.edl,
               graphicsDensity: densityFromSignalsOrNeutral(pathEGenreParams),
               expectedExecuted: briefResult.stats.resolvedToFrame,
@@ -1596,6 +1648,7 @@ export async function executeDirectorPlan(
 
             unifiedDecisionCandidates.push({
               source: 'signal-driven',
+              editorialPreferences: brief?.editorialPreferences,
               edl,
               graphicsDensity: densityFromSignalsOrNeutral(pathDGenreParams),
               expectedExecuted: edl.totalDecisions,
@@ -1609,7 +1662,95 @@ export async function executeDirectorPlan(
         }
       }
 
-      unifiedDecisionBundle = planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates);
+      const storylineSeamEdl = buildStorylineSeamTransitionEdl(projectId, overlays, project.fps || 30);
+      if (storylineSeamEdl) {
+        unifiedDecisionCandidates.push({
+          source: 'signal-driven',
+          editorialPreferences: brief?.editorialPreferences,
+          edl: storylineSeamEdl,
+          graphicsDensity: densityFromSignalsOrNeutral(pathDGenreParams ?? pathEGenreParams),
+          expectedExecuted: storylineSeamEdl.totalDecisions,
+          expectedSkipped: 0,
+        });
+        console.log(`[Director] Storyline seam hints: ${storylineSeamEdl.totalDecisions} transition candidates`);
+      }
+
+      // Narrative MG opportunities belong in the same planner as every other family. Appending them after
+      // planning bypassed caption reservations, frequency selection, dedupe, and final decision ownership.
+      // They remain offers only: the MG design pre-pass can still decline them without creating an overlay.
+      if (editedTimelineContext) {
+        try {
+          const [{ produceNarrativeBeatDecisions }, { isLiveMgCodegenEnabled }] = await Promise.all([
+            import('@/lib/editron/services/narrative-beat-producer'),
+            import('@/lib/editron/services/edl-executor'),
+          ]);
+          if (isLiveMgCodegenEnabled()) {
+            const existingGraphicDecisions = unifiedDecisionCandidates
+              .flatMap((candidate) => candidate.edl.decisions)
+              .filter((decision) => decision.type === 'graphic')
+              .map((decision) => ({ type: 'graphic' as const, frame: decision.frame }));
+            const narrativeBeatDecisions = produceNarrativeBeatDecisions({
+              words: editedTimelineContext.transcription,
+              fps: editedTimelineContext.fps,
+              existingDecisions: existingGraphicDecisions,
+            });
+            if (narrativeBeatDecisions.length > 0) {
+              unifiedDecisionCandidates.push({
+                source: 'signal-driven',
+                editorialPreferences: brief?.editorialPreferences,
+                edl: {
+                  projectId,
+                  generatedAt: new Date(),
+                  totalDecisions: narrativeBeatDecisions.length,
+                  decisions: narrativeBeatDecisions,
+                  stats: {
+                    cutsPerMinute: 0,
+                    transitionCount: 0,
+                    graphicCount: narrativeBeatDecisions.length,
+                    zoomCount: 0,
+                    speedChangeCount: 0,
+                    averageConfidence: narrativeBeatDecisions.reduce(
+                      (sum, decision) => sum + decision.confidence,
+                      0,
+                    ) / narrativeBeatDecisions.length,
+                  },
+                },
+                graphicsDensity: densityFromSignalsOrNeutral(pathDGenreParams ?? pathEGenreParams),
+                expectedExecuted: narrativeBeatDecisions.length,
+                expectedSkipped: 0,
+              });
+              console.log(
+                `[Director] Narrative beat producer (P3.5): ${narrativeBeatDecisions.length} factless ` +
+                'opportunities submitted to the unified planner',
+              );
+            } else {
+              console.log('[Director] Narrative beat producer (P3.5): no free beats to submit');
+            }
+          }
+        } catch (narrativeErr: any) {
+          console.warn(`[Director] Narrative beat producer failed (non-fatal): ${narrativeErr?.message ?? narrativeErr}`);
+        }
+      }
+
+      const canonicalCaptionChoreographyReservations = editedTimelineContext
+        && captionEditorialPolicy.executionAllowed
+        && captionExecutionScopePolicy.run
+        ? buildCanonicalCaptionChoreographyReservations({
+          overlays,
+          editedTimelineContext,
+          segmentAnalysis: projectDoc?.segmentAnalysis ?? null,
+          playerDimensions: project.playerDimensions || { width: 1920, height: 1080 },
+          presentation: resolveAtomicCaptionPresentation({
+            requestedStyle: briefCaptionStyle,
+            profileStyle: undefined,
+            genreParams: pathDGenreParams,
+          }),
+        })
+        : [];
+      unifiedDecisionBundle = planUnifiedDecisionBundleFromCandidates(unifiedDecisionCandidates, {
+        choreographyReservations: canonicalCaptionChoreographyReservations,
+        executionScope: editorialExecutionScope,
+      });
       if (unifiedDecisionBundle?.source === 'creative-brief+signal-driven') {
         console.log(
           `[Director] Unified decision planner (mode=${unifiedDecisionBundle.authority.decisionMode ?? 'creative-brief-primary'}) - ` +
@@ -1642,7 +1783,11 @@ export async function executeDirectorPlan(
           // when the track was installed AFTER executeEDL, every caption-emphasis returned null -> 0
           // emphasized words (observed in proj_e4BGPZza2CAl: 0/1739). Installing it here puts the track
           // in `overlays` for the EDL pass so per-word emphasis can be marked.
-          if (editedTimelineContext) {
+          if (
+            editedTimelineContext
+            && captionEditorialPolicy.executionAllowed
+            && captionExecutionScopePolicy.run
+          ) {
             const captionPresentation = resolveAtomicCaptionPresentation({
               requestedStyle: briefCaptionStyle,
               profileStyle: undefined,
@@ -1654,6 +1799,7 @@ export async function executeDirectorPlan(
               segmentAnalysis: projectDoc?.segmentAnalysis ?? null,
               playerDimensions: canvas,
               presentation: captionPresentation,
+              choreographyReservationCount: canonicalCaptionChoreographyReservations.length,
             });
             if (captionTrackResult.created > 0) {
               result.overlaysModified += captionTrackResult.created + captionTrackResult.removedGenerated;
@@ -1668,6 +1814,13 @@ export async function executeDirectorPlan(
                 `removedGenerated=${captionTrackResult.removedGenerated}`,
               );
             }
+          } else if (editedTimelineContext) {
+            console.log(
+              `[Director] Canonical caption track skipped (` +
+              `${captionEditorialPolicy.executionAllowed
+                ? captionExecutionScopePolicy.reason
+                : captionEditorialPolicy.reason})`,
+            );
           }
 
           const unifiedExecutionResult = await executeEDL(
@@ -1684,15 +1837,23 @@ export async function executeDirectorPlan(
           edlSummary.executed = unifiedExecutionResult.decisionsExecuted;
           edlSummary.skipped = unifiedExecutionResult.decisionsSkipped;
 
-          try {
-            const { applyColorNormalization } = await import('@/lib/editron/services/auto-post-processing');
-            const colorResult = applyColorNormalization(overlays, analysesMap, pathDGenreParams ?? pathEGenreParams);
-            result.overlaysModified += colorResult.modified;
-            if (colorResult.modified > 0) {
-              console.log(`[Director] Post-process: ${colorResult.modified} color normalizations applied (C-030)`);
+          const colorScopeDecision = shouldRunDirectorScopedEffect({
+            effect: 'color-normalization',
+            executionScope: editorialExecutionScope,
+          });
+          if (colorScopeDecision.run) {
+            try {
+              const { applyColorNormalization } = await import('@/lib/editron/services/auto-post-processing');
+              const colorResult = applyColorNormalization(overlays, analysesMap, pathDGenreParams ?? pathEGenreParams);
+              result.overlaysModified += colorResult.modified;
+              if (colorResult.modified > 0) {
+                console.log(`[Director] Post-process: ${colorResult.modified} color normalizations applied (C-030)`);
+              }
+            } catch (colorErr: any) {
+              console.warn(`[Director] Color normalization failed (non-fatal): ${colorErr?.message ?? colorErr}`);
             }
-          } catch (colorErr: any) {
-            console.warn(`[Director] Color normalization failed (non-fatal): ${colorErr?.message ?? colorErr}`);
+          } else {
+            console.log(`[Director] Color normalization skipped (${colorScopeDecision.reason})`);
           }
 
           for (const d of unifiedDecisionBundle.edl.decisions) {
@@ -1720,6 +1881,7 @@ export async function executeDirectorPlan(
             evidenceOnlySignalDecisionCount: unifiedDecisionBundle.evidence.evidenceOnlySignalDecisionCount,
             totalDecisions: unifiedDecisionBundle.edl.totalDecisions,
             executedDecisions: unifiedExecutionResult.decisionsExecuted,
+            ...(editorialExecutionScope ? { executionScope: editorialExecutionScope } : {}),
             signalAudit: summarizeSignalDecisionAuditForAuthority(unifiedDecisionBundle),
           };
 
@@ -1734,6 +1896,10 @@ export async function executeDirectorPlan(
           const bgmGenreParams = pathDGenreParams ?? pathEGenreParams;
           const bgmRec = (bgmGenreParams as any)?.bgmRecommendation;
           const isStoryboardProject = storyboardContextSource === 'storyboard';
+          const autoBgmExecutionScopePolicy = shouldRunDirectorScopedEffect({
+            effect: 'auto-bgm',
+            executionScope: editorialExecutionScope,
+          });
           try {
             const {
               buildAutoBgmDecisionEvidence,
@@ -1752,13 +1918,17 @@ export async function executeDirectorPlan(
                 durationSec: bgmDurationSec,
                 totalFrames: bgmTotalFrames,
                 fps: bgmFps,
+                editorialPolicy: musicEditorialPolicy,
+                musicGenerationPolicy,
                 ...evidenceInput,
               });
               await persistAutoBgmDecisionEvidence(projectId, evidence);
               return evidence;
             };
 
-            if (bgmRec?.shouldAddBgm !== true || isStoryboardProject) {
+            if (!autoBgmExecutionScopePolicy.run) {
+              console.log(`[Director] Auto-BGM skipped (${autoBgmExecutionScopePolicy.reason})`);
+            } else if (!musicGenerationPolicy.allowed || bgmRec?.shouldAddBgm !== true || isStoryboardProject) {
               const evidence = await persistAutoBgmEvidence({});
               console.log(`[Director] Auto-BGM evidence: status=${evidence.status}, shouldAdd=${evidence.shouldAddBgm}`);
             } else {
@@ -1773,11 +1943,25 @@ export async function executeDirectorPlan(
                   : bgmEnergy < 0.35 ? (bgmFormality > 0.55 ? 'calm' : 'nostalgic')
                   : (bgmFormality > 0.6 ? 'sophisticated' : 'inspirational');
                 const bgmPacing = bgmEnergy > 0.6 ? 'fast' : bgmEnergy < 0.35 ? 'slow' : 'medium';
-                const bgmMusicPrompt = buildMusicPrompt(
+                const signalMusicPrompt = buildMusicPrompt(
                   [{ mood: bgmMood, editDirections: { pacing: bgmPacing }, narration: 'voiceover' }],
                   bgmDurationSec,
                 );
+                const requestedMusicPrompt = [
+                  brief?.editorialPreferences?.musicPrompt,
+                  directorProjectRecord.editorialPreferences?.musicPrompt,
+                  directorProjectRecord.productionBrief?.editorialPreferences?.musicPrompt,
+                  directorProjectRecord.productionBriefIntake?.editorialPreferences?.musicPrompt,
+                  directorProjectRecord.creativeBrief?.editorialPreferences?.musicPrompt,
+                ].find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim();
+                const bgmMusicPrompt = requestedMusicPrompt
+                  ? `${signalMusicPrompt}. User direction: ${requestedMusicPrompt}`
+                  : signalMusicPrompt;
                 const { dispatchAudioJob } = await import('@/lib/editron/services/audio-worker-dispatch');
+                const { resolveBgmMixLevels } = await import('@/lib/editron/services/bgm-mix-levels');
+                // Signal-driven BGM levels, bounded by the CKG solo/under-speech dB ranges, from THIS video's
+                // energy_baseline — replaces the fixed 0.75/0.20 literals (music was ~9dB too hot in gaps).
+                const bgmMix = resolveBgmMixLevels({ energyBaseline: bgmEnergy });
                 const dispatchResult = await dispatchAudioJob({
                   type: 'bgm',
                   projectId,
@@ -1787,6 +1971,10 @@ export async function executeDirectorPlan(
                   totalDurationSec: bgmDurationSec,
                   totalFrames: bgmTotalFrames,
                   fps: bgmFps,
+                  bgmBaseVolume: bgmMix.baseVolume,
+                  bgmDuckLevel: bgmMix.duckLevel,
+                  musicPreference: musicGenerationPolicy.musicPreference,
+                  editorialPreferences: musicGenerationPolicy.editorialPreferences,
                 }, 'BGM(auto-edit)');
                 const evidence = await persistAutoBgmEvidence({
                   providerAvailable,
@@ -1819,6 +2007,8 @@ export async function executeDirectorPlan(
                 durationSec: Math.round(bgmTotalFrames / bgmFps),
                 totalFrames: bgmTotalFrames,
                 fps: bgmFps,
+                editorialPolicy: musicEditorialPolicy,
+                musicGenerationPolicy,
                 error: bgmErr,
               });
               await persistAutoBgmDecisionEvidence(projectId, evidence);
@@ -1844,7 +2034,11 @@ export async function executeDirectorPlan(
       }
 
       // ── Generate Edit Plan — prefer Unified Intelligence, fallback to old EDL ──
-      const legacyFallbackEnabled = shouldRunLegacyIntelligenceFallback();
+      const legacyFallbackConfigured = shouldRunLegacyIntelligenceFallback();
+      const legacyFallbackEnabled = legacyFallbackConfigured && !editorialExecutionScope;
+      if (legacyFallbackConfigured && editorialExecutionScope) {
+        console.log('[Director] Legacy intelligence fallback disabled for scoped chat execution');
+      }
       if (!pathDHandled && analyses.length > 0 && legacyFallbackEnabled) {
         try {
           onProgress?.(0, 0, `Generating intelligent edit plan from ${analyses.length} assets + script context...`);
@@ -2013,6 +2207,7 @@ export async function executeDirectorPlan(
             evidenceOnlySignalDecisionCount: 0,
             totalDecisions: edlSummary.totalDecisions,
             executedDecisions: edlSummary.executed,
+            ...(editorialExecutionScope ? { executionScope: editorialExecutionScope } : {}),
           };
 
           result.overlaysModified += edlResult.overlaysModified + edlResult.overlaysCreated;
@@ -2105,12 +2300,16 @@ export async function executeDirectorPlan(
     try {
       const hasUploadToEditSignals = Array.isArray(projectDoc?.rawFootageAnalysis?.segments) || Array.isArray(projectDoc?.vjepaAnalysis?.segments);
       if (hasUploadToEditSignals) {
-        const { auditVjepaCoverage } = await import('@/lib/editron/services/vjepa-coverage-audit');
+        const { auditVjepaCoverage, summarizeVideoTimelineDurationMs } = await import('@/lib/editron/services/vjepa-coverage-audit');
         const fpsForAudit = project.fps || 30;
         const rawFootageSegments = projectDoc?.rawFootageAnalysis?.segments;
+        const isCanonicalMultiAssetTimeline = !!projectDoc?.rawFootageAnalysis?.multiAssetProvenance;
         const vjepaAudit = auditVjepaCoverage({
           fps: fpsForAudit,
           originalDurationMs: projectDoc?.rawFootageAnalysis?.originalDurationMs,
+          eligibleDurationMs: isCanonicalMultiAssetTimeline
+            ? summarizeVideoTimelineDurationMs(overlays as any[], fpsForAudit)
+            : undefined,
           cleanDurationMs: projectDoc?.rawFootageAnalysis?.estimatedCleanDurationMs,
           vjepaSegments: projectDoc?.vjepaAnalysis?.segments ?? [],
           rawFootageSegments: Array.isArray(rawFootageSegments) ? rawFootageSegments : undefined,
@@ -2226,6 +2425,7 @@ export async function executeDirectorPlan(
       captionStyle: resolvedCaptionStyle,
       hasRawFootage: hasRawFootageForGlobalCaptions,
       hasCanonicalEditedTimeline: hasCanonicalEditedTimelineForGlobalCaptions,
+      editorialExecutionAllowed: captionEditorialPolicy.executionAllowed,
     });
 
     if (globalCaptionAction.run) {
@@ -2328,7 +2528,22 @@ export async function executeDirectorPlan(
     // Unify captions: ALL caption paths go through add_captions (editable, word-timed).
     // The standard caption system now supports instagram/hormozi display modes with spring
     // animation — no need for separate add_fancy_captions html-scene overlays.
-    let filteredActions = actions.map(a => {
+    const scopedActions = actions.filter((action) => {
+      const scopedDecision = shouldRunProfileActionWithinExecutionScope({
+        tool: action.tool,
+        executionScope: editorialExecutionScope,
+      });
+      if (scopedDecision.run) return true;
+      console.log(
+        `[Director] Scoped chat execution: skipping profile action '${action.tool}' (${scopedDecision.reason})`,
+      );
+      result.actionsSkipped.push({
+        action: action.description,
+        reason: `scoped-chat-execution:${scopedDecision.reason}`,
+      });
+      return false;
+    });
+    let filteredActions = scopedActions.map(a => {
       if (a.tool === 'add_fancy_captions') {
         console.log(`[Director] Unified captions: fancy → add_captions (editable + animated)`);
         return { ...a, tool: 'add_captions' as const, description: 'Add captions (unified, animated)' };
@@ -2472,21 +2687,28 @@ export async function executeDirectorPlan(
     // any ghost markers (no source + no transitionStyle) that slipped through.
     // This is the safety net for Root Cause B of the 2026-04-18 regression —
     // see pipeline_investigations.md and dedupTransitionsByClipPair below.
-    try {
-      const dedupResult = dedupTransitionsByClipPair(overlays);
-      if (dedupResult.duplicatesRemoved > 0 || dedupResult.ghostsStripped > 0) {
-        console.log(
-          `[Director] Step 3.4: transition dedup — removed ${dedupResult.duplicatesRemoved} duplicate(s), ` +
-          `stripped ${dedupResult.ghostsStripped} ghost(s)`,
-        );
-        result.overlaysModified += dedupResult.duplicatesRemoved + dedupResult.ghostsStripped;
+    const transitionDedupScopeDecision = shouldRunDirectorScopedEffect({
+      effect: 'transition-dedup',
+      executionScope: editorialExecutionScope,
+    });
+    if (transitionDedupScopeDecision.run) {
+      try {
+        const dedupResult = dedupTransitionsByClipPair(overlays);
+        if (dedupResult.duplicatesRemoved > 0 || dedupResult.ghostsStripped > 0) {
+          console.log(
+            `[Director] Step 3.4: transition dedup — removed ${dedupResult.duplicatesRemoved} duplicate(s), ` +
+            `stripped ${dedupResult.ghostsStripped} ghost(s)`,
+          );
+          result.overlaysModified += dedupResult.duplicatesRemoved + dedupResult.ghostsStripped;
+        }
+      } catch (dedupErr: any) {
+        const errMsg = dedupErr?.message || 'Unknown error';
+        console.error('[Director] Step 3.4 transition dedup failed:', errMsg);
+        result.warnings.push(`Transition dedup failed: ${errMsg}`);
+        pipelineWarnings.errorSwallowed('director', dedupErr, 'transition dedup (dedupTransitionsByClipPair)');
       }
-    } catch (dedupErr: any) {
-      const errMsg = dedupErr?.message || 'Unknown error';
-      console.error('[Director] Step 3.4 transition dedup failed:', errMsg);
-      result.warnings.push(`Transition dedup failed: ${errMsg}`);
-      pipelineWarnings.errorSwallowed('director', dedupErr, 'transition dedup (dedupTransitionsByClipPair)');
-      // Non-fatal — step 4's A1 marker filter still runs as a secondary net.
+    } else {
+      console.log(`[Director] Step 3.4 transition dedup skipped (${transitionDedupScopeDecision.reason})`);
     }
 
     // ─── Step 3.5: Beat-sync cut alignment (beatSyncActive projects only) ──
@@ -2503,29 +2725,35 @@ export async function executeDirectorPlan(
     // Creative doc alignment: §11 "Cuts on downbeats (beat 1 of a measure)".
     // alignCutsToBeats() uses a 0.5s snap threshold — cuts further than 15
     // frames from any beat are left creative-intent-placed (no forced snap).
-    try {
-      const bgmOverlay: any = overlays.find(
-        (o: any) => o?.type === 'sound' && o?.metadata?.beatGrid?.beats?.length > 0,
-      );
-      if (bgmOverlay?.metadata?.beatGrid) {
-        const beatGrid = bgmOverlay.metadata.beatGrid;
-        const fps = project.fps || 30;
-        const { alignCutsToBeats } = await import('@/lib/pipeline/scene-to-editron');
-        const snapped = alignCutsToBeats(overlays, beatGrid.beats, fps);
-        console.log(
-          `[Director] Beat-sync step 3.5: ${snapped} cut(s) snapped to beats ` +
-          `(grid: ${beatGrid.bpm} BPM, ${beatGrid.beats.length} beats, ` +
-          `${beatGrid.downbeats?.length || 0} downbeats, source=${beatGrid.source})`,
+    const beatSyncScopeDecision = shouldRunDirectorScopedEffect({
+      effect: 'beat-sync',
+      executionScope: editorialExecutionScope,
+    });
+    if (beatSyncScopeDecision.run) {
+      try {
+        const bgmOverlay: any = overlays.find(
+          (o: any) => o?.type === 'sound' && o?.metadata?.beatGrid?.beats?.length > 0,
         );
-        if (snapped > 0) result.overlaysModified += snapped;
+        if (bgmOverlay?.metadata?.beatGrid) {
+          const beatGrid = bgmOverlay.metadata.beatGrid;
+          const fps = project.fps || 30;
+          const { alignCutsToBeats } = await import('@/lib/pipeline/scene-to-editron');
+          const snapped = alignCutsToBeats(overlays, beatGrid.beats, fps);
+          console.log(
+            `[Director] Beat-sync step 3.5: ${snapped} cut(s) snapped to beats ` +
+            `(grid: ${beatGrid.bpm} BPM, ${beatGrid.beats.length} beats, ` +
+            `${beatGrid.downbeats?.length || 0} downbeats, source=${beatGrid.source})`,
+          );
+          if (snapped > 0) result.overlaysModified += snapped;
+        }
+      } catch (beatAlignErr: any) {
+        const errMsg = beatAlignErr?.message || 'Unknown error';
+        console.error('[Director] Beat-sync alignment failed:', errMsg);
+        result.warnings.push(`Beat-sync alignment failed: ${errMsg}`);
+        pipelineWarnings.errorSwallowed('director', beatAlignErr, 'beat-sync alignment (alignCutsToBeats)');
       }
-      // else: no beat grid on any sound overlay — not a beat-sync project. Silent no-op.
-    } catch (beatAlignErr: any) {
-      const errMsg = beatAlignErr?.message || 'Unknown error';
-      console.error('[Director] Beat-sync alignment failed:', errMsg);
-      result.warnings.push(`Beat-sync alignment failed: ${errMsg}`);
-      pipelineWarnings.errorSwallowed('director', beatAlignErr, 'beat-sync alignment (alignCutsToBeats)');
-      // Non-fatal — continue to step 3.6. Creative-intent cuts stay in place.
+    } else {
+      console.log(`[Director] Beat-sync step 3.5 skipped (${beatSyncScopeDecision.reason})`);
     }
 
     // ─── Step 3.6: Transition SFX placement ──────────────────
@@ -2540,27 +2768,34 @@ export async function executeDirectorPlan(
     //
     // Deterministic — no LLM dependency (Rule 18N). A sound designer's
     // workflow: look at the cut, place the sound. This mirrors that.
-    try {
-      const { placeTransitionSFX } = await import('@/lib/editron/services/transition-sfx-placer');
-      const sfxResult = await placeTransitionSFX(overlays, userId, effectiveProfile, pipelineWarnings);
-      if (sfxResult.placed > 0) {
-        console.log(
-          `[Director] Transition SFX: placed ${sfxResult.placed}, skipped ${sfxResult.skipped} ` +
-          `(tokens: ${sfxResult.tokensUsed.join(',')})`
-        );
-        result.overlaysModified += sfxResult.placed;
-      } else if (sfxResult.skipped > 0) {
-        console.log(
-          `[Director] Transition SFX: 0 placed, ${sfxResult.skipped} skipped ` +
-          `(reasons: ${JSON.stringify(sfxResult.skipReasons)})`
-        );
+    const transitionSfxScopeDecision = shouldRunDirectorScopedEffect({
+      effect: 'transition-sfx',
+      executionScope: editorialExecutionScope,
+    });
+    if (transitionSfxScopeDecision.run) {
+      try {
+        const { placeTransitionSFX } = await import('@/lib/editron/services/transition-sfx-placer');
+        const sfxResult = await placeTransitionSFX(overlays, userId, effectiveProfile, pipelineWarnings);
+        if (sfxResult.placed > 0) {
+          console.log(
+            `[Director] Transition SFX: placed ${sfxResult.placed}, skipped ${sfxResult.skipped} ` +
+            `(tokens: ${sfxResult.tokensUsed.join(',')})`
+          );
+          result.overlaysModified += sfxResult.placed;
+        } else if (sfxResult.skipped > 0) {
+          console.log(
+            `[Director] Transition SFX: 0 placed, ${sfxResult.skipped} skipped ` +
+            `(reasons: ${JSON.stringify(sfxResult.skipReasons)})`
+          );
+        }
+      } catch (sfxErr: any) {
+        const errMsg = sfxErr?.message || 'Unknown error';
+        console.error('[Director] Transition SFX placement failed:', errMsg);
+        result.warnings.push(`Transition SFX placement failed: ${errMsg}`);
+        pipelineWarnings.errorSwallowed('sfx', sfxErr, 'transition SFX placer');
       }
-    } catch (sfxErr: any) {
-      const errMsg = sfxErr?.message || 'Unknown error';
-      console.error('[Director] Transition SFX placement failed:', errMsg);
-      result.warnings.push(`Transition SFX placement failed: ${errMsg}`);
-      pipelineWarnings.errorSwallowed('sfx', sfxErr, 'transition SFX placer');
-      // Non-fatal — continue to merge/save. Missing SFX is degradation, not failure.
+    } else {
+      console.log(`[Director] Transition SFX step 3.6 skipped (${transitionSfxScopeDecision.reason})`);
     }
 
     // ─── Step 4: Merge and save ───────────────────────────────
@@ -2603,7 +2838,11 @@ export async function executeDirectorPlan(
     // and is merged above in Step 4. Profile actions ran at Step 3 when
     // BGM wasn't present → hasBGM was false → audio_ducking skipped.
     const hasBGMNow = overlays.some((o: any) => o.type === 'sound' && (o.row === ROW.BGM || (o.assetId || '').startsWith('bgm_')));
-    if (hasBGMNow) {
+    const postMergeDuckScopeDecision = shouldRunDirectorScopedEffect({
+      effect: 'audio-ducking',
+      executionScope: editorialExecutionScope,
+    });
+    if (hasBGMNow && postMergeDuckScopeDecision.run) {
       const duckAction = profileActions.find(a => a.tool === 'audio_ducking');
       if (duckAction) {
         try {
@@ -2614,6 +2853,8 @@ export async function executeDirectorPlan(
           console.warn(`[Director] Step 4.5: audio ducking failed (non-fatal): ${duckErr.message}`);
         }
       }
+    } else if (hasBGMNow) {
+      console.log(`[Director] Step 4.5 audio ducking skipped (${postMergeDuckScopeDecision.reason})`);
     }
 
     // Strip in-memory dedup markers before persist. The add_transition loop
@@ -2635,8 +2876,8 @@ export async function executeDirectorPlan(
     }
 
     try {
-      const { annotateFinalOverlayChoreographyBypasses } = await import('@/lib/editron/services/cross-overlay-final-overlays');
-      const finalOverlayChoreography = annotateFinalOverlayChoreographyBypasses(persistableOverlays);
+      const { summarizeFinalOverlayChoreographyBypasses } = await import('@/lib/editron/services/cross-overlay-final-overlays');
+      const finalOverlayChoreography = summarizeFinalOverlayChoreographyBypasses(persistableOverlays);
       (result as any).finalOverlayChoreography = finalOverlayChoreography;
       if (finalOverlayChoreography.bypassOverlayCount > 0) {
         console.log(

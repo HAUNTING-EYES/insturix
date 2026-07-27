@@ -10,6 +10,7 @@ import type { Overlay } from '../components/editron/editor/version-7.0.0/types';
 import { OverlayType } from '../components/editron/editor/version-7.0.0/types';
 import { evaluateAllTracks } from '../components/editron/editor/version-7.0.0/utils/keyframe-evaluator';
 import { ensureLiveAtomicOverlayReceipt } from '../lib/editron/engine/overlay-atomic-receipts';
+import { ROW } from '../lib/pipeline/scene-to-editron';
 import {
   scoreRenderedFrameAesthetic,
   type RenderedAestheticIssue,
@@ -40,6 +41,7 @@ const COMPOSITOR_FALLBACKS = {
 
 const AUDITED_VISUAL_TYPES = new Set<string>([
   'motion-graphic',
+  OverlayType.MG_SEQUENCE,
   'text',
   'caption',
   'shape',
@@ -990,12 +992,18 @@ function auditedOverlayEvidenceFamily(
   overlay: Overlay,
   receipt: RenderedOverlayEvidence['receipt'],
 ): RenderedOverlayEvidence['family'] {
-  if (overlay.type === OverlayType.GENERATED_SCENE) return 'motion-graphic';
+  if (
+    overlay.type === OverlayType.GENERATED_SCENE
+    || overlay.type === OverlayType.MG_SEQUENCE
+  ) return 'motion-graphic';
   return receipt?.family;
 }
 
 function fallbackVisualIntentStageMode(overlay: Overlay): string | undefined {
-  if (overlay.type === OverlayType.GENERATED_SCENE) return 'full-frame-graphic-scene';
+  if (
+    overlay.type === OverlayType.GENERATED_SCENE
+    || overlay.type === OverlayType.MG_SEQUENCE
+  ) return 'full-frame-graphic-scene';
   return undefined;
 }
 
@@ -1778,6 +1786,7 @@ function isInsideAllowedRoot(candidate: string, root: string): boolean {
 }
 
 function isAuditedOverlay(overlay: Overlay): boolean {
+  if (overlay.type === OverlayType.IMAGE && overlay.row === ROW.VIDEO) return false;
   return AUDITED_VISUAL_TYPES.has(String(overlay.type));
 }
 

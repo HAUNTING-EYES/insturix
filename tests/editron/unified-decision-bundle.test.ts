@@ -2687,6 +2687,56 @@ describe('unified decision bundle merge', () => {
       'cross-overlay-choreography:text-lane-stack': expect.objectContaining({ count: 1 }),
     }));
   });
+  it('does not let a grounded narrative MG opportunity bypass canonical caption reservations', () => {
+    const bundle = planUnifiedDecisionBundleFromCandidates([
+      {
+        source: 'signal-driven',
+        edl: edl([
+          decision({
+            type: 'graphic',
+            frame: 36,
+            durationFrames: 90,
+            source: 'narrative-beat-producer:p3.5',
+            signal: 'narrative_beat',
+            reason: 'narrative_beat',
+            confidence: 0.6,
+            params: {
+              graphicType: 'narrative',
+              line: 'How come they never teach us money at school?',
+              sourceSpan: {
+                text: 'How come they never teach us money at school?',
+                startMs: 1200,
+                endMs: 4200,
+              },
+            },
+          }),
+        ]),
+      },
+    ], {
+      choreographyReservations: [
+        decision({
+          type: 'caption-emphasis',
+          frame: 30,
+          durationFrames: 120,
+          source: 'canonical-caption-track',
+          signal: 'caption-group-active',
+          confidence: 1,
+          params: { choreographyReservationOnly: true },
+        }),
+      ],
+    });
+
+    expect(bundle?.edl.decisions).toEqual([]);
+    expect(bundle?.evidence.signalDecisionAudit.byReason).toEqual(expect.objectContaining({
+      'cross-overlay-choreography:text-lane-stack': expect.objectContaining({ count: 1 }),
+    }));
+    expect(bundle?.evidence.evidenceOnlySignalDecisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: 'narrative-beat-producer:p3.5',
+        reason: 'cross-overlay-choreography:text-lane-stack',
+      }),
+    ]));
+  });
   it('normalizes legacy slow-motion decisions to speed-change at the bundle boundary', () => {
     const bundle = createUnifiedDecisionBundle({
       source: 'signal-driven',
@@ -2765,6 +2815,140 @@ describe('unified decision bundle merge', () => {
   });
 });
 
+describe('editorial decision policy', () => {
+  it('hard-vetoes a family even when the Creative Brief is the only producer', () => {
+    const bundle = createUnifiedDecisionBundle({
+      source: 'creative-brief',
+      editorialPreferences: {
+        families: { motionGraphics: { mode: 'off' } },
+      },
+      edl: edl([
+        decision({
+          type: 'graphic',
+          frame: 90,
+          source: 'creative-brief:test',
+          params: { text: 'Valid legacy graphic content' },
+        }),
+      ]),
+    });
+
+    expect(bundle.edl.decisions).toEqual([]);
+    expect(bundle.expectedSkipped).toBe(1);
+    expect(bundle.evidence.evidenceOnlySignalDecisions[0]).toEqual(expect.objectContaining({
+      family: 'graphic',
+      reason: 'user-policy-off:motionGraphics',
+    }));
+  });
+
+  it('hard-vetoes both producers in the ranked planner and preserves the reason', () => {
+    const preferences = { families: { transitions: { mode: 'off' as const } } };
+    const transition = (source: string, frame: number) => decision({
+      type: 'transition',
+      frame,
+      source,
+      confidence: 0.95,
+      params: { transitionType: 'dissolve', boundaryConfidence: 0.9 },
+    });
+    const bundle = planUnifiedDecisionBundleFromCandidates([
+      { source: 'creative-brief', editorialPreferences: preferences, edl: edl([transition('creative-brief:test', 120)]) },
+      { source: 'signal-driven', editorialPreferences: preferences, edl: edl([transition('signal-executor:test', 240)]) },
+    ]);
+
+    expect(bundle?.edl.decisions).toEqual([]);
+    expect(bundle?.evidence.evidenceOnlySignalDecisionCount).toBe(2);
+    expect(bundle?.evidence.signalDecisionAudit.byReason['user-policy-off:transitions']).toEqual(
+      expect.objectContaining({ count: 2 }),
+    );
+  });
+
+  it('carries soft preference evidence to the family resolver without licensing form', () => {
+    const bundle = createUnifiedDecisionBundle({
+      source: 'signal-driven',
+      editorialPreferences: {
+        families: { motionGraphics: { mode: 'prefer', frequency: 0.75, intensity: 0.9 } },
+      },
+      edl: edl([
+        decision({
+          type: 'graphic',
+          frame: 150,
+          source: 'signal-executor:test',
+          params: { text: 'Proof point' },
+        }),
+      ]),
+    });
+
+    expect(bundle.edl.decisions).toHaveLength(1);
+    expect(bundle.edl.decisions[0].params.editorialPreferencePolicy).toEqual({
+      version: 'editorial-decision-policy-v1',
+      decisionFamily: 'graphic',
+      editorialFamily: 'motionGraphics',
+      mode: 'prefer',
+      frequency: 0.75,
+      intensity: 0.9,
+      source: 'user-intake',
+      formAuthority: 'family-resolver',
+    });
+  });
+  it('uses frequency as post-license opportunity pressure without choosing zoom form', () => {
+    const zoomDecisions = [
+      { frame: 120, confidence: 0.98, energy: 0.95 },
+      { frame: 300, confidence: 0.94, energy: 0.88 },
+      { frame: 480, confidence: 0.9, energy: 0.81 },
+      { frame: 660, confidence: 0.86, energy: 0.74 },
+    ].map(({ frame, confidence, energy }, index) => decision({
+      type: 'zoom',
+      frame,
+      source: `signal-executor:frequency-${index}`,
+      signal: 'speech.visual_emphasis',
+      confidence,
+      params: {
+        signals: {
+          speech_energy: energy,
+          word_importance: energy,
+          mainSubjectX: 0.54,
+          mainSubjectY: 0.44,
+          mainSubjectWidth: 0.34,
+          mainSubjectHeight: 0.5,
+          face_present: 1,
+          eye_contact: 0.82,
+          shot_scale: 'CU',
+          timeSinceLastZoomSec: 6,
+          recentZoomSimilarity: 0.08,
+        },
+      },
+    }));
+    const plan = (frequency: number) => planUnifiedDecisionBundleFromCandidates([{
+      source: 'signal-driven',
+      editorialPreferences: {
+        families: { zoom: { mode: 'prefer', frequency } },
+      },
+      edl: edl(zoomDecisions),
+    }]);
+
+    const low = plan(0.25);
+    const high = plan(0.75);
+
+    expect(low?.evidence.editorialFrequencySelection?.groups).toEqual([
+      expect.objectContaining({ family: 'zoom', opportunityCount: 4, selectedOpportunityCount: 1 }),
+    ]);
+    expect(high?.evidence.editorialFrequencySelection?.groups).toEqual([
+      expect.objectContaining({ family: 'zoom', opportunityCount: 4, selectedOpportunityCount: 3 }),
+    ]);
+    expect(low?.edl.decisions).toHaveLength(1);
+    expect(high?.edl.decisions.length).toBeGreaterThan(low?.edl.decisions.length ?? 0);
+    expect(high?.edl.decisions.every((entry) => (
+      (entry.params.editorialFrequencySelection as { selected?: boolean } | undefined)?.selected === true
+    ))).toBe(true);
+    expect(low?.evidence.signalDecisionAudit.byReason['below-editorial-frequency-pressure'])
+      .toEqual(expect.objectContaining({ count: 3 }));
+    expect(high?.edl.decisions[0].params.zoomMotionPlan).toEqual(expect.objectContaining({
+      version: 'zoom-motion-plan-v1',
+    }));
+    expect(high?.edl.decisions[0].params.editorialFrequencySelection).not.toHaveProperty('zoomType');
+    expect(high?.edl.decisions[0].params.editorialFrequencySelection).not.toHaveProperty('scale');
+  });
+});
+
 function edl(decisions: EditDecision[]): EditDecisionList {
   return {
     projectId: 'unified-decision-bundle-test',
@@ -2798,4 +2982,3 @@ function decision(overrides: Partial<EditDecision>): EditDecision {
     ...overrides,
   };
 }
-

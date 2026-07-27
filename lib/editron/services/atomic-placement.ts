@@ -1,6 +1,7 @@
 import {
   buildAtomicPlacementHints,
   deriveAtomicVisualContext,
+  type AtomicPlacementBox,
   type AtomicPlacementHints,
   type AtomicPlacementRegion,
 } from '@/lib/editron/engine/atomic-overlay-core';
@@ -39,11 +40,27 @@ export function resolveAtomicPlacement(input: {
   signals?: Record<string, unknown>;
   requestedRegion?: string;
   family?: 'graphic' | 'caption' | 'text' | 'motion-graphic';
+  protectedRegions?: Array<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    reason?: string;
+    strength?: number;
+  }>;
 }): AtomicPlacementResolution {
   const signals = input.momentBundle
     ? { ...momentBundleToSignalMap(input.momentBundle), ...(input.signals ?? {}) }
     : input.signals ?? {};
-  const placementHints = buildAtomicPlacementHints(deriveAtomicVisualContext(signals));
+  const sourcePlacementHints = buildAtomicPlacementHints(deriveAtomicVisualContext(signals));
+  const protectedAvoid = normalizeProtectedRegions(input.protectedRegions);
+  const placementHints: AtomicPlacementHints = protectedAvoid.length > 0
+    ? {
+      ...sourcePlacementHints,
+      avoid: [...protectedAvoid, ...sourcePlacementHints.avoid].sort((a, b) => b.strength - a.strength),
+      constraints: [...new Set([...sourcePlacementHints.constraints, 'protect-caption-reservation'])],
+    }
+    : sourcePlacementHints;
   const requestedRegion = normalizeAtomicPlacementRegion(input.requestedRegion);
   const preferredRegion = strongestPreferredRegion(placementHints);
   const requestedAvoidHits = requestedRegion
@@ -102,6 +119,39 @@ export function resolveAtomicPlacement(input: {
       constraints: placementHints.constraints,
     },
   };
+}
+
+function normalizeProtectedRegions(
+  regions: Parameters<typeof resolveAtomicPlacement>[0]['protectedRegions'],
+): AtomicPlacementBox[] {
+  if (!Array.isArray(regions)) return [];
+  return regions.flatMap((region): AtomicPlacementBox[] => {
+    if (![region.x, region.y, region.width, region.height].every(Number.isFinite)) return [];
+    const x = clamp01(region.x);
+    const y = clamp01(region.y);
+    const width = Math.min(clamp01(region.width), 1 - x);
+    const height = Math.min(clamp01(region.height), 1 - y);
+    if (width <= 0 || height <= 0) return [];
+    return [{
+      kind: 'avoid',
+      reason: 'text-occupancy',
+      region: regionForRect({ x, y, width, height }),
+      x,
+      y,
+      width,
+      height,
+      strength: clamp01(region.strength ?? 1),
+      source: 'layout-analysis',
+    }];
+  });
+}
+
+function regionForRect(rect: { x: number; y: number; width: number; height: number }): AtomicPlacementRegion {
+  const centerX = rect.x + rect.width / 2;
+  const centerY = rect.y + rect.height / 2;
+  const vertical = centerY < 1 / 3 ? 'top' : centerY > 2 / 3 ? 'bottom' : 'middle';
+  const horizontal = centerX < 1 / 3 ? 'left' : centerX > 2 / 3 ? 'right' : 'center';
+  return `${vertical}-${horizontal}` as AtomicPlacementRegion;
 }
 
 export function normalizeAtomicPlacementRegion(value: unknown): AtomicPlacementRegion | undefined {

@@ -1,6 +1,10 @@
 import { Collection } from 'mongodb';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import { RenderJob, createRenderJob } from '../schemas/render-job';
+import {
+  completeRenderDeliveryManifest,
+  type RenderDeliveryManifest,
+} from './render-delivery-manifest';
 
 const COLLECTION_NAME = 'editron_render_jobs';
 
@@ -16,10 +20,17 @@ export async function createJob(
   renderId: string,
   userId: string,
   projectId: string,
-  bucketName?: string
+  bucketName?: string,
+  deliveryManifest?: RenderDeliveryManifest,
 ): Promise<RenderJob> {
   const collection = await getCollection();
-  const job = createRenderJob(renderId, userId, projectId, bucketName);
+  const job = createRenderJob(
+    renderId,
+    userId,
+    projectId,
+    bucketName,
+    deliveryManifest,
+  );
   
   console.log('Creating render job:', { _id: job._id, userId, projectId });
   
@@ -60,6 +71,18 @@ export async function completeJob(
   outputSize: number
 ): Promise<void> {
   const collection = await getCollection();
+  const completedAt = new Date();
+  const current = await collection.findOne(
+    { _id: renderId },
+    { projection: { deliveryManifest: 1 } },
+  );
+  const deliveryManifest = current?.deliveryManifest
+    ? completeRenderDeliveryManifest(
+        current.deliveryManifest,
+        outputUrl,
+        completedAt.toISOString(),
+      )
+    : undefined;
   await collection.updateOne(
     { _id: renderId },
     { 
@@ -68,7 +91,8 @@ export async function completeJob(
         progress: 1,
         outputUrl,
         outputSize,
-        completedAt: new Date()
+        completedAt,
+        ...(deliveryManifest ? { deliveryManifest } : {}),
       } 
     }
   );

@@ -1,7 +1,6 @@
 import type { EffectiveBrandResolution } from "@/lib/shared/brand-effective-resolver";
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
 import { isBrandSignalActionable, type BrandSignal, type BrandSignalProfile } from "@/lib/shared/brand-signal-profile";
-import { modelSupportsTextRendering } from "@/lib/config/clickatron-models";
 import { sanitizeVisualPrompt } from "@/lib/clickatron/sanitize-visual-prompt";
 
 type MetadataRecord = Record<string, unknown>;
@@ -12,6 +11,8 @@ export interface ClickatronPromptContextInput {
   brandContextBlock?: string | null;
   /** Model the user picked. Decides in-image text rendering on the default text policy (C2). */
   modelId?: string | null;
+  /** Aspect ratio of the canvas to explicitly steer compositional framing */
+  aspectRatio?: string | null;
 }
 
 export interface BrandContextResolverDeps {
@@ -334,30 +335,62 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   return lines.join("\n");
 }
 
-// C2: read renderPlan.textPolicy off the handoff metadata.
-function readClickatronTextPolicy(metadata?: MetadataRecord | null): string | undefined {
-  const creativeSpec = asRecord(asRecord(asRecord(metadata)?.clickatron)?.creativeSpec);
-  return cleanText(asRecord(creativeSpec?.renderPlan)?.textPolicy);
+// C2 functions for text rendering.
+function shouldRenderTextInImage(textPolicy: unknown, modelId?: string | null): boolean {
+  if (textPolicy === 'suppress_text') return false;
+  if (textPolicy === 'force_render_text') return true;
+  if (!modelId) return false;
+  // Default text policy: only text-capable models render text by default.
+  return modelId.includes('nano-banana') || modelId.includes('seedream') || modelId.includes('gemini');
 }
 
-// C2: decide whether generation bakes the supplied copy INTO the image, or keeps the image
-// text-free so copy is layered as editable overlays (the historical default). Reality of the
-// upstream contract: the only policies anything actually sets are 'no_generated_text' and
-// 'editable_text_layers' — 'minimal_generated_text' is contract-valid but currently never
-// produced. So the live trigger is the MODEL the user picked: on the default policy a
-// text-capable model renders the copy, everything else stays text-free. Explicit policies win.
-function shouldRenderTextInImage(textPolicy: unknown, modelId?: string | null): boolean {
-  const policy = cleanText(textPolicy);
-  if (policy === "no_generated_text") return false; // explicit: never bake text
-  if (policy === "minimal_generated_text") return true; // explicit: always bake text
-  // editable_text_layers / unset (the default): the user's model pick decides.
-  return modelSupportsTextRendering(modelId ?? undefined);
+function parseTextHierarchy(metadata?: MetadataRecord | null): string {
+  const creativeSpec = asRecord(asRecord(asRecord(metadata)?.clickatron)?.creativeSpec);
+  const renderPlan = asRecord(creativeSpec?.renderPlan);
+  const textLayers = renderPlan?.textLayers;
+
+  if (!Array.isArray(textLayers)) return "";
+
+  let orgName = "";
+  let eventName = "";
+  let tagline = "";
+  let dateTime = "";
+  let venue = "";
+  let footer = "";
+
+  for (const entry of textLayers) {
+    const layer = asRecord(entry);
+    const role = (cleanText(layer?.role) || "").toLowerCase();
+    const text = cleanText(layer?.text) || "";
+    if (!text) continue;
+
+    if (role.includes("org") || role.includes("presenter") || role.includes("brand")) orgName = text;
+    else if (role.includes("title") || role.includes("event") || role.includes("headline")) eventName = text;
+    else if (role.includes("tagline") || role.includes("subtitle")) tagline = text;
+    else if (role.includes("date") || role.includes("time") || role.includes("when")) dateTime = text;
+    else if (role.includes("venue") || role.includes("location") || role.includes("where")) venue = text;
+    else if (role.includes("footer") || role.includes("contact") || role.includes("social")) footer = text;
+    else if (!eventName) eventName = text; // fallback
+    else if (!tagline) tagline = text;
+  }
+
+  const lines: string[] = [];
+  if (orgName) lines.push(`LEVEL 1 (organization/presenter line — small, top): ${orgName}`);
+  if (eventName) lines.push(`LEVEL 2 (event title/headline — largest, dominant): ${eventName}`);
+  if (tagline) lines.push(`LEVEL 3 (optional tagline): ${tagline}`);
+  if (dateTime) lines.push(`LEVEL 4 (date + time — medium, high contrast): ${dateTime}`);
+  if (venue) lines.push(`LEVEL 5 (venue — medium): ${venue}`);
+  if (footer) lines.push(`LEVEL 6 (optional footer): ${footer}`);
+
+  return lines.join("\n");
+}
+function isLlmImageModel(modelId?: string | null): boolean {
+  if (!modelId) return false;
+  const id = modelId.toLowerCase();
+  return id.includes('gemini') || id.includes('nano-banana');
 }
 
 export function buildClickatronGenerationPrompt(input: ClickatronPromptContextInput): string {
-  // Enforce the visual-only contract: strip any brief metadata the writer leaked into the
-  // scene prompt (Brand:/Overlay text:/CTA:/…) so the model never bakes brand text or
-  // invents a logo from it. [R6]
   const prompt = sanitizeVisualPrompt(input.prompt).clean.trim();
   const sourceContextBlock = buildClickatronSourceContextBlock(input.metadata, input.modelId);
   const brandContextBlock = input.brandContextBlock?.trim() || "";
@@ -365,35 +398,196 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
 
   if (contextBlocks.length === 0) return prompt;
 
-  // C2: explicit 'no_generated_text'/'minimal_generated_text' policies win; otherwise the user's
-  // model pick decides — a text-capable model (Nano Banana / Seedream / Gemini 3 Image) renders
-  // the copy, weaker models (Imagen4 / Flux) stay suppressed (they render text as gibberish).
-  const renderTextInImage = shouldRenderTextInImage(readClickatronTextPolicy(input.metadata), input.modelId);
-  const textRules = renderTextInImage
-    ? [
-        "If the source context supplies text-layer copy, render exactly that copy in the image — accurate spelling, brand-appropriate type, high contrast, balanced placement, overlay-safe margins.",
-        "Render ONLY the supplied text-layer copy. If no copy is supplied, keep the image text-free — never invent extra words, captions, UI chrome, watermarks, or logo text.",
-      ]
-    : [
-        "Generate the raster image as a text-free visual/background, not a finished poster with baked-in copy.",
-        "Do not render readable words, letters, numbers, headings, body copy, CTA text, labels, UI text, watermarks, signatures, or logo text.",
-        "Use Clickatron text-layer summaries only to reserve safe zones; exact copy is added later as editable overlays.",
-        "If the request contains long post, caption, or script copy, treat it as meaning and layout intent, not as words to draw.",
-      ];
+  const textHierarchyContent = parseTextHierarchy(input.metadata);
+  
+  // Aspect ratio compositional steering
+  const layoutRatioBlock = input.aspectRatio 
+    ? `\nCRITICAL LAYOUT RULE: The final image will be generated at a ${input.aspectRatio} aspect ratio. You MUST compose the layout, typography, and focal point specifically to fit a ${input.aspectRatio} canvas. Do not compose a square image for a rectangular canvas, and ensure text/subjects are not cut off.`
+    : "";
+
+  // V11: Dual-Engine Prompter
+  // Uses V7 (XML/Creative Director) for LLM-based models (Gemini, Nano Banana) which parse XML well.
+  // Uses V10 (Hybrid Natural Language + Keywords) for Diffusion models (Flux, Ideogram) which hallucinate on XML.
+  if (isLlmImageModel(input.modelId)) {
+    const v7SystemInstructions = `<role>
+You are Clickatron, an expert AI creative director and visual designer specialized in producing premium social media creatives, campaign posters, event graphics, advertisements, thumbnails, and marketing assets.
+
+Your goal is to create visuals that feel professionally designed rather than AI-generated.
+</role>
+
+<priority_order>
+1. USER PROMPT (Highest Priority)
+The user's prompt is the primary creative source of truth.
+Never replace, reinterpret, or weaken explicit instructions.
+If the user specifies a style, scene, layout, palette, typography, composition, subject, mood, or design language, follow it exactly.
+
+2. BRAND CONTEXT
+If brand guidelines are provided, use them to influence colors, typography, tone, logo placement, spacing, and overall visual identity.
+Brand context should enhance the user's request, never override it.
+
+3. DEFAULT DESIGN KNOWLEDGE
+Only when information is missing should you rely on professional graphic design principles.
+</priority_order>
+
+<creative_principles>
+Every design should have:
+• One dominant visual focal point.
+• Clear information hierarchy.
+• Professional spacing.
+• Intentional use of negative space.
+• Balanced composition.
+• Consistent typography.
+• Strong visual storytelling.
+• Modern editorial aesthetics.
+
+Avoid filling empty space simply because it exists.
+Less clutter usually creates stronger designs.
+</creative_principles>
+
+<visual_quality>
+Aim for the quality of work typically seen on:
+• Behance Featured
+• Awwwards
+• Pentagram
+• Landor
+• Apple Keynote
+• Nike Campaigns
+• Spotify Editorial
+• Modern University Campaigns
+
+Designs should feel premium, contemporary and authentic.
+Never generate generic Canva-style layouts.
+</visual_quality>
+
+<composition>
+Before generating the image, internally decide:
+• What is the hero element?
+• Where should the viewer look first?
+• What supports the hero?
+• What information is secondary?
+• What should remain visually quiet?
+
+The design should naturally guide the viewer's eyes.${layoutRatioBlock}
+</composition>
+
+<typography>
+Typography is part of the composition.
+Use hierarchy intentionally.
+
+Headline
+↓
+Subheadline
+↓
+Supporting Information
+↓
+Footer
+
+Avoid making every text element equally large.
+</typography>
+
+<text_rendering>
+Only render text explicitly supplied by the user or structured metadata.
+Never invent dates.
+Never invent venues.
+Never invent event names.
+Never invent slogans.
+Do not generate additional logos or branding.
+</text_rendering>
+
+<brand>
+If logos are supplied:
+• Respect clear space.
+• Keep them small.
+• Never let them dominate the design.
+• Follow the supplied brand colors whenever possible.
+</brand>
+
+<creativity>
+When multiple compositions satisfy the request,
+choose the one that feels:
+• More premium
+• More memorable
+• More visually balanced
+• More emotionally engaging
+
+Do not default to centered templates.
+Do not default to generic event flyers.
+Think like an experienced creative director.
+</creativity>
+
+<negative_bias>
+Avoid defaulting toward:
+• Music festival posters
+• Neon cyberpunk
+• Purple glow
+• Gaming aesthetics
+• Generic templates
+• Stock-photo layouts
+• Clipart
+• Excessive icons
+• Random decorative elements
+• Overcrowded compositions
+
+Unless the user explicitly asks for those styles.
+</negative_bias>
+
+<final_goal>
+The finished design should look like it was created by an experienced designer at a professional creative agency.
+If someone saw the image without context, they should assume it was designed by a human—not generated by AI.
+</final_goal>
+
+<internal_design_process>
+Before generating the final image, internally determine:
+1. Hero visual
+2. Layout style
+3. Visual hierarchy
+4. Typography hierarchy
+5. Color story
+6. Emotional tone
+7. Lighting
+8. Camera/composition (if photographic)
+9. Placement of information
+10. Negative space
+
+Do not output this reasoning.
+Use it only to improve the final design.
+</internal_design_process>`;
+
+    const userExplicitContent = `<user_explicit_content>\nUser's Request:\n${prompt}\n</user_explicit_content>`;
+    const textHierarchyBlock = textHierarchyContent ? `<extracted_text_hierarchy>\n${textHierarchyContent}\n</extracted_text_hierarchy>` : "";
+
+    const enriched = [
+      v7SystemInstructions,
+      userExplicitContent,
+      textHierarchyBlock,
+      ...contextBlocks
+    ].filter(Boolean).join("\n\n");
+
+    return enriched.length > MAX_PROMPT_LENGTH
+      ? `${enriched.slice(0, MAX_PROMPT_LENGTH - 3)}...`
+      : enriched;
+  }
+
+  // Otherwise, use V10 Hybrid Diffusion Prompter
+  const diffusionEnhancers = "award-winning professional graphic design, premium editorial aesthetics, masterpiece, striking visual hierarchy, high-end commercial quality, clean composition, deliberate negative space, highly detailed, non-generic, unique artistic layout";
+
+  const coreVisualPrompt = prompt ? `${prompt}, ${diffusionEnhancers}` : diffusionEnhancers;
+  
+  const textHierarchyBlock = textHierarchyContent ? `Text elements to incorporate seamlessly into the design:\n${textHierarchyContent}` : "";
+
+  const brandDirective = contextBlocks.length > 0 
+    ? "Design instructions: Incorporate the following brand guidelines and contextual details naturally. The brand colors, tone, and visual identity should influence the final design without overriding the primary visual prompt. Maintain premium creativity and professional spacing."
+    : "";
+    
+  const layoutDirective = layoutRatioBlock ? `Layout Instructions: ${layoutRatioBlock}` : "";
 
   const enriched = [
-    ...contextBlocks,
-    "<clickatron_thumbnail_request>",
-    prompt,
-    "</clickatron_thumbnail_request>",
-    "<clickatron_generation_rules>",
-    "Use source and brand context for concept, composition, color, tone, audience fit, and overlay-safe negative space.",
-    "Honor every brand hard constraint from the source context, and treat key claims as visual concepts to evoke through scene and composition, never as text to render.",
-    ...textRules,
-    "Do not invent logos, trademarks, mascots, product packs, or brand assets unless the prompt or reference images explicitly provide them.",
-    "Do not render source IDs or internal metadata text in the thumbnail.",
-    "</clickatron_generation_rules>",
-  ].join("\n\n");
+    coreVisualPrompt,
+    textHierarchyBlock,
+    brandDirective,
+    layoutDirective,
+    ...contextBlocks
+  ].filter(Boolean).join("\n\n");
 
   return enriched.length > MAX_PROMPT_LENGTH
     ? `${enriched.slice(0, MAX_PROMPT_LENGTH - 3)}...`

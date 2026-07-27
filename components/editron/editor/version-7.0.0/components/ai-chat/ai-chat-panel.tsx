@@ -24,6 +24,11 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useEditorContext } from "../../contexts/editor-context";
+import { useTimeline } from "../../contexts/timeline-context";
+import { useSidebar } from "../../contexts/sidebar-context";
+import { OverlayType } from "../../types";
+import { buildAssistBriefing } from "@/lib/editron/services/assist-briefing";
+import { useAssistScanDoc } from "../../hooks/use-assist-scan-doc";
 import { getUserId } from "../../utils/user-id";
 import { cn } from "@/lib/utils";
 import { EDLSuggestions } from "./edl-suggestions";
@@ -36,10 +41,66 @@ import {
 import { useToast } from "@/hooks/editron/use-toast";
 import { ToolCallIndicator } from "./tool-call-indicator";
 import { getUserFriendlyErrorMessage } from "@/lib/editron/utils/error-handling";
-import html2canvas from "html2canvas";
+import html2canvas from "html2canvas-pro";
 import { useAIDebugStore } from "@/lib/editron/stores/ai-debug-store";
 import { useCredits } from "@/hooks/useCredits";
 import { getChatToolLabel, shouldReloadProjectAfterTool } from "@/lib/editron/agent/chat-tool-registry";
+import { ChatSseJsonParser } from "@/lib/editron/services/chat-sse-parser";
+import {
+  buildChatEditClientContext,
+  canApplyChatProjectResponse,
+  type ChatEditSpatialCursor,
+} from "@/lib/editron/agent/chat-edit-context";
+import {
+  CHAT_FRAME_EVIDENCE_MAX_BYTES,
+  estimateChatFrameDataUrlBytes,
+  extractChatFrameCaptureRequest,
+  sanitizeChatFrameEvidence,
+  type ChatFrameEvidence,
+} from "@/lib/editron/agent/chat-frame-evidence";
+import {
+  ChatAttachmentPicker,
+  toChatAttachmentInput,
+  type ChatAttachmentDraft,
+} from "./chat-attachment-picker";
+
+const clampUnit = (value: number) => Math.max(0, Math.min(value, 1));
+
+interface ChatSendOptions {
+  allowWhileProcessing?: boolean;
+  visualEvidence?: ChatFrameEvidence;
+  // Director Mode: set ONLY by the explicit "Run Auto-Director" confirm button.
+  autoDirectorConfirmed?: boolean;
+}
+
+async function seekToRenderedFrame(player: any, frame: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      player.removeEventListener?.('seeked', handleSeeked);
+      resolve();
+    };
+    const handleSeeked = () => {
+      requestAnimationFrame(() => requestAnimationFrame(finish));
+    };
+    const timeoutId = window.setTimeout(finish, 1_200);
+
+    try {
+      player.addEventListener?.('seeked', handleSeeked);
+      player.seekTo(frame);
+      if (typeof player.addEventListener !== 'function') {
+        window.setTimeout(finish, 250);
+      }
+    } catch (error) {
+      clearTimeout(timeoutId);
+      player.removeEventListener?.('seeked', handleSeeked);
+      reject(error);
+    }
+  });
+}
 
 interface ContentSegment {
   type: 'text' | 'tool';
@@ -56,6 +117,7 @@ interface ChatMessage {
   role: "user" | "assistant" | "tool";
   content: string;
   timestamp: Date;
+  attachments?: ChatAttachmentDraft[];
   toolCalls?: Array<{
     id: string;
     name: string;
@@ -80,67 +142,241 @@ interface ChatSession {
 
 export function AIChatPanel() {
   const { overlays, setOverlays, playerDimensions, durationInFrames, getAspectRatioDimensions, playerRef, saveProject,
-    setIsAIProcessing, selectedOverlayId, currentFrame
+    setIsAIProcessing, selectedOverlayId, currentFrame, projectId: editorProjectId
   } = useEditorContext();
+  const { timelineRef, zoomScale, scrollPosition } = useTimeline();
+  const { activePanel, setActivePanel } = useSidebar();
   const { toast } = useToast();
   const userId = getUserId();
   const { invalidateCredits } = useCredits();
+  const canvasDimensions = getAspectRatioDimensions();
   
   // State
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachmentDraft[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   
+  // Director Mode (assist lane): the scan briefing rendered as chat's first
+  // message. Derived from the shared scan doc (which polls until ready_for_chat,
+  // so it appears even if chat mounted mid-scan). Zero model calls, zero billing.
+  const assistScanDoc = useAssistScanDoc(editorProjectId);
+  const assistBriefing = buildAssistBriefing(assistScanDoc);
+  // True only when WE auto-created the very first session (genuine first open).
+  // Reloading an already-chatted project loads existing sessions → stays false →
+  // the briefing never reappears claiming "nothing has been edited" (battle-lane P2).
+  const [assistFirstOpen, setAssistFirstOpen] = useState(false);
+  const assistSessionBootstrappedRef = useRef<string | null>(null);
+
+  // Battle-lane P0: a fresh assist project has NO chat session, so the briefing
+  // (which lives inside the has-session branch) never rendered — the user hit a
+  // generic "Start a new chat" wall. Silently bootstrap the first session so the
+  // briefing + its starter chips appear on open. Fires once per project.
+  useEffect(() => {
+    if (!assistBriefing || !editorProjectId || currentSessionId || isLoadingSessions) return;
+    if (assistSessionBootstrappedRef.current === editorProjectId) return;
+    assistSessionBootstrappedRef.current = editorProjectId;
+    let cancelled = false;
+    fetch('/api/services/editron/chat/sessions/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: editorProjectId }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.success && d.sessionId) { setCurrentSessionId(d.sessionId); setMessages([]); setAssistFirstOpen(true); } })
+      .catch(() => { assistSessionBootstrappedRef.current = null; /* allow a retry */ });
+    return () => { cancelled = true; };
+  }, [assistBriefing, editorProjectId, currentSessionId, isLoadingSessions]);
+
+  // Director Mode structured confirm: holds the goal to re-run with Auto-Director
+  // when the last assistant turn asked for confirmation. Cleared on run/dismiss.
+  const [autoDirectorConfirm, setAutoDirectorConfirm] = useState<string | null>(null);
+  useEffect(() => {
+    const AWAIT = 'assist-auto-director-needs-confirmation';
+    // Walk from the end: the newest assistant turn decides.
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      if (msg.role === 'user') { setAutoDirectorConfirm(null); return; }
+      if (msg.role !== 'assistant') continue;
+      const asked = (msg.toolCalls ?? []).some((tc) => typeof tc.output === 'string' && tc.output.includes(AWAIT));
+      if (!asked) { setAutoDirectorConfirm(null); return; }
+      // Find the user request that triggered this advisory.
+      const goal = [...messages.slice(0, i)].reverse().find((m) => m.role === 'user')?.content ?? null;
+      setAutoDirectorConfirm(goal);
+      return;
+    }
+    setAutoDirectorConfirm(null);
+  }, [messages]);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const projectId = typeof window !== 'undefined' ? window.location.pathname.split('/').pop() || 'default' : 'default';
+  const activeProjectIdRef = useRef('');
+  const activeSessionIdRef = useRef<string | null>(null);
+  const latestSpatialCursorRef = useRef<ChatEditSpatialCursor | null>(null);
+  const pointerContextRef = useRef({
+    currentFrame,
+    durationInFrames,
+    canvas: canvasDimensions,
+  });
+  pointerContextRef.current = {
+    currentFrame,
+    durationInFrames,
+    canvas: canvasDimensions,
+  };
+  const projectId = editorProjectId?.trim() ?? '';
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isProcessing]);
 
-  // Load sessions on mount
   useEffect(() => {
-    loadSessions();
-  }, []);
+    const handlePointerMove = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      const pointerState = pointerContextRef.current;
+      const preview = document.getElementById('remotion-player-container');
 
-  // Load messages when session changes
+      if (preview?.contains(target)) {
+        const rect = preview.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const normalizedX = clampUnit((event.clientX - rect.left) / rect.width);
+        const normalizedY = clampUnit((event.clientY - rect.top) / rect.height);
+        latestSpatialCursorRef.current = {
+          surface: 'preview',
+          frame: pointerState.currentFrame,
+          normalizedX,
+          normalizedY,
+          canvasX: Math.round(normalizedX * pointerState.canvas.width),
+          canvasY: Math.round(normalizedY * pointerState.canvas.height),
+          capturedAtMs: Date.now(),
+          source: 'last-editor-pointer',
+        };
+        return;
+      }
+
+      const timeline = timelineRef.current;
+      if (!timeline?.contains(target)) return;
+      const rect = timeline.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0 || pointerState.durationInFrames <= 0) return;
+      const contentWidth = Math.max(timeline.scrollWidth, rect.width);
+      const internalScroll = timeline.scrollWidth > rect.width ? timeline.scrollLeft : 0;
+      const normalizedX = clampUnit((event.clientX - rect.left + internalScroll) / contentWidth);
+      latestSpatialCursorRef.current = {
+        surface: 'timeline',
+        frame: Math.round(normalizedX * pointerState.durationInFrames),
+        normalizedX,
+        normalizedY: clampUnit((event.clientY - rect.top) / rect.height),
+        capturedAtMs: Date.now(),
+        source: 'last-editor-pointer',
+      };
+    };
+
+    document.addEventListener('pointermove', handlePointerMove, { passive: true });
+    return () => document.removeEventListener('pointermove', handlePointerMove);
+  }, [timelineRef]);
+
+  // A route change must never retain chat state from the previous project.
   useEffect(() => {
-    if (currentSessionId) {
-      loadSessionMessages(currentSessionId);
+    activeProjectIdRef.current = projectId;
+    activeSessionIdRef.current = null;
+    abortControllerRef.current?.abort();
+    latestSpatialCursorRef.current = null;
+    setSessions([]);
+    setCurrentSessionId(null);
+    setMessages([]);
+    setPendingAttachments([]);
+    setShowHistory(false);
+    setIsProcessing(false);
+    setIsAIProcessing(false);
+
+    if (!projectId) {
+      setIsLoadingSessions(false);
+      return;
     }
-  }, [currentSessionId]);
 
-  const loadSessions = async () => {
+    void loadSessions(projectId);
+  }, [projectId]);
+
+  // Load messages only for the active project/session pair.
+  useEffect(() => {
+    activeSessionIdRef.current = currentSessionId;
+    setPendingAttachments([]);
+    if (currentSessionId && projectId) {
+      void loadSessionMessages(currentSessionId, projectId);
+    } else {
+      setMessages([]);
+    }
+  }, [currentSessionId, projectId]);
+
+  const loadSessions = async (expectedProjectId: string = projectId) => {
+    if (!expectedProjectId) return;
+
     try {
       setIsLoadingSessions(true);
-      const res = await fetch(`/api/services/editron/chat/sessions/list?projectId=${projectId}`);
+      const res = await fetch(
+        '/api/services/editron/chat/sessions/list?projectId=' + encodeURIComponent(expectedProjectId),
+      );
+      if (!res.ok) throw new Error('Failed to load chat sessions');
+
       const data = await res.json();
+      if (activeProjectIdRef.current !== expectedProjectId) return;
+
       if (data.success) {
-        setSessions(data.sessions);
-        // Auto-select most recent session if none selected
-        if (!currentSessionId && data.sessions.length > 0) {
-          setCurrentSessionId(data.sessions[0].sessionId);
-        }
+        const projectSessions: ChatSession[] = Array.isArray(data.sessions)
+          ? data.sessions.filter((session: ChatSession) => session.projectId === expectedProjectId)
+          : [];
+        setSessions(projectSessions);
+        setCurrentSessionId((activeSessionId) => {
+          if (
+            activeSessionId &&
+            projectSessions.some((session) => session.sessionId === activeSessionId)
+          ) {
+            return activeSessionId;
+          }
+          return projectSessions[0]?.sessionId ?? null;
+        });
       }
     } catch (error) {
-      console.error("Failed to load sessions:", error);
+      if (activeProjectIdRef.current === expectedProjectId) {
+        console.error('Failed to load sessions:', error);
+      }
     } finally {
-      setIsLoadingSessions(false);
+      if (activeProjectIdRef.current === expectedProjectId) {
+        setIsLoadingSessions(false);
+      }
     }
   };
 
-  const loadSessionMessages = async (sessionId: string) => {
+  const loadSessionMessages = async (
+    sessionId: string,
+    expectedProjectId: string = projectId,
+  ) => {
+    if (!expectedProjectId) return;
+
     try {
-      const res = await fetch(`/api/services/editron/chat/sessions/${sessionId}/history`);
+      const res = await fetch(
+        '/api/services/editron/chat/sessions/' +
+          encodeURIComponent(sessionId) +
+          '/history?projectId=' +
+          encodeURIComponent(expectedProjectId),
+      );
+      if (!res.ok) throw new Error('Failed to load chat history');
+
       const data = await res.json();
+      if (
+        activeProjectIdRef.current !== expectedProjectId ||
+        activeSessionIdRef.current !== sessionId
+      ) {
+        return;
+      }
+
       if (data.success) {
         // Transform messages to merge toolResults into toolCalls and generate contentSegments
         setMessages(data.messages.map((m: any) => {
@@ -187,7 +423,12 @@ export function AIChatPanel() {
         }));
       }
     } catch (error) {
-      console.error("Failed to load messages:", error);
+      if (
+        activeProjectIdRef.current === expectedProjectId &&
+        activeSessionIdRef.current === sessionId
+      ) {
+        console.error('Failed to load messages:', error);
+      }
     }
   };
 
@@ -272,9 +513,62 @@ export function AIChatPanel() {
 
   const addLog = useAIDebugStore((state) => state.addLog);
 
-  const handleSendMessage = async (overrideMessage?: string) => {
+  const reloadProjectOverlays = async (
+    expectedProjectId: string,
+    signal: AbortSignal,
+    reason: string,
+  ): Promise<boolean> => {
+    try {
+      const projectResponse = await fetch(
+        `/api/services/editron/projects/${encodeURIComponent(expectedProjectId)}`,
+        { signal },
+      );
+      if (!projectResponse.ok) {
+        addLog('error', 'Chat project reload failed', {
+          expectedProjectId,
+          reason,
+          status: projectResponse.status,
+        });
+        return false;
+      }
+      const projectData = await projectResponse.json();
+      if (!canApplyChatProjectResponse({
+        expectedProjectId,
+        activeProjectId: activeProjectIdRef.current,
+        aborted: signal.aborted,
+      })) {
+        addLog('info', 'Skipped stale chat project reload', { expectedProjectId, reason });
+        return false;
+      }
+      if (!Array.isArray(projectData.project?.overlays)) {
+        addLog('error', 'Chat project reload omitted overlays', { expectedProjectId, reason });
+        return false;
+      }
+      setOverlays(projectData.project.overlays);
+      return true;
+    } catch (error: any) {
+      if (error?.name !== 'AbortError') {
+        console.error(`Failed to reload project after ${reason}`, error);
+        addLog('error', 'Chat project reload threw', { expectedProjectId, reason, error });
+      }
+      return false;
+    }
+  };
+
+  const handleSendMessage = async (
+    overrideMessage?: string,
+    options: ChatSendOptions = {},
+  ) => {
     const messageToSend = overrideMessage || inputMessage;
-    if (!messageToSend.trim() || !currentSessionId || isProcessing) return;
+    if (
+      !messageToSend.trim()
+      || !currentSessionId
+      || (isProcessing && !options.allowWhileProcessing)
+    ) return;
+    const requestSessionId = currentSessionId;
+    const operationId = crypto.randomUUID();
+    const attachmentsForTurn = [...pendingAttachments];
+    let pendingVisualFollowup: { message: string; evidence: ChatFrameEvidence } | null = null;
 
     setIsProcessing(true);
     setIsAIProcessing(true); // Lock editor
@@ -284,14 +578,23 @@ export function AIChatPanel() {
     if (saveProject) {
       await saveProject();
     }
+    if (
+      activeProjectIdRef.current !== projectId
+      || activeSessionIdRef.current !== requestSessionId
+    ) {
+      setIsProcessing(false);
+      setIsAIProcessing(false);
+      return;
+    }
 
-    addLog('info', 'Sending message', { message: messageToSend, sessionId: currentSessionId });
+    addLog('info', 'Sending message', { message: messageToSend, sessionId: requestSessionId, operationId });
 
     // Add user message immediately
     const userMsg: ChatMessage = {
       role: "user",
       content: messageToSend,
       timestamp: new Date(),
+      attachments: attachmentsForTurn,
     };
     setMessages((prev) => [...prev, userMsg]);
 
@@ -306,11 +609,45 @@ export function AIChatPanel() {
     };
     setMessages((prev) => [...prev, assistantMsg]);
 
+    abortControllerRef.current?.abort(); // Cancel any previous stream
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     try {
       // Create AbortController for this stream (allows cancellation)
-      abortControllerRef.current?.abort(); // Cancel any previous stream
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
+      const selectedOverlay = selectedOverlayId == null
+        ? null
+        : overlays.find((overlay) => String(overlay.id) === String(selectedOverlayId)) ?? null;
+      const timeline = timelineRef.current;
+      const timelineViewport = timeline?.parentElement ?? null;
+      const viewportWidth = timelineViewport?.clientWidth ?? timeline?.clientWidth ?? 0;
+      const contentWidth = Math.max(
+        timelineViewport?.scrollWidth ?? 0,
+        timeline?.scrollWidth ?? 0,
+        timeline?.getBoundingClientRect().width ?? 0,
+        viewportWidth * Math.max(1, zoomScale),
+      );
+      const scrollOwner = timelineViewport && timelineViewport.scrollWidth > timelineViewport.clientWidth
+        ? timelineViewport
+        : timeline && timeline.scrollWidth > timeline.clientWidth
+          ? timeline
+          : null;
+      const clientContext = buildChatEditClientContext({
+        currentFrame,
+        selectedOverlayId: selectedOverlayId ?? null,
+        selectedOverlay,
+        durationInFrames,
+        overlayCount: overlays.length,
+        activePanel,
+        canvas: canvasDimensions,
+        playerDimensions,
+        timelineViewport: {
+          scrollLeft: scrollOwner?.scrollLeft ?? scrollPosition,
+          viewportWidth,
+          contentWidth,
+          zoomScale,
+        },
+        spatialCursor: latestSpatialCursorRef.current,
+      });
 
       const response = await fetch('/api/services/editron/chat/stream', {
         method: 'POST',
@@ -318,23 +655,26 @@ export function AIChatPanel() {
         body: JSON.stringify({
           message: messageToSend,
           projectId,
-          sessionId: currentSessionId,
-          selectedOverlayId: selectedOverlayId || undefined,
-          clientContext: {
-            currentFrame,
-            selectedOverlayId: selectedOverlayId ?? null,
-            durationInFrames,
-            overlayCount: overlays.length,
-            canvas: getAspectRatioDimensions(),
-            playerDimensions,
-          },
+          operationId,
+          sessionId: requestSessionId,
+          selectedOverlayId: selectedOverlayId ?? undefined,
+          clientContext,
+          attachments: attachmentsForTurn.map(toChatAttachmentInput),
+          visualEvidence: options.visualEvidence,
+          ...(options.autoDirectorConfirmed ? { autoDirectorConfirmed: true } : {}),
         }),
         signal: controller.signal,
       });
+      if (!canApplyChatProjectResponse({
+        expectedProjectId: projectId,
+        activeProjectId: activeProjectIdRef.current,
+        aborted: controller.signal.aborted,
+      })) return;
 
       // Handle insufficient credits (402)
       if (response.status === 402) {
         const errorData = await response.json();
+        if (activeProjectIdRef.current !== projectId || controller.signal.aborted) return;
         const errorMsg: ChatMessage = {
           role: "assistant",
           content: `⚠️ **Insufficient Credits**\n\nYou need more credits to use the AI assistant. You have ${errorData.creditsInfo?.available || 0} credits remaining.\n\n[🔗 Top up credits](/dashboard/billing)`,
@@ -350,11 +690,40 @@ export function AIChatPanel() {
         return;
       }
 
+      if (response.status === 409) {
+        const replay = await response.json();
+        if (activeProjectIdRef.current !== projectId || controller.signal.aborted) return;
+        if (replay.code !== 'CHAT_EDIT_OPERATION_REPLAY') {
+          throw new Error(replay.error || 'Chat edit request conflicted with another operation.');
+        }
+        await reloadProjectOverlays(projectId, controller.signal, 'operation replay');
+        if (!canApplyChatProjectResponse({
+          expectedProjectId: projectId,
+          activeProjectId: activeProjectIdRef.current,
+          aborted: controller.signal.aborted,
+        })) return;
+        const replayMessage = replay.operationStatus === 'running'
+          ? 'This exact edit request is already processing. It was not started twice.'
+          : 'This exact edit request was already handled. The latest project state has been reloaded.';
+        setMessages((previous) => previous.map((chatMessage) =>
+          chatMessage.role === 'assistant' && chatMessage.timestamp.getTime() === assistantMsgId
+            ? { ...chatMessage, content: replayMessage }
+            : chatMessage,
+        ));
+        addLog('info', 'Duplicate chat edit operation blocked', {
+          operationId,
+          operationStatus: replay.operationStatus,
+        });
+        setPendingAttachments([]);
+        return;
+      }
+
       if (!response.ok) throw new Error('Failed to start stream');
       if (!response.body) throw new Error('No response body');
+      setPendingAttachments([]);
 
       const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+      const sseParser = new ChatSseJsonParser<Record<string, any>>();
       let assistantContent = "";
       let currentToolCalls: any[] = [];
       // Track segments in order for proper interleaved display
@@ -363,15 +732,19 @@ export function AIChatPanel() {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (activeProjectIdRef.current !== projectId) {
+          await reader.cancel();
+          return;
+        }
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n\n');
+        const parsed = done ? sseParser.finish() : sseParser.push(value);
+        if (parsed.errors.length > 0) {
+          const detail = parsed.errors.map((error) => error.message).join('; ');
+          throw new Error(`Invalid Chat-to-Edit stream: ${detail}`);
+        }
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
+        for (const data of parsed.events) {
             try {
-              const data = JSON.parse(line.slice(6));
 
               if (data.type === 'token') {
                 assistantContent += data.content;
@@ -462,17 +835,7 @@ export function AIChatPanel() {
                 }
                 // Reload project data immediately after a mutating registry tool finishes
                 if (shouldReloadProjectAfterTool(data.tool)) {
-                   try {
-                     const projectRes = await fetch(`/api/services/editron/projects/${projectId}`);
-                     if (projectRes.ok) {
-                       const projectData = await projectRes.json();
-                       if (projectData.project && projectData.project.overlays) {
-                         setOverlays(projectData.project.overlays);
-                       }
-                     }
-                   } catch (e) {
-                     console.error("Failed to reload project data", e);
-                   }
+                  await reloadProjectOverlays(projectId, controller.signal, `tool ${data.tool}`);
                 }
 
               } else if (data.type === 'done') {
@@ -499,73 +862,101 @@ export function AIChatPanel() {
                  // This is critical because per-tool reloads can be clobbered by
                  // intermediate state changes. This ensures the client has the
                  // definitive server-side state after the AI finishes all edits.
-                 try {
-                   const finalRes = await fetch(`/api/services/editron/projects/${projectId}`);
-                   if (finalRes.ok) {
-                     const finalData = await finalRes.json();
-                     if (finalData.project && finalData.project.overlays) {
-                       setOverlays(finalData.project.overlays);
-                     }
-                   }
-                 } catch (e) {
-                   console.error("Failed final overlay reload after AI stream", e);
-                 }
+                 await reloadProjectOverlays(projectId, controller.signal, 'final stream state');
               } else if (data.type === 'error') {
                 addLog('error', 'Stream error', data);
                 throw new Error(data.error);
               }
             } catch (e) {
               console.error('Error parsing stream chunk', e);
+              throw e;
             }
-          }
         }
+        if (done) break;
       }
 
-      // Check for pending client actions (capture_frame)
-      const captureActionTool = currentToolCalls.find(tc => tc.name === 'visual_inspect_frame');
-      if (captureActionTool && captureActionTool.output) {
-        try {
-          const output = JSON.parse(captureActionTool.output);
-          if (output.action === 'capture_frame') {
-            const { frame, question } = output;
-            addLog('client_action', 'Capturing frame', { frame, question });
-            
-            // 1. Seek to frame
-            if (playerRef?.current) {
-              playerRef.current.seekTo(frame);
-              
-              // 2. Wait for seek/render (short delay)
-              await new Promise(resolve => setTimeout(resolve, 800));
-              
-              // 3. Capture
-              const element = document.getElementById("remotion-player-container");
-              if (element) {
-                const canvas = await html2canvas(element, {
-                  useCORS: true,
-                  scale: 0.5, // Reduce resolution for speed/token usage
-                });
-                const base64Image = canvas.toDataURL('image/jpeg', 0.7);
-                
-                const imageMessage = `[System: Frame ${frame} captured]\nHere is the visual snapshot you requested:\n${base64Image}\n\nQuestion was: ${question}`;
-                
-                addLog('client_action', 'Frame captured, sending back to AI');
+      const captureActionTools = currentToolCalls.filter(
+        (toolCall) => toolCall.name === 'visual_inspect_frame' && toolCall.output,
+      );
+      if (captureActionTools.length > 1) {
+        throw new Error('The visual inspector requested multiple frames in one turn. Please retry the visual edit.');
+      }
+      const captureRequest = captureActionTools[0]?.output
+        ? extractChatFrameCaptureRequest(captureActionTools[0].output)
+        : null;
+      if (captureRequest) {
+        if (options.visualEvidence) {
+          throw new Error('The visual inspector requested the same frame again after evidence was already attached.');
+        }
+        if (!playerRef?.current || durationInFrames <= 0) {
+          throw new Error('The editor player is unavailable for visual inspection.');
+        }
 
-                setTimeout(() => {
-                   handleSendMessage(imageMessage);
-                }, 100);
-                return; // Exit this execution
-              }
+        const frame = Math.min(captureRequest.frame, Math.max(0, durationInFrames - 1));
+        const previousFrame = currentFrame;
+        addLog('client_action', 'Capturing editor frame', {
+          frame,
+          question: captureRequest.question,
+        });
+
+        let evidence: ChatFrameEvidence | null = null;
+        try {
+          await seekToRenderedFrame(playerRef.current, frame);
+          const element = document.getElementById('remotion-player-container');
+          if (!element) throw new Error('Rendered editor canvas was not found.');
+          const rect = element.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) {
+            throw new Error('Rendered editor canvas has invalid dimensions.');
+          }
+          const scale = Math.min(1, 960 / rect.width, 540 / rect.height);
+          const canvas = await html2canvas(element, { useCORS: true, scale });
+          let dataUrl = '';
+          for (const quality of [0.78, 0.64, 0.5]) {
+            const candidate = canvas.toDataURL('image/jpeg', quality);
+            const bytes = estimateChatFrameDataUrlBytes(candidate);
+            if (bytes != null && bytes <= CHAT_FRAME_EVIDENCE_MAX_BYTES) {
+              dataUrl = candidate;
+              break;
             }
           }
-        } catch (e) {
-          console.error("Failed to handle capture action", e);
-          addLog('error', 'Failed to handle capture action', e);
+          if (!dataUrl) throw new Error('Captured frame exceeds the visual evidence size limit.');
+
+          const capturedAtMs = Date.now();
+          evidence = sanitizeChatFrameEvidence({
+            frame,
+            question: captureRequest.question,
+            dataUrl,
+            width: canvas.width,
+            height: canvas.height,
+            capturedAtMs,
+            source: 'editor-rendered-frame',
+          }, capturedAtMs);
+          if (!evidence) throw new Error('Captured frame failed visual evidence validation.');
+        } finally {
+          if (activeProjectIdRef.current === projectId) {
+            playerRef.current?.seekTo(previousFrame);
+          }
         }
+
+        addLog('client_action', 'Editor frame captured; continuing with multimodal evidence', {
+          frame,
+          width: evidence.width,
+          height: evidence.height,
+        });
+        pendingVisualFollowup = {
+          message: `Continue the requested edit using the attached rendered frame ${frame}.`,
+          evidence,
+        };
       }
 
     } catch (error: any) {
+      if (error?.name === 'AbortError' || activeProjectIdRef.current !== projectId) {
+        return;
+      }
+
       console.error("LLM Error:", error);
       addLog('error', 'LLM Error', error);
+      await reloadProjectOverlays(projectId, controller.signal, 'chat transaction error');
       const errorMsg: ChatMessage = {
         role: "assistant",
         content: `❌ Error: ${getUserFriendlyErrorMessage(error)}`,
@@ -573,8 +964,21 @@ export function AIChatPanel() {
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
-      setIsProcessing(false);
-      setIsAIProcessing(false); // Unlock editor when done
+      if (activeProjectIdRef.current === projectId) {
+        setIsProcessing(false);
+        setIsAIProcessing(false); // Unlock editor when done
+      }
+    }
+
+    if (
+      pendingVisualFollowup
+      && activeProjectIdRef.current === projectId
+      && activeSessionIdRef.current === requestSessionId
+    ) {
+      await handleSendMessage(pendingVisualFollowup.message, {
+        allowWhileProcessing: true,
+        visualEvidence: pendingVisualFollowup.evidence,
+      });
     }
   };
 
@@ -787,9 +1191,51 @@ export function AIChatPanel() {
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-6">
               {messages.length === 0 ? (
-                <div className="text-center text-muted-foreground text-sm py-12">
-                  <p>Ask me anything about your video</p>
-                </div>
+                (assistBriefing && assistFirstOpen) ? (
+                  <div className="flex gap-3">
+                    <div className="h-8 w-8 rounded-full flex items-center justify-center shrink-0 bg-muted border">
+                      <Bot className="h-4 w-4" />
+                    </div>
+                    <div className="max-w-[85%] rounded-2xl rounded-tl-sm px-4 py-3 text-sm bg-muted/50 border space-y-3">
+                      <p className="font-medium">{assistBriefing.summary}</p>
+                      <p className="text-muted-foreground">
+                        {assistBriefing.detail ? `${assistBriefing.detail} · ` : ""}
+                        <button
+                          type="button"
+                          onClick={() => setActivePanel(OverlayType.SCAN_REPORT)}
+                          className="underline underline-offset-2 hover:text-foreground"
+                        >
+                          View scan report
+                        </button>
+                      </p>
+                      {assistBriefing.chips.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {assistBriefing.chips.map((chip) => (
+                            <button
+                              key={chip.id}
+                              type="button"
+                              disabled={isProcessing}
+                              // Director Mode exposes the direct tools (add_captions /
+                              // regenerate_bgm / cut_section), so a chip directive
+                              // executes on the specific tool — not the full Director.
+                              onClick={() => void handleSendMessage(chip.prompt)}
+                              className="rounded-full border px-3 py-1 text-xs hover:bg-muted disabled:opacity-50"
+                            >
+                              {chip.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      <p className="text-[11px] text-muted-foreground">
+                        Tap a suggestion to load it, or just type what you want. Each instruction you send bills as a chat message.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center text-muted-foreground text-sm py-12">
+                    <p>Ask me anything about your video</p>
+                  </div>
+                )
               ) : (
                 messages
                   // Filter out empty assistant messages (no content AND no tool calls)
@@ -832,6 +1278,16 @@ export function AIChatPanel() {
                         </div>
                       )}
                       {/* User messages: just show content */}
+                      {msg.role === "user" && msg.attachments && msg.attachments.length > 0 && (
+                        <div className="mb-2 space-y-1 border-b border-primary-foreground/20 pb-2">
+                          {msg.attachments.map((attachment) => (
+                            <div key={`${attachment.attachmentId}:${attachment.role}`} className="flex min-w-0 items-center gap-2 text-[10px]">
+                              <span className="min-w-0 flex-1 truncate font-medium">{attachment.name}</span>
+                              <span className="shrink-0 opacity-70">{attachment.role.replaceAll('-', ' ')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {msg.role === "user" && msg.content.trim() && (
                         <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
                       )}
@@ -939,12 +1395,47 @@ export function AIChatPanel() {
                 </div>
               )}
               
+              {autoDirectorConfirm ? (
+                <div className="flex flex-col gap-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+                  <p className="text-muted-foreground">
+                    This hands the whole timeline to Auto-Director, which re-edits it automatically. Director Mode normally leaves the editing to you.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => {
+                        const goal = autoDirectorConfirm;
+                        setAutoDirectorConfirm(null);
+                        void handleSendMessage(goal, { autoDirectorConfirmed: true });
+                      }}
+                      className="rounded-full bg-amber-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      Run Auto-Director
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAutoDirectorConfirm(null)}
+                      className="rounded-full border px-4 py-1.5 text-xs hover:bg-muted"
+                    >
+                      No, I'll direct it myself
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               <div ref={messagesEndRef} />
             </div>
           </ScrollArea>
 
           {/* Input Area */}
           <div className="border-t bg-background p-4 space-y-3">
+            <ChatAttachmentPicker
+              projectId={projectId}
+              attachments={pendingAttachments}
+              disabled={isProcessing}
+              onChange={setPendingAttachments}
+            />
             <div className="flex gap-2">
               <Textarea
                 value={inputMessage}

@@ -1,0 +1,152 @@
+{
+  "app-analyze.png": {
+    "primary": {
+      "name": "quality-score",
+      "x": 0.6,
+      "y": 0.3
+    },
+    "regions": [
+      {
+        "name": "video-preview",
+        "x": 0.3,
+        "y": 0.35,
+        "what": "Video being analyzed"
+      },
+      {
+        "name": "strengths-section",
+        "x": 0.2,
+        "y": 0.68,
+        "what": "List of video strengths"
+      },
+      {
+        "name": "areas-improve",
+        "x": 0.6,
+        "y": 0.68,
+        "what": "List of improvement areas"
+      },
+      {
+        "name": "ready-to-publish",
+        "x": 0.58,
+        "y": 0.43,
+        "what": "Publish readiness button"
+      }
+    ]
+  },
+  "app-dashboard.png": {
+    "primary": {
+      "name": "project-dashboard",
+      "x": 0.5,
+      "y": 0.5
+    },
+    "regions": [
+      {
+        "name": "new-project-button",
+        "x": 0.91,
+        "y": 0.205,
+        "what": "Create new project button"
+      },
+      {
+        "name": "pricing-explainer-card",
+        "x": 0.5,
+        "y": 0.45,
+        "what": "Highlighted project card"
+      },
+      {
+        "name": "onboarding-walkthrough-card",
+        "x": 0.82,
+        "y": 0.45,
+        "what": "Published project card"
+      },
+      {
+        "name": "script-column",
+        "x": 0.2,
+        "y": 0.45,
+        "what": "Script stage column"
+      },
+      {
+        "name": "publish-column",
+        "x": 0.8,
+        "y": 0.45,
+        "what": "Publish stage column"
+      }
+    ]
+  },
+  "app-editor.png": {
+    "primary": {
+      "name": "ai-editor-panel",
+      "x": 0.8,
+      "y": 0.4
+    },
+    "regions": [
+      {
+        "name": "video-preview",
+        "x": 0.5,
+        "y": 0.35,
+        "what": "Main video preview area"
+      },
+      {
+        "name": "timeline",
+        "x": 0.5,
+        "y": 0.65,
+        "what": "Video timeline tracks"
+      },
+      {
+        "name": "chat-input",
+        "x": 0.8,
+        "y": 0.85,
+        "what": "AI chat input field"
+      },
+      {
+        "name": "rendering-button",
+        "x": 0.84,
+        "y": 0.17,
+        "what": "Rendering status button"
+      },
+      {
+        "name": "ai-features",
+        "x": 0.8,
+        "y": 0.28,
+        "what": "AI editor feature list"
+      }
+    ]
+  },
+  "app-workflow.png": {
+    "primary": {
+      "name": "pricing-explainer-card",
+      "x": 0.5,
+      "y": 0.43
+    },
+    "regions": [
+      {
+        "name": "new-project-cta",
+        "x": 0.91,
+        "y": 0.205,
+        "what": "Create new project button"
+      },
+      {
+        "name": "script-column",
+        "x": 0.07,
+        "y": 0.345,
+        "what": "Script stage column"
+      },
+      {
+        "name": "edit-column",
+        "x": 0.5,
+        "y": 0.345,
+        "what": "Edit stage column"
+      },
+      {
+        "name": "publish-column",
+        "x": 0.93,
+        "y": 0.345,
+        "what": "Publish stage column"
+      },
+      {
+        "name": "onboarding-card",
+        "x": 0.85,
+        "y": 0.43,
+        "what": "Published project card"
+      }
+    ]
+  }
+}

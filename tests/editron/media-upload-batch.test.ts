@@ -4,6 +4,7 @@ import {
   buildMediaUploadBatchAssetUpsert,
   buildMediaUploadBatchSummary,
   encodeUploadBatchAssetKey,
+  normalizeMediaUploadBatchIntake,
   normalizeUploadBatchId,
   persistMediaUploadBatchAsset,
   MEDIA_UPLOAD_BATCHES_COLLECTION,
@@ -16,6 +17,28 @@ describe('media upload batch manifest', () => {
     expect(() => normalizeUploadBatchId('   ')).toThrow('uploadBatchId is required');
   });
 
+  it('normalizes optional batch intake before manifest persistence', () => {
+    const normalized = normalizeMediaUploadBatchIntake({
+      aspectRatio: ' 9:16 ',
+      platform: 'instagram_reels',
+      userIntent: '  make a fast launch reel  ',
+      script: ` ${'x'.repeat(12050)} `,
+      captionStyle: '',
+      musicPreference: ' match_video ',
+      unknown: 'drop me',
+      pacingFeel: ['fast'],
+    });
+
+    expect(normalized).toEqual({
+      aspectRatio: '9:16',
+      platform: 'instagram_reels',
+      userIntent: 'make a fast launch reel',
+      script: 'x'.repeat(12000),
+      musicPreference: 'match_video',
+    });
+    expect(normalizeMediaUploadBatchIntake(null)).toBeUndefined();
+    expect(normalizeMediaUploadBatchIntake({ userIntent: '   ' })).toBeUndefined();
+  });
   it('builds an idempotent manifest upsert with Mongo-safe asset keys', () => {
     const now = new Date('2026-07-06T00:00:00.000Z');
     const key = encodeUploadBatchAssetKey('asset.with.$unsafe.parts');
@@ -62,6 +85,26 @@ describe('media upload batch manifest', () => {
     });
   });
 
+  it('stores sanitized production brief intake on the batch manifest', () => {
+    const now = new Date('2026-07-06T00:00:00.000Z');
+    const write = buildMediaUploadBatchAssetUpsert({
+      uploadBatchId: 'batch_1',
+      userId: 'user_1',
+      intake: {
+        userIntent: '  cut this as a product teaser  ',
+        script: 'Opening line',
+        musicPreference: 'subtle_bed',
+        pacingFeel: 123,
+      },
+      asset: { assetId: 'asset_1', filename: 'clip.mp4', type: 'video', size: 99 },
+    }, now);
+
+    expect(write.update.$set.productionBriefIntake).toEqual({
+      userIntent: 'cut this as a product teaser',
+      script: 'Opening line',
+      musicPreference: 'subtle_bed',
+    });
+  });
   it('persists the manifest to the upload batch collection', async () => {
     const updateOne = vi.fn().mockResolvedValue({ acknowledged: true });
     const collection = vi.fn().mockReturnValue({ updateOne });

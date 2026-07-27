@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
 
+import { computeRemotionSiteFingerprint } from "./lib/editron/services/remotion-site-fingerprint";
+
+const remotionSiteFingerprint = computeRemotionSiteFingerprint();
+
 const legacyProductRoutes = [
   "/products/alyzitron",
   "/products/clickatron",
@@ -32,6 +36,9 @@ const stalePublicRedirects = [
 ];
 
 const nextConfig: NextConfig = {
+  env: {
+    EDITRON_REMOTION_BUNDLE_SHA: remotionSiteFingerprint.sha256,
+  },
   // Disable React Strict Mode in production to avoid double-renders
   // Keep enabled in development for debugging
   reactStrictMode: process.env.NODE_ENV === "development",
@@ -39,6 +46,34 @@ const nextConfig: NextConfig = {
     // Warning: This allows production builds to successfully complete even if
     // your project has type errors.
     ignoreBuildErrors: true,
+  },
+  // Remotion's bundler/renderer are Node build tools (they embed webpack + spawn Chromium + native deps) and
+  // CANNOT be bundled by Next's webpack — that is "bundling webpack with webpack" and fails the build. This was
+  // the 67fc4fe6 regression: the MG codegen seam pulled frame-renderer into the Director route graph. Keep them
+  // external so the build is green; the actual rendering must run in an isolated worker, never a Vercel function.
+  // The Lambda packages are also Node-only AWS streaming clients. Bundling them into a Route Handler can leave
+  // renderStillOnLambda waiting forever for a stream event even though the same request succeeds natively.
+  serverExternalPackages: [
+    '@remotion/bundler',
+    '@remotion/lambda',
+    '@remotion/lambda-client',
+    '@remotion/renderer',
+    '@ffmpeg-installer/ffmpeg',
+    'sharp',
+  ],
+  outputFileTracingIncludes: {
+    '/api/internal/workers/pipeline/audio': [
+      './node_modules/@ffmpeg-installer/linux-x64/ffmpeg',
+    ],
+    '/api/internal/workers/chat-dubbing': [
+      './node_modules/@ffmpeg-installer/linux-x64/ffmpeg',
+    ],
+    '/api/services/editron/chat/tool-call': [
+      './node_modules/@ffmpeg-installer/linux-x64/ffmpeg',
+    ],
+    '/api/services/pipeline/storyboard/*/finalize': [
+      './node_modules/@ffmpeg-installer/linux-x64/ffmpeg',
+    ],
   },
   // Performance optimizations
   experimental: {

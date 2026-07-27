@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
  * - richText: Tiptap JSON AST (new format)
  */
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -37,14 +37,20 @@ export async function POST(req: Request) {
   const { sessionId, scriptId, baseVersion, script } = parsed.data;
 
   try {
+    const session = await db.getSession(sessionId, userId, orgId);
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+    const canonicalSessionId = session._id;
+
     let effectiveBaseVersion = typeof baseVersion === 'number' ? baseVersion : undefined;
     if (effectiveBaseVersion === undefined) {
-      const existing = await db.getScript(sessionId, scriptId || null);
+      const existing = await db.getScript(canonicalSessionId, scriptId || null);
       effectiveBaseVersion = existing?.version ?? 0;
     }
     const result = await applyCommand({
       type: 'ReplaceDocument',
-      sessionId,
+      sessionId: canonicalSessionId,
       baseVersion: effectiveBaseVersion,
       source: 'user',
       payload: {
@@ -53,8 +59,10 @@ export async function POST(req: Request) {
         content: script?.content || '',
         blocks: script?.blocks || [],
         richText: script?.richText,
+        documentType: script?.documentType,
+        contentContract: script?.contentContract,
       }
-    }, userId);
+    }, userId, orgId);
 
     if (!result.ok) {
       const status = result.error === 'Version conflict' ? 409 : result.error === 'Session not found' ? 404 : 400;
@@ -70,6 +78,8 @@ export async function POST(req: Request) {
         blocks: result.script.blocks || [],
         richText: result.script.richText || null,
         version: result.script.version ?? 1,
+        documentType: result.script.documentType,
+        contentContract: result.script.contentContract,
       }
     });
   } catch (error: any) {

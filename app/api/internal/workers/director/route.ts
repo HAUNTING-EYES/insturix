@@ -21,6 +21,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { resolveDirectorCompletionHealth } from '@/lib/editron/services/editron-learning-gate';
+import {
+  normalizeEditorialPreferences,
+  type EditorialPreferences,
+} from '@/lib/editron/production-brief/editorial-preferences';
 
 export const runtime = 'nodejs';
 // 800 (not 300): a 20-min+ video's Director (load + Creative Brief + Path D + EDL execute + save) runs right
@@ -41,6 +45,7 @@ interface DirectorWorkerPayload {
   motionGraphics?: string;
   pacingFeel?: string;
   musicPreference?: string;
+  editorialPreferences?: EditorialPreferences;
 }
 
 async function handler(request: NextRequest) {
@@ -54,7 +59,7 @@ async function handler(request: NextRequest) {
       projectId, userId, profileId: initialProfileId,
       title, platform, userIntent,
       captionStyle, transitionPreference, zoomBehavior,
-      motionGraphics, pacingFeel, musicPreference,
+      motionGraphics, pacingFeel, musicPreference, editorialPreferences: payloadEditorialPreferences,
     } = payload;
     trackedProjectId = projectId;
 
@@ -81,6 +86,20 @@ async function handler(request: NextRequest) {
       throw new Error(`Project ${projectId} not found`);
     }
 
+    // Director Mode (assist lane): scans are complete — hand the pen to the user.
+    // The Director never runs, and post-director bookkeeping (quality review,
+    // learning gate, bandit) evaluates Director output, so it is skipped with it.
+    const { isAssistProject, ASSIST_STATUS_READY } = await import('@/lib/editron/services/assist-lane');
+    if (isAssistProject(projectDoc)) {
+      await db.collection('projects').updateOne(
+        // Cancel wins: a user-cancelled (scan_failed, refunded) project is never resurrected.
+        { projectId, autoEditStatus: { $ne: 'scan_failed' } },
+        { $set: { autoEditStatus: ASSIST_STATUS_READY, autoEditCompletedAt: new Date() } },
+      );
+      console.log(`[DirectorMode] Assist scan complete — director skipped (project ${projectId}).`);
+      return NextResponse.json({ success: true, projectId, status: ASSIST_STATUS_READY, directorSkipped: true });
+    }
+
     const rawFootageAnalysis = projectDoc.rawFootageAnalysis;
     const syntheticStoryboard = projectDoc.syntheticStoryboard;
 
@@ -96,6 +115,9 @@ async function handler(request: NextRequest) {
 
     // ─── Build brief from preferences + editDNA (from MongoDB) ────
     const editDNA = projectDoc.referenceEditDNA;
+    const editorialPreferences = normalizeEditorialPreferences(payloadEditorialPreferences)
+      ?? normalizeEditorialPreferences(projectDoc.editorialPreferences)
+      ?? normalizeEditorialPreferences(projectDoc.productionBrief?.editorialPreferences);
     const userPrefs = {
       ...(captionStyle && { captionStyle }),
       ...(transitionPreference && { transitionPreference }),
@@ -105,6 +127,7 @@ async function handler(request: NextRequest) {
       ...(musicPreference && { musicPreference }),
       ...(platform && { platform }),
       ...(userIntent && { intent: userIntent }),
+      ...(editorialPreferences && { editorialPreferences }),
     };
 
     let brief: any = undefined;
@@ -124,9 +147,32 @@ async function handler(request: NextRequest) {
 
     // ─── Execute Director ─────────────────────────────────────────
     const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
+    // Persist live per-step progress so the auto-edit screen can show the REAL
+    // stage during `directing` (which otherwise collapses cut/punch/caption/
+    // music/transition/graphics into one status). Fire-and-forget + throttled
+    // to percent/description changes — progress writes must NEVER break the edit.
+    // Read on the client via GET /api/services/editron/projects/[id].
+    let lastStagePct = -1;
+    let lastStageDesc = '';
+    const emitProgress = (step: number, total: number, desc: string) => {
+      console.log(`[DirectorWorker] Director ${step}/${total}: ${desc}`);
+      const pct = total > 0 ? Math.min(99, Math.round((step / total) * 100)) : 3;
+      if (pct === lastStagePct && desc === lastStageDesc) return;
+      lastStagePct = pct;
+      lastStageDesc = desc;
+      // Ownership-guarded (see the completion write below): only touch the project
+      // while we still hold the 'directing' lock. If it was recovered/rescued
+      // mid-run, this progress write no-ops instead of writing stale stage fields
+      // onto a project we no longer own.
+      void db.collection('projects')
+        .updateOne(
+          { projectId, autoEditStatus: 'directing' },
+          { $set: { autoEditStagePercent: pct, autoEditStageDesc: desc, updatedAt: new Date() } },
+        )
+        .catch(() => {});
+    };
     const directorResult = await executeDirectorPlan(
-      projectId, userId, profileId, brief,
-      (step, total, desc) => console.log(`[DirectorWorker] Director ${step}/${total}: ${desc}`),
+      projectId, userId, profileId, brief, emitProgress,
     );
 
     // ─── Mark complete ────────────────────────────────────────────
@@ -162,7 +208,23 @@ async function handler(request: NextRequest) {
       completionUpdate.$unset = { autoEditHealth: '', autoEditWarning: '' };
     }
 
-    await db.collection('projects').updateOne({ projectId }, completionUpdate);
+    // Ownership guard (Director Mode rescue seam): the director owns this project
+    // ONLY while autoEditStatus === 'directing' — the lock it claimed at the top,
+    // which executeDirectorPlan never moves off 'directing'. If the stuck-recovery
+    // cron declared this (still-running) worker failed and the user RESCUED the
+    // project into Director Mode (editMode=assist, ready_for_chat) before we
+    // finished, resurrecting it to 'complete' would apply a full auto-edit to a
+    // project the user chose to hand-direct — violating the assist lane's zero-edit
+    // invariant AND giving away a free edit. Commit only while still 'directing';
+    // if we lost ownership, skip the completion AND the post-director bookkeeping.
+    const completionWrite = await db.collection('projects').updateOne(
+      { projectId, autoEditStatus: 'directing' },
+      completionUpdate,
+    );
+    if (completionWrite.matchedCount !== 1) {
+      console.warn(`[DirectorWorker] ${projectId}: completion skipped — no longer 'directing' (recovered/rescued/cancelled mid-run). Not resurrecting.`);
+      return NextResponse.json({ success: true, projectId, skipped: true, reason: 'ownership_lost' });
+    }
 
     if (directorDecisionAuthority) {
       const signalAuditTotal = directorDecisionAuthority.signalAudit?.totalCount ?? 0;
@@ -218,10 +280,15 @@ async function handler(request: NextRequest) {
       try {
         const { getDatabase } = await import('@/lib/editron/db/mongodb');
         const db = await getDatabase();
-        await db.collection('projects').updateOne(
-          { projectId: trackedProjectId },
-          { $set: { autoEditStatus: 'failed', autoEditError: `Director: ${msg}` } },
-        );
+        const { settleAssistScanFailure } = await import('@/lib/editron/services/assist-lane');
+        // Assist lane: scan_failed + refund-where-deducted; auto → plain 'failed'.
+        const settlement = await settleAssistScanFailure(db, trackedProjectId, `Director: ${msg}`);
+        if (settlement === 'not-assist') {
+          await db.collection('projects').updateOne(
+            { projectId: trackedProjectId },
+            { $set: { autoEditStatus: 'failed', autoEditError: `Director: ${msg}` } },
+          );
+        }
       } catch (err: unknown) { console.warn('[DirectorWorker] best-effort status update failed:', err instanceof Error ? err.message : err); }
     }
 
