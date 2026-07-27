@@ -4,12 +4,12 @@ import decode from 'audio-decode';
 
 import { resolveAudioLoudnessTarget } from '@/lib/editron/constants/audio-standards';
 import { getFFmpegPath } from '@/lib/editron/services/media/ffmpeg-runtime';
+import { MIN_EBUR128_INTEGRATED_DURATION_MS } from '@/lib/pipeline/sfx-acoustic-measurement';
 
 const DEFAULT_CROSSFADE_MS = 250;
 const SILENCE_THRESHOLD_LUFS = -60;
 const MAX_DURATION_SECONDS = 600;
 const MIN_MUSIC_DURATION_SECONDS = 0.4;
-const MIN_EBUR128_INTEGRATED_DURATION_SECONDS = 0.4;
 const MAX_SFX_DURATION_SECONDS = 30;
 const FFMPEG_TIMEOUT_MS = 120_000;
 export const MAX_AUDIO_CONDITIONING_INPUT_BYTES = 128 * 1024 * 1024;
@@ -425,7 +425,7 @@ export async function inspectEncodedSfxAudio(buffer: Buffer): Promise<EncodedSfx
   }
 
   const measurements = await measureAudio(buffer);
-  const loudness: EncodedSfxLoudness = sourceDurationSeconds >= MIN_EBUR128_INTEGRATED_DURATION_SECONDS
+  const loudness: EncodedSfxLoudness = sourceDurationSeconds * 1000 >= MIN_EBUR128_INTEGRATED_DURATION_MS
     ? { metric: 'integrated-lufs', valueDb: measurements.integratedLufs }
     : { metric: 'rms-dbfs', valueDb: measureDecodedRmsDbfs(decoded, sourceSamples) };
   if (!Number.isFinite(loudness.valueDb) || loudness.valueDb <= SILENCE_THRESHOLD_LUFS) {

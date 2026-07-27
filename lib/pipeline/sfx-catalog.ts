@@ -4,6 +4,7 @@ import {
   type AtomicSfxCompatibilityToken,
   type AtomicSfxForm,
 } from '@/lib/editron/services/sfx-form';
+import { sfxAcousticMeasurementSchema } from '@/lib/pipeline/sfx-acoustic-measurement';
 import { z } from 'zod';
 
 const catalogEventRoleSchema = z.enum([
@@ -84,15 +85,7 @@ const catalogEntrySchema = z.object({
   direction: catalogDirectionSchema,
   motionSpeed: z.enum(['still', 'slow', 'medium', 'fast']),
   trendTag: z.string().min(1).optional(),
-  measurement: z.object({
-    algorithm: z.literal('ffmpeg-ebur128-v1'),
-    integratedLufs: z.number().min(-100).max(0),
-    truePeakDbtp: z.number().min(-100).max(6),
-    sampleRateHz: z.number().int().positive(),
-    channelCount: z.number().int().positive(),
-    measuredAt: z.string().datetime(),
-    sourceHashSha256: z.string().regex(/^[a-f0-9]{64}$/),
-  }).strict(),
+  measurement: sfxAcousticMeasurementSchema,
   provenance: z.object({
     provider: z.string().min(1),
     providerAssetId: z.string().min(1),
@@ -134,8 +127,11 @@ const catalogManifestSchema = z.object({
     if (entry.measurement.sourceHashSha256 !== entry.contentHashSha256) {
       addManifestIssue(context, ['entries', index, 'measurement', 'sourceHashSha256'], 'measurement hash does not match audio content');
     }
-    if (entry.measurement.integratedLufs <= manifest.qualityPolicy.silenceFloorLufs) {
-      addManifestIssue(context, ['entries', index, 'measurement', 'integratedLufs'], 'asset is silent or below the catalog loudness floor');
+    if (entry.measurement.durationMs !== entry.durationMs) {
+      addManifestIssue(context, ['entries', index, 'measurement', 'durationMs'], 'measurement duration does not match catalog audio');
+    }
+    if (entry.measurement.loudnessDb <= manifest.qualityPolicy.silenceFloorLufs) {
+      addManifestIssue(context, ['entries', index, 'measurement', 'loudnessDb'], 'asset is silent or below the catalog loudness floor');
     }
     if (entry.measurement.truePeakDbtp > manifest.qualityPolicy.maxTruePeakDbtp) {
       addManifestIssue(context, ['entries', index, 'measurement', 'truePeakDbtp'], 'asset exceeds the catalog true-peak ceiling');

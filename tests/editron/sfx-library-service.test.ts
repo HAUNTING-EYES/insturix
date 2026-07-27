@@ -107,11 +107,15 @@ function validCatalogManifest(): SfxCatalogManifest {
       motionSpeed: 'fast',
       trendTag: 'clean-editorial',
       measurement: {
+        version: 'sfx-acoustic-measurement-v1',
         algorithm: 'ffmpeg-ebur128-v1',
+        loudnessMetric: 'integrated-lufs',
+        loudnessDb: -18,
         integratedLufs: -18,
         truePeakDbtp: -3,
         sampleRateHz: 48000,
         channelCount: 2,
+        durationMs: 800,
         measuredAt: '2026-07-25T00:00:00.000Z',
         sourceHashSha256: contentHash,
       },
@@ -135,6 +139,23 @@ function validCatalogManifest(): SfxCatalogManifest {
       },
     }],
   });
+}
+
+function catalogManifestWithMeasurement(
+  measurement: Record<string, unknown>,
+  durationMs: number,
+): unknown {
+  const manifest = structuredClone(validCatalogManifest()) as unknown as {
+    entries: Array<{
+      durationMs: number;
+      tailMs: number;
+      measurement: Record<string, unknown>;
+    }>;
+  };
+  manifest.entries[0].durationMs = durationMs;
+  manifest.entries[0].tailMs = Math.min(manifest.entries[0].tailMs, durationMs);
+  manifest.entries[0].measurement = measurement;
+  return manifest;
 }
 
 describe('searchAndDownloadSFX provider candidate gate', () => {
@@ -436,6 +457,19 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
       durationMs: 800,
       source: 'catalog',
       originalTitle: 'Clean cinematic air whoosh',
+      measurement: {
+        version: 'sfx-acoustic-measurement-v1',
+        algorithm: 'ffmpeg-ebur128-v1',
+        loudnessMetric: 'integrated-lufs',
+        loudnessDb: -18,
+        integratedLufs: -18,
+        truePeakDbtp: -3,
+        sampleRateHz: 48000,
+        channelCount: 2,
+        durationMs: 800,
+        measuredAt: '2026-07-25T00:00:00.000Z',
+        sourceHashSha256: 'a'.repeat(64),
+      },
       audioRights: {
         mediaRole: 'sfx',
         source: 'library',
@@ -476,6 +510,118 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
     expect(() => parseSfxCatalogManifest(invalid)).toThrow(InvalidSfxCatalogManifestError);
     expect(() => parseSfxCatalogManifest(invalid)).toThrow(/rights receipt belongs to another asset/);
     expect(() => parseSfxCatalogManifest(invalid)).toThrow(/true-peak ceiling/);
+  });
+
+  it('accepts truthful integrated-LUFS and short-window RMS measurement receipts', () => {
+    const contentHash = 'a'.repeat(64);
+    const integrated = catalogManifestWithMeasurement({
+      version: 'sfx-acoustic-measurement-v1',
+      algorithm: 'ffmpeg-ebur128-v1',
+      loudnessMetric: 'integrated-lufs',
+      loudnessDb: -18,
+      integratedLufs: -18,
+      truePeakDbtp: -3,
+      sampleRateHz: 48_000,
+      channelCount: 2,
+      durationMs: 800,
+      measuredAt: '2026-07-25T00:00:00.000Z',
+      sourceHashSha256: contentHash,
+    }, 800);
+    const shortWindow = catalogManifestWithMeasurement({
+      version: 'sfx-acoustic-measurement-v1',
+      algorithm: 'pcm-rms+ffmpeg-true-peak-v1',
+      loudnessMetric: 'rms-dbfs',
+      loudnessDb: -18,
+      shortWindowRmsDbfs: -18,
+      truePeakDbtp: -3,
+      sampleRateHz: 48_000,
+      channelCount: 1,
+      durationMs: 80,
+      measuredAt: '2026-07-25T00:00:00.000Z',
+      sourceHashSha256: contentHash,
+    }, 80);
+
+    expect(parseSfxCatalogManifest(integrated).entries[0].measurement).toEqual(
+      expect.objectContaining({
+        loudnessMetric: 'integrated-lufs',
+        integratedLufs: -18,
+        durationMs: 800,
+      }),
+    );
+    expect(parseSfxCatalogManifest(shortWindow).entries[0].measurement).toEqual(
+      expect.objectContaining({
+        loudnessMetric: 'rms-dbfs',
+        shortWindowRmsDbfs: -18,
+        durationMs: 80,
+      }),
+    );
+  });
+
+  it.each([
+    {
+      label: 'sub-400ms audio mislabeled as integrated LUFS',
+      durationMs: 80,
+      measurement: {
+        version: 'sfx-acoustic-measurement-v1',
+        algorithm: 'ffmpeg-ebur128-v1',
+        loudnessMetric: 'integrated-lufs',
+        loudnessDb: -18,
+        integratedLufs: -18,
+        durationMs: 80,
+      },
+      issue: /integrated LUFS requires at least 400ms/,
+    },
+    {
+      label: 'long audio mislabeled as short-window RMS',
+      durationMs: 800,
+      measurement: {
+        version: 'sfx-acoustic-measurement-v1',
+        algorithm: 'pcm-rms+ffmpeg-true-peak-v1',
+        loudnessMetric: 'rms-dbfs',
+        loudnessDb: -18,
+        shortWindowRmsDbfs: -18,
+        durationMs: 800,
+      },
+      issue: /short-window RMS is only valid below 400ms/,
+    },
+    {
+      label: 'disagreeing duplicate loudness evidence',
+      durationMs: 80,
+      measurement: {
+        version: 'sfx-acoustic-measurement-v1',
+        algorithm: 'pcm-rms+ffmpeg-true-peak-v1',
+        loudnessMetric: 'rms-dbfs',
+        loudnessDb: -18,
+        shortWindowRmsDbfs: -24,
+        durationMs: 80,
+      },
+      issue: /loudness fields disagree/,
+    },
+    {
+      label: 'measurement for different-duration audio',
+      durationMs: 80,
+      measurement: {
+        version: 'sfx-acoustic-measurement-v1',
+        algorithm: 'pcm-rms+ffmpeg-true-peak-v1',
+        loudnessMetric: 'rms-dbfs',
+        loudnessDb: -18,
+        shortWindowRmsDbfs: -18,
+        durationMs: 81,
+      },
+      issue: /measurement duration does not match catalog audio/,
+    },
+  ])('rejects $label', ({ durationMs, measurement, issue }) => {
+    const manifest = catalogManifestWithMeasurement({
+      ...measurement,
+      truePeakDbtp: -3,
+      sampleRateHz: 48_000,
+      channelCount: 1,
+      measuredAt: '2026-07-25T00:00:00.000Z',
+      sourceHashSha256: 'a'.repeat(64),
+    }, durationMs);
+
+    expect(() => parseSfxCatalogManifest(manifest)).toThrow(InvalidSfxCatalogManifestError);
+    expect(() => parseSfxCatalogManifest(manifest)).toThrow(issue);
   });
 
   it('hard-rejects a semantically matching catalog asset carrying blocked tags', () => {
@@ -669,6 +815,48 @@ describe('controlled Freesound SFX ingest', () => {
       measurement: expect.objectContaining({
         loudnessMetric: 'integrated-lufs',
         sourceHashSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    }));
+  });
+
+  it('keeps a fractional sub-400ms RMS receipt below the integrated-LUFS boundary', async () => {
+    mocks.inspectEncodedSfxAudio.mockResolvedValue({
+      durationMs: 399.6,
+      sampleRate: 48_000,
+      channels: 1,
+      loudness: { metric: 'rms-dbfs', valueDb: -18 },
+      truePeakDbtp: -3,
+      clippingRisk: false,
+    });
+    const fetchImpl = vi.fn(async (input: string | URL | Request) =>
+      String(input).includes('/apiv2/sounds/')
+        ? detailResponse()
+        : new Response(audioBytes, {
+            status: 200,
+            headers: { 'content-type': 'audio/mpeg' },
+          }));
+    const persist = vi.fn(async () => undefined);
+
+    const result = await ingestFreesoundSfxById('90210', 'user-1', {
+      apiKey: 'server-only-key',
+      fetchImpl: fetchImpl as typeof fetch,
+      upload: vi.fn(async () => uploadResult()),
+      persist,
+    });
+
+    expect(persist).toHaveBeenCalledWith(expect.objectContaining({
+      durationSec: 0.399,
+      measurement: expect.objectContaining({
+        algorithm: 'pcm-rms+ffmpeg-true-peak-v1',
+        loudnessMetric: 'rms-dbfs',
+        durationMs: 399,
+      }),
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      durationMs: 399,
+      measurement: expect.objectContaining({
+        loudnessMetric: 'rms-dbfs',
+        durationMs: 399,
       }),
     }));
   });

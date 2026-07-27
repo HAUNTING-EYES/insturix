@@ -32,8 +32,11 @@ import {
   inspectEncodedSfxAudio,
   type EncodedSfxInspection,
 } from '@/lib/pipeline/audio-conditioning';
+import type { SfxAcousticMeasurement } from '@/lib/pipeline/sfx-acoustic-measurement';
 import { fileTypeFromBuffer } from 'file-type';
 import { nanoid } from 'nanoid';
+
+export type { SfxAcousticMeasurement } from '@/lib/pipeline/sfx-acoustic-measurement';
 
 // ROADMAP LOCK: populate the measured curated catalog and add actual-audio
 // embedding/classifier retrieval before claiming production semantic similarity.
@@ -48,21 +51,6 @@ export interface SFXLibraryResult {
   originalTitle?: string;
   providerAssetId?: string;
   measurement?: SfxAcousticMeasurement;
-}
-
-export interface SfxAcousticMeasurement {
-  version: 'sfx-acoustic-measurement-v1';
-  algorithm: 'ffmpeg-ebur128-v1' | 'pcm-rms+ffmpeg-true-peak-v1';
-  loudnessMetric: EncodedSfxInspection['loudness']['metric'];
-  loudnessDb: number;
-  integratedLufs?: number;
-  shortWindowRmsDbfs?: number;
-  truePeakDbtp: number;
-  sampleRateHz: number;
-  channelCount: number;
-  durationMs: number;
-  measuredAt: string;
-  sourceHashSha256: string;
 }
 
 export type SfxLibraryIngestErrorCode =
@@ -549,6 +537,7 @@ export async function searchAndDownloadSFX(
       audioRights: entry.audioRights,
       source: 'catalog',
       originalTitle: entry.title,
+      measurement: entry.measurement,
     };
   }
 
@@ -1102,27 +1091,29 @@ async function inspectAndValidateSfxAudio(
     );
   }
 
-  const integratedLufs = inspection.loudness.metric === 'integrated-lufs'
-    ? loudnessDb
-    : undefined;
-  const shortWindowRmsDbfs = inspection.loudness.metric === 'rms-dbfs'
-    ? loudnessDb
-    : undefined;
-  return {
-    version: 'sfx-acoustic-measurement-v1',
-    algorithm: inspection.loudness.metric === 'integrated-lufs'
-      ? 'ffmpeg-ebur128-v1'
-      : 'pcm-rms+ffmpeg-true-peak-v1',
-    loudnessMetric: inspection.loudness.metric,
+  const sharedReceipt = {
+    version: 'sfx-acoustic-measurement-v1' as const,
     loudnessDb,
-    integratedLufs,
-    shortWindowRmsDbfs,
     truePeakDbtp: inspection.truePeakDbtp,
     sampleRateHz: inspection.sampleRate,
     channelCount: inspection.channels,
-    durationMs: Math.round(inspection.durationMs),
+    durationMs: Math.floor(inspection.durationMs),
     measuredAt: new Date().toISOString(),
     sourceHashSha256: createHash('sha256').update(buffer).digest('hex'),
+  };
+  if (inspection.loudness.metric === 'integrated-lufs') {
+    return {
+      ...sharedReceipt,
+      algorithm: 'ffmpeg-ebur128-v1',
+      loudnessMetric: 'integrated-lufs',
+      integratedLufs: loudnessDb,
+    };
+  }
+  return {
+    ...sharedReceipt,
+    algorithm: 'pcm-rms+ffmpeg-true-peak-v1',
+    loudnessMetric: 'rms-dbfs',
+    shortWindowRmsDbfs: loudnessDb,
   };
 }
 
