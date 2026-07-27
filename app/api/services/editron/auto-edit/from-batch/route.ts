@@ -59,6 +59,8 @@ import {
   parseEditMode,
   partitionAssistAssets,
 } from '@/lib/editron/services/assist-lane';
+import { readStoredNativeVideoAudioRights } from '@/lib/editron/services/native-video-audio-rights';
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -93,6 +95,8 @@ type BatchMediaAsset = {
   orgId?: string | null;
   filename: string;
   type: 'video' | 'image' | 'audio';
+  source?: string | null;
+  audioRights?: AudioRightsContract | null;
   size?: number;
   duration?: number | string | null;
   dimensions?: { width: number; height: number };
@@ -865,6 +869,9 @@ async function materializeStoryline(
     const durationFrames = Math.max(1, Math.round(clip.durationSec * FPS));
     const sourceStartFrame = Math.max(0, Math.round(clip.in * FPS));
     const src = await resolveOverlayUrl(asset, userId);
+    const nativeVideoAudioRights = asset.type === 'video'
+      ? readStoredNativeVideoAudioRights(asset)
+      : null;
     overlays.push({
       id: overlayId++,
       type: asset.type,
@@ -880,6 +887,7 @@ async function materializeStoryline(
       content: asset.type === 'image' ? src : (asset.thumbnail || ''),
       src,
       assetId: asset.assetId,
+      ...(nativeVideoAudioRights && { audioRights: nativeVideoAudioRights }),
       styles: { opacity: 1, objectFit: clip.fit === 'contain' || clip.fit === 'pad' ? 'contain' : 'cover' },
       storyline: {
         uploadBatchId,

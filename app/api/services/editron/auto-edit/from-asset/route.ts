@@ -25,6 +25,7 @@ import { validateReferenceVideoUrlForAutoEditIntake } from '@/lib/editron/refere
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 import { normalizeEditorialPreferences, type EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
 import { ASSIST_STATUS_READY, isAssistIntakeEnabled, parseEditMode } from '@/lib/editron/services/assist-lane';
+import { readStoredNativeVideoAudioRights } from '@/lib/editron/services/native-video-audio-rights';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -213,6 +214,7 @@ export async function POST(request: NextRequest) {
       console.warn('[FromAsset] R2 public URL failed:', err instanceof Error ? err.message : err);
     }
 
+    const nativeVideoAudioRights = readStoredNativeVideoAudioRights(asset);
     const videoOverlay = {
       id: Date.now(),
       type: 'video' as const,
@@ -227,6 +229,7 @@ export async function POST(request: NextRequest) {
       rotation: 0,
       src: overlaySrc,
       assetId,
+      ...(nativeVideoAudioRights && { audioRights: nativeVideoAudioRights }),
       // videoStartTime: 0 is explicit — silence removal uses this to calculate
       // source offsets when splitting the overlay into segments.
       // Without it, every segment plays from frame 0 (start of video).

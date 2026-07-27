@@ -9,6 +9,7 @@ import { refreshSignedUrl } from './gcs-service';
 import { OverlayType, type MgSequenceOverlay, type Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import { normalizeSequenceCdnBaseUrl } from '@/lib/editron/motion-graphics/codegen/render/sequence-playback';
 import type { TranscriptionData } from './media/types';
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 
 export interface MediaAsset {
   _id?: any;
@@ -44,6 +45,8 @@ export interface MediaAsset {
   originalR2Key?: string;
   /** Cached transcription data (0-based timestamps relative to video start) */
   transcription?: TranscriptionData;
+  /** Canonical source receipt for an embedded user-uploaded audio stream. */
+  audioRights?: AudioRightsContract;
 }
 
 /** Persisted generated MG sequence. Kept distinct from searchable user media. */
