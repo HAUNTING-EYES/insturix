@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   conditionAudio,
   fitPcmToExactDuration,
+  inspectEncodedSfxAudio,
 } from '../../lib/pipeline/audio-conditioning';
 import { resolveAudioLoudnessTarget } from '../../lib/editron/constants/audio-standards';
 
@@ -130,5 +131,19 @@ describe('audio conditioning', () => {
     })).rejects.toMatchObject({
       code: 'AUDIO_SILENT',
     });
+  }, 30_000);
+
+  it('measures short SFX without mislabeling the sub-400ms R128 gate as integrated LUFS', async () => {
+    const inspection = await inspectEncodedSfxAudio(createWav(0.08));
+
+    expect(inspection.durationMs).toBeCloseTo(80, 0);
+    expect(inspection.sampleRate).toBe(48_000);
+    expect(inspection.channels).toBe(2);
+    expect(inspection.loudness).toEqual({
+      metric: 'rms-dbfs',
+      valueDb: expect.any(Number),
+    });
+    expect(inspection.loudness.valueDb).toBeGreaterThan(-60);
+    expect(Number.isFinite(inspection.truePeakDbtp)).toBe(true);
   }, 30_000);
 });

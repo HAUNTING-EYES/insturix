@@ -9,6 +9,8 @@ const DEFAULT_CROSSFADE_MS = 250;
 const SILENCE_THRESHOLD_LUFS = -60;
 const MAX_DURATION_SECONDS = 600;
 const MIN_MUSIC_DURATION_SECONDS = 0.4;
+const MIN_EBUR128_INTEGRATED_DURATION_SECONDS = 0.4;
+const MAX_SFX_DURATION_SECONDS = 30;
 const FFMPEG_TIMEOUT_MS = 120_000;
 export const MAX_AUDIO_CONDITIONING_INPUT_BYTES = 128 * 1024 * 1024;
 const MAX_PCM_BYTES = 256 * 1024 * 1024;
@@ -94,6 +96,19 @@ export interface EncodedMusicInspection {
   sampleRate: number;
   channels: number;
   measuredLufs: number;
+  truePeakDbtp: number;
+  clippingRisk: boolean;
+}
+
+export type EncodedSfxLoudness =
+  | { metric: 'integrated-lufs'; valueDb: number }
+  | { metric: 'rms-dbfs'; valueDb: number };
+
+export interface EncodedSfxInspection {
+  durationMs: number;
+  sampleRate: number;
+  channels: number;
+  loudness: EncodedSfxLoudness;
   truePeakDbtp: number;
   clippingRisk: boolean;
 }
@@ -368,6 +383,93 @@ export async function inspectEncodedMusicAudio(buffer: Buffer): Promise<EncodedM
     truePeakDbtp: measurements.truePeakDbtp,
     clippingRisk: measurements.truePeakDbtp > 0,
   };
+}
+
+export async function inspectEncodedSfxAudio(buffer: Buffer): Promise<EncodedSfxInspection> {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    throw new AudioConditioningError('INVALID_REQUEST', 'SFX inspection requires a non-empty encoded buffer');
+  }
+  if (buffer.length > MAX_AUDIO_CONDITIONING_INPUT_BYTES) {
+    throw new AudioConditioningError(
+      'INPUT_TOO_LARGE',
+      `Encoded SFX is ${buffer.length} bytes; limit is ${MAX_AUDIO_CONDITIONING_INPUT_BYTES}`,
+    );
+  }
+
+  let decoded: DecodedPcm;
+  try {
+    decoded = await decode(buffer);
+  } catch (error) {
+    throw new AudioConditioningError('DECODE_FAILED', 'Unable to decode source SFX', { cause: error });
+  }
+  if (!Number.isFinite(decoded.sampleRate) || decoded.sampleRate <= 0) {
+    throw new AudioConditioningError('INVALID_PCM', `Invalid PCM sample rate: ${decoded.sampleRate}`);
+  }
+  if (decoded.channelData.length < 1 || decoded.channelData.length > 2) {
+    throw new AudioConditioningError(
+      'UNSUPPORTED_CHANNELS',
+      `SFX inspection supports mono or stereo PCM, received ${decoded.channelData.length} channels`,
+    );
+  }
+
+  const sourceSamples = Math.min(...decoded.channelData.map((channel) => channel.length));
+  const sourceDurationSeconds = sourceSamples / decoded.sampleRate;
+  if (!Number.isFinite(sourceDurationSeconds) || sourceDurationSeconds <= 0) {
+    throw new AudioConditioningError('INVALID_PCM', 'Decoded SFX contains no samples');
+  }
+  if (sourceDurationSeconds > MAX_SFX_DURATION_SECONDS) {
+    throw new AudioConditioningError(
+      'INVALID_PCM',
+      `SFX inspection supports sources up to ${MAX_SFX_DURATION_SECONDS}s, received ${sourceDurationSeconds.toFixed(3)}s`,
+    );
+  }
+
+  const measurements = await measureAudio(buffer);
+  const loudness: EncodedSfxLoudness = sourceDurationSeconds >= MIN_EBUR128_INTEGRATED_DURATION_SECONDS
+    ? { metric: 'integrated-lufs', valueDb: measurements.integratedLufs }
+    : { metric: 'rms-dbfs', valueDb: measureDecodedRmsDbfs(decoded, sourceSamples) };
+  if (!Number.isFinite(loudness.valueDb) || loudness.valueDb <= SILENCE_THRESHOLD_LUFS) {
+    throw new AudioConditioningError(
+      'AUDIO_SILENT',
+      `Source SFX measured ${loudness.valueDb.toFixed(1)} ${loudness.metric} (silence threshold ${SILENCE_THRESHOLD_LUFS} dB)`,
+    );
+  }
+  if (!Number.isFinite(measurements.truePeakDbtp)) {
+    throw new AudioConditioningError('FFMPEG_FAILED', 'FFmpeg returned no finite true-peak measurement');
+  }
+
+  const truePeakCeiling = resolveAudioLoudnessTarget(null).truePeakDbtp;
+  return {
+    durationMs: sourceDurationSeconds * 1000,
+    sampleRate: decoded.sampleRate,
+    channels: decoded.channelData.length,
+    loudness,
+    truePeakDbtp: measurements.truePeakDbtp,
+    clippingRisk: measurements.truePeakDbtp > truePeakCeiling,
+  };
+}
+
+function measureDecodedRmsDbfs(decoded: DecodedPcm, sampleCount: number): number {
+  let sumSquares = 0;
+  let measuredSamples = 0;
+  for (const channel of decoded.channelData) {
+    for (let index = 0; index < sampleCount; index += 1) {
+      const sample = channel[index];
+      if (!Number.isFinite(sample)) {
+        throw new AudioConditioningError(
+          'INVALID_PCM',
+          `Non-finite PCM sample at channel ${measuredSamples}, frame ${index}`,
+        );
+      }
+      sumSquares += sample * sample;
+      measuredSamples += 1;
+    }
+  }
+  if (measuredSamples === 0) {
+    throw new AudioConditioningError('INVALID_PCM', 'Decoded SFX contains no measurable samples');
+  }
+  const rms = Math.sqrt(sumSquares / measuredSamples);
+  return rms > 0 ? 20 * Math.log10(rms) : Number.NEGATIVE_INFINITY;
 }
 
 function validateTimeline(targetFrames: number, fps: number): void {

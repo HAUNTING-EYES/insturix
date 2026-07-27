@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => {
   const collection = vi.fn(() => ({ updateOne }));
   return {
     collection,
+    inspectEncodedSfxAudio: vi.fn(),
     updateOne,
     uploadMedia: vi.fn(),
   };
@@ -13,6 +14,10 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('@/lib/editron/services/upload-service', () => ({
   uploadMedia: mocks.uploadMedia,
+}));
+
+vi.mock('@/lib/pipeline/audio-conditioning', () => ({
+  inspectEncodedSfxAudio: mocks.inspectEncodedSfxAudio,
 }));
 
 vi.mock('@/lib/editron/db/mongodb', () => ({
@@ -138,6 +143,14 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.FREESOUND_API_KEY = 'test-freesound-key';
+    mocks.inspectEncodedSfxAudio.mockResolvedValue({
+      durationMs: 800,
+      sampleRate: 48_000,
+      channels: 2,
+      loudness: { metric: 'integrated-lufs', valueDb: -18 },
+      truePeakDbtp: -3,
+      clippingRisk: false,
+    });
     mocks.uploadMedia.mockResolvedValue({
       assetId: 'sfx_lib_selected',
       signedUrl: 'https://r2.example.com/asset/sfx_lib_selected',
@@ -235,6 +248,13 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
       durationMs: 800,
       source: 'freesound',
       originalTitle: 'Air movement pass',
+      providerAssetId: '2',
+      measurement: expect.objectContaining({
+        version: 'sfx-acoustic-measurement-v1',
+        loudnessMetric: 'integrated-lufs',
+        loudnessDb: -18,
+        sourceHashSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
       audioRights: {
         mediaRole: 'sfx',
         source: 'library',
@@ -267,10 +287,70 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
           originalTitle: 'Air movement pass',
           providerCandidateAccepted: true,
           assetQualityScore: expect.any(Number),
+          sfxAcousticMeasurement: expect.objectContaining({
+            durationMs: 800,
+            sourceHashSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          }),
         }),
       }),
       { upsert: true },
     );
+    expect(mocks.inspectEncodedSfxAudio).toHaveBeenCalledWith(
+      Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00]),
+    );
+  });
+
+  it('rejects acoustically invalid provider bytes before upload or persistence', async () => {
+    const audioBytes = Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00]);
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const href = String(url);
+      if (href.startsWith('https://freesound.org/apiv2/search/')) {
+        return freesoundResponse([
+          freesoundCandidate({
+            id: 2,
+            name: 'Air movement pass',
+            duration: 0.8,
+            previewUrl: 'https://cdn.example.com/good.mp3',
+            tags: ['whoosh', 'cinematic', 'smooth', 'transition'],
+            rating: 4.5,
+          }),
+        ]);
+      }
+      if (href === 'https://cdn.example.com/good.mp3') {
+        return new Response(audioBytes, {
+          status: 200,
+          headers: { 'content-type': 'audio/mpeg' },
+        });
+      }
+      throw new Error(`unexpected fetch: ${href}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    mocks.inspectEncodedSfxAudio.mockRejectedValue(
+      Object.assign(new Error('silent'), { code: 'AUDIO_SILENT' }),
+    );
+    const form = resolveAtomicSfxForm({
+      params: { sfxCue: 'cinematic whoosh sweep transition' },
+      frame: 30,
+      sceneRemainingFrames: 90,
+    });
+    const reports: SFXLibrarySearchReport[] = [];
+
+    const result = await searchAndDownloadSFX(
+      'whoosh cinematic sweep',
+      'user-1',
+      2,
+      form,
+      report => reports.push(report),
+    );
+
+    expect(result).toBeNull();
+    expect(reports.at(-1)).toEqual(expect.objectContaining({
+      selectionLane: 'provider',
+      failureReason: 'acoustic-rejected',
+    }));
+    expect(mocks.inspectEncodedSfxAudio).toHaveBeenCalledWith(audioBytes);
+    expect(mocks.uploadMedia).not.toHaveBeenCalled();
+    expect(mocks.updateOne).not.toHaveBeenCalled();
   });
 
   it('skips download/upload when provider candidates fail the atomic quality gate', async () => {
@@ -502,6 +582,18 @@ describe('controlled Freesound SFX ingest', () => {
     };
   }
 
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.inspectEncodedSfxAudio.mockResolvedValue({
+      durationMs: 760,
+      sampleRate: 48_000,
+      channels: 2,
+      loudness: { metric: 'integrated-lufs', valueDb: -18 },
+      truePeakDbtp: -3,
+      clippingRisk: false,
+    });
+  });
+
   it('re-fetches the exact provider asset, verifies CC0 and persists a durable rights receipt', async () => {
     const fetchImpl = vi.fn(async (
       input: string | URL | Request,
@@ -545,6 +637,17 @@ describe('controlled Freesound SFX ingest', () => {
       userId: 'user-1',
       providerAssetId: '90210',
       provider: 'freesound',
+      measurement: expect.objectContaining({
+        version: 'sfx-acoustic-measurement-v1',
+        algorithm: 'ffmpeg-ebur128-v1',
+        loudnessMetric: 'integrated-lufs',
+        loudnessDb: -18,
+        truePeakDbtp: -3,
+        sampleRateHz: 48_000,
+        channelCount: 2,
+        durationMs: 760,
+        sourceHashSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
       audioRights: {
         mediaRole: 'sfx',
         source: 'library',
@@ -560,10 +663,67 @@ describe('controlled Freesound SFX ingest', () => {
     expect(result).toEqual(expect.objectContaining({
       audioAssetId: 'sfx_fs_90210_selected',
       audioUrl: 'https://r2.example.com/asset/sfx_fs_90210_selected',
-      durationMs: 800,
+      durationMs: 760,
       providerAssetId: '90210',
       source: 'freesound',
+      measurement: expect.objectContaining({
+        loudnessMetric: 'integrated-lufs',
+        sourceHashSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
     }));
+  });
+
+  it.each([
+    {
+      label: 'acoustically silent bytes',
+      inspect: async () => {
+        throw Object.assign(new Error('silent'), { code: 'AUDIO_SILENT' });
+      },
+      code: 'SFX_AUDIO_SILENT',
+    },
+    {
+      label: 'true peak above the catalog ceiling',
+      inspect: async () => ({
+        durationMs: 800,
+        sampleRate: 48_000,
+        channels: 2,
+        loudness: { metric: 'integrated-lufs' as const, valueDb: -18 },
+        truePeakDbtp: -0.2,
+        clippingRisk: true,
+      }),
+      code: 'SFX_AUDIO_CLIPPING',
+    },
+    {
+      label: 'sample rate below the catalog floor',
+      inspect: async () => ({
+        durationMs: 800,
+        sampleRate: 22_050,
+        channels: 2,
+        loudness: { metric: 'integrated-lufs' as const, valueDb: -18 },
+        truePeakDbtp: -3,
+        clippingRisk: false,
+      }),
+      code: 'SFX_AUDIO_QUALITY_REJECTED',
+    },
+  ])('rejects $label before upload', async ({ inspect, code }) => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request) =>
+      String(input).includes('/apiv2/sounds/')
+        ? detailResponse()
+        : new Response(audioBytes, {
+            status: 200,
+            headers: { 'content-type': 'audio/mpeg' },
+          }));
+    const upload = vi.fn(async () => uploadResult());
+
+    await expect(ingestFreesoundSfxById('90210', 'user-1', {
+      apiKey: 'server-only-key',
+      fetchImpl: fetchImpl as typeof fetch,
+      inspectAudio: vi.fn(inspect),
+      upload,
+      persist: vi.fn(async () => undefined),
+    })).rejects.toMatchObject({ code });
+
+    expect(upload).not.toHaveBeenCalled();
   });
 
   it.each([
