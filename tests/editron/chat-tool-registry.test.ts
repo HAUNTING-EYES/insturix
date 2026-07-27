@@ -79,6 +79,10 @@ describe('chat tool registry', () => {
       requiresProjectReload: false,
       executionType: 'generative',
       riskLevel: 'medium',
+      turnContract: {
+        evidenceStrategy: 'preflight',
+        requiredEvidence: ['project-state', 'timeline-state'],
+      },
     });
     expect(shouldReloadProjectAfterTool('get_dubbing_job_result')).toBe(true);
   });

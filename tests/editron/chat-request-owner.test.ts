@@ -736,6 +736,10 @@ describe('chat request owner capability filtering', () => {
       ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_keyframe_edit'],
       'set_keyframes',
     ]);
+    expect(requiredToolSequenceForChatCapability('selected-dialogue-dubbing')).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'dub_selected_dialogue',
+    ]);
     expect(() => requiredToolSequenceForChatCapability(
       'caption-track',
       'add_sfx',

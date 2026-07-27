@@ -280,7 +280,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
   'selected-dialogue-dubbing': capabilityContract({
     authority: 'durable-workflow',
     mutationTools: ['dub_selected_dialogue'],
-    requiredToolSequence: ['dub_selected_dialogue', 'get_dubbing_job_result'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'dub_selected_dialogue'],
   }),
   'project-edit': capabilityContract({
     authority: 'unified-planner',
