@@ -301,9 +301,34 @@ provider identity, license identity, and attribution requirements. Silence remai
 
 ### Production phase ledger
 1. P6A (done): canonical catalog contract, Epidemic adapter, authenticated search, mocked tests.
-2. P6B: provider entitlement/download, controlled storage ingest, acoustic analysis, and durable
-   `library-license` receipt.
-3. P6C: one-click AI choice plus visible upload/library picker using the existing assignment path.
-4. P6D: local-feature cleared auto-swap, clean-master output, and platform-native handoff receipt.
-5. P7: populate the SFX catalog; add provider/generated fallback; repair semantic mappings,
-   density, speech protection, fail-closed rights, and rendered dynamic mix.
+2. P6B (code complete, operationally gated): entitlement/download, controlled storage ingest,
+   acoustic analysis, and durable `library-license` receipt exist. A live branch-scoped Epidemic
+   search passed on 2026-07-28. Controlled download remains fail-closed until the deployment
+   operator configures `EPIDEMIC_SOUND_LICENSE_AGREEMENT_ID`.
+3. P6C (done): one-click AI choice plus visible upload/library picker using the existing assignment
+   path.
+4. P6D (partial): clean-master output and platform-native handoff receipt exist. Local-feature
+   cleared auto-swap still needs a populated cleared catalog.
+5. P7A-D (done): catalog contract, measured ingest, conditioning, human listening approval,
+   publication tooling, semantic kinetic events, speech/density policy, fail-closed rights, and
+   rendered SFX mix.
+6. P7E (done): metadata-first FSD50K harvest. Pin the official version/checksums, retain the
+   complete CC0 rights-eligible pool, preserve per-clip and dataset provenance, and report
+   provisional role signals and gaps. Do not download the 24.7 GB audio archive in this phase.
+7. P7F: download only the selected candidate subset, run acoustic rejection plus an audio
+   embedding/classifier, cluster near-duplicates, and rank representative sounds. Human review
+   applies to representatives, not every source clip.
+8. P7G: publish the approved catalog to controlled storage, add a rights-cleared provider lane and
+   CassetteAI generated fallback, then run a rendered transition/MG/SFX canary.
+
+### Locked open-ended SFX coverage model
+Editron will not enumerate every editorial situation. A finite event-role enum is an indexing and
+policy aid, not the creative universe. Selection composes surface, event, material, direction,
+motion speed, energy, duration, speech context, and negative constraints. Audio embeddings provide
+open-ended semantic retrieval over the rights-cleared pool; deterministic rules enforce rights,
+quality, timing, and mix. If retrieval confidence is low, generation may supply a controlled
+fallback. If neither lane clears its threshold, silence is the correct result.
+
+FSD50K uploader titles/tags are untrusted provisional evidence. They may prioritize candidates but
+can never become final production labels without acoustic inspection and embedding/classifier
+evidence. The seed listening pack remains a pipeline QA fixture, not a production-sized catalog.
