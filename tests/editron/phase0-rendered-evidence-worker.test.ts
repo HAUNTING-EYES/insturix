@@ -70,7 +70,9 @@ describe('phase0 rendered evidence worker service', () => {
         prepareCredentials,
         renderAudioWindow,
       },
-    )).rejects.toThrow('preview-only music is not licensed for rendering');
+    )).rejects.toThrow(
+      'Cannot verify render audio rights for overlay music_1: preview-only audio is not licensed for rendering',
+    );
 
     expect(prepareCredentials).not.toHaveBeenCalled();
     expect(renderAudioWindow).not.toHaveBeenCalled();
@@ -563,6 +565,14 @@ describe('phase0 rendered evidence worker service', () => {
     expect(routeSource).toContain("request.nextUrl.searchParams.get('qstashFailure') === '1'");
     expect(routeSource).toContain('markChatEditRenderVerificationDeliveryFailed');
     expect(routeSource).toContain('qstash_delivery_failed');
+  });
+
+  it('persists operation evidence and whole-project render eligibility as separate truths', () => {
+    const routeSource = readFileSync('app/api/internal/workers/phase0-rendered-evidence/route.ts', 'utf8');
+
+    expect(routeSource).toContain('auditProjectRenderEligibility(afterProject)');
+    expect(routeSource).toContain('projectRenderEligibility,');
+    expect(routeSource).toContain('Final project rendering is still blocked');
   });
 
   it('claims render ownership before persisting retry-delivery progress', () => {

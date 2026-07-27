@@ -64,6 +64,21 @@ export interface RenderAudioRightsNotice {
   source: "preview-only";
 }
 
+export interface ProjectRenderEligibilityIssue {
+  overlayId: string | number | null;
+  overlayType: string;
+  reason: string;
+}
+
+export interface ProjectRenderEligibilityAudit {
+  version: "editron-project-render-eligibility-v1";
+  status: "eligible" | "blocked" | "unknown";
+  issueCount: number;
+  issues: ProjectRenderEligibilityIssue[];
+  strippedAudioNotices: RenderAudioRightsNotice[];
+  truncated: boolean;
+}
+
 type RenderableAudioDecision = {
   overlay: unknown | null;
   notice?: RenderAudioRightsNotice;
@@ -336,6 +351,53 @@ export function resolveRenderableAudio(
   }
 
   return { overlay };
+}
+
+export function auditProjectRenderEligibility(
+  project: { overlays?: unknown[] } | null | undefined
+): ProjectRenderEligibilityAudit {
+  if (!Array.isArray(project?.overlays)) {
+    return {
+      version: "editron-project-render-eligibility-v1",
+      status: "unknown",
+      issueCount: 1,
+      issues: [{
+        overlayId: null,
+        overlayType: "project",
+        reason: "Project overlays are unavailable, so render eligibility could not be evaluated.",
+      }],
+      strippedAudioNotices: [],
+      truncated: false,
+    };
+  }
+
+  const allIssues: ProjectRenderEligibilityIssue[] = [];
+  const allNotices: RenderAudioRightsNotice[] = [];
+  for (const overlay of project.overlays) {
+    try {
+      const decision = resolveRenderableAudio(overlay);
+      if (decision.notice) allNotices.push(decision.notice);
+    } catch (error) {
+      if (!(error instanceof UnlicensedAudioInRenderError)) throw error;
+      allIssues.push({
+        overlayId: error.overlayId,
+        overlayType: isRecord(overlay) && typeof overlay.type === "string"
+          ? overlay.type
+          : "unknown",
+        reason: error.message,
+      });
+    }
+  }
+
+  const maxEntries = 100;
+  return {
+    version: "editron-project-render-eligibility-v1",
+    status: allIssues.length > 0 ? "blocked" : "eligible",
+    issueCount: allIssues.length,
+    issues: allIssues.slice(0, maxEntries),
+    strippedAudioNotices: allNotices.slice(0, maxEntries),
+    truncated: allIssues.length > maxEntries || allNotices.length > maxEntries,
+  };
 }
 
 /**

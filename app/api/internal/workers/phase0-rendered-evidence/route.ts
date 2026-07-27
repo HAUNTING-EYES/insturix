@@ -45,6 +45,7 @@ import {
   type ChatEditRenderVerificationRecord,
   type PersistedChatEditRenderVerificationRecord,
 } from '@/lib/editron/services/chat-edit-render-verification-lifecycle';
+import { auditProjectRenderEligibility } from '@/lib/editron/shared/render-request-payload';
 
 export const runtime = 'nodejs';
 export const maxDuration = 800;
@@ -299,6 +300,7 @@ async function handleChatEditRenderVerification(input: {
     ]);
     const inheritedOverlayIds = input.verification.inheritedRenderEligibilityOverlayIds ?? [];
     const inheritedOverlayIdSet = new Set(inheritedOverlayIds);
+    const projectRenderEligibility = auditProjectRenderEligibility(afterProject);
     const beforeAudioProject = omitInheritedRenderDebtFromChatDeltaProject(
       beforeProject as any,
       inheritedOverlayIds,
@@ -373,6 +375,7 @@ async function handleChatEditRenderVerification(input: {
       audio: audioEvidence,
       reasons,
       issues,
+      projectRenderEligibility,
     });
     await persistChatEditVerificationResult({
       db: input.db,
@@ -393,6 +396,7 @@ async function handleChatEditRenderVerification(input: {
       `[ChatEditRenderVerification] ${input.projectId}/${input.verification.operationId}: `
       + `status=${finalRecord.status}, modalities=${finalRecord.modalities.join(',')}, `
       + `inheritedDebtOmitted=${inheritedOverlayIds.length}, `
+      + `projectRenderEligibility=${projectRenderEligibility.status}, `
       + `reasons=${reasons.join('|') || 'none'}, ms=${Date.now() - input.startedAt}`,
     );
     return NextResponse.json({
@@ -403,6 +407,7 @@ async function handleChatEditRenderVerification(input: {
       reasons,
       visual: finalRecord.visual,
       audio: finalRecord.audio,
+      projectRenderEligibility: finalRecord.projectRenderEligibility,
     });
   } catch (error: unknown) {
     const reason = error instanceof Error ? error.message : String(error);
@@ -816,11 +821,18 @@ async function ensureVerificationNotification(input: {
   );
   if (claim.matchedCount === 0) return;
   try {
-    const content = input.record.status === 'pass'
+    const operationContent = input.record.status === 'pass'
       ? `Rendered verification passed for edit operation ${input.record.operationId}. The affected ${input.record.modalities.join(' and ')} output changed and passed the rendered quality checks.`
       : input.record.status === 'warn'
         ? `Rendered verification completed for edit operation ${input.record.operationId} with advisory quality warnings: ${input.record.reasons.join('; ') || 'review the persisted rendered evidence'}. The edit remains applied, and the warning evidence is available for review.`
       : `The edit was saved, but rendered verification did not pass for operation ${input.record.operationId}: ${input.record.reasons.join('; ') || 'unknown verification failure'}. I am not marking this edit as successful; review the persisted before/after evidence for the affected frames or audio windows.`;
+    const eligibility = input.record.projectRenderEligibility;
+    const projectContent = eligibility?.status === 'blocked'
+      ? ` Final project rendering is still blocked by ${eligibility.issueCount} existing render-eligibility issue${eligibility.issueCount === 1 ? '' : 's'}: ${eligibility.issues.map((issue) => issue.reason).slice(0, 3).join('; ')}.`
+      : eligibility?.status === 'unknown'
+        ? ' Final project render eligibility could not be evaluated and remains unknown.'
+        : '';
+    const content = `${operationContent}${projectContent}`;
     await chatService.saveMessage(input.record.sessionId, input.userId, input.projectId, {
       role: 'assistant',
       content,
