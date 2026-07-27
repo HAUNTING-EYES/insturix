@@ -1,55 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+
 import { verifyAdminForApi } from '@/lib/auth/adminAuth';
-import mongoose from 'mongoose';
-import { User } from '@/schemas/user';
-import { EmailCooldown } from '@/schemas/EmailCooldown';
 import { sendEmail } from '@/lib/services/email';
+import {
+  createAndDispatchEmailCampaign,
+  EmailCampaignQueueError,
+} from '@/lib/services/email/campaign-service';
 import { customUserMailingTemplate } from '@/lib/services/email/templates/custom-mailing';
+import connectToDatabase from '@/schemas/ConnectToDatabase';
+import { EmailCooldown } from '@/schemas/EmailCooldown';
+import { User } from '@/schemas/user';
 
-const MONGODB_URI = process.env.MONGODB_URI!;
-const PROD_DB_NAME = 'insturix_prod'; // Production database for user data
-
-// Cached connection for insturix_prod database
-let cachedConnection: typeof mongoose | null = null;
-
-async function connectToProdDatabase() {
-  if (cachedConnection) {
-    return cachedConnection;
-  }
-
-  const opts = {
-    bufferCommands: false,
-    dbName: PROD_DB_NAME,
-  };
-
-  cachedConnection = await mongoose.connect(MONGODB_URI, opts);
-  return cachedConnection;
+interface CustomMailingBody {
+  subject?: unknown;
+  message?: unknown;
+  testMode?: unknown;
+  testEmail?: unknown;
 }
 
-/**
- * GET /api/admin/mailing/custom
- * Check cooldown status for custom mailing
- * Query params: recipientType (all-users | ics25-attendees)
- */
-export async function GET(req: NextRequest) {
-  // Verify admin access
+export async function GET() {
   const adminCheck = await verifyAdminForApi();
-  if (!adminCheck.isAdmin) {
-    return adminCheck.response;
-  }
+  if (!adminCheck.isAdmin) return adminCheck.response;
 
   try {
-    const { searchParams } = new URL(req.url);
-    const recipientType = searchParams.get('recipientType') || 'all-users';
-
-    await connectToProdDatabase();
-
-    // Check cooldown status (1 day cooldown for custom mailing)
-    const cooldownCheck = await (EmailCooldown as any).canSendEmail('custom-mailing', 1);
-
-    // Get recipient count (all users only)
-    const recipientCount = await User.countDocuments();
+    await connectToDatabase();
+    const [cooldownCheck, recipientCount] = await Promise.all([
+      (EmailCooldown as any).canSendEmail('custom-mailing', 1),
+      User.countDocuments(),
+    ]);
 
     return NextResponse.json({
       ok: true,
@@ -59,101 +37,90 @@ export async function GET(req: NextRequest) {
       recipientCount,
       cooldownDays: 1,
     });
-  } catch (error: any) {
-    console.error('GET /api/admin/mailing/custom error:', error);
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Failed to check cooldown status';
+    console.error('GET /api/admin/mailing/custom error:', message);
     return NextResponse.json(
-      { ok: false, message: error?.message || 'Failed to check cooldown status' },
+      { ok: false, message },
       { status: 500 }
     );
   }
 }
 
-/**
- * POST /api/admin/mailing/custom
- * Send custom mailing emails to all users or ICS25 attendees
- * Request body: { recipientType, subject, message }
- */
-export async function POST(req: NextRequest) {
-  // Verify admin access
+export async function POST(request: NextRequest) {
   const adminCheck = await verifyAdminForApi();
-  if (!adminCheck.isAdmin) {
-    return adminCheck.response;
+  if (!adminCheck.isAdmin) return adminCheck.response;
+  if (!adminCheck.userId) {
+    return NextResponse.json(
+      { ok: false, message: 'Unauthorized' },
+      { status: 401 }
+    );
   }
 
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json(
-        { ok: false, message: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const body = await req.json();
-    const { subject, message, testMode = false, testEmail } = body;
-
-    // Validate required fields
-    if (!subject || !message) {
+    const body = (await request.json().catch(() => null)) as
+      | CustomMailingBody
+      | null;
+    if (
+      typeof body?.subject !== 'string' ||
+      typeof body.message !== 'string' ||
+      !body.subject.trim() ||
+      !body.message.trim()
+    ) {
       return NextResponse.json(
         { ok: false, message: 'Subject and message are required' },
         { status: 400 }
       );
     }
 
-    if (!subject.trim() || !message.trim()) {
-      return NextResponse.json(
-        { ok: false, message: 'Subject and message cannot be empty' },
-        { status: 400 }
-      );
-    }
+    await connectToDatabase();
 
-    // Test mode validation
-    if (testMode) {
-      if (!testEmail) {
+    // This path also powers direct replies from the admin inbox. It remains
+    // a single, admin-authenticated transactional send and is never a fan-out.
+    if (body.testMode === true) {
+      if (
+        typeof body.testEmail !== 'string' ||
+        !body.testEmail.trim()
+      ) {
         return NextResponse.json(
           { ok: false, message: 'Test email address is required' },
           { status: 400 }
         );
       }
-    }
-
-    await connectToProdDatabase();
-
-    // If test mode, send to single email address
-    if (testMode) {
-      try {
-        // Use standard user template
-        const template = customUserMailingTemplate('Test User', message, subject);
-
-        const result = await sendEmail({
-          to: testEmail,
-          subject,
-          htmlBody: template.html,
-          textBody: template.text,
-        });
-
-        if (result.success) {
-          return NextResponse.json({
-            ok: true,
-            message: `Test email sent successfully to ${testEmail}`,
-          });
-        } else {
-          return NextResponse.json(
-            { ok: false, message: `Failed to send test email: ${result.error}` },
-            { status: 500 }
-          );
-        }
-      } catch (error: any) {
+      const template = customUserMailingTemplate(
+        'Test User',
+        body.message,
+        body.subject
+      );
+      const result = await sendEmail({
+        to: body.testEmail.trim(),
+        subject: body.subject.trim(),
+        htmlBody: template.html,
+        textBody: template.text,
+        delivery: { stream: 'transactional' },
+      });
+      if (!result.success) {
         return NextResponse.json(
-          { ok: false, message: `Error sending test email: ${error?.message}` },
+          {
+            ok: false,
+            message: `Failed to send test email: ${result.error}`,
+          },
           { status: 500 }
         );
       }
+      return NextResponse.json({
+        ok: true,
+        message: `Test email sent successfully to ${body.testEmail.trim()}`,
+      });
     }
 
-    // Production mode - check cooldown
-    const cooldownCheck = await (EmailCooldown as any).canSendEmail('custom-mailing', 1);
-
+    const cooldownCheck = await (EmailCooldown as any).canSendEmail(
+      'custom-mailing',
+      1
+    );
     if (!cooldownCheck.canSend) {
       return NextResponse.json(
         {
@@ -162,120 +129,46 @@ export async function POST(req: NextRequest) {
           lastSent: cooldownCheck.lastSent,
           nextAvailable: cooldownCheck.nextAvailable,
         },
-        { status: 429 } // Too Many Requests
+        { status: 429 }
       );
     }
 
-    // Fetch all registered users
-    const recipients = await User.find(
-      {},
-      { email: 1, username: 1, _id: 1 }
-    ).lean();
-    const recipientLabel = 'registered users';
-
-    if (recipients.length === 0) {
-      return NextResponse.json(
-        { ok: false, message: `No ${recipientLabel} found to send emails to` },
-        { status: 404 }
-      );
-    }
-
-    console.log(`📧 Starting custom mailing send to ${recipients.length} ${recipientLabel}...`);
-
-    // Send emails in batches to respect rate limits
-    const batchSize = 50; // AWS SES can handle ~14 emails/second, so batching helps
-    const results: { email: string; success: boolean; error?: string }[] = [];
-
-    for (let i = 0; i < recipients.length; i += batchSize) {
-      const batch = recipients.slice(i, i + batchSize);
-      const batchNumber = Math.floor(i / batchSize) + 1;
-      const totalBatches = Math.ceil(recipients.length / batchSize);
-
-      console.log(`📧 Batch ${batchNumber}/${totalBatches}: Processing ${batch.length} recipients...`);
-
-      // Send emails in parallel within each batch
-      const batchPromises = batch.map(async (recipient) => {
-        try {
-          // Get recipient name and use standard user template
-          const recipientName = recipient.username || 'User';
-          const template = customUserMailingTemplate(recipientName, message, subject);
-
-          const result = await sendEmail({
-            to: recipient.email,
-            subject,
-            htmlBody: template.html,
-            textBody: template.text,
-          });
-
-          if (result.success) {
-            console.log(`✅ Sent to ${recipient.email}`);
-            return { email: recipient.email, success: true };
-          } else {
-            console.error(`❌ Failed to send to ${recipient.email}:`, result.error);
-            return { email: recipient.email, success: false, error: result.error };
-          }
-        } catch (error: any) {
-          console.error(`❌ Error sending to ${recipient.email}:`, error);
-          return {
-            email: recipient.email,
-            success: false,
-            error: error?.message || 'Unknown error',
-          };
-        }
-      });
-
-      const batchResults = await Promise.all(batchPromises);
-      results.push(...batchResults);
-
-      // Add a small delay between batches to respect rate limits
-      if (i + batchSize < recipients.length) {
-        await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 second delay
-      }
-    }
-
-    // Calculate statistics
-    const successCount = results.filter((r) => r.success).length;
-    const failedCount = results.filter((r) => !r.success).length;
-
-    // Record the email send in cooldown tracker
-    const status =
-      failedCount === 0 ? 'success' : successCount === 0 ? 'failed' : 'partial';
-
-    await (EmailCooldown as any).recordEmailSent(
-      'custom-mailing',
-      userId,
-      recipients.length,
-      status,
-      {
-        successCount,
-        failedCount,
-        recipientType: 'all-users',
-        errorMessage:
-          failedCount > 0
-            ? `${failedCount} emails failed to send`
-            : undefined,
-      }
-    );
-
-    console.log(
-      `📧 Custom mailing send complete: ${successCount}/${recipients.length} successful to ${recipientLabel}`
-    );
-
-    return NextResponse.json({
-      ok: true,
-      message: `Custom emails sent to ${successCount}/${recipients.length} ${recipientLabel}`,
-      stats: {
-        total: recipients.length,
-        successful: successCount,
-        failed: failedCount,
-      },
-      failedEmails: results.filter((r) => !r.success),
+    const campaign = await createAndDispatchEmailCampaign({
+      kind: 'custom',
+      topic: 'product_updates',
+      subject: body.subject,
+      message: body.message,
+      createdBy: adminCheck.userId,
+      sourceRoute: '/api/admin/mailing/custom',
+      cooldownType: 'custom-mailing',
     });
-  } catch (error: any) {
-    console.error('POST /api/admin/mailing/custom error:', error);
+
     return NextResponse.json(
-      { ok: false, message: error?.message || 'Failed to send custom mailing' },
-      { status: 500 }
+      {
+        ok: true,
+        campaignId: campaign.campaignId,
+        message: campaign.resumed
+          ? `Existing custom campaign resumed for ${campaign.totalRecipients} registered users`
+          : `Custom campaign queued for ${campaign.totalRecipients} registered users`,
+        stats: {
+          total: campaign.totalRecipients,
+          queued: campaign.totalRecipients,
+          successful: 0,
+          failed: 0,
+          skipped: 0,
+        },
+      },
+      { status: 202 }
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Failed to queue custom mailing';
+    const status =
+      error instanceof EmailCampaignQueueError ? error.status : 500;
+    console.error('POST /api/admin/mailing/custom error:', message);
+    return NextResponse.json(
+      { ok: false, message },
+      { status }
     );
   }
 }
