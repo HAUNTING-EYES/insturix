@@ -255,24 +255,15 @@ export class SESProvider implements MailProvider {
     const maxConcurrent = options.maxConcurrent ?? 3;
     const results: SendResult[] = [];
 
-    const totalBatches = Math.ceil(messages.length / batchSize);
-    
     for (let i = 0; i < messages.length; i += batchSize) {
-      const batchNumber = Math.floor(i / batchSize) + 1;
       const chunk = messages.slice(i, i + batchSize);
-      
-      console.log(`📧 Batch ${batchNumber}/${totalBatches}: Processing ${chunk.length} emails...`);
-      
+
       // Send up to maxConcurrent emails concurrently within the batch
       const chunkResults = await this.sendBatchConcurrent(chunk, maxConcurrent);
       results.push(...chunkResults);
-      
-      const successCount = chunkResults.filter(r => r.success).length;
-      console.log(`✅ Batch ${batchNumber}/${totalBatches}: ${successCount}/${chunk.length} successful`);
-      
+
       // Wait between batches to give AWS SES time to reset quota
       if (i + batchSize < messages.length && delayBetweenBatches > 0) {
-        console.log(`⏳ Waiting ${delayBetweenBatches}ms before next batch...`);
         await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
       }
     }
@@ -288,7 +279,7 @@ export class SESProvider implements MailProvider {
     let index = 0;
     let inProgress = 0;
 
-    return new Promise((resolve, reject) => {
+    return new Promise(resolve => {
       const sendNext = async () => {
         if (index >= messages.length && inProgress === 0) {
           resolve(results);
