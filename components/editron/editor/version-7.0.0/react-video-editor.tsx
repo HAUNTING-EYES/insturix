@@ -130,7 +130,6 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
       setLastSaveTime(Date.now());
     },
     onLoad: (loadedState) => {
-      console.log("Applying loaded state to editor:", loadedState);
       if (loadedState) {
         // Apply loaded state to editor
         setOverlays(loadedState.overlays || []);
@@ -143,24 +142,13 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
         if (Array.isArray(loadedState.markers)) setMarkers(loadedState.markers);
       }
     },
-    onAutosaveDetected: (timestamp) => {
-      // Autosave detection is now handled by automatic load on mount
-      // This callback is kept for backward compatibility but not used
-      console.log("Autosave detected at:", new Date(timestamp));
-    },
   });
 
   // Load project state on mount
   useEffect(() => {
     const loadProjectState = async () => {
       try {
-        const loadedState = await loadState();
-        if (loadedState) {
-          console.log("Loaded project state from MongoDB:", loadedState);
-          // State will be applied via onLoad callback
-        } else {
-          console.log("No saved state found, using default overlays");
-        }
+        await loadState();
       } catch (error) {
         console.error("Error loading project state:", error);
       }
