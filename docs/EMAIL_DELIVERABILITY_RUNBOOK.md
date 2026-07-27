@@ -51,14 +51,12 @@ been tested end to end.
 
 ## Launch blockers
 
-Marketing campaigns must remain disabled until every blocker in this section is
-closed.
+Marketing campaigns must remain disabled until every open item in this section
+is closed.
 
-### 1. Repair the Hostinger MAIL FROM SPF record
+### 1. Hostinger MAIL FROM SPF record — repaired
 
-The live TXT record at `mail.insturix.com` is malformed. It currently contains
-a hostname prefix and a non-ASCII spacing artifact. Replace the record in
-Hostinger DNS with exactly:
+The malformed Hostinger TXT record was replaced on 2026-07-28 with exactly:
 
 ```text
 Type: TXT
@@ -66,10 +64,7 @@ Name/host: mail
 Value: v=spf1 include:amazonses.com ~all
 ```
 
-Use ordinary ASCII spaces. Do not prefix the value with `mail.insturix.com`.
-There must be only one SPF TXT record at this hostname.
-
-Keep this existing record:
+The existing MAIL FROM MX record remains:
 
 ```text
 Type: MX
@@ -78,36 +73,57 @@ Priority: 10
 Value: feedback-smtp.ap-south-1.amazonses.com
 ```
 
-After DNS propagation:
+Google Public DNS resolves both records correctly, and SES reports
+`MailFromDomainStatus=SUCCESS`. The remaining validation step is:
 
-1. Query TXT and MX through at least two public resolvers.
-2. Confirm SES still reports `MailFromDomainStatus=SUCCESS`.
-3. Send an internal seed message and verify `spf=pass`, `dkim=pass`, and
-   `dmarc=pass` in the received message headers.
+- Send an internal seed message and verify `spf=pass`, `dkim=pass`, and
+  `dmarc=pass` in the received message headers.
 
-### 2. Restore MongoDB Atlas connectivity
+### 2. MongoDB Atlas credential — repaired; redeploy pending
 
-The production `MONGODB_URI` currently fails direct authentication, and recent
-Vercel logs contain repeated Atlas server-selection and TLS timeouts. Consent,
-suppression, campaign progress, and cooldown records all depend on MongoDB, so
-SES must not send while this dependency is unhealthy.
+The stale production credential was replaced on 2026-07-28:
 
-Repair procedure:
+- Atlas user: `insturix_app_prod`
+- Role: `readWriteAnyDatabase`
+- Resource restriction: `main-cluster` only
+- Credential: unique 48-character high-entropy password
+- Vercel scope: Production, stored as a Sensitive value
+- Direct authentication: successful
+- Verified databases: `insturix_prod`, `editron_prod`, and `thinkforge_db`
 
-1. In Atlas, create or rotate a dedicated Insturix application database user.
-2. Grant only the database roles needed by `insturix_prod`; do not use an Atlas
-   owner/admin credential in Vercel.
-3. Prefer Vercel Static IPs for the function region and allowlist only those
-   addresses in Atlas. Secure Compute is appropriate when enterprise-level
-   private networking is required.
-4. If temporary wildcard access is unavoidable, combine it with a unique,
-   high-entropy, least-privilege database credential and remove the wildcard as
-   soon as static egress is available.
-5. Update `MONGODB_URI` in Vercel Production as a sensitive value.
-6. Redeploy, then verify newsletter preference reads/writes, campaign creation,
-   and worker progress from production.
+`readWriteAnyDatabase` is broader than a single-database role, but the shared
+application URI serves all three databases above. Restricting the user to the
+single application cluster removes Atlas administration access and prevents
+access to any other cluster in the project. The existing `admin` user remains
+unchanged as a rollback path.
 
-### 3. Add a durable SES event consumer
+The active deployment still has the previous environment snapshot. Before any
+send:
+
+1. Redeploy Production so the new Sensitive `MONGODB_URI` takes effect.
+2. Verify newsletter preference reads/writes, campaign creation, and worker
+   progress from the new deployment.
+3. After a stable observation window, rotate or remove the old `admin`
+   database user in a separately approved credential-cleanup change.
+
+Atlas currently allows `0.0.0.0/0`. Prefer Vercel Static IPs for the function
+region and allowlist only those addresses. Secure Compute is appropriate when
+enterprise-level private networking is required. Until static egress is
+available, retain the unique scoped credential and monitor authentication
+failures.
+
+### 3. Resolve Atlas free-tier storage pressure
+
+`main-cluster` currently uses 504.18 MB of its 512 MB free-tier allowance
+(about 98%). Atlas warns that writes will be blocked at the limit. This can
+break consent updates, suppression writes, campaign progress, and cooldowns
+even with valid credentials.
+
+Before production sending, either upgrade the cluster or perform a reviewed,
+recoverable data-retention cleanup. Both options require a separate explicit
+approval because one incurs cost and the other can delete data.
+
+### 4. Add a durable SES event consumer
 
 Create EventBridge rules for both configuration sets and route the following
 events to a durable, authenticated consumer:
@@ -121,7 +137,7 @@ events to a durable, authenticated consumer:
 Processing must be idempotent using the SES message/event identifier. Event
 payloads must never be accepted from an unauthenticated public request.
 
-### 4. Add warm-up cohort controls
+### 5. Add warm-up cohort controls
 
 The campaign worker currently evaluates the complete candidate pool. Before the
 first production marketing campaign, add a server-owned audience cap and an
@@ -200,9 +216,11 @@ Do not change DMARC enforcement merely to make a checker show green.
 
 ## Pre-send checklist
 
-- [ ] Hostinger SPF record is corrected and visible through public DNS.
+- [x] Hostinger SPF record is corrected and visible through public DNS.
 - [ ] Seed message passes SPF, DKIM, and DMARC.
-- [ ] MongoDB production authentication and network access are healthy.
+- [x] Replacement MongoDB credential passes direct authentication.
+- [ ] Production is redeployed with the replacement MongoDB credential.
+- [ ] Atlas storage pressure is resolved before writes are blocked.
 - [ ] EventBridge bounce/complaint consumer is deployed and tested.
 - [ ] Production deployment contains the three SES configuration variables.
 - [ ] QStash signing credentials have been reviewed/rotated.
