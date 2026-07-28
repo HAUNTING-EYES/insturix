@@ -37,6 +37,7 @@
     "publish:sfx": "tsx scripts/publish-sfx-catalog.ts",
     "harvest:sfx:fsd50k": "tsx scripts/harvest-fsd50k-metadata.ts",
     "sample:sfx:fsd50k": "tsx scripts/sample-fsd50k-audio.ts",
+    "materialize:sfx:fsd50k": "tsx scripts/materialize-fsd50k-corpus.ts",
     "deploy:remotion:dev": "bash scripts/deploy-remotion-site.sh dev",
     "deploy:remotion:prod": "bash scripts/deploy-remotion-site.sh prod",
     "deploy:remotion:function": "bash scripts/deploy-remotion-function.sh"

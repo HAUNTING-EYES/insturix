@@ -271,7 +271,9 @@ retroactively relabel partial convergence as complete.
   authenticated search route, explicit non-renderability, and mocked failure-contract tests.
 
 ### Verified partial or missing
-- The bundled SFX manifest has no production assets.
+- The bundled SFX manifest now contains 29 human-approved CC0 starter assets. This validates the
+  ingest, review, publication, rights, selection, and rendered-mix path, but it is not the large
+  labelled production corpus.
 - Transition direction does not yet reach catalog ranking, and dissolve behavior is inconsistent
   between canonical and legacy mappings.
 - MG lacks `stat-impact` and `exit-whoosh`; `entrance-pop` and `logo-reveal-sting` lose semantic
@@ -318,8 +320,7 @@ provider identity, license identity, and attribution requirements. Silence remai
 6. P7E (done): metadata-first FSD50K harvest. Pin the official version/checksums, retain the
    complete CC0 rights-eligible pool, preserve per-clip and dataset provenance, and report
    provisional role signals and gaps. Do not download the 24.7 GB audio archive in this phase.
-7. P7F (in progress; P7F1 and conditioning gate done): P7F1 deterministically samples a
-   role-balanced, risk-free subset
+7. P7F (pilot complete): P7F1 deterministically sampled a role-balanced, risk-free subset
    backed by FSD50K ground-truth labels, re-verifies each source as CC0 through the Freesound API,
    downloads HQ screening audio, and runs the production controlled-ingest acoustic gate. The first
    2026-07-28 real run selected 35 sources, retained 14 measured files, and exposed that raw provider
@@ -327,11 +328,18 @@ provider identity, license identity, and attribution requirements. Silence remai
    controlled ingest now decodes and conditions each recoverable source before enforcing final
    acoustic quality. A fresh battle run accepted all 35 conditioned sources across seven roles:
    every artifact is a 48 kHz WAV, every peak is at or below `-1 dBTP`, and every file matches its
-   receipt hash and CC0 rights ID. The sample remains explicitly non-publishable. P7F still requires
-   pinned audio-embedding/classifier analysis, near-duplicate clustering, and representative
-   ranking. Human review applies to representatives, not every source clip.
-8. P7G: publish the approved catalog to controlled storage, add a rights-cleared provider lane and
-   CassetteAI generated fallback, then run a rendered transition/MG/SFX canary.
+   receipt hash and CC0 rights ID. Pinned CLAP embedded all 35 pilot sounds, found 34 clusters, and
+   selected 34 representatives. Human review approved 29 exact files; no cluster member inherited
+   approval from its representative.
+8. P7G (starter complete): published the 29 approved CC0 files to controlled storage, wired the
+   dedicated CassetteAI SFX fallback, and passed a zero-credit transition/MG/SFX Remotion canary.
+   This proves the factory and runtime path, not production-sized inventory.
+9. P8 (current; large labelled corpus): materialize the complete 19,873-item FSD50K CC0 pool from
+   the official checksum-pinned 24.67 GB multipart archives into an offline curation workspace.
+   Every candidate remains non-publishable until acoustic inspection, pinned embeddings,
+   classification, near-duplicate clustering, and representative review are complete. Runtime
+   vector retrieval and designed-source gaps such as risers and logo stings remain subsequent
+   P8 phases.
 
 ### Locked open-ended SFX coverage model
 Editron will not enumerate every editorial situation. A finite event-role enum is an indexing and
