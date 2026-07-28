@@ -4,15 +4,13 @@ import type { PublishParams, PublishResult } from "./contract";
 /**
  * CalOS LinkedIn publisher — SESSIONLESS (runs from the publish-queue cron, no Clerk session).
  *
- * Token resolution is two-tier:
- *  1. PER-BRAND: if the brand has its own connected LinkedIn account (calos_connected_accounts),
+ * Token resolution is brand-assignment-only:
+ *  - PER-BRAND: the brand must have a connected LinkedIn account (calos_connected_accounts). We
  *     use it — and NEVER fall back to the owner's personal account (posting a client's content from
  *     the wrong identity is the agency-killing failure). An existing-but-broken brand account fails
  *     loud (reconnect), it does not silently fall through. A brand account is one of two models:
  *     Model A (reference — resolve the assigning operator's live token) or Model B (the brand's own
  *     encrypted token). The author URN is built from the account's accountType (org page vs person).
- *  2. PER-USER fallback: the owner's own User.linkedinTokens (the original behavior; what a solo
- *     business / a brand without its own connected account uses).
  *
  * Then it creates a TEXT post via the LinkedIn REST posts API (mirrors the text path of
  * app/api/services/uploaderx/linkedin/route.ts createLinkedInRestPost). Media is a later slice.
@@ -36,33 +34,23 @@ function linkedInRestHeaders(accessToken: string): Record<string, string> {
 export async function publishToLinkedIn(params: PublishParams): Promise<LinkedInPublishResult> {
   const text = (params.caption ?? params.title ?? "").trim();
   if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false };
+  if (!params.brandId) return { ok: false, error: "LinkedIn publishing requires a brandId", retryable: false };
   if (!text) return { ok: false, error: "LinkedIn post text is empty", retryable: false };
 
   const connectToDatabase = (await import("@/schemas/ConnectToDatabase")).default;
   await connectToDatabase();
 
-  // Per-brand first — if a brand account exists, it is authoritative (no fallback = isolation).
-  const brandAuth = params.brandId
-    ? await resolveBrandAccountAuth(params.brandId, params.accountRef)
-    : null;
-  if (brandAuth && "error" in brandAuth) return { ok: false, error: brandAuth.error, retryable: brandAuth.retryable };
-  if (brandAuth) {
-    const result = await createLinkedInTextPost(brandAuth.accessToken, brandAuth.authorUrn, text);
-    await recordCalosLinkedInPublishCost(params, result);
-    return result;
+  const brandAuth = await resolveBrandAccountAuth(params.brandId, params.accountRef);
+  if ("error" in brandAuth) {
+    return { ok: false, error: brandAuth.error, retryable: brandAuth.retryable };
   }
-
-  // Per-user fallback (the brand has no connected account of its own).
-  const userAuth = await resolveUserAuth(params);
-  if ("error" in userAuth) return { ok: false, error: userAuth.error, retryable: userAuth.retryable };
-  const result = await createLinkedInTextPost(userAuth.accessToken, userAuth.authorUrn, text);
+  const result = await createLinkedInTextPost(brandAuth.accessToken, brandAuth.authorUrn, text);
   await recordCalosLinkedInPublishCost(params, result);
   return result;
 }
 
 /**
- * Per-brand auth. null = no connected account for this brand (caller falls back to the user token).
- * A connected account that exists but is unusable returns an error (no silent fallthrough).
+ * Per-brand auth. Missing or unusable assignments fail closed; there is no queue-owner fallback.
  *
  * Model A (no accessTokenEnc): resolve the assigning operator's live token (acct.ownerUserId) — the
  *   common case the assign flow writes (an operator binds a profile/page they control to a brand).
@@ -71,14 +59,16 @@ export async function publishToLinkedIn(params: PublishParams): Promise<LinkedIn
 async function resolveBrandAccountAuth(
   brandId: string,
   accountRef?: string | null,
-): Promise<LinkedInAuth | AuthError | null> {
+): Promise<LinkedInAuth | AuthError> {
   const { default: CalosConnectedAccount } = await import("@/schemas/calos-connected-account");
   const acct = await CalosConnectedAccount.findOne({
     brandId,
     platform: "linkedin",
     ...(accountRef ? { accountRef } : {}),
   });
-  if (!acct) return null;
+  if (!acct) {
+    return { error: "No LinkedIn account assigned for this brand", retryable: false };
+  }
 
   if (!acct.accountRef) {
     return { error: "Brand LinkedIn account has no author target (accountRef) — reconnect", retryable: false };
@@ -99,9 +89,19 @@ async function resolveBrandAccountAuth(
     return { accessToken, authorUrn };
   }
 
-  // Model A — reference the assigning operator's live token (refreshes via the per-user path).
-  const owner = await resolveOwnerLinkedInToken(acct.ownerUserId, false);
+  // Model A — reference the assigning operator's live token.
+  if (!acct.ownerUserId) {
+    return { error: "Brand LinkedIn assignment has no token owner — reconnect", retryable: false };
+  }
+  const isPersonal = acct.accountType === "personal";
+  const owner = await resolveOwnerLinkedInToken(acct.ownerUserId, isPersonal);
   if ("error" in owner) return owner;
+  if (isPersonal && owner.memberId !== acct.accountRef) {
+    return {
+      error: "Assigned LinkedIn profile no longer matches the owner's connected profile — reassign it",
+      retryable: false,
+    };
+  }
   return { accessToken: owner.accessToken, authorUrn };
 }
 
@@ -112,21 +112,9 @@ function buildAuthorUrn(accountType: string | null | undefined, accountRef: stri
     : `urn:li:organization:${accountRef}`;
 }
 
-/** Per-user auth: the owner's own connected LinkedIn (User.linkedinTokens), refreshing if expired. */
-async function resolveUserAuth(params: PublishParams): Promise<LinkedInAuth | AuthError> {
-  // Need the member id only for a personal post (no org accountRef given).
-  const owner = await resolveOwnerLinkedInToken(params.ownerUserId, !params.accountRef);
-  if ("error" in owner) return owner;
-  // Author URN: accountRef = a LinkedIn organization id → org post; else personal member.
-  if (params.accountRef) return { accessToken: owner.accessToken, authorUrn: `urn:li:organization:${params.accountRef}` };
-  if (owner.memberId) return { accessToken: owner.accessToken, authorUrn: `urn:li:person:${owner.memberId}` };
-  return { error: "No LinkedIn author available (no member id, no accountRef)", retryable: false };
-}
-
 /**
  * Resolve a usable LinkedIn access token for an owner (clerkUserId) from User.linkedinTokens:
- * resolves the member id when needed and refreshes an expired token (with write-back). Shared by the
- * per-user path and Model-A brand accounts so both refresh through one place.
+ * resolves the member id when needed and refreshes an expired token (with write-back).
  */
 async function resolveOwnerLinkedInToken(
   ownerUserId: string,

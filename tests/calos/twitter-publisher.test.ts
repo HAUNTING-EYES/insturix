@@ -1,16 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  auth: vi.fn(),
+  requireCalosBrandAccess: vi.fn(),
   connectToDatabase: vi.fn(),
   connectedAccountFindOne: vi.fn(),
+  connectedAccountUpdateOne: vi.fn(),
   userFindOne: vi.fn(),
   userUpdateOne: vi.fn(),
 }));
 
+vi.mock("@clerk/nextjs/server", () => ({ auth: mocks.auth }));
+vi.mock("@/lib/calos/brand-access", () => ({
+  requireCalosBrandAccess: mocks.requireCalosBrandAccess,
+}));
 vi.mock("@/schemas/ConnectToDatabase", () => ({ default: mocks.connectToDatabase }));
-vi.mock("@/schemas/calos-connected-account", () => ({ default: { findOne: mocks.connectedAccountFindOne } }));
+vi.mock("@/schemas/calos-connected-account", () => ({
+  default: {
+    findOne: mocks.connectedAccountFindOne,
+    updateOne: mocks.connectedAccountUpdateOne,
+  },
+}));
 vi.mock("@/schemas/user", () => ({ User: { findOne: mocks.userFindOne, updateOne: mocks.userUpdateOne } }));
 
+import { POST as postTwitterAssignment } from "@/app/api/services/calos/connect/twitter/assign/route";
 import { getPublisher } from "@/lib/calos/publish/contract";
 import { publishToTwitter } from "@/lib/calos/publish/twitter";
 
@@ -22,6 +35,19 @@ const future = () => new Date(Date.now() + 60 * 60 * 1000);
 const past = () => new Date(Date.now() - 60 * 1000);
 
 const BASE = { ownerUserId: "queue_owner", deliverableId: "d1", brandId: "brand_1", caption: "  gm  " };
+type TwitterAssignmentRequest = Parameters<typeof postTwitterAssignment>[0];
+
+function assignmentRequest(): TwitterAssignmentRequest {
+  return new Request("http://localhost/api/services/calos/connect/twitter/assign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      brandId: "brand_1",
+      accountRef: "x_1",
+      displayName: "@acme",
+    }),
+  }) as TwitterAssignmentRequest;
+}
 
 describe("publishToTwitter", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -31,8 +57,11 @@ describe("publishToTwitter", () => {
     vi.stubGlobal("fetch", fetchMock);
     mocks.connectToDatabase.mockReset().mockResolvedValue(undefined);
     mocks.connectedAccountFindOne.mockReset();
+    mocks.connectedAccountUpdateOne.mockReset().mockResolvedValue({ acknowledged: true });
     mocks.userFindOne.mockReset();
     mocks.userUpdateOne.mockReset().mockResolvedValue(undefined);
+    mocks.auth.mockReset().mockResolvedValue({ userId: "owner_1", orgId: null });
+    mocks.requireCalosBrandAccess.mockReset().mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -53,7 +82,12 @@ describe("publishToTwitter", () => {
 
     const result = await publishToTwitter(BASE);
 
-    expect(result).toEqual({ ok: true, postId: "tweet_1", postUrl: "https://x.com/acme/status/tweet_1" });
+    expect(result).toEqual({
+      ok: true,
+      postId: "tweet_1",
+      postUrl: "https://x.com/acme/status/tweet_1",
+      responseStatus: 200,
+    });
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://api.x.com/2/tweets");
@@ -104,6 +138,53 @@ describe("publishToTwitter", () => {
     expect(result.retryable).toBe(false);
     expect(result.error).toContain("not connected");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects publishing when the owner reconnected a different X account", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({
+      accountRef: "x_old",
+      ownerUserId: "owner_1",
+    });
+    mocks.userFindOne.mockResolvedValue({
+      twitterTokens: {
+        accessToken: "tok",
+        refreshToken: "r",
+        userId: "x_new",
+        userName: "new-account",
+        expiresAt: future(),
+      },
+    });
+
+    const result = await publishToTwitter(BASE);
+
+    expect(result.ok).toBe(false);
+    expect(result.retryable).toBe(false);
+    expect(result.error).toContain("no longer matches");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects assigning an X connection that cannot refresh for future publishing", async () => {
+    mocks.userFindOne.mockReturnValue({
+      select: vi.fn(() => ({
+        lean: vi.fn(async () => ({
+          twitterTokens: {
+            accessToken: "tok",
+            userId: "x_1",
+            userName: "acme",
+            expiresAt: future(),
+            scopes: ["tweet.read", "tweet.write", "users.read"],
+            missingScopes: ["offline.access"],
+          },
+        })),
+      })),
+    });
+
+    const response = await postTwitterAssignment(assignmentRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("long-term publishing access");
+    expect(mocks.connectedAccountUpdateOne).not.toHaveBeenCalled();
   });
 
   it("marks a 429 as retryable", async () => {

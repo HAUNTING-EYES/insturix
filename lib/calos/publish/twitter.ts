@@ -49,11 +49,17 @@ async function resolveBrandXAuth(brandId: string, accountRef?: string | null): P
     ...(accountRef ? { accountRef } : {}),
   });
   if (!acct) return { error: "No X account assigned for this brand", retryable: false };
-  return resolveOwnerXToken(acct.ownerUserId);
+  if (!acct.accountRef) {
+    return { error: "Brand X assignment has no account id — reassign it", retryable: false };
+  }
+  if (!acct.ownerUserId) {
+    return { error: "Brand X assignment has no token owner — reconnect", retryable: false };
+  }
+  return resolveOwnerXToken(acct.ownerUserId, String(acct.accountRef));
 }
 
 /** Resolve the owner's X token from User.twitterTokens, refreshing (with write-back) if expired. */
-async function resolveOwnerXToken(ownerUserId: string): Promise<XAuth> {
+async function resolveOwnerXToken(ownerUserId: string, expectedAccountRef: string): Promise<XAuth> {
   const { User } = await import("@/schemas/user");
   const user = await User.findOne({
     clerkUserId: ownerUserId,
@@ -63,12 +69,22 @@ async function resolveOwnerXToken(ownerUserId: string): Promise<XAuth> {
   if (!tokens?.accessToken) {
     return { error: "X not connected for this owner — reconnect the brand's X account", retryable: false };
   }
+  if (!tokens.userId) {
+    return { error: "Connected X account identity cannot be verified — reconnect", retryable: false };
+  }
+  if (String(tokens.userId) !== expectedAccountRef) {
+    return {
+      error: "Assigned X account no longer matches the owner's connected account — reassign it",
+      retryable: false,
+    };
+  }
 
   let accessToken = tokens.accessToken;
-  const expired = !tokens.expiresAt || new Date(tokens.expiresAt) < new Date();
+  const expiresAt = tokens.expiresAt ? new Date(tokens.expiresAt).getTime() : Number.NaN;
+  const expired = !Number.isFinite(expiresAt) || expiresAt <= Date.now();
   if (expired) {
     if (!tokens.refreshToken) {
-      return { error: "X token expired and cannot refresh — reconnect", retryable: false };
+      return { error: "X connection cannot refresh for scheduled publishing — reconnect", retryable: false };
     }
     const clientId = process.env.TWITTER_CLIENT_ID;
     const clientSecret = process.env.TWITTER_CLIENT_SECRET;
