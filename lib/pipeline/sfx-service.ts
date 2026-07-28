@@ -13,6 +13,7 @@ import { uploadMedia } from '@/lib/editron/services/upload-service';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import { isSFXLibraryAvailable } from '@/lib/pipeline/sfx-library-service';
 import {
+  assertCassetteSfxWav,
   buildCassetteSfxRequest,
   CASSETTE_SFX_LICENSE_ID,
   extractCassetteSfxAudioUrl,
@@ -257,24 +258,14 @@ export async function generateSFX(
     const response = await fetch(audioUrl);
     if (!response.ok) throw new Error('Failed to download generated SFX');
     const buffer = Buffer.from(await response.arrayBuffer());
-
-    if (buffer.length < 12) {
-      throw new Error(`SFX audio too small (${buffer.length} bytes), likely corrupted`);
-    }
-    const isMP3 = (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) ||
-                  (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0);
-    const isWAV = buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46;
-    const isOGG = buffer[0] === 0x4F && buffer[1] === 0x67 && buffer[2] === 0x67 && buffer[3] === 0x53;
-
-    if (!isMP3 && !isWAV && !isOGG) {
-      console.error(`[SFX] Invalid audio format. First 8 bytes: ${buffer.slice(0, 8).toString('hex')}. Skipping upload.`);
-      throw new Error('SFX generation returned invalid audio (not MP3/WAV/OGG)');
-    }
-
-    const ext = isWAV ? 'wav' : isOGG ? 'ogg' : 'mp3';
-    const mime = isWAV ? 'audio/wav' : isOGG ? 'audio/ogg' : 'audio/mpeg';
-    const filename = `${assetId}.${ext}`;
-    const uploadResult = await uploadMedia(buffer, userId, filename, mime, { customAssetId: assetId });
+    assertCassetteSfxWav(buffer);
+    const uploadResult = await uploadMedia(
+      buffer,
+      userId,
+      `${assetId}.wav`,
+      'audio/wav',
+      { customAssetId: assetId },
+    );
     await recordPipelineSFXProviderCost({
       status: 'success',
       userId,

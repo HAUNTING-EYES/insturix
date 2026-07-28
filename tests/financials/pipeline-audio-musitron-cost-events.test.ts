@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  assertCassetteSfxWav,
   buildCassetteSfxRequest,
   CASSETTE_SFX_LICENSE_ID,
   CASSETTE_SFX_MODEL,
@@ -36,6 +37,10 @@ describe('pipeline audio and Musitron provider cost telemetry', () => {
     expect(() => extractCassetteSfxAudioUrl({
       audio_file: { url: 'http://example.com/generated.wav' },
     })).toThrow(/must use HTTPS/);
+    expect(() => assertCassetteSfxWav(Buffer.from('RIFF0000WAVE'))).not.toThrow();
+    expect(() => assertCassetteSfxWav(Buffer.from('RIFF0000MP3!'))).toThrow(
+      /invalid WAV audio/,
+    );
     expect(CASSETTE_SFX_MODEL).toBe('cassetteai/sound-effects-generator');
     expect(CASSETTE_SFX_LICENSE_ID).toBe(
       'fal-ai:cassetteai/sound-effects-generator:commercial-use',

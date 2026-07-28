@@ -62,6 +62,16 @@ export function extractCassetteSfxAudioUrl(result: unknown): string {
   return parsedUrl.toString();
 }
 
+export function assertCassetteSfxWav(audioBytes: Uint8Array): void {
+  const isRiffWave = audioBytes.byteLength >= 12
+    && asciiAt(audioBytes, 0, 4) === 'RIFF'
+    && asciiAt(audioBytes, 8, 4) === 'WAVE';
+
+  if (!isRiffWave) {
+    throw new Error('CassetteAI SFX returned invalid WAV audio');
+  }
+}
+
 function asRecord(value: unknown): UnknownRecord | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as UnknownRecord
@@ -72,4 +82,8 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0
     ? value.trim()
     : null;
+}
+
+function asciiAt(value: Uint8Array, start: number, length: number): string {
+  return String.fromCharCode(...value.subarray(start, start + length));
 }

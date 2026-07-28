@@ -14,6 +14,12 @@ import {
 } from "@/components/editron/editor/version-7.0.0/types";
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import {
+  assertCassetteSfxWav,
+  buildCassetteSfxRequest,
+  CASSETTE_SFX_LICENSE_ID,
+  extractCassetteSfxAudioUrl,
+} from '@/lib/pipeline/cassette-sfx-provider';
+import {
   findBestRow,
   resolveCoordinates,
   getDefaultSize,
@@ -5841,6 +5847,7 @@ Examples:
         let audioRights: import('@/lib/editron/shared/render-request-payload').AudioRightsContract | null = null;
         let sfxTitle = input.query;
         let sfxSource = 'unknown';
+        let sfxFilename: string | null = null;
 
         // Resolve scene video URL and duration if sceneIndex provided
         const project = await loadProject();
@@ -5945,6 +5952,7 @@ Examples:
                     audioUrl = uploadResult.signedUrl;
                     gcsPath = uploadResult.gcsPath;
                     sfxSource = 'mirelo-video-to-audio';
+                    sfxFilename = `${assetId}.wav`;
                     sfxDuration = mireloDuration;
                     audioRights = {
                       mediaRole: 'sfx',
@@ -5967,56 +5975,56 @@ Examples:
           }
         }
 
-        // ─── Priority 3: CassetteAI text-to-SFX (always available) ─
-        // Text-only generation. Works for any query, $0.02/min.
+        // ─── Priority 3: CassetteAI's dedicated text-to-SFX model ─
         if (!audioUrl && falKey) {
           try {
-            const cassDuration = Math.min(Math.max(Math.round(durationSec), 10), 180);
-            console.log(`[add_sfx] P2: CassetteAI gen for: "${input.query}" (${cassDuration}s)`);
-            const cassResult: any = await fal.subscribe('cassetteai/music-generator', {
-              input: {
-                prompt: `${input.query}, sound effect, ambient audio, no vocals, no music`,
-                duration: cassDuration,
-              },
+            const cassetteRequest = buildCassetteSfxRequest(
+              `${input.query}, sound effect, ambient audio, no vocals, no music`,
+              durationSec,
+            );
+            const cassDuration = cassetteRequest.input.duration;
+            console.log(`[add_sfx] P3: CassetteAI gen for: "${input.query}" (${cassDuration}s)`);
+            const cassResult: any = await fal.subscribe(cassetteRequest.model, {
+              input: cassetteRequest.input,
               logs: true,
               pollInterval: 3000,
             });
-            const data = cassResult?.data || cassResult;
-            const firstAudio = data?.audio_file?.url || data?.audio?.url || data?.audio?.[0]?.url || data?.output?.url || data?.url;
-            if (firstAudio) {
-              const audioRes = await fetch(firstAudio);
-              if (audioRes.ok) {
-                const buffer = Buffer.from(await audioRes.arrayBuffer());
-                // Validate audio headers
-                const validAudio = buffer.length > 12 && (
-                  (buffer[0] === 0x52 && buffer[1] === 0x49) || // WAV
-                  (buffer[0] === 0x49 && buffer[1] === 0x44) || // MP3 ID3
-                  (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) || // MPEG
-                  (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
-                );
-                if (!validAudio) throw new Error('CassetteAI returned invalid audio');
-                const uploadResult = await uploadMedia(buffer, userId, `${assetId}.mp3`, 'audio/mpeg', { customAssetId: assetId });
-                if (uploadResult?.signedUrl) {
-                  audioUrl = uploadResult.signedUrl;
-                  gcsPath = uploadResult.gcsPath;
-                  sfxSource = 'cassetteai';
-                  audioRights = {
-                    mediaRole: 'sfx',
-                    source: 'generated',
-                    userChoice: 'attested',
-                    licensed: true,
-                    evidence: {
-                      kind: 'generated-provider',
-                      sourceAssetId: uploadResult.assetId,
-                      licenseId: 'fal-ai:cassetteai/music-generator:commercial-use',
-                    },
-                  };
-                  console.log(`[add_sfx] CassetteAI success: ${assetId}`);
-                }
-              }
+            const firstAudio = extractCassetteSfxAudioUrl(cassResult);
+            const audioRes = await fetch(firstAudio);
+            if (!audioRes.ok) {
+              throw new Error(`CassetteAI SFX download failed with ${audioRes.status}`);
+            }
+            const buffer = Buffer.from(await audioRes.arrayBuffer());
+            assertCassetteSfxWav(buffer);
+            const uploadResult = await uploadMedia(
+              buffer,
+              userId,
+              `${assetId}.wav`,
+              'audio/wav',
+              { customAssetId: assetId },
+            );
+            if (uploadResult?.signedUrl) {
+              assetId = uploadResult.assetId;
+              audioUrl = uploadResult.signedUrl;
+              gcsPath = uploadResult.gcsPath;
+              sfxSource = 'cassetteai';
+              sfxFilename = `${assetId}.wav`;
+              sfxDuration = cassDuration;
+              audioRights = {
+                mediaRole: 'sfx',
+                source: 'generated',
+                userChoice: 'attested',
+                licensed: true,
+                evidence: {
+                  kind: 'generated-provider',
+                  sourceAssetId: assetId,
+                  licenseId: CASSETTE_SFX_LICENSE_ID,
+                },
+              };
+              console.log(`[add_sfx] CassetteAI success: ${assetId}`);
             }
           } catch (cassErr: any) {
-            console.warn(`[add_sfx] CassetteAI failed: ${cassErr.message}, trying Freesound`);
+            console.warn(`[add_sfx] CassetteAI failed: ${cassErr.message}; all SFX providers exhausted`);
           }
         }
 
@@ -6035,7 +6043,7 @@ Examples:
             $set: { audioRights },
             $setOnInsert: {
               assetId, userId, type: 'audio',
-              filename: `${assetId}.mp3`, source: sfxSource,
+              filename: sfxFilename ?? `${assetId}.mp3`, source: sfxSource,
               gcsPath, cachedUrl: audioUrl,
               urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               uploadedAt: new Date(),

@@ -3,10 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getAsset: vi.fn(),
+  getDatabase: vi.fn(),
+  dbUpdateOne: vi.fn(),
+  falConfig: vi.fn(),
+  falSubscribe: vi.fn(),
   resolveAssetUrl: vi.fn(),
   searchAndDownloadSFX: vi.fn(),
   searchStockImages: vi.fn(),
   searchStockVideos: vi.fn(),
+  uploadMedia: vi.fn(),
 }));
 
 vi.hoisted(() => {
@@ -32,6 +37,25 @@ vi.mock('@/lib/pipeline/pixabay-service', () => ({
 vi.mock('@/lib/pipeline/sfx-library-service', () => ({
   searchAndDownloadSFX: mocks.searchAndDownloadSFX,
 }));
+
+vi.mock('@fal-ai/client', () => ({
+  fal: {
+    config: mocks.falConfig,
+    subscribe: mocks.falSubscribe,
+  },
+}));
+
+vi.mock('@/lib/editron/services/upload-service', () => ({
+  uploadMedia: mocks.uploadMedia,
+}));
+
+vi.mock('@/lib/editron/db/mongodb', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/editron/db/mongodb')>();
+  return {
+    ...actual,
+    getDatabase: mocks.getDatabase,
+  };
+});
 
 import { createTools } from '@/lib/editron/agent/tools';
 import { projectService } from '@/lib/editron/services/project-service';
@@ -107,6 +131,15 @@ function parseResult(raw: string) {
   };
 }
 
+function validWavBytes(): Buffer {
+  const bytes = Buffer.alloc(44);
+  bytes.write('RIFF', 0, 'ascii');
+  bytes.writeUInt32LE(36, 4);
+  bytes.write('WAVE', 8, 'ascii');
+  bytes.write('fmt ', 12, 'ascii');
+  return bytes;
+}
+
 describe('chat provider and user-asset tool contracts', () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
@@ -116,6 +149,7 @@ describe('chat provider and user-asset tool contracts', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('replaces the selected SFX source without changing its timeline placement', async () => {
@@ -198,6 +232,110 @@ describe('chat provider and user-asset tool contracts', () => {
       error: { message: 'No SFX found for "nonexistent acoustic texture". Try different keywords.' },
     });
     expect(updateOverlay).not.toHaveBeenCalled();
+  });
+
+  it('uses the dedicated CassetteAI SFX contract and persists renderable WAV rights', async () => {
+    vi.stubEnv('FAL_AI_API_KEY', 'fal_test_key');
+    mocks.searchAndDownloadSFX.mockResolvedValue(null);
+    mocks.falSubscribe.mockResolvedValue({
+      data: {
+        audio_file: {
+          url: 'https://v3.fal.media/files/test/chat-sfx.wav',
+        },
+      },
+    });
+    mocks.uploadMedia.mockImplementation(async (
+      _buffer: Buffer,
+      _userId: string,
+      _filename: string,
+      _contentType: string,
+      options: { customAssetId: string },
+    ) => ({
+      assetId: options.customAssetId,
+      signedUrl: 'https://cdn.example.com/chat-sfx.wav',
+      gcsPath: null,
+    }));
+    mocks.getDatabase.mockResolvedValue({
+      collection: vi.fn(() => ({
+        updateOne: mocks.dbUpdateOne,
+      })),
+    });
+    mocks.dbUpdateOne.mockResolvedValue({ acknowledged: true });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(validWavBytes().toString('latin1'), {
+      status: 200,
+      headers: { 'content-type': 'audio/wav' },
+    })));
+    const addOverlay = vi.spyOn(projectService, 'addOverlay').mockResolvedValue(undefined as any);
+
+    const result = parseResult(await toolNamed('add_sfx').invoke({
+      query: 'directional paper whoosh',
+      durationSeconds: 45,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'success',
+      data: {
+        duration: 30,
+        source: 'cassetteai',
+      },
+    });
+    expect(mocks.falConfig).toHaveBeenCalledWith({ credentials: 'fal_test_key' });
+    expect(mocks.falSubscribe).toHaveBeenCalledWith(
+      'cassetteai/sound-effects-generator',
+      {
+        input: {
+          prompt: 'directional paper whoosh, sound effect, ambient audio, no vocals, no music',
+          duration: 30,
+        },
+        logs: true,
+        pollInterval: 3000,
+      },
+    );
+    const generatedAssetId = String(result.data?.assetId);
+    expect(mocks.uploadMedia).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      'user_provider_asset',
+      `${generatedAssetId}.wav`,
+      'audio/wav',
+      { customAssetId: generatedAssetId },
+    );
+    const audioRights = {
+      mediaRole: 'sfx',
+      source: 'generated',
+      userChoice: 'attested',
+      licensed: true,
+      evidence: {
+        kind: 'generated-provider',
+        sourceAssetId: generatedAssetId,
+        licenseId: 'fal-ai:cassetteai/sound-effects-generator:commercial-use',
+      },
+    };
+    expect(mocks.dbUpdateOne).toHaveBeenCalledWith(
+      { assetId: generatedAssetId },
+      expect.objectContaining({
+        $set: { audioRights },
+        $setOnInsert: expect.objectContaining({
+          assetId: generatedAssetId,
+          filename: `${generatedAssetId}.wav`,
+          source: 'cassetteai',
+        }),
+      }),
+      { upsert: true },
+    );
+    expect(addOverlay).toHaveBeenCalledWith(
+      'user_provider_asset',
+      'proj_provider_asset',
+      expect.objectContaining({
+        assetId: generatedAssetId,
+        content: 'https://cdn.example.com/chat-sfx.wav',
+        src: 'https://cdn.example.com/chat-sfx.wav',
+        audioRights,
+        metadata: expect.objectContaining({
+          source: 'chat-add-sfx',
+          provider: 'cassetteai',
+        }),
+      }),
+    );
   });
 
   it('keeps provider rights attached at every automated SFX overlay producer', () => {
