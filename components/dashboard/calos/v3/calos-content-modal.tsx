@@ -35,7 +35,7 @@ export function ContentModal({
   onSaveDates: (id: string, plannedDates: string[]) => void;
   onSaveDetails: (id: string, details: string) => void;
   onSaveTags: (id: string, customTags: string[]) => void;
-  onDecision: (id: string, decision: 'approved' | 'changes_requested') => void;
+  onDecision: (id: string, decision: 'approved' | 'changes_requested') => Promise<boolean>;
   onGenerate: (id: string) => void;
   onDelete: (id: string) => void;
   onOpenScript: (item: CalItem) => void;
@@ -59,6 +59,18 @@ export function ContentModal({
   const [newDate, setNewDate] = useState('');
   const [making, setMaking] = useState(false); // optimistic: kicked off "Make image", awaiting refetch
   const [aspect, setAspect] = useState<string>(() => platformDefaultAspect(d.platform)); // user-chosen image size
+  const [decisionBusy, setDecisionBusy] = useState<'approved' | 'changes_requested' | null>(null);
+
+  const submitDecision = async (decision: 'approved' | 'changes_requested') => {
+    if (decisionBusy) return;
+    setDecisionBusy(decision);
+    const succeeded = await onDecision(d.id, decision);
+    if (succeeded) {
+      onClose();
+      return;
+    }
+    setDecisionBusy(null);
+  };
 
   const removeDate = (iso: string) => {
     if (dates.length <= 1) return; // a deliverable always keeps at least one date
@@ -326,8 +338,22 @@ export function ContentModal({
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Btn size="sm" onClick={() => onOpenScript(d)}>Open script</Btn>
         <Btn size="sm" variant="primary" onClick={() => onGenerate(d.id)}>✨ Generate</Btn>
-        <Btn size="sm" variant="approve" onClick={() => { onDecision(d.id, 'approved'); onClose(); }}>✓ Approve</Btn>
-        <Btn size="sm" variant="danger" onClick={() => { onDecision(d.id, 'changes_requested'); onClose(); }}>Request changes</Btn>
+        <Btn
+          size="sm"
+          variant="approve"
+          disabled={decisionBusy !== null}
+          onClick={() => void submitDecision('approved')}
+        >
+          {decisionBusy === 'approved' ? 'Approving...' : '✓ Approve'}
+        </Btn>
+        <Btn
+          size="sm"
+          variant="danger"
+          disabled={decisionBusy !== null}
+          onClick={() => void submitDecision('changes_requested')}
+        >
+          {decisionBusy === 'changes_requested' ? 'Saving...' : 'Request changes'}
+        </Btn>
         {d.stage === 'approved' && onPublish && (
           <Btn size="sm" variant="primary" onClick={() => onPublish(d)}>Publish →</Btn>
         )}
