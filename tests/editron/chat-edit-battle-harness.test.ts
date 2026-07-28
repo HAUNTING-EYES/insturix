@@ -893,7 +893,7 @@ describe('chat edit battle harness', () => {
       'sync_cuts_to_beats',
     ]);
     expect(getChatEditBattleScenario('replace-with-uploaded-footage')?.requiredToolSequence).toEqual([
-      'search_user_assets',
+      ['read_project_file', 'get_timeline_view'],
       'resolve_user_asset_overlay',
       'use_matching_footage',
     ]);

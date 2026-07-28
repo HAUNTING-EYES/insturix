@@ -34,7 +34,15 @@ describe('chat edit battle fixtures', () => {
       soundOverlayPolicy: 'preserve-sfx-only',
     });
     expect(plan('edit-html-scene')).toMatchObject({ profile: 'generated-scene', selectedOverlayType: 'html-scene' });
-    expect(plan('explicit-asset')).toMatchObject({ requiresImageAssetAlias: true });
+    expect(plan('explicit-asset')).toMatchObject({ requestedAssetAlias: 'explicit-image' });
+    expect(plan('place-uploaded-asset')).toMatchObject({
+      requestedAssetAlias: 'portrait-image',
+      selectedOverlayType: undefined,
+    });
+    expect(plan('replace-with-uploaded-footage')).toMatchObject({
+      requestedAssetAlias: 'embroidery-video',
+      selectedOverlayType: 'video',
+    });
     expect(plan('selected-dialogue-dubbing')).toMatchObject({
       profile: 'dubbing',
       sourceProjectId: 'proj_FYZeVGomJuSh',
@@ -63,6 +71,16 @@ describe('chat edit battle fixtures', () => {
       alignSelectedWithOverlayType: 'image',
     });
     expect(plan('selected-overlay-edit')).toMatchObject({ requiredSourceCapabilities: [] });
+    expect(getChatEditBattleScenario('place-uploaded-asset')?.requiredToolSequence).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'resolve_user_asset_overlay',
+      'add_overlay',
+    ]);
+    expect(getChatEditBattleScenario('replace-with-uploaded-footage')?.requiredToolSequence).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'resolve_user_asset_overlay',
+      'use_matching_footage',
+    ]);
   });
 
   it('rejects semantically blind visual fixtures before they can produce false product failures', () => {
@@ -366,6 +384,25 @@ describe('chat edit battle fixtures', () => {
       plan: plan('selected-overlay-edit'),
       now: NOW,
     })).toThrow(/has no text overlay/);
+  });
+
+  it('seeds a trusted selected video target for uploaded-footage replacement', () => {
+    const prepared = prepareChatBattleFixture({
+      sourceProject: sourceProject(),
+      fixtureProjectId: 'proj_chatbattle_replace1',
+      plan: plan('replace-with-uploaded-footage'),
+      now: NOW,
+    });
+
+    expect(prepared.selectedOverlayId).toBe('video-1');
+    expect(prepared.clientContext).toMatchObject({
+      selectedOverlayId: 'video-1',
+      selectedRange: {
+        startFrame: 0,
+        endFrame: 900,
+        source: 'selected-overlay',
+      },
+    });
   });
 
   it('clones analysis documents without retaining ids or changing originals', () => {

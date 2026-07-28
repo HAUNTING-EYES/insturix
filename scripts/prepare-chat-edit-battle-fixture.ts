@@ -149,13 +149,14 @@ async function main(): Promise<void> {
     });
 
     await session.withTransaction(async () => {
-      if (plan.requiresImageAssetAlias) {
-        await ensureImageAssetAlias({
+      if (plan.requestedAssetAlias) {
+        await ensureBattleAssetAlias({
           db,
           session,
           userId: requireString(prepared.project.userId, 'source project userId'),
           sourceProject: sourceProject as Record<string, unknown>,
           project: prepared.project,
+          aliasKind: plan.requestedAssetAlias,
           now,
         });
       }
@@ -338,40 +339,101 @@ async function cloneTranscriptAssetAlias(input: {
   return clone;
 }
 
-async function ensureImageAssetAlias(input: {
+const BATTLE_ASSET_ALIASES = {
+  'explicit-image': {
+    assetId: 'a_logo123',
+    type: 'image',
+    filename: 'battle-explicit-image.png',
+    tags: ['battle explicit image'],
+    matches: (_asset: Record<string, any>) => true,
+  },
+  'portrait-image': {
+    assetId: 'a_portrait123',
+    type: 'image',
+    filename: 'battle-portrait-image.jpg',
+    tags: ['portrait', 'headshot', 'battle portrait image'],
+    matches: (asset: Record<string, any>) => assetSearchText(asset).includes('portrait')
+      || assetSearchText(asset).includes('headshot'),
+  },
+  'embroidery-video': {
+    assetId: 'a_embroidery123',
+    type: 'video',
+    filename: 'battle-embroidery-video.mp4',
+    tags: ['embroidery', 'stitching', 'battle embroidery video'],
+    matches: (asset: Record<string, any>) => assetSearchText(asset).includes('embroid')
+      || assetSearchText(asset).includes('stitch'),
+  },
+} as const;
+
+async function ensureBattleAssetAlias(input: {
   db: any;
   session: any;
   userId: string;
   sourceProject: Record<string, unknown>;
   project: Record<string, unknown>;
+  aliasKind: keyof typeof BATTLE_ASSET_ALIASES;
   now: Date;
 }): Promise<void> {
   const { COLLECTIONS } = await import('../lib/editron/db/mongodb');
   const assets = input.db.collection(COLLECTIONS.MEDIA_ASSETS);
-  const existing = await assets.findOne({ userId: input.userId, assetId: 'a_logo123' }, { session: input.session });
-  if (existing && existing.type !== 'image') throw new Error('Battle asset alias a_logo123 exists but is not an image.');
+  const config = BATTLE_ASSET_ALIASES[input.aliasKind];
+  const existing = await assets.findOne(
+    { userId: input.userId, assetId: config.assetId },
+    { session: input.session },
+  );
+  if (existing && (existing.type !== config.type || !asRecord(existing.metadata).battleFixtureAlias)) {
+    throw new Error(`Battle asset alias ${config.assetId} collides with a non-fixture ${existing.type ?? 'unknown'} asset.`);
+  }
   if (!existing) {
-    const imageOverlay = asArray(input.sourceProject.overlays)
-      .map(asRecord)
-      .find((overlay) => overlay.type === 'image');
-    const preferredAssetId = stringValue(imageOverlay?.assetId);
-    const sourceAsset = preferredAssetId
-      ? await assets.findOne({ userId: input.userId, assetId: preferredAssetId }, { session: input.session })
-      : await assets.findOne({ userId: input.userId, type: 'image' }, { session: input.session });
-    if (!sourceAsset) throw new Error('No owned image asset exists to seed the explicit-asset battle case.');
+    const orderedSourceAssetIds = [...new Set([
+      ...asArray(input.sourceProject.sourceAssetIds),
+      ...asArray(input.sourceProject.overlays).map((value) => asRecord(value).assetId),
+    ].filter((value): value is string => typeof value === 'string' && Boolean(value.trim())))];
+    const sourceAssets = await assets.find({
+      userId: input.userId,
+      type: config.type,
+      assetId: { $in: orderedSourceAssetIds },
+    }, { session: input.session }).toArray();
+    const sourceById = new Map(
+      sourceAssets.map((asset: Record<string, any>) => [stringValue(asset.assetId), asset]),
+    );
+    const sourceAsset = orderedSourceAssetIds
+      .map((assetId) => sourceById.get(assetId))
+      .find((asset): asset is Record<string, any> => Boolean(asset && config.matches(asset)));
+    if (!sourceAsset) {
+      throw new Error(
+        `Fixture source has no truthful ${input.aliasKind} asset for ${config.assetId}; refusing to relabel unrelated pixels.`,
+      );
+    }
     const alias = structuredClone(sourceAsset);
     delete alias._id;
-    alias.assetId = 'a_logo123';
-    alias.filename = `battle-logo-${sourceAsset.filename ?? 'image'}`;
+    alias.assetId = config.assetId;
+    alias.filename = config.filename;
+    alias.tags = [...new Set([
+      ...asArray(sourceAsset.tags).filter((value): value is string => typeof value === 'string'),
+      ...config.tags,
+    ])];
     alias.uploadedAt = input.now;
     alias.createdAt = input.now;
     alias.updatedAt = input.now;
-    alias.metadata = { ...asRecord(alias.metadata), battleFixtureAlias: true };
+    alias.metadata = {
+      ...asRecord(alias.metadata),
+      battleFixtureAlias: true,
+      fixturePurpose: input.aliasKind,
+      sourceAssetId: sourceAsset.assetId,
+    };
     await assets.insertOne(alias, { session: input.session });
   }
   const sourceAssetIds = new Set(asArray(input.project.sourceAssetIds).filter((value): value is string => typeof value === 'string'));
-  sourceAssetIds.add('a_logo123');
+  sourceAssetIds.add(config.assetId);
   input.project.sourceAssetIds = [...sourceAssetIds];
+}
+
+function assetSearchText(asset: Record<string, any>): string {
+  return [
+    stringValue(asset.filename),
+    ...asArray(asset.tags).filter((value): value is string => typeof value === 'string'),
+  ].filter(Boolean).join(' ').toLowerCase();
 }
 
 function parseArgs(argv: string[]): PrepareFixtureOptions {

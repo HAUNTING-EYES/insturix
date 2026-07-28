@@ -28,6 +28,11 @@ export type ChatBattleFixtureNativeAudioPolicy =
   | 'mute-embedded-when-explicit-tracks'
   | 'mute-embedded-for-seeded-transcript';
 
+export type ChatBattleFixtureAssetAlias =
+  | 'explicit-image'
+  | 'portrait-image'
+  | 'embroidery-video';
+
 export interface ChatBattleFixtureSources {
   mixed: string;
   speech: string;
@@ -49,7 +54,7 @@ export interface ChatBattleFixturePlan {
   removeCaptionTrack: boolean;
   soundOverlayPolicy: ChatBattleFixtureSoundOverlayPolicy;
   nativeAudioPolicy: ChatBattleFixtureNativeAudioPolicy;
-  requiresImageAssetAlias: boolean;
+  requestedAssetAlias?: ChatBattleFixtureAssetAlias;
   requiresUploadBatchClone: boolean;
   seedTimelineGapFrames?: number;
   alignSelectedWithOverlayType?: string;
@@ -105,7 +110,7 @@ const ADD_CAPTION_SCENARIOS = new Set(['plain-caption-track', 'fancy-caption-tra
 const VIDEO_SELECTED_SCENARIOS = new Set([
   'split-selected-overlay', 'trim-selected-overlay', 'manual-keyframe-zoom',
   'selected-clip-filter', 'analyze-selected-audio', 'analyze-selected-video',
-  'selected-dialogue-dubbing',
+  'selected-dialogue-dubbing', 'replace-with-uploaded-footage',
 ]);
 
 const TEXT_SELECTED_SCENARIOS = new Set([
@@ -140,7 +145,9 @@ export function planChatBattleFixture(
       : profile === 'speech'
         ? 'mute-embedded-for-seeded-transcript'
         : 'preserve',
-    requiresImageAssetAlias: scenario.id === 'explicit-asset',
+    ...(resolveRequestedAssetAlias(scenario.id) ? {
+      requestedAssetAlias: resolveRequestedAssetAlias(scenario.id),
+    } : {}),
     requiresUploadBatchClone: scenario.id === 'multiasset-script-intake'
       || scenario.id === 'multiasset-script-chat',
     ...(scenario.id === 'close-timeline-gaps' ? { seedTimelineGapFrames: 30 } : {}),
@@ -149,6 +156,13 @@ export function planChatBattleFixture(
       : {}),
     requiredSourceCapabilities: resolveRequiredSourceCapabilities(scenario.id),
   };
+}
+
+function resolveRequestedAssetAlias(scenarioId: string): ChatBattleFixtureAssetAlias | undefined {
+  if (scenarioId === 'explicit-asset') return 'explicit-image';
+  if (scenarioId === 'place-uploaded-asset') return 'portrait-image';
+  if (scenarioId === 'replace-with-uploaded-footage') return 'embroidery-video';
+  return undefined;
 }
 
 function resolveRequiredSourceCapabilities(scenarioId: string): ChatBattleFixtureCapability[] {
