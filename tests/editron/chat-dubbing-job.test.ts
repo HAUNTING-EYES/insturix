@@ -10,6 +10,38 @@ import {
   type ChatDubbingProgress,
 } from '@/lib/editron/services/chat-dubbing-job';
 
+vi.mock('@/lib/pipeline/tts-service', () => ({
+  listSupportedSpeechLanguages: () => [
+    { language: 'en', displayName: 'English' },
+    { language: 'hi', displayName: 'Hindi' },
+  ],
+  resolveSpeechSynthesisCapability: (language: unknown, voice?: string | null) => {
+    const normalized = String(language ?? 'English').toLowerCase();
+    if (['hindi', 'hi', 'hi-in', 'hin'].includes(normalized)) {
+      return {
+        language: 'hi',
+        displayName: 'Hindi',
+        provider: 'fal-ai',
+        model: 'fal-ai/kokoro/hindi',
+        voiceId: voice ?? 'hf_alpha',
+      };
+    }
+    if (!['english', 'en', 'en-us', 'en-gb'].includes(normalized)) return null;
+    return {
+      language: 'en',
+      displayName: 'English',
+      provider: 'fal-ai',
+      model: 'fal-ai/kokoro/american-english',
+      voiceId: voice ?? 'af_heart',
+      fallback: {
+        provider: 'deepgram',
+        model: 'aura-asteria-en',
+        voiceId: 'aura-asteria-en',
+      },
+    };
+  },
+}));
+
 class MemoryStore implements ChatDubbingJobStore {
   jobs = new Map<string, ChatDubbingJob>();
   async createOrGet(job: ChatDubbingJob) {
@@ -45,8 +77,11 @@ const project = {
   overlays: [{ id: 11, type: 'video', assetId: 'asset-1', from: 60, durationInFrames: 300, videoStartTime: 90, speed: 1 }],
 };
 
-async function resolved(store: MemoryStore) {
-  return resolveChatDubbingJob({ projectId: 'proj-1', userId: 'user-1', overlayId: 11, targetLanguage: 'English' }, {
+async function resolved(
+  store: MemoryStore,
+  request: Partial<Parameters<typeof resolveChatDubbingJob>[0]> = {},
+) {
+  return resolveChatDubbingJob({ projectId: 'proj-1', userId: 'user-1', overlayId: 11, targetLanguage: 'English', ...request }, {
     store,
     loadProject: vi.fn(async () => project),
     buildProjectRevision: vi.fn(() => 'revision-1'),
@@ -62,15 +97,39 @@ describe('durable chat dubbing job', () => {
     expect(first).toMatchObject({ created: true, status: 'resolved' });
     expect(second).toMatchObject({ jobId: first.jobId, created: false, status: 'resolved' });
     expect(await store.find(first.jobId, 'user-1')).toMatchObject({
-      overlayId: '11', assetId: 'asset-1', targetLanguage: 'English', projectRevision: 'revision-1',
+      overlayId: '11', assetId: 'asset-1', targetLanguage: 'en', projectRevision: 'revision-1',
+      voiceId: 'af_heart',
+      speechCapability: {
+        language: 'en',
+        displayName: 'English',
+        provider: 'fal-ai',
+        model: 'fal-ai/kokoro/american-english',
+        voiceId: 'af_heart',
+      },
       timelineStartFrame: 60, timelineEndFrame: 360, sourceStartFrame: 90, sourceEndFrame: 390,
     });
   });
 
-  it('rejects unsupported languages and retimed clips before provider work', async () => {
-    await expect(resolveChatDubbingJob({ projectId: 'proj-1', userId: 'user-1', overlayId: 11, targetLanguage: 'Hindi' }, {
+  it('pins Hindi as a licensed canonical capability and rejects unsupported languages before provider work', async () => {
+    const store = new MemoryStore();
+    const hindi = await resolved(store, { targetLanguage: 'Hindi' });
+    expect(await store.find(hindi.jobId, 'user-1')).toMatchObject({
+      targetLanguage: 'hi',
+      voiceId: 'hf_alpha',
+      speechCapability: {
+        language: 'hi',
+        displayName: 'Hindi',
+        provider: 'fal-ai',
+        model: 'fal-ai/kokoro/hindi',
+        voiceId: 'hf_alpha',
+      },
+    });
+    await expect(resolveChatDubbingJob({ projectId: 'proj-1', userId: 'user-1', overlayId: 11, targetLanguage: 'French' }, {
       store: new MemoryStore(), loadProject: async () => project, buildProjectRevision: () => 'r', now: () => now,
     })).rejects.toMatchObject({ code: 'unsupported-target-language' });
+  });
+
+  it('rejects retimed clips before provider work', async () => {
     await expect(resolveChatDubbingJob({ projectId: 'proj-1', userId: 'user-1', overlayId: 11 }, {
       store: new MemoryStore(), loadProject: async () => ({ ...project, overlays: [{ ...project.overlays[0], speed: 1.2 }] }), buildProjectRevision: () => 'r', now: () => now,
     })).rejects.toMatchObject({ code: 'retimed-clip-unsupported' });

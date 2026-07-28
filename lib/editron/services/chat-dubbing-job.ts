@@ -4,9 +4,17 @@ import { Client } from '@upstash/qstash';
 
 import { buildChatProjectRevision } from '@/lib/editron/agent/chat-edit-postconditions';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
-import type { GeneratedAudioReceipt } from '@/lib/pipeline/tts-service';
+import {
+  listSupportedSpeechLanguages,
+  resolveSpeechSynthesisCapability,
+  type CanonicalSpeechLanguage,
+  type GeneratedAudioReceipt,
+  type GeneratedSpeechCapability,
+  type SpeechSynthesisCapability,
+} from '@/lib/pipeline/tts-service';
 
-export const CHAT_DUBBING_JOB_VERSION = 'editron-chat-dubbing-job-v2' as const;
+export const CHAT_DUBBING_JOB_VERSION = 'editron-chat-dubbing-job-v3' as const;
+const LEGACY_CHAT_DUBBING_JOB_VERSION = 'editron-chat-dubbing-job-v2' as const;
 export const CHAT_DUBBING_MAX_FAILURES = 2;
 
 const JOB_LEASE_MS = 5 * 60 * 1000;
@@ -37,6 +45,7 @@ export interface DubbingPhraseProgress {
   playbackRate?: number;
   voiceAudioRights?: AudioRightsContract;
   generatedAudioReceipt?: GeneratedAudioReceipt;
+  generatedSpeechCapability?: GeneratedSpeechCapability;
 }
 
 export interface AudioSeparationReceipt {
@@ -72,15 +81,16 @@ export interface ChatDubbingProgress {
 export interface ChatDubbingJob {
   _id: string;
   idempotencyKey: string;
-  version: typeof CHAT_DUBBING_JOB_VERSION;
+  version: typeof CHAT_DUBBING_JOB_VERSION | typeof LEGACY_CHAT_DUBBING_JOB_VERSION;
   status: ChatDubbingJobStatus;
   projectId: string;
   userId: string;
   projectRevision: string;
   overlayId: string;
   assetId: string;
-  targetLanguage: 'English';
+  targetLanguage: CanonicalSpeechLanguage | 'English';
   voiceId?: string | null;
+  speechCapability?: SpeechSynthesisCapability;
   fps: number;
   timelineStartFrame: number;
   timelineEndFrame: number;
@@ -173,8 +183,9 @@ export async function resolveChatDubbingJob(
   const projectId = requiredIdentifier(raw.projectId, 'projectId');
   const userId = requiredIdentifier(raw.userId, 'userId');
   const overlayId = requiredIdentifier(String(raw.overlayId), 'overlayId');
-  const targetLanguage = normalizeTargetLanguage(raw.targetLanguage);
-  const voiceId = cleanString(raw.voiceId);
+  const speechCapability = requireSpeechSynthesisCapability(raw.targetLanguage, raw.voiceId);
+  const targetLanguage = speechCapability.language;
+  const voiceId = speechCapability.voiceId;
   const project = await deps.loadProject(userId, projectId);
   if (!project) throw new TerminalDubbingError('project-not-found', 'Project is missing or not owned by the current user.');
   const revision = deps.buildProjectRevision(project);
@@ -205,6 +216,7 @@ export async function resolveChatDubbingJob(
     overlayId,
     targetLanguage,
     voiceId,
+    speechCapability,
   })).digest('hex');
   const now = deps.now();
   const proposed: ChatDubbingJob = {
@@ -219,6 +231,7 @@ export async function resolveChatDubbingJob(
     assetId,
     targetLanguage,
     voiceId,
+    speechCapability,
     fps,
     timelineStartFrame,
     timelineEndFrame,
@@ -448,12 +461,40 @@ async function jobsCollection() {
   return (await getDatabase()).collection<ChatDubbingJob>(COLLECTIONS.CHAT_DUBBING_JOBS);
 }
 
-function normalizeTargetLanguage(value: unknown): 'English' {
-  const normalized = (cleanString(value) ?? 'English').toLowerCase();
-  if (!['english', 'en', 'en-us', 'en-gb'].includes(normalized)) {
-    throw new TerminalDubbingError('unsupported-target-language', 'The current licensed dubbing voice lane supports English output only.');
+export function resolveChatDubbingSpeechCapability(
+  job: Pick<ChatDubbingJob, 'targetLanguage' | 'voiceId' | 'speechCapability'>,
+): SpeechSynthesisCapability {
+  const resolved = requireSpeechSynthesisCapability(job.targetLanguage, job.voiceId);
+  if (job.speechCapability && !sameSpeechCapability(job.speechCapability, resolved)) {
+    throw new TerminalDubbingError(
+      'dubbing-capability-mismatch',
+      'The persisted dubbing language/provider/voice contract no longer matches the executable speech capability.',
+    );
   }
-  return 'English';
+  return job.speechCapability ?? resolved;
+}
+
+function requireSpeechSynthesisCapability(
+  targetLanguage: unknown,
+  voiceId?: string | null,
+): SpeechSynthesisCapability {
+  const capability = resolveSpeechSynthesisCapability(targetLanguage, cleanString(voiceId));
+  if (capability) return capability;
+  const supported = listSupportedSpeechLanguages().map((item) => item.displayName).join(', ');
+  throw new TerminalDubbingError(
+    'unsupported-target-language',
+    `No licensed dubbing capability matches the requested language/voice. Supported languages: ${supported}.`,
+  );
+}
+
+function sameSpeechCapability(left: SpeechSynthesisCapability, right: SpeechSynthesisCapability): boolean {
+  return left.language === right.language
+    && left.provider === right.provider
+    && left.model === right.model
+    && left.voiceId === right.voiceId
+    && left.fallback?.provider === right.fallback?.provider
+    && left.fallback?.model === right.fallback?.model
+    && left.fallback?.voiceId === right.fallback?.voiceId;
 }
 
 function sameContract(left: ChatDubbingJob, right: ChatDubbingJob) {
@@ -462,7 +503,9 @@ function sameContract(left: ChatDubbingJob, right: ChatDubbingJob) {
     && left.projectRevision === right.projectRevision
     && left.overlayId === right.overlayId
     && left.assetId === right.assetId
-    && left.targetLanguage === right.targetLanguage;
+    && left.targetLanguage === right.targetLanguage
+    && Boolean(left.speechCapability) === Boolean(right.speechCapability)
+    && (!left.speechCapability || !right.speechCapability || sameSpeechCapability(left.speechCapability, right.speechCapability));
 }
 
 function isRetryableDubbingError(error: unknown) {

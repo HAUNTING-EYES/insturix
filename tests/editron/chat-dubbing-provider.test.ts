@@ -30,6 +30,45 @@ vi.mock('@fal-ai/client', () => ({
 
 vi.mock('@/lib/pipeline/tts-service', () => ({
   generateVoiceover: mocks.generateVoiceover,
+  listSupportedSpeechLanguages: () => [
+    { language: 'en', displayName: 'English' },
+    { language: 'hi', displayName: 'Hindi' },
+  ],
+  resolveSpeechSynthesisCapability: (language: unknown, voice?: string | null) => {
+    const normalized = String(language ?? 'English').toLowerCase();
+    if (['hindi', 'hi', 'hi-in', 'hin'].includes(normalized)) {
+      return {
+        language: 'hi',
+        displayName: 'Hindi',
+        provider: 'fal-ai',
+        model: 'fal-ai/kokoro/hindi',
+        voiceId: voice ?? 'hf_alpha',
+      };
+    }
+    if (['english', 'en', 'en-us', 'en-gb'].includes(normalized)) {
+      return voice === 'aura-asteria-en'
+        ? {
+          language: 'en',
+          displayName: 'English',
+          provider: 'deepgram',
+          model: 'aura-asteria-en',
+          voiceId: 'aura-asteria-en',
+        }
+        : {
+          language: 'en',
+          displayName: 'English',
+          provider: 'fal-ai',
+          model: 'fal-ai/kokoro/american-english',
+          voiceId: voice ?? 'af_heart',
+          fallback: {
+            provider: 'deepgram',
+            model: 'aura-asteria-en',
+            voiceId: 'aura-asteria-en',
+          },
+        };
+    }
+    return null;
+  },
 }));
 
 vi.mock('@/lib/editron/db/mongodb', () => ({
@@ -93,6 +132,14 @@ const generatedAudioReceipt = {
   assetId: 'dub_voice_1',
   mediaRole: 'dubbing' as const,
   generatedAt: now.toISOString(),
+};
+const generatedSpeechCapability = {
+  language: 'en' as const,
+  displayName: 'English' as const,
+  provider: 'deepgram' as const,
+  model: 'aura-asteria-en',
+  voiceId: 'aura-asteria-en',
+  fallbackUsed: false,
 };
 const sourceNativeAudioRights = {
   mediaRole: 'native-video' as const,
@@ -197,6 +244,7 @@ describe('chat dubbing generated-audio provenance', () => {
       r2Key: null,
       audioRights: dubbingRights,
       generatedAudioReceipt,
+      generatedSpeechCapability,
     });
     mocks.findOne.mockResolvedValue({
       projectId: 'proj-1',
@@ -307,7 +355,11 @@ describe('chat dubbing generated-audio provenance', () => {
     expect(mocks.generateVoiceover).toHaveBeenCalledWith(
       'Translated line.',
       'user-1',
-      expect.objectContaining({ mediaRole: 'dubbing' }),
+      expect.objectContaining({
+        mediaRole: 'dubbing',
+        language: 'en',
+        voice: 'aura-asteria-en',
+      }),
     );
     expect(result.status).toBe('continue');
     if (result.status !== 'continue') throw new Error('Expected a continuing dubbing job.');
@@ -316,7 +368,68 @@ describe('chat dubbing generated-audio provenance', () => {
       voiceAssetId: 'dub_voice_1',
       voiceAudioRights: dubbingRights,
       generatedAudioReceipt,
+      generatedSpeechCapability,
     });
+  });
+
+  it('keeps a Hindi job Hindi through the provider boundary', async () => {
+    const hindiCapability = {
+      language: 'hi' as const,
+      displayName: 'Hindi' as const,
+      provider: 'fal-ai' as const,
+      model: 'fal-ai/kokoro/hindi',
+      voiceId: 'hf_alpha',
+      fallbackUsed: false,
+    };
+    mocks.generateVoiceover.mockResolvedValueOnce({
+      audioBuffer: Buffer.alloc(44),
+      durationMs: 1000,
+      audioUrl: 'https://storage.test/dub_voice_hi.wav',
+      audioAssetId: 'dub_voice_hi',
+      gcsPath: 'editron/user-1/media/dub_voice_hi.wav',
+      r2Key: null,
+      audioRights: dubbingRights,
+      generatedAudioReceipt: { ...generatedAudioReceipt, assetId: 'dub_voice_hi' },
+      generatedSpeechCapability: hindiCapability,
+    });
+    const { executeChatDubbingStep } = await import(
+      '@/lib/editron/services/chat-dubbing-provider'
+    );
+    const hindiJob = {
+      ...job({
+        stage: 'voice',
+        background: {
+          assetId: 'dub_bed_1',
+          url: 'https://storage.test/dub_bed_1.wav',
+          audioRights: backgroundAudioRights,
+          audioSeparationReceipt,
+        },
+        phrases: [phraseProgress()],
+        nextPhraseIndex: 0,
+        generatedAssetIds: ['dub_bed_1'],
+      }),
+      version: 'editron-chat-dubbing-job-v3' as const,
+      targetLanguage: 'hi' as const,
+      voiceId: 'hf_alpha',
+      speechCapability: {
+        language: 'hi' as const,
+        displayName: 'Hindi' as const,
+        provider: 'fal-ai' as const,
+        model: 'fal-ai/kokoro/hindi',
+        voiceId: 'hf_alpha',
+      },
+    };
+
+    const result = await executeChatDubbingStep(hindiJob);
+
+    expect(mocks.generateVoiceover).toHaveBeenCalledWith(
+      'Translated line.',
+      'user-1',
+      expect.objectContaining({ language: 'hi', voice: 'hf_alpha', mediaRole: 'dubbing' }),
+    );
+    expect(result.status).toBe('continue');
+    if (result.status !== 'continue') throw new Error('Expected a continuing dubbing job.');
+    expect(result.progress.phrases?.[0]?.generatedSpeechCapability).toEqual(hindiCapability);
   });
 
   it('copies the persisted rights unchanged onto the final dubbing overlay', async () => {
@@ -339,6 +452,7 @@ describe('chat dubbing generated-audio provenance', () => {
         playbackRate: 1,
         voiceAudioRights: dubbingRights,
         generatedAudioReceipt,
+        generatedSpeechCapability,
       }],
       nextPhraseIndex: 1,
       generatedAssetIds: ['dub_bed_1', 'dub_voice_1'],
@@ -404,6 +518,7 @@ describe('chat dubbing generated-audio provenance', () => {
         playbackRate: 1,
         voiceAudioRights: dubbingRights,
         generatedAudioReceipt,
+        generatedSpeechCapability,
       }],
       nextPhraseIndex: 1,
       generatedAssetIds: ['dub_bed_1', 'dub_voice_1'],

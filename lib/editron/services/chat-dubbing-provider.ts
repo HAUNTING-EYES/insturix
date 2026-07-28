@@ -15,11 +15,16 @@ import {
   type AudioRightsContract,
 } from '@/lib/editron/shared/render-request-payload';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
-import { generateVoiceover } from '@/lib/pipeline/tts-service';
+import {
+  generateVoiceover,
+  type GeneratedSpeechCapability,
+  type SpeechSynthesisCapability,
+} from '@/lib/pipeline/tts-service';
 import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
 
 import {
   TerminalDubbingError,
+  resolveChatDubbingSpeechCapability,
   type AudioSeparationReceipt,
   type ChatDubbingJob,
   type ChatDubbingProgress,
@@ -60,6 +65,7 @@ async function cleanupGeneratedAssets(userId: string, rawAssetIds: string[]): Pr
 }
 
 async function prepareDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult> {
+  const speechCapability = resolveChatDubbingSpeechCapability(job);
   const transcription = await getTranscription(job.assetId, job.userId, { preferWordLevel: true });
   const sourceWords = transcription.words.filter((word) => {
     const startFrame = Math.round((word.startMs / 1000) * job.fps);
@@ -71,7 +77,10 @@ async function prepareDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResul
   }
   const beats = segmentNarrativeBeats(sourceWords);
   if (beats.length === 0) throw new TerminalDubbingError('no-dubbing-phrases', 'No stable phrase windows could be derived from the selected dialogue.');
-  const translations = await translatePhrases(beats.map((beat, index) => ({ id: index, text: beat.line })), job.targetLanguage);
+  const translations = await translatePhrases(
+    beats.map((beat, index) => ({ id: index, text: beat.line })),
+    speechCapability.displayName,
+  );
   const phrases: DubbingPhraseProgress[] = beats.map((beat, index) => {
     const sourceStartFrame = Math.round((beat.startMs / 1000) * job.fps);
     const sourceEndFrame = Math.max(sourceStartFrame + 1, Math.round((beat.endMs / 1000) * job.fps));
@@ -122,6 +131,7 @@ async function separateBackground(job: ChatDubbingJob): Promise<ChatDubbingStepR
 }
 
 async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepResult> {
+  const speechCapability = resolveChatDubbingSpeechCapability(job);
   const phrases = job.progress.phrases?.map((phrase) => ({ ...phrase })) ?? [];
   if (!job.progress.background || phrases.length === 0) {
     throw new TerminalDubbingError('incomplete-dubbing-progress', 'Background and translated phrases must exist before voice generation.');
@@ -135,11 +145,12 @@ async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepR
       const phrase = phrases[index];
       if (phrase.voiceAssetId) continue;
       const voice = await generateVoiceover(phrase.translatedText, job.userId, {
-        ...(job.voiceId ? { voice: job.voiceId } : {}),
-        language: 'en',
+        voice: speechCapability.voiceId,
+        language: speechCapability.language,
         contentType: 'dialogue',
         mediaRole: 'dubbing',
       });
+      assertGeneratedSpeechCapability(speechCapability, voice.generatedSpeechCapability);
       generatedThisStep.push(voice.audioAssetId);
       const targetDurationMs = ((phrase.timelineEndFrame - phrase.timelineStartFrame) / job.fps) * 1000;
       const playbackRate = voice.durationMs / targetDurationMs;
@@ -155,6 +166,7 @@ async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepR
       phrase.playbackRate = round(playbackRate, 4);
       phrase.voiceAudioRights = voice.audioRights;
       phrase.generatedAudioReceipt = voice.generatedAudioReceipt;
+      phrase.generatedSpeechCapability = voice.generatedSpeechCapability;
       generatedAssetIds.push(voice.audioAssetId);
     }
   } catch (error) {
@@ -189,6 +201,7 @@ async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult
       || !phrase.playbackRate
       || !phrase.voiceAudioRights
       || !phrase.generatedAudioReceipt
+      || !phrase.generatedSpeechCapability
     )
   ) {
     throw new TerminalDubbingError(
@@ -249,6 +262,8 @@ async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult
       phraseIndex: phrase.index,
       sourceText: phrase.sourceText,
       translatedText: phrase.translatedText,
+      targetLanguage: phrase.generatedSpeechCapability!.language,
+      generatedSpeechCapability: phrase.generatedSpeechCapability,
       sourceOverlayId: job.overlayId,
     },
   }, 'phrase-aligned-translated-dialogue'));
@@ -263,6 +278,7 @@ async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult
           jobId: job._id,
           overlayId: job.overlayId,
           targetLanguage: job.targetLanguage,
+          speechCapability: resolveChatDubbingSpeechCapability(job),
           phraseCount: phrases.length,
           backgroundAssetId: background.assetId,
           audioSeparationReceipt: background.audioSeparationReceipt,
@@ -281,12 +297,36 @@ async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult
     result: {
       overlayId: job.overlayId,
       targetLanguage: job.targetLanguage,
+      speechCapability: resolveChatDubbingSpeechCapability(job),
       phraseCount: phrases.length,
       backgroundAssetId: background.assetId,
       voiceAssetIds: phrases.map((phrase) => phrase.voiceAssetId),
       audioOverlayIds: [backgroundOverlay.id, ...voiceOverlays.map((overlay) => overlay.id)],
     },
   };
+}
+
+function assertGeneratedSpeechCapability(
+  expected: SpeechSynthesisCapability,
+  actual: GeneratedSpeechCapability | undefined,
+): asserts actual is GeneratedSpeechCapability {
+  const matchesPrimary = actual?.provider === expected.provider
+    && actual.model === expected.model
+    && actual.voiceId === expected.voiceId
+    && actual.fallbackUsed === false;
+  const matchesFallback = Boolean(
+    expected.fallback
+    && actual?.provider === expected.fallback.provider
+    && actual.model === expected.fallback.model
+    && actual.voiceId === expected.fallback.voiceId
+    && actual.fallbackUsed === true,
+  );
+  if (!actual || actual.language !== expected.language || (!matchesPrimary && !matchesFallback)) {
+    throw new TerminalDubbingError(
+      'dubbing-speech-capability-mismatch',
+      'Generated speech did not match the pinned dubbing language/provider/voice contract.',
+    );
+  }
 }
 
 async function translatePhrases(input: Array<{ id: number; text: string }>, targetLanguage: string): Promise<string[]> {
