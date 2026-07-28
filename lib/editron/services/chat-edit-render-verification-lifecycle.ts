@@ -327,8 +327,27 @@ export function markChatEditRenderVerificationTerminal<Visual, Audio>(
   },
 ): ChatEditRenderVerificationRecord<Visual, Audio> {
   const updatedAt = toIso(input.now ?? new Date());
-  const reasons = input.reasons.map((reason) => cleanText(reason, 500)).filter((reason): reason is string => Boolean(reason));
-  const issues = sanitizeIssues(input.issues);
+  const suppliedReasons = input.reasons
+    .map((reason) => cleanText(reason, 500))
+    .filter((reason): reason is string => Boolean(reason));
+  const suppliedIssues = sanitizeIssues(input.issues);
+  const missingTerminalDiagnostic =
+    input.status !== 'pass'
+    && suppliedReasons.length === 0
+    && suppliedIssues.length === 0;
+  const reasons = missingTerminalDiagnostic
+    ? ['render_verification_terminal_missing_diagnostic']
+    : suppliedReasons;
+  const issues = suppliedIssues.length > 0
+    ? suppliedIssues
+    : missingTerminalDiagnostic
+      ? [{
+          modality: 'system' as const,
+          severity: 'error' as const,
+          code: 'render_verification_terminal_missing_diagnostic',
+          message: 'Render verification ended without a diagnostic.',
+        }]
+      : reasonsToIssues(reasons, input.status === 'error' ? 'system' : 'visual');
   const isSystemError = input.status === 'error';
   return {
     ...record,
@@ -339,7 +358,7 @@ export function markChatEditRenderVerificationTerminal<Visual, Audio>(
     projectRenderEligibility:
       input.projectRenderEligibility ?? record.projectRenderEligibility,
     reasons,
-    issues: issues.length > 0 ? issues : reasonsToIssues(reasons, isSystemError ? 'system' : 'visual'),
+    issues,
     notificationStatus: 'pending',
     lifecycle: {
       ...record.lifecycle,

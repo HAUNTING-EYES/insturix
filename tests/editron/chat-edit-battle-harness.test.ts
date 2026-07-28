@@ -2442,6 +2442,36 @@ describe('chat edit battle harness', () => {
     });
   });
 
+  it('never persists a non-pass terminal render verdict without a diagnostic', () => {
+    const failed = markChatEditRenderVerificationTerminal(
+      buildRequestedChatEditRenderVerification(renderVerificationRequest()),
+      {
+        status: 'fail',
+        visual: null,
+        audio: null,
+        reasons: [],
+        issues: [],
+        now: '2026-07-18T10:00:04.000Z',
+      },
+    );
+
+    expect(failed).toMatchObject({
+      status: 'fail',
+      reasons: ['render_verification_terminal_missing_diagnostic'],
+      issues: [{
+        modality: 'system',
+        severity: 'error',
+        code: 'render_verification_terminal_missing_diagnostic',
+        message: 'Render verification ended without a diagnostic.',
+      }],
+      lifecycle: {
+        state: 'completed',
+        terminalStatus: 'quality-fail',
+        reason: 'render_verification_terminal_missing_diagnostic',
+      },
+    });
+  });
+
   it('marks exhausted render verification deliveries as terminal system errors', () => {
     const requested = buildRequestedChatEditRenderVerification(
       renderVerificationRequest(),
