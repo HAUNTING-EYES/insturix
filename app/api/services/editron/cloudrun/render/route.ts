@@ -35,6 +35,8 @@ export async function POST(request: Request) {
   let creditsDeducted = false;
   let renderStarted = false;
   let renderAdmissionId: string | null = null;
+  let standardDeliveryManifest: ReturnType<typeof buildRenderDeliveryManifest> | null = null;
+  let standardWebhook: ReturnType<typeof buildRemotionRenderWebhook> | null = null;
 
   try {
     const { userId } = await auth();
@@ -149,13 +151,21 @@ export async function POST(request: Request) {
 
     if (!usesChapterRendering) {
       const admissionId = `rnd_${nanoid(12)}`;
+      const deliveryManifest = buildRenderDeliveryManifest({
+        plan: deliveryPlan,
+        renderId: admissionId,
+      });
+      const webhook = buildRemotionRenderWebhook(request, admissionId);
       await reserveJob(
         admissionId,
         userId,
         canonicalProjectId,
         region,
+        deliveryManifest,
       );
       renderAdmissionId = admissionId;
+      standardDeliveryManifest = deliveryManifest;
+      standardWebhook = webhook;
     }
 
     try {
@@ -236,15 +246,13 @@ export async function POST(request: Request) {
       metadata: {
         editronRenderAdmissionId: renderAdmissionId!,
       },
+      webhook: standardWebhook!,
     });
 
     renderStarted = true;
     console.log('Lambda render started:', { renderId, bucketName });
 
-    const deliveryManifest = buildRenderDeliveryManifest({
-      plan: deliveryPlan,
-      renderId,
-    });
+    const deliveryManifest = standardDeliveryManifest!;
     let trackingStatus: 'durable' | 'degraded' = 'durable';
     try {
       await markJobStarted(
@@ -391,4 +399,25 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function buildRemotionRenderWebhook(request: Request, admissionId: string) {
+  const secret = process.env.REMOTION_WEBHOOK_SECRET?.trim();
+  if (!secret) {
+    throw new Error('REMOTION_WEBHOOK_SECRET is required for durable rendering');
+  }
+  const webhookUrl = new URL(
+    '/api/services/editron/cloudrun/render/webhook',
+    request.url,
+  );
+  if (webhookUrl.protocol !== 'https:' && webhookUrl.hostname !== 'localhost') {
+    throw new Error('Remotion render webhook must use HTTPS');
+  }
+  return {
+    url: webhookUrl.toString(),
+    secret,
+    customData: {
+      editronRenderAdmissionId: admissionId,
+    },
+  };
 }

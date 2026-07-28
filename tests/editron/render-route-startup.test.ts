@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const routeMocks = vi.hoisted(() => ({
   auth: vi.fn(),
   renderMediaOnLambda: vi.fn(),
+  validateWebhookSignature: vi.fn(),
   createJob: vi.fn(),
   reserveJob: vi.fn(),
   markJobStarted: vi.fn(),
   failJob: vi.fn(),
+  reconcileProviderTerminalEvent: vi.fn(),
   getActiveRendersForUser: vi.fn(),
   resolveProjectAssets: vi.fn(),
   loadProject: vi.fn(),
@@ -19,6 +21,9 @@ const routeMocks = vi.hoisted(() => ({
   shouldUseChapterRendering: vi.fn(),
   startChapterRender: vi.fn(),
   transitionProjectStatus: vi.fn(),
+  dbFindOne: vi.fn(),
+  dbUpdateOne: vi.fn(),
+  dbInsertOne: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({
@@ -27,6 +32,7 @@ vi.mock('@clerk/nextjs/server', () => ({
 
 vi.mock('@remotion/lambda/client', () => ({
   renderMediaOnLambda: routeMocks.renderMediaOnLambda,
+  validateWebhookSignature: routeMocks.validateWebhookSignature,
 }));
 
 vi.mock('@/lib/editron/services/render-job-service', () => ({
@@ -34,7 +40,18 @@ vi.mock('@/lib/editron/services/render-job-service', () => ({
   reserveJob: routeMocks.reserveJob,
   markJobStarted: routeMocks.markJobStarted,
   failJob: routeMocks.failJob,
+  reconcileProviderTerminalEvent: routeMocks.reconcileProviderTerminalEvent,
   getActiveRendersForUser: routeMocks.getActiveRendersForUser,
+}));
+
+vi.mock('@/lib/editron/db/mongodb', () => ({
+  getDatabase: vi.fn(async () => ({
+    collection: () => ({
+      findOne: routeMocks.dbFindOne,
+      updateOne: routeMocks.dbUpdateOne,
+      insertOne: routeMocks.dbInsertOne,
+    }),
+  })),
 }));
 
 vi.mock('@/lib/editron/services/asset-resolver', () => ({
@@ -80,12 +97,14 @@ vi.mock('@/lib/shared/project-status', () => ({
 
 import { POST } from '@/app/api/services/editron/cloudrun/render/route';
 import { GET as GET_ACTIVE_RENDERS } from '@/app/api/services/editron/render/active/route';
+import { POST as POST_RENDER_WEBHOOK } from '@/app/api/services/editron/cloudrun/render/webhook/route';
 
 describe('Editron render startup boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv('REMOTION_LAMBDA_FUNCTION_NAME', 'editron-render-test');
     vi.stubEnv('REMOTION_LAMBDA_SERVE_URL', 'https://remotion.example.test/site');
+    vi.stubEnv('REMOTION_WEBHOOK_SECRET', 'test-remotion-webhook-secret');
     routeMocks.auth.mockResolvedValue({ userId: 'user_1' });
     routeMocks.assertRemotionSiteFresh.mockReturnValue({ reason: 'verified' });
     routeMocks.setAwsCredentials.mockResolvedValue(undefined);
@@ -125,8 +144,12 @@ describe('Editron render startup boundary', () => {
     routeMocks.reserveJob.mockResolvedValue(undefined);
     routeMocks.markJobStarted.mockResolvedValue(undefined);
     routeMocks.failJob.mockResolvedValue(undefined);
+    routeMocks.reconcileProviderTerminalEvent.mockResolvedValue(undefined);
     routeMocks.getActiveRendersForUser.mockResolvedValue([]);
     routeMocks.transitionProjectStatus.mockResolvedValue(undefined);
+    routeMocks.dbFindOne.mockResolvedValue(null);
+    routeMocks.dbUpdateOne.mockResolvedValue({ matchedCount: 1 });
+    routeMocks.dbInsertOne.mockResolvedValue({ acknowledged: true });
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -159,6 +182,9 @@ describe('Editron render startup boundary', () => {
       'user_1',
       'project_1',
       'us-east-1',
+      expect.objectContaining({
+        primaryArtifact: expect.objectContaining({ renderId: admissionId }),
+      }),
     );
     expect(routeMocks.reserveJob.mock.invocationCallOrder[0])
       .toBeLessThan(routeMocks.deduct.mock.invocationCallOrder[0]);
@@ -167,6 +193,13 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.renderMediaOnLambda).toHaveBeenCalledWith(expect.objectContaining({
       metadata: {
         editronRenderAdmissionId: admissionId,
+      },
+      webhook: {
+        url: 'https://app.example.test/api/services/editron/cloudrun/render/webhook',
+        secret: 'test-remotion-webhook-secret',
+        customData: {
+          editronRenderAdmissionId: admissionId,
+        },
       },
       inputProps: expect.objectContaining({
         overlays: [
@@ -184,11 +217,22 @@ describe('Editron render startup boundary', () => {
       'bucket_1',
       'us-east-1',
       expect.objectContaining({
-        primaryArtifact: expect.objectContaining({ renderId: 'render_1' }),
+        primaryArtifact: expect.objectContaining({ renderId: admissionId }),
       }),
     );
     expect(routeMocks.createJob).not.toHaveBeenCalled();
     expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('CRITICAL: missing webhook authentication stops before admission, billing, and dispatch', async () => {
+    vi.stubEnv('REMOTION_WEBHOOK_SECRET', '');
+
+    const response = await POST(renderRequest());
+
+    expect(response.status).toBe(500);
+    expect(routeMocks.reserveJob).not.toHaveBeenCalled();
+    expect(routeMocks.deduct).not.toHaveBeenCalled();
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
   });
 
   it('CRITICAL: admission persistence failure spends no credits and starts no render', async () => {
@@ -201,6 +245,135 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.deduct).not.toHaveBeenCalled();
     expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
     expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('repairs a lost provider binding from a signed success webhook', async () => {
+    const payload = {
+      type: 'success',
+      renderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      outputFile: 'https://bucket.example.test/render.mp4',
+      customData: {
+        editronRenderAdmissionId: 'rnd_admission_1',
+      },
+    };
+
+    const response = await POST_RENDER_WEBHOOK(renderWebhookRequest(payload));
+
+    expect(response.status).toBe(200);
+    expect(routeMocks.validateWebhookSignature).toHaveBeenCalledWith({
+      secret: 'test-remotion-webhook-secret',
+      body: payload,
+      signatureHeader: 'sha512=test-signature',
+    });
+    expect(routeMocks.reconcileProviderTerminalEvent).toHaveBeenCalledWith({
+      jobId: 'rnd_admission_1',
+      providerRenderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      event: {
+        type: 'success',
+        outputUrl: 'https://bucket.example.test/render.mp4',
+      },
+    });
+  });
+
+  it('CRITICAL: rejects forged render callbacks before durable state changes', async () => {
+    routeMocks.validateWebhookSignature.mockImplementation(() => {
+      throw new Error('Signatures do not match');
+    });
+
+    const response = await POST_RENDER_WEBHOOK(renderWebhookRequest({
+      type: 'timeout',
+      renderId: 'render_forged',
+      bucketName: 'bucket_forged',
+      customData: {
+        editronRenderAdmissionId: 'rnd_admission_1',
+      },
+    }));
+
+    expect(response.status).toBe(401);
+    expect(routeMocks.reconcileProviderTerminalEvent).not.toHaveBeenCalled();
+  });
+
+  it('atomically binds and completes the real durable job from a terminal callback', async () => {
+    const actualJobService = await vi.importActual<
+      typeof import('@/lib/editron/services/render-job-service')
+    >('@/lib/editron/services/render-job-service');
+    routeMocks.dbFindOne.mockResolvedValue({
+      _id: 'rnd_admission_1',
+      status: 'pending',
+      deliveryManifest: renderDeliveryManifest('rnd_admission_1'),
+    });
+
+    await actualJobService.reconcileProviderTerminalEvent({
+      jobId: 'rnd_admission_1',
+      providerRenderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      event: {
+        type: 'success',
+        outputUrl: 'https://bucket.example.test/render.mp4',
+      },
+    });
+
+    expect(routeMocks.dbUpdateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: 'rnd_admission_1',
+        $or: [
+          { providerRenderId: { $exists: false } },
+          { providerRenderId: 'render_provider_1' },
+        ],
+      }),
+      {
+        $set: expect.objectContaining({
+          providerRenderId: 'render_provider_1',
+          bucketName: 'bucket_1',
+          status: 'done',
+          progress: 1,
+          outputUrl: 'https://bucket.example.test/render.mp4',
+          deliveryManifest: expect.objectContaining({
+            completedAt: expect.any(String),
+            primaryArtifact: expect.objectContaining({
+              renderId: 'rnd_admission_1',
+              status: 'ready',
+              url: 'https://bucket.example.test/render.mp4',
+            }),
+          }),
+        }),
+      },
+    );
+  });
+
+  it('CRITICAL: the real reconciler rejects provider substitution and late failure regression', async () => {
+    const actualJobService = await vi.importActual<
+      typeof import('@/lib/editron/services/render-job-service')
+    >('@/lib/editron/services/render-job-service');
+    routeMocks.dbFindOne.mockResolvedValueOnce({
+      _id: 'rnd_admission_1',
+      status: 'rendering',
+      providerRenderId: 'render_original',
+    });
+
+    await expect(actualJobService.reconcileProviderTerminalEvent({
+      jobId: 'rnd_admission_1',
+      providerRenderId: 'render_forged',
+      bucketName: 'bucket_1',
+      event: { type: 'timeout', error: 'timeout' },
+    })).rejects.toThrow('belongs to another provider render');
+    expect(routeMocks.dbUpdateOne).not.toHaveBeenCalled();
+
+    routeMocks.dbFindOne.mockResolvedValueOnce({
+      _id: 'rnd_admission_1',
+      status: 'done',
+      providerRenderId: 'render_original',
+      outputUrl: 'https://bucket.example.test/render.mp4',
+    });
+    await actualJobService.reconcileProviderTerminalEvent({
+      jobId: 'rnd_admission_1',
+      providerRenderId: 'render_original',
+      bucketName: 'bucket_1',
+      event: { type: 'error', error: 'late provider error' },
+    });
+    expect(routeMocks.dbUpdateOne).not.toHaveBeenCalled();
   });
 
   it('reports degraded tracking without claiming a paid render failed', async () => {
@@ -288,4 +461,39 @@ function renderRequest(): Request {
       }),
     },
   );
+}
+
+function renderWebhookRequest(payload: unknown): Request {
+  return new Request(
+    'https://app.example.test/api/services/editron/cloudrun/render/webhook',
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-remotion-mode': 'production',
+        'x-remotion-signature': 'sha512=test-signature',
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+function renderDeliveryManifest(renderId: string) {
+  return {
+    version: 'editron-render-delivery-manifest-v1' as const,
+    mode: 'embedded' as const,
+    createdAt: '2026-07-28T00:00:00.000Z',
+    completedAt: null,
+    primaryArtifact: {
+      kind: 'mixed-master' as const,
+      renderId,
+      status: 'rendering' as const,
+      url: null,
+    },
+    music: {
+      embedded: true,
+      removedOverlayIds: [],
+      handoff: null,
+    },
+  };
 }

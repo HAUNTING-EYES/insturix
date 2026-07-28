@@ -203,7 +203,7 @@ describe('render delivery manifest', () => {
     }).success).toBe(false);
   });
 
-  it('wires selection before rendering and persists the manifest on both render paths', () => {
+  it('persists the delivery receipt at admission and on both render paths', () => {
     const renderRoute = readFileSync(
       'app/api/services/editron/cloudrun/render/route.ts',
       'utf8',
@@ -222,8 +222,11 @@ describe('render delivery manifest', () => {
     expect(renderRoute.indexOf('resolveRenderDeliveryPlan({')).toBeLessThan(
       renderRoute.indexOf("checkCredits(userId, 'editron', 'render_export'"),
     );
+    expect(renderRoute.indexOf('reserveJob(')).toBeLessThan(
+      renderRoute.indexOf('renderMediaOnLambda({'),
+    );
     expect(renderRoute.match(/buildRenderDeliveryManifest\(\{/g)).toHaveLength(2);
-    expect(renderRoute.match(/deliveryManifest,\s*\)/g)).toHaveLength(2);
+    expect(renderRoute.match(/deliveryManifest,\s*\)/g)).toHaveLength(3);
     expect(jobService).toContain('completeRenderDeliveryManifest(');
     expect(jobService.indexOf('completeRenderDeliveryManifest(')).toBeLessThan(
       jobService.indexOf("status: 'done'"),

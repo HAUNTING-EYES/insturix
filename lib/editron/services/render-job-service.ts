@@ -34,9 +34,13 @@ export async function reserveJob(
   userId: string,
   projectId: string,
   region: string,
+  deliveryManifest: RenderDeliveryManifest,
 ): Promise<RenderJob> {
   const collection = await getCollection();
-  const job = createPendingRenderJob(jobId, userId, projectId, region);
+  const job: RenderJob = {
+    ...createPendingRenderJob(jobId, userId, projectId, region),
+    deliveryManifest,
+  };
   const result = await collection.insertOne(job as any);
   if (!result.acknowledged) {
     throw new Error('Failed to reserve render job');
@@ -77,6 +81,85 @@ export async function markJobStarted(
   );
   if (result.matchedCount !== 1) {
     throw new Error(`Render admission ${jobId} could not be bound to provider render ${providerRenderId}`);
+  }
+}
+
+export type RenderProviderTerminalEvent =
+  | { type: 'success'; outputUrl: string }
+  | { type: 'error' | 'timeout'; error: string };
+
+/**
+ * Atomically repair provider identity and terminal state from a signed callback.
+ */
+export async function reconcileProviderTerminalEvent(input: {
+  jobId: string;
+  providerRenderId: string;
+  bucketName: string;
+  event: RenderProviderTerminalEvent;
+}): Promise<void> {
+  const collection = await getCollection();
+  const current = await collection.findOne({ _id: input.jobId });
+  if (!current) {
+    throw new Error(`Render admission ${input.jobId} does not exist`);
+  }
+  if (
+    current.providerRenderId
+    && current.providerRenderId !== input.providerRenderId
+  ) {
+    throw new Error(`Render admission ${input.jobId} belongs to another provider render`);
+  }
+  if (current.status === 'done') {
+    if (
+      input.event.type === 'success'
+      && current.outputUrl
+      && current.outputUrl !== input.event.outputUrl
+    ) {
+      throw new Error(`Render admission ${input.jobId} already completed with another output`);
+    }
+    return;
+  }
+
+  const completedAt = new Date();
+  const deliveryManifest = input.event.type === 'success' && current.deliveryManifest
+    ? completeRenderDeliveryManifest(
+        current.deliveryManifest,
+        input.event.outputUrl,
+        completedAt.toISOString(),
+      )
+    : undefined;
+  const result = await collection.updateOne(
+    {
+      _id: input.jobId,
+      ...(input.event.type === 'success' ? {} : { status: { $ne: 'done' } }),
+      $or: [
+        { providerRenderId: { $exists: false } },
+        { providerRenderId: input.providerRenderId },
+      ],
+    },
+    {
+      $set: {
+        providerRenderId: input.providerRenderId,
+        bucketName: input.bucketName,
+        completedAt,
+        ...(input.event.type === 'success'
+          ? {
+              status: 'done' as const,
+              progress: 1,
+              outputUrl: input.event.outputUrl,
+              outputSize: 0,
+              ...(deliveryManifest ? { deliveryManifest } : {}),
+            }
+          : {
+              status: 'error' as const,
+              error: input.event.error,
+            }),
+      },
+    },
+  );
+  if (result.matchedCount !== 1) {
+    const latest = await collection.findOne({ _id: input.jobId });
+    if (latest?.status === 'done' && input.event.type !== 'success') return;
+    throw new Error(`Render admission ${input.jobId} could not reconcile its provider callback`);
   }
 }
 
