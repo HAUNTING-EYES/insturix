@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  falSubscribe: vi.fn(),
   uploadMedia: vi.fn(),
   updateOne: vi.fn(),
   collection: vi.fn(),
@@ -11,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@fal-ai/client", () => ({
   fal: {
     config: vi.fn(),
-    subscribe: vi.fn(),
+    subscribe: mocks.falSubscribe,
   },
 }));
 
@@ -43,10 +44,12 @@ describe("generateVoiceover", () => {
   beforeEach(() => {
     vi.resetModules();
     mocks.uploadMedia.mockReset();
+    mocks.falSubscribe.mockReset();
     mocks.updateOne.mockReset();
     mocks.collection.mockReset();
     mocks.createClient.mockReset();
     process.env.DEEPGRAM_API_KEY = "test_deepgram_key";
+    process.env.FAL_AI_API_KEY = "test_fal_key";
 
     mocks.collection.mockReturnValue({ updateOne: mocks.updateOne });
     mocks.updateOne.mockResolvedValue({ acknowledged: true, matchedCount: 0, upsertedCount: 1 });
@@ -115,6 +118,14 @@ describe("generateVoiceover", () => {
           source: "generated",
           audioRights: result.audioRights,
           generatedAudioReceipt: result.generatedAudioReceipt,
+          generatedSpeechCapability: {
+            language: "en",
+            displayName: "English",
+            provider: "deepgram",
+            model: "aura-asteria-en",
+            voiceId: "aura-asteria-en",
+            fallbackUsed: false,
+          },
         }),
         $setOnInsert: expect.objectContaining({
           assetId: result.audioAssetId,
@@ -126,6 +137,56 @@ describe("generateVoiceover", () => {
       }),
       { upsert: true },
     );
+  });
+
+  it("selects the Hindi speech model and persists the actual language capability", async () => {
+    mocks.falSubscribe.mockResolvedValue({
+      data: { audio: { url: "https://fal.test/hindi.wav" } },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(Buffer.alloc(24044, 1), { status: 200 })));
+    const { generateVoiceover } = await import("@/lib/pipeline/tts-service");
+
+    const result = await generateVoiceover("Yeh Hindi dubbing hai.", "user_1", {
+      language: "Hindi",
+      voice: "kokoro-hindi-alpha",
+      mediaRole: "dubbing",
+    });
+
+    expect(mocks.falSubscribe).toHaveBeenCalledWith(
+      "fal-ai/kokoro/hindi",
+      expect.objectContaining({
+        input: expect.objectContaining({ voice: "hf_alpha" }),
+      }),
+    );
+    expect(result.generatedSpeechCapability).toEqual({
+      language: "hi",
+      displayName: "Hindi",
+      provider: "fal-ai",
+      model: "fal-ai/kokoro/hindi",
+      voiceId: "hf_alpha",
+      fallbackUsed: false,
+    });
+    expect(mocks.updateOne).toHaveBeenCalledWith(
+      { assetId: result.audioAssetId },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          generatedSpeechCapability: result.generatedSpeechCapability,
+        }),
+      }),
+      { upsert: true },
+    );
+  });
+
+  it("never converts a failed Hindi synthesis request into English fallback speech", async () => {
+    mocks.falSubscribe.mockRejectedValue(new Error("Hindi provider unavailable"));
+    const { generateVoiceover } = await import("@/lib/pipeline/tts-service");
+
+    await expect(generateVoiceover("Hindi dialogue.", "user_1", {
+      language: "hi",
+      mediaRole: "dubbing",
+    })).rejects.toThrow("Hindi provider unavailable");
+
+    expect(mocks.createClient).not.toHaveBeenCalled();
   });
 
   it("carries generated narration provenance through storyboard storage and finalize", () => {

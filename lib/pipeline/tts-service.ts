@@ -97,6 +97,30 @@ export type GeneratedSpeechRole = 'voiceover' | 'dubbing';
 
 type GeneratedSpeechProvider = 'fal-ai' | 'deepgram';
 
+export type CanonicalSpeechLanguage = 'en' | 'hi';
+
+export interface SpeechSynthesisCapability {
+  language: CanonicalSpeechLanguage;
+  displayName: 'English' | 'Hindi';
+  provider: GeneratedSpeechProvider;
+  model: string;
+  voiceId: string;
+  fallback?: {
+    provider: GeneratedSpeechProvider;
+    model: string;
+    voiceId: string;
+  };
+}
+
+export interface GeneratedSpeechCapability {
+  language: CanonicalSpeechLanguage;
+  displayName: 'English' | 'Hindi';
+  provider: GeneratedSpeechProvider;
+  model: string;
+  voiceId: string;
+  fallbackUsed: boolean;
+}
+
 export interface GeneratedAudioReceipt {
   version: typeof GENERATED_AUDIO_RECEIPT_VERSION;
   provider: GeneratedSpeechProvider;
@@ -116,6 +140,91 @@ export interface TTSResult {
   r2Key: string | null;
   audioRights: AudioRightsContract;
   generatedAudioReceipt: GeneratedAudioReceipt;
+  generatedSpeechCapability: GeneratedSpeechCapability;
+}
+
+const KOKORO_ENGLISH_MODEL = 'fal-ai/kokoro/american-english';
+const KOKORO_HINDI_MODEL = 'fal-ai/kokoro/hindi';
+const DEEPGRAM_ENGLISH_MODEL = 'aura-asteria-en';
+
+const HINDI_VOICE_ALIASES = new Map<string, string>([
+  ['kokoro-hindi-alpha', 'hf_alpha'],
+  ['kokoro-hindi-beta', 'hf_beta'],
+  ['kokoro-hindi-omega', 'hm_omega'],
+  ['kokoro-hindi-psi', 'hm_psi'],
+  ['hf_alpha', 'hf_alpha'],
+  ['hf_beta', 'hf_beta'],
+  ['hm_omega', 'hm_omega'],
+  ['hm_psi', 'hm_psi'],
+]);
+
+export function listSupportedSpeechLanguages(): Array<{
+  language: CanonicalSpeechLanguage;
+  displayName: 'English' | 'Hindi';
+}> {
+  return [
+    { language: 'en', displayName: 'English' },
+    { language: 'hi', displayName: 'Hindi' },
+  ];
+}
+
+export function resolveSpeechSynthesisCapability(
+  language: unknown = 'English',
+  requestedVoiceId?: string | null,
+): SpeechSynthesisCapability | null {
+  const canonicalLanguage = normalizeSpeechLanguage(language);
+  if (!canonicalLanguage) return null;
+
+  const requestedVoice = requestedVoiceId?.trim();
+  if (canonicalLanguage === 'hi') {
+    const voiceId = requestedVoice
+      ? HINDI_VOICE_ALIASES.get(requestedVoice.toLowerCase())
+      : 'hf_alpha';
+    if (!voiceId) return null;
+    return {
+      language: 'hi',
+      displayName: 'Hindi',
+      provider: 'fal-ai',
+      model: KOKORO_HINDI_MODEL,
+      voiceId,
+    };
+  }
+
+  const configuredVoice = requestedVoice
+    ? TTS_VOICES.find((voice) => (
+      voice.id.toLowerCase() === requestedVoice.toLowerCase()
+      || voice.providerVoiceId.toLowerCase() === requestedVoice.toLowerCase()
+    ))
+    : TTS_VOICES.find((voice) => voice.id === 'kokoro-heart');
+  if (!configuredVoice) return null;
+  if (configuredVoice.provider === 'deepgram') {
+    return {
+      language: 'en',
+      displayName: 'English',
+      provider: 'deepgram',
+      model: configuredVoice.providerVoiceId,
+      voiceId: configuredVoice.providerVoiceId,
+    };
+  }
+  return {
+    language: 'en',
+    displayName: 'English',
+    provider: 'fal-ai',
+    model: KOKORO_ENGLISH_MODEL,
+    voiceId: configuredVoice.providerVoiceId,
+    fallback: {
+      provider: 'deepgram',
+      model: DEEPGRAM_ENGLISH_MODEL,
+      voiceId: DEEPGRAM_ENGLISH_MODEL,
+    },
+  };
+}
+
+function normalizeSpeechLanguage(value: unknown): CanonicalSpeechLanguage | null {
+  const normalized = String(value ?? 'English').trim().toLowerCase();
+  if (['english', 'en', 'en-us', 'en-gb'].includes(normalized)) return 'en';
+  if (['hindi', 'hi', 'hi-in', 'hin'].includes(normalized)) return 'hi';
+  return null;
 }
 
 async function recordPipelineTTSProviderCost(input: {
@@ -177,35 +286,50 @@ export async function generateVoiceover(
     mediaRole?: GeneratedSpeechRole;
   } = {},
 ): Promise<TTSResult> {
-  const voiceId = options.voice || 'kokoro-heart';
-  const voiceConfig = TTS_VOICES.find(v => v.id === voiceId);
-  const provider = voiceConfig?.provider || (voiceId.startsWith('kokoro-') ? 'kokoro' : 'deepgram');
+  const capability = resolveSpeechSynthesisCapability(options.language, options.voice);
+  if (!capability) {
+    throw new Error(`unsupported-speech-capability:${String(options.language ?? 'English')}:${String(options.voice ?? 'default')}`);
+  }
   const mediaRole = options.mediaRole ?? 'voiceover';
 
   // Determine TTS speed based on content type (default 1.0)
   const contentType = options.contentType?.toLowerCase();
   const ttsSpeed = contentType && TTS_SPEED_MAP[contentType] ? TTS_SPEED_MAP[contentType] : 1.0;
-  if (provider === 'kokoro') {
+  if (capability.provider === 'fal-ai') {
     try {
       return await generateWithKokoro(
         text,
         userId,
-        voiceConfig?.providerVoiceId || 'af_heart',
+        capability.model,
+        capability.voiceId,
         ttsSpeed,
         mediaRole,
+        generatedCapability(capability, false),
       );
-    } catch (err: any) {
-      console.warn(`[TTS] Kokoro failed (${err.message}), falling back to Deepgram`);
-      return await generateWithDeepgram(text, userId, 'aura-asteria-en', mediaRole);
+    } catch (error) {
+      if (!capability.fallback) throw error;
+      console.warn(`[TTS] ${capability.model} failed (${errorMessage(error)}), using same-language fallback ${capability.fallback.model}`);
+      return await generateWithDeepgram(
+        text,
+        userId,
+        capability.fallback.voiceId,
+        mediaRole,
+        generatedCapability({
+          ...capability,
+          provider: capability.fallback.provider,
+          model: capability.fallback.model,
+          voiceId: capability.fallback.voiceId,
+        }, true),
+      );
     }
-  } else {
-    return await generateWithDeepgram(
-      text,
-      userId,
-      voiceConfig?.providerVoiceId || voiceId,
-      mediaRole,
-    );
   }
+  return await generateWithDeepgram(
+    text,
+    userId,
+    capability.voiceId,
+    mediaRole,
+    generatedCapability(capability, false),
+  );
 }
 
 // ─── Kokoro TTS (fal.ai) ────────────────────────────────────────
@@ -213,9 +337,18 @@ export async function generateVoiceover(
 async function generateWithKokoro(
   text: string,
   userId: string,
+  model: string,
   kokoroVoice: string,
   ttsSpeedOverride?: number,
   mediaRole: GeneratedSpeechRole = 'voiceover',
+  speechCapability: GeneratedSpeechCapability = {
+    language: 'en',
+    displayName: 'English',
+    provider: 'fal-ai',
+    model: KOKORO_ENGLISH_MODEL,
+    voiceId: 'af_heart',
+    fallbackUsed: false,
+  },
 ): Promise<TTSResult> {
   const costStartMs = Date.now();
   let requestCount = 0;
@@ -242,7 +375,7 @@ async function generateWithKokoro(
       }
 
       requestCount += 1;
-      const result: any = await fal.subscribe('fal-ai/kokoro/american-english', {
+      const result: any = await fal.subscribe(model, {
         input: {
           prompt: segment,
           voice: kokoroVoice as any,
@@ -281,8 +414,9 @@ async function generateWithKokoro(
     const assetId = `voiceover_${nanoid(12)}`;
     const uploaded = await uploadVoiceoverAudio(audioBuffer, userId, assetId, durationMs, {
       provider: 'fal-ai',
-      model: 'fal-ai/kokoro/american-english',
+      model,
       mediaRole,
+      speechCapability,
     });
 
     await recordPipelineTTSProviderCost({
@@ -290,7 +424,7 @@ async function generateWithKokoro(
       userId,
       action: 'voiceover_generation',
       provider: 'fal-ai',
-      model: 'fal-ai/kokoro/american-english',
+      model,
       voiceId: kokoroVoice,
       audioCharacters: text.length,
       mediaSeconds: mediaSecondsFromDurationMs(durationMs),
@@ -311,7 +445,7 @@ async function generateWithKokoro(
       userId,
       action: 'voiceover_generation',
       provider: 'fal-ai',
-      model: 'fal-ai/kokoro/american-english',
+      model,
       voiceId: kokoroVoice,
       audioCharacters: text.length,
       requestCount,
@@ -327,6 +461,14 @@ async function generateWithDeepgram(
   userId: string,
   deepgramVoice: string,
   mediaRole: GeneratedSpeechRole = 'voiceover',
+  speechCapability: GeneratedSpeechCapability = {
+    language: 'en',
+    displayName: 'English',
+    provider: 'deepgram',
+    model: DEEPGRAM_ENGLISH_MODEL,
+    voiceId: DEEPGRAM_ENGLISH_MODEL,
+    fallbackUsed: false,
+  },
 ): Promise<TTSResult> {
   const costStartMs = Date.now();
   const { createClient } = await import('@deepgram/sdk');
@@ -381,6 +523,7 @@ async function generateWithDeepgram(
       provider: 'deepgram',
       model: deepgramVoice,
       mediaRole,
+      speechCapability,
     });
 
     await recordPipelineTTSProviderCost({
@@ -429,6 +572,7 @@ async function uploadVoiceoverAudio(
     provider: GeneratedSpeechProvider;
     model: string;
     mediaRole: GeneratedSpeechRole;
+    speechCapability: GeneratedSpeechCapability;
   },
 ): Promise<Pick<
   TTSResult,
@@ -438,6 +582,7 @@ async function uploadVoiceoverAudio(
   | 'r2Key'
   | 'audioRights'
   | 'generatedAudioReceipt'
+  | 'generatedSpeechCapability'
 >> {
   const filename = `${assetId}.wav`;
   const uploadResult = await uploadMedia(audioBuffer, userId, filename, 'audio/wav', { customAssetId: assetId });
@@ -480,6 +625,7 @@ async function uploadVoiceoverAudio(
         source: 'generated',
         audioRights,
         generatedAudioReceipt,
+        generatedSpeechCapability: provenance.speechCapability,
         updatedAt: new Date(),
       },
       $setOnInsert: {
@@ -502,7 +648,26 @@ async function uploadVoiceoverAudio(
     r2Key: uploadResult.r2Key,
     audioRights,
     generatedAudioReceipt,
+    generatedSpeechCapability: provenance.speechCapability,
   };
+}
+
+function generatedCapability(
+  capability: Omit<SpeechSynthesisCapability, 'fallback'>,
+  fallbackUsed: boolean,
+): GeneratedSpeechCapability {
+  return {
+    language: capability.language,
+    displayName: capability.displayName,
+    provider: capability.provider,
+    model: capability.model,
+    voiceId: capability.voiceId,
+    fallbackUsed,
+  };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
