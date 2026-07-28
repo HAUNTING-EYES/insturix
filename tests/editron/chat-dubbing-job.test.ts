@@ -10,38 +10,6 @@ import {
   type ChatDubbingProgress,
 } from '@/lib/editron/services/chat-dubbing-job';
 
-vi.mock('@/lib/pipeline/tts-service', () => ({
-  listSupportedSpeechLanguages: () => [
-    { language: 'en', displayName: 'English' },
-    { language: 'hi', displayName: 'Hindi' },
-  ],
-  resolveSpeechSynthesisCapability: (language: unknown, voice?: string | null) => {
-    const normalized = String(language ?? 'English').toLowerCase();
-    if (['hindi', 'hi', 'hi-in', 'hin'].includes(normalized)) {
-      return {
-        language: 'hi',
-        displayName: 'Hindi',
-        provider: 'fal-ai',
-        model: 'fal-ai/kokoro/hindi',
-        voiceId: voice ?? 'hf_alpha',
-      };
-    }
-    if (!['english', 'en', 'en-us', 'en-gb'].includes(normalized)) return null;
-    return {
-      language: 'en',
-      displayName: 'English',
-      provider: 'fal-ai',
-      model: 'fal-ai/kokoro/american-english',
-      voiceId: voice ?? 'af_heart',
-      fallback: {
-        provider: 'deepgram',
-        model: 'aura-asteria-en',
-        voiceId: 'aura-asteria-en',
-      },
-    };
-  },
-}));
-
 class MemoryStore implements ChatDubbingJobStore {
   jobs = new Map<string, ChatDubbingJob>();
   async createOrGet(job: ChatDubbingJob) {

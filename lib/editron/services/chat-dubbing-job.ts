@@ -4,14 +4,14 @@ import { Client } from '@upstash/qstash';
 
 import { buildChatProjectRevision } from '@/lib/editron/agent/chat-edit-postconditions';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
+import type { GeneratedAudioReceipt } from '@/lib/pipeline/tts-service';
 import {
   listSupportedSpeechLanguages,
   resolveSpeechSynthesisCapability,
   type CanonicalSpeechLanguage,
-  type GeneratedAudioReceipt,
   type GeneratedSpeechCapability,
   type SpeechSynthesisCapability,
-} from '@/lib/pipeline/tts-service';
+} from '@/lib/pipeline/speech-capabilities';
 
 export const CHAT_DUBBING_JOB_VERSION = 'editron-chat-dubbing-job-v3' as const;
 const LEGACY_CHAT_DUBBING_JOB_VERSION = 'editron-chat-dubbing-job-v2' as const;
