@@ -4,15 +4,12 @@
  * CalOS publish sweeper. Claims due, approved scheduled-publishes atomically and hands
  * each to the platform publisher. Designed to run every minute via Vercel Cron.
  *
- * NOT registered in vercel.json yet — it stays dormant until at least one platform
- * publisher is wired (in the authed env). To activate, add:
- *   { "path": "/api/cron/process-publish-queue", "schedule": "* * * * *" }
- *
  * SAFETY (publishing is the only irreversible action in CalOS):
  *  - KILL SWITCH: CALOS_PUBLISH_KILL_SWITCH=true halts all publishing.
  *  - Atomic claim (findOneAndUpdate + lockedAt) so overlapping ticks never double-claim a row.
- *  - Idempotency: a row that already has a postId is never re-posted; the unique
- *    idempotencyKey (deliverableId:platform) blocks duplicates at the data layer.
+ *  - A row that already has a postId is never re-posted. Unknown provider outcomes are
+ *    terminalized for manual reconciliation because queue uniqueness cannot prevent a
+ *    second provider post.
  *  - FAIL CLOSED: if approval cannot be verified, or no publisher is registered, the row
  *    is NOT published.
  */
@@ -23,13 +20,30 @@ import CalosScheduledPublish, {
   type ICalosScheduledPublish,
 } from "@/schemas/calos-scheduled-publish";
 import CalosDeliverable from "@/schemas/calos-deliverable";
-import { getPublisher, type PublishParams } from "@/lib/calos/publish/contract";
+import {
+  getPublisher,
+  type PublishParams,
+  type PublishResult,
+} from "@/lib/calos/publish/contract";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const BATCH_LIMIT = 10; // max rows per tick — keep each invocation bounded under maxDuration
-const STALE_LOCK_MS = 5 * 60 * 1000; // re-claim a row stuck in 'claimed' >5 min (previous tick crashed)
+const STALE_LOCK_MS = 6 * 60 * 1000; // function maxDuration plus a buffer
+const RETRY_BASE_MS = 5 * 60 * 1000;
+const RETRY_MAX_MS = 60 * 60 * 1000;
+const STALE_PUBLISHING_ERROR =
+  "Publish worker stopped after the provider call may have started; outcome is unknown. Check the platform before retrying to avoid a duplicate.";
+
+type PublishSummary = {
+  claimed: number;
+  published: number;
+  failed: number;
+  skipped: number;
+  retried: number;
+  ambiguous: number;
+};
 
 function isAuthorized(request: NextRequest): boolean {
   // Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}` when CRON_SECRET is configured.
@@ -52,19 +66,51 @@ export async function GET(request: NextRequest) {
 
     await connectToDatabase();
 
-    const summary = { claimed: 0, published: 0, failed: 0, skipped: 0 };
+    const staleBefore = new Date(Date.now() - STALE_LOCK_MS);
+    const stalePublishing = await CalosScheduledPublish.updateMany(
+      {
+        status: "publishing",
+        postId: null,
+        $or: [{ lockedAt: { $lt: staleBefore } }, { lockedAt: null }],
+      },
+      {
+        $set: {
+          status: "failed",
+          lockedAt: null,
+          lastError: STALE_PUBLISHING_ERROR,
+        },
+      }
+    );
+    const ambiguous = Number(stalePublishing.modifiedCount) || 0;
+    const summary: PublishSummary = {
+      claimed: 0,
+      published: 0,
+      failed: ambiguous,
+      skipped: 0,
+      retried: 0,
+      ambiguous,
+    };
+
+    if (ambiguous > 0) {
+      console.error(
+        `[CALOS_LOUD] publish-queue terminalized ${ambiguous} stale publishing row(s): ${STALE_PUBLISHING_ERROR}`
+      );
+    }
 
     for (let i = 0; i < BATCH_LIMIT; i++) {
       const now = new Date();
-      const staleBefore = new Date(now.getTime() - STALE_LOCK_MS);
+      const staleClaimBefore = new Date(now.getTime() - STALE_LOCK_MS);
 
       // Atomic claim: a due 'pending' row, OR a 'claimed' row whose lock went stale
-      // (a previous tick crashed mid-publish). One winner per row across overlapping ticks.
+      // before any provider call. One winner per row across overlapping ticks.
       const row = await CalosScheduledPublish.findOneAndUpdate(
         {
           $or: [
             { status: "pending", publishAt: { $lte: now } },
-            { status: "claimed", lockedAt: { $lt: staleBefore } },
+            {
+              status: "claimed",
+              $or: [{ lockedAt: { $lt: staleClaimBefore } }, { lockedAt: null }],
+            },
           ],
         },
         { $set: { status: "claimed", lockedAt: now }, $inc: { attempts: 1 } },
@@ -102,30 +148,55 @@ export async function GET(request: NextRequest) {
       await row.save();
 
       const params: PublishParams = {
+        ...row.payload,
         ownerUserId: row.ownerUserId,
         deliverableId: row.deliverableId,
         brandId: row.brandId ?? undefined,
         accountRef: row.accountRef ?? undefined,
-        ...row.payload,
       };
 
       try {
         const result = await publisher(params);
         if (result.ok) {
+          const postId = result.postId?.trim();
+          if (!postId) {
+            summary.ambiguous++;
+            await markFailed(
+              row,
+              "Provider reported success without a post id; publish outcome is unknown. Check the platform before retrying to avoid a duplicate.",
+              false,
+              summary
+            );
+            continue;
+          }
+
           row.status = "published";
-          row.postId = result.postId ?? null;
+          row.postId = postId;
           row.postUrl = result.postUrl ?? null;
           row.lastError = null;
           row.lockedAt = null;
           await row.save();
           summary.published++;
         } else {
-          await markFailed(row, result.error || "Publish failed", result.retryable ?? false, summary);
+          const safeRetry = isSafeAutomaticRetry(result);
+          const isAmbiguous =
+            result.retryable === true &&
+            !safeRetry &&
+            result.providerAttempted !== false;
+          const message = isAmbiguous
+            ? ambiguousFailureMessage(result.error || "Publish failed")
+            : result.error || "Publish failed";
+          if (isAmbiguous) summary.ambiguous++;
+          await markFailed(row, message, safeRetry, summary);
         }
       } catch (err) {
-        // A thrown error is treated as transient (retryable) — the platform call may have
-        // timed out; the idempotency check on the next attempt prevents a double-post.
-        await markFailed(row, err instanceof Error ? err.message : "Publish threw", true, summary);
+        summary.ambiguous++;
+        await markFailed(
+          row,
+          ambiguousFailureMessage(err instanceof Error ? err.message : "Publish threw"),
+          false,
+          summary
+        );
       }
     }
 
@@ -175,16 +246,36 @@ async function isDeliverableApproved(row: ICalosScheduledPublish): Promise<boole
   return true;
 }
 
+function isSafeAutomaticRetry(result: PublishResult): boolean {
+  return (
+    result.retryable === true &&
+    (result.providerAttempted === false || result.responseStatus === 429)
+  );
+}
+
+function ambiguousFailureMessage(message: string): string {
+  return `Publish outcome is unknown: ${message}. Check the platform before retrying to avoid a duplicate.`;
+}
+
+function retryDelayMs(attempts: number): number {
+  const exponent = Math.max(0, Math.floor(attempts) - 1);
+  return Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** exponent);
+}
+
 async function markFailed(
   row: ICalosScheduledPublish,
   message: string,
   retryable: boolean,
-  summary: { failed: number }
+  summary: PublishSummary
 ): Promise<void> {
   const willRetry = retryable && row.attempts < row.maxAttempts;
   // TODO(CALOS_LOUD): remove once stable — every publish failure must be visible in logs during testing.
   console.error(`[CALOS_LOUD] publish-queue markFailed (platform=${row.platform}, deliverable=${row.deliverableId}, willRetry=${willRetry}, attempts=${row.attempts}/${row.maxAttempts}): ${message}`);
-  row.status = willRetry ? "pending" : "failed"; // back to pending so a later tick re-claims it
+  row.status = willRetry ? "pending" : "failed";
+  if (willRetry) {
+    row.publishAt = new Date(Date.now() + retryDelayMs(row.attempts));
+    summary.retried++;
+  }
   row.lastError = message;
   row.lockedAt = null;
   await row.save();
