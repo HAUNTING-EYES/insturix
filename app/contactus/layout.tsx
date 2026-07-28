@@ -13,6 +13,7 @@ export const metadata: Metadata = {
     "business inquiries Insturix",
   ],
   openGraph: {
+    siteName: "Insturix",
     title: "Contact Insturix | Talk to Sales or Support",
     description:
       "Reach the Insturix team for sales, support, business inquiries, or help with content production workflows.",

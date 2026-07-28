@@ -49,6 +49,7 @@ export async function generateMetadata({
       canonical: profileUrl,
     },
     openGraph: {
+      siteName: "Insturix",
       title,
       description,
       type: "profile",

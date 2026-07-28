@@ -12,6 +12,7 @@ export const metadata: Metadata = {
     "automated content production help",
   ],
   openGraph: {
+    siteName: "Insturix",
     title: "Insturix Support | Help and Troubleshooting",
     description:
       "Support for Insturix accounts, billing, uploads, rendering, publishing, and content production workflows.",

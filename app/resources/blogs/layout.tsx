@@ -7,6 +7,7 @@ export const metadata: Metadata = {
   keywords:
     "automated content production, AI content workflow, content production automation, brand-consistent content, Insturix blog",
   openGraph: {
+    siteName: "Insturix",
     title: "Insturix Blog | Automated Content Production Insights",
     description:
       "Guides and insights on AI-assisted content workflows, brand consistency, and scaling production output.",

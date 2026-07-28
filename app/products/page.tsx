@@ -11,6 +11,7 @@ export const metadata: Metadata = {
     canonical: "/products",
   },
   openGraph: {
+    siteName: "Insturix",
     title: "Automated Content Production Studio | Insturix",
     description:
       "Move from content idea to finished output with one automated production workflow.",

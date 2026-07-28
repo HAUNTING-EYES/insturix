@@ -13,6 +13,7 @@ export const metadata: Metadata = {
     "AI content workflow",
   ],
   openGraph: {
+    siteName: "Insturix",
     title: "About Insturix | Automated Content Production Platform",
     description:
       "Insturix helps agencies, in-house teams, businesses, enterprises, creator houses, and filmmakers automate content production workflows.",

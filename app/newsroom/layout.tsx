@@ -7,6 +7,7 @@ export const metadata: Metadata = {
   keywords:
     "Newsroom Insturix , Stay Updated , Insturix news , News updates , Announcements at Insturix , Latest news , Updates at Insturix",
   openGraph: {
+    siteName: "Insturix",
     title: "Newsroom | Stay Updated",
     description:
       "Stay updated with the latest news and announcements from Insturix. Get the latest insights, updates, and announcements about our products, services, and more.",

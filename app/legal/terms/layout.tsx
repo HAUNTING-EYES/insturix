@@ -7,6 +7,7 @@ export const metadata: Metadata = {
   keywords:
     "Terms of Service Insturix , Insturix terms , Insturix terms of service , Insturix terms of use , Insturix terms of conditions",
   openGraph: {
+    siteName: "Insturix",
     title: "Terms of Service | Insturix",
     description:
       "Read our Terms of Service to understand how you can use Insturix's services and products.",

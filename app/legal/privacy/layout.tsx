@@ -7,6 +7,7 @@ export const metadata: Metadata = {
   keywords:
     "Privacy Policy Insturix , Insturix privacy , Insturix privacy policy , Insturix privacy settings , Insturix data protection",
   openGraph: {
+    siteName: "Insturix",
     title: "Privacy Policy | Insturix",
     description:
       "Read our Privacy Policy to understand how we collect, use, and protect your personal information.",

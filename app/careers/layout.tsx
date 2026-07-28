@@ -7,6 +7,7 @@ export const metadata: Metadata = {
   keywords:
     "Careers Insturix , Join Our Team , Insturix careers , Careers at Insturix , Job openings at Insturix , Work at Insturix , Careers in AI , Careers in technology",
   openGraph: {
+    siteName: "Insturix",
     title: "Careers | Join Our Team",
     description:
       "Explore career opportunities at Insturix. We're hiring for various roles in AI, technology, and more. Join our team and help shape the future of AI.",
