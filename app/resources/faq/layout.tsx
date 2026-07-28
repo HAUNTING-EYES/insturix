@@ -14,6 +14,17 @@ export const metadata: Metadata = {
     "brand profile content production",
   ],
   openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/resources/faq",
+    images: [
+      {
+        url: "/icons/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Insturix - Automated Content Production Platform",
+      },
+    ],
     siteName: "Insturix",
     title: "Insturix FAQ | Automated Content Production Answers",
     description:

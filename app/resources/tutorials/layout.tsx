@@ -12,6 +12,17 @@ export const metadata: Metadata = {
     "content production workflow guide",
   ],
   openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/resources/tutorials",
+    images: [
+      {
+        url: "/icons/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Insturix - Automated Content Production Platform",
+      },
+    ],
     siteName: "Insturix",
     title: "Insturix Tutorials | Learn Automated Content Production",
     description:

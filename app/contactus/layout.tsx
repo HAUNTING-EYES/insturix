@@ -13,6 +13,9 @@ export const metadata: Metadata = {
     "business inquiries Insturix",
   ],
   openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/contactus",
     siteName: "Insturix",
     title: "Contact Insturix | Talk to Sales or Support",
     description:

@@ -7,6 +7,9 @@ export const metadata: Metadata = {
   keywords:
     "Cancellation Policy Insturix, Insturix cancellation, Insturix subscription cancellation",
   openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/legal/cancellation-policy",
     siteName: "Insturix",
     title: "Cancellation Policy | Insturix",
     description:

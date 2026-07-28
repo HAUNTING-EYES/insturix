@@ -7,6 +7,9 @@ export const metadata: Metadata = {
   keywords:
     "Refund Policy Insturix, Insturix refund, Insturix refund policy, Insturix subscription refund",
   openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/legal/refund-policy",
     siteName: "Insturix",
     title: "Refund Policy | Insturix",
     description:
