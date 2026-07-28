@@ -131,28 +131,33 @@ export default function CalosCalendarV3() {
 
   /* ── mutations ── */
   const handleDecision = async (id: string, decision: 'approved' | 'changes_requested') => {
-    if (!brandId) return;
+    if (!brandId) return false;
     try {
       const res = await fetch(`/api/services/calos/deliverables/${encodeURIComponent(id)}/decision`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ brandId, decision }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { toast({ title: data?.error || `Decision failed (${res.status})`, variant: 'destructive' }); return; }
+      if (!res.ok) {
+        toast({ title: data?.error || `Decision failed (${res.status})`, variant: 'destructive' });
+        if (data?.card) refresh();
+        return false;
+      }
       if (decision === 'approved') {
-        const plat = items.find((d) => d.id === id)?.platform;
-        if (plat && !connectedPlatforms.includes(plat)) {
-          toast({ title: `Approved — ${platLabel(plat)} isn't connected`, description: 'Open Publishing to connect it, or it won’t post.' });
-        } else {
+        if (data?.publish?.queued) {
           toast({ title: 'Approved — queued to publish' });
+        } else {
+          toast({ title: 'Approved', description: 'This content type is not configured for auto-publishing.' });
         }
         void loadPubStatus();
       } else {
         toast({ title: 'Sent back for changes' });
       }
       refresh();
+      return true;
     } catch (err) {
       toast({ title: 'Decision failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+      return false;
     }
   };
 

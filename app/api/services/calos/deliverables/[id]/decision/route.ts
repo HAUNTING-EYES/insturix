@@ -5,6 +5,7 @@ import CalosDeliverable, {
   type CalosEditorialStatus,
   type ICalosDeliverable,
 } from "@/schemas/calos-deliverable";
+import CalosConnectedAccount from "@/schemas/calos-connected-account";
 import CalosScheduledPublish, { type CalosPublishPlatform } from "@/schemas/calos-scheduled-publish";
 import { toContentCard } from "@/lib/calos/deliverable-mapper";
 import { emitBrandEvent } from "@/lib/shared/brand-events";
@@ -54,28 +55,58 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     });
     if (!deliverable) return NextResponse.json({ error: "Deliverable not found" }, { status: 404 });
 
+    let publishTarget: PublishTarget | null = null;
+    if (decision === "approved") {
+      const resolution = await resolveApprovedPublishTarget(deliverable, brandId);
+      if ("error" in resolution) {
+        return NextResponse.json({ error: resolution.error }, { status: 409 });
+      }
+      publishTarget = resolution.target;
+    }
+
+    const alreadyApprovedAtCurrentVersion =
+      decision === "approved" &&
+      deliverable.editorialStatus === "approved" &&
+      deliverable.approvals.some(
+        (approval: ICalosDeliverable["approvals"][number]) =>
+          approval.decision === "approved" && approval.version === deliverable.version,
+      );
     deliverable.editorialStatus = DECISION_STATUS[decision as Decision];
-    deliverable.approvals.push({
-      actor: userId,
-      decision: decision as Decision,
-      version: deliverable.version, // version-bound: a later content edit bumps version, staling this
-      at: new Date(),
-      notes: typeof notes === "string" && notes.trim() ? notes.trim().slice(0, 1000) : undefined,
-    });
+    if (!alreadyApprovedAtCurrentVersion) {
+      deliverable.approvals.push({
+        actor: userId,
+        decision: decision as Decision,
+        version: deliverable.version, // version-bound: a later content edit bumps version, staling this
+        at: new Date(),
+        notes: typeof notes === "string" && notes.trim() ? notes.trim().slice(0, 1000) : undefined,
+      });
+    }
     await deliverable.save();
 
     // On approval, enqueue the publish (the produce side of the delivery queue; the
-    // process-publish-queue cron consumes it). Best-effort — an enqueue failure must never fail
-    // the decision, and nothing else writes the queue.
-    if (decision === "approved") {
+    // process-publish-queue cron consumes it). Account resolution happened before the editorial
+    // mutation, so an unassigned or ambiguous platform cannot become approved.
+    if (decision === "approved" && publishTarget) {
       try {
         // Phase D: the publish row carries the *creator's* ownerUserId (deliverable.ownerUserId), NOT
         // the approver's — the cron's approval check + the connected-account/token resolution both key
         // off the card owner, so a teammate approving must not retarget publishing to the approver.
-        await enqueueApprovedPublish(deliverable, deliverable.ownerUserId, brandId);
+        await enqueueApprovedPublish(
+          deliverable,
+          deliverable.ownerUserId,
+          brandId,
+          publishTarget,
+        );
       } catch (e) {
-        // TODO(CALOS_LOUD): revert to warn once stable. APPROVED but NOT enqueued = silently won't publish.
-        console.error("[CALOS_LOUD] decision: publish enqueue FAILED after approval — card is approved but will NOT post:", e);
+        console.error("[CALOS_LOUD] decision: publish enqueue FAILED after approval:", e);
+        return NextResponse.json(
+          {
+            error: "Content was approved, but scheduling failed. Retry approval to enqueue it.",
+            card: toContentCard(deliverable),
+            publish: { queued: false, accountRef: publishTarget.accountRef },
+          },
+          { status: 500 },
+        );
       }
     }
 
@@ -116,7 +147,17 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       console.warn("[CalOS] decision brand-learning emit failed (non-fatal):", e);
     }
 
-    return NextResponse.json({ card: toContentCard(deliverable) });
+    return NextResponse.json({
+      card: toContentCard(deliverable),
+      ...(decision === "approved"
+        ? {
+            publish: {
+              queued: Boolean(publishTarget),
+              accountRef: publishTarget?.accountRef ?? null,
+            },
+          }
+        : {}),
+    });
   } catch (error) {
     console.error("[CalOS] decision error:", error);
     return NextResponse.json({ error: "Failed to record decision" }, { status: 500 });
@@ -132,11 +173,61 @@ const PUBLISH_PLATFORMS = new Set<CalosPublishPlatform>([
   "tiktok",
 ]);
 
+type PublishTarget = {
+  platform: CalosPublishPlatform;
+  accountRef: string;
+};
+
+const PLATFORM_LABELS: Record<CalosPublishPlatform, string> = {
+  youtube: "YouTube",
+  facebook: "Facebook",
+  instagram: "Instagram",
+  linkedin: "LinkedIn",
+  twitter: "X",
+  tiktok: "TikTok",
+};
+
+async function resolveApprovedPublishTarget(
+  deliverable: ICalosDeliverable,
+  brandId: string,
+): Promise<{ target: PublishTarget | null } | { error: string }> {
+  const platform = String(deliverable.platform || "").toLowerCase() as CalosPublishPlatform;
+  if (!PUBLISH_PLATFORMS.has(platform)) return { target: null };
+
+  const assignments = await CalosConnectedAccount.find({
+    brandId,
+    platform,
+    ...(deliverable.orgId ? { orgId: deliverable.orgId } : {}),
+  })
+    .select("accountRef")
+    .lean<Array<{ accountRef?: string | null }>>();
+  const accountRefs = Array.from(
+    new Set(
+      assignments
+        .map((assignment) => assignment.accountRef?.trim())
+        .filter((accountRef): accountRef is string => Boolean(accountRef)),
+    ),
+  );
+  const platformLabel = PLATFORM_LABELS[platform];
+
+  if (accountRefs.length === 0) {
+    return {
+      error: `Connect and assign a ${platformLabel} account to this brand before approval.`,
+    };
+  }
+  if (accountRefs.length > 1) {
+    return {
+      error: `Multiple ${platformLabel} accounts are assigned. Keep one active account in Publishing before approval.`,
+    };
+  }
+  return { target: { platform, accountRef: accountRefs[0] } };
+}
+
 /**
  * Enqueue a delivery-queue row when a deliverable is approved (the produce side; the
  * process-publish-queue cron consumes it). Idempotent per (deliverable, platform) via $setOnInsert
  * on the unique idempotencyKey — never double-posts, never clobbers an already-published or in-flight
- * row. Per-user account today (accountRef null); per-brand connected-account swaps in later.
+ * row. The brand assignment is snapshotted as accountRef when approval happens.
  * ponytail: if the content is later edited + re-approved, the existing row is intentionally left as
  * is (no silent re-post); revisit when an explicit "republish edited content" flow is needed.
  */
@@ -144,10 +235,8 @@ async function enqueueApprovedPublish(
   deliverable: ICalosDeliverable,
   ownerUserId: string,
   brandId: string,
+  target: PublishTarget,
 ): Promise<void> {
-  const platform = String(deliverable.platform || "").toLowerCase() as CalosPublishPlatform;
-  if (!PUBLISH_PLATFORMS.has(platform)) return; // e.g. 'generic' — not a publishable platform
-
   const scheduled = deliverable.plannedDates?.[0] ?? deliverable.card?.date;
   const parsed = scheduled ? new Date(scheduled) : new Date();
   const publishAt = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
@@ -157,7 +246,7 @@ async function enqueueApprovedPublish(
   // Media platforms (Instagram) need the image — carry the generated asset URL into the queue.
   const imageUrl = deliverable.assetUrl ?? null;
 
-  const idempotencyKey = `${deliverable.card.id}:${platform}`;
+  const idempotencyKey = `${deliverable.card.id}:${target.platform}`;
   await CalosScheduledPublish.findOneAndUpdate(
     { idempotencyKey },
     {
@@ -166,8 +255,8 @@ async function enqueueApprovedPublish(
         ownerUserId,
         orgId: deliverable.orgId ?? null,
         brandId,
-        platform,
-        accountRef: null,
+        platform: target.platform,
+        accountRef: target.accountRef,
         payload: { caption, imageUrl },
         publishAt,
         status: "pending",
@@ -176,5 +265,11 @@ async function enqueueApprovedPublish(
       },
     },
     { upsert: true, new: false },
+  );
+  // Rows created by the old producer may still be pending with a null target. Backfill only those
+  // untouched rows; never retarget an in-flight, failed, or published job.
+  await CalosScheduledPublish.updateOne(
+    { idempotencyKey, status: "pending", accountRef: null },
+    { $set: { accountRef: target.accountRef } },
   );
 }
