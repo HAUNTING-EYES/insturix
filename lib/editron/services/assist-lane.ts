@@ -44,15 +44,20 @@ import {
   ASSIST_STATUS_SCAN_FAILED,
   isAssistProject,
 } from '@/lib/editron/services/assist-lane-predicates';
+import { parseAssistFlag } from '@/lib/editron/services/assist-lane-flag';
 
 /**
  * Server-side feature gate. UI hiding alone is not "dark" — both intake routes
  * check this. NEXT_PUBLIC_DIRECTOR_MODE_ENABLED is accepted as a fallback so a
- * single deploy variable can drive both the client toggle and the server gate.
+ * single deploy variable can drive both the client toggle and the server gate;
+ * DIRECTOR_MODE_ENABLED takes precedence so the lane can be killed server-side
+ * without rebuilding the client bundle.
+ *
+ * The accepted-values rule itself lives in assist-lane-flag, so this gate and
+ * the client toggle can never drift into parsing the same flag differently.
  */
 export function isAssistIntakeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const v = env.DIRECTOR_MODE_ENABLED ?? env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED;
-  return v === 'true' || v === '1';
+  return parseAssistFlag(env.DIRECTOR_MODE_ENABLED ?? env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED);
 }
 
 /**
