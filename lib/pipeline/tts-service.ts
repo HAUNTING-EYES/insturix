@@ -182,8 +182,6 @@ export async function generateVoiceover(
   const provider = voiceConfig?.provider || (voiceId.startsWith('kokoro-') ? 'kokoro' : 'deepgram');
   const mediaRole = options.mediaRole ?? 'voiceover';
 
-  console.log(`[TTS] Generating: provider=${provider}, voice=${voiceId}, chars=${text.length}`);
-
   // Determine TTS speed based on content type (default 1.0)
   const contentType = options.contentType?.toLowerCase();
   const ttsSpeed = contentType && TTS_SPEED_MAP[contentType] ? TTS_SPEED_MAP[contentType] : 1.0;
@@ -232,8 +230,6 @@ async function generateWithKokoro(
   const segments = splitTextByPauses(text);
   const audioChunks: Buffer[] = [];
 
-  console.log(`[TTS] Kokoro processing ${segments.length} segments for precise pauses`);
-
   try {
     for (const { segment, pauseType } of segments) {
       if (!segment.trim()) {
@@ -276,8 +272,6 @@ async function generateWithKokoro(
     const audioBuffer = mergeWavBuffers(audioChunks);
 
     if (audioBuffer.length === 0) throw new Error('Kokoro returned empty audio');
-    console.log(`[TTS] Kokoro audio: ${audioBuffer.length} bytes`);
-
     // Estimate duration from WAV (linear16, assumed 24kHz mono)
     // Kokoro outputs WAV - check actual sample rate from header
     const pcmBytes = Math.max(0, audioBuffer.length - 44);
@@ -378,8 +372,6 @@ async function generateWithDeepgram(
     const audioBuffer = Buffer.concat(chunks);
 
     if (audioBuffer.length === 0) throw new Error('Deepgram returned empty audio');
-    console.log(`[TTS] Deepgram audio: ${audioBuffer.length} bytes`);
-
     const pcmBytes = Math.max(0, audioBuffer.length - 44);
     const bytesPerSecond = 24000 * 2;
     const durationMs = Math.round((pcmBytes / bytesPerSecond) * 1000);
