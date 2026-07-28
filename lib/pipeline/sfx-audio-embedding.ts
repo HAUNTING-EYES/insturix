@@ -77,6 +77,22 @@ export interface SfxEmbeddingAnalysisDependencies {
   decodeAudio?: (buffer: Buffer) => Promise<DecodedAudio>;
 }
 
+export interface EmbedVerifiedConditionedSfxAudioInput {
+  sourceId: string;
+  encoded: Buffer;
+  expectedContentHashSha256: string;
+}
+
+export interface EmbedVerifiedConditionedSfxAudioDependencies {
+  runtime: SfxClapEmbeddingRuntime;
+  decodeAudio?: (buffer: Buffer) => Promise<DecodedAudio>;
+}
+
+export interface VerifiedConditionedSfxEmbedding {
+  embedding: Float32Array;
+  segmentCount: number;
+}
+
 export interface SfxEmbeddingAnalysisInput {
   sampleRoot: string;
   sampleReport: unknown;
@@ -156,7 +172,7 @@ export interface SfxEmbeddingScreeningReport {
   analysisDigestSha256: string;
 }
 
-interface DecodedAudio {
+export interface DecodedAudio {
   sampleRate: number;
   channelData: readonly Float32Array[];
 }
@@ -267,6 +283,56 @@ export async function createPinnedSfxClapRuntime(
       { cause: error },
     );
   }
+}
+
+export async function embedVerifiedConditionedSfxAudio(
+  input: EmbedVerifiedConditionedSfxAudioInput,
+  dependencies: EmbedVerifiedConditionedSfxAudioDependencies,
+): Promise<VerifiedConditionedSfxEmbedding> {
+  if (!input.sourceId.trim()) {
+    throw new SfxEmbeddingError('INVALID_AUDIO_PCM', 'Conditioned SFX source ID is required');
+  }
+  if (input.encoded.byteLength > MAX_AUDIO_CONDITIONING_INPUT_BYTES) {
+    throw new SfxEmbeddingError(
+      'AUDIO_FILE_TOO_LARGE',
+      `SFX source ${input.sourceId} exceeds ${MAX_AUDIO_CONDITIONING_INPUT_BYTES} bytes`,
+    );
+  }
+  const actualHash = createHash('sha256').update(input.encoded).digest('hex');
+  if (
+    !/^[a-f0-9]{64}$/.test(input.expectedContentHashSha256)
+    || actualHash !== input.expectedContentHashSha256
+  ) {
+    throw new SfxEmbeddingError(
+      'SOURCE_HASH_MISMATCH',
+      `Conditioned SFX source ${input.sourceId} does not match its catalog receipt`,
+    );
+  }
+  const decodeAudio = dependencies.decodeAudio ?? (async buffer => decode(buffer));
+  const monoPcm = await decodeVerifiedMonoPcm(input.encoded, input.sourceId, decodeAudio);
+  const segments = segmentAudioForClap(monoPcm, SFX_CLAP_WINDOW_SAMPLES);
+  const segmentEmbeddings: Array<{ embedding: Float32Array; weight: number }> = [];
+  for (const segment of segments) {
+    const embedding = await dependencies.runtime.embedAudio(
+      segment.samples,
+      SFX_CLAP_SAMPLE_RATE_HZ,
+    );
+    segmentEmbeddings.push({
+      embedding: validateEmbedding(
+        embedding,
+        dependencies.runtime.descriptor.embeddingDimension,
+        `conditioned audio source ${input.sourceId}`,
+      ),
+      weight: segment.weight,
+    });
+  }
+  return {
+    embedding: weightedMeanEmbedding(
+      segmentEmbeddings,
+      dependencies.runtime.descriptor.embeddingDimension,
+    ),
+    segmentCount: segments.length,
+  };
 }
 
 export async function analyzeFsd50kSfxEmbeddings(
