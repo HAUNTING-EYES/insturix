@@ -19,6 +19,7 @@ import {
   CASSETTE_SFX_LICENSE_ID,
   extractCassetteSfxAudioUrl,
 } from '@/lib/pipeline/cassette-sfx-provider';
+import type { SFXResult } from '@/lib/pipeline/sfx-service';
 import { recordChatSfxProviderCost } from '@/lib/editron/agent/chat-sfx-provider-cost';
 import {
   findBestRow,
@@ -5769,16 +5770,58 @@ Examples:
           durationFrames: sfxOverlay.durationInFrames,
           sceneRemainingFrames: sfxOverlay.durationInFrames,
         });
-        const newSfx = await searchAndDownloadSFX(
+        const librarySfx = await searchAndDownloadSFX(
           input.query,
           userId,
           Math.max(1, Math.ceil(sfxOverlay.durationInFrames / fps)),
           atomicSfxForm,
         );
+        let generatedSfx: SFXResult | null = null;
 
-        if (!newSfx) {
-          return JSON.stringify({ status: 'error', message: `No SFX found for "${input.query}". Try different keywords.` });
+        if (!librarySfx) {
+          const { generateSFX } = await import('@/lib/pipeline/sfx-service');
+          generatedSfx = await generateSFX(
+            input.query,
+            userId,
+            Math.max(1, Math.ceil(sfxOverlay.durationInFrames / fps)),
+            undefined,
+            undefined,
+            { skipLibrary: true },
+          );
+          const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
+          const db = await getDatabase();
+          const storage = generatedSfx.storage;
+          const persisted = await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+            { assetId: generatedSfx.audioAssetId, userId },
+            {
+              $set: {
+                audioRights: generatedSfx.audioRights,
+                cachedUrl: generatedSfx.audioUrl,
+                lastUsedAt: new Date(),
+              },
+              $setOnInsert: {
+                assetId: generatedSfx.audioAssetId,
+                userId,
+                type: 'audio',
+                filename: `${generatedSfx.audioAssetId}.${storage?.contentType === 'audio/wav' ? 'wav' : 'mp3'}`,
+                source: generatedSfx.source,
+                gcsPath: generatedSfx.gcsPath,
+                r2Key: storage?.r2Key ?? null,
+                duration: generatedSfx.durationMs / 1000,
+                size: storage?.size ?? 0,
+                contentType: storage?.contentType ?? 'audio/mpeg',
+                urlExpiresAt: storage?.urlExpiresAt ?? null,
+                uploadedAt: new Date(),
+              },
+            },
+            { upsert: true },
+          );
+          if (!persisted.acknowledged) {
+            throw new Error('Generated SFX media receipt write was not acknowledged');
+          }
         }
+        const newSfx = librarySfx ?? generatedSfx;
+        if (!newSfx) throw new Error('SFX providers returned no usable asset');
 
         // Replace the complete asset identity so hydration cannot restore the old source.
         await projectService.updateOverlay(userId, projectId, sfxOverlay.id, {

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   falConfig: vi.fn(),
   falSubscribe: vi.fn(),
   recordChatSfxProviderCost: vi.fn(),
+  recordProviderCostEvent: vi.fn(),
   resolveAssetUrl: vi.fn(),
   searchAndDownloadSFX: vi.fn(),
   searchStockImages: vi.fn(),
@@ -37,6 +38,8 @@ vi.mock('@/lib/pipeline/pixabay-service', () => ({
 
 vi.mock('@/lib/pipeline/sfx-library-service', () => ({
   searchAndDownloadSFX: mocks.searchAndDownloadSFX,
+  isSFXLibraryAvailable: () => false,
+  audioDescriptionToSearchQuery: (value: string) => value,
 }));
 
 vi.mock('@fal-ai/client', () => ({
@@ -52,6 +55,10 @@ vi.mock('@/lib/editron/services/upload-service', () => ({
 
 vi.mock('@/lib/editron/agent/chat-sfx-provider-cost', () => ({
   recordChatSfxProviderCost: mocks.recordChatSfxProviderCost,
+}));
+
+vi.mock('@/lib/financials/provider-cost-events', () => ({
+  recordProviderCostEvent: mocks.recordProviderCostEvent,
 }));
 
 vi.mock('@/lib/editron/db/mongodb', async (importOriginal) => {
@@ -224,6 +231,7 @@ describe('chat provider and user-asset tool contracts', () => {
   });
 
   it('does not mutate SFX when the provider returns no candidates', async () => {
+    vi.stubEnv('FAL_AI_API_KEY', '');
     const updateOverlay = vi.spyOn(projectService, 'updateOverlay');
     mocks.searchAndDownloadSFX.mockResolvedValue(null);
 
@@ -234,9 +242,106 @@ describe('chat provider and user-asset tool contracts', () => {
 
     expect(result).toMatchObject({
       status: 'error',
-      error: { message: 'No SFX found for "nonexistent acoustic texture". Try different keywords.' },
+      error: { message: expect.stringContaining('FAL_AI_API_KEY is not configured') },
     });
     expect(updateOverlay).not.toHaveBeenCalled();
+  });
+
+  it('generates and durably registers a replacement when the SFX catalog has no match', async () => {
+    vi.stubEnv('FAL_AI_API_KEY', 'fal_test_key');
+    mocks.searchAndDownloadSFX.mockResolvedValue(null);
+    mocks.falSubscribe.mockResolvedValue({
+      data: {
+        audio_file: {
+          url: 'https://v3.fal.media/files/test/replacement-sfx.wav',
+        },
+      },
+    });
+    mocks.uploadMedia.mockImplementation(async (
+      _buffer: Buffer,
+      _userId: string,
+      _filename: string,
+      _contentType: string,
+      options: { customAssetId: string },
+    ) => ({
+      assetId: options.customAssetId,
+      signedUrl: 'https://cdn.example.com/replacement-sfx.wav',
+      gcsPath: null,
+      r2Key: `users/user_provider_asset/${options.customAssetId}.wav`,
+      urlExpiresAt: null,
+      size: 44,
+      contentType: 'audio/wav',
+    }));
+    mocks.getDatabase.mockResolvedValue({
+      collection: vi.fn(() => ({
+        updateOne: mocks.dbUpdateOne,
+      })),
+    });
+    mocks.dbUpdateOne.mockResolvedValue({ acknowledged: true });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(validWavBytes().toString('latin1'), {
+      status: 200,
+      headers: { 'content-type': 'audio/wav' },
+    })));
+    const updateOverlay = vi.spyOn(projectService, 'updateOverlay').mockResolvedValue(undefined as any);
+
+    const result = parseResult(await toolNamed('replace_sfx').invoke({
+      overlayId: 10,
+      query: 'soft paper whoosh',
+    }));
+
+    expect(result).toMatchObject({
+      status: 'success',
+      data: {
+        overlayId: 10,
+        source: 'cassetteai',
+        duration: 2,
+      },
+    });
+    expect(mocks.searchAndDownloadSFX).toHaveBeenCalledTimes(1);
+    expect(mocks.falSubscribe).toHaveBeenCalledWith(
+      'cassetteai/sound-effects-generator',
+      expect.objectContaining({
+        input: {
+          prompt: expect.stringContaining('soft paper whoosh'),
+          duration: 2,
+        },
+      }),
+    );
+    const generatedAssetId = String(result.data?.assetId);
+    expect(mocks.dbUpdateOne).toHaveBeenCalledWith(
+      { assetId: generatedAssetId, userId: 'user_provider_asset' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          audioRights: expect.objectContaining({
+            mediaRole: 'sfx',
+            source: 'generated',
+            licensed: true,
+          }),
+          cachedUrl: 'https://cdn.example.com/replacement-sfx.wav',
+        }),
+        $setOnInsert: expect.objectContaining({
+          assetId: generatedAssetId,
+          source: 'cassetteai',
+          r2Key: `users/user_provider_asset/${generatedAssetId}.wav`,
+          contentType: 'audio/wav',
+        }),
+      }),
+      { upsert: true },
+    );
+    expect(updateOverlay).toHaveBeenCalledWith(
+      'user_provider_asset',
+      'proj_provider_asset',
+      10,
+      expect.objectContaining({
+        assetId: generatedAssetId,
+        content: 'https://cdn.example.com/replacement-sfx.wav',
+        src: 'https://cdn.example.com/replacement-sfx.wav',
+        metadata: expect.objectContaining({
+          source: 'chat-replace-sfx',
+          provider: 'cassetteai',
+        }),
+      }),
+    );
   });
 
   it('uses the dedicated CassetteAI SFX contract and persists renderable WAV rights', async () => {

@@ -11,7 +11,10 @@
 import { fal } from '@fal-ai/client';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
-import { isSFXLibraryAvailable } from '@/lib/pipeline/sfx-library-service';
+import {
+  isSFXLibraryAvailable,
+  type SFXLibraryResult,
+} from '@/lib/pipeline/sfx-library-service';
 import {
   assertCassetteSfxWav,
   buildCassetteSfxRequest,
@@ -38,6 +41,14 @@ export interface SFXResult {
   audioAssetId: string;
   durationMs: number;
   audioRights: AudioRightsContract;
+  source: SFXLibraryResult['source'] | 'mirelo-video-to-audio' | 'cassetteai';
+  originalTitle?: string;
+  storage?: {
+    r2Key: string | null;
+    urlExpiresAt: Date | null;
+    size: number;
+    contentType: string;
+  };
 }
 
 export interface SFXSceneInput {
@@ -46,6 +57,10 @@ export interface SFXSceneInput {
   durationSeconds: number;
   /** If provided, mirelo video-to-audio generates SFX synced to actual video */
   videoUrl?: string;
+}
+
+export interface GenerateSFXOptions {
+  skipLibrary?: boolean;
 }
 
 async function recordPipelineSFXProviderCost(input: {
@@ -98,6 +113,7 @@ export async function generateSFX(
   videoUrl?: string,
   /** Explicit SFX cue from script editDirections (e.g., "chalk dust puff, fabric rustle") */
   sfxCue?: string,
+  options: GenerateSFXOptions = {},
 ): Promise<SFXResult> {
   // Beatoven sound-effect-generation supports 1-35 seconds.
   const duration = Math.min(Math.max(durationSec, 1), 35);
@@ -116,20 +132,22 @@ export async function generateSFX(
 
   // Priority 1: SFX Library (Pixabay/Freesound).
   // Instant, free, royalty-free. Best for deterministic SFX.
-  try {
-    const { searchAndDownloadSFX, audioDescriptionToSearchQuery } = await import('./sfx-library-service');
-    if (isSFXLibraryAvailable()) {
-      const searchQuery = audioDescriptionToSearchQuery(sfxPrompt);
-      console.log('[SFX] Searching free SFX library');
-      const libResult = await searchAndDownloadSFX(searchQuery, userId, Math.round(duration));
-      if (libResult) {
-        console.log(`[SFX] Library hit (${libResult.source})`);
-        return libResult;
+  if (!options.skipLibrary) {
+    try {
+      const { searchAndDownloadSFX, audioDescriptionToSearchQuery } = await import('./sfx-library-service');
+      if (isSFXLibraryAvailable()) {
+        const searchQuery = audioDescriptionToSearchQuery(sfxPrompt);
+        console.log('[SFX] Searching free SFX library');
+        const libResult = await searchAndDownloadSFX(searchQuery, userId, Math.round(duration));
+        if (libResult) {
+          console.log(`[SFX] Library hit (${libResult.source})`);
+          return libResult;
+        }
+        console.log('[SFX] Library: no match, trying AI generation');
       }
-      console.log('[SFX] Library: no match, trying AI generation');
+    } catch (libErr: any) {
+      console.warn(`[SFX] Library search failed: ${libErr.message}`);
     }
-  } catch (libErr: any) {
-    console.warn(`[SFX] Library search failed: ${libErr.message}`);
   }
 
   if (!process.env.FAL_AI_API_KEY?.trim()) {
@@ -191,6 +209,14 @@ export async function generateSFX(
           audioAssetId: uploadResult.assetId,
           durationMs: duration * 1000,
           audioRights: generatedSfxRights(uploadResult.assetId, mireloModel),
+          source: 'mirelo-video-to-audio',
+          originalTitle: sfxPrompt,
+          storage: {
+            r2Key: uploadResult.r2Key,
+            urlExpiresAt: uploadResult.urlExpiresAt,
+            size: uploadResult.size,
+            contentType: uploadResult.contentType,
+          },
         };
       }
       const noAudioError = new Error('mirelo returned no audio');
@@ -285,6 +311,14 @@ export async function generateSFX(
         uploadResult.assetId,
         CASSETTE_SFX_LICENSE_ID,
       ),
+      source: 'cassetteai',
+      originalTitle: sfxPrompt,
+      storage: {
+        r2Key: uploadResult.r2Key,
+        urlExpiresAt: uploadResult.urlExpiresAt,
+        size: uploadResult.size,
+        contentType: uploadResult.contentType,
+      },
     };
   } catch (err) {
     await recordPipelineSFXProviderCost({
