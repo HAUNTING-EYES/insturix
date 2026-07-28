@@ -185,6 +185,22 @@ function StartupBaseBadges() {
   );
 }
 
+// The hero headline. <Content /> is rendered TWICE — once normally and once inside
+// the aria-hidden `.kinv` cursor-masked overlay — so only the primary copy may be an
+// <h1>. aria-hidden keeps the duplicate away from screen readers but NOT from
+// crawlers, which parse both copies out of the HTML and would report two h1 tags.
+// The overlay copy renders the same markup as a div: identical `.ktitle` styling,
+// just not a heading.
+const Headline: React.FC<{ primary?: boolean }> = ({ primary }) => {
+  const Tag = primary ? "h1" : "div";
+  return (
+    <Tag className="ktitle">
+      <span className="kline l1">YOUR ENTIRE</span>
+      <span className="kline l2">STUDIO.</span>
+    </Tag>
+  );
+};
+
 const Content: React.FC<{ ids?: boolean }> = ({ ids }) => (
   <>
     <header className="hero">
@@ -194,16 +210,7 @@ const Content: React.FC<{ ids?: boolean }> = ({ ids }) => (
       </div>
       <div className="wrap inner">
         <span className="kick">One platform · entire production</span>
-        {/* Wrapped in a single <h1>: the homepage previously shipped ZERO h1 tags
-            because the headline was styled divs, so crawlers and assistive tech had
-            no statement of what the page is about. Classes are unchanged so the
-            existing CSS and the GSAP .hero .kline selector still match; .ktitle
-            neutralises the browser's default h1 styling and .kline now declares the
-            display:block it used to inherit from being a div. Renders identically. */}
-        <h1 className="ktitle">
-          <span className="kline l1">YOUR ENTIRE</span>
-          <span className="kline l2">STUDIO.</span>
-        </h1>
+        <Headline primary={ids} />
         <p className="sub">Hand it a brief. Every cut comes back <b>shaped for its channel — and on brand.</b> The whole studio runs in one browser tab. Nothing to install.</p>
         <div className="acts"><Link className="btn go" href="/signup">Start free →</Link><Link className="btn ghost" href="/contactus">Talk to sales</Link></div>
         <StartupBaseBadges />
