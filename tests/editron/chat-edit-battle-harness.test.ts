@@ -864,6 +864,7 @@ describe('chat edit battle harness', () => {
         'add_sfx',
       ],
       forbiddenTools: ['apply_editorial_intent'],
+      acceptedResolverOutcomes: ['ambiguous'],
     });
   });
 
@@ -951,6 +952,7 @@ describe('chat edit battle harness', () => {
       expect(scenario.mutationExpectation).toBe('conditional');
       expect(scenario.minimumSuccessfulMutations).toBe(0);
     }
+    expect(getChatEditBattleScenario('vague-sfx-beat')?.acceptedResolverOutcomes).toEqual(['ambiguous']);
   });
 
   it('requires process-diagram creation to persist MG-family output', () => {

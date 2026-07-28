@@ -940,8 +940,20 @@ function afterProject() {
       type: OverlayType.SOUND,
       from: 30,
       durationInFrames: 90,
+      assetId: 'sound_after_asset',
       src: 'https://example.com/sound.mp3',
       volume: 1,
+      audioRights: {
+        mediaRole: 'sfx',
+        source: 'generated',
+        userChoice: 'attested',
+        licensed: true,
+        evidence: {
+          kind: 'generated-provider',
+          sourceAssetId: 'sound_after_asset',
+          licenseId: 'chat-render-verification:test-provider',
+        },
+      },
     },
   ]);
 }

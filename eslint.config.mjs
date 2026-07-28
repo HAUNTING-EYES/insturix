@@ -16,6 +16,8 @@ const eslintConfig = [
       ".agents/**",
       ".artifacts/**",
       ".claude/**",
+      ".mg-render-tmp/**",
+      "*-player-script.js",
       "coverage/**",
       "dist/**",
       "memory/**",
