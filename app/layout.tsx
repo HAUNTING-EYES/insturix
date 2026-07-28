@@ -39,12 +39,18 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   keywords: keywords,
   metadataBase: new URL(getBaseUrl()),
-  alternates: {
-    canonical: "/",
-    languages: {
-      "en-US": "/en-US",
-    },
-  },
+  // NOTE (2026-07): no `alternates` here on purpose.
+  //
+  // Next.js metadata is INHERITED, so a root-level `canonical: "/"` was emitted on
+  // every page that didn't override it — /upgrade, /showcase, /about, /contactus,
+  // /newsroom, /resources/* and every blog post all told crawlers "the canonical
+  // version of this page is the homepage", which suppresses them from search and
+  // from answer-engine retrieval. The `languages: { "en-US": "/en-US" }` hreflang
+  // also pointed at a URL that 404s.
+  //
+  // Pages that need a canonical declare their own (see app/page.tsx,
+  // app/products/page.tsx, app/resources/blogs/[slug]/page.tsx). Pages that don't
+  // are self-canonical by default, which is the correct signal.
   openGraph: {
     type: "website",
     locale: "en_US",

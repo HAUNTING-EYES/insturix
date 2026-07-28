@@ -37,7 +37,19 @@ export async function generateMetadata({
   return {
     title: `${post.title} | Insturix Blog`,
     description: post.excerpt,
+    // Self-referencing canonical. Without it these posts inherited the root
+    // layout's canonical and pointed at the homepage, which told crawlers every
+    // post was a duplicate. Explicit also collapses ?utm_* share links onto the
+    // clean post URL.
+    alternates: {
+      canonical: `/resources/blogs/${post.id}`,
+    },
     openGraph: {
+      type: "article",
+      url: `/resources/blogs/${post.id}`,
+      publishedTime: post.publishedAt,
+      authors: [post.author.name],
+      tags: post.tags,
       title: post.title,
       description: post.excerpt,
       images: [
