@@ -249,18 +249,20 @@ export interface SfxCatalogSelectionRequest {
   direction?: SfxCatalogDirection;
   motionSpeed?: SfxCatalogEntry['motionSpeed'];
   material?: string;
+  semanticSimilarityByAssetId?: ReadonlyMap<string, number>;
 }
 
 export interface SfxCatalogCandidateReport {
   assetId: string;
   score: number;
   semanticRoleSimilarity?: number;
+  semanticQuerySimilarity?: number;
   accepted: boolean;
   reasons: string[];
 }
 
 export interface SfxCatalogSelectionReport {
-  version: 'sfx-catalog-selection-report-v1';
+  version: 'sfx-catalog-selection-report-v2';
   decision: 'selected' | 'silence' | 'no-match';
   requestedRole?: SfxCatalogEventRole;
   requestedSurface?: SfxCatalogSurface;
@@ -327,7 +329,7 @@ export function selectSfxCatalogEntry(
   return {
     entry: selected?.entry ?? null,
     report: {
-      version: 'sfx-catalog-selection-report-v1',
+      version: 'sfx-catalog-selection-report-v2',
       decision: selected ? 'selected' : 'no-match',
       requestedRole,
       requestedSurface,
@@ -339,6 +341,7 @@ export function selectSfxCatalogEntry(
         entry,
         score,
         semanticRoleSimilarity,
+        semanticQuerySimilarity,
         accepted,
         reasons,
       }) => ({
@@ -347,6 +350,9 @@ export function selectSfxCatalogEntry(
         semanticRoleSimilarity: semanticRoleSimilarity === undefined
           ? undefined
           : round4(semanticRoleSimilarity),
+        semanticQuerySimilarity: semanticQuerySimilarity === undefined
+          ? undefined
+          : round4(semanticQuerySimilarity),
         accepted,
         reasons,
       })),
@@ -381,6 +387,7 @@ function scoreCatalogEntry(
   const semanticRoleSimilarity = entry.semanticEvidence?.selectedRole === requestedRole
     ? entry.semanticEvidence.selectedRoleCosineSimilarity
     : undefined;
+  const semanticQuerySimilarity = semanticSimilarityForEntry(request, entry.assetId);
 
   if (!roleMatch) reasons.push('event-role-mismatch');
   if (!surfaceMatch) reasons.push('surface-mismatch');
@@ -445,15 +452,26 @@ function scoreCatalogEntry(
     ...(semanticRoleSimilarity === undefined
       ? []
       : [`semantic-role-similarity:${semanticRoleSimilarity.toFixed(4)}`]),
+    ...(semanticQuerySimilarity === undefined
+      ? []
+      : [`semantic-query-similarity:${semanticQuerySimilarity.toFixed(4)}`]),
   );
 
-  return { entry, score, semanticRoleSimilarity, accepted, reasons };
+  return {
+    entry,
+    score,
+    semanticRoleSimilarity,
+    semanticQuerySimilarity,
+    accepted,
+    reasons,
+  };
 }
 
 interface ScoredCatalogEntry {
   entry: SfxCatalogEntry;
   score: number;
   semanticRoleSimilarity?: number;
+  semanticQuerySimilarity?: number;
   accepted: boolean;
   reasons: string[];
 }
@@ -461,6 +479,13 @@ interface ScoredCatalogEntry {
 function compareCatalogCandidates(left: ScoredCatalogEntry, right: ScoredCatalogEntry): number {
   if (left.accepted !== right.accepted) return left.accepted ? -1 : 1;
   if (left.accepted && right.accepted) {
+    if (
+      left.semanticQuerySimilarity !== undefined
+      && right.semanticQuerySimilarity !== undefined
+      && left.semanticQuerySimilarity !== right.semanticQuerySimilarity
+    ) {
+      return right.semanticQuerySimilarity - left.semanticQuerySimilarity;
+    }
     const leftHasSemanticEvidence = left.semanticRoleSimilarity !== undefined;
     const rightHasSemanticEvidence = right.semanticRoleSimilarity !== undefined;
     if (leftHasSemanticEvidence !== rightHasSemanticEvidence) {
@@ -475,6 +500,18 @@ function compareCatalogCandidates(left: ScoredCatalogEntry, right: ScoredCatalog
     }
   }
   return right.score - left.score || left.entry.assetId.localeCompare(right.entry.assetId);
+}
+
+function semanticSimilarityForEntry(
+  request: SfxCatalogSelectionRequest,
+  assetId: string,
+): number | undefined {
+  const value = request.semanticSimilarityByAssetId?.get(assetId);
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value) || value < -1 || value > 1) {
+    throw new RangeError(`Invalid semantic SFX similarity for ${assetId}`);
+  }
+  return value;
 }
 
 function requestedEventRole(
@@ -520,7 +557,7 @@ function emptySelectionReport(
   requestedSurface?: SfxCatalogSurface,
 ): SfxCatalogSelectionReport {
   return {
-    version: 'sfx-catalog-selection-report-v1',
+    version: 'sfx-catalog-selection-report-v2',
     decision,
     requestedRole,
     requestedSurface,

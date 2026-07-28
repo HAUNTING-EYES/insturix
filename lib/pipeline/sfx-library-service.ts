@@ -36,13 +36,18 @@ import {
   buildSfxAcousticMeasurement,
   type SfxAcousticMeasurement,
 } from '@/lib/pipeline/sfx-acoustic-measurement';
+import {
+  retrieveConfiguredSfxCatalogSemantics,
+  type SfxCatalogSemanticRetrieval,
+  type SfxCatalogSemanticRetrievalReport,
+} from '@/lib/pipeline/sfx-catalog-semantic-index';
 import { fileTypeFromBuffer } from 'file-type';
 import { nanoid } from 'nanoid';
 
 export type { SfxAcousticMeasurement } from '@/lib/pipeline/sfx-acoustic-measurement';
 
-// ROADMAP LOCK: populate the measured curated catalog and add actual-audio
-// embedding/classifier retrieval before claiming production semantic similarity.
+// Semantic retrieval is valid only through the immutable, manifest-bound release
+// reader. Keep rights, acoustic, atomic-form, and blocked-tag gates authoritative.
 
 export interface SFXLibraryResult {
   audioUrl: string;
@@ -115,6 +120,7 @@ export interface SFXLibrarySearchReport {
   atomicGate: boolean;
   selectionLane: 'catalog' | 'provider' | 'none';
   catalog: SfxCatalogSelectionReport;
+  semanticRetrieval?: SfxCatalogSemanticRetrievalReport;
   providerCandidateCount: number;
   acceptedCandidateCount: number;
   rejectedCandidateCount: number;
@@ -124,6 +130,13 @@ export interface SFXLibrarySearchReport {
 }
 
 export type SFXLibrarySearchReporter = (report: SFXLibrarySearchReport) => void;
+
+export interface SfxLibrarySearchDependencies {
+  retrieveCatalogSemantics?: (
+    query: string,
+    manifest: SfxCatalogManifest,
+  ) => Promise<SfxCatalogSemanticRetrieval | undefined>;
+}
 
 interface SFXProviderCandidate {
   id: string;
@@ -506,11 +519,20 @@ export async function searchAndDownloadSFX(
   atomicForm?: AtomicSfxForm,
   reportSearch?: SFXLibrarySearchReporter,
   catalogManifest: SfxCatalogManifest = BUNDLED_SFX_CATALOG,
+  dependencies: SfxLibrarySearchDependencies = {},
 ): Promise<SFXLibraryResult | null> {
+  const semanticRetrieval = atomicForm
+    && (!atomicForm.shouldPlace || atomicForm.compatibilityToken === 'none')
+    ? undefined
+    : await (
+      dependencies.retrieveCatalogSemantics
+      ?? retrieveConfiguredSfxCatalogSemantics
+    )(query, catalogManifest);
   const catalogSelection = selectSfxCatalogEntry(catalogManifest, {
     query,
     maxDurationSec,
     form: atomicForm,
+    semanticSimilarityByAssetId: semanticRetrieval?.similarityByAssetId,
   });
   if (catalogSelection.entry) {
     const entry = catalogSelection.entry;
@@ -522,6 +544,7 @@ export async function searchAndDownloadSFX(
       atomicGate: Boolean(atomicForm),
       selectionLane: 'catalog',
       catalog: catalogSelection.report,
+      semanticRetrieval: semanticRetrieval?.report,
       providerCandidateCount: 0,
       acceptedCandidateCount: 1,
       rejectedCandidateCount: catalogSelection.report.rejectedCandidateCount,
@@ -558,6 +581,7 @@ export async function searchAndDownloadSFX(
       atomicGate: Boolean(atomicForm),
       selectionLane: 'none',
       catalog: catalogSelection.report,
+      semanticRetrieval: semanticRetrieval?.report,
       providerCandidateCount: 0,
       acceptedCandidateCount: 0,
       rejectedCandidateCount: 0,
@@ -584,6 +608,7 @@ export async function searchAndDownloadSFX(
     maxDurationSec,
     atomicForm,
     catalogSelection.report,
+    semanticRetrieval?.report,
     ranked,
     selected,
   );
@@ -761,6 +786,7 @@ function buildSfxSearchReport(
   maxDurationSec: number | undefined,
   atomicForm: AtomicSfxForm | undefined,
   catalog: SfxCatalogSelectionReport,
+  semanticRetrieval: SfxCatalogSemanticRetrievalReport | undefined,
   ranked: Array<{ candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation }>,
   selected: { candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation } | null,
 ): SFXLibrarySearchReport {
@@ -774,6 +800,7 @@ function buildSfxSearchReport(
     atomicGate: Boolean(atomicForm),
     selectionLane: selected ? 'provider' : 'none',
     catalog,
+    semanticRetrieval,
     providerCandidateCount: ranked.length,
     acceptedCandidateCount: ranked.filter((item) => item.score >= threshold).length,
     rejectedCandidateCount: ranked.filter((item) => item.score < threshold).length,
