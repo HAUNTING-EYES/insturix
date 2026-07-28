@@ -7,7 +7,6 @@ Disallow: /_next/*
 Disallow: /_static/*
 Disallow: /auth/*
 Disallow: /dashboard/*
-Disallow: /profile/*
 Disallow: /settings/*
 Disallow: /checkout/*
 Disallow: /cart/*
