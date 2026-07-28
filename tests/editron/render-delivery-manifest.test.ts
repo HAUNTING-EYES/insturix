@@ -225,8 +225,11 @@ describe('render delivery manifest', () => {
     expect(renderRoute.indexOf('reserveJob(')).toBeLessThan(
       renderRoute.indexOf('renderMediaOnLambda({'),
     );
-    expect(renderRoute.match(/buildRenderDeliveryManifest\(\{/g)).toHaveLength(2);
-    expect(renderRoute.match(/deliveryManifest,\s*\)/g)).toHaveLength(3);
+    expect(renderRoute.indexOf('reserveJob(')).toBeLessThan(
+      renderRoute.indexOf('startChapterRender('),
+    );
+    expect(renderRoute.match(/buildRenderDeliveryManifest\(\{/g)).toHaveLength(1);
+    expect(renderRoute).not.toContain('await createJob(');
     expect(jobService).toContain('completeRenderDeliveryManifest(');
     expect(jobService.indexOf('completeRenderDeliveryManifest(')).toBeLessThan(
       jobService.indexOf("status: 'done'"),

@@ -224,6 +224,63 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.refund).not.toHaveBeenCalled();
   });
 
+  it('CRITICAL: reserves a chapter admission before billing and child Lambda dispatch', async () => {
+    routeMocks.shouldUseChapterRendering.mockReturnValue(true);
+    routeMocks.startChapterRender.mockImplementation(async (jobId: string) => ({
+      jobId,
+      chapters: 3,
+    }));
+
+    const response = await POST(renderRequest());
+    const admissionId = routeMocks.reserveJob.mock.calls[0]?.[0];
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      type: 'success',
+      data: {
+        renderId: admissionId,
+        bucketName: 'chapter-render',
+        renderAdmissionId: admissionId,
+        isChapterRender: true,
+        chapters: 3,
+        trackingStatus: 'durable',
+        deliveryManifest: {
+          primaryArtifact: { renderId: admissionId },
+        },
+      },
+    });
+    expect(admissionId).toMatch(/^chr_[A-Za-z0-9_-]{12}$/);
+    expect(routeMocks.reserveJob.mock.invocationCallOrder[0])
+      .toBeLessThan(routeMocks.deduct.mock.invocationCallOrder[0]);
+    expect(routeMocks.deduct.mock.invocationCallOrder[0])
+      .toBeLessThan(routeMocks.startChapterRender.mock.invocationCallOrder[0]);
+    expect(routeMocks.startChapterRender).toHaveBeenCalledWith(
+      admissionId,
+      'project_1',
+      'user_1',
+      expect.any(Array),
+      90,
+      30,
+      1920,
+      1080,
+      'https://remotion.example.test/site',
+      'editron-render-test',
+    );
+    expect(routeMocks.markJobStarted).toHaveBeenCalledWith(
+      admissionId,
+      'user_1',
+      admissionId,
+      'chapter-render',
+      'us-east-1',
+      expect.objectContaining({
+        primaryArtifact: expect.objectContaining({ renderId: admissionId }),
+      }),
+    );
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+    expect(routeMocks.createJob).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
   it('CRITICAL: missing webhook authentication stops before admission, billing, and dispatch', async () => {
     vi.stubEnv('REMOTION_WEBHOOK_SECRET', '');
 

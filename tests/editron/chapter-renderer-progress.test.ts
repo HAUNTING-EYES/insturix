@@ -126,6 +126,7 @@ describe("chapter renderer progress", () => {
     ];
 
     await startChapterRender(
+      "chr_123456789012",
       "proj_long",
       "user_1",
       overlays,
@@ -137,6 +138,7 @@ describe("chapter renderer progress", () => {
       "remotion-fn",
     );
 
+    expect(insertedJob._id).toBe("chr_123456789012");
     expect(insertedJob.overlays).not.toBe(overlays);
     expect(JSON.stringify(insertedJob.overlays)).not.toContain("x".repeat(1000));
     expect(insertedJob.overlays.find((overlay: any) => overlay.id === "caption-track").captions[0]).toEqual({
@@ -171,6 +173,25 @@ describe("chapter renderer progress", () => {
         inputProps: expect.objectContaining({ durationInFrames: 30_000, overlays: insertedJob.overlays }),
       }),
     );
+  });
+
+  it("rejects a chapter job without a caller-owned admission ID before persistence", async () => {
+    await expect(startChapterRender(
+      "chr_short",
+      "proj_long",
+      "user_1",
+      [],
+      30_000,
+      30,
+      1920,
+      1080,
+      "https://remotion.example/site",
+      "remotion-fn",
+    )).rejects.toThrow("caller-owned chr_ admission ID");
+
+    expect(mocks.getDatabase).not.toHaveBeenCalled();
+    expect(mocks.insertOne).not.toHaveBeenCalled();
+    expect(mocks.renderMediaOnLambda).not.toHaveBeenCalled();
   });
 
   it("polls chapter progress through S3 state instead of Lambda status invocation", async () => {

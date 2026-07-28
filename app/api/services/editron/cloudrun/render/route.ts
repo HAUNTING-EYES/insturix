@@ -3,7 +3,6 @@ import { renderMediaOnLambda } from '@remotion/lambda/client';
 import { auth } from '@clerk/nextjs/server';
 import { nanoid } from 'nanoid';
 import {
-  createJob,
   failJob,
   markJobStarted,
   reserveJob,
@@ -35,7 +34,7 @@ export async function POST(request: Request) {
   let creditsDeducted = false;
   let renderStarted = false;
   let renderAdmissionId: string | null = null;
-  let standardDeliveryManifest: ReturnType<typeof buildRenderDeliveryManifest> | null = null;
+  let renderDeliveryManifest: ReturnType<typeof buildRenderDeliveryManifest> | null = null;
   let standardWebhook: ReturnType<typeof buildRemotionRenderWebhook> | null = null;
 
   try {
@@ -149,24 +148,24 @@ export async function POST(request: Request) {
       return renderCreditCheck.errorResponse!;
     }
 
-    if (!usesChapterRendering) {
-      const admissionId = `rnd_${nanoid(12)}`;
-      const deliveryManifest = buildRenderDeliveryManifest({
-        plan: deliveryPlan,
-        renderId: admissionId,
-      });
-      const webhook = buildRemotionRenderWebhook(request, admissionId);
-      await reserveJob(
-        admissionId,
-        userId,
-        canonicalProjectId,
-        region,
-        deliveryManifest,
-      );
-      renderAdmissionId = admissionId;
-      standardDeliveryManifest = deliveryManifest;
-      standardWebhook = webhook;
-    }
+    const admissionId = `${usesChapterRendering ? 'chr' : 'rnd'}_${nanoid(12)}`;
+    const deliveryManifest = buildRenderDeliveryManifest({
+      plan: deliveryPlan,
+      renderId: admissionId,
+    });
+    const webhook = usesChapterRendering
+      ? null
+      : buildRemotionRenderWebhook(request, admissionId);
+    await reserveJob(
+      admissionId,
+      userId,
+      canonicalProjectId,
+      region,
+      deliveryManifest,
+    );
+    renderAdmissionId = admissionId;
+    renderDeliveryManifest = deliveryManifest;
+    standardWebhook = webhook;
 
     try {
       await renderCreditCheck.deduct();
@@ -192,6 +191,7 @@ export async function POST(request: Request) {
       const height = Number(resolvedProps.height) || 1080;
 
       const { jobId, chapters } = await startChapterRender(
+        renderAdmissionId!,
         canonicalProjectId,
         userId,
         (lambdaRenderProps.overlays || []) as any[],
@@ -204,26 +204,31 @@ export async function POST(request: Request) {
       );
       renderStarted = true;
 
-      // Save job reference
-      const deliveryManifest = buildRenderDeliveryManifest({
-        plan: deliveryPlan,
-        renderId: jobId,
-      });
+      let trackingStatus: 'durable' | 'degraded' = 'durable';
       try {
-        await createJob(
-          jobId,
+        await markJobStarted(
+          renderAdmissionId!,
           userId,
-          canonicalProjectId,
+          jobId,
           'chapter-render',
-          deliveryManifest,
+          region,
+          renderDeliveryManifest!,
         );
-      } catch (err: unknown) { console.warn('[Render] chapter render job save failed:', err instanceof Error ? err.message : err); }
+      } catch (dbError) {
+        trackingStatus = 'degraded';
+        console.error('CRITICAL: chapter render started but admission binding failed:', {
+          renderAdmissionId,
+          error: dbError,
+        });
+      }
 
       return NextResponse.json({
         type: 'success',
         data: {
           ...buildChapterRenderApiData({ jobId, region, chapters }),
-          deliveryManifest,
+          renderAdmissionId,
+          deliveryManifest: renderDeliveryManifest!,
+          trackingStatus,
         },
       });
     }
@@ -252,7 +257,6 @@ export async function POST(request: Request) {
     renderStarted = true;
     console.log('Lambda render started:', { renderId, bucketName });
 
-    const deliveryManifest = standardDeliveryManifest!;
     let trackingStatus: 'durable' | 'degraded' = 'durable';
     try {
       await markJobStarted(
@@ -261,7 +265,7 @@ export async function POST(request: Request) {
         renderId,
         bucketName,
         region,
-        deliveryManifest,
+        renderDeliveryManifest!,
       );
       console.log('Render provider bound to durable admission:', {
         renderAdmissionId,
@@ -308,7 +312,7 @@ export async function POST(request: Request) {
         bucketName,
         region,
         functionName,
-        deliveryManifest,
+        deliveryManifest: renderDeliveryManifest!,
         renderAdmissionId,
         trackingStatus,
         // Progress endpoint for polling
