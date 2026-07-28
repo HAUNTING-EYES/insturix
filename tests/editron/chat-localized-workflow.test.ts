@@ -202,6 +202,45 @@ describe('server-owned localized chat workflow', () => {
     });
   });
 
+  it('grounds a visual event removal before authorizing the exact cut', () => {
+    const owner = license(routingFacts(
+      [{ modality: 'visual', operation: 'remove', query: 'the bird appears' }],
+      ['localized-cut'],
+    ));
+    const cutArgs = { startFrame: 84, endFrame: 96 };
+    const resolver = execution('resolve_visual_edit', {
+      query: 'the bird appears',
+      action: 'cut_range',
+    }, {
+      evidenceReceipts: [receipt('visual-target', 'resolve_visual_edit', [{
+        toolName: 'cut_section',
+        args: cutArgs,
+      }])],
+    });
+
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: {
+        name: 'resolve_visual_edit',
+        args: { query: 'the bird appears', action: 'cut_range' },
+      },
+    });
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, resolver),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: { name: 'cut_section', args: cutArgs },
+    });
+  });
+
   it('halts on ambiguity instead of substituting another resolver or mutator', () => {
     const owner = license(routingFacts(
       [{ modality: 'visual', operation: 'highlight', query: 'garment sketch' }],

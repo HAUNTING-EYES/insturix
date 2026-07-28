@@ -5,7 +5,10 @@ const mocks = vi.hoisted(() => ({
   analysisToTimelineFrames: vi.fn(),
   getTranscription: vi.fn(),
   getWordsInRange: vi.fn(),
+  getAsset: vi.fn(),
+  getUserAssets: vi.fn(),
   modelInvoke: vi.fn(),
+  searchUserAssets: vi.fn(),
 }));
 
 vi.hoisted(() => {
@@ -26,7 +29,13 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
     stripUrlsForLLM: <T>(overlays: T[]) => structuredClone(overlays),
     resolveProjectAssets: async <T>(overlays: T[]) => structuredClone(overlays),
     resolveAssetUrl: vi.fn(async () => 'https://cdn.example.com/resolved.mp4'),
+    getAsset: mocks.getAsset,
+    getUserAssets: mocks.getUserAssets,
   },
+}));
+
+vi.mock('@/lib/editron/services/asset-search-service', () => ({
+  searchUserAssets: mocks.searchUserAssets,
 }));
 
 vi.mock('@/lib/editron/services/media', () => ({
@@ -37,6 +46,7 @@ vi.mock('@/lib/editron/services/media', () => ({
 }));
 
 import { createTools } from '@/lib/editron/agent/tools';
+import { createChatAssetTools } from '@/lib/editron/agent/chat-asset-tools';
 import { projectService } from '@/lib/editron/services/project-service';
 
 const BASE_PROJECT = {
@@ -219,6 +229,112 @@ describe('chat speech and caption tool contracts', () => {
       error: null,
     });
     expect(result.data).not.toHaveProperty('data');
+  });
+
+  it('resolves an exact uploaded asset id and preserves replacement targeting', async () => {
+    loadWith([{
+      id: 77,
+      type: 'video',
+      assetId: 'asset-current',
+      from: 0,
+      durationInFrames: 180,
+    }]);
+    mocks.getAsset.mockResolvedValue({
+      assetId: 'asset-replacement',
+      userId: 'user_speech_caption',
+      type: 'video',
+      filename: 'replacement.mp4',
+      source: 'user-upload',
+      gcsPath: null,
+      cachedUrl: '',
+      urlExpiresAt: new Date('2026-07-18T01:00:00.000Z'),
+      size: 1024,
+      duration: 6,
+      uploadedAt: new Date('2026-07-18T00:00:00.000Z'),
+    });
+    const resolver = createChatAssetTools({
+      userId: 'user_speech_caption',
+      projectId: 'proj_speech_caption',
+    }).find((tool) => tool.name === 'resolve_user_asset_overlay');
+    expect(resolver).toBeDefined();
+
+    const result = parseEnvelope(await (resolver as unknown as {
+      invoke: (input: Record<string, unknown>) => Promise<string>;
+    }).invoke({
+      query: 'asset-replacement',
+      operation: 'replace',
+      targetOverlayId: 77,
+      sourceStartFrame: 24,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'success',
+      data: {
+        operation: 'replace',
+        candidate: {
+          assetId: 'asset-replacement',
+          matchReasons: ['direct-asset-id'],
+        },
+        useWith: {
+          use_matching_footage: {
+            overlayId: 77,
+            assetId: 'asset-replacement',
+            sourceStartFrame: 24,
+          },
+        },
+      },
+    });
+    expect(mocks.getAsset).toHaveBeenCalledWith('asset-replacement', 'user_speech_caption');
+    expect(mocks.searchUserAssets).not.toHaveBeenCalled();
+    expect(mocks.getUserAssets).not.toHaveBeenCalled();
+  });
+
+  it('creates project captions without requiring one source-video id', async () => {
+    loadWith([{
+      id: 30,
+      type: 'video',
+      assetId: 'asset-caption',
+      from: 0,
+      durationInFrames: 180,
+    }], {
+      rawFootageAnalysis: {
+        timelineCoordinateSpace: 'canonical-edited-v1',
+        originalDurationMs: 6_000,
+        transcription: {
+          words: [
+            { word: 'fresh', startMs: 100, endMs: 420 },
+            { word: 'captions', startMs: 480, endMs: 900 },
+            { word: 'follow', startMs: 980, endMs: 1_300 },
+            { word: 'the', startMs: 1_360, endMs: 1_500 },
+            { word: 'edit', startMs: 1_560, endMs: 1_900 },
+          ],
+        },
+      },
+    });
+    const replace = vi.spyOn(projectService, 'replaceOverlayFamilyAtomic').mockResolvedValue(true);
+
+    const result = parseEnvelope(await toolNamed('add_captions').invoke({
+      style: 'minimal',
+      overwrite: true,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'success',
+      data: {
+        producer: 'canonical-caption-track',
+        style: 'minimal',
+        captionCount: expect.any(Number),
+      },
+    });
+    expect(replace).toHaveBeenCalledOnce();
+    expect(vi.mocked(replace).mock.calls[0][2].overlays).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'caption',
+          metadata: expect.objectContaining({ source: 'canonical-caption-track' }),
+        }),
+      ]),
+    );
   });
 
   it('refreshes the project caption track through the canonical timeline owner and one atomic write', async () => {

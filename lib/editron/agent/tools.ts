@@ -2616,7 +2616,7 @@ Use this to understand what exists. Then decide what to do based on user intent.
 
   // --- ADD CAPTIONS ---
   const addCaptionsSchema = z.object({
-    videoOverlayId: z.coerce.number().describe("ID of the video overlay to add captions for"),
+    videoOverlayId: z.coerce.number().optional().describe("Deprecated compatibility hint. The canonical caption planner reads the complete edited timeline and does not require one source video."),
     style: z.enum(['tiktok', 'minimal', 'bold', 'karaoke', 'subtitle', 'hormozi', 'mrbeast', 'ali-abdaal', 'corporate']).optional().default('tiktok').describe("Requested caption aesthetic. The canonical planner owns safe geometry, contrast, timing, and grouping."),
     overwrite: z.coerce.boolean().optional().default(false).describe("Set to true to regenerate an existing generated caption track"),
     displayMode: z.enum(['word-by-word', 'phrase', 'karaoke', 'subtitle', 'instagram', 'hormozi']).optional().describe("Requested display behavior; canonical readability constraints remain authoritative."),
@@ -2628,11 +2628,6 @@ Use this to understand what exists. Then decide what to do based on user intent.
       try {
         const input = coerceInput(rawInput);
         const project = await loadProject();
-        const overlay = project.overlays.find((o: any) => o.id === input.videoOverlayId);
-        
-        if (!overlay || overlay.type !== 'video' || !overlay.assetId) {
-          return JSON.stringify({ status: 'error', message: 'Valid video overlay with asset not found' });
-        }
 
         const { planChatCanonicalCaptionTrack } = await import(
           '../services/chat-canonical-caption-adapter'

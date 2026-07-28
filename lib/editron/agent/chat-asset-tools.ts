@@ -242,29 +242,44 @@ Use this to check duration, dimensions, tags, transcription summary, and whether
 
   const resolveUserAssetOverlay = tool(
     async (input: z.infer<typeof resolveUserAssetOverlaySchema>) => {
+      const { assetResolver } = await import("../services/asset-resolver");
       const { searchUserAssets } = await import("../services/asset-search-service");
       const { projectService } = await import("../services/project-service");
       const effectiveType = input.type ?? inferAssetType(input.query);
       const usage = await getTimelineAssetUsage(userId, projectId);
       const project = await projectService.loadProject(userId, projectId);
-      const semanticResults = await searchUserAssets(userId, input.query, {
-        type: effectiveType,
-        minScore: 0.2,
-        limit: 8,
-      });
-      const lexicalResults = await searchUserAssetsLexically(userId, input.query, {
-        type: effectiveType,
-        minScore: 0.2,
-        limit: 8,
-      });
-      const candidates = mergeAssetResults(semanticResults, lexicalResults)
-        .slice(0, 8)
-        .map((result) => normalizeSearchResult(result, usage.get(result.assetId)));
+      const exactAsset = await assetResolver.getAsset(input.query.trim(), userId);
+      const exactCandidate = exactAsset && (!effectiveType || exactAsset.type === effectiveType)
+        ? normalizeAsset(exactAsset, usage.get(exactAsset.assetId), {
+            score: 1,
+            matchReasons: ["direct-asset-id"],
+          })
+        : null;
+      const candidates = exactCandidate
+        ? [exactCandidate]
+        : mergeAssetResults(
+            await searchUserAssets(userId, input.query, {
+              type: effectiveType,
+              minScore: 0.2,
+              limit: 8,
+            }),
+            await searchUserAssetsLexically(userId, input.query, {
+              type: effectiveType,
+              minScore: 0.2,
+              limit: 8,
+            }),
+          )
+          .slice(0, 8)
+          .map((result) => normalizeSearchResult(result, usage.get(result.assetId)));
       const plan = resolveUserAssetOverlayPlacement(project, candidates, {
         query: input.query,
+        operation: input.operation,
         placement: input.placement,
         startFrame: input.startFrame,
         durationFrames: input.durationFrames,
+        targetOverlayId: input.targetOverlayId,
+        targetSceneIndex: input.targetSceneIndex,
+        sourceStartFrame: input.sourceStartFrame,
         minConfidence: input.minConfidence,
         allowLowConfidence: input.allowLowConfidence,
       });
