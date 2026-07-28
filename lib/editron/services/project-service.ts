@@ -9,7 +9,10 @@ import { assetResolver } from './asset-resolver';
 import type { Overlay, AspectRatio } from '@/components/editron/editor/version-7.0.0/types';
 import { ensureAtomicOverlayReceipt, withAtomicOverlayUpdateReceipt } from '../engine/overlay-atomic-receipts';
 import { nanoid } from 'nanoid';
-import { mergeServerOwnedOverlayDataForSave } from '@/lib/editron/shared/project-save-payload';
+import {
+  mergeServerOwnedOverlayDataForSave,
+  type OverlaySaveAuthority,
+} from '@/lib/editron/shared/project-save-payload';
 import { orgMemberService } from '@/lib/services/orgMemberService';
 import { removeProjectFromLinks } from '@/lib/shared/project-links';
 
@@ -255,7 +258,12 @@ export class ProjectService {
   /**
    * Save project (manual save)
    */
-  async saveProject(userId: string, projectId: string, state: EditorState): Promise<void> {
+  async saveProject(
+    userId: string,
+    projectId: string,
+    state: EditorState,
+    options: { overlayAuthority?: OverlaySaveAuthority } = {},
+  ): Promise<void> {
     // Strip URLs before saving (keep only assetIds)
     const cleanOverlays = assetResolver.stripUrlsForLLM(state.overlays);
 
@@ -278,9 +286,13 @@ export class ProjectService {
     // Merge: browser overlays + any worker-added overlays not already in browser set
     const browserOverlayIds = new Set(cleanOverlays.map((o: any) => o.id));
     const missingWorkerOverlays = workerOverlays.filter((o: any) => !browserOverlayIds.has(o.id));
-    const browserOverlaysWithServerData = mergeServerOwnedOverlayDataForSave(cleanOverlays, currentProject?.overlays);
+    const overlaysWithServerData = mergeServerOwnedOverlayDataForSave(
+      cleanOverlays,
+      currentProject?.overlays,
+      options.overlayAuthority ?? 'server',
+    );
     const mergedOverlays = stampPersistedOverlays(
-      [...browserOverlaysWithServerData, ...missingWorkerOverlays],
+      [...overlaysWithServerData, ...missingWorkerOverlays],
       'project-service-save',
     );
 

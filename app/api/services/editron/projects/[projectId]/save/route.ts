@@ -85,7 +85,12 @@ export async function POST(
     // Zod's z.any() overlays can't express the full EditorState type.
     // This is the one legitimate cast — the Zod schema validates structure,
     // but saveProject expects the full EditorState interface.
-    await projectService.saveProject(userId, projectId, state as Parameters<typeof projectService.saveProject>[2]);
+    await projectService.saveProject(
+      userId,
+      projectId,
+      state as Parameters<typeof projectService.saveProject>[2],
+      { overlayAuthority: 'client' },
+    );
 
     // Await graph dispatch after save (non-blocking pattern — errors don't fail save)
     if (graphDispatchPromise) {

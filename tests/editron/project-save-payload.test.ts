@@ -1,11 +1,45 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   compactEditorStateForSave,
   mergeServerOwnedOverlayDataForSave,
   serializeEditorStateForSave,
 } from '@/lib/editron/shared/project-save-payload';
 
+const persistenceMocks = vi.hoisted(() => ({
+  findOne: vi.fn(),
+  updateOne: vi.fn(),
+}));
+
+vi.mock('@/lib/editron/db/mongodb', () => ({
+  COLLECTIONS: { PROJECTS: 'editron_prev.projects' },
+  getDatabase: vi.fn(async () => ({
+    collection: vi.fn(() => ({
+      findOne: persistenceMocks.findOne,
+      updateOne: persistenceMocks.updateOne,
+    })),
+  })),
+}));
+
+vi.mock('@/lib/editron/services/asset-resolver', () => ({
+  assetResolver: {
+    stripUrlsForLLM: vi.fn((overlays) => overlays),
+  },
+}));
+
+vi.mock('@/lib/services/orgMemberService', () => ({
+  orgMemberService: {},
+}));
+
+vi.mock('@/lib/shared/project-links', () => ({
+  removeProjectFromLinks: vi.fn(),
+}));
+
 describe('Editron project save payload compaction', () => {
+  beforeEach(() => {
+    persistenceMocks.findOne.mockReset();
+    persistenceMocks.updateOne.mockReset();
+  });
+
   it('removes server-owned generated evidence before autosave/manual save requests', () => {
     const heavyEvidence = 'x'.repeat(50_000);
     const state = {
@@ -135,5 +169,70 @@ describe('Editron project save payload compaction', () => {
 
     expect(merged.audioRights).toBeUndefined();
     expect(merged.musicRights).toBeUndefined();
+  });
+
+  it('preserves verified rights introduced by a trusted server timeline save', () => {
+    const verifiedRights = {
+      source: 'user-upload',
+      licensed: true,
+      evidence: {
+        assetId: 'video_1',
+        receiptId: 'native-audio-rights-video_1',
+      },
+    };
+    const incoming = [{
+      id: 'source_video',
+      type: 'video',
+      from: 0,
+      row: 0,
+      durationInFrames: 300,
+      assetId: 'video_1',
+      hasNativeAudio: true,
+      audioRights: verifiedRights,
+    }];
+
+    const [merged] = mergeServerOwnedOverlayDataForSave(
+      incoming as any,
+      [],
+      'server',
+    ) as any[];
+
+    expect(merged.audioRights).toEqual(verifiedRights);
+  });
+
+  it('persists verified rights on the first trusted server project save', async () => {
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: 'proj_1',
+      overlays: [],
+    });
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1 });
+    const { projectService } = await import('@/lib/editron/services/project-service');
+
+    await projectService.saveProject('user_1', 'proj_1', {
+      overlays: [{
+        id: 'source_video',
+        type: 'video',
+        from: 0,
+        row: 0,
+        durationInFrames: 300,
+        assetId: 'video_1',
+        hasNativeAudio: true,
+        audioRights: {
+          source: 'user-upload',
+          licensed: true,
+          evidence: { receiptId: 'native-audio-rights-video_1' },
+        },
+      } as any],
+      aspectRatio: '16:9',
+      playerDimensions: { width: 1920, height: 1080 },
+      fps: 30,
+      durationInFrames: 300,
+    });
+
+    const persistedOverlays = persistenceMocks.updateOne.mock.calls[0][1].$set.overlays;
+    expect(persistedOverlays[0].audioRights).toEqual(expect.objectContaining({
+      licensed: true,
+      evidence: { receiptId: 'native-audio-rights-video_1' },
+    }));
   });
 });
