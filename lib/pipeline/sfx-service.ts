@@ -1,7 +1,7 @@
 /**
  * Sound Effects (SFX) Generation Service
  *
- * Uses the same fal.ai Stable Audio 2.5 model as the BGM service (and Musitron)
+ * Uses a rights-cleared library first, then purpose-built fal.ai sound models
  * to generate per-scene sound effects from audioDescription prompts.
  *
  * Each scene with an audioDescription gets a short SFX clip that matches
@@ -12,6 +12,11 @@ import { fal } from '@fal-ai/client';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import { isSFXLibraryAvailable } from '@/lib/pipeline/sfx-library-service';
+import {
+  buildCassetteSfxRequest,
+  CASSETTE_SFX_LICENSE_ID,
+  extractCassetteSfxAudioUrl,
+} from '@/lib/pipeline/cassette-sfx-provider';
 import { nanoid } from 'nanoid';
 import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
 
@@ -212,21 +217,17 @@ export async function generateSFX(
     }
   }
 
-  // Priority 3: CassetteAI (AI generation fallback).
-  const cassetteModel = 'cassetteai/music-generator';
+  // Priority 3: CassetteAI's purpose-built sound-effects model.
+  const cassetteRequest = buildCassetteSfxRequest(
+    layeredCassettePrompt(audioDescription),
+    duration,
+  );
+  const cassetteModel = cassetteRequest.model;
+  const cassetteDuration = cassetteRequest.input.duration;
   const cassetteStartMs = Date.now();
   try {
-    const layeredPrompt = [
-      audioDescription,
-      'layered audio design: continuous ambient bed underneath',
-      'with spot sound effects at natural moments on top',
-      'atmospheric, immersive, clean recording, no vocals, no music',
-    ].join(', ');
     result = await fal.subscribe(cassetteModel, {
-      input: {
-        prompt: layeredPrompt,
-        duration: Math.min(Math.max(Math.round(duration), 10), 180),
-      },
+      input: cassetteRequest.input,
       logs: true,
       pollInterval: 3000,
       onQueueUpdate: (update: any) => {
@@ -240,7 +241,7 @@ export async function generateSFX(
       userId,
       providerBranch: 'cassetteai_fallback',
       model: cassetteModel,
-      durationSec: duration,
+      durationSec: cassetteDuration,
       functionMs: Date.now() - cassetteStartMs,
       error: err,
     });
@@ -251,19 +252,7 @@ export async function generateSFX(
     const data = (result as any).data || result;
     console.log('[SFX] fal.ai response keys:', Object.keys(data || {}));
 
-    const audioUrl =
-      data?.audio_file?.url ||
-      data?.audio?.url ||
-      data?.audio?.[0]?.url ||
-      data?.output?.url ||
-      data?.url;
-
-    if (!audioUrl) {
-      throw new Error(
-        'SFX generation returned no audio URL. Response: ' +
-          JSON.stringify(data).substring(0, 300),
-      );
-    }
+    const audioUrl = extractCassetteSfxAudioUrl(result);
 
     const response = await fetch(audioUrl);
     if (!response.ok) throw new Error('Failed to download generated SFX');
@@ -291,7 +280,7 @@ export async function generateSFX(
       userId,
       providerBranch: 'cassetteai_fallback',
       model: cassetteModel,
-      durationSec: duration,
+      durationSec: cassetteDuration,
       bytesOut: buffer.length,
       functionMs: Date.now() - cassetteStartMs,
     });
@@ -300,8 +289,11 @@ export async function generateSFX(
       audioUrl: uploadResult.signedUrl,
       gcsPath: uploadResult.gcsPath ?? null,
       audioAssetId: uploadResult.assetId,
-      durationMs: duration * 1000,
-      audioRights: generatedSfxRights(uploadResult.assetId, cassetteModel),
+      durationMs: cassetteDuration * 1000,
+      audioRights: generatedSfxRights(
+        uploadResult.assetId,
+        CASSETTE_SFX_LICENSE_ID,
+      ),
     };
   } catch (err) {
     await recordPipelineSFXProviderCost({
@@ -309,7 +301,7 @@ export async function generateSFX(
       userId,
       providerBranch: 'cassetteai_fallback',
       model: cassetteModel,
-      durationSec: duration,
+      durationSec: cassetteDuration,
       functionMs: Date.now() - cassetteStartMs,
       error: err,
     });
@@ -364,7 +356,10 @@ export function isSFXAvailable(): boolean {
   return isSFXLibraryAvailable() || Boolean(process.env.FAL_AI_API_KEY?.trim());
 }
 
-function generatedSfxRights(assetId: string, model: string): AudioRightsContract {
+function generatedSfxRights(assetId: string, modelOrLicenseId: string): AudioRightsContract {
+  const licenseId = modelOrLicenseId.startsWith('fal-ai:')
+    ? modelOrLicenseId
+    : `fal-ai:${modelOrLicenseId}:commercial-use`;
   return {
     mediaRole: 'sfx',
     source: 'generated',
@@ -373,7 +368,16 @@ function generatedSfxRights(assetId: string, model: string): AudioRightsContract
     evidence: {
       kind: 'generated-provider',
       sourceAssetId: assetId,
-      licenseId: `fal-ai:${model}:commercial-use`,
+      licenseId,
     },
   };
+}
+
+function layeredCassettePrompt(audioDescription: string): string {
+  return [
+    audioDescription,
+    'layered audio design: continuous ambient bed underneath',
+    'with spot sound effects at natural moments on top',
+    'atmospheric, immersive, clean recording, no vocals, no music',
+  ].join(', ');
 }

@@ -7,9 +7,19 @@ import {
 
 type UnknownRecord = Record<string, unknown>;
 
-const GENERATED_SFX_PROVIDER_LICENSES = new Map([
-  ['cassetteai', 'fal-ai:cassetteai/music-generator:commercial-use'],
-  ['mirelo-video-to-audio', 'fal-ai:mirelo-ai/sfx-v1.5/video-to-audio:commercial-use'],
+const GENERATED_SFX_LICENSE_SOURCES = new Map<string, ReadonlySet<string>>([
+  [
+    'fal-ai:cassetteai/sound-effects-generator:commercial-use',
+    new Set(['cassetteai', 'generated']),
+  ],
+  [
+    'fal-ai:cassetteai/music-generator:commercial-use',
+    new Set(['cassetteai', 'generated']),
+  ],
+  [
+    'fal-ai:mirelo-ai/sfx-v1.5/video-to-audio:commercial-use',
+    new Set(['mirelo-video-to-audio', 'generated']),
+  ],
 ]);
 
 interface StoredAudioAsset extends UnknownRecord {
@@ -473,12 +483,13 @@ function isGeneratedSfxProviderAuthority(
 ): boolean {
   if (rights.mediaRole !== 'sfx') return false;
   const provider = nonEmptyString(asset.source)?.toLowerCase();
-  const expectedLicense = provider
-    ? GENERATED_SFX_PROVIDER_LICENSES.get(provider)
+  const licenseId = nonEmptyString(rights.evidence?.licenseId);
+  const allowedSources = licenseId
+    ? GENERATED_SFX_LICENSE_SOURCES.get(licenseId)
     : null;
   return Boolean(
-    expectedLicense
-    && nonEmptyString(rights.evidence?.licenseId) === expectedLicense
+    provider
+    && allowedSources?.has(provider)
   );
 }
 
