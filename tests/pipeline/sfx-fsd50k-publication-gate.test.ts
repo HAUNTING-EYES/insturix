@@ -60,6 +60,9 @@ describe('FSD50K publication gate', () => {
       deferredSourceIds: 2,
     });
     expect(gated.receipt.approved.map(item => item.canonicalSourceId)).toEqual(['1']);
+    expect(gated.receipt.source.curationSpecDigestSha256).toBe(
+      hashJson(gated.curationSpec),
+    );
     expect(JSON.stringify(gated.curationSpec)).not.toContain('"2"');
     expect(await readFile(
       path.join(outputDirectory, `audio/${fixture.candidates[0].reviewId}.wav`),

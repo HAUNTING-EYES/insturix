@@ -4,6 +4,11 @@ import { pathToFileURL } from 'node:url';
 
 import { prepareFsd50kReviewBatch } from '../lib/pipeline/sfx-fsd50k-review-batches';
 import { gateFsd50kPublication } from '../lib/pipeline/sfx-fsd50k-publication-gate';
+import {
+  aggregateFsd50kPublicationGates,
+  prepareFsd50kCatalogMerge,
+  promoteFsd50kMergedCatalog,
+} from '../lib/pipeline/sfx-fsd50k-publication-aggregate';
 
 type CliCommand =
   | {
@@ -21,6 +26,25 @@ type CliCommand =
     command: 'gate';
     reviewDirectory: string;
     decisionsPath: string;
+    outputDirectory: string;
+  }
+  | {
+    command: 'aggregate';
+    gateIndexPath: string;
+    outputDirectory: string;
+  }
+  | {
+    command: 'merge';
+    aggregateDirectory: string;
+    baseManifestPath: string;
+    deltaManifestPath: string;
+    deltaUploadPlanPath: string;
+    outputDirectory: string;
+  }
+  | {
+    command: 'promote';
+    mergeDirectory: string;
+    publicationReceiptPath: string;
     outputDirectory: string;
   };
 
@@ -53,26 +77,96 @@ async function main(): Promise<void> {
     return;
   }
 
-  const decisions = await readJson(cli.decisionsPath);
-  const gated = await gateFsd50kPublication({
-    reviewDirectory: cli.reviewDirectory,
-    decisionReceipt: decisions,
+  if (cli.command === 'gate') {
+    const decisions = await readJson(cli.decisionsPath);
+    const gated = await gateFsd50kPublication({
+      reviewDirectory: cli.reviewDirectory,
+      decisionReceipt: decisions,
+      outputDirectory: cli.outputDirectory,
+    });
+    console.log(JSON.stringify({
+      command: cli.command,
+      approved: gated.receipt.counts.approved,
+      rejected: gated.receipt.counts.rejected,
+      pending: gated.receipt.counts.pending,
+      gateReceiptPath: gated.receiptPath,
+      curationSpecPath: gated.curationSpecPath,
+      nextGate: 'aggregate-approved-gate-packs',
+    }, null, 2));
+    return;
+  }
+
+  if (cli.command === 'aggregate') {
+    const gateDirectories = parseGateIndex(
+      await readJson(cli.gateIndexPath),
+      cli.gateIndexPath,
+    );
+    const aggregate = await aggregateFsd50kPublicationGates({
+      gateDirectories,
+      outputDirectory: cli.outputDirectory,
+    });
+    console.log(JSON.stringify({
+      command: cli.command,
+      sourceGates: aggregate.receipt.counts.sourceGates,
+      approvedAssets: aggregate.receipt.counts.approvedAssets,
+      aggregateReceiptPath: aggregate.receiptPath,
+      curationSpecPath: aggregate.curationSpecPath,
+      nextGate: 'curate-delta-manifest-and-upload-plan',
+    }, null, 2));
+    return;
+  }
+
+  if (cli.command === 'merge') {
+    const [baseManifest, deltaManifest, deltaUploadPlan] = await Promise.all([
+      readJson(cli.baseManifestPath),
+      readJson(cli.deltaManifestPath),
+      readJson(cli.deltaUploadPlanPath),
+    ]);
+    const merge = await prepareFsd50kCatalogMerge({
+      aggregateDirectory: cli.aggregateDirectory,
+      baseManifest,
+      deltaManifest,
+      deltaUploadPlan,
+      outputDirectory: cli.outputDirectory,
+    });
+    console.log(JSON.stringify({
+      command: cli.command,
+      existingAssets: merge.receipt.counts.existingAssets,
+      deltaAssets: merge.receipt.counts.deltaAssets,
+      mergedAssets: merge.receipt.counts.mergedAssets,
+      mergedManifestCandidatePath: merge.manifestPath,
+      mergeReceiptPath: merge.receiptPath,
+      nextGate: 'publish-and-verify-delta-only',
+    }, null, 2));
+    return;
+  }
+
+  const publicationReceipt = await readJson(cli.publicationReceiptPath);
+  const promotion = await promoteFsd50kMergedCatalog({
+    mergeDirectory: cli.mergeDirectory,
+    publicationReceipt,
     outputDirectory: cli.outputDirectory,
   });
   console.log(JSON.stringify({
     command: cli.command,
-    approved: gated.receipt.counts.approved,
-    rejected: gated.receipt.counts.rejected,
-    pending: gated.receipt.counts.pending,
-    gateReceiptPath: gated.receiptPath,
-    curationSpecPath: gated.curationSpecPath,
-    nextGate: 'merge-safe-multi-batch-catalog-publication',
+    existingAssets: promotion.receipt.counts.existingAssets,
+    deltaAssets: promotion.receipt.counts.deltaAssets,
+    promotedAssets: promotion.receipt.counts.promotedAssets,
+    promotedManifestPath: promotion.manifestPath,
+    promotionReceiptPath: promotion.receiptPath,
+    nextGate: 'path-scoped-manifest-review-and-deploy',
   }, null, 2));
 }
 
 function parseCli(argv: string[]): CliCommand {
   const [command, ...argumentsList] = argv;
-  if (command !== 'prepare' && command !== 'gate') throw usageError();
+  if (
+    command !== 'prepare'
+    && command !== 'gate'
+    && command !== 'aggregate'
+    && command !== 'merge'
+    && command !== 'promote'
+  ) throw usageError();
   const values = new Map<string, string>();
   for (const argument of argumentsList) {
     const match = /^--([a-z-]+)=(.+)$/.exec(argument);
@@ -96,10 +190,35 @@ function parseCli(argv: string[]): CliCommand {
         : { concurrency: optionalInteger(values, 'concurrency') }),
     };
   }
+  if (command === 'gate') {
+    return {
+      command,
+      reviewDirectory: requiredPath(values, 'review-dir'),
+      decisionsPath: requiredPath(values, 'decisions'),
+      outputDirectory: requiredPath(values, 'out-dir'),
+    };
+  }
+  if (command === 'aggregate') {
+    return {
+      command,
+      gateIndexPath: requiredPath(values, 'gate-index'),
+      outputDirectory: requiredPath(values, 'out-dir'),
+    };
+  }
+  if (command === 'merge') {
+    return {
+      command,
+      aggregateDirectory: requiredPath(values, 'aggregate-dir'),
+      baseManifestPath: requiredPath(values, 'base-manifest'),
+      deltaManifestPath: requiredPath(values, 'delta-manifest'),
+      deltaUploadPlanPath: requiredPath(values, 'delta-upload-plan'),
+      outputDirectory: requiredPath(values, 'out-dir'),
+    };
+  }
   return {
     command,
-    reviewDirectory: requiredPath(values, 'review-dir'),
-    decisionsPath: requiredPath(values, 'decisions'),
+    mergeDirectory: requiredPath(values, 'merge-dir'),
+    publicationReceiptPath: requiredPath(values, 'publication-receipt'),
     outputDirectory: requiredPath(values, 'out-dir'),
   };
 }
@@ -136,12 +255,43 @@ function usageError(): Error {
     + '--extraction-dir=<dir> --out-dir=<new-dir> --batch=<n> '
     + '[--batch-size=<1..250>] [--concurrency=<1..8>]\n'
     + '  npx tsx scripts/manage-fsd50k-review.ts gate '
-    + '--review-dir=<dir> --decisions=<json> --out-dir=<new-dir>',
+    + '--review-dir=<dir> --decisions=<json> --out-dir=<new-dir>\n'
+    + '  npx tsx scripts/manage-fsd50k-review.ts aggregate '
+    + '--gate-index=<json> --out-dir=<new-dir>\n'
+    + '  npx tsx scripts/manage-fsd50k-review.ts merge '
+    + '--aggregate-dir=<dir> --base-manifest=<json> --delta-manifest=<json> '
+    + '--delta-upload-plan=<json> --out-dir=<new-dir>\n'
+    + '  npx tsx scripts/manage-fsd50k-review.ts promote '
+    + '--merge-dir=<dir> --publication-receipt=<json> --out-dir=<new-dir>',
   );
 }
 
 async function readJson(filePath: string): Promise<unknown> {
   return JSON.parse(await readFile(filePath, 'utf8'));
+}
+
+function parseGateIndex(value: unknown, gateIndexPath: string): string[] {
+  if (
+    typeof value !== 'object'
+    || value === null
+    || Array.isArray(value)
+    || !('version' in value)
+    || value.version !== 'editron-fsd50k-gate-index-v1'
+    || !('gateDirectories' in value)
+    || !Array.isArray(value.gateDirectories)
+    || value.gateDirectories.length === 0
+    || value.gateDirectories.some(directory => (
+      typeof directory !== 'string' || !directory.trim()
+    ))
+  ) {
+    throw new Error(
+      'Gate index must be editron-fsd50k-gate-index-v1 with non-empty gateDirectories',
+    );
+  }
+  const parent = path.dirname(gateIndexPath);
+  return value.gateDirectories.map(directory => (
+    path.resolve(parent, directory.trim())
+  ));
 }
 
 const isMain = Boolean(

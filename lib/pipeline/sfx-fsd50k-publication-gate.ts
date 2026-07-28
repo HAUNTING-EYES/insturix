@@ -90,6 +90,7 @@ export interface Fsd50kPublicationGateReceipt {
     candidatePoolSha256: string;
     inspectionAnalysisDigestSha256: string;
     embeddingAnalysisDigestSha256: string;
+    curationSpecDigestSha256: string;
   };
   policy: {
     explicitPerAssetApprovalRequired: true;
@@ -233,6 +234,7 @@ export async function gateFsd50kPublication(
       candidatePoolSha256: report.source.candidatePoolSha256,
       inspectionAnalysisDigestSha256: report.source.inspectionAnalysisDigestSha256,
       embeddingAnalysisDigestSha256: report.source.embeddingAnalysisDigestSha256,
+      curationSpecDigestSha256: hashJson(curationSpec),
     },
     policy: {
       explicitPerAssetApprovalRequired: true as const,
