@@ -31,6 +31,20 @@ import { CalosTrendOpportunityReview } from './calos-trend-opportunity-review';
 const DEFAULT_BRAND = 'default'; // personal space when the user has no explicit brand
 
 type View = 'month' | 'week' | 'day';
+type PublishState = {
+  platform: string;
+  status: string;
+  postUrl: string | null;
+  error: string | null;
+  accountRef: string | null;
+  canRetry: boolean;
+};
+type ConnectionHealth = {
+  state: 'assigned' | 'attention' | 'reconnect';
+  accountRef: string | null;
+  displayName: string | null;
+  message: string | null;
+};
 
 export default function CalosCalendarV3() {
   const router = useRouter();
@@ -45,15 +59,19 @@ export default function CalosCalendarV3() {
   const [cursor, setCursor] = useState(() => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), 1); });
   const [selDay, setSelDay] = useState(() => new Date());
   const [openId, setOpenId] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<null | { kind: 'clearall' } | { kind: 'deleteday'; date: Date }>(null);
+  const [confirm, setConfirm] = useState<
+    null | { kind: 'clearall' } | { kind: 'deleteday'; date: Date } | { kind: 'retrypublish'; id: string }
+  >(null);
   const [screen, setScreen] = useState<'calendar' | 'workspace' | 'share'>('calendar');
   const [wsCampaign, setWsCampaign] = useState<WorkspaceCampaign | null>(null);
   const [wsEditOpen, setWsEditOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [brandRefsOpen, setBrandRefsOpen] = useState(false);
   const [trendOpportunitiesOpen, setTrendOpportunitiesOpen] = useState(false);
-  const [pubStatus, setPubStatus] = useState<Record<string, { platform: string; status: string; postUrl: string | null; error: string | null }>>({});
+  const [pubStatus, setPubStatus] = useState<Record<string, PublishState>>({});
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
+  const [connectionHealth, setConnectionHealth] = useState<Record<string, ConnectionHealth>>({});
+  const [retryingId, setRetryingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filterStage, setFilterStage] = useState<string | null>(null);
 
@@ -101,18 +119,30 @@ export default function CalosCalendarV3() {
 
   // Delivery visibility: per-card publish state + which platforms are connected, so an approved
   // card isn't a black box and we can prompt "connect X to publish" instead of failing silently.
-  const loadPubStatus = React.useCallback(async () => {
+  const loadPubStatus = React.useCallback(async (signal?: AbortSignal) => {
     if (!brandId) return;
     try {
-      const res = await fetch(`/api/services/calos/publish-status?brandId=${encodeURIComponent(brandId)}`, { cache: 'no-store' });
+      const res = await fetch(`/api/services/calos/publish-status?brandId=${encodeURIComponent(brandId)}`, {
+        cache: 'no-store',
+        signal,
+      });
       const data = await res.json().catch(() => ({}));
+      if (signal?.aborted) return;
       setPubStatus(data?.statuses && typeof data.statuses === 'object' ? data.statuses : {});
       setConnectedPlatforms(Array.isArray(data?.connectedPlatforms) ? data.connectedPlatforms : []);
+      setConnectionHealth(data?.connectionHealth && typeof data.connectionHealth === 'object' ? data.connectionHealth : {});
     } catch {
       /* best-effort — visibility only, never blocks the calendar */
     }
   }, [brandId]);
-  useEffect(() => { void loadPubStatus(); }, [loadPubStatus]);
+  useEffect(() => {
+    setPubStatus({});
+    setConnectedPlatforms([]);
+    setConnectionHealth({});
+    const controller = new AbortController();
+    void loadPubStatus(controller.signal);
+    return () => controller.abort();
+  }, [loadPubStatus]);
 
   // Auto-refresh while an image job is in flight, so the finished still lands on the card without a
   // manual reload. Polls (every 12s) only while at least one card is 'generating'; stops as soon as
@@ -299,6 +329,33 @@ export default function CalosCalendarV3() {
     setConfirm(null);
     const n = await deleteCardsForDate(date);
     if (n > 0) toast({ title: `Cleared ${n} item${n === 1 ? '' : 's'}`, description: dayTitle(date) });
+  };
+  const doRetryPublish = async (id: string) => {
+    if (retryingId) return;
+    setConfirm(null);
+    setRetryingId(id);
+    try {
+      const res = await fetch('/api/services/calos/publish-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandId, deliverableId: id, confirmPossibleDuplicate: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      await loadPubStatus();
+      if (!res.ok) {
+        toast({ title: data?.error || `Publish retry failed (${res.status})`, variant: 'destructive' });
+        return;
+      }
+      toast({ title: 'Publish retry queued' });
+    } catch (err) {
+      toast({
+        title: 'Publish retry failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setRetryingId(null);
+    }
   };
 
   const gotoPrev = () => view === 'month' ? setCursor((c) => addMonths(c, -1)) : setSelDay((d) => addDays(d, view === 'week' ? -7 : -1));
@@ -555,6 +612,9 @@ export default function CalosCalendarV3() {
           onOpenScript={handleOpenScript}
           pubState={pubStatus[openItem.id]}
           connected={connectedPlatforms.includes(openItem.platform)}
+          connectionHealth={connectionHealth[openItem.platform]}
+          retrying={retryingId === openItem.id}
+          onRequestRetry={(id) => setConfirm({ kind: 'retrypublish', id })}
           onOpenPublishing={() => { setOpenId(null); setConnectionsOpen(true); }}
         />
       )}
@@ -563,6 +623,15 @@ export default function CalosCalendarV3() {
       )}
       {confirm?.kind === 'deleteday' && (
         <Confirm title="Delete day" msg={`Delete all content on ${dayTitle(confirm.date)}?`} confirmLabel="Delete day" onClose={() => setConfirm(null)} onConfirm={() => doDeleteDay(confirm.date)} />
+      )}
+      {confirm?.kind === 'retrypublish' && (
+        <Confirm
+          title="Retry publish"
+          msg="Retry this failed post? If the platform accepted the earlier request before timing out, retrying can create a duplicate."
+          confirmLabel="Retry publish"
+          onClose={() => setConfirm(null)}
+          onConfirm={() => void doRetryPublish(confirm.id)}
+        />
       )}
       {wsEditOpen && wsCampaign && brandId && (
         <CalosCadenceModal campaign={wsCampaign} brandId={brandId} onClose={() => setWsEditOpen(false)} onSaved={() => { setWsEditOpen(false); refresh(); }} />
