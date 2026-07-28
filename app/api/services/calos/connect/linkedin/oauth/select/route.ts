@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import type { ICalosPendingAccount } from "@/schemas/calos-pending-connect";
+import { requireCalosBrandAccess } from "@/lib/calos/brand-access";
 
 /**
  * POST /api/services/calos/connect/linkedin/oauth/select  { pendingId, accountRef }
@@ -9,7 +10,8 @@ import type { ICalosPendingAccount } from "@/schemas/calos-pending-connect";
  * Model B finalize: promotes a pending client-connect into an active per-brand connected account,
  * binding the encrypted token to the chosen account. The account MUST be one the token actually has
  * (looked up in the pending record's availableAccounts — never trusted from the request), and the
- * caller MUST own the pending record. Consumes (deletes) the pending record on success.
+ * caller MUST own the pending record and retain access to its target brand. The record is consumed
+ * only after the authorized connection is promoted successfully.
  */
 export async function POST(request: NextRequest) {
   const session = await auth();
@@ -37,6 +39,15 @@ export async function POST(request: NextRequest) {
   if (!pending || pending.ownerUserId !== session.userId) {
     return NextResponse.json({ success: false, error: "Pending connect not found" }, { status: 404 });
   }
+  const accessResponse = await requireCalosBrandAccess(
+    {
+      userId: session.userId,
+      orgId: session.orgId,
+      isOrgAdmin: Boolean(session.orgId && session.has?.({ role: "org:admin" })),
+    },
+    pending.brandId,
+  );
+  if (accessResponse) return accessResponse;
 
   // The account must be one the token actually has (don't trust a client-supplied accountType).
   const chosen = pending.availableAccounts.find((a: ICalosPendingAccount) => a.accountRef === accountRef);

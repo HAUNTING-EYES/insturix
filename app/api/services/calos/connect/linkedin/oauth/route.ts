@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { getLinkedInScopes } from "@/lib/uploaderx/linkedinScopes";
 import { getCalosLinkedInRedirectUri } from "@/lib/calos/publish/linkedin-oauth";
 import { signCalosConnectState } from "@/lib/calos/publish/connect-state";
+import { requireCalosBrandAccess } from "@/lib/calos/brand-access";
 
 /**
  * GET /api/services/calos/connect/linkedin/oauth?brandId=…
@@ -25,6 +26,15 @@ export async function GET(request: NextRequest) {
   if (!brandId) {
     return NextResponse.json({ success: false, error: "brandId is required" }, { status: 400 });
   }
+  const accessResponse = await requireCalosBrandAccess(
+    {
+      userId: session.userId,
+      orgId: session.orgId,
+      isOrgAdmin: Boolean(session.orgId && session.has?.({ role: "org:admin" })),
+    },
+    brandId,
+  );
+  if (accessResponse) return accessResponse;
 
   const clientId = process.env.LINKEDIN_CLIENT_ID?.trim();
   if (!clientId) {
