@@ -801,6 +801,23 @@ describe('chat request owner capability filtering', () => {
     expect(licensedNames(['audio-ducking', 'asset-placement'])).not.toContain(
       'apply_editorial_intent',
     );
+
+    const musicMixLicense = capabilityLicense(['background-music', 'audio-ducking']);
+    musicMixLicense.routingFacts = {
+      ...musicMixLicense.routingFacts!,
+      familyDirectives: [{ family: 'music', mode: 'prefer' }],
+      familyScopeExclusive: true,
+    };
+    expect(filterChatToolsForRequestOwner(
+      capabilityTools,
+      musicMixLicense,
+      { assistLane: true },
+    ).map((tool) => tool.name)).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'apply_audio_ducking',
+      'regenerate_bgm',
+    ]);
   });
 
   it('uses one fail-closed capability authority contract for runtime and verification', () => {

@@ -3,6 +3,7 @@ import type {
   ChatBattleFixturePlan,
 } from './chat-edit-battle-fixture-plan';
 import { resolveRenderableAudio } from '../shared/render-request-payload';
+import { groupWordsIntoCaptions } from '../utils/caption-utils';
 
 export interface PreparedChatBattleFixture {
   project: Record<string, unknown>;
@@ -266,7 +267,12 @@ function seedTranscriptOverlay(
     durationInFrames,
     row: finiteFrame(existing.row) || 4,
     words,
-    captions: [],
+    captions: groupWordsIntoCaptions(words, {
+      wordsPerGroup: 4,
+      groupByPunctuation: true,
+      maxGroupDuration: 2_200,
+      maxCharsPerLine: 42,
+    }),
     metadata: {
       ...asRecord(existing.metadata),
       battleFixtureTranscript: true,

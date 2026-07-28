@@ -260,6 +260,7 @@ describe('chat edit battle fixtures', () => {
       now: NOW,
     });
     const preparedVideo = overlays(prepared.project).find((overlay) => overlay.type === 'video');
+    const preparedCaption = overlays(prepared.project).find((overlay) => overlay.type === 'caption');
 
     expect(preparedVideo).toMatchObject({
       hasNativeAudio: false,
@@ -271,7 +272,15 @@ describe('chat edit battle fixtures', () => {
       },
     });
     expect(overlays(prepared.project).some((overlay) => overlay.type === 'sound')).toBe(false);
-    expect(overlays(prepared.project).some((overlay) => overlay.type === 'caption')).toBe(true);
+    expect(preparedCaption).toBeDefined();
+    expect(preparedCaption?.captions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        text: expect.any(String),
+        startMs: expect.any(Number),
+        endMs: expect.any(Number),
+        words: expect.any(Array),
+      }),
+    ]));
   });
 
   it('preserves and selects only a real SFX for the replacement scenario', () => {

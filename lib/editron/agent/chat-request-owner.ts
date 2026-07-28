@@ -643,6 +643,11 @@ export function filterChatToolsForRequestOwner<T extends { name: string }>(
     }
     if (license.owner === 'semantic-editorial-planner') {
       const workflow = resolveSemanticWorkflow(license);
+      const capabilityTools = resolveChatCapabilityTools(
+        license.routingFacts?.requestedCapabilities ?? [],
+      );
+      if (capabilityTools) return capabilityTools.has(tool.name);
+
       const exclusiveFamilyTools = workflow === 'editorial-plan' && options.assistLane
         ? resolveExclusiveDirectorFamilyTools(license)
         : null;
@@ -651,11 +656,6 @@ export function filterChatToolsForRequestOwner<T extends { name: string }>(
           ? exclusiveFamilyTools.has(tool.name)
           : !SEMANTIC_OWNER_TOOLS.has(tool.name);
       }
-
-      const capabilityTools = resolveChatCapabilityTools(
-        license.routingFacts?.requestedCapabilities ?? [],
-      );
-      if (capabilityTools) return capabilityTools.has(tool.name);
 
       if (workflow === 'selected-dialogue-dubbing') {
         return CHAT_DUBBING_WORKFLOW_TOOLS.has(tool.name);
