@@ -66,6 +66,20 @@ function generatedNativeVideoReceipt(assetId: string) {
   };
 }
 
+function generatedVoiceoverRights(assetId: string) {
+  return {
+    mediaRole: "voiceover" as const,
+    source: "generated" as const,
+    userChoice: "attested" as const,
+    licensed: true,
+    evidence: {
+      kind: "generated-provider" as const,
+      sourceAssetId: assetId,
+      licenseId: "provider:voiceover-commercial-use",
+    },
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -466,6 +480,14 @@ describe("Editron render request payloads", () => {
     userChoice,
     code,
   }) => {
+    const voiceover = {
+      id: 89,
+      type: "sound",
+      row: 3,
+      assetId: "voiceover-89",
+      src: "https://voice.example/vo.mp3",
+      audioRights: generatedVoiceoverRights("voiceover-89"),
+    };
     const renderable = resolveRenderableAudioInputProps({
       overlays: [
         {
@@ -479,13 +501,11 @@ describe("Editron render request payloads", () => {
             licensed: false,
           },
         },
-        { id: 89, type: "sound", row: 3, src: "https://voice.example/vo.mp3" },
+        voiceover,
       ],
     });
 
-    expect(renderable.overlays).toEqual([
-      { id: 89, type: "sound", row: 3, src: "https://voice.example/vo.mp3" },
-    ]);
+    expect(renderable.overlays).toEqual([voiceover]);
     expect(renderable.audioRightsNotices).toEqual([{
       code,
       overlayId: 88,
@@ -494,7 +514,7 @@ describe("Editron render request payloads", () => {
     }]);
   });
 
-  it("keeps affirmatively attested preview audio and unrelated sound overlays", () => {
+  it("keeps affirmatively attested preview audio and rights-backed voiceover", () => {
     const overlays = [
       {
         id: 91,
@@ -514,10 +534,38 @@ describe("Editron render request payloads", () => {
           },
         },
       },
-      { id: 92, type: "sound", row: 3, src: "https://voice.example/vo.mp3" },
+      {
+        id: 92,
+        type: "sound",
+        row: 3,
+        assetId: "voiceover-92",
+        src: "https://voice.example/vo.mp3",
+        audioRights: generatedVoiceoverRights("voiceover-92"),
+      },
     ];
 
     expect(buildLambdaRenderInputProps({ overlays }).overlays).toEqual(overlays);
+  });
+
+  it("CRITICAL: rejects every sound overlay without durable audio rights", async () => {
+    const overlays = [{
+      id: "rights-less-voiceover",
+      type: "sound",
+      row: 3,
+      assetId: "voiceover_missing_rights",
+      src: "https://voice.example/missing-rights.mp3",
+    }];
+
+    expect(() => buildLambdaRenderInputProps({ overlays }))
+      .toThrowError(/audio rights metadata is missing/);
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      projectOwnerId: "user_1",
+      overlays,
+    }, {
+      loadAssets: vi.fn(async () => []),
+    })).rejects.toThrowError(/audio rights metadata is missing/);
   });
 
   it("rejects malformed or explicitly unlicensed non-preview rights", () => {
@@ -772,6 +820,57 @@ describe("Editron render request payloads", () => {
         generatedVideoReceipt: generatedNativeVideoReceipt("video_native_authority"),
       }],
     })).rejects.toThrowError(/stored rights evidence is not a video asset/);
+  });
+
+  it("verifies an EDL native-audio boundary clone against its source video authority", async () => {
+    const assetId = "video_native_boundary";
+    const rights = generatedNativeVideoRights(assetId);
+    const receipt = generatedNativeVideoReceipt(assetId);
+    const overlay = {
+      id: "native-audio-boundary",
+      type: "sound",
+      row: 3,
+      assetId,
+      src: "https://video.example/native.mp4",
+      audioRights: rights,
+      generatedVideoReceipt: receipt,
+      metadata: {
+        source: "edl-native-audio-boundary",
+        sourceClipId: "video-overlay-1",
+        audioBoundaryKind: "j-cut",
+      },
+    };
+    const storedVideo = {
+      assetId,
+      userId: "user_1",
+      projectId: "project_1",
+      type: "video",
+      source: "generated",
+      audioRights: rights,
+      generatedVideoReceipt: receipt,
+    };
+
+    expect(() => buildLambdaRenderInputProps({ overlays: [overlay] })).not.toThrow();
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      projectOwnerId: "user_1",
+      overlays: [overlay],
+    }, {
+      loadAssets: async () => [storedVideo],
+    })).resolves.toBeUndefined();
+
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      projectOwnerId: "user_1",
+      overlays: [{
+        ...overlay,
+        metadata: { source: "forged-native-audio-boundary" },
+      }],
+    }, {
+      loadAssets: async () => [storedVideo],
+    })).rejects.toThrowError(/sound overlay cannot use native-video rights evidence/);
   });
 
   it("CRITICAL: verifies a separated dubbing bed against its native-video source", async () => {

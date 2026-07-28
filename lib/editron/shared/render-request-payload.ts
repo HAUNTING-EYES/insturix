@@ -223,6 +223,15 @@ export function resolveRenderableAudio(
   }
   const nativeVideoOverlay =
     overlay.type === "video" && overlay.hasNativeAudio === true;
+  const nativeAudioBoundaryOverlay = isNativeAudioBoundarySoundOverlay(overlay);
+  if (
+    overlay.type === "sound" &&
+    !isSoundOverlayWithRenderableSource(overlay) &&
+    overlay.audioRights === undefined &&
+    overlay.musicRights === undefined
+  ) {
+    return { overlay };
+  }
   if (overlay.type !== "sound" && !nativeVideoOverlay) {
     return { overlay };
   }
@@ -235,14 +244,6 @@ export function resolveRenderableAudio(
     throw new UnlicensedAudioInRenderError(overlay, rightsClaim.issue);
   }
   const rightsValue = rightsClaim.rights;
-  if (
-    rightsValue === null &&
-    !knownPreviewSource &&
-    !musicOverlay &&
-    !nativeVideoOverlay
-  ) {
-    return { overlay };
-  }
   if (rightsValue === null) {
     throw new UnlicensedAudioInRenderError(
       overlay,
@@ -267,8 +268,18 @@ export function resolveRenderableAudio(
     );
   }
   if (
+    nativeAudioBoundaryOverlay &&
+    audioRights.mediaRole !== "native-video"
+  ) {
+    throw new UnlicensedAudioInRenderError(
+      overlay,
+      `native video audio boundary cannot use ${audioRights.mediaRole ?? "unspecified"} rights evidence`
+    );
+  }
+  if (
     overlay.type === "sound" &&
-    audioRights.mediaRole === "native-video"
+    audioRights.mediaRole === "native-video" &&
+    !nativeAudioBoundaryOverlay
   ) {
     throw new UnlicensedAudioInRenderError(
       overlay,
@@ -293,13 +304,19 @@ export function resolveRenderableAudio(
     );
   }
 
-  if (nativeVideoOverlay && audioRights.source === "preview-only") {
+  if (
+    (nativeVideoOverlay || nativeAudioBoundaryOverlay) &&
+    audioRights.source === "preview-only"
+  ) {
     throw new UnlicensedAudioInRenderError(
       overlay,
       "preview-only audio cannot remain embedded in a rendered video"
     );
   }
-  if (nativeVideoOverlay && audioRights.source === "generated") {
+  if (
+    (nativeVideoOverlay || nativeAudioBoundaryOverlay) &&
+    audioRights.source === "generated"
+  ) {
     const receiptIssue = getGeneratedNativeVideoReceiptIssue(
       overlay.generatedVideoReceipt,
       {
@@ -664,6 +681,25 @@ export function isCanonicalMusicOverlay(overlay: unknown): boolean {
     overlay.audioRole === "music" ||
     Boolean(assetId?.toLowerCase().startsWith("bgm_"))
   );
+}
+
+export function isNativeAudioBoundarySoundOverlay(overlay: unknown): boolean {
+  if (!isRecord(overlay) || overlay.type !== "sound") return false;
+  const metadata = isRecord(overlay.metadata) ? overlay.metadata : null;
+  return (
+    metadata?.source === "edl-native-audio-boundary" &&
+    nonEmptyString(metadata.sourceClipId) !== null &&
+    (
+      metadata.audioBoundaryKind === "j-cut" ||
+      metadata.audioBoundaryKind === "l-cut"
+    )
+  );
+}
+
+export function isSoundOverlayWithRenderableSource(overlay: unknown): boolean {
+  if (!isRecord(overlay) || overlay.type !== "sound") return false;
+  return [overlay.assetId, overlay.src, overlay.content]
+    .some((value) => nonEmptyString(value) !== null);
 }
 
 function canonicalAudioRightsSignature(rights: AudioRightsContract): string {

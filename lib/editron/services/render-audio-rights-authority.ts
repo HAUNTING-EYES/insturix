@@ -1,6 +1,7 @@
 import {
   getGeneratedNativeVideoReceiptIssue,
-  isCanonicalMusicOverlay,
+  isNativeAudioBoundarySoundOverlay,
+  isSoundOverlayWithRenderableSource,
   resolveAudioRightsClaim,
   type AudioRightsContract,
 } from '@/lib/editron/shared/render-request-payload';
@@ -206,16 +207,22 @@ function readAudioClaim(overlay: unknown): RenderAudioClaim {
   const rights = claim.rights;
   const nativeVideoOverlay =
     record.type === 'video' && record.hasNativeAudio === true;
-  if (nativeVideoOverlay && rights.mediaRole !== 'native-video') {
+  const nativeAudioBoundaryOverlay = isNativeAudioBoundarySoundOverlay(record);
+  const nativeVideoAudioClaim = nativeVideoOverlay || nativeAudioBoundaryOverlay;
+  if (nativeVideoAudioClaim && rights.mediaRole !== 'native-video') {
     throw authorityError(
       record,
-      `native video cannot use ${rights.mediaRole ?? 'unspecified'} rights evidence`,
+      `native video audio cannot use ${rights.mediaRole ?? 'unspecified'} rights evidence`,
     );
   }
-  if (record.type === 'sound' && rights.mediaRole === 'native-video') {
+  if (
+    record.type === 'sound'
+    && rights.mediaRole === 'native-video'
+    && !nativeAudioBoundaryOverlay
+  ) {
     throw authorityError(record, 'sound overlay cannot use native-video rights evidence');
   }
-  if (nativeVideoOverlay && rights.source === 'preview-only') {
+  if (nativeVideoAudioClaim && rights.source === 'preview-only') {
     throw authorityError(record, 'preview-only audio cannot remain embedded in a rendered video');
   }
 
@@ -251,13 +258,13 @@ function readAudioClaim(overlay: unknown): RenderAudioClaim {
     rights,
   );
   if (
-    nativeVideoOverlay
+    nativeVideoAudioClaim
     && rights.source === 'generated'
     && sourceAssetId !== overlayAssetId
   ) {
     throw authorityError(record, 'generated native-video rights must identify the rendered video asset');
   }
-  if (nativeVideoOverlay && rights.source === 'generated') {
+  if (nativeVideoAudioClaim && rights.source === 'generated') {
     const receiptIssue = getGeneratedNativeVideoReceiptIssue(
       record.generatedVideoReceipt,
       {
@@ -278,10 +285,10 @@ function readAudioClaim(overlay: unknown): RenderAudioClaim {
     overlayAssetId,
     sourceAssetId,
     requiresStoredEvidence: true,
-    expectedAssetType: nativeVideoOverlay ? 'video' : 'audio',
+    expectedAssetType: nativeVideoAudioClaim ? 'video' : 'audio',
     expectedSourceAssetType: audioSeparationReceipt
       ? 'video'
-      : nativeVideoOverlay ? 'video' : 'audio',
+      : nativeVideoAudioClaim ? 'video' : 'audio',
     audioSeparationReceipt,
   };
 }
@@ -292,11 +299,11 @@ function isAudioRightsAuthorityCandidate(overlay: unknown): boolean {
     record
     && (
       (record.type === 'video' && record.hasNativeAudio === true)
+      || isSoundOverlayWithRenderableSource(record)
       || (
         record.type === 'sound'
         && (
-          isCanonicalMusicOverlay(record)
-          || record.audioRights !== undefined
+          record.audioRights !== undefined
           || record.musicRights !== undefined
         )
       )

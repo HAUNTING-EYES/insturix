@@ -69,6 +69,10 @@ import { runDesignPrepass, type MgDesignPrepassBeat } from '@/lib/editron/motion
 import { defaultGeminiDesignerGenerate } from '@/lib/editron/motion-graphics/codegen/design/designer-client';
 import type { MgDesignerMoment } from '@/lib/editron/motion-graphics/codegen/design/designer-prompt';
 import type { MgDesignPlanMomentContext } from '@/lib/editron/motion-graphics/codegen/design/design-plan';
+import {
+  getGeneratedNativeVideoReceiptIssue,
+  resolveAudioRightsClaim,
+} from '@/lib/editron/shared/render-request-payload';
 
 // Deterministic overlay ID for EDL-generated overlays. OLD: Date.now() + Math.random()
 // produced different IDs per render → broke Lambda caching and A/B comparisons.
@@ -268,6 +272,36 @@ function applyAudioBoundaryTransition(
     console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - target clip has no native-audio evidence`);
     return null;
   }
+  const sourceAssetId = typeof targetClip.assetId === 'string' && targetClip.assetId.trim()
+    ? targetClip.assetId.trim()
+    : null;
+  const rightsClaim = resolveAudioRightsClaim(targetClip);
+  const nativeAudioRights = rightsClaim.rights;
+  if (
+    !sourceAssetId
+    || rightsClaim.issue
+    || !nativeAudioRights
+    || nativeAudioRights.mediaRole !== 'native-video'
+    || !nativeAudioRights.licensed
+    || nativeAudioRights.source === 'preview-only'
+    || nativeAudioRights.evidence?.sourceAssetId !== sourceAssetId
+  ) {
+    console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - target clip has no renderable native-audio rights receipt`);
+    return null;
+  }
+  if (nativeAudioRights.source === 'generated') {
+    const receiptIssue = getGeneratedNativeVideoReceiptIssue(
+      targetClip.generatedVideoReceipt,
+      {
+        assetId: sourceAssetId,
+        licenseId: nativeAudioRights.evidence?.licenseId,
+      },
+    );
+    if (receiptIssue) {
+      console.log(`[EDL-Exec] ${kind} at frame ${decision.frame}: SKIPPED - generated native-audio receipt is invalid (${receiptIssue})`);
+      return null;
+    }
+  }
 
   const existing = overlays.find((overlay: any) =>
     overlay.type === 'sound'
@@ -352,7 +386,11 @@ function applyAudioBoundaryTransition(
     rotation: 0,
     content: sourceUrl,
     src: sourceUrl,
-    assetId: `native-audio-${targetClip.id}-${kind}`,
+    assetId: sourceAssetId,
+    audioRights: nativeAudioRights,
+    ...(targetClip.generatedVideoReceipt
+      ? { generatedVideoReceipt: targetClip.generatedVideoReceipt }
+      : {}),
     styles: { volume: originalVolume, opacity: 1 },
     metadata: {
       source: 'edl-native-audio-boundary',
