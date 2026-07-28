@@ -37,9 +37,9 @@ event
 ```
 
 The large SFX corpus is not production-live. The official FSD50K archives are fully
-downloaded and integrity-verified, but controlled extraction, full-corpus inspection,
-checkpointed embeddings, scalable deduplication, representative review, publication,
-and runtime vector retrieval remain.
+downloaded, integrity-verified, and exactly reconciled into 19,873 candidate WAVs.
+Full-corpus inspection, checkpointed embeddings, scalable deduplication,
+representative review, publication, and runtime vector retrieval remain.
 
 The most important product gap outside the corpus lane is reference-only music. The
 data model can describe a chart song used as an editing reference, but the audit found
@@ -71,9 +71,9 @@ The download receipt and disk inventory also reconcile exactly:
 - Receipt bytes: 24,671,691,926
 - Disk bytes: 24,671,691,926
 
-The command output is verified local evidence, but it is not yet a committed,
-machine-readable integrity receipt. Controlled extraction should emit that durable
-receipt.
+The controlled extraction now emits a machine-readable receipt that pins the
+candidate-pool hash, archive-set hash, download-receipt hash, archive sizes and MD5s,
+per-file sizes and SHA-256 hashes, and a whole-extraction digest.
 
 ### Provider environment configuration
 
@@ -217,8 +217,8 @@ flowchart TD
   A["FSD50K official archives"] --> B["8 archives downloaded + MD5 verified"]
   B --> C["Multipart CRC tests passed"]
   C --> D["19,873-candidate corpus plan"]
-  D --> E["Controlled extraction - missing"]
-  E --> F["Candidate-only index - missing"]
+  D --> E["Controlled extraction - complete"]
+  E --> F["19,873-entry receipt index - complete"]
   F --> G["Acoustic inspection - pilot only"]
   G --> H["Conditioning/quarantine - pilot only"]
   H --> I["Checkpointed embeddings - missing"]
@@ -282,27 +282,35 @@ candidate extraction
    - Publication explicitly disallowed at this stage
    - Production catalog mutation explicitly disallowed
 
-3. **Music conditioning**
+3. **Controlled full-corpus extraction**
+   - 19,873 allowlisted WAVs extracted and uniquely receipt-indexed
+   - 14,959 dev and 4,914 eval candidates
+   - 13,456,611,058 extracted bytes
+   - Zero missing, unexpected or unsafe paths
+   - Per-file SHA-256 plus whole-extraction digest
+   - 100-file cross-split canary and idempotent full-corpus reuse verified
+
+4. **Music conditioning**
    - Exact duration
    - Crossfades
    - LUFS normalization
    - Silence and clipping guards
 
-4. **Shared BGM policy**
+5. **Shared BGM policy**
    - Music-off and coverage decisions use shared policy/runtime owners
 
-5. **Fail-closed render rights**
+6. **Fail-closed render rights**
    - Renderable audio without sufficient rights evidence throws before Lambda
 
-6. **SFX placement chain**
+7. **SFX placement chain**
    - Transition/MG intent reaches selection, atomic form resolution, overlay and receipt
    - Silence is a first-class outcome
 
-7. **Starter catalog**
+8. **Starter catalog**
    - 29 individually approved CC0 files published
    - Content hashes and controlled asset URLs recorded
 
-8. **Pilot corpus factory**
+9. **Pilot corpus factory**
    - 35-source sampling and conditioning
    - Pinned CLAP screening
    - Representative review
@@ -310,9 +318,9 @@ candidate extraction
 
 ## False-Completion Risks
 
-1. **Downloaded corpus is not a live database.**
-   Archive acquisition does not imply extraction, classification, review, publication,
-   or runtime retrieval.
+1. **Extracted corpus is not a live database.**
+   Controlled extraction does not imply classification, review, publication, or
+   runtime retrieval.
 
 2. **Provider code plus an API key is not a live provider.**
    Authentication, entitlement, download, rights receipts and failure behavior require
@@ -333,7 +341,7 @@ candidate extraction
 
 ## Remaining Work
 
-### P1: Controlled extraction
+### P1: Controlled extraction - completed 2026-07-28
 
 Target scope: no more than five files.
 
@@ -365,6 +373,22 @@ Exit criterion:
 0 unexpected
 0 unsafe paths
 ```
+
+Verified result:
+
+```text
+19,873 planned
+19,873 extracted and uniquely receipt-indexed
+14,959 dev / 4,914 eval
+13,456,611,058 bytes
+0 missing / 0 unexpected / 0 unsafe paths
+selection SHA-256 6de36e6a9814cc7c8c51f4ca3f6d5e26228ce09b277e8cb65d9d823913bac386
+extraction SHA-256 1460a8c0328e8cb1e1b3d2dd2b8dc9f37ce7bee7510f7d3f5cf12dffe6b979c2
+```
+
+The 100-file canary covered both source splits (85 dev, 15 eval). A second
+full-corpus invocation rehashed all candidates and returned `reusedExisting: true`
+with the same extraction digest.
 
 ### P2: Exact-hash dedup and checkpointed inspection
 
@@ -461,5 +485,5 @@ Defer until their dependencies are real:
 - Soundstripe
 - Broader platform-native distribution integrations
 
-The single correct next phase is **P1: controlled FSD50K extraction and exact candidate
-reconciliation**.
+The single correct next phase is **P2: exact-hash deduplication and checkpointed
+full-corpus acoustic inspection**.
