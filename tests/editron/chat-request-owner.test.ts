@@ -12,6 +12,7 @@ import {
   resolveChatWorkflowPhase,
 } from '@/lib/editron/agent/chat-tool-workflow-phase';
 import {
+  bindTrustedSelectedOverlayTarget,
   buildChatRequestOwnerPrompt,
   classifyChatRequestOwner,
   deriveChatRequestOwner,
@@ -228,9 +229,8 @@ describe('chat request owner classification', () => {
     expect(prompt).toContain('SFX at the strongest beat');
     expect(prompt).toContain('This scopes ownership only');
     expect(prompt).toContain('requestsBroadEditorialOutcome');
-    expect(prompt).toContain(
-      'localizedEdits=[{"modality":"audio","operation":"sound-effect","query":"strongest visual or spoken beat"}]',
-    );
+    expect(prompt).toContain('sourceSpan is the shortest exact verbatim span');
+    expect(prompt).toContain('sourceQuery is the uploaded asset to find');
   });
 
   it('documents complete server-owned family workflows instead of direct tool guessing', () => {
@@ -492,6 +492,10 @@ describe('chat request owner classification', () => {
             modality: 'transcript',
             operation: 'remove',
             query: 'pricing is simple',
+            sourceQuery: '',
+            targetQuery: '',
+            targetKind: 'none',
+            sourceSpan: 'Remove where I say pricing is simple',
           }],
           requestedCapabilities: [],
           familyDirectives: [],
@@ -519,6 +523,112 @@ describe('chat request owner classification', () => {
         requestedCapabilities: ['localized-cut'],
       },
     });
+  });
+
+  it('shadows a hallucinated direct capability that reuses localized evidence', async () => {
+    const userMessage = 'When the bird flies in, highlight that moment.';
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: true,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: false,
+          localizedReads: [],
+          localizedEdits: [{
+            modality: 'visual',
+            operation: 'highlight',
+            query: 'bird flies in',
+            sourceQuery: '',
+            targetQuery: '',
+            targetKind: 'none',
+            sourceSpan: userMessage,
+          }],
+          requestedCapabilities: ['clip-filter', 'localized-overlay'],
+          capabilityEvidence: [
+            { capability: 'clip-filter', sourceSpan: userMessage },
+            { capability: 'localized-overlay', sourceSpan: userMessage },
+          ],
+          familyDirectives: [],
+        },
+        confidence: 0.99,
+        reason: 'The visible event must be localized before highlighting it.',
+      }),
+    }));
+
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, { generate });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'localized-mutation',
+      routingFacts: {
+        requestedCapabilities: ['localized-overlay'],
+      },
+    });
+  });
+
+  it('binds a trusted selected overlay without letting model output choose its id', async () => {
+    const userMessage = 'Replace the selected video scene with my uploaded embroidery clip.';
+    const classified = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+      selectedOverlayPresent: true,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            localizedReads: [],
+            localizedEdits: [{
+              modality: 'asset',
+              operation: 'replace-asset',
+              query: 'uploaded embroidery clip',
+              sourceQuery: 'uploaded embroidery clip',
+              targetQuery: 'selected video scene',
+              targetKind: 'selected-overlay',
+              sourceSpan: userMessage,
+            }],
+            requestedCapabilities: ['asset-replacement'],
+            capabilityEvidence: [{
+              capability: 'asset-replacement',
+              sourceSpan: userMessage,
+            }],
+            familyDirectives: [],
+          },
+          confidence: 1,
+          reason: 'The uploaded source and selected timeline target are explicit.',
+        }),
+      }),
+    });
+
+    expect(classified.routingFacts?.localizedEdits?.[0]).not.toHaveProperty('targetOverlayId');
+    expect(bindTrustedSelectedOverlayTarget(classified, 'video-selected'))
+      .toMatchObject({
+        routingFacts: {
+          localizedEdits: [{
+            sourceQuery: 'uploaded embroidery clip',
+            targetQuery: 'selected video scene',
+            targetKind: 'selected-overlay',
+            targetOverlayId: 'video-selected',
+          }],
+        },
+      });
   });
 
   it('fails closed when a localized read is not declared as analysis', async () => {

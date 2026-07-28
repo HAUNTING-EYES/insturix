@@ -428,6 +428,65 @@ describe('server-owned localized chat workflow', () => {
       toolCall: { name: 'get_timeline_view' },
     });
   });
+
+  it('resolves an uploaded source against one trusted selected timeline target', () => {
+    const resolverArgs = {
+      query: 'uploaded embroidery clip',
+      operation: 'replace',
+      targetOverlayId: 'video-selected',
+    };
+    const owner = license(routingFacts([{
+      modality: 'asset',
+      operation: 'replace-asset',
+      query: 'uploaded embroidery clip',
+      sourceQuery: 'uploaded embroidery clip',
+      targetQuery: 'selected video scene',
+      targetKind: 'selected-overlay',
+      targetOverlayId: 'video-selected',
+      sourceSpan: 'Replace the selected video scene with my uploaded embroidery clip',
+    }], ['asset-replacement']));
+
+    expect(getChatCapabilityAuthorityContract('asset-replacement').requiredToolSequence)
+      .not.toContain('search_user_assets');
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: {
+        name: 'resolve_user_asset_overlay',
+        args: resolverArgs,
+      },
+    });
+
+    const resolver = execution('resolve_user_asset_overlay', resolverArgs, {
+      evidenceReceipts: [receipt('asset-target', 'resolve_user_asset_overlay', [{
+        toolName: 'use_matching_footage',
+        args: {
+          assetId: 'asset-embroidery',
+          targetOverlayId: 'video-selected',
+        },
+      }])],
+    });
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, resolver),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: {
+        name: 'use_matching_footage',
+        args: {
+          assetId: 'asset-embroidery',
+          targetOverlayId: 'video-selected',
+        },
+      },
+    });
+  });
+
   it('turns classified mixed capabilities into one server-owned operation at a time', async () => {
     const classified = await classifyChatRequestOwner({
       userMessage: 'Add clean captions, then remove the words pricing is simple.',
@@ -453,8 +512,16 @@ describe('server-owned localized chat workflow', () => {
               modality: 'transcript',
               operation: 'remove',
               query: 'pricing is simple',
+              sourceQuery: '',
+              targetQuery: '',
+              targetKind: 'none',
+              sourceSpan: 'remove the words pricing is simple',
             }],
             requestedCapabilities: ['caption-track', 'localized-cut'],
+            capabilityEvidence: [
+              { capability: 'caption-track', sourceSpan: 'Add clean captions' },
+              { capability: 'localized-cut', sourceSpan: 'remove the words pricing is simple' },
+            ],
             familyDirectives: [{ family: 'captions', mode: 'prefer' }],
           },
           confidence: 1,

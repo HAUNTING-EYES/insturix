@@ -76,6 +76,11 @@ export interface ChatLocalizedEditRequest {
   modality: ChatLocalizedModality;
   operation: ChatLocalizedOperation;
   query: string;
+  sourceQuery?: string;
+  targetQuery?: string;
+  targetKind?: 'none' | 'selected-overlay' | 'described-overlay';
+  targetOverlayId?: string | number;
+  sourceSpan?: string;
 }
 
 export interface ChatLocalizedWorkflowAdapter {
@@ -287,7 +292,6 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     mutationTools: ['add_overlay'],
     requiredToolSequence: [
       TIMELINE_READ_STEP,
-      'search_user_assets',
       'resolve_user_asset_overlay',
       'add_overlay',
     ],
@@ -303,7 +307,6 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     mutationTools: ['use_matching_footage'],
     requiredToolSequence: [
       TIMELINE_READ_STEP,
-      'search_user_assets',
       'resolve_user_asset_overlay',
       'use_matching_footage',
     ],
@@ -488,15 +491,18 @@ export function resolveChatLocalizedWorkflowAdapter(
     });
   }
   if (edit.modality === 'asset' && edit.operation === 'place-asset') {
+    const sourceQuery = edit.sourceQuery?.trim() || query;
     return localizedAdapter('asset-placement', 'resolve_user_asset_overlay', {
-      query,
+      query: sourceQuery,
       operation: 'place',
     });
   }
   if (edit.modality === 'asset' && edit.operation === 'replace-asset') {
+    const sourceQuery = edit.sourceQuery?.trim() || query;
     return localizedAdapter('asset-replacement', 'resolve_user_asset_overlay', {
-      query,
+      query: sourceQuery,
       operation: 'replace',
+      ...(edit.targetOverlayId == null ? {} : { targetOverlayId: edit.targetOverlayId }),
     });
   }
   return null;

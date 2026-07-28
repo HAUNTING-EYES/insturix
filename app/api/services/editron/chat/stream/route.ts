@@ -32,7 +32,10 @@ import {
   formatChatAttachmentsForPrompt,
   resolveAuthorizedChatAttachments,
 } from '@/lib/editron/services/chat-attachment-contract';
-import { classifyChatRequestOwner } from '@/lib/editron/agent/chat-request-owner';
+import {
+  bindTrustedSelectedOverlayTarget,
+  classifyChatRequestOwner,
+} from '@/lib/editron/agent/chat-request-owner';
 import { classifyChatProviderFailure } from '@/lib/editron/agent/chat-provider-failure';
 import {
   buildRequestedChatEditRenderVerification,
@@ -302,7 +305,7 @@ export async function POST(req: NextRequest) {
 
     const restoreTarget = resolveChatAiEditRestoreTarget(history, { userMessage: message });
     const tokenTracker = new TokenTracker(CHAT_MODEL_NAME);
-    const requestOwnerLicense = await classifyChatRequestOwner({
+    const classifiedRequestOwnerLicense = await classifyChatRequestOwner({
       userMessage: message,
       restoreStatus: restoreTarget.status,
       selectedOverlayPresent: Boolean(selectedOverlayId),
@@ -311,6 +314,10 @@ export async function POST(req: NextRequest) {
     }, {
       addUsage: (usage) => tokenTracker.addUsage(usage),
     });
+    const requestOwnerLicense = bindTrustedSelectedOverlayTarget(
+      classifiedRequestOwnerLicense,
+      selectedOverlayId,
+    );
 
     // Fail closed before invoking any mutating tool. Every turn gets a durable
     // pre-state because mutation intent is not trustworthy until the agent has
