@@ -40,7 +40,7 @@ import {
   retrieveConfiguredSfxCatalogSemantics,
   type SfxCatalogSemanticRetrieval,
   type SfxCatalogSemanticRetrievalReport,
-} from '@/lib/pipeline/sfx-catalog-semantic-index';
+} from '@/lib/pipeline/sfx-catalog-semantic-client';
 import { fileTypeFromBuffer } from 'file-type';
 import { nanoid } from 'nanoid';
 
