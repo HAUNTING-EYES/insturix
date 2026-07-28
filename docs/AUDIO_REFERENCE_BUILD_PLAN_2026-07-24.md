@@ -334,12 +334,16 @@ provider identity, license identity, and attribution requirements. Silence remai
 8. P7G (starter complete): published the 29 approved CC0 files to controlled storage, wired the
    dedicated CassetteAI SFX fallback, and passed a zero-credit transition/MG/SFX Remotion canary.
    This proves the factory and runtime path, not production-sized inventory.
-9. P8 (current; large labelled corpus): materialize the complete 19,873-item FSD50K CC0 pool from
-   the official checksum-pinned 24.67 GB multipart archives into an offline curation workspace.
-   Every candidate remains non-publishable until acoustic inspection, pinned embeddings,
-   classification, near-duplicate clustering, and representative review are complete. Runtime
-   vector retrieval and designed-source gaps such as risers and logo stings remain subsequent
-   P8 phases.
+9. P8 (current; source acquisition complete): the complete 19,873-item FSD50K CC0 plan is pinned
+   to all eight official multipart archives. The 2026-07-28 materialization run downloaded and
+   MD5-verified all 24,671,691,926 bytes. Independent `7z t` checks passed for the six-volume dev
+   set (40,966 files) and two-volume eval set (10,231 files). The downloader supports bounded
+   concurrency, resumable partials, completed-part promotion, deterministic receipts, and
+   fail-loud size/checksum enforcement. The next P8 phase is controlled extraction and candidate
+   indexing. Every candidate remains non-publishable until acoustic inspection, checkpointed
+   pinned embeddings, scalable near-duplicate clustering, and representative review are complete.
+   Runtime vector retrieval and designed-source gaps such as risers and logo stings remain
+   subsequent P8 phases.
 
 ### Locked open-ended SFX coverage model
 Editron will not enumerate every editorial situation. A finite event-role enum is an indexing and

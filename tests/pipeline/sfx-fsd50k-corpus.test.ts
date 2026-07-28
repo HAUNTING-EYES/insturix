@@ -9,6 +9,7 @@ import {
   FSD50K_AUDIO_ARCHIVES,
   buildFsd50kCorpusPlan,
   downloadFsd50kArchive,
+  downloadFsd50kArchiveSet,
   probeFsd50kAudioArchives,
   type Fsd50kAudioArchive,
 } from '../../lib/pipeline/sfx-fsd50k-corpus';
@@ -173,6 +174,50 @@ describe('FSD50K full-corpus materialization', () => {
       reusedExisting: false,
     });
     expect(await readFile(path.join(directory, archive.filename))).toEqual(bytes);
+  });
+
+  it('bounds parallel archive work and rejects invalid concurrency before fetching', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'editron-fsd50k-batch-'));
+    const archives = FSD50K_AUDIO_ARCHIVES.slice(0, 3);
+    let activeRequests = 0;
+    let maximumActiveRequests = 0;
+    let startedRequests = 0;
+    let releaseRequests: () => void = () => undefined;
+    const requestGate = new Promise<void>((resolve) => {
+      releaseRequests = resolve;
+    });
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const archive = archives.find(candidateArchive => candidateArchive.url === String(input));
+      if (!archive) throw new Error(`Unexpected archive URL: ${String(input)}`);
+      activeRequests += 1;
+      startedRequests += 1;
+      maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+      if (startedRequests === archives.length) releaseRequests();
+      await requestGate;
+      activeRequests -= 1;
+      return new Response(new Uint8Array([0]), {
+        status: 206,
+        headers: {
+          'content-range': `bytes 0-0/${archive.sizeBytes}`,
+        },
+      });
+    });
+
+    await expect(downloadFsd50kArchiveSet({
+      destinationDirectory: directory,
+      archiveKeys: archives.map(archive => archive.key),
+      concurrency: 3,
+      fetchImpl: fetchImpl as typeof fetch,
+    })).rejects.toThrow(/stopped at 1/i);
+
+    expect(maximumActiveRequests).toBe(3);
+    expect(activeRequests).toBe(0);
+    await expect(downloadFsd50kArchiveSet({
+      destinationDirectory: directory,
+      concurrency: 0,
+      fetchImpl: fetchImpl as typeof fetch,
+    })).rejects.toThrow(/concurrency must be an integer from 1 to 8/i);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 });
 

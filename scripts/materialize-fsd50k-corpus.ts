@@ -14,6 +14,7 @@ interface CliOptions {
   probe: boolean;
   download: boolean;
   archiveKeys: string[];
+  concurrency: number;
 }
 
 async function main(): Promise<void> {
@@ -50,15 +51,19 @@ async function main(): Promise<void> {
   }
 
   if (options.download) {
+    const reportedProgressSteps = new Map<string, number>();
     const receipt = await downloadFsd50kArchiveSet({
       destinationDirectory: path.join(options.outputDirectory, 'archives'),
       archiveKeys: options.archiveKeys,
+      concurrency: options.concurrency,
       onProgress: ({ key, downloadedBytes, totalBytes }) => {
-        const percentage = (downloadedBytes / totalBytes * 100).toFixed(2);
-        process.stderr.write(`\r${key}: ${percentage}%`);
+        const percentage = downloadedBytes / totalBytes * 100;
+        const progressStep = Math.min(100, Math.floor(percentage / 5) * 5);
+        if (reportedProgressSteps.get(key) === progressStep) return;
+        reportedProgressSteps.set(key, progressStep);
+        process.stderr.write(`${key}: ${progressStep}%\n`);
       },
     });
-    process.stderr.write('\n');
     await atomicWriteJson(
       path.join(options.outputDirectory, 'archive-download-receipt.json'),
       {
@@ -85,6 +90,7 @@ function parseArgs(args: readonly string[]): CliOptions {
     probe: false,
     download: false,
     archiveKeys: [],
+    concurrency: 4,
   };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -98,6 +104,11 @@ function parseArgs(args: readonly string[]): CliOptions {
       options.outputDirectory = path.resolve(requireValue(args, ++index, '--out'));
     } else if (arg === '--archive') {
       options.archiveKeys.push(requireValue(args, ++index, '--archive'));
+    } else if (arg === '--concurrency') {
+      options.concurrency = parsePositiveInteger(
+        requireValue(args, ++index, '--concurrency'),
+        '--concurrency',
+      );
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
@@ -112,6 +123,14 @@ function requireValue(args: readonly string[], index: number, flag: string): str
   const value = args[index]?.trim();
   if (!value) throw new Error(`${flag} requires a value`);
   return value;
+}
+
+function parsePositiveInteger(value: string, flag: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${flag} must be a positive integer`);
+  }
+  return parsed;
 }
 
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {

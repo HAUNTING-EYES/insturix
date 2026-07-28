@@ -31,6 +31,8 @@ export interface Fsd50kAudioArchive {
 
 const ZENODO_FILES_BASE_URL =
   `https://zenodo.org/records/${FSD50K_ZENODO_RECORD_ID}/files`;
+const DEFAULT_ARCHIVE_DOWNLOAD_CONCURRENCY = 4;
+const MAX_ARCHIVE_DOWNLOAD_CONCURRENCY = 8;
 
 export const FSD50K_AUDIO_ARCHIVES = [
   audioArchive('FSD50K.dev_audio.z01', 'dev', 1, 3_221_225_472, 'faa7cf4cc076fc34a44a479a5ed862a3'),
@@ -141,6 +143,7 @@ export interface Fsd50kArchiveDownloadOptions {
 
 export interface Fsd50kArchiveSetDownloadOptions extends Fsd50kArchiveDownloadOptions {
   archiveKeys?: readonly string[];
+  concurrency?: number;
 }
 
 export class Fsd50kCorpusError extends Error {
@@ -409,11 +412,40 @@ export async function downloadFsd50kArchiveSet(
   const archives = requested
     ? FSD50K_AUDIO_ARCHIVES.filter(archive => requested.has(archive.key))
     : FSD50K_AUDIO_ARCHIVES;
+  const concurrency = resolveArchiveDownloadConcurrency(
+    options.concurrency,
+    archives.length,
+  );
   const receipts: Fsd50kArchiveDownloadReceipt[] = [];
-  for (const archive of archives) {
-    receipts.push(await downloadFsd50kArchive(archive, options));
+  for (let offset = 0; offset < archives.length; offset += concurrency) {
+    const batch = archives.slice(offset, offset + concurrency);
+    const results = await Promise.allSettled(
+      batch.map(archive => downloadFsd50kArchive(archive, options)),
+    );
+    for (const result of results) {
+      if (result.status === 'rejected') throw result.reason;
+      receipts.push(result.value);
+    }
   }
   return receipts;
+}
+
+function resolveArchiveDownloadConcurrency(
+  requested: number | undefined,
+  archiveCount: number,
+): number {
+  const concurrency = requested ?? DEFAULT_ARCHIVE_DOWNLOAD_CONCURRENCY;
+  if (
+    !Number.isSafeInteger(concurrency)
+    || concurrency <= 0
+    || concurrency > MAX_ARCHIVE_DOWNLOAD_CONCURRENCY
+  ) {
+    throw new Fsd50kCorpusError(
+      'INVALID_DOWNLOAD_CONCURRENCY',
+      `Archive download concurrency must be an integer from 1 to ${MAX_ARCHIVE_DOWNLOAD_CONCURRENCY}`,
+    );
+  }
+  return Math.min(concurrency, Math.max(archiveCount, 1));
 }
 
 function audioArchive(
