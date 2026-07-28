@@ -60,6 +60,55 @@ const audioRightsSchema = z.object({
   }).strict(),
 }).strict();
 
+export const SFX_CATALOG_SEMANTIC_EVIDENCE_VERSION =
+  'sfx-catalog-semantic-evidence-v1' as const;
+
+const semanticRiskScoreSchema = z.object({
+  risk: z.enum(['speech', 'music', 'noise']),
+  cosineSimilarity: z.number().min(-1).max(1),
+}).strict();
+
+export const sfxCatalogSemanticEvidenceSchema = z.object({
+  version: z.literal(SFX_CATALOG_SEMANTIC_EVIDENCE_VERSION),
+  provider: z.literal('clap-audio-classifier'),
+  model: z.object({
+    modelId: z.string().min(1),
+    modelRevision: z.string().min(1),
+    embeddingDimension: z.number().int().positive(),
+  }).strict(),
+  embeddingAnalysisDigestSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  candidateDigestSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceHashSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  selectedRole: catalogEventRoleSchema,
+  selectedRoleCosineSimilarity: z.number().min(-1).max(1),
+  selectedRoleRank: z.number().int().min(1).max(catalogEventRoleSchema.options.length),
+  topRole: catalogEventRoleSchema,
+  topRoleCosineSimilarity: z.number().min(-1).max(1),
+  roleAgreement: z.boolean(),
+  riskScores: z.array(semanticRiskScoreSchema).max(3),
+}).strict().superRefine((evidence, context) => {
+  const expectedAgreement = evidence.selectedRole === evidence.topRole;
+  if (evidence.roleAgreement !== expectedAgreement) {
+    addManifestIssue(context, ['roleAgreement'], 'role agreement does not match selected and top roles');
+  }
+  if (
+    (evidence.roleAgreement && evidence.selectedRoleRank !== 1)
+    || (!evidence.roleAgreement && evidence.selectedRoleRank === 1)
+  ) {
+    addManifestIssue(context, ['selectedRoleRank'], 'selected role rank contradicts role agreement');
+  }
+  if (evidence.topRoleCosineSimilarity < evidence.selectedRoleCosineSimilarity) {
+    addManifestIssue(context, ['topRoleCosineSimilarity'], 'top role score is below selected role score');
+  }
+  const risks = new Set<string>();
+  evidence.riskScores.forEach((score, index) => {
+    if (risks.has(score.risk)) {
+      addManifestIssue(context, ['riskScores', index, 'risk'], 'duplicate semantic risk score');
+    }
+    risks.add(score.risk);
+  });
+});
+
 const catalogEntrySchema = z.object({
   assetId: z.string().regex(/^sfx_catalog_[a-z0-9_-]+$/),
   title: z.string().min(1),
@@ -86,6 +135,7 @@ const catalogEntrySchema = z.object({
   motionSpeed: z.enum(['still', 'slow', 'medium', 'fast']),
   trendTag: z.string().min(1).optional(),
   measurement: sfxAcousticMeasurementSchema,
+  semanticEvidence: sfxCatalogSemanticEvidenceSchema.optional(),
   provenance: z.object({
     provider: z.string().min(1),
     providerAssetId: z.string().min(1),
@@ -130,6 +180,26 @@ const catalogManifestSchema = z.object({
     if (entry.measurement.durationMs !== entry.durationMs) {
       addManifestIssue(context, ['entries', index, 'measurement', 'durationMs'], 'measurement duration does not match catalog audio');
     }
+    if (
+      entry.semanticEvidence
+      && entry.semanticEvidence.sourceHashSha256 !== entry.contentHashSha256
+    ) {
+      addManifestIssue(
+        context,
+        ['entries', index, 'semanticEvidence', 'sourceHashSha256'],
+        'semantic evidence hash does not match audio content',
+      );
+    }
+    if (
+      entry.semanticEvidence
+      && !entry.eventRoles.includes(entry.semanticEvidence.selectedRole)
+    ) {
+      addManifestIssue(
+        context,
+        ['entries', index, 'semanticEvidence', 'selectedRole'],
+        'semantic evidence role is not declared by the catalog entry',
+      );
+    }
     if (entry.measurement.loudnessDb <= manifest.qualityPolicy.silenceFloorLufs) {
       addManifestIssue(context, ['entries', index, 'measurement', 'loudnessDb'], 'asset is silent or below the catalog loudness floor');
     }
@@ -168,6 +238,7 @@ export type SfxCatalogEntry = SfxCatalogManifest['entries'][number];
 export type SfxCatalogSurface = z.infer<typeof catalogSurfaceSchema>;
 export type SfxCatalogDirection = z.infer<typeof catalogDirectionSchema>;
 export type SfxCatalogEventRole = z.infer<typeof catalogEventRoleSchema>;
+export type SfxCatalogSemanticEvidence = z.infer<typeof sfxCatalogSemanticEvidenceSchema>;
 
 export interface SfxCatalogSelectionRequest {
   query: string;
@@ -182,6 +253,7 @@ export interface SfxCatalogSelectionRequest {
 export interface SfxCatalogCandidateReport {
   assetId: string;
   score: number;
+  semanticRoleSimilarity?: number;
   accepted: boolean;
   reasons: string[];
 }
@@ -248,7 +320,7 @@ export function selectSfxCatalogEntry(
 
   const ranked = manifest.entries
     .map(entry => scoreCatalogEntry(manifest, entry, request, requestedRole, requestedSurface))
-    .sort((a, b) => b.score - a.score || a.entry.assetId.localeCompare(b.entry.assetId));
+    .sort(compareCatalogCandidates);
   const selected = ranked.find(candidate => candidate.accepted) ?? null;
 
   return {
@@ -262,9 +334,18 @@ export function selectSfxCatalogEntry(
       acceptedCandidateCount: ranked.filter(candidate => candidate.accepted).length,
       rejectedCandidateCount: ranked.filter(candidate => !candidate.accepted).length,
       selectedAssetId: selected?.entry.assetId,
-      candidates: ranked.slice(0, 12).map(({ entry, score, accepted, reasons }) => ({
+      candidates: ranked.slice(0, 12).map(({
+        entry,
+        score,
+        semanticRoleSimilarity,
+        accepted,
+        reasons,
+      }) => ({
         assetId: entry.assetId,
         score: round4(score),
+        semanticRoleSimilarity: semanticRoleSimilarity === undefined
+          ? undefined
+          : round4(semanticRoleSimilarity),
         accepted,
         reasons,
       })),
@@ -278,7 +359,7 @@ function scoreCatalogEntry(
   request: SfxCatalogSelectionRequest,
   requestedRole: SfxCatalogEventRole,
   requestedSurface: SfxCatalogSurface | undefined,
-): { entry: SfxCatalogEntry; score: number; accepted: boolean; reasons: string[] } {
+): ScoredCatalogEntry {
   const reasons: string[] = [];
   const maxDurationMs = Math.round(
     (request.maxDurationSec ?? request.form?.asset.maxDurationSec ?? Number.POSITIVE_INFINITY) * 1000,
@@ -296,6 +377,9 @@ function scoreCatalogEntry(
     || entry.direction === request.direction;
   const requestedMotionSpeed = request.motionSpeed ?? inferMotionSpeed(request.form);
   const durationOk = entry.durationMs <= maxDurationMs;
+  const semanticRoleSimilarity = entry.semanticEvidence?.selectedRole === requestedRole
+    ? entry.semanticEvidence.selectedRoleCosineSimilarity
+    : undefined;
 
   if (!roleMatch) reasons.push('event-role-mismatch');
   if (!surfaceMatch) reasons.push('surface-mismatch');
@@ -357,9 +441,39 @@ function scoreCatalogEntry(
     accepted ? 'catalog-candidate-accepted' : 'catalog-candidate-rejected',
     `score:${score.toFixed(2)}`,
     `floor:${manifest.qualityPolicy.minimumSelectionScore.toFixed(2)}`,
+    ...(semanticRoleSimilarity === undefined
+      ? []
+      : [`semantic-role-similarity:${semanticRoleSimilarity.toFixed(4)}`]),
   );
 
-  return { entry, score, accepted, reasons };
+  return { entry, score, semanticRoleSimilarity, accepted, reasons };
+}
+
+interface ScoredCatalogEntry {
+  entry: SfxCatalogEntry;
+  score: number;
+  semanticRoleSimilarity?: number;
+  accepted: boolean;
+  reasons: string[];
+}
+
+function compareCatalogCandidates(left: ScoredCatalogEntry, right: ScoredCatalogEntry): number {
+  if (left.accepted !== right.accepted) return left.accepted ? -1 : 1;
+  if (left.accepted && right.accepted) {
+    const leftHasSemanticEvidence = left.semanticRoleSimilarity !== undefined;
+    const rightHasSemanticEvidence = right.semanticRoleSimilarity !== undefined;
+    if (leftHasSemanticEvidence !== rightHasSemanticEvidence) {
+      return leftHasSemanticEvidence ? -1 : 1;
+    }
+    if (
+      left.semanticRoleSimilarity !== undefined
+      && right.semanticRoleSimilarity !== undefined
+      && left.semanticRoleSimilarity !== right.semanticRoleSimilarity
+    ) {
+      return right.semanticRoleSimilarity - left.semanticRoleSimilarity;
+    }
+  }
+  return right.score - left.score || left.entry.assetId.localeCompare(right.entry.assetId);
 }
 
 function requestedEventRole(

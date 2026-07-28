@@ -14,7 +14,17 @@ import {
   inspectEncodedSfxAudio,
   type EncodedSfxInspection,
 } from '@/lib/pipeline/audio-conditioning';
-import type { SfxCatalogEventRole } from '@/lib/pipeline/sfx-catalog';
+import {
+  SFX_CLAP_EMBEDDING_DIMENSION,
+  SFX_CLAP_MODEL_ID,
+  SFX_CLAP_MODEL_REVISION,
+} from '@/lib/pipeline/sfx-audio-embedding';
+import {
+  SFX_CATALOG_SEMANTIC_EVIDENCE_VERSION,
+  sfxCatalogSemanticEvidenceSchema,
+  type SfxCatalogEventRole,
+  type SfxCatalogSemanticEvidence,
+} from '@/lib/pipeline/sfx-catalog';
 import {
   buildFsd50kApprovedCuration,
   FSD50K_REVIEW_DECISIONS_VERSION,
@@ -38,7 +48,7 @@ const EVENT_ROLES = new Set<SfxCatalogEventRole>([
 ]);
 
 export const FSD50K_PUBLICATION_GATE_VERSION =
-  'editron-fsd50k-publication-gate-v1' as const;
+  'editron-fsd50k-publication-gate-v2' as const;
 
 export interface Fsd50kReviewDecision {
   reviewId: string;
@@ -61,6 +71,7 @@ type CurationMetadata = ReturnType<typeof buildFsd50kApprovedCuration>;
 
 export interface Fsd50kGatedCurationAsset extends CurationMetadata {
   sourcePath: string;
+  semanticEvidence: SfxCatalogSemanticEvidence;
   provenance: {
     provider: 'fsd50k';
     providerAssetId: string;
@@ -196,6 +207,11 @@ export async function gateFsd50kPublication(
       curation: {
         sourcePath: stagedAudioPath,
         ...buildFsd50kApprovedCuration(candidate, decision.selectedRole),
+        semanticEvidence: buildCatalogSemanticEvidence(
+          candidate,
+          decision.selectedRole,
+          report.source.embeddingAnalysisDigestSha256,
+        ),
         provenance: {
           provider: 'fsd50k' as const,
           providerAssetId: candidate.canonicalSourceId,
@@ -307,6 +323,53 @@ export function validateDecisionReceipt(
     ...(value as unknown as Fsd50kReviewDecisionReceipt),
     reviewerId: value.reviewerId.trim(),
   };
+}
+
+function buildCatalogSemanticEvidence(
+  candidate: Fsd50kReviewBatchCandidate,
+  selectedRole: SfxCatalogEventRole,
+  embeddingAnalysisDigestSha256: string,
+): SfxCatalogSemanticEvidence {
+  const selectedRoleIndex = candidate.semanticRoles.findIndex(score => score.role === selectedRole);
+  const selected = candidate.semanticRoles[selectedRoleIndex];
+  const top = candidate.semanticRoles[0];
+  if (!selected || !top) {
+    fail(
+      'APPROVED_SEMANTIC_ROLE_MISSING',
+      `Reviewed semantic evidence does not score ${selectedRole} for ${candidate.canonicalSourceId}`,
+    );
+  }
+  const parsed = sfxCatalogSemanticEvidenceSchema.safeParse({
+    version: SFX_CATALOG_SEMANTIC_EVIDENCE_VERSION,
+    provider: 'clap-audio-classifier',
+    model: {
+      modelId: SFX_CLAP_MODEL_ID,
+      modelRevision: SFX_CLAP_MODEL_REVISION,
+      embeddingDimension: SFX_CLAP_EMBEDDING_DIMENSION,
+    },
+    embeddingAnalysisDigestSha256,
+    candidateDigestSha256: candidate.candidateDigestSha256,
+    sourceHashSha256: candidate.conditionedHashSha256,
+    selectedRole,
+    selectedRoleCosineSimilarity: selected.cosineSimilarity,
+    selectedRoleRank: selectedRoleIndex + 1,
+    topRole: top.role,
+    topRoleCosineSimilarity: top.cosineSimilarity,
+    roleAgreement: selectedRole === top.role,
+    riskScores: candidate.semanticRisks.map(score => ({
+      risk: score.risk,
+      cosineSimilarity: score.cosineSimilarity,
+    })),
+  });
+  if (!parsed.success) {
+    fail(
+      'APPROVED_SEMANTIC_EVIDENCE_INVALID',
+      `Reviewed semantic evidence is invalid for ${candidate.canonicalSourceId}: ${parsed.error.issues
+        .map(issue => `${issue.path.join('.') || 'evidence'}: ${issue.message}`)
+        .join('; ')}`,
+    );
+  }
+  return parsed.data;
 }
 
 function countDecisions(

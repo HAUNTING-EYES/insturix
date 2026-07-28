@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { EncodedSfxInspection } from '../../lib/pipeline/audio-conditioning';
 import {
   BUNDLED_SFX_CATALOG,
+  selectSfxCatalogEntry,
   type SfxCatalogEventRole,
 } from '../../lib/pipeline/sfx-catalog';
 import {
@@ -46,6 +47,12 @@ describe('FSD50K merge-safe publication', () => {
       generatedAt: NOW,
     });
     const curated = await curateAggregate(aggregate.outputDirectory);
+    for (const curation of aggregate.curationSpec.assets) {
+      const entry = curated.manifest.entries.find(
+        candidate => candidate.provenance.providerAssetId === curation.provenance.providerAssetId,
+      );
+      expect(entry?.semanticEvidence).toEqual(curation.semanticEvidence);
+    }
     const merge = await prepareFsd50kCatalogMerge({
       aggregateDirectory: aggregate.outputDirectory,
       baseManifest: BUNDLED_SFX_CATALOG,
@@ -85,14 +92,14 @@ describe('FSD50K merge-safe publication', () => {
       .toEqual(merge.manifest);
   });
 
-  it('rejects a curation spec changed after its gate receipt was issued', async () => {
+  it('rejects semantic evidence changed after its gate receipt was issued', async () => {
     const root = await makeTemporaryDirectory();
     const gateDirectory = await makeGate(root, '303', 1, 'whoosh', createWav(330));
     const curationPath = path.join(gateDirectory, 'curation-spec.json');
     const curation = JSON.parse(await readFile(curationPath, 'utf8')) as {
-      assets: Array<{ title: string }>;
+      assets: Array<{ semanticEvidence: { candidateDigestSha256: string } }>;
     };
-    curation.assets[0].title = 'tampered after approval';
+    curation.assets[0].semanticEvidence.candidateDigestSha256 = 'f'.repeat(64);
     await writeFile(curationPath, JSON.stringify(curation));
 
     await expect(aggregateFsd50kPublicationGates({
@@ -140,6 +147,36 @@ describe('FSD50K merge-safe publication', () => {
       outputDirectory: path.join(root, 'unsafe-promotion'),
     })).rejects.toMatchObject({ code: 'PUBLICATION_RECEIPT_MISMATCH' });
   });
+
+  it('ranks otherwise-equivalent approved sounds by reviewed audio role evidence', async () => {
+    const root = await makeTemporaryDirectory();
+    const lower = await makeGate(root, '808', 1, 'impact', createWav(480), 0.34);
+    const higher = await makeGate(root, '909', 2, 'impact', createWav(960), 0.76);
+    const aggregate = await aggregateFsd50kPublicationGates({
+      gateDirectories: [lower, higher],
+      outputDirectory: path.join(root, 'semantic-ranking-aggregate'),
+      generatedAt: NOW,
+    });
+    const curated = await curateAggregate(aggregate.outputDirectory);
+
+    const selection = selectSfxCatalogEntry(curated.manifest, {
+      query: 'impact fixture',
+      surface: 'scene',
+      maxDurationSec: 2,
+    });
+
+    expect(selection.entry?.provenance.providerAssetId).toBe('909');
+    expect(selection.report.candidates.map(candidate => ({
+      providerAssetId: curated.manifest.entries.find(entry => entry.assetId === candidate.assetId)
+        ?.provenance.providerAssetId,
+      semanticRoleSimilarity: candidate.semanticRoleSimilarity,
+    }))).toEqual([
+      { providerAssetId: '909', semanticRoleSimilarity: 0.76 },
+      { providerAssetId: '808', semanticRoleSimilarity: 0.34 },
+    ]);
+    expect(selection.report.candidates[0].reasons)
+      .toContain('semantic-role-similarity:0.7600');
+  });
 });
 
 async function curateAggregate(aggregateDirectory: string) {
@@ -182,11 +219,18 @@ async function makeGate(
   batchNumber: number,
   role: SfxCatalogEventRole,
   audio: Buffer,
+  semanticRoleSimilarity = 0.8,
 ): Promise<string> {
   const reviewDirectory = path.join(root, `review-${batchNumber}`);
   await mkdir(path.join(reviewDirectory, 'audio'), { recursive: true });
   const inspection = encodedInspection();
-  const candidate = makeCandidate(canonicalSourceId, role, audio, inspection);
+  const candidate = makeCandidate(
+    canonicalSourceId,
+    role,
+    audio,
+    inspection,
+    semanticRoleSimilarity,
+  );
   await writeFile(
     path.join(reviewDirectory, candidate.conditionedAudioPath),
     audio,
@@ -255,6 +299,7 @@ function makeCandidate(
   role: SfxCatalogEventRole,
   audio: Buffer,
   inspection: EncodedSfxInspection,
+  semanticRoleSimilarity: number,
 ): Fsd50kReviewBatchCandidate {
   const sourceHashSha256 = hashBuffer(Buffer.from(`source-${canonicalSourceId}`));
   const reviewId = `sfx_review_${sourceHashSha256.slice(0, 20)}`;
@@ -285,8 +330,8 @@ function makeCandidate(
     tags: [role, 'fixture'],
     negativeTags: [],
     suggestedRole: role,
-    suggestedRoleScore: 0.8,
-    semanticRoles: [{ role, prompt: role, cosineSimilarity: 0.8 }],
+    suggestedRoleScore: semanticRoleSimilarity,
+    semanticRoles: [{ role, prompt: role, cosineSimilarity: semanticRoleSimilarity }],
     semanticRisks: [],
     sourceEvidence: [{
       sourceId: canonicalSourceId,

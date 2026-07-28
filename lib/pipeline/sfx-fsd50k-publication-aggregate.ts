@@ -15,6 +15,7 @@ import { z } from 'zod';
 
 import {
   parseSfxCatalogManifest,
+  sfxCatalogSemanticEvidenceSchema,
   type SfxCatalogManifest,
 } from '@/lib/pipeline/sfx-catalog';
 import {
@@ -29,7 +30,7 @@ const GATE_RECEIPT_FILE = 'publication-gate-receipt.json';
 const CURATION_SPEC_FILE = 'curation-spec.json';
 
 export const FSD50K_PUBLICATION_AGGREGATE_VERSION =
-  'editron-fsd50k-publication-aggregate-v1' as const;
+  'editron-fsd50k-publication-aggregate-v2' as const;
 export const FSD50K_CATALOG_MERGE_VERSION =
   'editron-fsd50k-catalog-merge-v1' as const;
 export const FSD50K_CATALOG_PROMOTION_VERSION =
@@ -85,6 +86,7 @@ const curationAssetSchema = z.object({
   direction: z.enum(['neutral', 'left', 'right', 'up', 'down', 'in', 'out']),
   motionSpeed: z.enum(['still', 'slow', 'medium', 'fast']),
   trendTag: z.string().min(1).optional(),
+  semanticEvidence: sfxCatalogSemanticEvidenceSchema,
   provenance: provenanceSchema,
   approval: approvalSchema,
 }).strict();
@@ -518,6 +520,7 @@ export async function prepareFsd50kCatalogMerge(
       || hashJson(plan.provenance) !== hashJson(curation.provenance)
       || hashJson(plan.approval) !== hashJson(curation.approval)
       || hashJson(entry.provenance) !== hashJson(curation.provenance)
+      || hashJson(entry.semanticEvidence) !== hashJson(curation.semanticEvidence)
     ) {
       fail('DELTA_ASSET_EVIDENCE_MISMATCH', `Delta evidence differs for ${assetId}`);
     }
@@ -819,6 +822,11 @@ function assertGateAssetBinding(
     approved.stagedAudioPath !== `audio/${approved.reviewId}.wav`
     || curation.sourcePath !== approved.stagedAudioPath
     || curation.eventRoles[0] !== approved.selectedRole
+    || curation.semanticEvidence.selectedRole !== approved.selectedRole
+    || curation.semanticEvidence.candidateDigestSha256 !== approved.candidateDigestSha256
+    || curation.semanticEvidence.sourceHashSha256 !== approved.conditionedHashSha256
+    || curation.semanticEvidence.embeddingAnalysisDigestSha256
+      !== receipt.source.embeddingAnalysisDigestSha256
     || curation.provenance.providerAssetId !== approved.canonicalSourceId
     || curation.approval.reviewerId.trim().length === 0
     || Date.parse(curation.approval.reviewedAt) > Date.parse(receipt.gatedAt)
@@ -834,6 +842,9 @@ function assertAggregateAssetBinding(
   if (
     curation.sourcePath !== aggregate.stagedAudioPath
     || curation.eventRoles[0] !== aggregate.selectedRole
+    || curation.semanticEvidence.selectedRole !== aggregate.selectedRole
+    || curation.semanticEvidence.candidateDigestSha256 !== aggregate.candidateDigestSha256
+    || curation.semanticEvidence.sourceHashSha256 !== aggregate.conditionedHashSha256
     || curation.provenance.providerAssetId !== aggregate.canonicalSourceId
   ) {
     fail(
