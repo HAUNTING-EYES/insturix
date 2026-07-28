@@ -89,6 +89,12 @@ These items must not be rebuilt:
 | Audio-rights server-save preservation | Commit `baaadc68` is in current history. Live preview deployment and project backfill remain separate proof tasks. |
 | Preview prewarming | Commit `b40426ad` adds active/upcoming media prewarming. This is partial playback infrastructure, not final playback reliability. |
 | Battle scenario catalog | Current code exports 76 scenarios. |
+| One-request-one-project invariant | Multi-upload may consume many source assets, but `from-batch` produces one user-requested Editron project rather than hidden alternate deliverables. |
+| MG beat signal plumbing | The motion-graphic layer now builds `syncData` from serialized signal curves. Rendered beat-lock quality and calibration remain unproven. |
+| Direct tool security narrowing | Direct chat invocation is authentication-, ownership-, rate-limit-, schema-, and allowlist-gated; provider-backed tools are not exposed through that route. |
+| Director QStash verification | The Director execute route verifies QStash signatures with `Receiver.verify` instead of trusting header presence. |
+| Full-state AI checkpoints | Current transaction code captures restorable project state before and after mutation, including project-level state rather than overlays alone. Live matrix proof remains required. |
+| HTML scene editing contract | `edit_html_scene` exists as an in-place, ID-targeted family owner with focused tests. |
 
 ### 3.2 Implemented But Missing Live Proof
 
@@ -98,6 +104,8 @@ These items must not be rebuilt:
 | Camera-shake workflow | Run one live impact-audio case and confirm exact mutation, reload parity, and rendered movement. |
 | Durable deep analysis | Prove QStash dispatch -> worker -> persisted result -> revision invalidation on a real project. |
 | Async MG codegen | Prove selection -> worker -> sequence asset -> `MG_SEQUENCE` insertion -> rendered inspection on a fresh upload. |
+| Auto-BGM L3 | Run the pinned raw-footage proof with `shouldAddBgm=true`, QStash dispatch, a persisted BGM overlay, reload parity, and rendered audio. |
+| MG beat synchronization | Prove different beat grids produce the expected generated choreography without mechanical over-locking. |
 | Chapter rendering | Prove a real video over 15 minutes across a chapter seam for captions, BGM, and transitions. |
 | Multi-asset composer | Prove visual-only, speech-led, mixed, music-led, and Hinglish fixtures end to end. |
 
@@ -131,6 +139,29 @@ The following are verified in current code:
 13. Multipart upload uses fixed 10 MiB parts, a 3 GiB application cap, and browser-memory completion state.
 14. The global P2/P13 opportunity optimizer remains absent.
 15. Rendered quality and calibration remain incomplete.
+16. Capability truth is split across tool schemas, tool metadata, execution contracts, and authority contracts. There is no single provider-neutral registry deriving Gemini declarations, prompt summaries, UI availability, and tests.
+17. Multi-upload intake does not yet expose the full production contract: target duration, language/Hinglish, references, script, per-asset role/priority/do-not-use, feasibility feedback, and first-class user music.
+18. User-provided music is not yet a fully proven first-class storyline asset whose beat grid, downbeats, sections, and silence pockets can influence the edit while preserving the requested track.
+19. MG codegen remains off by default pending live worker proof. Role-static `enterOrder`, unused `@remotion/paths`, legacy `graphicType`/`stats_only`/`autoMotionGraphics` authority, and rendered animation proof remain open.
+20. VLM cutting still needs time-localized semantic evidence, degraded-mode governance, retrieve/localize/verify behavior, and calibrated diverse fixtures.
+21. Project-wide color grading, social reframing/cutdowns, and full reference-driven repurposing remain first-class command-owner gaps unless a current live matrix proves otherwise.
+22. The large-media design lacks a complete Media Vault lifecycle: organization ownership, byte deduplication, project references/pinning, soft deletion, delayed garbage collection, quota reconciliation, and eviction safety.
+
+### 3.5 Pinned Commitment Ledger
+
+This section exists so an explicit founder "pin this" instruction cannot disappear behind a broad phase label.
+
+| Pin | Current disposition |
+| --- | --- |
+| 2026-06-06 atomic aesthetic gate and rendered beauty follow-up | Structural/taste lint exists. Live pixel/VLM/reference-calibrated judgment remains in Phases 4, 5, and 10. |
+| 2026-06-21 MG motion-engine ruling | Do not rebuild choreography. Keep the existing engine. Finish signal-driven `enterOrder`, free `@remotion/paths` draw-on primitives, rendered beat-sync proof, and calibration after form breadth. |
+| 2026-06-28 Auto-BGM L3 proof | Still requires the raw-footage live proof in Phase 5E. |
+| 2026-07-17 canonical capability registry and optional MCP adapter | Build the provider-neutral registry in Phase 1F. MCP remains only a future external adapter over that registry. |
+| 2026-07-18 broader remaining Editron ledger | Opportunity optimizer, MG production proof, rendered gate, multi-upload intake, user music, family proof, VLM hardening, operational renders, calibration, and brand learning are all bound below. |
+| 2026-07-28 matrix-first lock | Phase 0 records deployment/project truth, then Phase 1 closes the matrix before Omni, large-media implementation, calibration, or broad creative tuning. |
+| 2026-07-28 exact asset placement | Complete and frozen at `c6d8a597`; do not rebuild unless that contract changes. |
+| 2026-07-28 Media Contract V2 and 300 GiB proof | Bound to Phases 6 and 7 after matrix closure. |
+| 2026-07-28 Omni motion backdrop | Explicitly deferred in Section 7 until the static MG structure and isolated worker are production-proven. |
 
 ## 4. Root-Cause Register
 
@@ -353,9 +384,70 @@ Prove:
 - documents,
 - URLs.
 
+The attachment envelope must preserve a declared role rather than guessing from MIME:
+
+- source footage,
+- script/outline/transcript correction,
+- factual/legal constraint,
+- style/color/motion/pacing reference,
+- music/SFX/rhythm reference,
+- brand guide,
+- logo/product asset,
+- delivery specification.
+
 Exit gate:
 
 No cross-project/cross-user leakage, duplicate mutation, lost refund, or attachment role that is accepted but ignored.
+
+#### Phase 1F: Canonical Capability Registry
+
+Aim:
+
+Give every model, UI surface, policy, and test the same capability truth.
+
+Work:
+
+- Consolidate tool schema, read/mutate class, owner, prerequisites, evidence, authorization, credits, rate limits, side effects, checkpoints, postconditions, failure modes, and UI availability into one provider-neutral typed registry.
+- Derive Gemini function declarations and prompt capability summaries from the registry.
+- Derive UI availability and capability coverage tests from the same registry.
+- Keep the existing request-owner and execution-policy runtime as enforcement consumers, not competing truth stores.
+- Expose a future MCP adapter only for external agents. MCP must read the registry and must not become a second authority.
+
+Absolute tests:
+
+- Registry, Gemini declarations, prompt summary, UI exposure, and execution contracts cannot drift.
+- A provider cannot call a capability the current user/project is not licensed to use.
+- Credits, rate limits, evidence, and checkpoint requirements are identical across chat and direct invocation.
+- Adding one capability requires one canonical declaration and generated consumer updates.
+
+#### Phase 1G: Vibe-Editing Command Completion
+
+Only add owners where the current matrix proves absence. Required product envelope:
+
+- project-wide shot-matched color grading with skin-tone/product-color protection,
+- translation and multilingual dubbing,
+- aspect-ratio reframing and platform cutdowns,
+- script/reference-led multi-asset repurposing,
+- semantic object/action removal using retrieve -> localize -> verify -> mutate,
+- iteration commands such as "less than that", "keep timing but change look", and "apply this to similar shots".
+
+Every command preserves:
+
+- scope,
+- anchor,
+- operation,
+- requested outcome,
+- constraints,
+- degree,
+- iteration history,
+- proof requirement.
+
+Absolute tests:
+
+- Explicit, semantic, referential, deictic, and compound forms route to the same owner.
+- A reference supplies observations and preferences, never renderer commands.
+- Destructive semantic edits require localized evidence and confirmation where ambiguity remains.
+- Unsupported operations are stated plainly and never simulated through generic overlays.
 
 ### Phase 2: Durable Provider Recovery
 
@@ -446,6 +538,42 @@ Absolute tests:
 Exit gate:
 
 The former 82 selected / 2 executed case is explainable decision by decision, and planner-knowable rejections are removed upstream.
+
+#### Phase 3C: VLM Cutting And Visual Grounding
+
+Aim:
+
+Make visual intelligence useful for speech-led, visual-only, and mixed edits without turning a VLM into an unverified cut oracle.
+
+Flow:
+
+1. Retrieve candidate source ranges from transcript, OCR, asset summaries, event indices, and storyline context.
+2. Localize the event at source-time precision.
+3. Inspect denser local frames only around candidate ranges.
+4. Verify object, action, continuity, and temporal boundaries.
+5. Project verified evidence onto the canonical edited timeline.
+6. Let the cut/storyline owner decide retain, trim, split, reorder, repurpose, or request missing coverage.
+
+Rules:
+
+- VO-heavy content gets speech/content cutting first, then one visual verification pass.
+- Visual-only or unreliable-speech content uses visual/audio evidence as primary.
+- Stillness or silence alone never licenses deletion.
+- Missing/weak VLM evidence produces degraded/unknown state.
+- AI-generated footage is not presumed bad; only localized artifact evidence may license artifact handling.
+
+Absolute tests:
+
+- visual-only,
+- speech-led,
+- mixed talking head and B-roll,
+- static talking head,
+- silent product/demo,
+- image-heavy,
+- music-led,
+- Hinglish,
+- short-lived object/action event,
+- actual AI artifact and degraded real-footage controls.
 
 ### Phase 4: Rendered Truth And Quality Telemetry
 
@@ -581,6 +709,64 @@ Exit gate:
 
 Captions, transitions, zooms, and SFX pass family-specific rendered fixtures across talking-head, visual-only, mixed, music-led, and Hinglish content.
 
+#### Phase 5D: MG Production Lane And Motion Residuals
+
+Aim:
+
+Prove the AI MG lane end to end, then remove legacy creative authority without rebuilding the existing motion engine.
+
+Work:
+
+1. Keep `MG_CODEGEN_ENABLED` off until the isolated worker snapshot, secret, callback, persistence, reload, and rendered sequence proof pass.
+2. Run a real fresh upload through licensed semantic candidate -> codegen -> worker -> compact sequence asset -> `MG_SEQUENCE` overlay -> reload -> rendered inspection.
+3. Verify decline produces no fallback text card.
+4. Retire remaining live authority from `graphicType`, `stats_only`, `autoMotionGraphics`, template/composer fallback selection, and renderer-key-as-decision behavior only after the new lane passes.
+5. Make `enterOrder` vary from moment signals rather than the role-static table.
+6. Add free `@remotion/paths` draw-on primitives where licensed; do not rebuild choreography, easing, spring, stagger, or renderer infrastructure.
+7. Keep existing beat `syncData` wiring, then prove its rendered behavior and calibrate restraint.
+8. Persist generator input, selected fact/wire, brand/screen context, decline reason, artifact identity, safety result, and rendered evidence.
+
+Absolute tests:
+
+- Same fact can produce different faithful compositions under different moment, brand, screen, or expressiveness context.
+- Different facts cannot be forced into a dishonest common form.
+- Two moments with different energy can stage elements in different orders.
+- Draw-on and beat synchronization render on the isolated worker.
+- Full-frame generated content is not repositioned later as a corner card.
+- A failed/declined generation creates no legacy fallback overlay.
+
+Preference contract:
+
+- MG receives `expressiveness` as generator context, never a geometric-mean blend or direct animation multiplier.
+- `off` is a hard veto; `auto` and `prefer` alter opportunity selection pressure.
+- Frequency changes how many valid opportunities may win, never whether a fact is valid.
+- Free-text notes are bounded editorial context and participate in the cache/input identity.
+- No `stats_only`, graphic-type enum, or hidden template menu may return through preference fields.
+
+#### Phase 5E: User Music And Auto-BGM
+
+Aim:
+
+Treat uploaded music and generated BGM as explicit editorial assets with observable lifecycle.
+
+Work:
+
+- Add user-provided music/audio to intake with declared role, rights, requested section, and preservation policy.
+- Extract beat grid, downbeats, phrase/section energy, and silence pockets.
+- Allow music evidence to influence cuts, transitions, SFX restraint, and B-roll rhythm only when user intent and content structure license it.
+- Keep speech-led edits speech-led unless the user requests music-driven editing.
+- Preserve the selected user track through Storyline, Director, reload, and final render.
+- Make generated BGM mood/instrumentation/vocal constraints traceable to user intent, narrative arc, brand, speech/music evidence, and references.
+- Run the pinned Auto-BGM L3 raw-footage proof.
+
+Absolute tests:
+
+- A supplied song is never silently replaced by generated BGM.
+- Requested song ranges survive conform.
+- Beat-driven and speech-driven versions of the same fixture make explainably different cuts.
+- BGM replacement is atomic: existing music remains until the new candidate is ready and validated.
+- Ducking, loudness, tail, and lifecycle state are rendered and persisted.
+
 ### Phase 6: Playback Reliability
 
 Maps to: editor runtime correctness
@@ -649,6 +835,8 @@ final render -> immutable original
 
 No canonical URL swapping through `cachedUrl`, `isProxy`, or `originalR2Key`.
 
+One user request may reference many assets, but it still creates one requested output project. Hidden alternate edits/deliverables are not generated.
+
 #### Phase 7B: Durable Multipart Upload
 
 Work:
@@ -678,6 +866,15 @@ Stages:
 
 Only failed or invalidated stages retry. The browser can close after durable enqueue.
 
+Before expensive analysis, return feasibility evidence for:
+
+- requested duration versus usable source duration,
+- script/topic coverage,
+- aspect/resolution conflicts,
+- language/transcription risk,
+- provider/cost constraints,
+- missing required roles or footage.
+
 #### Phase 7D: Google Drive Import
 
 Drive is an ingest source, not an editing source of truth.
@@ -694,6 +891,44 @@ Drive is an ingest source, not an editing source of truth.
 - Asset-level semantic summaries and event indices span all windows.
 - Storyline and VLM retrieve relevant ranges from the whole asset.
 - Final render resolves original-time ranges against the immutable master.
+
+#### Phase 7F: Production Intake And Media Vault Lifecycle
+
+New-project intake must expose:
+
+- upload or select from Media Vault,
+- one output target,
+- duration,
+- platform/aspect ratio,
+- language/Hinglish/auto-language,
+- script/outline,
+- references,
+- brand,
+- music direction or supplied music,
+- per-asset role, priority, keep-audio/mute-audio, and do-not-use,
+- AI defaults with every preference optional.
+
+Structured editorial preferences:
+
+- Each applicable family uses a type-free mode such as `auto`, `off`, or `prefer`.
+- MG, zoom, transition, and SFX may expose occurrence preference/frequency.
+- Captions expose presentation/emphasis preference, never transcript-coverage frequency.
+- Music exposes enablement, supplied-track/generated preference, fit, mood, and continuity rather than frequency.
+- Pacing exposes willingness to act on genuine cut opportunities, never a target cut count.
+- MG expressiveness remains context for codegen and calibration, not a form knob.
+- Cross-family free-text notes remain context, not executable renderer instructions.
+- Accepted Brand Vault typography, palette, motion, narrative, safe-zone, and composition preferences provide defaults.
+- Explicit user choices override defaults; absent choices mean "leave to AI."
+
+Media Vault behavior:
+
+- Selecting an existing asset creates a project reference, not duplicate bytes.
+- Content-addressed/verified deduplication is organization-safe.
+- Project references and explicit pins prevent eviction.
+- Deletion is soft until delayed garbage collection proves no references remain.
+- Storage reconciliation accounts for originals and all derivatives.
+- Quota is reserved/released atomically.
+- Cross-organization access is denied even when bytes deduplicate physically.
 
 Exit gate:
 
@@ -803,8 +1038,16 @@ These are intentionally not part of the matrix-first execution:
 
 - Omni motion backdrops for MG output.
 - Dedicated motion-backdrop asset contract and playback.
-- Additional MG cost optimization after the live worker is proven.
+- MG cost optimization after the live worker is proven, including a bounded probe render before paying for full render-and-reject.
+- Optional MCP adapter for external agents, after the canonical capability registry is complete.
 - Avatar Vault, Alyzitron, ThinkForge, and unrelated product lanes.
+
+Pinned adjacent product lanes, preserved separately:
+
+- open-screen/SaaS explainer generation and its dedicated render worker,
+- avatar creation and avatar-led video generation,
+- optional meme/reaction asset integration for humorous content,
+- Brand Vault website/social ingestion and automatic brand-language extraction.
 
 They remain documented requirements, not forgotten work.
 
@@ -839,6 +1082,8 @@ The minimum fixture suite includes:
 - Hinglish,
 - user-provided BGM,
 - uploaded script/reference,
+- project-wide color/reference treatment,
+- aspect-ratio reframe/social cutdown,
 - generated/AI footage with real artifact evidence,
 - degraded real footage,
 - a video over 15 minutes,
