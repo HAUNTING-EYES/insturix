@@ -37,7 +37,7 @@ export interface ICalosScheduledPublish extends Document {
   lastError?: string | null;
   postId?: string | null;
   postUrl?: string | null;
-  idempotencyKey: string; // `${deliverableId}:${platform}` — UNIQUE, blocks double-posting at the data layer
+  idempotencyKey: string; // `${deliverableId}:${platform}` — prevents duplicate queue targets, not provider posts
   createdAt: Date;
   updatedAt: Date;
 }
@@ -73,8 +73,9 @@ const CalosScheduledPublishSchema = new Schema<ICalosScheduledPublish>(
   { timestamps: true }
 );
 
-// Sweeper scan: due/pending or stale-claimed rows, ordered by publishAt.
+// Sweeper scans: due rows by publishAt and abandoned leases by lockedAt.
 CalosScheduledPublishSchema.index({ status: 1, publishAt: 1 });
+CalosScheduledPublishSchema.index({ status: 1, lockedAt: 1 });
 CalosScheduledPublishSchema.index({ orgId: 1, brandId: 1 });
 
 const CalosScheduledPublish =

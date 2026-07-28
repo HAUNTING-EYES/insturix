@@ -29,18 +29,20 @@ export interface PublishResult {
   postId?: string;
   postUrl?: string;
   error?: string;
-  /** true = transient (network/5xx/rate-limit), safe to retry; false = permanent (bad token, validation) */
+  /** true = transient; the worker still decides whether the provider outcome is safe to retry */
   retryable?: boolean;
+  /** false = failure occurred before an irreversible provider call; true = the call started */
+  providerAttempted?: boolean;
+  /** HTTP response status returned by the provider, when one was received */
+  responseStatus?: number;
 }
 
 export type Publisher = (params: PublishParams) => Promise<PublishResult>;
 
 /**
  * Platform -> publisher map. Populated EXPLICITLY (deterministic; no import-side-effect
- * registration magic). Intentionally EMPTY here: each platform publisher is wired in the
- * authed dev environment where a real post can be verified end-to-end. The LinkedIn
- * publisher is extracted from app/api/services/uploaderx/linkedin/route.ts into
- * lib/calos/publish/linkedin.ts as publishToLinkedIn(params), then registered below.
+ * registration magic). Each registered publisher resolves the snapshotted account identity
+ * in a server context and returns one shared result contract.
  *
  * Until a platform is registered, the sweeper FAILS LOUD ("no publisher") rather than
  * silently dropping a scheduled post.
