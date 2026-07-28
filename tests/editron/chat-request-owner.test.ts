@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   getChatCapabilityAuthorityContract,
   requiredToolSequenceForChatCapability,
+  resolveChatLocalizedWorkflowAdapter,
 } from '@/lib/editron/agent/chat-command-authority';
 import {
   filterChatToolsForWorkflowPhase,
@@ -629,6 +630,176 @@ describe('chat request owner classification', () => {
           }],
         },
       });
+  });
+
+  it('preserves uploaded-asset placement and timing as executable resolver facts', async () => {
+    const userMessage = 'Place my uploaded image asset a_portrait123 in the bottom-right corner from 2 to 6 seconds.';
+    const classified = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            localizedReads: [],
+            localizedEdits: [{
+              modality: 'asset',
+              operation: 'place-asset',
+              query: 'a_portrait123',
+              sourceQuery: 'a_portrait123',
+              targetQuery: '',
+              targetKind: 'none',
+              sourceSpan: userMessage,
+              placement: {
+                mode: 'corner',
+                horizontal: 'right',
+                vertical: 'bottom',
+              },
+              timing: {
+                startSeconds: 2,
+                endSeconds: 6,
+              },
+            }],
+            requestedCapabilities: ['asset-placement'],
+            capabilityEvidence: [{
+              capability: 'asset-placement',
+              sourceSpan: userMessage,
+            }],
+            familyDirectives: [],
+          },
+          confidence: 1,
+          reason: 'The source asset, placement, and timeline window are explicit.',
+        }),
+      }),
+    });
+
+    expect(classified).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'localized-mutation',
+      routingFacts: {
+        requestedCapabilities: ['asset-placement'],
+        localizedEdits: [{
+          sourceQuery: 'a_portrait123',
+          placement: {
+            mode: 'corner',
+            horizontal: 'right',
+            vertical: 'bottom',
+          },
+          timing: {
+            startSeconds: 2,
+            endSeconds: 6,
+          },
+        }],
+      },
+    });
+    expect(resolveChatLocalizedWorkflowAdapter(
+      classified.routingFacts!.localizedEdits![0],
+    )).toMatchObject({
+      capability: 'asset-placement',
+      resolverTool: 'resolve_user_asset_overlay',
+      resolverArgs: {
+        query: 'a_portrait123',
+        operation: 'place',
+        placement: 'corner',
+        horizontal: 'right',
+        vertical: 'bottom',
+        startSeconds: 2,
+        endSeconds: 6,
+      },
+    });
+  });
+
+  it('fails closed when asset-placement has no executable asset workflow', async () => {
+    const userMessage = 'Place my uploaded image asset a_portrait123.';
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: false,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: false,
+          localizedReads: [],
+          localizedEdits: [],
+          requestedCapabilities: ['asset-placement'],
+          capabilityEvidence: [{
+            capability: 'asset-placement',
+            sourceSpan: userMessage,
+          }],
+          familyDirectives: [],
+        },
+        confidence: 1,
+        reason: 'The request names asset placement.',
+      }),
+    }));
+
+    await expect(classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, { generate })).rejects.toThrow(
+      'asset-placement requires one executable asset/place-asset workflow',
+    );
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails closed when model-produced asset timing is internally contradictory', async () => {
+    const userMessage = 'Place a_portrait123 in the corner from 2 to 6 seconds.';
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: true,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [{
+            modality: 'asset',
+            operation: 'place-asset',
+            query: 'a_portrait123',
+            sourceQuery: 'a_portrait123',
+            targetQuery: '',
+            targetKind: 'none',
+            sourceSpan: userMessage,
+            placement: { mode: 'corner' },
+            timing: { startSeconds: 6, endSeconds: 2 },
+          }],
+          requestedCapabilities: ['asset-placement'],
+          capabilityEvidence: [{
+            capability: 'asset-placement',
+            sourceSpan: userMessage,
+          }],
+          familyDirectives: [],
+        },
+        confidence: 1,
+        reason: 'The model inverted the supplied timing.',
+      }),
+    }));
+
+    await expect(classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, { generate })).rejects.toThrow(
+      'Asset timing endSeconds must be greater than startSeconds',
+    );
+    expect(generate).toHaveBeenCalledTimes(2);
   });
 
   it('fails closed when a localized read is not declared as analysis', async () => {

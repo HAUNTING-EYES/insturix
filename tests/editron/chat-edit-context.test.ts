@@ -363,6 +363,56 @@ describe('chat edit context bundle', () => {
     expect(addOverlay.width).toBeGreaterThanOrEqual(96);
     expect(addOverlay.height).toBeGreaterThanOrEqual(36);
 
+    const constrainedPlan = resolveUserAssetOverlayPlacement(project, [logoCandidate], {
+      query: 'a_portrait123',
+      placement: 'corner',
+      horizontal: 'right',
+      vertical: 'bottom',
+      startSeconds: 2,
+      endSeconds: 6,
+    });
+    expect(constrainedPlan).toMatchObject({
+      status: 'ready',
+      useWith: {
+        add_overlay: {
+          assetId: 'asset_logo',
+          start: 60,
+          duration: 120,
+        },
+      },
+    });
+    expect(constrainedPlan.useWith?.add_overlay?.x).toBeGreaterThan(900);
+    expect(constrainedPlan.useWith?.add_overlay?.y).toBeGreaterThan(500);
+
+    const clippedPlan = resolveUserAssetOverlayPlacement(project, [logoCandidate], {
+      query: 'a_portrait123',
+      startSeconds: 9,
+      endSeconds: 20,
+    });
+    expect(clippedPlan).toMatchObject({
+      status: 'ready',
+      useWith: {
+        add_overlay: {
+          start: 270,
+          duration: 30,
+        },
+      },
+    });
+
+    const entirePlan = resolveUserAssetOverlayPlacement(project, [logoCandidate], {
+      query: 'a_portrait123',
+      timingAnchor: 'entire',
+    });
+    expect(entirePlan).toMatchObject({
+      status: 'ready',
+      useWith: {
+        add_overlay: {
+          start: 0,
+          duration: 300,
+        },
+      },
+    });
+
     const ambiguous = resolveUserAssetOverlayPlacement(project, [
       logoCandidate,
       { ...logoCandidate, assetId: 'asset_logo_alt', name: 'second-logo.png', confidence: 0.88, score: 0.88 },

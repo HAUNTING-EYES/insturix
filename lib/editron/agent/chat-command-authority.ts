@@ -72,6 +72,19 @@ export interface ChatLocalizedReadRequest {
   query: string;
 }
 
+export interface ChatAssetPlacementConstraint {
+  mode: 'corner' | 'center' | 'full-frame';
+  horizontal?: 'left' | 'center' | 'right';
+  vertical?: 'top' | 'center' | 'bottom';
+}
+
+export interface ChatAssetTimingConstraint {
+  startSeconds?: number;
+  endSeconds?: number;
+  durationSeconds?: number;
+  anchor?: 'intro' | 'outro' | 'entire';
+}
+
 export interface ChatLocalizedEditRequest {
   modality: ChatLocalizedModality;
   operation: ChatLocalizedOperation;
@@ -81,6 +94,8 @@ export interface ChatLocalizedEditRequest {
   targetKind?: 'none' | 'selected-overlay' | 'described-overlay';
   targetOverlayId?: string | number;
   sourceSpan?: string;
+  placement?: ChatAssetPlacementConstraint;
+  timing?: ChatAssetTimingConstraint;
 }
 
 export interface ChatLocalizedWorkflowAdapter {
@@ -492,9 +507,22 @@ export function resolveChatLocalizedWorkflowAdapter(
   }
   if (edit.modality === 'asset' && edit.operation === 'place-asset') {
     const sourceQuery = edit.sourceQuery?.trim() || query;
+    const placement = edit.placement;
+    const timing = edit.timing;
     return localizedAdapter('asset-placement', 'resolve_user_asset_overlay', {
       query: sourceQuery,
       operation: 'place',
+      ...(placement ? {
+        placement: placement.mode,
+        ...(placement.horizontal ? { horizontal: placement.horizontal } : {}),
+        ...(placement.vertical ? { vertical: placement.vertical } : {}),
+      } : {}),
+      ...(timing ? {
+        ...(timing.startSeconds == null ? {} : { startSeconds: timing.startSeconds }),
+        ...(timing.endSeconds == null ? {} : { endSeconds: timing.endSeconds }),
+        ...(timing.durationSeconds == null ? {} : { durationSeconds: timing.durationSeconds }),
+        ...(timing.anchor ? { timingAnchor: timing.anchor } : {}),
+      } : {}),
     });
   }
   if (edit.modality === 'asset' && edit.operation === 'replace-asset') {
