@@ -90,7 +90,17 @@ export async function POST(request: NextRequest) {
   const { User } = await import("@/schemas/user");
   const user = await User.findOne({ clerkUserId: session.userId })
     .select("twitterTokens")
-    .lean<{ twitterTokens?: { accessToken?: string; userId?: string; userName?: string } | null } | null>();
+    .lean<{
+      twitterTokens?: {
+        accessToken?: string;
+        refreshToken?: string;
+        userId?: string;
+        userName?: string;
+        expiresAt?: Date | string | null;
+        scopes?: string[];
+        missingScopes?: string[];
+      } | null;
+    } | null>();
 
   const tokens = user?.twitterTokens;
   if (!tokens?.accessToken) {
@@ -99,11 +109,43 @@ export async function POST(request: NextRequest) {
       { status: 409 },
     );
   }
+  if (!tokens.userId) {
+    return NextResponse.json(
+      { success: false, error: "Reconnect X so the connected account identity can be verified" },
+      { status: 409 },
+    );
+  }
   // X is one account per connection — only the connected account can be assigned.
-  if (tokens.userId && String(tokens.userId) !== accountRef) {
+  if (String(tokens.userId) !== accountRef) {
     return NextResponse.json(
       { success: false, error: "That X account is not the one connected for this user" },
       { status: 400 },
+    );
+  }
+  const grantedScopes = tokens.scopes ?? [];
+  const explicitlyMissingScopes = new Set(tokens.missingScopes ?? []);
+  const requiredScopes = ["tweet.write", "offline.access"];
+  const missingRequiredScope = requiredScopes.some(
+    (scope) =>
+      explicitlyMissingScopes.has(scope) ||
+      (grantedScopes.length > 0 && !grantedScopes.includes(scope)),
+  );
+  const expiresAt = tokens.expiresAt ? new Date(tokens.expiresAt).getTime() : Number.NaN;
+  const hasLifecycleMetadata =
+    grantedScopes.length > 0 ||
+    explicitlyMissingScopes.size > 0 ||
+    Boolean(tokens.refreshToken || tokens.expiresAt);
+  if (
+    hasLifecycleMetadata &&
+    (!tokens.refreshToken || !Number.isFinite(expiresAt) || missingRequiredScope)
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          "Reconnect X to grant long-term publishing access (tweet.write and offline.access)",
+      },
+      { status: 409 },
     );
   }
 
