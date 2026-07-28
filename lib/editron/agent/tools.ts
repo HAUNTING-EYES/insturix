@@ -19,6 +19,7 @@ import {
   CASSETTE_SFX_LICENSE_ID,
   extractCassetteSfxAudioUrl,
 } from '@/lib/pipeline/cassette-sfx-provider';
+import { recordChatSfxProviderCost } from '@/lib/editron/agent/chat-sfx-provider-cost';
 import {
   findBestRow,
   resolveCoordinates,
@@ -5920,56 +5921,95 @@ Examples:
         if (!audioUrl && falKey && targetSceneVideo) {
           const videoSrc = targetSceneVideo.src || targetSceneVideo.content;
           if (videoSrc) {
+            const mireloModel = 'mirelo-ai/sfx-v1.5/video-to-audio';
+            const mireloDuration = Math.min(Math.max(Math.round(durationSec), 1), 10);
+            const mireloStartedAt = Date.now();
+            let mireloOutputProduced = false;
+            let mireloOutputCount = 0;
             try {
-              const mireloDuration = Math.min(Math.max(Math.round(durationSec), 1), 10);
               console.log(`[add_sfx] P1: mirelo video-to-audio for scene ${input.sceneIndex}, prompt="${input.query}" (${mireloDuration}s)`);
-              const mireloResult: any = await fal.subscribe('mirelo-ai/sfx-v1.5/video-to-audio', {
+              const mireloResult: any = await fal.subscribe(mireloModel, {
                 input: {
                   video_url: videoSrc,
                   text_prompt: input.query || undefined,
                   duration: mireloDuration,
-                  num_samples: 2,
+                  num_samples: 1,
                 },
                 logs: true,
                 pollInterval: 2000,
               });
               const data = mireloResult?.data || mireloResult;
               const audioArr = data?.audio || data?.audio_files || data?.audios || [];
-              if (audioArr.length > 0 && audioArr[0]?.url) {
-                const audioRes = await fetch(audioArr[0].url);
-                if (audioRes.ok) {
-                  const buffer = Buffer.from(await audioRes.arrayBuffer());
-                  // Validate audio headers to prevent render crashes
-                  const validAudio = buffer.length > 12 && (
-                    (buffer[0] === 0x52 && buffer[1] === 0x49) || // WAV
-                    (buffer[0] === 0x49 && buffer[1] === 0x44) || // MP3 ID3
-                    (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) || // MPEG
-                    (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
-                  );
-                  if (!validAudio) throw new Error('mirelo returned invalid audio');
-                  const uploadResult = await uploadMedia(buffer, userId, `${assetId}.wav`, 'audio/wav', { customAssetId: assetId });
-                  if (uploadResult?.signedUrl) {
-                    audioUrl = uploadResult.signedUrl;
-                    gcsPath = uploadResult.gcsPath;
-                    sfxSource = 'mirelo-video-to-audio';
-                    sfxFilename = `${assetId}.wav`;
-                    sfxDuration = mireloDuration;
-                    audioRights = {
-                      mediaRole: 'sfx',
-                      source: 'generated',
-                      userChoice: 'attested',
-                      licensed: true,
-                      evidence: {
-                        kind: 'generated-provider',
-                        sourceAssetId: uploadResult.assetId,
-                        licenseId: 'fal-ai:mirelo-ai/sfx-v1.5/video-to-audio:commercial-use',
-                      },
-                    };
-                    console.log(`[add_sfx] mirelo success: ${assetId}`);
-                  }
-                }
+              const validOutputs = audioArr.filter((candidate: any) => typeof candidate?.url === 'string');
+              if (validOutputs.length === 0) {
+                throw new Error('mirelo returned no usable audio output');
               }
+              mireloOutputProduced = true;
+              mireloOutputCount = validOutputs.length;
+              const audioRes = await fetch(validOutputs[0].url);
+              if (!audioRes.ok) {
+                throw new Error(`mirelo SFX download failed with ${audioRes.status}`);
+              }
+              const buffer = Buffer.from(await audioRes.arrayBuffer());
+              // Validate audio headers to prevent render crashes
+              const validAudio = buffer.length > 12 && (
+                (buffer[0] === 0x52 && buffer[1] === 0x49) || // WAV
+                (buffer[0] === 0x49 && buffer[1] === 0x44) || // MP3 ID3
+                (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) || // MPEG
+                (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
+              );
+              if (!validAudio) throw new Error('mirelo returned invalid audio');
+              const uploadResult = await uploadMedia(buffer, userId, `${assetId}.wav`, 'audio/wav', { customAssetId: assetId });
+              if (!uploadResult?.signedUrl) {
+                throw new Error('mirelo SFX upload returned no signed URL');
+              }
+              assetId = uploadResult.assetId;
+              audioUrl = uploadResult.signedUrl;
+              gcsPath = uploadResult.gcsPath;
+              sfxSource = 'mirelo-video-to-audio';
+              sfxFilename = `${assetId}.wav`;
+              sfxDuration = mireloDuration;
+              audioRights = {
+                mediaRole: 'sfx',
+                source: 'generated',
+                userChoice: 'attested',
+                licensed: true,
+                evidence: {
+                  kind: 'generated-provider',
+                  sourceAssetId: uploadResult.assetId,
+                  licenseId: 'fal-ai:mirelo-ai/sfx-v1.5/video-to-audio:commercial-use',
+                },
+              };
+              await recordChatSfxProviderCost({
+                status: 'success',
+                userId,
+                projectId,
+                assetId,
+                providerBranch: 'mirelo_video_to_audio',
+                model: mireloModel,
+                requestedDurationSec: mireloDuration,
+                generatedMediaSeconds: mireloDuration * mireloOutputCount,
+                outputCount: mireloOutputCount,
+                providerOutputProduced: true,
+                bytesOut: buffer.length,
+                functionMs: Date.now() - mireloStartedAt,
+              });
+              console.log(`[add_sfx] mirelo success: ${assetId}`);
             } catch (mireloErr: any) {
+              await recordChatSfxProviderCost({
+                status: 'failed',
+                userId,
+                projectId,
+                assetId,
+                providerBranch: 'mirelo_video_to_audio',
+                model: mireloModel,
+                requestedDurationSec: mireloDuration,
+                generatedMediaSeconds: mireloDuration * mireloOutputCount,
+                outputCount: mireloOutputCount,
+                providerOutputProduced: mireloOutputProduced,
+                functionMs: Date.now() - mireloStartedAt,
+                error: mireloErr,
+              });
               console.warn(`[add_sfx] mirelo failed: ${mireloErr.message}, trying CassetteAI`);
             }
           }
@@ -5977,19 +6017,25 @@ Examples:
 
         // ─── Priority 3: CassetteAI's dedicated text-to-SFX model ─
         if (!audioUrl && falKey) {
+          const cassetteStartedAt = Date.now();
+          let cassetteOutputProduced = false;
+          let cassetteDuration = Math.min(Math.max(Math.round(durationSec), 1), 30);
+          let cassetteModel = 'cassetteai/sound-effects-generator';
           try {
             const cassetteRequest = buildCassetteSfxRequest(
               `${input.query}, sound effect, ambient audio, no vocals, no music`,
               durationSec,
             );
-            const cassDuration = cassetteRequest.input.duration;
-            console.log(`[add_sfx] P3: CassetteAI gen for: "${input.query}" (${cassDuration}s)`);
+            cassetteDuration = cassetteRequest.input.duration;
+            cassetteModel = cassetteRequest.model;
+            console.log(`[add_sfx] P3: CassetteAI gen for: "${input.query}" (${cassetteDuration}s)`);
             const cassResult: any = await fal.subscribe(cassetteRequest.model, {
               input: cassetteRequest.input,
               logs: true,
               pollInterval: 3000,
             });
             const firstAudio = extractCassetteSfxAudioUrl(cassResult);
+            cassetteOutputProduced = true;
             const audioRes = await fetch(firstAudio);
             if (!audioRes.ok) {
               throw new Error(`CassetteAI SFX download failed with ${audioRes.status}`);
@@ -6003,27 +6049,56 @@ Examples:
               'audio/wav',
               { customAssetId: assetId },
             );
-            if (uploadResult?.signedUrl) {
-              assetId = uploadResult.assetId;
-              audioUrl = uploadResult.signedUrl;
-              gcsPath = uploadResult.gcsPath;
-              sfxSource = 'cassetteai';
-              sfxFilename = `${assetId}.wav`;
-              sfxDuration = cassDuration;
-              audioRights = {
-                mediaRole: 'sfx',
-                source: 'generated',
-                userChoice: 'attested',
-                licensed: true,
-                evidence: {
-                  kind: 'generated-provider',
-                  sourceAssetId: assetId,
-                  licenseId: CASSETTE_SFX_LICENSE_ID,
-                },
-              };
-              console.log(`[add_sfx] CassetteAI success: ${assetId}`);
+            if (!uploadResult?.signedUrl) {
+              throw new Error('CassetteAI SFX upload returned no signed URL');
             }
+            assetId = uploadResult.assetId;
+            audioUrl = uploadResult.signedUrl;
+            gcsPath = uploadResult.gcsPath;
+            sfxSource = 'cassetteai';
+            sfxFilename = `${assetId}.wav`;
+            sfxDuration = cassetteDuration;
+            audioRights = {
+              mediaRole: 'sfx',
+              source: 'generated',
+              userChoice: 'attested',
+              licensed: true,
+              evidence: {
+                kind: 'generated-provider',
+                sourceAssetId: assetId,
+                licenseId: CASSETTE_SFX_LICENSE_ID,
+              },
+            };
+            await recordChatSfxProviderCost({
+              status: 'success',
+              userId,
+              projectId,
+              assetId,
+              providerBranch: 'cassetteai_fallback',
+              model: cassetteModel,
+              requestedDurationSec: cassetteDuration,
+              generatedMediaSeconds: cassetteDuration,
+              outputCount: 1,
+              providerOutputProduced: true,
+              bytesOut: buffer.length,
+              functionMs: Date.now() - cassetteStartedAt,
+            });
+            console.log(`[add_sfx] CassetteAI success: ${assetId}`);
           } catch (cassErr: any) {
+            await recordChatSfxProviderCost({
+              status: 'failed',
+              userId,
+              projectId,
+              assetId,
+              providerBranch: 'cassetteai_fallback',
+              model: cassetteModel,
+              requestedDurationSec: cassetteDuration,
+              generatedMediaSeconds: cassetteOutputProduced ? cassetteDuration : 0,
+              outputCount: cassetteOutputProduced ? 1 : 0,
+              providerOutputProduced: cassetteOutputProduced,
+              functionMs: Date.now() - cassetteStartedAt,
+              error: cassErr,
+            });
             console.warn(`[add_sfx] CassetteAI failed: ${cassErr.message}; all SFX providers exhausted`);
           }
         }

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   dbUpdateOne: vi.fn(),
   falConfig: vi.fn(),
   falSubscribe: vi.fn(),
+  recordChatSfxProviderCost: vi.fn(),
   resolveAssetUrl: vi.fn(),
   searchAndDownloadSFX: vi.fn(),
   searchStockImages: vi.fn(),
@@ -47,6 +48,10 @@ vi.mock('@fal-ai/client', () => ({
 
 vi.mock('@/lib/editron/services/upload-service', () => ({
   uploadMedia: mocks.uploadMedia,
+}));
+
+vi.mock('@/lib/editron/agent/chat-sfx-provider-cost', () => ({
+  recordChatSfxProviderCost: mocks.recordChatSfxProviderCost,
 }));
 
 vi.mock('@/lib/editron/db/mongodb', async (importOriginal) => {
@@ -336,6 +341,104 @@ describe('chat provider and user-asset tool contracts', () => {
         }),
       }),
     );
+    expect(mocks.recordChatSfxProviderCost).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'success',
+      providerBranch: 'cassetteai_fallback',
+      model: 'cassetteai/sound-effects-generator',
+      requestedDurationSec: 30,
+      generatedMediaSeconds: 30,
+      outputCount: 1,
+      providerOutputProduced: true,
+      bytesOut: 44,
+    }));
+  });
+
+  it('records Mirelo output count and duration before placing generated scene SFX', async () => {
+    vi.stubEnv('FAL_AI_API_KEY', 'fal_test_key');
+    mocks.searchAndDownloadSFX.mockResolvedValue(null);
+    mocks.falSubscribe.mockResolvedValue({
+      data: {
+        audio: [
+          { url: 'https://v3.fal.media/files/test/mirelo-a.wav' },
+        ],
+      },
+    });
+    mocks.uploadMedia.mockResolvedValue({
+      assetId: 'asset-mirelo',
+      signedUrl: 'https://cdn.example.com/mirelo.wav',
+      gcsPath: null,
+    });
+    mocks.getDatabase.mockResolvedValue({
+      collection: vi.fn(() => ({
+        updateOne: mocks.dbUpdateOne,
+      })),
+    });
+    mocks.dbUpdateOne.mockResolvedValue({ acknowledged: true });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(validWavBytes().toString('latin1'), {
+      status: 200,
+      headers: { 'content-type': 'audio/wav' },
+    })));
+    vi.spyOn(projectService, 'addOverlay').mockResolvedValue(undefined as any);
+
+    const result = parseResult(await toolNamed('add_sfx').invoke({
+      query: 'subtle textile movement',
+      sceneIndex: 0,
+      durationSeconds: 4,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'success',
+      data: {
+        duration: 4,
+        source: 'mirelo-video-to-audio',
+      },
+    });
+    expect(mocks.falSubscribe).toHaveBeenCalledWith(
+      'mirelo-ai/sfx-v1.5/video-to-audio',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          duration: 4,
+          num_samples: 1,
+        }),
+      }),
+    );
+    expect(mocks.recordChatSfxProviderCost).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'success',
+      assetId: 'asset-mirelo',
+      providerBranch: 'mirelo_video_to_audio',
+      requestedDurationSec: 4,
+      generatedMediaSeconds: 4,
+      outputCount: 1,
+      providerOutputProduced: true,
+      bytesOut: 44,
+    }));
+  });
+
+  it('records a zero-cost CassetteAI failure when Fal produces no output', async () => {
+    vi.stubEnv('FAL_AI_API_KEY', 'fal_test_key');
+    mocks.searchAndDownloadSFX.mockResolvedValue(null);
+    mocks.falSubscribe.mockRejectedValue(new Error('provider unavailable'));
+
+    const result = JSON.parse(await toolNamed('add_sfx').invoke({
+      query: 'impossible acoustic texture',
+      durationSeconds: 6,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: { message: expect.stringContaining('all failed') },
+    });
+    expect(mocks.recordChatSfxProviderCost).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      providerBranch: 'cassetteai_fallback',
+      model: 'cassetteai/sound-effects-generator',
+      requestedDurationSec: 6,
+      generatedMediaSeconds: 0,
+      outputCount: 0,
+      providerOutputProduced: false,
+      error: expect.any(Error),
+    }));
+    expect(mocks.uploadMedia).not.toHaveBeenCalled();
   });
 
   it('keeps provider rights attached at every automated SFX overlay producer', () => {

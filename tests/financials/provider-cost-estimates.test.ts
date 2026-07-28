@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { recordChatSfxProviderCost } from '@/lib/editron/agent/chat-sfx-provider-cost';
 import {
   estimateProviderCost,
   estimateRevenueUsdFromCredits,
@@ -31,6 +32,92 @@ describe('provider cost estimates', () => {
 
     expect(estimate.estimatedCostUsd).toBe(0.05);
     expect(estimate.unit).toBe('audio_character');
+  });
+
+  it('uses current official Fal rates for both generated SFX providers', () => {
+    const mirelo = estimateProviderCost({
+      provider: 'fal-ai',
+      operation: 'sfx_generation',
+      model: 'mirelo-ai/sfx-v1.5/video-to-audio',
+      units: { mediaSeconds: 8, requestCount: 1 },
+    });
+    const cassette = estimateProviderCost({
+      provider: 'fal-ai',
+      operation: 'sfx_generation',
+      model: 'cassetteai/sound-effects-generator',
+      units: { mediaSeconds: 30, requestCount: 1 },
+    });
+
+    expect(mirelo).toMatchObject({
+      estimatedCostUsd: 0.08,
+      unit: 'media_second',
+      pricingVersion: '2026-07-28.fal-audio',
+      missingPricing: false,
+    });
+    expect(cassette).toMatchObject({
+      estimatedCostUsd: 0.01,
+      unit: 'request',
+      pricingVersion: '2026-07-28.fal-audio',
+      missingPricing: false,
+    });
+  });
+
+  it('records pre-output Fal failures at zero while retaining post-output estimated cost', async () => {
+    const recorder = vi.fn().mockResolvedValue({
+      ok: true,
+      eventId: 'pce_test',
+      inserted: true,
+      duplicate: false,
+    });
+
+    await recordChatSfxProviderCost({
+      status: 'failed',
+      userId: 'user-cost',
+      projectId: 'project-cost',
+      assetId: 'asset-cost',
+      providerBranch: 'cassetteai_fallback',
+      model: 'cassetteai/sound-effects-generator',
+      requestedDurationSec: 12,
+      generatedMediaSeconds: 0,
+      outputCount: 0,
+      providerOutputProduced: false,
+      error: new Error('provider unavailable'),
+    }, { recordProviderCostEvent: recorder });
+    await recordChatSfxProviderCost({
+      status: 'failed',
+      userId: 'user-cost',
+      projectId: 'project-cost',
+      assetId: 'asset-cost',
+      providerBranch: 'mirelo_video_to_audio',
+      model: 'mirelo-ai/sfx-v1.5/video-to-audio',
+      requestedDurationSec: 4,
+      generatedMediaSeconds: 8,
+      outputCount: 2,
+      providerOutputProduced: true,
+      error: new Error('storage unavailable'),
+    }, { recordProviderCostEvent: recorder });
+
+    expect(recorder.mock.calls[0]?.[0]).toMatchObject({
+      status: 'failed',
+      estimatedCostUsd: 0,
+      actualCostUsd: 0,
+      units: { mediaSeconds: 0, requestCount: 1 },
+      metadata: {
+        providerOutputProduced: false,
+        outputCount: 0,
+        errorClass: 'Error',
+      },
+    });
+    expect(recorder.mock.calls[1]?.[0]).not.toHaveProperty('estimatedCostUsd');
+    expect(recorder.mock.calls[1]?.[0]).toMatchObject({
+      status: 'failed',
+      units: { mediaSeconds: 8, requestCount: 1 },
+      metadata: {
+        providerOutputProduced: true,
+        outputCount: 2,
+        errorClass: 'Error',
+      },
+    });
   });
 
   it('supports image-count rates without pretending all image providers are priced', () => {
