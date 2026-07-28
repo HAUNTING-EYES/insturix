@@ -898,7 +898,7 @@ describe('chat request owner capability filtering', () => {
       'set_keyframes',
     )).toEqual([
       ['read_project_file', 'get_timeline_view'],
-      ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_keyframe_edit'],
+      ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_audio_edit', 'resolve_keyframe_edit'],
       'set_keyframes',
     ]);
     expect(requiredToolSequenceForChatCapability('selected-dialogue-dubbing')).toEqual([

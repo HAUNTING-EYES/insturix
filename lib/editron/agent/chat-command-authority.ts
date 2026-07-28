@@ -352,6 +352,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       'find_visual_moment',
       'resolve_transcript_edit',
       'resolve_visual_edit',
+      'resolve_audio_edit',
       'resolve_keyframe_edit',
       'visual_inspect_frame',
       'resolve_clip_analysis',
@@ -361,7 +362,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     mutationTools: ['apply_camera_shake', 'set_keyframes'],
     requiredToolSequence: [
       TIMELINE_READ_STEP,
-      ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_keyframe_edit'],
+      ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_audio_edit', 'resolve_keyframe_edit'],
       ['apply_camera_shake', 'set_keyframes'],
     ],
   }),

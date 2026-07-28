@@ -852,7 +852,7 @@ describe('chat edit battle harness', () => {
     expect(getChatEditBattleScenario('motivated-zoom')).toMatchObject({
       requiredToolSequence: [
         ['read_project_file', 'get_timeline_view'],
-        ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_keyframe_edit'],
+        ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_audio_edit', 'resolve_keyframe_edit'],
         'set_keyframes',
       ],
       forbiddenTools: ['apply_editorial_intent'],

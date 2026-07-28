@@ -202,6 +202,49 @@ describe('server-owned localized chat workflow', () => {
     });
   });
 
+  it('licenses an audio impact resolver before applying exact camera shake args', () => {
+    const owner = license(routingFacts(
+      [{ modality: 'audio', operation: 'camera-motion', query: 'the strongest downbeat' }],
+      ['localized-camera-motion'],
+    ));
+    const shakeArgs = {
+      targetFrame: 210,
+      intensity: 0.6,
+      durationFrames: 12,
+    };
+    const resolver = execution('resolve_audio_edit', {
+      query: 'the strongest downbeat',
+      action: 'camera_shake',
+    }, {
+      evidenceReceipts: [receipt('audio-target', 'resolve_audio_edit', [{
+        toolName: 'apply_camera_shake',
+        args: shakeArgs,
+      }])],
+    });
+
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: {
+        name: 'resolve_audio_edit',
+        args: { query: 'the strongest downbeat', action: 'camera_shake' },
+      },
+    });
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, resolver),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: { name: 'apply_camera_shake', args: shakeArgs },
+    });
+  });
+
   it('grounds a visual event removal before authorizing the exact cut', () => {
     const owner = license(routingFacts(
       [{ modality: 'visual', operation: 'remove', query: 'the bird appears' }],
