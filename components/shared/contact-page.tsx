@@ -252,17 +252,21 @@ export function ContactPage() {
 
             {/* CTA text */}
             <div style={{ textAlign: "center" }}>
-              <div
+              {/* h1, not a div: /contactus shipped with no heading element at all.
+                  Inline fontSize/fontWeight already override the browser's h1
+                  defaults; margin is set explicitly so the UA top margin cannot
+                  shift the layout. Renders identically. */}
+              <h1
                 style={{
                   fontSize: "var(--r-heading-size)",
                   fontWeight: 800,
                   color: "var(--text-primary)",
                   lineHeight: 1.2,
-                  marginBottom: 8,
+                  margin: "0 0 8px",
                 }}
               >
                 Pick up.
-              </div>
+              </h1>
               <div
                 style={{
                   fontSize: 14,
