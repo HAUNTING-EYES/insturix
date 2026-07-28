@@ -6,7 +6,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "About | Insturix",
   description:
-    "Building the operating system for content production. Meet the team behind Insturix.",
+    "Insturix is an automated content production platform for agencies, in-house teams, and creator houses. Learn what we build, why, and who is behind it.",
 };
 
 export default function About() {

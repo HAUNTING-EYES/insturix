@@ -5,7 +5,8 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Showcase | Insturix",
-  description: "See what businesses produce with Insturix. Real examples across industries.",
+  description:
+    "See real work produced with Insturix, the automated content production platform. Browse examples across formats, industries, and brand styles.",
 };
 
 export default function Showcase() {

@@ -5,7 +5,8 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Contact | Insturix",
-  description: "Get in touch with Insturix. We respond within 24 hours.",
+  description:
+    "Get in touch with the Insturix team about automated content production. Ask about plans, request a demo, or reach support. We respond within 24 hours.",
 };
 
 export default function ContactUs() {
