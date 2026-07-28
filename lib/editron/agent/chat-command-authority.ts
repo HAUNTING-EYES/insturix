@@ -9,6 +9,21 @@ export const CHAT_REQUEST_CAPABILITIES = [
   'beat-sync',
   'scene-regeneration',
   'html-scene-edit',
+  'overlay-create',
+  'overlay-update',
+  'overlay-batch-update',
+  'clip-split',
+  'clip-trim',
+  'timeline-cut',
+  'overlay-delete',
+  'overlay-style-sync',
+  'timeline-gap-close',
+  'sticker-overlay',
+  'selected-keyframes',
+  'overlay-fade',
+  'overlay-layer-order',
+  'overlay-retime',
+  'clip-filter',
   'asset-placement',
   'asset-replacement',
   'localized-cut',
@@ -71,6 +86,7 @@ export interface ChatLocalizedWorkflowAdapter {
 }
 export type ChatOperationalAuthority =
   | 'family-owner'
+  | 'mechanical-workflow'
   | 'localized-workflow'
   | 'durable-workflow'
   | 'project-transform'
@@ -174,6 +190,91 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     authority: 'family-owner',
     mutationTools: ['edit_html_scene'],
     requiredToolSequence: [TIMELINE_READ_STEP, 'edit_html_scene'],
+  }),
+  'overlay-create': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['add_overlay'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'add_overlay'],
+  }),
+  'overlay-update': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['update_overlay'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'update_overlay'],
+  }),
+  'overlay-batch-update': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['batch_update_overlays'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'batch_update_overlays'],
+  }),
+  'clip-split': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['split_overlay'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'split_overlay'],
+  }),
+  'clip-trim': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['trim_overlay'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'trim_overlay'],
+  }),
+  'timeline-cut': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['cut_section'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'cut_section'],
+  }),
+  'overlay-delete': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['delete_overlay'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'delete_overlay'],
+  }),
+  'overlay-style-sync': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['sync_style'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'sync_style'],
+  }),
+  'timeline-gap-close': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['close_gaps'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'close_gaps'],
+  }),
+  'sticker-overlay': capabilityContract({
+    authority: 'mechanical-workflow',
+    evidenceTools: ['resolve_sticker_overlay'],
+    mutationTools: ['generate_html_sticker'],
+    requiredToolSequence: [
+      TIMELINE_READ_STEP,
+      'resolve_sticker_overlay',
+      'generate_html_sticker',
+    ],
+  }),
+  'selected-keyframes': capabilityContract({
+    authority: 'mechanical-workflow',
+    evidenceTools: ['resolve_keyframe_edit'],
+    mutationTools: ['set_keyframes'],
+    requiredToolSequence: [
+      TIMELINE_READ_STEP,
+      'resolve_keyframe_edit',
+      'set_keyframes',
+    ],
+  }),
+  'overlay-fade': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['apply_fade'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'apply_fade'],
+  }),
+  'overlay-layer-order': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['reorder_layer'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'reorder_layer'],
+  }),
+  'overlay-retime': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['move_retime_overlay'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'move_retime_overlay'],
+  }),
+  'clip-filter': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['apply_filter'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'apply_filter'],
   }),
   'asset-placement': capabilityContract({
     authority: 'localized-workflow',

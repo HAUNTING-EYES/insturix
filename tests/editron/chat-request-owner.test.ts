@@ -75,9 +75,13 @@ describe('chat request owner classification', () => {
           requiresContentLocalization: false,
           requiresEditorialJudgment: true,
           requestsReferenceStyle: false,
-          requestsBroadEditorialOutcome: false,
+          requestsBroadEditorialOutcome: true,
+          durableOperation: 'none',
           operationFullySpecified: false,
           targetFullySpecified: false,
+          localizedReads: [],
+          localizedEdits: [],
+          requestedCapabilities: ['project-edit'],
           familyDirectives: [{ family: 'motionGraphics', mode: 'prefer' }],
         },
         confidence: 0.97,
@@ -91,10 +95,11 @@ describe('chat request owner classification', () => {
     expect(result.owner).toBe('semantic-editorial-planner');
     expect(result.semanticWorkflow).toBe('editorial-plan');
     expect(result.routingFacts?.requiresEditorialJudgment).toBe(true);
+    expect(result.routingFacts?.requestedCapabilities).toEqual(['project-edit']);
     expect(result.routingFacts?.familyDirectives).toEqual([
       { family: 'motionGraphics', mode: 'prefer' },
     ]);
-    expect(result.routingFacts?.familyScopeExclusive).toBe(true);
+    expect(result.routingFacts?.familyScopeExclusive).toBe(false);
     expect(result.decidedBy).toBe('gemini');
     expect(generate).toHaveBeenCalledTimes(1);
     expect(addUsage).toHaveBeenCalledWith({ promptTokenCount: 40, candidatesTokenCount: 12 });
@@ -240,6 +245,18 @@ describe('chat request owner classification', () => {
     expect(prompt).toContain('sfx-replacement for replacing an existing selected or identified SFX');
   });
 
+  it('documents exact mechanical workflows instead of exposing a broad mutation tool bag', () => {
+    const prompt = buildChatRequestOwnerPrompt({
+      ...baseInput,
+      userMessage: 'Split the selected clip, then fade the title.',
+      selectedOverlayPresent: true,
+    });
+
+    expect(prompt).toContain('clip-split or clip-trim for an identified clip');
+    expect(prompt).toContain('overlay-fade, overlay-layer-order, overlay-retime, or clip-filter');
+    expect(prompt).toContain('Literal timeline coordinates use a mechanical capability');
+  });
+
   it('fails closed when an explicit music request omits its operational workflow', async () => {
     const generate = vi.fn(async () => ({
       text: JSON.stringify({
@@ -338,7 +355,7 @@ describe('chat request owner classification', () => {
     });
   });
 
-  it('derives mechanical ownership from a fully specified literal timeline edit', async () => {
+  it('licenses a fully specified literal timeline edit through one server-owned workflow', async () => {
     const generate = vi.fn(async () => ({
       text: JSON.stringify({
         facts: {
@@ -348,8 +365,13 @@ describe('chat request owner classification', () => {
           requiresEditorialJudgment: false,
           requestsReferenceStyle: false,
           requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
           operationFullySpecified: true,
           targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [],
+          requestedCapabilities: ['overlay-create'],
+          familyDirectives: [],
         },
         confidence: 0.99,
         reason: 'The literal text, style, placement, and timing are all supplied.',
@@ -361,11 +383,45 @@ describe('chat request owner classification', () => {
       userMessage: 'Add a bold white title saying Launch day at the top for the first 3 seconds.',
     }, { generate });
 
-    expect(result.owner).toBe('mechanical-editor');
+    expect(result.owner).toBe('semantic-editorial-planner');
     expect(result.routingFacts).toEqual(expect.objectContaining({
       operationFullySpecified: true,
       targetFullySpecified: true,
+      requestedCapabilities: ['overlay-create'],
     }));
+  });
+
+  it('fails closed when a mutation declares neither a capability nor a localized edit', async () => {
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: false,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [],
+          requestedCapabilities: [],
+          familyDirectives: [],
+        },
+        confidence: 0.99,
+        reason: 'The model omitted the operation workflow.',
+      }),
+    }));
+
+    await expect(classifyChatRequestOwner({
+      ...baseInput,
+      userMessage: 'Split the selected clip at the playhead.',
+      selectedOverlayPresent: true,
+    }, { generate })).rejects.toThrow(
+      'Every mutation must declare a complete operational capability or localized edit.',
+    );
+    expect(generate).toHaveBeenCalledTimes(2);
   });
 
   it('represents localized inspection without pretending it mutates the project', async () => {

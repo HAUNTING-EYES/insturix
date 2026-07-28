@@ -305,6 +305,7 @@ function resolveCapabilityOperation(
 function authorityLabel(capability: ChatRequestCapability): string {
   const authority = getChatCapabilityAuthorityContract(capability).authority;
   if (authority === 'family-owner') return 'family owner';
+  if (authority === 'mechanical-workflow') return 'mechanical workflow';
   if (authority === 'project-transform') return 'project transform';
   if (authority === 'unified-planner') return 'unified planner';
   if (authority === 'durable-workflow') return 'durable workflow';

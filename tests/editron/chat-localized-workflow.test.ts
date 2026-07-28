@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { resolveServerOwnedLocalizedWorkflowStep } from '@/lib/editron/agent/chat-localized-workflow';
 import { resolveServerOwnedChatWorkflowStep } from '@/lib/editron/agent/chat-server-workflow';
 import {
+  getChatCapabilityAuthorityContract,
+  type ChatRequestCapability,
+} from '@/lib/editron/agent/chat-command-authority';
+import {
   CHAT_TOOL_EVIDENCE_RECEIPT_VERSION,
   type ChatToolEvidenceReceipt,
   type ChatToolTurnLedger,
@@ -582,6 +586,87 @@ describe('server-owned localized chat workflow', () => {
       allowedToolNames: new Set(['edit_html_scene']),
       instruction: 'Complete html-scene-edit through its licensed family owner.',
     });
+  });
+
+  it.each([
+    ['overlay-create', 'add_overlay'],
+    ['overlay-update', 'update_overlay'],
+    ['overlay-batch-update', 'batch_update_overlays'],
+    ['clip-split', 'split_overlay'],
+    ['clip-trim', 'trim_overlay'],
+    ['timeline-cut', 'cut_section'],
+    ['overlay-delete', 'delete_overlay'],
+    ['overlay-style-sync', 'sync_style'],
+    ['timeline-gap-close', 'close_gaps'],
+    ['overlay-fade', 'apply_fade'],
+    ['overlay-layer-order', 'reorder_layer'],
+    ['overlay-retime', 'move_retime_overlay'],
+    ['clip-filter', 'apply_filter'],
+  ] satisfies Array<[ChatRequestCapability, string]>)(
+    'forces %s through only %s after current timeline evidence',
+    (capability, mutationTool) => {
+      const exactOperationLicense: ChatRequestOwnerLicense = {
+        version: 'editron-chat-request-owner-v1',
+        owner: 'semantic-editorial-planner',
+        confidence: 1,
+        reason: 'The exact operation and target are supplied.',
+        requestDigest: 'exact-operation',
+        decidedBy: 'gemini',
+        semanticWorkflow: 'editorial-plan',
+        routingFacts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: false,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [],
+          requestedCapabilities: [capability],
+          familyDirectives: [],
+          familyScopeExclusive: false,
+        },
+      };
+
+      expect(resolveServerOwnedChatWorkflowStep({
+        requestOwnerLicense: exactOperationLicense,
+        ledger: ledger(),
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      })).toMatchObject({
+        kind: 'tool-call',
+        operationId: `0:${capability}`,
+        toolCall: { name: 'get_timeline_view' },
+      });
+      expect(resolveServerOwnedChatWorkflowStep({
+        requestOwnerLicense: exactOperationLicense,
+        ledger: ledger(timelineExecution),
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      })).toEqual({
+        kind: 'model-call',
+        operationId: `0:${capability}`,
+        stepIndex: 1,
+        allowedToolNames: new Set([mutationTool]),
+        instruction: `Complete ${capability} through its licensed mechanical workflow.`,
+      });
+    },
+  );
+
+  it('preserves resolver authorization for sticker and selected-keyframe workflows', () => {
+    expect(getChatCapabilityAuthorityContract('sticker-overlay').requiredToolSequence).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'resolve_sticker_overlay',
+      'generate_html_sticker',
+    ]);
+    expect(getChatCapabilityAuthorityContract('selected-keyframes').requiredToolSequence).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'resolve_keyframe_edit',
+      'set_keyframes',
+    ]);
   });
 
   it('keeps replan-required internal and stops after bounded validated retries', () => {
