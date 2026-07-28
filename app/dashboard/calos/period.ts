@@ -1,8 +1,8 @@
 import { startOfMonth, endOfMonth, addDays, addMonths } from 'date-fns';
 
 /**
- * The generation window for Auto-fill / AI-plan. Single-sourced so the toolbar (CampaignBar) and the
- * campaign workspace agree. Routes clamp the start to "now", so past days are never filled.
+ * Generation windows for the directly addressable campaign workspace. Routes clamp the start to
+ * "now", so past days are never filled.
  */
 export type Period = 'rest_of_month' | 'next_2_weeks' | 'next_30_days' | 'next_month';
 

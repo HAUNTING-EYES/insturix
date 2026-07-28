@@ -56,29 +56,29 @@ describe("Content calendar regressions", () => {
     mocks.connectedAccountUpdateOne.mockResolvedValue({ acknowledged: true });
   });
 
-  it("opens a day inspector instead of surprise-creating a draft on date click", () => {
+  it("opens the active day view instead of surprise-creating a draft on date click", () => {
     const root = process.cwd();
     const calendarSource = readFileSync(
-      join(root, "components/dashboard/ThinkForge/Calendar.tsx"),
+      join(root, "components/dashboard/calos/v3/calos-calendar.tsx"),
       "utf8",
     );
     const pageSource = readFileSync(join(root, "app/dashboard/calos/page.tsx"), "utf8");
 
-    expect(calendarSource).toContain("setSelectedDay(day)");
-    expect(calendarSource).toContain("Day Inspector");
-    expect(calendarSource).toContain("void handleCreateCardForDate(selectedDay)");
-    expect(calendarSource).toContain("clickEvent.stopPropagation()");
-    expect(calendarSource).toContain("isEmptyFreshDraft(cardToClose, freshDraftId)");
-    expect(calendarSource).toContain("Discard this empty draft?");
-    expect(calendarSource).not.toContain("void handleCreateCardForDate(day)");
-    expect(pageSource).toContain("onDeleteDate={handleDeleteDay}");
+    expect(calendarSource).toContain("setView('day'), setSelDay(cell)");
+    expect(calendarSource).toContain("e.stopPropagation(); setOpenId(pl.item.id)");
+    expect(calendarSource).toContain("const base = view === 'day' ? selDay : today");
+    expect(calendarSource).toContain("if (created) setOpenId(created.id)");
+    expect(pageSource).toContain("return <CalosCalendarV3 />");
   });
 
   it("wires calendar bulk cleanup to scoped soft-delete", () => {
     const root = process.cwd();
     const routeSource = readFileSync(join(root, "app/api/services/calos/deliverables/route.ts"), "utf8");
     const hookSource = readFileSync(join(root, "app/dashboard/calos/hooks/useCalosDeliverables.ts"), "utf8");
-    const pageSource = readFileSync(join(root, "app/dashboard/calos/page.tsx"), "utf8");
+    const calendarSource = readFileSync(
+      join(root, "components/dashboard/calos/v3/calos-calendar.tsx"),
+      "utf8",
+    );
 
     expect(routeSource).toContain("export async function DELETE");
     expect(routeSource).toContain("CalosDeliverable.updateMany");
@@ -86,7 +86,10 @@ describe("Content calendar regressions", () => {
     expect(routeSource).toContain("scope=all or ids[] is required");
     expect(hookSource).toContain("deleteCardsForDate");
     expect(hookSource).toContain("clearAll");
-    expect(pageSource).toContain("Clear all");
+    expect(calendarSource).toContain("setConfirm({ kind: 'clearall' })");
+    expect(calendarSource).toContain("setConfirm({ kind: 'deleteday', date: selDay })");
+    expect(calendarSource).toContain("onConfirm={doClearAll}");
+    expect(calendarSource).toContain("onConfirm={() => doDeleteDay(confirm.date)}");
   });
 
   it("reads CalOS YouTube connection state from Clerk Google accounts", async () => {
