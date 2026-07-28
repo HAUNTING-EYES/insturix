@@ -130,3 +130,94 @@ This is the remainder from the current P0-P16/master-plan view. It is separate f
 - `docs/agents/sessions/editron/Editron-Production-Contracts-2026-07-12.md`
 - `D:\Insturix-Brain\07-Roadmap\Editron-Codex-Final-Execution-Plan-2026-07-05.md`
 - `D:\Insturix-Brain\07-Roadmap\Editron-FINAL-Task-Distribution-2026-07-09.md`
+
+## 8. July 28 Priority Lock
+
+The chat-to-edit matrix remains the active workstream. Do not divert into Omni,
+large-media infrastructure, calibration, or broad overlay tuning until the
+current uploaded-image placement case is repaired and proven.
+
+### Immediate matrix checkpoint
+
+- Uploaded-footage replacement passed resolver, Mongo mutation, reload, and
+  rendered-evidence checks on the current path.
+- Uploaded-image placement failed because request classification preserved the
+  source asset but dropped explicit placement and timing before
+  `resolve_user_asset_overlay`.
+- The production repair is a structured asset-placement contract:
+  source identity, spatial anchor, and timeline window remain separate fields;
+  the server converts seconds to frames using the project FPS and clamps the
+  result to the current timeline.
+- `asset-placement` may not be reported without a matching executable
+  `asset/place-asset` localized workflow.
+- After deterministic tests pass, rerun only the uploaded-image placement live
+  case and verify tool sequence, Mongo state, hard-refresh parity, and rendered
+  pixels. Resume the wider matrix only after that one case passes.
+
+## 9. Deferred Media Contract V2
+
+This contract is documented now but is not the active implementation phase.
+
+### Storage and ingest
+
+- Keep immutable originals separate from derived media.
+- Give every derivative an explicit role: `original`, `edit-proxy`,
+  `analysis-proxy`, `audio`, `waveform`, `storyboard`, or `thumbnail`.
+- Replace the application-level 3 GiB ceiling with product quota policy backed
+  by atomic reservation, not a storage-platform assumption.
+- Use dynamically sized multipart uploads capped below 10,000 parts (target
+  9,500), persist each uploaded part number, ETag, checksum, and session state,
+  and make completion idempotent.
+- A refresh or process crash must resume by reconciling persisted state with
+  object-storage parts. The browser may need the user to reselect the same local
+  file; its fingerprint must match before missing parts continue.
+- After upload, a durable server-side ingest worker creates seek-optimized
+  proxies and analysis derivatives. The browser must not transcode or hold a
+  hundreds-of-gigabytes original in memory.
+- Google Drive Picker/API is an additional import source, not a bypass. Import a
+  user-selected Drive file into the same owned storage, rights, quota, ingest,
+  proxy, and lifecycle pipeline.
+
+### Preview and conform
+
+- Preview resolves only a stable, range-capable edit proxy.
+- Final render resolves the immutable original explicitly.
+- Do not mutate one canonical asset URL from proxy to original. Resolution must
+  be role-based: `preview -> edit-proxy`, `analysis -> analysis-proxy`,
+  `render -> original`.
+- Keep `pauseWhenBuffering`; pre-mount nearby decoder instances, prewarm the next
+  source range, record stall telemetry, and use bounded recovery.
+- The current hidden-media warmup is Phase A only. If range transport and
+  decoder pre-mounting remain insufficient, evaluate a bounded
+  MediaBunny/WebCodecs scrub-frame cache rather than adopting it by assumption.
+
+### Absolute proofs
+
+- Interrupt a 300 GiB upload at 37%, refresh, and upload only missing parts.
+- Keep the part count at or below 9,500.
+- Concurrent uploads cannot over-reserve organization quota.
+- Preview never requests the original object.
+- Final render resolves the original object.
+- Same-organization reuse avoids duplicate bytes; cross-organization access is
+  denied.
+- Pinned or in-use assets and derivatives cannot be evicted.
+
+## 10. Deferred Omni Motion-Backdrop Contract
+
+Omni motion imagery is implemented as a client capability but is not part of
+the proven live MG output path. Do not enable it by treating an MP4 like an
+ordinary still image.
+
+Before activation:
+
+1. Accept the static MG structure through the existing grounding and aesthetic
+   judge.
+2. Request Omni motion only for a licensed motion-backdrop job.
+3. Validate stream, duration, dimensions, frame variation, and audio policy.
+4. Persist an explicit motion-backdrop derivative and pass it to the isolated
+   MG render worker.
+5. Normalize duration and define alpha-versus-opaque composition semantics.
+6. Cache the intermediate backdrop for idempotent retries and persist the final
+   compact `MG_SEQUENCE` output.
+7. Record provider and render receipts, then prove a real deployed render before
+   enabling the path.
