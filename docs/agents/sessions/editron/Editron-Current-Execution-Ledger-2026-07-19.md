@@ -133,26 +133,34 @@ This is the remainder from the current P0-P16/master-plan view. It is separate f
 
 ## 8. July 28 Priority Lock
 
-The chat-to-edit matrix remains the active workstream. Do not divert into Omni,
-large-media infrastructure, calibration, or broad overlay tuning until the
-current uploaded-image placement case is repaired and proven.
+The chat-to-edit matrix remains the active workstream. The isolated
+uploaded-image placement checkpoint is complete; resume the wider current-code
+matrix. Do not divert into Omni, large-media infrastructure, calibration, or
+broad overlay tuning while that matrix is active.
 
 ### Immediate matrix checkpoint
 
 - Uploaded-footage replacement passed resolver, Mongo mutation, reload, and
   rendered-evidence checks on the current path.
-- Uploaded-image placement failed because request classification preserved the
-  source asset but dropped explicit placement and timing before
-  `resolve_user_asset_overlay`.
-- The production repair is a structured asset-placement contract:
-  source identity, spatial anchor, and timeline window remain separate fields;
+- Uploaded-image placement now passes the complete deployed workflow on commit
+  `c6d8a597`: timeline read, exact asset resolution, mutation, Mongo state,
+  reload parity, and fresh rendered evidence.
+- Two independent wire-contract defects were repaired before that proof:
+  Gemini's structured `NUMBER` output expanded `2` into a runaway decimal until
+  `MAX_TOKENS`, and the asset resolver emitted legacy `fadeIn`/`fadeOut` tokens
+  that `add_overlay` correctly rejected.
+- The resulting production contract keeps source identity, spatial anchor, and
+  timeline window as separate fields;
   the server converts seconds to frames using the project FPS and clamps the
   result to the current timeline.
 - `asset-placement` may not be reported without a matching executable
   `asset/place-asset` localized workflow.
-- After deterministic tests pass, rerun only the uploaded-image placement live
-  case and verify tool sequence, Mongo state, hard-refresh parity, and rendered
-  pixels. Resume the wider matrix only after that one case passes.
+- Concrete animation form remains owned by `add_overlay`; the resolver supplies
+  asset, geometry, timing, fit, and opacity but cannot emit a second animation
+  vocabulary.
+- The isolated proof is complete. The next active matrix step is the wider
+  current-code scenario run; do not rerun this placement case unless that path
+  changes.
 
 ## 9. Deferred Media Contract V2
 
