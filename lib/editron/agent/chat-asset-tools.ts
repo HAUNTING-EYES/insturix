@@ -535,7 +535,7 @@ export function resolveUserAssetOverlayPlacement(
     ? {}
     : resolveAssetOverlayGeometry(project, candidate, placement, options);
   const styles = overlayType === "image"
-    ? { objectFit: "contain", opacity: 1, animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 } }
+    ? { objectFit: "contain", opacity: 1 }
     : overlayType === "video"
       ? { objectFit: placement === "full-frame" ? "cover" : "contain", opacity: 1 }
       : { volume: 0.75 };

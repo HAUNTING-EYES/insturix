@@ -358,6 +358,7 @@ describe('chat edit context bundle', () => {
     const addOverlay = plan.useWith?.add_overlay;
     expect(addOverlay).toBeDefined();
     if (!addOverlay) throw new Error('Expected placement resolution to authorize add_overlay.');
+    expect(addOverlay.styles).not.toHaveProperty('animation');
     expect(addOverlay.x).toBeGreaterThan(900);
     expect(addOverlay.y).toBeGreaterThan(500);
     expect(addOverlay.width).toBeGreaterThanOrEqual(96);
