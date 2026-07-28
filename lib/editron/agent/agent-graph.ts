@@ -485,7 +485,8 @@ Call exactly one of the attached functions. Supply only arguments grounded in th
     const dubbingGuidance = callableToolNames.has('dub_selected_dialogue')
       && callableToolNames.has('get_dubbing_job_result')
       ? `**DURABLE SELECTED-CLIP DUBBING**:
-    - For an explicit request to dub the selected video overlay to English, call dub_selected_dialogue once. Do not use a generic voiceover, mute the source manually, or call apply_editorial_intent for the same request.
+    - For an explicit request to dub the selected video overlay to English or Hindi, call dub_selected_dialogue once with the requested language. The server owns language/provider/voice capability validation; never translate to a different language as a fallback.
+    - If the tool declines an unsupported language, report its supportedLanguages exactly. Do not use a generic voiceover, mute the source manually, or call apply_editorial_intent for the same request.
     - A queued job is processing, not completion. On a later turn, call get_dubbing_job_result with its exact jobId. Only a completed result means translated dialogue and the preserved background stem were committed.`
       : '';
     const SYSTEM_MESSAGE = `<role>You are Editron AI, an intelligent video editing assistant integrated into the Editron web-based video editor. You assist users in editing their video projects by manipulating the timeline, adding overlays (text, images, video, audio), and adjusting styles.</role>

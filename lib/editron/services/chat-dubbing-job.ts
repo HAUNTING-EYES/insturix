@@ -178,7 +178,13 @@ export class TerminalDubbingError extends Error {
 export async function resolveChatDubbingJob(
   raw: ResolveChatDubbingRequest,
   overrides: Partial<SharedDependencies> = {},
-): Promise<{ jobId: string; created: boolean; status: ChatDubbingJobStatus }> {
+): Promise<{
+  jobId: string;
+  created: boolean;
+  status: ChatDubbingJobStatus;
+  targetLanguage: CanonicalSpeechLanguage;
+  speechCapability: SpeechSynthesisCapability;
+}> {
   const deps = await resolveSharedDependencies(overrides);
   const projectId = requiredIdentifier(raw.projectId, 'projectId');
   const userId = requiredIdentifier(raw.userId, 'userId');
@@ -248,7 +254,14 @@ export async function resolveChatDubbingJob(
   if (!sameContract(stored.job, proposed)) {
     throw new TerminalDubbingError('dubbing-job-collision', `Dubbing job collision for ${proposed._id}.`);
   }
-  return { jobId: stored.job._id, created: stored.created, status: stored.job.status };
+  const storedCapability = resolveChatDubbingSpeechCapability(stored.job);
+  return {
+    jobId: stored.job._id,
+    created: stored.created,
+    status: stored.job.status,
+    targetLanguage: storedCapability.language,
+    speechCapability: storedCapability,
+  };
 }
 
 export async function queueChatDubbingJob(
