@@ -27,7 +27,7 @@ const ASPECTS = [
 ] as const;
 
 export function ContentModal({
-  item, onClose, onSaveTitle, onSaveDates, onSaveDetails, onSaveTags, onDecision, onGenerate, onDelete, onOpenScript, onPublish, onMakeImage, pubState, connected, onOpenPublishing,
+  item, onClose, onSaveTitle, onSaveDates, onSaveDetails, onSaveTags, onDecision, onGenerate, onDelete, onOpenScript, onPublish, onMakeImage, pubState, connected, connectionHealth, retrying, onRequestRetry, onOpenPublishing,
 }: {
   item: CalItem;
   onClose: () => void;
@@ -46,8 +46,23 @@ export function ContentModal({
   onPublish?: (item: CalItem) => void;
   /** Delivery visibility: the card's publish-queue row, whether its platform is connected, and a
    *  jump to the Publishing (connect socials) screen. */
-  pubState?: { platform: string; status: string; postUrl: string | null; error: string | null };
+  pubState?: {
+    platform: string;
+    status: string;
+    postUrl: string | null;
+    error: string | null;
+    accountRef: string | null;
+    canRetry: boolean;
+  };
   connected?: boolean;
+  connectionHealth?: {
+    state: 'assigned' | 'attention' | 'reconnect';
+    accountRef: string | null;
+    displayName: string | null;
+    message: string | null;
+  };
+  retrying?: boolean;
+  onRequestRetry?: (id: string) => void;
   onOpenPublishing?: () => void;
 }) {
   const d = item;
@@ -314,20 +329,38 @@ export function ContentModal({
       {(d.stage === 'approved' || pubState) && (
         <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 18 }}>
           <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Delivery</Mono>
-          {connected === false ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <Mono s={11} c={C.coral}>{platLabel(d.platform)} isn’t connected — it won’t post.</Mono>
-              {onOpenPublishing && <Btn size="sm" onClick={onOpenPublishing}>Connect</Btn>}
-            </div>
-          ) : pubState?.status === 'published' ? (
+          {pubState?.status === 'published' ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Mono s={11} c={C.gold}>✓ Posted to {platLabel(d.platform)}</Mono>
               {pubState.postUrl && <a href={pubState.postUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.gold, textDecoration: 'underline' }}>View post</a>}
             </div>
+          ) : connected === false ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <Mono s={11} c={C.coral}>{platLabel(d.platform)} isn’t connected — it won’t post.</Mono>
+              {onOpenPublishing && <Btn size="sm" onClick={onOpenPublishing}>Connect</Btn>}
+            </div>
           ) : pubState?.status === 'failed' ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <Mono s={11} c={C.coral}>Didn’t post{pubState.error ? `: ${pubState.error}` : '.'}</Mono>
-              {onOpenPublishing && <Btn size="sm" onClick={onOpenPublishing}>Publishing</Btn>}
+              <Mono s={11} c={C.coral} st={{ flex: 1, overflowWrap: 'anywhere' }}>Didn’t post{pubState.error ? `: ${pubState.error}` : '.'}</Mono>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                {pubState.canRetry && onRequestRetry && (
+                  <Btn size="sm" variant="primary" disabled={retrying} onClick={() => onRequestRetry(d.id)}>
+                    {retrying ? 'Retrying...' : 'Retry'}
+                  </Btn>
+                )}
+                {onOpenPublishing && <Btn size="sm" onClick={onOpenPublishing}>Publishing</Btn>}
+              </div>
+            </div>
+          ) : connectionHealth && connectionHealth.state !== 'assigned' ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <Mono s={11} c={C.coral} st={{ flex: 1, overflowWrap: 'anywhere' }}>
+                {connectionHealth.message ?? `${platLabel(d.platform)} needs attention before publishing.`}
+              </Mono>
+              {onOpenPublishing && (
+                <Btn size="sm" onClick={onOpenPublishing}>
+                  {connectionHealth.state === 'reconnect' ? 'Reconnect' : 'Publishing'}
+                </Btn>
+              )}
             </div>
           ) : (
             <Mono s={11} c={C.soft}>Queued — auto-posts on the scheduled date.</Mono>
