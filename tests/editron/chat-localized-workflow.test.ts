@@ -441,6 +441,93 @@ describe('server-owned localized chat workflow', () => {
     });
   });
 
+  it.each([
+    {
+      userMessage: 'Add restrained background music that fits this video.',
+      selectedOverlayPresent: false,
+      capability: 'background-music',
+      family: 'music',
+      mutationTool: 'regenerate_bgm',
+    },
+    {
+      userMessage: 'Make all existing captions sentence case and high contrast without changing timing.',
+      selectedOverlayPresent: false,
+      capability: 'caption-batch-style',
+      family: 'captions',
+      mutationTool: 'batch_edit_captions',
+    },
+    {
+      userMessage: 'Replace the selected sound effect with a softer paper whoosh at the same time.',
+      selectedOverlayPresent: true,
+      capability: 'sfx-replacement',
+      family: 'sfx',
+      mutationTool: 'replace_sfx',
+    },
+  ])(
+    'runs $capability through its server-owned family workflow',
+    async ({
+      userMessage,
+      selectedOverlayPresent,
+      capability,
+      family,
+      mutationTool,
+    }) => {
+      const classified = await classifyChatRequestOwner({
+        userMessage,
+        restoreStatus: 'no-intent',
+        selectedOverlayPresent,
+        visualEvidencePresent: false,
+        attachments: [],
+      }, {
+        generate: async () => ({
+          text: JSON.stringify({
+            facts: {
+              requestsMutation: true,
+              requestsAnalysis: false,
+              requiresContentLocalization: false,
+              requiresEditorialJudgment: false,
+              requestsReferenceStyle: false,
+              requestsBroadEditorialOutcome: false,
+              durableOperation: 'none',
+              operationFullySpecified: true,
+              targetFullySpecified: true,
+              localizedReads: [],
+              localizedEdits: [],
+              requestedCapabilities: [capability],
+              familyDirectives: [{ family, mode: 'prefer' }],
+            },
+            confidence: 1,
+            reason: 'The user requested one explicit family operation.',
+          }),
+        }),
+      });
+
+      expect(classified.routingFacts?.requestedCapabilities).toEqual([capability]);
+      expect(resolveServerOwnedChatWorkflowStep({
+        requestOwnerLicense: classified,
+        ledger: ledger(),
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      })).toMatchObject({
+        kind: 'tool-call',
+        operationId: `0:${capability}`,
+        toolCall: { name: 'get_timeline_view' },
+      });
+      expect(resolveServerOwnedChatWorkflowStep({
+        requestOwnerLicense: classified,
+        ledger: ledger(timelineExecution),
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      })).toEqual({
+        kind: 'model-call',
+        operationId: `0:${capability}`,
+        stepIndex: 1,
+        allowedToolNames: new Set([mutationTool]),
+        instruction: `Complete ${capability} through its licensed family owner.`,
+      });
+    },
+  );
+
   it('runs a fully specified HTML-scene edit through one server-owned capability workflow', async () => {
     const classified = await classifyChatRequestOwner({
       userMessage: 'Change the selected HTML scene heading to How it works.',

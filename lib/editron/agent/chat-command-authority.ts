@@ -3,7 +3,9 @@ import type { EditorialFamily } from '../production-brief/editorial-preferences'
 export const CHAT_REQUEST_CAPABILITIES = [
   'caption-track',
   'caption-refresh',
+  'caption-batch-style',
   'audio-ducking',
+  'background-music',
   'beat-sync',
   'scene-regeneration',
   'html-scene-edit',
@@ -12,6 +14,7 @@ export const CHAT_REQUEST_CAPABILITIES = [
   'localized-cut',
   'localized-overlay',
   'localized-sfx',
+  'sfx-replacement',
   'localized-camera-motion',
   'localized-speed-change',
   'project-reframe',
@@ -135,10 +138,20 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     mutationTools: ['refresh_captions', 'refresh_fancy_captions'],
     requiredToolSequence: [TIMELINE_READ_STEP, ['refresh_captions', 'refresh_fancy_captions']],
   }),
+  'caption-batch-style': capabilityContract({
+    authority: 'family-owner',
+    mutationTools: ['batch_edit_captions'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'batch_edit_captions'],
+  }),
   'audio-ducking': capabilityContract({
     authority: 'family-owner',
     mutationTools: ['apply_audio_ducking'],
     requiredToolSequence: [TIMELINE_READ_STEP, 'apply_audio_ducking'],
+  }),
+  'background-music': capabilityContract({
+    authority: 'family-owner',
+    mutationTools: ['regenerate_bgm'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'regenerate_bgm'],
   }),
   'beat-sync': capabilityContract({
     authority: 'localized-workflow',
@@ -225,6 +238,11 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     ],
     mutationTools: ['add_sfx'],
     requiredToolSequence: [TIMELINE_READ_STEP, 'resolve_audio_edit', 'add_sfx'],
+  }),
+  'sfx-replacement': capabilityContract({
+    authority: 'family-owner',
+    mutationTools: ['replace_sfx'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'replace_sfx'],
   }),
   'localized-camera-motion': capabilityContract({
     authority: 'localized-workflow',

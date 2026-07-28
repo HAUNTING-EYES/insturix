@@ -228,6 +228,50 @@ describe('chat request owner classification', () => {
     );
   });
 
+  it('documents complete server-owned family workflows instead of direct tool guessing', () => {
+    const prompt = buildChatRequestOwnerPrompt({
+      ...baseInput,
+      userMessage: 'Add music, restyle every caption, and replace the selected SFX.',
+      selectedOverlayPresent: true,
+    });
+
+    expect(prompt).toContain('background-music for adding or replacing project BGM');
+    expect(prompt).toContain('caption-batch-style for changing all existing caption presentation');
+    expect(prompt).toContain('sfx-replacement for replacing an existing selected or identified SFX');
+  });
+
+  it('fails closed when an explicit music request omits its operational workflow', async () => {
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: false,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [],
+          requestedCapabilities: [],
+          familyDirectives: [{ family: 'music', mode: 'prefer' }],
+        },
+        confidence: 1,
+        reason: 'The user explicitly requested background music.',
+      }),
+    }));
+
+    await expect(classifyChatRequestOwner({
+      ...baseInput,
+      userMessage: 'Add background music.',
+    }, { generate })).rejects.toThrow(
+      'Music requests must license a concrete music workflow.',
+    );
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
   it('derives an exclusive family lock instead of trusting the model with final authority', async () => {
     const generate = vi.fn(async () => ({
       text: JSON.stringify({
@@ -570,6 +614,8 @@ describe('chat request owner capability filtering', () => {
     'add_captions',
     'add_fancy_captions',
     'regenerate_bgm',
+    'replace_sfx',
+    'batch_edit_captions',
     'sync_cuts_to_beats',
     'add_sfx',
     'apply_camera_shake',
@@ -658,6 +704,9 @@ describe('chat request owner capability filtering', () => {
       'refresh_captions',
       'refresh_fancy_captions',
       'apply_audio_ducking',
+      'regenerate_bgm',
+      'replace_sfx',
+      'batch_edit_captions',
       'sync_cuts_to_beats',
       'regenerate_scene',
       'edit_html_scene',
@@ -691,10 +740,25 @@ describe('chat request owner capability filtering', () => {
       'refresh_captions',
       'refresh_fancy_captions',
     ]);
+    expect(licensedNames(['caption-batch-style'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'batch_edit_captions',
+    ]);
     expect(licensedNames(['audio-ducking'])).toEqual([
       'read_project_file',
       'get_timeline_view',
       'apply_audio_ducking',
+    ]);
+    expect(licensedNames(['background-music'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'regenerate_bgm',
+    ]);
+    expect(licensedNames(['sfx-replacement'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'replace_sfx',
     ]);
     expect(licensedNames(['beat-sync'])).toEqual([
       'read_project_file',
@@ -741,6 +805,15 @@ describe('chat request owner capability filtering', () => {
 
   it('uses one fail-closed capability authority contract for runtime and verification', () => {
     expect(getChatCapabilityAuthorityContract('caption-track')).toMatchObject({
+      authority: 'family-owner',
+    });
+    expect(getChatCapabilityAuthorityContract('background-music')).toMatchObject({
+      authority: 'family-owner',
+    });
+    expect(getChatCapabilityAuthorityContract('caption-batch-style')).toMatchObject({
+      authority: 'family-owner',
+    });
+    expect(getChatCapabilityAuthorityContract('sfx-replacement')).toMatchObject({
       authority: 'family-owner',
     });
     expect(requiredToolSequenceForChatCapability('caption-track', 'add_captions')).toEqual([
@@ -894,7 +967,7 @@ describe('chat request owner capability filtering', () => {
         durableOperation: 'none',
         operationFullySpecified: false,
         targetFullySpecified: false,
-        requestedCapabilities: ['audio-ducking', 'project-edit'],
+        requestedCapabilities: ['background-music'],
         familyDirectives: [{ family: 'music', mode: 'prefer' }],
         familyScopeExclusive: true,
       },
