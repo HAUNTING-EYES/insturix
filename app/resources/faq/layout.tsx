@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Insturix FAQ | Automated Content Production Answers",
+  title: "FAQ | Automated Content Production Answers",
   description:
     "Answers about Insturix, automated content production workflows, uploaded footage, brand profiles, publishing, pricing, and support.",
   keywords: [

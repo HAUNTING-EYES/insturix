@@ -4,7 +4,7 @@ import { ContactPage } from "@/components/shared/contact-page";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Contact | Insturix",
+  title: "Contact",
   description:
     "Get in touch with the Insturix team about automated content production. Ask about plans, request a demo, or reach support. We respond within 24 hours.",
 };

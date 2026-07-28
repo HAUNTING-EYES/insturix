@@ -4,7 +4,7 @@ import { ProductsPage } from "@/components/shared/products/products-page";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Automated Content Production Studio | Insturix",
+  title: "Automated Content Production Studio",
   description:
     "Explore the Insturix production studio for planning, scripting, editing, analysis, visual assets, sound, publishing, and brand-consistent content workflows.",
   alternates: {

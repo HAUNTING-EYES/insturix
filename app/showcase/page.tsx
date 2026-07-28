@@ -4,7 +4,7 @@ import { ShowcasePage } from "@/components/shared/showcase-page";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Showcase | Insturix",
+  title: "Showcase",
   description:
     "See real work produced with Insturix, the automated content production platform. Browse examples across formats, industries, and brand styles.",
 };

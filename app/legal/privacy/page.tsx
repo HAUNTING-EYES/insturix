@@ -3,7 +3,7 @@ import { SiteFooter } from "@/components/shared/site-footer";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | Insturix",
+  title: "Privacy Policy",
 };
 
 export default function Privacy() {

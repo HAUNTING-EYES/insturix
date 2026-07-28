@@ -3,7 +3,7 @@ import { SiteFooter } from "@/components/shared/site-footer";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Terms and Conditions | Insturix",
+  title: "Terms and Conditions",
 };
 
 export default function Terms() {
