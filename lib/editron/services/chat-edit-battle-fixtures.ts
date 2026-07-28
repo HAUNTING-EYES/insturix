@@ -248,8 +248,10 @@ function seedTranscriptOverlay(
   const durationInFrames = Math.max(600, positiveInteger(project.durationInFrames) ?? maxOverlayEnd(overlays));
   project.durationInFrames = durationInFrames;
   const words = transcriptFixtureTokens().map((token, index) => {
-    const startFrame = 15 + (index * 6);
-    const endFrame = startFrame + 5;
+    // Seed ordinary, readable speech (~138 WPM). The previous 300 WPM fixture
+    // made a caption-style edit inherit unreadable timing before chat touched it.
+    const startFrame = 15 + (index * 13);
+    const endFrame = startFrame + 12;
     return {
       word: token,
       startMs: Math.round((startFrame / fps) * 1000),
@@ -389,7 +391,7 @@ function transcriptFixtureTokens(): string[] {
     '\u0915\u0940\u092e\u0924', '\u0906\u0938\u093e\u0928', '\u0939\u0948',
     'pricing', 'simple', 'hai',
     'this', 'is', 'the', 'key', 'point',
-    'now', 'watch', 'this',
+    'now', 'watch', 'this', 'keep', 'it', 'clear',
   ];
 }
 

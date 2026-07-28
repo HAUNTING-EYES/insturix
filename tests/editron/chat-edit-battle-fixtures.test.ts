@@ -281,6 +281,15 @@ describe('chat edit battle fixtures', () => {
         words: expect.any(Array),
       }),
     ]));
+    for (const group of preparedCaption?.captions as Array<{
+      startMs: number;
+      endMs: number;
+      words: unknown[];
+    }>) {
+      const durationSeconds = (group.endMs - group.startMs) / 1_000;
+      const requiredSeconds = 0.35 + (group.words.length / 3.2);
+      expect(durationSeconds + 0.05).toBeGreaterThanOrEqual(requiredSeconds);
+    }
   });
 
   it('preserves and selects only a real SFX for the replacement scenario', () => {
