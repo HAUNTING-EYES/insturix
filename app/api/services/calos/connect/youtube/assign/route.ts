@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
+import { requireCalosBrandAccess } from "@/lib/calos/brand-access";
 
 const YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
 
@@ -56,6 +57,15 @@ export async function GET(request: NextRequest) {
   if (!brandId) {
     return NextResponse.json({ success: false, error: "brandId is required" }, { status: 400 });
   }
+  const accessResponse = await requireCalosBrandAccess(
+    {
+      userId: session.userId,
+      orgId: session.orgId,
+      isOrgAdmin: Boolean(session.orgId && session.has?.({ role: "org:admin" })),
+    },
+    brandId,
+  );
+  if (accessResponse) return accessResponse;
 
   const { CalosConnectedAccount } = await getModels();
   const rows = await CalosConnectedAccount.find({
@@ -92,6 +102,15 @@ export async function POST(request: NextRequest) {
   const accountRef = body.accountRef?.trim();
   if (!brandId) return NextResponse.json({ success: false, error: "brandId is required" }, { status: 400 });
   if (!accountRef) return NextResponse.json({ success: false, error: "accountRef is required" }, { status: 400 });
+  const accessResponse = await requireCalosBrandAccess(
+    {
+      userId: session.userId,
+      orgId: session.orgId,
+      isOrgAdmin: Boolean(session.orgId && session.has?.({ role: "org:admin" })),
+    },
+    brandId,
+  );
+  if (accessResponse) return accessResponse;
 
   const youtubeAccount = await getAssignableYoutubeAccount(session.userId);
   if (!youtubeAccount) {
@@ -139,6 +158,15 @@ export async function DELETE(request: NextRequest) {
   }
   if (!brandId) return NextResponse.json({ success: false, error: "brandId is required" }, { status: 400 });
   if (!accountRef) return NextResponse.json({ success: false, error: "accountRef is required" }, { status: 400 });
+  const accessResponse = await requireCalosBrandAccess(
+    {
+      userId: session.userId,
+      orgId: session.orgId,
+      isOrgAdmin: Boolean(session.orgId && session.has?.({ role: "org:admin" })),
+    },
+    brandId,
+  );
+  if (accessResponse) return accessResponse;
 
   const { CalosConnectedAccount } = await getModels();
   const res = await CalosConnectedAccount.deleteOne({

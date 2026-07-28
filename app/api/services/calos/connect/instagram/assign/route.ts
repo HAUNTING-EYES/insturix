@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
+import { requireCalosBrandAccess } from "@/lib/calos/brand-access";
 
 /**
  * Per-brand Instagram account binding (Model A — assign an account you already control). The publish
@@ -11,7 +12,8 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
  *  POST   {brandId, accountRef, displayName?} → assign / re-assign
  *  DELETE {brandId, accountRef} → unassign
  *
- * Tenancy: bound under the signed-in user's active org + ownerUserId (canAccessBrand folds into Phase C).
+ * Tenancy: every operation verifies that the signed-in user can access the requested brand before
+ * reading or mutating assignments.
  */
 async function getModels() {
   await connectToDatabase();
@@ -29,6 +31,15 @@ export async function GET(request: NextRequest) {
   if (!brandId) {
     return NextResponse.json({ success: false, error: "brandId is required" }, { status: 400 });
   }
+  const accessResponse = await requireCalosBrandAccess(
+    {
+      userId: session.userId,
+      orgId: session.orgId,
+      isOrgAdmin: Boolean(session.orgId && session.has?.({ role: "org:admin" })),
+    },
+    brandId,
+  );
+  if (accessResponse) return accessResponse;
 
   const { CalosConnectedAccount } = await getModels();
   const rows = await CalosConnectedAccount.find({
@@ -65,6 +76,15 @@ export async function POST(request: NextRequest) {
   const accountRef = body.accountRef?.trim();
   if (!brandId) return NextResponse.json({ success: false, error: "brandId is required" }, { status: 400 });
   if (!accountRef) return NextResponse.json({ success: false, error: "accountRef is required" }, { status: 400 });
+  const accessResponse = await requireCalosBrandAccess(
+    {
+      userId: session.userId,
+      orgId: session.orgId,
+      isOrgAdmin: Boolean(session.orgId && session.has?.({ role: "org:admin" })),
+    },
+    brandId,
+  );
+  if (accessResponse) return accessResponse;
 
   await connectToDatabase();
   const { User } = await import("@/schemas/user");
@@ -126,6 +146,15 @@ export async function DELETE(request: NextRequest) {
   }
   if (!brandId) return NextResponse.json({ success: false, error: "brandId is required" }, { status: 400 });
   if (!accountRef) return NextResponse.json({ success: false, error: "accountRef is required" }, { status: 400 });
+  const accessResponse = await requireCalosBrandAccess(
+    {
+      userId: session.userId,
+      orgId: session.orgId,
+      isOrgAdmin: Boolean(session.orgId && session.has?.({ role: "org:admin" })),
+    },
+    brandId,
+  );
+  if (accessResponse) return accessResponse;
 
   const { CalosConnectedAccount } = await getModels();
   const res = await CalosConnectedAccount.deleteOne({
