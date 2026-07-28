@@ -38,8 +38,9 @@ event
 
 The large SFX corpus is not production-live. The official FSD50K archives are fully
 downloaded, integrity-verified, and exactly reconciled into 19,873 candidate WAVs.
-Full-corpus inspection, checkpointed embeddings, scalable deduplication,
-representative review, publication, and runtime vector retrieval remain.
+Full-corpus acoustic inspection and exact-hash deduplication are complete.
+Checkpointed embeddings, ANN neighbour indexing, representative review, publication,
+and runtime vector retrieval remain.
 
 The most important product gap outside the corpus lane is reference-only music. The
 data model can describe a chart song used as an editing reference, but the audit found
@@ -219,10 +220,10 @@ flowchart TD
   C --> D["19,873-candidate corpus plan"]
   D --> E["Controlled extraction - complete"]
   E --> F["19,873-entry receipt index - complete"]
-  F --> G["Acoustic inspection - pilot only"]
-  G --> H["Conditioning/quarantine - pilot only"]
-  H --> I["Checkpointed embeddings - missing"]
-  I --> J["Exact-hash dedup before embedding - missing"]
+  F --> G["Checkpointed acoustic inspection - complete"]
+  G --> H["Exact-hash dedup - complete"]
+  H --> I["Metadata quarantine - complete"]
+  I --> J["Checkpointed embeddings - missing"]
   J --> K["ANN neighbour index - missing"]
   K --> L["Scalable clustering - missing"]
   L --> M["Representative review - pilot only"]
@@ -259,8 +260,9 @@ The production sequence should be:
 ```text
 candidate extraction
   -> exact source hash
-  -> checkpointed acoustic inspection
-  -> exact-hash deduplication
+  -> exact-hash grouping
+  -> checkpointed acoustic inspection per unique hash
+  -> per-source metadata decision receipts
   -> checkpointed pinned embedding
   -> ANN/vector neighbour index
   -> neighbour-only clustering
@@ -290,27 +292,39 @@ candidate extraction
    - Per-file SHA-256 plus whole-extraction digest
    - 100-file cross-split canary and idempotent full-corpus reuse verified
 
-4. **Music conditioning**
+4. **Checkpointed full-corpus acoustic inspection and exact dedup**
+   - 19,873 durable source checkpoints
+   - 19,865 unique audio hashes
+   - Eight exact-duplicate pairs collapsed before embedding
+   - 12,300 sources accepted for embedding
+   - 1,256 uploader-metadata-risk sources quarantined for classification
+   - 777 authoritative speech/music-labelled sources rejected
+   - 5,540 acoustic rejections with explicit reason codes
+   - 13,552 unique audio assets in the P3 embedding queue
+   - Mid-run resume, stale-lock recovery, live-owner refusal and zero-reanalysis
+     full-corpus reuse verified
+
+5. **Music conditioning**
    - Exact duration
    - Crossfades
    - LUFS normalization
    - Silence and clipping guards
 
-5. **Shared BGM policy**
+6. **Shared BGM policy**
    - Music-off and coverage decisions use shared policy/runtime owners
 
-6. **Fail-closed render rights**
+7. **Fail-closed render rights**
    - Renderable audio without sufficient rights evidence throws before Lambda
 
-7. **SFX placement chain**
+8. **SFX placement chain**
    - Transition/MG intent reaches selection, atomic form resolution, overlay and receipt
    - Silence is a first-class outcome
 
-8. **Starter catalog**
+9. **Starter catalog**
    - 29 individually approved CC0 files published
    - Content hashes and controlled asset URLs recorded
 
-9. **Pilot corpus factory**
+10. **Pilot corpus factory**
    - 35-source sampling and conditioning
    - Pinned CLAP screening
    - Representative review
@@ -318,9 +332,9 @@ candidate extraction
 
 ## False-Completion Risks
 
-1. **Extracted corpus is not a live database.**
-   Controlled extraction does not imply classification, review, publication, or
-   runtime retrieval.
+1. **Inspected corpus is not a live database.**
+   Acoustic inspection and exact deduplication do not imply semantic classification,
+   review, publication, or runtime retrieval.
 
 2. **Provider code plus an API key is not a live provider.**
    Authentication, entitlement, download, rights receipts and failure behavior require
@@ -390,7 +404,7 @@ The 100-file canary covered both source splits (85 dev, 15 eval). A second
 full-corpus invocation rehashed all candidates and returned `reusedExisting: true`
 with the same extraction digest.
 
-### P2: Exact-hash dedup and checkpointed inspection
+### P2: Exact-hash dedup and checkpointed inspection - completed 2026-07-28
 
 - Store one receipt per completed source.
 - Resume without recomputing completed IDs.
@@ -399,6 +413,30 @@ with the same extraction digest.
   to explicit policy.
 - Group exact duplicates before embedding.
 - Prove kill-and-resume behavior.
+
+Verified result:
+
+```text
+19,873 source checkpoints
+19,865 unique audio hashes
+8 duplicate groups / 16 members / 8 duplicates beyond canonical
+12,300 accepted for embedding
+1,256 metadata-quarantined for P3 classification
+777 authoritative metadata rejections
+5,540 acoustic rejections
+13,552 unique P3 queue entries
+analysis SHA-256 1eedc918a33ae74b613c20806628d24244e8dc1d640dd51df428f3c3130474b1
+```
+
+Acoustic rejection reasons were 5,401 catalog true-peak ceiling violations,
+136 silent sources, and three invalid PCM sources. Every source file was hash-verified.
+Each unique hash was decoded and measured once; duplicate members retained separate
+source receipts and metadata decisions. A full reuse pass loaded all 19,873 checkpoints
+and 19,865 acoustic outcomes with zero new analysis.
+
+Authoritative FSD speech/music labels are hard rejections. Uploader-only vocal, music
+or noisy flags are quarantined rather than discarded, because those warnings can also
+describe useful effects and require P3 semantic classification.
 
 ### P3: Checkpointed embeddings and ANN
 
@@ -428,7 +466,7 @@ with the same extraction digest.
 
 ### Parallel music gaps
 
-These should remain explicit but must not distract from P1:
+These should remain explicit but must not distract from the current corpus phase:
 
 1. Complete reference-only timeline preview and waveform behavior.
 2. Preserve title, artist, provider, BPM, cue window and timeline offset.
@@ -465,12 +503,12 @@ Continue:
 - Fail-closed render rights
 - Existing transition/MG SFX placement and atomic-form ownership
 - Controlled full-corpus program
+- Checkpointed acoustic inspection and exact-hash deduplication
 
 Redesign:
 
 - Full-corpus embedding and clustering
-- Exact deduplication order
-- Checkpoint/resume architecture
+- Checkpointed embedding and ANN architecture
 - Runtime semantic retrieval
 
 Fix soon:
@@ -485,5 +523,5 @@ Defer until their dependencies are real:
 - Soundstripe
 - Broader platform-native distribution integrations
 
-The single correct next phase is **P2: exact-hash deduplication and checkpointed
-full-corpus acoustic inspection**.
+The single correct next phase is **P3: checkpointed pinned-CLAP embeddings and an
+ANN neighbour index without all-pairs clustering**.

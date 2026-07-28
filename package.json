@@ -39,6 +39,7 @@
     "sample:sfx:fsd50k": "tsx scripts/sample-fsd50k-audio.ts",
     "materialize:sfx:fsd50k": "tsx scripts/materialize-fsd50k-corpus.ts",
     "extract:sfx:fsd50k": "tsx scripts/extract-fsd50k-corpus.ts",
+    "inspect:sfx:fsd50k": "tsx scripts/inspect-fsd50k-corpus.ts",
     "deploy:remotion:dev": "bash scripts/deploy-remotion-site.sh dev",
     "deploy:remotion:prod": "bash scripts/deploy-remotion-site.sh prod",
     "deploy:remotion:function": "bash scripts/deploy-remotion-function.sh"
