@@ -19,6 +19,7 @@
     "lint": "next lint",
     "postbuild": "next-sitemap",
     "setup-plans": "npx ts-node scripts/seed-plans.ts",
+    "indexnow": "node scripts/indexnow-submit.mjs",
     "update-thinkforge-plans": "node scripts/updateThinkForgePlans.js",
     "migrate:socialize": "node --loader ts-node/esm scripts/run-migrate-socialize.mjs",
     "test": "vitest run",
