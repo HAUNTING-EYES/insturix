@@ -120,6 +120,23 @@ describe('chat request owner classification', () => {
     expect(generate.mock.calls[1]?.[0]).toContain('<correction>');
   });
 
+  it('rejects truncated structured output before parsing and retries with the provider reason', async () => {
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: '{"facts":{"requestsMutation":true',
+        finishReason: 'MAX_TOKENS',
+      })
+      .mockResolvedValueOnce({ text: 'still invalid', finishReason: 'STOP' });
+
+    await expect(classifyChatRequestOwner(baseInput, { generate })).rejects.toThrow(
+      'Chat request owner classification failed closed',
+    );
+    expect(generate.mock.calls[1]?.[0]).toContain(
+      'provider ended structured output with MAX_TOKENS',
+    );
+  });
+
   it('does not turn provider failures into an unlicensed fallback owner', async () => {
     const generate = vi.fn(async () => {
       throw new Error('provider unavailable');
@@ -588,7 +605,7 @@ describe('chat request owner classification', () => {
           facts: {
             requestsMutation: true,
             requestsAnalysis: false,
-            requiresContentLocalization: true,
+            requiresContentLocalization: false,
             requiresEditorialJudgment: false,
             requestsReferenceStyle: false,
             requestsBroadEditorialOutcome: false,
@@ -665,8 +682,10 @@ describe('chat request owner classification', () => {
                 vertical: 'bottom',
               },
               timing: {
-                startSeconds: 2,
-                endSeconds: 6,
+                kind: 'range',
+                sourceSpan: 'from 2 to 6 seconds',
+                startSeconds: '2',
+                endSeconds: '6',
               },
             }],
             requestedCapabilities: ['asset-placement'],
@@ -676,7 +695,7 @@ describe('chat request owner classification', () => {
             }],
             familyDirectives: [],
           },
-          confidence: 1,
+          confidence: '1',
           reason: 'The source asset, placement, and timeline window are explicit.',
         }),
       }),
@@ -715,6 +734,11 @@ describe('chat request owner classification', () => {
         startSeconds: 2,
         endSeconds: 6,
       },
+    });
+    expect(classified.routingFacts?.requiresContentLocalization).toBe(true);
+    expect(classified.routingFacts?.localizedEdits?.[0]?.timing).toEqual({
+      startSeconds: 2,
+      endSeconds: 6,
     });
   });
 
@@ -779,7 +803,12 @@ describe('chat request owner classification', () => {
             targetKind: 'none',
             sourceSpan: userMessage,
             placement: { mode: 'corner' },
-            timing: { startSeconds: 6, endSeconds: 2 },
+            timing: {
+              kind: 'range',
+              sourceSpan: 'from 2 to 6 seconds',
+              startSeconds: 6,
+              endSeconds: 2,
+            },
           }],
           requestedCapabilities: ['asset-placement'],
           capabilityEvidence: [{
@@ -798,6 +827,56 @@ describe('chat request owner classification', () => {
       userMessage,
     }, { generate })).rejects.toThrow(
       'Asset timing endSeconds must be greater than startSeconds',
+    );
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails closed when a model drops one endpoint from an explicit asset range', async () => {
+    const userMessage = 'Place a_portrait123 from 2 to 6 seconds.';
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: false,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [{
+            modality: 'asset',
+            operation: 'place-asset',
+            query: 'a_portrait123',
+            sourceQuery: 'a_portrait123',
+            targetQuery: '',
+            targetKind: 'none',
+            sourceSpan: userMessage,
+            timing: {
+              kind: 'range',
+              sourceSpan: 'from 2 to 6 seconds',
+              startSeconds: '2',
+            },
+          }],
+          requestedCapabilities: ['asset-placement'],
+          capabilityEvidence: [{
+            capability: 'asset-placement',
+            sourceSpan: userMessage,
+          }],
+          familyDirectives: [],
+        },
+        confidence: '1',
+        reason: 'The model dropped the explicit end of the range.',
+      }),
+    }));
+
+    await expect(classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, { generate })).rejects.toThrow(
+      'Asset timing kind range requires endSeconds',
     );
     expect(generate).toHaveBeenCalledTimes(2);
   });
