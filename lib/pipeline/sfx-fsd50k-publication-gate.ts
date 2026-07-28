@@ -48,7 +48,7 @@ const EVENT_ROLES = new Set<SfxCatalogEventRole>([
 ]);
 
 export const FSD50K_PUBLICATION_GATE_VERSION =
-  'editron-fsd50k-publication-gate-v2' as const;
+  'editron-fsd50k-publication-gate-v3' as const;
 
 export interface Fsd50kReviewDecision {
   reviewId: string;
@@ -122,6 +122,7 @@ export interface Fsd50kPublicationGateReceipt {
     reviewId: string;
     canonicalSourceId: string;
     candidateDigestSha256: string;
+    embeddingSourceHashSha256: string;
     conditionedHashSha256: string;
     selectedRole: SfxCatalogEventRole;
     stagedAudioPath: string;
@@ -229,6 +230,7 @@ export async function gateFsd50kPublication(
         reviewId: candidate.reviewId,
         canonicalSourceId: candidate.canonicalSourceId,
         candidateDigestSha256: candidate.candidateDigestSha256,
+        embeddingSourceHashSha256: candidate.sourceHashSha256,
         conditionedHashSha256: candidate.conditionedHashSha256,
         selectedRole: decision.selectedRole,
         stagedAudioPath,
@@ -349,7 +351,8 @@ function buildCatalogSemanticEvidence(
     },
     embeddingAnalysisDigestSha256,
     candidateDigestSha256: candidate.candidateDigestSha256,
-    sourceHashSha256: candidate.conditionedHashSha256,
+    embeddingSourceHashSha256: candidate.sourceHashSha256,
+    catalogContentHashSha256: candidate.conditionedHashSha256,
     selectedRole,
     selectedRoleCosineSimilarity: selected.cosineSimilarity,
     selectedRoleRank: selectedRoleIndex + 1,

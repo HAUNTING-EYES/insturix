@@ -51,7 +51,17 @@ describe('FSD50K merge-safe publication', () => {
       const entry = curated.manifest.entries.find(
         candidate => candidate.provenance.providerAssetId === curation.provenance.providerAssetId,
       );
+      const aggregateAsset = aggregate.receipt.assets.find(
+        candidate => candidate.canonicalSourceId === curation.provenance.providerAssetId,
+      );
       expect(entry?.semanticEvidence).toEqual(curation.semanticEvidence);
+      expect(curation.semanticEvidence.embeddingSourceHashSha256)
+        .toBe(hashBuffer(Buffer.from(`source-${curation.provenance.providerAssetId}`)));
+      expect(curation.semanticEvidence.catalogContentHashSha256).toBe(entry?.contentHashSha256);
+      expect(curation.semanticEvidence.embeddingSourceHashSha256)
+        .not.toBe(curation.semanticEvidence.catalogContentHashSha256);
+      expect(aggregateAsset?.embeddingSourceHashSha256)
+        .toBe(curation.semanticEvidence.embeddingSourceHashSha256);
     }
     const merge = await prepareFsd50kCatalogMerge({
       aggregateDirectory: aggregate.outputDirectory,
@@ -97,9 +107,9 @@ describe('FSD50K merge-safe publication', () => {
     const gateDirectory = await makeGate(root, '303', 1, 'whoosh', createWav(330));
     const curationPath = path.join(gateDirectory, 'curation-spec.json');
     const curation = JSON.parse(await readFile(curationPath, 'utf8')) as {
-      assets: Array<{ semanticEvidence: { candidateDigestSha256: string } }>;
+      assets: Array<{ semanticEvidence: { embeddingSourceHashSha256: string } }>;
     };
-    curation.assets[0].semanticEvidence.candidateDigestSha256 = 'f'.repeat(64);
+    curation.assets[0].semanticEvidence.embeddingSourceHashSha256 = 'f'.repeat(64);
     await writeFile(curationPath, JSON.stringify(curation));
 
     await expect(aggregateFsd50kPublicationGates({

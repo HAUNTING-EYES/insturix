@@ -61,7 +61,7 @@ const audioRightsSchema = z.object({
 }).strict();
 
 export const SFX_CATALOG_SEMANTIC_EVIDENCE_VERSION =
-  'sfx-catalog-semantic-evidence-v1' as const;
+  'sfx-catalog-semantic-evidence-v2' as const;
 
 const semanticRiskScoreSchema = z.object({
   risk: z.enum(['speech', 'music', 'noise']),
@@ -78,7 +78,8 @@ export const sfxCatalogSemanticEvidenceSchema = z.object({
   }).strict(),
   embeddingAnalysisDigestSha256: z.string().regex(/^[a-f0-9]{64}$/),
   candidateDigestSha256: z.string().regex(/^[a-f0-9]{64}$/),
-  sourceHashSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  embeddingSourceHashSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  catalogContentHashSha256: z.string().regex(/^[a-f0-9]{64}$/),
   selectedRole: catalogEventRoleSchema,
   selectedRoleCosineSimilarity: z.number().min(-1).max(1),
   selectedRoleRank: z.number().int().min(1).max(catalogEventRoleSchema.options.length),
@@ -182,12 +183,12 @@ const catalogManifestSchema = z.object({
     }
     if (
       entry.semanticEvidence
-      && entry.semanticEvidence.sourceHashSha256 !== entry.contentHashSha256
+      && entry.semanticEvidence.catalogContentHashSha256 !== entry.contentHashSha256
     ) {
       addManifestIssue(
         context,
-        ['entries', index, 'semanticEvidence', 'sourceHashSha256'],
-        'semantic evidence hash does not match audio content',
+        ['entries', index, 'semanticEvidence', 'catalogContentHashSha256'],
+        'semantic evidence catalog hash does not match audio content',
       );
     }
     if (

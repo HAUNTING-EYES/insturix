@@ -30,7 +30,7 @@ const GATE_RECEIPT_FILE = 'publication-gate-receipt.json';
 const CURATION_SPEC_FILE = 'curation-spec.json';
 
 export const FSD50K_PUBLICATION_AGGREGATE_VERSION =
-  'editron-fsd50k-publication-aggregate-v2' as const;
+  'editron-fsd50k-publication-aggregate-v3' as const;
 export const FSD50K_CATALOG_MERGE_VERSION =
   'editron-fsd50k-catalog-merge-v1' as const;
 export const FSD50K_CATALOG_PROMOTION_VERSION =
@@ -125,6 +125,7 @@ const gateReceiptSchema = z.object({
     reviewId: z.string().regex(REVIEW_ID_PATTERN),
     canonicalSourceId: z.string().min(1),
     candidateDigestSha256: sha256Schema,
+    embeddingSourceHashSha256: sha256Schema,
     conditionedHashSha256: sha256Schema,
     selectedRole: eventRoleSchema,
     stagedAudioPath: z.string().min(1),
@@ -137,6 +138,7 @@ const aggregateAssetSchema = z.object({
   reviewId: z.string().regex(REVIEW_ID_PATTERN),
   canonicalSourceId: z.string().min(1),
   candidateDigestSha256: sha256Schema,
+  embeddingSourceHashSha256: sha256Schema,
   conditionedHashSha256: sha256Schema,
   selectedRole: eventRoleSchema,
   stagedAudioPath: z.string().min(1),
@@ -395,6 +397,7 @@ export async function aggregateFsd50kPublicationGates(
           reviewId: approved.reviewId,
           canonicalSourceId: approved.canonicalSourceId,
           candidateDigestSha256: approved.candidateDigestSha256,
+          embeddingSourceHashSha256: approved.embeddingSourceHashSha256,
           conditionedHashSha256: approved.conditionedHashSha256,
           selectedRole: approved.selectedRole,
           stagedAudioPath: approved.stagedAudioPath,
@@ -824,7 +827,9 @@ function assertGateAssetBinding(
     || curation.eventRoles[0] !== approved.selectedRole
     || curation.semanticEvidence.selectedRole !== approved.selectedRole
     || curation.semanticEvidence.candidateDigestSha256 !== approved.candidateDigestSha256
-    || curation.semanticEvidence.sourceHashSha256 !== approved.conditionedHashSha256
+    || curation.semanticEvidence.embeddingSourceHashSha256
+      !== approved.embeddingSourceHashSha256
+    || curation.semanticEvidence.catalogContentHashSha256 !== approved.conditionedHashSha256
     || curation.semanticEvidence.embeddingAnalysisDigestSha256
       !== receipt.source.embeddingAnalysisDigestSha256
     || curation.provenance.providerAssetId !== approved.canonicalSourceId
@@ -844,7 +849,9 @@ function assertAggregateAssetBinding(
     || curation.eventRoles[0] !== aggregate.selectedRole
     || curation.semanticEvidence.selectedRole !== aggregate.selectedRole
     || curation.semanticEvidence.candidateDigestSha256 !== aggregate.candidateDigestSha256
-    || curation.semanticEvidence.sourceHashSha256 !== aggregate.conditionedHashSha256
+    || curation.semanticEvidence.embeddingSourceHashSha256
+      !== aggregate.embeddingSourceHashSha256
+    || curation.semanticEvidence.catalogContentHashSha256 !== aggregate.conditionedHashSha256
     || curation.provenance.providerAssetId !== aggregate.canonicalSourceId
   ) {
     fail(
