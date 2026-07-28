@@ -9,6 +9,7 @@ export type ChatBattleFixtureProfile =
   | 'dubbing'
   | 'visual-multi-asset'
   | 'audio'
+  | 'sfx'
   | 'generated-scene';
 
 export type ChatBattleFixtureCapability =
@@ -17,12 +18,23 @@ export type ChatBattleFixtureCapability =
   | 'semantic-visual-all-video-assets'
   | 'spatial-visual-all-video-assets';
 
+export type ChatBattleFixtureSoundOverlayPolicy =
+  | 'remove'
+  | 'preserve-all'
+  | 'preserve-sfx-only';
+
+export type ChatBattleFixtureNativeAudioPolicy =
+  | 'preserve'
+  | 'mute-embedded-when-explicit-tracks'
+  | 'mute-embedded-for-seeded-transcript';
+
 export interface ChatBattleFixtureSources {
   mixed: string;
   speech: string;
   dubbing: string;
   'visual-multi-asset': string;
   audio: string;
+  sfx: string;
   'generated-scene': string;
 }
 
@@ -32,9 +44,11 @@ export interface ChatBattleFixturePlan {
   profile: ChatBattleFixtureProfile;
   sourceProjectId: string;
   selectedOverlayType?: string;
+  selectedOverlayRole?: 'sfx';
   seedTranscript: boolean;
   removeCaptionTrack: boolean;
-  preserveSoundOverlays: boolean;
+  soundOverlayPolicy: ChatBattleFixtureSoundOverlayPolicy;
+  nativeAudioPolicy: ChatBattleFixtureNativeAudioPolicy;
   requiresImageAssetAlias: boolean;
   requiresUploadBatchClone: boolean;
   seedTimelineGapFrames?: number;
@@ -48,6 +62,7 @@ export const DEFAULT_CHAT_BATTLE_FIXTURE_SOURCES: ChatBattleFixtureSources = {
   dubbing: 'proj_FYZeVGomJuSh',
   'visual-multi-asset': 'proj_chatbattle_500c55dbd0',
   audio: 'proj_4N_6crLWX89A',
+  sfx: 'proj_Z1OyTFkBoCNo',
   'generated-scene': 'proj_Fp_gxpn-Lonh',
 };
 
@@ -81,7 +96,7 @@ const MULTI_ASSET_SEMANTIC_VISUAL_SCENARIOS = new Set([
 const AUDIO_SCENARIOS = new Set([
   'bgm-explicit', 'bgm-vague', 'bgm-provider-failure', 'audio-moment-search',
   'audio-anchored-camera-shake', 'manual-impact-sfx', 'dialogue-ducking',
-  'analyze-selected-audio', 'beat-sync-cuts', 'replace-selected-sfx', 'mixed-multi-step',
+  'analyze-selected-audio', 'beat-sync-cuts', 'mixed-multi-step',
 ]);
 
 const GENERATED_SCENE_SCENARIOS = new Set(['edit-html-scene', 'regenerate-existing-scene']);
@@ -110,9 +125,21 @@ export function planChatBattleFixture(
     profile,
     sourceProjectId: sources[profile],
     selectedOverlayType: resolveSelectedOverlayType(scenario.id),
-    seedTranscript: SPEECH_SCENARIOS.has(scenario.id) || scenario.id === 'manual-impact-sfx',
+    ...(scenario.id === 'replace-selected-sfx' ? { selectedOverlayRole: 'sfx' as const } : {}),
+    seedTranscript: SPEECH_SCENARIOS.has(scenario.id)
+      || ADD_CAPTION_SCENARIOS.has(scenario.id)
+      || scenario.id === 'manual-impact-sfx',
     removeCaptionTrack: ADD_CAPTION_SCENARIOS.has(scenario.id),
-    preserveSoundOverlays: profile === 'audio',
+    soundOverlayPolicy: profile === 'audio'
+      ? 'preserve-all'
+      : profile === 'sfx'
+        ? 'preserve-sfx-only'
+        : 'remove',
+    nativeAudioPolicy: profile === 'audio'
+      ? 'mute-embedded-when-explicit-tracks'
+      : profile === 'speech'
+        ? 'mute-embedded-for-seeded-transcript'
+        : 'preserve',
     requiresImageAssetAlias: scenario.id === 'explicit-asset',
     requiresUploadBatchClone: scenario.id === 'multiasset-script-intake'
       || scenario.id === 'multiasset-script-chat',
@@ -139,6 +166,7 @@ function resolveRequiredSourceCapabilities(scenarioId: string): ChatBattleFixtur
 
 function resolveProfile(scenarioId: string): ChatBattleFixtureProfile {
   if (scenarioId === 'selected-dialogue-dubbing') return 'dubbing';
+  if (scenarioId === 'replace-selected-sfx') return 'sfx';
   if (GENERATED_SCENE_SCENARIOS.has(scenarioId)) return 'generated-scene';
   if (AUDIO_SCENARIOS.has(scenarioId)) return 'audio';
   if (VISUAL_SCENARIOS.has(scenarioId)) return 'visual-multi-asset';

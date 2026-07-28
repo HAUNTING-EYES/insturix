@@ -99,9 +99,8 @@ export function prepareChatBattleFixture(input: {
   delete project._id;
 
   const overlays = cloneOverlays(project.overlays);
-  const retainedOverlays = input.plan.preserveSoundOverlays
-    ? overlays
-    : overlays.filter((overlay) => stringValue(overlay.type) !== 'sound');
+  const retainedOverlays = applySoundOverlayPolicy(overlays, input.plan);
+  applyNativeAudioPolicy(retainedOverlays, input.plan);
   const scenarioOverlays = applyScenarioTimelineSeeds(
     retainedOverlays,
     project,
@@ -138,15 +137,22 @@ export function prepareChatBattleFixture(input: {
       projectMode: input.plan.projectMode,
       profile: input.plan.profile,
       sourceProjectId,
+      soundOverlayPolicy: input.plan.soundOverlayPolicy,
+      nativeAudioPolicy: input.plan.nativeAudioPolicy,
       disposable: true,
       preparedAt: now.toISOString(),
     },
   };
 
-  const selectedOverlay = findSelectedOverlay(project.overlays, input.plan.selectedOverlayType);
+  const selectedOverlay = findSelectedOverlay(
+    project.overlays,
+    input.plan.selectedOverlayType,
+    input.plan.selectedOverlayRole,
+  );
   if (input.plan.selectedOverlayType && !selectedOverlay) {
+    const role = input.plan.selectedOverlayRole ? ` ${input.plan.selectedOverlayRole}` : '';
     throw new Error(
-      `Fixture source ${sourceProjectId} has no ${input.plan.selectedOverlayType} overlay required by ${input.plan.scenarioId}.`,
+      `Fixture source ${sourceProjectId} has no${role} ${input.plan.selectedOverlayType} overlay required by ${input.plan.scenarioId}.`,
     );
   }
   const durationInFrames = positiveInteger(project.durationInFrames) ?? maxOverlayEnd(project.overlays);
@@ -446,6 +452,64 @@ function assertFixtureAudioIsRenderable(
   }
 }
 
+function applySoundOverlayPolicy(
+  overlays: Record<string, unknown>[],
+  plan: ChatBattleFixturePlan,
+): Record<string, unknown>[] {
+  if (plan.soundOverlayPolicy === 'preserve-all') return overlays;
+  if (plan.soundOverlayPolicy === 'preserve-sfx-only') {
+    return overlays.filter((overlay) => (
+      stringValue(overlay.type) !== 'sound' || isSfxSoundOverlay(overlay)
+    ));
+  }
+  return overlays.filter((overlay) => stringValue(overlay.type) !== 'sound');
+}
+
+function applyNativeAudioPolicy(
+  overlays: Record<string, unknown>[],
+  plan: ChatBattleFixturePlan,
+): void {
+  if (plan.nativeAudioPolicy === 'preserve') return;
+
+  const explicitAudioTracks = overlays.filter((overlay) => stringValue(overlay.type) === 'sound');
+  if (
+    plan.nativeAudioPolicy === 'mute-embedded-when-explicit-tracks'
+    && explicitAudioTracks.length === 0
+  ) {
+    throw new Error(
+      `Fixture source ${plan.sourceProjectId} cannot mute embedded audio for ${plan.scenarioId} `
+      + 'because it has no explicit audio tracks.',
+    );
+  }
+  if (
+    plan.nativeAudioPolicy === 'mute-embedded-for-seeded-transcript'
+    && !plan.seedTranscript
+  ) {
+    throw new Error(
+      `Fixture source ${plan.sourceProjectId} cannot mute embedded audio for ${plan.scenarioId} `
+      + 'because it has no synthetic transcript contract.',
+    );
+  }
+  if (explicitAudioTracks.length > 0) {
+    assertFixtureAudioIsRenderable(explicitAudioTracks, plan);
+  }
+  const reason = plan.nativeAudioPolicy === 'mute-embedded-for-seeded-transcript'
+    ? 'synthetic-transcript-fixture'
+    : 'explicit-renderable-audio-tracks-preserved';
+
+  for (const overlay of overlays) {
+    if (stringValue(overlay.type) !== 'video' || overlay.hasNativeAudio !== true) continue;
+    overlay.hasNativeAudio = false;
+    overlay.metadata = {
+      ...asRecord(overlay.metadata),
+      battleFixtureAudio: {
+        embeddedNativeAudio: 'muted',
+        reason,
+      },
+    };
+  }
+}
+
 function cloneOverlays(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? structuredClone(value).map(asRecord) : [];
 }
@@ -549,12 +613,30 @@ function asRecords(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.map(asRecord) : [];
 }
 
-function findSelectedOverlay(value: unknown, requiredType?: string): Record<string, unknown> | undefined {
+function findSelectedOverlay(
+  value: unknown,
+  requiredType?: string,
+  requiredRole?: 'sfx',
+): Record<string, unknown> | undefined {
   if (!requiredType || !Array.isArray(value)) return undefined;
   const compatible = requiredType === 'html-scene'
     ? new Set(['html-scene', 'generated-scene'])
     : new Set([requiredType]);
-  return value.map(asRecord).find((overlay) => compatible.has(stringValue(overlay.type) ?? ''));
+  return value.map(asRecord).find((overlay) => (
+    compatible.has(stringValue(overlay.type) ?? '')
+    && (requiredRole !== 'sfx' || isSfxSoundOverlay(overlay))
+  ));
+}
+
+function isSfxSoundOverlay(overlay: Record<string, unknown>): boolean {
+  if (stringValue(overlay.type) !== 'sound') return false;
+  const assetId = stringValue(overlay.assetId)?.toLowerCase() ?? '';
+  const metadata = asRecord(overlay.metadata);
+  return assetId.startsWith('sfx_')
+    || metadata.atomicSfxForm !== undefined
+    || metadata.sfxType !== undefined
+    || metadata.audioRole === 'sfx'
+    || metadata.role === 'sfx';
 }
 
 function isCaptionOverlay(value: unknown): boolean {

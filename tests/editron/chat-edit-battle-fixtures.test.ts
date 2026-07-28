@@ -16,14 +16,23 @@ describe('chat edit battle fixtures', () => {
     expect(plan('selected-overlay-edit')).toMatchObject({ profile: 'mixed', selectedOverlayType: 'text' });
     expect(plan('spoken-phrase-devanagari')).toMatchObject({
       profile: 'speech',
+      sourceProjectId: 'proj_FYZeVGomJuSh',
       seedTranscript: true,
-      preserveSoundOverlays: false,
+      soundOverlayPolicy: 'remove',
+      nativeAudioPolicy: 'mute-embedded-for-seeded-transcript',
     });
     expect(plan('mixed-multi-step')).toMatchObject({
       profile: 'audio',
-      preserveSoundOverlays: true,
+      soundOverlayPolicy: 'preserve-all',
+      nativeAudioPolicy: 'mute-embedded-when-explicit-tracks',
     });
-    expect(plan('replace-selected-sfx')).toMatchObject({ profile: 'audio', selectedOverlayType: 'sound' });
+    expect(plan('replace-selected-sfx')).toMatchObject({
+      profile: 'sfx',
+      sourceProjectId: 'proj_Z1OyTFkBoCNo',
+      selectedOverlayType: 'sound',
+      selectedOverlayRole: 'sfx',
+      soundOverlayPolicy: 'preserve-sfx-only',
+    });
     expect(plan('edit-html-scene')).toMatchObject({ profile: 'generated-scene', selectedOverlayType: 'html-scene' });
     expect(plan('explicit-asset')).toMatchObject({ requiresImageAssetAlias: true });
     expect(plan('selected-dialogue-dubbing')).toMatchObject({
@@ -208,6 +217,88 @@ describe('chat edit battle fixtures', () => {
       plan: plan('selected-overlay-edit'),
       now: NOW,
     })).toThrow(/embedded native audio has no durable rights receipt/);
+  });
+
+  it('mutes embedded source audio only when an audio fixture preserves explicit tracks', () => {
+    const source = sourceProject();
+    const video = overlays(source).find((overlay) => overlay.type === 'video');
+    if (!video) throw new Error('Expected video fixture.');
+    video.hasNativeAudio = true;
+    delete video.audioRights;
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_explicit_audio1',
+      plan: plan('bgm-explicit'),
+      now: NOW,
+    });
+    const preparedVideo = overlays(prepared.project).find((overlay) => overlay.type === 'video');
+
+    expect(preparedVideo).toMatchObject({
+      hasNativeAudio: false,
+      metadata: {
+        battleFixtureAudio: {
+          embeddedNativeAudio: 'muted',
+          reason: 'explicit-renderable-audio-tracks-preserved',
+        },
+      },
+    });
+    expect(overlays(prepared.project).some((overlay) => overlay.type === 'sound')).toBe(true);
+  });
+
+  it('mutes embedded audio for synthetic transcript fixtures without retaining source sounds', () => {
+    const source = sourceProject();
+    const video = overlays(source).find((overlay) => overlay.type === 'video');
+    if (!video) throw new Error('Expected video fixture.');
+    video.hasNativeAudio = true;
+    delete video.audioRights;
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_seeded_speech1',
+      plan: plan('batch-caption-edit'),
+      now: NOW,
+    });
+    const preparedVideo = overlays(prepared.project).find((overlay) => overlay.type === 'video');
+
+    expect(preparedVideo).toMatchObject({
+      hasNativeAudio: false,
+      metadata: {
+        battleFixtureAudio: {
+          embeddedNativeAudio: 'muted',
+          reason: 'synthetic-transcript-fixture',
+        },
+      },
+    });
+    expect(overlays(prepared.project).some((overlay) => overlay.type === 'sound')).toBe(false);
+    expect(overlays(prepared.project).some((overlay) => overlay.type === 'caption')).toBe(true);
+  });
+
+  it('preserves and selects only a real SFX for the replacement scenario', () => {
+    const source = sourceProject();
+    const genericSound = overlays(source).find((overlay) => overlay.type === 'sound');
+    if (!genericSound) throw new Error('Expected sound fixture.');
+    genericSound.assetId = 'sfx_lib_fixture';
+    source.overlays.push({
+      id: 'unlicensed-bgm',
+      type: 'sound',
+      from: 0,
+      durationInFrames: 900,
+      row: 1,
+      assetId: 'bgm_fixture',
+    });
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_sfx1',
+      plan: plan('replace-selected-sfx'),
+      now: NOW,
+    });
+    const sounds = overlays(prepared.project).filter((overlay) => overlay.type === 'sound');
+
+    expect(sounds).toHaveLength(1);
+    expect(sounds[0]).toMatchObject({ id: 'sound-1', assetId: 'sfx_lib_fixture' });
+    expect(prepared.selectedOverlayId).toBe('sound-1');
   });
 
   it('seeds exact multilingual and speech-anchor words as timed caption truth', () => {
