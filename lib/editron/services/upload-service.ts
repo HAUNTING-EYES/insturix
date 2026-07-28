@@ -13,7 +13,12 @@
  */
 
 import { uploadToR2, isR2Available, getR2PublicUrl, type R2UploadResult } from './r2-service';
-import { uploadToGCS, type UploadResult as GCSUploadResult } from './gcs-service';
+
+type GcsService = typeof import('./gcs-service');
+
+async function loadGcsService(): Promise<GcsService> {
+  return import('./gcs-service');
+}
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -99,6 +104,7 @@ export async function uploadMedia(
     // Also upload to GCS if Gemini analysis is needed
     if (alsoUploadToGCS) {
       try {
+        const { uploadToGCS } = await loadGcsService();
         const gcsResult = await uploadToGCS(file, userId, filename, contentType);
         gcsPath = gcsResult.gcsPath;
         console.log(`[UploadService] Dual upload: R2 ✓ (${r2Result.assetId}) + GCS ✓ (${gcsPath})`);
@@ -133,6 +139,7 @@ async function uploadViaGCS(
   filename: string,
   contentType: string,
 ): Promise<UploadResult> {
+  const { uploadToGCS } = await loadGcsService();
   const gcsResult = await uploadToGCS(file, userId, filename, contentType);
   return {
     assetId: gcsResult.assetId,
@@ -149,4 +156,15 @@ async function uploadViaGCS(
 
 export { isR2Available } from './r2-service';
 export { getR2PublicUrl } from './r2-service';
-export { refreshSignedUrl, deleteFromGCS, fileExists } from './gcs-service';
+
+export async function refreshSignedUrl(gcsPath: string): Promise<{ url: string; expiresAt: Date }> {
+  return (await loadGcsService()).refreshSignedUrl(gcsPath);
+}
+
+export async function deleteFromGCS(gcsPath: string): Promise<void> {
+  return (await loadGcsService()).deleteFromGCS(gcsPath);
+}
+
+export async function fileExists(gcsPath: string): Promise<boolean> {
+  return (await loadGcsService()).fileExists(gcsPath);
+}
