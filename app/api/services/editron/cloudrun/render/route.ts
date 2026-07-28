@@ -118,8 +118,9 @@ export async function POST(request: Request) {
         renderOverlays = await assetResolver.resolveProjectAssets(renderOverlays);
         resolvedProps = { ...resolvedProps, overlays: renderOverlays };
         console.log(`[Render] Resolved ${renderOverlays.length} overlay asset URLs`);
-      } catch (err: any) {
-        console.warn('[Render] Asset URL resolution failed, using raw props:', err.message);
+      } catch (error) {
+        console.error('[Render] Asset URL resolution failed:', error);
+        throw new RenderAssetHydrationError();
       }
     }
 
@@ -276,14 +277,24 @@ export async function POST(request: Request) {
       || error instanceof RenderAudioRightsAuthorityError
     );
     const deliveryError = error instanceof RenderDeliveryContractError;
+    const hydrationError = error instanceof RenderAssetHydrationError;
     return NextResponse.json(
       {
         type: 'error',
         message: error.message || 'Failed to trigger render',
-        ...((rightsError || deliveryError) ? { code: error.code } : {}),
+        ...((rightsError || deliveryError || hydrationError) ? { code: error.code } : {}),
       },
       { status: rightsError ? 422 : deliveryError ? 400 : 500 }
     );
+  }
+}
+
+class RenderAssetHydrationError extends Error {
+  readonly code = 'RENDER_ASSET_HYDRATION_FAILED';
+
+  constructor() {
+    super('Unable to prepare all project assets for rendering.');
+    this.name = 'RenderAssetHydrationError';
   }
 }
 
