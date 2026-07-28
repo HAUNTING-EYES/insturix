@@ -99,7 +99,13 @@ const CSS = `
 
 .ikin .weigh{padding:130px 0}
 .ikin .weigh .kick{margin-bottom:40px}
-.ikin .wl{font-weight:300;font-size:clamp(30px,6.4vw,90px);letter-spacing:-.03em;line-height:1.04;color:var(--soft);will-change:font-variation-settings,color;max-width:15ch}
+/* The scroll loop animates "wght" 200->800 on these lines. Bolder glyphs are WIDER, so the
+   wrap point must never sit between those two weights or the line re-wraps mid-scroll and the
+   page jumps. Measured with the real Plus Jakarta Sans: 15ch put "Six stages, one prompt."
+   right on the boundary (it flipped 1->2 lines at wght 610, at every viewport 320-1920).
+   16ch + a 26px floor is stable across the whole weight range at 320/360/375/430/768/1024/
+   1440/1920. Re-measure before changing either number or the copy of these lines. */
+.ikin .wl{font-weight:300;font-size:clamp(26px,6.4vw,90px);letter-spacing:-.03em;line-height:1.04;color:var(--soft);will-change:font-variation-settings,color;max-width:16ch}
 .ikin .wl + .wl{margin-top:8px}
 .ikin .wl b{color:var(--gold);font-weight:inherit}
 
