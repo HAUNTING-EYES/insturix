@@ -40,6 +40,7 @@
     "materialize:sfx:fsd50k": "tsx scripts/materialize-fsd50k-corpus.ts",
     "extract:sfx:fsd50k": "tsx scripts/extract-fsd50k-corpus.ts",
     "inspect:sfx:fsd50k": "tsx scripts/inspect-fsd50k-corpus.ts",
+    "embed:sfx:fsd50k": "tsx scripts/embed-fsd50k-audio.ts",
     "deploy:remotion:dev": "bash scripts/deploy-remotion-site.sh dev",
     "deploy:remotion:prod": "bash scripts/deploy-remotion-site.sh prod",
     "deploy:remotion:function": "bash scripts/deploy-remotion-function.sh"
@@ -224,6 +225,7 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@alexanderolsen/libsamplerate-js": "2.1.2",
     "@clerk/testing": "^2.2.10",
     "@eslint/eslintrc": "^3.3.1",
     "@huggingface/transformers": "3.8.1",
@@ -249,6 +251,7 @@
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.20.6",
     "typescript": "5.9.3",
+    "usearch": "2.25.0",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^1.0.0"
   },
@@ -281,7 +284,8 @@
       "esbuild",
       "protobufjs",
       "sharp",
-      "unrs-resolver"
+      "unrs-resolver",
+      "usearch"
     ],
     "ignoredBuiltDependencies": [
       "yt-dlp-exec"
