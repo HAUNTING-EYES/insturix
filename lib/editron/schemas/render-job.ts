@@ -1,9 +1,6 @@
 import { z } from 'zod';
 
-import {
-  RenderDeliveryManifestSchema,
-  type RenderDeliveryManifest,
-} from '@/lib/editron/services/render-delivery-manifest';
+import { RenderDeliveryManifestSchema } from '@/lib/editron/services/render-delivery-manifest';
 
 /**
  * Schema for Remotion Lambda render jobs stored in MongoDB
@@ -35,31 +32,6 @@ export type RenderJob = z.infer<typeof RenderJobSchema>;
 
 // Default expiration: 7 days after creation
 export const DEFAULT_EXPIRATION_DAYS = 7;
-
-export function createRenderJob(
-  renderId: string,
-  userId: string,
-  projectId: string,
-  bucketName?: string,
-  deliveryManifest?: RenderDeliveryManifest,
-): RenderJob {
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + DEFAULT_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
-  
-  return {
-    _id: renderId,
-    userId,
-    projectId,
-    providerRenderId: renderId,
-    status: 'rendering',
-    progress: 0,
-    startedAt: now,
-    bucketName,
-    ...(deliveryManifest ? { deliveryManifest } : {}),
-    region: 'us-east-1',
-    expiresAt,
-  };
-}
 
 export function createPendingRenderJob(
   jobId: string,

@@ -3,7 +3,6 @@ import { getDatabase } from '@/lib/editron/db/mongodb';
 import {
   RenderJob,
   createPendingRenderJob,
-  createRenderJob,
 } from '../schemas/render-job';
 import {
   completeRenderDeliveryManifest,
@@ -164,41 +163,6 @@ export async function reconcileProviderTerminalEvent(input: {
 }
 
 /**
- * Create a new render job when Lambda render starts
- */
-export async function createJob(
-  renderId: string,
-  userId: string,
-  projectId: string,
-  bucketName?: string,
-  deliveryManifest?: RenderDeliveryManifest,
-): Promise<RenderJob> {
-  const collection = await getCollection();
-  const job = createRenderJob(
-    renderId,
-    userId,
-    projectId,
-    bucketName,
-    deliveryManifest,
-  );
-  
-  console.log('Creating render job:', { _id: job._id, userId, projectId });
-  
-  const result = await collection.insertOne(job as any);
-  
-  console.log('Insert result:', { 
-    acknowledged: result.acknowledged, 
-    insertedId: result.insertedId 
-  });
-  
-  if (!result.acknowledged) {
-    throw new Error('Failed to insert render job');
-  }
-  
-  return job;
-}
-
-/**
  * Update job progress
  */
 export async function updateJobProgress(
@@ -302,16 +266,6 @@ export async function getActiveRendersForUser(
 export async function getJob(renderId: string): Promise<RenderJob | null> {
   const collection = await getCollection();
   return collection.findOne(renderJobSelector(renderId));
-}
-
-/**
- * Count active renders (for concurrency limiting)
- */
-export async function countActiveRenders(): Promise<number> {
-  const collection = await getCollection();
-  return collection.countDocuments({
-    status: { $in: ['rendering', 'pending'] }
-  });
 }
 
 /**

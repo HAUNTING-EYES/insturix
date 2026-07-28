@@ -1,8 +1,7 @@
 /**
  * Video Generation Queue Service
  *
- * Manages async, parallel video generation using Upstash Redis queue + MongoDB job state.
- * Follows the same pattern as render-queue-service.ts but for fal.ai video generation.
+ * Manages async, parallel fal.ai video generation using Upstash Redis queue + MongoDB job state.
  *
  * Architecture:
  * 1. Frontend calls POST /generate-videos -> enqueues individual scene jobs

@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
-import { createRenderJob } from '@/lib/editron/schemas/render-job';
 import {
   buildRenderDeliveryManifest,
   completeRenderDeliveryManifest,
@@ -134,7 +133,7 @@ describe('render delivery manifest', () => {
     });
   });
 
-  it('persists and completes a mode-consistent artifact receipt', () => {
+  it('builds and completes a mode-consistent artifact receipt', () => {
     const plan = resolveRenderDeliveryPlan({
       requestedMode: 'platform-native',
       overlays: [...NON_MUSIC, MUSIC],
@@ -146,20 +145,12 @@ describe('render delivery manifest', () => {
       renderId: 'render_clean_1',
       createdAt: '2026-07-26T00:00:00.000Z',
     });
-    const job = createRenderJob(
-      'render_clean_1',
-      'user_1',
-      'project_1',
-      'render-bucket',
-      manifest,
-    );
     const completed = completeRenderDeliveryManifest(
       manifest,
       'https://cdn.example/clean-master.mp4',
       '2026-07-26T00:05:00.000Z',
     );
 
-    expect(job.deliveryManifest).toEqual(manifest);
     expect(manifest).toMatchObject({
       mode: 'platform-native',
       primaryArtifact: {
