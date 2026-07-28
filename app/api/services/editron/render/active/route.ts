@@ -22,7 +22,7 @@ export async function GET() {
       type: 'success',
       data: {
         renders: activeRenders.map(job => ({
-          renderId: job._id,
+          renderId: job.providerRenderId ?? job._id,
           projectId: job.projectId,
           status: job.status,
           progress: Math.round((job.progress || 0) * 100),

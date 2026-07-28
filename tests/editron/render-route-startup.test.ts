@@ -4,6 +4,10 @@ const routeMocks = vi.hoisted(() => ({
   auth: vi.fn(),
   renderMediaOnLambda: vi.fn(),
   createJob: vi.fn(),
+  reserveJob: vi.fn(),
+  markJobStarted: vi.fn(),
+  failJob: vi.fn(),
+  getActiveRendersForUser: vi.fn(),
   resolveProjectAssets: vi.fn(),
   loadProject: vi.fn(),
   verifyAudioRights: vi.fn(),
@@ -27,6 +31,10 @@ vi.mock('@remotion/lambda/client', () => ({
 
 vi.mock('@/lib/editron/services/render-job-service', () => ({
   createJob: routeMocks.createJob,
+  reserveJob: routeMocks.reserveJob,
+  markJobStarted: routeMocks.markJobStarted,
+  failJob: routeMocks.failJob,
+  getActiveRendersForUser: routeMocks.getActiveRendersForUser,
 }));
 
 vi.mock('@/lib/editron/services/asset-resolver', () => ({
@@ -71,6 +79,7 @@ vi.mock('@/lib/shared/project-status', () => ({
 }));
 
 import { POST } from '@/app/api/services/editron/cloudrun/render/route';
+import { GET as GET_ACTIVE_RENDERS } from '@/app/api/services/editron/render/active/route';
 
 describe('Editron render startup boundary', () => {
   beforeEach(() => {
@@ -113,6 +122,10 @@ describe('Editron render startup boundary', () => {
       bucketName: 'bucket_1',
     });
     routeMocks.createJob.mockResolvedValue(undefined);
+    routeMocks.reserveJob.mockResolvedValue(undefined);
+    routeMocks.markJobStarted.mockResolvedValue(undefined);
+    routeMocks.failJob.mockResolvedValue(undefined);
+    routeMocks.getActiveRendersForUser.mockResolvedValue([]);
     routeMocks.transitionProjectStatus.mockResolvedValue(undefined);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -124,8 +137,9 @@ describe('Editron render startup boundary', () => {
     vi.unstubAllEnvs();
   });
 
-  it('dispatches Lambda with hydrated assets and persists the resulting job', async () => {
+  it('reserves before billing, then dispatches and binds the provider render', async () => {
     const response = await POST(renderRequest());
+    const admissionId = routeMocks.reserveJob.mock.calls[0]?.[0];
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -133,11 +147,27 @@ describe('Editron render startup boundary', () => {
       data: {
         renderId: 'render_1',
         bucketName: 'bucket_1',
+        renderAdmissionId: admissionId,
+        trackingStatus: 'durable',
       },
     });
+    expect(admissionId).toMatch(/^rnd_[A-Za-z0-9_-]{12}$/);
     expect(routeMocks.checkCredits).toHaveBeenCalledTimes(1);
     expect(routeMocks.deduct).toHaveBeenCalledTimes(1);
+    expect(routeMocks.reserveJob).toHaveBeenCalledWith(
+      admissionId,
+      'user_1',
+      'project_1',
+      'us-east-1',
+    );
+    expect(routeMocks.reserveJob.mock.invocationCallOrder[0])
+      .toBeLessThan(routeMocks.deduct.mock.invocationCallOrder[0]);
+    expect(routeMocks.deduct.mock.invocationCallOrder[0])
+      .toBeLessThan(routeMocks.renderMediaOnLambda.mock.invocationCallOrder[0]);
     expect(routeMocks.renderMediaOnLambda).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: {
+        editronRenderAdmissionId: admissionId,
+      },
       inputProps: expect.objectContaining({
         overlays: [
           expect.objectContaining({
@@ -147,15 +177,76 @@ describe('Editron render startup boundary', () => {
         ],
       }),
     }));
-    expect(routeMocks.createJob).toHaveBeenCalledWith(
-      'render_1',
+    expect(routeMocks.markJobStarted).toHaveBeenCalledWith(
+      admissionId,
       'user_1',
-      'project_1',
+      'render_1',
       'bucket_1',
+      'us-east-1',
       expect.objectContaining({
         primaryArtifact: expect.objectContaining({ renderId: 'render_1' }),
       }),
     );
+    expect(routeMocks.createJob).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('CRITICAL: admission persistence failure spends no credits and starts no render', async () => {
+    routeMocks.reserveJob.mockRejectedValue(new Error('database unavailable'));
+
+    const response = await POST(renderRequest());
+
+    expect(response.status).toBe(500);
+    expect(routeMocks.reserveJob).toHaveBeenCalledTimes(1);
+    expect(routeMocks.deduct).not.toHaveBeenCalled();
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('reports degraded tracking without claiming a paid render failed', async () => {
+    routeMocks.markJobStarted.mockRejectedValue(new Error('ambiguous database write'));
+
+    const response = await POST(renderRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      type: 'success',
+      data: {
+        renderId: 'render_1',
+        trackingStatus: 'degraded',
+      },
+    });
+    expect(routeMocks.renderMediaOnLambda).toHaveBeenCalledTimes(1);
+    expect(routeMocks.refund).not.toHaveBeenCalled();
+    expect(routeMocks.failJob).not.toHaveBeenCalled();
+  });
+
+  it('returns provider render IDs for durable admissions during resume lookup', async () => {
+    routeMocks.getActiveRendersForUser.mockResolvedValue([{
+      _id: 'rnd_admission_1',
+      providerRenderId: 'render_provider_1',
+      userId: 'user_1',
+      projectId: 'project_1',
+      status: 'rendering',
+      progress: 0.25,
+      bucketName: 'bucket_1',
+      region: 'us-east-1',
+      startedAt: new Date('2026-07-28T00:00:00.000Z'),
+    }]);
+
+    const response = await GET_ACTIVE_RENDERS();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      type: 'success',
+      data: {
+        renders: [{
+          renderId: 'render_provider_1',
+          projectId: 'project_1',
+          progress: 25,
+        }],
+      },
+    });
   });
 
   it('CRITICAL: asset hydration failure stops before credits and every render dispatcher', async () => {
@@ -178,6 +269,8 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.shouldUseChapterRendering).not.toHaveBeenCalled();
     expect(routeMocks.startChapterRender).not.toHaveBeenCalled();
     expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+    expect(routeMocks.reserveJob).not.toHaveBeenCalled();
+    expect(routeMocks.markJobStarted).not.toHaveBeenCalled();
     expect(routeMocks.createJob).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,10 @@
-import { Collection } from 'mongodb';
+import { Collection, type Filter } from 'mongodb';
 import { getDatabase } from '@/lib/editron/db/mongodb';
-import { RenderJob, createRenderJob } from '../schemas/render-job';
+import {
+  RenderJob,
+  createPendingRenderJob,
+  createRenderJob,
+} from '../schemas/render-job';
 import {
   completeRenderDeliveryManifest,
   type RenderDeliveryManifest,
@@ -11,6 +15,69 @@ const COLLECTION_NAME = 'editron_render_jobs';
 async function getCollection(): Promise<Collection<RenderJob>> {
   const db = await getDatabase();
   return db.collection<RenderJob>(COLLECTION_NAME);
+}
+
+function renderJobSelector(renderId: string): Filter<RenderJob> {
+  return {
+    $or: [
+      { _id: renderId },
+      { providerRenderId: renderId },
+    ],
+  };
+}
+
+/**
+ * Persist Editron ownership before billing or provider dispatch.
+ */
+export async function reserveJob(
+  jobId: string,
+  userId: string,
+  projectId: string,
+  region: string,
+): Promise<RenderJob> {
+  const collection = await getCollection();
+  const job = createPendingRenderJob(jobId, userId, projectId, region);
+  const result = await collection.insertOne(job as any);
+  if (!result.acknowledged) {
+    throw new Error('Failed to reserve render job');
+  }
+  return job;
+}
+
+/**
+ * Idempotently bind a provider render to its pre-dispatch admission record.
+ */
+export async function markJobStarted(
+  jobId: string,
+  userId: string,
+  providerRenderId: string,
+  bucketName: string,
+  region: string,
+  deliveryManifest: RenderDeliveryManifest,
+): Promise<void> {
+  const collection = await getCollection();
+  const result = await collection.updateOne(
+    {
+      _id: jobId,
+      userId,
+      $or: [
+        { status: 'pending' },
+        { status: 'rendering', providerRenderId },
+      ],
+    },
+    {
+      $set: {
+        status: 'rendering',
+        providerRenderId,
+        bucketName,
+        region,
+        deliveryManifest,
+      },
+    },
+  );
+  if (result.matchedCount !== 1) {
+    throw new Error(`Render admission ${jobId} could not be bound to provider render ${providerRenderId}`);
+  }
 }
 
 /**
@@ -57,7 +124,7 @@ export async function updateJobProgress(
 ): Promise<void> {
   const collection = await getCollection();
   await collection.updateOne(
-    { _id: renderId },
+    renderJobSelector(renderId),
     { $set: { progress } }
   );
 }
@@ -73,7 +140,7 @@ export async function completeJob(
   const collection = await getCollection();
   const completedAt = new Date();
   const current = await collection.findOne(
-    { _id: renderId },
+    renderJobSelector(renderId),
     { projection: { deliveryManifest: 1 } },
   );
   const deliveryManifest = current?.deliveryManifest
@@ -84,7 +151,7 @@ export async function completeJob(
       )
     : undefined;
   await collection.updateOne(
-    { _id: renderId },
+    renderJobSelector(renderId),
     { 
       $set: { 
         status: 'done',
@@ -107,7 +174,7 @@ export async function failJob(
 ): Promise<void> {
   const collection = await getCollection();
   await collection.updateOne(
-    { _id: renderId },
+    renderJobSelector(renderId),
     { 
       $set: { 
         status: 'error',
@@ -151,7 +218,7 @@ export async function getActiveRendersForUser(
  */
 export async function getJob(renderId: string): Promise<RenderJob | null> {
   const collection = await getCollection();
-  return collection.findOne({ _id: renderId });
+  return collection.findOne(renderJobSelector(renderId));
 }
 
 /**

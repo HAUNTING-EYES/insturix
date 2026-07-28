@@ -12,9 +12,10 @@ import {
 
 // Zod schema for validation
 export const RenderJobSchema = z.object({
-  _id: z.string(), // renderId from Lambda
+  _id: z.string(), // Editron-owned durable job ID (legacy rows use the Lambda render ID)
   userId: z.string(),
   projectId: z.string(),
+  providerRenderId: z.string().optional(),
   status: z.enum(['pending', 'queued', 'rendering', 'done', 'error']),
   progress: z.number().min(0).max(1).default(0),
   outputUrl: z.string().optional(),
@@ -49,12 +50,34 @@ export function createRenderJob(
     _id: renderId,
     userId,
     projectId,
+    providerRenderId: renderId,
     status: 'rendering',
     progress: 0,
     startedAt: now,
     bucketName,
     ...(deliveryManifest ? { deliveryManifest } : {}),
     region: 'us-east-1',
+    expiresAt,
+  };
+}
+
+export function createPendingRenderJob(
+  jobId: string,
+  userId: string,
+  projectId: string,
+  region: string,
+): RenderJob {
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + DEFAULT_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
+
+  return {
+    _id: jobId,
+    userId,
+    projectId,
+    status: 'pending',
+    progress: 0,
+    startedAt: now,
+    region,
     expiresAt,
   };
 }

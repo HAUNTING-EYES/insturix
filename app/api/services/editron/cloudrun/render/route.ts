@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
 import { renderMediaOnLambda } from '@remotion/lambda/client';
 import { auth } from '@clerk/nextjs/server';
-import { createJob } from '@/lib/editron/services/render-job-service';
+import { nanoid } from 'nanoid';
+import {
+  createJob,
+  failJob,
+  markJobStarted,
+  reserveJob,
+} from '@/lib/editron/services/render-job-service';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { projectService } from '@/lib/editron/services/project-service';
 import {
@@ -26,7 +32,9 @@ import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMidd
 
 export async function POST(request: Request) {
   let renderCreditCheck: CreditCheckResult | null = null;
+  let creditsDeducted = false;
   let renderStarted = false;
+  let renderAdmissionId: string | null = null;
 
   try {
     const { userId } = await auth();
@@ -139,10 +147,28 @@ export async function POST(request: Request) {
       return renderCreditCheck.errorResponse!;
     }
 
+    if (!usesChapterRendering) {
+      const admissionId = `rnd_${nanoid(12)}`;
+      await reserveJob(
+        admissionId,
+        userId,
+        canonicalProjectId,
+        region,
+      );
+      renderAdmissionId = admissionId;
+    }
+
     try {
       await renderCreditCheck.deduct();
+      creditsDeducted = true;
     } catch (error) {
       console.error('[Render] render/export credit deduction failed:', error);
+      if (renderAdmissionId) {
+        await markRenderAdmissionFailed(
+          renderAdmissionId,
+          'Render/export credit deduction failed before provider dispatch',
+        );
+      }
       return NextResponse.json(
         { type: 'error', message: 'Unable to deduct credits for render/export.' },
         { status: 402 },
@@ -207,27 +233,39 @@ export async function POST(request: Request) {
       // Distributed rendering settings — chunk size centralized in remotion-constants.
       framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,
       timeoutInMilliseconds: 600000, // 10 minutes - AI videos need longer download time
+      metadata: {
+        editronRenderAdmissionId: renderAdmissionId!,
+      },
     });
 
     renderStarted = true;
     console.log('Lambda render started:', { renderId, bucketName });
 
-    // Save job to database for persistence (wrapped in try-catch)
     const deliveryManifest = buildRenderDeliveryManifest({
       plan: deliveryPlan,
       renderId,
     });
+    let trackingStatus: 'durable' | 'degraded' = 'durable';
     try {
-      await createJob(
-        renderId,
+      await markJobStarted(
+        renderAdmissionId!,
         userId,
-        canonicalProjectId,
+        renderId,
         bucketName,
+        region,
         deliveryManifest,
       );
-      console.log('Render job saved to database:', renderId);
+      console.log('Render provider bound to durable admission:', {
+        renderAdmissionId,
+        renderId,
+      });
     } catch (dbError) {
-      console.error('Failed to save render job to DB:', dbError);
+      trackingStatus = 'degraded';
+      console.error('CRITICAL: render started but provider binding failed:', {
+        renderAdmissionId,
+        renderId,
+        error: dbError,
+      });
     }
 
     // Threshold calibration: process decision outcomes (async, non-blocking)
@@ -263,12 +301,20 @@ export async function POST(request: Request) {
         region,
         functionName,
         deliveryManifest,
+        renderAdmissionId,
+        trackingStatus,
         // Progress endpoint for polling
         progressUrl: `/api/services/editron/cloudrun/progress?renderId=${renderId}&bucketName=${bucketName}&region=${region}`,
       }
     });
   } catch (error: any) {
-    if (renderCreditCheck && !renderStarted) {
+    if (renderAdmissionId && !renderStarted) {
+      await markRenderAdmissionFailed(
+        renderAdmissionId,
+        error instanceof Error ? error.message : 'Render failed before provider dispatch',
+      );
+    }
+    if (renderCreditCheck && creditsDeducted && !renderStarted) {
       await refundRenderExportCredits(renderCreditCheck, 'Render/export failed before render start');
     }
     console.error('Lambda render error:', error);
@@ -321,6 +367,14 @@ async function refundRenderExportCredits(creditCheck: CreditCheckResult, reason:
     await creditCheck.refund(reason);
   } catch (error) {
     console.error('[Render] render/export credit refund failed:', error);
+  }
+}
+
+async function markRenderAdmissionFailed(jobId: string, reason: string): Promise<void> {
+  try {
+    await failJob(jobId, reason);
+  } catch (error) {
+    console.error('[Render] failed to mark render admission as failed:', error);
   }
 }
 
