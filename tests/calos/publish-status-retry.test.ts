@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
+  clerkClient: vi.fn(),
   connectToDatabase: vi.fn(),
   requireCalosBrandAccess: vi.fn(),
   calosScope: vi.fn(),
@@ -11,9 +12,13 @@ const mocks = vi.hoisted(() => ({
   queueFindOneAndUpdate: vi.fn(),
   connectedAccountFind: vi.fn(),
   connectedAccountFindOne: vi.fn(),
+  userFind: vi.fn(),
 }));
 
-vi.mock("@clerk/nextjs/server", () => ({ auth: mocks.auth }));
+vi.mock("@clerk/nextjs/server", () => ({
+  auth: mocks.auth,
+  clerkClient: mocks.clerkClient,
+}));
 vi.mock("@/schemas/ConnectToDatabase", () => ({
   default: mocks.connectToDatabase,
 }));
@@ -34,6 +39,11 @@ vi.mock("@/schemas/calos-connected-account", () => ({
   default: {
     find: mocks.connectedAccountFind,
     findOne: mocks.connectedAccountFindOne,
+  },
+}));
+vi.mock("@/schemas/user", () => ({
+  User: {
+    find: mocks.userFind,
   },
 }));
 
@@ -92,6 +102,13 @@ describe("CalOS publish status and deliberate retry", () => {
     mocks.queueFindOne.mockResolvedValue(null);
     mocks.connectedAccountFindOne.mockResolvedValue(null);
     mocks.queueFindOneAndUpdate.mockResolvedValue(null);
+    mocks.userFind.mockReturnValue(queryResult([]));
+    mocks.clerkClient.mockResolvedValue({
+      users: {
+        getUser: vi.fn(async () => ({ externalAccounts: [] })),
+        getUserOauthAccessToken: vi.fn(async () => ({ data: [] })),
+      },
+    });
   });
 
   it("guards status metadata with the shared brand-access check", async () => {
@@ -137,6 +154,15 @@ describe("CalOS publish status and deliberate retry", () => {
         },
       ]),
     );
+    mocks.userFind.mockReturnValue(queryResult([{
+      clerkUserId: "owner_1",
+      twitterTokens: {
+        accessToken: "x_token",
+        refreshToken: "x_refresh",
+        userId: "x_1",
+        expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+      },
+    }]));
 
     const response = await getPublishStatus(getRequest());
     const payload = await response.json();
@@ -157,6 +183,95 @@ describe("CalOS publish status and deliberate retry", () => {
       message: "Last publish failed: X token refresh failed - reconnect",
     });
     expect(payload.connectedPlatforms).toEqual(["twitter"]);
+  });
+
+  it("reports an expired Model A account as reconnect-required before publishing", async () => {
+    mocks.connectedAccountFind.mockReturnValue(
+      queryResult([{
+        platform: "twitter",
+        accountRef: "x_1",
+        displayName: "@acme",
+        ownerUserId: "owner_1",
+      }]),
+    );
+    mocks.userFind.mockReturnValue(queryResult([{
+      clerkUserId: "owner_1",
+      twitterTokens: {
+        accessToken: "expired_token",
+        userId: "x_1",
+        expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+      },
+    }]));
+
+    const response = await getPublishStatus(getRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.connectionHealth.twitter).toMatchObject({
+      state: "reconnect",
+      accountRef: "x_1",
+    });
+    expect(payload.connectionHealth.twitter.message).toContain("cannot refresh");
+    expect(payload.connectedPlatforms).toEqual([]);
+  });
+
+  it("verifies Facebook Page ownership and YouTube OAuth before reporting connected", async () => {
+    mocks.connectedAccountFind.mockReturnValue(queryResult([
+      {
+        platform: "facebook",
+        accountRef: "page_1",
+        displayName: "Acme Page",
+        ownerUserId: "owner_1",
+      },
+      {
+        platform: "youtube",
+        accountRef: "youtube",
+        displayName: "Acme Channel",
+        ownerUserId: "owner_1",
+      },
+    ]));
+    mocks.userFind.mockReturnValue(queryResult([{
+      clerkUserId: "owner_1",
+      facebookTokens: {
+        pages: [{ pageId: "page_1", pageAccessToken: "page_token" }],
+      },
+    }]));
+    mocks.clerkClient.mockResolvedValue({
+      users: {
+        getUser: vi.fn(async () => ({
+          externalAccounts: [{
+            provider: "oauth_google",
+            approvedScopes: ["https://www.googleapis.com/auth/youtube.upload"],
+          }],
+        })),
+        getUserOauthAccessToken: vi.fn(async () => ({ data: [{ token: "youtube_token" }] })),
+      },
+    });
+
+    const response = await getPublishStatus(getRequest());
+    const payload = await response.json();
+
+    expect(payload.connectionHealth.facebook.state).toBe("assigned");
+    expect(payload.connectionHealth.youtube.state).toBe("assigned");
+    expect(payload.connectedPlatforms).toEqual(["facebook", "youtube"]);
+  });
+
+  it("reports a revoked YouTube connection instead of trusting its assignment row", async () => {
+    mocks.connectedAccountFind.mockReturnValue(queryResult([{
+      platform: "youtube",
+      accountRef: "youtube",
+      displayName: "Acme Channel",
+      ownerUserId: "owner_1",
+    }]));
+
+    const response = await getPublishStatus(getRequest());
+    const payload = await response.json();
+
+    expect(payload.connectionHealth.youtube).toMatchObject({
+      state: "reconnect",
+      accountRef: "youtube",
+    });
+    expect(payload.connectedPlatforms).toEqual([]);
   });
 
   it("requires explicit duplicate-risk confirmation before retrying", async () => {
@@ -181,6 +296,14 @@ describe("CalOS publish status and deliberate retry", () => {
       accountRef: "x_1",
       ownerUserId: "owner_1",
     });
+    mocks.userFind.mockReturnValue(queryResult([{
+      clerkUserId: "owner_1",
+      twitterTokens: {
+        accessToken: "x_token",
+        userId: "x_1",
+        expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+      },
+    }]));
     mocks.queueFindOneAndUpdate.mockResolvedValue({
       deliverableId: "card_1",
       status: "pending",
@@ -276,6 +399,40 @@ describe("CalOS publish status and deliberate retry", () => {
 
     expect(response.status).toBe(409);
     expect(payload.error).toContain("reconnected");
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("refuses retry when the assigned owner's live X token cannot refresh", async () => {
+    mocks.queueFindOne.mockResolvedValue({
+      _id: "queue_1",
+      platform: "twitter",
+      accountRef: "x_1",
+      status: "failed",
+      postId: null,
+    });
+    mocks.connectedAccountFindOne.mockResolvedValue({
+      platform: "twitter",
+      accountRef: "x_1",
+      ownerUserId: "owner_1",
+    });
+    mocks.userFind.mockReturnValue(queryResult([{
+      clerkUserId: "owner_1",
+      twitterTokens: {
+        accessToken: "expired_token",
+        userId: "x_1",
+        expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+      },
+    }]));
+
+    const response = await callRetry({
+      brandId: "brand_1",
+      deliverableId: "card_1",
+      confirmPossibleDuplicate: true,
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("cannot refresh");
     expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
   });
 });
