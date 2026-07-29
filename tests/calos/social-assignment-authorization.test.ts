@@ -68,6 +68,7 @@ import {
 import { POST as postFacebookAssignment } from "@/app/api/services/calos/connect/facebook/assign/route";
 import { GET as startLinkedInOauth } from "@/app/api/services/calos/connect/linkedin/oauth/route";
 import { POST as selectLinkedInOauthAccount } from "@/app/api/services/calos/connect/linkedin/oauth/select/route";
+import { encryptUserOAuthToken } from "@/lib/calos/publish/token-crypto";
 import {
   DELETE as deleteTwitterAssignment,
   GET as getTwitterAssignments,
@@ -180,6 +181,7 @@ describe("CalOS social assignment authorization", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("blocks foreign-brand assignment and OAuth entry points before sensitive work", async () => {
@@ -336,6 +338,76 @@ describe("CalOS social assignment authorization", () => {
       code: "facebook_reconnect_required",
       reconnectRequired: true,
     });
+    expect(mocks.connectedAccountUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it("decrypts an encrypted Facebook Page token before assignment validation", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 6).toString("base64"));
+    mocks.requireCalosBrandAccess.mockResolvedValue(null);
+    mocks.userFindOne.mockReturnValue({
+      select: vi.fn(() => ({
+        lean: vi.fn(async () => ({
+          facebookTokens: {
+            pages: [{
+              pageId: "account_1",
+              pageName: "Facebook Page",
+              pageAccessToken: encryptUserOAuthToken("facebook-page-token"),
+            }],
+          },
+        })),
+      })),
+    });
+
+    const response = await postFacebookAssignment(
+      request("/api/services/calos/connect/facebook/assign", "POST", {
+        brandId: FOREIGN_BRAND_ID,
+        accountRef: "account_1",
+        accountType: "organization",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://graph.facebook.com/v21.0/account_1?fields=id",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer facebook-page-token" },
+      }),
+    );
+  });
+
+  it("refuses an unreadable encrypted Facebook Page token without calling Meta", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 6).toString("base64"));
+    mocks.requireCalosBrandAccess.mockResolvedValue(null);
+    mocks.userFindOne.mockReturnValue({
+      select: vi.fn(() => ({
+        lean: vi.fn(async () => ({
+          facebookTokens: {
+            pages: [{
+              pageId: "account_1",
+              pageName: "Facebook Page",
+              pageAccessToken: "oauth:v1:not-valid-ciphertext",
+            }],
+          },
+        })),
+      })),
+    });
+
+    const response = await postFacebookAssignment(
+      request("/api/services/calos/connect/facebook/assign", "POST", {
+        brandId: FOREIGN_BRAND_ID,
+        accountRef: "account_1",
+        accountType: "organization",
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload).toMatchObject({
+      success: false,
+      code: "facebook_reconnect_required",
+      reconnectRequired: true,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(mocks.connectedAccountUpdateOne).not.toHaveBeenCalled();
   });
 

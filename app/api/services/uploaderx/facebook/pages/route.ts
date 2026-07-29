@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
+import { resolveUserOAuthToken } from "@/lib/calos/publish/token-crypto";
 import {
   FACEBOOK_ATTENTION_MESSAGE,
   FACEBOOK_RECONNECT_MESSAGE,
@@ -80,7 +81,7 @@ export async function GET() {
       storedPages.map(async (page) => ({
         health: await validateFacebookPageToken(
           String(page.pageId || ""),
-          page.pageAccessToken || "",
+          resolveUserOAuthToken(page.pageAccessToken) || "",
         ),
         page,
       })),
