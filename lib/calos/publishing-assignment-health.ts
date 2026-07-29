@@ -1,5 +1,6 @@
 import type { CalosPublishPlatform } from "@/schemas/calos-scheduled-publish";
 import { loadInstagramAssignmentHealth } from "@/lib/calos/instagram-assignment-health";
+import { validateFacebookPageToken } from "@/lib/calos/facebook-page-token-health";
 
 const YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
 const AUTO_PUBLISH_PLATFORMS = new Set<string>(["youtube", "facebook", "instagram", "linkedin", "twitter"]);
@@ -83,21 +84,31 @@ function reconnect(account: CalosAssignmentLike, message: string): CalosConnecti
   return health(account, "reconnect", message);
 }
 
+async function facebookHealth(
+  account: CalosAssignmentLike,
+  owner: OwnerTokenRow | undefined,
+): Promise<CalosConnectionHealth> {
+  const accountRef = text(account.accountRef);
+  const page = owner?.facebookTokens?.pages?.find(
+    (candidate) => text(candidate.pageId) === accountRef,
+  );
+  const pageAccessToken = text(page?.pageAccessToken);
+  if (!pageAccessToken) {
+    return reconnect(account, "Assigned Facebook Page is no longer connected. Reconnect Facebook before publishing.");
+  }
+
+  const live = await validateFacebookPageToken(accountRef, pageAccessToken);
+  return live.state === "valid"
+    ? assigned(account)
+    : health(account, live.state, live.message);
+}
+
 function ownerTokenHealth(
   account: CalosAssignmentLike,
   owner: OwnerTokenRow | undefined,
   requiredThroughMs: number,
 ): CalosConnectionHealth {
   const accountRef = text(account.accountRef);
-  if (account.platform === "facebook") {
-    const page = owner?.facebookTokens?.pages?.find(
-      (candidate) => text(candidate.pageId) === accountRef,
-    );
-    return text(page?.pageAccessToken)
-      ? assigned(account)
-      : reconnect(account, "Assigned Facebook Page is no longer connected. Reconnect Facebook before publishing.");
-  }
-
   if (account.platform === "linkedin") {
     const tokens = owner?.linkedinTokens;
     if (!text(tokens?.accessToken)) {
@@ -294,6 +305,13 @@ export async function loadCalosAssignmentHealth(
     }
     if (platform === "youtube") {
       result[platform] = await youtubeHealth(account);
+      continue;
+    }
+    if (platform === "facebook") {
+      result[platform] = await facebookHealth(
+        account,
+        ownerTokens.get(text(account.ownerUserId)),
+      );
       continue;
     }
     if (platform === "linkedin" && text(account.accessTokenEnc)) {

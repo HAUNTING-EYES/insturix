@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { requireCalosBrandAccess } from "@/lib/calos/brand-access";
+import { validateFacebookPageToken } from "@/lib/calos/facebook-page-token-health";
 
 /**
  * Per-brand Facebook Page binding. Facebook publishing is Page-only: POST validates that the
@@ -100,6 +101,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { success: false, error: "Connect this Facebook Page first before assigning it to a brand" },
       { status: 409 },
+    );
+  }
+  const liveHealth = await validateFacebookPageToken(accountRef, page.pageAccessToken);
+  if (liveHealth.state !== "valid") {
+    const reconnectRequired = liveHealth.state === "reconnect";
+    return NextResponse.json(
+      {
+        success: false,
+        code: reconnectRequired
+          ? "facebook_reconnect_required"
+          : "facebook_verification_unavailable",
+        error: liveHealth.message,
+        reconnectRequired,
+      },
+      { status: reconnectRequired ? 409 : 503 },
     );
   }
 

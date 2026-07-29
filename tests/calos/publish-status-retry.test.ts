@@ -85,8 +85,18 @@ async function callRetry(body: Record<string, unknown>) {
 }
 
 describe("CalOS publish status and deliberate retry", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    fetchMock = vi.fn();
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ id: "page_1" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
     mocks.auth.mockResolvedValue({
       userId: "user_1",
       orgId: null,
@@ -113,6 +123,7 @@ describe("CalOS publish status and deliberate retry", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
 
@@ -259,6 +270,12 @@ describe("CalOS publish status and deliberate retry", () => {
     expect(payload.connectionHealth.facebook.state).toBe("assigned");
     expect(payload.connectionHealth.youtube.state).toBe("assigned");
     expect(payload.connectedPlatforms).toEqual(["facebook", "youtube"]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://graph.facebook.com/v21.0/page_1?fields=id",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer page_token" },
+      }),
+    );
   });
 
   it("reports a revoked YouTube connection instead of trusting its assignment row", async () => {
@@ -376,6 +393,51 @@ describe("CalOS publish status and deliberate retry", () => {
 
     expect(response.status).toBe(409);
     expect(payload.error).toContain("no longer assigned");
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("refuses retry when the assigned Facebook Page token is revoked", async () => {
+    mocks.queueFindOne.mockResolvedValue({
+      _id: "queue_1",
+      platform: "facebook",
+      accountRef: "page_1",
+      status: "failed",
+      postId: null,
+    });
+    mocks.connectedAccountFindOne.mockResolvedValue({
+      platform: "facebook",
+      accountRef: "page_1",
+      ownerUserId: "owner_1",
+    });
+    mocks.userFind.mockReturnValue(queryResult([{
+      clerkUserId: "owner_1",
+      facebookTokens: {
+        pages: [{ pageId: "page_1", pageAccessToken: "revoked_page_token" }],
+      },
+    }]));
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        error: { code: 190, type: "OAuthException", message: "Invalid OAuth access token" },
+      }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    mocks.queueFindOneAndUpdate.mockResolvedValue({
+      deliverableId: "card_1",
+      status: "pending",
+      accountRef: "page_1",
+    });
+
+    const response = await callRetry({
+      brandId: "brand_1",
+      deliverableId: "card_1",
+      confirmPossibleDuplicate: true,
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("Reconnect Facebook");
     expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
