@@ -27,6 +27,7 @@ import {
   resolveClickatronPromptBrandId,
 } from '@/lib/clickatron/brand-prompt-context';
 import { resolveClickatronBrandReferenceEvidence } from '@/lib/clickatron/brand-reference-images';
+import { resolveClickatronImageGeometry } from '@/lib/clickatron/image-geometry';
 import sharp from 'sharp';
 
 // Configure Fal AI client
@@ -61,58 +62,6 @@ const workerRequestSchema = z.object({
   aspectRatio: z.string().optional(),
   maskUrl: z.string().optional(), // R2 URI for generative fill mask
 });
-
-// Parse aspect ratio string to width and height
-function parseAspectRatio(aspectRatio: string): { width: number; height: number; ratio: string } {
-  const [widthStr, heightStr] = aspectRatio.split(':');
-  let width = parseFloat(widthStr);
-  let height = parseFloat(heightStr);
-
-  // If we have decimal ratios, scale them to integers
-  if (width % 1 !== 0 || height % 1 !== 0) {
-    const maxMultiplier = 100; // Prevent extremely large numbers
-    let multiplier = 1;
-    while ((width * multiplier) % 1 !== 0 || (height * multiplier) % 1 !== 0) {
-      multiplier++;
-      if (multiplier > maxMultiplier) {
-        // Fallback to standard sizes if we can't get clean integers
-        break;
-      }
-    }
-    width = Math.round(width * multiplier);
-    height = Math.round(height * multiplier);
-  }
-
-  // Standardize common aspect ratios to known sizes and supported ratios
-  if (width === 16 && height === 9) {
-    return { width: 1024, height: 576, ratio: "16:9" };
-  } else if (width === 1 && height === 1) {
-    return { width: 1024, height: 1024, ratio: "1:1" };
-  } else if (width === 9 && height === 16) {
-    return { width: 576, height: 1024, ratio: "9:16" };
-  } else if (width === 4 && height === 3) {
-    return { width: 1024, height: 768, ratio: "4:3" };
-  } else if (width === 3 && height === 4) {
-    return { width: 768, height: 1024, ratio: "3:4" };
-  } else if (width === 21 && height === 9) {
-    return { width: 1024, height: 439, ratio: "21:9" };
-  } else if (width === 9 && height === 21) {
-    return { width: 439, height: 1024, ratio: "9:21" };
-  }
-
-  // For other ratios, maintain the aspect ratio but use reasonable dimensions
-  const maxSize = 1024;
-  const ratio = width / height;
-
-  // Return the original ratio as a string for models that support it
-  if (ratio >= 1) {
-    // Landscape or square
-    return { width: maxSize, height: Math.round(maxSize / ratio), ratio: `${width}:${height}` };
-  } else {
-    // Portrait
-    return { width: Math.round(maxSize * ratio), height: maxSize, ratio: `${width}:${height}` };
-  }
-}
 
 function asPromptMetadataRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -393,8 +342,9 @@ async function handler(req: Request) {
     let falCostRecorded = false;
 
     try {
-      // Parse aspect ratio
-      const { width, height, ratio } = parseAspectRatio(variation.aspectRatio);
+      const requestedGeometry = resolveClickatronImageGeometry(variation.aspectRatio);
+      const { ratio } = requestedGeometry;
+      let { width, height } = requestedGeometry;
 
       // Prepare generation parameters
       const generationParams: any = {
@@ -682,6 +632,11 @@ async function handler(req: Request) {
         console.error('Worker: Selected model does not support aspect ratio:', { modelId: selectedModelId, ratio });
         throw new Error(`${modelConfig.name} does not support aspect ratio ${ratio}`);
       }
+
+      ({ width, height } = resolveClickatronImageGeometry(
+        ratio,
+        modelConfig.constraints.customImageLongEdge,
+      ));
 
       // Validate that the selected model supports the number of reference images
       const minImages = modelConfig.constraints?.minImages ?? 0;

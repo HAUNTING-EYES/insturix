@@ -11,7 +11,14 @@ import { nanoid } from 'nanoid';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { getCreditCost } from '@/lib/config/creditCosts';
 import { CreditsService } from '@/lib/services/creditsService';
-import { resolveClickatronModelForGeneration } from '@/lib/config/clickatron-models';
+import {
+  ClickatronModelCompatibilityError,
+  resolveClickatronModelForGeneration,
+} from '@/lib/config/clickatron-models';
+import {
+  ClickatronAspectRatioError,
+  resolveClickatronImageGeometry,
+} from '@/lib/clickatron/image-geometry';
 
 // Hard upper bound on carousel slides we will fan out into variations/jobs.
 // Source: product spec (max 7 slides per carousel). The ThinkForge writers and
@@ -157,17 +164,35 @@ export async function POST(request: Request) {
     const quantity = carouselSlides.length > 0 ? carouselSlides.length : 1;
     const referenceImages = formData.getAll('referenceImage') as File[];
     const rawAspectRatio = formData.get('aspectRatio') || '16:9';
-    const resolvedModel = resolveClickatronModelForGeneration({
-      requestedModelId: formData.get('modelId') as string | null,
-      context: 'newVariation',
-      referenceImageCount: referenceImages.length,
-      aspectRatio: typeof rawAspectRatio === 'string' ? rawAspectRatio : String(rawAspectRatio),
-    });
+    let aspectRatio: string;
+    let resolvedModel;
+    try {
+      aspectRatio = resolveClickatronImageGeometry(
+        typeof rawAspectRatio === 'string' ? rawAspectRatio : String(rawAspectRatio),
+      ).ratio;
+      resolvedModel = resolveClickatronModelForGeneration({
+        requestedModelId: formData.get('modelId') as string | null,
+        context: 'newVariation',
+        referenceImageCount: referenceImages.length,
+        aspectRatio,
+      });
+    } catch (error) {
+      if (
+        error instanceof ClickatronAspectRatioError
+        || error instanceof ClickatronModelCompatibilityError
+      ) {
+        return NextResponse.json(
+          { error: error.message, code: error.code },
+          { status: 422 },
+        );
+      }
+      throw error;
+    }
     if (resolvedModel.reason === 'aspect-ratio-fallback') {
       console.warn('[Clickatron] Model switched for aspect-ratio compatibility:', {
         requestedModelId: resolvedModel.requestedModelId,
         selectedModelId: resolvedModel.modelId,
-        aspectRatio: rawAspectRatio,
+        aspectRatio,
       });
     }
 
@@ -179,7 +204,7 @@ export async function POST(request: Request) {
 
     const validatedData = CreateSessionRequestSchema.parse({
       prompt: formData.get('prompt') || '',
-      aspectRatio: rawAspectRatio,
+      aspectRatio,
       modelId: resolvedModel.modelId,
       brandId: formData.get('brandId'),
       projectId: formData.get('projectId'),
