@@ -12,7 +12,7 @@ export const metadata: Metadata = {
       "Analyze Command Center",
     images: [
       {
-        url: "/icons/contact-og-image.jpg",
+        url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
         alt: "Analyze Command Center",
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     title: "Analyze Command Center",
     description:
       "Analyze Command Center",
-    images: ["/icons/contact-twitter-image.jpg"],
+    images: ["/icons/twitter-image.jpg"],
   },
   
 };

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     description: "Sign in to access your Insturix content production workspace.",
     images: [
       {
-        url: "/icons/signin-og-image.jpg",
+        url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
         alt: "Insturix sign in workspace",
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Sign In | Insturix Workspace",
     description: "Sign in to continue automated content production with Insturix.",
-    images: ["/icons/signin-twitter-image.jpg"],
+    images: ["/icons/twitter-image.jpg"],
   },
 };
 

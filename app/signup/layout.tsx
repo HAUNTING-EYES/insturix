@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     description: "Create an Insturix account for automated content production workflows across planning, editing, analysis, publishing, and brand consistency.",
     images: [
       {
-        url: "/icons/signup-og-image.jpg",
+        url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
         alt: "Insturix signup for automated content production",
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Sign Up | Start Producing Content with Insturix",
     description: "Create an Insturix account for automated content production workflows and brand-consistent output.",
-    images: ["/icons/signup-twitter-image.jpg"],
+    images: ["/icons/twitter-image.jpg"],
   },
 };
 

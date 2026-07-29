@@ -16,7 +16,7 @@ export const metadata: Metadata = {
       "Read our Cancellation Policy to understand how cancellations are handled for Insturix's digital services and subscriptions.",
     images: [
       {
-        url: "/icons/contact-og-image.jpg",
+        url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
         alt: "Cancellation Policy Insturix",
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     title: "Cancellation Policy | Insturix",
     description:
       "Read our Cancellation Policy to understand how cancellations are handled for Insturix's digital services and subscriptions.",
-    images: ["/icons/terms-twitter-image.jpg"],
+    images: ["/icons/twitter-image.jpg"],
   },
 };
 

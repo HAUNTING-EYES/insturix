@@ -17,7 +17,7 @@ export const metadata: Metadata = {
       "Stay updated with the latest news and announcements from Insturix. Get the latest insights, updates, and announcements about our products, services, and more.",
     images: [
       {
-        url: "/icons/contact-og-image.jpg",
+        url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
         alt: "Newsroom Insturix - Stay Updated",
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
     title: "Newsroom | Stay Updated",
     description:
     "Stay updated with the latest news and announcements from Insturix. Get the latest insights, updates, and announcements about our products, services, and more.",
-    images: ["/icons/newsroom-twitter-image.jpg"],
+    images: ["/icons/twitter-image.jpg"],
   },
 };
 

@@ -12,7 +12,7 @@ export const metadata: Metadata = {
       "Socialize Command Center",
     images: [
       {
-        url: "/icons/contact-og-image.jpg",
+        url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
         alt: "Socialize Command Center",
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     title: "Socialize Command Center",
     description:
       "Socialize Command Center",
-    images: ["/icons/contact-twitter-image.jpg"],
+    images: ["/icons/twitter-image.jpg"],
   },
   
 };

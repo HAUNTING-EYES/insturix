@@ -22,7 +22,7 @@ export const metadata: Metadata = {
       "Insturix helps agencies, in-house teams, businesses, enterprises, creator houses, and filmmakers automate content production workflows.",
     images: [
       {
-        url: "/icons/products/insturix-about-us-og-image.jpg",
+        url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
         alt: "Insturix - Automated Content Production Platform",
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
     title: "About Insturix | Automated Content Production Platform",
     description:
       "Learn about Insturix, the automated content production platform for modern content teams.",
-    images: ["/icons/products/insturix-about-us-twitter-image.jpg"],
+    images: ["/icons/twitter-image.jpg"],
   },
 };
 

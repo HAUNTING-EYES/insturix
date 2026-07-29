@@ -17,7 +17,7 @@ export const metadata: Metadata = {
       "Explore career opportunities at Insturix. We're hiring for various roles in AI, technology, and more. Join our team and help shape the future of AI.",
     images: [
       {
-        url: "/icons/contact-og-image.jpg",
+        url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
         alt: "Careers Insturix - Join Our Team",
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
     title: "Careers | Join Our Team",
     description:
       "Explore career opportunities at Insturix. We're hiring for various roles in AI, technology, and more. Join our team and help shape the future of AI.",
-    images: ["/icons/careers-twitter-image.jpg"],
+    images: ["/icons/twitter-image.jpg"],
   },
 };
 

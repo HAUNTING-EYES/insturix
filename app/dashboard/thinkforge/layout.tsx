@@ -13,7 +13,7 @@ export const metadata: Metadata = {
       "Script Command Center",
     images: [
       {
-        url: "/icons/contact-og-image.jpg",
+        url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
         alt: "Script Command Center",
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     title: "Script Command Center",
     description:
       "Script Command Center",
-    images: ["/icons/contact-twitter-image.jpg"],
+    images: ["/icons/twitter-image.jpg"],
   },
   
 };
