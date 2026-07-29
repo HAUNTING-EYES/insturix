@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   createDecisionLearningEvent: vi.fn(),
   calosScope: vi.fn(),
   userFind: vi.fn(),
+  transaction: vi.fn(),
+  session: { id: "transaction_session" },
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({ auth: mocks.auth }));
@@ -114,7 +116,13 @@ describe("CalOS approval publish-target snapshot", () => {
     consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     deliverable = makeDeliverable();
     mocks.auth.mockResolvedValue({ userId: "approver_1", orgId: null });
-    mocks.connectToDatabase.mockResolvedValue(undefined);
+    mocks.connectToDatabase.mockResolvedValue({
+      connection: { transaction: mocks.transaction },
+    });
+    mocks.transaction.mockImplementation(
+      async (callback: (session: typeof mocks.session) => Promise<void>) =>
+        callback(mocks.session),
+    );
     mocks.calosScope.mockReturnValue({
       ownerUserId: "approver_1",
       brandId: "brand_1",
@@ -168,7 +176,7 @@ describe("CalOS approval publish-target snapshot", () => {
           platform: "linkedin",
         }),
       }),
-      { upsert: true, new: false },
+      { upsert: true, new: false, session: mocks.session },
     );
     expect(mocks.queueUpdateOne).toHaveBeenCalledWith(
       {
@@ -177,9 +185,11 @@ describe("CalOS approval publish-target snapshot", () => {
         accountRef: null,
       },
       { $set: { accountRef: "linkedin_org_1" } },
+      { session: mocks.session },
     );
     expect(deliverable.editorialStatus).toBe("approved");
-    expect(deliverable.save).toHaveBeenCalledOnce();
+    expect(deliverable.save).toHaveBeenCalledWith({ session: mocks.session });
+    expect(mocks.transaction).toHaveBeenCalledOnce();
   });
 
   it("blocks approval when the platform has no assigned account", async () => {
@@ -246,7 +256,7 @@ describe("CalOS approval publish-target snapshot", () => {
     expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
-  it("returns a visible failure when an approved card cannot be enqueued", async () => {
+  it("rolls back approval when the publish job cannot be enqueued", async () => {
     setAssignments(["linkedin_org_1"]);
     mocks.queueFindOneAndUpdate.mockRejectedValue(new Error("database unavailable"));
 
@@ -254,9 +264,12 @@ describe("CalOS approval publish-target snapshot", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(500);
-    expect(payload.error).toContain("scheduling failed");
-    expect(deliverable.editorialStatus).toBe("approved");
-    expect(deliverable.save).toHaveBeenCalledOnce();
+    expect(payload.error).toContain("Approval was not saved");
+    expect(deliverable.editorialStatus).toBe("in_review");
+    expect(deliverable.approvals).toEqual([]);
+    expect(deliverable.save).toHaveBeenCalledWith({ session: mocks.session });
+    expect(mocks.emitBrandEvent).not.toHaveBeenCalled();
+    expect(mocks.transaction).toHaveBeenCalledOnce();
   });
 
   it("retries scheduling an already-approved version without duplicating its approval", async () => {
