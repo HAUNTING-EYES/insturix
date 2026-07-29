@@ -13,6 +13,7 @@ import {
 import { getCreditCost } from "@/lib/config/creditCosts";
 import { recordProviderCostEvent, type ProviderCostEventStatus } from "@/lib/financials/provider-cost-events";
 import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
+import { resolveUserOAuthToken } from "@/lib/calos/publish/token-crypto";
 
 const FACEBOOK_MIN_SCHEDULE_DELAY_MS = 10 * 60 * 1000;
 const FACEBOOK_PAGE_VIDEO_MAX_SCHEDULE_DELAY_MS = 75 * 24 * 60 * 60 * 1000;
@@ -161,28 +162,45 @@ export async function POST(req: Request) {
       );
     }
 
-    const targetPage = requestedPageId
+    const storedTargetPage = requestedPageId
       ? pages.find((page: any) => page.pageId === requestedPageId)
       : pages[0];
 
-    if (!targetPage) {
+    if (!storedTargetPage) {
       return NextResponse.json(
         { success: false, error: "Requested Facebook Page not found." },
         { status: 400 }
       );
     }
 
-    // Refresh token if possible
-    try {
-      const refreshPageTokenRes = await fetch(
-        `https://graph.facebook.com/v21.0/${targetPage.pageId}?fields=access_token&access_token=${fb.userAccessToken}`
+    const pageAccessToken = resolveUserOAuthToken(storedTargetPage.pageAccessToken)?.trim();
+    if (!pageAccessToken) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Facebook Page connection is unreadable. Reconnect Facebook before publishing.",
+        },
+        { status: 403 },
       );
-      const refreshPageTokenData = await refreshPageTokenRes.json();
-      if (refreshPageTokenData.access_token) {
-        targetPage.pageAccessToken = refreshPageTokenData.access_token;
+    }
+    const targetPage = { ...storedTargetPage, pageAccessToken };
+    const userAccessToken = resolveUserOAuthToken(fb.userAccessToken)?.trim();
+
+    if (userAccessToken) {
+      try {
+        const refreshPageTokenRes = await fetch(
+          `https://graph.facebook.com/v21.0/${targetPage.pageId}?fields=access_token&access_token=${encodeURIComponent(userAccessToken)}`
+        );
+        const refreshPageTokenData = await refreshPageTokenRes.json();
+        const refreshedPageAccessToken = typeof refreshPageTokenData.access_token === "string"
+          ? refreshPageTokenData.access_token.trim()
+          : "";
+        if (refreshedPageAccessToken) {
+          targetPage.pageAccessToken = refreshedPageAccessToken;
+        }
+      } catch (refreshError) {
+        console.warn("Failed to refresh Facebook page token:", refreshError);
       }
-    } catch (refreshError) {
-      console.warn("Failed to refresh Facebook page token:", refreshError);
     }
 
     const isReel = postType === "reel";
