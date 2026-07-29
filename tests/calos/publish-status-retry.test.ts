@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -48,6 +48,7 @@ vi.mock("@/schemas/user", () => ({
 }));
 
 import * as publishStatusRoute from "@/app/api/services/calos/publish-status/route";
+import { encryptToken } from "@/lib/calos/publish/token-crypto";
 
 type PublishStatusModule = typeof publishStatusRoute & {
   POST?: (request: NextRequest) => Promise<Response>;
@@ -109,6 +110,10 @@ describe("CalOS publish status and deliberate retry", () => {
         getUserOauthAccessToken: vi.fn(async () => ({ data: [] })),
       },
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("guards status metadata with the shared brand-access check", async () => {
@@ -400,6 +405,40 @@ describe("CalOS publish status and deliberate retry", () => {
     expect(response.status).toBe(409);
     expect(payload.error).toContain("reconnected");
     expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("allows retry when an expired stored LinkedIn token can refresh", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 9).toString("base64"));
+    vi.stubEnv("LINKEDIN_CLIENT_ID", "linkedin_client");
+    vi.stubEnv("LINKEDIN_CLIENT_SECRET", "linkedin_secret");
+    mocks.queueFindOne.mockResolvedValue({
+      _id: "queue_1",
+      platform: "linkedin",
+      accountRef: "linkedin_1",
+      status: "failed",
+      postId: null,
+    });
+    mocks.connectedAccountFindOne.mockResolvedValue({
+      accountRef: "linkedin_1",
+      ownerUserId: "owner_1",
+      accessTokenEnc: encryptToken("expired_access"),
+      refreshTokenEnc: encryptToken("brand_refresh"),
+      expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+    });
+    mocks.queueFindOneAndUpdate.mockResolvedValue({
+      deliverableId: "card_1",
+      status: "pending",
+      accountRef: "linkedin_1",
+    });
+
+    const response = await callRetry({
+      brandId: "brand_1",
+      deliverableId: "card_1",
+      confirmPossibleDuplicate: true,
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.queueFindOneAndUpdate).toHaveBeenCalledOnce();
   });
 
   it("refuses retry when the assigned owner's live X token cannot refresh", async () => {

@@ -1,5 +1,6 @@
 import { recordProviderCostEvent } from "@/lib/financials/provider-cost-events";
 import type { PublishParams, PublishResult } from "./contract";
+import { refreshLinkedInAccessToken } from "./linkedin-token-refresh";
 
 /**
  * CalOS LinkedIn publisher — SESSIONLESS (runs from the publish-queue cron, no Clerk session).
@@ -77,14 +78,54 @@ async function resolveBrandAccountAuth(
 
   // Model B — the brand's own encrypted token.
   if (acct.accessTokenEnc) {
-    const { decryptToken } = await import("./token-crypto");
-    const accessToken = decryptToken(acct.accessTokenEnc);
+    const { decryptToken, encryptToken } = await import("./token-crypto");
+    let accessToken: string | null;
+    try {
+      accessToken = decryptToken(acct.accessTokenEnc);
+    } catch {
+      return { error: "Brand LinkedIn token unreadable — reconnect the brand's LinkedIn", retryable: false };
+    }
     if (!accessToken) {
       return { error: "Brand LinkedIn token unreadable — reconnect the brand's LinkedIn", retryable: false };
     }
-    if (acct.expiresAt && new Date(acct.expiresAt) < new Date()) {
-      // Refresh-write-back for own-token brand accounts is a follow-up; until then expired = reconnect.
-      return { error: "Brand LinkedIn token expired — reconnect the brand's LinkedIn", retryable: false };
+    if (acct.expiresAt && new Date(acct.expiresAt).getTime() <= Date.now()) {
+      let refreshToken: string | null;
+      try {
+        refreshToken = acct.refreshTokenEnc
+          ? decryptToken(acct.refreshTokenEnc)
+          : "";
+      } catch {
+        refreshToken = "";
+      }
+      if (!refreshToken) {
+        return { error: "Brand LinkedIn token expired and cannot refresh — reconnect required", retryable: false };
+      }
+      const refreshed = await refreshLinkedInAccessToken(refreshToken);
+      if (!refreshed.ok) return refreshed;
+      try {
+        const write = await CalosConnectedAccount.updateOne(
+          {
+            _id: acct._id,
+            brandId,
+            platform: "linkedin",
+            accountRef: acct.accountRef,
+          },
+          {
+            $set: {
+              accessTokenEnc: encryptToken(refreshed.accessToken),
+              refreshTokenEnc: encryptToken(refreshed.refreshToken),
+              expiresAt: refreshed.expiresAt,
+            },
+          },
+        );
+        if (write.matchedCount !== 1) {
+          return { error: "LinkedIn token refreshed but account persistence failed", retryable: true };
+        }
+      } catch (error) {
+        console.error("[CALOS_LOUD] LinkedIn brand token persistence failed:", error);
+        return { error: "LinkedIn token refreshed but account persistence failed", retryable: true };
+      }
+      accessToken = refreshed.accessToken;
     }
     return { accessToken, authorUrn };
   }
@@ -134,6 +175,28 @@ async function resolveOwnerLinkedInToken(
   let accessToken: string = tokens.accessToken;
   let memberId: string | undefined = tokens.userId;
 
+  // Refresh before identity resolution so /v2/me never receives an expired credential.
+  if (tokens.expiresAt && new Date(tokens.expiresAt).getTime() <= Date.now()) {
+    const refreshed = await refreshLinkedInAccessToken(tokens.refreshToken || "");
+    if (!refreshed.ok) return refreshed;
+    try {
+      await User.updateOne(
+        { clerkUserId: ownerUserId },
+        {
+          $set: {
+            "linkedinTokens.accessToken": refreshed.accessToken,
+            "linkedinTokens.refreshToken": refreshed.refreshToken,
+            "linkedinTokens.expiresAt": refreshed.expiresAt,
+          },
+        },
+      );
+    } catch (error) {
+      console.error("[CALOS_LOUD] LinkedIn owner token persistence failed:", error);
+      return { error: "LinkedIn token refreshed but account persistence failed", retryable: true };
+    }
+    accessToken = refreshed.accessToken;
+  }
+
   // Resolve the member id (for a personal author URN) if missing.
   if (needMemberId && !memberId) {
     try {
@@ -152,46 +215,6 @@ async function resolveOwnerLinkedInToken(
     } catch (e) {
       // TODO(CALOS_LOUD): revert to warn once stable.
       console.error("[CALOS_LOUD] linkedin /v2/me lookup failed (no memberId → personal post may fail):", e);
-    }
-  }
-
-  // Refresh an expired token.
-  if (tokens.expiresAt && new Date(tokens.expiresAt) < new Date()) {
-    const clientId = process.env.LINKEDIN_CLIENT_ID;
-    const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
-    if (!tokens.refreshToken || !clientId || !clientSecret) {
-      return { error: "LinkedIn token expired and cannot refresh — reconnect required", retryable: false };
-    }
-    try {
-      const refreshRes = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          refresh_token: tokens.refreshToken,
-          client_id: clientId,
-          client_secret: clientSecret,
-        }),
-      });
-      const refreshData = await refreshRes.json();
-      if (!refreshRes.ok || !refreshData.access_token) {
-        return { error: "LinkedIn token refresh failed — reconnect required", retryable: false };
-      }
-      accessToken = refreshData.access_token;
-      await User.updateOne(
-        { clerkUserId: ownerUserId },
-        {
-          $set: {
-            "linkedinTokens.accessToken": refreshData.access_token,
-            "linkedinTokens.refreshToken": refreshData.refresh_token || tokens.refreshToken,
-            "linkedinTokens.expiresAt": new Date(Date.now() + refreshData.expires_in * 1000),
-          },
-        },
-      );
-    } catch (err) {
-      // TODO(CALOS_LOUD): remove once stable.
-      console.error("[CALOS_LOUD] linkedin token refresh threw:", err);
-      return { error: "LinkedIn token refresh error — reconnect required", retryable: true };
     }
   }
 
