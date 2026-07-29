@@ -151,7 +151,7 @@ describe("CalOS approval publish-target snapshot", () => {
     consoleError.mockRestore();
   });
 
-  it("copies the single assigned account into the scheduled publish row", async () => {
+  it("refreshes the current snapshot on an untouched pending publish row", async () => {
     setAssignments(["linkedin_org_1"]);
 
     const response = await postDecision(decisionRequest(), decisionContext);
@@ -179,12 +179,17 @@ describe("CalOS approval publish-target snapshot", () => {
       { upsert: true, new: false, session: mocks.session },
     );
     expect(mocks.queueUpdateOne).toHaveBeenCalledWith(
+      { idempotencyKey: "card_1:linkedin", status: "pending", attempts: 0, postId: null },
       {
-        idempotencyKey: "card_1:linkedin",
-        status: "pending",
-        accountRef: null,
+        $set: {
+          ownerUserId: "owner_1",
+          orgId: null,
+          brandId: "brand_1",
+          accountRef: "linkedin_org_1",
+          payload: { caption: "Launch copy", imageUrl: null },
+          publishAt: new Date("2026-08-05T09:00:00.000Z"),
+        },
       },
-      { $set: { accountRef: "linkedin_org_1" } },
       { session: mocks.session },
     );
     expect(deliverable.editorialStatus).toBe("approved");

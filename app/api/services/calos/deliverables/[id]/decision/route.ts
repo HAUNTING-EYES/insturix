@@ -251,9 +251,7 @@ async function resolveApprovedPublishTarget(
  * Enqueue a delivery-queue row when a deliverable is approved (the produce side; the
  * process-publish-queue cron consumes it). Idempotent per (deliverable, platform) via $setOnInsert
  * on the unique idempotencyKey — never double-posts, never clobbers an already-published or in-flight
- * row. The brand assignment is snapshotted as accountRef when approval happens.
- * ponytail: if the content is later edited + re-approved, the existing row is intentionally left as
- * is (no silent re-post); revisit when an explicit "republish edited content" flow is needed.
+ * row. Reapproval refreshes only a never-attempted pending row with the latest reviewed snapshot.
  */
 async function enqueueApprovedPublish(
   deliverable: ICalosDeliverable,
@@ -268,6 +266,14 @@ async function enqueueApprovedPublish(
     deliverable.assetText ?? deliverable.card?.scriptPreview ?? deliverable.card?.title ?? "";
   // Media platforms (Instagram) need the image — carry the generated asset URL into the queue.
   const imageUrl = deliverable.assetUrl ?? null;
+  const currentSnapshot = {
+    ownerUserId,
+    orgId: deliverable.orgId ?? null,
+    brandId,
+    accountRef: target.accountRef,
+    payload: { caption, imageUrl },
+    publishAt,
+  };
 
   const idempotencyKey = `${deliverable.card.id}:${target.platform}`;
   await CalosScheduledPublish.findOneAndUpdate(
@@ -275,13 +281,8 @@ async function enqueueApprovedPublish(
     {
       $setOnInsert: {
         deliverableId: deliverable.card.id,
-        ownerUserId,
-        orgId: deliverable.orgId ?? null,
-        brandId,
+        ...currentSnapshot,
         platform: target.platform,
-        accountRef: target.accountRef,
-        payload: { caption, imageUrl },
-        publishAt,
         status: "pending",
         attempts: 0,
         idempotencyKey,
@@ -289,11 +290,10 @@ async function enqueueApprovedPublish(
     },
     { upsert: true, new: false, session },
   );
-  // Rows created by the old producer may still be pending with a null target. Backfill only those
-  // untouched rows; never retarget an in-flight, failed, or published job.
+  // Never retarget a claimed, retried, failed, or published row.
   await CalosScheduledPublish.updateOne(
-    { idempotencyKey, status: "pending", accountRef: null },
-    { $set: { accountRef: target.accountRef } },
+    { idempotencyKey, status: "pending", attempts: 0, postId: null },
+    { $set: currentSnapshot },
     { session },
   );
 }
