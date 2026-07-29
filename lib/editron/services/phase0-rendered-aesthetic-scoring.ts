@@ -3,6 +3,7 @@ import sharp from 'sharp';
 import { ensureLiveAtomicOverlayReceipt } from '@/lib/editron/engine/overlay-atomic-receipts';
 import type { AtomicOverlayReceipt } from '@/lib/editron/engine/atomic-overlay-core';
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
+import { constrainFinalOverlayGeometry } from '@/lib/editron/shared/final-overlay-geometry';
 import {
   scoreRenderedFrameAesthetic,
   type RenderedFrameAestheticReport,
@@ -227,7 +228,7 @@ function activeRenderedOverlayEvidence(
       const receipt = metadata?.atomicOverlayReceipt;
       if (!receipt && String(overlay.type) === 'caption') return [];
 
-      const box = renderedOverlayBoxAtFrame(frameOverlay, frame);
+      const box = renderedOverlayBoxAtFrame(frameOverlay, frame, width, height);
       const pixelEvidence = fullImage && baselineImage
         ? measureRenderedOverlayPixelEvidence(fullImage, baselineImage, box, width, height, {
             allowLayeredForegroundContrast: isLayeredTextContrastOverlay(String(frameOverlay.type)),
@@ -399,35 +400,47 @@ function withoutAtomicReceiptMetadata(metadata: Record<string, unknown>): Record
   delete next.atomicOverlayForms;
   return next;
 }
-function renderedOverlayBoxAtFrame(
+export function renderedOverlayBoxAtFrame(
   overlay: Phase0OverlayLike,
   frame: number,
+  canvasWidth: number,
+  canvasHeight: number,
 ): RenderedOverlayBox {
   const localFrame = Math.max(0, frame - readNumber(overlay.from, 0));
   const keyframes = Array.isArray((overlay as Record<string, unknown>).keyframeTracks)
     ? evaluateScoringKeyframeTracks((overlay as Record<string, unknown>).keyframeTracks as unknown[], localFrame)
     : {};
-  let x = readNumber(keyframes.x, readNumber(overlay.left, 0));
-  let y = readNumber(keyframes.y, readNumber(overlay.top, 0));
-  let boxWidth = readNumber(overlay.width, 1);
-  let boxHeight = readNumber(overlay.height, 1);
+  const x = readNumber(keyframes.x, readNumber(overlay.left, 0));
+  const y = readNumber(keyframes.y, readNumber(overlay.top, 0));
+  const boxWidth = readNumber(overlay.width, 1);
+  const boxHeight = readNumber(overlay.height, 1);
   const scale = readNumber(keyframes.scale, 1);
   const opacity = readNumber(keyframes.opacity, readOpacity(overlay), 1);
-
-  if (scale !== 1) {
-    const scaledWidth = boxWidth * scale;
-    const scaledHeight = boxHeight * scale;
-    x -= (scaledWidth - boxWidth) / 2;
-    y -= (scaledHeight - boxHeight) / 2;
-    boxWidth = scaledWidth;
-    boxHeight = scaledHeight;
-  }
-
-  return {
-    x,
-    y,
+  const rotation = readNumber(
+    keyframes.rotation,
+    readNumber((overlay as Record<string, unknown>).rotation, 0),
+  );
+  const transformOrigin = readString(
+    asRecord(overlay.styles).transformOrigin,
+  ) || 'center center';
+  const geometry = constrainFinalOverlayGeometry({
+    overlayType: String(overlay.type ?? ''),
+    left: x,
+    top: y,
     width: boxWidth,
     height: boxHeight,
+    scale,
+    rotationDegrees: rotation,
+    transformOrigin,
+    canvasWidth,
+    canvasHeight,
+  });
+
+  return {
+    x: geometry.bounds.left,
+    y: geometry.bounds.top,
+    width: geometry.bounds.right - geometry.bounds.left,
+    height: geometry.bounds.bottom - geometry.bounds.top,
     opacity,
     textPixelHeight: fontSizePx(asRecord(overlay.styles).fontSize),
   };
