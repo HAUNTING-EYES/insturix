@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import type { ClientSession } from "mongoose";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosDeliverable, {
   type CalosEditorialStatus,
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid decision" }, { status: 400 });
     }
 
-    await connectToDatabase();
+    const database = await connectToDatabase();
     // Phase D: an org teammate (not just the creator) can decide on the org's brand cards.
     const deliverable = await CalosDeliverable.findOne({
       "card.id": id,
@@ -76,43 +77,56 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         (approval: ICalosDeliverable["approvals"][number]) =>
           approval.decision === "approved" && approval.version === deliverable.version,
       );
-    deliverable.editorialStatus = DECISION_STATUS[decision as Decision];
-    if (!alreadyApprovedAtCurrentVersion) {
-      deliverable.approvals.push({
-        actor: userId,
-        decision: decision as Decision,
-        version: deliverable.version, // version-bound: a later content edit bumps version, staling this
-        at: new Date(),
-        notes: typeof notes === "string" && notes.trim() ? notes.trim().slice(0, 1000) : undefined,
-      });
-    }
-    await deliverable.save();
+    const originalEditorialStatus = deliverable.editorialStatus;
+    const originalApprovals = Array.from(deliverable.approvals);
+    const restoreDecisionState = () => {
+      deliverable.editorialStatus = originalEditorialStatus;
+      deliverable.approvals.splice(0, deliverable.approvals.length, ...originalApprovals);
+    };
+    const applyDecision = () => {
+      deliverable.editorialStatus = DECISION_STATUS[decision as Decision];
+      if (!alreadyApprovedAtCurrentVersion) {
+        deliverable.approvals.push({
+          actor: userId,
+          decision: decision as Decision,
+          version: deliverable.version,
+          at: new Date(),
+          notes: typeof notes === "string" && notes.trim() ? notes.trim().slice(0, 1000) : undefined,
+        });
+      }
+    };
 
-    // On approval, enqueue the publish (the produce side of the delivery queue; the
-    // process-publish-queue cron consumes it). Account resolution happened before the editorial
-    // mutation, so an unassigned or ambiguous platform cannot become approved.
+    // Approval and its publish job are one consistency boundary. Mongoose also resets document
+    // change tracking between transaction retries and closes the underlying session.
     if (decision === "approved" && publishTarget) {
       try {
-        // Phase D: the publish row carries the *creator's* ownerUserId (deliverable.ownerUserId), NOT
-        // the approver's — the cron's approval check + the connected-account/token resolution both key
-        // off the card owner, so a teammate approving must not retarget publishing to the approver.
-        await enqueueApprovedPublish(
-          deliverable,
-          deliverable.ownerUserId,
-          brandId,
-          publishTarget,
-        );
+        await database.connection.transaction(async (session: ClientSession) => {
+          restoreDecisionState();
+          applyDecision();
+          await deliverable.save({ session });
+          await enqueueApprovedPublish(
+            deliverable,
+            deliverable.ownerUserId,
+            brandId,
+            publishTarget,
+            session,
+          );
+        });
       } catch (e) {
-        console.error("[CALOS_LOUD] decision: publish enqueue FAILED after approval:", e);
+        restoreDecisionState();
+        console.error("[CALOS_LOUD] decision: approval transaction FAILED and rolled back:", e);
         return NextResponse.json(
           {
-            error: "Content was approved, but scheduling failed. Retry approval to enqueue it.",
+            error: "Approval was not saved because its publish job could not be scheduled. Try again.",
             card: toContentCard(deliverable),
             publish: { queued: false, accountRef: publishTarget.accountRef },
           },
           { status: 500 },
         );
       }
+    } else {
+      applyDecision();
+      await deliverable.save();
     }
 
     // Teach the brand vault from the decision (staged as a DRAFT by the brand-learning worker;
@@ -246,6 +260,7 @@ async function enqueueApprovedPublish(
   ownerUserId: string,
   brandId: string,
   target: PublishTarget,
+  session: ClientSession,
 ): Promise<void> {
   const publishAt = publishAtFor(deliverable);
 
@@ -272,12 +287,13 @@ async function enqueueApprovedPublish(
         idempotencyKey,
       },
     },
-    { upsert: true, new: false },
+    { upsert: true, new: false, session },
   );
   // Rows created by the old producer may still be pending with a null target. Backfill only those
   // untouched rows; never retarget an in-flight, failed, or published job.
   await CalosScheduledPublish.updateOne(
     { idempotencyKey, status: "pending", accountRef: null },
     { $set: { accountRef: target.accountRef } },
+    { session },
   );
 }
