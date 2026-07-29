@@ -1,5 +1,7 @@
 import {
   resolveChatLocalizedWorkflowAdapter,
+  type ChatLocalizedEditRequest,
+  type ChatLocalizedWorkflowAdapter,
 } from './chat-command-authority';
 import type {
   ChatToolExecutionOutcome,
@@ -54,13 +56,18 @@ export function resolveServerOwnedLocalizedWorkflowStep(input: {
   }
 
   for (const [index, edit] of edits.entries()) {
-    const adapter = resolveChatLocalizedWorkflowAdapter(edit);
-    if (!adapter) {
+    const requestedAdapter = resolveChatLocalizedWorkflowAdapter(edit);
+    if (!requestedAdapter) {
       return {
         kind: 'halt',
         message: `I cannot safely perform the requested ${edit.operation} operation on ${edit.modality} evidence yet.`,
       };
     }
+    const adapter = resolveGroundedWorkflowAdapter(
+      edit,
+      requestedAdapter,
+      input.ledger.completedExecutions,
+    );
 
     const resolver = latestMatchingResolver(
       input.ledger.completedExecutions,
@@ -136,6 +143,53 @@ export function resolveServerOwnedLocalizedWorkflowStep(input: {
       ? 'Done. I grounded the requested moment and completed the authorized workflow.'
       : `Done. I grounded and completed all ${edits.length} authorized workflows in order.`,
   };
+}
+
+function resolveGroundedWorkflowAdapter(
+  edit: ChatLocalizedEditRequest,
+  requestedAdapter: ChatLocalizedWorkflowAdapter,
+  executions: CompletedChatToolExecution[],
+): ChatLocalizedWorkflowAdapter {
+  if (
+    edit.operation !== 'camera-motion'
+    || edit.modality !== 'visual'
+    || requestedAdapter.resolverTool !== 'resolve_visual_edit'
+  ) {
+    return requestedAdapter;
+  }
+
+  const visualResolver = latestMatchingResolver(
+    executions,
+    requestedAdapter.resolverTool,
+    requestedAdapter.resolverArgs,
+  );
+  if (!visualResolver || !resolverCandidateUsesAudioEvidence(visualResolver)) {
+    return requestedAdapter;
+  }
+
+  return resolveChatLocalizedWorkflowAdapter({
+    ...edit,
+    modality: 'audio',
+  }) ?? requestedAdapter;
+}
+
+function resolverCandidateUsesAudioEvidence(
+  resolver: CompletedChatToolExecution,
+): boolean {
+  const envelope = parseRecord(resolver.output);
+  const data = asRecord(envelope?.data);
+  const candidate = asRecord(data.candidate);
+  const source = asRecord(candidate.source);
+  const path = firstString(source.path)?.toLocaleLowerCase() ?? '';
+  return [
+    '.audioanalysis.',
+    '.audiofeatures.',
+    '.musicanalysis.',
+    '.musicstructure.',
+    '.beatgrid.',
+    '.fivetrackanalysis.',
+    '.essentiaanalysis.',
+  ].some((marker) => `.${path}.`.includes(marker));
 }
 
 function latestMatchingResolver(
