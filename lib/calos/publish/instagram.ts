@@ -27,17 +27,23 @@ const IG_API = `https://graph.instagram.com/${graphVersion()}`;
 
 type IgAuth = { userAccessToken: string } | { error: string; retryable: boolean };
 type GraphResponse = { id?: string; error?: { message?: string } };
+type InstagramTokenRecord = {
+  userAccessToken?: string;
+  userId?: string | number;
+  accounts?: Array<{ instagramAccountId?: string | number }>;
+};
 
 export async function publishToInstagram(params: PublishParams): Promise<PublishResult> {
   const caption = (params.caption ?? params.title ?? "").trim();
   const imageUrl = params.imageUrl?.trim();
-  if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false };
-  if (!params.brandId) return { ok: false, error: "Instagram publishing requires a brandId", retryable: false };
+  if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false, providerAttempted: false };
+  if (!params.brandId) return { ok: false, error: "Instagram publishing requires a brandId", retryable: false, providerAttempted: false };
   if (!imageUrl) {
     return {
       ok: false,
       error: "Instagram requires an image — generate the card's graphic before approving",
       retryable: false,
+      providerAttempted: false,
     };
   }
 
@@ -45,7 +51,7 @@ export async function publishToInstagram(params: PublishParams): Promise<Publish
   await connectToDatabase();
 
   const auth = await resolveBrandIgAuth(params.brandId, params.accountRef);
-  if ("error" in auth) return { ok: false, error: auth.error, retryable: auth.retryable };
+  if ("error" in auth) return { ok: false, error: auth.error, retryable: auth.retryable, providerAttempted: false };
 
   return createInstagramImagePost(params, auth.userAccessToken, imageUrl, caption);
 }
@@ -63,15 +69,42 @@ async function resolveBrandIgAuth(brandId: string, accountRef?: string | null): 
     ...(accountRef ? { accountRef } : {}),
   });
   if (!acct) return { error: "No Instagram account assigned for this brand", retryable: false };
+  if (!acct.accountRef) {
+    return { error: "Brand Instagram assignment has no account id - reassign it", retryable: false };
+  }
+  if (!acct.ownerUserId) {
+    return { error: "Brand Instagram assignment has no token owner - reconnect", retryable: false };
+  }
 
   const { User } = await import("@/schemas/user");
   const user = await User.findOne({ clerkUserId: acct.ownerUserId })
     .select("instagramTokens")
-    .lean<{ instagramTokens?: { userAccessToken?: string } | null } | null>();
-  const token = user?.instagramTokens?.userAccessToken;
+    .lean<{ instagramTokens?: InstagramTokenRecord | null } | null>();
+  const tokens = user?.instagramTokens;
+  const token = tokens?.userAccessToken;
   if (!token) {
     return {
       error: "Assigned Instagram account is no longer connected for this owner — reconnect",
+      retryable: false,
+    };
+  }
+
+  const connectedAccountRefs = new Set<string>();
+  if (tokens?.userId != null) connectedAccountRefs.add(String(tokens.userId));
+  for (const account of tokens?.accounts ?? []) {
+    if (account.instagramAccountId != null) {
+      connectedAccountRefs.add(String(account.instagramAccountId));
+    }
+  }
+  if (connectedAccountRefs.size === 0) {
+    return {
+      error: "Connected Instagram account identity cannot be verified - reconnect",
+      retryable: false,
+    };
+  }
+  if (!connectedAccountRefs.has(String(acct.accountRef))) {
+    return {
+      error: "Assigned Instagram account no longer matches the owner's connected account - reassign it",
       retryable: false,
     };
   }
@@ -89,6 +122,7 @@ async function createInstagramImagePost(
   let operation: CalosInstagramCostOperation = "social_media_upload";
   let responseStatus: number | undefined;
   let providerJobId: string | undefined;
+  let providerAttempted = false;
   const hasImageSource = Boolean(imageUrl);
   const hasCaptionText = Boolean(caption);
 
@@ -116,6 +150,8 @@ async function createInstagramImagePost(
         ok: false,
         error: `Instagram container failed (${cRes.status}): ${cData.error?.message || "unknown error"}`,
         retryable,
+        providerAttempted: false,
+        responseStatus,
       };
     }
 
@@ -135,6 +171,7 @@ async function createInstagramImagePost(
     responseStatus = undefined;
     providerJobId = undefined;
     const pubParams = new URLSearchParams({ creation_id: cData.id, access_token: userAccessToken });
+    providerAttempted = true;
     const pRes = await fetch(`${IG_API}/me/media_publish?${pubParams.toString()}`, { method: "POST" });
     responseStatus = pRes.status;
     const pData: GraphResponse = await pRes.json().catch(() => ({}));
@@ -155,6 +192,8 @@ async function createInstagramImagePost(
         ok: false,
         error: `Instagram publish failed (${pRes.status}): ${pData.error?.message || "unknown error"}`,
         retryable,
+        providerAttempted: true,
+        responseStatus,
       };
     }
 
@@ -168,7 +207,7 @@ async function createInstagramImagePost(
       hasCaptionText,
     });
 
-    return { ok: true, postId: pData.id, postUrl: `https://www.instagram.com/p/${pData.id}` };
+    return { ok: true, postId: pData.id, postUrl: `https://www.instagram.com/p/${pData.id}`, providerAttempted: true, responseStatus };
   } catch (e) {
     await recordCalosInstagramPublishCost(params, {
       status: "failed",
@@ -181,7 +220,7 @@ async function createInstagramImagePost(
       hasCaptionText,
       error: e,
     });
-    return { ok: false, error: e instanceof Error ? e.message : "Instagram post threw", retryable: true };
+    return { ok: false, error: e instanceof Error ? e.message : "Instagram post threw", retryable: true, providerAttempted, responseStatus };
   }
 }
 
