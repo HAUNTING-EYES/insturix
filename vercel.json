@@ -67,6 +67,10 @@
     {
       "path": "/api/cron/process-calos-trend-opportunities",
       "schedule": "17 */6 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-instagram-tokens",
+      "schedule": "23 5 * * *"
     }
   ]
 }
