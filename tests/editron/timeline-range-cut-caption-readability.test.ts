@@ -6,40 +6,43 @@ import {
 } from '@/lib/editron/engine/atomic-overlay-core';
 import { scoreRenderedFrameAesthetic } from '@/lib/editron/motion-graphics/engine/eval/rendered-aesthetic';
 import { cutTimelineRange } from '@/lib/editron/services/timeline-range-cut';
+import { groupWordsIntoCaptions } from '@/lib/editron/utils/caption-utils';
 
 const READABILITY = {
   version: 'caption-readability-policy-v1',
   renderMode: 'phrase',
   minGroupDurationMs: 1_000,
+  groupWordsPerCaption: 4,
+  maxCharsPerCaption: 30,
+  maxGroupDurationMs: 1_900,
   maxMergeWords: 6,
   maxMergeChars: 38,
   maxMergedGroupDurationMs: 1_900,
   maxCaptionPreRollMs: 260,
   maxCaptionPostRollMs: 500,
   minCaptionGapMs: 80,
+  speechPauseBoundaryMs: 500,
+  punctuationClipBoundaryGapMs: 140,
 };
 
 describe('timeline range cut caption readability', () => {
-  it('reflows canonical caption groups after removing a spoken phrase', () => {
+  it.each([
+    ['English phrase at the opening', 15, 53],
+    ['Devanagari phrase inside a group', 158, 196],
+  ])('resegments dense captions after removing %s', (_label, startFrame, endFrame) => {
+    const words = fixtureWords();
     const caption = {
       id: 30,
       type: 'caption',
       from: 0,
-      durationInFrames: 300,
+      durationInFrames: 600,
       row: 4,
-      words: [
-        word('keep', 0, 400),
-        word('remove', 500, 900),
-        word('this', 950, 1250),
-        word('phrase', 1300, 1700),
-        word('next', 1900, 2200),
-        word('words', 2250, 2600),
-      ],
-      captions: [
-        group('keep', 0, 400),
-        group('remove this phrase', 500, 1700),
-        group('next words', 1900, 2600),
-      ],
+      words,
+      captions: groupWordsIntoCaptions(words, {
+        wordsPerGroup: 4,
+        maxGroupDuration: 2_200,
+        maxCharsPerLine: 42,
+      }),
       metadata: {
         source: 'canonical-caption-track',
         evidence: { readability: READABILITY },
@@ -48,26 +51,21 @@ describe('timeline range cut caption readability', () => {
 
     const result = cutTimelineRange({
       overlays: [caption],
-      startFrame: 15,
-      endFrame: 54,
+      startFrame,
+      endFrame,
       fps: 30,
-      durationInFrames: 300,
+      durationInFrames: 600,
     });
 
     const repaired = result.overlays[0];
-    expect(repaired.captions).toHaveLength(1);
-    expect(repaired.captions[0]).toMatchObject({
-      text: 'keep next words',
-      startMs: 0,
-      endMs: 1300,
-    });
-    expect(repaired.metadata.evidence.timelineReadabilityRepair).toEqual({
+    expect(repaired.metadata.evidence.timelineReadabilityRepair).toMatchObject({
       version: 'caption-timeline-readability-repair-v1',
-      beforeGroupCount: 2,
-      afterGroupCount: 1,
-      beforeViolationCount: 2,
+      beforeViolationCount: 1,
       afterViolationCount: 0,
     });
+    expect(repaired.captions.every((groupValue: { startMs: number; endMs: number }) => (
+      groupValue.endMs - groupValue.startMs >= 1_000
+    ))).toBe(true);
   });
 
   it('uses the canonical caption timing contract during rendered review', () => {
@@ -91,21 +89,22 @@ function word(value: string, startMs: number, endMs: number) {
   return { word: value, startMs, endMs, confidence: 1 };
 }
 
-function group(text: string, startMs: number, endMs: number) {
-  const values = text.split(' ');
-  const duration = endMs - startMs;
-  return {
-    text,
-    startMs,
-    endMs,
-    timestampMs: null,
-    confidence: 1,
-    words: values.map((value, index) => word(
+function fixtureWords() {
+  return [
+    'pricing', 'is', 'simple',
+    'the', 'pricing', 'model', 'matters', 'because', 'value', 'is', 'clear',
+    'कीमत', 'आसान', 'है',
+    'pricing', 'simple', 'hai',
+    'this', 'is', 'the', 'key', 'point',
+    'now', 'watch', 'this', 'keep', 'it', 'clear',
+  ].map((value, index) => {
+    const startFrame = 15 + (index * 13);
+    return word(
       value,
-      Math.round(startMs + (duration * index) / values.length),
-      Math.round(startMs + (duration * (index + 1)) / values.length),
-    )),
-  };
+      Math.round((startFrame / 30) * 1_000),
+      Math.round(((startFrame + 12) / 30) * 1_000),
+    );
+  });
 }
 
 function scoreCaptionTiming(words: string[], durationFrames: number) {

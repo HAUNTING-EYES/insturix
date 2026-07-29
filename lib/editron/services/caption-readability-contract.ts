@@ -7,12 +7,17 @@ export interface CaptionReadabilityTimingPolicy {
   version: 'caption-readability-policy-v1';
   renderMode: string;
   minGroupDurationMs: number;
+  groupWordsPerCaption: number;
+  maxCharsPerCaption: number;
+  maxGroupDurationMs: number;
   maxMergeWords: number;
   maxMergeChars: number;
   maxMergedGroupDurationMs: number;
   maxCaptionPreRollMs: number;
   maxCaptionPostRollMs: number;
   minCaptionGapMs: number;
+  speechPauseBoundaryMs: number;
+  punctuationClipBoundaryGapMs: number;
 }
 
 const STATIC_CAPTION_MIN_EVENT_MS = 1_000;
@@ -55,9 +60,10 @@ export function normalizeCaptionGroupsForReadability(
   policy: CaptionReadabilityTimingPolicy,
   segmentEndMs?: number,
 ): Caption[] {
+  const resegmented = resegmentUnreadableCaptionRuns(captions, policy);
   const normalized: Caption[] = [];
 
-  for (const source of captions) {
+  for (const source of resegmented) {
     const caption = cloneCaption(source);
     const previous = normalized[normalized.length - 1];
     if (
@@ -91,12 +97,17 @@ export function parseCaptionReadabilityTimingPolicy(
 
   const numericFields = [
     'minGroupDurationMs',
+    'groupWordsPerCaption',
+    'maxCharsPerCaption',
+    'maxGroupDurationMs',
     'maxMergeWords',
     'maxMergeChars',
     'maxMergedGroupDurationMs',
     'maxCaptionPreRollMs',
     'maxCaptionPostRollMs',
     'minCaptionGapMs',
+    'speechPauseBoundaryMs',
+    'punctuationClipBoundaryGapMs',
   ] as const;
   const numbers = Object.fromEntries(
     numericFields.map((field) => [field, finiteNumber(record[field])]),
@@ -107,12 +118,134 @@ export function parseCaptionReadabilityTimingPolicy(
     version: 'caption-readability-policy-v1',
     renderMode,
     minGroupDurationMs: numbers.minGroupDurationMs!,
+    groupWordsPerCaption: numbers.groupWordsPerCaption!,
+    maxCharsPerCaption: numbers.maxCharsPerCaption!,
+    maxGroupDurationMs: numbers.maxGroupDurationMs!,
     maxMergeWords: numbers.maxMergeWords!,
     maxMergeChars: numbers.maxMergeChars!,
     maxMergedGroupDurationMs: numbers.maxMergedGroupDurationMs!,
     maxCaptionPreRollMs: numbers.maxCaptionPreRollMs!,
     maxCaptionPostRollMs: numbers.maxCaptionPostRollMs!,
     minCaptionGapMs: numbers.minCaptionGapMs!,
+    speechPauseBoundaryMs: numbers.speechPauseBoundaryMs!,
+    punctuationClipBoundaryGapMs: numbers.punctuationClipBoundaryGapMs!,
+  };
+}
+
+function resegmentUnreadableCaptionRuns(
+  captions: readonly Caption[],
+  policy: CaptionReadabilityTimingPolicy,
+): Caption[] {
+  const runs: Caption[][] = [];
+  for (const source of captions) {
+    const caption = cloneCaption(source);
+    const current = runs[runs.length - 1];
+    const previous = current?.[current.length - 1];
+    if (!current || !previous || isHardCaptionBoundary(previous, caption, policy)) {
+      runs.push([caption]);
+    } else {
+      current.push(caption);
+    }
+  }
+
+  return runs.flatMap((run) => {
+    if (!run.some((caption) => isCaptionUnderReadable(caption, policy))) {
+      return run;
+    }
+    const words = run.flatMap(captionWords);
+    if (words.length === 0 || run.some((caption) => captionWords(caption).length === 0)) {
+      return run;
+    }
+    const partitioned = partitionTimedCaptionWords(words, policy);
+    return partitioned
+      && countCaptionReadabilityViolations(partitioned, policy)
+        < countCaptionReadabilityViolations(run, policy)
+      ? partitioned
+      : run;
+  });
+}
+
+function isHardCaptionBoundary(
+  left: Caption,
+  right: Caption,
+  policy: CaptionReadabilityTimingPolicy,
+): boolean {
+  const leftWords = captionWords(left);
+  const rightWords = captionWords(right);
+  const previous = leftWords[leftWords.length - 1];
+  const next = rightWords[0];
+  if (!previous || !next) return true;
+
+  const gapMs = Math.max(0, next.startMs - previous.endMs);
+  if (gapMs >= policy.speechPauseBoundaryMs) return true;
+  return /[.!?;:]$/u.test(previous.word.trim())
+    && gapMs >= policy.punctuationClipBoundaryGapMs;
+}
+
+interface CaptionPartition {
+  groups: Caption[];
+  violations: number;
+  overflow: number;
+  deviation: number;
+}
+
+function partitionTimedCaptionWords(
+  words: readonly CaptionWord[],
+  policy: CaptionReadabilityTimingPolicy,
+): Caption[] | null {
+  const best: Array<CaptionPartition | null> = Array(words.length + 1).fill(null);
+  best[words.length] = { groups: [], violations: 0, overflow: 0, deviation: 0 };
+  const maxWords = Math.max(1, Math.round(policy.maxMergeWords));
+  const targetWords = Math.max(1, Math.min(maxWords, Math.round(policy.groupWordsPerCaption)));
+
+  for (let start = words.length - 1; start >= 0; start -= 1) {
+    for (let end = start + 1; end <= Math.min(words.length, start + maxWords); end += 1) {
+      const next = best[end];
+      if (!next) continue;
+      const groupWords = words.slice(start, end).map((word) => ({ ...word }));
+      const caption = captionFromWords(groupWords);
+      const textOverflow = Math.max(0, caption.text.length - policy.maxCharsPerCaption);
+      const durationOverflow = Math.max(
+        0,
+        captionDurationMs(caption) - policy.maxGroupDurationMs,
+      );
+      if ((textOverflow > 0 || durationOverflow > 0) && groupWords.length > 1) continue;
+
+      const candidate: CaptionPartition = {
+        groups: [caption, ...next.groups],
+        violations: (
+          isCaptionUnderReadable(caption, policy) ? 1 : 0
+        ) + next.violations,
+        overflow: textOverflow + Math.ceil(durationOverflow / 100) + next.overflow,
+        deviation: Math.abs(groupWords.length - targetWords) + next.deviation,
+      };
+      if (!best[start] || compareCaptionPartitions(candidate, best[start]!) < 0) {
+        best[start] = candidate;
+      }
+    }
+  }
+
+  return best[0]?.groups ?? null;
+}
+
+function compareCaptionPartitions(left: CaptionPartition, right: CaptionPartition): number {
+  return left.violations - right.violations
+    || left.overflow - right.overflow
+    || left.deviation - right.deviation
+    || left.groups.length - right.groups.length;
+}
+
+function captionFromWords(words: CaptionWord[]): Caption {
+  return {
+    text: words.map((word) => word.word).join(' '),
+    startMs: words[0].startMs,
+    endMs: words[words.length - 1].endMs,
+    timestampMs: null,
+    confidence: words.reduce(
+      (sum, word) => sum + (word.confidence ?? 1),
+      0,
+    ) / words.length,
+    words,
   };
 }
 
