@@ -18,6 +18,10 @@ import {
   EDITRON_CAPTION_SAFE_BOTTOM_MARGIN,
   EDITRON_CAPTION_SAFE_TOP_MARGIN,
 } from '../shared/overlay-safe-zone-contract';
+import {
+  captionMinimumEventDurationMs,
+  normalizeCaptionGroupsForReadability,
+} from './caption-readability-contract';
 
 export const CANONICAL_CAPTION_TRACK_SOURCE = 'canonical-caption-track';
 const SOURCE_TEXT_PROTECTED_REGION_REASON = 'source-text-box';
@@ -426,112 +430,11 @@ function readableCaptionGroups(
   readability: ReturnType<typeof captionReadabilityPolicy>,
   segmentEndMs?: number,
 ): Caption[] {
-  return padReadableCaptionWindows(
-    normalizeReadableCaptionGroups(groupWordsIntoCaptions(words, config), readability),
+  return normalizeCaptionGroupsForReadability(
+    groupWordsIntoCaptions(words, config),
     readability,
     segmentEndMs,
   );
-}
-
-function normalizeReadableCaptionGroups(
-  captions: Caption[],
-  readability: ReturnType<typeof captionReadabilityPolicy>,
-): Caption[] {
-  const normalized: Caption[] = [];
-
-  for (const caption of captions) {
-    const previous = normalized[normalized.length - 1];
-    if (
-      previous &&
-      (captionDurationMs(previous) < readability.minGroupDurationMs || captionDurationMs(caption) < readability.minGroupDurationMs) &&
-      canMergeCaptionGroups(previous, caption, readability)
-    ) {
-      normalized[normalized.length - 1] = mergeCaptionGroups(previous, caption);
-    } else {
-      normalized.push(caption);
-    }
-  }
-
-  return normalized;
-}
-
-function canMergeCaptionGroups(
-  left: Caption,
-  right: Caption,
-  readability: ReturnType<typeof captionReadabilityPolicy>,
-): boolean {
-  const words = [...(left.words ?? []), ...(right.words ?? [])];
-  const text = words.map((word) => word.word).join(' ');
-  const durationMs = (right.endMs ?? 0) - (left.startMs ?? 0);
-
-  return words.length <= readability.maxMergeWords
-    && text.length <= readability.maxMergeChars
-    && durationMs <= readability.maxMergedGroupDurationMs;
-}
-
-function mergeCaptionGroups(left: Caption, right: Caption): Caption {
-  const words = [...(left.words ?? []), ...(right.words ?? [])];
-  const text = words.map((word) => word.word).join(' ');
-  const confidence = words.length > 0
-    ? words.reduce((sum, word) => sum + (word.confidence ?? 1), 0) / words.length
-    : Math.min(left.confidence ?? 1, right.confidence ?? 1);
-
-  return {
-    text,
-    startMs: left.startMs,
-    endMs: right.endMs,
-    timestampMs: null,
-    confidence,
-    words,
-  };
-}
-
-function captionDurationMs(caption: Caption): number {
-  return Math.max(0, (caption.endMs ?? 0) - (caption.startMs ?? 0));
-}
-
-function padReadableCaptionWindows(
-  captions: Caption[],
-  readability: ReturnType<typeof captionReadabilityPolicy>,
-  segmentEndMs?: number,
-): Caption[] {
-  return captions.map((caption, index) => {
-    const durationMs = captionDurationMs(caption);
-    if (durationMs >= readability.minGroupDurationMs) return caption;
-
-    const previous = captions[index - 1];
-    const next = captions[index + 1];
-    const minStartMs = (previous?.endMs ?? 0) + readability.minCaptionGapMs;
-    const maxEndMs = Math.min(
-      next ? next.startMs - readability.minCaptionGapMs : Number.POSITIVE_INFINITY,
-      Number.isFinite(segmentEndMs) ? (segmentEndMs ?? Number.POSITIVE_INFINITY) - readability.minCaptionGapMs : Number.POSITIVE_INFINITY,
-    );
-
-    let startMs = caption.startMs;
-    let endMs = caption.endMs;
-    let remainingMs = readability.minGroupDurationMs - durationMs;
-
-    const postRollMs = Math.min(
-      remainingMs,
-      readability.maxCaptionPostRollMs,
-      Math.max(0, maxEndMs - endMs),
-    );
-    endMs += postRollMs;
-    remainingMs -= postRollMs;
-
-    const preRollMs = Math.min(
-      remainingMs,
-      readability.maxCaptionPreRollMs,
-      Math.max(0, startMs - minStartMs),
-    );
-    startMs -= preRollMs;
-
-    return {
-      ...caption,
-      startMs: Math.max(0, Math.round(startMs)),
-      endMs: Math.max(Math.round(startMs) + 80, Math.round(endMs)),
-    };
-  });
 }
 
 function removeSupersededGeneratedCaptionTracks(overlays: any[]): number {
@@ -613,7 +516,10 @@ function captionReadabilityPolicy(
   const maxCharsPerCaption = subtitleMode ? 38 : sourceKaraokeMode ? 84 : highEnergy ? 22 : 30;
   const maxGroupDurationMs = sourceKaraokeMode ? 2800 : panelMode ? 2300 : highEnergy ? 1450 : 1900;
   const speechPauseBoundaryMs = highEnergy ? 380 : panelMode ? 620 : 500;
-  const minGroupDurationMs = subtitleMode ? 900 : karaokeMode ? 760 : highEnergy ? 560 : 680;
+  const minGroupDurationMs = Math.max(
+    subtitleMode ? 900 : karaokeMode ? 760 : highEnergy ? 560 : 680,
+    captionMinimumEventDurationMs(sourceMode),
+  );
   const maxMergeWords = subtitleMode
     ? Math.max(wordsPerGroup, 10)
     : sourceKaraokeMode
@@ -627,7 +533,7 @@ function captionReadabilityPolicy(
     : Math.max(maxGroupDurationMs, minGroupDurationMs + 700);
 
   return {
-    version: 'caption-readability-policy-v1',
+    version: 'caption-readability-policy-v1' as const,
     sourceMode,
     renderMode: mode,
     wordsPerGroup: Math.max(1, wordsPerGroup),
@@ -640,7 +546,7 @@ function captionReadabilityPolicy(
     maxMergeChars,
     maxMergedGroupDurationMs,
     maxCaptionPreRollMs: panelMode ? 320 : 260,
-    maxCaptionPostRollMs: panelMode ? 520 : 420,
+    maxCaptionPostRollMs: panelMode ? 520 : 500,
     minCaptionGapMs: 80,
     speechPauseBoundaryMs,
     softClipBoundaryGapMs: Math.max(220, Math.round(speechPauseBoundaryMs * 0.65)),

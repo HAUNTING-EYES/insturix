@@ -14,6 +14,7 @@ import {
   EDITRON_CAPTION_SAFE_BOTTOM_MARGIN,
   EDITRON_CAPTION_SAFE_TOP_MARGIN,
 } from '../../../shared/overlay-safe-zone-contract';
+import { minimumReadableCaptionDurationMs } from '../../../services/caption-readability-contract';
 
 export type RenderedAestheticDimension =
   | 'render'
@@ -383,7 +384,12 @@ function scoreText(overlay: NormalizedOverlay, input: RenderedFrameAestheticInpu
   const durationFrames = overlay.item.receipt?.durationFrames ?? overlay.item.receipt?.form.timing.durationFrames;
   if (durationFrames !== undefined && input.fps && wordCount > 0) {
     const seconds = durationFrames / input.fps;
-    const needed = readSeconds(wordCount);
+    const needed = isCaption
+      ? minimumReadableCaptionDurationMs({
+          wordCount,
+          mode: text.display?.mode,
+        }) / 1_000
+      : readSeconds(wordCount);
     if (seconds + 0.05 < needed) {
       addIssue('text', 0.16, 'text does not stay long enough to read', {
         overlay: overlay.item,

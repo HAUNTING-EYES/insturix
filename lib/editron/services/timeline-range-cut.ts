@@ -7,6 +7,11 @@ import type {
   KeyframeTrack,
 } from '@/components/editron/editor/version-7.0.0/types';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
+import {
+  countCaptionReadabilityViolations,
+  normalizeCaptionGroupsForReadability,
+  parseCaptionReadabilityTimingPolicy,
+} from './caption-readability-contract';
 
 type OverlayRecord = Record<string, any>;
 
@@ -319,6 +324,37 @@ function remapCaptionOverlay(input: {
 
   overlay.from = newFrom;
   overlay.durationInFrames = newEnd - newFrom;
+  const readability = parseCaptionReadabilityTimingPolicy(
+    overlay.metadata?.evidence?.readability,
+  );
+  if (readability && Array.isArray(overlay.captions)) {
+    const beforeGroupCount = overlay.captions.length;
+    const beforeViolationCount = countCaptionReadabilityViolations(
+      overlay.captions,
+      readability,
+    );
+    overlay.captions = normalizeCaptionGroupsForReadability(
+      overlay.captions,
+      readability,
+      framesToMs(overlay.durationInFrames, input.fps),
+    );
+    overlay.metadata = {
+      ...asRecord(overlay.metadata),
+      evidence: {
+        ...asRecord(overlay.metadata?.evidence),
+        timelineReadabilityRepair: {
+          version: 'caption-timeline-readability-repair-v1',
+          beforeGroupCount,
+          afterGroupCount: overlay.captions.length,
+          beforeViolationCount,
+          afterViolationCount: countCaptionReadabilityViolations(
+            overlay.captions,
+            readability,
+          ),
+        },
+      },
+    };
+  }
   overlay.keyframeTracks = spliceKeyframeTracks(
     overlay.keyframeTracks,
     Math.max(0, input.startFrame - oldFrom),
