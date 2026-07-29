@@ -1,6 +1,6 @@
 {
   "version": "sfx-catalog-v1",
-  "generatedAt": "2026-07-27T21:38:18.596Z",
+  "generatedAt": "2026-07-29T17:31:28.338Z",
   "knowledgeGraphRefs": [
     "transition-sfx-pairing",
     "true-peak-limiting",
@@ -27,437 +27,6 @@
     ]
   },
   "entries": [
-    {
-      "assetId": "sfx_catalog_04530a2e35bf08531b9537ea",
-      "title": "Ogg versus WAV 48kHz sample.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_04530a2e35bf08531b9537ea",
-      "storagePath": "sfx_catalog_04530a2e35bf08531b9537ea",
-      "durationMs": 18936,
-      "contentHashSha256": "04530a2e35bf08531b9537ea7391832b2503e6b591a4b17f19c020ff3ac0b6d4",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "ambience"
-      ],
-      "surfaces": [
-        "scene",
-        "chapter"
-      ],
-      "layerRole": "bed",
-      "tags": [
-        "ambience",
-        "waves-and-surf",
-        "ocean",
-        "water",
-        "arctic-stern",
-        "beach",
-        "calm",
-        "coast",
-        "coastal",
-        "compare",
-        "compression",
-        "file",
-        "flac",
-        "ogg",
-        "relaxing",
-        "review",
-        "sand",
-        "sandy-beach",
-        "sea",
-        "seaside",
-        "ship-engine",
-        "shore",
-        "surf",
-        "technique",
-        "vobis",
-        "wav",
-        "wave"
-      ],
-      "negativeTags": [],
-      "energy": 0.32,
-      "brightness": 0.45,
-      "weight": 0.4,
-      "transientSharpness": 0.18,
-      "material": "environmental",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "still",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -28.8,
-        "truePeakDbtp": -13.9,
-        "sampleRateHz": 48000,
-        "channelCount": 2,
-        "durationMs": 18936,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "04530a2e35bf08531b9537ea7391832b2503e6b591a4b17f19c020ff3ac0b6d4",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -28.8
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "236695",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_04530a2e35bf08531b9537ea",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_0dae0e7eed7b54771068ea04",
-      "title": "Glass.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_0dae0e7eed7b54771068ea04",
-      "storagePath": "sfx_catalog_0dae0e7eed7b54771068ea04",
-      "durationMs": 10464,
-      "contentHashSha256": "0dae0e7eed7b54771068ea040236cc0d6997804972b13b090f80482170f665b1",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "impact"
-      ],
-      "surfaces": [
-        "transition",
-        "motion-graphic",
-        "scene"
-      ],
-      "layerRole": "impact",
-      "tags": [
-        "impact",
-        "shatter",
-        "glass",
-        "break",
-        "crack",
-        "wav"
-      ],
-      "negativeTags": [],
-      "energy": 0.78,
-      "brightness": 0.35,
-      "weight": 0.82,
-      "transientSharpness": 0.88,
-      "material": "physical",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "fast",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -27.2,
-        "truePeakDbtp": -3.7,
-        "sampleRateHz": 48000,
-        "channelCount": 1,
-        "durationMs": 10464,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "0dae0e7eed7b54771068ea040236cc0d6997804972b13b090f80482170f665b1",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -27.2
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "379015",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_0dae0e7eed7b54771068ea04",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_144a6370f9033790d01c708e",
-      "title": "Shells1.mp3",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_144a6370f9033790d01c708e",
-      "storagePath": "sfx_catalog_144a6370f9033790d01c708e",
-      "durationMs": 12853,
-      "contentHashSha256": "144a6370f9033790d01c708e6bf4080eaea8cf71eee241dab9a245790fb45105",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "impact"
-      ],
-      "surfaces": [
-        "transition",
-        "motion-graphic",
-        "scene"
-      ],
-      "layerRole": "impact",
-      "tags": [
-        "impact",
-        "fireworks",
-        "explosion",
-        "field-recording",
-        "shells"
-      ],
-      "negativeTags": [],
-      "energy": 0.78,
-      "brightness": 0.35,
-      "weight": 0.82,
-      "transientSharpness": 0.88,
-      "material": "physical",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "fast",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -10.7,
-        "truePeakDbtp": -1.4,
-        "sampleRateHz": 48000,
-        "channelCount": 2,
-        "durationMs": 12853,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "144a6370f9033790d01c708e6bf4080eaea8cf71eee241dab9a245790fb45105",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -10.7
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "14742",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_144a6370f9033790d01c708e",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_166ca7447b8c85cdddd143a7",
-      "title": "Real Snap 7.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_166ca7447b8c85cdddd143a7",
-      "storagePath": "sfx_catalog_166ca7447b8c85cdddd143a7",
-      "durationMs": 2256,
-      "contentHashSha256": "166ca7447b8c85cdddd143a739824ee0c3f049a398134dd16183ad1043be1fd3",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "pop"
-      ],
-      "surfaces": [
-        "motion-graphic",
-        "ui",
-        "caption"
-      ],
-      "layerRole": "oneshot",
-      "tags": [
-        "pop",
-        "finger-snapping",
-        "hands",
-        "finger",
-        "finger-snaps",
-        "percussion",
-        "real-snap",
-        "sample",
-        "simple",
-        "snap",
-        "snap-samples",
-        "snaps"
-      ],
-      "negativeTags": [],
-      "energy": 0.42,
-      "brightness": 0.58,
-      "weight": 0.32,
-      "transientSharpness": 0.8,
-      "material": "recorded",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "fast",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -24.8,
-        "truePeakDbtp": -1,
-        "sampleRateHz": 48000,
-        "channelCount": 2,
-        "durationMs": 2256,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "166ca7447b8c85cdddd143a739824ee0c3f049a398134dd16183ad1043be1fd3",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -24.8
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "361767",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_166ca7447b8c85cdddd143a7",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_207da69897fa13cb802f26dd",
-      "title": "Dirty Tony Cowbell Mx 032.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_207da69897fa13cb802f26dd",
-      "storagePath": "sfx_catalog_207da69897fa13cb802f26dd",
-      "durationMs": 2064,
-      "contentHashSha256": "207da69897fa13cb802f26dd9499cd4376d99c11c46b7702b3dd311635502918",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "shimmer"
-      ],
-      "surfaces": [
-        "motion-graphic",
-        "logo",
-        "transition"
-      ],
-      "layerRole": "oneshot",
-      "tags": [
-        "shimmer",
-        "cowbell",
-        "bell",
-        "dirty",
-        "drum",
-        "drumkit",
-        "pack",
-        "realistic",
-        "suicidity",
-        "tonys"
-      ],
-      "negativeTags": [],
-      "energy": 0.4,
-      "brightness": 0.88,
-      "weight": 0.12,
-      "transientSharpness": 0.55,
-      "material": "tonal",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "medium",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -16.8,
-        "truePeakDbtp": -1,
-        "sampleRateHz": 48000,
-        "channelCount": 2,
-        "durationMs": 2064,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "207da69897fa13cb802f26dd9499cd4376d99c11c46b7702b3dd311635502918",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -16.8
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "91170",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_207da69897fa13cb802f26dd",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_24f40eea1e01bf70558c2adc",
-      "title": "119132__esperri__footsteps-on-hardwood-Denoised.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_24f40eea1e01bf70558c2adc",
-      "storagePath": "sfx_catalog_24f40eea1e01bf70558c2adc",
-      "durationMs": 9120,
-      "contentHashSha256": "24f40eea1e01bf70558c2adce410b5453f9d14c271c8fa0c5589278e87f6e4e9",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "foley"
-      ],
-      "surfaces": [
-        "scene",
-        "motion-graphic"
-      ],
-      "layerRole": "oneshot",
-      "tags": [
-        "foley",
-        "walk-and-footsteps",
-        "denoise",
-        "floor",
-        "footsteps",
-        "hardwood",
-        "izotope"
-      ],
-      "negativeTags": [],
-      "energy": 0.45,
-      "brightness": 0.45,
-      "weight": 0.5,
-      "transientSharpness": 0.64,
-      "material": "physical",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "medium",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -29,
-        "truePeakDbtp": -1,
-        "sampleRateHz": 48000,
-        "channelCount": 2,
-        "durationMs": 9120,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "24f40eea1e01bf70558c2adce410b5453f9d14c271c8fa0c5589278e87f6e4e9",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -29
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "148853",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_24f40eea1e01bf70558c2adc",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
     {
       "assetId": "sfx_catalog_2c3f2c5a044c37e01f857420",
       "title": "swosh-07.flac",
@@ -527,6 +96,39 @@
         "loudnessMetric": "rms-dbfs",
         "shortWindowRmsDbfs": -19.923870656152232
       },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "1ab344e19673ebd2ceb1669347bd3bd292632a3bbfe73c5e500cbebbff2802bd",
+        "embeddingSourceHashSha256": "2c3f2c5a044c37e01f8574206a7b9b72f02363189fbc51b76662662ab4fb310f",
+        "catalogContentHashSha256": "2c3f2c5a044c37e01f8574206a7b9b72f02363189fbc51b76662662ab4fb310f",
+        "selectedRole": "whoosh",
+        "selectedRoleCosineSimilarity": 0.5952202428795831,
+        "selectedRoleRank": 1,
+        "topRole": "whoosh",
+        "topRoleCosineSimilarity": 0.5952202428795831,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.15080846381798207
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": 0.06359341707005974
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.3065006975042136
+          }
+        ]
+      },
       "provenance": {
         "provider": "freesound",
         "providerAssetId": "59994",
@@ -542,363 +144,6 @@
         "evidence": {
           "kind": "library-license",
           "sourceAssetId": "sfx_catalog_2c3f2c5a044c37e01f857420",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_2e52a133abb99d6628cef6d2",
-      "title": "Dirty Tony Cowbell Mx 040.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_2e52a133abb99d6628cef6d2",
-      "storagePath": "sfx_catalog_2e52a133abb99d6628cef6d2",
-      "durationMs": 2064,
-      "contentHashSha256": "2e52a133abb99d6628cef6d29cf16704601aa39bb8d3243726ad817a59aef81e",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "shimmer"
-      ],
-      "surfaces": [
-        "motion-graphic",
-        "logo",
-        "transition"
-      ],
-      "layerRole": "oneshot",
-      "tags": [
-        "shimmer",
-        "cowbell",
-        "bell",
-        "dirty",
-        "drum",
-        "drumkit",
-        "pack",
-        "realistic",
-        "suicidity",
-        "tonys"
-      ],
-      "negativeTags": [],
-      "energy": 0.4,
-      "brightness": 0.88,
-      "weight": 0.12,
-      "transientSharpness": 0.55,
-      "material": "tonal",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "medium",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -17.1,
-        "truePeakDbtp": -1,
-        "sampleRateHz": 48000,
-        "channelCount": 2,
-        "durationMs": 2064,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "2e52a133abb99d6628cef6d29cf16704601aa39bb8d3243726ad817a59aef81e",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -17.1
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "91178",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_2e52a133abb99d6628cef6d2",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_3215969574efb26ac30fca8d",
-      "title": "bicycle-bell_19.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_3215969574efb26ac30fca8d",
-      "storagePath": "sfx_catalog_3215969574efb26ac30fca8d",
-      "durationMs": 3432,
-      "contentHashSha256": "3215969574efb26ac30fca8da70a54404485265bb6d87561003d8b768c0fc21c",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "shimmer"
-      ],
-      "surfaces": [
-        "motion-graphic",
-        "logo",
-        "transition"
-      ],
-      "layerRole": "oneshot",
-      "tags": [
-        "shimmer",
-        "bicycle-bell",
-        "alarm",
-        "bicycle",
-        "vehicle",
-        "bell",
-        "bike",
-        "clang",
-        "contact",
-        "ding",
-        "glock",
-        "glockenspiel",
-        "hit",
-        "metal",
-        "metallic",
-        "percussion",
-        "ping",
-        "ring",
-        "strike",
-        "ting"
-      ],
-      "negativeTags": [],
-      "energy": 0.4,
-      "brightness": 0.88,
-      "weight": 0.12,
-      "transientSharpness": 0.55,
-      "material": "tonal",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "medium",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -15.9,
-        "truePeakDbtp": -1,
-        "sampleRateHz": 48000,
-        "channelCount": 1,
-        "durationMs": 3432,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "3215969574efb26ac30fca8da70a54404485265bb6d87561003d8b768c0fc21c",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -15.9
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "383631",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_3215969574efb26ac30fca8d",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_443010570c3052398e7366e7",
-      "title": "Short-Fireball-Woosh.flac",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_443010570c3052398e7366e7",
-      "storagePath": "sfx_catalog_443010570c3052398e7366e7",
-      "durationMs": 1200,
-      "contentHashSha256": "443010570c3052398e7366e749e766c30ebd073c12f0aec7450070857ee7f9b9",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "whoosh"
-      ],
-      "surfaces": [
-        "transition",
-        "motion-graphic"
-      ],
-      "layerRole": "oneshot",
-      "tags": [
-        "whoosh",
-        "whoosh-and-swoosh-and-swish",
-        "fire",
-        "sfx",
-        "woosh"
-      ],
-      "negativeTags": [],
-      "energy": 0.58,
-      "brightness": 0.58,
-      "weight": 0.28,
-      "transientSharpness": 0.55,
-      "material": "air",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "fast",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -12.7,
-        "truePeakDbtp": -1,
-        "sampleRateHz": 48000,
-        "channelCount": 2,
-        "durationMs": 1200,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "443010570c3052398e7366e749e766c30ebd073c12f0aec7450070857ee7f9b9",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -12.7
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "267887",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_443010570c3052398e7366e7",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_451e23aa1cab85469d3fe265",
-      "title": "windchime1.mp3",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_451e23aa1cab85469d3fe265",
-      "storagePath": "sfx_catalog_451e23aa1cab85469d3fe265",
-      "durationMs": 20611,
-      "contentHashSha256": "451e23aa1cab85469d3fe2654c0fefcee2688c93e81282150cc38040b8468054",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "shimmer"
-      ],
-      "surfaces": [
-        "motion-graphic",
-        "logo",
-        "transition"
-      ],
-      "layerRole": "oneshot",
-      "tags": [
-        "shimmer",
-        "wind-chime",
-        "chime",
-        "bell",
-        "ding",
-        "ringing",
-        "wind",
-        "windchime"
-      ],
-      "negativeTags": [],
-      "energy": 0.4,
-      "brightness": 0.88,
-      "weight": 0.12,
-      "transientSharpness": 0.55,
-      "material": "tonal",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "medium",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -20.9,
-        "truePeakDbtp": -1,
-        "sampleRateHz": 48000,
-        "channelCount": 1,
-        "durationMs": 20611,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "451e23aa1cab85469d3fe2654c0fefcee2688c93e81282150cc38040b8468054",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -20.9
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "376647",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_451e23aa1cab85469d3fe265",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_4d8dd8438e22db494375c13e",
-      "title": "GB_wall.flac",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_4d8dd8438e22db494375c13e",
-      "storagePath": "sfx_catalog_4d8dd8438e22db494375c13e",
-      "durationMs": 29728,
-      "contentHashSha256": "4d8dd8438e22db494375c13e4f5e4cd1b56e7526862570e5925ad84d09a9db7f",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "tick"
-      ],
-      "surfaces": [
-        "motion-graphic",
-        "ui",
-        "caption"
-      ],
-      "layerRole": "oneshot",
-      "tags": [
-        "tick",
-        "clock",
-        "mechanisms",
-        "becker",
-        "dr-100",
-        "gustav",
-        "tascam",
-        "old",
-        "sound",
-        "tic-tac"
-      ],
-      "negativeTags": [],
-      "energy": 0.25,
-      "brightness": 0.68,
-      "weight": 0.14,
-      "transientSharpness": 0.93,
-      "material": "recorded",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "fast",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -31.6,
-        "truePeakDbtp": -1,
-        "sampleRateHz": 48000,
-        "channelCount": 2,
-        "durationMs": 29728,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "4d8dd8438e22db494375c13e4f5e4cd1b56e7526862570e5925ad84d09a9db7f",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -31.6
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "150363",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_4d8dd8438e22db494375c13e",
           "licenseId": "cc0-1.0"
         }
       }
@@ -973,6 +218,39 @@
         "loudnessMetric": "integrated-lufs",
         "integratedLufs": -15.5
       },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "d834b84f3372ad4d4c8d6d90c074e671770ae4811ac6798502c9e1152c730398",
+        "embeddingSourceHashSha256": "5eca2769d33d02a257784f78cf1c2e853a31bfd2f69506b9b43eccbdde9697de",
+        "catalogContentHashSha256": "5eca2769d33d02a257784f78cf1c2e853a31bfd2f69506b9b43eccbdde9697de",
+        "selectedRole": "whoosh",
+        "selectedRoleCosineSimilarity": 0.5431380525209935,
+        "selectedRoleRank": 1,
+        "topRole": "whoosh",
+        "topRoleCosineSimilarity": 0.5431380525209935,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.16668761984914138
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.05313584116353402
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.315277774985475
+          }
+        ]
+      },
       "provenance": {
         "provider": "freesound",
         "providerAssetId": "60030",
@@ -993,209 +271,87 @@
       }
     },
     {
-      "assetId": "sfx_catalog_6948f39f6b462fc80ea50b7c",
-      "title": "wind25.m4a",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_6948f39f6b462fc80ea50b7c",
-      "storagePath": "sfx_catalog_6948f39f6b462fc80ea50b7c",
-      "durationMs": 1944,
-      "contentHashSha256": "6948f39f6b462fc80ea50b7cbc0463ed3f7450bf4d75d6341d7ac77ec2a0eef9",
+      "assetId": "sfx_catalog_443010570c3052398e7366e7",
+      "title": "Short-Fireball-Woosh.flac",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_443010570c3052398e7366e7",
+      "storagePath": "sfx_catalog_443010570c3052398e7366e7",
+      "durationMs": 1200,
+      "contentHashSha256": "443010570c3052398e7366e749e766c30ebd073c12f0aec7450070857ee7f9b9",
       "mimeType": "audio/wav",
       "eventRoles": [
-        "ambience"
-      ],
-      "surfaces": [
-        "scene",
-        "chapter"
-      ],
-      "layerRole": "bed",
-      "tags": [
-        "ambience",
-        "wind",
-        "storm",
-        "windy"
-      ],
-      "negativeTags": [],
-      "energy": 0.32,
-      "brightness": 0.45,
-      "weight": 0.4,
-      "transientSharpness": 0.18,
-      "material": "environmental",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "still",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -29.8,
-        "truePeakDbtp": -16.4,
-        "sampleRateHz": 48000,
-        "channelCount": 1,
-        "durationMs": 1944,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "6948f39f6b462fc80ea50b7cbc0463ed3f7450bf4d75d6341d7ac77ec2a0eef9",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -29.8
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "420317",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_6948f39f6b462fc80ea50b7c",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_71a308214e7d3b93f2dc1552",
-      "title": "Car Door Open and Close 01.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_71a308214e7d3b93f2dc1552",
-      "storagePath": "sfx_catalog_71a308214e7d3b93f2dc1552",
-      "durationMs": 3266,
-      "contentHashSha256": "71a308214e7d3b93f2dc155241441064bbf46c4784bf0274dffb73500a74c241",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "impact"
+        "whoosh"
       ],
       "surfaces": [
         "transition",
-        "motion-graphic",
-        "scene"
-      ],
-      "layerRole": "impact",
-      "tags": [
-        "impact",
-        "chirp-and-tweet",
-        "slam",
-        "car",
-        "motor-vehicle-(road)",
-        "vehicle",
-        "bird-vocalization-and-bird-call-and-bird-song",
-        "bird",
-        "wild-animals",
-        "animal",
-        "door",
-        "domestic-sounds-and-home-sounds",
-        "automobile",
-        "field",
-        "recording"
-      ],
-      "negativeTags": [],
-      "energy": 0.78,
-      "brightness": 0.35,
-      "weight": 0.82,
-      "transientSharpness": 0.88,
-      "material": "physical",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "fast",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -19.9,
-        "truePeakDbtp": -3.8,
-        "sampleRateHz": 48000,
-        "channelCount": 2,
-        "durationMs": 3266,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "71a308214e7d3b93f2dc155241441064bbf46c4784bf0274dffb73500a74c241",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -19.9
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "387983",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_71a308214e7d3b93f2dc1552",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_820d3591f49a878357e9eba3",
-      "title": "Coin on coins_07.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_820d3591f49a878357e9eba3",
-      "storagePath": "sfx_catalog_820d3591f49a878357e9eba3",
-      "durationMs": 984,
-      "contentHashSha256": "820d3591f49a878357e9eba31ef936b78df5bf3edfb016df4eda02c87d443d46",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "tick"
-      ],
-      "surfaces": [
-        "motion-graphic",
-        "ui",
-        "caption"
+        "motion-graphic"
       ],
       "layerRole": "oneshot",
       "tags": [
-        "tick",
-        "coin-(dropping)",
-        "domestic-sounds-and-home-sounds",
-        "cash",
-        "change",
-        "coin",
-        "coins",
-        "currency",
-        "dime",
-        "drop",
-        "dropping",
-        "fall",
-        "jingle",
-        "metal",
-        "money",
-        "nickel",
-        "penny",
-        "quarter",
-        "tinkle"
+        "whoosh",
+        "whoosh-and-swoosh-and-swish",
+        "fire",
+        "sfx",
+        "woosh"
       ],
       "negativeTags": [],
-      "energy": 0.25,
-      "brightness": 0.68,
-      "weight": 0.14,
-      "transientSharpness": 0.93,
-      "material": "recorded",
+      "energy": 0.58,
+      "brightness": 0.58,
+      "weight": 0.28,
+      "transientSharpness": 0.55,
+      "material": "air",
       "tailMs": 0,
       "loopable": false,
       "direction": "neutral",
       "motionSpeed": "fast",
       "measurement": {
         "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -25,
+        "loudnessDb": -12.7,
         "truePeakDbtp": -1,
         "sampleRateHz": 48000,
-        "channelCount": 1,
-        "durationMs": 984,
+        "channelCount": 2,
+        "durationMs": 1200,
         "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "820d3591f49a878357e9eba31ef936b78df5bf3edfb016df4eda02c87d443d46",
+        "sourceHashSha256": "443010570c3052398e7366e749e766c30ebd073c12f0aec7450070857ee7f9b9",
         "algorithm": "ffmpeg-ebur128-v1",
         "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -25
+        "integratedLufs": -12.7
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "1dbdad96cc4eccdc37671ee54014fc46f79abb542aa4c83f3fe5424735ddbb69",
+        "embeddingSourceHashSha256": "443010570c3052398e7366e749e766c30ebd073c12f0aec7450070857ee7f9b9",
+        "catalogContentHashSha256": "443010570c3052398e7366e749e766c30ebd073c12f0aec7450070857ee7f9b9",
+        "selectedRole": "whoosh",
+        "selectedRoleCosineSimilarity": 0.5541965246909364,
+        "selectedRoleRank": 1,
+        "topRole": "whoosh",
+        "topRoleCosineSimilarity": 0.5541965246909364,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.038177577862629326
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.12959644579891383
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.11216789391789048
+          }
+        ]
       },
       "provenance": {
         "provider": "freesound",
-        "providerAssetId": "349279",
+        "providerAssetId": "267887",
         "licenseId": "cc0-1.0",
         "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false
@@ -1207,7 +363,7 @@
         "licensed": true,
         "evidence": {
           "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_820d3591f49a878357e9eba3",
+          "sourceAssetId": "sfx_catalog_443010570c3052398e7366e7",
           "licenseId": "cc0-1.0"
         }
       }
@@ -1272,6 +428,39 @@
         "loudnessMetric": "integrated-lufs",
         "integratedLufs": -19.6
       },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "b2177f88fc01256fd3e23746bd6d3e40a186df0b7a92552433d8762b5307fb1d",
+        "embeddingSourceHashSha256": "85a581e8d5de19d33b2119a96ce8ee4806efac6f2be2ba6d1f1051f08f5565f7",
+        "catalogContentHashSha256": "85a581e8d5de19d33b2119a96ce8ee4806efac6f2be2ba6d1f1051f08f5565f7",
+        "selectedRole": "whoosh",
+        "selectedRoleCosineSimilarity": 0.30926410413304256,
+        "selectedRoleRank": 2,
+        "topRole": "foley",
+        "topRoleCosineSimilarity": 0.36443925746822836,
+        "roleAgreement": false,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.06842680203144758
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.07290405062166112
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": 0.03903961077439911
+          }
+        ]
+      },
       "provenance": {
         "provider": "freesound",
         "providerAssetId": "395361",
@@ -1287,79 +476,6 @@
         "evidence": {
           "kind": "library-license",
           "sourceAssetId": "sfx_catalog_85a581e8d5de19d33b2119a9",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_916e07f5b9e506b1ce4c571a",
-      "title": "FrontDoor18.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_916e07f5b9e506b1ce4c571a",
-      "storagePath": "sfx_catalog_916e07f5b9e506b1ce4c571a",
-      "durationMs": 758,
-      "contentHashSha256": "916e07f5b9e506b1ce4c571ad547189dde3f3e649b47de1496c595a6d35ece6b",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "impact"
-      ],
-      "surfaces": [
-        "transition",
-        "motion-graphic",
-        "scene"
-      ],
-      "layerRole": "impact",
-      "tags": [
-        "impact",
-        "knock",
-        "door",
-        "domestic-sounds-and-home-sounds",
-        "field-recording",
-        "foley",
-        "found",
-        "hit",
-        "house",
-        "kitchen",
-        "percussion",
-        "screen-door"
-      ],
-      "negativeTags": [],
-      "energy": 0.78,
-      "brightness": 0.35,
-      "weight": 0.82,
-      "transientSharpness": 0.88,
-      "material": "physical",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "fast",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -28.5,
-        "truePeakDbtp": -4.7,
-        "sampleRateHz": 48000,
-        "channelCount": 2,
-        "durationMs": 758,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "916e07f5b9e506b1ce4c571ad547189dde3f3e649b47de1496c595a6d35ece6b",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -28.5
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "113131",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_916e07f5b9e506b1ce4c571a",
           "licenseId": "cc0-1.0"
         }
       }
@@ -1413,6 +529,39 @@
         "loudnessMetric": "integrated-lufs",
         "integratedLufs": -19.5
       },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "4159797db244f414e22a4d475cd1bcb0ff576ac6f4e78ed3a227418eaf558f30",
+        "embeddingSourceHashSha256": "a1b187880a97430540916f9c5f624f2db08eff7949768a104f17968384fac76f",
+        "catalogContentHashSha256": "a1b187880a97430540916f9c5f624f2db08eff7949768a104f17968384fac76f",
+        "selectedRole": "whoosh",
+        "selectedRoleCosineSimilarity": 0.5499278875201248,
+        "selectedRoleRank": 1,
+        "topRole": "whoosh",
+        "topRoleCosineSimilarity": 0.5499278875201248,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.0798902453223308
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.12709680005236904
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.18298167469849663
+          }
+        ]
+      },
       "provenance": {
         "provider": "freesound",
         "providerAssetId": "402245",
@@ -1433,344 +582,88 @@
       }
     },
     {
-      "assetId": "sfx_catalog_a2e7f9ef8af295e62206dc53",
-      "title": "Zipper.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_a2e7f9ef8af295e62206dc53",
-      "storagePath": "sfx_catalog_a2e7f9ef8af295e62206dc53",
-      "durationMs": 549,
-      "contentHashSha256": "a2e7f9ef8af295e62206dc531f38dc86f325f00b936d74a8d8c9574ef895575a",
+      "assetId": "sfx_catalog_144a6370f9033790d01c708e",
+      "title": "Shells1.mp3",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_144a6370f9033790d01c708e",
+      "storagePath": "sfx_catalog_144a6370f9033790d01c708e",
+      "durationMs": 12853,
+      "contentHashSha256": "144a6370f9033790d01c708e6bf4080eaea8cf71eee241dab9a245790fb45105",
       "mimeType": "audio/wav",
       "eventRoles": [
-        "foley"
+        "impact"
       ],
       "surfaces": [
-        "scene",
-        "motion-graphic"
-      ],
-      "layerRole": "oneshot",
-      "tags": [
-        "foley",
-        "zipper-(clothing)",
-        "domestic-sounds-and-home-sounds",
-        "coat",
-        "jacket",
-        "pocket",
-        "zipper",
-        "zipping"
-      ],
-      "negativeTags": [],
-      "energy": 0.45,
-      "brightness": 0.45,
-      "weight": 0.5,
-      "transientSharpness": 0.64,
-      "material": "physical",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "medium",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -20.8,
-        "truePeakDbtp": -1,
-        "sampleRateHz": 48000,
-        "channelCount": 1,
-        "durationMs": 549,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "a2e7f9ef8af295e62206dc531f38dc86f325f00b936d74a8d8c9574ef895575a",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -20.8
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "388826",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_a2e7f9ef8af295e62206dc53",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_ad8df93f2c9eb3d920833348",
-      "title": "Coins",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_ad8df93f2c9eb3d920833348",
-      "storagePath": "sfx_catalog_ad8df93f2c9eb3d920833348",
-      "durationMs": 12552,
-      "contentHashSha256": "ad8df93f2c9eb3d92083334867fb86cb0932bc3ee30270f0218f340cfde58720",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "tick"
-      ],
-      "surfaces": [
+        "transition",
         "motion-graphic",
-        "ui",
-        "caption"
+        "scene"
       ],
-      "layerRole": "oneshot",
+      "layerRole": "impact",
       "tags": [
-        "tick",
-        "coin-(dropping)",
-        "domestic-sounds-and-home-sounds",
-        "cash",
-        "coin",
-        "coins",
-        "money",
-        "pick",
-        "pickup",
-        "up"
-      ],
-      "negativeTags": [],
-      "energy": 0.25,
-      "brightness": 0.68,
-      "weight": 0.14,
-      "transientSharpness": 0.93,
-      "material": "recorded",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "fast",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -18.6,
-        "truePeakDbtp": -1,
-        "sampleRateHz": 48000,
-        "channelCount": 2,
-        "durationMs": 12552,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "ad8df93f2c9eb3d92083334867fb86cb0932bc3ee30270f0218f340cfde58720",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -18.6
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "174629",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_ad8df93f2c9eb3d920833348",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_b9af71f2fa29b59aabbdcaea",
-      "title": "Knocking_22.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_b9af71f2fa29b59aabbdcaea",
-      "storagePath": "sfx_catalog_b9af71f2fa29b59aabbdcaea",
-      "durationMs": 1416,
-      "contentHashSha256": "b9af71f2fa29b59aabbdcaeaf172b00375e5d318c9f7727921c3df83042503e7",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "foley"
-      ],
-      "surfaces": [
-        "scene",
-        "motion-graphic"
-      ],
-      "layerRole": "oneshot",
-      "tags": [
-        "foley",
-        "knock",
-        "door",
-        "domestic-sounds-and-home-sounds",
-        "bang",
-        "closed",
-        "front",
-        "hit",
-        "house",
-        "knocking",
-        "knocks",
-        "rat",
-        "tap",
-        "tat",
-        "wood",
-        "wooden"
-      ],
-      "negativeTags": [],
-      "energy": 0.45,
-      "brightness": 0.45,
-      "weight": 0.5,
-      "transientSharpness": 0.64,
-      "material": "physical",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "medium",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -21.3,
-        "truePeakDbtp": -1,
-        "sampleRateHz": 48000,
-        "channelCount": 1,
-        "durationMs": 1416,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "b9af71f2fa29b59aabbdcaeaf172b00375e5d318c9f7727921c3df83042503e7",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -21.3
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "349297",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_b9af71f2fa29b59aabbdcaea",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_cf2fe9a23a2be3a13ec6d15b",
-      "title": "Snap.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_cf2fe9a23a2be3a13ec6d15b",
-      "storagePath": "sfx_catalog_cf2fe9a23a2be3a13ec6d15b",
-      "durationMs": 15021,
-      "contentHashSha256": "cf2fe9a23a2be3a13ec6d15b893af1ec8fe4f4d5b10c3bd1a8bdd8a5ba60130b",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "pop"
-      ],
-      "surfaces": [
-        "motion-graphic",
-        "ui",
-        "caption"
-      ],
-      "layerRole": "oneshot",
-      "tags": [
-        "pop",
-        "finger-snapping",
-        "hands",
-        "crack",
-        "fingers",
-        "snap"
-      ],
-      "negativeTags": [],
-      "energy": 0.42,
-      "brightness": 0.58,
-      "weight": 0.32,
-      "transientSharpness": 0.8,
-      "material": "recorded",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "fast",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -42,
-        "truePeakDbtp": -9.5,
-        "sampleRateHz": 48000,
-        "channelCount": 1,
-        "durationMs": 15021,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "cf2fe9a23a2be3a13ec6d15b893af1ec8fe4f4d5b10c3bd1a8bdd8a5ba60130b",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -42
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "425790",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_cf2fe9a23a2be3a13ec6d15b",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
-      "assetId": "sfx_catalog_d1740ae80bb474d9711e4c54",
-      "title": "Knocking three times.MP3",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_d1740ae80bb474d9711e4c54",
-      "storagePath": "sfx_catalog_d1740ae80bb474d9711e4c54",
-      "durationMs": 3553,
-      "contentHashSha256": "d1740ae80bb474d9711e4c5423c44196849824bd62d8791bf1d0b492468ed8a3",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "foley"
-      ],
-      "surfaces": [
-        "scene",
-        "motion-graphic"
-      ],
-      "layerRole": "oneshot",
-      "tags": [
-        "foley",
-        "knock",
-        "door",
-        "wood",
-        "domestic-sounds-and-home-sounds",
-        "bang",
-        "banging",
-        "hit",
-        "hitting",
         "impact",
-        "impacting",
-        "knocking",
-        "wooden"
+        "fireworks",
+        "explosion",
+        "field-recording",
+        "shells"
       ],
       "negativeTags": [],
-      "energy": 0.45,
-      "brightness": 0.45,
-      "weight": 0.5,
-      "transientSharpness": 0.64,
+      "energy": 0.78,
+      "brightness": 0.35,
+      "weight": 0.82,
+      "transientSharpness": 0.88,
       "material": "physical",
       "tailMs": 0,
       "loopable": false,
       "direction": "neutral",
-      "motionSpeed": "medium",
+      "motionSpeed": "fast",
       "measurement": {
         "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -21,
-        "truePeakDbtp": -1,
+        "loudnessDb": -10.7,
+        "truePeakDbtp": -1.4,
         "sampleRateHz": 48000,
         "channelCount": 2,
-        "durationMs": 3553,
+        "durationMs": 12853,
         "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "d1740ae80bb474d9711e4c5423c44196849824bd62d8791bf1d0b492468ed8a3",
+        "sourceHashSha256": "144a6370f9033790d01c708e6bf4080eaea8cf71eee241dab9a245790fb45105",
         "algorithm": "ffmpeg-ebur128-v1",
         "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -21
+        "integratedLufs": -10.7
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "3d484bb8f084e8f11e4433a2abe763bc36977945adf46f8deaff4a3448df152e",
+        "embeddingSourceHashSha256": "144a6370f9033790d01c708e6bf4080eaea8cf71eee241dab9a245790fb45105",
+        "catalogContentHashSha256": "144a6370f9033790d01c708e6bf4080eaea8cf71eee241dab9a245790fb45105",
+        "selectedRole": "impact",
+        "selectedRoleCosineSimilarity": 0.08273320671203446,
+        "selectedRoleRank": 1,
+        "topRole": "impact",
+        "topRoleCosineSimilarity": 0.08273320671203446,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.15000923468522476
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": 0.12594821301182768
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.06841023358187462
+          }
+        ]
       },
       "provenance": {
         "provider": "freesound",
-        "providerAssetId": "412858",
+        "providerAssetId": "14742",
         "licenseId": "cc0-1.0",
         "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false
@@ -1782,7 +675,7 @@
         "licensed": true,
         "evidence": {
           "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_d1740ae80bb474d9711e4c54",
+          "sourceAssetId": "sfx_catalog_144a6370f9033790d01c708e",
           "licenseId": "cc0-1.0"
         }
       }
@@ -1851,6 +744,39 @@
         "loudnessMetric": "integrated-lufs",
         "integratedLufs": -21.5
       },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "59ff755e13e34ce5a42cb6dbdabddb90f20549ce71679f775583592e5deb7f9c",
+        "embeddingSourceHashSha256": "d540ba24e9e7f2441aa2912607253bf415563c71a9bddfb7c8ac3be1c0fa0a34",
+        "catalogContentHashSha256": "d540ba24e9e7f2441aa2912607253bf415563c71a9bddfb7c8ac3be1c0fa0a34",
+        "selectedRole": "impact",
+        "selectedRoleCosineSimilarity": 0.5194166932918072,
+        "selectedRoleRank": 1,
+        "topRole": "impact",
+        "topRoleCosineSimilarity": 0.5194166932918072,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.16228544709523468
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.2600622637575313
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.12702979829696098
+          }
+        ]
+      },
       "provenance": {
         "provider": "freesound",
         "providerAssetId": "369135",
@@ -1871,57 +797,89 @@
       }
     },
     {
-      "assetId": "sfx_catalog_e4f675a1a5c167297f1f30eb",
-      "title": "Striking and Burning Match 170428_1474.wav",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_e4f675a1a5c167297f1f30eb",
-      "storagePath": "sfx_catalog_e4f675a1a5c167297f1f30eb",
-      "durationMs": 19392,
-      "contentHashSha256": "e4f675a1a5c167297f1f30eb0b25b9ac7c086cc3537c0775e43198ef2196830a",
+      "assetId": "sfx_catalog_0dae0e7eed7b54771068ea04",
+      "title": "Glass.wav",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_0dae0e7eed7b54771068ea04",
+      "storagePath": "sfx_catalog_0dae0e7eed7b54771068ea04",
+      "durationMs": 10464,
+      "contentHashSha256": "0dae0e7eed7b54771068ea040236cc0d6997804972b13b090f80482170f665b1",
       "mimeType": "audio/wav",
       "eventRoles": [
-        "ambience"
+        "foley"
       ],
       "surfaces": [
         "scene",
-        "chapter"
+        "motion-graphic"
       ],
-      "layerRole": "bed",
+      "layerRole": "oneshot",
       "tags": [
-        "ambience",
-        "crackle",
-        "fire",
-        "burning",
-        "flame",
-        "lighting",
-        "match",
-        "striking"
+        "foley",
+        "impact",
+        "shatter",
+        "glass",
+        "break",
+        "crack",
+        "wav"
       ],
       "negativeTags": [],
-      "energy": 0.32,
+      "energy": 0.45,
       "brightness": 0.45,
-      "weight": 0.4,
-      "transientSharpness": 0.18,
-      "material": "environmental",
+      "weight": 0.5,
+      "transientSharpness": 0.64,
+      "material": "physical",
       "tailMs": 0,
       "loopable": false,
       "direction": "neutral",
-      "motionSpeed": "still",
+      "motionSpeed": "medium",
       "measurement": {
         "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -39.9,
-        "truePeakDbtp": -1.8,
+        "loudnessDb": -27.2,
+        "truePeakDbtp": -3.7,
         "sampleRateHz": 48000,
         "channelCount": 1,
-        "durationMs": 19392,
+        "durationMs": 10464,
         "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "e4f675a1a5c167297f1f30eb0b25b9ac7c086cc3537c0775e43198ef2196830a",
+        "sourceHashSha256": "0dae0e7eed7b54771068ea040236cc0d6997804972b13b090f80482170f665b1",
         "algorithm": "ffmpeg-ebur128-v1",
         "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -39.9
+        "integratedLufs": -27.2
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "6c9d778265837d264c90332735ac7def679015dcb41b34d6474c2223c8fce36b",
+        "embeddingSourceHashSha256": "0dae0e7eed7b54771068ea040236cc0d6997804972b13b090f80482170f665b1",
+        "catalogContentHashSha256": "0dae0e7eed7b54771068ea040236cc0d6997804972b13b090f80482170f665b1",
+        "selectedRole": "foley",
+        "selectedRoleCosineSimilarity": 0.10659204735729838,
+        "selectedRoleRank": 1,
+        "topRole": "foley",
+        "topRoleCosineSimilarity": 0.10659204735729838,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": 0.00018229169355744602
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": 0.05649379444657055
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.04584490512774035
+          }
+        ]
       },
       "provenance": {
         "provider": "freesound",
-        "providerAssetId": "390338",
+        "providerAssetId": "379015",
         "licenseId": "cc0-1.0",
         "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
         "attributionRequired": false
@@ -1933,7 +891,426 @@
         "licensed": true,
         "evidence": {
           "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_e4f675a1a5c167297f1f30eb",
+          "sourceAssetId": "sfx_catalog_0dae0e7eed7b54771068ea04",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_71a308214e7d3b93f2dc1552",
+      "title": "Car Door Open and Close 01.wav",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_71a308214e7d3b93f2dc1552",
+      "storagePath": "sfx_catalog_71a308214e7d3b93f2dc1552",
+      "durationMs": 3266,
+      "contentHashSha256": "71a308214e7d3b93f2dc155241441064bbf46c4784bf0274dffb73500a74c241",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "foley"
+      ],
+      "surfaces": [
+        "scene",
+        "motion-graphic"
+      ],
+      "layerRole": "oneshot",
+      "tags": [
+        "foley",
+        "impact",
+        "chirp-and-tweet",
+        "slam",
+        "car",
+        "motor-vehicle-(road)",
+        "vehicle",
+        "bird-vocalization-and-bird-call-and-bird-song",
+        "bird",
+        "wild-animals",
+        "animal",
+        "door",
+        "domestic-sounds-and-home-sounds",
+        "automobile",
+        "field",
+        "recording"
+      ],
+      "negativeTags": [],
+      "energy": 0.45,
+      "brightness": 0.45,
+      "weight": 0.5,
+      "transientSharpness": 0.64,
+      "material": "physical",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "medium",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -19.9,
+        "truePeakDbtp": -3.8,
+        "sampleRateHz": 48000,
+        "channelCount": 2,
+        "durationMs": 3266,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "71a308214e7d3b93f2dc155241441064bbf46c4784bf0274dffb73500a74c241",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -19.9
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "d6210ea4b04eabe8720d50534790435e869edd150c0ecc66dcf4cce982f5dede",
+        "embeddingSourceHashSha256": "71a308214e7d3b93f2dc155241441064bbf46c4784bf0274dffb73500a74c241",
+        "catalogContentHashSha256": "71a308214e7d3b93f2dc155241441064bbf46c4784bf0274dffb73500a74c241",
+        "selectedRole": "foley",
+        "selectedRoleCosineSimilarity": 0.1119637465987373,
+        "selectedRoleRank": 1,
+        "topRole": "foley",
+        "topRoleCosineSimilarity": 0.1119637465987373,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.050615107046735934
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.10183132595350135
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": 0.056421332599455074
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "387983",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_71a308214e7d3b93f2dc1552",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_4d8dd8438e22db494375c13e",
+      "title": "GB_wall.flac",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_4d8dd8438e22db494375c13e",
+      "storagePath": "sfx_catalog_4d8dd8438e22db494375c13e",
+      "durationMs": 29728,
+      "contentHashSha256": "4d8dd8438e22db494375c13e4f5e4cd1b56e7526862570e5925ad84d09a9db7f",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "tick"
+      ],
+      "surfaces": [
+        "motion-graphic",
+        "ui",
+        "caption"
+      ],
+      "layerRole": "oneshot",
+      "tags": [
+        "tick",
+        "clock",
+        "mechanisms",
+        "becker",
+        "dr-100",
+        "gustav",
+        "tascam",
+        "old",
+        "sound",
+        "tic-tac"
+      ],
+      "negativeTags": [],
+      "energy": 0.25,
+      "brightness": 0.68,
+      "weight": 0.14,
+      "transientSharpness": 0.93,
+      "material": "recorded",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "fast",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -31.6,
+        "truePeakDbtp": -1,
+        "sampleRateHz": 48000,
+        "channelCount": 2,
+        "durationMs": 29728,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "4d8dd8438e22db494375c13e4f5e4cd1b56e7526862570e5925ad84d09a9db7f",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -31.6
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "a5a35052b34a3ee13f976ef79049c8cd665bc453dbcdebf86fa5a51fc29899cc",
+        "embeddingSourceHashSha256": "4d8dd8438e22db494375c13e4f5e4cd1b56e7526862570e5925ad84d09a9db7f",
+        "catalogContentHashSha256": "4d8dd8438e22db494375c13e4f5e4cd1b56e7526862570e5925ad84d09a9db7f",
+        "selectedRole": "tick",
+        "selectedRoleCosineSimilarity": 0.14283983509672635,
+        "selectedRoleRank": 1,
+        "topRole": "tick",
+        "topRoleCosineSimilarity": 0.14283983509672635,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.18193310573939506
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": 0.018324334516651303
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.006529940425459286
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "150363",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_4d8dd8438e22db494375c13e",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_166ca7447b8c85cdddd143a7",
+      "title": "Real Snap 7.wav",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_166ca7447b8c85cdddd143a7",
+      "storagePath": "sfx_catalog_166ca7447b8c85cdddd143a7",
+      "durationMs": 2256,
+      "contentHashSha256": "166ca7447b8c85cdddd143a739824ee0c3f049a398134dd16183ad1043be1fd3",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "pop"
+      ],
+      "surfaces": [
+        "motion-graphic",
+        "ui",
+        "caption"
+      ],
+      "layerRole": "oneshot",
+      "tags": [
+        "pop",
+        "finger-snapping",
+        "hands",
+        "finger",
+        "finger-snaps",
+        "percussion",
+        "real-snap",
+        "sample",
+        "simple",
+        "snap",
+        "snap-samples",
+        "snaps"
+      ],
+      "negativeTags": [],
+      "energy": 0.42,
+      "brightness": 0.58,
+      "weight": 0.32,
+      "transientSharpness": 0.8,
+      "material": "recorded",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "fast",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -24.8,
+        "truePeakDbtp": -1,
+        "sampleRateHz": 48000,
+        "channelCount": 2,
+        "durationMs": 2256,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "166ca7447b8c85cdddd143a739824ee0c3f049a398134dd16183ad1043be1fd3",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -24.8
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "ec65bed5d6b1139c13c6bb8049d2b1f032839ed28eaa818ef3a349638b2a4970",
+        "embeddingSourceHashSha256": "166ca7447b8c85cdddd143a739824ee0c3f049a398134dd16183ad1043be1fd3",
+        "catalogContentHashSha256": "166ca7447b8c85cdddd143a739824ee0c3f049a398134dd16183ad1043be1fd3",
+        "selectedRole": "pop",
+        "selectedRoleCosineSimilarity": 0.16371132254520696,
+        "selectedRoleRank": 2,
+        "topRole": "whoosh",
+        "topRoleCosineSimilarity": 0.26482620415705865,
+        "roleAgreement": false,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.11775169950197338
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": 0.04417776844873909
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.08457365410486618
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "361767",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_166ca7447b8c85cdddd143a7",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_ec8cd593fba36613cccbe98a",
+      "title": "Finger Snaps 2.WAV",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_ec8cd593fba36613cccbe98a",
+      "storagePath": "sfx_catalog_ec8cd593fba36613cccbe98a",
+      "durationMs": 11760,
+      "contentHashSha256": "ec8cd593fba36613cccbe98a385635464c30935a0e9908a1bf92b55eb0d63121",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "pop"
+      ],
+      "surfaces": [
+        "motion-graphic",
+        "ui",
+        "caption"
+      ],
+      "layerRole": "oneshot",
+      "tags": [
+        "pop",
+        "finger-snapping",
+        "hands",
+        "click",
+        "finger",
+        "snap"
+      ],
+      "negativeTags": [],
+      "energy": 0.42,
+      "brightness": 0.58,
+      "weight": 0.32,
+      "transientSharpness": 0.8,
+      "material": "recorded",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "fast",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -35.9,
+        "truePeakDbtp": -9.2,
+        "sampleRateHz": 48000,
+        "channelCount": 2,
+        "durationMs": 11760,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "ec8cd593fba36613cccbe98a385635464c30935a0e9908a1bf92b55eb0d63121",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -35.9
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "8d576211b1a62d0e411ca13bab2ae2b5f12a498c8164d5a580d6aa024277c4bb",
+        "embeddingSourceHashSha256": "ec8cd593fba36613cccbe98a385635464c30935a0e9908a1bf92b55eb0d63121",
+        "catalogContentHashSha256": "ec8cd593fba36613cccbe98a385635464c30935a0e9908a1bf92b55eb0d63121",
+        "selectedRole": "pop",
+        "selectedRoleCosineSimilarity": 0.25037313410208445,
+        "selectedRoleRank": 1,
+        "topRole": "pop",
+        "topRoleCosineSimilarity": 0.25037313410208445,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.008522302771691465
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": 0.1646848237927932
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": 0.20380044360167812
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "386717",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_ec8cd593fba36613cccbe98a",
           "licenseId": "cc0-1.0"
         }
       }
@@ -1989,6 +1366,39 @@
         "loudnessMetric": "integrated-lufs",
         "integratedLufs": -30.5
       },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "5113ba6b9f8ae46ed559f5ce5b0b36ce0fabe4bf32e5c26503e89cb0ef78a3d1",
+        "embeddingSourceHashSha256": "e6725b326d6fca8c985e637fc108f98ed1290448a8f5be1605e3e0b0418d77d6",
+        "catalogContentHashSha256": "e6725b326d6fca8c985e637fc108f98ed1290448a8f5be1605e3e0b0418d77d6",
+        "selectedRole": "pop",
+        "selectedRoleCosineSimilarity": 0.20178963475383763,
+        "selectedRoleRank": 2,
+        "topRole": "tick",
+        "topRoleCosineSimilarity": 0.2053460377431382,
+        "roleAgreement": false,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.10004652338390667
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": 0.08373189845349555
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": 0.12682648011847764
+          }
+        ]
+      },
       "provenance": {
         "provider": "freesound",
         "providerAssetId": "412159",
@@ -2009,73 +1419,6 @@
       }
     },
     {
-      "assetId": "sfx_catalog_ec8cd593fba36613cccbe98a",
-      "title": "Finger Snaps 2.WAV",
-      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_ec8cd593fba36613cccbe98a",
-      "storagePath": "sfx_catalog_ec8cd593fba36613cccbe98a",
-      "durationMs": 11760,
-      "contentHashSha256": "ec8cd593fba36613cccbe98a385635464c30935a0e9908a1bf92b55eb0d63121",
-      "mimeType": "audio/wav",
-      "eventRoles": [
-        "pop"
-      ],
-      "surfaces": [
-        "motion-graphic",
-        "ui",
-        "caption"
-      ],
-      "layerRole": "oneshot",
-      "tags": [
-        "pop",
-        "finger-snapping",
-        "hands",
-        "click",
-        "finger",
-        "snap"
-      ],
-      "negativeTags": [],
-      "energy": 0.42,
-      "brightness": 0.58,
-      "weight": 0.32,
-      "transientSharpness": 0.8,
-      "material": "recorded",
-      "tailMs": 0,
-      "loopable": false,
-      "direction": "neutral",
-      "motionSpeed": "fast",
-      "measurement": {
-        "version": "sfx-acoustic-measurement-v1",
-        "loudnessDb": -35.9,
-        "truePeakDbtp": -9.2,
-        "sampleRateHz": 48000,
-        "channelCount": 2,
-        "durationMs": 11760,
-        "measuredAt": "2026-07-27T21:38:18.596Z",
-        "sourceHashSha256": "ec8cd593fba36613cccbe98a385635464c30935a0e9908a1bf92b55eb0d63121",
-        "algorithm": "ffmpeg-ebur128-v1",
-        "loudnessMetric": "integrated-lufs",
-        "integratedLufs": -35.9
-      },
-      "provenance": {
-        "provider": "freesound",
-        "providerAssetId": "386717",
-        "licenseId": "cc0-1.0",
-        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
-        "attributionRequired": false
-      },
-      "audioRights": {
-        "mediaRole": "sfx",
-        "source": "library",
-        "userChoice": "attested",
-        "licensed": true,
-        "evidence": {
-          "kind": "library-license",
-          "sourceAssetId": "sfx_catalog_ec8cd593fba36613cccbe98a",
-          "licenseId": "cc0-1.0"
-        }
-      }
-    },
-    {
       "assetId": "sfx_catalog_fa00a6c073d68554b62f93a2",
       "title": "big thunder.wav",
       "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_fa00a6c073d68554b62f93a2",
@@ -2084,14 +1427,16 @@
       "contentHashSha256": "fa00a6c073d68554b62f93a20c5a0b649fb3eddd7b2f1eba05ac8eca5cdb60b0",
       "mimeType": "audio/wav",
       "eventRoles": [
-        "ambience"
+        "impact"
       ],
       "surfaces": [
-        "scene",
-        "chapter"
+        "transition",
+        "motion-graphic",
+        "scene"
       ],
-      "layerRole": "bed",
+      "layerRole": "impact",
       "tags": [
+        "impact",
         "ambience",
         "thunder",
         "thunderstorm",
@@ -2099,15 +1444,15 @@
         "storm"
       ],
       "negativeTags": [],
-      "energy": 0.32,
-      "brightness": 0.45,
-      "weight": 0.4,
-      "transientSharpness": 0.18,
-      "material": "environmental",
+      "energy": 0.78,
+      "brightness": 0.35,
+      "weight": 0.82,
+      "transientSharpness": 0.88,
+      "material": "physical",
       "tailMs": 0,
       "loopable": false,
       "direction": "neutral",
-      "motionSpeed": "still",
+      "motionSpeed": "fast",
       "measurement": {
         "version": "sfx-acoustic-measurement-v1",
         "loudnessDb": -6.5,
@@ -2120,6 +1465,39 @@
         "algorithm": "ffmpeg-ebur128-v1",
         "loudnessMetric": "integrated-lufs",
         "integratedLufs": -6.5
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "cff92fc588a6ade9109f3e6e858e595df85a3ccbddb6becfa301b756cdc63f13",
+        "embeddingSourceHashSha256": "fa00a6c073d68554b62f93a20c5a0b649fb3eddd7b2f1eba05ac8eca5cdb60b0",
+        "catalogContentHashSha256": "fa00a6c073d68554b62f93a20c5a0b649fb3eddd7b2f1eba05ac8eca5cdb60b0",
+        "selectedRole": "impact",
+        "selectedRoleCosineSimilarity": 0.18889024382241013,
+        "selectedRoleRank": 1,
+        "topRole": "impact",
+        "topRoleCosineSimilarity": 0.18889024382241013,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.1462400949548563
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": 0.13457830250912012
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": 0.0894419922374813
+          }
+        ]
       },
       "provenance": {
         "provider": "freesound",
@@ -2136,6 +1514,1168 @@
         "evidence": {
           "kind": "library-license",
           "sourceAssetId": "sfx_catalog_fa00a6c073d68554b62f93a2",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_04530a2e35bf08531b9537ea",
+      "title": "Ogg versus WAV 48kHz sample.wav",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_04530a2e35bf08531b9537ea",
+      "storagePath": "sfx_catalog_04530a2e35bf08531b9537ea",
+      "durationMs": 18936,
+      "contentHashSha256": "04530a2e35bf08531b9537ea7391832b2503e6b591a4b17f19c020ff3ac0b6d4",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "ambience"
+      ],
+      "surfaces": [
+        "scene",
+        "chapter"
+      ],
+      "layerRole": "bed",
+      "tags": [
+        "ambience",
+        "waves-and-surf",
+        "ocean",
+        "water",
+        "arctic-stern",
+        "beach",
+        "calm",
+        "coast",
+        "coastal",
+        "compare",
+        "compression",
+        "file",
+        "flac",
+        "ogg",
+        "relaxing",
+        "review",
+        "sand",
+        "sandy-beach",
+        "sea",
+        "seaside",
+        "ship-engine",
+        "shore",
+        "surf",
+        "technique",
+        "vobis",
+        "wav",
+        "wave"
+      ],
+      "negativeTags": [],
+      "energy": 0.32,
+      "brightness": 0.45,
+      "weight": 0.4,
+      "transientSharpness": 0.18,
+      "material": "environmental",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "still",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -28.8,
+        "truePeakDbtp": -13.9,
+        "sampleRateHz": 48000,
+        "channelCount": 2,
+        "durationMs": 18936,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "04530a2e35bf08531b9537ea7391832b2503e6b591a4b17f19c020ff3ac0b6d4",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -28.8
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "db0c9ac721b6b2eeb5dcfdec233278c798e88213e3efc840c96bf5c4593c1b3c",
+        "embeddingSourceHashSha256": "04530a2e35bf08531b9537ea7391832b2503e6b591a4b17f19c020ff3ac0b6d4",
+        "catalogContentHashSha256": "04530a2e35bf08531b9537ea7391832b2503e6b591a4b17f19c020ff3ac0b6d4",
+        "selectedRole": "ambience",
+        "selectedRoleCosineSimilarity": 0.0729567049898309,
+        "selectedRoleRank": 3,
+        "topRole": "riser",
+        "topRoleCosineSimilarity": 0.1811935117770976,
+        "roleAgreement": false,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.19412385314039232
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": 0.12662025695621085
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.035904168580508766
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "236695",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_04530a2e35bf08531b9537ea",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_e4f675a1a5c167297f1f30eb",
+      "title": "Striking and Burning Match 170428_1474.wav",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_e4f675a1a5c167297f1f30eb",
+      "storagePath": "sfx_catalog_e4f675a1a5c167297f1f30eb",
+      "durationMs": 19392,
+      "contentHashSha256": "e4f675a1a5c167297f1f30eb0b25b9ac7c086cc3537c0775e43198ef2196830a",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "pop"
+      ],
+      "surfaces": [
+        "motion-graphic",
+        "ui",
+        "caption"
+      ],
+      "layerRole": "oneshot",
+      "tags": [
+        "pop",
+        "ambience",
+        "crackle",
+        "fire",
+        "burning",
+        "flame",
+        "lighting",
+        "match",
+        "striking"
+      ],
+      "negativeTags": [],
+      "energy": 0.42,
+      "brightness": 0.58,
+      "weight": 0.32,
+      "transientSharpness": 0.8,
+      "material": "recorded",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "fast",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -39.9,
+        "truePeakDbtp": -1.8,
+        "sampleRateHz": 48000,
+        "channelCount": 1,
+        "durationMs": 19392,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "e4f675a1a5c167297f1f30eb0b25b9ac7c086cc3537c0775e43198ef2196830a",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -39.9
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "89e41eeb61875c443caab6c845af7fe1349bd277df2d61f119de9fac4dc86514",
+        "embeddingSourceHashSha256": "e4f675a1a5c167297f1f30eb0b25b9ac7c086cc3537c0775e43198ef2196830a",
+        "catalogContentHashSha256": "e4f675a1a5c167297f1f30eb0b25b9ac7c086cc3537c0775e43198ef2196830a",
+        "selectedRole": "pop",
+        "selectedRoleCosineSimilarity": -0.02033679658255392,
+        "selectedRoleRank": 1,
+        "topRole": "pop",
+        "topRoleCosineSimilarity": -0.02033679658255392,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": 0.10566996914304373
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": 0.026429186786190235
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": 0.19516693772382432
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "390338",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_e4f675a1a5c167297f1f30eb",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_6948f39f6b462fc80ea50b7c",
+      "title": "wind25.m4a",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_6948f39f6b462fc80ea50b7c",
+      "storagePath": "sfx_catalog_6948f39f6b462fc80ea50b7c",
+      "durationMs": 1944,
+      "contentHashSha256": "6948f39f6b462fc80ea50b7cbc0463ed3f7450bf4d75d6341d7ac77ec2a0eef9",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "ambience"
+      ],
+      "surfaces": [
+        "scene",
+        "chapter"
+      ],
+      "layerRole": "bed",
+      "tags": [
+        "ambience",
+        "wind",
+        "storm",
+        "windy"
+      ],
+      "negativeTags": [],
+      "energy": 0.32,
+      "brightness": 0.45,
+      "weight": 0.4,
+      "transientSharpness": 0.18,
+      "material": "environmental",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "still",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -29.8,
+        "truePeakDbtp": -16.4,
+        "sampleRateHz": 48000,
+        "channelCount": 1,
+        "durationMs": 1944,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "6948f39f6b462fc80ea50b7cbc0463ed3f7450bf4d75d6341d7ac77ec2a0eef9",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -29.8
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "3e2c9dabdd8f2a3c01dc09b38114b7d6ef12368aaa94927317296f4136175490",
+        "embeddingSourceHashSha256": "6948f39f6b462fc80ea50b7cbc0463ed3f7450bf4d75d6341d7ac77ec2a0eef9",
+        "catalogContentHashSha256": "6948f39f6b462fc80ea50b7cbc0463ed3f7450bf4d75d6341d7ac77ec2a0eef9",
+        "selectedRole": "ambience",
+        "selectedRoleCosineSimilarity": 0.4611026878909923,
+        "selectedRoleRank": 1,
+        "topRole": "ambience",
+        "topRoleCosineSimilarity": 0.4611026878909923,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.09273349336381244
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": 0.06953505396087897
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": 0.32284291846934093
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "420317",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_6948f39f6b462fc80ea50b7c",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_24f40eea1e01bf70558c2adc",
+      "title": "119132__esperri__footsteps-on-hardwood-Denoised.wav",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_24f40eea1e01bf70558c2adc",
+      "storagePath": "sfx_catalog_24f40eea1e01bf70558c2adc",
+      "durationMs": 9120,
+      "contentHashSha256": "24f40eea1e01bf70558c2adce410b5453f9d14c271c8fa0c5589278e87f6e4e9",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "foley"
+      ],
+      "surfaces": [
+        "scene",
+        "motion-graphic"
+      ],
+      "layerRole": "oneshot",
+      "tags": [
+        "foley",
+        "walk-and-footsteps",
+        "denoise",
+        "floor",
+        "footsteps",
+        "hardwood",
+        "izotope"
+      ],
+      "negativeTags": [],
+      "energy": 0.45,
+      "brightness": 0.45,
+      "weight": 0.5,
+      "transientSharpness": 0.64,
+      "material": "physical",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "medium",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -29,
+        "truePeakDbtp": -1,
+        "sampleRateHz": 48000,
+        "channelCount": 2,
+        "durationMs": 9120,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "24f40eea1e01bf70558c2adce410b5453f9d14c271c8fa0c5589278e87f6e4e9",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -29
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "78b05cc1ab224c368b5010ecd80c1d49d9e050d3084a2f16f407a91ef8325dec",
+        "embeddingSourceHashSha256": "24f40eea1e01bf70558c2adce410b5453f9d14c271c8fa0c5589278e87f6e4e9",
+        "catalogContentHashSha256": "24f40eea1e01bf70558c2adce410b5453f9d14c271c8fa0c5589278e87f6e4e9",
+        "selectedRole": "foley",
+        "selectedRoleCosineSimilarity": 0.2969204459865141,
+        "selectedRoleRank": 1,
+        "topRole": "foley",
+        "topRoleCosineSimilarity": 0.2969204459865141,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.18011198200329642
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.1286286830309241
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": 0.04446395045523773
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "148853",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_24f40eea1e01bf70558c2adc",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_b9af71f2fa29b59aabbdcaea",
+      "title": "Knocking_22.wav",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_b9af71f2fa29b59aabbdcaea",
+      "storagePath": "sfx_catalog_b9af71f2fa29b59aabbdcaea",
+      "durationMs": 1416,
+      "contentHashSha256": "b9af71f2fa29b59aabbdcaeaf172b00375e5d318c9f7727921c3df83042503e7",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "foley"
+      ],
+      "surfaces": [
+        "scene",
+        "motion-graphic"
+      ],
+      "layerRole": "oneshot",
+      "tags": [
+        "foley",
+        "knock",
+        "door",
+        "domestic-sounds-and-home-sounds",
+        "bang",
+        "closed",
+        "front",
+        "hit",
+        "house",
+        "knocking",
+        "knocks",
+        "rat",
+        "tap",
+        "tat",
+        "wood",
+        "wooden"
+      ],
+      "negativeTags": [],
+      "energy": 0.45,
+      "brightness": 0.45,
+      "weight": 0.5,
+      "transientSharpness": 0.64,
+      "material": "physical",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "medium",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -21.3,
+        "truePeakDbtp": -1,
+        "sampleRateHz": 48000,
+        "channelCount": 1,
+        "durationMs": 1416,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "b9af71f2fa29b59aabbdcaeaf172b00375e5d318c9f7727921c3df83042503e7",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -21.3
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "1b64cd52bc887d749a38e5a0bb818d6c56042917e74e2384016aa2ce853baf77",
+        "embeddingSourceHashSha256": "b9af71f2fa29b59aabbdcaeaf172b00375e5d318c9f7727921c3df83042503e7",
+        "catalogContentHashSha256": "b9af71f2fa29b59aabbdcaeaf172b00375e5d318c9f7727921c3df83042503e7",
+        "selectedRole": "foley",
+        "selectedRoleCosineSimilarity": -0.002980706482569844,
+        "selectedRoleRank": 5,
+        "topRole": "impact",
+        "topRoleCosineSimilarity": 0.15976925006740517,
+        "roleAgreement": false,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.06952666349867187
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.06562688017649636
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.21610408183966656
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "349297",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_b9af71f2fa29b59aabbdcaea",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_a2e7f9ef8af295e62206dc53",
+      "title": "Zipper.wav",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_a2e7f9ef8af295e62206dc53",
+      "storagePath": "sfx_catalog_a2e7f9ef8af295e62206dc53",
+      "durationMs": 549,
+      "contentHashSha256": "a2e7f9ef8af295e62206dc531f38dc86f325f00b936d74a8d8c9574ef895575a",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "foley"
+      ],
+      "surfaces": [
+        "scene",
+        "motion-graphic"
+      ],
+      "layerRole": "oneshot",
+      "tags": [
+        "foley",
+        "zipper-(clothing)",
+        "domestic-sounds-and-home-sounds",
+        "coat",
+        "jacket",
+        "pocket",
+        "zipper",
+        "zipping"
+      ],
+      "negativeTags": [],
+      "energy": 0.45,
+      "brightness": 0.45,
+      "weight": 0.5,
+      "transientSharpness": 0.64,
+      "material": "physical",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "medium",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -20.8,
+        "truePeakDbtp": -1,
+        "sampleRateHz": 48000,
+        "channelCount": 1,
+        "durationMs": 549,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "a2e7f9ef8af295e62206dc531f38dc86f325f00b936d74a8d8c9574ef895575a",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -20.8
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "ea68f8137fdd7879ef4926806f3e93d74e9ce5fbb946c64b4966fdf338202def",
+        "embeddingSourceHashSha256": "a2e7f9ef8af295e62206dc531f38dc86f325f00b936d74a8d8c9574ef895575a",
+        "catalogContentHashSha256": "a2e7f9ef8af295e62206dc531f38dc86f325f00b936d74a8d8c9574ef895575a",
+        "selectedRole": "foley",
+        "selectedRoleCosineSimilarity": 0.23325330830236699,
+        "selectedRoleRank": 1,
+        "topRole": "foley",
+        "topRoleCosineSimilarity": 0.23325330830236699,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.0984672677264382
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.13116285454738186
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": 0.16199744750235517
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "388826",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_a2e7f9ef8af295e62206dc53",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_d1740ae80bb474d9711e4c54",
+      "title": "Knocking three times.MP3",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_d1740ae80bb474d9711e4c54",
+      "storagePath": "sfx_catalog_d1740ae80bb474d9711e4c54",
+      "durationMs": 3553,
+      "contentHashSha256": "d1740ae80bb474d9711e4c5423c44196849824bd62d8791bf1d0b492468ed8a3",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "foley"
+      ],
+      "surfaces": [
+        "scene",
+        "motion-graphic"
+      ],
+      "layerRole": "oneshot",
+      "tags": [
+        "foley",
+        "knock",
+        "door",
+        "wood",
+        "domestic-sounds-and-home-sounds",
+        "bang",
+        "banging",
+        "hit",
+        "hitting",
+        "impact",
+        "impacting",
+        "knocking",
+        "wooden"
+      ],
+      "negativeTags": [],
+      "energy": 0.45,
+      "brightness": 0.45,
+      "weight": 0.5,
+      "transientSharpness": 0.64,
+      "material": "physical",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "medium",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -21,
+        "truePeakDbtp": -1,
+        "sampleRateHz": 48000,
+        "channelCount": 2,
+        "durationMs": 3553,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "d1740ae80bb474d9711e4c5423c44196849824bd62d8791bf1d0b492468ed8a3",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -21
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "5f2499724bd11c496f02afcf29335346da14ad83f9efffe1763cb832aa297e8c",
+        "embeddingSourceHashSha256": "d1740ae80bb474d9711e4c5423c44196849824bd62d8791bf1d0b492468ed8a3",
+        "catalogContentHashSha256": "d1740ae80bb474d9711e4c5423c44196849824bd62d8791bf1d0b492468ed8a3",
+        "selectedRole": "foley",
+        "selectedRoleCosineSimilarity": -0.01725333210978315,
+        "selectedRoleRank": 6,
+        "topRole": "impact",
+        "topRoleCosineSimilarity": 0.19661963652626357,
+        "roleAgreement": false,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.18218320520692943
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.13607269063341978
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.031146389775461466
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "412858",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_d1740ae80bb474d9711e4c54",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_207da69897fa13cb802f26dd",
+      "title": "Dirty Tony Cowbell Mx 032.wav",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_207da69897fa13cb802f26dd",
+      "storagePath": "sfx_catalog_207da69897fa13cb802f26dd",
+      "durationMs": 2064,
+      "contentHashSha256": "207da69897fa13cb802f26dd9499cd4376d99c11c46b7702b3dd311635502918",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "logo-sting"
+      ],
+      "surfaces": [
+        "logo",
+        "chapter",
+        "motion-graphic"
+      ],
+      "layerRole": "sting",
+      "tags": [
+        "logo-sting",
+        "shimmer",
+        "cowbell",
+        "bell",
+        "dirty",
+        "drum",
+        "drumkit",
+        "pack",
+        "realistic",
+        "suicidity",
+        "tonys"
+      ],
+      "negativeTags": [],
+      "energy": 0.66,
+      "brightness": 0.67,
+      "weight": 0.5,
+      "transientSharpness": 0.58,
+      "material": "musical",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "medium",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -16.8,
+        "truePeakDbtp": -1,
+        "sampleRateHz": 48000,
+        "channelCount": 2,
+        "durationMs": 2064,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "207da69897fa13cb802f26dd9499cd4376d99c11c46b7702b3dd311635502918",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -16.8
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "9ea5f1735c24cb0d123ff60cc63978fbdf74a2b47068b214672b9d8604ad934f",
+        "embeddingSourceHashSha256": "207da69897fa13cb802f26dd9499cd4376d99c11c46b7702b3dd311635502918",
+        "catalogContentHashSha256": "207da69897fa13cb802f26dd9499cd4376d99c11c46b7702b3dd311635502918",
+        "selectedRole": "logo-sting",
+        "selectedRoleCosineSimilarity": 0.2410964537400037,
+        "selectedRoleRank": 1,
+        "topRole": "logo-sting",
+        "topRoleCosineSimilarity": 0.2410964537400037,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.062141492001526695
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.11981711469066064
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.21286773329774256
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "91170",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_207da69897fa13cb802f26dd",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_2e52a133abb99d6628cef6d2",
+      "title": "Dirty Tony Cowbell Mx 040.wav",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_2e52a133abb99d6628cef6d2",
+      "storagePath": "sfx_catalog_2e52a133abb99d6628cef6d2",
+      "durationMs": 2064,
+      "contentHashSha256": "2e52a133abb99d6628cef6d29cf16704601aa39bb8d3243726ad817a59aef81e",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "logo-sting"
+      ],
+      "surfaces": [
+        "logo",
+        "chapter",
+        "motion-graphic"
+      ],
+      "layerRole": "sting",
+      "tags": [
+        "logo-sting",
+        "shimmer",
+        "cowbell",
+        "bell",
+        "dirty",
+        "drum",
+        "drumkit",
+        "pack",
+        "realistic",
+        "suicidity",
+        "tonys"
+      ],
+      "negativeTags": [],
+      "energy": 0.66,
+      "brightness": 0.67,
+      "weight": 0.5,
+      "transientSharpness": 0.58,
+      "material": "musical",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "medium",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -17.1,
+        "truePeakDbtp": -1,
+        "sampleRateHz": 48000,
+        "channelCount": 2,
+        "durationMs": 2064,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "2e52a133abb99d6628cef6d29cf16704601aa39bb8d3243726ad817a59aef81e",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -17.1
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "776ff5e71ef08958b41334ba83d6297f2e55834f5662035749aa0bff7b87fe66",
+        "embeddingSourceHashSha256": "2e52a133abb99d6628cef6d29cf16704601aa39bb8d3243726ad817a59aef81e",
+        "catalogContentHashSha256": "2e52a133abb99d6628cef6d29cf16704601aa39bb8d3243726ad817a59aef81e",
+        "selectedRole": "logo-sting",
+        "selectedRoleCosineSimilarity": 0.17576084386189594,
+        "selectedRoleRank": 1,
+        "topRole": "logo-sting",
+        "topRoleCosineSimilarity": 0.17576084386189594,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.044910158272593384
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.1020348409865568
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.22201708675690057
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "91178",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_2e52a133abb99d6628cef6d2",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_451e23aa1cab85469d3fe265",
+      "title": "windchime1.mp3",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_451e23aa1cab85469d3fe265",
+      "storagePath": "sfx_catalog_451e23aa1cab85469d3fe265",
+      "durationMs": 20611,
+      "contentHashSha256": "451e23aa1cab85469d3fe2654c0fefcee2688c93e81282150cc38040b8468054",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "shimmer"
+      ],
+      "surfaces": [
+        "motion-graphic",
+        "logo",
+        "transition"
+      ],
+      "layerRole": "oneshot",
+      "tags": [
+        "shimmer",
+        "wind-chime",
+        "chime",
+        "bell",
+        "ding",
+        "ringing",
+        "wind",
+        "windchime"
+      ],
+      "negativeTags": [],
+      "energy": 0.4,
+      "brightness": 0.88,
+      "weight": 0.12,
+      "transientSharpness": 0.55,
+      "material": "tonal",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "medium",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -20.9,
+        "truePeakDbtp": -1,
+        "sampleRateHz": 48000,
+        "channelCount": 1,
+        "durationMs": 20611,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "451e23aa1cab85469d3fe2654c0fefcee2688c93e81282150cc38040b8468054",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -20.9
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "1c3da369369e41f35e9b910dfc016c8d00281856ac3a2fc1dfc5e9c0025f6786",
+        "embeddingSourceHashSha256": "451e23aa1cab85469d3fe2654c0fefcee2688c93e81282150cc38040b8468054",
+        "catalogContentHashSha256": "451e23aa1cab85469d3fe2654c0fefcee2688c93e81282150cc38040b8468054",
+        "selectedRole": "shimmer",
+        "selectedRoleCosineSimilarity": 0.3613574325698055,
+        "selectedRoleRank": 1,
+        "topRole": "shimmer",
+        "topRoleCosineSimilarity": 0.3613574325698055,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.11550370768113635
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": 0.10657149397977907
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.03515721642156668
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "376647",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_451e23aa1cab85469d3fe265",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_3215969574efb26ac30fca8d",
+      "title": "bicycle-bell_19.wav",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_3215969574efb26ac30fca8d",
+      "storagePath": "sfx_catalog_3215969574efb26ac30fca8d",
+      "durationMs": 3432,
+      "contentHashSha256": "3215969574efb26ac30fca8da70a54404485265bb6d87561003d8b768c0fc21c",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "shimmer"
+      ],
+      "surfaces": [
+        "motion-graphic",
+        "logo",
+        "transition"
+      ],
+      "layerRole": "oneshot",
+      "tags": [
+        "shimmer",
+        "bicycle-bell",
+        "alarm",
+        "bicycle",
+        "vehicle",
+        "bell",
+        "bike",
+        "clang",
+        "contact",
+        "ding",
+        "glock",
+        "glockenspiel",
+        "hit",
+        "metal",
+        "metallic",
+        "percussion",
+        "ping",
+        "ring",
+        "strike",
+        "ting"
+      ],
+      "negativeTags": [],
+      "energy": 0.4,
+      "brightness": 0.88,
+      "weight": 0.12,
+      "transientSharpness": 0.55,
+      "material": "tonal",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "medium",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -15.9,
+        "truePeakDbtp": -1,
+        "sampleRateHz": 48000,
+        "channelCount": 1,
+        "durationMs": 3432,
+        "measuredAt": "2026-07-27T21:38:18.596Z",
+        "sourceHashSha256": "3215969574efb26ac30fca8da70a54404485265bb6d87561003d8b768c0fc21c",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -15.9
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "cae0b107d40d8aff901ab61331be3759af6a6969ca997635f490fafbaa23f46e",
+        "candidateDigestSha256": "a3a652761bdeea0d5b25a56c48d233663ef5f3076bd2e63c57249cfccdcb954e",
+        "embeddingSourceHashSha256": "3215969574efb26ac30fca8da70a54404485265bb6d87561003d8b768c0fc21c",
+        "catalogContentHashSha256": "3215969574efb26ac30fca8da70a54404485265bb6d87561003d8b768c0fc21c",
+        "selectedRole": "shimmer",
+        "selectedRoleCosineSimilarity": 0.3770429925289377,
+        "selectedRoleRank": 1,
+        "topRole": "shimmer",
+        "topRoleCosineSimilarity": 0.3770429925289377,
+        "roleAgreement": true,
+        "riskScores": [
+          {
+            "risk": "speech",
+            "cosineSimilarity": 0.003172687751919928
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.23582876610525785
+          },
+          {
+            "risk": "noise",
+            "cosineSimilarity": -0.03164831530804385
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "freesound",
+        "providerAssetId": "383631",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_3215969574efb26ac30fca8d",
           "licenseId": "cc0-1.0"
         }
       }

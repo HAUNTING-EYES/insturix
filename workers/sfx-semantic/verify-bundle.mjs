@@ -9,7 +9,12 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 
-const RECEIPT_VERSION = 'editron-sfx-semantic-container-bundle-v1';
+const LEGACY_BUNDLE_RECEIPT_VERSION = 'editron-sfx-semantic-container-bundle-v1';
+const REVIEWED_BUNDLE_RECEIPT_VERSION = 'editron-sfx-semantic-container-bundle-v2';
+const LEGACY_RELEASE_RECEIPT_VERSION =
+  'editron-sfx-catalog-semantic-release-receipt-v1';
+const REVIEWED_RELEASE_RECEIPT_VERSION =
+  'editron-sfx-catalog-reviewed-semantic-release-receipt-v2';
 const RECEIPT_FILENAME = 'bundle-receipt.json';
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const MAX_RECEIPT_BYTES = 64 * 1024;
@@ -92,45 +97,105 @@ async function buildReceipt(root) {
     });
   }
 
-  const manifest = parseJson(
-    await readBoundedFile(path.join(root, 'manifest.json'), MAX_MANIFEST_BYTES),
-    'manifest.json',
+  const manifestBytes = await readBoundedFile(
+    path.join(root, 'manifest.json'),
+    MAX_MANIFEST_BYTES,
   );
+  const metadataBytes = await readBoundedFile(
+    path.join(root, 'semantic-release', 'metadata.json'),
+    MAX_MANIFEST_BYTES,
+  );
+  const vectorsBytes = await readBoundedFile(
+    path.join(root, 'semantic-release', 'vectors.f32'),
+    MAX_BUNDLE_BYTES,
+  );
+  const semanticReleaseReceiptBytes = await readBoundedFile(
+    path.join(root, 'semantic-release', 'semantic-release-receipt.json'),
+    MAX_RECEIPT_BYTES,
+  );
+  const manifest = parseJson(manifestBytes, 'manifest.json');
   const semanticReleaseReceipt = parseJson(
-    await readBoundedFile(
-      path.join(root, 'semantic-release', 'semantic-release-receipt.json'),
-      MAX_RECEIPT_BYTES,
-    ),
+    semanticReleaseReceiptBytes,
     'semantic-release/semantic-release-receipt.json',
   );
-  const promotedManifestDigestSha256 = hashBuffer(
-    Buffer.from(JSON.stringify(manifest)),
-  );
-  const releaseSourceDigest =
-    semanticReleaseReceipt?.source?.promotedManifestDigestSha256;
+  const catalogManifestDigestSha256 = hashJson(manifest);
   const semanticReleaseReceiptDigestSha256 =
-    semanticReleaseReceipt?.receiptDigestSha256;
+    semanticReleaseReceipt.receiptDigestSha256;
   if (
-    releaseSourceDigest !== promotedManifestDigestSha256
-    || !SHA256_PATTERN.test(semanticReleaseReceiptDigestSha256 ?? '')
+    !SHA256_PATTERN.test(semanticReleaseReceiptDigestSha256 ?? '')
+    || hashJson(withoutKey(semanticReleaseReceipt, 'receiptDigestSha256'))
+      !== semanticReleaseReceiptDigestSha256
   ) {
-    throw new Error('Semantic release receipt is not bound to the promoted manifest');
+    throw new Error('Semantic release receipt digest is invalid');
   }
+  assertReleaseArtifact(
+    semanticReleaseReceipt?.artifacts?.metadata,
+    metadataBytes,
+    semanticReleaseReceipt.version === REVIEWED_RELEASE_RECEIPT_VERSION
+      ? 'semantic-release/metadata.json'
+      : 'metadata.json',
+    'metadata',
+  );
+  assertReleaseArtifact(
+    semanticReleaseReceipt?.artifacts?.vectors,
+    vectorsBytes,
+    'vectors.f32',
+    'vectors',
+  );
 
-  return {
-    version: RECEIPT_VERSION,
+  const commonReceipt = {
     model: {
       modelId: MODEL_ID,
       revision: MODEL_REVISION,
       cachePath: MODEL_ROOT,
     },
-    source: {
-      promotedManifestDigestSha256,
-      semanticReleaseReceiptDigestSha256,
-    },
     totalBytes,
     files,
   };
+  if (semanticReleaseReceipt.version === LEGACY_RELEASE_RECEIPT_VERSION) {
+    if (
+      semanticReleaseReceipt?.source?.promotedManifestDigestSha256
+      !== catalogManifestDigestSha256
+    ) {
+      throw new Error('Legacy semantic release is not bound to the promoted manifest');
+    }
+    return {
+      version: LEGACY_BUNDLE_RECEIPT_VERSION,
+      model: commonReceipt.model,
+      source: {
+        promotedManifestDigestSha256: catalogManifestDigestSha256,
+        semanticReleaseReceiptDigestSha256,
+      },
+      totalBytes: commonReceipt.totalBytes,
+      files: commonReceipt.files,
+    };
+  }
+  if (semanticReleaseReceipt.version === REVIEWED_RELEASE_RECEIPT_VERSION) {
+    if (
+      semanticReleaseReceipt?.source?.runtimeManifestDigestSha256
+        !== catalogManifestDigestSha256
+      || semanticReleaseReceipt?.artifacts?.manifest?.filename !== 'manifest.json'
+      || semanticReleaseReceipt.artifacts.manifest.byteLength !== manifestBytes.byteLength
+      || semanticReleaseReceipt.artifacts.manifest.sha256 !== hashBuffer(manifestBytes)
+    ) {
+      throw new Error('Reviewed semantic release is not bound to the runtime manifest');
+    }
+    return {
+      version: REVIEWED_BUNDLE_RECEIPT_VERSION,
+      model: commonReceipt.model,
+      source: {
+        catalogManifestDigestSha256,
+        catalogManifestFileSha256: hashBuffer(manifestBytes),
+        semanticReleaseReceiptVersion: REVIEWED_RELEASE_RECEIPT_VERSION,
+        semanticReleaseReceiptDigestSha256,
+      },
+      totalBytes: commonReceipt.totalBytes,
+      files: commonReceipt.files,
+    };
+  }
+  throw new Error(`Unsupported semantic release receipt version: ${
+    semanticReleaseReceipt.version ?? 'missing'
+  }`);
 }
 
 async function resolveDirectory(value) {
@@ -170,6 +235,16 @@ async function readBoundedFile(filePath, maxBytes) {
   return readFile(filePath);
 }
 
+function assertReleaseArtifact(artifact, bytes, expectedFilename, label) {
+  if (
+    artifact?.filename !== expectedFilename
+    || artifact?.byteLength !== bytes.byteLength
+    || artifact?.sha256 !== hashBuffer(bytes)
+  ) {
+    throw new Error(`Semantic release ${label} artifact is invalid`);
+  }
+}
+
 function parseJson(bytes, label) {
   try {
     const parsed = JSON.parse(bytes.toString('utf8'));
@@ -190,6 +265,16 @@ async function hashFile(filePath) {
 
 function hashBuffer(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function hashJson(value) {
+  return hashBuffer(Buffer.from(JSON.stringify(value)));
+}
+
+function withoutKey(value, key) {
+  const output = { ...value };
+  delete output[key];
+  return output;
 }
 
 main().catch(error => {

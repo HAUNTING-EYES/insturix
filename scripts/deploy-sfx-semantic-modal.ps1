@@ -2,6 +2,7 @@
 param(
   [switch]$CreateCredentials,
   [switch]$Deploy,
+  [switch]$VerifyBundle,
   [string]$CredentialPath = (
     Join-Path ([IO.Path]::GetTempPath()) 'editron-sfx-semantic-canary-credentials.dpapi'
   )
@@ -14,7 +15,8 @@ $env:PYTHONIOENCODING = 'utf-8'
 
 $AppName = 'editron-sfx-semantic-canary'
 $SecretName = 'editron-sfx-semantic-canary'
-$ExpectedReceipt = '298f8b164afc63a2ca58234a04da7a7d886e9e4289dcffc070989dee8a068981'
+$BundleReceiptEnvName = 'SFX_SEMANTIC_BUNDLE_RECEIPT_SHA256'
+$ExpectedReceipt = '3a95cb2bd8af3b5239f433dd50186012662025f345f1b1e6920c584e18f2232c'
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $BundlePath = Join-Path $RepoRoot '.semantic-artifacts'
 $VerifierPath = Join-Path $RepoRoot 'workers/sfx-semantic/verify-bundle.mjs'
@@ -219,21 +221,39 @@ function New-DeploymentCredentials {
   }
 }
 
-if (-not $CreateCredentials -and -not $Deploy) {
-  throw 'Specify -CreateCredentials, -Deploy, or both'
+if (-not $CreateCredentials -and -not $Deploy -and -not $VerifyBundle) {
+  throw 'Specify -CreateCredentials, -Deploy, -VerifyBundle, or a combination'
 }
 
 Assert-ImmutableBundle
+Write-Output "BUNDLE_RECEIPT_VERIFIED=$ExpectedReceipt"
 
 if ($CreateCredentials) {
   New-DeploymentCredentials
 }
 
 if ($Deploy) {
-  Invoke-Modal -Arguments @(
-    'deploy',
-    '--strategy',
-    'rolling',
-    $ModalAppPath
-  ) | ForEach-Object { Write-Output $_ }
+  $previousBundleReceipt = [Environment]::GetEnvironmentVariable(
+    $BundleReceiptEnvName,
+    'Process'
+  )
+  try {
+    [Environment]::SetEnvironmentVariable(
+      $BundleReceiptEnvName,
+      $ExpectedReceipt,
+      'Process'
+    )
+    Invoke-Modal -Arguments @(
+      'deploy',
+      '--strategy',
+      'rolling',
+      $ModalAppPath
+    ) | ForEach-Object { Write-Output $_ }
+  } finally {
+    [Environment]::SetEnvironmentVariable(
+      $BundleReceiptEnvName,
+      $previousBundleReceipt,
+      'Process'
+    )
+  }
 }
