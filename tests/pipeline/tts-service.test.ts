@@ -177,6 +177,34 @@ describe("generateVoiceover", () => {
     );
   });
 
+  it("uses provider-native prosody without adding editorial pauses for source-aligned dubbing", async () => {
+    mocks.falSubscribe.mockResolvedValue({
+      data: { audio: { url: "https://fal.test/hindi.wav" } },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(Buffer.alloc(24044, 1), { status: 200 })));
+    const { generateVoiceover } = await import("@/lib/pipeline/tts-service");
+    const text = "यह तथ्य रखिए, फिर निष्कर्ष दीजिए।";
+
+    const result = await generateVoiceover(text, "user_1", {
+      language: "Hindi",
+      voice: "kokoro-hindi-alpha",
+      mediaRole: "dubbing",
+      pausePolicy: "provider-native",
+    });
+
+    expect(mocks.falSubscribe).toHaveBeenCalledTimes(1);
+    expect(mocks.falSubscribe).toHaveBeenCalledWith(
+      "fal-ai/kokoro/hindi",
+      expect.objectContaining({
+        input: expect.objectContaining({
+          prompt: text,
+          voice: "hf_alpha",
+        }),
+      }),
+    );
+    expect(result.durationMs).toBe(500);
+  });
+
   it("never converts a failed Hindi synthesis request into English fallback speech", async () => {
     mocks.falSubscribe.mockRejectedValue(new Error("Hindi provider unavailable"));
     const { generateVoiceover } = await import("@/lib/pipeline/tts-service");

@@ -111,6 +111,7 @@ function splitTextByPauses(text: string): { segment: string; pauseType: keyof ty
 export const GENERATED_AUDIO_RECEIPT_VERSION = 'editron-generated-audio-receipt-v1' as const;
 
 export type GeneratedSpeechRole = 'voiceover' | 'dubbing';
+export type TTSPausePolicy = 'editorial' | 'provider-native';
 
 type GeneratedSpeechProvider = SpeechSynthesisProvider;
 
@@ -193,6 +194,7 @@ export async function generateVoiceover(
     language?: string;
     contentType?: string; // New: content type for pacing
     mediaRole?: GeneratedSpeechRole;
+    pausePolicy?: TTSPausePolicy;
   } = {},
 ): Promise<TTSResult> {
   const capability = resolveSpeechSynthesisCapability(options.language, options.voice);
@@ -200,6 +202,7 @@ export async function generateVoiceover(
     throw new Error(`unsupported-speech-capability:${String(options.language ?? 'English')}:${String(options.voice ?? 'default')}`);
   }
   const mediaRole = options.mediaRole ?? 'voiceover';
+  const pausePolicy = options.pausePolicy ?? 'editorial';
 
   // Determine TTS speed based on content type (default 1.0)
   const contentType = options.contentType?.toLowerCase();
@@ -214,6 +217,7 @@ export async function generateVoiceover(
         ttsSpeed,
         mediaRole,
         generatedCapability(capability, false),
+        pausePolicy,
       );
     } catch (error) {
       if (!capability.fallback) throw error;
@@ -229,6 +233,7 @@ export async function generateVoiceover(
           model: capability.fallback.model,
           voiceId: capability.fallback.voiceId,
         }, true),
+        pausePolicy,
       );
     }
   }
@@ -238,6 +243,7 @@ export async function generateVoiceover(
     capability.voiceId,
     mediaRole,
     generatedCapability(capability, false),
+    pausePolicy,
   );
 }
 
@@ -258,6 +264,7 @@ async function generateWithKokoro(
     voiceId: 'af_heart',
     fallbackUsed: false,
   },
+  pausePolicy: TTSPausePolicy = 'editorial',
 ): Promise<TTSResult> {
   const costStartMs = Date.now();
   let requestCount = 0;
@@ -269,7 +276,9 @@ async function generateWithKokoro(
   const ttsSpeed = ttsSpeedOverride || 1.0;
 
   // Split text by punctuation to inject precise pauses
-  const segments = splitTextByPauses(text);
+  const segments = pausePolicy === 'provider-native'
+    ? [{ segment: text, pauseType: null }]
+    : splitTextByPauses(text);
   const audioChunks: Buffer[] = [];
 
   try {
@@ -378,6 +387,7 @@ async function generateWithDeepgram(
     voiceId: DEEPGRAM_ENGLISH_MODEL,
     fallbackUsed: false,
   },
+  pausePolicy: TTSPausePolicy = 'editorial',
 ): Promise<TTSResult> {
   const costStartMs = Date.now();
   const { createClient } = await import('@deepgram/sdk');
@@ -387,7 +397,9 @@ async function generateWithDeepgram(
   const deepgram = createClient(apiKey);
 
   // Use SSML for precise punctuation pauses in Deepgram Aura
-  const segments = splitTextByPauses(text);
+  const segments = pausePolicy === 'provider-native'
+    ? [{ segment: text, pauseType: null }]
+    : splitTextByPauses(text);
   let ssml = '';
   for (const { segment, pauseType } of segments) {
     ssml += segment;
@@ -400,7 +412,7 @@ async function generateWithDeepgram(
 
   try {
     const response = await deepgram.speak.request(
-      { text: `<speak>${ssml}</speak>` },
+      { text: pausePolicy === 'provider-native' ? text : `<speak>${ssml}</speak>` },
       {
         model: deepgramVoice,
         encoding: 'linear16',

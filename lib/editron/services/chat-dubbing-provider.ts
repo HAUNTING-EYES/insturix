@@ -206,6 +206,7 @@ async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepR
           language: speechCapability.language,
           contentType: 'dialogue',
           mediaRole: 'dubbing',
+          pausePolicy: 'provider-native',
         });
         assertGeneratedSpeechCapability(speechCapability, voice.generatedSpeechCapability);
         generatedThisStep.add(voice.audioAssetId);

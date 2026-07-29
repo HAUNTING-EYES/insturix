@@ -409,6 +409,7 @@ describe('chat dubbing generated-audio provenance', () => {
         mediaRole: 'dubbing',
         language: 'en',
         voice: 'aura-asteria-en',
+        pausePolicy: 'provider-native',
       }),
     );
     expect(result.status).toBe('continue');
@@ -619,7 +620,7 @@ describe('chat dubbing generated-audio provenance', () => {
       1,
       'Verbose Hindi line.',
       'user-1',
-      expect.objectContaining({ language: 'hi', voice: 'hf_alpha' }),
+      expect.objectContaining({ language: 'hi', voice: 'hf_alpha', pausePolicy: 'provider-native' }),
     );
     expect(mocks.generateContent).toHaveBeenCalledTimes(2);
     expect(mocks.generateContent.mock.calls[1]?.[0]).toContain('Do not penalize removing stutters');
@@ -627,7 +628,7 @@ describe('chat dubbing generated-audio provenance', () => {
       2,
       'Short Hindi line.',
       'user-1',
-      expect.objectContaining({ language: 'hi', voice: 'hf_alpha' }),
+      expect.objectContaining({ language: 'hi', voice: 'hf_alpha', pausePolicy: 'provider-native' }),
     );
     expect(mocks.deleteMany).toHaveBeenCalledWith({
       userId: 'user-1',
@@ -784,7 +785,12 @@ describe('chat dubbing generated-audio provenance', () => {
     expect(mocks.generateVoiceover).toHaveBeenCalledWith(
       'Translated line.',
       'user-1',
-      expect.objectContaining({ language: 'hi', voice: 'hf_alpha', mediaRole: 'dubbing' }),
+      expect.objectContaining({
+        language: 'hi',
+        voice: 'hf_alpha',
+        mediaRole: 'dubbing',
+        pausePolicy: 'provider-native',
+      }),
     );
     expect(result.status).toBe('continue');
     if (result.status !== 'continue') throw new Error('Expected a continuing dubbing job.');
