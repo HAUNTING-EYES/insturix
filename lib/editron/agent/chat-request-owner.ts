@@ -19,6 +19,7 @@ import {
   CHAT_MINIMAL_READ_TOOLS,
   CHAT_REFERENCE_STYLE_WORKFLOW_TOOLS,
   CHAT_REQUEST_CAPABILITIES,
+  getChatCapabilityAuthorityContract,
   resolveChatCapabilityTools,
   resolveChatLocalizedWorkflowAdapter,
   resolveExclusiveChatFamilyOwnerTools,
@@ -938,7 +939,7 @@ function deriveRoutingFacts(
   facts: z.infer<typeof modelRoutingFactsSchema>,
   userMessage: string,
 ): ChatRequestRoutingFacts {
-  const localizedEdits = facts.localizedEdits.map((edit) => {
+  const normalizedLocalizedEdits = facts.localizedEdits.map((edit) => {
     if (!edit.timing) return edit;
     return {
       ...edit,
@@ -950,13 +951,36 @@ function deriveRoutingFacts(
       },
     };
   });
+  const exactDirectCapabilityEvidence = facts.capabilityEvidence.filter((entry) =>
+    facts.operationFullySpecified
+    && facts.targetFullySpecified
+    && facts.requestedCapabilities.includes(entry.capability)
+    && getChatCapabilityAuthorityContract(entry.capability).authority !== 'localized-workflow'
+    && sourceSpanOccursInRequest(entry.sourceSpan, userMessage),
+  );
+  const localizedEdits = normalizedLocalizedEdits.filter((edit) =>
+    !exactDirectCapabilityEvidence.some((entry) =>
+      sourceSpansOverlap(edit.sourceSpan, entry.sourceSpan),
+    ),
+  );
   const hasPreferredFamily = facts.familyDirectives.some((directive) => directive.mode === 'prefer');
   const localizedCapabilityEntries = localizedEdits.flatMap((edit) => {
     const adapter = resolveChatLocalizedWorkflowAdapter(edit);
     return adapter ? [{ capability: adapter.capability, sourceSpan: edit.sourceSpan }] : [];
   });
   const localizedCapabilities = localizedCapabilityEntries.map((entry) => entry.capability);
+  const shadowedLocalizedCapabilities = new Set(
+    normalizedLocalizedEdits
+      .filter((edit) => !localizedEdits.includes(edit))
+      .flatMap((edit) => {
+        const adapter = resolveChatLocalizedWorkflowAdapter(edit);
+        return adapter ? [adapter.capability] : [];
+      }),
+  );
   const requestedCapabilities = facts.requestedCapabilities.filter((capability) => {
+    if (shadowedLocalizedCapabilities.has(capability) && !localizedCapabilities.includes(capability)) {
+      return false;
+    }
     if (localizedCapabilityEntries.length === 0) return true;
     if (localizedCapabilities.includes(capability)) return true;
     const evidence = facts.capabilityEvidence.find((entry) => entry.capability === capability);
@@ -965,11 +989,17 @@ function deriveRoutingFacts(
       (entry) => sourceSpansOverlap(entry.sourceSpan, evidence.sourceSpan),
     );
   });
+  const allLocalizedEditsShadowed =
+    normalizedLocalizedEdits.length > 0
+    && localizedEdits.length === 0
+    && facts.localizedReads.length === 0;
   return {
     ...facts,
-    requiresContentLocalization: facts.requiresContentLocalization
-      || facts.localizedReads.length > 0
-      || localizedEdits.length > 0,
+    requiresContentLocalization: allLocalizedEditsShadowed
+      ? false
+      : facts.requiresContentLocalization
+        || facts.localizedReads.length > 0
+        || localizedEdits.length > 0,
     localizedEdits,
     requestedCapabilities: [...new Set([
       ...requestedCapabilities,

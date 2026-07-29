@@ -658,6 +658,60 @@ describe('chat request owner classification', () => {
     });
   });
 
+  it('keeps an exact selected-target capability ahead of an overlapping generic localized edit', async () => {
+    const userMessage =
+      'On the selected video clip, create a gentle keyframed zoom from 100% to 108% over the next two seconds.';
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: true,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [{
+            modality: 'visual',
+            operation: 'camera-motion',
+            query: 'gentle keyframed zoom from 100% to 108% over the next two seconds',
+            sourceQuery: '',
+            targetQuery: '',
+            targetKind: 'none',
+            sourceSpan: 'create a gentle keyframed zoom from 100% to 108% over the next two seconds',
+          }],
+          requestedCapabilities: ['selected-keyframes'],
+          capabilityEvidence: [{
+            capability: 'selected-keyframes',
+            sourceSpan: 'gentle keyframed zoom',
+          }],
+          familyDirectives: [{ family: 'zoom', mode: 'prefer' }],
+        },
+        confidence: 1,
+        reason: 'The selected clip and explicit keyframes fully specify the edit.',
+      }),
+    }));
+
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+      selectedOverlayPresent: true,
+    }, { generate });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'editorial-plan',
+      routingFacts: {
+        requiresContentLocalization: false,
+        localizedEdits: [],
+        requestedCapabilities: ['selected-keyframes'],
+      },
+    });
+  });
+
   it('binds a trusted selected overlay without letting model output choose its id', async () => {
     const userMessage = 'Replace the selected video scene with my uploaded embroidery clip.';
     const classified = await classifyChatRequestOwner({
