@@ -25,6 +25,13 @@ import {
   type SfxCatalogSemanticReleaseReceipt,
   type SfxSemanticReleaseEntry,
 } from '@/lib/pipeline/sfx-catalog-semantic-release';
+import {
+  reviewedSfxSemanticReleaseMetadataSchema,
+  reviewedSfxSemanticReleaseReceiptSchema,
+  type ReviewedSfxSemanticReleaseEntry,
+  type ReviewedSfxSemanticReleaseMetadata,
+  type ReviewedSfxSemanticReleaseReceipt,
+} from '@/lib/pipeline/sfx-catalog-reviewed-semantic-release';
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const METADATA_FILE = 'metadata.json';
@@ -134,8 +141,27 @@ const receiptSchema = z.object({
   receiptDigestSha256: sha256Schema,
 }).strict();
 
+const supportedMetadataSchema = z.discriminatedUnion('version', [
+  metadataSchema,
+  reviewedSfxSemanticReleaseMetadataSchema,
+]);
+const supportedReceiptSchema = z.discriminatedUnion('version', [
+  receiptSchema,
+  reviewedSfxSemanticReleaseReceiptSchema,
+]);
+
+type SupportedSemanticReleaseMetadata =
+  | SfxCatalogSemanticReleaseMetadata
+  | ReviewedSfxSemanticReleaseMetadata;
+type SupportedSemanticReleaseReceipt =
+  | SfxCatalogSemanticReleaseReceipt
+  | ReviewedSfxSemanticReleaseReceipt;
+type IndexedSemanticReleaseEntry =
+  | SfxSemanticReleaseEntry
+  | ReviewedSfxSemanticReleaseEntry;
+
 interface IndexedVectorRow {
-  entry: SfxSemanticReleaseEntry;
+  entry: IndexedSemanticReleaseEntry;
   offset: number;
 }
 
@@ -196,14 +222,14 @@ export class SfxCatalogSemanticIndex {
   readonly indexedAssetCount: number;
 
   private constructor(
-    metadata: SfxCatalogSemanticReleaseMetadata,
-    receipt: SfxCatalogSemanticReleaseReceipt,
+    metadata: SupportedSemanticReleaseMetadata,
+    receipt: SupportedSemanticReleaseReceipt,
     private readonly vectors: Float32Array,
     private readonly rows: readonly IndexedVectorRow[],
   ) {
     this.model = { ...metadata.model };
     this.releaseReceiptDigestSha256 = receipt.receiptDigestSha256;
-    this.promotedManifestDigestSha256 = metadata.source.promotedManifestDigestSha256;
+    this.promotedManifestDigestSha256 = compatibleManifestDigest(metadata);
     this.indexedAssetCount = rows.length;
   }
 
@@ -211,15 +237,15 @@ export class SfxCatalogSemanticIndex {
     const rawMetadata = parseJsonBuffer(input.metadataBuffer, 'INVALID_RELEASE_METADATA_JSON');
     const rawReceipt = parseJsonBuffer(input.receiptBuffer, 'INVALID_RELEASE_RECEIPT_JSON');
     const metadata = parseSchema(
-      metadataSchema,
+      supportedMetadataSchema,
       rawMetadata,
       'INVALID_RELEASE_METADATA',
-    ) as SfxCatalogSemanticReleaseMetadata;
+    ) as SupportedSemanticReleaseMetadata;
     const receipt = parseSchema(
-      receiptSchema,
+      supportedReceiptSchema,
       rawReceipt,
       'INVALID_RELEASE_RECEIPT',
-    ) as SfxCatalogSemanticReleaseReceipt;
+    ) as SupportedSemanticReleaseReceipt;
     verifyReleaseEnvelope(metadata, receipt, rawReceipt, input);
     const { vectors, rows } = decodeAndVerifyRows(metadata, input.vectorsBuffer);
     return new SfxCatalogSemanticIndex(metadata, receipt, vectors, rows);
@@ -404,8 +430,8 @@ export async function retrieveConfiguredSfxCatalogSemantics(
 }
 
 function verifyReleaseEnvelope(
-  metadata: SfxCatalogSemanticReleaseMetadata,
-  receipt: SfxCatalogSemanticReleaseReceipt,
+  metadata: SupportedSemanticReleaseMetadata,
+  receipt: SupportedSemanticReleaseReceipt,
   rawReceipt: unknown,
   input: LoadSfxCatalogSemanticIndexInput,
 ): void {
@@ -452,7 +478,7 @@ function verifyReleaseEnvelope(
 }
 
 function decodeAndVerifyRows(
-  metadata: SfxCatalogSemanticReleaseMetadata,
+  metadata: SupportedSemanticReleaseMetadata,
   vectorBuffer: Buffer,
 ): { vectors: Float32Array; rows: IndexedVectorRow[] } {
   const dimension = metadata.vectors.dimension;
@@ -495,6 +521,14 @@ function decodeAndVerifyRows(
     return { entry, offset: vectorOffset };
   });
   return { vectors, rows };
+}
+
+function compatibleManifestDigest(
+  metadata: SupportedSemanticReleaseMetadata,
+): string {
+  return 'promotedManifestDigestSha256' in metadata.source
+    ? metadata.source.promotedManifestDigestSha256
+    : metadata.source.runtimeManifestDigestSha256;
 }
 
 function normalizedEmbedding(
