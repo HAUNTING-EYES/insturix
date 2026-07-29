@@ -92,7 +92,10 @@ export async function runSfxRenderCanary(): Promise<{
   if (providerUrls.length > 0) {
     throw new Error(`Canary attempted ${providerUrls.length} provider API call(s)`);
   }
-  const placements = validateSfxRenderCanaryPlacements(overlays, placementResult);
+  const placements = validateSfxRenderCanaryPlacements(overlays, placementResult, {
+    requireSemanticRetrieval:
+      process.env.SFX_RENDER_CANARY_REQUIRE_SEMANTIC === '1',
+  });
 
   const renderInput = buildLambdaRenderInputProps({
     overlays,

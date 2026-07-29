@@ -23,6 +23,14 @@ export interface CanarySoundEvidence {
     sourceAssetId: string;
     licenseId: string;
   };
+  semanticRetrieval?: {
+    version: string;
+    releaseReceiptDigestSha256: string;
+    promotedManifestDigestSha256: string;
+    queryDigestSha256: string;
+    indexedAssetCount: number;
+    candidateCount: number;
+  };
 }
 
 export interface Pcm16Wav {
@@ -123,6 +131,7 @@ export function buildSfxRenderCanaryOverlays(): Array<Record<string, unknown>> {
 export function validateSfxRenderCanaryPlacements(
   overlays: unknown[],
   placementResult: unknown,
+  options: { requireSemanticRetrieval?: boolean } = {},
 ): CanarySoundEvidence[] {
   const result = requiredRecord(placementResult, 'placement result');
   if (result.placed !== 1) {
@@ -155,6 +164,12 @@ export function validateSfxRenderCanaryPlacements(
     buildSoundEvidence('transition', 1_001, transitionSound, transitionPlacement),
     buildSoundEvidence('motion-graphic', 2_001, mgSound, mgPlacement),
   ];
+  if (
+    options.requireSemanticRetrieval
+    && evidence.some(item => !item.semanticRetrieval)
+  ) {
+    throw new Error('Canary required semantic retrieval evidence for every placed SFX');
+  }
 
   const silenceSound = overlays
     .filter(isRecord)
@@ -304,6 +319,7 @@ function buildSoundEvidence(
   if (providerReport.selectionLane !== 'catalog') {
     throw new Error(`${surface} SFX escaped the bundled catalog lane`);
   }
+  const semanticRetrieval = buildSemanticRetrievalEvidence(providerReport, surface);
   const rights = requiredRecord(sound.audioRights, `${surface} audio rights`);
   const rightsEvidence = requiredRecord(rights.evidence, `${surface} rights evidence`);
   if (
@@ -339,7 +355,54 @@ function buildSoundEvidence(
       sourceAssetId,
       licenseId: requiredString(rightsEvidence.licenseId, `${surface} license ID`),
     },
+    ...(semanticRetrieval ? { semanticRetrieval } : {}),
   };
+}
+
+function buildSemanticRetrievalEvidence(
+  providerReport: Record<string, unknown>,
+  surface: CanarySoundEvidence['surface'],
+): CanarySoundEvidence['semanticRetrieval'] {
+  if (providerReport.semanticRetrieval === undefined) return undefined;
+  const report = requiredRecord(
+    providerReport.semanticRetrieval,
+    `${surface} semantic retrieval report`,
+  );
+  const indexedAssetCount = requiredNumber(
+    report.indexedAssetCount,
+    `${surface} semantic indexed asset count`,
+  );
+  if (!Number.isSafeInteger(indexedAssetCount) || indexedAssetCount < 1) {
+    throw new Error(`${surface} semantic indexed asset count must be a positive integer`);
+  }
+  if (!Array.isArray(report.candidates) || report.candidates.length === 0) {
+    throw new Error(`${surface} semantic retrieval returned no candidates`);
+  }
+  return {
+    version: requiredString(report.version, `${surface} semantic version`),
+    releaseReceiptDigestSha256: requiredSha256(
+      report.releaseReceiptDigestSha256,
+      `${surface} semantic release receipt digest`,
+    ),
+    promotedManifestDigestSha256: requiredSha256(
+      report.promotedManifestDigestSha256,
+      `${surface} semantic manifest digest`,
+    ),
+    queryDigestSha256: requiredSha256(
+      report.queryDigestSha256,
+      `${surface} semantic query digest`,
+    ),
+    indexedAssetCount,
+    candidateCount: report.candidates.length,
+  };
+}
+
+function requiredSha256(value: unknown, label: string): string {
+  const digest = requiredString(value, label);
+  if (!/^[a-f0-9]{64}$/.test(digest)) {
+    throw new Error(`Canary ${label} is not a lowercase SHA-256 digest`);
+  }
+  return digest;
 }
 
 function findSoundBySource(overlays: unknown[], source: string): Record<string, unknown> {

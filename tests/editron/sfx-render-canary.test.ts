@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -45,6 +48,54 @@ describe('zero-credit rendered SFX canary', () => {
       placed: 1,
       motionGraphics: { placed: 1 },
     })).toThrow(/escaped the bundled catalog lane/i);
+  });
+
+  it('requires signed semantic evidence in Vercel canary mode', () => {
+    expect(() => validateSfxRenderCanaryPlacements(placedFixture(), {
+      placed: 1,
+      motionGraphics: { placed: 1 },
+    }, {
+      requireSemanticRetrieval: true,
+    })).toThrow(/required semantic retrieval evidence/i);
+
+    const evidence = validateSfxRenderCanaryPlacements(placedFixture(true), {
+      placed: 1,
+      motionGraphics: { placed: 1 },
+    }, {
+      requireSemanticRetrieval: true,
+    });
+    expect(evidence.every(
+      item => item.semanticRetrieval?.candidateCount === 2,
+    )).toBe(true);
+  });
+
+  it('keeps Vercel credentials branch-scoped and off command arguments', async () => {
+    const script = await readFile(
+      path.join(process.cwd(), 'scripts/configure-sfx-semantic-vercel.ps1'),
+      'utf8',
+    );
+
+    expect(script).toContain(
+      "$ExpectedProjectId = 'prj_uAwH5pAHMWaOiRNbS7FZuejWXUuc'",
+    );
+    expect(script).toContain(
+      "$ExpectedOrgId = 'team_I1KWlM0rMN13dmFCVxzKSODS'",
+    );
+    expect(script).toContain(
+      "[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)",
+    );
+    expect(script).toContain("'preview',\n      $Branch,");
+    expect(script).toContain("'--sensitive',");
+    expect(script).toContain('-InputValue ([string]$entry.Value)');
+    expect(script).toContain(
+      "$env:SFX_RENDER_CANARY_REQUIRE_SEMANTIC = '1'",
+    );
+    expect(script).toContain('function Assert-RuntimeSemanticCatalog');
+    expect(script).toMatch(
+      /Assert-LinkedProject\s+Assert-RuntimeSemanticCatalog\s+if \(\$Configure\)/,
+    );
+    expect(script).toContain('lack semantic evidence');
+    expect(script).not.toContain("'--value',");
   });
 
   it('preserves curated catalog semantics for the downstream atomic gate', async () => {
@@ -101,13 +152,15 @@ describe('zero-credit rendered SFX canary', () => {
   });
 });
 
-function placedFixture(): Array<Record<string, unknown>> {
+function placedFixture(
+  includeSemanticRetrieval = false,
+): Array<Record<string, unknown>> {
   const overlays = buildSfxRenderCanaryOverlays();
   const transition = overlays.find((overlay) => overlay.id === 1_001)!;
   transition.metadata = {
     transitionSfxPlacement: {
       status: 'placed',
-      providerSearchReport: { selectionLane: 'catalog' },
+      providerSearchReport: providerReport(includeSemanticRetrieval),
     },
   };
   const motionGraphic = overlays.find((overlay) => overlay.id === 2_001)!;
@@ -115,7 +168,7 @@ function placedFixture(): Array<Record<string, unknown>> {
     ...(motionGraphic.metadata as Record<string, unknown>),
     kineticSfxPlacement: {
       status: 'placed',
-      providerSearchReport: { selectionLane: 'catalog' },
+      providerSearchReport: providerReport(includeSemanticRetrieval),
     },
   };
   const silence = overlays.find((overlay) => overlay.id === 1_002)!;
@@ -130,6 +183,25 @@ function placedFixture(): Array<Record<string, unknown>> {
     soundFixture(800_000_001, 'kinetic-sfx-service', 2_001, 207, 24),
   );
   return overlays;
+}
+
+function providerReport(includeSemanticRetrieval: boolean) {
+  return {
+    selectionLane: 'catalog',
+    ...(includeSemanticRetrieval ? {
+      semanticRetrieval: {
+        version: 'editron-sfx-catalog-semantic-retrieval-v1',
+        releaseReceiptDigestSha256: 'a'.repeat(64),
+        promotedManifestDigestSha256: 'b'.repeat(64),
+        queryDigestSha256: 'c'.repeat(64),
+        indexedAssetCount: 29,
+        candidates: [
+          { assetId: 'sfx-1', cosineSimilarity: 0.91 },
+          { assetId: 'sfx-2', cosineSimilarity: 0.83 },
+        ],
+      },
+    } : {}),
+  };
 }
 
 function soundFixture(
