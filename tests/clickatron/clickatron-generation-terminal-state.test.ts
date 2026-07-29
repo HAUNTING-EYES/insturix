@@ -6,6 +6,7 @@ const redisHarness = vi.hoisted(() => ({
   values: new Map<string, string>(),
   sets: new Map<string, Set<string>>(),
   sortedSets: new Map<string, Map<string, number>>(),
+  evalReturnsParsedObject: false,
 }));
 
 vi.mock('@upstash/redis', () => {
@@ -32,11 +33,15 @@ vi.mock('@upstash/redis', () => {
       }
 
       const raw = redisHarness.values.get(keys[0]);
-      if (!raw) return JSON.stringify({ outcome: 'missing' });
+      if (!raw) {
+        const result = { outcome: 'missing' };
+        return redisHarness.evalReturnsParsedObject ? result : JSON.stringify(result);
+      }
       const job = JSON.parse(raw);
       const allowed = JSON.parse(String(args[0])) as string[];
       if (!allowed.includes(job.status)) {
-        return JSON.stringify({ outcome: 'rejected', job });
+        const result = { outcome: 'rejected', job };
+        return redisHarness.evalReturnsParsedObject ? result : JSON.stringify(result);
       }
 
       const updates = JSON.parse(String(args[1]));
@@ -58,7 +63,8 @@ vi.mock('@upstash/redis', () => {
       if (['completed', 'failed', 'canceled'].includes(updatedJob.status)) {
         redisHarness.sortedSets.get(keys[1])?.delete(updatedJob.id);
       }
-      return JSON.stringify({ outcome: 'updated', job: updatedJob });
+      const result = { outcome: 'updated', job: updatedJob };
+      return redisHarness.evalReturnsParsedObject ? result : JSON.stringify(result);
     }
 
     multi() {
@@ -123,6 +129,7 @@ describe('Clickatron generation terminal-state contract', () => {
     redisHarness.values.clear();
     redisHarness.sets.clear();
     redisHarness.sortedSets.clear();
+    redisHarness.evalReturnsParsedObject = false;
   });
 
   it('bounds frontend variation polling and marks timed-out polls as failed locally', () => {
@@ -155,6 +162,22 @@ describe('Clickatron generation terminal-state contract', () => {
     expect(claims.filter((claim) => claim.outcome === 'updated')).toHaveLength(1);
     expect(claims.filter((claim) => claim.outcome === 'rejected')).toHaveLength(1);
     expect((await getJob(jobId))?.status).toBe('running');
+  });
+
+  it('accepts Redis Lua results already decoded by the Upstash SDK', async () => {
+    redisHarness.evalReturnsParsedObject = true;
+    const jobId = await createJob({
+      sessionId: 'session-decoded',
+      variationId: 'variation-decoded',
+      prompt: 'Generate one smoke-test image',
+      userId: 'user-1',
+      aspectRatio: '1:1',
+    });
+
+    const claim = await claimJobForExecution(jobId, 'generating');
+
+    expect(claim.outcome).toBe('updated');
+    expect(claim.job?.status).toBe('running');
   });
 
   it('does not refund-cancel a job after a worker has claimed it', async () => {

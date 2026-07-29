@@ -533,7 +533,7 @@ async function transitionJobAtomically(
       : JOB_TTL.ACTIVE;
   const raw = await getRedisClient().eval<
     [string, string, number, number, string],
-    string
+    unknown
   >(
     ATOMIC_JOB_TRANSITION_SCRIPT,
     [REDIS_KEYS.job(jobId), REDIS_KEYS.activeJobs],
@@ -545,10 +545,17 @@ async function transitionJobAtomically(
       traceMessage,
     ],
   );
-  const parsed = JSON.parse(raw) as {
+  const parsed = (typeof raw === 'string' ? JSON.parse(raw) : raw) as {
     outcome: AtomicJobTransitionResult['outcome'];
     job?: ClickatronJob;
   };
+  if (
+    !parsed
+    || typeof parsed !== 'object'
+    || !['updated', 'rejected', 'missing'].includes(parsed.outcome)
+  ) {
+    throw new Error('Redis returned an invalid Clickatron job transition result');
+  }
   return {
     outcome: parsed.outcome,
     job: parsed.job ?? null,
