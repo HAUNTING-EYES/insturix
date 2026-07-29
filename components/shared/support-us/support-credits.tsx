@@ -132,7 +132,12 @@ export function SupportCredits() {
           }}
         />
 
-        <motion.h2
+        {/* h1, not h2: /support-us shipped with no h1 at all, so crawlers had no
+            statement of what the page is about. This is the page's hero headline,
+            and it is the only h2 on the page, so promoting it leaves a clean
+            h1 -> h3 structure. Inline styles already set size, weight and margin,
+            so the browser's default h1 styling cannot shift the layout. */}
+        <motion.h1
           variants={fadeUp}
           style={{
             fontSize: "var(--r-hero-size)",
@@ -143,7 +148,7 @@ export function SupportCredits() {
           }}
         >
           The production floor is open.
-        </motion.h2>
+        </motion.h1>
 
         <motion.p
           variants={fadeUp}
