@@ -148,15 +148,26 @@ async function storedLinkedInHealth(
   account: CalosAssignmentLike,
   requiredThroughMs: number,
 ): Promise<CalosConnectionHealth> {
-  const expiresAt = timestamp(account.expiresAt);
-  if (expiresAt > 0 && expiresAt <= requiredThroughMs) {
-    return reconnect(account, "Stored LinkedIn connection expired and must be reconnected before publishing.");
-  }
   try {
     const { decryptToken } = await import("@/lib/calos/publish/token-crypto");
-    return text(decryptToken(text(account.accessTokenEnc)))
-      ? assigned(account)
-      : reconnect(account, "Stored LinkedIn connection is unreadable and must be reconnected before publishing.");
+    const accessToken = decryptToken(text(account.accessTokenEnc));
+    if (!text(accessToken)) {
+      return reconnect(account, "Stored LinkedIn connection is unreadable and must be reconnected before publishing.");
+    }
+    const expiresAt = timestamp(account.expiresAt);
+    if (expiresAt > 0 && expiresAt <= requiredThroughMs) {
+      const refreshTokenEnc = text(account.refreshTokenEnc);
+      const canRefresh = Boolean(
+        refreshTokenEnc &&
+        text(decryptToken(refreshTokenEnc)) &&
+        text(process.env.LINKEDIN_CLIENT_ID) &&
+        text(process.env.LINKEDIN_CLIENT_SECRET),
+      );
+      if (!canRefresh) {
+        return reconnect(account, "Stored LinkedIn connection expired and must be reconnected before publishing.");
+      }
+    }
+    return assigned(account);
   } catch {
     return reconnect(account, "Stored LinkedIn connection is unreadable and must be reconnected before publishing.");
   }
