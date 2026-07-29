@@ -149,6 +149,7 @@ interface IUser extends Document {
       pageName: string;
       pageAccessToken: string;
     }>;
+    expiresAt?: Date;
     connectedAt: Date;
   };
   instagramTokens?: {
@@ -461,6 +462,7 @@ const userSchema = new Schema<IUser>({
       pageAccessToken: String,
       _id: false
     }],
+    expiresAt: Date,
     connectedAt: Date,
   },
   instagramTokens: {
