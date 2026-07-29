@@ -25,15 +25,15 @@ type XTokens = {
 
 export async function publishToTwitter(params: PublishParams): Promise<PublishResult> {
   const text = (params.caption ?? params.title ?? "").trim();
-  if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false };
-  if (!params.brandId) return { ok: false, error: "X publishing requires a brandId", retryable: false };
-  if (!text) return { ok: false, error: "X post text is empty", retryable: false };
+  if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false, providerAttempted: false };
+  if (!params.brandId) return { ok: false, error: "X publishing requires a brandId", retryable: false, providerAttempted: false };
+  if (!text) return { ok: false, error: "X post text is empty", retryable: false, providerAttempted: false };
 
   const connectToDatabase = (await import("@/schemas/ConnectToDatabase")).default;
   await connectToDatabase();
 
   const auth = await resolveBrandXAuth(params.brandId, params.accountRef);
-  if ("error" in auth) return { ok: false, error: auth.error, retryable: auth.retryable };
+  if ("error" in auth) return { ok: false, error: auth.error, retryable: auth.retryable, providerAttempted: false };
 
   const result = await createTweet(auth.accessToken, auth.userName, text);
   await recordCalosXPublishCost(params, result);
@@ -147,13 +147,13 @@ async function createTweet(
     if (!res.ok || data.errors || !id) {
       const retryable = res.status >= 500 || res.status === 429;
       const msg = data.detail || data.errors?.[0]?.message || data.title || res.statusText || "unknown error";
-      return { ok: false, error: `X post failed (${res.status}): ${msg}`, retryable, responseStatus: res.status };
+      return { ok: false, error: `X post failed (${res.status}): ${msg}`, retryable, providerAttempted: true, responseStatus: res.status };
     }
 
     const url = userName ? `https://x.com/${userName}/status/${id}` : `https://x.com/i/web/status/${id}`;
-    return { ok: true, postId: id, postUrl: url, responseStatus: res.status };
+    return { ok: true, postId: id, postUrl: url, providerAttempted: true, responseStatus: res.status };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "X post threw", retryable: true };
+    return { ok: false, error: e instanceof Error ? e.message : "X post threw", retryable: true, providerAttempted: true };
   }
 }
 

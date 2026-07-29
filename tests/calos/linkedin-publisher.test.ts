@@ -64,6 +64,7 @@ describe("publishToLinkedIn", () => {
       ok: false,
       error: "No LinkedIn account assigned for this brand",
       retryable: false,
+      providerAttempted: false,
     });
     expect(mocks.userFindOne).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -81,6 +82,7 @@ describe("publishToLinkedIn", () => {
       ok: false,
       error: "No LinkedIn account assigned for this brand",
       retryable: false,
+      providerAttempted: false,
     });
     expect(mocks.connectedAccountFindOne).toHaveBeenCalledWith({
       brandId: "brand_1",
@@ -109,6 +111,7 @@ describe("publishToLinkedIn", () => {
 
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(false);
+    expect(result.providerAttempted).toBe(false);
     expect(result.error).toContain("no longer matches");
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -139,6 +142,7 @@ describe("publishToLinkedIn", () => {
     expect(result).toMatchObject({
       ok: true,
       postId: "urn:li:share:post_1",
+      providerAttempted: true,
       responseStatus: 201,
     });
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -150,6 +154,32 @@ describe("publishToLinkedIn", () => {
     expect(JSON.parse(init.body as string)).toMatchObject({
       author: "urn:li:organization:organization_1",
       commentary: "Launch update",
+    });
+  });
+
+  it("marks a thrown post request as provider-attempted", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({
+      accountRef: "organization_1",
+      accountType: "organization",
+      ownerUserId: "owner_1",
+      accessTokenEnc: null,
+    });
+    mocks.userFindOne.mockResolvedValue({
+      linkedinTokens: {
+        accessToken: "linkedin-token",
+        userId: "person_1",
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+    fetchMock.mockRejectedValueOnce(new Error("socket closed after upload"));
+
+    const result = await publishToLinkedIn(BASE);
+
+    expect(result).toMatchObject({
+      ok: false,
+      retryable: true,
+      providerAttempted: true,
+      error: "socket closed after upload",
     });
   });
 });
