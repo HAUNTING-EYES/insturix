@@ -121,14 +121,11 @@ async function persistVariationFieldsAtomic(
 async function markVariationFailedForJob(job: ClickatronCostJob, errorMessage: string): Promise<void> {
   try {
     await getClickatronDb();
-    const persisted = await persistVariationFieldsAtomic(job.sessionId, job.variationId, {
+    await persistVariationFieldsAtomic(job.sessionId, job.variationId, {
       status: 'failed',
       error: errorMessage,
       updatedAt: new Date(),
     });
-    if (persisted) {
-      console.log('Worker: Marked Clickatron variation failed for job:', job.id);
-    }
   } catch (error) {
     console.error('Worker: Failed to mark Clickatron variation failed for job:', job.id, error);
   }
@@ -147,7 +144,6 @@ async function markVariationFailedForJob(job: ClickatronCostJob, errorMessage: s
  */
 async function failVariationInline(
   activeJobId: string,
-  task: any,
   variation: Variation,
   job: ClickatronCostJob,
   { code, message, refund = true }: { code: string; message: string; refund?: boolean },
@@ -176,7 +172,6 @@ async function failVariationInline(
         `Variation generation failed: ${message}`,
         { service: 'clickatron', action: 'variation' },
       );
-      console.log('Worker: Refund processed for inline failure, user:', job.userId);
     } catch (refundError) {
       console.error('Worker: Failed to refund after inline failure, user:', job.userId, refundError);
     }
@@ -288,8 +283,6 @@ async function handler(req: Request) {
     const { jobId: parsedJobId, sessionId, variationId } = workerRequestSchema.parse(body);
     const activeJobId: string = parsedJobId;
     jobId = activeJobId; // Preserve for outer error handling.
-    console.log('Worker: Parsed data - jobId:', activeJobId, 'sessionId:', sessionId, 'variationId:', variationId);
-
     const job = await getJob(activeJobId);
     if (!job) {
       console.error('Worker: Job not found for jobId:', activeJobId);
@@ -298,13 +291,9 @@ async function handler(req: Request) {
 
     // Mark job as running
     await startJob(activeJobId, 'generating');
-    console.log('Worker: Marked job as running');
-
     await getClickatronDb();
     const objectId = new Types.ObjectId(sessionId);
     const task = await ClickatronTask.findById(objectId);
-    console.log('Worker: Found task:', task);
-
     if (!task || !task.details.canvas) {
       console.error('Worker: Task or canvas not found for sessionId:', sessionId);
       await failJob(activeJobId, { code: 'TASK_NOT_FOUND', message: 'Task or canvas not found' });
@@ -319,8 +308,6 @@ async function handler(req: Request) {
     }
 
     const variation = task.details.canvas.variations.find((v: Variation) => v.id === variationId);
-    console.log('Worker: Found variation:', variation);
-
     if (!variation) {
       console.error('Worker: Variation not found - likely deleted');
       await failJob(activeJobId, { code: 'VARIATION_DELETED', message: 'Variation was deleted before processing' });
@@ -330,7 +317,7 @@ async function handler(req: Request) {
     // Check if Fal AI is configured
     if (!process.env.FAL_AI_API_KEY) {
       console.error('Worker: Fal AI API key not configured');
-      await failVariationInline(activeJobId, task, variation, job, {
+      await failVariationInline(activeJobId, variation, job, {
         code: 'FAL_AI_NOT_CONFIGURED',
         message: 'Image generation is temporarily unavailable (provider not configured).',
       });
@@ -365,13 +352,11 @@ async function handler(req: Request) {
       // Validate parent image URL for generative fill
       if (body.maskUrl && parentImageUrl) {
         try {
-          console.log('Worker: Validating parent image URL for generative fill:', parentImageUrl);
           const imageResponse = await fetch(parentImageUrl, { method: 'HEAD' });
           if (!imageResponse.ok) {
             console.error('Worker: Parent image URL is not accessible:', imageResponse.status, imageResponse.statusText);
             throw new Error(`Cannot access parent variation image. The image may have been deleted or expired. Status: ${imageResponse.status}`);
           }
-          console.log('Worker: Parent image URL is accessible');
         } catch (error) {
           console.error('Worker: Failed to validate parent image URL:', error);
           throw new Error(`Something went wrong. Cannot access the source image: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -383,15 +368,8 @@ async function handler(req: Request) {
 
       // Check if this is a sketch-to-edit job
       const isSketchToEdit = body.metadata?.inputMode === 'sketchToEdit';
-      console.log('[Worker] Is sketch-to-edit:', isSketchToEdit);
-
       // For sketch-to-edit, we need both original (img1) and annotated (img2) images
-      let annotatedImageUrl: string | null = null;
       if (isSketchToEdit && referenceImageUrls.length > 0) {
-        annotatedImageUrl = referenceImageUrls[0]; // First reference is the annotated image
-        console.log('[Worker] Sketch-to-edit mode - annotated image URL:', annotatedImageUrl);
-        console.log('[Worker] Sketch-to-edit mode - original image URL:', parentImageUrl);
-        
         // Add system prompt for sketch-to-edit if not already in prompt
         const systemPrompt = "Make changes according to the annotations and instructions in the second image. Apply the edits from img2 to img1 without changing other details, objects, quality, lighting, composition, or unrelated elements. Preserve original quality and data.";
         if (job.prompt && !job.prompt.includes(systemPrompt)) {
@@ -399,7 +377,6 @@ async function handler(req: Request) {
         } else if (!job.prompt) {
           job.prompt = systemPrompt;
         }
-        console.log('[Worker] Updated prompt for sketch-to-edit:', job.prompt);
       }
 
       const promptMetadata = {
@@ -428,10 +405,6 @@ async function handler(req: Request) {
       if (enrichedPrompt !== job.prompt) {
         job.prompt = enrichedPrompt;
         generationParams.promptContextApplied = true;
-        console.log('[Worker] Clickatron prompt context applied:', {
-          hasBrandContext: Boolean(brandContextBlock),
-          hasSourceContext: Boolean(promptMetadata.sourceContext),
-        });
       }
 
       // Process mask URL if it exists (for inpainting/generative fill)
@@ -441,13 +414,10 @@ async function handler(req: Request) {
           // If it's a raw R2 URL (not containing signature parameters), get a fresh signed URL
           if (body.maskUrl && !body.maskUrl.includes('GoogleAccessId') &&
             !body.maskUrl.includes('Signature')) {
-            console.log('Worker: Getting fresh signed URL for mask:', body.maskUrl);
-              maskUrl = await ClickatronR2Manager.getSignedUrl(body.maskUrl);
-            console.log('Worker: Got signed URL for mask:', maskUrl);
+            maskUrl = await ClickatronR2Manager.getSignedUrl(body.maskUrl);
           } else {
             maskUrl = body.maskUrl;
           }
-          console.log('Worker: Mask URL processed successfully:', maskUrl);
         } catch (error) {
           console.error('Worker: Failed to process mask URL:', error);
           throw new Error(`Failed to process mask URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -459,7 +429,6 @@ async function handler(req: Request) {
       const imageUrls: string[] = [];
       if (parentImageUrl) {
         imageUrls.push(parentImageUrl);
-        console.log('Worker: Added parent image URL:', parentImageUrl);
       }
       imageUrls.push(...referenceImageUrls);
 
@@ -518,13 +487,7 @@ async function handler(req: Request) {
           job.prompt = `${job.prompt}\n\nUse the supplied Brand Vault logo reference as the only brand mark. Preserve its shape, colors, and proportions; do not invent, redesign, or spell a logo from text. Keep the logo placement overlay-safe for a locked Brand Vault mark.`;
           generationParams.logoReferencePolicy = 'brand_vault_reference_required';
         }
-        console.log('[Worker] Clickatron Brand Vault reference evidence added:', {
-          total: brandReferenceEvidence.length,
-          logos: brandReferenceEvidence.filter((item) => item.assetRole === 'logo').length,
-          products: brandReferenceEvidence.filter((item) => item.assetRole === 'product').length,
-        });
       }
-      console.log('Worker: Total image URLs:', imageUrls.length);
 
       // Only add image_urls to generationParams if we have images
       if (imageUrls.length > 0) {
@@ -534,31 +497,23 @@ async function handler(req: Request) {
       // Add mask URL for inpainting models
       if (maskUrl) {
         generationParams.mask_url = maskUrl;
-        console.log('Worker: Added mask URL to generation params');
         // For Seedream inpainting, keep image_urls as array (don't convert to single image_url)
         // The payload generator will handle the array format
         if (imageUrls.length === 0) {
           console.error('Worker: Inpainting requires an image but no parent image was found!');
           throw new Error('Inpainting requires a parent image');
         }
-        console.log('Worker: Inpainting mode - using image_urls array with mask_url');
       }
-
-
-      console.log('Worker: Starting image generation with params:', generationParams);
 
       // Get the model configuration from the variation
       let selectedModelId = variation.modelId || job.modelId || '';
 
       // Validate URLs before passing to Fal AI (especially for inpainting)
       if (generationParams.image_url) {
-        console.log('Worker: Validating image_url:', generationParams.image_url);
         try {
           const imageResponse = await fetch(generationParams.image_url, { method: 'HEAD' });
           if (!imageResponse.ok) {
             console.warn(`Worker: Image URL returned non-200 status: ${imageResponse.status} ${imageResponse.statusText}. Fal AI might still be able to access it.`);
-          } else {
-            console.log('Worker: image_url is accessible');
           }
         } catch (error) {
           console.warn('Worker: Failed to validate image_url (network error?). Proceeding anyway.', error);
@@ -566,13 +521,10 @@ async function handler(req: Request) {
       }
 
       if (generationParams.mask_url) {
-        console.log('Worker: Validating mask_url:', generationParams.mask_url);
         try {
           const maskResponse = await fetch(generationParams.mask_url, { method: 'HEAD' });
           if (!maskResponse.ok) {
             console.warn(`Worker: Mask URL returned non-200 status: ${maskResponse.status} ${maskResponse.statusText}. Fal AI might still be able to access it.`);
-          } else {
-            console.log('Worker: mask_url is accessible');
           }
         } catch (error) {
           console.warn('Worker: Failed to validate mask_url (network error?). Proceeding anyway.', error);
@@ -621,7 +573,7 @@ async function handler(req: Request) {
 
       if (!modelConfig) {
         console.error('Worker: Model configuration not found for modelId:', selectedModelId);
-        await failVariationInline(activeJobId, task, variation, job, {
+        await failVariationInline(activeJobId, variation, job, {
           code: 'MODEL_NOT_FOUND',
           message: `Selected image model is unavailable (${selectedModelId}).`,
         });
@@ -644,7 +596,7 @@ async function handler(req: Request) {
 
       if (referenceImageCount < minImages || referenceImageCount > maxImages) {
         console.error('Worker: Selected model does not support the number of reference images:', referenceImageCount);
-        await failVariationInline(activeJobId, task, variation, job, {
+        await failVariationInline(activeJobId, variation, job, {
           code: 'INVALID_MODEL',
           message: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference image(s).`,
         });
@@ -667,8 +619,6 @@ async function handler(req: Request) {
       }
 
 
-
-      console.log(`Worker: Using model: ${modelConfig.name} (${modelId})`);
 
       // Determine if this is an image-to-image generation
       const isImageToImage = !!generationParams.image_url;
@@ -703,8 +653,6 @@ async function handler(req: Request) {
                 if (!freshResponse.ok) {
                   throw new Error(`Fresh image URL also returned status ${freshResponse.status}: ${freshResponse.statusText}`);
                 }
-
-                const contentType = freshResponse.headers.get('content-type');
               } catch (regenError) {
                 console.error('Worker: Failed to regenerate signed URL:', regenError);
                 throw new Error(`Cannot access reference image: ${regenError instanceof Error ? regenError.message : 'Unknown error'}`);
@@ -712,8 +660,6 @@ async function handler(req: Request) {
             } else {
               throw new Error(`Image URL returned status ${imageResponse.status}: ${imageResponse.statusText}`);
             }
-          } else {
-            const contentType = imageResponse.headers.get('content-type');
           }
 
         } catch (error) {
@@ -753,8 +699,6 @@ async function handler(req: Request) {
                   if (!freshResponse.ok) {
                     throw new Error(`Fresh image URL ${i + 1} also returned status ${freshResponse.status}: ${freshResponse.statusText}`);
                   }
-
-                  const contentType = freshResponse.headers.get('content-type');
                 } catch (regenError) {
                   console.error(`Worker: Failed to regenerate signed URL for image ${i + 1}:`, regenError);
                   throw new Error(`Cannot access reference image ${i + 1}: ${regenError instanceof Error ? regenError.message : 'Unknown error'}`);
@@ -762,8 +706,6 @@ async function handler(req: Request) {
               } else {
                 throw new Error(`Image URL ${i + 1} returned status ${imageResponse.status}: ${imageResponse.statusText}`);
               }
-            } else {
-              const contentType = imageResponse.headers.get('content-type');
             }
           }
         } catch (error) {
@@ -789,22 +731,12 @@ async function handler(req: Request) {
       // Construct the payload dynamically based on the model configuration
       const payload = generateModelPayload(modelConfig.id, generationParams, job, ratio, width, height);
 
-      // Debug logging to see the final payload
-      console.log('Worker: Final payload for model', modelId, ':', JSON.stringify(payload, null, 2));
-
       falCallAttempted = true;
       const result = await fal.subscribe(modelId, {
         input: payload,
-        logs: true,
-        onQueueUpdate: (update) => {
-          if (update.status === "IN_PROGRESS") {
-            update.logs.map((log) => log.message).forEach(console.log);
-          }
-        },
+        logs: false,
       });
       falResult = result;
-
-      console.log('Worker: Image generation complete.');
 
       if (!result.data || !result.data.images || result.data.images.length === 0) {
         throw new Error('No image generated');
@@ -996,7 +928,6 @@ async function handler(req: Request) {
           modelId: variation.modelId,
           metadata: variation.metadata,
         });
-        console.log('Worker: Updated variation status to failed with message:', errorMessage);
       } catch (saveError) {
         console.error('Worker: Failed to save variation status:', saveError);
         // Even if we can't save to the database, we still need to fail the job
@@ -1029,7 +960,6 @@ async function handler(req: Request) {
         message: errorMessage,
         details: generationError
       });
-      console.log('Worker: Failed job in QStash');
 
       // Refund the same model-aware Clickatron variation cost that was charged.
       try {
@@ -1037,7 +967,6 @@ async function handler(req: Request) {
           service: 'clickatron',
           action: 'variation',
         });
-        console.log('Refund processed successfully for user:', job.userId);
       } catch (refundError) {
         console.error('Failed to process refund for user:', job.userId, refundError);
       }
@@ -1056,7 +985,6 @@ async function handler(req: Request) {
           message: error instanceof Error ? error.message : 'Unknown error occurred in worker',
           details: error
         });
-        console.log('Worker: Marked job as failed in system');
       } catch (failError) {
         console.error('Worker: Failed to mark job as failed:', failError);
       }
@@ -1079,7 +1007,6 @@ async function handler(req: Request) {
                 status: 'failed',
                 error: error instanceof Error ? error.message : 'Unknown error occurred in worker',
               });
-              console.log('Worker: Updated variation status to failed in outer catch block');
             }
 
             // Refund the same model-aware Clickatron variation cost that was charged.
@@ -1088,7 +1015,6 @@ async function handler(req: Request) {
                 service: 'clickatron',
                 action: 'variation',
               });
-              console.log('Refund processed successfully for user:', job.userId);
             } catch (refundError) {
               console.error('Failed to process refund for user:', job.userId, refundError);
             }
@@ -1135,7 +1061,6 @@ export const POST = async (req: Request) => {
           message: 'Failed to verify QStash signature. Check your UPSTASH_QSTASH keys.',
           details: error,
         });
-        console.log('Worker: Marked job as failed due to signature verification failure');
 
         if (job && shouldRefund) {
           await markVariationFailedForJob(
@@ -1153,12 +1078,9 @@ export const POST = async (req: Request) => {
                 action: 'variation',
               },
             );
-            console.log('Refund processed successfully for user:', job.userId);
           } catch (refundError) {
             console.error('Failed to process refund for user:', job.userId, refundError);
           }
-        } else if (job) {
-          console.log('Worker: Signature failure saw already-terminal job, skipping duplicate refund:', jobId);
         }
       } catch (failError) {
         console.error('Worker: Failed to mark job as failed after signature verification:', failError);
