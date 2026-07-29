@@ -58,7 +58,7 @@ describe("publishToInstagram", () => {
 
   it("posts the image to the assigned account via container -> publish using the owner's token", async () => {
     mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
-    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token" } });
+    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token", userId: "ig_1" } });
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ id: "container_1" }))
       .mockResolvedValueOnce(jsonResponse({ id: "media_99" }));
@@ -69,6 +69,8 @@ describe("publishToInstagram", () => {
       ok: true,
       postId: "media_99",
       postUrl: "https://www.instagram.com/p/media_99",
+      providerAttempted: true,
+      responseStatus: 200,
     });
     expect(mocks.userFindOne).toHaveBeenCalledWith({ clerkUserId: "owner_1" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -89,6 +91,7 @@ describe("publishToInstagram", () => {
     const result = await publishToInstagram({ ...BASE, imageUrl: undefined });
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(false);
+    expect(result.providerAttempted).toBe(false);
     expect(result.error).toContain("requires an image");
     expect(mocks.connectedAccountFindOne).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -102,6 +105,7 @@ describe("publishToInstagram", () => {
       ok: false,
       error: "No Instagram account assigned for this brand",
       retryable: false,
+      providerAttempted: false,
     });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(mocks.recordProviderCostEvent).not.toHaveBeenCalled();
@@ -113,6 +117,7 @@ describe("publishToInstagram", () => {
     const result = await publishToInstagram(BASE);
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(false);
+    expect(result.providerAttempted).toBe(false);
     expect(result.error).toContain("no longer connected");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(mocks.recordProviderCostEvent).not.toHaveBeenCalled();
@@ -120,13 +125,100 @@ describe("publishToInstagram", () => {
 
   it("marks a Graph rate limit on the container step as retryable", async () => {
     mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
-    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token" } });
+    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token", userId: "ig_1" } });
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: "rate limit" } }, 429));
 
     const result = await publishToInstagram(BASE);
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(true);
+    expect(result.providerAttempted).toBe(false);
+    expect(result.responseStatus).toBe(429);
     expect(result.error).toContain("429");
     expect(mocks.recordProviderCostEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when the connected Instagram identity cannot be verified", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
+    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token" } });
+
+    const result = await publishToInstagram(BASE);
+
+    expect(result).toMatchObject({
+      ok: false,
+      retryable: false,
+      providerAttempted: false,
+    });
+    expect(result.error).toContain("cannot be verified");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the token owner reconnected a different Instagram account", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_old", ownerUserId: "owner_1" });
+    mockUserRecord({
+      instagramTokens: {
+        userAccessToken: "ig_token",
+        userId: "ig_new",
+        accounts: [{ instagramAccountId: "ig_new" }],
+      },
+    });
+
+    const result = await publishToInstagram(BASE);
+
+    expect(result).toMatchObject({
+      ok: false,
+      retryable: false,
+      providerAttempted: false,
+    });
+    expect(result.error).toContain("no longer matches");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an uncertain container creation safe to retry", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
+    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token", userId: "ig_1" } });
+    fetchMock.mockRejectedValueOnce(new Error("socket closed during container creation"));
+
+    const result = await publishToInstagram(BASE);
+
+    expect(result).toMatchObject({
+      ok: false,
+      retryable: true,
+      providerAttempted: false,
+      error: "socket closed during container creation",
+    });
+  });
+
+  it("marks a publish rate limit as an attempted but explicitly retryable request", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
+    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token", userId: "ig_1" } });
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: "container_1" }))
+      .mockResolvedValueOnce(jsonResponse({ error: { message: "rate limit" } }, 429));
+
+    const result = await publishToInstagram(BASE);
+
+    expect(result).toMatchObject({
+      ok: false,
+      retryable: true,
+      providerAttempted: true,
+      responseStatus: 429,
+    });
+  });
+
+  it("marks a thrown publish request as an ambiguous provider attempt", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
+    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token", userId: "ig_1" } });
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: "container_1" }))
+      .mockRejectedValueOnce(new Error("socket closed during media publication"));
+
+    const result = await publishToInstagram(BASE);
+
+    expect(result).toMatchObject({
+      ok: false,
+      retryable: true,
+      providerAttempted: true,
+      error: "socket closed during media publication",
+    });
   });
 });
