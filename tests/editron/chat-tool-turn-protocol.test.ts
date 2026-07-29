@@ -279,6 +279,43 @@ describe('chat tool turn protocol', () => {
     });
   });
 
+  it('does not require a localized resolver receipt for a declared caption family refresh', () => {
+    const captionRefreshLicense: ChatRequestOwnerLicense = {
+      ...LOCALIZED_LICENSE,
+      requestDigest: 'caption-refresh-request',
+      routingFacts: {
+        requestsMutation: true,
+        requestsAnalysis: false,
+        requiresContentLocalization: true,
+        requiresEditorialJudgment: false,
+        requestsReferenceStyle: false,
+        requestsBroadEditorialOutcome: false,
+        durableOperation: 'none',
+        operationFullySpecified: true,
+        targetFullySpecified: true,
+        localizedReads: [],
+        localizedEdits: [],
+        requestedCapabilities: ['caption-refresh'],
+        capabilityEvidence: [{
+          capability: 'caption-refresh',
+          sourceSpan: 'Realign the existing animated captions',
+        }],
+        familyDirectives: [{ family: 'captions', mode: 'prefer' }],
+        familyScopeExclusive: true,
+      },
+    };
+
+    expect(decideChatToolExecution({
+      toolName: 'refresh_captions',
+      args: { captionOverlayId: 1784566794878 },
+      ledger: ledger([currentProjectRead()]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: captionRefreshLicense,
+    })).toEqual({ action: 'execute' });
+  });
+
   it('reconstructs canonical resolver arguments instead of trusting model rewrites', () => {
     const resolvedArgs = {
       type: 'image',

@@ -5,7 +5,10 @@ import {
   type ChatToolExecutionPolicy,
   type ChatToolOwnerClass,
 } from './chat-tool-registry';
-import { getChatCapabilityAuthorityContract } from './chat-command-authority';
+import {
+  CHAT_REQUEST_CAPABILITIES,
+  getChatCapabilityAuthorityContract,
+} from './chat-command-authority';
 import type {
   ChatRequestCapability,
   ChatRequestOwnerLicense,
@@ -610,13 +613,23 @@ function requiresResolverAuthorization(
   license?: ChatRequestOwnerLicense,
   toolName?: string,
 ): boolean {
-  if (license?.owner !== 'semantic-editorial-planner') return false;
-  if (license.semanticWorkflow === 'localized-mutation') return true;
-  return (license.routingFacts?.requestedCapabilities ?? []).some(
+  if (license?.owner !== 'semantic-editorial-planner' || !toolName) return false;
+  const requestedCapabilities = license.routingFacts?.requestedCapabilities ?? [];
+  if (requestedCapabilities.length > 0) {
+    return requestedCapabilities.some(
+      (capability: ChatRequestCapability) => {
+        const contract = getChatCapabilityAuthorityContract(capability);
+        return contract.requiresResolverAuthorization
+          && contract.mutationTools.has(toolName);
+      },
+    );
+  }
+  if (license.semanticWorkflow !== 'localized-mutation') return false;
+  return CHAT_REQUEST_CAPABILITIES.some(
     (capability: ChatRequestCapability) => {
       const contract = getChatCapabilityAuthorityContract(capability);
-      return contract.authority === 'localized-workflow'
-        && Boolean(toolName && contract.mutationTools.has(toolName));
+      return contract.requiresResolverAuthorization
+        && contract.mutationTools.has(toolName);
     },
   );
 }

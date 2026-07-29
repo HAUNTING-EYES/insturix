@@ -119,6 +119,7 @@ export interface ChatCapabilityAuthorityContract {
   evidenceTools: ReadonlySet<string>;
   mutationTools: ReadonlySet<string>;
   requiredToolSequence: readonly ChatRequiredToolStep[];
+  requiresResolverAuthorization: boolean;
 }
 
 const TIMELINE_READ_STEP = ['read_project_file', 'get_timeline_view'] as const;
@@ -146,6 +147,7 @@ function capabilityContract(input: {
   evidenceTools?: readonly string[];
   mutationTools: readonly string[];
   requiredToolSequence: readonly ChatRequiredToolStep[];
+  requiresResolverAuthorization?: boolean;
 }): ChatCapabilityAuthorityContract {
   const evidenceTools = new Set(input.evidenceTools ?? []);
   return {
@@ -158,6 +160,7 @@ function capabilityContract(input: {
     evidenceTools,
     mutationTools: new Set(input.mutationTools),
     requiredToolSequence: input.requiredToolSequence,
+    requiresResolverAuthorization: input.requiresResolverAuthorization ?? false,
   };
 }
 
@@ -165,14 +168,14 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
   'caption-track': capabilityContract({
     authority: 'family-owner',
     evidenceTools: ['get_video_transcription'],
-    mutationTools: ['add_captions', 'add_fancy_captions'],
-    requiredToolSequence: [TIMELINE_READ_STEP, ['add_captions', 'add_fancy_captions']],
+    mutationTools: ['add_captions'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'add_captions'],
   }),
   'caption-refresh': capabilityContract({
     authority: 'family-owner',
     evidenceTools: ['get_video_transcription'],
-    mutationTools: ['refresh_captions', 'refresh_fancy_captions'],
-    requiredToolSequence: [TIMELINE_READ_STEP, ['refresh_captions', 'refresh_fancy_captions']],
+    mutationTools: ['refresh_captions'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'refresh_captions'],
   }),
   'caption-batch-style': capabilityContract({
     authority: 'family-owner',
@@ -200,6 +203,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     ],
     mutationTools: ['sync_cuts_to_beats'],
     requiredToolSequence: [TIMELINE_READ_STEP, 'resolve_audio_edit', 'sync_cuts_to_beats'],
+    requiresResolverAuthorization: true,
   }),
   'scene-regeneration': capabilityContract({
     authority: 'family-owner',
@@ -265,6 +269,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       'resolve_sticker_overlay',
       'generate_html_sticker',
     ],
+    requiresResolverAuthorization: true,
   }),
   'selected-keyframes': capabilityContract({
     authority: 'mechanical-workflow',
@@ -275,6 +280,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       'resolve_keyframe_edit',
       'set_keyframes',
     ],
+    requiresResolverAuthorization: true,
   }),
   'overlay-fade': capabilityContract({
     authority: 'mechanical-workflow',
@@ -310,6 +316,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       'resolve_user_asset_overlay',
       'add_overlay',
     ],
+    requiresResolverAuthorization: true,
   }),
   'asset-replacement': capabilityContract({
     authority: 'localized-workflow',
@@ -325,6 +332,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       'resolve_user_asset_overlay',
       'use_matching_footage',
     ],
+    requiresResolverAuthorization: true,
   }),
   'localized-cut': capabilityContract({
     authority: 'localized-workflow',
@@ -339,12 +347,14 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_audio_edit'],
       'cut_section',
     ],
+    requiresResolverAuthorization: true,
   }),
   'localized-overlay': capabilityContract({
     authority: 'localized-workflow',
     evidenceTools: ['resolve_visual_edit'],
     mutationTools: ['add_overlay'],
     requiredToolSequence: [TIMELINE_READ_STEP, 'resolve_visual_edit', 'add_overlay'],
+    requiresResolverAuthorization: true,
   }),
   'localized-sfx': capabilityContract({
     authority: 'localized-workflow',
@@ -357,6 +367,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     ],
     mutationTools: ['add_sfx'],
     requiredToolSequence: [TIMELINE_READ_STEP, 'resolve_audio_edit', 'add_sfx'],
+    requiresResolverAuthorization: true,
   }),
   'sfx-replacement': capabilityContract({
     authority: 'family-owner',
@@ -383,6 +394,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_audio_edit', 'resolve_keyframe_edit'],
       ['apply_camera_shake', 'set_keyframes'],
     ],
+    requiresResolverAuthorization: true,
   }),
   'localized-speed-change': capabilityContract({
     authority: 'localized-workflow',
@@ -403,6 +415,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_keyframe_edit'],
       'apply_speed_ramp',
     ],
+    requiresResolverAuthorization: true,
   }),
   'project-reframe': capabilityContract({
     authority: 'project-transform',
@@ -429,13 +442,12 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
 
 export const CHAT_DIRECT_FAMILY_TOOLS: ReadonlySet<string> = new Set([
   'add_captions',
-  'add_fancy_captions',
   'regenerate_bgm',
   'sync_cuts_to_beats',
 ]);
 
 const EXCLUSIVE_FAMILY_OWNER_TOOLS: Partial<Record<EditorialFamily, ReadonlySet<string>>> = {
-  captions: new Set(['add_captions', 'add_fancy_captions']),
+  captions: new Set(['add_captions']),
   music: new Set(['regenerate_bgm']),
 };
 

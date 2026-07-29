@@ -550,7 +550,7 @@ describe('server-owned localized chat workflow', () => {
       kind: 'model-call',
       operationId: '0:caption-track',
       stepIndex: 1,
-      allowedToolNames: new Set(['add_captions', 'add_fancy_captions']),
+      allowedToolNames: new Set(['add_captions']),
       instruction: 'Complete caption-track through its licensed family owner.',
     });
 

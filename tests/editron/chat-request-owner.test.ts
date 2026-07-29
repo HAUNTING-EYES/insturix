@@ -1443,14 +1443,12 @@ describe('chat request owner capability filtering', () => {
       'get_timeline_view',
       'get_video_transcription',
       'add_captions',
-      'add_fancy_captions',
     ]);
     expect(licensedNames(['caption-refresh'])).toEqual([
       'read_project_file',
       'get_timeline_view',
       'get_video_transcription',
       'refresh_captions',
-      'refresh_fancy_captions',
     ]);
     expect(licensedNames(['caption-batch-style'])).toEqual([
       'read_project_file',
@@ -1668,9 +1666,10 @@ describe('chat request owner capability filtering', () => {
       tools, license('semantic-editorial-planner', 'editorial-plan'), { assistLane: true },
     ).map((t) => t.name);
     // The chip directives now execute on their own hardened tools:
-    for (const direct of ['add_captions', 'regenerate_bgm', 'cut_section', 'add_fancy_captions', 'sync_cuts_to_beats', 'add_overlay', 'add_sfx', 'apply_camera_shake', 'apply_speed_ramp', 'use_matching_footage']) {
+    for (const direct of ['add_captions', 'regenerate_bgm', 'cut_section', 'sync_cuts_to_beats', 'add_overlay', 'add_sfx', 'apply_camera_shake', 'apply_speed_ramp', 'use_matching_footage']) {
       expect(assistNames).toContain(direct);
     }
+    expect(assistNames).not.toContain('add_fancy_captions');
     // MG creation stays with the semantic planner. Direct MG/HTML tools still
     // carry legacy form authority and may not bypass that owner.
     expect(assistNames).not.toContain('add_motion_graphic');
