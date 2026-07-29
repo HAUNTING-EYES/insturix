@@ -1,7 +1,14 @@
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { Types } from 'mongoose';
-import { getJob, completeJob, failJob, startJob } from '@/lib/clickatron-jobs';
+import {
+  claimJobForExecution,
+  completeJob,
+  failJob,
+  failQueuedJob,
+  getJob,
+  getJobCreditTransaction,
+} from '@/lib/clickatron-jobs';
 import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { z } from 'zod';
 import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
@@ -74,6 +81,31 @@ function getClickatronVariationRefundAmount(modelId?: string): number {
 }
 
 type ClickatronCostJob = NonNullable<Awaited<ReturnType<typeof getJob>>>;
+
+async function refundClaimedJob(
+  job: ClickatronCostJob,
+  reason: string,
+  modelId?: string,
+): Promise<void> {
+  const ledger = getJobCreditTransaction(job);
+  const amount = ledger.chargedCredits
+    ?? getClickatronVariationRefundAmount(modelId || job.modelId);
+  if (amount <= 0) return;
+
+  const refund = await CreditsService.refundCredits(
+    job.userId,
+    amount,
+    reason,
+    {
+      service: 'clickatron',
+      action: 'variation',
+      originalTransactionId: ledger.transactionId,
+    },
+  );
+  if (!refund.success) {
+    throw new Error(refund.error || `Failed to refund Clickatron job ${job.id}`);
+  }
+}
 
 /**
  * Persist fields onto ONE variation atomically (positional $ + $elemMatch), never by
@@ -148,8 +180,8 @@ async function failVariationInline(
   job: ClickatronCostJob,
   { code, message, refund = true }: { code: string; message: string; refund?: boolean },
 ): Promise<void> {
-  const alreadyTerminal = variation.status === 'failed' || variation.status === 'completed';
-  await failJob(activeJobId, { code, message });
+  const failedJob = await failJob(activeJobId, { code, message });
+  if (!failedJob) return;
   try {
     // Keep the in-memory copy consistent for downstream reads, but persist atomically
     // (positional $) — never task.save(), which loses sibling carousel slides. [R7]
@@ -164,13 +196,12 @@ async function failVariationInline(
   } catch (saveError) {
     console.error('Worker: Failed to persist inline variation failure:', saveError);
   }
-  if (refund && !alreadyTerminal) {
+  if (refund) {
     try {
-      await CreditsService.refundCredits(
-        job.userId,
-        getClickatronVariationRefundAmount(variation.modelId || job.modelId),
+      await refundClaimedJob(
+        failedJob,
         `Variation generation failed: ${message}`,
-        { service: 'clickatron', action: 'variation' },
+        variation.modelId,
       );
     } catch (refundError) {
       console.error('Worker: Failed to refund after inline failure, user:', job.userId, refundError);
@@ -273,6 +304,7 @@ async function recordClickatronR2StorageCost({
 }
 async function handler(req: Request) {
   let jobId: string | undefined;
+  let claimedJob: ClickatronCostJob | undefined;
 
   try {
     const body = await req.json();
@@ -280,37 +312,85 @@ async function handler(req: Request) {
     // Extract jobId early for error handling
     jobId = body.jobId;
 
-    const { jobId: parsedJobId, sessionId, variationId } = workerRequestSchema.parse(body);
+    const {
+      jobId: parsedJobId,
+      sessionId: requestSessionId,
+      variationId: requestVariationId,
+      userId: requestUserId,
+    } = workerRequestSchema.parse(body);
     const activeJobId: string = parsedJobId;
     jobId = activeJobId; // Preserve for outer error handling.
-    const job = await getJob(activeJobId);
-    if (!job) {
+    const claim = await claimJobForExecution(activeJobId, 'generating');
+    if (claim.outcome === 'missing' || !claim.job) {
       console.error('Worker: Job not found for jobId:', activeJobId);
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
+    if (claim.outcome === 'rejected') {
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        status: claim.job.status,
+      });
+    }
+    const job = claim.job;
+    claimedJob = job;
 
-    // Mark job as running
-    await startJob(activeJobId, 'generating');
+    if (
+      requestSessionId !== job.sessionId
+      || requestVariationId !== job.variationId
+      || requestUserId !== job.userId
+    ) {
+      const failedJob = await failJob(activeJobId, {
+        code: 'JOB_PAYLOAD_MISMATCH',
+        message: 'Worker payload does not match the durable job identity',
+      });
+      if (failedJob) {
+        await markVariationFailedForJob(failedJob, 'Generation job payload was invalid.');
+        await refundClaimedJob(failedJob, 'Clickatron worker payload identity mismatch');
+      }
+      return NextResponse.json({ error: 'Job payload mismatch' }, { status: 400 });
+    }
+
+    const sessionId = job.sessionId;
+    const variationId = job.variationId;
     await getClickatronDb();
     const objectId = new Types.ObjectId(sessionId);
     const task = await ClickatronTask.findById(objectId);
     if (!task || !task.details.canvas) {
       console.error('Worker: Task or canvas not found for sessionId:', sessionId);
-      await failJob(activeJobId, { code: 'TASK_NOT_FOUND', message: 'Task or canvas not found' });
+      const failedJob = await failJob(activeJobId, {
+        code: 'TASK_NOT_FOUND',
+        message: 'Task or canvas not found',
+      });
+      if (failedJob) {
+        await refundClaimedJob(failedJob, 'Clickatron task or canvas was not found');
+      }
       return NextResponse.json({ error: 'Task or canvas not found' }, { status: 404 });
     }
 
     // Validate job ownership
     if (job.userId !== task.clerkUserId) {
       console.error('Worker: Job ownership validation failed', { jobUserId: job.userId, taskUserId: task.clerkUserId });
-      await failJob(activeJobId, { code: 'UNAUTHORIZED', message: 'Job ownership validation failed' });
+      const failedJob = await failJob(activeJobId, {
+        code: 'UNAUTHORIZED',
+        message: 'Job ownership validation failed',
+      });
+      if (failedJob) {
+        await refundClaimedJob(failedJob, 'Clickatron job ownership validation failed');
+      }
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     const variation = task.details.canvas.variations.find((v: Variation) => v.id === variationId);
     if (!variation) {
       console.error('Worker: Variation not found - likely deleted');
-      await failJob(activeJobId, { code: 'VARIATION_DELETED', message: 'Variation was deleted before processing' });
+      const failedJob = await failJob(activeJobId, {
+        code: 'VARIATION_DELETED',
+        message: 'Variation was deleted before processing',
+      });
+      if (failedJob) {
+        await refundClaimedJob(failedJob, 'Clickatron variation was deleted before processing');
+      }
       return NextResponse.json({ error: 'Variation not found' }, { status: 404 });
     }
 
@@ -783,11 +863,15 @@ async function handler(req: Request) {
         thumbnailBuffer
       );
 
-      await recordClickatronR2StorageCost({
-        job,
-        imageBytes: imageBuffer.length,
-        thumbnailBytes: thumbnailBuffer.length,
-      });
+      try {
+        await recordClickatronR2StorageCost({
+          job,
+          imageBytes: imageBuffer.length,
+          thumbnailBytes: thumbnailBuffer.length,
+        });
+      } catch (costError) {
+        console.error('Worker: Failed to record R2 storage cost:', costError);
+      }
 
       // Update variation with generated image. In-memory mutation is kept for the
       // downstream reads in this handler (cost recording, CalOS callback), but
@@ -819,15 +903,30 @@ async function handler(req: Request) {
         console.error('Worker: generated image could not be attached — variation missing at completion:', { sessionId: job.sessionId, variationId: variation.id, rawR2Url });
       }
 
-      await completeJob(activeJobId, rawR2Url);
-      await recordClickatronFalProviderCost({
-        job,
-        variation,
-        status: 'success',
-        result,
-        chargedCredits: getClickatronVariationRefundAmount(variation.modelId || job.modelId),
-      });
-      falCostRecorded = true;
+      try {
+        const completedJob = await completeJob(activeJobId, rawR2Url);
+        if (!completedJob) {
+          console.error('Worker: Generated asset persisted but job completion transition was rejected:', {
+            jobId: activeJobId,
+          });
+        }
+      } catch (completionError) {
+        console.error('Worker: Generated asset persisted but Redis completion failed:', completionError);
+      }
+      try {
+        await recordClickatronFalProviderCost({
+          job,
+          variation,
+          status: 'success',
+          result,
+          chargedCredits: getJobCreditTransaction(job).chargedCredits
+            ?? getClickatronVariationRefundAmount(variation.modelId || job.modelId),
+        });
+      } catch (costError) {
+        console.error('Worker: Failed to record Fal success cost:', costError);
+      } finally {
+        falCostRecorded = true;
+      }
 
       // CalOS completion callback (isolated â€” can never fail the Clickatron job): if this image was
       // generated for a CalOS deliverable (ThinkForge handoff today, or a CalOS kickoff later), land
@@ -904,13 +1003,29 @@ async function handler(req: Request) {
       console.error('Worker: Detailed error - Code:', errorCode, 'Message:', errorMessage);
 
       if (falCallAttempted && !falCostRecorded) {
-        await recordClickatronFalProviderCost({
-          job,
-          variation,
-          status: 'failed',
-          result: falResult,
-          error: generationError,
+        try {
+          await recordClickatronFalProviderCost({
+            job,
+            variation,
+            status: 'failed',
+            result: falResult,
+            error: generationError,
+          });
+        } catch (costError) {
+          console.error('Worker: Failed to record Fal failure cost:', costError);
+        }
+      }
+
+      const failedJob = await failJob(activeJobId, {
+        code: errorCode,
+        message: errorMessage,
+        details: generationError,
+      });
+      if (!failedJob) {
+        console.error('Worker: Failure handling skipped because job is already terminal:', {
+          jobId: activeJobId,
         });
+        return NextResponse.json({ success: true, skipped: true });
       }
 
       // Ensure variation is updated with failed status — atomically on this ONE
@@ -955,18 +1070,12 @@ async function handler(req: Request) {
         }
       }
 
-      await failJob(activeJobId, {
-        code: errorCode,
-        message: errorMessage,
-        details: generationError
-      });
-
-      // Refund the same model-aware Clickatron variation cost that was charged.
       try {
-        await CreditsService.refundCredits(job.userId, getClickatronVariationRefundAmount(variation.modelId || job.modelId), `Variation generation failed: ${errorMessage}`, {
-          service: 'clickatron',
-          action: 'variation',
-        });
+        await refundClaimedJob(
+          failedJob,
+          `Variation generation failed: ${errorMessage}`,
+          variation.modelId,
+        );
       } catch (refundError) {
         console.error('Failed to process refund for user:', job.userId, refundError);
       }
@@ -977,51 +1086,25 @@ async function handler(req: Request) {
     console.error('Worker error:', error);
     console.error('Worker error details - jobId:', jobId, 'error type:', (error as Error).constructor.name);
 
-    // If we have a jobId, try to fail the job in the system
-    if (jobId) {
+    if (claimedJob) {
       try {
-        await failJob(jobId, {
+        const failedJob = await failJob(claimedJob.id, {
           code: 'WORKER_EXECUTION_FAILED',
           message: error instanceof Error ? error.message : 'Unknown error occurred in worker',
-          details: error
+          details: error,
         });
-      } catch (failError) {
-        console.error('Worker: Failed to mark job as failed:', failError);
-      }
-    }
-
-    // Also try to update the variation status to failed if we have the necessary data
-    if (jobId) {
-      try {
-        const job = await getJob(jobId);
-        if (job) {
-          await getClickatronDb();
-          const objectId = new Types.ObjectId(job.sessionId);
-          const task = await ClickatronTask.findById(objectId);
-
-          if (task && task.details.canvas) {
-            const variation = task.details.canvas.variations.find((v: Variation) => v.id === job.variationId);
-            if (variation) {
-              // Atomic per-variation write — never task.save() (sibling-slide clobber). [R7]
-              await persistVariationFieldsAtomic(job.sessionId, variation.id, {
-                status: 'failed',
-                error: error instanceof Error ? error.message : 'Unknown error occurred in worker',
-              });
-            }
-
-            // Refund the same model-aware Clickatron variation cost that was charged.
-            try {
-              await CreditsService.refundCredits(job.userId, getClickatronVariationRefundAmount(variation?.modelId || job.modelId), 'Outer catch block failure in Clickatron worker', {
-                service: 'clickatron',
-                action: 'variation',
-              });
-            } catch (refundError) {
-              console.error('Failed to process refund for user:', job.userId, refundError);
-            }
-          }
+        if (failedJob) {
+          const errorMessage = error instanceof Error
+            ? error.message
+            : 'Unknown error occurred in worker';
+          await markVariationFailedForJob(failedJob, errorMessage);
+          await refundClaimedJob(
+            failedJob,
+            'Outer catch block failure in Clickatron worker',
+          );
         }
-      } catch (updateError) {
-        console.error('Worker: Failed to update variation status in outer catch block:', updateError);
+      } catch (failError) {
+        console.error('Worker: Failed to terminalize outer-catch job:', failError);
       }
     }
 
@@ -1053,33 +1136,24 @@ export const POST = async (req: Request) => {
     // If we have a jobId, fail the job and mirror that terminal state to Mongo.
     if (jobId) {
       try {
-        const job = await getJob(jobId);
-        const shouldRefund = Boolean(job && !['completed', 'failed', 'canceled'].includes(job.status));
-
-        await failJob(jobId, {
+        const failed = await failQueuedJob(jobId, {
           code: 'SIGNATURE_VERIFICATION_FAILED',
           message: 'Failed to verify QStash signature. Check your UPSTASH_QSTASH keys.',
           details: error,
         });
-
-        if (job && shouldRefund) {
+        if (failed.outcome === 'updated' && failed.job) {
           await markVariationFailedForJob(
-            job,
+            failed.job,
             'Generation worker signature verification failed before image generation could start.',
           );
 
           try {
-            await CreditsService.refundCredits(
-              job.userId,
-              getClickatronVariationRefundAmount(job.modelId),
+            await refundClaimedJob(
+              failed.job,
               'QStash signature verification failed in worker',
-              {
-                service: 'clickatron',
-                action: 'variation',
-              },
             );
           } catch (refundError) {
-            console.error('Failed to process refund for user:', job.userId, refundError);
+            console.error('Failed to process signature-failure refund:', refundError);
           }
         }
       } catch (failError) {

@@ -76,6 +76,7 @@ export interface CreditsDeductResult {
   balance?: ICreditsBalance;
   transactionId?: string;
   error?: string;
+  duplicate?: boolean;
 }
 
 export interface CreditsBalanceInfo {
@@ -194,6 +195,7 @@ export class CreditsService {
       durationMinutes?: number;
       durationSeconds?: number;
       taskId?: string;
+      idempotencyKey?: string;
       /** Batch/fan-out multiplier (e.g., 4 scenes means 4 priced units). */
       quantity?: number;
     }
@@ -212,6 +214,27 @@ export class CreditsService {
         { $set: { creditsBalance: emptyCreditsBalance() } },
       );
       return { success: false, creditsDeducted: 0, error: 'Credits initialized, please retry' };
+    }
+
+    const idempotencyKey = options?.idempotencyKey;
+    if (idempotencyKey) {
+      const existingTransaction = user.creditsBalance.creditHistory?.find(
+        (entry: ICreditTransaction) => (
+          entry.type === 'usage'
+          && entry.service === service
+          && entry.action === action
+          && entry.metadata?.idempotencyKey === idempotencyKey
+        ),
+      );
+      if (existingTransaction) {
+        return {
+          success: true,
+          creditsDeducted: Math.abs(existingTransaction.amount),
+          balance: user.creditsBalance,
+          transactionId: existingTransaction.id,
+          duplicate: true,
+        };
+      }
     }
 
     const cost = getCreditCost(service, action, options);
@@ -264,6 +287,20 @@ export class CreditsService {
     const updated = await User.findOneAndUpdate(
       {
         clerkUserId,
+        ...(idempotencyKey
+          ? {
+              'creditsBalance.creditHistory': {
+                $not: {
+                  $elemMatch: {
+                    type: 'usage',
+                    service,
+                    action,
+                    'metadata.idempotencyKey': idempotencyKey,
+                  },
+                },
+              },
+            }
+          : {}),
         // Ensure sufficient credits IN THIS POOL at write time (prevents race
         // condition). $ifNull guards legacy docs that lack the media fields.
         $expr: {
@@ -294,6 +331,26 @@ export class CreditsService {
     );
 
     if (!updated) {
+      if (idempotencyKey) {
+        const concurrentUser = await User.findOne({ clerkUserId });
+        const existingTransaction = concurrentUser?.creditsBalance?.creditHistory?.find(
+          (entry: ICreditTransaction) => (
+            entry.type === 'usage'
+            && entry.service === service
+            && entry.action === action
+            && entry.metadata?.idempotencyKey === idempotencyKey
+          ),
+        );
+        if (existingTransaction) {
+          return {
+            success: true,
+            creditsDeducted: Math.abs(existingTransaction.amount),
+            balance: concurrentUser?.creditsBalance,
+            transactionId: existingTransaction.id,
+            duplicate: true,
+          };
+        }
+      }
       return {
         success: false,
         creditsDeducted: 0,

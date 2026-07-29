@@ -4,7 +4,6 @@ import {
   JobStatus,
   JobStage,
   JobError,
-  JobTraceEntry,
   CreateJobRequest
 } from '@/types/clickatron';
 
@@ -49,6 +48,79 @@ export const JOB_TTL = {
   FAILED: 7 * 24 * 60 * 60, // 7 days for failed jobs
 } as const;
 
+const IDEMPOTENCY_PENDING_TTL_SECONDS = 15 * 60;
+
+const ATOMIC_JOB_TRANSITION_SCRIPT = `
+local raw = redis.call("GET", KEYS[1])
+if not raw then
+  return cjson.encode({ outcome = "missing" })
+end
+
+local job = cjson.decode(raw)
+local allowed = cjson.decode(ARGV[1])
+local permitted = false
+for _, status in ipairs(allowed) do
+  if job.status == status then
+    permitted = true
+    break
+  end
+end
+
+if not permitted then
+  return cjson.encode({ outcome = "rejected", job = job })
+end
+
+local updates = cjson.decode(ARGV[2])
+for key, value in pairs(updates) do
+  job[key] = value
+end
+job.updatedAt = tonumber(ARGV[3])
+
+if updates.status or updates.stage or updates.progress then
+  job.trace = job.trace or {}
+  table.insert(job.trace, {
+    timestamp = tonumber(ARGV[3]),
+    stage = updates.stage or job.stage,
+    progress = updates.progress or job.progress,
+    message = ARGV[5],
+  })
+end
+
+local encoded = cjson.encode(job)
+redis.call("SET", KEYS[1], encoded, "EX", tonumber(ARGV[4]))
+if job.status == "completed" or job.status == "failed" or job.status == "canceled" then
+  redis.call("ZREM", KEYS[2], job.id)
+end
+
+return cjson.encode({ outcome = "updated", job = job })
+`;
+
+const COMMIT_IDEMPOTENCY_SCRIPT = `
+local current = redis.call("GET", KEYS[1])
+if current ~= ARGV[1] then
+  return 0
+end
+redis.call("SET", KEYS[1], ARGV[2], "EX", tonumber(ARGV[3]))
+return 1
+`;
+
+const RELEASE_IDEMPOTENCY_SCRIPT = `
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("DEL", KEYS[1])
+end
+return 0
+`;
+
+export interface AtomicJobTransitionResult {
+  outcome: 'updated' | 'rejected' | 'missing';
+  job: ClickatronJob | null;
+}
+
+export interface IdempotencyClaimResult {
+  outcome: 'claimed' | 'existing';
+  value: string;
+}
+
 /**
  * Create a new job record in Redis
  */
@@ -77,24 +149,24 @@ export async function createJob(jobData: CreateJobRequest): Promise<string> {
     parentVariationId: jobData.parentVariationId,
     fineTuning: jobData.fineTuning,
     metadata: jobData.metadata,
+    modelId: jobData.modelId,
     referenceImageRefs: jobData.referenceImageRefs,
   };
 
   const jobKey = REDIS_KEYS.job(jobId);
   const indexKey = REDIS_KEYS.jobIndex(jobData.sessionId);
 
-  // Store job data
-  await redis.set(jobKey, JSON.stringify(job), { ex: JOB_TTL.ACTIVE });
-
-  // Add to session index
-  await redis.sadd(indexKey, jobId);
-  await redis.expire(indexKey, JOB_TTL.COMPLETED);
-
-  // Add to active jobs (for monitoring/cleanup)
-  await redis.zadd(REDIS_KEYS.activeJobs, {
-    score: Date.now(),
-    member: jobId,
-  });
+  // The job record is the durable outbox. A transaction prevents a job from
+  // existing without the indexes used by dispatch recovery and timeout cleanup.
+  await redis.multi()
+    .set(jobKey, JSON.stringify(job), { ex: JOB_TTL.ACTIVE })
+    .sadd(indexKey, jobId)
+    .expire(indexKey, JOB_TTL.COMPLETED)
+    .zadd(REDIS_KEYS.activeJobs, {
+      score: Date.now(),
+      member: jobId,
+    })
+    .exec();
 
   return jobId;
 }
@@ -137,91 +209,140 @@ export async function updateJob(
   jobId: string,
   updates: Partial<Pick<ClickatronJob, 'status' | 'progress' | 'stage' | 'resultRef' | 'error'>>
 ): Promise<ClickatronJob | null> {
-  const redis = getRedisClient();
-  const jobKey = REDIS_KEYS.job(jobId);
-
-  const job = await getJob(jobId);
-  if (!job) {
-    return null;
-  }
-
-  // Update job fields
-  const updatedJob: ClickatronJob = {
-    ...job,
-    ...updates,
-    updatedAt: Date.now(),
-  };
-
-  // Add trace entry for significant changes
-  if (updates.status || updates.stage || updates.progress) {
-    const traceEntry: JobTraceEntry = {
-      timestamp: Date.now(),
-      stage: updates.stage || job.stage,
-      progress: updates.progress ?? job.progress,
-      message: updates.status ? `Status changed to ${updates.status}` : undefined,
-    };
-    updatedJob.trace = [...job.trace, traceEntry];
-  }
-
-  // Determine TTL based on status
-  let ttl = JOB_TTL.ACTIVE;
-  if (updatedJob.status === 'completed') {
-    ttl = JOB_TTL.COMPLETED;
-  } else if (updatedJob.status === 'failed' || updatedJob.status === 'canceled') {
-    ttl = JOB_TTL.FAILED;
-  }
-
-  // Save updated job
-  await redis.set(jobKey, JSON.stringify(updatedJob), { ex: ttl });
-
-  // Update active jobs index if terminal
-  if (['completed', 'failed', 'canceled'].includes(updatedJob.status)) {
-    await redis.zrem(REDIS_KEYS.activeJobs, jobId);
-  }
-
-  return updatedJob;
+  const result = await transitionJobAtomically(
+    jobId,
+    ['queued', 'running'],
+    updates,
+    updates.status ? `Status changed to ${updates.status}` : 'Job progress updated',
+  );
+  return result.outcome === 'updated' ? result.job : null;
 }
 
 /**
  * Mark job as running and update stage
  */
 export async function startJob(jobId: string, stage: JobStage = 'prompting'): Promise<ClickatronJob | null> {
-  return updateJob(jobId, {
-    status: 'running',
-    stage,
-    progress: 5, // Start with 5% progress
-  });
+  const result = await claimJobForExecution(jobId, stage);
+  return result.outcome === 'updated' ? result.job : null;
+}
+
+export async function claimJobForExecution(
+  jobId: string,
+  stage: JobStage = 'prompting',
+): Promise<AtomicJobTransitionResult> {
+  return transitionJobAtomically(
+    jobId,
+    ['queued'],
+    {
+      status: 'running',
+      stage,
+      progress: 5,
+    },
+    'Job claimed for execution',
+  );
 }
 
 /**
  * Complete job successfully
  */
 export async function completeJob(jobId: string, resultRef: string): Promise<ClickatronJob | null> {
-  return updateJob(jobId, {
-    status: 'completed',
-    progress: 100,
-    stage: 'finalizing',
-    resultRef,
-  });
+  const result = await transitionJobAtomically(
+    jobId,
+    ['running'],
+    {
+      status: 'completed',
+      progress: 100,
+      stage: 'finalizing',
+      resultRef,
+      completedAt: Date.now(),
+    },
+    'Job completed',
+  );
+  return result.outcome === 'updated' ? result.job : null;
 }
 
 /**
  * Fail job with error
  */
 export async function failJob(jobId: string, error: JobError): Promise<ClickatronJob | null> {
-  return updateJob(jobId, {
-    status: 'failed',
-    error,
-  });
+  const result = await transitionJobAtomically(
+    jobId,
+    ['queued', 'running'],
+    {
+      status: 'failed',
+      error,
+    },
+    `Job failed: ${error.code}`,
+  );
+  return result.outcome === 'updated' ? result.job : null;
+}
+
+/**
+ * Fail a job only if no worker has claimed it yet.
+ *
+ * A dispatch timeout is ambiguous: QStash may have delivered the request even
+ * when the publisher did not receive an acknowledgement. Refunding is safe only
+ * when this queued-only transition wins.
+ */
+export async function failQueuedJob(jobId: string, error: JobError): Promise<AtomicJobTransitionResult> {
+  return transitionJobAtomically(
+    jobId,
+    ['queued'],
+    {
+      status: 'failed',
+      error,
+    },
+    `Queued job failed before dispatch: ${error.code}`,
+  );
 }
 
 /**
  * Cancel job
  */
 export async function cancelJob(jobId: string): Promise<ClickatronJob | null> {
-  return updateJob(jobId, {
-    status: 'canceled',
-  });
+  const result = await transitionJobAtomically(
+    jobId,
+    ['queued', 'running'],
+    { status: 'canceled' },
+    'Job canceled',
+  );
+  return result.outcome === 'updated' ? result.job : null;
+}
+
+export async function recordJobCreditTransaction(
+  jobId: string,
+  transactionId: string,
+  chargedCredits: number,
+): Promise<ClickatronJob | null> {
+  const job = await getJob(jobId);
+  if (!job || job.status !== 'queued') return null;
+  const result = await transitionJobAtomically(
+    jobId,
+    ['queued'],
+    {
+      metadata: {
+        ...(job.metadata || {}),
+        creditTransactionId: transactionId,
+        chargedCredits,
+      },
+    },
+    'Credit transaction attached',
+  );
+  return result.outcome === 'updated' ? result.job : null;
+}
+
+export function getJobCreditTransaction(job: ClickatronJob): {
+  transactionId?: string;
+  chargedCredits?: number;
+} {
+  return {
+    transactionId: typeof job.metadata?.creditTransactionId === 'string'
+      ? job.metadata.creditTransactionId
+      : undefined,
+    chargedCredits: typeof job.metadata?.chargedCredits === 'number'
+      ? job.metadata.chargedCredits
+      : undefined,
+  };
 }
 
 /**
@@ -295,6 +416,46 @@ export async function setIdempotencyKey(key: string, jobId: string): Promise<voi
   await redis.set(idempotencyKey, jobId, { ex: 24 * 60 * 60 }); // 24 hours
 }
 
+export async function claimIdempotencyKey(
+  key: string,
+  claimToken: string,
+): Promise<IdempotencyClaimResult> {
+  const redis = getRedisClient();
+  const idempotencyKey = REDIS_KEYS.idempotency(key);
+  const pendingValue = `pending:${claimToken}`;
+  const claimed = await redis.set(idempotencyKey, pendingValue, {
+    ex: IDEMPOTENCY_PENDING_TTL_SECONDS,
+    nx: true,
+  });
+  if (claimed === 'OK') return { outcome: 'claimed', value: pendingValue };
+  const existing = await redis.get<string>(idempotencyKey);
+  return { outcome: 'existing', value: existing ?? pendingValue };
+}
+
+export async function commitIdempotencyKey(
+  key: string,
+  claimToken: string,
+  sessionId: string,
+): Promise<boolean> {
+  const result = await getRedisClient().eval<[string, string, number], number>(
+    COMMIT_IDEMPOTENCY_SCRIPT,
+    [REDIS_KEYS.idempotency(key)],
+    [`pending:${claimToken}`, sessionId, 24 * 60 * 60],
+  );
+  return result === 1;
+}
+
+export async function releaseIdempotencyKey(
+  key: string,
+  claimToken: string,
+): Promise<void> {
+  await getRedisClient().eval<[string], number>(
+    RELEASE_IDEMPOTENCY_SCRIPT,
+    [REDIS_KEYS.idempotency(key)],
+    [`pending:${claimToken}`],
+  );
+}
+
 /**
  * Get job ID by idempotency key
  */
@@ -356,4 +517,40 @@ export async function failExpiredJobs(): Promise<{ failed: number }> {
   }
   
   return result;
+}
+
+async function transitionJobAtomically(
+  jobId: string,
+  allowedStatuses: JobStatus[],
+  updates: Partial<ClickatronJob>,
+  traceMessage: string,
+): Promise<AtomicJobTransitionResult> {
+  const status = updates.status;
+  const ttl = status === 'completed'
+    ? JOB_TTL.COMPLETED
+    : status === 'failed' || status === 'canceled'
+      ? JOB_TTL.FAILED
+      : JOB_TTL.ACTIVE;
+  const raw = await getRedisClient().eval<
+    [string, string, number, number, string],
+    string
+  >(
+    ATOMIC_JOB_TRANSITION_SCRIPT,
+    [REDIS_KEYS.job(jobId), REDIS_KEYS.activeJobs],
+    [
+      JSON.stringify(allowedStatuses),
+      JSON.stringify(updates),
+      Date.now(),
+      ttl,
+      traceMessage,
+    ],
+  );
+  const parsed = JSON.parse(raw) as {
+    outcome: AtomicJobTransitionResult['outcome'];
+    job?: ClickatronJob;
+  };
+  return {
+    outcome: parsed.outcome,
+    job: parsed.job ?? null,
+  };
 }
