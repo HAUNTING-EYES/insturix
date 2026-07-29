@@ -13,6 +13,9 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const MIN_TIMEOUT_MS = 100;
 const MAX_TIMEOUT_MS = 30_000;
 const RESULT_LIMIT = 12;
+const MODAL_ENDPOINT_HOST_PATTERN = /(^|\.)modal\.run$/i;
+const MODAL_PROXY_TOKEN_ID_PATTERN = /^wk-[A-Za-z0-9_-]{8,}$/;
+const MODAL_PROXY_TOKEN_SECRET_PATTERN = /^ws-[A-Za-z0-9_-]{8,}$/;
 
 export const SFX_CATALOG_SEMANTIC_RETRIEVAL_VERSION =
   'editron-sfx-catalog-semantic-retrieval-v1' as const;
@@ -26,6 +29,10 @@ export const SFX_SEMANTIC_RETRIEVAL_TOKEN_ENV =
   'SFX_SEMANTIC_RETRIEVAL_TOKEN' as const;
 export const SFX_SEMANTIC_RETRIEVAL_TIMEOUT_MS_ENV =
   'SFX_SEMANTIC_RETRIEVAL_TIMEOUT_MS' as const;
+export const SFX_SEMANTIC_MODAL_PROXY_TOKEN_ID_ENV =
+  'SFX_SEMANTIC_MODAL_PROXY_TOKEN_ID' as const;
+export const SFX_SEMANTIC_MODAL_PROXY_TOKEN_SECRET_ENV =
+  'SFX_SEMANTIC_MODAL_PROXY_TOKEN_SECRET' as const;
 
 export interface SfxCatalogSemanticModelDescriptor {
   provider: 'huggingface-transformers-js';
@@ -76,6 +83,7 @@ export type SfxCatalogSemanticClientErrorCode =
   | 'SEMANTIC_CLIENT_CONFIGURATION_INCOMPLETE'
   | 'SEMANTIC_CLIENT_INVALID_URL'
   | 'SEMANTIC_CLIENT_INVALID_TOKEN'
+  | 'SEMANTIC_CLIENT_INVALID_MODAL_PROXY_TOKEN'
   | 'SEMANTIC_CLIENT_INVALID_TIMEOUT'
   | 'SEMANTIC_CLIENT_EMPTY_QUERY'
   | 'SEMANTIC_CLIENT_TIMEOUT'
@@ -139,6 +147,10 @@ interface SemanticClientConfig {
   url: URL;
   token: string;
   timeoutMs: number;
+  modalProxyAuth?: {
+    tokenId: string;
+    tokenSecret: string;
+  };
 }
 
 interface SignedSemanticResponse {
@@ -160,6 +172,10 @@ async function fetchSemanticResponse(
         authorization: `Bearer ${config.token}`,
         'content-type': 'application/json',
         'x-editron-sfx-request-signature': signature(config.token, body),
+        ...(config.modalProxyAuth ? {
+          'modal-key': config.modalProxyAuth.tokenId,
+          'modal-secret': config.modalProxyAuth.tokenSecret,
+        } : {}),
       },
       body,
       cache: 'no-store',
@@ -349,7 +365,18 @@ function verifyResponseBinding(
 function configuredClient(): SemanticClientConfig | undefined {
   const rawUrl = process.env[SFX_SEMANTIC_RETRIEVAL_URL_ENV]?.trim();
   const token = process.env[SFX_SEMANTIC_RETRIEVAL_TOKEN_ENV]?.trim();
-  if (!rawUrl && !token) return undefined;
+  const modalProxyTokenId =
+    process.env[SFX_SEMANTIC_MODAL_PROXY_TOKEN_ID_ENV]?.trim();
+  const modalProxyTokenSecret =
+    process.env[SFX_SEMANTIC_MODAL_PROXY_TOKEN_SECRET_ENV]?.trim();
+  if (
+    !rawUrl
+    && !token
+    && !modalProxyTokenId
+    && !modalProxyTokenSecret
+  ) {
+    return undefined;
+  }
   if (!rawUrl || !token) {
     fail(
       'SEMANTIC_CLIENT_CONFIGURATION_INCOMPLETE',
@@ -380,11 +407,59 @@ function configuredClient(): SemanticClientConfig | undefined {
       `${SFX_SEMANTIC_RETRIEVAL_URL_ENV} must use HTTPS`,
     );
   }
+  const modalProxyAuth = configuredModalProxyAuth(
+    url,
+    modalProxyTokenId,
+    modalProxyTokenSecret,
+  );
   return {
     url,
     token,
     timeoutMs: configuredTimeoutMs(),
+    ...(modalProxyAuth ? { modalProxyAuth } : {}),
   };
+}
+
+function configuredModalProxyAuth(
+  url: URL,
+  tokenId: string | undefined,
+  tokenSecret: string | undefined,
+): SemanticClientConfig['modalProxyAuth'] {
+  const modalEndpoint = (
+    url.protocol === 'https:'
+    && MODAL_ENDPOINT_HOST_PATTERN.test(url.hostname)
+  );
+  if (!tokenId && !tokenSecret) {
+    if (modalEndpoint) {
+      fail(
+        'SEMANTIC_CLIENT_CONFIGURATION_INCOMPLETE',
+        `${SFX_SEMANTIC_MODAL_PROXY_TOKEN_ID_ENV} and ${SFX_SEMANTIC_MODAL_PROXY_TOKEN_SECRET_ENV} are required for Modal semantic retrieval`,
+      );
+    }
+    return undefined;
+  }
+  if (!tokenId || !tokenSecret) {
+    fail(
+      'SEMANTIC_CLIENT_CONFIGURATION_INCOMPLETE',
+      `${SFX_SEMANTIC_MODAL_PROXY_TOKEN_ID_ENV} and ${SFX_SEMANTIC_MODAL_PROXY_TOKEN_SECRET_ENV} must be configured together`,
+    );
+  }
+  if (!modalEndpoint) {
+    fail(
+      'SEMANTIC_CLIENT_INVALID_URL',
+      'Modal semantic proxy credentials may only be sent to an HTTPS modal.run endpoint',
+    );
+  }
+  if (
+    !MODAL_PROXY_TOKEN_ID_PATTERN.test(tokenId)
+    || !MODAL_PROXY_TOKEN_SECRET_PATTERN.test(tokenSecret)
+  ) {
+    fail(
+      'SEMANTIC_CLIENT_INVALID_MODAL_PROXY_TOKEN',
+      'Modal semantic proxy credentials must be a wk- token ID and ws- token secret',
+    );
+  }
+  return { tokenId, tokenSecret };
 }
 
 function configuredTimeoutMs(): number {

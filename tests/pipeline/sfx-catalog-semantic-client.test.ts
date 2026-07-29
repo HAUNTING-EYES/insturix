@@ -17,6 +17,8 @@ import {
   retrieveConfiguredSfxCatalogSemantics,
   SFX_CATALOG_SEMANTIC_QUERY_RESPONSE_VERSION,
   SFX_CATALOG_SEMANTIC_RETRIEVAL_VERSION,
+  SFX_SEMANTIC_MODAL_PROXY_TOKEN_ID_ENV,
+  SFX_SEMANTIC_MODAL_PROXY_TOKEN_SECRET_ENV,
   SFX_SEMANTIC_RETRIEVAL_TIMEOUT_MS_ENV,
   SFX_SEMANTIC_RETRIEVAL_TOKEN_ENV,
   SFX_SEMANTIC_RETRIEVAL_URL_ENV,
@@ -26,6 +28,9 @@ import {
 
 const TOKEN = 'semantic-worker-shared-secret-32-bytes';
 const ENDPOINT = 'http://127.0.0.1:4567/query';
+const MODAL_ENDPOINT = 'https://jainnimit728--editron-sfx-semantic-canary-serve.modal.run/v1/query';
+const MODAL_PROXY_TOKEN_ID = 'wk-semanticcanary';
+const MODAL_PROXY_TOKEN_SECRET = 'ws-semanticcanarysecret';
 const GENERATED_AT = '2026-07-29T00:00:00.000Z';
 const RESPONSE_BODY_LIMIT_BYTES = 1_048_576;
 const MODEL = {
@@ -46,6 +51,8 @@ describe('SFX catalog semantic client', () => {
     delete process.env[SFX_SEMANTIC_RETRIEVAL_URL_ENV];
     delete process.env[SFX_SEMANTIC_RETRIEVAL_TOKEN_ENV];
     delete process.env[SFX_SEMANTIC_RETRIEVAL_TIMEOUT_MS_ENV];
+    delete process.env[SFX_SEMANTIC_MODAL_PROXY_TOKEN_ID_ENV];
+    delete process.env[SFX_SEMANTIC_MODAL_PROXY_TOKEN_SECRET_ENV];
   });
 
   afterEach(() => {
@@ -91,6 +98,8 @@ describe('SFX catalog semantic client', () => {
       const headers = new Headers(init?.headers);
       expect(headers.get('authorization')).toBe(`Bearer ${TOKEN}`);
       expect(headers.get('x-editron-sfx-request-signature')).toBe(sign(body));
+      expect(headers.get('modal-key')).toBeNull();
+      expect(headers.get('modal-secret')).toBeNull();
       const request = JSON.parse(body) as SfxCatalogSemanticQueryRequest;
       expect(request).toMatchObject({
         query: 'directional whoosh',
@@ -119,6 +128,75 @@ describe('SFX catalog semantic client', () => {
         { assetId: 'sfx_catalog_beta', cosineSimilarity: 0.6 },
       ],
     });
+  });
+
+  it('requires valid Modal proxy credentials and sends both auth layers', async () => {
+    vi.stubEnv(SFX_SEMANTIC_RETRIEVAL_URL_ENV, MODAL_ENDPOINT);
+    vi.stubEnv(SFX_SEMANTIC_RETRIEVAL_TOKEN_ENV, TOKEN);
+
+    await expect(
+      retrieveConfiguredSfxCatalogSemantics('whoosh', makeManifest()),
+    ).rejects.toMatchObject({
+      code: 'SEMANTIC_CLIENT_CONFIGURATION_INCOMPLETE',
+    });
+
+    vi.stubEnv(SFX_SEMANTIC_MODAL_PROXY_TOKEN_ID_ENV, 'ak-api-token');
+    vi.stubEnv(SFX_SEMANTIC_MODAL_PROXY_TOKEN_SECRET_ENV, 'as-api-secret');
+    await expect(
+      retrieveConfiguredSfxCatalogSemantics('whoosh', makeManifest()),
+    ).rejects.toMatchObject({
+      code: 'SEMANTIC_CLIENT_INVALID_MODAL_PROXY_TOKEN',
+    });
+
+    vi.stubEnv(SFX_SEMANTIC_MODAL_PROXY_TOKEN_ID_ENV, MODAL_PROXY_TOKEN_ID);
+    vi.stubEnv(
+      SFX_SEMANTIC_MODAL_PROXY_TOKEN_SECRET_ENV,
+      MODAL_PROXY_TOKEN_SECRET,
+    );
+    const manifest = makeManifest();
+    const fetchMock = vi.fn(async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      expect(String(input)).toBe(MODAL_ENDPOINT);
+      const headers = new Headers(init?.headers);
+      expect(headers.get('modal-key')).toBe(MODAL_PROXY_TOKEN_ID);
+      expect(headers.get('modal-secret')).toBe(MODAL_PROXY_TOKEN_SECRET);
+      expect(headers.get('authorization')).toBe(`Bearer ${TOKEN}`);
+      const body = String(init?.body);
+      expect(headers.get('x-editron-sfx-request-signature')).toBe(sign(body));
+      return signedResponse(
+        makeResponse(JSON.parse(body) as SfxCatalogSemanticQueryRequest),
+      );
+    });
+
+    await expect(
+      retrieveConfiguredSfxCatalogSemantics(
+        'whoosh',
+        manifest,
+        { fetch: fetchMock as unknown as typeof fetch },
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('never sends Modal proxy credentials to a non-Modal endpoint', async () => {
+    vi.stubEnv(SFX_SEMANTIC_RETRIEVAL_URL_ENV, 'https://example.com/v1/query');
+    vi.stubEnv(SFX_SEMANTIC_RETRIEVAL_TOKEN_ENV, TOKEN);
+    vi.stubEnv(SFX_SEMANTIC_MODAL_PROXY_TOKEN_ID_ENV, MODAL_PROXY_TOKEN_ID);
+    vi.stubEnv(
+      SFX_SEMANTIC_MODAL_PROXY_TOKEN_SECRET_ENV,
+      MODAL_PROXY_TOKEN_SECRET,
+    );
+    const fetchMock = vi.fn();
+
+    await expect(
+      retrieveConfiguredSfxCatalogSemantics(
+        'whoosh',
+        makeManifest(),
+        { fetch: fetchMock as unknown as typeof fetch },
+      ),
+    ).rejects.toMatchObject({ code: 'SEMANTIC_CLIENT_INVALID_URL' });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects unsigned and tampered responses', async () => {
