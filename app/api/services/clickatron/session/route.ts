@@ -25,6 +25,10 @@ import {
   ClickatronAspectRatioError,
   resolveClickatronImageGeometry,
 } from '@/lib/clickatron/image-geometry';
+import {
+  resolveClickatronBrandReferenceEvidence,
+  selectClickatronGenerationBrandEvidence,
+} from '@/lib/clickatron/brand-reference-images';
 
 // Hard upper bound on carousel slides we will fan out into variations/jobs.
 // Source: product spec (max 7 slides per carousel). The ThinkForge writers and
@@ -200,22 +204,12 @@ export async function POST(request: Request) {
     const referenceImages = formData.getAll('referenceImage') as File[];
     const rawAspectRatio = formData.get('aspectRatio') || '16:9';
     let aspectRatio: string;
-    let resolvedModel;
     try {
       aspectRatio = resolveClickatronImageGeometry(
         typeof rawAspectRatio === 'string' ? rawAspectRatio : String(rawAspectRatio),
       ).ratio;
-      resolvedModel = resolveClickatronModelForGeneration({
-        requestedModelId: formData.get('modelId') as string | null,
-        context: 'newVariation',
-        referenceImageCount: referenceImages.length,
-        aspectRatio,
-      });
     } catch (error) {
-      if (
-        error instanceof ClickatronAspectRatioError
-        || error instanceof ClickatronModelCompatibilityError
-      ) {
+      if (error instanceof ClickatronAspectRatioError) {
         return NextResponse.json(
           { error: error.message, code: error.code },
           { status: 422 },
@@ -223,24 +217,11 @@ export async function POST(request: Request) {
       }
       throw error;
     }
-    if (resolvedModel.reason === 'aspect-ratio-fallback') {
-      console.warn('[Clickatron] Model switched for aspect-ratio compatibility:', {
-        requestedModelId: resolvedModel.requestedModelId,
-        selectedModelId: resolvedModel.modelId,
-        aspectRatio,
-      });
-    }
 
-    // Check credits (3 credits per variation, multiplied by the slide quantity)
-    const creditCheck = await checkCredits(userId, 'clickatron', 'variation', { quantity, model: resolvedModel.modelId });
-    if (!creditCheck.allowed) {
-      return creditCheck.errorResponse;
-    }
-
-    const validatedData = CreateSessionRequestSchema.parse({
+    const parsedData = CreateSessionRequestSchema.parse({
       prompt: formData.get('prompt') || '',
       aspectRatio,
-      modelId: resolvedModel.modelId,
+      modelId: formData.get('modelId') || undefined,
       brandId: formData.get('brandId'),
       projectId: formData.get('projectId'),
       universalId: formData.get('universalId'),
@@ -249,23 +230,90 @@ export async function POST(request: Request) {
       sourceScriptId: formData.get('sourceScriptId'),
       metadata: formData.get('metadata'),
     });
-    const isBlankProject = !validatedData.prompt || validatedData.prompt.trim() === '';
+    const isBlankProject = !parsedData.prompt || parsedData.prompt.trim() === '';
     const sourceContext = Object.fromEntries(
       Object.entries({
-        sourceService: validatedData.sourceService,
-        sourceSessionId: validatedData.sourceSessionId,
-        sourceScriptId: validatedData.sourceScriptId,
-        universalId: validatedData.universalId,
-        brandId: validatedData.brandId,
-        projectId: validatedData.projectId,
+        sourceService: parsedData.sourceService,
+        sourceSessionId: parsedData.sourceSessionId,
+        sourceScriptId: parsedData.sourceScriptId,
+        universalId: parsedData.universalId,
+        brandId: parsedData.brandId,
+        projectId: parsedData.projectId,
       }).filter(([, value]) => value != null)
     ) as ClickatronSourceContext;
     const hasSourceContext = Object.keys(sourceContext).length > 0;
     const creationMetadata = {
-      ...(validatedData.metadata || {}),
+      ...(parsedData.metadata || {}),
       ...(hasSourceContext ? { sourceContext } : {}),
     };
     const hasCreationMetadata = Object.keys(creationMetadata).length > 0;
+    const isBlankSession = isBlankProject && carouselSlides.length === 0;
+
+    const brandReferenceResolution = isBlankSession
+      ? null
+      : await resolveClickatronBrandReferenceEvidence({
+          userId,
+          brandId: parsedData.brandId,
+          metadata: creationMetadata,
+          prompt: parsedData.prompt,
+          orgId: orgId ?? null,
+        });
+    if (brandReferenceResolution?.needsUserInput) {
+      return NextResponse.json(
+        {
+          error: brandReferenceResolution.needsUserInputReason,
+          code: 'BRAND_LOGO_EVIDENCE_REQUIRED',
+        },
+        { status: 422 },
+      );
+    }
+
+    const generationBrandEvidence = brandReferenceResolution
+      ? selectClickatronGenerationBrandEvidence(brandReferenceResolution, {
+          hasParentImage: false,
+          userReferenceImageCount: referenceImages.length,
+        })
+      : [];
+    let resolvedModel: ReturnType<typeof resolveClickatronModelForGeneration>;
+    try {
+      resolvedModel = resolveClickatronModelForGeneration({
+        requestedModelId: parsedData.modelId,
+        context: 'newVariation',
+        referenceImageCount: referenceImages.length + generationBrandEvidence.length,
+        aspectRatio,
+      });
+    } catch (error) {
+      if (error instanceof ClickatronModelCompatibilityError) {
+        return NextResponse.json(
+          { error: error.message, code: error.code },
+          { status: 422 },
+        );
+      }
+      throw error;
+    }
+    if (resolvedModel.reason === 'aspect-ratio-fallback') {
+      console.warn('[Clickatron] Model switched during generation preflight:', {
+        requestedModelId: resolvedModel.requestedModelId,
+        selectedModelId: resolvedModel.modelId,
+        aspectRatio,
+        userReferenceImageCount: referenceImages.length,
+        brandReferenceImageCount: generationBrandEvidence.length,
+      });
+    }
+
+    // Admission control uses the same final model the worker is required to run.
+    const creditCheck = await checkCredits(userId, 'clickatron', 'variation', {
+      quantity,
+      model: resolvedModel.modelId,
+    });
+    if (!creditCheck.allowed) {
+      return creditCheck.errorResponse;
+    }
+
+    const validatedData = {
+      ...parsedData,
+      modelId: resolvedModel.modelId,
+    };
 
     const referenceImageRefs: string[] = [];
 
@@ -358,9 +406,6 @@ export async function POST(request: Request) {
         ...(hasCreationMetadata ? { metadata: creationMetadata } : {}),
       });
     }
-
-    // A carousel never counts as a blank project (every slide has a prompt).
-    const isBlankSession = isBlankProject && !isCarousel;
 
     // 3. Upload reference images if they exist (associated with the first variation)
     for (const referenceImage of referenceImages) {

@@ -46,6 +46,11 @@ export interface ClickatronBrandReferenceResolution {
   needsUserInputReason?: string;
 }
 
+export interface ClickatronGenerationBrandEvidenceInput {
+  hasParentImage: boolean;
+  userReferenceImageCount: number;
+}
+
 type Maybe = Record<string, unknown> | null | undefined;
 type BrandSignalProfileAssets = NonNullable<BrandSignalProfile['assets']>;
 type BrandSignalProfileWithLogoCandidates = BrandSignalProfile & {
@@ -99,6 +104,13 @@ function metadataIntentParts(metadata: Maybe): ClickatronBrandReferenceIntent {
     record(root.creativeSpec) ??
     root;
   const userIntent = record(spec.userIntent) ?? spec;
+  const renderPlan = record(spec.renderPlan);
+  const slideIntentValues = Array.isArray(renderPlan?.slides)
+    ? renderPlan.slides.flatMap((slide) => {
+        const slideRecord = record(slide);
+        return slideRecord ? [slideRecord.title, slideRecord.imagePrompt] : [];
+      })
+    : [];
 
   const visualMode = cleanString(userIntent.visualMode);
   const requiresProduct = visualMode === VISUAL_MODE_PRODUCT_MOCKUP;
@@ -115,6 +127,7 @@ function metadataIntentParts(metadata: Maybe): ClickatronBrandReferenceIntent {
     root.assetRole,
     root.assetKind,
     root.subject,
+    ...slideIntentValues,
   ].some(textHasLogoIntent) || [
     userIntent.requiresLogo,
     userIntent.logoRequired,
@@ -322,6 +335,27 @@ export async function resolveClickatronBrandReferenceEvidence(
     console.error('[Clickatron] brand reference evidence resolution failed', err);
     return intent.requiresLogo ? missingLogoResolution(intent) : { intent, evidence: [], needsUserInput: false };
   }
+}
+
+/**
+ * Select the accepted Brand Vault evidence that will actually be sent to the
+ * image provider. Keep this policy shared by request preflight and the worker so
+ * model selection, billing, and execution always count the same references.
+ */
+export function selectClickatronGenerationBrandEvidence(
+  resolution: ClickatronBrandReferenceResolution,
+  input: ClickatronGenerationBrandEvidenceInput,
+): ClickatronBrandReferenceEvidence[] {
+  const canUseLogoAsGenerationReference =
+    input.hasParentImage || input.userReferenceImageCount > 0;
+  const shouldSeedProductImages =
+    !input.hasParentImage && input.userReferenceImageCount === 0;
+
+  return resolution.evidence.filter(
+    (item) =>
+      (item.assetRole === 'logo' && canUseLogoAsGenerationReference) ||
+      (item.assetRole === 'product' && shouldSeedProductImages),
+  );
 }
 
 /**

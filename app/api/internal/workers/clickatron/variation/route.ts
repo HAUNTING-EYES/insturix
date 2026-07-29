@@ -33,7 +33,10 @@ import {
   resolveClickatronBrandContextBlock,
   resolveClickatronPromptBrandId,
 } from '@/lib/clickatron/brand-prompt-context';
-import { resolveClickatronBrandReferenceEvidence } from '@/lib/clickatron/brand-reference-images';
+import {
+  resolveClickatronBrandReferenceEvidence,
+  selectClickatronGenerationBrandEvidence,
+} from '@/lib/clickatron/brand-reference-images';
 import { resolveClickatronImageGeometry } from '@/lib/clickatron/image-geometry';
 import sharp from 'sharp';
 
@@ -512,7 +515,6 @@ async function handler(req: Request) {
       }
       imageUrls.push(...referenceImageUrls);
 
-      const shouldSeedProductImages = !parentImageUrl && referenceImageUrls.length === 0;
       const brandReferenceResolution = await resolveClickatronBrandReferenceEvidence({
         userId: job.userId,
         brandId: promptBrandId,
@@ -553,11 +555,12 @@ async function handler(req: Request) {
       // TODO(Phase 2): when the model roster/adapters land, route fresh brand-reference
       // composition to a compose model (nano-banana-pro/edit, seedream edit) instead of
       // dropping the logo to an overlay.
-      const canUseLogoAsGenerationReference = Boolean(parentImageUrl) || referenceImageUrls.length > 0;
-      const brandReferenceEvidence = brandReferenceResolution.evidence.filter(
-        (item) =>
-          (item.assetRole === 'logo' && canUseLogoAsGenerationReference) ||
-          (shouldSeedProductImages && item.assetRole === 'product'),
+      const brandReferenceEvidence = selectClickatronGenerationBrandEvidence(
+        brandReferenceResolution,
+        {
+          hasParentImage: Boolean(parentImageUrl),
+          userReferenceImageCount: referenceImageUrls.length,
+        },
       );
 
       if (brandReferenceEvidence.length > 0) {
@@ -586,7 +589,7 @@ async function handler(req: Request) {
       }
 
       // Get the model configuration from the variation
-      let selectedModelId = variation.modelId || job.modelId || '';
+      const selectedModelId = variation.modelId || job.modelId || '';
 
       // Validate URLs before passing to Fal AI (especially for inpainting)
       if (generationParams.image_url) {
@@ -638,15 +641,21 @@ async function handler(req: Request) {
         : undefined;
 
       if (resolvedModel && resolvedModel.modelId !== selectedModelId) {
-        console.warn('Worker: Model switched for generation compatibility:', {
-          requestedModelId: selectedModelId,
-          selectedModelId: resolvedModel.modelId,
+        const message = `Generation inputs changed after billing; expected model ${selectedModelId}, resolved ${resolvedModel.modelId}.`;
+        console.error('Worker: Generation preflight drift detected:', {
+          billedModelId: selectedModelId,
+          executionModelId: resolvedModel.modelId,
           aspectRatio: ratio,
           referenceImageCount,
-          reason: resolvedModel.reason,
         });
-        selectedModelId = resolvedModel.modelId;
-        variation.modelId = selectedModelId;
+        await failVariationInline(activeJobId, variation, job, {
+          code: 'MODEL_PREFLIGHT_DRIFT',
+          message,
+        });
+        return NextResponse.json(
+          { error: message, code: 'MODEL_PREFLIGHT_DRIFT' },
+          { status: 409 },
+        );
       }
 
       const modelConfig = CLICKATRON_MODELS[selectedModelId];
