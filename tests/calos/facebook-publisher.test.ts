@@ -24,6 +24,7 @@ vi.mock("@/schemas/user", () => ({
 
 import { getPublisher } from "@/lib/calos/publish/contract";
 import { publishToFacebook } from "@/lib/calos/publish/facebook";
+import { encryptUserOAuthToken } from "@/lib/calos/publish/token-crypto";
 
 function mockUserRecord(record: unknown) {
   const lean = vi.fn(async () => record);
@@ -49,6 +50,7 @@ describe("publishToFacebook", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("is registered as the CalOS Facebook publisher", () => {
@@ -101,6 +103,67 @@ describe("publishToFacebook", () => {
     expect(init.body).toBeInstanceOf(URLSearchParams);
     expect((init.body as URLSearchParams).get("message")).toBe("Hello Facebook");
     expect((init.body as URLSearchParams).get("access_token")).toBe("token_2");
+  });
+
+  it("decrypts a versioned Page token before posting to Facebook", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
+    mocks.connectedAccountFindOne.mockResolvedValue({
+      accountRef: "page_2",
+      ownerUserId: "owner_1",
+    });
+    const encryptedToken = encryptUserOAuthToken("token_2");
+    mockUserRecord({
+      facebookTokens: {
+        pages: [{ pageId: "page_2", pageName: "Brand Page", pageAccessToken: encryptedToken }],
+      },
+    });
+    fetchMock.mockResolvedValue(mockFacebookSuccess());
+
+    const result = await publishToFacebook({
+      ownerUserId: "queue_owner",
+      deliverableId: "deliverable_1",
+      brandId: "brand_1",
+      accountRef: "page_2",
+      caption: "Hello Facebook",
+    });
+
+    expect(result.ok).toBe(true);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.body as URLSearchParams).get("access_token")).toBe("token_2");
+    expect((init.body as URLSearchParams).get("access_token")).not.toBe(encryptedToken);
+  });
+
+  it("does not send an unreadable encrypted Page token to Facebook", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
+    mocks.connectedAccountFindOne.mockResolvedValue({
+      accountRef: "page_2",
+      ownerUserId: "owner_1",
+    });
+    mockUserRecord({
+      facebookTokens: {
+        pages: [{
+          pageId: "page_2",
+          pageName: "Brand Page",
+          pageAccessToken: "oauth:v1:not-valid-ciphertext",
+        }],
+      },
+    });
+
+    const result = await publishToFacebook({
+      ownerUserId: "queue_owner",
+      deliverableId: "deliverable_1",
+      brandId: "brand_1",
+      accountRef: "page_2",
+      caption: "Hello Facebook",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Assigned Facebook Page token is unreadable - reconnect Facebook",
+      retryable: false,
+      providerAttempted: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("fails loudly when the brand has no assigned Facebook Page", async () => {

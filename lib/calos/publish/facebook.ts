@@ -1,5 +1,6 @@
 import { recordProviderCostEvent } from "@/lib/financials/provider-cost-events";
 import type { PublishParams, PublishResult } from "./contract";
+import { resolveUserOAuthToken } from "./token-crypto";
 
 /**
  * CalOS Facebook publisher - SESSIONLESS (runs from the publish-queue cron, no Clerk session).
@@ -91,11 +92,15 @@ async function resolveOwnerFacebookPageToken(
   if (!page.pageAccessToken) {
     return { error: "Assigned Facebook Page token is missing - reconnect Facebook", retryable: false };
   }
+  const pageAccessToken = resolveUserOAuthToken(page.pageAccessToken);
+  if (!pageAccessToken) {
+    return { error: "Assigned Facebook Page token is unreadable - reconnect Facebook", retryable: false };
+  }
 
   return {
     pageId: String(page.pageId),
     pageName: page.pageName,
-    pageAccessToken: page.pageAccessToken,
+    pageAccessToken,
   };
 }
 

@@ -1,6 +1,7 @@
 import type { CalosPublishPlatform } from "@/schemas/calos-scheduled-publish";
 import { loadInstagramAssignmentHealth } from "@/lib/calos/instagram-assignment-health";
 import { validateFacebookPageToken } from "@/lib/calos/facebook-page-token-health";
+import { resolveUserOAuthToken } from "@/lib/calos/publish/token-crypto";
 import { resolveOwnerYouTubeChannels } from "@/lib/calos/publish/youtube";
 
 const AUTO_PUBLISH_PLATFORMS = new Set<string>(["youtube", "facebook", "instagram", "linkedin", "twitter"]);
@@ -87,9 +88,13 @@ async function facebookHealth(
   const page = owner?.facebookTokens?.pages?.find(
     (candidate) => text(candidate.pageId) === accountRef,
   );
-  const pageAccessToken = text(page?.pageAccessToken);
-  if (!pageAccessToken) {
+  const storedPageAccessToken = text(page?.pageAccessToken);
+  if (!storedPageAccessToken) {
     return reconnect(account, "Assigned Facebook Page is no longer connected. Reconnect Facebook before publishing.");
+  }
+  const pageAccessToken = resolveUserOAuthToken(storedPageAccessToken);
+  if (!pageAccessToken) {
+    return reconnect(account, "Assigned Facebook Page token is unreadable. Reconnect Facebook before publishing.");
   }
 
   const live = await validateFacebookPageToken(accountRef, pageAccessToken);

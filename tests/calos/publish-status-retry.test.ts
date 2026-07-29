@@ -48,7 +48,10 @@ vi.mock("@/schemas/user", () => ({
 }));
 
 import * as publishStatusRoute from "@/app/api/services/calos/publish-status/route";
-import { encryptToken } from "@/lib/calos/publish/token-crypto";
+import {
+  encryptToken,
+  encryptUserOAuthToken,
+} from "@/lib/calos/publish/token-crypto";
 
 const YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
 
@@ -260,6 +263,7 @@ describe("CalOS publish status and deliberate retry", () => {
   });
 
   it("verifies Facebook Page ownership and YouTube OAuth before reporting connected", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 8).toString("base64"));
     mocks.connectedAccountFind.mockReturnValue(queryResult([
       {
         platform: "facebook",
@@ -277,7 +281,10 @@ describe("CalOS publish status and deliberate retry", () => {
     mocks.userFind.mockReturnValue(queryResult([{
       clerkUserId: "owner_1",
       facebookTokens: {
-        pages: [{ pageId: "page_1", pageAccessToken: "page_token" }],
+        pages: [{
+          pageId: "page_1",
+          pageAccessToken: encryptUserOAuthToken("page_token"),
+        }],
       },
     }]));
     mockClerkYouTubeOwner();
@@ -313,6 +320,35 @@ describe("CalOS publish status and deliberate retry", () => {
         headers: { Authorization: "Bearer youtube_token" },
       }),
     );
+  });
+
+  it("reports reconnect without calling Graph for an unreadable encrypted Facebook token", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 8).toString("base64"));
+    mocks.connectedAccountFind.mockReturnValue(queryResult([{
+      platform: "facebook",
+      accountRef: "page_1",
+      displayName: "Acme Page",
+      ownerUserId: "owner_1",
+    }]));
+    mocks.userFind.mockReturnValue(queryResult([{
+      clerkUserId: "owner_1",
+      facebookTokens: {
+        pages: [{
+          pageId: "page_1",
+          pageAccessToken: "oauth:v1:not-valid-ciphertext",
+        }],
+      },
+    }]));
+
+    const response = await getPublishStatus(getRequest());
+    const payload = await response.json();
+
+    expect(payload.connectionHealth.facebook).toMatchObject({
+      state: "reconnect",
+      accountRef: "page_1",
+    });
+    expect(payload.connectedPlatforms).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("reports reconnect when the live YouTube channel differs from the assignment", async () => {
