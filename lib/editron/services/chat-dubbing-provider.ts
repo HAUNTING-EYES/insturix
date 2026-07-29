@@ -17,6 +17,7 @@ import {
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import {
   generateVoiceover,
+  KOKORO_MAX_SPEECH_RATE,
   type GeneratedSpeechCapability,
   type SpeechSynthesisCapability,
 } from '@/lib/pipeline/tts-service';
@@ -38,7 +39,8 @@ import {
 } from './chat-dubbing-job';
 
 const PHRASES_PER_DELIVERY = 4;
-const MAX_NATURAL_PLAYBACK_RATE = 1.25;
+const MAX_POST_HOC_PLAYBACK_RATE = 1.25;
+const MAX_PROVIDER_RATE_FIT_ATTEMPTS = 2;
 const MAX_TRANSLATION_REVISIONS = 2;
 const TRANSLATION_SEEDS = [42, 7, 99] as const;
 const FIDELITY_CHECKS = [
@@ -196,11 +198,8 @@ async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepR
       const availableDurationMs = availablePhraseDurationMs(phrase, job.fps);
       let translatedText = phrase.translatedText;
       let accepted = false;
-      for (
-        let revision = phrase.translationRevision ?? 0;
-        revision <= MAX_TRANSLATION_REVISIONS;
-        revision += 1
-      ) {
+      let revision = phrase.translationRevision ?? 0;
+      while (revision <= MAX_TRANSLATION_REVISIONS && !accepted) {
         const voice = await generateVoiceover(translatedText, job.userId, {
           voice: speechCapability.voiceId,
           language: speechCapability.language,
@@ -211,11 +210,19 @@ async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepR
         assertGeneratedSpeechCapability(speechCapability, voice.generatedSpeechCapability);
         generatedThisStep.add(voice.audioAssetId);
         const requiredPlaybackRate = voice.durationMs / availableDurationMs;
-        const outcome = Number.isFinite(requiredPlaybackRate)
-          && requiredPlaybackRate > 0
-          && requiredPlaybackRate <= MAX_NATURAL_PLAYBACK_RATE
+        const validDuration = Number.isFinite(requiredPlaybackRate) && requiredPlaybackRate > 0;
+        const fitsWithoutAcceleration = validDuration && requiredPlaybackRate <= 1;
+        const canUsePostHocPlayback = validDuration
+          && speechCapability.provider !== 'fal-ai'
+          && requiredPlaybackRate <= MAX_POST_HOC_PLAYBACK_RATE;
+        const canCompressSemantically = revision < MAX_TRANSLATION_REVISIONS
+          && (phrase.translationFidelity?.acceptableCompression.length ?? 0) > 0;
+        const outcome = fitsWithoutAcceleration || canUsePostHocPlayback
           ? 'accepted'
-          : 'rephrase';
+          : canCompressSemantically
+            ? 'rephrase'
+            : 'rate-adjustment';
+        const synthesisSpeed = voice.synthesisSpeed ?? voice.generatedAudioReceipt.synthesisSpeed ?? 1;
         phrase.fitAttempts = [
           ...(phrase.fitAttempts ?? []),
           {
@@ -223,6 +230,7 @@ async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepR
             voiceDurationMs: voice.durationMs,
             availableDurationMs: round(availableDurationMs, 2),
             requiredPlaybackRate: round(requiredPlaybackRate, 4),
+            synthesisSpeed: round(synthesisSpeed, 4),
             outcome,
           },
         ];
@@ -232,33 +240,126 @@ async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepR
           phrase.voiceAssetId = voice.audioAssetId;
           phrase.voiceUrl = voice.audioUrl;
           phrase.voiceDurationMs = voice.durationMs;
-          phrase.playbackRate = round(Math.max(1, requiredPlaybackRate), 4);
+          phrase.synthesisSpeed = round(synthesisSpeed, 4);
+          phrase.fitMode = canUsePostHocPlayback
+            ? 'post-hoc-playback'
+            : revision > 0
+              ? 'semantic-compression'
+              : 'natural';
+          phrase.playbackRate = canUsePostHocPlayback
+            ? round(Math.max(1, requiredPlaybackRate), 4)
+            : 1;
           phrase.voiceAudioRights = voice.audioRights;
-          phrase.generatedAudioReceipt = voice.generatedAudioReceipt;
+          phrase.generatedAudioReceipt = {
+            ...voice.generatedAudioReceipt,
+            synthesisSpeed,
+          };
           phrase.generatedSpeechCapability = voice.generatedSpeechCapability;
           generatedAssetIds.push(voice.audioAssetId);
           accepted = true;
           break;
         }
 
-        await cleanupGeneratedAssets(job.userId, [voice.audioAssetId]);
-        generatedThisStep.delete(voice.audioAssetId);
-        if (revision >= MAX_TRANSLATION_REVISIONS) {
+        if (outcome === 'rephrase') {
+          try {
+            const rewrite = await rewriteTranslationToFit({
+              sourceText: phrase.sourceText,
+              translatedText,
+              targetLanguage: speechCapability.displayName,
+              maximumVoiceDurationMs: speechCapability.provider === 'fal-ai'
+                ? availableDurationMs
+                : availableDurationMs * MAX_POST_HOC_PLAYBACK_RATE,
+              actualDurationMs: voice.durationMs,
+              revision: revision + 1,
+            });
+            await cleanupGeneratedAssets(job.userId, [voice.audioAssetId]);
+            generatedThisStep.delete(voice.audioAssetId);
+            translatedText = rewrite.text;
+            phrase.translationFidelity = rewrite.fidelity;
+            revision += 1;
+            continue;
+          } catch (error) {
+            if (speechCapability.provider !== 'fal-ai') {
+              await cleanupGeneratedAssets(job.userId, [voice.audioAssetId]);
+              generatedThisStep.delete(voice.audioAssetId);
+              throw error;
+            }
+          }
+        }
+
+        if (speechCapability.provider !== 'fal-ai') {
+          await cleanupGeneratedAssets(job.userId, [voice.audioAssetId]);
+          generatedThisStep.delete(voice.audioAssetId);
           throw new TerminalDubbingError(
             'unnatural-phrase-fit',
-            `Phrase ${index + 1} still needs ${requiredPlaybackRate.toFixed(2)}x playback after ${revision} duration-aware translation revisions; maximum natural playback is ${MAX_NATURAL_PLAYBACK_RATE}x.`,
+            `Phrase ${index + 1} needs ${requiredPlaybackRate.toFixed(2)}x playback, but ${speechCapability.provider} cannot synthesize at the measured source-aligned rate.`,
           );
         }
-        const rewrite = await rewriteTranslationToFit({
-          sourceText: phrase.sourceText,
-          translatedText,
-          targetLanguage: speechCapability.displayName,
-          availableDurationMs,
-          actualDurationMs: voice.durationMs,
-          revision: revision + 1,
-        });
-        translatedText = rewrite.text;
-        phrase.translationFidelity = rewrite.fidelity;
+
+        await cleanupGeneratedAssets(job.userId, [voice.audioAssetId]);
+        generatedThisStep.delete(voice.audioAssetId);
+        let requestedSpeechRate = synthesisSpeed * requiredPlaybackRate;
+        for (let fitAttempt = 0; fitAttempt < MAX_PROVIDER_RATE_FIT_ATTEMPTS; fitAttempt += 1) {
+          if (!Number.isFinite(requestedSpeechRate) || requestedSpeechRate > KOKORO_MAX_SPEECH_RATE) {
+            throw new TerminalDubbingError(
+              'provider-speech-rate-limit',
+              `Phrase ${index + 1} requires ${requestedSpeechRate.toFixed(2)}x provider speech rate, above Kokoro's ${KOKORO_MAX_SPEECH_RATE}x contract.`,
+            );
+          }
+          const fittedVoice = await generateVoiceover(translatedText, job.userId, {
+            voice: speechCapability.voiceId,
+            language: speechCapability.language,
+            contentType: 'dialogue',
+            mediaRole: 'dubbing',
+            pausePolicy: 'provider-native',
+            speechRate: requestedSpeechRate,
+          });
+          assertGeneratedSpeechCapability(speechCapability, fittedVoice.generatedSpeechCapability);
+          generatedThisStep.add(fittedVoice.audioAssetId);
+          const fittedSynthesisSpeed = fittedVoice.synthesisSpeed
+            ?? fittedVoice.generatedAudioReceipt.synthesisSpeed
+            ?? requestedSpeechRate;
+          const remainingDurationRatio = fittedVoice.durationMs / availableDurationMs;
+          phrase.fitAttempts = [
+            ...(phrase.fitAttempts ?? []),
+            {
+              revision,
+              voiceDurationMs: fittedVoice.durationMs,
+              availableDurationMs: round(availableDurationMs, 2),
+              requiredPlaybackRate: round(remainingDurationRatio, 4),
+              synthesisSpeed: round(fittedSynthesisSpeed, 4),
+              outcome: remainingDurationRatio <= 1 ? 'accepted' : 'rate-adjustment',
+            },
+          ];
+          if (Number.isFinite(remainingDurationRatio) && remainingDurationRatio > 0 && remainingDurationRatio <= 1) {
+            phrase.translatedText = translatedText;
+            phrase.translationRevision = revision;
+            phrase.voiceAssetId = fittedVoice.audioAssetId;
+            phrase.voiceUrl = fittedVoice.audioUrl;
+            phrase.voiceDurationMs = fittedVoice.durationMs;
+            phrase.synthesisSpeed = round(fittedSynthesisSpeed, 4);
+            phrase.fitMode = 'provider-native-rate';
+            phrase.playbackRate = 1;
+            phrase.voiceAudioRights = fittedVoice.audioRights;
+            phrase.generatedAudioReceipt = {
+              ...fittedVoice.generatedAudioReceipt,
+              synthesisSpeed: fittedSynthesisSpeed,
+            };
+            phrase.generatedSpeechCapability = fittedVoice.generatedSpeechCapability;
+            generatedAssetIds.push(fittedVoice.audioAssetId);
+            accepted = true;
+            break;
+          }
+          await cleanupGeneratedAssets(job.userId, [fittedVoice.audioAssetId]);
+          generatedThisStep.delete(fittedVoice.audioAssetId);
+          requestedSpeechRate = fittedSynthesisSpeed * remainingDurationRatio;
+        }
+        if (!accepted) {
+          throw new TerminalDubbingError(
+            'provider-speech-rate-convergence-failed',
+            `Phrase ${index + 1} did not fit its measured window after provider-native speech-rate correction.`,
+          );
+        }
       }
       if (!accepted) throw new TerminalDubbingError('unnatural-phrase-fit', `Phrase ${index + 1} did not produce naturally fitted speech.`);
     }
@@ -360,6 +461,16 @@ async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult
       translatedText: phrase.translatedText,
       targetLanguage: phrase.generatedSpeechCapability!.language,
       generatedSpeechCapability: phrase.generatedSpeechCapability,
+      dubbingFitReceipt: {
+        fitMode: phrase.fitMode ?? 'natural',
+        synthesisSpeed: phrase.synthesisSpeed
+          ?? phrase.generatedAudioReceipt!.synthesisSpeed
+          ?? 1,
+        playbackRate: phrase.playbackRate,
+        availableDurationMs: round(availablePhraseDurationMs(phrase, job.fps), 2),
+        renderedVoiceDurationMs: round(phrase.voiceDurationMs! / phrase.playbackRate!, 2),
+        attempts: phrase.fitAttempts ?? [],
+      },
       sourceOverlayId: job.overlayId,
     },
   }, 'phrase-aligned-translated-dialogue'));
@@ -487,16 +598,15 @@ async function rewriteTranslationToFit(input: {
   sourceText: string;
   translatedText: string;
   targetLanguage: string;
-  availableDurationMs: number;
+  maximumVoiceDurationMs: number;
   actualDurationMs: number;
   revision: number;
 }): Promise<{ text: string; fidelity: DubbingTranslationFidelityReceipt }> {
   const { getGenAI } = await import('@/lib/editron/utils/gemini-model-factory');
   const genAI = await getGenAI();
-  const maximumVoiceDurationMs = input.availableDurationMs * MAX_NATURAL_PLAYBACK_RATE;
   const requiredReductionPercent = Math.max(
     1,
-    Math.ceil((1 - (maximumVoiceDurationMs / input.actualDurationMs)) * 100),
+    Math.ceil((1 - (input.maximumVoiceDurationMs / input.actualDurationMs)) * 100),
   );
   const schema = {
     type: 'OBJECT',
@@ -516,7 +626,7 @@ async function rewriteTranslationToFit(input: {
           responseSchema: schema,
         },
       });
-      const response = await model.generateContent(`Rewrite this ${input.targetLanguage} dubbing line so it can be spoken naturally within ${Math.round(input.availableDurationMs)}ms.
+      const response = await model.generateContent(`Rewrite this ${input.targetLanguage} dubbing line so it can be spoken naturally within ${Math.round(input.maximumVoiceDurationMs)}ms.
 The current synthesized line lasts ${Math.round(input.actualDurationMs)}ms, so reduce spoken duration by at least ${requiredReductionPercent}%.
 Preserve every factual claim, entity, quantity, negation, comparison, relationship, certainty level, and speaker intent from the source.
 Remove verbal stutters, filler, false starts, and redundant repeated syntax when they carry no meaning. This delivery cleanup is not an omission.

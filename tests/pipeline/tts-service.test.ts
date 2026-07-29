@@ -97,6 +97,7 @@ describe("generateVoiceover", () => {
       licenseId: "deepgram:aura-asteria-en:service-output-terms",
       assetId: result.audioAssetId,
       mediaRole: "voiceover",
+      synthesisSpeed: 1,
       generatedAt: expect.any(String),
     });
     expect(mocks.uploadMedia).toHaveBeenCalledWith(
@@ -190,6 +191,7 @@ describe("generateVoiceover", () => {
       voice: "kokoro-hindi-alpha",
       mediaRole: "dubbing",
       pausePolicy: "provider-native",
+      speechRate: 1.29,
     });
 
     expect(mocks.falSubscribe).toHaveBeenCalledTimes(1);
@@ -199,10 +201,32 @@ describe("generateVoiceover", () => {
         input: expect.objectContaining({
           prompt: text,
           voice: "hf_alpha",
+          speed: 1.29,
         }),
       }),
     );
     expect(result.durationMs).toBe(500);
+    expect(result.synthesisSpeed).toBe(1.29);
+    expect(result.generatedAudioReceipt.synthesisSpeed).toBe(1.29);
+    expect(mocks.updateOne).toHaveBeenCalledWith(
+      { assetId: result.audioAssetId },
+      expect.objectContaining({
+        $set: expect.objectContaining({ synthesisSpeed: 1.29 }),
+      }),
+      { upsert: true },
+    );
+  });
+
+  it("fails loudly when a provider cannot honor an explicit speech rate", async () => {
+    const { generateVoiceover } = await import("@/lib/pipeline/tts-service");
+
+    await expect(generateVoiceover("Rate-controlled speech.", "user_1", {
+      voice: "aura-asteria-en",
+      speechRate: 1.2,
+    })).rejects.toThrow("provider-native-speech-rate-unsupported:deepgram");
+
+    expect(mocks.createClient).not.toHaveBeenCalled();
+    expect(mocks.uploadMedia).not.toHaveBeenCalled();
   });
 
   it("never converts a failed Hindi synthesis request into English fallback speech", async () => {

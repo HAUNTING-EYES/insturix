@@ -109,6 +109,8 @@ function splitTextByPauses(text: string): { segment: string; pauseType: keyof ty
 // ─── Core Generation ────────────────────────────────────────────
 
 export const GENERATED_AUDIO_RECEIPT_VERSION = 'editron-generated-audio-receipt-v1' as const;
+export const KOKORO_MIN_SPEECH_RATE = 0.1;
+export const KOKORO_MAX_SPEECH_RATE = 5;
 
 export type GeneratedSpeechRole = 'voiceover' | 'dubbing';
 export type TTSPausePolicy = 'editorial' | 'provider-native';
@@ -122,12 +124,14 @@ export interface GeneratedAudioReceipt {
   licenseId: string;
   assetId: string;
   mediaRole: GeneratedSpeechRole;
+  synthesisSpeed: number;
   generatedAt: string;
 }
 
 export interface TTSResult {
   audioBuffer: Buffer;
   durationMs: number;
+  synthesisSpeed: number;
   audioUrl: string;
   audioAssetId: string;
   gcsPath?: string;
@@ -182,6 +186,27 @@ function mediaSecondsFromDurationMs(durationMs: number): number | undefined {
     ? Math.round((durationMs / 1000) * 100) / 100
     : undefined;
 }
+
+function resolveExplicitSpeechRate(
+  speechRate: number | undefined,
+  provider: GeneratedSpeechProvider,
+): number | undefined {
+  if (speechRate === undefined) return undefined;
+  if (!Number.isFinite(speechRate) || speechRate <= 0) {
+    throw new Error(`invalid-speech-rate:${String(speechRate)}`);
+  }
+  if (provider !== 'fal-ai') {
+    if (speechRate !== 1) throw new Error(`provider-native-speech-rate-unsupported:${provider}`);
+    return 1;
+  }
+  if (speechRate < KOKORO_MIN_SPEECH_RATE || speechRate > KOKORO_MAX_SPEECH_RATE) {
+    throw new Error(
+      `speech-rate-out-of-provider-range:${speechRate}:${KOKORO_MIN_SPEECH_RATE}-${KOKORO_MAX_SPEECH_RATE}`,
+    );
+  }
+  return speechRate;
+}
+
 /**
  * Generate voiceover audio from text.
  * Primary: Kokoro via fal.ai. Fallback: Deepgram Aura.
@@ -195,6 +220,7 @@ export async function generateVoiceover(
     contentType?: string; // New: content type for pacing
     mediaRole?: GeneratedSpeechRole;
     pausePolicy?: TTSPausePolicy;
+    speechRate?: number;
   } = {},
 ): Promise<TTSResult> {
   const capability = resolveSpeechSynthesisCapability(options.language, options.voice);
@@ -206,7 +232,9 @@ export async function generateVoiceover(
 
   // Determine TTS speed based on content type (default 1.0)
   const contentType = options.contentType?.toLowerCase();
-  const ttsSpeed = contentType && TTS_SPEED_MAP[contentType] ? TTS_SPEED_MAP[contentType] : 1.0;
+  const explicitSpeechRate = resolveExplicitSpeechRate(options.speechRate, capability.provider);
+  const ttsSpeed = explicitSpeechRate
+    ?? (contentType && TTS_SPEED_MAP[contentType] ? TTS_SPEED_MAP[contentType] : 1.0);
   if (capability.provider === 'fal-ai') {
     try {
       return await generateWithKokoro(
@@ -220,7 +248,7 @@ export async function generateVoiceover(
         pausePolicy,
       );
     } catch (error) {
-      if (!capability.fallback) throw error;
+      if (!capability.fallback || explicitSpeechRate !== undefined) throw error;
       console.warn(`[TTS] ${capability.model} failed (${errorMessage(error)}), using same-language fallback ${capability.fallback.model}`);
       return await generateWithDeepgram(
         text,
@@ -335,6 +363,7 @@ async function generateWithKokoro(
       model,
       mediaRole,
       speechCapability,
+      synthesisSpeed: ttsSpeed,
     });
 
     await recordPipelineTTSProviderCost({
@@ -355,6 +384,7 @@ async function generateWithKokoro(
     return {
       audioBuffer,
       durationMs,
+      synthesisSpeed: ttsSpeed,
       ...uploaded,
     };
   } catch (err) {
@@ -445,6 +475,7 @@ async function generateWithDeepgram(
       model: deepgramVoice,
       mediaRole,
       speechCapability,
+      synthesisSpeed: 1,
     });
 
     await recordPipelineTTSProviderCost({
@@ -465,6 +496,7 @@ async function generateWithDeepgram(
     return {
       audioBuffer,
       durationMs,
+      synthesisSpeed: 1,
       ...uploaded,
     };
   } catch (err) {
@@ -494,6 +526,7 @@ async function uploadVoiceoverAudio(
     model: string;
     mediaRole: GeneratedSpeechRole;
     speechCapability: GeneratedSpeechCapability;
+    synthesisSpeed: number;
   },
 ): Promise<Pick<
   TTSResult,
@@ -529,6 +562,7 @@ async function uploadVoiceoverAudio(
     licenseId,
     assetId: uploadResult.assetId,
     mediaRole: provenance.mediaRole,
+    synthesisSpeed: provenance.synthesisSpeed,
     generatedAt: new Date().toISOString(),
   };
 
@@ -547,6 +581,7 @@ async function uploadVoiceoverAudio(
         audioRights,
         generatedAudioReceipt,
         generatedSpeechCapability: provenance.speechCapability,
+        synthesisSpeed: provenance.synthesisSpeed,
         updatedAt: new Date(),
       },
       $setOnInsert: {

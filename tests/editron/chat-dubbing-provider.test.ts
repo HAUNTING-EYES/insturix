@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ChatDubbingJob, ChatDubbingProgress } from '@/lib/editron/services/chat-dubbing-job';
+import type {
+  ChatDubbingJob,
+  ChatDubbingProgress,
+  DubbingFidelityCheck,
+  DubbingFidelityState,
+} from '@/lib/editron/services/chat-dubbing-job';
 
 const mocks = vi.hoisted(() => ({
   generateVoiceover: vi.fn(),
@@ -37,6 +42,7 @@ vi.mock('@fal-ai/client', () => ({
 
 vi.mock('@/lib/pipeline/tts-service', () => ({
   generateVoiceover: mocks.generateVoiceover,
+  KOKORO_MAX_SPEECH_RATE: 5,
   listSupportedSpeechLanguages: () => [
     { language: 'en', displayName: 'English' },
     { language: 'hi', displayName: 'Hindi' },
@@ -152,6 +158,7 @@ const generatedAudioReceipt = {
   licenseId: 'deepgram:aura-asteria-en:service-output-terms',
   assetId: 'dub_voice_1',
   mediaRole: 'dubbing' as const,
+  synthesisSpeed: 1,
   generatedAt: now.toISOString(),
 };
 const generatedSpeechCapability = {
@@ -243,8 +250,8 @@ function phraseProgress() {
 }
 
 function faithfulFidelityChecks(
-  overrides: Record<string, 'preserved' | 'not-applicable' | 'changed' | 'uncertain'> = {},
-) {
+  overrides: Partial<Record<DubbingFidelityCheck, DubbingFidelityState>> = {},
+): Record<DubbingFidelityCheck, DubbingFidelityState> {
   return {
     coreClaims: 'preserved',
     entities: 'preserved',
@@ -288,6 +295,7 @@ describe('chat dubbing generated-audio provenance', () => {
     mocks.generateVoiceover.mockResolvedValue({
       audioBuffer: Buffer.alloc(44),
       durationMs: 1000,
+      synthesisSpeed: 1,
       audioUrl: 'https://storage.test/dub_voice_1.wav',
       audioAssetId: 'dub_voice_1',
       gcsPath: 'editron/user-1/media/dub_voice_1.wav',
@@ -542,6 +550,7 @@ describe('chat dubbing generated-audio provenance', () => {
       .mockResolvedValueOnce({
         audioBuffer: Buffer.alloc(44),
         durationMs: 1630,
+        synthesisSpeed: 1,
         audioUrl: 'https://storage.test/dub_voice_long.wav',
         audioAssetId: 'dub_voice_long',
         gcsPath: 'editron/user-1/media/dub_voice_long.wav',
@@ -552,7 +561,8 @@ describe('chat dubbing generated-audio provenance', () => {
       })
       .mockResolvedValueOnce({
         audioBuffer: Buffer.alloc(44),
-        durationMs: 1100,
+        durationMs: 900,
+        synthesisSpeed: 1,
         audioUrl: 'https://storage.test/dub_voice_fitted.wav',
         audioAssetId: 'dub_voice_fitted',
         gcsPath: 'editron/user-1/media/dub_voice_fitted.wav',
@@ -599,6 +609,14 @@ describe('chat dubbing generated-audio provenance', () => {
           ...phraseProgress(),
           sourceText: 'Now my, my advice is this is the best investment.',
           translatedText: 'Verbose Hindi line.',
+          translationFidelity: {
+            version: 'editron-dubbing-translation-fidelity-v1',
+            outcome: 'faithful',
+            checks: faithfulFidelityChecks(),
+            issueCodes: [],
+            acceptableCompression: ['removed-disfluency', 'removed-repetition'],
+            judgeModel: 'gemini-2.5-flash',
+          },
           deliveryEndFrame: 30,
         }],
         nextPhraseIndex: 0,
@@ -640,7 +658,8 @@ describe('chat dubbing generated-audio provenance', () => {
       translatedText: 'Short Hindi line.',
       translationRevision: 1,
       voiceAssetId: 'dub_voice_fitted',
-      playbackRate: 1.1,
+      playbackRate: 1,
+      fitMode: 'semantic-compression',
       translationFidelity: expect.objectContaining({
         outcome: 'faithful',
         issueCodes: [],
@@ -648,12 +667,12 @@ describe('chat dubbing generated-audio provenance', () => {
       }),
       fitAttempts: [
         expect.objectContaining({ requiredPlaybackRate: 1.63, outcome: 'rephrase' }),
-        expect.objectContaining({ requiredPlaybackRate: 1.1, outcome: 'accepted' }),
+        expect.objectContaining({ requiredPlaybackRate: 0.9, outcome: 'accepted' }),
       ],
     });
   });
 
-  it('rejects a shorter translation that drops a core claim and reports the failed invariant', async () => {
+  it('keeps the faithful line and uses provider-native rate when a shorter rewrite drops a core claim', async () => {
     const hindiCapability = {
       language: 'hi' as const,
       displayName: 'Hindi',
@@ -662,17 +681,35 @@ describe('chat dubbing generated-audio provenance', () => {
       voiceId: 'hf_alpha',
       fallbackUsed: false,
     };
-    mocks.generateVoiceover.mockResolvedValueOnce({
-      audioBuffer: Buffer.alloc(44),
-      durationMs: 1630,
-      audioUrl: 'https://storage.test/dub_voice_long.wav',
-      audioAssetId: 'dub_voice_long',
-      gcsPath: 'editron/user-1/media/dub_voice_long.wav',
-      r2Key: null,
-      audioRights: dubbingRights,
-      generatedAudioReceipt: { ...generatedAudioReceipt, assetId: 'dub_voice_long' },
-      generatedSpeechCapability: hindiCapability,
-    });
+    mocks.generateVoiceover
+      .mockResolvedValueOnce({
+        audioBuffer: Buffer.alloc(44),
+        durationMs: 1630,
+        synthesisSpeed: 1,
+        audioUrl: 'https://storage.test/dub_voice_long.wav',
+        audioAssetId: 'dub_voice_long',
+        gcsPath: 'editron/user-1/media/dub_voice_long.wav',
+        r2Key: null,
+        audioRights: dubbingRights,
+        generatedAudioReceipt: { ...generatedAudioReceipt, assetId: 'dub_voice_long' },
+        generatedSpeechCapability: hindiCapability,
+      })
+      .mockResolvedValueOnce({
+        audioBuffer: Buffer.alloc(44),
+        durationMs: 980,
+        synthesisSpeed: 1.63,
+        audioUrl: 'https://storage.test/dub_voice_native_rate.wav',
+        audioAssetId: 'dub_voice_native_rate',
+        gcsPath: 'editron/user-1/media/dub_voice_native_rate.wav',
+        r2Key: null,
+        audioRights: dubbingRights,
+        generatedAudioReceipt: {
+          ...generatedAudioReceipt,
+          assetId: 'dub_voice_native_rate',
+          synthesisSpeed: 1.63,
+        },
+        generatedSpeechCapability: hindiCapability,
+      });
     mocks.generateContent.mockImplementation(async (prompt: string) => ({
       response: {
         text: () => JSON.stringify(
@@ -693,7 +730,7 @@ describe('chat dubbing generated-audio provenance', () => {
       '@/lib/editron/services/chat-dubbing-provider'
     );
 
-    await expect(executeChatDubbingStep({
+    const result = await executeChatDubbingStep({
       ...job({
         stage: 'voice',
         background: {
@@ -706,6 +743,14 @@ describe('chat dubbing generated-audio provenance', () => {
           ...phraseProgress(),
           sourceText: 'Silver is the best investment in the world today.',
           translatedText: 'A verbose complete translation.',
+          translationFidelity: {
+            version: 'editron-dubbing-translation-fidelity-v1',
+            outcome: 'faithful',
+            checks: faithfulFidelityChecks(),
+            issueCodes: [],
+            acceptableCompression: ['condensed-syntax'],
+            judgeModel: 'gemini-2.5-flash',
+          },
           deliveryEndFrame: 30,
         }],
         nextPhraseIndex: 0,
@@ -721,14 +766,143 @@ describe('chat dubbing generated-audio provenance', () => {
         model: 'fal-ai/kokoro/hindi',
         voiceId: 'hf_alpha',
       },
-    })).rejects.toThrow(
-      'duration-aware-translation-failed:duration-aware-translation-semantic-drift:phrase-1-drift-coreClaims',
+    });
+
+    expect(result.status).toBe('continue');
+    if (result.status !== 'continue') throw new Error('Expected a continuing dubbing job.');
+    expect(result.progress.phrases?.[0]).toMatchObject({
+      translatedText: 'A verbose complete translation.',
+      translationRevision: 0,
+      voiceAssetId: 'dub_voice_native_rate',
+      synthesisSpeed: 1.63,
+      playbackRate: 1,
+      fitMode: 'provider-native-rate',
+    });
+    expect(mocks.generateVoiceover).toHaveBeenNthCalledWith(
+      2,
+      'A verbose complete translation.',
+      'user-1',
+      expect.objectContaining({ speechRate: 1.63 }),
     );
-    expect(mocks.generateVoiceover).toHaveBeenCalledTimes(1);
     expect(mocks.generateContent).toHaveBeenCalledTimes(6);
     expect(mocks.deleteMany).toHaveBeenCalledWith({
       userId: 'user-1',
       assetId: { $in: ['dub_voice_long'] },
+    });
+  });
+
+  it('fits an already concise Hindi line with measured provider-native speech rate', async () => {
+    const hindiCapability = {
+      language: 'hi' as const,
+      displayName: 'Hindi' as const,
+      provider: 'fal-ai' as const,
+      model: 'fal-ai/kokoro/hindi',
+      voiceId: 'hf_alpha',
+      fallbackUsed: false,
+    };
+    mocks.generateVoiceover
+      .mockResolvedValueOnce({
+        audioBuffer: Buffer.alloc(44),
+        durationMs: 1290,
+        synthesisSpeed: 1,
+        audioUrl: 'https://storage.test/dub_voice_probe.wav',
+        audioAssetId: 'dub_voice_probe',
+        gcsPath: 'editron/user-1/media/dub_voice_probe.wav',
+        r2Key: null,
+        audioRights: dubbingRights,
+        generatedAudioReceipt: { ...generatedAudioReceipt, assetId: 'dub_voice_probe' },
+        generatedSpeechCapability: hindiCapability,
+      })
+      .mockResolvedValueOnce({
+        audioBuffer: Buffer.alloc(44),
+        durationMs: 980,
+        synthesisSpeed: 1.29,
+        audioUrl: 'https://storage.test/dub_voice_rate_fit.wav',
+        audioAssetId: 'dub_voice_rate_fit',
+        gcsPath: 'editron/user-1/media/dub_voice_rate_fit.wav',
+        r2Key: null,
+        audioRights: dubbingRights,
+        generatedAudioReceipt: {
+          ...generatedAudioReceipt,
+          assetId: 'dub_voice_rate_fit',
+          synthesisSpeed: 1.29,
+        },
+        generatedSpeechCapability: hindiCapability,
+      });
+    mocks.findToArray.mockResolvedValue([{ assetId: 'dub_voice_probe' }]);
+    const { executeChatDubbingStep } = await import(
+      '@/lib/editron/services/chat-dubbing-provider'
+    );
+
+    const result = await executeChatDubbingStep({
+      ...job({
+        stage: 'voice',
+        background: {
+          assetId: 'dub_bed_1',
+          url: 'https://storage.test/dub_bed_1.wav',
+          audioRights: backgroundAudioRights,
+          audioSeparationReceipt,
+        },
+        phrases: [{
+          ...phraseProgress(),
+          translatedText: 'Faithful concise Hindi line.',
+          translationFidelity: {
+            version: 'editron-dubbing-translation-fidelity-v1',
+            outcome: 'faithful',
+            checks: faithfulFidelityChecks(),
+            issueCodes: [],
+            acceptableCompression: [],
+            judgeModel: 'gemini-2.5-flash',
+          },
+          deliveryEndFrame: 30,
+        }],
+        nextPhraseIndex: 0,
+        generatedAssetIds: ['dub_bed_1'],
+      }),
+      version: 'editron-chat-dubbing-job-v3' as const,
+      targetLanguage: 'hi' as const,
+      voiceId: 'hf_alpha',
+      speechCapability: {
+        language: 'hi' as const,
+        displayName: 'Hindi' as const,
+        provider: 'fal-ai' as const,
+        model: 'fal-ai/kokoro/hindi',
+        voiceId: 'hf_alpha',
+      },
+    });
+
+    expect(mocks.generateContent).not.toHaveBeenCalled();
+    expect(mocks.generateVoiceover).toHaveBeenNthCalledWith(
+      2,
+      'Faithful concise Hindi line.',
+      'user-1',
+      expect.objectContaining({
+        language: 'hi',
+        pausePolicy: 'provider-native',
+        speechRate: 1.29,
+      }),
+    );
+    expect(result.status).toBe('continue');
+    if (result.status !== 'continue') throw new Error('Expected a continuing dubbing job.');
+    expect(result.progress.phrases?.[0]).toMatchObject({
+      translatedText: 'Faithful concise Hindi line.',
+      voiceAssetId: 'dub_voice_rate_fit',
+      voiceDurationMs: 980,
+      synthesisSpeed: 1.29,
+      playbackRate: 1,
+      fitMode: 'provider-native-rate',
+      fitAttempts: [
+        expect.objectContaining({
+          requiredPlaybackRate: 1.29,
+          synthesisSpeed: 1,
+          outcome: 'rate-adjustment',
+        }),
+        expect.objectContaining({
+          requiredPlaybackRate: 0.98,
+          synthesisSpeed: 1.29,
+          outcome: 'accepted',
+        }),
+      ],
     });
   });
 

@@ -81,11 +81,14 @@ export interface DubbingPhraseProgress {
     voiceDurationMs: number;
     availableDurationMs: number;
     requiredPlaybackRate: number;
-    outcome: 'accepted' | 'rephrase';
+    synthesisSpeed: number;
+    outcome: 'accepted' | 'rephrase' | 'rate-adjustment';
   }>;
   voiceAssetId?: string;
   voiceUrl?: string;
   voiceDurationMs?: number;
+  synthesisSpeed?: number;
+  fitMode?: 'natural' | 'semantic-compression' | 'provider-native-rate' | 'post-hoc-playback';
   playbackRate?: number;
   voiceAudioRights?: AudioRightsContract;
   generatedAudioReceipt?: GeneratedAudioReceipt;
