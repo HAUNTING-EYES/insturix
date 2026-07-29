@@ -1,8 +1,8 @@
 import type { CalosPublishPlatform } from "@/schemas/calos-scheduled-publish";
 import { loadInstagramAssignmentHealth } from "@/lib/calos/instagram-assignment-health";
 import { validateFacebookPageToken } from "@/lib/calos/facebook-page-token-health";
+import { resolveOwnerYouTubeChannels } from "@/lib/calos/publish/youtube";
 
-const YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
 const AUTO_PUBLISH_PLATFORMS = new Set<string>(["youtube", "facebook", "instagram", "linkedin", "twitter"]);
 
 export type CalosAutoPublishPlatform = Exclude<CalosPublishPlatform, "tiktok">;
@@ -42,11 +42,6 @@ type OwnerTokenRow = {
     userId?: string;
     expiresAt?: Date | string | null;
   } | null;
-};
-
-type YoutubeExternalAccount = {
-  provider?: string | null;
-  approvedScopes?: string | string[] | null;
 };
 
 export function isCalosAutoPublishPlatform(
@@ -184,44 +179,22 @@ async function storedLinkedInHealth(
   }
 }
 
-function hasYoutubeUploadScope(account: YoutubeExternalAccount): boolean {
-  const scopes = account.approvedScopes;
-  if (scopes == null) return true;
-  return Array.isArray(scopes)
-    ? scopes.includes(YOUTUBE_UPLOAD_SCOPE)
-    : scopes.includes(YOUTUBE_UPLOAD_SCOPE);
-}
-
 async function youtubeHealth(
   account: CalosAssignmentLike,
 ): Promise<CalosConnectionHealth> {
-  try {
-    const { clerkClient } = await import("@clerk/nextjs/server");
-    const client = await clerkClient();
-    const owner = await client.users.getUser(text(account.ownerUserId));
-    const googleAccount = (
-      owner.externalAccounts as unknown as YoutubeExternalAccount[] | undefined
-    )?.find(
-      (candidate) =>
-        candidate.provider?.includes("google") && hasYoutubeUploadScope(candidate),
-    );
-    if (!googleAccount?.provider) {
-      return reconnect(account, "Assigned YouTube channel is no longer connected with upload access. Reconnect before publishing.");
-    }
-    const tokenResponse = await client.users.getUserOauthAccessToken(
-      text(account.ownerUserId),
-      googleAccount.provider as never,
-    );
-    return text(tokenResponse.data?.[0]?.token)
-      ? assigned(account)
-      : reconnect(account, "Assigned YouTube channel has no usable OAuth token. Reconnect before publishing.");
-  } catch {
-    return health(
-      account,
-      "attention",
-      "YouTube connection could not be verified. Try again before approving or retrying.",
-    );
+  const resolution = await resolveOwnerYouTubeChannels(text(account.ownerUserId));
+  if (!resolution.ok) {
+    return health(account, resolution.state, resolution.error);
   }
+  const matchesAssignment = resolution.channels.some(
+    (channel) => channel.accountRef === text(account.accountRef),
+  );
+  return matchesAssignment
+    ? assigned(account)
+    : reconnect(
+      account,
+      "Assigned YouTube channel no longer matches the connected channel. Reassign it before publishing.",
+    );
 }
 
 async function loadOwnerTokens(
