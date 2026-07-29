@@ -27,14 +27,32 @@ const BASE = {
   ownerUserId: "queue_owner",
   deliverableId: "d1",
   brandId: "brand_1",
+  accountRef: "UC_assigned",
   title: "Launch video",
   caption: "watch this",
   imageUrl: "https://cdn.example.com/clip.mp4",
 };
 
 function mockClerkYoutubeOwner(token = "yt_token") {
-  mocks.getUser.mockResolvedValue({ externalAccounts: [{ provider: "oauth_google" }] });
-  mocks.getUserOauthAccessToken.mockResolvedValue({ data: token ? [{ token }] : [] });
+  mocks.getUser.mockResolvedValue({
+    externalAccounts: [{
+      id: "eac_google",
+      provider: "oauth_google",
+      approvedScopes: "https://www.googleapis.com/auth/youtube.upload",
+    }],
+  });
+  mocks.getUserOauthAccessToken.mockResolvedValue({
+    data: token ? [{ token, externalAccountId: "eac_google" }] : [],
+  });
+}
+
+function youtubeChannelResponse(channelId = "UC_assigned", title = "Creator Channel") {
+  return new Response(JSON.stringify({
+    items: [{ id: channelId, snippet: { title } }],
+  }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 describe("publishToYouTube", () => {
@@ -67,9 +85,11 @@ describe("publishToYouTube", () => {
   });
 
   it("uploads the card's video with the assigned owner's Clerk Google token", async () => {
-    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "youtube", ownerUserId: "owner_1" });
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "UC_assigned", ownerUserId: "owner_1" });
     mockClerkYoutubeOwner("yt_token");
-    fetchMock.mockResolvedValue(new Response("VIDEO_BYTES", { status: 200 }));
+    fetchMock
+      .mockResolvedValueOnce(youtubeChannelResponse())
+      .mockResolvedValueOnce(new Response("VIDEO_BYTES", { status: 200 }));
     mocks.videosInsert.mockResolvedValue({ data: { id: "vid_1" } });
 
     const result = await publishToYouTube(BASE);
@@ -82,6 +102,9 @@ describe("publishToYouTube", () => {
     });
     expect(mocks.getUser).toHaveBeenCalledWith("owner_1");
     expect(mocks.getUserOauthAccessToken).toHaveBeenCalledWith("owner_1", "oauth_google");
+    expect(fetchMock.mock.calls[0][0].toString()).toContain("/youtube/v3/channels");
+    expect(fetchMock.mock.calls[0][0].toString()).toContain("mine=true");
+    expect(fetchMock.mock.calls[1][0]).toBe(BASE.imageUrl);
     expect(mocks.setCredentials).toHaveBeenCalledWith({ access_token: "yt_token" });
     const insertArg = mocks.videosInsert.mock.calls[0][0];
     expect(insertArg.requestBody.snippet.title).toBe("Launch video");
@@ -109,8 +132,26 @@ describe("publishToYouTube", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("refuses to upload when the live channel does not match the brand assignment", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "UC_assigned", ownerUserId: "owner_1" });
+    mockClerkYoutubeOwner("yt_token");
+    fetchMock.mockResolvedValueOnce(youtubeChannelResponse("UC_different", "Different Channel"));
+
+    const result = await publishToYouTube(BASE);
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.stringContaining("no longer matches"),
+      retryable: false,
+      providerAttempted: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mocks.setCredentials).not.toHaveBeenCalled();
+    expect(mocks.videosInsert).not.toHaveBeenCalled();
+  });
+
   it("fails loud when the channel owner is no longer connected", async () => {
-    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "youtube", ownerUserId: "owner_1" });
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "UC_assigned", ownerUserId: "owner_1" });
     mocks.getUser.mockResolvedValue({ externalAccounts: [] });
     const result = await publishToYouTube(BASE);
     expect(result.ok).toBe(false);
@@ -121,7 +162,7 @@ describe("publishToYouTube", () => {
   });
 
   it("fails loud when Clerk returns no usable OAuth token", async () => {
-    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "youtube", ownerUserId: "owner_1" });
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "UC_assigned", ownerUserId: "owner_1" });
     mockClerkYoutubeOwner("");
     const result = await publishToYouTube(BASE);
     expect(result.ok).toBe(false);
@@ -132,9 +173,11 @@ describe("publishToYouTube", () => {
   });
 
   it("keeps a failed card-video fetch safely pre-provider", async () => {
-    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "youtube", ownerUserId: "owner_1" });
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "UC_assigned", ownerUserId: "owner_1" });
     mockClerkYoutubeOwner("yt_token");
-    fetchMock.mockResolvedValue(new Response("unavailable", { status: 503 }));
+    fetchMock
+      .mockResolvedValueOnce(youtubeChannelResponse())
+      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }));
 
     const result = await publishToYouTube(BASE);
 
@@ -147,10 +190,26 @@ describe("publishToYouTube", () => {
     expect(mocks.videosInsert).not.toHaveBeenCalled();
   });
 
-  it("marks a 5xx upload error as retryable", async () => {
-    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "youtube", ownerUserId: "owner_1" });
+  it("marks a transient channel identity lookup failure as retryable", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "UC_assigned", ownerUserId: "owner_1" });
     mockClerkYoutubeOwner("yt_token");
-    fetchMock.mockResolvedValue(new Response("VIDEO_BYTES", { status: 200 }));
+    fetchMock.mockResolvedValueOnce(new Response("unavailable", { status: 503 }));
+
+    const result = await publishToYouTube(BASE);
+
+    expect(result.ok).toBe(false);
+    expect(result.retryable).toBe(true);
+    expect(result.providerAttempted).toBe(false);
+    expect(result.error).toContain("could not be verified");
+    expect(mocks.videosInsert).not.toHaveBeenCalled();
+  });
+
+  it("marks a 5xx upload error as retryable", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "UC_assigned", ownerUserId: "owner_1" });
+    mockClerkYoutubeOwner("yt_token");
+    fetchMock
+      .mockResolvedValueOnce(youtubeChannelResponse())
+      .mockResolvedValueOnce(new Response("VIDEO_BYTES", { status: 200 }));
     mocks.videosInsert.mockRejectedValue({ response: { status: 503 }, message: "backend error" });
 
     const result = await publishToYouTube(BASE);

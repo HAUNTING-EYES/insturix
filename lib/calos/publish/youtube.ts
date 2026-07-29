@@ -13,9 +13,184 @@ import type { PublishParams, PublishResult } from "./contract";
  * token at publish time, then streams the card video into youtube.videos.insert.
  */
 
-type YtAuth = { accessToken: string; channelId?: string | null } | { error: string; retryable: boolean };
+const YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
+const YOUTUBE_CHANNELS_URL =
+  "https://www.googleapis.com/youtube/v3/channels?part=id%2Csnippet&mine=true&maxResults=2";
+const YOUTUBE_IDENTITY_TIMEOUT_MS = 8_000;
+
+type YtAuth = { accessToken: string; channelId: string } | { error: string; retryable: boolean };
 type YtPublishResult = PublishResult & { providerAttempted?: boolean; responseStatus?: number };
-type ClerkExternalAccount = { provider?: string | null };
+type ClerkExternalAccount = {
+  id?: string | null;
+  externalAccountId?: string | null;
+  provider?: string | null;
+  approvedScopes?: string | string[] | null;
+  verification?: { strategy?: string | null } | null;
+};
+type ClerkOauthToken = {
+  token?: string | null;
+  externalAccountId?: string | null;
+};
+
+export type YouTubeOwnedChannel = {
+  accountRef: string;
+  displayName: string;
+  accessToken: string;
+};
+
+export type YouTubeChannelResolution =
+  | { ok: true; channels: YouTubeOwnedChannel[] }
+  | {
+      ok: false;
+      state: "attention" | "reconnect";
+      error: string;
+      retryable: boolean;
+    };
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function hasYouTubeUploadScope(account: ClerkExternalAccount): boolean {
+  const scopes = account.approvedScopes;
+  if (Array.isArray(scopes)) return scopes.includes(YOUTUBE_UPLOAD_SCOPE);
+  return text(scopes).split(/[\s,]+/).includes(YOUTUBE_UPLOAD_SCOPE);
+}
+
+function isGoogleAccount(account: ClerkExternalAccount): boolean {
+  return (
+    text(account.provider).includes("google") ||
+    account.verification?.strategy === "oauth_google"
+  );
+}
+
+function reconnect(error: string): YouTubeChannelResolution {
+  return { ok: false, state: "reconnect", error, retryable: false };
+}
+
+function attention(error: string, retryable = true): YouTubeChannelResolution {
+  return { ok: false, state: "attention", error, retryable };
+}
+
+async function loadAuthenticatedChannel(
+  accessToken: string,
+): Promise<YouTubeChannelResolution> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), YOUTUBE_IDENTITY_TIMEOUT_MS);
+  try {
+    const response = await fetch(YOUTUBE_CHANNELS_URL, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        return reconnect(
+          "Assigned YouTube channel authorization is no longer valid. Reconnect before publishing.",
+        );
+      }
+      const retryable = response.status === 429 || response.status >= 500;
+      return attention(
+        `YouTube channel could not be verified (${response.status}). Try again before publishing.`,
+        retryable,
+      );
+    }
+
+    const payload = await response.json().catch(() => null) as {
+      items?: Array<{ id?: string; snippet?: { title?: string } }>;
+    } | null;
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    if (items.length !== 1 || !text(items[0]?.id)) {
+      return reconnect(
+        "The connected Google account does not resolve to one YouTube channel. Reconnect the intended channel.",
+      );
+    }
+
+    return {
+      ok: true,
+      channels: [{
+        accountRef: text(items[0].id),
+        displayName: text(items[0].snippet?.title) || "YouTube channel",
+        accessToken,
+      }],
+    };
+  } catch (error) {
+    const timedOut = error instanceof Error && error.name === "AbortError";
+    return attention(
+      timedOut
+        ? "YouTube channel verification timed out. Try again before publishing."
+        : "YouTube channel could not be verified. Try again before publishing.",
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Resolves the exact YouTube channel(s) controlled by a Clerk user's Google OAuth tokens.
+ * Token-to-account correlation happens before YouTube is called; tokens never leave this module.
+ */
+export async function resolveOwnerYouTubeChannels(
+  ownerUserId: string,
+): Promise<YouTubeChannelResolution> {
+  if (!text(ownerUserId)) return reconnect("YouTube channel owner is missing. Reconnect before publishing.");
+
+  try {
+    const client = await clerkClient();
+    const owner = await client.users.getUser(ownerUserId);
+    const googleAccounts = (
+      owner.externalAccounts as unknown as ClerkExternalAccount[] | undefined
+    )?.filter((account) => isGoogleAccount(account) && hasYouTubeUploadScope(account)) ?? [];
+    if (googleAccounts.length === 0) {
+      return reconnect(
+        "Assigned YouTube channel is no longer connected with upload access. Reconnect before publishing.",
+      );
+    }
+
+    const tokensByProvider = new Map<string, ClerkOauthToken[]>();
+    for (const provider of new Set(googleAccounts.map((account) => text(account.provider)).filter(Boolean))) {
+      const response = await client.users.getUserOauthAccessToken(ownerUserId, provider as never);
+      tokensByProvider.set(provider, response.data as unknown as ClerkOauthToken[]);
+    }
+
+    const channelLookups: Array<Promise<YouTubeChannelResolution>> = [];
+    for (const account of googleAccounts) {
+      const accountIds = new Set(
+        [text(account.id), text(account.externalAccountId)].filter(Boolean),
+      );
+      const token = (tokensByProvider.get(text(account.provider)) ?? []).find(
+        (candidate) =>
+          accountIds.has(text(candidate.externalAccountId)) && Boolean(text(candidate.token)),
+      );
+      if (token?.token) channelLookups.push(loadAuthenticatedChannel(token.token));
+    }
+    if (channelLookups.length === 0) {
+      return reconnect(
+        "Assigned YouTube channel has no usable OAuth token. Reconnect before publishing.",
+      );
+    }
+
+    const resolved = await Promise.all(channelLookups);
+    const failure = resolved.find(
+      (result): result is Extract<YouTubeChannelResolution, { ok: false }> => !result.ok,
+    );
+    if (failure) return failure;
+
+    const channels = Array.from(
+      new Map(
+        resolved
+          .flatMap((result) => result.ok ? result.channels : [])
+          .map((channel) => [channel.accountRef, channel]),
+      ).values(),
+    );
+    return channels.length > 0
+      ? { ok: true, channels }
+      : reconnect("No YouTube channel is available for this connection. Reconnect before publishing.");
+  } catch {
+    return attention("YouTube channel could not be verified. Try again before publishing.");
+  }
+}
 
 export async function publishToYouTube(params: PublishParams): Promise<PublishResult> {
   const title = (params.title ?? params.caption ?? "").trim();
@@ -59,27 +234,28 @@ async function resolveBrandYtAuth(brandId: string, accountRef?: string | null): 
     return { error: "Cannot resolve the YouTube channel owner - reconnect", retryable: false };
   }
 
-  try {
-    const client = await clerkClient();
-    const owner = await client.users.getUser(ownerUserId);
-    const googleAccount = (owner.externalAccounts as unknown as ClerkExternalAccount[] | undefined)?.find(
-      (account) => account.provider?.includes("google"),
-    );
-    if (!googleAccount?.provider) {
-      return { error: "Assigned YouTube channel is no longer connected for this owner - reconnect", retryable: false };
-    }
-
-    const tokenResponse = await client.users.getUserOauthAccessToken(ownerUserId, googleAccount.provider as any);
-    const accessToken = tokenResponse.data?.[0]?.token;
-    if (!accessToken) {
-      return { error: "Assigned YouTube channel has no usable OAuth token - reconnect", retryable: false };
-    }
-
-    return { accessToken, channelId: acct.accountRef };
-  } catch (e) {
-    const message = e instanceof Error && e.message ? `: ${e.message}` : "";
-    return { error: `Assigned YouTube channel token lookup failed${message}`, retryable: false };
+  const expectedChannelId = text(acct.accountRef);
+  if (!expectedChannelId) {
+    return { error: "Assigned YouTube channel identity is missing - reassign it", retryable: false };
   }
+
+  const resolution = await resolveOwnerYouTubeChannels(ownerUserId);
+  if (!resolution.ok) {
+    return { error: resolution.error, retryable: resolution.retryable };
+  }
+  const channel = resolution.channels.find(
+    (candidate) => candidate.accountRef === expectedChannelId,
+  );
+  if (!channel) {
+    return {
+      error: "Assigned YouTube channel no longer matches the connected channel - reassign it before publishing",
+      retryable: false,
+    };
+  }
+  return {
+    accessToken: channel.accessToken,
+    channelId: channel.accountRef,
+  };
 }
 
 /** Stream the video URL into youtube.videos.insert (public). Fails loud on fetch/API errors. */

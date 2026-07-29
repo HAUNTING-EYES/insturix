@@ -1,35 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { requireCalosBrandAccess } from "@/lib/calos/brand-access";
-
-const YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
-
-type ClerkExternalAccount = {
-  provider?: string | null;
-  username?: string | null;
-  emailAddress?: string | null;
-  approvedScopes?: string | string[] | null;
-  verification?: { strategy?: string | null } | null;
-};
-
-function findGoogleAccount(accounts: ClerkExternalAccount[] | undefined): ClerkExternalAccount | undefined {
-  return accounts?.find(
-    (account) =>
-      account.provider?.includes("google") ||
-      account.verification?.strategy === "oauth_google",
-  );
-}
-
-async function getAssignableYoutubeAccount(userId: string): Promise<{ displayName: string } | null> {
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-  const googleAccount = findGoogleAccount(user.externalAccounts as unknown as ClerkExternalAccount[] | undefined);
-  if (!googleAccount || googleAccount.approvedScopes?.includes(YOUTUBE_UPLOAD_SCOPE) === false) {
-    return null;
-  }
-  return { displayName: googleAccount.username || googleAccount.emailAddress || "YouTube channel" };
-}
+import { resolveOwnerYouTubeChannels } from "@/lib/calos/publish/youtube";
 
 /**
  * Per-brand YouTube channel binding (Model A: assign the channel you already control). This route
@@ -38,7 +11,7 @@ async function getAssignableYoutubeAccount(userId: string): Promise<{ displayNam
  * card is handled elsewhere.
  *
  *  GET    ?brandId=... -> current assignment(s) (no tokens)
- *  POST   {brandId, accountRef, displayName?} -> assign / re-assign
+ *  POST   {brandId, accountRef} -> validate the live channel, then assign / re-assign
  *  DELETE {brandId, accountRef} -> unassign
  */
 async function getModels() {
@@ -91,7 +64,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { brandId?: string; accountRef?: string; displayName?: string };
+  let body: { brandId?: string; accountRef?: string };
   try {
     body = await request.json();
   } catch {
@@ -112,10 +85,27 @@ export async function POST(request: NextRequest) {
   );
   if (accessResponse) return accessResponse;
 
-  const youtubeAccount = await getAssignableYoutubeAccount(session.userId);
+  const resolution = await resolveOwnerYouTubeChannels(session.userId);
+  if (!resolution.ok) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: resolution.state === "reconnect"
+          ? "Connect your YouTube channel first before assigning it to a brand"
+          : resolution.error,
+      },
+      { status: resolution.retryable ? 503 : 409 },
+    );
+  }
+  const youtubeAccount = resolution.channels.find(
+    (channel) => channel.accountRef === accountRef,
+  );
   if (!youtubeAccount) {
     return NextResponse.json(
-      { success: false, error: "Connect your YouTube channel first before assigning it to a brand" },
+      {
+        success: false,
+        error: "Selected YouTube channel does not match a channel owned by the connected Google account",
+      },
       { status: 409 },
     );
   }
@@ -128,14 +118,20 @@ export async function POST(request: NextRequest) {
         orgId: session.orgId || null,
         accountType: "organization",
         ownerUserId: session.userId,
-        displayName: body.displayName?.trim() || youtubeAccount.displayName,
+        displayName: youtubeAccount.displayName,
         accessTokenEnc: null,
       },
     },
     { upsert: true },
   );
 
-  return NextResponse.json({ success: true, brandId, accountRef, accountType: "organization" });
+  return NextResponse.json({
+    success: true,
+    brandId,
+    accountRef,
+    accountType: "organization",
+    displayName: youtubeAccount.displayName,
+  });
 }
 
 export async function DELETE(request: NextRequest) {

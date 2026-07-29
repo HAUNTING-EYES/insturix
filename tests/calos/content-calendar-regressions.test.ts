@@ -1,13 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   clerkClient: vi.fn(),
   connectToDatabase: vi.fn(),
   connectedAccountUpdateOne: vi.fn(),
+  getUserOauthAccessToken: vi.fn(),
   requireCalosBrandAccess: vi.fn(),
 }));
 
@@ -85,8 +86,21 @@ function mockClerkGoogleAccount(account: Record<string, unknown> | null) {
       getUser: vi.fn(async () => ({
         externalAccounts: account ? [account] : [],
       })),
+      getUserOauthAccessToken: mocks.getUserOauthAccessToken,
     },
   });
+}
+
+function mockYoutubeChannel(channelId = "UC_creator", title = "Creator Channel") {
+  mocks.getUserOauthAccessToken.mockResolvedValue({
+    data: [{ token: "yt_token", externalAccountId: "eac_google" }],
+  });
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+    items: [{ id: channelId, snippet: { title } }],
+  }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  })));
 }
 
 describe("Content calendar regressions", () => {
@@ -96,6 +110,10 @@ describe("Content calendar regressions", () => {
     mocks.connectToDatabase.mockResolvedValue(undefined);
     mocks.connectedAccountUpdateOne.mockResolvedValue({ acknowledged: true });
     mocks.requireCalosBrandAccess.mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("opens the active day view instead of surprise-creating a draft on date click", () => {
@@ -220,10 +238,12 @@ describe("Content calendar regressions", () => {
 
   it("reads CalOS YouTube connection state from Clerk Google accounts", async () => {
     mockClerkGoogleAccount({
+      id: "eac_google",
       provider: "oauth_google",
       username: "Creator Channel",
       approvedScopes: [YOUTUBE_UPLOAD_SCOPE],
     });
+    mockYoutubeChannel();
 
     const response = await getYoutubeAccounts();
     const payload = await response.json();
@@ -232,34 +252,54 @@ describe("Content calendar regressions", () => {
     expect(payload).toMatchObject({
       success: true,
       connected: true,
-      accounts: [{ accountRef: "youtube", displayName: "Creator Channel" }],
+      accounts: [{ accountRef: "UC_creator", displayName: "Creator Channel" }],
     });
     expect(mocks.connectToDatabase).not.toHaveBeenCalled();
   });
 
   it("allows assigning a Clerk-connected YouTube channel to a brand", async () => {
     mockClerkGoogleAccount({
+      id: "eac_google",
       provider: "oauth_google",
       emailAddress: "creator@example.com",
       approvedScopes: [YOUTUBE_UPLOAD_SCOPE],
     });
+    mockYoutubeChannel();
 
     const response = await postYoutubeAssignment(
-      jsonRequest({ brandId: "brand_1", accountRef: "youtube" }),
+      jsonRequest({ brandId: "brand_1", accountRef: "UC_creator" }),
     );
 
     expect(response.status).toBe(200);
     expect(mocks.connectedAccountUpdateOne).toHaveBeenCalledWith(
-      { brandId: "brand_1", platform: "youtube", accountRef: "youtube" },
+      { brandId: "brand_1", platform: "youtube", accountRef: "UC_creator" },
       expect.objectContaining({
         $set: expect.objectContaining({
           ownerUserId: "user_1",
-          displayName: "creator@example.com",
+          displayName: "Creator Channel",
           accessTokenEnc: null,
         }),
       }),
       { upsert: true },
     );
+  });
+
+  it("rejects assigning a YouTube channel that the live OAuth token does not own", async () => {
+    mockClerkGoogleAccount({
+      id: "eac_google",
+      provider: "oauth_google",
+      approvedScopes: [YOUTUBE_UPLOAD_SCOPE],
+    });
+    mockYoutubeChannel("UC_owned", "Owned Channel");
+
+    const response = await postYoutubeAssignment(
+      jsonRequest({ brandId: "brand_1", accountRef: "UC_spoofed" }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("does not match");
+    expect(mocks.connectedAccountUpdateOne).not.toHaveBeenCalled();
   });
 
   it("rejects YouTube assignment when the Clerk Google account lacks upload scope", async () => {

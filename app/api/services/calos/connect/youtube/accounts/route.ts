@@ -1,27 +1,6 @@
 import { NextResponse } from "next/server";
-import { auth, clerkClient } from "@clerk/nextjs/server";
-
-const YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
-
-type ClerkExternalAccount = {
-  provider?: string | null;
-  username?: string | null;
-  emailAddress?: string | null;
-  approvedScopes?: string | string[] | null;
-  verification?: { strategy?: string | null } | null;
-};
-
-function findGoogleAccount(accounts: ClerkExternalAccount[] | undefined): ClerkExternalAccount | undefined {
-  return accounts?.find(
-    (account) =>
-      account.provider?.includes("google") ||
-      account.verification?.strategy === "oauth_google",
-  );
-}
-
-function hasYoutubeUploadScope(account: ClerkExternalAccount): boolean {
-  return account.approvedScopes?.includes(YOUTUBE_UPLOAD_SCOPE) !== false;
-}
+import { auth } from "@clerk/nextjs/server";
+import { resolveOwnerYouTubeChannels } from "@/lib/calos/publish/youtube";
 
 /**
  * GET /api/services/calos/connect/youtube/accounts
@@ -35,17 +14,34 @@ export async function GET() {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const client = await clerkClient();
-  const user = await client.users.getUser(session.userId);
-  const googleAccount = findGoogleAccount(user.externalAccounts as unknown as ClerkExternalAccount[] | undefined);
-  if (!googleAccount || !hasYoutubeUploadScope(googleAccount)) {
-    return NextResponse.json({ success: true, connected: false, accounts: [] });
+  const resolution = await resolveOwnerYouTubeChannels(session.userId);
+  if (!resolution.ok) {
+    if (resolution.state === "reconnect") {
+      return NextResponse.json({
+        success: true,
+        connected: false,
+        accounts: [],
+        message: resolution.error,
+      });
+    }
+    return NextResponse.json(
+      {
+        success: false,
+        connected: false,
+        accounts: [],
+        error: resolution.error,
+      },
+      { status: resolution.retryable ? 503 : 502 },
+    );
   }
 
-  const displayName = googleAccount.username || googleAccount.emailAddress || "YouTube channel";
   return NextResponse.json({
     success: true,
-    connected: true,
-    accounts: [{ accountRef: "youtube", accountType: "organization" as const, displayName }],
+    connected: resolution.channels.length > 0,
+    accounts: resolution.channels.map((channel) => ({
+      accountRef: channel.accountRef,
+      accountType: "organization" as const,
+      displayName: channel.displayName,
+    })),
   });
 }
