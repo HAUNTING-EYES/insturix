@@ -44,10 +44,12 @@ export interface ChatDubbingToolDependencies {
 interface CreateChatDubbingToolsOptions {
   userId: string;
   projectId: string;
+  sessionId?: string;
+  operationId?: string;
 }
 
 export function createChatDubbingTools(
-  { userId, projectId }: CreateChatDubbingToolsOptions,
+  { userId, projectId, sessionId, operationId }: CreateChatDubbingToolsOptions,
   overrides: Partial<ChatDubbingToolDependencies> = {},
 ) {
   const dependencies = resolveDependencies(overrides);
@@ -55,7 +57,13 @@ export function createChatDubbingTools(
   const dubSelectedDialogue = tool(
     async (input: z.infer<typeof dubSelectedDialogueSchema>) => {
       try {
-        const resolved = await dependencies.resolveJob({ ...input, userId, projectId });
+        const resolved = await dependencies.resolveJob({
+          ...input,
+          userId,
+          projectId,
+          sessionId,
+          operationId,
+        });
         const queued = await dependencies.queueJob({ jobId: resolved.jobId, projectId, userId });
         if (queued.status === 'failed' || queued.status === 'stale') {
           return envelope(
@@ -168,6 +176,7 @@ function publicJob(job: ChatDubbingJob) {
     phraseCount: job.progress.phrases?.length ?? 0,
     completedPhraseCount: job.progress.phrases?.filter((phrase) => phrase.voiceAssetId).length ?? 0,
     result: job.status === 'completed' ? job.result ?? null : null,
+    renderVerification: job.renderVerification ?? null,
     error: job.error ?? null,
   };
 }

@@ -1,14 +1,28 @@
+import { createHash } from 'node:crypto';
+
 import { describe, expect, it, vi } from 'vitest';
 
+import type { ChatAiEditTransaction } from '@/lib/editron/agent/chat-ai-edit-transaction-runtime';
+import {
+  verifyChatToolPostcondition,
+} from '@/lib/editron/agent/chat-edit-postconditions';
 import {
   TerminalDubbingError,
   queueChatDubbingJob,
   resolveChatDubbingJob,
   runChatDubbingJob,
+  type ChatDubbingCompletion,
   type ChatDubbingJob,
   type ChatDubbingJobStore,
   type ChatDubbingProgress,
 } from '@/lib/editron/services/chat-dubbing-job';
+import type {
+  ChatEditOperationUpdate,
+  Checkpoint,
+  CheckpointInput,
+  RestorableProjectState,
+} from '@/lib/editron/services/checkpoint-service';
+import type { ChatEditRenderVerificationRequest } from '@/lib/editron/services/phase0-rendered-evidence-worker';
 
 class MemoryStore implements ChatDubbingJobStore {
   jobs = new Map<string, ChatDubbingJob>();
@@ -32,7 +46,15 @@ class MemoryStore implements ChatDubbingJobStore {
     Object.assign(job, { status: 'running', leaseId, runCount: job.runCount + 1, updatedAt: now }); return structuredClone(job);
   }
   async markProgress(jobId: string, _userId: string, progress: ChatDubbingProgress, now: Date) { Object.assign(this.jobs.get(jobId)!, { status: 'resolved', progress, updatedAt: now }); }
-  async markCompleted(jobId: string, _userId: string, result: Record<string, unknown>, now: Date) { Object.assign(this.jobs.get(jobId)!, { status: 'completed', result, updatedAt: now }); }
+  async markCompleted(completion: ChatDubbingCompletion) {
+    Object.assign(this.jobs.get(completion.jobId)!, {
+      status: 'completed',
+      result: completion.result,
+      afterCheckpointId: completion.afterCheckpointId,
+      renderVerification: completion.renderVerification,
+      updatedAt: completion.now,
+    });
+  }
   async markRetry(jobId: string, _userId: string, error: string, now: Date) { const job = this.jobs.get(jobId)!; Object.assign(job, { status: 'retry_wait', failureCount: job.failureCount + 1, error, updatedAt: now }); }
   async markFailed(jobId: string, _userId: string, status: 'failed' | 'stale', error: string, now: Date) { Object.assign(this.jobs.get(jobId)!, { status, error, updatedAt: now }); }
 }
@@ -42,19 +64,147 @@ const project = {
   projectId: 'proj-1',
   userId: 'user-1',
   fps: 30,
+  durationInFrames: 600,
   overlays: [{ id: 11, type: 'video', assetId: 'asset-1', from: 60, durationInFrames: 300, videoStartTime: 90, speed: 1 }],
 };
+
+const buildCheckpointId = (
+  input: Pick<ChatAiEditTransaction, 'operationId' | 'sessionId' | 'projectId' | 'userId'>,
+  position: 'before' | 'after',
+) => `ckpt_chat_${position}_${createHash('sha256')
+  .update(`${input.userId}:${input.projectId}:${input.sessionId}:${input.operationId}:${position}`)
+  .digest('hex')
+  .slice(0, 28)}`;
+
+function captureProjectState(value: Record<string, unknown>): RestorableProjectState {
+  return {
+    presentFields: ['overlays', 'fps', 'durationInFrames'],
+    fields: {
+      overlays: structuredClone(value.overlays ?? []),
+      fps: value.fps,
+      durationInFrames: value.durationInFrames,
+    },
+  };
+}
+
+function fingerprintProjectState(state: RestorableProjectState): string {
+  return createHash('sha256').update(JSON.stringify(state)).digest('hex');
+}
 
 async function resolved(
   store: MemoryStore,
   request: Partial<Parameters<typeof resolveChatDubbingJob>[0]> = {},
 ) {
-  return resolveChatDubbingJob({ projectId: 'proj-1', userId: 'user-1', overlayId: 11, targetLanguage: 'English', ...request }, {
+  return resolveChatDubbingJob({
+    projectId: 'proj-1',
+    userId: 'user-1',
+    sessionId: 'session-1',
+    operationId: 'operation-1',
+    overlayId: 11,
+    targetLanguage: 'English',
+    ...request,
+  }, {
     store,
     loadProject: vi.fn(async () => project),
     buildProjectRevision: vi.fn(() => 'revision-1'),
+    buildCheckpointId,
     now: () => now,
   });
+}
+
+function createCheckpointHarness(job: ChatDubbingJob, beforeProject = project) {
+  const checkpoints = new Map<string, Checkpoint>();
+  const beforeState = captureProjectState(beforeProject);
+  const beforeCheckpoint: Checkpoint = {
+    checkpointId: job.beforeCheckpointId!,
+    sessionId: job.sessionId!,
+    operationId: job.operationId,
+    operationStatus: 'no-op',
+    projectId: job.projectId,
+    userId: job.userId,
+    overlays: beforeProject.overlays as any[],
+    projectState: beforeState,
+    stateHash: fingerprintProjectState(beforeState),
+    stateHashVersion: 2,
+    timestamp: now,
+    description: 'before dubbing',
+    type: 'before-llm',
+    createdAt: now,
+    updatedAt: now,
+  };
+  checkpoints.set(beforeCheckpoint.checkpointId, beforeCheckpoint);
+
+  const checkpointService = {
+    getCheckpoint: vi.fn(async (checkpointId: string, userId: string) => {
+      const checkpoint = checkpoints.get(checkpointId);
+      return checkpoint?.userId === userId ? checkpoint : null;
+    }),
+    createCheckpoint: vi.fn(async (input: CheckpointInput) => {
+      const state = input.projectState ?? captureProjectState({ overlays: input.overlays });
+      const checkpoint: Checkpoint = {
+        checkpointId: input.checkpointId!,
+        sessionId: input.sessionId,
+        operationId: input.operationId,
+        projectId: input.projectId,
+        userId: input.userId,
+        overlays: input.overlays,
+        projectState: state,
+        stateHash: fingerprintProjectState(state),
+        stateHashVersion: 2,
+        timestamp: now,
+        description: input.description,
+        type: input.type,
+        createdAt: now,
+        updatedAt: now,
+      };
+      checkpoints.set(checkpoint.checkpointId, checkpoint);
+      return checkpoint;
+    }),
+    updateChatEditOperation: vi.fn(async (
+      checkpointId: string,
+      userId: string,
+      operationId: string,
+      update: ChatEditOperationUpdate,
+    ) => {
+      const checkpoint = checkpoints.get(checkpointId);
+      if (!checkpoint || checkpoint.userId !== userId || checkpoint.operationId !== operationId) {
+        throw new Error('checkpoint identity mismatch');
+      }
+      Object.assign(checkpoint, update);
+    }),
+    restoreProjectCheckpoint: vi.fn(async (checkpointId: string) => ({
+      restored: true,
+      checkpointId,
+      expectedStateHash: checkpoints.get(checkpointId)?.stateHash ?? '',
+    })),
+  };
+  return {
+    checkpointService,
+    captureProjectState,
+    fingerprintProjectState,
+    buildRenderVerificationRequest: vi.fn((input: {
+      transaction: ChatAiEditTransaction;
+      afterCheckpointId: string;
+    }): ChatEditRenderVerificationRequest => ({
+      version: 'editron-chat-render-verification-v1',
+      operationId: input.transaction.operationId,
+      sessionId: input.transaction.sessionId,
+      beforeCheckpointId: input.transaction.beforeCheckpointId,
+      afterCheckpointId: input.afterCheckpointId,
+      requestedAt: now.toISOString(),
+      modalities: ['audio'],
+      expectedEffect: 'mutation-delta',
+      targets: [],
+      sampleFrames: [60],
+    })),
+    dispatchRenderEvidence: vi.fn(async () => ({ dispatched: true, messageId: 'render-msg-1' })),
+    verifyPostcondition: verifyChatToolPostcondition,
+    checkpoints,
+  };
+}
+
+function runHarness(store: MemoryStore, jobId: string) {
+  return createCheckpointHarness(store.jobs.get(jobId)!);
 }
 
 describe('durable chat dubbing job', () => {
@@ -66,6 +216,8 @@ describe('durable chat dubbing job', () => {
     expect(second).toMatchObject({ jobId: first.jobId, created: false, status: 'resolved' });
     expect(await store.find(first.jobId, 'user-1')).toMatchObject({
       overlayId: '11', assetId: 'asset-1', targetLanguage: 'en', projectRevision: 'revision-1',
+      sessionId: 'session-1', operationId: 'operation-1',
+      beforeCheckpointId: expect.stringMatching(/^ckpt_chat_before_/),
       voiceId: 'af_heart',
       speechCapability: {
         language: 'en',
@@ -92,14 +244,19 @@ describe('durable chat dubbing job', () => {
         voiceId: 'hf_alpha',
       },
     });
-    await expect(resolveChatDubbingJob({ projectId: 'proj-1', userId: 'user-1', overlayId: 11, targetLanguage: 'French' }, {
-      store: new MemoryStore(), loadProject: async () => project, buildProjectRevision: () => 'r', now: () => now,
+    await expect(resolveChatDubbingJob({
+      projectId: 'proj-1', userId: 'user-1', sessionId: 'session-1', operationId: 'operation-unsupported',
+      overlayId: 11, targetLanguage: 'French',
+    }, {
+      store: new MemoryStore(), loadProject: async () => project, buildProjectRevision: () => 'r', buildCheckpointId, now: () => now,
     })).rejects.toMatchObject({ code: 'unsupported-target-language' });
   });
 
   it('rejects retimed clips before provider work', async () => {
-    await expect(resolveChatDubbingJob({ projectId: 'proj-1', userId: 'user-1', overlayId: 11 }, {
-      store: new MemoryStore(), loadProject: async () => ({ ...project, overlays: [{ ...project.overlays[0], speed: 1.2 }] }), buildProjectRevision: () => 'r', now: () => now,
+    await expect(resolveChatDubbingJob({
+      projectId: 'proj-1', userId: 'user-1', sessionId: 'session-1', operationId: 'operation-retimed', overlayId: 11,
+    }, {
+      store: new MemoryStore(), loadProject: async () => ({ ...project, overlays: [{ ...project.overlays[0], speed: 1.2 }] }), buildProjectRevision: () => 'r', buildCheckpointId, now: () => now,
     })).rejects.toMatchObject({ code: 'retimed-clip-unsupported' });
   });
 
@@ -107,10 +264,11 @@ describe('durable chat dubbing job', () => {
     const store = new MemoryStore();
     const { jobId } = await resolved(store);
     const publish = vi.fn(async () => ({ messageId: 'msg-1' }));
-    const deps = { store, loadProject: vi.fn(async () => project), buildProjectRevision: vi.fn(() => 'revision-1'), now: () => now, publish };
+    const deps = { store, loadProject: vi.fn(async () => project), buildProjectRevision: vi.fn(() => 'revision-1'), buildCheckpointId, now: () => now, publish };
     expect(await queueChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, deps)).toMatchObject({ status: 'queued' });
     const result = await runChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
       ...deps,
+      ...runHarness(store, jobId),
       execute: vi.fn(async () => ({ status: 'continue' as const, reason: 'translated', progress: { stage: 'separate' as const, nextPhraseIndex: 0 } })),
       cleanup: vi.fn(async () => undefined),
     });
@@ -128,6 +286,7 @@ describe('durable chat dubbing job', () => {
       store,
       loadProject: vi.fn(async () => project),
       buildProjectRevision: vi.fn(() => 'revision-1'),
+      buildCheckpointId,
       now: () => now,
       publish,
     });
@@ -138,10 +297,10 @@ describe('durable chat dubbing job', () => {
   it('retries transient provider failures but terminal failures clean up and stop', async () => {
     const transientStore = new MemoryStore();
     const { jobId } = await resolved(transientStore);
-    const shared = { loadProject: vi.fn(async () => project), buildProjectRevision: vi.fn(() => 'revision-1'), now: () => now, publish: vi.fn(async () => ({ messageId: 'msg' })) };
+    const shared = { loadProject: vi.fn(async () => project), buildProjectRevision: vi.fn(() => 'revision-1'), buildCheckpointId, now: () => now, publish: vi.fn(async () => ({ messageId: 'msg' })) };
     await queueChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, { ...shared, store: transientStore });
     const retry = await runChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
-      ...shared, store: transientStore, execute: vi.fn(async () => { const error = Object.assign(new Error('provider timeout'), { status: 503 }); throw error; }), cleanup: vi.fn(),
+      ...shared, ...runHarness(transientStore, jobId), store: transientStore, execute: vi.fn(async () => { const error = Object.assign(new Error('provider timeout'), { status: 503 }); throw error; }), cleanup: vi.fn(),
     });
     expect(retry.status).toBe('retrying');
     expect(await transientStore.find(jobId, 'user-1')).toMatchObject({ status: 'retry_wait', failureCount: 1 });
@@ -151,7 +310,7 @@ describe('durable chat dubbing job', () => {
     await queueChatDubbingJob({ jobId: terminal.jobId, projectId: 'proj-1', userId: 'user-1' }, { ...shared, store: terminalStore });
     const cleanup = vi.fn(async () => undefined);
     const failed = await runChatDubbingJob({ jobId: terminal.jobId, projectId: 'proj-1', userId: 'user-1' }, {
-      ...shared, store: terminalStore, execute: vi.fn(async () => { throw new TerminalDubbingError('no-spoken-dialogue', 'nothing to dub'); }), cleanup,
+      ...shared, ...runHarness(terminalStore, terminal.jobId), store: terminalStore, execute: vi.fn(async () => { throw new TerminalDubbingError('no-spoken-dialogue', 'nothing to dub'); }), cleanup,
     });
     expect(failed.status).toBe('failed');
     expect(cleanup).toHaveBeenCalledOnce();
@@ -162,10 +321,10 @@ describe('durable chat dubbing job', () => {
     const store = new MemoryStore();
     const { jobId } = await resolved(store);
     const publish = vi.fn(async () => ({ messageId: 'msg' }));
-    await queueChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, { store, loadProject: async () => project, buildProjectRevision: () => 'revision-1', now: () => now, publish });
+    await queueChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, { store, loadProject: async () => project, buildProjectRevision: () => 'revision-1', buildCheckpointId, now: () => now, publish });
     const cleanup = vi.fn(async () => undefined);
     const result = await runChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
-      store, loadProject: async () => project, buildProjectRevision: () => 'revision-2', now: () => now, publish, execute: vi.fn(), cleanup,
+      store, ...runHarness(store, jobId), loadProject: async () => project, buildProjectRevision: () => 'revision-2', buildCheckpointId, now: () => now, publish, execute: vi.fn(), cleanup,
     });
     expect(result.status).toBe('stale');
     expect(cleanup).toHaveBeenCalledOnce();
@@ -178,16 +337,19 @@ describe('durable chat dubbing job', () => {
     const buildProjectRevision = vi.fn(() => 'revision-1');
     const publish = vi.fn()
       .mockResolvedValueOnce({ messageId: 'initial' })
-      .mockRejectedValueOnce(new Error('qstash unavailable'));
+      .mockRejectedValueOnce(new Error('qstash unavailable'))
+      .mockResolvedValue({ messageId: 'continued' });
     await queueChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
-      store, loadProject, buildProjectRevision, now: () => now, publish,
+      store, loadProject, buildProjectRevision, buildCheckpointId, now: () => now, publish,
     });
     const result = await runChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
       store,
       loadProject,
       buildProjectRevision,
+      buildCheckpointId,
       now: () => now,
       publish,
+      ...runHarness(store, jobId),
       execute: vi.fn(async () => ({
         status: 'continue' as const,
         reason: 'translated',
@@ -206,11 +368,150 @@ describe('durable chat dubbing job', () => {
       store,
       loadProject,
       buildProjectRevision,
+      buildCheckpointId,
       now: () => now,
       publish,
-      execute: vi.fn(async () => ({ status: 'completed' as const, result: { committed: true } })),
+      ...runHarness(store, jobId),
+      execute: vi.fn(async () => ({
+        status: 'continue' as const,
+        reason: 'separated',
+        progress: { stage: 'commit' as const, generatedAssetIds: ['generated-1'] },
+      })),
       cleanup: vi.fn(),
     });
-    expect(retry).toMatchObject({ status: 'completed', result: { committed: true } });
+    expect(retry).toMatchObject({ status: 'continuing', reason: 'separated' });
+  });
+
+  it('completes against canonical checkpoints and dispatches audio render evidence', async () => {
+    const store = new MemoryStore();
+    const { jobId } = await resolved(store);
+    const job = store.jobs.get(jobId)!;
+    Object.assign(job, { status: 'queued', progress: { stage: 'commit', generatedAssetIds: [] } });
+    const checkpoint = createCheckpointHarness(job);
+    type TestProject = Omit<typeof project, 'overlays'> & { overlays: Array<Record<string, unknown>> };
+    let currentProject: TestProject = structuredClone(project);
+    const afterProject: TestProject = {
+      ...structuredClone(project),
+      overlays: [{ ...project.overlays[0], sourceAudioMuted: true }],
+    };
+    const result = await runChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
+      store,
+      loadProject: vi.fn(async () => currentProject),
+      buildProjectRevision: vi.fn(() => 'revision-1'),
+      buildCheckpointId,
+      now: () => now,
+      publish: vi.fn(async () => ({ messageId: 'unused' })),
+      execute: vi.fn(async () => {
+        currentProject = afterProject;
+        return { status: 'completed' as const, result: { committed: true, audioOverlayIds: [] } };
+      }),
+      cleanup: vi.fn(),
+      ...checkpoint,
+    });
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      result: {
+        committed: true,
+        postconditionVerification: { status: 'pass' },
+        renderVerification: { dispatched: true, messageId: 'render-msg-1' },
+      },
+    });
+    const stored = await store.find(jobId, 'user-1');
+    expect(stored).toMatchObject({
+      status: 'completed',
+      afterCheckpointId: expect.stringMatching(/^ckpt_dub_/),
+      renderVerification: { dispatched: true, messageId: 'render-msg-1' },
+      result: { postconditionVerification: { status: 'pass' } },
+    });
+    expect(checkpoint.dispatchRenderEvidence).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'proj-1',
+      userId: 'user-1',
+      chatEditVerification: expect.objectContaining({
+        operationId: 'operation-1',
+        sessionId: 'session-1',
+        modalities: ['audio'],
+        beforeCheckpointId: job.beforeCheckpointId,
+        afterCheckpointId: stored?.afterCheckpointId,
+      }),
+    }));
+    expect(checkpoint.checkpoints.get(job.beforeCheckpointId!)).toMatchObject({
+      operationStatus: 'completed',
+      mutatingToolNames: ['dub_selected_dialogue'],
+      afterCheckpointId: stored?.afterCheckpointId,
+    });
+  });
+
+  it('blocks provider commit when the originating chat checkpoint is missing', async () => {
+    const store = new MemoryStore();
+    const { jobId } = await resolved(store);
+    const job = store.jobs.get(jobId)!;
+    Object.assign(job, { status: 'queued', progress: { stage: 'commit', generatedAssetIds: [] } });
+    const checkpoint = createCheckpointHarness(job);
+    checkpoint.checkpoints.clear();
+    const execute = vi.fn();
+
+    const result = await runChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
+      store,
+      loadProject: vi.fn(async () => project),
+      buildProjectRevision: vi.fn(() => 'revision-1'),
+      buildCheckpointId,
+      now: () => now,
+      publish: vi.fn(async () => ({ messageId: 'unused' })),
+      execute,
+      cleanup: vi.fn(),
+      ...checkpoint,
+    });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      reason: expect.stringContaining('dubbing-before-checkpoint-identity-mismatch'),
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('keeps a valid mutation completed but explicitly unverified when render dispatch fails', async () => {
+    const store = new MemoryStore();
+    const { jobId } = await resolved(store, { operationId: 'operation-dispatch-failure' });
+    const job = store.jobs.get(jobId)!;
+    Object.assign(job, { status: 'queued', progress: { stage: 'commit', generatedAssetIds: [] } });
+    const checkpoint = createCheckpointHarness(job);
+    checkpoint.dispatchRenderEvidence.mockRejectedValueOnce(new Error('qstash unavailable'));
+    type TestProject = Omit<typeof project, 'overlays'> & { overlays: Array<Record<string, unknown>> };
+    let currentProject: TestProject = structuredClone(project);
+
+    const result = await runChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
+      store,
+      loadProject: vi.fn(async () => currentProject),
+      buildProjectRevision: vi.fn(() => 'revision-1'),
+      buildCheckpointId,
+      now: () => now,
+      publish: vi.fn(async () => ({ messageId: 'unused' })),
+      execute: vi.fn(async () => {
+        currentProject = {
+          ...structuredClone(project),
+          overlays: [{ ...project.overlays[0], sourceAudioMuted: true }],
+        };
+        return { status: 'completed' as const, result: { committed: true } };
+      }),
+      cleanup: vi.fn(),
+      ...checkpoint,
+    });
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      result: {
+        committed: true,
+        renderVerification: {
+          dispatched: false,
+          reason: expect.stringContaining('dubbing-render-verification-dispatch-failed'),
+        },
+      },
+    });
+    expect(await store.find(jobId, 'user-1')).toMatchObject({
+      status: 'completed',
+      failureCount: 0,
+      renderVerification: { dispatched: false },
+    });
   });
 });

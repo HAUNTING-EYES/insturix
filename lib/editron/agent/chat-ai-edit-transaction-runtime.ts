@@ -100,7 +100,7 @@ export async function prepareChatAiEditTransaction(
 ): Promise<PrepareChatAiEditTransactionResult> {
   assertOperationId(input.operationId);
   const checkpointStore = dependencies.checkpointStore ?? checkpointService;
-  const beforeCheckpointId = checkpointIdFor(input, 'before');
+  const beforeCheckpointId = buildChatEditCheckpointId(input, 'before');
   const projectState = captureRestorableProjectState(input.project);
   const claim = await checkpointStore.claimChatEditOperation({
     checkpointId: beforeCheckpointId,
@@ -186,7 +186,7 @@ export async function completeChatAiEditTransaction(
   try {
     const project = await services.loadProject(input.transaction.userId, input.transaction.projectId);
     if (!project) throw new Error('Project could not be loaded after AI edit execution.');
-    const afterCheckpointId = checkpointIdFor(input.transaction, 'after');
+    const afterCheckpointId = buildChatEditCheckpointId(input.transaction, 'after');
     const afterCheckpoint = await services.checkpointStore.createCheckpoint({
       checkpointId: afterCheckpointId,
       operationId: input.transaction.operationId,
@@ -773,7 +773,7 @@ async function resolveServices(dependencies: RuntimeDependencies) {
   return { checkpointStore, loadProject: projectService.loadProject.bind(projectService) as LoadProject };
 }
 
-function checkpointIdFor(
+export function buildChatEditCheckpointId(
   input: Pick<ChatAiEditTransaction, 'operationId' | 'sessionId' | 'projectId' | 'userId'>,
   position: 'before' | 'after',
 ): string {

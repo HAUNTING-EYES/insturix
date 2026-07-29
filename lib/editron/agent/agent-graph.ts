@@ -302,7 +302,12 @@ export const createAgent = (
           turnContext?.requestOwnerLicense?.routingFacts?.familyScopeExclusive,
       }),
       ...createChatDeepAnalysisTools({ userId, projectId }),
-      ...createChatDubbingTools({ userId, projectId }),
+      ...createChatDubbingTools({
+        userId,
+        projectId,
+        sessionId: turnContext?.sessionId,
+        operationId: turnContext?.operationId,
+      }),
     ];
     return turnContext?.requestOwnerLicense
       ? filterChatToolsForRequestOwner(liveChatTools, turnContext.requestOwnerLicense, { assistLane: turnContext.assistLane })
