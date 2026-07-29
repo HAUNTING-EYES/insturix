@@ -9,6 +9,7 @@ export type ChatBattleFixtureProfile =
   | 'dubbing'
   | 'visual-multi-asset'
   | 'audio'
+  | 'impact-audio'
   | 'sfx'
   | 'generated-scene';
 
@@ -39,6 +40,7 @@ export interface ChatBattleFixtureSources {
   dubbing: string;
   'visual-multi-asset': string;
   audio: string;
+  'impact-audio': string;
   sfx: string;
   'generated-scene': string;
 }
@@ -67,6 +69,7 @@ export const DEFAULT_CHAT_BATTLE_FIXTURE_SOURCES: ChatBattleFixtureSources = {
   dubbing: 'proj_FYZeVGomJuSh',
   'visual-multi-asset': 'proj_chatbattle_500c55dbd0',
   audio: 'proj_4N_6crLWX89A',
+  'impact-audio': 'proj_chatbattle_impact_audio_v1',
   sfx: 'proj_Z1OyTFkBoCNo',
   'generated-scene': 'proj_Fp_gxpn-Lonh',
 };
@@ -124,6 +127,7 @@ export function planChatBattleFixture(
   sources: ChatBattleFixtureSources = DEFAULT_CHAT_BATTLE_FIXTURE_SOURCES,
 ): ChatBattleFixturePlan {
   const profile = resolveProfile(scenario.id);
+  const usesExplicitAudioTrack = profile === 'audio' || profile === 'impact-audio';
   return {
     scenarioId: scenario.id,
     projectMode: scenario.projectMode,
@@ -135,12 +139,12 @@ export function planChatBattleFixture(
       || ADD_CAPTION_SCENARIOS.has(scenario.id)
       || scenario.id === 'manual-impact-sfx',
     removeCaptionTrack: ADD_CAPTION_SCENARIOS.has(scenario.id),
-    soundOverlayPolicy: profile === 'audio'
+    soundOverlayPolicy: usesExplicitAudioTrack
       ? 'preserve-all'
       : profile === 'sfx'
         ? 'preserve-sfx-only'
         : 'remove',
-    nativeAudioPolicy: profile === 'audio'
+    nativeAudioPolicy: usesExplicitAudioTrack
       ? 'mute-embedded-when-explicit-tracks'
       : profile === 'speech'
         ? 'mute-embedded-for-seeded-transcript'
@@ -180,6 +184,7 @@ function resolveRequiredSourceCapabilities(scenarioId: string): ChatBattleFixtur
 
 function resolveProfile(scenarioId: string): ChatBattleFixtureProfile {
   if (scenarioId === 'selected-dialogue-dubbing') return 'dubbing';
+  if (scenarioId === 'audio-anchored-camera-shake') return 'impact-audio';
   if (scenarioId === 'replace-selected-sfx') return 'sfx';
   if (GENERATED_SCENE_SCENARIOS.has(scenarioId)) return 'generated-scene';
   if (AUDIO_SCENARIOS.has(scenarioId)) return 'audio';
