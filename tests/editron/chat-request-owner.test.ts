@@ -21,6 +21,7 @@ import {
   filterChatToolsForRequestOwner,
   filterPromptForCallableChatTools,
   formatChatRequestOwnerLicenseForPrompt,
+  GEMINI_OWNER_RESPONSE_SCHEMA,
   type ChatRequestOwner,
   type ChatRequestOwnerLicense,
   type ChatSemanticWorkflow,
@@ -118,6 +119,70 @@ describe('chat request owner classification', () => {
     );
     expect(generate).toHaveBeenCalledTimes(2);
     expect(generate.mock.calls[1]?.[0]).toContain('<correction>');
+  });
+
+  it('does not require mutually exclusive timing fields in the provider response schema', () => {
+    const schema = GEMINI_OWNER_RESPONSE_SCHEMA as unknown as {
+      properties: {
+        facts: {
+          properties: {
+            localizedEdits: {
+              items: {
+                properties: {
+                  timing: { required?: string[] };
+                };
+              };
+            };
+          };
+        };
+      };
+    };
+
+    expect(
+      schema.properties.facts.properties.localizedEdits.items.properties.timing.required,
+    ).toEqual(['kind', 'sourceSpan']);
+  });
+
+  it('accepts a caption-refresh capability that owns its transcript and timeline evidence', async () => {
+    const userMessage = 'Realign the existing animated captions to the current edited clips and transcript.';
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            localizedReads: [],
+            localizedEdits: [],
+            requestedCapabilities: ['caption-refresh'],
+            capabilityEvidence: [{
+              capability: 'caption-refresh',
+              sourceSpan: userMessage,
+            }],
+            familyDirectives: [{ family: 'captions', mode: 'prefer' }],
+          },
+          confidence: 1,
+          reason: 'The existing caption track and refresh operation are explicit.',
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      routingFacts: {
+        requestedCapabilities: ['caption-refresh'],
+        localizedEdits: [],
+      },
+    });
   });
 
   it('rejects truncated structured output before parsing and retries with the provider reason', async () => {

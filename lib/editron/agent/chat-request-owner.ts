@@ -416,6 +416,7 @@ const modelRoutingFactsSchema = z.object({
     && !facts.requiresEditorialJudgment
     && facts.durableOperation === 'none'
     && facts.localizedEdits.length === 0
+    && facts.requestedCapabilities.length === 0
   ) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -627,10 +628,6 @@ export const GEMINI_OWNER_RESPONSE_SCHEMA: ResponseSchema = {
                 required: [
                   'kind',
                   'sourceSpan',
-                  'startSeconds',
-                  'endSeconds',
-                  'durationSeconds',
-                  'anchor',
                 ],
               },
             },
