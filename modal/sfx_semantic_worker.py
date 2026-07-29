@@ -67,4 +67,6 @@ def serve() -> None:
         ],
         cwd="/app",
         env=os.environ.copy(),
+        user=1000,
+        group=1000,
     )

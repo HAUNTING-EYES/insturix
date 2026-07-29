@@ -29,5 +29,47 @@ describe('semantic SFX Modal deployment contract', () => {
     );
     expect(source).not.toContain('unauthenticated=True');
     expect(source).not.toContain('min_containers=1');
+    expect(source).toContain('user=1000');
+    expect(source).toContain('group=1000');
+
+    const dockerfile = await readFile(
+      path.join(process.cwd(), 'Dockerfile.sfx-semantic-worker'),
+      'utf8',
+    );
+    expect(dockerfile).toContain('--chown=1000:1000');
+    expect(dockerfile).toContain('USER 1000:1000');
+    expect(dockerfile).not.toContain('--chown=node:node');
+  });
+
+  it('provisions credentials transactionally without exposing plaintext', async () => {
+    const [script, gitignore] = await Promise.all([
+      readFile(
+        path.join(process.cwd(), 'scripts/deploy-sfx-semantic-modal.ps1'),
+        'utf8',
+      ),
+      readFile(path.join(process.cwd(), '.gitignore'), 'utf8'),
+    ]);
+
+    expect(gitignore).toContain('/.semantic-artifacts/');
+    expect(script).toContain(
+      "$ExpectedReceipt = '298f8b164afc63a2ca58234a04da7a7d886e9e4289dcffc070989dee8a068981'",
+    );
+    expect(script).toContain("$env:PYTHONUTF8 = '1'");
+    expect(script).toContain("$env:PYTHONIOENCODING = 'utf-8'");
+    expect(script).toContain('Assert-ImmutableBundle');
+    expect(script).toContain("'proxy-tokens',");
+    expect(script).toContain("'create',");
+    expect(script).toContain("'Modal-Key',");
+    expect(script).toContain("'Modal-Secret',");
+    expect(script).toContain("'wk-[A-Za-z0-9_-]+'");
+    expect(script).toContain('ConvertFrom-SecureString $securePayload');
+    expect(script).toContain(
+      "Remove-Item -LiteralPath $dotenvPath -Force",
+    );
+    expect(script).toContain("'proxy-tokens',\n          'delete',");
+    expect(script).toContain("'secret',\n          'delete',");
+    expect(script).toContain("'deploy',\n    '--strategy',\n    'rolling',");
+    expect(script).not.toContain('Write-Output $retrievalToken');
+    expect(script).not.toContain('Write-Output $proxyTokenSecret');
   });
 });
