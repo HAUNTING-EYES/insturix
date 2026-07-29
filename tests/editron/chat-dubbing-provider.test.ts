@@ -242,17 +242,19 @@ function phraseProgress() {
   };
 }
 
-function faithfulFidelityChecks(overrides: Record<string, boolean> = {}) {
+function faithfulFidelityChecks(
+  overrides: Record<string, 'preserved' | 'not-applicable' | 'changed' | 'uncertain'> = {},
+) {
   return {
-    coreClaims: true,
-    entities: true,
-    quantities: true,
-    negation: true,
-    comparisons: true,
-    relationships: true,
-    certainty: true,
-    speakerIntent: true,
-    targetLanguage: true,
+    coreClaims: 'preserved',
+    entities: 'preserved',
+    quantities: 'preserved',
+    negation: 'preserved',
+    comparisons: 'preserved',
+    relationships: 'preserved',
+    certainty: 'preserved',
+    speakerIntent: 'preserved',
+    targetLanguage: 'preserved',
     ...overrides,
   };
 }
@@ -481,7 +483,8 @@ describe('chat dubbing generated-audio provenance', () => {
         translationFidelity: expect.objectContaining({ outcome: 'faithful', issueCodes: [] }),
       }),
     ]);
-    expect(mocks.generateContent.mock.calls[0]?.[0]).toContain('"availableDurationMs":1500');
+    expect(mocks.generateContent.mock.calls[0]?.[0]).toContain('This first pass owns meaning, not timing');
+    expect(mocks.generateContent.mock.calls[0]?.[0]).not.toContain('availableDurationMs');
     expect(mocks.generateContent).toHaveBeenCalledTimes(2);
   });
 
@@ -564,7 +567,13 @@ describe('chat dubbing generated-audio provenance', () => {
             ? {
               results: [{
                 id: 0,
-                checks: faithfulFidelityChecks(),
+                checks: faithfulFidelityChecks({
+                  entities: 'not-applicable',
+                  quantities: 'not-applicable',
+                  negation: 'not-applicable',
+                  comparisons: 'not-applicable',
+                  relationships: 'not-applicable',
+                }),
                 acceptableCompression: ['removed-disfluency', 'removed-repetition'],
               }],
             }
@@ -670,7 +679,7 @@ describe('chat dubbing generated-audio provenance', () => {
             ? {
               results: [{
                 id: 0,
-                checks: faithfulFidelityChecks({ coreClaims: false }),
+                checks: faithfulFidelityChecks({ coreClaims: 'changed' }),
                 acceptableCompression: ['condensed-syntax'],
               }],
             }

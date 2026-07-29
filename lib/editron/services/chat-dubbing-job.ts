@@ -50,10 +50,16 @@ export type DubbingAcceptableCompression =
 
 export type DubbingFidelityIssueCode = DubbingFidelityCheck | 'judge-invalid';
 
+export type DubbingFidelityState =
+  | 'preserved'
+  | 'not-applicable'
+  | 'changed'
+  | 'uncertain';
+
 export interface DubbingTranslationFidelityReceipt {
   version: 'editron-dubbing-translation-fidelity-v1';
   outcome: 'faithful' | 'drift' | 'uncertain';
-  checks: Record<DubbingFidelityCheck, boolean>;
+  checks: Record<DubbingFidelityCheck, DubbingFidelityState>;
   issueCodes: DubbingFidelityIssueCode[];
   acceptableCompression: DubbingAcceptableCompression[];
   judgeModel: 'gemini-2.5-flash';

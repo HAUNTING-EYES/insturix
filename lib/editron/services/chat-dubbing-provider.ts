@@ -31,6 +31,7 @@ import {
   type ChatDubbingStepResult,
   type DubbingAcceptableCompression,
   type DubbingFidelityCheck,
+  type DubbingFidelityState,
   type DubbingMediaProgress,
   type DubbingPhraseProgress,
   type DubbingTranslationFidelityReceipt,
@@ -57,6 +58,12 @@ const ACCEPTABLE_COMPRESSIONS = [
   'removed-repetition',
   'condensed-syntax',
 ] as const satisfies readonly DubbingAcceptableCompression[];
+const FIDELITY_STATES = [
+  'preserved',
+  'not-applicable',
+  'changed',
+  'uncertain',
+] as const satisfies readonly DubbingFidelityState[];
 
 export async function executeChatDubbingStep(job: ChatDubbingJob): Promise<ChatDubbingStepResult> {
   if (job.progress.stage === 'prepare') return prepareDubbing(job);
@@ -444,13 +451,13 @@ async function translatePhrases(
         model: 'gemini-2.5-flash',
         generationConfig: { temperature: 0, seed, maxOutputTokens: 8192, responseMimeType: 'application/json', responseSchema: schema },
       });
-      const response = await model.generateContent(`Translate and adapt each spoken phrase to natural ${targetLanguage} for professional video dubbing.
-Each phrase must fit its availableDurationMs at ordinary speaking pace, allowing at most ${MAX_NATURAL_PLAYBACK_RATE}x playback.
+      const response = await model.generateContent(`Translate each spoken phrase faithfully into natural ${targetLanguage} for professional video dubbing.
+This first pass owns meaning, not timing. Do not shorten or omit meaning to fit a duration; measured synthesis and a separately verified rewrite own timing adaptation later.
 Preserve every factual claim, entity, quantity, negation, comparison, relationship, certainty level, and speaker intent.
 Remove verbal stutters, filler, false starts, and redundant repeated syntax when they carry no meaning. This delivery cleanup is not an omission.
 Concise equivalent phrasing is allowed; adding, censoring, contradicting, or merging semantic claims is forbidden.
 Keep one-to-one phrase IDs and return JSON only.
-${JSON.stringify({ phrases: input })}`);
+${JSON.stringify({ phrases: input.map(({ id, text }) => ({ id, text })) })}`);
       const parsed = JSON.parse(response.response.text()) as { phrases?: Array<{ id?: unknown; text?: unknown }> };
       const byId = new Map((parsed.phrases ?? []).map((item) => [Number(item.id), typeof item.text === 'string' ? item.text.trim() : '']));
       const translated = input.map((item) => byId.get(item.id) ?? '');
@@ -550,7 +557,10 @@ async function verifyTranslationFidelities(
   const { getGenAI } = await import('@/lib/editron/utils/gemini-model-factory');
   const genAI = await getGenAI();
   const checkProperties = Object.fromEntries(
-    FIDELITY_CHECKS.map((check) => [check, { type: 'BOOLEAN' }]),
+    FIDELITY_CHECKS.map((check) => [
+      check,
+      { type: 'STRING', enum: [...FIDELITY_STATES] },
+    ]),
   );
   const schema = {
     type: 'OBJECT',
@@ -588,10 +598,11 @@ async function verifyTranslationFidelities(
     },
   });
   const response = await model.generateContent(`Judge semantic fidelity for each ${targetLanguage} dubbing candidate at the proposition level.
-Set every check to true when that category is absent in the source or is faithfully preserved in the candidate.
+For every check return preserved, not-applicable, changed, or uncertain.
+Use not-applicable only when the source has no information in that category. Use preserved when it exists and survives faithfully, changed when it is omitted/added/contradicted/materially softened, and uncertain when evidence is insufficient.
 coreClaims covers all asserted propositions. entities covers people, places, organizations, products, and named things. quantities covers numbers and measurable amounts.
 negation, comparisons, relationships, and certainty must preserve their original direction and strength. speakerIntent covers advice, question, command, promise, warning, and other communicative purpose.
-targetLanguage means the candidate is natural ${targetLanguage}.
+targetLanguage means the candidate is natural ${targetLanguage}; it is always applicable, so return preserved, changed, or uncertain for that check.
 Do not penalize removing stutters, filler words, false starts, self-corrections, or redundant repetition when they add no proposition. Record those only in acceptableCompression.
 Do not judge acoustic tone, pacing, or vocal performance; those belong to the speech-rendering contract, not textual semantic fidelity.
 Any omitted, added, contradicted, or materially softened semantic claim must make its relevant check false.
@@ -612,12 +623,27 @@ function parseFidelityReceipt(raw: Record<string, unknown> | undefined): Dubbing
     ? raw.checks as Record<string, unknown>
     : null;
   const valid = Boolean(rawChecks)
-    && FIDELITY_CHECKS.every((check) => typeof rawChecks?.[check] === 'boolean');
+    && FIDELITY_CHECKS.every((check) =>
+      typeof rawChecks?.[check] === 'string'
+      && FIDELITY_STATES.includes(rawChecks[check] as DubbingFidelityState),
+    );
   const checks = Object.fromEntries(
-    FIDELITY_CHECKS.map((check) => [check, valid ? rawChecks?.[check] === true : false]),
-  ) as Record<DubbingFidelityCheck, boolean>;
+    FIDELITY_CHECKS.map((check) => [
+      check,
+      valid ? rawChecks?.[check] as DubbingFidelityState : 'uncertain',
+    ]),
+  ) as Record<DubbingFidelityCheck, DubbingFidelityState>;
+  const changedChecks = valid
+    ? FIDELITY_CHECKS.filter((check) => checks[check] === 'changed')
+    : [];
+  const uncertainChecks = valid
+    ? FIDELITY_CHECKS.filter((check) =>
+      checks[check] === 'uncertain'
+      || (check === 'targetLanguage' && checks[check] === 'not-applicable'),
+    )
+    : [];
   const issueCodes = valid
-    ? FIDELITY_CHECKS.filter((check) => !checks[check])
+    ? [...changedChecks, ...uncertainChecks]
     : ['judge-invalid'] as const;
   const acceptableCompression = Array.isArray(raw?.acceptableCompression)
     ? raw.acceptableCompression.filter(
@@ -628,7 +654,11 @@ function parseFidelityReceipt(raw: Record<string, unknown> | undefined): Dubbing
     : [];
   return {
     version: 'editron-dubbing-translation-fidelity-v1',
-    outcome: !valid ? 'uncertain' : issueCodes.length === 0 ? 'faithful' : 'drift',
+    outcome: !valid || uncertainChecks.length > 0
+      ? 'uncertain'
+      : changedChecks.length > 0
+        ? 'drift'
+        : 'faithful',
     checks,
     issueCodes: [...issueCodes],
     acceptableCompression,
