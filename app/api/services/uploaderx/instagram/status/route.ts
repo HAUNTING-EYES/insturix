@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
+import { getInstagramTokenHealth } from "@/lib/uploaderx/instagram-token-health";
 
 /**
  * GET /api/services/uploaderx/instagram/status
@@ -16,26 +17,33 @@ export async function GET() {
         await connectToDatabase();
         const { User } = await import("@/schemas/user");
 
-        // Find the user document that has Instagram tokens
-        const user = await User.findOne({
-            clerkUserId: session.userId,
-            instagramTokens: { $exists: true, $ne: null },
-        });
-
-        if (!user || !user.instagramTokens) {
-            return NextResponse.json({
-                connected: false,
-                accounts: [],
-            });
+        const user = await User.findOne({ clerkUserId: session.userId })
+            .select("instagramTokens")
+            .lean<{
+                instagramTokens?: {
+                    userAccessToken?: string;
+                    userName?: string;
+                    userId?: string;
+                    expiresAt?: Date | string | null;
+                    connectedAt?: Date | string;
+                    accounts?: Array<{
+                        instagramAccountId?: string;
+                        instagramUsername?: string;
+                        profilePictureUrl?: string | null;
+                    }>;
+                } | null;
+            } | null>();
+        const ig = user?.instagramTokens;
+        const health = getInstagramTokenHealth(ig);
+        if (!health.connected || !ig) {
+            return NextResponse.json({ ...health, userName: null, userId: null, accounts: [] });
         }
 
-        const ig = user.instagramTokens as any;
-
         return NextResponse.json({
-            connected: true,
+            ...health,
             userName: ig.userName || "Unknown",
             userId: ig.userId,
-            accounts: (ig.accounts || []).map((a: any) => ({
+            accounts: (ig.accounts || []).map((a) => ({
                 instagramAccountId: a.instagramAccountId,
                 instagramUsername: a.instagramUsername,
                 profilePictureUrl: a.profilePictureUrl,

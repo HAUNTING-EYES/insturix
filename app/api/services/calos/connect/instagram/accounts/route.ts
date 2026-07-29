@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
+import { getInstagramTokenHealth } from "@/lib/uploaderx/instagram-token-health";
 
 /**
  * GET /api/services/calos/connect/instagram/accounts
@@ -21,14 +22,17 @@ export async function GET() {
     .select("instagramTokens")
     .lean<{
       instagramTokens?: {
+        userAccessToken?: string;
         userName?: string;
+        expiresAt?: Date | string | null;
         accounts?: Array<{ instagramAccountId?: string | number; instagramUsername?: string }>;
       } | null;
     } | null>();
 
   const tokens = user?.instagramTokens;
-  if (!tokens) {
-    return NextResponse.json({ success: true, connected: false, userName: null, accounts: [] });
+  const health = getInstagramTokenHealth(tokens);
+  if (!health.connected || !tokens) {
+    return NextResponse.json({ success: true, ...health, userName: null, accounts: [] });
   }
 
   const accounts = (tokens.accounts || [])
@@ -39,5 +43,5 @@ export async function GET() {
       displayName: a.instagramUsername ? `@${a.instagramUsername}` : `Instagram ${a.instagramAccountId}`,
     }));
 
-  return NextResponse.json({ success: true, connected: true, userName: tokens.userName || null, accounts });
+  return NextResponse.json({ success: true, ...health, userName: tokens.userName || null, accounts });
 }
