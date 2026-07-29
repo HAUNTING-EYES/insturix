@@ -282,6 +282,67 @@ beforeEach(() => {
 });
 
 describe('chat edit battle harness', () => {
+  it('streams a server-owned terminal response without invoking the model', async () => {
+    const tokens: string[] = [];
+    const agent = createAgent('user-battle', 'Project fixture.', {
+      sessionId: 'session-server-owned-halt',
+      operationId: 'operation-server-owned-halt',
+      requestOwnerLicense: {
+        version: 'editron-chat-request-owner-v1',
+        owner: 'semantic-editorial-planner',
+        confidence: 1,
+        reason: 'The requested transcript operation requires a localized workflow.',
+        requestDigest: 'server-owned-halt',
+        decidedBy: 'gemini',
+        semanticWorkflow: 'localized-mutation',
+        routingFacts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: true,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: false,
+          localizedReads: [],
+          localizedEdits: [{
+            modality: 'transcript',
+            operation: 'highlight',
+            query: 'this is the key point',
+            sourceSpan: 'highlight this is the key point',
+          }],
+          requestedCapabilities: [],
+          familyDirectives: [],
+          familyScopeExclusive: false,
+        },
+      },
+    });
+
+    const result = await agent.invoke(
+      { messages: [new HumanMessage('Highlight this is the key point.')] },
+      {
+        recursionLimit: 5,
+        configurable: {
+          projectId: 'proj_battle',
+          loadPostconditionProject: async () => structuredClone(fixture.project),
+          streamCallback: (chunk: { type: string; data: Record<string, unknown> }) => {
+            if (chunk.type === 'token') tokens.push(String(chunk.data.content ?? ''));
+          },
+        },
+      },
+    );
+    const finalMessage = [...(result.messages ?? [])]
+      .reverse()
+      .find((message) => message instanceof AIMessage);
+
+    expect(tokens).toEqual([
+      'I cannot safely perform the requested highlight operation on transcript evidence yet.',
+    ]);
+    expect(finalMessage?.content).toBe(tokens[0]);
+    expect(fixture.modelStep).toBe(0);
+  });
+
   it('drives the real agent graph with a deterministic model fixture and records the full journey', async () => {
     const eventMap = new Map<string, ChatBattleToolEvent>();
     const invokeAgent = async ({ scenario }: { scenario: { prompt: string } }): Promise<ChatBattleInvocationEvidence> => {

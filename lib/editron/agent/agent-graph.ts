@@ -410,6 +410,10 @@ export const createAgent = (
       });
     }
     if (serverWorkflowStep?.kind === 'complete' || serverWorkflowStep?.kind === 'halt') {
+      await streamCallback?.({
+        type: 'token',
+        data: { content: serverWorkflowStep.message },
+      });
       return processResponse({ content: serverWorkflowStep.message });
     }
     const ownerTools = getOrCreateTools(projectId);
