@@ -22,13 +22,14 @@ export async function publishToYouTube(params: PublishParams): Promise<PublishRe
   const description = (params.caption ?? "").trim();
   const videoUrl = params.imageUrl?.trim();
 
-  if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false };
-  if (!params.brandId) return { ok: false, error: "YouTube publishing requires a brandId", retryable: false };
+  if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false, providerAttempted: false };
+  if (!params.brandId) return { ok: false, error: "YouTube publishing requires a brandId", retryable: false, providerAttempted: false };
   if (!videoUrl) {
     return {
       ok: false,
       error: "YouTube requires a video - attach a video to the card before approving",
       retryable: false,
+      providerAttempted: false,
     };
   }
 
@@ -36,7 +37,7 @@ export async function publishToYouTube(params: PublishParams): Promise<PublishRe
   await connectToDatabase();
 
   const auth = await resolveBrandYtAuth(params.brandId, params.accountRef);
-  if ("error" in auth) return { ok: false, error: auth.error, retryable: auth.retryable };
+  if ("error" in auth) return { ok: false, error: auth.error, retryable: auth.retryable, providerAttempted: false };
 
   const result = await uploadVideo(auth.accessToken, videoUrl, title || "Untitled", description);
   if (result.providerAttempted) await recordCalosYouTubePublishCost(params, result);

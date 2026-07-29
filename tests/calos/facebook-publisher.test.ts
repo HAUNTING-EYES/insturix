@@ -82,6 +82,8 @@ describe("publishToFacebook", () => {
       ok: true,
       postId: "page_2_post_99",
       postUrl: "https://www.facebook.com/page_2_post_99",
+      providerAttempted: true,
+      responseStatus: 200,
     });
     expect(mocks.connectedAccountFindOne).toHaveBeenCalledWith({
       brandId: "brand_1",
@@ -115,6 +117,7 @@ describe("publishToFacebook", () => {
       ok: false,
       error: "No Facebook Page assigned for this brand",
       retryable: false,
+      providerAttempted: false,
     });
     expect(mocks.userFindOne).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -142,6 +145,7 @@ describe("publishToFacebook", () => {
       ok: false,
       error: "Assigned Facebook Page is no longer connected for this owner",
       retryable: false,
+      providerAttempted: false,
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -171,6 +175,35 @@ describe("publishToFacebook", () => {
       ok: false,
       error: "Facebook post failed (429): rate limit",
       retryable: true,
+      providerAttempted: true,
+      responseStatus: 429,
+    });
+  });
+
+  it("marks a thrown Graph request as an attempted publish with an unknown outcome", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({
+      accountRef: "page_2",
+      ownerUserId: "owner_1",
+    });
+    mockUserRecord({
+      facebookTokens: {
+        pages: [{ pageId: "page_2", pageName: "Brand Page", pageAccessToken: "token_2" }],
+      },
+    });
+    fetchMock.mockRejectedValue(new Error("socket closed after upload"));
+
+    const result = await publishToFacebook({
+      ownerUserId: "queue_owner",
+      deliverableId: "deliverable_1",
+      brandId: "brand_1",
+      caption: "Hello",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "socket closed after upload",
+      retryable: true,
+      providerAttempted: true,
     });
   });
 });
