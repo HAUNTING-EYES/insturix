@@ -818,7 +818,7 @@ describe('chat tool turn protocol', () => {
       reason: 'effect-already-satisfied',
     });
     expect(JSON.parse(decision.action === 'shadow' ? decision.output : '{}')).toMatchObject({
-      status: 'advisory',
+      status: 'no-op',
       data: {
         executionPolicy: {
           code: 'CHAT_TOOL_EFFECT_ALREADY_SATISFIED',

@@ -319,7 +319,7 @@ function resolveSatisfiedEffectDecision(input: {
     action: 'shadow',
     reason: 'effect-already-satisfied',
     output: JSON.stringify({
-      status: 'advisory',
+      status: 'no-op',
       data: {
         executionPolicy: {
           code: 'CHAT_TOOL_EFFECT_ALREADY_SATISFIED',

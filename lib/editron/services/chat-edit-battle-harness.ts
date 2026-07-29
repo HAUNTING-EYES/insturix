@@ -49,6 +49,7 @@ export interface ChatBattleScenario {
   expectOperationReplay: boolean;
   mutationExpectation: ChatBattleMutationExpectation;
   minimumSuccessfulMutations: number;
+  allowPartialMutationFailure: boolean;
   requiredToolSequence: ReadonlyArray<string | readonly string[]>;
   forbiddenTools: readonly string[];
   forbiddenArguments: readonly ChatBattleArgumentProhibition[];
@@ -252,6 +253,7 @@ function scenario(
     expectOperationReplay: options.expectOperationReplay ?? false,
     mutationExpectation: options.mutationExpectation ?? 'required',
     minimumSuccessfulMutations: options.minimumSuccessfulMutations ?? 1,
+    allowPartialMutationFailure: options.allowPartialMutationFailure ?? false,
     requiredToolSequence: options.requiredToolSequence ?? [],
     forbiddenTools: options.forbiddenTools ?? [],
     forbiddenArguments: options.forbiddenArguments ?? [],
@@ -317,7 +319,11 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
     'rollback-partial-failure',
     'Keep verified edits on partial failure',
     'Apply these three edits: add a small label saying Kept edit test at 1 second, make the selected title white, and delete overlay battle_missing_overlay. Keep the successful edits if the missing-overlay deletion fails, and report exactly what succeeded and failed.',
-    { requiredToolSequence: [READ_PROJECT], minimumSuccessfulMutations: 2 },
+    {
+      requiredToolSequence: [READ_PROJECT],
+      minimumSuccessfulMutations: 2,
+      allowPartialMutationFailure: true,
+    },
   ),
   scenario('retry-idempotency', 'Interrupted request retry', 'Retry my previous edit without applying anything twice.', {
     expectOperationReplay: true,
@@ -1258,7 +1264,7 @@ export function evaluateChatBattleMutationTruth(
   if (scenarioDefinition.mutationExpectation === 'forbidden') {
     return terminalOutcomes.length === 0 && !stateChanged ? 'pass' : 'fail';
   }
-  if (failedCount > 0) return 'fail';
+  if (failedCount > 0 && !scenarioDefinition.allowPartialMutationFailure) return 'fail';
   if (
     scenarioDefinition.mutationExpectation === 'conditional'
     && acceptedGroundedClarification
