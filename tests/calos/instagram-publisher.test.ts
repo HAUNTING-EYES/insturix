@@ -4,12 +4,15 @@ const mocks = vi.hoisted(() => ({
   connectToDatabase: vi.fn(),
   connectedAccountFindOne: vi.fn(),
   userFindOne: vi.fn(),
+  userUpdateOne: vi.fn(),
   recordProviderCostEvent: vi.fn(),
 }));
 
 vi.mock("@/schemas/ConnectToDatabase", () => ({ default: mocks.connectToDatabase }));
 vi.mock("@/schemas/calos-connected-account", () => ({ default: { findOne: mocks.connectedAccountFindOne } }));
-vi.mock("@/schemas/user", () => ({ User: { findOne: mocks.userFindOne } }));
+vi.mock("@/schemas/user", () => ({
+  User: { findOne: mocks.userFindOne, updateOne: mocks.userUpdateOne },
+}));
 vi.mock("@/lib/financials/provider-cost-events", () => ({
   recordProviderCostEvent: mocks.recordProviderCostEvent,
 }));
@@ -26,6 +29,15 @@ function mockUserRecord(record: unknown) {
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status });
+}
+
+function validTokens(overrides: Record<string, unknown> = {}) {
+  return {
+    userAccessToken: "ig_token",
+    userId: "ig_1",
+    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    ...overrides,
+  };
 }
 
 const BASE = {
@@ -45,6 +57,7 @@ describe("publishToInstagram", () => {
     mocks.connectToDatabase.mockReset().mockResolvedValue(undefined);
     mocks.connectedAccountFindOne.mockReset();
     mocks.userFindOne.mockReset();
+    mocks.userUpdateOne.mockReset().mockResolvedValue({ modifiedCount: 1 });
     mocks.recordProviderCostEvent.mockReset().mockResolvedValue({ ok: true });
   });
 
@@ -58,7 +71,7 @@ describe("publishToInstagram", () => {
 
   it("posts the image to the assigned account via container -> publish using the owner's token", async () => {
     mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
-    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token", userId: "ig_1" } });
+    mockUserRecord({ instagramTokens: validTokens() });
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ id: "container_1" }))
       .mockResolvedValueOnce(jsonResponse({ id: "media_99" }));
@@ -125,7 +138,7 @@ describe("publishToInstagram", () => {
 
   it("marks a Graph rate limit on the container step as retryable", async () => {
     mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
-    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token", userId: "ig_1" } });
+    mockUserRecord({ instagramTokens: validTokens() });
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: "rate limit" } }, 429));
 
     const result = await publishToInstagram(BASE);
@@ -139,7 +152,7 @@ describe("publishToInstagram", () => {
 
   it("fails closed when the connected Instagram identity cannot be verified", async () => {
     mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
-    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token" } });
+    mockUserRecord({ instagramTokens: validTokens({ userId: undefined }) });
 
     const result = await publishToInstagram(BASE);
 
@@ -156,8 +169,7 @@ describe("publishToInstagram", () => {
     mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_old", ownerUserId: "owner_1" });
     mockUserRecord({
       instagramTokens: {
-        userAccessToken: "ig_token",
-        userId: "ig_new",
+        ...validTokens({ userId: "ig_new" }),
         accounts: [{ instagramAccountId: "ig_new" }],
       },
     });
@@ -175,7 +187,7 @@ describe("publishToInstagram", () => {
 
   it("keeps an uncertain container creation safe to retry", async () => {
     mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
-    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token", userId: "ig_1" } });
+    mockUserRecord({ instagramTokens: validTokens() });
     fetchMock.mockRejectedValueOnce(new Error("socket closed during container creation"));
 
     const result = await publishToInstagram(BASE);
@@ -190,7 +202,7 @@ describe("publishToInstagram", () => {
 
   it("marks a publish rate limit as an attempted but explicitly retryable request", async () => {
     mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
-    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token", userId: "ig_1" } });
+    mockUserRecord({ instagramTokens: validTokens() });
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ id: "container_1" }))
       .mockResolvedValueOnce(jsonResponse({ error: { message: "rate limit" } }, 429));
@@ -207,7 +219,7 @@ describe("publishToInstagram", () => {
 
   it("marks a thrown publish request as an ambiguous provider attempt", async () => {
     mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
-    mockUserRecord({ instagramTokens: { userAccessToken: "ig_token", userId: "ig_1" } });
+    mockUserRecord({ instagramTokens: validTokens() });
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ id: "container_1" }))
       .mockRejectedValueOnce(new Error("socket closed during media publication"));
@@ -220,5 +232,50 @@ describe("publishToInstagram", () => {
       providerAttempted: true,
       error: "socket closed during media publication",
     });
+  });
+
+  it("fails closed when a legacy token has no verifiable expiry", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
+    mockUserRecord({ instagramTokens: validTokens({ expiresAt: undefined }) });
+    const result = await publishToInstagram(BASE);
+    expect(result).toMatchObject({ ok: false, retryable: false, providerAttempted: false });
+    expect(result.error).toContain("expiry");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before creating media when the token is expired", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
+    mockUserRecord({ instagramTokens: validTokens({ expiresAt: new Date(Date.now() - 1) }) });
+    const result = await publishToInstagram(BASE);
+    expect(result).toMatchObject({ ok: false, retryable: false, providerAttempted: false });
+    expect(result.error).toContain("expired");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes and persists a near-expiry token before creating media", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
+    mockUserRecord({ instagramTokens: validTokens({ expiresAt: new Date(Date.now() + 60_000) }) });
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: "ig_refreshed", expires_in: 5_184_000 }))
+      .mockResolvedValueOnce(jsonResponse({ id: "container_1" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "media_99" }));
+    const result = await publishToInstagram(BASE);
+    expect(result.ok).toBe(true);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/refresh_access_token?");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("access_token=ig_refreshed");
+    expect(mocks.userUpdateOne).toHaveBeenCalledWith(
+      { clerkUserId: "owner_1", "instagramTokens.userAccessToken": "ig_token" },
+      { $set: expect.objectContaining({ "instagramTokens.userAccessToken": "ig_refreshed" }) },
+    );
+  });
+
+  it("keeps a refresh transport failure safe to retry", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "ig_1", ownerUserId: "owner_1" });
+    mockUserRecord({ instagramTokens: validTokens({ expiresAt: new Date(Date.now() + 60_000) }) });
+    fetchMock.mockRejectedValueOnce(new Error("refresh socket closed"));
+    const result = await publishToInstagram(BASE);
+    expect(result).toMatchObject({ ok: false, retryable: true, providerAttempted: false });
+    expect(result.error).toContain("refresh socket closed");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

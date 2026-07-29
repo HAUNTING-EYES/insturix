@@ -165,6 +165,7 @@ interface IUser extends Document {
       instagramAccountId: string;
       pageAccessToken: string;
     }>;
+    expiresAt?: Date;
     connectedAt: Date;
   };
   twitterTokens?: {
@@ -475,6 +476,7 @@ const userSchema = new Schema<IUser>({
       facebookPageAccessToken: String,
       _id: false
     }],
+    expiresAt: Date,
     connectedAt: Date,
   },
   twitterTokens: {
