@@ -390,6 +390,29 @@ function isLlmImageModel(modelId?: string | null): boolean {
   return id.includes('gemini') || id.includes('nano-banana');
 }
 
+function buildRasterTextDirective(metadata?: MetadataRecord | null, modelId?: string | null): {
+  hierarchy: string;
+  directive: string;
+} {
+  const hierarchy = parseTextHierarchy(metadata);
+  if (!hierarchy) return { hierarchy: "", directive: "" };
+
+  const clickatron = asRecord(asRecord(metadata)?.clickatron);
+  const creativeSpec = asRecord(clickatron?.creativeSpec);
+  const renderPlan = asRecord(creativeSpec?.renderPlan);
+  if (shouldRenderTextInImage(renderPlan?.textPolicy, modelId)) {
+    return {
+      hierarchy,
+      directive: "Raster text policy: Render only the exact supplied text hierarchy accurately and legibly; do not invent additional copy.",
+    };
+  }
+
+  return {
+    hierarchy: "",
+    directive: "Raster text policy: Do not render readable text from Clickatron text layers; reserve clear safe zones for editable overlays.",
+  };
+}
+
 export function buildClickatronGenerationPrompt(input: ClickatronPromptContextInput): string {
   const prompt = sanitizeVisualPrompt(input.prompt).clean.trim();
   const sourceContextBlock = buildClickatronSourceContextBlock(input.metadata, input.modelId);
@@ -398,7 +421,10 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
 
   if (contextBlocks.length === 0) return prompt;
 
-  const textHierarchyContent = parseTextHierarchy(input.metadata);
+  const rasterText = buildRasterTextDirective(input.metadata, input.modelId);
+  const brandIntegrityDirective = brandContextBlock
+    ? "Brand integrity: Never invent, redraw, or spell a logo from text. Use supplied logo evidence only; otherwise leave logo-safe space."
+    : "";
   
   // Aspect ratio compositional steering
   const layoutRatioBlock = input.aspectRatio 
@@ -554,11 +580,13 @@ Use it only to improve the final design.
 </internal_design_process>`;
 
     const userExplicitContent = `<user_explicit_content>\nUser's Request:\n${prompt}\n</user_explicit_content>`;
-    const textHierarchyBlock = textHierarchyContent ? `<extracted_text_hierarchy>\n${textHierarchyContent}\n</extracted_text_hierarchy>` : "";
+    const textHierarchyBlock = rasterText.hierarchy ? `<extracted_text_hierarchy>\n${rasterText.hierarchy}\n</extracted_text_hierarchy>` : "";
 
     const enriched = [
       v7SystemInstructions,
       userExplicitContent,
+      rasterText.directive,
+      brandIntegrityDirective,
       textHierarchyBlock,
       ...contextBlocks
     ].filter(Boolean).join("\n\n");
@@ -573,7 +601,7 @@ Use it only to improve the final design.
 
   const coreVisualPrompt = prompt ? `${prompt}, ${diffusionEnhancers}` : diffusionEnhancers;
   
-  const textHierarchyBlock = textHierarchyContent ? `Text elements to incorporate seamlessly into the design:\n${textHierarchyContent}` : "";
+  const textHierarchyBlock = rasterText.hierarchy ? `Text elements to incorporate seamlessly into the design:\n${rasterText.hierarchy}` : "";
 
   const brandDirective = contextBlocks.length > 0 
     ? "Design instructions: Incorporate the following brand guidelines and contextual details naturally. The brand colors, tone, and visual identity should influence the final design without overriding the primary visual prompt. Maintain premium creativity and professional spacing."
@@ -583,6 +611,8 @@ Use it only to improve the final design.
 
   const enriched = [
     coreVisualPrompt,
+    rasterText.directive,
+    brandIntegrityDirective,
     textHierarchyBlock,
     brandDirective,
     layoutDirective,
