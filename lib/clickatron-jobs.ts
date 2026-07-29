@@ -5,8 +5,7 @@ import {
   JobStage,
   JobError,
   JobTraceEntry,
-  CreateJobRequest,
-  WorkerPayload
+  CreateJobRequest
 } from '@/types/clickatron';
 
 // Redis client instance
@@ -27,7 +26,6 @@ export function getRedisClient(): Redis {
         url,
         token,
       });
-      console.log('Redis client initialized successfully');
     } catch (error) {
       console.error('Failed to initialize Redis client:', error);
       throw error;
@@ -341,7 +339,6 @@ export async function failExpiredJobs(): Promise<{ failed: number }> {
             message: 'Job timed out after 10 minutes',
           });
           result.failed++;
-          console.log(`Failed expired job ${jobId} due to timeout`);
         } else if (timeSinceStart > maxJobDuration && job.status === 'queued') {
           // Mark queued jobs as failed if they've been queued for too long
           await failJob(jobId, {
@@ -349,7 +346,6 @@ export async function failExpiredJobs(): Promise<{ failed: number }> {
             message: 'Job stayed in queue for too long',
           });
           result.failed++;
-          console.log(`Failed expired queued job ${jobId} due to queue timeout`);
         }
       } catch (error) {
         console.error(`Error processing job ${jobId} for timeout check:`, error);
