@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { requireCalosBrandAccess } from "@/lib/calos/brand-access";
+import { getInstagramTokenHealth } from "@/lib/uploaderx/instagram-token-health";
 
 /**
  * Per-brand Instagram account binding (Model A — assign an account you already control). The publish
@@ -92,11 +93,27 @@ export async function POST(request: NextRequest) {
     .select("instagramTokens")
     .lean<{
       instagramTokens?: {
+        userAccessToken?: string;
+        expiresAt?: Date | string | null;
         accounts?: Array<{ instagramAccountId?: string | number; instagramUsername?: string }>;
       } | null;
     } | null>();
 
-  const igAccount = user?.instagramTokens?.accounts?.find(
+  const tokens = user?.instagramTokens;
+  const health = getInstagramTokenHealth(tokens);
+  if (!health.connected || !tokens) {
+    return NextResponse.json(
+      {
+        success: false,
+        code: `instagram_${health.reason || "unhealthy"}`,
+        error: health.message || "Reconnect Instagram before assigning it to a brand",
+        reconnectRequired: health.reconnectRequired,
+      },
+      { status: 409 },
+    );
+  }
+
+  const igAccount = tokens.accounts?.find(
     (a) => String(a.instagramAccountId) === accountRef,
   );
   if (!igAccount) {
