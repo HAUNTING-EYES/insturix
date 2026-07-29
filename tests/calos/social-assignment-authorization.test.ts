@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -65,6 +65,7 @@ import {
   GET as getLinkedInAssignments,
   POST as postLinkedInAssignment,
 } from "@/app/api/services/calos/connect/linkedin/assign/route";
+import { POST as postFacebookAssignment } from "@/app/api/services/calos/connect/facebook/assign/route";
 import { GET as startLinkedInOauth } from "@/app/api/services/calos/connect/linkedin/oauth/route";
 import { POST as selectLinkedInOauthAccount } from "@/app/api/services/calos/connect/linkedin/oauth/select/route";
 import {
@@ -106,8 +107,18 @@ function assignmentRequest(
 }
 
 describe("CalOS social assignment authorization", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    fetchMock = vi.fn();
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ id: "account_1" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
     mocks.auth.mockResolvedValue({ userId: "user_1", orgId: null });
     mocks.requireCalosBrandAccess.mockImplementation(async () =>
       new Response(
@@ -128,6 +139,13 @@ describe("CalOS social assignment authorization", () => {
     mocks.userFindOne.mockReturnValue({
       select: vi.fn(() => ({
         lean: vi.fn(async () => ({
+          facebookTokens: {
+            pages: [{
+              pageId: "account_1",
+              pageName: "Facebook Page",
+              pageAccessToken: "facebook-page-token",
+            }],
+          },
           linkedinTokens: { accessToken: "linkedin-token" },
           twitterTokens: {
             accessToken: "twitter-token",
@@ -160,6 +178,10 @@ describe("CalOS social assignment authorization", () => {
     mocks.signCalosConnectState.mockReturnValue("signed-state");
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("blocks foreign-brand assignment and OAuth entry points before sensitive work", async () => {
     const assignmentHandlers = [
       ["linkedin", getLinkedInAssignments, postLinkedInAssignment, deleteLinkedInAssignment],
@@ -173,6 +195,15 @@ describe("CalOS social assignment authorization", () => {
       responses.push(await deleteAssignment(assignmentRequest(platform, "DELETE")));
     }
 
+    responses.push(
+      await postFacebookAssignment(
+        request("/api/services/calos/connect/facebook/assign", "POST", {
+          brandId: FOREIGN_BRAND_ID,
+          accountRef: "account_1",
+          accountType: "organization",
+        }),
+      ),
+    );
     responses.push(
       await startLinkedInOauth(
         request(
@@ -190,9 +221,9 @@ describe("CalOS social assignment authorization", () => {
       ),
     );
 
-    expect(responses).toHaveLength(8);
+    expect(responses).toHaveLength(9);
     expect(responses.every((response) => response.status === 403)).toBe(true);
-    expect(mocks.requireCalosBrandAccess).toHaveBeenCalledTimes(8);
+    expect(mocks.requireCalosBrandAccess).toHaveBeenCalledTimes(9);
     expect(mocks.requireCalosBrandAccess).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "user_1", orgId: null }),
       FOREIGN_BRAND_ID,
@@ -205,6 +236,7 @@ describe("CalOS social assignment authorization", () => {
     expect(mocks.connectedAccountDeleteOne).not.toHaveBeenCalled();
     expect(mocks.pendingConnectDeleteOne).not.toHaveBeenCalled();
     expect(mocks.signCalosConnectState).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("preserves assignment and OAuth behavior for an authorized brand", async () => {
@@ -220,6 +252,13 @@ describe("CalOS social assignment authorization", () => {
         await getTwitterAssignments(assignmentRequest("twitter", "GET")),
         await postTwitterAssignment(assignmentRequest("twitter", "POST")),
         await deleteTwitterAssignment(assignmentRequest("twitter", "DELETE")),
+        await postFacebookAssignment(
+          request("/api/services/calos/connect/facebook/assign", "POST", {
+            brandId: FOREIGN_BRAND_ID,
+            accountRef: "account_1",
+            accountType: "organization",
+          }),
+        ),
         await startLinkedInOauth(
           request(
             `/api/services/calos/connect/linkedin/oauth?brandId=${FOREIGN_BRAND_ID}`,
@@ -241,11 +280,12 @@ describe("CalOS social assignment authorization", () => {
         200,
         200,
         200,
+        200,
         307,
         200,
       ]);
-      expect(mocks.requireCalosBrandAccess).toHaveBeenCalledTimes(8);
-      expect(mocks.connectedAccountUpdateOne).toHaveBeenCalledTimes(3);
+      expect(mocks.requireCalosBrandAccess).toHaveBeenCalledTimes(9);
+      expect(mocks.connectedAccountUpdateOne).toHaveBeenCalledTimes(4);
       expect(mocks.connectedAccountDeleteOne).toHaveBeenCalledTimes(2);
       expect(mocks.pendingConnectDeleteOne).toHaveBeenCalledWith({ pendingId: "pending_1" });
       expect(mocks.signCalosConnectState).toHaveBeenCalledWith(
@@ -255,6 +295,12 @@ describe("CalOS social assignment authorization", () => {
           platform: "linkedin",
         }),
       );
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://graph.facebook.com/v21.0/account_1?fields=id",
+        expect.objectContaining({
+          headers: { Authorization: "Bearer facebook-page-token" },
+        }),
+      );
     } finally {
       if (previousClientId === undefined) {
         delete process.env.LINKEDIN_CLIENT_ID;
@@ -262,5 +308,63 @@ describe("CalOS social assignment authorization", () => {
         process.env.LINKEDIN_CLIENT_ID = previousClientId;
       }
     }
+  });
+
+  it("refuses to assign a revoked Facebook Page token", async () => {
+    mocks.requireCalosBrandAccess.mockResolvedValue(null);
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        error: { code: 190, type: "OAuthException", message: "Invalid OAuth access token" },
+      }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const response = await postFacebookAssignment(
+      request("/api/services/calos/connect/facebook/assign", "POST", {
+        brandId: FOREIGN_BRAND_ID,
+        accountRef: "account_1",
+        accountType: "organization",
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload).toMatchObject({
+      success: false,
+      code: "facebook_reconnect_required",
+      reconnectRequired: true,
+    });
+    expect(mocks.connectedAccountUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it("pauses assignment when Facebook validation is temporarily unavailable", async () => {
+    mocks.requireCalosBrandAccess.mockResolvedValue(null);
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        error: { code: 4, type: "OAuthException", message: "Application request limit reached" },
+      }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const response = await postFacebookAssignment(
+      request("/api/services/calos/connect/facebook/assign", "POST", {
+        brandId: FOREIGN_BRAND_ID,
+        accountRef: "account_1",
+        accountType: "organization",
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload).toMatchObject({
+      success: false,
+      code: "facebook_verification_unavailable",
+      reconnectRequired: false,
+    });
+    expect(mocks.connectedAccountUpdateOne).not.toHaveBeenCalled();
   });
 });
