@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/resources/support" },
   title: "Support | Help and Troubleshooting",
   description:
     "Get help with Insturix. Find support for accounts, billing, credits, uploading footage, rendering, publishing, and automated content production workflows.",

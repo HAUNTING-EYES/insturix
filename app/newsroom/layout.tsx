@@ -1,6 +1,7 @@
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/newsroom" },
   title: "Newsroom | Stay Updated",
   description:
     "Stay updated with the latest news and announcements from Insturix. Get the latest insights, updates, and announcements about our products, services, and more.",

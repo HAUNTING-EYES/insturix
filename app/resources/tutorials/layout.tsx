@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/resources/tutorials" },
   title: "Tutorials | Learn Automated Content Production",
   description:
     "Step-by-step Insturix tutorials for planning, scripting, editing uploaded footage, setting up brand profiles, and publishing finished content.",

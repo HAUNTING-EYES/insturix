@@ -1,6 +1,7 @@
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/careers" },
   title: "Careers | Join Our Team",
   description:
     "Explore career opportunities at Insturix. We're hiring for various roles in AI, technology, and more. Join our team and help shape the future of AI.",

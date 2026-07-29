@@ -4,6 +4,7 @@ import { PricingPage } from "@/components/shared/pricing-page";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/upgrade" },
   title: "Pricing & Plans",
   description:
     "Insturix pricing and plans for automated content production. Compare what each plan includes for individual creators, teams, and agencies. Start free.",

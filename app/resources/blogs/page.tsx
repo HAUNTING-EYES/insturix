@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/resources/blogs" },
   title: "Blog",
   description:
     "Guides and insights from the Insturix team on automated content production, AI-assisted workflows, brand consistency, and producing content at scale.",
