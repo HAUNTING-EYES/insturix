@@ -29,14 +29,34 @@ import {
   type ChatDubbingJob,
   type ChatDubbingProgress,
   type ChatDubbingStepResult,
+  type DubbingAcceptableCompression,
+  type DubbingFidelityCheck,
   type DubbingMediaProgress,
   type DubbingPhraseProgress,
+  type DubbingTranslationFidelityReceipt,
 } from './chat-dubbing-job';
 
 const PHRASES_PER_DELIVERY = 4;
 const MAX_NATURAL_PLAYBACK_RATE = 1.25;
 const MAX_TRANSLATION_REVISIONS = 2;
 const TRANSLATION_SEEDS = [42, 7, 99] as const;
+const FIDELITY_CHECKS = [
+  'coreClaims',
+  'entities',
+  'quantities',
+  'negation',
+  'comparisons',
+  'relationships',
+  'certainty',
+  'speakerIntent',
+  'targetLanguage',
+] as const satisfies readonly DubbingFidelityCheck[];
+const ACCEPTABLE_COMPRESSIONS = [
+  'removed-disfluency',
+  'removed-filler',
+  'removed-repetition',
+  'condensed-syntax',
+] as const satisfies readonly DubbingAcceptableCompression[];
 
 export async function executeChatDubbingStep(job: ChatDubbingJob): Promise<ChatDubbingStepResult> {
   if (job.progress.stage === 'prepare') return prepareDubbing(job);
@@ -113,7 +133,8 @@ async function prepareDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResul
     speechCapability.displayName,
   );
   for (let index = 0; index < phrases.length; index += 1) {
-    phrases[index].translatedText = translations[index];
+    phrases[index].translatedText = translations[index].text;
+    phrases[index].translationFidelity = translations[index].fidelity;
     phrases[index].translationRevision = 0;
   }
   return {
@@ -220,7 +241,7 @@ async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepR
             `Phrase ${index + 1} still needs ${requiredPlaybackRate.toFixed(2)}x playback after ${revision} duration-aware translation revisions; maximum natural playback is ${MAX_NATURAL_PLAYBACK_RATE}x.`,
           );
         }
-        translatedText = await rewriteTranslationToFit({
+        const rewrite = await rewriteTranslationToFit({
           sourceText: phrase.sourceText,
           translatedText,
           targetLanguage: speechCapability.displayName,
@@ -228,6 +249,8 @@ async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepR
           actualDurationMs: voice.durationMs,
           revision: revision + 1,
         });
+        translatedText = rewrite.text;
+        phrase.translationFidelity = rewrite.fidelity;
       }
       if (!accepted) throw new TerminalDubbingError('unnatural-phrase-fit', `Phrase ${index + 1} did not produce naturally fitted speech.`);
     }
@@ -397,7 +420,7 @@ function assertGeneratedSpeechCapability(
 async function translatePhrases(
   input: Array<{ id: number; text: string; availableDurationMs: number }>,
   targetLanguage: string,
-): Promise<string[]> {
+): Promise<Array<{ text: string; fidelity: DubbingTranslationFidelityReceipt }>> {
   const { getGenAI } = await import('@/lib/editron/utils/gemini-model-factory');
   const genAI = await getGenAI();
   const schema = {
@@ -423,17 +446,33 @@ async function translatePhrases(
       });
       const response = await model.generateContent(`Translate and adapt each spoken phrase to natural ${targetLanguage} for professional video dubbing.
 Each phrase must fit its availableDurationMs at ordinary speaking pace, allowing at most ${MAX_NATURAL_PLAYBACK_RATE}x playback.
-Preserve every factual claim, name, number, negation, comparison, and tone. Concise equivalent phrasing is allowed; omission, addition, censorship, and merging are forbidden.
+Preserve every factual claim, entity, quantity, negation, comparison, relationship, certainty level, and speaker intent.
+Remove verbal stutters, filler, false starts, and redundant repeated syntax when they carry no meaning. This delivery cleanup is not an omission.
+Concise equivalent phrasing is allowed; adding, censoring, contradicting, or merging semantic claims is forbidden.
 Keep one-to-one phrase IDs and return JSON only.
 ${JSON.stringify({ phrases: input })}`);
       const parsed = JSON.parse(response.response.text()) as { phrases?: Array<{ id?: unknown; text?: unknown }> };
       const byId = new Map((parsed.phrases ?? []).map((item) => [Number(item.id), typeof item.text === 'string' ? item.text.trim() : '']));
       const translated = input.map((item) => byId.get(item.id) ?? '');
       if (translated.some((text) => !text)) throw new Error('translation-cardinality-or-empty-text');
-      return translated;
+      const fidelity = await verifyTranslationFidelities(
+        input.map((item, index) => ({
+          id: item.id,
+          sourceText: item.text,
+          translatedText: translated[index],
+        })),
+        targetLanguage,
+        seed,
+      );
+      const failure = formatFidelityFailures(fidelity);
+      if (failure) throw new Error(`initial-translation-semantic-drift:${failure}`);
+      return translated.map((text, index) => ({ text, fidelity: fidelity[index] }));
     } catch (error) { lastError = error; }
   }
-  throw lastError instanceof Error ? lastError : new Error('Translation failed.');
+  throw new TerminalDubbingError(
+    'initial-translation-failed',
+    lastError instanceof Error ? lastError.message : 'Translation failed.',
+  );
 }
 
 async function rewriteTranslationToFit(input: {
@@ -443,7 +482,7 @@ async function rewriteTranslationToFit(input: {
   availableDurationMs: number;
   actualDurationMs: number;
   revision: number;
-}): Promise<string> {
+}): Promise<{ text: string; fidelity: DubbingTranslationFidelityReceipt }> {
   const { getGenAI } = await import('@/lib/editron/utils/gemini-model-factory');
   const genAI = await getGenAI();
   const maximumVoiceDurationMs = input.availableDurationMs * MAX_NATURAL_PLAYBACK_RATE;
@@ -471,7 +510,9 @@ async function rewriteTranslationToFit(input: {
       });
       const response = await model.generateContent(`Rewrite this ${input.targetLanguage} dubbing line so it can be spoken naturally within ${Math.round(input.availableDurationMs)}ms.
 The current synthesized line lasts ${Math.round(input.actualDurationMs)}ms, so reduce spoken duration by at least ${requiredReductionPercent}%.
-Preserve every factual claim, name, number, negation, comparison, and tone from the source. Use concise natural speech; do not omit or add meaning.
+Preserve every factual claim, entity, quantity, negation, comparison, relationship, certainty level, and speaker intent from the source.
+Remove verbal stutters, filler, false starts, and redundant repeated syntax when they carry no meaning. This delivery cleanup is not an omission.
+Use concise natural speech; do not add, censor, contradict, or merge semantic claims.
 Return JSON only.
 ${JSON.stringify({ sourceText: input.sourceText, currentTranslation: input.translatedText })}`);
       const parsed = JSON.parse(response.response.text()) as { text?: unknown };
@@ -479,14 +520,14 @@ ${JSON.stringify({ sourceText: input.sourceText, currentTranslation: input.trans
       if (!rewritten || normalizedText(rewritten) === normalizedText(input.translatedText)) {
         throw new Error('duration-aware-translation-unchanged-or-empty');
       }
-      const faithful = await verifyTranslationFidelity({
-        sourceText: input.sourceText,
-        translatedText: rewritten,
-        targetLanguage: input.targetLanguage,
-        seed: seed + input.revision,
-      });
-      if (!faithful) throw new Error('duration-aware-translation-semantic-drift');
-      return rewritten;
+      const [fidelity] = await verifyTranslationFidelities(
+        [{ id: 0, sourceText: input.sourceText, translatedText: rewritten }],
+        input.targetLanguage,
+        seed + input.revision,
+      );
+      const failure = formatFidelityFailures([fidelity]);
+      if (failure) throw new Error(`duration-aware-translation-semantic-drift:${failure}`);
+      return { text: rewritten, fidelity };
     } catch (error) {
       lastError = error;
     }
@@ -497,40 +538,111 @@ ${JSON.stringify({ sourceText: input.sourceText, currentTranslation: input.trans
   );
 }
 
-async function verifyTranslationFidelity(input: {
-  sourceText: string;
-  translatedText: string;
-  targetLanguage: string;
-  seed: number;
-}): Promise<boolean> {
+async function verifyTranslationFidelities(
+  input: Array<{
+    id: number;
+    sourceText: string;
+    translatedText: string;
+  }>,
+  targetLanguage: string,
+  seed: number,
+): Promise<DubbingTranslationFidelityReceipt[]> {
   const { getGenAI } = await import('@/lib/editron/utils/gemini-model-factory');
   const genAI = await getGenAI();
+  const checkProperties = Object.fromEntries(
+    FIDELITY_CHECKS.map((check) => [check, { type: 'BOOLEAN' }]),
+  );
   const schema = {
     type: 'OBJECT',
     properties: {
-      faithful: { type: 'BOOLEAN' },
-      issues: { type: 'ARRAY', items: { type: 'STRING' } },
+      results: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            id: { type: 'INTEGER' },
+            checks: {
+              type: 'OBJECT',
+              properties: checkProperties,
+              required: [...FIDELITY_CHECKS],
+            },
+            acceptableCompression: {
+              type: 'ARRAY',
+              items: { type: 'STRING', enum: [...ACCEPTABLE_COMPRESSIONS] },
+            },
+          },
+          required: ['id', 'checks', 'acceptableCompression'],
+        },
+      },
     },
-    required: ['faithful', 'issues'],
+    required: ['results'],
   } as const;
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash',
     generationConfig: {
       temperature: 0,
-      seed: input.seed + 1000,
-      maxOutputTokens: 1024,
+      seed: seed + 1000,
+      maxOutputTokens: 4096,
       responseMimeType: 'application/json',
       responseSchema: schema,
     },
   });
-  const response = await model.generateContent(`Verify whether the ${input.targetLanguage} dubbing line preserves the complete meaning of the source.
-It must preserve every factual claim, name, number, negation, comparison, relationship, and tone. Concise wording is allowed; omission, addition, contradiction, or softened certainty is not.
-Return JSON only.
-${JSON.stringify({ sourceText: input.sourceText, translatedText: input.translatedText })}`);
-  const parsed = JSON.parse(response.response.text()) as { faithful?: unknown; issues?: unknown };
-  return parsed.faithful === true
-    && Array.isArray(parsed.issues)
-    && parsed.issues.length === 0;
+  const response = await model.generateContent(`Judge semantic fidelity for each ${targetLanguage} dubbing candidate at the proposition level.
+Set every check to true when that category is absent in the source or is faithfully preserved in the candidate.
+coreClaims covers all asserted propositions. entities covers people, places, organizations, products, and named things. quantities covers numbers and measurable amounts.
+negation, comparisons, relationships, and certainty must preserve their original direction and strength. speakerIntent covers advice, question, command, promise, warning, and other communicative purpose.
+targetLanguage means the candidate is natural ${targetLanguage}.
+Do not penalize removing stutters, filler words, false starts, self-corrections, or redundant repetition when they add no proposition. Record those only in acceptableCompression.
+Do not judge acoustic tone, pacing, or vocal performance; those belong to the speech-rendering contract, not textual semantic fidelity.
+Any omitted, added, contradicted, or materially softened semantic claim must make its relevant check false.
+Return exactly one result for every input id and JSON only.
+${JSON.stringify({ items: input })}`);
+  const parsed = JSON.parse(response.response.text()) as { results?: unknown };
+  const rawResults = Array.isArray(parsed.results) ? parsed.results : [];
+  const byId = new Map(
+    rawResults
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+      .map((item) => [Number(item.id), item]),
+  );
+  return input.map((item) => parseFidelityReceipt(byId.get(item.id)));
+}
+
+function parseFidelityReceipt(raw: Record<string, unknown> | undefined): DubbingTranslationFidelityReceipt {
+  const rawChecks = raw?.checks && typeof raw.checks === 'object'
+    ? raw.checks as Record<string, unknown>
+    : null;
+  const valid = Boolean(rawChecks)
+    && FIDELITY_CHECKS.every((check) => typeof rawChecks?.[check] === 'boolean');
+  const checks = Object.fromEntries(
+    FIDELITY_CHECKS.map((check) => [check, valid ? rawChecks?.[check] === true : false]),
+  ) as Record<DubbingFidelityCheck, boolean>;
+  const issueCodes = valid
+    ? FIDELITY_CHECKS.filter((check) => !checks[check])
+    : ['judge-invalid'] as const;
+  const acceptableCompression = Array.isArray(raw?.acceptableCompression)
+    ? raw.acceptableCompression.filter(
+      (value): value is DubbingAcceptableCompression =>
+        typeof value === 'string'
+        && ACCEPTABLE_COMPRESSIONS.includes(value as DubbingAcceptableCompression),
+    )
+    : [];
+  return {
+    version: 'editron-dubbing-translation-fidelity-v1',
+    outcome: !valid ? 'uncertain' : issueCodes.length === 0 ? 'faithful' : 'drift',
+    checks,
+    issueCodes: [...issueCodes],
+    acceptableCompression,
+    judgeModel: 'gemini-2.5-flash',
+  };
+}
+
+function formatFidelityFailures(receipts: DubbingTranslationFidelityReceipt[]): string | null {
+  const failures = receipts.flatMap((receipt, index) =>
+    receipt.outcome === 'faithful'
+      ? []
+      : [`phrase-${index + 1}-${receipt.outcome}-${receipt.issueCodes.join('+') || 'unknown'}`],
+  );
+  return failures.length > 0 ? failures.join(';').slice(0, 400) : null;
 }
 
 async function separateAndPersistBackground(job: ChatDubbingJob, sampledPath: string): Promise<DubbingMediaProgress> {

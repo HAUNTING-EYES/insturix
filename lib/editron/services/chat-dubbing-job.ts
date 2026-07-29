@@ -31,6 +31,34 @@ export type ChatDubbingJobStatus =
   | 'failed'
   | 'stale';
 
+export type DubbingFidelityCheck =
+  | 'coreClaims'
+  | 'entities'
+  | 'quantities'
+  | 'negation'
+  | 'comparisons'
+  | 'relationships'
+  | 'certainty'
+  | 'speakerIntent'
+  | 'targetLanguage';
+
+export type DubbingAcceptableCompression =
+  | 'removed-disfluency'
+  | 'removed-filler'
+  | 'removed-repetition'
+  | 'condensed-syntax';
+
+export type DubbingFidelityIssueCode = DubbingFidelityCheck | 'judge-invalid';
+
+export interface DubbingTranslationFidelityReceipt {
+  version: 'editron-dubbing-translation-fidelity-v1';
+  outcome: 'faithful' | 'drift' | 'uncertain';
+  checks: Record<DubbingFidelityCheck, boolean>;
+  issueCodes: DubbingFidelityIssueCode[];
+  acceptableCompression: DubbingAcceptableCompression[];
+  judgeModel: 'gemini-2.5-flash';
+}
+
 export interface DubbingPhraseProgress {
   index: number;
   sourceText: string;
@@ -41,6 +69,7 @@ export interface DubbingPhraseProgress {
   sourceStartMs: number;
   sourceEndMs: number;
   translationRevision?: number;
+  translationFidelity?: DubbingTranslationFidelityReceipt;
   fitAttempts?: Array<{
     revision: number;
     voiceDurationMs: number;

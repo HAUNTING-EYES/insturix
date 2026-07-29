@@ -242,6 +242,21 @@ function phraseProgress() {
   };
 }
 
+function faithfulFidelityChecks(overrides: Record<string, boolean> = {}) {
+  return {
+    coreClaims: true,
+    entities: true,
+    quantities: true,
+    negation: true,
+    comparisons: true,
+    relationships: true,
+    certainty: true,
+    speakerIntent: true,
+    targetLanguage: true,
+    ...overrides,
+  };
+}
+
 describe('chat dubbing generated-audio provenance', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -418,16 +433,25 @@ describe('chat dubbing generated-audio provenance', () => {
       ],
       segments: [],
     });
-    mocks.generateContent.mockResolvedValue({
+    mocks.generateContent.mockImplementation(async (prompt: string) => ({
       response: {
-        text: () => JSON.stringify({
-          phrases: [
-            { id: 0, text: 'First translation.' },
-            { id: 1, text: 'Second translation.' },
-          ],
-        }),
+        text: () => JSON.stringify(
+          prompt.startsWith('Judge semantic fidelity')
+            ? {
+              results: [
+                { id: 0, checks: faithfulFidelityChecks(), acceptableCompression: [] },
+                { id: 1, checks: faithfulFidelityChecks(), acceptableCompression: [] },
+              ],
+            }
+            : {
+              phrases: [
+                { id: 0, text: 'First translation.' },
+                { id: 1, text: 'Second translation.' },
+              ],
+            },
+        ),
       },
-    });
+    }));
     const { executeChatDubbingStep } = await import(
       '@/lib/editron/services/chat-dubbing-provider'
     );
@@ -446,6 +470,7 @@ describe('chat dubbing generated-audio provenance', () => {
         timelineEndFrame: 15,
         deliveryEndFrame: 45,
         translatedText: 'First translation.',
+        translationFidelity: expect.objectContaining({ outcome: 'faithful', issueCodes: [] }),
       }),
       expect.objectContaining({
         sourceText: 'Second thought.',
@@ -453,9 +478,11 @@ describe('chat dubbing generated-audio provenance', () => {
         timelineEndFrame: 60,
         deliveryEndFrame: 90,
         translatedText: 'Second translation.',
+        translationFidelity: expect.objectContaining({ outcome: 'faithful', issueCodes: [] }),
       }),
     ]);
     expect(mocks.generateContent.mock.calls[0]?.[0]).toContain('"availableDurationMs":1500');
+    expect(mocks.generateContent).toHaveBeenCalledTimes(2);
   });
 
   it('keeps naturally short speech at 1x instead of slowing it to fill silence', async () => {
@@ -533,8 +560,14 @@ describe('chat dubbing generated-audio provenance', () => {
     mocks.generateContent.mockImplementation(async (prompt: string) => ({
       response: {
         text: () => JSON.stringify(
-          prompt.startsWith('Verify whether')
-            ? { faithful: true, issues: [] }
+          prompt.startsWith('Judge semantic fidelity')
+            ? {
+              results: [{
+                id: 0,
+                checks: faithfulFidelityChecks(),
+                acceptableCompression: ['removed-disfluency', 'removed-repetition'],
+              }],
+            }
             : { text: 'Short Hindi line.' },
         ),
       },
@@ -554,6 +587,7 @@ describe('chat dubbing generated-audio provenance', () => {
         },
         phrases: [{
           ...phraseProgress(),
+          sourceText: 'Now my, my advice is this is the best investment.',
           translatedText: 'Verbose Hindi line.',
           deliveryEndFrame: 30,
         }],
@@ -579,7 +613,7 @@ describe('chat dubbing generated-audio provenance', () => {
       expect.objectContaining({ language: 'hi', voice: 'hf_alpha' }),
     );
     expect(mocks.generateContent).toHaveBeenCalledTimes(2);
-    expect(mocks.generateContent.mock.calls[1]?.[0]).toContain('Verify whether');
+    expect(mocks.generateContent.mock.calls[1]?.[0]).toContain('Do not penalize removing stutters');
     expect(mocks.generateVoiceover).toHaveBeenNthCalledWith(
       2,
       'Short Hindi line.',
@@ -597,10 +631,94 @@ describe('chat dubbing generated-audio provenance', () => {
       translationRevision: 1,
       voiceAssetId: 'dub_voice_fitted',
       playbackRate: 1.1,
+      translationFidelity: expect.objectContaining({
+        outcome: 'faithful',
+        issueCodes: [],
+        acceptableCompression: ['removed-disfluency', 'removed-repetition'],
+      }),
       fitAttempts: [
         expect.objectContaining({ requiredPlaybackRate: 1.63, outcome: 'rephrase' }),
         expect.objectContaining({ requiredPlaybackRate: 1.1, outcome: 'accepted' }),
       ],
+    });
+  });
+
+  it('rejects a shorter translation that drops a core claim and reports the failed invariant', async () => {
+    const hindiCapability = {
+      language: 'hi' as const,
+      displayName: 'Hindi',
+      provider: 'fal-ai' as const,
+      model: 'fal-ai/kokoro/hindi',
+      voiceId: 'hf_alpha',
+      fallbackUsed: false,
+    };
+    mocks.generateVoiceover.mockResolvedValueOnce({
+      audioBuffer: Buffer.alloc(44),
+      durationMs: 1630,
+      audioUrl: 'https://storage.test/dub_voice_long.wav',
+      audioAssetId: 'dub_voice_long',
+      gcsPath: 'editron/user-1/media/dub_voice_long.wav',
+      r2Key: null,
+      audioRights: dubbingRights,
+      generatedAudioReceipt: { ...generatedAudioReceipt, assetId: 'dub_voice_long' },
+      generatedSpeechCapability: hindiCapability,
+    });
+    mocks.generateContent.mockImplementation(async (prompt: string) => ({
+      response: {
+        text: () => JSON.stringify(
+          prompt.startsWith('Judge semantic fidelity')
+            ? {
+              results: [{
+                id: 0,
+                checks: faithfulFidelityChecks({ coreClaims: false }),
+                acceptableCompression: ['condensed-syntax'],
+              }],
+            }
+            : { text: 'An incomplete shorter line.' },
+        ),
+      },
+    }));
+    mocks.findToArray.mockResolvedValue([{ assetId: 'dub_voice_long' }]);
+    const { executeChatDubbingStep } = await import(
+      '@/lib/editron/services/chat-dubbing-provider'
+    );
+
+    await expect(executeChatDubbingStep({
+      ...job({
+        stage: 'voice',
+        background: {
+          assetId: 'dub_bed_1',
+          url: 'https://storage.test/dub_bed_1.wav',
+          audioRights: backgroundAudioRights,
+          audioSeparationReceipt,
+        },
+        phrases: [{
+          ...phraseProgress(),
+          sourceText: 'Silver is the best investment in the world today.',
+          translatedText: 'A verbose complete translation.',
+          deliveryEndFrame: 30,
+        }],
+        nextPhraseIndex: 0,
+        generatedAssetIds: ['dub_bed_1'],
+      }),
+      version: 'editron-chat-dubbing-job-v3' as const,
+      targetLanguage: 'hi' as const,
+      voiceId: 'hf_alpha',
+      speechCapability: {
+        language: 'hi' as const,
+        displayName: 'Hindi',
+        provider: 'fal-ai' as const,
+        model: 'fal-ai/kokoro/hindi',
+        voiceId: 'hf_alpha',
+      },
+    })).rejects.toThrow(
+      'duration-aware-translation-failed:duration-aware-translation-semantic-drift:phrase-1-drift-coreClaims',
+    );
+    expect(mocks.generateVoiceover).toHaveBeenCalledTimes(1);
+    expect(mocks.generateContent).toHaveBeenCalledTimes(6);
+    expect(mocks.deleteMany).toHaveBeenCalledWith({
+      userId: 'user-1',
+      assetId: { $in: ['dub_voice_long'] },
     });
   });
 
