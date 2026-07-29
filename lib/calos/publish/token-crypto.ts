@@ -1,5 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 
+const USER_OAUTH_TOKEN_PREFIX = "oauth:v1:";
+
 /**
  * AES-256-GCM encryption at rest for connected-account OAuth tokens.
  *
@@ -53,4 +55,29 @@ export function decryptToken(blob: string | null | undefined): string | null {
     console.error("[CALOS_LOUD] token-crypto.decryptToken failed (bad key / tampered blob / wrong format):", err);
     return null;
   }
+}
+
+/**
+ * Store a User.<platform>Tokens secret with an explicit envelope version.
+ * The prefix prevents legacy plaintext tokens (including JWT-shaped values) from being
+ * mistaken for ciphertext while readers are migrated platform by platform.
+ */
+export function encryptUserOAuthToken(plaintext: string): string {
+  if (!plaintext) {
+    throw new Error("Cannot encrypt an empty user OAuth token");
+  }
+  return `${USER_OAUTH_TOKEN_PREFIX}${encryptToken(plaintext)}`;
+}
+
+/**
+ * Resolve a User.<platform>Tokens secret during the encryption migration.
+ * Unprefixed values are legacy plaintext. Prefixed values must decrypt successfully and
+ * never fall back to the stored ciphertext.
+ */
+export function resolveUserOAuthToken(
+  stored: string | null | undefined,
+): string | null {
+  if (!stored) return null;
+  if (!stored.startsWith(USER_OAUTH_TOKEN_PREFIX)) return stored;
+  return decryptToken(stored.slice(USER_OAUTH_TOKEN_PREFIX.length));
 }
