@@ -1266,6 +1266,72 @@ describe('chat edit context bundle', () => {
     });
   });
 
+  it('plans fade in and out as one atomic opacity envelope', () => {
+    const plan = applyFadeToProject(project, {
+      overlayId: 4,
+      direction: 'both',
+      durationFrames: 12,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      startFrame: 90,
+      endFrame: 135,
+      targetOverlayId: 4,
+      updates: [{
+        overlayId: 4,
+        localStartFrame: 0,
+        localEndFrame: 45,
+        previousKeyframeTrackCount: 0,
+        fromOpacity: 0,
+        toOpacity: 1,
+        reason: 'semantic-fade-both',
+      }],
+    });
+
+    const opacityTrack = plan.updates[0].nextKeyframeTracks.find((track: any) => track.property === 'opacity');
+    expect(opacityTrack).toEqual({
+      property: 'opacity',
+      keyframes: [
+        { frame: 0, value: 0, easing: 'ease-out' },
+        { frame: 12, value: 1, easing: 'linear' },
+        { frame: 33, value: 1, easing: 'ease-in' },
+        { frame: 45, value: 0, easing: 'linear' },
+      ],
+      metadata: { family: 'fade', source: 'apply_fade', direction: 'both' },
+    });
+  });
+
+  it('caps a two-sided fade to short overlays and refuses an impossible one-frame envelope', () => {
+    const shortPlan = applyFadeToProject({
+      durationInFrames: 2,
+      overlays: [{ id: 40, type: 'text', from: 0, durationInFrames: 2, content: 'Cut' }],
+    }, {
+      overlayId: 40,
+      direction: 'both',
+      durationFrames: 20,
+    });
+
+    expect(shortPlan.status).toBe('changed');
+    expect(shortPlan.updates[0].nextKeyframeTracks[0].keyframes).toEqual([
+      { frame: 0, value: 0, easing: 'ease-out' },
+      { frame: 1, value: 1, easing: 'ease-in' },
+      { frame: 2, value: 0, easing: 'linear' },
+    ]);
+
+    expect(applyFadeToProject({
+      durationInFrames: 1,
+      overlays: [{ id: 41, type: 'text', from: 0, durationInFrames: 1, content: 'Cut' }],
+    }, {
+      overlayId: 41,
+      direction: 'both',
+    })).toMatchObject({
+      status: 'no-target',
+      targetOverlayId: 41,
+      updates: [],
+    });
+  });
+
   it('refuses fade on caption overlays unless explicitly allowed', () => {
     const plan = applyFadeToProject(project, {
       overlayId: 2,

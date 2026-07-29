@@ -203,7 +203,7 @@ export interface FadeOptions {
   endFrame?: number;
   targetFrame?: number;
   targetQuery?: string;
-  direction?: "in" | "out";
+  direction?: "in" | "out" | "both";
   durationFrames?: number;
   fromOpacity?: number;
   toOpacity?: number;
@@ -430,10 +430,10 @@ const fadeSchema = z.object({
   endFrame: z.coerce.number().int().min(0).optional().describe("Global timeline frame where the fade ends."),
   targetFrame: z.coerce.number().int().min(0).optional().describe("Global timeline frame used to resolve the target overlay when overlayId is omitted."),
   targetQuery: z.string().min(1).optional().describe("Optional visual query to resolve the target overlay/frame when explicit ids are unavailable."),
-  direction: z.enum(["in", "out"]).default("out").describe("Fade direction. Use out for fade away/end, in for reveal/start."),
-  durationFrames: z.coerce.number().int().min(1).default(20).describe("Fade duration in frames. 20 frames matches the existing EDL/keyframe fade default."),
-  fromOpacity: z.coerce.number().min(0).max(1).optional().describe("Optional starting opacity. Defaults to 1 for fade out, 0 for fade in."),
-  toOpacity: z.coerce.number().min(0).max(1).optional().describe("Optional ending opacity. Defaults to 0 for fade out, 1 for fade in."),
+  direction: z.enum(["in", "out", "both"]).default("out").describe("Fade direction. Use both for one atomic fade-in/hold/fade-out envelope; never split that request into two calls."),
+  durationFrames: z.coerce.number().int().min(1).default(20).describe("Fade duration in frames per edge. For both, each edge is capped to half the available range."),
+  fromOpacity: z.coerce.number().min(0).max(1).optional().describe("Optional edge opacity. Defaults to 1 for fade out, and 0 for fade in or both."),
+  toOpacity: z.coerce.number().min(0).max(1).optional().describe("Optional destination/hold opacity. Defaults to 0 for fade out, and 1 for fade in or both."),
   replaceExistingOpacityKeyframes: z.boolean().default(false).describe("Allow replacing existing opacity keyframes. Keep false unless the user explicitly wants to overwrite opacity animation."),
   allowCaptionFade: z.boolean().default(false).describe("Allow fading caption/subtitle overlays. Keep false unless captions were explicitly targeted."),
   allowBrandFade: z.boolean().default(false).describe("Allow fading likely logo/brand/watermark overlays. Keep false unless the brand element was explicitly targeted."),
@@ -970,7 +970,8 @@ Writes speedCurve plus matching speed keyframes into the existing video speed pa
     {
       name: "apply_fade",
       description: `Apply bounded opacity fade keyframes to one visual overlay.
-Use for "fade this out", "fade this overlay in", or "fade it at the end" after a selected overlay, explicit overlay id, target frame, or high-confidence visual target.
+Use for "fade this out", "fade this overlay in", "fade in and out", or "fade it at the end" after a selected overlay, explicit overlay id, target frame, or high-confidence visual target.
+For fade in and out, call this tool exactly once with direction="both"; never split one user request into separate in/out calls.
 Writes opacity keyframes into the existing keyframeTracks path. Refuses sound overlays, protected captions/brand elements, and existing opacity motion unless explicitly allowed.`,
       schema: fadeSchema,
     },
@@ -1824,7 +1825,13 @@ export function applyFadeToProject(
   const overlayDurationFrames = duration(overlay.durationInFrames);
   const localStartFrame = startFrame - overlayStartFrame;
   const localEndFrame = endFrame - overlayStartFrame;
-  if (localStartFrame < 0 || localEndFrame > overlayDurationFrames || localEndFrame - localStartFrame < 1) {
+  const direction = options.direction ?? "out";
+  const minimumRangeFrames = direction === "both" ? 2 : 1;
+  if (
+    localStartFrame < 0
+    || localEndFrame > overlayDurationFrames
+    || localEndFrame - localStartFrame < minimumRangeFrames
+  ) {
     return {
       status: "no-target",
       startFrame,
@@ -1851,9 +1858,9 @@ export function applyFadeToProject(
     };
   }
 
-  const direction = options.direction ?? "out";
-  const fromOpacity = round3(clamp(options.fromOpacity ?? (direction === "in" ? 0 : 1), 0, 1));
-  const toOpacity = round3(clamp(options.toOpacity ?? (direction === "in" ? 1 : 0), 0, 1));
+  const fadesFromTransparentEdge = direction === "in" || direction === "both";
+  const fromOpacity = round3(clamp(options.fromOpacity ?? (fadesFromTransparentEdge ? 0 : 1), 0, 1));
+  const toOpacity = round3(clamp(options.toOpacity ?? (fadesFromTransparentEdge ? 1 : 0), 0, 1));
   if (fromOpacity === toOpacity) {
     return {
       status: "no-target",
@@ -1866,7 +1873,14 @@ export function applyFadeToProject(
     };
   }
 
-  const fadeTrack = buildFadeTrack(localStartFrame, localEndFrame, fromOpacity, toOpacity, direction);
+  const fadeTrack = buildFadeTrack(
+    localStartFrame,
+    localEndFrame,
+    fromOpacity,
+    toOpacity,
+    direction,
+    Math.max(1, Math.round(positiveNumber(options.durationFrames) ?? 20)),
+  );
   const keptTracks = existingTracks.filter((track: any) => {
     if (options.replaceExistingOpacityKeyframes && track?.property === "opacity") return false;
     return !isFadeTrack(track);
@@ -1891,7 +1905,9 @@ export function applyFadeToProject(
       reason: `semantic-fade-${direction}`,
     }],
     warnings,
-    message: `Applied ${direction === "in" ? "fade in" : "fade out"} to overlay ${String(overlay.id)} over frames ${startFrame}-${endFrame}.`,
+    message: `Applied ${
+      direction === "both" ? "fade in and out" : direction === "in" ? "fade in" : "fade out"
+    } to overlay ${String(overlay.id)} over frames ${startFrame}-${endFrame}.`,
   };
 }
 
@@ -2912,7 +2928,14 @@ function resolveFadeFrameRange(
   let endFrame = positiveOrZeroNumber(options.endFrame);
   const targetFrame = positiveOrZeroNumber(options.targetFrame);
 
-  if (startFrame == null && endFrame == null && targetFrame != null) {
+  if (direction === "both" && startFrame == null && endFrame == null) {
+    startFrame = overlayStartFrame;
+    endFrame = overlayEndFrame;
+  } else if (direction === "both" && startFrame == null && endFrame != null) {
+    startFrame = overlayStartFrame;
+  } else if (direction === "both" && endFrame == null && startFrame != null) {
+    endFrame = overlayEndFrame;
+  } else if (startFrame == null && endFrame == null && targetFrame != null) {
     startFrame = targetFrame;
     endFrame = targetFrame + durationFrames;
   } else if (startFrame == null && endFrame == null) {
@@ -2990,8 +3013,40 @@ function buildFadeTrack(
   localEndFrame: number,
   fromOpacity: number,
   toOpacity: number,
-  direction: "in" | "out",
+  direction: "in" | "out" | "both",
+  durationFrames: number,
 ): any {
+  if (direction === "both") {
+    const availableFrames = localEndFrame - localStartFrame;
+    const edgeDurationFrames = Math.min(
+      Math.max(1, Math.round(durationFrames)),
+      Math.floor(availableFrames / 2),
+    );
+    const fadeInEndFrame = localStartFrame + edgeDurationFrames;
+    const fadeOutStartFrame = localEndFrame - edgeDurationFrames;
+    const keyframes = [
+      { frame: localStartFrame, value: fromOpacity, easing: "ease-out" },
+      {
+        frame: fadeInEndFrame,
+        value: toOpacity,
+        easing: fadeOutStartFrame === fadeInEndFrame ? "ease-in" : "linear",
+      },
+    ];
+    if (fadeOutStartFrame > fadeInEndFrame) {
+      keyframes.push({ frame: fadeOutStartFrame, value: toOpacity, easing: "ease-in" });
+    }
+    keyframes.push({ frame: localEndFrame, value: fromOpacity, easing: "linear" });
+    return {
+      property: "opacity",
+      keyframes,
+      metadata: {
+        family: "fade",
+        source: "apply_fade",
+        direction,
+      },
+    };
+  }
+
   return {
     property: "opacity",
     keyframes: [
