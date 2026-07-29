@@ -116,7 +116,7 @@ function Assert-RuntimeSemanticCatalog {
   Write-Output "RUNTIME_SEMANTIC_CATALOG_READY=$($entries.Count)"
 }
 
-function Set-BranchVariables {
+function Get-SemanticVariables {
   $payload = Read-ProtectedCredentials
   $appName = Get-RequiredString $payload 'appName'
   $retrievalToken = Get-RequiredString $payload 'retrievalToken'
@@ -136,12 +136,33 @@ function Set-BranchVariables {
     throw 'Modal proxy token secret has the wrong credential class'
   }
 
-  $variables = [ordered]@{
+  return [ordered]@{
     SFX_SEMANTIC_RETRIEVAL_URL = $SemanticUrl
     SFX_SEMANTIC_RETRIEVAL_TOKEN = $retrievalToken
     SFX_SEMANTIC_MODAL_PROXY_TOKEN_ID = $proxyTokenId
     SFX_SEMANTIC_MODAL_PROXY_TOKEN_SECRET = $proxyTokenSecret
   }
+}
+
+function Assert-BranchVariablesListed {
+  param([Parameter(Mandatory)]$Variables)
+
+  $listing = (Invoke-Vercel -Arguments @(
+    '--no-color',
+    'env',
+    'list',
+    'preview',
+    $Branch
+  )) -join "`n"
+  foreach ($name in $Variables.Keys) {
+    if ($listing -notmatch [regex]::Escape([string]$name)) {
+      throw "Vercel did not list required branch variable: $name"
+    }
+  }
+}
+
+function Set-BranchVariables {
+  $variables = Get-SemanticVariables
   foreach ($entry in $variables.GetEnumerator()) {
     Invoke-Vercel -Arguments @(
       '--no-color',
@@ -157,36 +178,47 @@ function Set-BranchVariables {
     Write-Output "VERCEL_PREVIEW_VARIABLE_SET=$($entry.Key)"
   }
 
-  $listing = (Invoke-Vercel -Arguments @(
-    '--no-color',
-    'env',
-    'list',
-    'preview',
-    $Branch
-  )) -join "`n"
-  foreach ($name in $variables.Keys) {
-    if ($listing -notmatch [regex]::Escape([string]$name)) {
-      throw "Vercel did not list required branch variable: $name"
-    }
-  }
+  Assert-BranchVariablesListed $variables
   Write-Output "VERCEL_BRANCH_CONFIGURED=$Branch"
 }
 
 function Invoke-SemanticRenderCanary {
-  $env:SFX_RENDER_CANARY_REQUIRE_SEMANTIC = '1'
-  Invoke-Vercel -Arguments @(
-    '--no-color',
-    'env',
-    'run',
-    '--environment',
-    'preview',
-    '--git-branch',
-    $Branch,
-    '--',
-    'npx',
-    'tsx',
-    'scripts/run-sfx-render-canary.ts'
-  ) | ForEach-Object { Write-Output $_ }
+  $variables = Get-SemanticVariables
+  Assert-BranchVariablesListed $variables
+  $variables['SFX_RENDER_CANARY_REQUIRE_SEMANTIC'] = '1'
+  $previousValues = @{}
+  $previousErrorActionPreference = $ErrorActionPreference
+  $output = @()
+  $exitCode = 1
+  try {
+    foreach ($entry in $variables.GetEnumerator()) {
+      $previousValues[$entry.Key] = [Environment]::GetEnvironmentVariable(
+        $entry.Key,
+        'Process'
+      )
+      [Environment]::SetEnvironmentVariable(
+        $entry.Key,
+        [string]$entry.Value,
+        'Process'
+      )
+    }
+    $ErrorActionPreference = 'Continue'
+    $output = @(& npx 'tsx' 'scripts/run-sfx-render-canary.ts' 2>&1)
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+    foreach ($entry in $variables.GetEnumerator()) {
+      [Environment]::SetEnvironmentVariable(
+        $entry.Key,
+        $previousValues[$entry.Key],
+        'Process'
+      )
+    }
+  }
+  if ($exitCode -ne 0) {
+    throw "SFX render canary failed: $($output -join [Environment]::NewLine)"
+  }
+  $output | ForEach-Object { Write-Output $_ }
 }
 
 if (-not $Configure -and -not $RunCanary) {

@@ -873,7 +873,11 @@ function queryTermsFor(token: AtomicSfxCompatibilityToken, texture: AtomicSfxTex
   if (texture === 'tech-ui') terms.add('digital');
   if (texture === 'ambient-natural') terms.add('room-tone');
   if (cue) {
-    for (const word of cue.replace(/[^\w\s-]/g, ' ').split(/\s+/)) {
+    const cueWords = cue.replace(/[^\w\s-]/g, ' ').split(/\s+/);
+    for (const word of cueWords) {
+      if (CATALOG_ROLE_QUERY_TERMS.has(word)) terms.add(word);
+    }
+    for (const word of cueWords) {
       if (word.length >= 4 && !SFX_STOP_WORDS.has(word)) terms.add(word);
       if (terms.size >= 5) break;
     }
@@ -1126,6 +1130,13 @@ const SFX_STOP_WORDS = new Set([
   'subtle',
   'loud',
   'quick',
+]);
+
+const CATALOG_ROLE_QUERY_TERMS = new Set([
+  'pop',
+  'logo',
+  'sting',
+  'stinger',
 ]);
 
 const SFX_SYNC_ANCHORS = new Set<AtomicSfxSyncAnchor>([

@@ -7,7 +7,10 @@ import {
   evaluateAtomicSfxAssetCandidate,
   resolveAtomicSfxForm,
 } from '@/lib/editron/services/sfx-form';
-import { searchAndDownloadSFX } from '@/lib/pipeline/sfx-library-service';
+import {
+  searchAndDownloadSFX,
+  type SFXLibrarySearchReport,
+} from '@/lib/pipeline/sfx-library-service';
 import {
   buildSfxRenderCanaryOverlays,
   measurePcmFrameWindow,
@@ -87,18 +90,26 @@ describe('zero-credit rendered SFX canary', () => {
     expect(script).toContain("'preview',\n      $Branch,");
     expect(script).toContain("'--sensitive',");
     expect(script).toContain('-InputValue ([string]$entry.Value)');
+    expect(script).toContain('function Get-SemanticVariables');
+    expect(script).toContain('function Assert-BranchVariablesListed');
     expect(script).toContain(
-      "$env:SFX_RENDER_CANARY_REQUIRE_SEMANTIC = '1'",
+      "$variables['SFX_RENDER_CANARY_REQUIRE_SEMANTIC'] = '1'",
+    );
+    expect(script).toContain('[Environment]::SetEnvironmentVariable(');
+    expect(script).toContain('$previousValues[$entry.Key]');
+    expect(script).toContain(
+      "$output = @(& npx 'tsx' 'scripts/run-sfx-render-canary.ts' 2>&1)",
     );
     expect(script).toContain('function Assert-RuntimeSemanticCatalog');
     expect(script).toMatch(
       /Assert-LinkedProject\s+Assert-RuntimeSemanticCatalog\s+if \(\$Configure\)/,
     );
     expect(script).toContain('lack semantic evidence');
+    expect(script).not.toMatch(/'env',\s*'run'/);
     expect(script).not.toContain("'--value',");
   });
 
-  it('preserves curated catalog semantics for the downstream atomic gate', async () => {
+  it('routes an entrance-pop atomic form to the reviewed pop catalog role', async () => {
     const form = resolveAtomicSfxForm({
       signals: {
         motion_intensity: 0.84,
@@ -107,7 +118,7 @@ describe('zero-credit rendered SFX canary', () => {
         active_overlay_count: 1,
       },
       params: {
-        sfxCue: 'subtle clean stat settle ding tick',
+        sfxCue: 'very subtle editorial entrance pop tick',
         sfxAnchor: 'mg-landing',
         mgLandingFrame: SFX_RENDER_CANARY_MG_ANCHOR_FRAME,
         syncFrame: SFX_RENDER_CANARY_MG_ANCHOR_FRAME,
@@ -117,14 +128,21 @@ describe('zero-credit rendered SFX canary', () => {
       durationFrames: 90,
       sceneRemainingFrames: 90,
     });
+    let report: SFXLibrarySearchReport | undefined;
     const result = await searchAndDownloadSFX(
       form.asset.queryTerms.join(' '),
       'zero-credit-test',
       form.asset.maxDurationSec,
       form,
+      value => { report = value; },
     );
 
+    expect(form.compatibilityToken).toBe('tick');
     expect(result?.source).toBe('catalog');
+    expect(result?.durationMs).toBeLessThanOrEqual(form.asset.maxDurationSec * 1000);
+    expect(report?.catalog.requestedRole).toBe('pop');
+    expect(report?.catalog.selectedAssetId).toBe(result?.audioAssetId);
+    expect(report?.selectionLane).toBe('catalog');
     expect(evaluateAtomicSfxAssetCandidate(form, result)).toMatchObject({
       accepted: true,
       decision: 'accept',

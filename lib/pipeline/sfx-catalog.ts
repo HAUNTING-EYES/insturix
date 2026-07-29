@@ -518,8 +518,12 @@ function requestedEventRole(
   token: AtomicSfxCompatibilityToken | undefined,
   query: string,
 ): SfxCatalogEventRole | undefined {
-  if (token && token !== 'none') return TOKEN_TO_EVENT_ROLE[token];
   const normalized = normalizeTerm(query);
+  if (token === 'tick' && /\bpop\b/.test(normalized)) return 'pop';
+  if (token === 'shimmer' && /\b(logo|sting|stinger)\b/.test(normalized)) {
+    return 'logo-sting';
+  }
+  if (token && token !== 'none') return TOKEN_TO_EVENT_ROLE[token];
   if (/\b(whoosh|swoosh|swish|whip|sweep|swoop)\b/.test(normalized)) return 'whoosh';
   if (/\b(impact|hit|boom|thud|slam|punch|drop)\b/.test(normalized)) return 'impact';
   if (/\b(riser|rise|swell|build|cymbal)\b/.test(normalized)) return 'riser';
