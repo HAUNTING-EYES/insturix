@@ -185,6 +185,58 @@ describe('chat request owner classification', () => {
     });
   });
 
+  it('accepts the exact spoken-phrase sticker workflow without requiring a fake localized edit', async () => {
+    const userMessage = 'When I say this is the key point, add a small animated lightbulb sticker for one second.';
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: true,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            localizedReads: [{
+              modality: 'transcript',
+              goal: 'locate',
+              query: 'this is the key point',
+            }],
+            localizedEdits: [],
+            requestedCapabilities: ['sticker-overlay'],
+            capabilityEvidence: [{
+              capability: 'sticker-overlay',
+              sourceSpan: 'add a small animated lightbulb sticker for one second',
+            }],
+            familyDirectives: [],
+          },
+          confidence: 1,
+          reason: 'The sticker content, spoken anchor, and duration are explicit.',
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'localized-mutation',
+      routingFacts: {
+        requestedCapabilities: ['sticker-overlay'],
+        localizedEdits: [],
+      },
+    });
+    expect(requiredToolSequenceForChatCapability('sticker-overlay')).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'resolve_sticker_overlay',
+      'generate_html_sticker',
+    ]);
+  });
+
   it('rejects truncated structured output before parsing and retries with the provider reason', async () => {
     const generate = vi
       .fn()
