@@ -24,6 +24,7 @@ function graphVersion() {
 }
 
 const IG_API = `https://graph.instagram.com/${graphVersion()}`;
+const IG_REFRESH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 type IgAuth = { userAccessToken: string } | { error: string; retryable: boolean };
 type GraphResponse = { id?: string; error?: { message?: string } };
@@ -31,6 +32,7 @@ type InstagramTokenRecord = {
   userAccessToken?: string;
   userId?: string | number;
   accounts?: Array<{ instagramAccountId?: string | number }>;
+  expiresAt?: Date | string | null;
 };
 
 export async function publishToInstagram(params: PublishParams): Promise<PublishResult> {
@@ -108,7 +110,41 @@ async function resolveBrandIgAuth(brandId: string, accountRef?: string | null): 
       retryable: false,
     };
   }
-  return { userAccessToken: token };
+
+  const expiresAt = tokens?.expiresAt ? new Date(tokens.expiresAt).getTime() : Number.NaN;
+  if (!Number.isFinite(expiresAt)) {
+    return { error: "Instagram token expiry cannot be verified - reconnect", retryable: false };
+  }
+  if (expiresAt <= Date.now()) {
+    return { error: "Instagram token expired - reconnect", retryable: false };
+  }
+  if (expiresAt - Date.now() > IG_REFRESH_WINDOW_MS) return { userAccessToken: token };
+
+  try {
+    const query = new URLSearchParams({ grant_type: "ig_refresh_token", access_token: token });
+    const response = await fetch(`https://graph.instagram.com/refresh_access_token?${query}`);
+    const data: { access_token?: string; expires_in?: number; error?: { message?: string } } =
+      await response.json().catch(() => ({}));
+    const expiresIn = Number(data.expires_in);
+    if (!response.ok || !data.access_token || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+      const retryable = response.status === 429 || response.status >= 500;
+      return { error: data.error?.message || "Instagram token refresh failed - reconnect", retryable };
+    }
+    const refreshedExpiresAt = new Date(Date.now() + expiresIn * 1000);
+    await User.updateOne(
+      { clerkUserId: acct.ownerUserId, "instagramTokens.userAccessToken": token },
+      { $set: {
+        "instagramTokens.userAccessToken": data.access_token,
+        "instagramTokens.expiresAt": refreshedExpiresAt,
+      } },
+    );
+    return { userAccessToken: data.access_token };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? `Instagram token refresh failed: ${error.message}` : "Instagram token refresh failed",
+      retryable: true,
+    };
+  }
 }
 
 /** Create the image media container, then publish it (mirrors the uploaderx IG direct-image path). */

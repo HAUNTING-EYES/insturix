@@ -86,7 +86,16 @@ export async function GET(req: Request) {
       `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(appSecret)}&access_token=${encodeURIComponent(shortLivedToken)}`
     );
     const longTokenData = await longTokenRes.json();
-    const accessToken = longTokenData.access_token || shortLivedToken;
+    const accessToken =
+      typeof longTokenData.access_token === "string" ? longTokenData.access_token.trim() : "";
+    const expiresIn = Number(longTokenData.expires_in);
+    if (!longTokenRes.ok || !accessToken || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+      console.error("[Instagram OAuth] Long-lived token exchange error:", longTokenData);
+      return NextResponse.redirect(
+        `${baseUrl}/dashboard/uploaderx?ig_error=long_token_exchange`
+      );
+    }
+    const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
     // Step 3: Get Instagram user profile
     const meRes = await fetch(
@@ -131,6 +140,7 @@ export async function GET(req: Request) {
                 profilePictureUrl: profilePicture,
               },
             ],
+            expiresAt,
             connectedAt: new Date(),
           },
         },
