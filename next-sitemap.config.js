@@ -4,10 +4,17 @@ import { fetchBlogPosts } from "./lib/blog-posts.js";
 const SITE_URL = process.env.SITE_URL || "https://www.insturix.com";
 
 // Private app surfaces: blocked in robots.txt AND kept out of the sitemap.
+//
+// NOTE: "/_next/*" deliberately does NOT belong here. It used to, which blocked
+// Googlebot from fetching the site's own JS, CSS and optimised images - an Ahrefs
+// crawl found 1,014 blocked /_next/static and /_next/image resources. Search engines
+// RENDER pages to understand them, so blocking stylesheets and scripts stops them
+// judging layout and mobile-friendliness, and blocking /_next/image keeps every
+// optimised image out of image search. Nothing under /_next/ is private: these are
+// the exact files every visitor's browser already fetches anonymously.
 const appSurfaceDisallow = [
   "/api/*",
   "/admin/*",
-  "/_next/*",
   "/_static/*",
   "/auth/*",
   "/dashboard/*",
