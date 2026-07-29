@@ -1,7 +1,9 @@
 import { Readable } from "node:stream";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { POST as postFacebookChunk } from "@/app/api/services/uploaderx/facebook/chunk/route";
 import { POST as postFacebook } from "@/app/api/services/uploaderx/facebook/route";
 import { POST as postYouTube } from "@/app/api/services/uploaderx/youtube/route";
+import { encryptUserOAuthToken } from "@/lib/calos/publish/token-crypto";
 
 const mocks = vi.hoisted(() => {
   const auth = vi.fn();
@@ -167,15 +169,18 @@ function mockUserQuery<T>(value: T) {
   };
 }
 
-function mockFacebookUser() {
+function mockFacebookUser(tokens: {
+  pageAccessToken?: string;
+  userAccessToken?: string;
+} = {}) {
   const facebookUser = {
     ...mockCreditUser(),
     facebookTokens: {
-      userAccessToken: "fb_user_token",
+      userAccessToken: tokens.userAccessToken ?? "fb_user_token",
       pages: [{
         pageId: "page_1",
         pageName: "Brand Page",
-        pageAccessToken: "page_token",
+        pageAccessToken: tokens.pageAccessToken ?? "page_token",
       }],
     },
   };
@@ -217,6 +222,11 @@ describe("UploaderX platform API route contracts", () => {
     mocks.videoUpdateOne.mockResolvedValue({ modifiedCount: 1 });
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
   it("accepts a Facebook publish only after Graph simple upload returns a video id", async () => {
     mockFacebookUser();
     fetchMock.mockResolvedValue(platformResponse({ access_token: "fresh_page_token" }));
@@ -249,6 +259,90 @@ describe("UploaderX platform API route contracts", () => {
         accountUsername: "Brand Page",
       }),
     );
+  });
+
+  it("decrypts stored Facebook credentials for whole-file publishing", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 4).toString("base64"));
+    mockFacebookUser({
+      userAccessToken: encryptUserOAuthToken("fb_user_token"),
+      pageAccessToken: encryptUserOAuthToken("page_token"),
+    });
+    fetchMock.mockRejectedValueOnce(new Error("refresh unavailable"));
+    mocks.axiosGet.mockResolvedValue({ data: Readable.from(["video"]) });
+    mocks.axiosPost.mockResolvedValue({ data: { id: "fb_video_encrypted" } });
+
+    const response = await postFacebook(jsonRequest({
+      gcsPath: "video.mp4",
+      videoUuid: "video_encrypted",
+      title: "Encrypted credentials",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("access_token=fb_user_token");
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain("oauth%3Av1");
+    expect(String(mocks.axiosPost.mock.calls[0]?.[0])).toContain("access_token=page_token");
+    expect(String(mocks.axiosPost.mock.calls[0]?.[0])).not.toContain("oauth%3Av1");
+  });
+
+  it("rejects unreadable Page ciphertext before whole-file publishing work starts", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 4).toString("base64"));
+    mockFacebookUser({ pageAccessToken: "oauth:v1:not-valid-ciphertext" });
+
+    const response = await postFacebook(jsonRequest({
+      gcsPath: "video.mp4",
+      videoUuid: "video_corrupt",
+      title: "Corrupt credentials",
+    }));
+    const payload = await responseJson(response);
+
+    expect(response.status).toBe(403);
+    expect(payload.error).toContain("Reconnect Facebook");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.resolveUploaderXVideo).not.toHaveBeenCalled();
+    expect(mocks.axiosPost).not.toHaveBeenCalled();
+  });
+
+  it("decrypts stored Facebook credentials for chunked upload start", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 4).toString("base64"));
+    mockFacebookUser({
+      userAccessToken: encryptUserOAuthToken("fb_user_token"),
+      pageAccessToken: encryptUserOAuthToken("page_token"),
+    });
+    fetchMock
+      .mockResolvedValueOnce(platformResponse({ access_token: "fresh_page_token" }))
+      .mockResolvedValueOnce(platformResponse({
+        upload_session_id: "fb_chunk_session",
+        video_id: "fb_chunk_video",
+      }));
+
+    const response = await postFacebookChunk(jsonRequest({
+      phase: "start",
+      videoUuid: "video_chunked",
+      pageId: "page_1",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("access_token=fb_user_token");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("access_token=fresh_page_token");
+    expect(fetchMock.mock.calls.map((call) => String(call[0])).join("\n")).not.toContain("oauth%3Av1");
+  });
+
+  it("rejects unreadable Page ciphertext before chunked upload work starts", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 4).toString("base64"));
+    mockFacebookUser({ pageAccessToken: "oauth:v1:not-valid-ciphertext" });
+
+    const response = await postFacebookChunk(jsonRequest({
+      phase: "start",
+      videoUuid: "video_chunked_corrupt",
+      pageId: "page_1",
+    }));
+    const payload = await responseJson(response);
+
+    expect(response.status).toBe(403);
+    expect(payload.error).toContain("Reconnect Facebook");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.resolveUploaderXVideo).not.toHaveBeenCalled();
+    expect(mocks.axiosPost).not.toHaveBeenCalled();
   });
 
   it("schedules a Facebook Page video with native scheduled_publish_time", async () => {
