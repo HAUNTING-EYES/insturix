@@ -33,16 +33,16 @@ function linkedInRestHeaders(accessToken: string): Record<string, string> {
 
 export async function publishToLinkedIn(params: PublishParams): Promise<LinkedInPublishResult> {
   const text = (params.caption ?? params.title ?? "").trim();
-  if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false };
-  if (!params.brandId) return { ok: false, error: "LinkedIn publishing requires a brandId", retryable: false };
-  if (!text) return { ok: false, error: "LinkedIn post text is empty", retryable: false };
+  if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false, providerAttempted: false };
+  if (!params.brandId) return { ok: false, error: "LinkedIn publishing requires a brandId", retryable: false, providerAttempted: false };
+  if (!text) return { ok: false, error: "LinkedIn post text is empty", retryable: false, providerAttempted: false };
 
   const connectToDatabase = (await import("@/schemas/ConnectToDatabase")).default;
   await connectToDatabase();
 
   const brandAuth = await resolveBrandAccountAuth(params.brandId, params.accountRef);
   if ("error" in brandAuth) {
-    return { ok: false, error: brandAuth.error, retryable: brandAuth.retryable };
+    return { ok: false, error: brandAuth.error, retryable: brandAuth.retryable, providerAttempted: false };
   }
   const result = await createLinkedInTextPost(brandAuth.accessToken, brandAuth.authorUrn, text);
   await recordCalosLinkedInPublishCost(params, result);
@@ -232,14 +232,15 @@ async function createLinkedInTextPost(
         ok: false,
         error: `LinkedIn post failed (${res.status}): ${data.error?.message || data.message || bodyText || "unknown error"}`,
         retryable,
+        providerAttempted: true,
         responseStatus: res.status,
       };
     }
     const postId = res.headers.get("x-restli-id") || data.id;
-    if (!postId) return { ok: false, error: "LinkedIn returned no post id", retryable: true, responseStatus: res.status };
-    return { ok: true, postId, postUrl: `https://www.linkedin.com/feed/update/${postId}`, responseStatus: res.status };
+    if (!postId) return { ok: false, error: "LinkedIn returned no post id", retryable: true, providerAttempted: true, responseStatus: res.status };
+    return { ok: true, postId, postUrl: `https://www.linkedin.com/feed/update/${postId}`, providerAttempted: true, responseStatus: res.status };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "LinkedIn post threw", retryable: true };
+    return { ok: false, error: e instanceof Error ? e.message : "LinkedIn post threw", retryable: true, providerAttempted: true };
   }
 }
 

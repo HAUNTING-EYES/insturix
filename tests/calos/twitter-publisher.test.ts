@@ -86,6 +86,7 @@ describe("publishToTwitter", () => {
       ok: true,
       postId: "tweet_1",
       postUrl: "https://x.com/acme/status/tweet_1",
+      providerAttempted: true,
       responseStatus: 200,
     });
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -119,6 +120,7 @@ describe("publishToTwitter", () => {
     const result = await publishToTwitter({ ...BASE, caption: "   " });
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(false);
+    expect(result.providerAttempted).toBe(false);
     expect(mocks.connectedAccountFindOne).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -126,7 +128,12 @@ describe("publishToTwitter", () => {
   it("fails loud when no X account is assigned to the brand", async () => {
     mocks.connectedAccountFindOne.mockResolvedValue(null);
     const result = await publishToTwitter(BASE);
-    expect(result).toEqual({ ok: false, error: "No X account assigned for this brand", retryable: false });
+    expect(result).toEqual({
+      ok: false,
+      error: "No X account assigned for this brand",
+      retryable: false,
+      providerAttempted: false,
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -136,6 +143,7 @@ describe("publishToTwitter", () => {
     const result = await publishToTwitter(BASE);
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(false);
+    expect(result.providerAttempted).toBe(false);
     expect(result.error).toContain("not connected");
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -159,6 +167,7 @@ describe("publishToTwitter", () => {
 
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(false);
+    expect(result.providerAttempted).toBe(false);
     expect(result.error).toContain("no longer matches");
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -196,6 +205,25 @@ describe("publishToTwitter", () => {
     const result = await publishToTwitter(BASE);
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(true);
+    expect(result.providerAttempted).toBe(true);
+    expect(result.responseStatus).toBe(429);
     expect(result.error).toContain("429");
+  });
+
+  it("marks a thrown tweet request as provider-attempted", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "x_1", ownerUserId: "owner_1" });
+    mocks.userFindOne.mockResolvedValue({
+      twitterTokens: { accessToken: "tok", userId: "x_1", userName: "acme", expiresAt: future() },
+    });
+    fetchMock.mockRejectedValueOnce(new Error("socket closed after upload"));
+
+    const result = await publishToTwitter(BASE);
+
+    expect(result).toMatchObject({
+      ok: false,
+      retryable: true,
+      providerAttempted: true,
+      error: "socket closed after upload",
+    });
   });
 });
