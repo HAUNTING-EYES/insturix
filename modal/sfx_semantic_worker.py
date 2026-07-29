@@ -35,6 +35,9 @@ worker_secret = modal.Secret.from_name(
     SECRET_NAME,
     required_keys=["SFX_SEMANTIC_RETRIEVAL_TOKEN"],
 )
+bundle_receipt_environment = modal.Secret.from_dict(
+    {BUNDLE_RECEIPT_ENV_NAME: BUNDLE_RECEIPT_SHA256}
+)
 worker_image = modal.Image.from_dockerfile(
     DOCKERFILE,
     context_dir=REPO_ROOT,
@@ -48,7 +51,7 @@ worker_image = modal.Image.from_dockerfile(
 
 @app.function(
     image=worker_image,
-    secrets=[worker_secret],
+    secrets=[worker_secret, bundle_receipt_environment],
     cpu=2.0,
     memory=2048,
     min_containers=0,
