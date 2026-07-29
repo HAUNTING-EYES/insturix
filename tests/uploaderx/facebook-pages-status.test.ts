@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET } from "@/app/api/services/uploaderx/facebook/pages/route";
+import { encryptUserOAuthToken } from "@/lib/calos/publish/token-crypto";
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -80,6 +81,11 @@ describe("UploaderX Facebook Pages connection health", () => {
     mocks.connectToDatabase.mockResolvedValue(undefined);
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
   it("reports a missing stored connection as disconnected without calling Meta", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -97,12 +103,13 @@ describe("UploaderX Facebook Pages connection health", () => {
   });
 
   it("reports connected only after the stored Page token resolves to the exact Page", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 5).toString("base64"));
     const fetchMock = vi.fn().mockResolvedValue(graphResponse({ id: "page_1" }));
     vi.stubGlobal("fetch", fetchMock);
     mocks.userFindOne.mockReturnValue(userQuery(connectedUser([{
       pageId: "page_1",
       pageName: "Brand Page",
-      pageAccessToken: "page_token",
+      pageAccessToken: encryptUserOAuthToken("page_token"),
     }])));
 
     const response = await GET();
@@ -121,6 +128,28 @@ describe("UploaderX Facebook Pages connection health", () => {
         cache: "no-store",
       }),
     );
+  });
+
+  it("requires reconnect without calling Meta for unreadable encrypted Page tokens", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 5).toString("base64"));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.userFindOne.mockReturnValue(userQuery(connectedUser([{
+      pageId: "page_1",
+      pageName: "Brand Page",
+      pageAccessToken: "oauth:v1:not-valid-ciphertext",
+    }])));
+
+    const response = await GET();
+
+    await expect(responseJson(response)).resolves.toMatchObject({
+      connected: false,
+      connectionState: "reconnect",
+      reconnectRequired: true,
+      pages: [],
+      unavailablePageCount: 1,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("requires reconnect when Meta rejects every stored Page token", async () => {

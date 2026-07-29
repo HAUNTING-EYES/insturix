@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { requireCalosBrandAccess } from "@/lib/calos/brand-access";
 import { validateFacebookPageToken } from "@/lib/calos/facebook-page-token-health";
+import { resolveUserOAuthToken } from "@/lib/calos/publish/token-crypto";
 
 /**
  * Per-brand Facebook Page binding. Facebook publishing is Page-only: POST validates that the
@@ -103,7 +104,8 @@ export async function POST(request: NextRequest) {
       { status: 409 },
     );
   }
-  const liveHealth = await validateFacebookPageToken(accountRef, page.pageAccessToken);
+  const pageAccessToken = resolveUserOAuthToken(page.pageAccessToken);
+  const liveHealth = await validateFacebookPageToken(accountRef, pageAccessToken || "");
   if (liveHealth.state !== "valid") {
     const reconnectRequired = liveHealth.state === "reconnect";
     return NextResponse.json(
