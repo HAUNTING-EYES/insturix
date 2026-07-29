@@ -50,6 +50,8 @@ vi.mock("@/schemas/user", () => ({
 import * as publishStatusRoute from "@/app/api/services/calos/publish-status/route";
 import { encryptToken } from "@/lib/calos/publish/token-crypto";
 
+const YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
+
 type PublishStatusModule = typeof publishStatusRoute & {
   POST?: (request: NextRequest) => Promise<Response>;
 };
@@ -82,6 +84,32 @@ function postRequest(body: Record<string, unknown>) {
 async function callRetry(body: Record<string, unknown>) {
   if (!postPublishRetry) throw new Error("publish-status POST retry is not implemented");
   return postPublishRetry(postRequest(body));
+}
+
+function mockClerkYouTubeOwner() {
+  mocks.clerkClient.mockResolvedValue({
+    users: {
+      getUser: vi.fn(async () => ({
+        externalAccounts: [{
+          id: "eac_google",
+          provider: "oauth_google",
+          approvedScopes: [YOUTUBE_UPLOAD_SCOPE],
+        }],
+      })),
+      getUserOauthAccessToken: vi.fn(async () => ({
+        data: [{ token: "youtube_token", externalAccountId: "eac_google" }],
+      })),
+    },
+  });
+}
+
+function youtubeChannelResponse(channelId: string) {
+  return new Response(JSON.stringify({
+    items: [{ id: channelId, snippet: { title: "Acme Channel" } }],
+  }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 describe("CalOS publish status and deliberate retry", () => {
@@ -241,7 +269,7 @@ describe("CalOS publish status and deliberate retry", () => {
       },
       {
         platform: "youtube",
-        accountRef: "youtube",
+        accountRef: "UC_acme",
         displayName: "Acme Channel",
         ownerUserId: "owner_1",
       },
@@ -252,16 +280,19 @@ describe("CalOS publish status and deliberate retry", () => {
         pages: [{ pageId: "page_1", pageAccessToken: "page_token" }],
       },
     }]));
-    mocks.clerkClient.mockResolvedValue({
-      users: {
-        getUser: vi.fn(async () => ({
-          externalAccounts: [{
-            provider: "oauth_google",
-            approvedScopes: ["https://www.googleapis.com/auth/youtube.upload"],
-          }],
-        })),
-        getUserOauthAccessToken: vi.fn(async () => ({ data: [{ token: "youtube_token" }] })),
-      },
+    mockClerkYouTubeOwner();
+    fetchMock.mockImplementation(async (input: string | URL | Request) => {
+      const url = input.toString();
+      if (url.includes("graph.facebook.com")) {
+        return new Response(JSON.stringify({ id: "page_1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("/youtube/v3/channels")) {
+        return youtubeChannelResponse("UC_acme");
+      }
+      throw new Error(`Unexpected health request: ${url}`);
     });
 
     const response = await getPublishStatus(getRequest());
@@ -276,6 +307,54 @@ describe("CalOS publish status and deliberate retry", () => {
         headers: { Authorization: "Bearer page_token" },
       }),
     );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/youtube/v3/channels"),
+      expect.objectContaining({
+        headers: { Authorization: "Bearer youtube_token" },
+      }),
+    );
+  });
+
+  it("reports reconnect when the live YouTube channel differs from the assignment", async () => {
+    mocks.connectedAccountFind.mockReturnValue(queryResult([{
+      platform: "youtube",
+      accountRef: "UC_assigned",
+      displayName: "Assigned Channel",
+      ownerUserId: "owner_1",
+    }]));
+    mockClerkYouTubeOwner();
+    fetchMock.mockResolvedValueOnce(youtubeChannelResponse("UC_different"));
+
+    const response = await getPublishStatus(getRequest());
+    const payload = await response.json();
+
+    expect(payload.connectionHealth.youtube).toMatchObject({
+      state: "reconnect",
+      accountRef: "UC_assigned",
+    });
+    expect(payload.connectionHealth.youtube.message).toContain("no longer matches");
+    expect(payload.connectedPlatforms).toEqual([]);
+  });
+
+  it("reports attention when YouTube channel verification is temporarily unavailable", async () => {
+    mocks.connectedAccountFind.mockReturnValue(queryResult([{
+      platform: "youtube",
+      accountRef: "UC_assigned",
+      displayName: "Assigned Channel",
+      ownerUserId: "owner_1",
+    }]));
+    mockClerkYouTubeOwner();
+    fetchMock.mockResolvedValueOnce(new Response("unavailable", { status: 503 }));
+
+    const response = await getPublishStatus(getRequest());
+    const payload = await response.json();
+
+    expect(payload.connectionHealth.youtube).toMatchObject({
+      state: "attention",
+      accountRef: "UC_assigned",
+    });
+    expect(payload.connectionHealth.youtube.message).toContain("could not be verified");
+    expect(payload.connectedPlatforms).toEqual([]);
   });
 
   it("reports a revoked YouTube connection instead of trusting its assignment row", async () => {
@@ -438,6 +517,39 @@ describe("CalOS publish status and deliberate retry", () => {
 
     expect(response.status).toBe(409);
     expect(payload.error).toContain("Reconnect Facebook");
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("refuses retry when the assigned YouTube channel no longer matches", async () => {
+    mocks.queueFindOne.mockResolvedValue({
+      _id: "queue_1",
+      platform: "youtube",
+      accountRef: "UC_assigned",
+      status: "failed",
+      postId: null,
+    });
+    mocks.connectedAccountFindOne.mockResolvedValue({
+      platform: "youtube",
+      accountRef: "UC_assigned",
+      ownerUserId: "owner_1",
+    });
+    mocks.queueFindOneAndUpdate.mockResolvedValue({
+      deliverableId: "card_1",
+      status: "pending",
+      accountRef: "UC_assigned",
+    });
+    mockClerkYouTubeOwner();
+    fetchMock.mockResolvedValueOnce(youtubeChannelResponse("UC_different"));
+
+    const response = await callRetry({
+      brandId: "brand_1",
+      deliverableId: "card_1",
+      confirmPossibleDuplicate: true,
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("no longer matches");
     expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
