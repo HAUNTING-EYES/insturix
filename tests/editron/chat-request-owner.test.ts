@@ -26,6 +26,7 @@ import {
   type ChatRequestOwnerLicense,
   type ChatSemanticWorkflow,
 } from '@/lib/editron/agent/chat-request-owner';
+import { resolveServerOwnedChatWorkflowStep } from '@/lib/editron/agent/chat-server-workflow';
 
 const baseInput = {
   userMessage: 'Make this edit feel more polished.',
@@ -235,6 +236,72 @@ describe('chat request owner classification', () => {
       'resolve_sticker_overlay',
       'generate_html_sticker',
     ]);
+  });
+
+  it('folds a provider-produced transcript highlight into sticker anchor evidence', async () => {
+    const userMessage = 'When I say this is the key point, add a small animated lightbulb sticker for one second.';
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            localizedReads: [],
+            localizedEdits: [{
+              modality: 'transcript',
+              operation: 'highlight',
+              query: 'this is the key point',
+              sourceQuery: '',
+              targetQuery: '',
+              targetKind: 'none',
+              sourceSpan: 'When I say this is the key point',
+            }],
+            requestedCapabilities: ['sticker-overlay'],
+            capabilityEvidence: [{
+              capability: 'sticker-overlay',
+              sourceSpan: 'add a small animated lightbulb sticker for one second',
+            }],
+            familyDirectives: [],
+          },
+          confidence: 1,
+          reason: 'The spoken phrase anchors the requested sticker.',
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'localized-mutation',
+      routingFacts: {
+        localizedReads: [{
+          modality: 'transcript',
+          goal: 'locate',
+          query: 'this is the key point',
+        }],
+        localizedEdits: [],
+        requestedCapabilities: ['sticker-overlay'],
+      },
+    });
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: result,
+      ledger: { requestedToolNames: [], completedExecutions: [] },
+      projectId: 'proj_sticker',
+      projectRevision: 'revision-1',
+    })).toMatchObject({
+      kind: 'tool-call',
+      operationId: '0:sticker-overlay',
+      toolCall: { name: 'get_timeline_view' },
+    });
   });
 
   it('rejects truncated structured output before parsing and retries with the provider reason', async () => {

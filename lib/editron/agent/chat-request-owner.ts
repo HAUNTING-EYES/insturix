@@ -917,7 +917,8 @@ requestsBroadEditorialOutcome: true only when the user asks to improve, rework, 
 12. "Add clean captions throughout" means captions/prefer and requestsBroadEditorialOutcome=false. "Add background music" means music/prefer and false. "Create a process diagram" means motionGraphics/prefer and false. "Improve the whole edit and add music" means music/prefer and true. "Do not use motion graphics" means motionGraphics/off and false.
 13. requestedCapabilities must cover the full evidence-to-mutation workflow. Examples: "Add plain captions" => ["caption-track"]; "realign existing captions" => ["caption-refresh"]; "make every existing caption yellow" => ["caption-batch-style"]; "duck music under dialogue" => ["audio-ducking"]; "add background music" => ["background-music"]; "sync cuts to downbeats" => ["beat-sync"]; "replace the selected SFX" => ["sfx-replacement"]; "add a title for the first 3 seconds" => ["overlay-create"]; "split the selected clip at the playhead" => ["clip-split"]; "cut 5s to 8s" => ["timeline-cut"]; "fade the selected overlay" => ["overlay-fade"]; "place my uploaded logo" => ["asset-placement"]; "replace this scene with my uploaded clip" => ["asset-replacement"]. Literal timeline coordinates use a mechanical capability, except uploaded-asset placement remains a localized asset workflow because the source asset must first be resolved. Do not substitute project-edit for a more specific requested capability.
 14. Localized reads and edits preserve meaning without timestamps. Examples: "Remove the words pricing is simple" => localizedEdits=[{"modality":"transcript","operation":"remove","query":"pricing is simple","sourceQuery":"","targetQuery":"","targetKind":"none","sourceSpan":"Remove the words pricing is simple"}]. "When the embroidery frame appears, add a highlight" => localizedEdits=[{"modality":"visual","operation":"highlight","query":"embroidery frame","sourceQuery":"","targetQuery":"","targetKind":"none","sourceSpan":"When the embroidery frame appears, add a highlight"}]. "Place uploaded image asset a_portrait123 in the bottom-right corner from 2 to 6 seconds" => localizedEdits=[{"modality":"asset","operation":"place-asset","query":"a_portrait123","sourceQuery":"a_portrait123","targetQuery":"","targetKind":"none","sourceSpan":"Place uploaded image asset a_portrait123 in the bottom-right corner from 2 to 6 seconds","placement":{"mode":"corner","horizontal":"right","vertical":"bottom"},"timing":{"kind":"range","sourceSpan":"from 2 to 6 seconds","startSeconds":"2","endSeconds":"6"}}]. "Find my uploaded embroidery clip and replace the selected video scene" => localizedEdits=[{"modality":"asset","operation":"replace-asset","query":"uploaded embroidery clip","sourceQuery":"uploaded embroidery clip","targetQuery":"selected video scene","targetKind":"selected-overlay","sourceSpan":"uploaded embroidery clip and replace the selected video scene"}]. Keep Devanagari and Roman Hinglish exactly as supplied.
-15. A direct capability and a localized edit may share a turn only when their capabilityEvidence and localized sourceSpan prove distinct requested operations. Never translate "highlight this visual moment" into clip-filter, or invent brighter/warmer/filter instructions that the user did not supply.
+15. A semantic phrase that only anchors another declared capability is localization evidence for that capability, not a second mutation. Example: "When I say this is the key point, add a lightbulb sticker" => localizedReads=[{"modality":"transcript","goal":"locate","query":"this is the key point"}], requestedCapabilities=["sticker-overlay"], localizedEdits=[]. Do not invent a transcript/highlight mutation for the anchor.
+16. A direct capability and a localized edit may share a turn only when their capabilityEvidence and localized sourceSpan prove distinct requested operations. Never translate "highlight this visual moment" into clip-filter, or invent brighter/warmer/filter instructions that the user did not supply.
 </rules>
 
 <trusted_context>
@@ -951,6 +952,23 @@ function deriveRoutingFacts(
       },
     };
   });
+  const capabilityOwnedAnchorEdits = normalizedLocalizedEdits.filter((edit) =>
+    isStickerCapabilityAnchor(edit, facts.requestedCapabilities),
+  );
+  const localizedReads = [...facts.localizedReads];
+  for (const anchor of capabilityOwnedAnchorEdits) {
+    if (!localizedReads.some((read) =>
+      read.modality === anchor.modality
+      && read.goal === 'locate'
+      && normalizeProvenanceText(read.query) === normalizeProvenanceText(anchor.query),
+    )) {
+      localizedReads.push({
+        modality: anchor.modality,
+        goal: 'locate',
+        query: anchor.query,
+      });
+    }
+  }
   const exactDirectCapabilityEvidence = facts.capabilityEvidence.filter((entry) =>
     facts.operationFullySpecified
     && facts.targetFullySpecified
@@ -959,7 +977,8 @@ function deriveRoutingFacts(
     && sourceSpanOccursInRequest(entry.sourceSpan, userMessage),
   );
   const localizedEdits = normalizedLocalizedEdits.filter((edit) =>
-    !exactDirectCapabilityEvidence.some((entry) =>
+    !capabilityOwnedAnchorEdits.includes(edit)
+    && !exactDirectCapabilityEvidence.some((entry) =>
       sourceSpansOverlap(edit.sourceSpan, entry.sourceSpan),
     ),
   );
@@ -992,14 +1011,15 @@ function deriveRoutingFacts(
   const allLocalizedEditsShadowed =
     normalizedLocalizedEdits.length > 0
     && localizedEdits.length === 0
-    && facts.localizedReads.length === 0;
+    && localizedReads.length === 0;
   return {
     ...facts,
     requiresContentLocalization: allLocalizedEditsShadowed
       ? false
       : facts.requiresContentLocalization
-        || facts.localizedReads.length > 0
+        || localizedReads.length > 0
         || localizedEdits.length > 0,
+    localizedReads,
     localizedEdits,
     requestedCapabilities: [...new Set([
       ...requestedCapabilities,
@@ -1007,6 +1027,16 @@ function deriveRoutingFacts(
     ])],
     familyScopeExclusive: hasPreferredFamily && !facts.requestsBroadEditorialOutcome,
   };
+}
+
+function isStickerCapabilityAnchor(
+  edit: ChatLocalizedEditRequest,
+  requestedCapabilities: readonly ChatRequestCapability[],
+): boolean {
+  return requestedCapabilities.includes('sticker-overlay')
+    && !requestedCapabilities.includes('localized-overlay')
+    && edit.modality === 'transcript'
+    && edit.operation === 'highlight';
 }
 
 function validateRoutingProvenance(
