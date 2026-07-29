@@ -24,11 +24,14 @@ const UNSUPPORTED_CONTROL_TITLE = "Not wired to publishing yet";
 
 // ─── Types ─────────────────────────────────────────────────────
 type ViewState = "floor" | "library" | "fragmentation" | "reveal";
+type PlatformConnectionState = "connected" | "disconnected" | "reconnect" | "attention";
 
 interface PlatformStatus {
   key: string;
   label: string;
   connected: boolean;
+  connectionState?: PlatformConnectionState;
+  statusMessage?: string;
   userName?: string;
   authUrl: string;
   aspect: string;
@@ -416,21 +419,50 @@ export function UploaderXClientWrapper() {
       const ytScope = "https://www.googleapis.com/auth/youtube.upload";
       const ytConnected = !!googleAccount && (googleAccount.approvedScopes?.includes(ytScope) !== false);
       const youtubePlatform = PLATFORMS[0];
-      statuses.push({ ...youtubePlatform, connected: ytConnected, userName: googleAccount?.emailAddress || undefined });
+      statuses.push({
+        ...youtubePlatform,
+        connected: ytConnected,
+        connectionState: ytConnected ? "connected" : "disconnected",
+        userName: googleAccount?.emailAddress || undefined,
+      });
 
       // Fetch other platforms in parallel
-      const fetches = PLATFORMS.filter(p => p.statusUrl).map(async (p) => {
+      const fetches = PLATFORMS.filter(p => p.statusUrl).map(async (p): Promise<PlatformStatus> => {
         try {
           const res = await fetch(p.statusUrl, { credentials: "include" });
-          if (!res.ok) return { ...p, connected: false };
+          if (!res.ok) {
+            return {
+              ...p,
+              connected: false,
+              connectionState: "attention",
+              statusMessage: "Connection status is temporarily unavailable.",
+            };
+          }
           const data = await res.json();
+          const connected = Boolean(data.connected);
+          const connectionState: PlatformConnectionState =
+            data.connectionState === "connected" ||
+            data.connectionState === "disconnected" ||
+            data.connectionState === "reconnect" ||
+            data.connectionState === "attention"
+              ? data.connectionState
+              : connected
+                ? "connected"
+                : "disconnected";
           return {
             ...p,
-            connected: Boolean(data.connected),
+            connected,
+            connectionState,
+            statusMessage: typeof data.message === "string" ? data.message : undefined,
             userName: data.userName || data.name || undefined,
           };
         } catch {
-          return { ...p, connected: false };
+          return {
+            ...p,
+            connected: false,
+            connectionState: "attention",
+            statusMessage: "Connection status is temporarily unavailable.",
+          };
         }
       });
 
@@ -1057,15 +1089,25 @@ export function UploaderXClientWrapper() {
               platformStatuses.map((p) => (
                 <div
                   key={p.key}
+                  title={p.statusMessage}
                   style={{ display: "flex", alignItems: "center", gap: 6, transition: "opacity .2s" }}
                 >
                   <span style={{
                     width: 6, height: 6, borderRadius: 3,
-                    background: p.connected ? C.green : C.red,
-                    boxShadow: p.connected ? "0 0 4px rgba(94,201,126,.2)" : "none",
+                    background: p.connectionState === "attention" ? C.gold : p.connected ? C.green : C.red,
+                    boxShadow: p.connectionState === "attention"
+                      ? "0 0 4px rgba(212,166,82,.2)"
+                      : p.connected
+                        ? "0 0 4px rgba(94,201,126,.2)"
+                        : "none",
                   }} />
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: C.t4, letterSpacing: ".04em" }}>
                     {p.label}
+                    {p.connectionState === "attention"
+                      ? " - temporarily unavailable"
+                      : p.connectionState === "reconnect"
+                        ? " - reconnect"
+                        : ""}
                   </span>
                   {p.connected && RESET_ENDPOINTS[p.key] ? (
                     <button
@@ -1080,7 +1122,7 @@ export function UploaderXClientWrapper() {
                     >
                       ×
                     </button>
-                  ) : !p.connected ? (
+                  ) : !p.connected && p.connectionState !== "attention" ? (
                     <button
                       onClick={() => handleConnect(p)}
                       style={{
@@ -1089,7 +1131,7 @@ export function UploaderXClientWrapper() {
                         transition: `all .2s ${EASE}`, lineHeight: 1.4,
                       }}
                     >
-                      connect
+                      {p.connectionState === "reconnect" ? "reconnect" : "connect"}
                     </button>
                   ) : null}
                 </div>
