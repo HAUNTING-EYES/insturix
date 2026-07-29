@@ -50,6 +50,22 @@ describe('reference video Gemini upload', () => {
     }));
   });
 
+  it('uses the concrete Node stream constructors accepted by the server bundle', async () => {
+    const body = Readable.toWeb(Readable.from([
+      Buffer.from('video-'),
+      Buffer.from('bytes'),
+    ]));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body as BodyInit, {
+      status: 200,
+    })));
+
+    await expect(uploadReferenceVideoToGemini('https://assets.example/chunked.mp4'))
+      .resolves.toBe('https://generativelanguage.googleapis.com/v1beta/files/reference');
+    expect(mocks.waitForActive).toHaveBeenCalledWith(expect.objectContaining({
+      fileSizeBytes: 11,
+    }));
+  });
+
   it('fails before download when the declared asset exceeds Gemini limits', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('x', {
       status: 200,

@@ -4,6 +4,7 @@ import { SchemaType, type ResponseSchema } from '@google/generative-ai';
 import { z } from 'zod';
 
 import type { AuthorizedChatAttachment } from '../services/chat-attachment-contract';
+import { repairChatOwnerLiteralTiming } from './chat-literal-timing';
 import {
   EDITORIAL_FAMILIES,
   type EditorialFamily,
@@ -834,7 +835,9 @@ export async function classifyChatRequestOwner(
       continue;
     }
 
-    const parsedOwner = ownerResponseSchema.safeParse(parsedJson.value);
+    const parsedOwner = ownerResponseSchema.safeParse(
+      repairChatOwnerLiteralTiming(parsedJson.value, input.userMessage),
+    );
     if (!parsedOwner.success) {
       lastFailure = parsedOwner.error.issues
         .map((issue) => `${issue.path.join('.') || 'response'}: ${issue.message}`)

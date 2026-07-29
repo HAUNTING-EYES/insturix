@@ -1017,7 +1017,7 @@ describe('chat request owner classification', () => {
     expect(generate).toHaveBeenCalledTimes(2);
   });
 
-  it('fails closed when model-produced asset timing is internally contradictory', async () => {
+  it('re-derives model-produced asset timing from the exact user-authored span', async () => {
     const userMessage = 'Place a_portrait123 in the corner from 2 to 6 seconds.';
     const generate = vi.fn(async () => ({
       text: JSON.stringify({
@@ -1060,16 +1060,19 @@ describe('chat request owner classification', () => {
       }),
     }));
 
-    await expect(classifyChatRequestOwner({
+    const classified = await classifyChatRequestOwner({
       ...baseInput,
       userMessage,
-    }, { generate })).rejects.toThrow(
-      'Asset timing endSeconds must be greater than startSeconds',
-    );
-    expect(generate).toHaveBeenCalledTimes(2);
+    }, { generate });
+
+    expect(classified.routingFacts?.localizedEdits?.[0]?.timing).toEqual({
+      startSeconds: 2,
+      endSeconds: 6,
+    });
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 
-  it('fails closed when a model drops one endpoint from an explicit asset range', async () => {
+  it('repairs a dropped endpoint from an explicit asset range', async () => {
     const userMessage = 'Place a_portrait123 from 2 to 6 seconds.';
     const generate = vi.fn(async () => ({
       text: JSON.stringify({
@@ -1110,13 +1113,68 @@ describe('chat request owner classification', () => {
       }),
     }));
 
-    await expect(classifyChatRequestOwner({
+    const classified = await classifyChatRequestOwner({
       ...baseInput,
       userMessage,
-    }, { generate })).rejects.toThrow(
-      'Asset timing kind range requires endSeconds',
-    );
-    expect(generate).toHaveBeenCalledTimes(2);
+    }, { generate });
+
+    expect(classified.routingFacts?.localizedEdits?.[0]?.timing).toEqual({
+      startSeconds: 2,
+      endSeconds: 6,
+    });
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('repairs a dropped written duration without trusting model arithmetic', async () => {
+    const userMessage = 'Move the selected title to start at 4 seconds and keep it on screen for two seconds.';
+    const classified = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            localizedReads: [],
+            localizedEdits: [{
+              modality: 'asset',
+              operation: 'place-asset',
+              query: 'selected title',
+              sourceQuery: 'selected title',
+              targetQuery: '',
+              targetKind: 'none',
+              sourceSpan: userMessage,
+              timing: {
+                kind: 'start-duration',
+                sourceSpan: 'start at 4 seconds and keep it on screen for two seconds',
+                startSeconds: '4',
+              },
+            }],
+            requestedCapabilities: ['asset-placement'],
+            capabilityEvidence: [{
+              capability: 'asset-placement',
+              sourceSpan: userMessage,
+            }],
+            familyDirectives: [],
+          },
+          confidence: 1,
+          reason: 'The timing is explicit.',
+        }),
+      }),
+    });
+
+    expect(classified.routingFacts?.localizedEdits?.[0]?.timing).toEqual({
+      startSeconds: 4,
+      durationSeconds: 2,
+    });
   });
 
   it('fails closed when a localized read is not declared as analysis', async () => {

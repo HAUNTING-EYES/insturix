@@ -10,6 +10,14 @@
  * Per EDITRON_MATCH_EDIT_PLAN.md Phase 1.
  */
 
+import { randomUUID } from 'node:crypto';
+import { createWriteStream } from 'node:fs';
+import { unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+
 import type { EditDNA } from './style-transfer-service';
 import { waitForGeminiFileActive } from './gemini-file-active';
 
@@ -188,18 +196,10 @@ export async function uploadReferenceVideoToGemini(videoUrl: string): Promise<st
     throw new Error('Reference video exceeds the Gemini Files API 2GB limit');
   }
 
-  const [{ GoogleAIFileManager }, { randomUUID }, fs, os, path, stream, streamPromises] = await Promise.all([
-    import('@google/generative-ai/server'),
-    import('node:crypto'),
-    import('node:fs'),
-    import('node:os'),
-    import('node:path'),
-    import('node:stream'),
-    import('node:stream/promises'),
-  ]);
-  const tmpPath = path.join(os.tmpdir(), `editron-reference-${randomUUID()}.mp4`);
+  const { GoogleAIFileManager } = await import('@google/generative-ai/server');
+  const tmpPath = join(tmpdir(), `editron-reference-${randomUUID()}.mp4`);
   let downloadedBytes = 0;
-  const sizeGuard = new stream.Transform({
+  const sizeGuard = new Transform({
     transform(chunk, _encoding, callback) {
       downloadedBytes += chunk.length;
       if (downloadedBytes > MAX_GEMINI_REFERENCE_BYTES) {
@@ -211,10 +211,10 @@ export async function uploadReferenceVideoToGemini(videoUrl: string): Promise<st
   });
 
   try {
-    await streamPromises.pipeline(
-      stream.Readable.fromWeb(response.body as never),
+    await pipeline(
+      Readable.fromWeb(response.body as never),
       sizeGuard,
-      fs.createWriteStream(tmpPath, { flags: 'wx' }),
+      createWriteStream(tmpPath, { flags: 'wx' }),
     );
     if (downloadedBytes === 0) throw new Error('Reference video download was empty');
 
@@ -241,7 +241,7 @@ export async function uploadReferenceVideoToGemini(videoUrl: string): Promise<st
     return fileUri;
   } finally {
     try {
-      await fs.promises.unlink(tmpPath);
+      await unlink(tmpPath);
     } catch (error: unknown) {
       if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
         console.warn('[RefExtractor] tmp cleanup failed:', error instanceof Error ? error.message : error);
