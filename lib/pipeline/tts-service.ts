@@ -20,6 +20,12 @@ import {
 } from './speech-capabilities';
 import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
+import {
+  mergePcmWavSegments,
+  normalizeSpeechPcmWav,
+  type PcmWavSegment,
+  type SpeechWavNormalizationReceipt,
+} from './wav-audio';
 export type { TTSVoice } from './config/tts-config';
 export { TTS_VOICES };
 export {
@@ -36,37 +42,6 @@ export type {
 
 function getRandomInRange(min: number, max: number): number {
   return Math.random() * (max - min) + min;
-}
-
-function generateSilence(durationSeconds: number, sampleRate: number = 24000): Buffer {
-  const numSamples = Math.floor(durationSeconds * sampleRate);
-  const bytesPerSample = 2; // 16-bit
-  return Buffer.alloc(numSamples * bytesPerSample, 0);
-}
-
-function mergeWavBuffers(buffers: Buffer[]): Buffer {
-  if (buffers.length === 0) return Buffer.alloc(0);
-  if (buffers.length === 1) return buffers[0];
-
-  const header = Buffer.alloc(44);
-  const firstWav = buffers.find(b => b.length >= 44 && b.toString('utf8', 0, 4) === 'RIFF');
-  if (!firstWav) return Buffer.concat(buffers);
-
-  firstWav.copy(header, 0, 0, 44);
-  const dataChunks: Buffer[] = [];
-  for (const b of buffers) {
-    if (b.length >= 44 && b.toString('utf8', 0, 4) === 'RIFF') {
-      dataChunks.push(b.slice(44));
-    } else {
-      dataChunks.push(b);
-    }
-  }
-
-  const totalDataSize = dataChunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  header.writeUInt32LE(totalDataSize + 36, 4);
-  header.writeUInt32LE(totalDataSize, 40);
-
-  return Buffer.concat([header, ...dataChunks]);
 }
 
 /**
@@ -125,6 +100,7 @@ export interface GeneratedAudioReceipt {
   assetId: string;
   mediaRole: GeneratedSpeechRole;
   synthesisSpeed: number;
+  normalization?: SpeechWavNormalizationReceipt;
   generatedAt: string;
 }
 
@@ -307,7 +283,7 @@ async function generateWithKokoro(
   const segments = pausePolicy === 'provider-native'
     ? [{ segment: text, pauseType: null }]
     : splitTextByPauses(text);
-  const audioChunks: Buffer[] = [];
+  const audioChunks: PcmWavSegment[] = [];
 
   try {
     for (const { segment, pauseType } of segments) {
@@ -315,7 +291,10 @@ async function generateWithKokoro(
         // Just add silence if segment is empty but has a pause type
         if (pauseType) {
           const pause = TTS_PAUSE_CONFIG[pauseType];
-          audioChunks.push(generateSilence(getRandomInRange(pause.min, pause.max)));
+          audioChunks.push({
+            kind: 'silence',
+            durationMs: getRandomInRange(pause.min, pause.max) * 1000,
+          });
         }
         continue;
       }
@@ -334,28 +313,29 @@ async function generateWithKokoro(
       const audioUrl = data?.audio?.url || data?.audio_file?.url || data?.output?.url;
       if (audioUrl) {
         const response = await fetch(audioUrl);
-        if (response.ok) {
-          audioChunks.push(Buffer.from(await response.arrayBuffer()));
-        }
+        if (!response.ok) throw new Error(`Kokoro audio download failed: ${response.status}`);
+        audioChunks.push({ kind: 'wav', buffer: Buffer.from(await response.arrayBuffer()) });
       }
 
       // Inject silence after segment if mapped
       if (pauseType) {
         const pause = TTS_PAUSE_CONFIG[pauseType];
-        audioChunks.push(generateSilence(getRandomInRange(pause.min, pause.max)));
+        audioChunks.push({
+          kind: 'silence',
+          durationMs: getRandomInRange(pause.min, pause.max) * 1000,
+        });
       }
     }
 
     if (audioChunks.length === 0) throw new Error('Kokoro returned no audio for any segment');
 
-    const audioBuffer = mergeWavBuffers(audioChunks);
-
-    if (audioBuffer.length === 0) throw new Error('Kokoro returned empty audio');
-    // Estimate duration from WAV (linear16, assumed 24kHz mono)
-    // Kokoro outputs WAV - check actual sample rate from header
-    const pcmBytes = Math.max(0, audioBuffer.length - 44);
-    const bytesPerSecond = 24000 * 2; // 24kHz, 16-bit
-    const durationMs = Math.round((pcmBytes / bytesPerSecond) * 1000);
+    const merged = mergePcmWavSegments(audioChunks);
+    const normalized = normalizeSpeechPcmWav(merged.buffer, {
+      trimBoundarySilence: mediaRole === 'dubbing',
+      previouslyRemovedNonAudioBytes: merged.removedNonAudioBytes,
+    });
+    const audioBuffer = normalized.buffer;
+    const durationMs = normalized.durationMs;
 
     const assetId = `voiceover_${nanoid(12)}`;
     const uploaded = await uploadVoiceoverAudio(audioBuffer, userId, assetId, durationMs, {
@@ -364,6 +344,7 @@ async function generateWithKokoro(
       mediaRole,
       speechCapability,
       synthesisSpeed: ttsSpeed,
+      normalization: normalized.receipt,
     });
 
     await recordPipelineTTSProviderCost({
@@ -462,12 +443,14 @@ async function generateWithDeepgram(
       done = result.done;
       if (result.value) chunks.push(result.value);
     }
-    const audioBuffer = Buffer.concat(chunks);
+    const rawAudioBuffer = Buffer.concat(chunks);
 
-    if (audioBuffer.length === 0) throw new Error('Deepgram returned empty audio');
-    const pcmBytes = Math.max(0, audioBuffer.length - 44);
-    const bytesPerSecond = 24000 * 2;
-    const durationMs = Math.round((pcmBytes / bytesPerSecond) * 1000);
+    if (rawAudioBuffer.length === 0) throw new Error('Deepgram returned empty audio');
+    const normalized = normalizeSpeechPcmWav(rawAudioBuffer, {
+      trimBoundarySilence: mediaRole === 'dubbing',
+    });
+    const audioBuffer = normalized.buffer;
+    const durationMs = normalized.durationMs;
 
     const assetId = `voiceover_${nanoid(12)}`;
     const uploaded = await uploadVoiceoverAudio(audioBuffer, userId, assetId, durationMs, {
@@ -476,6 +459,7 @@ async function generateWithDeepgram(
       mediaRole,
       speechCapability,
       synthesisSpeed: 1,
+      normalization: normalized.receipt,
     });
 
     await recordPipelineTTSProviderCost({
@@ -527,6 +511,7 @@ async function uploadVoiceoverAudio(
     mediaRole: GeneratedSpeechRole;
     speechCapability: GeneratedSpeechCapability;
     synthesisSpeed: number;
+    normalization: SpeechWavNormalizationReceipt;
   },
 ): Promise<Pick<
   TTSResult,
@@ -563,6 +548,7 @@ async function uploadVoiceoverAudio(
     assetId: uploadResult.assetId,
     mediaRole: provenance.mediaRole,
     synthesisSpeed: provenance.synthesisSpeed,
+    normalization: provenance.normalization,
     generatedAt: new Date().toISOString(),
   };
 
@@ -653,8 +639,9 @@ export async function generateVoicePreview(
 
       const response = await fetch(audioUrl);
       const audioBuffer = Buffer.from(await response.arrayBuffer());
-      const pcmBytes = Math.max(0, audioBuffer.length - 44);
-      const durationMs = Math.round((pcmBytes / (24000 * 2)) * 1000);
+      const durationMs = normalizeSpeechPcmWav(audioBuffer, {
+        trimBoundarySilence: false,
+      }).durationMs;
 
       await recordPipelineTTSProviderCost({
         status: 'success',
@@ -713,8 +700,9 @@ export async function generateVoicePreview(
       if (result.value) chunks.push(result.value);
     }
     const audioBuffer = Buffer.concat(chunks);
-    const pcmBytes = Math.max(0, audioBuffer.length - 44);
-    const durationMs = Math.round((pcmBytes / (24000 * 2)) * 1000);
+    const durationMs = normalizeSpeechPcmWav(audioBuffer, {
+      trimBoundarySilence: false,
+    }).durationMs;
 
     await recordPipelineTTSProviderCost({
       status: 'success',
