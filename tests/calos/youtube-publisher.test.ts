@@ -74,7 +74,12 @@ describe("publishToYouTube", () => {
 
     const result = await publishToYouTube(BASE);
 
-    expect(result).toEqual({ ok: true, postId: "vid_1", postUrl: "https://www.youtube.com/watch?v=vid_1" });
+    expect(result).toEqual({
+      ok: true,
+      postId: "vid_1",
+      postUrl: "https://www.youtube.com/watch?v=vid_1",
+      providerAttempted: true,
+    });
     expect(mocks.getUser).toHaveBeenCalledWith("owner_1");
     expect(mocks.getUserOauthAccessToken).toHaveBeenCalledWith("owner_1", "oauth_google");
     expect(mocks.setCredentials).toHaveBeenCalledWith({ access_token: "yt_token" });
@@ -88,13 +93,19 @@ describe("publishToYouTube", () => {
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(false);
     expect(result.error).toContain("requires a video");
+    expect(result.providerAttempted).toBe(false);
     expect(mocks.connectedAccountFindOne).not.toHaveBeenCalled();
   });
 
   it("fails loud when no channel is assigned to the brand", async () => {
     mocks.connectedAccountFindOne.mockResolvedValue(null);
     const result = await publishToYouTube(BASE);
-    expect(result).toEqual({ ok: false, error: "No YouTube channel assigned for this brand", retryable: false });
+    expect(result).toEqual({
+      ok: false,
+      error: "No YouTube channel assigned for this brand",
+      retryable: false,
+      providerAttempted: false,
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -105,6 +116,7 @@ describe("publishToYouTube", () => {
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(false);
     expect(result.error).toContain("no longer connected");
+    expect(result.providerAttempted).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -115,7 +127,24 @@ describe("publishToYouTube", () => {
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(false);
     expect(result.error).toContain("no usable OAuth token");
+    expect(result.providerAttempted).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a failed card-video fetch safely pre-provider", async () => {
+    mocks.connectedAccountFindOne.mockResolvedValue({ accountRef: "youtube", ownerUserId: "owner_1" });
+    mockClerkYoutubeOwner("yt_token");
+    fetchMock.mockResolvedValue(new Response("unavailable", { status: 503 }));
+
+    const result = await publishToYouTube(BASE);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Could not fetch the card's video (503)",
+      retryable: true,
+      providerAttempted: false,
+    });
+    expect(mocks.videosInsert).not.toHaveBeenCalled();
   });
 
   it("marks a 5xx upload error as retryable", async () => {
@@ -127,5 +156,7 @@ describe("publishToYouTube", () => {
     const result = await publishToYouTube(BASE);
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(true);
+    expect(result.providerAttempted).toBe(true);
+    expect(result.responseStatus).toBe(503);
   });
 });

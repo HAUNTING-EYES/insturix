@@ -28,15 +28,15 @@ function graphVersion() {
 
 export async function publishToFacebook(params: PublishParams): Promise<FacebookPublishResult> {
   const text = (params.caption ?? params.title ?? "").trim();
-  if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false };
-  if (!params.brandId) return { ok: false, error: "Facebook publishing requires a brandId", retryable: false };
-  if (!text) return { ok: false, error: "Facebook post text is empty", retryable: false };
+  if (!params.ownerUserId) return { ok: false, error: "Missing ownerUserId", retryable: false, providerAttempted: false };
+  if (!params.brandId) return { ok: false, error: "Facebook publishing requires a brandId", retryable: false, providerAttempted: false };
+  if (!text) return { ok: false, error: "Facebook post text is empty", retryable: false, providerAttempted: false };
 
   const connectToDatabase = (await import("@/schemas/ConnectToDatabase")).default;
   await connectToDatabase();
 
   const auth = await resolveBrandPageAuth(params.brandId, params.accountRef);
-  if ("error" in auth) return { ok: false, error: auth.error, retryable: auth.retryable };
+  if ("error" in auth) return { ok: false, error: auth.error, retryable: auth.retryable, providerAttempted: false };
 
   const result = await createFacebookFeedPost(auth.pageId, auth.pageAccessToken, text);
   await recordCalosFacebookPublishCost(params, result);
@@ -130,14 +130,15 @@ async function createFacebookFeedPost(
         ok: false,
         error: `Facebook post failed (${res.status}): ${data.error?.message || data.message || bodyText || "unknown error"}`,
         retryable,
+        providerAttempted: true,
         responseStatus: res.status,
       };
     }
 
-    if (!data.id) return { ok: false, error: "Facebook returned no post id", retryable: true, responseStatus: res.status };
-    return { ok: true, postId: data.id, postUrl: `https://www.facebook.com/${data.id}`, responseStatus: res.status };
+    if (!data.id) return { ok: false, error: "Facebook returned no post id", retryable: true, providerAttempted: true, responseStatus: res.status };
+    return { ok: true, postId: data.id, postUrl: `https://www.facebook.com/${data.id}`, providerAttempted: true, responseStatus: res.status };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Facebook post threw", retryable: true };
+    return { ok: false, error: error instanceof Error ? error.message : "Facebook post threw", retryable: true, providerAttempted: true };
   }
 }
 
