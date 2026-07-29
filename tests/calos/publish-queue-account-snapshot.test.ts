@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   emitBrandEvent: vi.fn(),
   createDecisionLearningEvent: vi.fn(),
   calosScope: vi.fn(),
+  userFind: vi.fn(),
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({ auth: mocks.auth }));
@@ -40,6 +41,11 @@ vi.mock("@/lib/calos/calos-brand-learning-events", () => ({
 }));
 vi.mock("@/lib/calos/scope", () => ({
   calosScope: mocks.calosScope,
+}));
+vi.mock("@/schemas/user", () => ({
+  User: {
+    find: mocks.userFind,
+  },
 }));
 
 import { POST as postDecision } from "@/app/api/services/calos/deliverables/[id]/decision/route";
@@ -73,8 +79,14 @@ function makeDeliverable() {
 function setAssignments(accountRefs: string[]) {
   const lean = vi.fn().mockResolvedValue(
     accountRefs.map((accountRef) => ({
+      platform: "linkedin",
       accountRef,
+      accountType: "organization",
       displayName: `Account ${accountRef}`,
+      ownerUserId: "owner_1",
+      accessTokenEnc: null,
+      refreshTokenEnc: null,
+      expiresAt: null,
     })),
   );
   const select = vi.fn().mockReturnValue({ lean });
@@ -113,6 +125,18 @@ describe("CalOS approval publish-target snapshot", () => {
     mocks.toContentCard.mockReturnValue({ id: "card_1", stage: "approved" });
     mocks.createDecisionLearningEvent.mockReturnValue({ type: "decision" });
     mocks.emitBrandEvent.mockResolvedValue(undefined);
+    mocks.userFind.mockReturnValue({
+      select: vi.fn(() => ({
+        lean: vi.fn(async () => [{
+          clerkUserId: "owner_1",
+          linkedinTokens: {
+            accessToken: "linkedin_token",
+            userId: "linkedin_member_1",
+            expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+          },
+        }]),
+      })),
+    });
   });
 
   afterEach(() => {
@@ -181,6 +205,44 @@ describe("CalOS approval publish-target snapshot", () => {
     expect(response.status).toBe(409);
     expect(payload.error).toContain("Multiple LinkedIn accounts");
     expect(deliverable.save).not.toHaveBeenCalled();
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("blocks approval when the token expires before the planned publish and cannot refresh", async () => {
+    setAssignments(["linkedin_org_1"]);
+    mocks.userFind.mockReturnValue({
+      select: vi.fn(() => ({
+        lean: vi.fn(async () => [{
+          clerkUserId: "owner_1",
+          linkedinTokens: {
+            accessToken: "expiring_token",
+            expiresAt: new Date("2026-08-01T00:00:00.000Z"),
+          },
+        }]),
+      })),
+    });
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("cannot refresh");
+    expect(deliverable.editorialStatus).toBe("in_review");
+    expect(deliverable.save).not.toHaveBeenCalled();
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("allows editorial approval for TikTok without pretending auto-publishing exists", async () => {
+    deliverable.platform = "tiktok";
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.publish).toEqual({ queued: false, accountRef: null });
+    expect(deliverable.editorialStatus).toBe("approved");
+    expect(deliverable.save).toHaveBeenCalledOnce();
+    expect(mocks.connectedAccountFind).not.toHaveBeenCalled();
     expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
   });
 

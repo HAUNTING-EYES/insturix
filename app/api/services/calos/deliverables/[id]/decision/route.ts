@@ -11,6 +11,11 @@ import { toContentCard } from "@/lib/calos/deliverable-mapper";
 import { emitBrandEvent } from "@/lib/shared/brand-events";
 import { createCalosDecisionLearningEvent } from "@/lib/calos/calos-brand-learning-events";
 import { calosScope } from "@/lib/calos/scope";
+import {
+  isCalosAutoPublishPlatform,
+  loadCalosAssignmentHealth,
+  type CalosAssignmentLike,
+} from "@/lib/calos/publishing-assignment-health";
 
 export const dynamic = "force-dynamic";
 
@@ -164,15 +169,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   }
 }
 
-const PUBLISH_PLATFORMS = new Set<CalosPublishPlatform>([
-  "youtube",
-  "facebook",
-  "instagram",
-  "linkedin",
-  "twitter",
-  "tiktok",
-]);
-
 type PublishTarget = {
   platform: CalosPublishPlatform;
   accountRef: string;
@@ -187,20 +183,26 @@ const PLATFORM_LABELS: Record<CalosPublishPlatform, string> = {
   tiktok: "TikTok",
 };
 
+function publishAtFor(deliverable: ICalosDeliverable): Date {
+  const scheduled = deliverable.plannedDates?.[0] ?? deliverable.card?.date;
+  const parsed = scheduled ? new Date(scheduled) : new Date();
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
 async function resolveApprovedPublishTarget(
   deliverable: ICalosDeliverable,
   brandId: string,
 ): Promise<{ target: PublishTarget | null } | { error: string }> {
-  const platform = String(deliverable.platform || "").toLowerCase() as CalosPublishPlatform;
-  if (!PUBLISH_PLATFORMS.has(platform)) return { target: null };
+  const platform = String(deliverable.platform || "").toLowerCase();
+  if (!isCalosAutoPublishPlatform(platform)) return { target: null };
 
   const assignments = await CalosConnectedAccount.find({
     brandId,
     platform,
     ...(deliverable.orgId ? { orgId: deliverable.orgId } : {}),
   })
-    .select("accountRef")
-    .lean<Array<{ accountRef?: string | null }>>();
+    .select("platform accountRef accountType displayName ownerUserId accessTokenEnc refreshTokenEnc expiresAt")
+    .lean<CalosAssignmentLike[]>();
   const accountRefs = Array.from(
     new Set(
       assignments
@@ -220,6 +222,14 @@ async function resolveApprovedPublishTarget(
       error: `Multiple ${platformLabel} accounts are assigned. Keep one active account in Publishing before approval.`,
     };
   }
+  const health = (
+    await loadCalosAssignmentHealth(assignments, publishAtFor(deliverable).getTime())
+  )[platform];
+  if (!health || health.state !== "assigned") {
+    return {
+      error: health?.message || `${platformLabel} connection could not be verified before approval.`,
+    };
+  }
   return { target: { platform, accountRef: accountRefs[0] } };
 }
 
@@ -237,9 +247,7 @@ async function enqueueApprovedPublish(
   brandId: string,
   target: PublishTarget,
 ): Promise<void> {
-  const scheduled = deliverable.plannedDates?.[0] ?? deliverable.card?.date;
-  const parsed = scheduled ? new Date(scheduled) : new Date();
-  const publishAt = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  const publishAt = publishAtFor(deliverable);
 
   const caption =
     deliverable.assetText ?? deliverable.card?.scriptPreview ?? deliverable.card?.title ?? "";

@@ -5,7 +5,11 @@ import CalosScheduledPublish from "@/schemas/calos-scheduled-publish";
 import CalosConnectedAccount from "@/schemas/calos-connected-account";
 import { requireCalosBrandAccess } from "@/lib/calos/brand-access";
 import { calosScope } from "@/lib/calos/scope";
-import { loadInstagramAssignmentHealth } from "@/lib/calos/instagram-assignment-health";
+import {
+  loadCalosAssignmentHealth,
+  type CalosAssignmentLike,
+  type CalosConnectionHealth,
+} from "@/lib/calos/publishing-assignment-health";
 
 export const dynamic = "force-dynamic";
 
@@ -21,124 +25,44 @@ type PublishRow = {
   updatedAt?: Date | string | null;
 };
 
-type AccountRow = {
-  platform?: string;
-  accountRef?: string;
-  displayName?: string | null;
-  ownerUserId?: string;
-  accessTokenEnc?: string | null;
-  refreshTokenEnc?: string | null;
-  expiresAt?: Date | string | null;
-};
-
-type ConnectionHealth = {
-  state: "assigned" | "attention" | "reconnect";
-  accountRef: string | null;
-  displayName: string | null;
-  message: string | null;
-};
-
-type InstagramHealthByOwner = Awaited<ReturnType<typeof loadInstagramAssignmentHealth>>;
-
 function asTime(value: Date | string | null | undefined) {
   if (!value) return 0;
   const timestamp = new Date(value).getTime();
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-function requiresReconnect(account: AccountRow) {
-  return (
-    Boolean(account.accessTokenEnc) &&
-    asTime(account.expiresAt) > 0 &&
-    asTime(account.expiresAt) <= Date.now() &&
-    !account.refreshTokenEnc
-  );
-}
-
 function buildConnectionHealth(
   rows: PublishRow[],
-  accounts: AccountRow[],
-  instagramHealthByOwner: InstagramHealthByOwner,
+  assignmentHealth: Record<string, CalosConnectionHealth>,
 ) {
-  const byPlatform = new Map<string, AccountRow[]>();
-  for (const account of accounts) {
-    const platform = account.platform?.trim();
-    if (!platform) continue;
-    byPlatform.set(platform, [...(byPlatform.get(platform) ?? []), account]);
-  }
-
-  const health: Record<string, ConnectionHealth> = {};
-  for (const [platform, platformAccounts] of byPlatform) {
-    if (platformAccounts.length !== 1) {
-      health[platform] = {
-        state: "attention",
-        accountRef: null,
-        displayName: null,
-        message: "Multiple accounts are assigned. Keep one active account before publishing.",
-      };
-      continue;
-    }
-
-    const account = platformAccounts[0];
-    const accountRef = account.accountRef?.trim() || null;
-    if (!accountRef || !account.ownerUserId) {
-      health[platform] = {
-        state: "attention",
-        accountRef,
-        displayName: account.displayName ?? null,
-        message: "This account assignment is incomplete. Reconnect it before publishing.",
-      };
-      continue;
-    }
-
-    if (requiresReconnect(account)) {
-      health[platform] = {
-        state: "reconnect",
-        accountRef,
-        displayName: account.displayName ?? null,
-        message: "Stored connection expired and cannot refresh. Reconnect before publishing.",
-      };
-      continue;
-    }
-
-    const instagramHealth = platform === "instagram"
-      ? instagramHealthByOwner.get(account.ownerUserId)
-      : null;
-    if (platform === "instagram" && !instagramHealth?.connected) {
-      health[platform] = {
-        state: "reconnect",
-        accountRef,
-        displayName: account.displayName ?? null,
-        message: instagramHealth?.message || "Instagram must be reconnected before publishing.",
-      };
-      continue;
-    }
-
+  const health = { ...assignmentHealth };
+  for (const [platform, connection] of Object.entries(health)) {
+    if (connection.state !== "assigned" || !connection.accountRef) continue;
     const lastFailure = rows
       .filter(
         (row) =>
           row.platform === platform &&
-          row.accountRef === accountRef &&
+          row.accountRef === connection.accountRef &&
           row.status === "failed" &&
           Boolean(row.lastError),
       )
       .sort((a, b) => asTime(b.updatedAt) - asTime(a.updatedAt))[0];
-
-    health[platform] = {
-      state: lastFailure ? "attention" : "assigned",
-      accountRef,
-      displayName: account.displayName ?? null,
-      message: lastFailure ? `Last publish failed: ${lastFailure.lastError}` : null,
-    };
+    if (lastFailure) {
+      health[platform] = {
+        ...connection,
+        state: "attention",
+        message: `Last publish failed: ${lastFailure.lastError}`,
+      };
+    }
   }
 
   return health;
 }
 
 /**
- * The calendar delivery view. This is intentionally a structural health check:
- * provider APIs are only contacted by real publish attempts, avoiding latency and
- * rate-limit pressure on routine calendar polling.
+ * The calendar delivery view. Credential preflight is read-only: it checks the same
+ * stored owner identity used by the publishers and asks Clerk for YouTube OAuth state,
+ * but never calls a social publishing endpoint.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -168,9 +92,9 @@ export async function GET(req: NextRequest) {
         .lean<PublishRow[]>(),
       CalosConnectedAccount.find({ brandId, ...(orgId ? { orgId } : {}) })
         .select("platform accountRef displayName ownerUserId accessTokenEnc refreshTokenEnc expiresAt")
-        .lean<AccountRow[]>(),
+        .lean<CalosAssignmentLike[]>(),
     ]);
-    const instagramHealthByOwner = await loadInstagramAssignmentHealth(accounts);
+    const assignmentHealth = await loadCalosAssignmentHealth(accounts);
 
     const statuses: Record<
       string,
@@ -194,22 +118,15 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    const connectedPlatforms = Array.from(
-      new Set(
-        accounts
-          .filter((account) =>
-            account.platform !== "instagram" ||
-            Boolean(account.ownerUserId && instagramHealthByOwner.get(account.ownerUserId)?.connected),
-          )
-          .map((account) => account.platform)
-          .filter((platform): platform is string => Boolean(platform)),
-      ),
-    );
+    const connectionHealth = buildConnectionHealth(rows, assignmentHealth);
+    const connectedPlatforms = Object.entries(assignmentHealth)
+      .filter(([, connection]) => connection.state === "assigned")
+      .map(([platform]) => platform);
 
     return NextResponse.json({
       statuses,
       connectedPlatforms,
-      connectionHealth: buildConnectionHealth(rows, accounts, instagramHealthByOwner),
+      connectionHealth,
     });
   } catch (error) {
     console.error("[CalOS] publish-status error:", error);
@@ -288,23 +205,25 @@ export async function POST(req: NextRequest) {
         { status: 409 },
       );
     }
-    const assignedAccount = assignment as unknown as AccountRow;
-    if (!assignedAccount.ownerUserId || requiresReconnect(assignedAccount)) {
+    const assignedAccount = assignment as unknown as CalosAssignmentLike;
+    const assignmentHealth = await loadCalosAssignmentHealth([
+      {
+        platform: row.platform,
+        accountRef: assignedAccount.accountRef,
+        accountType: assignedAccount.accountType,
+        displayName: assignedAccount.displayName,
+        ownerUserId: assignedAccount.ownerUserId,
+        accessTokenEnc: assignedAccount.accessTokenEnc,
+        refreshTokenEnc: assignedAccount.refreshTokenEnc,
+        expiresAt: assignedAccount.expiresAt,
+      },
+    ]);
+    const connection = assignmentHealth[row.platform];
+    if (!connection || connection.state !== "assigned") {
       return NextResponse.json(
-        { error: "The scheduled account must be reconnected before retrying." },
+        { error: connection?.message || "The scheduled account must be reconnected before retrying." },
         { status: 409 },
       );
-    }
-    if (row.platform === "instagram") {
-      const liveHealth = (
-        await loadInstagramAssignmentHealth([{ ...assignedAccount, platform: "instagram" }])
-      ).get(assignedAccount.ownerUserId);
-      if (!liveHealth?.connected) {
-        return NextResponse.json(
-          { error: liveHealth?.message || "Instagram must be reconnected before retrying." },
-          { status: 409 },
-        );
-      }
     }
 
     const retried = (await CalosScheduledPublish.findOneAndUpdate(
