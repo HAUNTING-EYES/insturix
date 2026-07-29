@@ -8,6 +8,25 @@ export const metadata: Metadata = {
   title: "Pricing & Plans",
   description:
     "Insturix pricing and plans for automated content production. Compare what each plan includes for individual creators, teams, and agencies. Start free.",
+  // Declared here rather than inherited: the root layout can only carry ONE absolute
+  // og:url, and inheriting it made this page advertise itself as the homepage.
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/upgrade",
+    siteName: "Insturix",
+    title: "Pricing & Plans | Insturix",
+    description:
+      "Insturix pricing and plans for automated content production. Compare what each plan includes for individual creators, teams, and agencies. Start free.",
+    images: [
+      {
+        url: "/icons/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Insturix - Automated Content Production Platform",
+      },
+    ],
+  },
 };
 
 export default function Upgrade() {

@@ -54,7 +54,11 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: getBaseUrl(),
+    // NOTE: no `url` here, on purpose — same trap as the canonical above. Next.js
+    // metadata is inherited, so a root-level absolute og:url was emitted by every
+    // page that does not declare its own openGraph, telling crawlers and social
+    // platforms that /upgrade, /showcase and /support-us were all the homepage.
+    // og:url must be the page's OWN url, so each page declares it.
     title: "Insturix | Automated Content Production Platform",
     description:
       "Automate content production from planning and editing to analysis, creative assets, and publishing workflows.",

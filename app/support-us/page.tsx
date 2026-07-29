@@ -10,6 +10,25 @@ export const metadata: Metadata = {
   title: "Support Us",
   description:
     "Support Insturix and help us keep building an automated content production platform for agencies, in-house teams, creator houses, and filmmakers.",
+  // Declared here rather than inherited: the root layout can only carry ONE absolute
+  // og:url, and inheriting it made this page advertise itself as the homepage.
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/support-us",
+    siteName: "Insturix",
+    title: "Support Us | Insturix",
+    description:
+      "Support Insturix and help us keep building an automated content production platform for agencies, in-house teams, creator houses, and filmmakers.",
+    images: [
+      {
+        url: "/icons/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Insturix - Automated Content Production Platform",
+      },
+    ],
+  },
 };
 
 export default function SupportUs() {

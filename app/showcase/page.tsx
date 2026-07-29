@@ -8,6 +8,25 @@ export const metadata: Metadata = {
   title: "Showcase",
   description:
     "See real work produced with Insturix, the automated content production platform. Browse examples across formats, industries, and brand styles.",
+  // Declared here rather than inherited: the root layout can only carry ONE absolute
+  // og:url, and inheriting it made this page advertise itself as the homepage.
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/showcase",
+    siteName: "Insturix",
+    title: "Showcase | Insturix",
+    description:
+      "See real work produced with Insturix, the automated content production platform. Browse examples across formats, industries, and brand styles.",
+    images: [
+      {
+        url: "/icons/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Insturix - Automated Content Production Platform",
+      },
+    ],
+  },
 };
 
 export default function Showcase() {
