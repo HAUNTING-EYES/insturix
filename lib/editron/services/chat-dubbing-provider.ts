@@ -7,7 +7,7 @@ import { withAtomicOverlayReceipt, withAtomicOverlayUpdateReceipt } from '@/lib/
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { sampleAudioClip } from '@/lib/editron/services/media/analysis-service';
 import { getTranscription } from '@/lib/editron/services/media/transcription-service';
-import { segmentNarrativeBeats } from '@/lib/editron/services/narrative-beat-producer';
+import { segmentTimedSpeechPhrases } from '@/lib/editron/services/spoken-phrase-segmentation';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
 import {
   getGeneratedNativeVideoReceiptIssue,
@@ -34,8 +34,8 @@ import {
 } from './chat-dubbing-job';
 
 const PHRASES_PER_DELIVERY = 4;
-const MIN_NATURAL_PLAYBACK_RATE = 0.8;
 const MAX_NATURAL_PLAYBACK_RATE = 1.25;
+const MAX_TRANSLATION_REVISIONS = 2;
 const TRANSLATION_SEEDS = [42, 7, 99] as const;
 
 export async function executeChatDubbingStep(job: ChatDubbingJob): Promise<ChatDubbingStepResult> {
@@ -75,26 +75,47 @@ async function prepareDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResul
   if (sourceWords.length === 0) {
     throw new TerminalDubbingError('no-spoken-dialogue', 'The selected clip has no word-timed dialogue to dub.');
   }
-  const beats = segmentNarrativeBeats(sourceWords);
+  const beats = segmentTimedSpeechPhrases(sourceWords, {
+    pauseBoundaryMs: 800,
+    minimumStandaloneWords: 1,
+  });
   if (beats.length === 0) throw new TerminalDubbingError('no-dubbing-phrases', 'No stable phrase windows could be derived from the selected dialogue.');
-  const translations = await translatePhrases(
-    beats.map((beat, index) => ({ id: index, text: beat.line })),
-    speechCapability.displayName,
-  );
-  const phrases: DubbingPhraseProgress[] = beats.map((beat, index) => {
+  const visiblePhrases: DubbingPhraseProgress[] = beats.map((beat, index) => {
     const sourceStartFrame = Math.round((beat.startMs / 1000) * job.fps);
     const sourceEndFrame = Math.max(sourceStartFrame + 1, Math.round((beat.endMs / 1000) * job.fps));
     return {
       index,
       sourceText: beat.line,
-      translatedText: translations[index],
+      translatedText: '',
       timelineStartFrame: job.timelineStartFrame + Math.max(0, sourceStartFrame - job.sourceStartFrame),
       timelineEndFrame: job.timelineStartFrame + Math.min(job.timelineEndFrame - job.timelineStartFrame, sourceEndFrame - job.sourceStartFrame),
       sourceStartMs: beat.startMs,
       sourceEndMs: beat.endMs,
     };
   }).filter((phrase) => phrase.timelineEndFrame > phrase.timelineStartFrame);
+  const phrases = visiblePhrases.map((phrase, index) => ({
+    ...phrase,
+    deliveryEndFrame: Math.min(
+      job.timelineEndFrame,
+      Math.max(
+        phrase.timelineEndFrame,
+        visiblePhrases[index + 1]?.timelineStartFrame ?? job.timelineEndFrame,
+      ),
+    ),
+  }));
   if (phrases.length === 0) throw new TerminalDubbingError('no-visible-dubbing-phrases', 'All speech fell outside the selected edited clip.');
+  const translations = await translatePhrases(
+    phrases.map((phrase) => ({
+      id: phrase.index,
+      text: phrase.sourceText,
+      availableDurationMs: availablePhraseDurationMs(phrase, job.fps),
+    })),
+    speechCapability.displayName,
+  );
+  for (let index = 0; index < phrases.length; index += 1) {
+    phrases[index].translatedText = translations[index];
+    phrases[index].translationRevision = 0;
+  }
   return {
     status: 'continue',
     reason: `prepared-${phrases.length}-phrases`,
@@ -139,38 +160,79 @@ async function generateVoiceChunk(job: ChatDubbingJob): Promise<ChatDubbingStepR
   const start = Math.max(0, job.progress.nextPhraseIndex ?? 0);
   const end = Math.min(phrases.length, start + PHRASES_PER_DELIVERY);
   const generatedAssetIds = [...(job.progress.generatedAssetIds ?? [])];
-  const generatedThisStep: string[] = [];
+  const generatedThisStep = new Set<string>();
   try {
     for (let index = start; index < end; index += 1) {
       const phrase = phrases[index];
       if (phrase.voiceAssetId) continue;
-      const voice = await generateVoiceover(phrase.translatedText, job.userId, {
-        voice: speechCapability.voiceId,
-        language: speechCapability.language,
-        contentType: 'dialogue',
-        mediaRole: 'dubbing',
-      });
-      assertGeneratedSpeechCapability(speechCapability, voice.generatedSpeechCapability);
-      generatedThisStep.push(voice.audioAssetId);
-      const targetDurationMs = ((phrase.timelineEndFrame - phrase.timelineStartFrame) / job.fps) * 1000;
-      const playbackRate = voice.durationMs / targetDurationMs;
-      if (!Number.isFinite(playbackRate) || playbackRate < MIN_NATURAL_PLAYBACK_RATE || playbackRate > MAX_NATURAL_PLAYBACK_RATE) {
-        throw new TerminalDubbingError(
-          'unnatural-phrase-fit',
-          `Phrase ${index + 1} needs ${playbackRate.toFixed(2)}x playback; allowed natural range is ${MIN_NATURAL_PLAYBACK_RATE}-${MAX_NATURAL_PLAYBACK_RATE}.`,
-        );
+      const availableDurationMs = availablePhraseDurationMs(phrase, job.fps);
+      let translatedText = phrase.translatedText;
+      let accepted = false;
+      for (
+        let revision = phrase.translationRevision ?? 0;
+        revision <= MAX_TRANSLATION_REVISIONS;
+        revision += 1
+      ) {
+        const voice = await generateVoiceover(translatedText, job.userId, {
+          voice: speechCapability.voiceId,
+          language: speechCapability.language,
+          contentType: 'dialogue',
+          mediaRole: 'dubbing',
+        });
+        assertGeneratedSpeechCapability(speechCapability, voice.generatedSpeechCapability);
+        generatedThisStep.add(voice.audioAssetId);
+        const requiredPlaybackRate = voice.durationMs / availableDurationMs;
+        const outcome = Number.isFinite(requiredPlaybackRate)
+          && requiredPlaybackRate > 0
+          && requiredPlaybackRate <= MAX_NATURAL_PLAYBACK_RATE
+          ? 'accepted'
+          : 'rephrase';
+        phrase.fitAttempts = [
+          ...(phrase.fitAttempts ?? []),
+          {
+            revision,
+            voiceDurationMs: voice.durationMs,
+            availableDurationMs: round(availableDurationMs, 2),
+            requiredPlaybackRate: round(requiredPlaybackRate, 4),
+            outcome,
+          },
+        ];
+        if (outcome === 'accepted') {
+          phrase.translatedText = translatedText;
+          phrase.translationRevision = revision;
+          phrase.voiceAssetId = voice.audioAssetId;
+          phrase.voiceUrl = voice.audioUrl;
+          phrase.voiceDurationMs = voice.durationMs;
+          phrase.playbackRate = round(Math.max(1, requiredPlaybackRate), 4);
+          phrase.voiceAudioRights = voice.audioRights;
+          phrase.generatedAudioReceipt = voice.generatedAudioReceipt;
+          phrase.generatedSpeechCapability = voice.generatedSpeechCapability;
+          generatedAssetIds.push(voice.audioAssetId);
+          accepted = true;
+          break;
+        }
+
+        await cleanupGeneratedAssets(job.userId, [voice.audioAssetId]);
+        generatedThisStep.delete(voice.audioAssetId);
+        if (revision >= MAX_TRANSLATION_REVISIONS) {
+          throw new TerminalDubbingError(
+            'unnatural-phrase-fit',
+            `Phrase ${index + 1} still needs ${requiredPlaybackRate.toFixed(2)}x playback after ${revision} duration-aware translation revisions; maximum natural playback is ${MAX_NATURAL_PLAYBACK_RATE}x.`,
+          );
+        }
+        translatedText = await rewriteTranslationToFit({
+          sourceText: phrase.sourceText,
+          translatedText,
+          targetLanguage: speechCapability.displayName,
+          availableDurationMs,
+          actualDurationMs: voice.durationMs,
+          revision: revision + 1,
+        });
       }
-      phrase.voiceAssetId = voice.audioAssetId;
-      phrase.voiceUrl = voice.audioUrl;
-      phrase.voiceDurationMs = voice.durationMs;
-      phrase.playbackRate = round(playbackRate, 4);
-      phrase.voiceAudioRights = voice.audioRights;
-      phrase.generatedAudioReceipt = voice.generatedAudioReceipt;
-      phrase.generatedSpeechCapability = voice.generatedSpeechCapability;
-      generatedAssetIds.push(voice.audioAssetId);
+      if (!accepted) throw new TerminalDubbingError('unnatural-phrase-fit', `Phrase ${index + 1} did not produce naturally fitted speech.`);
     }
   } catch (error) {
-    await cleanupGeneratedAssets(job.userId, generatedThisStep);
+    await cleanupGeneratedAssets(job.userId, Array.from(generatedThisStep));
     throw error;
   }
   const nextPhraseIndex = end;
@@ -247,7 +309,10 @@ async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult
   const voiceOverlays = phrases.map((phrase) => stampDubbingSound({
     id: id++,
     from: phrase.timelineStartFrame,
-    durationInFrames: phrase.timelineEndFrame - phrase.timelineStartFrame,
+    durationInFrames: Math.min(
+      (phrase.deliveryEndFrame ?? phrase.timelineEndFrame) - phrase.timelineStartFrame,
+      Math.max(1, Math.ceil(((phrase.voiceDurationMs! / phrase.playbackRate!) / 1000) * job.fps)),
+    ),
     row: ROW.VOICEOVER,
     assetId: phrase.voiceAssetId!,
     src: phrase.voiceUrl!,
@@ -329,7 +394,10 @@ function assertGeneratedSpeechCapability(
   }
 }
 
-async function translatePhrases(input: Array<{ id: number; text: string }>, targetLanguage: string): Promise<string[]> {
+async function translatePhrases(
+  input: Array<{ id: number; text: string; availableDurationMs: number }>,
+  targetLanguage: string,
+): Promise<string[]> {
   const { getGenAI } = await import('@/lib/editron/utils/gemini-model-factory');
   const genAI = await getGenAI();
   const schema = {
@@ -353,7 +421,11 @@ async function translatePhrases(input: Array<{ id: number; text: string }>, targ
         model: 'gemini-2.5-flash',
         generationConfig: { temperature: 0, seed, maxOutputTokens: 8192, responseMimeType: 'application/json', responseSchema: schema },
       });
-      const response = await model.generateContent(`Translate each phrase to ${targetLanguage}. Preserve factual meaning, names, numbers, tone, and one-to-one phrase IDs. Do not summarize, censor, add, or merge. Return JSON only.\n${JSON.stringify({ phrases: input })}`);
+      const response = await model.generateContent(`Translate and adapt each spoken phrase to natural ${targetLanguage} for professional video dubbing.
+Each phrase must fit its availableDurationMs at ordinary speaking pace, allowing at most ${MAX_NATURAL_PLAYBACK_RATE}x playback.
+Preserve every factual claim, name, number, negation, comparison, and tone. Concise equivalent phrasing is allowed; omission, addition, censorship, and merging are forbidden.
+Keep one-to-one phrase IDs and return JSON only.
+${JSON.stringify({ phrases: input })}`);
       const parsed = JSON.parse(response.response.text()) as { phrases?: Array<{ id?: unknown; text?: unknown }> };
       const byId = new Map((parsed.phrases ?? []).map((item) => [Number(item.id), typeof item.text === 'string' ? item.text.trim() : '']));
       const translated = input.map((item) => byId.get(item.id) ?? '');
@@ -362,6 +434,103 @@ async function translatePhrases(input: Array<{ id: number; text: string }>, targ
     } catch (error) { lastError = error; }
   }
   throw lastError instanceof Error ? lastError : new Error('Translation failed.');
+}
+
+async function rewriteTranslationToFit(input: {
+  sourceText: string;
+  translatedText: string;
+  targetLanguage: string;
+  availableDurationMs: number;
+  actualDurationMs: number;
+  revision: number;
+}): Promise<string> {
+  const { getGenAI } = await import('@/lib/editron/utils/gemini-model-factory');
+  const genAI = await getGenAI();
+  const maximumVoiceDurationMs = input.availableDurationMs * MAX_NATURAL_PLAYBACK_RATE;
+  const requiredReductionPercent = Math.max(
+    1,
+    Math.ceil((1 - (maximumVoiceDurationMs / input.actualDurationMs)) * 100),
+  );
+  const schema = {
+    type: 'OBJECT',
+    properties: { text: { type: 'STRING' } },
+    required: ['text'],
+  } as const;
+  let lastError: unknown;
+  for (const seed of TRANSLATION_SEEDS) {
+    try {
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-2.5-flash',
+        generationConfig: {
+          temperature: 0,
+          seed: seed + input.revision,
+          maxOutputTokens: 2048,
+          responseMimeType: 'application/json',
+          responseSchema: schema,
+        },
+      });
+      const response = await model.generateContent(`Rewrite this ${input.targetLanguage} dubbing line so it can be spoken naturally within ${Math.round(input.availableDurationMs)}ms.
+The current synthesized line lasts ${Math.round(input.actualDurationMs)}ms, so reduce spoken duration by at least ${requiredReductionPercent}%.
+Preserve every factual claim, name, number, negation, comparison, and tone from the source. Use concise natural speech; do not omit or add meaning.
+Return JSON only.
+${JSON.stringify({ sourceText: input.sourceText, currentTranslation: input.translatedText })}`);
+      const parsed = JSON.parse(response.response.text()) as { text?: unknown };
+      const rewritten = typeof parsed.text === 'string' ? parsed.text.trim() : '';
+      if (!rewritten || normalizedText(rewritten) === normalizedText(input.translatedText)) {
+        throw new Error('duration-aware-translation-unchanged-or-empty');
+      }
+      const faithful = await verifyTranslationFidelity({
+        sourceText: input.sourceText,
+        translatedText: rewritten,
+        targetLanguage: input.targetLanguage,
+        seed: seed + input.revision,
+      });
+      if (!faithful) throw new Error('duration-aware-translation-semantic-drift');
+      return rewritten;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw new TerminalDubbingError(
+    'duration-aware-translation-failed',
+    lastError instanceof Error ? lastError.message : 'Translation could not be adapted to the measured phrase window.',
+  );
+}
+
+async function verifyTranslationFidelity(input: {
+  sourceText: string;
+  translatedText: string;
+  targetLanguage: string;
+  seed: number;
+}): Promise<boolean> {
+  const { getGenAI } = await import('@/lib/editron/utils/gemini-model-factory');
+  const genAI = await getGenAI();
+  const schema = {
+    type: 'OBJECT',
+    properties: {
+      faithful: { type: 'BOOLEAN' },
+      issues: { type: 'ARRAY', items: { type: 'STRING' } },
+    },
+    required: ['faithful', 'issues'],
+  } as const;
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    generationConfig: {
+      temperature: 0,
+      seed: input.seed + 1000,
+      maxOutputTokens: 1024,
+      responseMimeType: 'application/json',
+      responseSchema: schema,
+    },
+  });
+  const response = await model.generateContent(`Verify whether the ${input.targetLanguage} dubbing line preserves the complete meaning of the source.
+It must preserve every factual claim, name, number, negation, comparison, relationship, and tone. Concise wording is allowed; omission, addition, contradiction, or softened certainty is not.
+Return JSON only.
+${JSON.stringify({ sourceText: input.sourceText, translatedText: input.translatedText })}`);
+  const parsed = JSON.parse(response.response.text()) as { faithful?: unknown; issues?: unknown };
+  return parsed.faithful === true
+    && Array.isArray(parsed.issues)
+    && parsed.issues.length === 0;
 }
 
 async function separateAndPersistBackground(job: ChatDubbingJob, sampledPath: string): Promise<DubbingMediaProgress> {
@@ -540,6 +709,11 @@ function fileUrl(value: unknown): string | null {
   if (value && typeof value === 'object' && typeof (value as { url?: unknown }).url === 'string') return (value as { url: string }).url;
   return null;
 }
+function availablePhraseDurationMs(phrase: DubbingPhraseProgress, fps: number): number {
+  const deliveryEndFrame = phrase.deliveryEndFrame ?? phrase.timelineEndFrame;
+  return Math.max(1, ((deliveryEndFrame - phrase.timelineStartFrame) / fps) * 1000);
+}
+function normalizedText(value: string): string { return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase(); }
 function nextOverlayId(overlays: Overlay[]) { return Math.max(0, ...overlays.map((overlay) => Number(overlay.id)).filter(Number.isFinite)) + 1; }
 function appendUnique(values: string[] | undefined, value: string) { return Array.from(new Set([...(values ?? []), value])); }
 function round(value: number, digits: number) { const scale = 10 ** digits; return Math.round(value * scale) / scale; }

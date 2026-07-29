@@ -4,8 +4,15 @@ import type { ChatDubbingJob, ChatDubbingProgress } from '@/lib/editron/services
 
 const mocks = vi.hoisted(() => ({
   generateVoiceover: vi.fn(),
+  generateContent: vi.fn(),
+  getTranscription: vi.fn(),
   findOne: vi.fn(),
+  find: vi.fn(),
+  findToArray: vi.fn(),
   updateOne: vi.fn(),
+  deleteMany: vi.fn(),
+  deleteFromR2: vi.fn(),
+  deleteFromGCS: vi.fn(),
   readFile: vi.fn(),
   rm: vi.fn(),
   sampleAudioClip: vi.fn(),
@@ -79,7 +86,9 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
   getDatabase: vi.fn(async () => ({
     collection: vi.fn(() => ({
       findOne: mocks.findOne,
+      find: mocks.find,
       updateOne: mocks.updateOne,
+      deleteMany: mocks.deleteMany,
     })),
   })),
 }));
@@ -97,15 +106,27 @@ vi.mock('@/lib/editron/services/media/analysis-service', () => ({
 }));
 
 vi.mock('@/lib/editron/services/media/transcription-service', () => ({
-  getTranscription: vi.fn(),
-}));
-
-vi.mock('@/lib/editron/services/narrative-beat-producer', () => ({
-  segmentNarrativeBeats: vi.fn(),
+  getTranscription: mocks.getTranscription,
 }));
 
 vi.mock('@/lib/editron/services/upload-service', () => ({
   uploadMedia: mocks.uploadMedia,
+}));
+
+vi.mock('@/lib/editron/services/r2-service', () => ({
+  deleteFromR2: mocks.deleteFromR2,
+}));
+
+vi.mock('@/lib/editron/services/gcs-service', () => ({
+  deleteFromGCS: mocks.deleteFromGCS,
+}));
+
+vi.mock('@/lib/editron/utils/gemini-model-factory', () => ({
+  getGenAI: vi.fn(async () => ({
+    getGenerativeModel: vi.fn(() => ({
+      generateContent: mocks.generateContent,
+    })),
+  })),
 }));
 
 vi.mock('@/lib/financials/provider-cost-events', () => ({
@@ -225,8 +246,15 @@ describe('chat dubbing generated-audio provenance', () => {
   beforeEach(() => {
     vi.resetModules();
     mocks.generateVoiceover.mockReset();
+    mocks.generateContent.mockReset();
+    mocks.getTranscription.mockReset();
     mocks.findOne.mockReset();
+    mocks.find.mockReset();
+    mocks.findToArray.mockReset();
     mocks.updateOne.mockReset();
+    mocks.deleteMany.mockReset();
+    mocks.deleteFromR2.mockReset();
+    mocks.deleteFromGCS.mockReset();
     mocks.readFile.mockReset();
     mocks.rm.mockReset();
     mocks.sampleAudioClip.mockReset();
@@ -235,6 +263,11 @@ describe('chat dubbing generated-audio provenance', () => {
     mocks.falStorageUpload.mockReset();
     mocks.falSubscribe.mockReset();
     mocks.rm.mockResolvedValue(undefined);
+    mocks.findToArray.mockResolvedValue([]);
+    mocks.find.mockReturnValue({ toArray: mocks.findToArray });
+    mocks.deleteMany.mockResolvedValue({ deletedCount: 0 });
+    mocks.deleteFromR2.mockResolvedValue(undefined);
+    mocks.deleteFromGCS.mockResolvedValue(undefined);
     mocks.generateVoiceover.mockResolvedValue({
       audioBuffer: Buffer.alloc(44),
       durationMs: 1000,
@@ -366,9 +399,208 @@ describe('chat dubbing generated-audio provenance', () => {
     expect(result.progress.stage).toBe('commit');
     expect(result.progress.phrases?.[0]).toMatchObject({
       voiceAssetId: 'dub_voice_1',
+      playbackRate: 1,
       voiceAudioRights: dubbingRights,
       generatedAudioReceipt,
       generatedSpeechCapability,
+    });
+  });
+
+  it('preserves short utterances and assigns each phrase the real pause before the next onset', async () => {
+    mocks.getTranscription.mockResolvedValue({
+      text: 'First thought. Second thought.',
+      language: 'en',
+      words: [
+        { word: 'First', startMs: 0, endMs: 200 },
+        { word: 'thought.', startMs: 220, endMs: 500 },
+        { word: 'Second', startMs: 1500, endMs: 1700 },
+        { word: 'thought.', startMs: 1720, endMs: 2000 },
+      ],
+      segments: [],
+    });
+    mocks.generateContent.mockResolvedValue({
+      response: {
+        text: () => JSON.stringify({
+          phrases: [
+            { id: 0, text: 'First translation.' },
+            { id: 1, text: 'Second translation.' },
+          ],
+        }),
+      },
+    });
+    const { executeChatDubbingStep } = await import(
+      '@/lib/editron/services/chat-dubbing-provider'
+    );
+    const result = await executeChatDubbingStep({
+      ...job({ stage: 'prepare' }),
+      timelineEndFrame: 90,
+      sourceEndFrame: 90,
+    });
+
+    expect(result.status).toBe('continue');
+    if (result.status !== 'continue') throw new Error('Expected a continuing dubbing job.');
+    expect(result.progress.phrases).toEqual([
+      expect.objectContaining({
+        sourceText: 'First thought.',
+        timelineStartFrame: 0,
+        timelineEndFrame: 15,
+        deliveryEndFrame: 45,
+        translatedText: 'First translation.',
+      }),
+      expect.objectContaining({
+        sourceText: 'Second thought.',
+        timelineStartFrame: 45,
+        timelineEndFrame: 60,
+        deliveryEndFrame: 90,
+        translatedText: 'Second translation.',
+      }),
+    ]);
+    expect(mocks.generateContent.mock.calls[0]?.[0]).toContain('"availableDurationMs":1500');
+  });
+
+  it('keeps naturally short speech at 1x instead of slowing it to fill silence', async () => {
+    mocks.generateVoiceover.mockResolvedValueOnce({
+      audioBuffer: Buffer.alloc(44),
+      durationMs: 600,
+      audioUrl: 'https://storage.test/dub_voice_short.wav',
+      audioAssetId: 'dub_voice_short',
+      gcsPath: 'editron/user-1/media/dub_voice_short.wav',
+      r2Key: null,
+      audioRights: dubbingRights,
+      generatedAudioReceipt: { ...generatedAudioReceipt, assetId: 'dub_voice_short' },
+      generatedSpeechCapability,
+    });
+    const { executeChatDubbingStep } = await import(
+      '@/lib/editron/services/chat-dubbing-provider'
+    );
+    const result = await executeChatDubbingStep(job({
+      stage: 'voice',
+      background: {
+        assetId: 'dub_bed_1',
+        url: 'https://storage.test/dub_bed_1.wav',
+        audioRights: backgroundAudioRights,
+        audioSeparationReceipt,
+      },
+      phrases: [phraseProgress()],
+      nextPhraseIndex: 0,
+      generatedAssetIds: ['dub_bed_1'],
+    }));
+
+    expect(result.status).toBe('continue');
+    if (result.status !== 'continue') throw new Error('Expected a continuing dubbing job.');
+    expect(result.progress.phrases?.[0]).toMatchObject({
+      voiceDurationMs: 600,
+      playbackRate: 1,
+      fitAttempts: [expect.objectContaining({
+        requiredPlaybackRate: 0.6,
+        outcome: 'accepted',
+      })],
+    });
+  });
+
+  it('uses measured TTS duration to rephrase an overlong translation before accepting it', async () => {
+    const hindiCapability = {
+      language: 'hi' as const,
+      displayName: 'Hindi' as const,
+      provider: 'fal-ai' as const,
+      model: 'fal-ai/kokoro/hindi',
+      voiceId: 'hf_alpha',
+      fallbackUsed: false,
+    };
+    mocks.generateVoiceover
+      .mockResolvedValueOnce({
+        audioBuffer: Buffer.alloc(44),
+        durationMs: 1630,
+        audioUrl: 'https://storage.test/dub_voice_long.wav',
+        audioAssetId: 'dub_voice_long',
+        gcsPath: 'editron/user-1/media/dub_voice_long.wav',
+        r2Key: null,
+        audioRights: dubbingRights,
+        generatedAudioReceipt: { ...generatedAudioReceipt, assetId: 'dub_voice_long' },
+        generatedSpeechCapability: hindiCapability,
+      })
+      .mockResolvedValueOnce({
+        audioBuffer: Buffer.alloc(44),
+        durationMs: 1100,
+        audioUrl: 'https://storage.test/dub_voice_fitted.wav',
+        audioAssetId: 'dub_voice_fitted',
+        gcsPath: 'editron/user-1/media/dub_voice_fitted.wav',
+        r2Key: null,
+        audioRights: dubbingRights,
+        generatedAudioReceipt: { ...generatedAudioReceipt, assetId: 'dub_voice_fitted' },
+        generatedSpeechCapability: hindiCapability,
+      });
+    mocks.generateContent.mockImplementation(async (prompt: string) => ({
+      response: {
+        text: () => JSON.stringify(
+          prompt.startsWith('Verify whether')
+            ? { faithful: true, issues: [] }
+            : { text: 'Short Hindi line.' },
+        ),
+      },
+    }));
+    mocks.findToArray.mockResolvedValue([{ assetId: 'dub_voice_long' }]);
+    const { executeChatDubbingStep } = await import(
+      '@/lib/editron/services/chat-dubbing-provider'
+    );
+    const result = await executeChatDubbingStep({
+      ...job({
+        stage: 'voice',
+        background: {
+          assetId: 'dub_bed_1',
+          url: 'https://storage.test/dub_bed_1.wav',
+          audioRights: backgroundAudioRights,
+          audioSeparationReceipt,
+        },
+        phrases: [{
+          ...phraseProgress(),
+          translatedText: 'Verbose Hindi line.',
+          deliveryEndFrame: 30,
+        }],
+        nextPhraseIndex: 0,
+        generatedAssetIds: ['dub_bed_1'],
+      }),
+      version: 'editron-chat-dubbing-job-v3' as const,
+      targetLanguage: 'hi' as const,
+      voiceId: 'hf_alpha',
+      speechCapability: {
+        language: 'hi' as const,
+        displayName: 'Hindi' as const,
+        provider: 'fal-ai' as const,
+        model: 'fal-ai/kokoro/hindi',
+        voiceId: 'hf_alpha',
+      },
+    });
+
+    expect(mocks.generateVoiceover).toHaveBeenNthCalledWith(
+      1,
+      'Verbose Hindi line.',
+      'user-1',
+      expect.objectContaining({ language: 'hi', voice: 'hf_alpha' }),
+    );
+    expect(mocks.generateContent).toHaveBeenCalledTimes(2);
+    expect(mocks.generateContent.mock.calls[1]?.[0]).toContain('Verify whether');
+    expect(mocks.generateVoiceover).toHaveBeenNthCalledWith(
+      2,
+      'Short Hindi line.',
+      'user-1',
+      expect.objectContaining({ language: 'hi', voice: 'hf_alpha' }),
+    );
+    expect(mocks.deleteMany).toHaveBeenCalledWith({
+      userId: 'user-1',
+      assetId: { $in: ['dub_voice_long'] },
+    });
+    expect(result.status).toBe('continue');
+    if (result.status !== 'continue') throw new Error('Expected a continuing dubbing job.');
+    expect(result.progress.phrases?.[0]).toMatchObject({
+      translatedText: 'Short Hindi line.',
+      translationRevision: 1,
+      voiceAssetId: 'dub_voice_fitted',
+      playbackRate: 1.1,
+      fitAttempts: [
+        expect.objectContaining({ requiredPlaybackRate: 1.63, outcome: 'rephrase' }),
+        expect.objectContaining({ requiredPlaybackRate: 1.1, outcome: 'accepted' }),
+      ],
     });
   });
 

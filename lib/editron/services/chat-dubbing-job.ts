@@ -37,8 +37,17 @@ export interface DubbingPhraseProgress {
   translatedText: string;
   timelineStartFrame: number;
   timelineEndFrame: number;
+  deliveryEndFrame?: number;
   sourceStartMs: number;
   sourceEndMs: number;
+  translationRevision?: number;
+  fitAttempts?: Array<{
+    revision: number;
+    voiceDurationMs: number;
+    availableDurationMs: number;
+    requiredPlaybackRate: number;
+    outcome: 'accepted' | 'rephrase';
+  }>;
   voiceAssetId?: string;
   voiceUrl?: string;
   voiceDurationMs?: number;
