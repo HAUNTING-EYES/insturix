@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveUserOAuthToken } from "@/lib/calos/publish/token-crypto";
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -58,6 +59,12 @@ async function loadAuth() {
 }
 
 describe("UploaderX Facebook OAuth lifecycle", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
@@ -68,6 +75,7 @@ describe("UploaderX Facebook OAuth lifecycle", () => {
     vi.stubEnv("FACEBOOK_APP_ID", "facebook_app");
     vi.stubEnv("FACEBOOK_APP_SECRET", "facebook_secret");
     vi.stubEnv("FACEBOOK_GRAPH_API_VERSION", "v23.0");
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 9).toString("base64"));
 
     mocks.auth.mockResolvedValue({ userId: "user_1" });
     mocks.connectToDatabase.mockResolvedValue(undefined);
@@ -161,20 +169,34 @@ describe("UploaderX Facebook OAuth lifecycle", () => {
     const response = await GET(callbackRequest());
 
     expect(redirectLocation(response).searchParams.get("fb_connected")).toBe("true");
-    expect(mocks.userFindOneAndUpdate).toHaveBeenCalledWith(
-      { clerkUserId: "user_1" },
+    expect(mocks.userFindOneAndUpdate).toHaveBeenCalledTimes(1);
+    const [query, update, options] = mocks.userFindOneAndUpdate.mock.calls[0] as [
+      Record<string, unknown>,
       {
         $set: {
-          facebookTokens: expect.objectContaining({
-            userAccessToken: "long_token",
-            userId: "fb_user_1",
-            userName: "Owner",
-            expiresAt: new Date("2026-07-29T11:23:20.000Z"),
-          }),
-        },
+          facebookTokens: {
+            userAccessToken: string;
+            userId: string;
+            userName: string;
+            pages: Array<{ pageAccessToken: string }>;
+            expiresAt: Date;
+          };
+        };
       },
-      { upsert: false },
-    );
+      Record<string, unknown>,
+    ];
+    const storedTokens = update.$set.facebookTokens;
+    expect(query).toEqual({ clerkUserId: "user_1" });
+    expect(storedTokens).toMatchObject({
+      userId: "fb_user_1",
+      userName: "Owner",
+      expiresAt: new Date("2026-07-29T11:23:20.000Z"),
+    });
+    expect(storedTokens.userAccessToken).toMatch(/^oauth:v1:/);
+    expect(resolveUserOAuthToken(storedTokens.userAccessToken)).toBe("long_token");
+    expect(storedTokens.pages[0].pageAccessToken).toMatch(/^oauth:v1:/);
+    expect(resolveUserOAuthToken(storedTokens.pages[0].pageAccessToken)).toBe("page_token");
+    expect(options).toEqual({ upsert: false });
 
     const pagesCall = fetchMock.mock.calls[2] as [string, RequestInit];
     const profileCall = fetchMock.mock.calls[3] as [string, RequestInit];
@@ -183,6 +205,27 @@ describe("UploaderX Facebook OAuth lifecycle", () => {
     expect(pagesCall[1].headers).toEqual({ Authorization: "Bearer long_token" });
     expect(profileCall[1].headers).toEqual({ Authorization: "Bearer long_token" });
     vi.useRealTimers();
+  });
+
+  it("fails closed without persisting plaintext when token encryption is unavailable", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", "");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(graphResponse({ access_token: "short_token" }))
+      .mockResolvedValueOnce(graphResponse({ access_token: "long_token", expires_in: 5_000 }))
+      .mockResolvedValueOnce(
+        graphResponse({
+          data: [{ id: "page_1", name: "Brand Page", access_token: "page_token" }],
+        }),
+      )
+      .mockResolvedValueOnce(graphResponse({ id: "fb_user_1", name: "Owner" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { GET } = await loadCallback();
+    const response = await GET(callbackRequest());
+
+    expect(redirectLocation(response).searchParams.get("fb_error")).toBe("persistence");
+    expect(mocks.userFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
   it("uses the configured Graph version for the authorization dialog", async () => {
