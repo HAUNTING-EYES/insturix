@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { speechEmphasisToAudioCandidate } from '@/lib/editron/agent/chat-audio-tools';
 import { selectStrongestSpeechEmphasis } from '@/lib/editron/services/chat-signal-moment-evidence';
 
 function fixture() {
@@ -121,5 +122,38 @@ describe('chat signal moment evidence', () => {
 
     expect(result.candidates.every((candidate) => !candidate.safeForAutomaticMutation)).toBe(true);
     expect(result.candidates[0].rejectionReasons).toContain('missing-source-to-cut-mapping');
+  });
+
+  it('adapts the selected signal into an audited audio anchor without changing its timing', async () => {
+    const { project, analyses } = fixture();
+    const result = await selectStrongestSpeechEmphasis({
+      projectId: project.projectId,
+      userId: 'user-1',
+      project,
+    }, {
+      loadAnalyses: vi.fn(async () => analyses),
+      saveAudit: vi.fn(async () => undefined),
+      now: () => new Date('2026-07-30T00:00:00.000Z'),
+    });
+
+    const candidate = speechEmphasisToAudioCandidate(result.candidates[0], result.auditId);
+
+    expect(candidate).toMatchObject({
+      text: 'This point matters most',
+      audioKind: 'speech',
+      frame: 150,
+      startFrame: 120,
+      endFrame: 180,
+      matchType: 'signal-ranked',
+      safeForAutoEdit: true,
+      source: {
+        auditId: result.auditId,
+        evidenceId: result.candidates[0].evidenceId,
+        assetId: 'asset-1',
+      },
+      useWith: {
+        set_keyframes: { frame: 150 },
+      },
+    });
   });
 });

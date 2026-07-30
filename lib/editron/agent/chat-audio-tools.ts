@@ -3,6 +3,10 @@ import { z } from "zod";
 
 import { AUDIO_LEVELS, DEFAULT_DUCKING_CONFIG } from "../constants/audio-standards";
 import { ROW } from "@/lib/pipeline/scene-to-editron";
+import {
+  selectStrongestSpeechEmphasis,
+  type ChatSpeechEmphasisCandidate,
+} from "@/lib/editron/services/chat-signal-moment-evidence";
 
 type OverlayId = string | number;
 
@@ -30,7 +34,7 @@ export interface AudioMomentCandidate {
   durationFrames: number;
   confidence: number;
   confidenceLabel: "high" | "medium" | "low";
-  matchType: "exact-phrase" | "audio-kind" | "token-overlap" | "character-vector";
+  matchType: "exact-phrase" | "audio-kind" | "token-overlap" | "character-vector" | "signal-ranked";
   matchReasons: string[];
   evidenceText: string;
   source: {
@@ -38,6 +42,8 @@ export interface AudioMomentCandidate {
     overlayId?: OverlayId;
     assetId?: string;
     overlayType?: string;
+    auditId?: string;
+    evidenceId?: string;
     path: string;
   };
   safeForAutoEdit: boolean;
@@ -150,6 +156,8 @@ const DEFAULT_CLIP_DURATION_FRAMES = 30;
 const audioMomentSchema = z.object({
   query: z.string().min(1).describe("Natural-language audio event, beat, drop, silence, filler, music section, or sound cue to locate."),
   audioOverlayId: z.union([z.string(), z.number()]).optional().describe("Optional timeline audio/video overlay id to constrain the search."),
+  selectionGoal: z.literal("strongest-signal").optional().describe("Rank measured evidence instead of matching query words."),
+  selectionSignal: z.literal("speech-emphasis").optional().describe("Measured signal to rank. Required with strongest-signal."),
   limit: z.coerce.number().int().min(1).max(12).default(5).describe("Maximum audio moment candidates to return."),
   minConfidence: z.coerce.number().min(0).max(1).default(0.35).describe("Minimum candidate confidence."),
   includeOverlayMetadata: z.boolean().default(true).describe("Also search audio/sound overlay metadata and labels."),
@@ -233,6 +241,41 @@ export function createChatAudioTools({ userId, projectId }: CreateChatAudioTools
     async (input: z.infer<typeof audioMomentSchema>) => {
       const { projectService } = await import("../services/project-service");
       const project = await projectService.loadProject(userId, projectId);
+      if (input.selectionGoal || input.selectionSignal) {
+        if (input.selectionGoal !== "strongest-signal" || input.selectionSignal !== "speech-emphasis") {
+          return JSON.stringify({
+            status: "error",
+            message: "Ranked audio selection requires selectionGoal=strongest-signal and selectionSignal=speech-emphasis.",
+          });
+        }
+        const ranked = await selectStrongestSpeechEmphasis({
+          projectId,
+          userId,
+          project,
+          overlayId: input.audioOverlayId,
+          limit: input.limit,
+        });
+        const candidates = ranked.candidates
+          .map((candidate) => speechEmphasisToAudioCandidate(candidate, ranked.auditId))
+          .filter((candidate): candidate is AudioMomentCandidate => candidate != null);
+        return JSON.stringify({
+          status: "success",
+          data: {
+            query: input.query,
+            selection: {
+              goal: input.selectionGoal,
+              signal: input.selectionSignal,
+              auditId: ranked.auditId,
+            },
+            searchedEvidenceCount: ranked.candidates.length,
+            returned: candidates.length,
+            candidates,
+            message: candidates.some((candidate) => candidate.safeForAutoEdit)
+              ? "Found one uniquely strongest mapped speech-emphasis moment from measured prosody."
+              : "No uniquely strongest mapped speech-emphasis moment was safe for automatic editing.",
+          },
+        });
+      }
       const evidence = buildAudioEvidence(project, {
         audioOverlayId: input.audioOverlayId,
         includeOverlayMetadata: input.includeOverlayMetadata,
@@ -261,6 +304,7 @@ export function createChatAudioTools({ userId, projectId }: CreateChatAudioTools
       name: "find_audio_moment",
       description: `Find when a stored audio event, silence, filler, beat, downbeat, music drop, energy peak, music section, or sound overlay appears in the edited timeline.
 Use before edit requests such as "cut the long pause", "add impact on the beat drop", "sync this cut to the downbeat", or "put SFX on the loud hit".
+For requests such as "the strongest spoken emphasis", pass selectionGoal=strongest-signal and selectionSignal=speech-emphasis. That path ranks persisted prosody and never falls back to matching those words in the transcript.
 Returns deterministic frame candidates, confidence, source evidence, and exact frame hints for cut_section, add_sfx, apply_camera_shake, set_keyframes, sync_cuts_to_beats, and add_motion_graphic.
 Do not make a destructive edit from a low-confidence or ambiguous candidate; present the candidates and ask once.`,
       schema: audioMomentSchema,
@@ -336,6 +380,81 @@ This only updates BGM sound overlays. It must not modify SFX, captions, video ti
   );
 
   return [findAudioMoment, resolveAudioEdit, applyAudioDucking];
+}
+
+export function speechEmphasisToAudioCandidate(
+  candidate: ChatSpeechEmphasisCandidate,
+  auditId: string,
+): AudioMomentCandidate | null {
+  if (
+    candidate.frame == null
+    || candidate.startFrame == null
+    || candidate.endFrame == null
+    || candidate.endFrame <= candidate.startFrame
+  ) {
+    return null;
+  }
+  const note = `Prosody-ranked speech emphasis from evidence ${candidate.evidenceId}.`;
+  const text = candidate.transcriptText.trim() || "speech emphasis";
+  const confidence = clamp(candidate.score, 0, 1);
+  return {
+    text,
+    audioKind: "speech",
+    frame: candidate.frame,
+    startFrame: candidate.startFrame,
+    endFrame: candidate.endFrame,
+    startMs: candidate.sourceStartMs,
+    endMs: candidate.sourceEndMs,
+    durationFrames: candidate.endFrame - candidate.startFrame,
+    confidence,
+    confidenceLabel: confidenceLabel(confidence),
+    matchType: "signal-ranked",
+    matchReasons: [
+      "ranked-speech-prosody",
+      `vocal-energy:${candidate.channels.vocalEnergy ?? "missing"}`,
+      `emotion-intensity:${candidate.channels.emotionIntensity ?? "missing"}`,
+      `pitch-variability:${candidate.channels.pitchVariability ?? "missing"}`,
+      ...candidate.rejectionReasons,
+    ],
+    evidenceText: text,
+    source: {
+      type: "analysis",
+      ...(candidate.overlayId != null ? { overlayId: candidate.overlayId } : {}),
+      assetId: candidate.assetId,
+      auditId,
+      evidenceId: candidate.evidenceId,
+      path: candidate.sourcePaths[0] ?? "editron_asset_analyses.segmentAnalysis",
+    },
+    safeForAutoEdit: candidate.safeForAutomaticMutation,
+    useWith: {
+      cut_section: {
+        startFrame: candidate.startFrame,
+        endFrame: candidate.endFrame,
+        note,
+      },
+      add_sfx: {
+        frame: candidate.frame,
+        sync: "audio-anchor",
+        note,
+      },
+      apply_camera_shake: {
+        targetFrame: candidate.frame,
+        note,
+      },
+      set_keyframes: {
+        frame: candidate.frame,
+        note,
+      },
+      sync_cuts_to_beats: {
+        frame: candidate.frame,
+        note,
+      },
+      add_motion_graphic: {
+        frame: candidate.frame,
+        text,
+      },
+    },
+  };
 }
 
 export function buildAudioEditResolutionEnvelope(resolution: AudioEditResolution) {
