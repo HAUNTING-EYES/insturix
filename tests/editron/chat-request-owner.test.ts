@@ -14,6 +14,7 @@ import {
 } from '@/lib/editron/agent/chat-tool-workflow-phase';
 import {
   bindTrustedSelectedOverlayTarget,
+  bindTrustedTimelineTarget,
   buildChatRequestOwnerPrompt,
   classifyChatRequestOwner,
   deriveChatRequestOwner,
@@ -1091,6 +1092,55 @@ describe('chat request owner classification', () => {
           }],
         },
       });
+  });
+
+  it('binds editor timeline references from trusted context and fails closed when absent', () => {
+    const visibleTimelineLicense: ChatRequestOwnerLicense = {
+      ...license('semantic-editorial-planner', 'editorial-plan'),
+      routingFacts: {
+        requestsMutation: true,
+        requestsAnalysis: false,
+        requiresContentLocalization: false,
+        requiresEditorialJudgment: true,
+        requestsReferenceStyle: false,
+        requestsBroadEditorialOutcome: false,
+        durableOperation: 'none',
+        operationFullySpecified: false,
+        targetFullySpecified: true,
+        timelineReference: 'visible-timeline',
+        localizedReads: [],
+        localizedEdits: [],
+        requestedCapabilities: ['project-edit'],
+        capabilityEvidence: [],
+        familyDirectives: [],
+        familyScopeExclusive: false,
+      },
+    };
+
+    expect(bindTrustedTimelineTarget(visibleTimelineLicense, {
+      project: { durationInFrames: 300 },
+      visibleTimeline: { startFrame: 40, endFrame: 480 },
+    })).toMatchObject({
+      trustedTimelineTarget: {
+        status: 'ready',
+        reference: 'visible-timeline',
+        startFrame: 40,
+        endFrame: 300,
+      },
+    });
+    expect(bindTrustedTimelineTarget(visibleTimelineLicense, {
+      project: { durationInFrames: 300 },
+    })).toMatchObject({
+      trustedTimelineTarget: {
+        status: 'unavailable',
+        reference: 'visible-timeline',
+      },
+    });
+
+    const schema = GEMINI_OWNER_RESPONSE_SCHEMA as unknown as {
+      properties: { facts: { required: string[] } };
+    };
+    expect(schema.properties.facts.required).toContain('timelineReference');
   });
 
   it('preserves uploaded-asset placement and timing as executable resolver facts', async () => {

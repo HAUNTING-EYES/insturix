@@ -48,6 +48,14 @@ export type ChatRequestOwner = (typeof CHAT_REQUEST_OWNERS)[number];
 export type ChatRestoreResolutionStatus = 'ready' | 'no-intent' | 'no-checkpoint' | 'missing-target';
 export type ChatSemanticWorkflow = 'editorial-plan' | 'reference-style' | 'localized-mutation' | 'selected-dialogue-dubbing';
 
+export const CHAT_TIMELINE_REFERENCES = [
+  'none',
+  'selected-range',
+  'visible-timeline',
+  'playhead',
+] as const;
+export type ChatTimelineReference = (typeof CHAT_TIMELINE_REFERENCES)[number];
+
 export interface ChatEditorialFamilyDirective {
   family: EditorialFamily;
   mode: 'prefer' | 'off';
@@ -68,6 +76,7 @@ export interface ChatRequestRoutingFacts {
   durableOperation?: 'none' | 'selected-dialogue-dubbing';
   operationFullySpecified: boolean;
   targetFullySpecified: boolean;
+  timelineReference?: ChatTimelineReference;
   localizedReads?: ChatLocalizedReadRequest[];
   localizedEdits?: ChatLocalizedEditRequest[];
   requestedCapabilities: ChatRequestCapability[];
@@ -85,6 +94,13 @@ export interface ChatRequestOwnerLicense {
   decidedBy: 'checkpoint-resolver' | 'gemini';
   routingFacts?: ChatRequestRoutingFacts;
   semanticWorkflow?: ChatSemanticWorkflow;
+  trustedTimelineTarget?: {
+    status: 'ready' | 'unavailable';
+    reference: Exclude<ChatTimelineReference, 'none'>;
+    startFrame?: number;
+    endFrame?: number;
+    overlayIds?: Array<string | number>;
+  };
 }
 
 export function bindTrustedSelectedOverlayTarget(
@@ -124,11 +140,91 @@ export function bindTrustedSelectedOverlayTarget(
   };
 }
 
+export function bindTrustedTimelineTarget(
+  license: ChatRequestOwnerLicense,
+  context: {
+    project?: { durationInFrames?: number };
+    playhead?: { frame?: number; activeOverlayIds?: Array<string | number> };
+    selectedRange?: { startFrame?: number; endFrame?: number };
+    selectedOverlay?: { id?: string | number };
+    visibleTimeline?: { startFrame?: number; endFrame?: number };
+  },
+): ChatRequestOwnerLicense {
+  const reference = license.routingFacts?.timelineReference ?? 'none';
+  if (reference === 'none') return license;
+
+  const range = reference === 'selected-range'
+    ? context.selectedRange
+    : reference === 'visible-timeline'
+      ? context.visibleTimeline
+      : {
+          startFrame: context.playhead?.frame,
+          endFrame: typeof context.playhead?.frame === 'number'
+            ? context.playhead.frame + 1
+            : undefined,
+        };
+  const projectEnd = finiteNonNegativeInteger(context.project?.durationInFrames);
+  const startFrame = finiteNonNegativeInteger(range?.startFrame);
+  const rawEndFrame = finiteNonNegativeInteger(range?.endFrame);
+  const endFrame = rawEndFrame == null || projectEnd == null
+    ? rawEndFrame
+    : Math.min(rawEndFrame, projectEnd);
+  const ready = startFrame != null && endFrame != null && endFrame > startFrame;
+  const overlayIds = reference === 'selected-range' && context.selectedOverlay?.id != null
+    ? [context.selectedOverlay.id]
+    : reference === 'playhead'
+      ? context.playhead?.activeOverlayIds
+      : undefined;
+
+  return {
+    ...license,
+    trustedTimelineTarget: ready
+      ? {
+          status: 'ready',
+          reference,
+          startFrame,
+          endFrame,
+          ...(overlayIds?.length ? { overlayIds: [...overlayIds] } : {}),
+        }
+      : { status: 'unavailable', reference },
+  };
+}
+
+export function enforceTrustedTimelineTargetArgs(
+  toolName: string,
+  args: Record<string, unknown>,
+  license?: ChatRequestOwnerLicense,
+): Record<string, unknown> {
+  if (toolName !== 'apply_editorial_intent') return args;
+  const reference = license?.routingFacts?.timelineReference ?? 'none';
+  if (reference === 'none') return args;
+  const target = license?.trustedTimelineTarget;
+  if (
+    target?.status !== 'ready'
+    || target.startFrame == null
+    || target.endFrame == null
+  ) {
+    throw new Error(`Trusted ${reference} context is unavailable for this chat turn.`);
+  }
+  const scoped: Record<string, unknown> = {
+    ...args,
+    scopeKind: reference === 'playhead' ? 'moment' : 'selection',
+    startFrame: target.startFrame,
+    endFrame: target.endFrame,
+  };
+  if (target.overlayIds?.length) scoped.overlayIds = [...target.overlayIds];
+  else delete scoped.overlayIds;
+  return scoped;
+}
+
 export interface ClassifyChatRequestOwnerInput {
   userMessage: string;
   restoreStatus: ChatRestoreResolutionStatus;
   selectedOverlayPresent: boolean;
   visualEvidencePresent: boolean;
+  selectedRangePresent?: boolean;
+  visibleTimelinePresent?: boolean;
+  playheadPresent?: boolean;
   attachments: readonly AuthorizedChatAttachment[];
 }
 
@@ -284,6 +380,7 @@ const modelRoutingFactsSchema = z.object({
   durableOperation: z.enum(['none', 'selected-dialogue-dubbing']).default('none'),
   operationFullySpecified: z.boolean(),
   targetFullySpecified: z.boolean(),
+  timelineReference: z.enum(CHAT_TIMELINE_REFERENCES).default('none'),
   localizedReads: z.array(z.object({
     modality: z.enum(CHAT_LOCALIZED_MODALITIES),
     goal: z.enum(CHAT_LOCALIZED_READ_GOALS),
@@ -598,6 +695,12 @@ export const GEMINI_OWNER_RESPONSE_SCHEMA: ResponseSchema = {
         },
         operationFullySpecified: { type: SchemaType.BOOLEAN },
         targetFullySpecified: { type: SchemaType.BOOLEAN },
+        timelineReference: {
+          type: SchemaType.STRING,
+          format: 'enum',
+          enum: [...CHAT_TIMELINE_REFERENCES],
+          description: 'Editor UI timeline state referenced by the user. The server binds its coordinates.',
+        },
         localizedReads: {
           type: SchemaType.ARRAY,
           items: {
@@ -788,6 +891,7 @@ export const GEMINI_OWNER_RESPONSE_SCHEMA: ResponseSchema = {
         'durableOperation',
         'operationFullySpecified',
         'targetFullySpecified',
+        'timelineReference',
         'localizedReads',
         'localizedEdits',
         'requestedCapabilities',
@@ -988,6 +1092,7 @@ requestsReferenceStyle: true only when the user asks to imitate, transfer, or ap
 durableOperation: selected-dialogue-dubbing only when the user explicitly asks to translate/dub the spoken dialogue of one selected video clip. Use none for captions, generic voiceovers, whole-project language choices, analysis, or ordinary audio edits.
 operationFullySpecified: true when the requested operation is unambiguous and the owning workflow has enough semantic constraints to resolve it. A family owner choosing the exact licensed asset or physical form does not make the operation unspecified. Literal text, a named color, bold/italic, relative placement such as top/center, a semantic target such as strongest spoken beat, and a duration such as first 3 seconds count as supplied values.
 targetFullySpecified: true when the existing target is selected/identified or, for a new element, its timeline window and placement are supplied. A new element never needs an existing overlay ID.
+timelineReference: selected-range when the user refers to the selected range/selection; visible-timeline for the visible timeline/visible section; playhead for here/current frame/playhead; otherwise none. This identifies trusted editor UI state only. Never translate one of these references into a transcript, visual, or audio search query, and never invent its frame coordinates.
 localizedReads: for each analysis-only request that must find or inspect content inside speech, visuals, audio, or uploaded assets, preserve one goal and target query in the user's original language. Use locate to find where something occurs and inspect to explain what is present. Never put a requested mutation here.
 localizedEdits: for each mutation whose operation is explicit and whose semantic target must be found inside speech, visuals, audio, or uploaded assets, preserve one semantic operation and the target query in the user's original language. sourceSpan is the shortest exact verbatim span from the request that proves this operation exists. For camera-motion, cameraMotionJob is mandatory and preserves what the user requested: zoom-in, zoom-out, or shake. The modality records where to find the anchor; it must never change the requested job. When the request asks for the strongest measured moment rather than words/events to match, set anchorSelection=strongest-signal and anchorSignal=speech-emphasis; this is an audio/prosody anchor even when spoken content supplies its meaning. Omit both anchor fields for ordinary phrase/event matching. Omit cameraMotionJob for every other operation. For non-asset edits, keep sourceQuery and targetQuery empty and targetKind=none. For asset edits, sourceQuery is the uploaded asset to find; query stays equal to sourceQuery for compatibility. Asset replacement separately preserves targetQuery and targetKind=selected-overlay or described-overlay. Asset placement uses targetKind=none and preserves explicit canvas placement in placement plus literal timeline constraints in timing. Use mode=corner with horizontal/vertical for named corners. Timing kind must describe the supplied relation: range=start+end, start-duration=start+duration, start=start only, end=end only, duration=duration only, anchor=intro/outro/entire with optional duration. timing.sourceSpan is the shortest exact verbatim timing phrase. Preserve seconds as concise decimal strings with at most 6 fractional digits; never calculate frames. Omit placement or timing when the user did not supply that constraint.
 requestedCapabilities: the complete operational workflow(s) explicitly required by the request. These are capability requirements, not tool names or creative forms. Use caption-track for adding a caption track; caption-refresh for regenerating or retiming an existing caption track; caption-batch-style for changing all existing caption presentation without replacing timing; motion-graphic-composition for a requested semantic motion graphic, infographic, animated title, or explanatory scene whose faithful form must be composed from content and signals; audio-ducking for lowering music under speech; background-music for adding or replacing project BGM; beat-sync for aligning existing cuts to music beats; scene-regeneration for rebuilding an existing scene; html-scene-edit for revising an existing HTML scene; overlay-create for a fully specified new literal text/shape/image element; overlay-update for one identified overlay; overlay-batch-update for matching overlays; clip-split or clip-trim for an identified clip; timeline-cut for a literal frame/time range; overlay-delete for an identified overlay; overlay-style-sync for copying style between identified overlays; timeline-gap-close for closing existing gaps; sticker-overlay for a sticker whose content and anchor are supplied; selected-keyframes for explicit keyframes on a selected overlay; overlay-fade, overlay-layer-order, overlay-retime, or clip-filter for those exact selected-target operations; asset-placement or asset-replacement for uploaded media that must be resolved; localized-sfx when a new sound effect must be grounded to a media moment; sfx-replacement for replacing an existing selected or identified SFX; localized-camera-motion or localized-speed-change when a requested effect must be grounded to a media moment; project-reframe for an explicit canvas reframe; reference-style for reference transfer; selected-dialogue-dubbing for the durable dubbing workflow; and project-edit for a broad editorial re-edit. Report every independently requested capability in a mixed command, once each, in the same order the user requested the operations.
@@ -1014,12 +1119,16 @@ requestsBroadEditorialOutcome: true only when the user asks to improve, rework, 
 15. A semantic phrase that only anchors another declared capability is localization evidence for that capability, not a second mutation. Example: "When I say this is the key point, add a lightbulb sticker" => localizedReads=[{"modality":"transcript","goal":"locate","query":"this is the key point"}], requestedCapabilities=["sticker-overlay"], localizedEdits=[]. Do not invent a transcript/highlight mutation for the anchor.
 16. A direct capability and a localized edit may share a turn only when their capabilityEvidence and localized sourceSpan prove distinct requested operations. Never translate "highlight this visual moment" into clip-filter, or invent brighter/warmer/filter instructions that the user did not supply.
 17. Preserve camera-motion intent separately from its anchor evidence. "Use a subtle zoom on the strongest spoken emphasis" means operation=camera-motion, cameraMotionJob=zoom-in, modality=audio, anchorSelection=strongest-signal, anchorSignal=speech-emphasis. "Zoom out when the reveal appears" means cameraMotionJob=zoom-out, modality=visual with no anchor selection fields. "Shake on the strongest impact beat" means cameraMotionJob=shake, modality=audio. Never turn an audio-located zoom into shake.
+18. Editor UI references are not media semantics. "Tighten this visible section without changing the rest" means timelineReference=visible-timeline, requiresEditorialJudgment=true, requestedCapabilities=["project-edit"], and no localized visual speed-change. The server supplies the actual range. An explicit operation such as "speed-ramp the visible section" may keep its exact family operation, but still uses timelineReference=visible-timeline rather than searching the words "visible section".
 </rules>
 
 <trusted_context>
 ${JSON.stringify({
     selectedOverlayPresent: input.selectedOverlayPresent,
     visualEvidencePresent: input.visualEvidencePresent,
+    selectedRangePresent: input.selectedRangePresent ?? false,
+    visibleTimelinePresent: input.visibleTimelinePresent ?? false,
+    playheadPresent: input.playheadPresent ?? false,
     attachments: attachmentFacts,
   })}
 </trusted_context>
@@ -1028,7 +1137,7 @@ ${JSON.stringify({
 ${boundedRequest(input.userMessage)}
 </untrusted_user_request>
 
-Return exactly {"facts":{"requestsMutation":boolean,"requestsAnalysis":boolean,"requiresContentLocalization":boolean,"requiresEditorialJudgment":boolean,"requestsReferenceStyle":boolean,"requestsBroadEditorialOutcome":boolean,"durableOperation":"none"|"selected-dialogue-dubbing","operationFullySpecified":boolean,"targetFullySpecified":boolean,"localizedReads":[{"modality":"transcript"|"visual"|"audio"|"asset","goal":"locate"|"inspect","query":"target in the user's original language"}],"localizedEdits":[{"modality":"transcript"|"visual"|"audio"|"asset","operation":"remove"|"highlight"|"camera-motion"|"speed-change"|"sound-effect"|"beat-sync"|"place-asset"|"replace-asset","query":"compatibility query","sourceQuery":"uploaded source asset or empty","targetQuery":"timeline target or empty","targetKind":"none"|"selected-overlay"|"described-overlay","sourceSpan":"exact verbatim request span","cameraMotionJob":"zoom-in"|"zoom-out"|"shake"|null,"anchorSelection":"strongest-signal"|null,"anchorSignal":"speech-emphasis"|null}],"requestedCapabilities":[${CHAT_REQUEST_CAPABILITIES.map((capability) => `"${capability}"`).join('|')}],"capabilityEvidence":[{"capability":"one requested capability","sourceSpan":"exact verbatim request span"}],"familyDirectives":[{"family":"captions"|"motionGraphics"|"zoom"|"transitions"|"sfx"|"music","mode":"prefer"|"off"}]},"confidence":"concise decimal from 0 to 1","reason":"one short factual sentence"}. cameraMotionJob is required only when operation=camera-motion and must be null or omitted otherwise. anchorSelection and anchorSignal are required only for ranked signal anchors and must be null or omitted otherwise. For an asset placement with supplied spatial or timeline constraints, add the optional placement and timing objects shown in rule 14 to that localized edit.`;
+Return exactly {"facts":{"requestsMutation":boolean,"requestsAnalysis":boolean,"requiresContentLocalization":boolean,"requiresEditorialJudgment":boolean,"requestsReferenceStyle":boolean,"requestsBroadEditorialOutcome":boolean,"durableOperation":"none"|"selected-dialogue-dubbing","operationFullySpecified":boolean,"targetFullySpecified":boolean,"timelineReference":"none"|"selected-range"|"visible-timeline"|"playhead","localizedReads":[{"modality":"transcript"|"visual"|"audio"|"asset","goal":"locate"|"inspect","query":"target in the user's original language"}],"localizedEdits":[{"modality":"transcript"|"visual"|"audio"|"asset","operation":"remove"|"highlight"|"camera-motion"|"speed-change"|"sound-effect"|"beat-sync"|"place-asset"|"replace-asset","query":"compatibility query","sourceQuery":"uploaded source asset or empty","targetQuery":"timeline target or empty","targetKind":"none"|"selected-overlay"|"described-overlay","sourceSpan":"exact verbatim request span","cameraMotionJob":"zoom-in"|"zoom-out"|"shake"|null,"anchorSelection":"strongest-signal"|null,"anchorSignal":"speech-emphasis"|null}],"requestedCapabilities":[${CHAT_REQUEST_CAPABILITIES.map((capability) => `"${capability}"`).join('|')}],"capabilityEvidence":[{"capability":"one requested capability","sourceSpan":"exact verbatim request span"}],"familyDirectives":[{"family":"captions"|"motionGraphics"|"zoom"|"transitions"|"sfx"|"music","mode":"prefer"|"off"}]},"confidence":"concise decimal from 0 to 1","reason":"one short factual sentence"}. cameraMotionJob is required only when operation=camera-motion and must be null or omitted otherwise. anchorSelection and anchorSignal are required only for ranked signal anchors and must be null or omitted otherwise. For an asset placement with supplied spatial or timeline constraints, add the optional placement and timing objects shown in rule 14 to that localized edit.`;
 }
 
 function deriveRoutingFacts(
@@ -1186,6 +1295,12 @@ function sourceSpansOverlap(left: string, right: string): boolean {
 
 function normalizeProvenanceText(value: string): string {
   return value.normalize('NFKC').trim().toLocaleLowerCase();
+}
+
+function finiteNonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.round(value)
+    : null;
 }
 
 export function deriveChatRequestOwner(facts: ChatRequestRoutingFacts): ChatRequestOwner {

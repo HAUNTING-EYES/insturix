@@ -34,6 +34,7 @@ import {
 } from '@/lib/editron/services/chat-attachment-contract';
 import {
   bindTrustedSelectedOverlayTarget,
+  bindTrustedTimelineTarget,
   classifyChatRequestOwner,
 } from '@/lib/editron/agent/chat-request-owner';
 import { classifyChatProviderFailure } from '@/lib/editron/agent/chat-provider-failure';
@@ -310,13 +311,19 @@ export async function POST(req: NextRequest) {
       restoreStatus: restoreTarget.status,
       selectedOverlayPresent: Boolean(selectedOverlayId),
       visualEvidencePresent: Boolean(visualEvidence),
+      selectedRangePresent: Boolean(chatEditContext.selectedRange),
+      visibleTimelinePresent: Boolean(chatEditContext.visibleTimeline),
+      playheadPresent: Number.isFinite(chatEditContext.playhead.frame),
       attachments,
     }, {
       addUsage: (usage) => tokenTracker.addUsage(usage),
     });
-    const requestOwnerLicense = bindTrustedSelectedOverlayTarget(
-      classifiedRequestOwnerLicense,
-      selectedOverlayId,
+    const requestOwnerLicense = bindTrustedTimelineTarget(
+      bindTrustedSelectedOverlayTarget(
+        classifiedRequestOwnerLicense,
+        selectedOverlayId,
+      ),
+      chatEditContext,
     );
 
     // Fail closed before invoking any mutating tool. Every turn gets a durable

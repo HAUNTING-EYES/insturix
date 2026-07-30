@@ -78,6 +78,7 @@ import {
   recordServerTimelinePreflightEvidence,
 } from './chat-tool-server-preflight';
 import {
+  enforceTrustedTimelineTargetArgs,
   filterChatToolsForRequestOwner,
   filterPromptForCallableChatTools,
   formatChatRequestOwnerLicenseForPrompt,
@@ -126,7 +127,10 @@ const debugError = (...args: any[]) => { console.error('[AGENT-ERROR]', ...args)
 export function normalizeAgentToolArgs(
   toolName: string,
   input: unknown,
-  options: { projectFps?: unknown } = {},
+  options: {
+    projectFps?: unknown;
+    requestOwnerLicense?: ChatRequestOwnerLicense;
+  } = {},
 ): Record<string, unknown> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return {};
@@ -192,9 +196,14 @@ export function normalizeAgentToolArgs(
     if (value === 'false') args[key] = false;
   }
 
-  return toolName === 'apply_editorial_intent'
+  const normalized = toolName === 'apply_editorial_intent'
     ? normalizeChatEditorialIntentWireAliases(args)
     : args;
+  return enforceTrustedTimelineTargetArgs(
+    toolName,
+    normalized,
+    options.requestOwnerLicense,
+  );
 }
 
 function latestHumanMessageText(messages: unknown[]): string {
@@ -1064,6 +1073,7 @@ ${serverWorkflowPrompt}
         let evidenceReceipts: ReturnType<typeof buildChatEvidenceReceipts> = [];
         let args = normalizeAgentToolArgs(toolCall.name, toolCall.args, {
           projectFps: config.configurable?.projectFps,
+          requestOwnerLicense: turnContext?.requestOwnerLicense,
         });
         const preflightInterception = interceptToolCallForServerPreflight({
           preflight: serverTimelinePreflight,
@@ -1137,6 +1147,8 @@ ${serverWorkflowPrompt}
                   configurable: {
                     ...(config.configurable ?? {}),
                     chatUserTurnText,
+                    chatTrustedTimelineTarget:
+                      turnContext?.requestOwnerLicense?.trustedTimelineTarget,
                   },
                 });
                 if (toolMetadata?.mutatesProject) {
