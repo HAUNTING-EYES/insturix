@@ -69,9 +69,8 @@ function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
 
-function summarizeTextLayers(value: unknown, textPolicy: unknown): string | undefined {
+function summarizeTextLayers(value: unknown, exposeExactCopy: boolean): string | undefined {
   if (!Array.isArray(value)) return undefined;
-  const exposeExactCopy = cleanText(textPolicy) === "minimal_generated_text";
   const layers = value
     .map((entry) => {
       const layer = asRecord(entry);
@@ -313,12 +312,11 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   pushField(lines, "Image prompt", typeof renderPlan?.imagePrompt === "string" ? sanitizeVisualPrompt(renderPlan.imagePrompt).clean : renderPlan?.imagePrompt);
   pushField(lines, "Layout intent", renderPlan?.layoutIntent);
   pushField(lines, "Text policy", renderPlan?.textPolicy);
-  const textLayerSummary = summarizeTextLayers(renderPlan?.textLayers, renderPlan?.textPolicy);
+  const renderTextInImage = shouldRenderTextInImage(renderPlan?.textPolicy, modelId);
+  const textLayerSummary = summarizeTextLayers(renderPlan?.textLayers, renderTextInImage);
   pushField(lines, "Text layers", textLayerSummary);
   if (textLayerSummary) {
-    // C2: when the resolved policy/model wants in-image text, the exact copy above is what the
-    // model should RENDER; otherwise it stays overlay-only metadata.
-    lines.push(shouldRenderTextInImage(renderPlan?.textPolicy, modelId)
+    lines.push(renderTextInImage
       ? "Text-layer copy handling: render this exact copy accurately and legibly in the image."
       : "Text-layer copy handling: exact copy is metadata only; do not rasterize it in the generated image.");
   }
@@ -335,13 +333,13 @@ export function buildClickatronSourceContextBlock(metadata?: MetadataRecord | nu
   return lines.join("\n");
 }
 
-// C2 functions for text rendering.
 function shouldRenderTextInImage(textPolicy: unknown, modelId?: string | null): boolean {
-  if (textPolicy === 'suppress_text') return false;
   if (textPolicy === 'force_render_text') return true;
-  if (!modelId) return false;
-  // Default text policy: only text-capable models render text by default.
-  return modelId.includes('nano-banana') || modelId.includes('seedream') || modelId.includes('gemini');
+  if (textPolicy !== 'minimal_generated_text' || !modelId) return false;
+  const normalizedModelId = modelId.toLowerCase();
+  return normalizedModelId.includes('nano-banana')
+    || normalizedModelId.includes('seedream')
+    || normalizedModelId.includes('gemini');
 }
 
 function parseTextHierarchy(metadata?: MetadataRecord | null): string {
@@ -394,13 +392,11 @@ function buildRasterTextDirective(metadata?: MetadataRecord | null, modelId?: st
   hierarchy: string;
   directive: string;
 } {
-  const hierarchy = parseTextHierarchy(metadata);
-  if (!hierarchy) return { hierarchy: "", directive: "" };
-
   const clickatron = asRecord(asRecord(metadata)?.clickatron);
   const creativeSpec = asRecord(clickatron?.creativeSpec);
   const renderPlan = asRecord(creativeSpec?.renderPlan);
-  if (shouldRenderTextInImage(renderPlan?.textPolicy, modelId)) {
+  const hierarchy = parseTextHierarchy(metadata);
+  if (hierarchy && shouldRenderTextInImage(renderPlan?.textPolicy, modelId)) {
     return {
       hierarchy,
       directive: "Raster text policy: Render only the exact supplied text hierarchy accurately and legibly; do not invent additional copy.",
@@ -409,7 +405,7 @@ function buildRasterTextDirective(metadata?: MetadataRecord | null, modelId?: st
 
   return {
     hierarchy: "",
-    directive: "Raster text policy: Do not render readable text from Clickatron text layers; reserve clear safe zones for editable overlays.",
+    directive: "Raster text policy: Do not render any readable text, letters, numbers, hashtags, captions, logos, brand marks, watermarks, or legible interface labels in the raster image. Treat screens and interfaces as abstract or defocused shapes. Reserve clear safe zones for editable Clickatron overlays.",
   };
 }
 
@@ -422,6 +418,15 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
   if (contextBlocks.length === 0) return prompt;
 
   const rasterText = buildRasterTextDirective(input.metadata, input.modelId);
+  const rasterPolicyPriority = rasterText.hierarchy
+    ? "Render only the exact supplied text hierarchy. Never invent or add copy."
+    : "Generate a text-free raster background. Editable copy and logos are composited later and must not appear in this image.";
+  const typographyInstruction = rasterText.hierarchy
+    ? "Typography is part of the composition. Use the supplied hierarchy intentionally."
+    : "Do not draw typography. Use negative space and clean contrast zones for later editable text overlays.";
+  const textRenderingInstruction = rasterText.hierarchy
+    ? "Render only text explicitly supplied in the extracted text hierarchy. Never invent dates, venues, event names, slogans, logos, or additional copy."
+    : "Do not render readable text or typography. Do not invent copy, logos, brand marks, watermarks, hashtags, captions, or legible interface labels.";
   const brandIntegrityDirective = brandContextBlock
     ? "Brand integrity: Never invent, redraw, or spell a logo from text. Use supplied logo evidence only; otherwise leave logo-safe space."
     : "";
@@ -442,7 +447,10 @@ Your goal is to create visuals that feel professionally designed rather than AI-
 </role>
 
 <priority_order>
-1. USER PROMPT (Highest Priority)
+0. RASTER CONTRACT (Highest Priority)
+${rasterPolicyPriority}
+
+1. USER PROMPT
 The user's prompt is the primary creative source of truth.
 Never replace, reinterpret, or weaken explicit instructions.
 If the user specifies a style, scene, layout, palette, typography, composition, subject, mood, or design language, follow it exactly.
@@ -462,7 +470,7 @@ Every design should have:
 • Professional spacing.
 • Intentional use of negative space.
 • Balanced composition.
-• Consistent typography.
+- Consistent visual language.
 • Strong visual storytelling.
 • Modern editorial aesthetics.
 
@@ -497,8 +505,8 @@ The design should naturally guide the viewer's eyes.${layoutRatioBlock}
 </composition>
 
 <typography>
-Typography is part of the composition.
-Use hierarchy intentionally.
+${typographyInstruction}
+${rasterText.hierarchy ? `
 
 Headline
 ↓
@@ -506,18 +514,12 @@ Subheadline
 ↓
 Supporting Information
 ↓
-Footer
-
-Avoid making every text element equally large.
+Footer` : ""}
+${rasterText.hierarchy ? "Avoid making every text element equally large." : ""}
 </typography>
 
 <text_rendering>
-Only render text explicitly supplied by the user or structured metadata.
-Never invent dates.
-Never invent venues.
-Never invent event names.
-Never invent slogans.
-Do not generate additional logos or branding.
+${textRenderingInstruction}
 </text_rendering>
 
 <brand>
@@ -584,9 +586,9 @@ Use it only to improve the final design.
 
     const enriched = [
       v7SystemInstructions,
-      userExplicitContent,
       rasterText.directive,
       brandIntegrityDirective,
+      userExplicitContent,
       textHierarchyBlock,
       ...contextBlocks
     ].filter(Boolean).join("\n\n");
@@ -610,9 +612,9 @@ Use it only to improve the final design.
   const layoutDirective = layoutRatioBlock ? `Layout Instructions: ${layoutRatioBlock}` : "";
 
   const enriched = [
-    coreVisualPrompt,
     rasterText.directive,
     brandIntegrityDirective,
+    coreVisualPrompt,
     textHierarchyBlock,
     brandDirective,
     layoutDirective,

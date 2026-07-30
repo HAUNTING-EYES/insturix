@@ -254,8 +254,9 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).toContain("exact copy withheld from raster prompt");
     expect(prompt).toContain("Text-layer copy handling: exact copy is metadata only");
     expect(prompt).toContain("Carousel slides: Slide 1 (Hook): Bold opening slide");
-    expect(prompt).toContain("Raster text policy: Do not render readable text from Clickatron text layers");
-    expect(prompt).toContain("reserve clear safe zones for editable overlays");
+    expect(prompt).toContain("Raster text policy: Do not render any readable text");
+    expect(prompt).toContain("Treat screens and interfaces as abstract or defocused shapes");
+    expect(prompt).toContain("Reserve clear safe zones for editable Clickatron overlays");
     expect(prompt).not.toContain("Stop rebuilding context for every tool.");
     expect(prompt).not.toContain("Design this in Clickatron");
     expect(prompt).not.toContain("tf_session_secret");
@@ -263,27 +264,47 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).not.toContain("blk_secret");
   });
 
-  it("bakes text into the image when the picked model is text-capable (C2), default policy", () => {
-    // Same default 'editable_text_layers' fixture, but the user picked a text-capable model.
+  it("keeps editable text out of the raster prompt even when the model can render text", () => {
     const base = {
-      prompt: "Create the Clickatron graphic.",
+      prompt: "A cluttered agency workstation with four monitors. Text Overlay: 'THE FRAGMENTATION TRAP'.",
       metadata: { clickatron: { title: "Carousel handoff", creativeSpec: creativeSpec() } },
     };
-    const rendered = buildClickatronGenerationPrompt({ ...base, modelId: "fal-ai/nano-banana-pro" });
-    expect(rendered).toContain("Text-layer copy handling: render this exact copy accurately and legibly");
-    expect(rendered).toContain("Raster text policy: Render only the exact supplied text hierarchy");
-    expect(rendered).toContain("Stop rebuilding context for every tool.");
+    const prompt = buildClickatronGenerationPrompt({ ...base, modelId: "fal-ai/nano-banana-pro" });
 
-    // An explicit overlay-only policy stays suppressed even on the production default model.
-    const suppressedSpec = creativeSpec();
-    suppressedSpec.renderPlan.textPolicy = "suppress_text";
-    const suppressed = buildClickatronGenerationPrompt({
-      ...base,
-      metadata: { clickatron: { title: "Carousel handoff", creativeSpec: suppressedSpec } },
-      modelId: DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID,
+    expect(prompt).toContain("Generate a text-free raster background");
+    expect(prompt).toContain("Raster text policy: Do not render any readable text");
+    expect(prompt).toContain("Do not draw typography");
+    expect(prompt).toContain("Text-layer copy handling: exact copy is metadata only");
+    expect(prompt).not.toContain("THE FRAGMENTATION TRAP");
+    expect(prompt).not.toContain("Stop rebuilding context for every tool.");
+  });
+
+  it("renders exact text only when minimal raster text is explicit and the model supports it", () => {
+    const rasterTextSpec = creativeSpec();
+    rasterTextSpec.renderPlan.textPolicy = "minimal_generated_text";
+    const prompt = buildClickatronGenerationPrompt({
+      prompt: "Create the Clickatron graphic.",
+      metadata: { clickatron: { title: "Carousel handoff", creativeSpec: rasterTextSpec } },
+      modelId: "fal-ai/nano-banana-pro",
     });
-    expect(suppressed).toContain("Raster text policy: Do not render readable text from Clickatron text layers");
-    expect(suppressed).not.toContain("Stop rebuilding context for every tool.");
+
+    expect(prompt).toContain("Raster text policy: Render only the exact supplied text hierarchy");
+    expect(prompt).toContain("Text-layer copy handling: render this exact copy accurately and legibly");
+    expect(prompt).toContain("Stop rebuilding context for every tool.");
+  });
+
+  it("fails closed when minimal raster text targets a model without text support", () => {
+    const rasterTextSpec = creativeSpec();
+    rasterTextSpec.renderPlan.textPolicy = "minimal_generated_text";
+    const prompt = buildClickatronGenerationPrompt({
+      prompt: "Create the Clickatron graphic.",
+      metadata: { clickatron: { title: "Carousel handoff", creativeSpec: rasterTextSpec } },
+      modelId: "fal-ai/imagen4/preview",
+    });
+
+    expect(prompt).toContain("Raster text policy: Do not render any readable text");
+    expect(prompt).toContain("Text-layer copy handling: exact copy is metadata only");
+    expect(prompt).not.toContain("Stop rebuilding context for every tool.");
   });
 
   it("prefers task brandId and resolves BrandVault context through injected deps", async () => {
