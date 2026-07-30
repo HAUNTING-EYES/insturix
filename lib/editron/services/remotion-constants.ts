@@ -25,3 +25,9 @@ export const REMOTION_COMPOSITION_ID = 'TestComponent';
  * grabs, not full composites.
  */
 export const REMOTION_FRAMES_PER_LAMBDA = 100;
+
+/**
+ * MP3 accumulated an audible 1.552s tail beyond a frame-exact 38s production
+ * canary. AAC is the canonical H.264/MP4 delivery codec on both render paths.
+ */
+export const REMOTION_AUDIO_CODEC = 'aac' as const;

@@ -15,7 +15,11 @@
  */
 
 import { renderMediaOnLambda, getRenderProgress } from '@remotion/lambda/client';
-import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from './remotion-constants';
+import {
+  REMOTION_AUDIO_CODEC,
+  REMOTION_COMPOSITION_ID,
+  REMOTION_FRAMES_PER_LAMBDA,
+} from './remotion-constants';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
@@ -231,7 +235,7 @@ async function startSingleChapterRender(
       framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,
       privacy: 'public',
       timeoutInMilliseconds: 600000, // 10 min per chapter
-      audioCodec: 'mp3',
+      audioCodec: REMOTION_AUDIO_CODEC,
       frameRange: [chapter.startFrame, Math.max(chapter.startFrame, chapter.endFrame - 1)],
     });
     await db.collection(CHAPTERS_COLLECTION).updateOne(

@@ -162,6 +162,7 @@ describe("chapter renderer progress", () => {
     expect(mocks.renderMediaOnLambda).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
+        audioCodec: "aac",
         frameRange: [0, 14_999],
         inputProps: expect.objectContaining({ durationInFrames: 30_000, overlays: insertedJob.overlays }),
       }),
@@ -169,6 +170,7 @@ describe("chapter renderer progress", () => {
     expect(mocks.renderMediaOnLambda).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
+        audioCodec: "aac",
         frameRange: [15_000, 29_999],
         inputProps: expect.objectContaining({ durationInFrames: 30_000, overlays: insertedJob.overlays }),
       }),

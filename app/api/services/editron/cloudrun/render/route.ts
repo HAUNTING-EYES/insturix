@@ -20,7 +20,11 @@ import {
   resolveRenderableAudioInputProps,
   UnlicensedAudioInRenderError,
 } from '@/lib/editron/shared/render-request-payload';
-import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from '@/lib/editron/services/remotion-constants';
+import {
+  REMOTION_AUDIO_CODEC,
+  REMOTION_COMPOSITION_ID,
+  REMOTION_FRAMES_PER_LAMBDA,
+} from '@/lib/editron/services/remotion-constants';
 import { assertRemotionSiteFresh } from '@/lib/editron/services/remotion-site-version';
 import {
   buildRenderDeliveryManifest,
@@ -242,7 +246,7 @@ export async function POST(request: Request) {
       // large/slow-proxied clip hangs delayRender on the browser <video> element → 598s render timeout.
       inputProps: lambdaRenderProps,
       codec: 'h264',
-      audioCodec: 'mp3', // Faster audio processing than AAC
+      audioCodec: REMOTION_AUDIO_CODEC,
       privacy: 'public', // Make the video publicly accessible
       // Distributed rendering settings — chunk size centralized in remotion-constants.
       framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,

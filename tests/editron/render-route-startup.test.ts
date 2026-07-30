@@ -191,6 +191,7 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.deduct.mock.invocationCallOrder[0])
       .toBeLessThan(routeMocks.renderMediaOnLambda.mock.invocationCallOrder[0]);
     expect(routeMocks.renderMediaOnLambda).toHaveBeenCalledWith(expect.objectContaining({
+      audioCodec: 'aac',
       metadata: {
         editronRenderAdmissionId: admissionId,
       },
