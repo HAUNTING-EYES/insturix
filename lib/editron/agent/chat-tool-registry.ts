@@ -304,6 +304,7 @@ const EVIDENCE_PRODUCERS: Readonly<Record<string, ChatToolEvidenceClass[]>> = {
   resolve_visual_edit: ['visual-target'],
   resolve_audio_edit: ['audio-target'],
   resolve_user_asset_overlay: ['asset-target'],
+  resolve_keyframe_edit: ['visual-target'],
 };
 
 function postconditions(

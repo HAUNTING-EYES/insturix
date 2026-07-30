@@ -643,6 +643,70 @@ describe('chat tool turn protocol', () => {
     })).toMatchObject({ action: 'block', reason: 'missing-evidence' });
   });
 
+  it('authorizes only the exact keyframes returned by the keyframe resolver', () => {
+    const resolvedArgs = {
+      overlayId: 1783964668040,
+      property: 'scale',
+      keyframes: [
+        { frame: 0, value: 1, easing: 'ease-in-out' },
+        { frame: 57, value: 1.08, easing: 'ease-out' },
+      ],
+    };
+    const resolverOutput = JSON.stringify({
+      status: 'success',
+      data: { useWith: { set_keyframes: resolvedArgs } },
+      error: null,
+    });
+    const resolved = execution('resolve_keyframe_edit', resolverOutput, {
+      args: {
+        query: 'Add a subtle push-in across the selected clip',
+        overlayId: resolvedArgs.overlayId,
+        property: resolvedArgs.property,
+      },
+      evidenceReceipts: buildChatEvidenceReceipts({
+        toolName: 'resolve_keyframe_edit',
+        args: {
+          query: 'Add a subtle push-in across the selected clip',
+          overlayId: resolvedArgs.overlayId,
+          property: resolvedArgs.property,
+        },
+        output: resolverOutput,
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      }),
+    });
+
+    expect(resolved.evidenceReceipts).toHaveLength(1);
+    expect(resolved.evidenceReceipts[0]?.authorizedMutations).toEqual([{
+      toolName: 'set_keyframes',
+      args: resolvedArgs,
+    }]);
+    expect(decideChatToolExecution({
+      toolName: 'set_keyframes',
+      args: resolvedArgs,
+      ledger: ledger([currentProjectRead(), resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toEqual({ action: 'execute' });
+    expect(decideChatToolExecution({
+      toolName: 'set_keyframes',
+      args: {
+        ...resolvedArgs,
+        keyframes: [
+          resolvedArgs.keyframes[0],
+          { ...resolvedArgs.keyframes[1], value: 1.2 },
+        ],
+      },
+      ledger: ledger([currentProjectRead(), resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toMatchObject({ action: 'block', reason: 'missing-evidence' });
+  });
+
   it('persists evidence receipts through tool-message ledger reconstruction', () => {
     const receipt: ChatToolEvidenceReceipt = {
       version: 'editron-chat-evidence-v1',
