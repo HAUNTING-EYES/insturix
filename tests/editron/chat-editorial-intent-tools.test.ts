@@ -724,6 +724,32 @@ describe('Director Mode confirm-gate (assist lane)', () => {
     expect(deps.executeTargetedIntent).not.toHaveBeenCalled();
   });
 
+  it('does not treat an explicit family-only MG composition as a full Auto-Director handoff', async () => {
+    const deps = dependencies({ loadProject: vi.fn(async () => assistProject()) });
+    const result = await applyGroundedEditorialIntent({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: {
+        goal: 'Create a process diagram for this explanation',
+        scope: { kind: 'project' },
+        constraints: [],
+        strength: 0.5,
+        uncertainty: 0,
+        families: { motionGraphics: { mode: 'prefer' } },
+      },
+      executionScope: {
+        version: 'editorial-execution-scope-v1',
+        source: 'chat-editorial-intent',
+        mode: 'explicit-families-only',
+        families: ['motionGraphics'],
+      },
+    }, deps);
+
+    expect(result.status).toBe('success');
+    expect(result.dispatch.reasons).not.toContain('assist-auto-director-needs-confirmation');
+    expect(deps.executeProjectIntent).toHaveBeenCalledOnce();
+  });
+
   it('gates a script-led intent the same way', async () => {
     const deps = dependencies({ loadProject: vi.fn(async () => assistProject()) });
     const result = await applyGroundedEditorialIntent({

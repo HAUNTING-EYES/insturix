@@ -254,7 +254,9 @@ export async function applyGroundedEditorialIntent(
   // edit to the full Auto-Director — the engine this lane exists to route
   // around. FOUNDER RULING (plan REV 5 #3): confirm-gated, never silent. The
   // gate never touches targeted moment-scoped edits (normal chat ownership).
-  const handsProjectToAutoDirector = Boolean(intent.script) || intent.scope.kind === 'project';
+  const isExplicitFamilyOnly = intent.executionScope?.mode === 'explicit-families-only';
+  const handsProjectToAutoDirector = Boolean(intent.script)
+    || (intent.scope.kind === 'project' && !isExplicitFamilyOnly);
   if (handsProjectToAutoDirector && isAssistProject(project) && !args.input.autoDirectorConfirmed) {
     dispatch = {
       owner: intent.script ? 'phase2-script-planner' : 'director-unified-planner',

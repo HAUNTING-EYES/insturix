@@ -109,6 +109,80 @@ describe('chat request owner classification', () => {
     expect(addUsage).toHaveBeenCalledWith({ promptTokenCount: 40, candidatesTokenCount: 12 });
   });
 
+  it('repairs motion-graphic authority to the unified semantic composition owner', async () => {
+    const userMessage = 'Add motion graphics only where the idea is visually explainable.';
+    const baseFacts = {
+      requestsMutation: true,
+      requestsAnalysis: false,
+      requiresContentLocalization: false,
+      requiresEditorialJudgment: false,
+      requestsReferenceStyle: false,
+      requestsBroadEditorialOutcome: false,
+      durableOperation: 'none',
+      operationFullySpecified: true,
+      targetFullySpecified: true,
+      localizedReads: [],
+      localizedEdits: [],
+      capabilityEvidence: [],
+      familyDirectives: [{ family: 'motionGraphics', mode: 'prefer' }],
+    };
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          facts: {
+            ...baseFacts,
+            requestedCapabilities: ['localized-overlay'],
+          },
+          confidence: 0.96,
+          reason: 'The request asks for motion graphics.',
+        }),
+      })
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          facts: {
+            ...baseFacts,
+            requestedCapabilities: ['motion-graphic-composition'],
+          },
+          confidence: 0.98,
+          reason: 'The unified planner owns semantic motion-graphic composition.',
+        }),
+      });
+
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, { generate });
+
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate.mock.calls[1]?.[0]).toContain(
+      'Motion-graphic requests must license semantic composition through the unified planner',
+    );
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'editorial-plan',
+      routingFacts: {
+        requestedCapabilities: ['motion-graphic-composition'],
+        familyDirectives: [{ family: 'motionGraphics', mode: 'prefer' }],
+        familyScopeExclusive: true,
+      },
+    });
+    expect(getChatCapabilityAuthorityContract('motion-graphic-composition')).toMatchObject({
+      authority: 'unified-planner',
+      requiresResolverAuthorization: false,
+    });
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: result,
+      ledger: { requestedToolNames: [], completedExecutions: [] },
+      projectId: 'proj_mg',
+      projectRevision: 'revision-1',
+    })).toMatchObject({
+      kind: 'tool-call',
+      operationId: '0:motion-graphic-composition',
+      toolCall: { name: 'get_timeline_view' },
+    });
+  });
+
   it('allows one schema correction retry and then fails closed', async () => {
     const generate = vi
       .fn()

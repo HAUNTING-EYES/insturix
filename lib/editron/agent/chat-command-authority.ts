@@ -4,6 +4,7 @@ export const CHAT_REQUEST_CAPABILITIES = [
   'caption-track',
   'caption-refresh',
   'caption-batch-style',
+  'motion-graphic-composition',
   'audio-ducking',
   'background-music',
   'beat-sync',
@@ -181,6 +182,11 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     authority: 'family-owner',
     mutationTools: ['batch_edit_captions'],
     requiredToolSequence: [TIMELINE_READ_STEP, 'batch_edit_captions'],
+  }),
+  'motion-graphic-composition': capabilityContract({
+    authority: 'unified-planner',
+    mutationTools: ['apply_editorial_intent'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'apply_editorial_intent'],
   }),
   'audio-ducking': capabilityContract({
     authority: 'family-owner',
