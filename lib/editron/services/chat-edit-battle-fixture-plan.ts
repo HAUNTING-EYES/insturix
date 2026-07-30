@@ -64,7 +64,14 @@ export interface ChatBattleFixturePlan {
   requestedAssetAlias?: ChatBattleFixtureAssetAlias;
   requiresUploadBatchClone: boolean;
   seedTimelineGapFrames?: number;
-  alignSelectedWithOverlayType?: string;
+  selectedOverlayMinimumDurationFrames?: number;
+  stripSelectedAnimation?: boolean;
+  minimumOverlayCount?: {
+    type: 'text';
+    count: number;
+    requireDistinctStyles: boolean;
+  };
+  selectedBehindOverlayType?: string;
   requiredSourceCapabilities: ChatBattleFixtureCapability[];
 }
 
@@ -160,8 +167,23 @@ export function planChatBattleFixture(
     requiresUploadBatchClone: scenario.id === 'multiasset-script-intake'
       || scenario.id === 'multiasset-script-chat',
     ...(scenario.id === 'close-timeline-gaps' ? { seedTimelineGapFrames: 30 } : {}),
+    ...(scenario.id === 'manual-keyframe-zoom'
+      ? { selectedOverlayMinimumDurationFrames: 60 }
+      : {}),
+    ...(scenario.id === 'selected-overlay-fade'
+      ? { stripSelectedAnimation: true }
+      : {}),
+    ...(scenario.id === 'sync-overlay-style' || scenario.id === 'batch-overlay-update'
+      ? {
+          minimumOverlayCount: {
+            type: 'text' as const,
+            count: 2,
+            requireDistinctStyles: true,
+          },
+        }
+      : {}),
     ...(scenario.id === 'reorder-overlay-layer'
-      ? { alignSelectedWithOverlayType: 'image' }
+      ? { selectedBehindOverlayType: 'image' }
       : {}),
     requiredSourceCapabilities: resolveRequiredSourceCapabilities(scenario.id),
   };

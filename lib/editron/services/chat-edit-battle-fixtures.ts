@@ -202,11 +202,15 @@ export function prepareChatBattleFixture(input: {
     project.overlays,
     input.plan.selectedOverlayType,
     input.plan.selectedOverlayRole,
+    input.plan.selectedOverlayMinimumDurationFrames,
   );
   if (input.plan.selectedOverlayType && !selectedOverlay) {
     const role = input.plan.selectedOverlayRole ? ` ${input.plan.selectedOverlayRole}` : '';
     throw new Error(
-      `Fixture source ${sourceProjectId} has no${role} ${input.plan.selectedOverlayType} overlay required by ${input.plan.scenarioId}.`,
+      `Fixture source ${sourceProjectId} has no${role} ${input.plan.selectedOverlayType} overlay`
+      + `${input.plan.selectedOverlayMinimumDurationFrames
+        ? ` lasting at least ${input.plan.selectedOverlayMinimumDurationFrames} frames`
+        : ''} required by ${input.plan.scenarioId}.`,
     );
   }
   const durationInFrames = positiveInteger(project.durationInFrames) ?? maxOverlayEnd(project.overlays);
@@ -583,8 +587,14 @@ function applyScenarioTimelineSeeds(
   if (plan.seedTimelineGapFrames) {
     seedTimelineGap(overlays, project, plan.seedTimelineGapFrames, plan);
   }
-  if (plan.alignSelectedWithOverlayType) {
-    alignSelectedOverlayWithType(overlays, plan);
+  if (plan.minimumOverlayCount) {
+    seedMinimumOverlayCount(overlays, project, plan);
+  }
+  if (plan.selectedBehindOverlayType) {
+    seedSelectedBehindReference(overlays, project, plan);
+  }
+  if (plan.stripSelectedAnimation) {
+    stripSelectedAnimation(overlays, plan);
   }
   return overlays;
 }
@@ -619,24 +629,114 @@ function seedTimelineGap(
   project.durationInFrames = Math.max(currentDuration + gapFrames, maxOverlayEnd(overlays));
 }
 
-function alignSelectedOverlayWithType(
+function seedMinimumOverlayCount(
   overlays: Record<string, unknown>[],
+  project: Record<string, unknown>,
   plan: ChatBattleFixturePlan,
 ): void {
-  const selected = overlays.find(
-    (overlay) => stringValue(overlay.type) === plan.selectedOverlayType,
+  const requirement = plan.minimumOverlayCount;
+  if (!requirement) return;
+  const matching = overlays.filter((overlay) => stringValue(overlay.type) === requirement.type);
+  const source = matching[0];
+  if (!source) {
+    throw new Error(
+      `Fixture source ${plan.sourceProjectId} has no ${requirement.type} overlay to seed ${plan.scenarioId}.`,
+    );
+  }
+
+  const seeded: Record<string, unknown>[] = [];
+  while (matching.length + seeded.length < requirement.count) {
+    const peer = structuredClone(source);
+    peer.id = nextNumericOverlayId(overlays, seeded);
+    peer.content = `Fixture peer title ${seeded.length + 1}`;
+    peer.from = maxOverlayEnd([...overlays, ...seeded]) + 30;
+    peer.durationInFrames = Math.max(90, finiteFrame(source.durationInFrames));
+    peer.row = 0;
+    if (requirement.requireDistinctStyles) {
+      peer.styles = {
+        ...asRecord(peer.styles),
+        color: '#ff2d55',
+        fill: '#ff2d55',
+      };
+    }
+    seeded.push(peer);
+  }
+  overlays.push(...seeded);
+  project.durationInFrames = Math.max(
+    positiveInteger(project.durationInFrames) ?? 1,
+    maxOverlayEnd(overlays),
+  );
+}
+
+function seedSelectedBehindReference(
+  overlays: Record<string, unknown>[],
+  project: Record<string, unknown>,
+  plan: ChatBattleFixturePlan,
+): void {
+  const selected = findSelectedOverlay(
+    overlays,
+    plan.selectedOverlayType,
+    plan.selectedOverlayRole,
+    plan.selectedOverlayMinimumDurationFrames,
   );
   const reference = overlays.find(
-    (overlay) => stringValue(overlay.type) === plan.alignSelectedWithOverlayType,
+    (overlay) => stringValue(overlay.type) === plan.selectedBehindOverlayType,
   );
   if (!selected || !reference) {
     throw new Error(
       `Fixture source ${plan.sourceProjectId} cannot create the selected ${plan.selectedOverlayType ?? 'overlay'} `
-      + `/ ${plan.alignSelectedWithOverlayType} overlap required by ${plan.scenarioId}.`,
+      + `/ ${plan.selectedBehindOverlayType} layer relation required by ${plan.scenarioId}.`,
     );
   }
-  reference.from = finiteFrame(selected.from);
-  reference.durationInFrames = Math.max(1, finiteFrame(selected.durationInFrames));
+
+  const isolatedStart = maxOverlayEnd(overlays) + 30;
+  const isolatedDuration = Math.max(90, finiteFrame(selected.durationInFrames));
+  selected.from = isolatedStart;
+  selected.durationInFrames = isolatedDuration;
+  selected.row = 2;
+  reference.from = isolatedStart;
+  reference.durationInFrames = isolatedDuration;
+  reference.row = 1;
+  for (const key of ['left', 'top', 'width', 'height'] as const) {
+    if (selected[key] !== undefined) reference[key] = selected[key];
+  }
+  project.durationInFrames = Math.max(
+    positiveInteger(project.durationInFrames) ?? 1,
+    isolatedStart + isolatedDuration,
+  );
+}
+
+function stripSelectedAnimation(
+  overlays: Record<string, unknown>[],
+  plan: ChatBattleFixturePlan,
+): void {
+  const selected = findSelectedOverlay(
+    overlays,
+    plan.selectedOverlayType,
+    plan.selectedOverlayRole,
+    plan.selectedOverlayMinimumDurationFrames,
+  );
+  if (!selected) {
+    throw new Error(
+      `Fixture source ${plan.sourceProjectId} has no selected overlay whose animation can be cleared for ${plan.scenarioId}.`,
+    );
+  }
+  const styles = { ...asRecord(selected.styles) };
+  delete styles.animation;
+  selected.styles = styles;
+  selected.keyframeTracks = asRecords(selected.keyframeTracks).filter((track) => (
+    stringValue(track.property) !== 'opacity'
+  ));
+}
+
+function nextNumericOverlayId(
+  overlays: Record<string, unknown>[],
+  seeded: Record<string, unknown>[],
+): number {
+  const ids = [...overlays, ...seeded]
+    .map((overlay) => overlay.id)
+    .filter((id): id is number => typeof id === 'number' && Number.isSafeInteger(id));
+  return ids.length > 0 ? Math.max(...ids) + 1 : 9_000_000_000 + seeded.length;
 }
 
 function hasTimeLocalizedSemanticVisual(analysis: Record<string, unknown> | undefined): boolean {
@@ -748,6 +848,7 @@ function findSelectedOverlay(
   value: unknown,
   requiredType?: string,
   requiredRole?: 'sfx',
+  minimumDurationFrames?: number,
 ): Record<string, unknown> | undefined {
   if (!requiredType || !Array.isArray(value)) return undefined;
   const compatible = requiredType === 'html-scene'
@@ -756,6 +857,10 @@ function findSelectedOverlay(
   return value.map(asRecord).find((overlay) => (
     compatible.has(stringValue(overlay.type) ?? '')
     && (requiredRole !== 'sfx' || isSfxSoundOverlay(overlay))
+    && (
+      minimumDurationFrames == null
+      || finiteFrame(overlay.durationInFrames) >= minimumDurationFrames
+    )
   ));
 }
 

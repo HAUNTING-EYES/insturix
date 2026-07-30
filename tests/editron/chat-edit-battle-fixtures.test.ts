@@ -66,9 +66,17 @@ describe('chat edit battle fixtures', () => {
       requiredSourceCapabilities: ['multi-asset', 'semantic-visual-all-video-assets'],
     });
     expect(plan('close-timeline-gaps')).toMatchObject({ seedTimelineGapFrames: 30 });
+    expect(plan('manual-keyframe-zoom')).toMatchObject({ selectedOverlayMinimumDurationFrames: 60 });
+    expect(plan('selected-overlay-fade')).toMatchObject({ stripSelectedAnimation: true });
+    expect(plan('sync-overlay-style')).toMatchObject({
+      minimumOverlayCount: { type: 'text', count: 2, requireDistinctStyles: true },
+    });
+    expect(plan('batch-overlay-update')).toMatchObject({
+      minimumOverlayCount: { type: 'text', count: 2, requireDistinctStyles: true },
+    });
     expect(plan('reorder-overlay-layer')).toMatchObject({
       selectedOverlayType: 'text',
-      alignSelectedWithOverlayType: 'image',
+      selectedBehindOverlayType: 'image',
     });
     expect(plan('selected-overlay-edit')).toMatchObject({ requiredSourceCapabilities: [] });
     expect(getChatEditBattleScenario('place-uploaded-asset')?.requiredToolSequence).toEqual([
@@ -188,7 +196,7 @@ describe('chat edit battle fixtures', () => {
     expect(prepared.project.durationInFrames).toBe(1_050);
   });
 
-  it('makes the selected title and image overlap for a meaningful layer-order test', () => {
+  it('isolates the selected title behind an overlapping image for a visible layer-order test', () => {
     const source = sourceProject();
     const snapshot = structuredClone(source);
     const prepared = prepareChatBattleFixture({
@@ -202,11 +210,82 @@ describe('chat edit battle fixtures', () => {
     const image = preparedOverlays.find((overlay) => overlay.type === 'image');
 
     expect(source).toEqual(snapshot);
-    expect(selected).toMatchObject({ type: 'text' });
+    expect(selected).toMatchObject({ type: 'text', row: 2 });
     expect(image).toMatchObject({
       from: selected?.from,
       durationInFrames: selected?.durationInFrames,
+      row: 1,
     });
+    expect(Number(selected?.from)).toBeGreaterThan(source.durationInFrames);
+    expect(prepared.project.durationInFrames).toBeGreaterThan(source.durationInFrames);
+  });
+
+  it('selects a video long enough for the requested two-second zoom', () => {
+    const source = sourceProject();
+    overlays(source)[0].durationInFrames = 57;
+    source.overlays.splice(1, 0, {
+      id: 'video-long',
+      type: 'video',
+      from: 57,
+      durationInFrames: 120,
+      row: 1,
+      assetId: 'video-long-asset',
+    });
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_zoom1',
+      plan: plan('manual-keyframe-zoom'),
+      now: NOW,
+    });
+
+    expect(prepared.selectedOverlayId).toBe('video-long');
+  });
+
+  it('removes inherited animation before testing an explicit fade', () => {
+    const source = sourceProject();
+    const title = overlays(source).find((overlay) => overlay.type === 'text');
+    if (!title) throw new Error('Expected title fixture.');
+    title.styles = { animation: { enter: 'fadeIn', exit: 'fadeOut' }, color: '#ffffff' };
+    title.keyframeTracks = [{ property: 'opacity', family: 'fade' }, { property: 'scale' }];
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_fade1',
+      plan: plan('selected-overlay-fade'),
+      now: NOW,
+    });
+    const selected = overlays(prepared.project).find((overlay) => overlay.id === prepared.selectedOverlayId);
+
+    expect(selected?.styles).toEqual({ color: '#ffffff' });
+    expect(selected?.keyframeTracks).toEqual([{ property: 'scale' }]);
+  });
+
+  it('seeds distinct peer titles for style synchronization and batch styling', () => {
+    for (const scenarioId of ['sync-overlay-style', 'batch-overlay-update']) {
+      const source = sourceProject();
+      const prepared = prepareChatBattleFixture({
+        sourceProject: source,
+        fixtureProjectId: `proj_chatbattle_${scenarioId}`,
+        plan: plan(scenarioId),
+        now: NOW,
+      });
+      const titles = overlays(prepared.project).filter((overlay) => overlay.type === 'text');
+
+      expect(titles).toHaveLength(2);
+      expect(titles[1]).toMatchObject({
+        content: 'Fixture peer title 1',
+        styles: { color: '#ff2d55', fill: '#ff2d55' },
+      });
+      expect(Number(titles[1].from)).toBeGreaterThan(source.durationInFrames);
+    }
+  });
+
+  it('keeps visual mutation prompts non-no-op and grounded in the source fixture', () => {
+    expect(getChatEditBattleScenario('vertical-subject-reframe')?.prompt).toContain('to 16:9');
+    expect(getChatEditBattleScenario('visual-speed-ramp')?.prompt).toContain(
+      'camera pulls back from a macro view to reveal the artisan',
+    );
   });
 
   it('fails fixture preflight immediately when an audio scenario inherits unlicensed sound', () => {
