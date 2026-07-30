@@ -68,6 +68,16 @@ export const CHAT_CAMERA_MOTION_JOBS = [
 ] as const;
 export type ChatCameraMotionJob = (typeof CHAT_CAMERA_MOTION_JOBS)[number];
 
+export const CHAT_LOCALIZED_ANCHOR_SELECTIONS = [
+  'strongest-signal',
+] as const;
+export type ChatLocalizedAnchorSelection = (typeof CHAT_LOCALIZED_ANCHOR_SELECTIONS)[number];
+
+export const CHAT_LOCALIZED_ANCHOR_SIGNALS = [
+  'speech-emphasis',
+] as const;
+export type ChatLocalizedAnchorSignal = (typeof CHAT_LOCALIZED_ANCHOR_SIGNALS)[number];
+
 export const CHAT_LOCALIZED_READ_GOALS = [
   'locate',
   'inspect',
@@ -103,6 +113,8 @@ export interface ChatLocalizedEditRequest {
   targetOverlayId?: string | number;
   sourceSpan?: string;
   cameraMotionJob?: ChatCameraMotionJob;
+  anchorSelection?: ChatLocalizedAnchorSelection;
+  anchorSignal?: ChatLocalizedAnchorSignal;
   placement?: ChatAssetPlacementConstraint;
   timing?: ChatAssetTimingConstraint;
 }
@@ -519,7 +531,13 @@ export function resolveChatLocalizedWorkflowAdapter(
           ? 'find_audio_moment'
           : null;
     return resolverTool
-      ? localizedAdapter('localized-camera-motion', resolverTool, { query })
+      ? localizedAdapter('localized-camera-motion', resolverTool, {
+          query,
+          ...(edit.anchorSelection ? {
+            selectionGoal: edit.anchorSelection,
+            selectionSignal: edit.anchorSignal,
+          } : {}),
+        })
       : null;
   }
   // Backward compatibility for stored pre-job request licenses. New classifier

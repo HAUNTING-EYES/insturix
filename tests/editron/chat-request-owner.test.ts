@@ -227,6 +227,8 @@ describe('chat request owner classification', () => {
               items: {
                 properties: {
                   cameraMotionJob: { enum?: string[] };
+                  anchorSelection: { enum?: string[] };
+                  anchorSignal: { enum?: string[] };
                 };
               };
             };
@@ -238,6 +240,12 @@ describe('chat request owner classification', () => {
     expect(
       schema.properties.facts.properties.localizedEdits.items.properties.cameraMotionJob.enum,
     ).toEqual(['zoom-in', 'zoom-out', 'shake']);
+    expect(
+      schema.properties.facts.properties.localizedEdits.items.properties.anchorSelection.enum,
+    ).toEqual(['strongest-signal']);
+    expect(
+      schema.properties.facts.properties.localizedEdits.items.properties.anchorSignal.enum,
+    ).toEqual(['speech-emphasis']);
     expect(buildChatRequestOwnerPrompt(baseInput)).toContain(
       'Never turn an audio-located zoom into shake.',
     );
@@ -246,25 +254,31 @@ describe('chat request owner classification', () => {
   it.each([
     {
       userMessage: 'Use a subtle zoom on the strongest spoken emphasis.',
-      modality: 'transcript',
+      modality: 'audio',
       query: 'strongest spoken emphasis',
       cameraMotionJob: 'zoom-in',
+      anchorSelection: 'strongest-signal',
+      anchorSignal: 'speech-emphasis',
     },
     {
       userMessage: 'Zoom out when the reveal appears.',
       modality: 'visual',
       query: 'the reveal appears',
       cameraMotionJob: 'zoom-out',
+      anchorSelection: undefined,
+      anchorSignal: undefined,
     },
     {
       userMessage: 'Shake on the strongest impact beat.',
       modality: 'audio',
       query: 'strongest impact beat',
       cameraMotionJob: 'shake',
+      anchorSelection: undefined,
+      anchorSignal: undefined,
     },
   ] as const)(
     'preserves $cameraMotionJob independently from $modality anchor evidence',
-    async ({ userMessage, modality, query, cameraMotionJob }) => {
+    async ({ userMessage, modality, query, cameraMotionJob, anchorSelection, anchorSignal }) => {
       const result = await classifyChatRequestOwner({
         ...baseInput,
         userMessage,
@@ -291,6 +305,7 @@ describe('chat request owner classification', () => {
                 targetKind: 'none',
                 sourceSpan: userMessage.slice(0, -1),
                 cameraMotionJob,
+                ...(anchorSelection ? { anchorSelection, anchorSignal } : {}),
               }],
               requestedCapabilities: ['localized-camera-motion'],
               capabilityEvidence: [{
@@ -314,9 +329,22 @@ describe('chat request owner classification', () => {
             operation: 'camera-motion',
             query,
             cameraMotionJob,
+            ...(anchorSelection ? { anchorSelection, anchorSignal } : {}),
           }],
         },
       });
+      if (anchorSelection) {
+        expect(resolveChatLocalizedWorkflowAdapter(
+          result.routingFacts!.localizedEdits![0],
+        )).toMatchObject({
+          resolverTool: 'find_audio_moment',
+          resolverArgs: {
+            query,
+            selectionGoal: 'strongest-signal',
+            selectionSignal: 'speech-emphasis',
+          },
+        });
+      }
     },
   );
 

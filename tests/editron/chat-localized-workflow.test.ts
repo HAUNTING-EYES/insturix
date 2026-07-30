@@ -336,6 +336,66 @@ describe('server-owned localized chat workflow', () => {
     },
   );
 
+  it('routes strongest spoken emphasis through measured audio signals before zoom form', () => {
+    const query = 'the strongest spoken emphasis';
+    const owner = license(routingFacts(
+      [{
+        modality: 'audio',
+        operation: 'camera-motion',
+        query,
+        cameraMotionJob: 'zoom-in',
+        anchorSelection: 'strongest-signal',
+        anchorSignal: 'speech-emphasis',
+      }],
+      ['localized-camera-motion'],
+    ));
+    const locatorArgs = {
+      query,
+      selectionGoal: 'strongest-signal',
+      selectionSignal: 'speech-emphasis',
+    };
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: { name: 'find_audio_moment', args: locatorArgs },
+    });
+
+    const locator = execution('find_audio_moment', locatorArgs, {
+      output: JSON.stringify({
+        status: 'success',
+        data: {
+          candidates: [{
+            frame: 96,
+            confidence: 1,
+            safeForAutoEdit: true,
+            matchType: 'signal-ranked',
+          }],
+        },
+      }),
+    });
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, locator),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: {
+        name: 'resolve_keyframe_edit',
+        args: {
+          targetFrame: 96,
+          direction: 'in',
+          evidenceModality: 'audio',
+          evidenceStrength: 1,
+        },
+      },
+    });
+  });
+
   it('refuses an ambiguous zoom anchor instead of guessing or falling back to shake', () => {
     const query = 'the strongest spoken emphasis';
     const owner = license(routingFacts(
