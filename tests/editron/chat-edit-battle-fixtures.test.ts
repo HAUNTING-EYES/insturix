@@ -39,6 +39,7 @@ describe('chat edit battle fixtures', () => {
       profile: 'storyboard-scene',
       sourceProjectId: 'proj_4N_6crLWX89A',
       selectedOverlayType: undefined,
+      nativeAudioPolicy: 'mute-embedded-for-visual-only',
       requiresStoryboardClone: true,
     });
     expect(plan('explicit-asset')).toMatchObject({ requestedAssetAlias: 'explicit-image' });
@@ -471,6 +472,32 @@ describe('chat edit battle fixtures', () => {
       const requiredSeconds = 0.35 + (group.words.length / 3.2);
       expect(durationSeconds + 0.05).toBeGreaterThanOrEqual(requiredSeconds);
     }
+  });
+
+  it('mutes unattested native audio when a storyboard fixture tests only visual regeneration', () => {
+    const source = sourceProject();
+    const video = overlays(source).find((overlay) => overlay.type === 'video');
+    if (!video) throw new Error('Expected video fixture.');
+    video.hasNativeAudio = true;
+    delete video.audioRights;
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_storyboard_audio1',
+      plan: plan('regenerate-existing-scene'),
+      now: NOW,
+    });
+    const preparedVideo = overlays(prepared.project).find((overlay) => overlay.type === 'video');
+
+    expect(preparedVideo).toMatchObject({
+      hasNativeAudio: false,
+      metadata: {
+        battleFixtureAudio: {
+          embeddedNativeAudio: 'muted',
+          reason: 'visual-only-fixture',
+        },
+      },
+    });
   });
 
   it('preserves and selects only a real SFX for the replacement scenario', () => {

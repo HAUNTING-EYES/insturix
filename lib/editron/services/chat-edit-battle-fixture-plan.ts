@@ -33,7 +33,8 @@ export type ChatBattleFixtureSoundOverlayPolicy =
 export type ChatBattleFixtureNativeAudioPolicy =
   | 'preserve'
   | 'mute-embedded-when-explicit-tracks'
-  | 'mute-embedded-for-seeded-transcript';
+  | 'mute-embedded-for-seeded-transcript'
+  | 'mute-embedded-for-visual-only';
 
 export type ChatBattleFixtureAssetAlias =
   | 'explicit-image'
@@ -165,7 +166,9 @@ export function planChatBattleFixture(
       ? 'mute-embedded-when-explicit-tracks'
       : profile === 'speech'
         ? 'mute-embedded-for-seeded-transcript'
-        : 'preserve',
+        : profile === 'storyboard-scene'
+          ? 'mute-embedded-for-visual-only'
+          : 'preserve',
     ...(resolveRequestedAssetAlias(scenario.id) ? {
       requestedAssetAlias: resolveRequestedAssetAlias(scenario.id),
     } : {}),

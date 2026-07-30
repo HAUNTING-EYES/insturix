@@ -597,7 +597,9 @@ function applyNativeAudioPolicy(
   }
   const reason = plan.nativeAudioPolicy === 'mute-embedded-for-seeded-transcript'
     ? 'synthetic-transcript-fixture'
-    : 'explicit-renderable-audio-tracks-preserved';
+    : plan.nativeAudioPolicy === 'mute-embedded-for-visual-only'
+      ? 'visual-only-fixture'
+      : 'explicit-renderable-audio-tracks-preserved';
 
   for (const overlay of overlays) {
     if (stringValue(overlay.type) !== 'video' || overlay.hasNativeAudio !== true) continue;
