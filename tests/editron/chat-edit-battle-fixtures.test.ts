@@ -24,11 +24,11 @@ describe('chat edit battle fixtures', () => {
     expect(plan('mixed-multi-step')).toMatchObject({
       profile: 'audio',
       soundOverlayPolicy: 'preserve-all',
-      nativeAudioPolicy: 'mute-embedded-when-explicit-tracks',
+      nativeAudioPolicy: 'preserve',
     });
     expect(plan('replace-selected-sfx')).toMatchObject({
       profile: 'sfx',
-      sourceProjectId: 'proj_Z1OyTFkBoCNo',
+      sourceProjectId: 'proj_chatbattle_impact_audio_v1',
       selectedOverlayType: 'sound',
       selectedOverlayRole: 'sfx',
       soundOverlayPolicy: 'preserve-sfx-only',
@@ -237,12 +237,19 @@ describe('chat edit battle fixtures', () => {
     })).toThrow(/embedded native audio has no durable rights receipt/);
   });
 
-  it('mutes embedded source audio only when an audio fixture preserves explicit tracks', () => {
+  it('preserves attested native dialogue alongside independently licensed music', () => {
     const source = sourceProject();
     const video = overlays(source).find((overlay) => overlay.type === 'video');
+    const music = overlays(source).find((overlay) => overlay.type === 'sound');
     if (!video) throw new Error('Expected video fixture.');
+    if (!music) throw new Error('Expected music fixture.');
     video.hasNativeAudio = true;
-    delete video.audioRights;
+    video.src = 'https://assets.example/video.mp4';
+    video.audioRights = nativeAudioRights('video-asset');
+    music.row = 1;
+    music.src = 'https://assets.example/music.wav';
+    music.audioRights = musicRights('audio-asset');
+    music.musicRights = musicRights('audio-asset');
 
     const prepared = prepareChatBattleFixture({
       sourceProject: source,
@@ -253,15 +260,85 @@ describe('chat edit battle fixtures', () => {
     const preparedVideo = overlays(prepared.project).find((overlay) => overlay.type === 'video');
 
     expect(preparedVideo).toMatchObject({
-      hasNativeAudio: false,
-      metadata: {
-        battleFixtureAudio: {
-          embeddedNativeAudio: 'muted',
-          reason: 'explicit-renderable-audio-tracks-preserved',
-        },
-      },
+      hasNativeAudio: true,
+      audioRights: expect.objectContaining({
+        mediaRole: 'native-video',
+        licensed: true,
+      }),
     });
     expect(overlays(prepared.project).some((overlay) => overlay.type === 'sound')).toBe(true);
+  });
+
+  it('requires independently renderable dialogue, music, beats, speech timing, and SFX', () => {
+    const source = audioCapabilityProject();
+    const report = inspectChatBattleFixtureCapabilities({
+      sourceProject: source,
+      sourceAnalyses: [{
+        assetId: 'video-asset',
+        rawFootageAnalysis: {
+          transcription: {
+            words: [{ word: 'hello', startMs: 0, endMs: 400 }],
+          },
+        },
+      }],
+      required: [
+        'renderable-native-audio',
+        'speech-timing',
+        'renderable-music',
+        'music-beat-grid',
+        'renderable-sfx',
+      ],
+    });
+
+    expect(report).toMatchObject({
+      ok: true,
+      missing: [],
+      renderableNativeAudioAssetIds: ['video-asset'],
+      renderableMusicOverlayIds: ['sound-1'],
+      musicBeatGridOverlayIds: ['sound-1'],
+      renderableSfxOverlayIds: ['sfx-1'],
+      speechTimingAssetIds: ['video-asset'],
+    });
+  });
+
+  it('rejects playable-looking audio without durable rights or grounded timing', () => {
+    const source = audioCapabilityProject();
+    const video = overlays(source).find((overlay) => overlay.type === 'video');
+    const music = overlays(source).find((overlay) => overlay.id === 'sound-1');
+    const sfx = overlays(source).find((overlay) => overlay.id === 'sfx-1');
+    const caption = overlays(source).find((overlay) => overlay.type === 'caption');
+    if (!video || !music || !sfx || !caption) {
+      throw new Error('Expected complete audio capability fixture.');
+    }
+    delete video.audioRights;
+    delete music.audioRights;
+    delete music.musicRights;
+    delete music.metadata;
+    delete sfx.audioRights;
+    caption.words = [];
+
+    const report = inspectChatBattleFixtureCapabilities({
+      sourceProject: source,
+      sourceAnalyses: [],
+      required: [
+        'renderable-native-audio',
+        'speech-timing',
+        'renderable-music',
+        'music-beat-grid',
+        'renderable-sfx',
+      ],
+    });
+
+    expect(report).toMatchObject({
+      ok: false,
+      missing: [
+        'renderable-native-audio',
+        'speech-timing',
+        'renderable-music',
+        'music-beat-grid',
+        'renderable-sfx',
+      ],
+    });
   });
 
   it('mutes embedded audio for synthetic transcript fixtures without retaining source sounds', () => {
@@ -315,6 +392,9 @@ describe('chat edit battle fixtures', () => {
     const genericSound = overlays(source).find((overlay) => overlay.type === 'sound');
     if (!genericSound) throw new Error('Expected sound fixture.');
     genericSound.assetId = 'sfx_lib_fixture';
+    genericSound.src = 'https://assets.example/paper.wav';
+    genericSound.role = 'sfx';
+    genericSound.audioRights = generatedSfxRights('sfx_lib_fixture');
     source.overlays.push({
       id: 'unlicensed-bgm',
       type: 'sound',
@@ -570,6 +650,46 @@ function sourceProject(): Record<string, any> {
   };
 }
 
+function audioCapabilityProject(): Record<string, any> {
+  const source = sourceProject();
+  const video = overlays(source).find((overlay) => overlay.type === 'video');
+  const caption = overlays(source).find((overlay) => overlay.type === 'caption');
+  const music = overlays(source).find((overlay) => overlay.type === 'sound');
+  if (!video || !caption || !music) {
+    throw new Error('Expected source fixture media.');
+  }
+
+  video.src = 'https://assets.example/video.mp4';
+  video.hasNativeAudio = true;
+  video.audioRights = nativeAudioRights('video-asset');
+  caption.words = [{ word: 'hello', startMs: 0, endMs: 400 }];
+  music.row = 1;
+  music.role = 'music';
+  music.src = 'https://assets.example/music.wav';
+  music.audioRights = musicRights('audio-asset');
+  music.musicRights = musicRights('audio-asset');
+  music.metadata = {
+    beatGrid: {
+      bpm: 120,
+      beats: [{ frame: 0, isDownbeat: true }, { frame: 15, isDownbeat: false }],
+      downbeats: [0],
+      source: 'audio-analysis',
+    },
+  };
+  source.overlays.push({
+    id: 'sfx-1',
+    type: 'sound',
+    from: 300,
+    durationInFrames: 30,
+    row: 3,
+    role: 'sfx',
+    assetId: 'sfx-asset',
+    src: 'https://assets.example/impact.wav',
+    audioRights: generatedSfxRights('sfx-asset'),
+  });
+  return source;
+}
+
 function overlays(project: Record<string, any>): Record<string, any>[] {
   return project.overlays as Record<string, any>[];
 }
@@ -591,6 +711,52 @@ function visualAnalysis(assetId: string): Record<string, unknown> {
           mainSubjectHeight: 0.8,
         },
       }],
+    },
+  };
+}
+
+function nativeAudioRights(assetId: string): Record<string, unknown> {
+  return {
+    mediaRole: 'native-video',
+    source: 'user-upload',
+    userChoice: 'attested',
+    licensed: true,
+    evidence: {
+      kind: 'user-attestation',
+      sourceAssetId: assetId,
+      attestationVersion: 'audio-rights-attestation-v1',
+      attestedAt: NOW.toISOString(),
+      attestedBy: 'user-1',
+    },
+  };
+}
+
+function musicRights(assetId: string): Record<string, unknown> {
+  return {
+    mediaRole: 'music',
+    source: 'user-upload',
+    userChoice: 'attested',
+    licensed: true,
+    evidence: {
+      kind: 'user-attestation',
+      sourceAssetId: assetId,
+      attestationVersion: 'music-rights-attestation-v1',
+      attestedAt: NOW.toISOString(),
+      attestedBy: 'user-1',
+    },
+  };
+}
+
+function generatedSfxRights(assetId: string): Record<string, unknown> {
+  return {
+    mediaRole: 'sfx',
+    source: 'generated',
+    userChoice: 'attested',
+    licensed: true,
+    evidence: {
+      kind: 'generated-provider',
+      sourceAssetId: assetId,
+      licenseId: 'fixture-provider:commercial-use',
     },
   };
 }

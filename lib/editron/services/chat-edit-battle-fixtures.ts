@@ -37,6 +37,11 @@ export interface ChatBattleFixtureCapabilityReport {
   videoAssetIds: string[];
   semanticVisualAssetIds: string[];
   spatialVisualAssetIds: string[];
+  renderableNativeAudioAssetIds: string[];
+  renderableMusicOverlayIds: Array<string | number>;
+  musicBeatGridOverlayIds: Array<string | number>;
+  renderableSfxOverlayIds: Array<string | number>;
+  speechTimingAssetIds: string[];
 }
 
 export function inspectChatBattleFixtureCapabilities(input: {
@@ -46,8 +51,9 @@ export function inspectChatBattleFixtureCapabilities(input: {
 }): ChatBattleFixtureCapabilityReport {
   const required = [...new Set(input.required)];
   const sourceAssetIds = uniqueStrings(input.sourceProject.sourceAssetIds);
+  const overlays = asRecords(input.sourceProject.overlays);
   const videoAssetIds = uniqueStrings(
-    asRecords(input.sourceProject.overlays)
+    overlays
       .filter((overlay) => stringValue(overlay.type) === 'video')
       .map((overlay) => overlay.assetId),
   );
@@ -63,6 +69,33 @@ export function inspectChatBattleFixtureCapabilities(input: {
   const spatialVisualAssetIds = videoAssetIds.filter((assetId) => (
     hasTimeLocalizedSpatialVisual(analysisByAssetId.get(assetId))
   ));
+  const renderableNativeAudioAssetIds = uniqueStrings(
+    overlays
+      .filter((overlay) => (
+        stringValue(overlay.type) === 'video'
+        && overlay.hasNativeAudio === true
+        && isIndependentlyRenderableAudio(overlay)
+      ))
+      .map((overlay) => overlay.assetId),
+  );
+  const renderableMusicOverlays = overlays.filter((overlay) => (
+    stringValue(overlay.type) === 'sound'
+    && isMusicSoundOverlay(overlay)
+    && isIndependentlyRenderableAudio(overlay)
+  ));
+  const renderableSfxOverlays = overlays.filter((overlay) => (
+    isSfxSoundOverlay(overlay)
+    && isIndependentlyRenderableAudio(overlay)
+  ));
+  const renderableMusicOverlayIds = overlayIds(renderableMusicOverlays);
+  const musicBeatGridOverlayIds = overlayIds(
+    renderableMusicOverlays.filter(hasUsableBeatGrid),
+  );
+  const renderableSfxOverlayIds = overlayIds(renderableSfxOverlays);
+  const speechTimingAssetIds = videoAssetIds.filter((assetId) => (
+    hasTimedSpeech(analysisByAssetId.get(assetId))
+    || hasTimedCaptionSpeech(overlays, assetId, videoAssetIds)
+  ));
 
   const missing = required.filter((capability) => {
     if (capability === 'multi-asset') {
@@ -74,7 +107,22 @@ export function inspectChatBattleFixtureCapabilities(input: {
     if (capability === 'semantic-visual-all-video-assets') {
       return videoAssetIds.length === 0 || semanticVisualAssetIds.length !== videoAssetIds.length;
     }
-    return videoAssetIds.length === 0 || spatialVisualAssetIds.length !== videoAssetIds.length;
+    if (capability === 'spatial-visual-all-video-assets') {
+      return videoAssetIds.length === 0 || spatialVisualAssetIds.length !== videoAssetIds.length;
+    }
+    if (capability === 'renderable-native-audio') {
+      return renderableNativeAudioAssetIds.length === 0;
+    }
+    if (capability === 'speech-timing') {
+      return speechTimingAssetIds.length === 0;
+    }
+    if (capability === 'renderable-music') {
+      return renderableMusicOverlayIds.length === 0;
+    }
+    if (capability === 'music-beat-grid') {
+      return musicBeatGridOverlayIds.length === 0;
+    }
+    return renderableSfxOverlayIds.length === 0;
   });
 
   return {
@@ -85,6 +133,11 @@ export function inspectChatBattleFixtureCapabilities(input: {
     videoAssetIds,
     semanticVisualAssetIds,
     spatialVisualAssetIds,
+    renderableNativeAudioAssetIds,
+    renderableMusicOverlayIds,
+    musicBeatGridOverlayIds,
+    renderableSfxOverlayIds,
+    speechTimingAssetIds,
   };
 }
 
@@ -609,6 +662,76 @@ function hasTimeLocalizedSpatialVisual(analysis: Record<string, unknown> | undef
   });
 }
 
+function isIndependentlyRenderableAudio(overlay: Record<string, unknown>): boolean {
+  try {
+    return resolveRenderableAudio(overlay).overlay !== null;
+  } catch {
+    return false;
+  }
+}
+
+function isMusicSoundOverlay(overlay: Record<string, unknown>): boolean {
+  if (stringValue(overlay.type) !== 'sound') return false;
+  const assetId = stringValue(overlay.assetId)?.toLowerCase() ?? '';
+  const rights = asRecord(overlay.musicRights ?? overlay.audioRights);
+  return overlay.row === 1
+    || overlay.row === '1'
+    || stringValue(overlay.mediaRole) === 'music'
+    || stringValue(overlay.audioRole) === 'music'
+    || stringValue(rights.mediaRole) === 'music'
+    || assetId.startsWith('bgm_');
+}
+
+function hasUsableBeatGrid(overlay: Record<string, unknown>): boolean {
+  const metadata = asRecord(overlay.metadata);
+  const beatGrid = asRecord(overlay.beatGrid ?? metadata.beatGrid);
+  const beats = asRecords(beatGrid.beats);
+  const downbeats = Array.isArray(beatGrid.downbeats) ? beatGrid.downbeats : [];
+  return beats.some((beat) => finiteNonNegativeNumber(beat.frame) != null)
+    && downbeats.some((frame) => typeof frame === 'number' && Number.isFinite(frame) && frame >= 0);
+}
+
+function hasTimedSpeech(analysis: Record<string, unknown> | undefined): boolean {
+  const rawFootageAnalysis = asRecord(analysis?.rawFootageAnalysis);
+  const transcription = asRecord(rawFootageAnalysis.transcription ?? analysis?.transcription);
+  return hasTimedWords(transcription.words);
+}
+
+function hasTimedCaptionSpeech(
+  overlays: Record<string, unknown>[],
+  assetId: string,
+  videoAssetIds: string[],
+): boolean {
+  const videoOverlayIds = new Set(
+    overlays
+      .filter((overlay) => overlay.assetId === assetId && stringValue(overlay.type) === 'video')
+      .map((overlay) => String(overlay.id)),
+  );
+  return overlays.some((overlay) => {
+    if (!isCaptionOverlay(overlay) || !hasTimedWords(overlay.words)) return false;
+    const sourceVideoId = stringValue(overlay.sourceVideoId);
+    return sourceVideoId
+      ? videoOverlayIds.has(sourceVideoId)
+      : videoAssetIds.length === 1;
+  });
+}
+
+function hasTimedWords(value: unknown): boolean {
+  return asRecords(value).some((word) => {
+    const startMs = finiteNonNegativeNumber(word.startMs);
+    const endMs = finiteNonNegativeNumber(word.endMs);
+    return startMs != null && endMs != null && endMs > startMs;
+  });
+}
+
+function overlayIds(overlays: Record<string, unknown>[]): Array<string | number> {
+  return overlays.flatMap((overlay) => (
+    typeof overlay.id === 'string' || typeof overlay.id === 'number'
+      ? [overlay.id]
+      : []
+  ));
+}
+
 function uniqueStrings(value: unknown): string[] {
   return [...new Set(
     (Array.isArray(value) ? value : [])
@@ -641,6 +764,8 @@ function isSfxSoundOverlay(overlay: Record<string, unknown>): boolean {
   const assetId = stringValue(overlay.assetId)?.toLowerCase() ?? '';
   const metadata = asRecord(overlay.metadata);
   return assetId.startsWith('sfx_')
+    || stringValue(overlay.role) === 'sfx'
+    || stringValue(overlay.audioRole) === 'sfx'
     || metadata.atomicSfxForm !== undefined
     || metadata.sfxType !== undefined
     || metadata.audioRole === 'sfx'

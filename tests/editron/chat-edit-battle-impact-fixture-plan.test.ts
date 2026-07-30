@@ -20,7 +20,7 @@ describe('chat edit impact-audio fixture plan', () => {
   ])('keeps %s on the general audio source', (scenarioId) => {
     expect(plan(scenarioId)).toMatchObject({
       profile: 'audio',
-      sourceProjectId: 'proj_4N_6crLWX89A',
+      sourceProjectId: 'proj_chatbattle_dialogue_music_v1',
     });
   });
 });

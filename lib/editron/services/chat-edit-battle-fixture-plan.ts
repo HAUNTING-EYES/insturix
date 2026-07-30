@@ -17,7 +17,12 @@ export type ChatBattleFixtureCapability =
   | 'multi-asset'
   | 'semantic-visual'
   | 'semantic-visual-all-video-assets'
-  | 'spatial-visual-all-video-assets';
+  | 'spatial-visual-all-video-assets'
+  | 'renderable-native-audio'
+  | 'speech-timing'
+  | 'renderable-music'
+  | 'music-beat-grid'
+  | 'renderable-sfx';
 
 export type ChatBattleFixtureSoundOverlayPolicy =
   | 'remove'
@@ -68,9 +73,9 @@ export const DEFAULT_CHAT_BATTLE_FIXTURE_SOURCES: ChatBattleFixtureSources = {
   speech: 'proj_FYZeVGomJuSh',
   dubbing: 'proj_FYZeVGomJuSh',
   'visual-multi-asset': 'proj_chatbattle_500c55dbd0',
-  audio: 'proj_4N_6crLWX89A',
+  audio: 'proj_chatbattle_dialogue_music_v1',
   'impact-audio': 'proj_chatbattle_impact_audio_v1',
-  sfx: 'proj_Z1OyTFkBoCNo',
+  sfx: 'proj_chatbattle_impact_audio_v1',
   'generated-scene': 'proj_Fp_gxpn-Lonh',
 };
 
@@ -144,7 +149,7 @@ export function planChatBattleFixture(
       : profile === 'sfx'
         ? 'preserve-sfx-only'
         : 'remove',
-    nativeAudioPolicy: usesExplicitAudioTrack
+    nativeAudioPolicy: profile === 'impact-audio'
       ? 'mute-embedded-when-explicit-tracks'
       : profile === 'speech'
         ? 'mute-embedded-for-seeded-transcript'
@@ -170,6 +175,23 @@ function resolveRequestedAssetAlias(scenarioId: string): ChatBattleFixtureAssetA
 }
 
 function resolveRequiredSourceCapabilities(scenarioId: string): ChatBattleFixtureCapability[] {
+  if (scenarioId === 'selected-dialogue-dubbing') {
+    return ['renderable-native-audio', 'speech-timing'];
+  }
+  if (scenarioId === 'audio-anchored-camera-shake' || scenarioId === 'replace-selected-sfx') {
+    return ['renderable-sfx'];
+  }
+  if (scenarioId === 'beat-sync-cuts') {
+    return ['renderable-music', 'music-beat-grid'];
+  }
+  if (AUDIO_SCENARIOS.has(scenarioId)) {
+    return [
+      'renderable-native-audio',
+      'speech-timing',
+      'renderable-music',
+      'music-beat-grid',
+    ];
+  }
   if (MULTI_ASSET_SEMANTIC_VISUAL_SCENARIOS.has(scenarioId)) {
     return ['multi-asset', 'semantic-visual-all-video-assets'];
   }
