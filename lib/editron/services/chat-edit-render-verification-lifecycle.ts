@@ -157,9 +157,35 @@ export function ensureChatEditRenderVerificationLifecycle<Visual, Audio>(
   now: Date | string = new Date(),
 ): ChatEditRenderVerificationRecord<Visual, Audio> {
   if (record.lifecycle?.version === CHAT_EDIT_RENDER_VERIFICATION_LIFECYCLE_VERSION) {
+    const reasons = Array.isArray(record.reasons)
+      ? record.reasons
+          .map((reason) => cleanText(reason, 500))
+          .filter((reason): reason is string => Boolean(reason))
+      : [];
+    const suppliedIssues = sanitizeIssues(record.issues);
+    const needsTerminalDiagnostic =
+      record.status !== 'pass'
+      && ['warn', 'fail', 'error'].includes(record.status)
+      && reasons.length === 0
+      && suppliedIssues.length === 0;
+    const terminalReason = needsTerminalDiagnostic
+      ? cleanText(record.lifecycle.reason, 500) ?? 'render_verification_terminal_missing_diagnostic'
+      : null;
+    const normalizedReasons = terminalReason ? [terminalReason] : reasons;
+    const normalizedIssues = suppliedIssues.length > 0
+      ? suppliedIssues
+      : terminalReason
+        ? reasonsToIssues([terminalReason], record.status === 'error' ? 'system' : 'visual')
+        : [];
     return {
       ...record,
       projectRenderEligibility: record.projectRenderEligibility ?? null,
+      reasons: normalizedReasons,
+      issues: normalizedIssues,
+      lifecycle: {
+        ...record.lifecycle,
+        reason: cleanText(record.lifecycle.reason, 500) ?? normalizedReasons[0] ?? null,
+      },
     } as ChatEditRenderVerificationRecord<Visual, Audio>;
   }
   const updatedAt = toIso(now);

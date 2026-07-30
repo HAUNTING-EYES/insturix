@@ -987,8 +987,15 @@ function collectRenderVerificationIssues(input: {
     ...visualIssues,
     ...audioIssues,
   ];
+  const lifecycleReason = stringValue(asRecord(input.chatVerification.lifecycle).reason);
+  const persistedReasons = readStringArray(input.chatVerification.reasons);
+  const diagnosticReasons = persistedReasons.length > 0
+    ? persistedReasons
+    : lifecycleReason
+      ? [lifecycleReason]
+      : [];
   const reasonIssues = structuredIssues.length === 0
-    ? readStringArray(input.chatVerification.reasons).map((reason) => ({
+    ? diagnosticReasons.map((reason) => ({
         modality: reason.startsWith('audio_') ? 'audio' : reason.startsWith('visual_') ? 'visual' : 'system',
         severity: 'error',
         code: reason.split(':')[0] || 'render_verification_failed',
