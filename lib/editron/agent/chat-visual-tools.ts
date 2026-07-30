@@ -221,6 +221,7 @@ export interface FadeOverlayUpdate {
   localEndFrame: number;
   previousKeyframeTrackCount: number;
   nextKeyframeTracks: any[];
+  nextStyles?: Record<string, unknown>;
   fromOpacity: number;
   toOpacity: number;
   reason: string;
@@ -887,6 +888,7 @@ This is read-only: it returns local-frame scale keyframes for set_keyframes and 
         for (const update of plan.updates) {
           await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
             keyframeTracks: update.nextKeyframeTracks,
+            ...(update.nextStyles ? { styles: update.nextStyles } : {}),
           } as any);
         }
 
@@ -1981,6 +1983,38 @@ export function applyFadeToProject(
     };
   }
 
+  const rendererFade = resolveRendererFadeAnimation(overlay, direction);
+  const hasExplicitFadeShape = [
+    options.startFrame,
+    options.endFrame,
+    options.targetFrame,
+    options.durationFrames,
+    options.fromOpacity,
+    options.toOpacity,
+  ].some((value) => value != null);
+  if (rendererFade.satisfiesRequest && !hasExplicitFadeShape && !options.replaceExistingOpacityKeyframes) {
+    return {
+      status: "no-target",
+      startFrame,
+      endFrame,
+      targetOverlayId: overlay.id,
+      updates: [],
+      warnings,
+      message: `Overlay ${String(overlay.id)} already has the requested renderer fade.`,
+    };
+  }
+  if (rendererFade.hasConflictingFade && !options.replaceExistingOpacityKeyframes) {
+    return {
+      status: "conflict",
+      startFrame,
+      endFrame,
+      targetOverlayId: overlay.id,
+      updates: [],
+      warnings: ["Existing renderer fade animation was found; a second opacity owner was not added."],
+      message: `Overlay ${String(overlay.id)} already has renderer-owned fade motion. Ask to replace existing opacity motion if different fade timing is intentional.`,
+    };
+  }
+
   const fadesFromTransparentEdge = direction === "in" || direction === "both";
   const fromOpacity = round3(clamp(options.fromOpacity ?? (fadesFromTransparentEdge ? 0 : 1), 0, 1));
   const toOpacity = round3(clamp(options.toOpacity ?? (fadesFromTransparentEdge ? 1 : 0), 0, 1));
@@ -2023,6 +2057,7 @@ export function applyFadeToProject(
       localEndFrame,
       previousKeyframeTrackCount: existingTracks.length,
       nextKeyframeTracks,
+      ...(rendererFade.nextStyles ? { nextStyles: rendererFade.nextStyles } : {}),
       fromOpacity,
       toOpacity,
       reason: `semantic-fade-${direction}`,
@@ -2076,7 +2111,19 @@ export function applyLayerReorderToProject(
   } else if (relation === "front") {
     nextRow = 0;
   } else if (relation === "back") {
-    nextRow = overlays.reduce((maxRow: number, overlay: any) => Math.max(maxRow, currentOverlayRow(overlay)), 0) + 1;
+    const furthestOtherRow = overlays
+      .filter((overlay: any) => String(overlay?.id) !== String(target.id))
+      .reduce((maxRow: number, overlay: any) => Math.max(maxRow, currentOverlayRow(overlay)), -1);
+    if (previousRow > furthestOtherRow) {
+      return {
+        status: "no-target",
+        targetOverlayId: target.id,
+        updates: [],
+        warnings,
+        message: `Overlay ${String(target.id)} is already behind every other ordinary layer.`,
+      };
+    }
+    nextRow = furthestOtherRow + 1;
   } else {
     const referenceResult = resolveLayerReorderOverlay(project, options.referenceOverlayId, options.referenceQuery, "reference");
     if (!referenceResult.ok) {
@@ -2127,8 +2174,28 @@ export function applyLayerReorderToProject(
 
     const referenceRow = currentOverlayRow(reference);
     if (relation === "behind") {
+      if (previousRow > referenceRow) {
+        return {
+          status: "no-target",
+          targetOverlayId: target.id,
+          referenceOverlayId: reference.id,
+          updates: [],
+          warnings,
+          message: `Overlay ${String(target.id)} is already behind reference overlay ${String(reference.id)}.`,
+        };
+      }
       nextRow = referenceRow + 1;
     } else {
+      if (previousRow < referenceRow) {
+        return {
+          status: "no-target",
+          targetOverlayId: target.id,
+          referenceOverlayId: reference.id,
+          updates: [],
+          warnings,
+          message: `Overlay ${String(target.id)} is already in front of reference overlay ${String(reference.id)}.`,
+        };
+      }
       if (referenceRow <= 0) {
         return {
           status: "conflict",
@@ -3190,6 +3257,49 @@ function isFadeTrack(track: any): boolean {
     || track?.source === "apply_fade"
     || metadata?.family === "fade"
     || metadata?.source === "apply_fade";
+}
+
+function resolveRendererFadeAnimation(
+  overlay: any,
+  direction: "in" | "out" | "both",
+): {
+  satisfiesRequest: boolean;
+  hasConflictingFade: boolean;
+  nextStyles?: Record<string, unknown>;
+} {
+  const styles = isRecord(overlay?.styles) ? overlay.styles : undefined;
+  const animation = isRecord(styles?.animation) ? styles.animation : undefined;
+  if (!styles || !animation) {
+    return { satisfiesRequest: false, hasConflictingFade: false };
+  }
+
+  const hasFadeIn = animation.enter === "fade";
+  const hasFadeOut = animation.exit === "fade";
+  const satisfiesRequest = direction === "both"
+    ? hasFadeIn && hasFadeOut
+    : direction === "in"
+      ? hasFadeIn
+      : hasFadeOut;
+  const hasConflictingFade = direction === "both"
+    ? hasFadeIn || hasFadeOut
+    : direction === "in"
+      ? hasFadeIn
+      : hasFadeOut;
+  if (!hasConflictingFade) {
+    return { satisfiesRequest, hasConflictingFade };
+  }
+
+  const nextAnimation = { ...animation };
+  if (direction === "in" || direction === "both") delete nextAnimation.enter;
+  if (direction === "out" || direction === "both") delete nextAnimation.exit;
+  return {
+    satisfiesRequest,
+    hasConflictingFade,
+    nextStyles: {
+      ...styles,
+      animation: nextAnimation,
+    },
+  };
 }
 
 function resolveLayerReorderOverlay(

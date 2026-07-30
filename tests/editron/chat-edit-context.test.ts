@@ -1483,10 +1483,55 @@ describe('chat edit context bundle', () => {
     expect(plan.message).toContain('already has opacity keyframes');
   });
 
-  it('plans layer reorder as a row-only move behind a reference overlay', () => {
+  it('does not stack a second opacity owner over renderer-owned fade motion', () => {
+    const projectWithRendererFade = {
+      durationInFrames: 80,
+      overlays: [{
+        id: 21,
+        type: 'text',
+        from: 10,
+        durationInFrames: 40,
+        content: 'CTA',
+        styles: {
+          color: '#ffffff',
+          animation: { enter: 'fade', exit: 'fade', duration: 15 },
+        },
+      }],
+    };
+
+    expect(applyFadeToProject(projectWithRendererFade, {
+      overlayId: 21,
+      direction: 'both',
+    })).toMatchObject({
+      status: 'no-target',
+      targetOverlayId: 21,
+      updates: [],
+      message: 'Overlay 21 already has the requested renderer fade.',
+    });
+
+    const replacement = applyFadeToProject(projectWithRendererFade, {
+      overlayId: 21,
+      direction: 'both',
+      durationFrames: 10,
+      replaceExistingOpacityKeyframes: true,
+    });
+    expect(replacement).toMatchObject({
+      status: 'changed',
+      targetOverlayId: 21,
+      updates: [{
+        overlayId: 21,
+        nextStyles: {
+          color: '#ffffff',
+          animation: { duration: 15 },
+        },
+      }],
+    });
+  });
+
+  it('plans layer reorder as a row-only move when the requested relation is not satisfied', () => {
     const plan = applyLayerReorderToProject({
       overlays: [
-        { id: 30, type: 'image', from: 90, durationInFrames: 60, row: 4, content: 'Logo mark' },
+        { id: 30, type: 'image', from: 90, durationInFrames: 60, row: 0, content: 'Logo mark' },
         { id: 31, type: 'text', from: 90, durationInFrames: 60, row: 1, content: 'Main title' },
         { id: 32, type: 'shape', from: 180, durationInFrames: 30, row: 2, content: 'Later card' },
       ],
@@ -1502,20 +1547,52 @@ describe('chat edit context bundle', () => {
       referenceOverlayId: 31,
       updates: [{
         overlayId: 30,
-        previousRow: 4,
+        previousRow: 0,
         nextRow: 2,
         referenceOverlayId: 31,
         relation: 'behind',
         reason: 'semantic-layer-reorder',
       }],
     });
-    expect(plan.message).toContain('Moved overlay 30 from row 4 to row 2');
+    expect(plan.message).toContain('Moved overlay 30 from row 0 to row 2');
+  });
+
+  it('returns a semantic no-op when the requested layer relation is already true', () => {
+    const projectWithSatisfiedRelations = {
+      overlays: [
+        { id: 30, type: 'text', from: 0, durationInFrames: 60, row: 0, content: 'Title' },
+        { id: 31, type: 'image', from: 0, durationInFrames: 60, row: 2, content: 'Photo' },
+        { id: 32, type: 'shape', from: 0, durationInFrames: 60, row: 4, content: 'Background' },
+      ],
+    };
+
+    expect(applyLayerReorderToProject(projectWithSatisfiedRelations, {
+      overlayId: 30,
+      referenceOverlayId: 31,
+      relation: 'in-front-of',
+    })).toMatchObject({
+      status: 'no-target',
+      targetOverlayId: 30,
+      referenceOverlayId: 31,
+      updates: [],
+      message: 'Overlay 30 is already in front of reference overlay 31.',
+    });
+
+    expect(applyLayerReorderToProject(projectWithSatisfiedRelations, {
+      overlayId: 32,
+      relation: 'back',
+    })).toMatchObject({
+      status: 'no-target',
+      targetOverlayId: 32,
+      updates: [],
+      message: 'Overlay 32 is already behind every other ordinary layer.',
+    });
   });
 
   it('refuses layer reorder into an occupied overlapping row unless explicitly allowed', () => {
     const plan = applyLayerReorderToProject({
       overlays: [
-        { id: 30, type: 'image', from: 90, durationInFrames: 70, row: 4, content: 'Logo mark' },
+        { id: 30, type: 'image', from: 90, durationInFrames: 70, row: 0, content: 'Logo mark' },
         { id: 31, type: 'text', from: 90, durationInFrames: 70, row: 1, content: 'Main title' },
         { id: 32, type: 'shape', from: 120, durationInFrames: 20, row: 2, content: 'Badge' },
       ],

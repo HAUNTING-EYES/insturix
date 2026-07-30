@@ -253,7 +253,7 @@ describe('chat mechanical tool contracts', () => {
         type: 'text',
         from: 20,
         durationInFrames: 60,
-        row: 3,
+        row: 0,
         content: 'Target title',
       },
       {
