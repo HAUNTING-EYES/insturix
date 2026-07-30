@@ -108,13 +108,13 @@ export function prepareChatBattleFixture(input: {
     input.plan,
   );
   let transcriptAssetAlias: ChatBattleTranscriptAssetAlias | undefined;
-  if (input.plan.removeCaptionTrack) {
-    project.overlays = scenarioOverlays.filter((overlay) => !isCaptionOverlay(overlay));
-  } else if (input.plan.seedTranscript) {
+  project.overlays = scenarioOverlays;
+  if (input.plan.seedTranscript) {
     project.overlays = seedTranscriptOverlay(scenarioOverlays, project, input.fixtureProjectId);
     transcriptAssetAlias = remapSeededTranscriptAsset(project, input.fixtureProjectId, now);
-  } else {
-    project.overlays = scenarioOverlays;
+  }
+  if (input.plan.removeCaptionTrack) {
+    project.overlays = cloneOverlays(project.overlays).filter((overlay) => !isCaptionOverlay(overlay));
   }
   assertFixtureAudioIsRenderable(project.overlays, input.plan);
 

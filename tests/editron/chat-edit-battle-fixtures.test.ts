@@ -373,6 +373,16 @@ describe('chat edit battle fixtures', () => {
     });
     expect(overlays(prepared.project).some((overlay) => overlay.type === 'caption')).toBe(false);
     expect(overlays(source).some((overlay) => overlay.type === 'caption')).toBe(true);
+    expect(prepared.transcriptAssetAlias).toMatchObject({
+      sourceAssetId: 'video-asset',
+      fixtureAssetId: 'battle_proj_chatbattle_caption1',
+      transcription: {
+        transcript: expect.stringContaining('pricing is simple'),
+        language: 'multilingual-fixture',
+      },
+    });
+    expect(overlays(prepared.project).find((overlay) => overlay.type === 'video')?.assetId)
+      .toBe('battle_proj_chatbattle_caption1');
   });
 
   it('fails loudly when a selected-overlay command has no compatible overlay', () => {

@@ -929,6 +929,23 @@ describe('chat edit battle harness', () => {
     });
   });
 
+  it('keeps animated caption requests on the canonical caption owners', () => {
+    expect(getChatEditBattleScenario('fancy-caption-track')).toMatchObject({
+      requiredToolSequence: [
+        ['read_project_file', 'get_timeline_view'],
+        'add_captions',
+      ],
+      forbiddenTools: ['add_fancy_captions'],
+    });
+    expect(getChatEditBattleScenario('refresh-fancy-captions')).toMatchObject({
+      requiredToolSequence: [
+        ['read_project_file', 'get_timeline_view'],
+        'refresh_captions',
+      ],
+      forbiddenTools: ['refresh_fancy_captions'],
+    });
+  });
+
   it('routes explicit and vague assist-mode BGM requests to the direct licensed owner', () => {
     for (const id of ['bgm-explicit', 'bgm-vague']) {
       const scenario = getChatEditBattleScenario(id)!;

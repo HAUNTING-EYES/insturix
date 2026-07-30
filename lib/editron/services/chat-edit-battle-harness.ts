@@ -379,9 +379,16 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('dialogue-ducking', 'Duck music under dialogue', 'Duck the background music under every spoken section so the dialogue remains clear.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'apply_audio_ducking'] }),
   scenario('content-analysis', 'Analyze edit opportunities', 'Analyze this video for silence, filler words, and useful edit points. Report findings only.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['analyze_video_content'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('plain-caption-track', 'Add explicit plain captions', 'Add plain subtitle captions for all spoken dialogue, with no animated emphasis.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'add_captions'] }),
-  scenario('fancy-caption-track', 'Add explicit animated captions', 'Add animated word-highlight captions for all spoken dialogue.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'add_fancy_captions'] }),
+  scenario('fancy-caption-track', 'Add explicit animated captions', 'Add animated word-highlight captions for all spoken dialogue.', {
+    projectMode: 'assist',
+    requiredToolSequence: requiredToolSequenceForChatCapability('caption-track', 'add_captions'),
+    forbiddenTools: ['add_fancy_captions'],
+  }),
   scenario('refresh-plain-captions', 'Refresh plain captions', 'Realign the existing plain captions to the current edited clips and transcript.', { requiredToolSequence: [READ_PROJECT, 'refresh_captions'] }),
-  scenario('refresh-fancy-captions', 'Refresh animated captions', 'Realign the existing animated captions to the current edited clips and transcript.', { requiredToolSequence: [READ_PROJECT, 'refresh_fancy_captions'] }),
+  scenario('refresh-fancy-captions', 'Refresh animated captions', 'Realign the existing animated captions to the current edited clips and transcript.', {
+    requiredToolSequence: requiredToolSequenceForChatCapability('caption-refresh', 'refresh_captions'),
+    forbiddenTools: ['refresh_fancy_captions'],
+  }),
   scenario('batch-caption-edit', 'Batch edit caption styling', 'Make all existing captions use sentence case and a high-contrast white style without changing their timing.', { requiredToolSequence: [READ_PROJECT, 'batch_edit_captions'] }),
   scenario('analyze-selected-audio', 'Analyze selected clip audio', 'Resolve and queue durable analysis of the selected clip audio for beats, pauses, speech, and energy. Do not edit anything and do not claim findings before the job completes.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['resolve_clip_analysis', 'queue_resolved_clip_analysis'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('analyze-selected-video', 'Analyze selected clip video', 'Resolve and queue durable analysis of the selected clip visuals for subjects, actions, shot changes, and text. Do not edit anything and do not claim findings before the job completes.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['resolve_clip_analysis', 'queue_resolved_clip_analysis'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
