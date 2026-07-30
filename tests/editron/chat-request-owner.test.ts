@@ -218,6 +218,108 @@ describe('chat request owner classification', () => {
     ).toEqual(['kind', 'sourceSpan']);
   });
 
+  it('publishes the camera-motion job contract to the structured-output provider', () => {
+    const schema = GEMINI_OWNER_RESPONSE_SCHEMA as unknown as {
+      properties: {
+        facts: {
+          properties: {
+            localizedEdits: {
+              items: {
+                properties: {
+                  cameraMotionJob: { enum?: string[] };
+                };
+              };
+            };
+          };
+        };
+      };
+    };
+
+    expect(
+      schema.properties.facts.properties.localizedEdits.items.properties.cameraMotionJob.enum,
+    ).toEqual(['zoom-in', 'zoom-out', 'shake']);
+    expect(buildChatRequestOwnerPrompt(baseInput)).toContain(
+      'Never turn an audio-located zoom into shake.',
+    );
+  });
+
+  it.each([
+    {
+      userMessage: 'Use a subtle zoom on the strongest spoken emphasis.',
+      modality: 'transcript',
+      query: 'strongest spoken emphasis',
+      cameraMotionJob: 'zoom-in',
+    },
+    {
+      userMessage: 'Zoom out when the reveal appears.',
+      modality: 'visual',
+      query: 'the reveal appears',
+      cameraMotionJob: 'zoom-out',
+    },
+    {
+      userMessage: 'Shake on the strongest impact beat.',
+      modality: 'audio',
+      query: 'strongest impact beat',
+      cameraMotionJob: 'shake',
+    },
+  ] as const)(
+    'preserves $cameraMotionJob independently from $modality anchor evidence',
+    async ({ userMessage, modality, query, cameraMotionJob }) => {
+      const result = await classifyChatRequestOwner({
+        ...baseInput,
+        userMessage,
+      }, {
+        generate: async () => ({
+          text: JSON.stringify({
+            facts: {
+              requestsMutation: true,
+              requestsAnalysis: false,
+              requiresContentLocalization: true,
+              requiresEditorialJudgment: false,
+              requestsReferenceStyle: false,
+              requestsBroadEditorialOutcome: false,
+              durableOperation: 'none',
+              operationFullySpecified: true,
+              targetFullySpecified: false,
+              localizedReads: [],
+              localizedEdits: [{
+                modality,
+                operation: 'camera-motion',
+                query,
+                sourceQuery: '',
+                targetQuery: '',
+                targetKind: 'none',
+                sourceSpan: userMessage.slice(0, -1),
+                cameraMotionJob,
+              }],
+              requestedCapabilities: ['localized-camera-motion'],
+              capabilityEvidence: [{
+                capability: 'localized-camera-motion',
+                sourceSpan: userMessage.slice(0, -1),
+              }],
+              familyDirectives: [{ family: 'zoom', mode: 'prefer' }],
+            },
+            confidence: 0.98,
+            reason: 'The requested camera job and its semantic anchor are explicit.',
+          }),
+        }),
+      });
+
+      expect(result).toMatchObject({
+        owner: 'semantic-editorial-planner',
+        semanticWorkflow: 'localized-mutation',
+        routingFacts: {
+          localizedEdits: [{
+            modality,
+            operation: 'camera-motion',
+            query,
+            cameraMotionJob,
+          }],
+        },
+      });
+    },
+  );
+
   it('accepts a caption-refresh capability that owns its transcript and timeline evidence', async () => {
     const userMessage = 'Realign the existing animated captions to the current edited clips and transcript.';
     const result = await classifyChatRequestOwner({
@@ -870,6 +972,7 @@ describe('chat request owner classification', () => {
           localizedEdits: [{
             modality: 'visual',
             operation: 'camera-motion',
+            cameraMotionJob: 'zoom-in',
             query: 'gentle keyframed zoom from 100% to 108% over the next two seconds',
             sourceQuery: '',
             targetQuery: '',
