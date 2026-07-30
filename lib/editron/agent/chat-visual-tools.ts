@@ -68,6 +68,7 @@ export interface VisualMomentCandidate {
     scores?: CanonicalChatEvidenceCandidate["scores"];
     missingModalities?: string[];
     rejectionReasons?: string[];
+    accepted?: boolean;
     frameVerificationReceiptId?: string;
     verifiedFrame?: number;
   };
@@ -888,7 +889,6 @@ This is read-only: it returns local-frame scale keyframes for set_keyframes and 
         for (const update of plan.updates) {
           await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
             keyframeTracks: update.nextKeyframeTracks,
-            ...(update.nextStyles ? { styles: update.nextStyles } : {}),
           } as any);
         }
 
@@ -1359,6 +1359,7 @@ function canonicalVisualCandidate(
       scores: candidate.scores,
       missingModalities: candidate.missingModalities,
       rejectionReasons: candidate.rejectionReasons,
+      accepted: candidate.accepted,
     },
     safeForAutoEdit: candidate.safeForAutomaticMutation,
     useWith: {
@@ -1372,6 +1373,14 @@ function canonicalVisualCandidate(
       visual_inspect_frame: { frame, question: `Verify canonical visual match for: ${truncate(query, 80)}` },
     },
   };
+}
+
+function canRequestCanonicalFrameVerification(
+  candidate: VisualMomentCandidate,
+): boolean {
+  return candidate.source.type === "multimodal-evidence"
+    && candidate.source.accepted === true
+    && !candidate.source.rejectionReasons?.includes("ambiguous-top-candidates");
 }
 
 function mergeVisualCandidates(
@@ -3748,6 +3757,9 @@ export function resolveVisualEditPlacement(
   const readOnlyInspection = action === "inspect";
   if ((!candidate.safeForAutoEdit && !readOnlyInspection) || semanticCutRequiresConfirmation) {
     const second = candidates[1];
+    const inspection = canRequestCanonicalFrameVerification(candidate)
+      ? candidate.useWith.visual_inspect_frame
+      : undefined;
     return {
       status: "ambiguous",
       action,
@@ -3755,9 +3767,12 @@ export function resolveVisualEditPlacement(
       candidates,
       candidate,
       warnings,
-      message: second
-        ? `Visual reference "${query}" is ambiguous between frames ${candidate.startFrame}-${candidate.endFrame} and ${second.startFrame}-${second.endFrame}. Ask the user to choose before editing.`
-        : `Visual reference "${query}" was not confident enough for automatic ${action}.`,
+      ...(inspection ? { useWith: { visual_inspect_frame: inspection } } : {}),
+      message: inspection
+        ? `Visual reference "${query}" requires rendered-frame confirmation before automatic ${action}.`
+        : second
+          ? `Visual reference "${query}" is ambiguous between frames ${candidate.startFrame}-${candidate.endFrame} and ${second.startFrame}-${second.endFrame}. Ask the user to choose before editing.`
+          : `Visual reference "${query}" was not confident enough for automatic ${action}.`,
     };
   }
 

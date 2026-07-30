@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { resolveServerOwnedLocalizedWorkflowStep } from '@/lib/editron/agent/chat-localized-workflow';
 import { resolveServerOwnedChatWorkflowStep } from '@/lib/editron/agent/chat-server-workflow';
+import { resolveChatFrameContinuationLicense } from '@/lib/editron/agent/chat-frame-evidence';
 import {
   getChatCapabilityAuthorityContract,
   type ChatRequestCapability,
@@ -495,6 +496,92 @@ describe('server-owned localized chat workflow', () => {
       kind: 'halt',
       message: 'Two visual moments match this request.',
     });
+  });
+
+  it('captures and verifies an accepted canonical visual candidate before mutation', () => {
+    const owner = license(routingFacts(
+      [{
+        modality: 'visual',
+        operation: 'speed-change',
+        query: 'camera pulls back to reveal the artisan',
+      }],
+      ['localized-speed-change'],
+    ));
+    const resolverArgs = {
+      query: 'camera pulls back to reveal the artisan',
+      action: 'speed_ramp',
+    };
+    const inspectionArgs = {
+      frame: 443,
+      question: 'Verify canonical visual match for: camera pulls back to reveal the artisan',
+    };
+    const unresolved = execution('resolve_visual_edit', resolverArgs, {
+      outcome: 'execution-error',
+      output: JSON.stringify({
+        status: 'error',
+        data: {
+          status: 'ambiguous',
+          useWith: { visual_inspect_frame: inspectionArgs },
+          message: 'Rendered-frame confirmation is required.',
+        },
+      }),
+    });
+
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, unresolved),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: {
+        name: 'visual_inspect_frame',
+        args: inspectionArgs,
+      },
+    });
+
+    const inspection = execution('visual_inspect_frame', inspectionArgs, {
+      output: JSON.stringify({ action: 'capture_frame', ...inspectionArgs }),
+    });
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, unresolved, inspection),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: {
+        name: 'resolve_visual_edit',
+        args: resolverArgs,
+      },
+    });
+
+    const history = [{
+      role: 'assistant' as const,
+      requestOwnerLicense: owner,
+      toolCalls: [{
+        id: 'inspect-1',
+        name: 'visual_inspect_frame',
+      }],
+      toolResults: [{
+        toolCallId: 'inspect-1',
+        toolName: 'visual_inspect_frame',
+        result: inspection.output,
+      }],
+    }];
+    const evidence = {
+      ...inspectionArgs,
+      dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
+      width: 960,
+      height: 540,
+      capturedAtMs: 1_000_000,
+      source: 'editor-rendered-frame' as const,
+    };
+    expect(resolveChatFrameContinuationLicense(history, evidence)).toEqual(owner);
+    expect(resolveChatFrameContinuationLicense(history, {
+      ...evidence,
+      frame: evidence.frame + 1,
+    })).toBeNull();
   });
 
   it.each([

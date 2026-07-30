@@ -1,3 +1,5 @@
+import type { ChatRequestOwnerLicense } from './chat-request-owner';
+
 export const CHAT_FRAME_EVIDENCE_MAX_BYTES = 512 * 1_024;
 export const CHAT_FRAME_EVIDENCE_MAX_AGE_MS = 5 * 60_000;
 
@@ -20,6 +22,20 @@ export interface ChatFrameEvidence {
   height: number;
   capturedAtMs: number;
   source: 'editor-rendered-frame';
+}
+
+export interface ChatFrameContinuationMessage {
+  role: 'user' | 'assistant' | 'tool';
+  requestOwnerLicense?: ChatRequestOwnerLicense;
+  toolCalls?: Array<{
+    id: string;
+    name: string;
+  }>;
+  toolResults?: Array<{
+    toolCallId: string;
+    toolName: string;
+    result: unknown;
+  }>;
 }
 
 export interface GeminiHumanPart {
@@ -56,6 +72,42 @@ export function shouldEndChatRoundForFrameCapture(
 ): boolean {
   return toolName === 'visual_inspect_frame'
     && extractChatFrameCaptureRequest(output) !== null;
+}
+
+export function resolveChatFrameContinuationLicense(
+  history: readonly ChatFrameContinuationMessage[],
+  evidence: ChatFrameEvidence,
+): ChatRequestOwnerLicense | null {
+  const message = history.at(-1);
+  const license = message?.requestOwnerLicense;
+  if (
+    message?.role !== 'assistant'
+    || license?.owner !== 'semantic-editorial-planner'
+    || license.semanticWorkflow !== 'localized-mutation'
+    || !license.routingFacts?.localizedEdits?.some((edit) => edit.modality === 'visual')
+  ) {
+    return null;
+  }
+
+  const frameCalls = (message.toolCalls ?? []).filter(
+    (toolCall) => toolCall.name === 'visual_inspect_frame',
+  );
+  if (frameCalls.length !== 1) return null;
+  const frameCall = frameCalls[0];
+  const result = (message.toolResults ?? []).find(
+    (candidate) =>
+      candidate.toolCallId === frameCall.id
+      && candidate.toolName === 'visual_inspect_frame',
+  );
+  const request = result ? extractChatFrameCaptureRequest(result.result) : null;
+  if (
+    !request
+    || request.frame !== evidence.frame
+    || request.question !== evidence.question
+  ) {
+    return null;
+  }
+  return license;
 }
 
 export function sanitizeChatFrameEvidence(

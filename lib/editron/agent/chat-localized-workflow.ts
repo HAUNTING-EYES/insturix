@@ -96,12 +96,44 @@ export function resolveServerOwnedLocalizedWorkflowStep(input: {
         authorizedMutation,
       )
       : null;
+    const frameInspection = resolver
+      ? requiredFrameInspection(resolver)
+      : null;
+    const completedFrameInspection = resolver && frameInspection
+      ? matchingExecutionAfter(
+        input.ledger.completedExecutions,
+        resolver,
+        'visual_inspect_frame',
+        frameInspection,
+      )
+      : null;
 
     if (mutation && COMPLETED_MUTATION_OUTCOMES.has(mutation.outcome)) {
       continue;
     }
     if (mutation) {
       return { kind: 'halt', message: humanizeWorkflowFailure(mutation) };
+    }
+    if (resolver && resolver.outcome !== 'success' && frameInspection) {
+      if (!completedFrameInspection) {
+        return toolCall(
+          index,
+          'inspection',
+          'visual_inspect_frame',
+          frameInspection,
+          input.ledger,
+        );
+      }
+      if (completedFrameInspection.outcome !== 'success') {
+        return { kind: 'halt', message: humanizeWorkflowFailure(completedFrameInspection) };
+      }
+      return toolCall(
+        index,
+        'verified-resolver',
+        adapter.resolverTool,
+        adapter.resolverArgs,
+        input.ledger,
+      );
     }
     if (resolver && resolver.outcome !== 'success') {
       return { kind: 'halt', message: humanizeWorkflowFailure(resolver) };
@@ -385,6 +417,34 @@ function matchingMutationAfter(
       execution.name === mutation.toolName
       && isDeepSubset(mutation.args, execution.args),
   ) ?? null;
+}
+
+function matchingExecutionAfter(
+  executions: CompletedChatToolExecution[],
+  anchor: CompletedChatToolExecution,
+  toolName: string,
+  args: Record<string, unknown>,
+): CompletedChatToolExecution | null {
+  const anchorIndex = executions.indexOf(anchor);
+  return executions.slice(anchorIndex + 1).find(
+    (execution) => execution.name === toolName && isDeepSubset(args, execution.args),
+  ) ?? null;
+}
+
+function requiredFrameInspection(
+  resolver: CompletedChatToolExecution,
+): Record<string, unknown> | null {
+  const envelope = parseRecord(resolver.output);
+  const data = asRecord(envelope?.data);
+  const useWith = asRecord(data.useWith);
+  const inspection = asRecord(useWith.visual_inspect_frame);
+  const frame = Number(inspection.frame);
+  const question = firstString(inspection.question);
+  if (!Number.isFinite(frame) || frame < 0 || !question) return null;
+  return {
+    frame: Math.round(frame),
+    question,
+  };
 }
 
 function hasCurrentTimelineEvidence(

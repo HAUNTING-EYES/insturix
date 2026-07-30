@@ -25,6 +25,7 @@ import { TokenTracker } from '@/lib/editron/utils/token-tracker';
 import { CHAT_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
 import {
   formatChatFrameEvidencePrompt,
+  resolveChatFrameContinuationLicense,
   sanitizeChatFrameEvidence,
 } from '@/lib/editron/agent/chat-frame-evidence';
 import {
@@ -306,18 +307,22 @@ export async function POST(req: NextRequest) {
 
     const restoreTarget = resolveChatAiEditRestoreTarget(history, { userMessage: message });
     const tokenTracker = new TokenTracker(CHAT_MODEL_NAME);
-    const classifiedRequestOwnerLicense = await classifyChatRequestOwner({
-      userMessage: message,
-      restoreStatus: restoreTarget.status,
-      selectedOverlayPresent: Boolean(selectedOverlayId),
-      visualEvidencePresent: Boolean(visualEvidence),
-      selectedRangePresent: Boolean(chatEditContext.selectedRange),
-      visibleTimelinePresent: Boolean(chatEditContext.visibleTimeline),
-      playheadPresent: Number.isFinite(chatEditContext.playhead.frame),
-      attachments,
-    }, {
-      addUsage: (usage) => tokenTracker.addUsage(usage),
-    });
+    const continuationLicense = visualEvidence
+      ? resolveChatFrameContinuationLicense(history, visualEvidence)
+      : null;
+    const classifiedRequestOwnerLicense = continuationLicense
+      ?? await classifyChatRequestOwner({
+        userMessage: message,
+        restoreStatus: restoreTarget.status,
+        selectedOverlayPresent: Boolean(selectedOverlayId),
+        visualEvidencePresent: Boolean(visualEvidence),
+        selectedRangePresent: Boolean(chatEditContext.selectedRange),
+        visibleTimelinePresent: Boolean(chatEditContext.visibleTimeline),
+        playheadPresent: Number.isFinite(chatEditContext.playhead.frame),
+        attachments,
+      }, {
+        addUsage: (usage) => tokenTracker.addUsage(usage),
+      });
     const requestOwnerLicense = bindTrustedTimelineTarget(
       bindTrustedSelectedOverlayTarget(
         classifiedRequestOwnerLicense,
