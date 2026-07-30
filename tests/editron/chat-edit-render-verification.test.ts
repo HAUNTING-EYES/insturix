@@ -100,6 +100,46 @@ describe('chat edit rendered verification', () => {
     expect(request.sampleFrames).toEqual([73, 74, 75, 76, 77]);
   });
 
+  it('proves closed gaps through changed picture and preserved audio', async () => {
+    const request = buildRequest({
+      name: 'close_gaps',
+      args: {},
+      target: { overlayId: 'video_1', overlayType: 'video', state: 'updated', from: 0, endFrame: 150 },
+      modalities: ['visual', 'audio'],
+      affectedFrameRange: { startFrame: 74, endFrame: 77 },
+    });
+
+    expect(request.expectedEffect).toBe('mutation-delta');
+    expect(request.expectationsByModality).toEqual({
+      visual: 'mutation-delta',
+      audio: 'continuity-preserved',
+    });
+
+    const evidence = await buildChatEditRenderedAudioEvidence(
+      afterProject(),
+      beforeProject(),
+      request,
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        inspectAudioTrack: async () => ({
+          status: 'present',
+          audioTrackCount: 1,
+          reason: null,
+        }),
+        renderAudioWindow: async () => ({
+          url: 'https://example.com/same.wav',
+          renderId: 'same-render',
+          bucketName: 'render-bucket',
+          pcmSha256: 'same-pcm',
+          rms: 0.2,
+          peak: 0.5,
+        }),
+      },
+    );
+    expect(evidence.status, evidence.reason ?? 'no reason').toBe('pass');
+  });
+
   it('carries an owner-reported mutation range into exact seam samples and audio windows', () => {
     const request = buildRequest({
       name: 'cut_section',

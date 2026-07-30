@@ -228,6 +228,9 @@ export interface ChatToolPostconditionContract {
     required: true;
     modalities: ChatToolRenderEvidenceModality[];
     expectation: ChatToolRenderEvidenceExpectation;
+    expectationsByModality?: Partial<
+      Record<ChatToolRenderEvidenceModality, ChatToolRenderEvidenceExpectation>
+    >;
   };
 }
 
@@ -311,10 +314,18 @@ function postconditions(
   kind: ChatToolStatePostconditionKind,
   modalities: ChatToolRenderEvidenceModality[] = ['visual'],
   expectation: ChatToolRenderEvidenceExpectation = 'mutation-delta',
+  expectationsByModality?: Partial<
+    Record<ChatToolRenderEvidenceModality, ChatToolRenderEvidenceExpectation>
+  >,
 ): ChatToolPostconditionContract {
   return {
     state: { kind, targetSource: 'tool-args-and-result' },
-    render: { required: true, modalities, expectation },
+    render: {
+      required: true,
+      modalities,
+      expectation,
+      ...(expectationsByModality ? { expectationsByModality } : {}),
+    },
   };
 }
 
@@ -339,7 +350,7 @@ export const CHAT_TOOL_REGISTRY = {
   delete_overlay: defineTool({ name: 'delete_overlay', label: 'Removing element', shortLabel: 'Remove', iconCategory: 'delete', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Removed element', postconditions: postconditions('overlay-deleted', ['visual', 'audio']) }),
   sync_style: defineTool({ name: 'sync_style', label: 'Syncing styles', shortLabel: 'Sync', iconCategory: 'style', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Synced styles' }),
   visual_inspect_frame: defineTool({ name: 'visual_inspect_frame', label: 'Inspecting video frame', shortLabel: 'Inspect', iconCategory: 'visual', receiptLabel: 'Inspected frame' }),
-  close_gaps: defineTool({ name: 'close_gaps', label: 'Closing timeline gaps', shortLabel: 'Close gaps', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Closed gaps', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']), effectContract: { produces: ['timeline-gaps-closed'], redundantAfter: ['cut-gap-closed', 'timeline-gaps-closed'] } }),
+  close_gaps: defineTool({ name: 'close_gaps', label: 'Closing timeline gaps', shortLabel: 'Close gaps', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Closed gaps', postconditions: postconditions('overlay-set-changed', ['visual', 'audio'], 'mutation-delta', { visual: 'mutation-delta', audio: 'continuity-preserved' }), effectContract: { produces: ['timeline-gaps-closed'], redundantAfter: ['cut-gap-closed', 'timeline-gaps-closed'] } }),
   restore_ai_edit_checkpoint: defineTool({ name: 'restore_ai_edit_checkpoint', label: 'Restoring AI edit checkpoint', shortLabel: 'Restore', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Restored checkpoint', turnContract: { owner: 'checkpoint-restorer', evidenceStrategy: 'owner-internal', requiredEvidence: [], producesEvidence: [] } }),
   cut_section: defineTool({ name: 'cut_section', label: 'Cutting section', shortLabel: 'Cut', iconCategory: 'trim', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Cut section', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']), effectContract: { produces: ['cut-gap-closed'], redundantAfter: [] } }),
   add_motion_graphic: defineTool({ name: 'add_motion_graphic', label: 'Adding motion graphic', shortLabel: 'MG', iconCategory: 'motion', executionType: 'quick', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphic', postconditions: postconditions('overlay-created') }),

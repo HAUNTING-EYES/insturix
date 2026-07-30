@@ -92,6 +92,9 @@ export interface ChatEditRenderVerificationRequest {
   requestedAt: string;
   modalities: ChatEditRenderVerificationModality[];
   expectedEffect?: ChatEditRenderVerificationExpectation;
+  expectationsByModality?: Partial<
+    Record<ChatEditRenderVerificationModality, ChatEditRenderVerificationExpectation>
+  >;
   targets: ChatEditRenderVerificationTarget[];
   mutationRanges?: ChatEditRenderVerificationMutationRange[];
   inheritedRenderEligibilityOverlayIds?: string[];
@@ -1018,7 +1021,10 @@ export async function buildChatEditRenderedAudioEvidence(
     }
   }
 
-  const expectsContinuity = request.expectedEffect === 'continuity-preserved';
+  const expectsContinuity = (
+    request.expectationsByModality?.audio
+    ?? request.expectedEffect
+  ) === 'continuity-preserved';
   const failed = evidenceWindows.filter((window) =>
     Boolean(window.error) || (expectsContinuity ? window.changed : !window.changed),
   );

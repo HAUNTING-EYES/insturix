@@ -323,7 +323,9 @@ async function handleChatEditRenderVerification(input: {
                 && !inheritedOverlayIdSet.has(target.overlayId),
               )
               .map((target) => target.overlayId),
-            comparisonMode: input.verification.expectedEffect ?? 'mutation-delta',
+            comparisonMode: input.verification.expectationsByModality?.visual
+              ?? input.verification.expectedEffect
+              ?? 'mutation-delta',
             capturedAt,
           })
         : Promise.resolve(null),
@@ -560,6 +562,24 @@ function validateChatEditVerificationRequest(
       ? request.expectedEffect
       : null;
   if (!expectedEffect) return null;
+  if (
+    request.expectationsByModality !== undefined
+    && (
+      !request.expectationsByModality
+      || typeof request.expectationsByModality !== 'object'
+      || Array.isArray(request.expectationsByModality)
+    )
+  ) return null;
+  const rawExpectationsByModality = asRecord(request.expectationsByModality);
+  if (Object.keys(rawExpectationsByModality).some((key) => key !== 'visual' && key !== 'audio')) {
+    return null;
+  }
+  const expectationsByModality: ChatEditRenderVerificationRequest['expectationsByModality'] = {};
+  for (const modality of modalities) {
+    const expectation = rawExpectationsByModality[modality] ?? expectedEffect;
+    if (expectation !== 'mutation-delta' && expectation !== 'continuity-preserved') return null;
+    expectationsByModality[modality] = expectation;
+  }
 
   const rawTargets = Array.isArray(request.targets) ? request.targets : [];
   if (rawTargets.length > 64) return null;
@@ -620,6 +640,7 @@ function validateChatEditVerificationRequest(
     requestedAt,
     modalities,
     expectedEffect,
+    expectationsByModality,
     targets,
     ...(mutationRanges.length > 0 ? { mutationRanges } : {}),
     ...(inheritedRenderEligibilityOverlayIds.length > 0

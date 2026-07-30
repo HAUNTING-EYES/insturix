@@ -376,7 +376,10 @@ export function buildChatEditRenderVerificationRequest(input: {
   const targetsByKey = new Map<string, ChatEditRenderVerificationTarget>();
   const mutationRangesByKey = new Map<string, ChatEditRenderVerificationMutationRange>();
   const modalitySet = new Set<ChatEditRenderVerificationModality>();
-  const expectedEffects = new Set<ChatEditRenderVerificationExpectation>();
+  const expectedEffectsByModality = new Map<
+    ChatEditRenderVerificationModality,
+    Set<ChatEditRenderVerificationExpectation>
+  >();
   const inheritedRenderEligibilityOverlayIds = new Set<string>();
 
   for (const successful of input.successfulCalls) {
@@ -404,23 +407,39 @@ export function buildChatEditRenderVerificationRequest(input: {
         withOwner,
       );
     }
-    for (const modality of inferMutationModalities(successful.call, targets, receipt?.modalities)) {
+    const inferredModalities = inferMutationModalities(successful.call, targets, receipt?.modalities);
+    const renderContract = getChatToolMetadata(successful.call.name)?.postconditions?.render;
+    for (const modality of inferredModalities) {
       modalitySet.add(modality);
+      const expectations = expectedEffectsByModality.get(modality) ?? new Set();
+      expectations.add(
+        renderContract?.expectationsByModality?.[modality]
+        ?? renderContract?.expectation
+        ?? 'mutation-delta',
+      );
+      expectedEffectsByModality.set(modality, expectations);
     }
-    expectedEffects.add(
-      getChatToolMetadata(successful.call.name)?.postconditions?.render.expectation
-      ?? 'mutation-delta',
-    );
   }
 
   const targets = Array.from(targetsByKey.values());
   const mutationRanges = Array.from(mutationRangesByKey.values());
   if (modalitySet.size === 0) modalitySet.add('visual');
   const durationInFrames = Math.max(1, Math.round(finitePositiveNumber(input.project.durationInFrames) ?? 1));
+  const expectationsByModality = Object.fromEntries(
+    Array.from(modalitySet).map((modality) => {
+      const expectations = expectedEffectsByModality.get(modality);
+      return [
+        modality,
+        expectations?.has('mutation-delta') === false
+          ? 'continuity-preserved'
+          : 'mutation-delta',
+      ];
+    }),
+  ) as Partial<Record<ChatEditRenderVerificationModality, ChatEditRenderVerificationExpectation>>;
   const expectedEffect: ChatEditRenderVerificationExpectation =
-    expectedEffects.has('mutation-delta')
-      ? 'mutation-delta'
-      : 'continuity-preserved';
+    expectationsByModality.visual
+    ?? expectationsByModality.audio
+    ?? 'mutation-delta';
   const sampleFrames = buildVerificationSampleFrames(
     targets,
     durationInFrames,
@@ -438,6 +457,7 @@ export function buildChatEditRenderVerificationRequest(input: {
     requestedAt: input.requestedAt ?? new Date().toISOString(),
     modalities: Array.from(modalitySet),
     expectedEffect,
+    expectationsByModality,
     targets,
     ...(mutationRanges.length > 0 ? { mutationRanges } : {}),
     ...(inheritedRenderEligibilityOverlayIds.size > 0
