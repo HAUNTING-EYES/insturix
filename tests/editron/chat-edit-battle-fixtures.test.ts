@@ -4,6 +4,7 @@ import { getChatEditBattleScenario } from '@/lib/editron/services/chat-edit-batt
 import { planChatBattleFixture } from '@/lib/editron/services/chat-edit-battle-fixture-plan';
 import {
   cloneChatBattleAnalysisDocuments,
+  cloneChatBattleStoryboard,
   cloneChatBattleUploadBatch,
   inspectChatBattleFixtureCapabilities,
   prepareChatBattleFixture,
@@ -34,6 +35,12 @@ describe('chat edit battle fixtures', () => {
       soundOverlayPolicy: 'preserve-sfx-only',
     });
     expect(plan('edit-html-scene')).toMatchObject({ profile: 'generated-scene', selectedOverlayType: 'html-scene' });
+    expect(plan('regenerate-existing-scene')).toMatchObject({
+      profile: 'storyboard-scene',
+      sourceProjectId: 'proj_4N_6crLWX89A',
+      selectedOverlayType: undefined,
+      requiresStoryboardClone: true,
+    });
     expect(plan('explicit-asset')).toMatchObject({ requestedAssetAlias: 'explicit-image' });
     expect(plan('place-uploaded-asset')).toMatchObject({
       requestedAssetAlias: 'portrait-image',
@@ -679,6 +686,52 @@ describe('chat edit battle fixtures', () => {
     expect(clone).not.toHaveProperty('orchestrationLeaseUntil');
     expect(clone).not.toHaveProperty('orchestrationMessageId');
     expect(clone).not.toHaveProperty('deliverables');
+  });
+
+  it('clones storyboards into the disposable fixture without mutating the source', () => {
+    const source = {
+      _id: 'mongo-storyboard-id',
+      storyboardId: 'sb-source',
+      projectId: 'source-project',
+      userId: 'user-1',
+      scenes: [
+        {
+          sceneIndex: 0,
+          imageAssetId: 'image-source',
+          videoAssetId: 'video-source',
+          voiceover: { audioAssetId: 'voice-source' },
+        },
+      ],
+      metadata: { source: true },
+    };
+    const snapshot = structuredClone(source);
+    const clone = cloneChatBattleStoryboard(
+      source,
+      'proj_chatbattle_storyboard1',
+      'sb_cb_storyboard1',
+      NOW,
+    );
+
+    expect(source).toEqual(snapshot);
+    expect(clone).toMatchObject({
+      storyboardId: 'sb_cb_storyboard1',
+      projectId: 'proj_chatbattle_storyboard1',
+      userId: 'user-1',
+      scenes: source.scenes,
+      metadata: {
+        source: true,
+        battleTest: {
+          disposable: true,
+          fixtureProjectId: 'proj_chatbattle_storyboard1',
+          sourceStoryboardId: 'sb-source',
+          sourceSceneAssetIds: ['image-source', 'video-source', 'voice-source'],
+          preparedAt: NOW.toISOString(),
+        },
+      },
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    expect(clone).not.toHaveProperty('_id');
   });
 
   it('adds fresh cursor evidence only for the cursor scenario', () => {

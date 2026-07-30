@@ -296,6 +296,42 @@ export function cloneChatBattleUploadBatch(
   return clone;
 }
 
+export function cloneChatBattleStoryboard(
+  sourceStoryboard: Record<string, unknown>,
+  fixtureProjectId: string,
+  fixtureStoryboardId: string,
+  now: Date = new Date(),
+): Record<string, unknown> {
+  const sourceStoryboardId = stringValue(sourceStoryboard.storyboardId);
+  if (!sourceStoryboardId) {
+    throw new Error('Storyboard fixture source has no storyboardId.');
+  }
+  const clone = structuredClone(sourceStoryboard);
+  delete clone._id;
+  const sourceSceneAssetIds = uniqueStrings(
+    asRecords(clone.scenes).flatMap((scene) => [
+      scene.imageAssetId,
+      scene.videoAssetId,
+      asRecord(scene.voiceover).audioAssetId,
+    ]),
+  );
+  clone.storyboardId = fixtureStoryboardId;
+  clone.projectId = fixtureProjectId;
+  clone.createdAt = now;
+  clone.updatedAt = now;
+  clone.metadata = {
+    ...asRecord(clone.metadata),
+    battleTest: {
+      disposable: true,
+      fixtureProjectId,
+      sourceStoryboardId,
+      sourceSceneAssetIds,
+      preparedAt: now.toISOString(),
+    },
+  };
+  return clone;
+}
+
 function seedTranscriptOverlay(
   overlays: Record<string, unknown>[],
   project: Record<string, unknown>,

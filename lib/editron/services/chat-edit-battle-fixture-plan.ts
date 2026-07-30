@@ -11,7 +11,8 @@ export type ChatBattleFixtureProfile =
   | 'audio'
   | 'impact-audio'
   | 'sfx'
-  | 'generated-scene';
+  | 'generated-scene'
+  | 'storyboard-scene';
 
 export type ChatBattleFixtureCapability =
   | 'multi-asset'
@@ -48,6 +49,7 @@ export interface ChatBattleFixtureSources {
   'impact-audio': string;
   sfx: string;
   'generated-scene': string;
+  'storyboard-scene': string;
 }
 
 export interface ChatBattleFixturePlan {
@@ -63,6 +65,7 @@ export interface ChatBattleFixturePlan {
   nativeAudioPolicy: ChatBattleFixtureNativeAudioPolicy;
   requestedAssetAlias?: ChatBattleFixtureAssetAlias;
   requiresUploadBatchClone: boolean;
+  requiresStoryboardClone: boolean;
   seedTimelineGapFrames?: number;
   selectedOverlayMinimumDurationFrames?: number;
   stripSelectedAnimation?: boolean;
@@ -84,6 +87,7 @@ export const DEFAULT_CHAT_BATTLE_FIXTURE_SOURCES: ChatBattleFixtureSources = {
   'impact-audio': 'proj_chatbattle_impact_audio_v1',
   sfx: 'proj_chatbattle_impact_audio_v1',
   'generated-scene': 'proj_Fp_gxpn-Lonh',
+  'storyboard-scene': 'proj_4N_6crLWX89A',
 };
 
 const SPEECH_SCENARIOS = new Set([
@@ -119,7 +123,8 @@ const AUDIO_SCENARIOS = new Set([
   'analyze-selected-audio', 'beat-sync-cuts', 'mixed-multi-step',
 ]);
 
-const GENERATED_SCENE_SCENARIOS = new Set(['edit-html-scene', 'regenerate-existing-scene']);
+const GENERATED_SCENE_SCENARIOS = new Set(['edit-html-scene']);
+const STORYBOARD_SCENE_SCENARIOS = new Set(['regenerate-existing-scene']);
 const ADD_CAPTION_SCENARIOS = new Set(['plain-caption-track', 'fancy-caption-track']);
 
 const VIDEO_SELECTED_SCENARIOS = new Set([
@@ -166,6 +171,7 @@ export function planChatBattleFixture(
     } : {}),
     requiresUploadBatchClone: scenario.id === 'multiasset-script-intake'
       || scenario.id === 'multiasset-script-chat',
+    requiresStoryboardClone: STORYBOARD_SCENE_SCENARIOS.has(scenario.id),
     ...(scenario.id === 'close-timeline-gaps' ? { seedTimelineGapFrames: 30 } : {}),
     ...(scenario.id === 'manual-keyframe-zoom'
       ? { selectedOverlayMinimumDurationFrames: 60 }
@@ -230,6 +236,7 @@ function resolveProfile(scenarioId: string): ChatBattleFixtureProfile {
   if (scenarioId === 'selected-dialogue-dubbing') return 'dubbing';
   if (scenarioId === 'audio-anchored-camera-shake') return 'impact-audio';
   if (scenarioId === 'replace-selected-sfx') return 'sfx';
+  if (STORYBOARD_SCENE_SCENARIOS.has(scenarioId)) return 'storyboard-scene';
   if (GENERATED_SCENE_SCENARIOS.has(scenarioId)) return 'generated-scene';
   if (AUDIO_SCENARIOS.has(scenarioId)) return 'audio';
   if (VISUAL_SCENARIOS.has(scenarioId)) return 'visual-multi-asset';

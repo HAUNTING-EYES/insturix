@@ -15,6 +15,7 @@ import { planChatBattleFixture } from '../lib/editron/services/chat-edit-battle-
 import { loadCanonicalProjectAssetAnalyses } from '../lib/editron/services/project-analysis-storage';
 import {
   cloneChatBattleAnalysisDocuments,
+  cloneChatBattleStoryboard,
   cloneChatBattleUploadBatch,
   inspectChatBattleFixtureCapabilities,
   prepareChatBattleFixture,
@@ -99,6 +100,21 @@ async function main(): Promise<void> {
     if (plan.requiresUploadBatchClone && !sourceUploadBatch) {
       throw new Error(`Fixture source upload batch not found for ${plan.sourceProjectId}.`);
     }
+    const sourceStoryboardId = stringValue(sourceProject.sourceStoryboardId);
+    const sourceStoryboard = plan.requiresStoryboardClone
+      ? await db.collection('storyboards').findOne({
+          userId: sourceProject.userId,
+          ...(sourceStoryboardId
+            ? { storyboardId: sourceStoryboardId }
+            : { projectId: plan.sourceProjectId }),
+        })
+      : null;
+    if (plan.requiresStoryboardClone && !sourceStoryboard) {
+      throw new Error(
+        `Fixture source storyboard not found for ${plan.sourceProjectId}`
+        + (sourceStoryboardId ? ` (${sourceStoryboardId})` : ''),
+      );
+    }
     const sourceReferenceAsset = scenario.fixtureRequirements.includes('durable-reference-asset')
       ? await db.collection(COLLECTIONS.MEDIA_ASSETS).findOne({
           userId: sourceProject.userId,
@@ -120,9 +136,19 @@ async function main(): Promise<void> {
           fixtureProjectId,
           fixtureUploadBatchId,
           now,
-        )
+      )
       : null;
     if (uploadBatch) prepared.project.sourceUploadBatchId = fixtureUploadBatchId;
+    const fixtureStoryboardId = `sb_cb_${fixtureProjectId.replace(/^proj_/, '').slice(0, 80)}`;
+    const storyboard = sourceStoryboard
+      ? cloneChatBattleStoryboard(
+          sourceStoryboard as Record<string, unknown>,
+          fixtureProjectId,
+          fixtureStoryboardId,
+          now,
+        )
+      : null;
+    if (storyboard) prepared.project.sourceStoryboardId = fixtureStoryboardId;
     const analysisDocuments = cloneChatBattleAnalysisDocuments(
       sourceAnalyses as Record<string, unknown>[],
       fixtureProjectId,
@@ -165,6 +191,9 @@ async function main(): Promise<void> {
       }
       if (durableSeeds.referenceAsset) {
         await db.collection(COLLECTIONS.MEDIA_ASSETS).insertOne(durableSeeds.referenceAsset, { session });
+      }
+      if (storyboard) {
+        await db.collection('storyboards').insertOne(storyboard, { session });
       }
       await db.collection(COLLECTIONS.PROJECTS).insertOne(prepared.project, { session });
       if (uploadBatch) {
