@@ -4,7 +4,7 @@ Status: canonical remaining-work ledger
 
 Last reconciled: 2026-07-30
 
-Code baseline: `6f625acb`
+Code baseline: `3f538d8a`
 
 Branch: `infrastructure-improvs-+Editron`
 
@@ -126,6 +126,11 @@ later in this document.
 - UploaderX whole-file and chunked Facebook publishers decrypt credentials
   before provider work and reject unreadable ciphertext before media or credit
   work.
+- Brand Vault decrypts connected Facebook credentials at the Graph boundary and
+  disables post reads when stored ciphertext is unreadable.
+- The Facebook OAuth callback encrypts the long-lived user token and every Page
+  token before Mongo persistence, and fails closed when encryption is
+  unavailable.
 - Legacy plaintext Facebook credentials remain readable during migration.
 
 Relevant hardening commits:
@@ -156,6 +161,7 @@ d3ec38db fix(calos): validate facebook page tokens
 0b240fe3 fix(calos): read encrypted facebook tokens
 05af9ac5 fix(facebook): read encrypted assignment tokens
 6f625acb fix(uploaderx): read encrypted facebook tokens
+3f538d8a fix(facebook): encrypt oauth callback tokens
 ```
 
 ## 5. Remaining Work: Release Blockers
@@ -343,12 +349,13 @@ Primary owners:
 
 ### CAL-P0-06: Finish OAuth Encryption At Rest
 
-Facebook remaining:
+Facebook migration remaining:
 
-- Decrypt Page tokens before Brand Vault Graph reads.
-- Encrypt user and Page tokens in the Facebook OAuth callback.
 - Backfill existing plaintext Facebook credentials.
-- Add key-version migration, rollback, and corrupt-ciphertext tests.
+- Add an idempotent dry-run/apply migration with key-version rotation and
+  rollback instructions.
+- Measure remaining plaintext records and remove legacy-read compatibility only
+  after the documented migration window reaches zero.
 
 Other platform remaining:
 
@@ -366,11 +373,11 @@ Acceptance criteria:
 - A corrupt token fails closed and produces a reconnect action.
 - Key rotation can be performed without a platform outage.
 
-Primary Facebook owners:
+Primary Facebook migration owners:
 
-- `lib/shared/brand-vault-connected-social-ingestion.ts`
-- `app/api/services/uploaderx/facebook/callback/route.ts`
-- Facebook callback and Brand Vault tests
+- `schemas/user.ts`
+- `lib/calos/publish/token-crypto.ts`
+- New migration script and operational runbook
 
 ## 6. Remaining Work: High-Priority Correctness
 
@@ -566,18 +573,34 @@ Repository rules require each implementation phase to touch no more than five
 files and to stop for verification and approval before the next phase. Large
 work items below must therefore be split into small reviewed slices.
 
-### Phase 1: Complete Facebook Encryption
+### Phase 1A: Facebook Reader/Writer Boundary (Complete)
 
 - Brand Vault encrypted reads.
 - OAuth callback encrypted writes.
 - Legacy/corrupt token tests.
-- Migration and rollback note.
 
 Exit gate:
 
 - All Facebook readers accept encrypted tokens.
 - New callbacks write only encrypted credentials.
-- Focused tests, subsystem tests, TypeScript, and ESLint pass for the slice.
+- Focused tests and subsystem tests pass.
+- The slice has no TypeScript or ESLint errors.
+
+Completed in `3f538d8a`.
+
+### Phase 1B: Backfill Legacy Facebook Credentials
+
+- Add dry-run counts for plaintext user and Page tokens.
+- Encrypt legacy records idempotently in bounded batches.
+- Add key-version rotation and rollback instructions.
+- Verify zero plaintext records before removing migration compatibility.
+
+Exit gate:
+
+- Existing Facebook credentials are encrypted without requiring users to
+  reconnect.
+- Re-running the migration changes no already-encrypted records.
+- Operators can audit counts, stop safely, and roll back the deployment.
 
 ### Phase 2: Truthful Immediate UX Guardrails
 
