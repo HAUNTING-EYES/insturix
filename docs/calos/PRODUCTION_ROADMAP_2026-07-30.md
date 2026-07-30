@@ -131,6 +131,10 @@ later in this document.
 - The Facebook OAuth callback encrypts the long-lived user token and every Page
   token before Mongo persistence, and fails closed when encryption is
   unavailable.
+- A bounded, dry-run-by-default migration audits and encrypts legacy user/Page
+  tokens with per-secret compare-and-set updates. The production procedure and
+  rollback constraints are documented in
+  `docs/calos/FACEBOOK_TOKEN_MIGRATION_RUNBOOK.md`.
 - Legacy plaintext Facebook credentials remain readable during migration.
 
 Relevant hardening commits:
@@ -349,13 +353,23 @@ Primary owners:
 
 ### CAL-P0-06: Finish OAuth Encryption At Rest
 
-Facebook migration remaining:
+Facebook backfill implementation completed:
 
-- Backfill existing plaintext Facebook credentials.
-- Add an idempotent dry-run/apply migration with key-version rotation and
-  rollback instructions.
+- `scripts/migrate-facebook-oauth-tokens.ts` provides bounded dry-run/apply
+  pages, resumable cursors, non-secret counters, idempotent envelope detection,
+  and per-secret compare-and-set writes.
+- `docs/calos/FACEBOOK_TOKEN_MIGRATION_RUNBOOK.md` documents production
+  execution, failure recovery, rollback boundaries, and the current key
+  rotation limitation.
+
+Facebook production work remaining:
+
+- Execute the backfill in every environment and resolve unsafe Page records.
 - Measure remaining plaintext records and remove legacy-read compatibility only
   after the documented migration window reaches zero.
+- Add a dual-key/key-ID envelope before rotating
+  `CALOS_TOKEN_ENCRYPTION_KEY`; the current `oauth:v1:` prefix identifies an
+  envelope format, not a key.
 
 Other platform remaining:
 
@@ -377,7 +391,8 @@ Primary Facebook migration owners:
 
 - `schemas/user.ts`
 - `lib/calos/publish/token-crypto.ts`
-- New migration script and operational runbook
+- `scripts/migrate-facebook-oauth-tokens.ts`
+- `docs/calos/FACEBOOK_TOKEN_MIGRATION_RUNBOOK.md`
 
 ## 6. Remaining Work: High-Priority Correctness
 
@@ -590,9 +605,11 @@ Completed in `3f538d8a`.
 
 ### Phase 1B: Backfill Legacy Facebook Credentials
 
+Implementation complete; production execution pending.
+
 - Add dry-run counts for plaintext user and Page tokens.
 - Encrypt legacy records idempotently in bounded batches.
-- Add key-version rotation and rollback instructions.
+- Document rollback and the required dual-key key-rotation sequence.
 - Verify zero plaintext records before removing migration compatibility.
 
 Exit gate:

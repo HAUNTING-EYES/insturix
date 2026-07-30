@@ -69,6 +69,13 @@ export function encryptUserOAuthToken(plaintext: string): string {
   return `${USER_OAUTH_TOKEN_PREFIX}${encryptToken(plaintext)}`;
 }
 
+/** Return whether a stored secret already uses the current User OAuth envelope. */
+export function isUserOAuthTokenEnveloped(
+  stored: string | null | undefined,
+): boolean {
+  return Boolean(stored?.startsWith(USER_OAUTH_TOKEN_PREFIX));
+}
+
 /**
  * Resolve a User.<platform>Tokens secret during the encryption migration.
  * Unprefixed values are legacy plaintext. Prefixed values must decrypt successfully and
@@ -78,6 +85,6 @@ export function resolveUserOAuthToken(
   stored: string | null | undefined,
 ): string | null {
   if (!stored) return null;
-  if (!stored.startsWith(USER_OAUTH_TOKEN_PREFIX)) return stored;
+  if (!isUserOAuthTokenEnveloped(stored)) return stored;
   return decryptToken(stored.slice(USER_OAUTH_TOKEN_PREFIX.length));
 }
