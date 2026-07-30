@@ -12,6 +12,7 @@ import {
   applyAudioDuckingToProject,
   buildAudioEditResolutionEnvelope,
   findAudioMomentCandidates,
+  findStrongestImpactEmphasisCandidates,
   resolveAudioEditTiming,
 } from '@/lib/editron/agent/chat-audio-tools';
 import {
@@ -1942,6 +1943,74 @@ describe('chat edit context bundle', () => {
       status: 'no-match',
       action: 'add_sfx',
       searchedCandidateCount: 0,
+    });
+  });
+
+  it('ranks measured impact strength without lexical ambiguity or confidence-as-intensity', () => {
+    const rankedProject = {
+      fps: 30,
+      durationInFrames: 600,
+      overlays: [{
+        id: 'audio-evidence',
+        type: 'sound',
+        from: 0,
+        durationInFrames: 600,
+        metadata: {
+          audioAnalysis: {
+            transients: [
+              { timestampMs: 3000, strength: 0.72, confidence: 0.99 },
+              { timestampMs: 7000, strength: 1, confidence: 0.81 },
+            ],
+          },
+          beatGrid: {
+            beats: [
+              { frame: 30, confidence: 1 },
+              { frame: 60, strength: 0.64 },
+            ],
+          },
+        },
+      }],
+    };
+
+    const candidates = findStrongestImpactEmphasisCandidates(rankedProject);
+    expect(candidates[0]).toMatchObject({
+      frame: 210,
+      audioKind: 'transient',
+      signalStrength: 1,
+      matchType: 'signal-ranked',
+      safeForAutoEdit: true,
+      useWith: {
+        apply_camera_shake: {
+          targetFrame: 210,
+        },
+      },
+    });
+    expect(candidates.some((candidate) => candidate.frame === 30)).toBe(false);
+  });
+
+  it('refuses an exact tie between distinct strongest measured impacts', () => {
+    const tiedProject = {
+      fps: 30,
+      durationInFrames: 300,
+      analysis: {
+        audio: {
+          transients: [
+            { frame: 60, strength: 0.9 },
+            { frame: 180, strength: 0.9 },
+          ],
+        },
+      },
+    };
+
+    const candidates = findStrongestImpactEmphasisCandidates(tiedProject);
+    expect(candidates).toHaveLength(2);
+    expect(candidates[0]).toMatchObject({
+      signalStrength: 0.9,
+      safeForAutoEdit: false,
+    });
+    expect(candidates[1]).toMatchObject({
+      signalStrength: 0.9,
+      safeForAutoEdit: false,
     });
   });
 

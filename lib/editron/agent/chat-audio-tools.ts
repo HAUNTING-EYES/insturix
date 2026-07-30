@@ -7,6 +7,10 @@ import {
   selectStrongestSpeechEmphasis,
   type ChatSpeechEmphasisCandidate,
 } from "@/lib/editron/services/chat-signal-moment-evidence";
+import {
+  CHAT_LOCALIZED_ANCHOR_SIGNALS,
+  type ChatLocalizedAnchorSignal,
+} from "./chat-command-authority";
 
 type OverlayId = string | number;
 
@@ -34,6 +38,7 @@ export interface AudioMomentCandidate {
   durationFrames: number;
   confidence: number;
   confidenceLabel: "high" | "medium" | "low";
+  signalStrength?: number;
   matchType: "exact-phrase" | "audio-kind" | "token-overlap" | "character-vector" | "signal-ranked";
   matchReasons: string[];
   evidenceText: string;
@@ -158,7 +163,7 @@ const audioMomentSchema = z.object({
   query: z.string().min(1).describe("Natural-language audio event, beat, drop, silence, filler, music section, or sound cue to locate."),
   audioOverlayId: z.union([z.string(), z.number()]).optional().describe("Optional timeline audio/video overlay id to constrain the search."),
   selectionGoal: z.literal("strongest-signal").optional().describe("Rank measured evidence instead of matching query words."),
-  selectionSignal: z.literal("speech-emphasis").optional().describe("Measured signal to rank. Required with strongest-signal."),
+  selectionSignal: z.enum(CHAT_LOCALIZED_ANCHOR_SIGNALS).optional().describe("Measured signal to rank. Required with strongest-signal."),
   limit: z.coerce.number().int().min(1).max(12).default(5).describe("Maximum audio moment candidates to return."),
   minConfidence: z.coerce.number().min(0).max(1).default(0.35).describe("Minimum candidate confidence."),
   includeOverlayMetadata: z.boolean().default(true).describe("Also search audio/sound overlay metadata and labels."),
@@ -264,24 +269,108 @@ async function loadMeasuredSpeechEmphasisCandidates(input: {
   };
 }
 
+function loadMeasuredImpactEmphasisCandidates(input: {
+  project: any;
+  audioOverlayId?: OverlayId;
+  limit: number;
+}): {
+  searchedEvidenceCount: number;
+  candidates: AudioMomentCandidate[];
+} {
+  const measuredEvidence = buildAudioEvidence(input.project, {
+    audioOverlayId: input.audioOverlayId,
+    includeOverlayMetadata: true,
+  }).filter((evidence) => (
+    isImpactEmphasisKind(evidence.audioKind)
+    && evidence.strength != null
+  ));
+
+  const strongestPerFrame = new Map<number, AudioEvidence>();
+  for (const evidence of measuredEvidence) {
+    const existing = strongestPerFrame.get(evidence.frame);
+    if (
+      existing == null
+      || (evidence.strength ?? -1) > (existing.strength ?? -1)
+      || (
+        evidence.strength === existing.strength
+        && impactKindPriority(evidence.audioKind) > impactKindPriority(existing.audioKind)
+      )
+    ) {
+      strongestPerFrame.set(evidence.frame, evidence);
+    }
+  }
+
+  const ranked = Array.from(strongestPerFrame.values())
+    .sort((a, b) => (
+      (b.strength ?? -1) - (a.strength ?? -1)
+      || impactKindPriority(b.audioKind) - impactKindPriority(a.audioKind)
+      || a.frame - b.frame
+      || a.source.path.localeCompare(b.source.path)
+    ));
+  const topStrength = ranked[0]?.strength;
+  const hasDistinctTopTie = topStrength != null && ranked
+    .slice(1)
+    .some((evidence) => evidence.strength === topStrength);
+
+  return {
+    searchedEvidenceCount: measuredEvidence.length,
+    candidates: ranked
+      .slice(0, input.limit)
+      .map((evidence, index) => measuredImpactToAudioCandidate(
+        evidence,
+        index === 0 && !hasDistinctTopTie,
+      )),
+  };
+}
+
+async function loadMeasuredRankedAudioCandidates(input: {
+  projectId: string;
+  userId: string;
+  project: any;
+  audioOverlayId?: OverlayId;
+  limit: number;
+  signal: ChatLocalizedAnchorSignal;
+}): Promise<{
+  auditId?: string;
+  searchedEvidenceCount: number;
+  candidates: AudioMomentCandidate[];
+}> {
+  if (input.signal === "speech-emphasis") {
+    return loadMeasuredSpeechEmphasisCandidates(input);
+  }
+  return loadMeasuredImpactEmphasisCandidates(input);
+}
+
+export function findStrongestImpactEmphasisCandidates(
+  project: any,
+  options: Pick<AudioMomentOptions, "audioOverlayId" | "limit"> = {},
+): AudioMomentCandidate[] {
+  return loadMeasuredImpactEmphasisCandidates({
+    project,
+    audioOverlayId: options.audioOverlayId,
+    limit: options.limit ?? 5,
+  }).candidates;
+}
+
 export function createChatAudioTools({ userId, projectId }: CreateChatAudioToolsOptions) {
   const findAudioMoment = tool(
     async (input: z.infer<typeof audioMomentSchema>) => {
       const { projectService } = await import("../services/project-service");
       const project = await projectService.loadProject(userId, projectId);
       if (input.selectionGoal || input.selectionSignal) {
-        if (input.selectionGoal !== "strongest-signal" || input.selectionSignal !== "speech-emphasis") {
+        if (input.selectionGoal !== "strongest-signal" || input.selectionSignal == null) {
           return JSON.stringify({
             status: "error",
-            message: "Ranked audio selection requires selectionGoal=strongest-signal and selectionSignal=speech-emphasis.",
+            message: "Ranked audio selection requires selectionGoal=strongest-signal and a measured selectionSignal.",
           });
         }
-        const ranked = await loadMeasuredSpeechEmphasisCandidates({
+        const ranked = await loadMeasuredRankedAudioCandidates({
           projectId,
           userId,
           project,
           audioOverlayId: input.audioOverlayId,
           limit: input.limit,
+          signal: input.selectionSignal,
         });
         const candidates = ranked.candidates;
         return JSON.stringify({
@@ -297,8 +386,8 @@ export function createChatAudioTools({ userId, projectId }: CreateChatAudioTools
             returned: candidates.length,
             candidates,
             message: candidates.some((candidate) => candidate.safeForAutoEdit)
-              ? "Found one uniquely strongest mapped speech-emphasis moment from measured prosody."
-              : "No uniquely strongest mapped speech-emphasis moment was safe for automatic editing.",
+              ? `Found one uniquely strongest mapped ${input.selectionSignal} moment from measured evidence.`
+              : `No uniquely strongest mapped ${input.selectionSignal} moment was safe for automatic editing.`,
           },
         });
       }
@@ -330,7 +419,7 @@ export function createChatAudioTools({ userId, projectId }: CreateChatAudioTools
       name: "find_audio_moment",
       description: `Find when a stored audio event, silence, filler, beat, downbeat, music drop, energy peak, music section, or sound overlay appears in the edited timeline.
 Use before edit requests such as "cut the long pause", "add impact on the beat drop", "sync this cut to the downbeat", or "put SFX on the loud hit".
-For requests such as "the strongest spoken emphasis", pass selectionGoal=strongest-signal and selectionSignal=speech-emphasis. That path ranks persisted prosody and never falls back to matching those words in the transcript.
+For requests such as "the strongest spoken emphasis", pass selectionGoal=strongest-signal and selectionSignal=speech-emphasis. For the strongest impact, hit, transient, or beat emphasis, use selectionSignal=impact-emphasis. Ranked paths use persisted measurements and never fall back to matching those words.
 Returns deterministic frame candidates, confidence, source evidence, and exact frame hints for cut_section, add_sfx, apply_camera_shake, set_keyframes, sync_cuts_to_beats, and add_motion_graphic.
 Do not make a destructive edit from a low-confidence or ambiguous candidate; present the candidates and ask once.`,
       schema: audioMomentSchema,
@@ -343,18 +432,19 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
       const project = await projectService.loadProject(userId, projectId);
       let precomputedCandidates: AudioMomentCandidate[] | undefined;
       if (input.selectionGoal || input.selectionSignal) {
-        if (input.selectionGoal !== "strongest-signal" || input.selectionSignal !== "speech-emphasis") {
+        if (input.selectionGoal !== "strongest-signal" || input.selectionSignal == null) {
           return JSON.stringify({
             status: "error",
-            message: "Ranked audio selection requires selectionGoal=strongest-signal and selectionSignal=speech-emphasis.",
+            message: "Ranked audio selection requires selectionGoal=strongest-signal and a measured selectionSignal.",
           });
         }
-        precomputedCandidates = (await loadMeasuredSpeechEmphasisCandidates({
+        precomputedCandidates = (await loadMeasuredRankedAudioCandidates({
           projectId,
           userId,
           project,
           audioOverlayId: input.audioOverlayId,
           limit: input.limit,
+          signal: input.selectionSignal,
         })).candidates;
       }
       const resolution = resolveAudioEditTiming(project, input.query, {
@@ -831,6 +921,83 @@ function isImpactEmphasisKind(kind: AudioMomentKind): boolean {
     || kind === "beat-drop"
     || kind === "transient"
     || kind === "energy-peak";
+}
+
+function impactKindPriority(kind: AudioMomentKind): number {
+  switch (kind) {
+    case "transient":
+      return 5;
+    case "beat-drop":
+      return 4;
+    case "energy-peak":
+      return 3;
+    case "downbeat":
+      return 2;
+    case "beat":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function measuredImpactToAudioCandidate(
+  evidence: AudioEvidence,
+  safeForAutoEdit: boolean,
+): AudioMomentCandidate {
+  const strength = evidence.strength ?? 0;
+  const startMs = Math.round((evidence.startFrame / evidence.fps) * 1000);
+  const endMs = Math.round((evidence.endFrame / evidence.fps) * 1000);
+  const note = `Measured ${evidence.audioKind} impact at strength ${round3(strength)} from ${evidence.source.path}.`;
+  return {
+    text: truncate(evidence.evidenceText, 140),
+    audioKind: evidence.audioKind,
+    frame: evidence.frame,
+    startFrame: evidence.startFrame,
+    endFrame: evidence.endFrame,
+    startMs,
+    endMs,
+    durationFrames: evidence.durationFrames,
+    confidence: 1,
+    confidenceLabel: "high",
+    signalStrength: round3(strength),
+    matchType: "signal-ranked",
+    matchReasons: [
+      "ranked-impact-signal",
+      `signal-strength:${round3(strength)}`,
+      safeForAutoEdit ? "unique-maximum" : "not-unique-maximum",
+    ],
+    evidenceText: evidence.evidenceText,
+    source: evidence.source,
+    safeForAutoEdit,
+    useWith: {
+      cut_section: {
+        startFrame: evidence.startFrame,
+        endFrame: evidence.endFrame,
+        note,
+      },
+      add_sfx: {
+        frame: evidence.frame,
+        sync: "audio-anchor",
+        note,
+      },
+      apply_camera_shake: {
+        targetFrame: evidence.frame,
+        note,
+      },
+      set_keyframes: {
+        frame: evidence.frame,
+        note,
+      },
+      sync_cuts_to_beats: {
+        frame: evidence.frame,
+        note,
+      },
+      add_motion_graphic: {
+        frame: evidence.frame,
+        text: truncate(evidence.evidenceText, 80),
+      },
+    },
+  };
 }
 
 function inferAudioSfxQuery(query: string, kind: AudioMomentKind): string {
@@ -1439,7 +1606,7 @@ function sameDuckingConfig(a: AudioDuckingConfig, b: AudioDuckingConfig): boolea
 
 function strengthValue(item: unknown): number | undefined {
   if (!isRecord(item)) return undefined;
-  return clampNumber(firstNumber(item, ["strength", "confidence", "magnitude", "energy", "score"]));
+  return clampNumber(firstNumber(item, ["strength", "magnitude", "energy", "score"]));
 }
 
 function energyValue(item: unknown): number | undefined {

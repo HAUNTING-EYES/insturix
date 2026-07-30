@@ -75,6 +75,7 @@ export type ChatLocalizedAnchorSelection = (typeof CHAT_LOCALIZED_ANCHOR_SELECTI
 
 export const CHAT_LOCALIZED_ANCHOR_SIGNALS = [
   'speech-emphasis',
+  'impact-emphasis',
 ] as const;
 export type ChatLocalizedAnchorSignal = (typeof CHAT_LOCALIZED_ANCHOR_SIGNALS)[number];
 
@@ -517,6 +518,10 @@ export function resolveChatLocalizedWorkflowAdapter(
     return localizedAdapter('localized-camera-motion', 'resolve_audio_edit', {
       query,
       action: 'camera_shake',
+      ...(edit.anchorSelection ? {
+        selectionGoal: edit.anchorSelection,
+        selectionSignal: edit.anchorSignal,
+      } : {}),
     });
   }
   if (

@@ -329,9 +329,12 @@ describe('chat request owner classification', () => {
     ).toEqual(['strongest-signal']);
     expect(
       schema.properties.facts.properties.localizedEdits.items.properties.anchorSignal.enum,
-    ).toEqual(['speech-emphasis']);
+    ).toEqual(['speech-emphasis', 'impact-emphasis']);
     expect(buildChatRequestOwnerPrompt(baseInput)).toContain(
       'Never turn an audio-located zoom into shake.',
+    );
+    expect(buildChatRequestOwnerPrompt(baseInput)).toContain(
+      'anchorSignal=impact-emphasis',
     );
   });
 
@@ -357,8 +360,8 @@ describe('chat request owner classification', () => {
       modality: 'audio',
       query: 'strongest impact beat',
       cameraMotionJob: 'shake',
-      anchorSelection: undefined,
-      anchorSignal: undefined,
+      anchorSelection: 'strongest-signal',
+      anchorSignal: 'impact-emphasis',
     },
   ] as const)(
     'preserves $cameraMotionJob independently from $modality anchor evidence',
@@ -432,9 +435,9 @@ describe('chat request owner classification', () => {
           resolverTool: 'resolve_audio_edit',
           resolverArgs: {
             query,
-            action: 'keyframe_anchor',
+            action: cameraMotionJob === 'shake' ? 'camera_shake' : 'keyframe_anchor',
             selectionGoal: 'strongest-signal',
-            selectionSignal: 'speech-emphasis',
+            selectionSignal: anchorSignal,
           },
         });
       }
