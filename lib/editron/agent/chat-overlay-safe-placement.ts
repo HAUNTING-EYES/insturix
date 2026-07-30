@@ -27,7 +27,10 @@ export function protectChatTextLegibility(input: {
   requestedStyles?: object;
 }): Record<string, unknown> {
   const currentStyles = input.currentStyles ?? {};
-  const requestedStyles = input.requestedStyles ?? {};
+  const requestedStyles = normalizeRequestedTextStyles(
+    input.overlayType,
+    input.requestedStyles ?? {},
+  );
   const mergedStyles: Record<string, unknown> = { ...currentStyles, ...requestedStyles };
   if (input.overlayType !== 'text') return mergedStyles;
 
@@ -41,6 +44,22 @@ export function protectChatTextLegibility(input: {
     ...mergedStyles,
     textShadow: EDITRON_TEXT_SHADOW_FLOOR,
   };
+}
+
+function normalizeRequestedTextStyles(
+  overlayType: string,
+  requestedStyles: object,
+): Record<string, unknown> {
+  const normalized = { ...requestedStyles } as Record<string, unknown>;
+  if (overlayType !== 'text' || !Object.prototype.hasOwnProperty.call(normalized, 'fill')) {
+    return normalized;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(normalized, 'color')) {
+    normalized.color = normalized.fill;
+  }
+  delete normalized.fill;
+  return normalized;
 }
 
 export function constrainChatOverlayPlacement(input: {

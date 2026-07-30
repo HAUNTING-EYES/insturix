@@ -461,6 +461,68 @@ describe('chat mechanical tool contracts', () => {
     expect(deletion.data?.affectedFrameRanges).toEqual([{ startFrame: 120, endFrame: 150 }]);
   });
 
+  it('normalizes editor-style text fill without dropping batch style mutations', async () => {
+    const project = makeProject([
+      {
+        id: 44,
+        type: 'text',
+        from: 20,
+        durationInFrames: 90,
+        row: 2,
+        content: 'Keep this wording',
+        styles: { color: '#111111', fontSize: 42 },
+      },
+      {
+        id: 45,
+        type: 'shape',
+        from: 20,
+        durationInFrames: 90,
+        row: 3,
+        styles: { fill: '#222222' },
+      },
+    ], 180);
+    installProjectStore(project);
+
+    const batch = parseEnvelope(await toolNamed('batch_update_overlays').invoke({
+      updates: [
+        { id: 44, styles: { fill: '#FFFFFF' } },
+        { id: 45, styles: { fill: '#FFCC00' } },
+      ],
+    }));
+
+    expect(batch.status).toBe('success');
+    expect(project.overlays[0]).toMatchObject({
+      id: 44,
+      from: 20,
+      durationInFrames: 90,
+      content: 'Keep this wording',
+      styles: {
+        color: '#FFFFFF',
+        fontSize: 42,
+      },
+    });
+    expect(project.overlays[0]?.styles).not.toHaveProperty('fill');
+    expect(project.overlays[1]?.styles).toMatchObject({ fill: '#FFCC00' });
+  });
+
+  it('rejects unknown batch style properties instead of silently stripping them', async () => {
+    const project = makeProject([
+      { id: 46, type: 'text', from: 0, durationInFrames: 60, row: 2, content: 'Text' },
+    ]);
+    installProjectStore(project);
+
+    const result = parseEnvelope(await toolNamed('batch_update_overlays').invoke({
+      updates: [{ id: 46, styles: { colour: '#FFFFFF' } }],
+    }));
+
+    expect(result.status).toBe('error');
+    expect(result.error).toMatchObject({
+      code: 'TOOL_INVOKE_EXCEPTION',
+    });
+    expect(result.error?.message).toContain('Unrecognized key: "colour"');
+    expect(project.overlays[0]?.styles).toBeUndefined();
+  });
+
   it('atomically removes a timeline range while preserving source continuity across overlay families', async () => {
     const project = makeProject([
       {

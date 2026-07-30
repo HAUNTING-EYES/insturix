@@ -666,60 +666,33 @@ export const createTools = (userId: string, projectId: string) => {
     })
     .optional();
 
-  const textOverlayStylesSchema = z
-    .object({
-      fontSize: z.union([z.coerce.number(), z.string()]).optional(),
-      fontFamily: z.string().optional(),
-      fontWeight: z.union([z.coerce.number(), z.string()]).optional(),
-      textAlign: z.enum(["left", "center", "right", "justify"]).optional(),
-      color: z.string().optional(),
-      backgroundColor: z.string().optional(),
-      fontStyle: z.enum(["normal", "italic", "oblique"]).optional(),
-      textDecoration: z
-        .enum(["none", "underline", "line-through", "overline"])
-        .optional(),
-      textShadow: z.string().optional(),
-      lineHeight: z.union([z.coerce.number(), z.string()]).optional(),
-      letterSpacing: z.union([z.coerce.number(), z.string()]).optional(),
-      opacity: z.coerce.number().optional(),
-      animation: animationStyleSchema,
-    })
-    ;
-
-  const mediaOverlayStylesSchema = z
-    .object({
-      objectFit: z.enum(["cover", "contain", "fill"]).optional(),
-      volume: z.coerce.number().optional(),
-      opacity: z.coerce.number().optional(),
-      borderRadius: z.string().optional(),
-      animation: animationStyleSchema,
-    })
-    ;
-
-  const shapeOverlayStylesSchema = z
-    .object({
-      fill: z.string().optional(),
-      stroke: z.string().optional(),
-      strokeWidth: z.coerce.number().optional(),
-      opacity: z.coerce.number().optional(),
-      borderRadius: z.string().optional(),
-    })
-    ;
-
-  const genericOverlayStylesSchema = z
-    .object({
-      opacity: z.coerce.number().optional(),
-      borderRadius: z.string().optional(),
-      animation: animationStyleSchema,
-    })
-    ;
-
-  const overlayStylesUpdateSchema = z.union([
-    textOverlayStylesSchema,
-    mediaOverlayStylesSchema,
-    shapeOverlayStylesSchema,
-    genericOverlayStylesSchema,
-  ]);
+  // A permissive union silently stripped fields accepted by a later branch
+  // (for example, text "fill" matched the text branch as {}). Parse the
+  // explicit cross-overlay vocabulary once, then normalize aliases against the
+  // actual target overlay inside the mutation owner.
+  const overlayStylesUpdateSchema = z.object({
+    fontSize: z.union([z.coerce.number(), z.string()]).optional(),
+    fontFamily: z.string().optional(),
+    fontWeight: z.union([z.coerce.number(), z.string()]).optional(),
+    textAlign: z.enum(["left", "center", "right", "justify"]).optional(),
+    color: z.string().optional(),
+    fill: z.string().optional(),
+    backgroundColor: z.string().optional(),
+    fontStyle: z.enum(["normal", "italic", "oblique"]).optional(),
+    textDecoration: z
+      .enum(["none", "underline", "line-through", "overline"])
+      .optional(),
+    textShadow: z.string().optional(),
+    lineHeight: z.union([z.coerce.number(), z.string()]).optional(),
+    letterSpacing: z.union([z.coerce.number(), z.string()]).optional(),
+    objectFit: z.enum(["cover", "contain", "fill"]).optional(),
+    volume: z.coerce.number().optional(),
+    stroke: z.string().optional(),
+    strokeWidth: z.coerce.number().optional(),
+    opacity: z.coerce.number().optional(),
+    borderRadius: z.string().optional(),
+    animation: animationStyleSchema,
+  }).strict();
 
 
   // --- READ TOOLS ---
@@ -1427,7 +1400,11 @@ TYPE-SPECIFIC FIELDS:
           }
           
           if (update.styles) {
-            updates.styles = { ...overlay.styles, ...update.styles };
+            updates.styles = protectChatTextLegibility({
+              overlayType: overlay.type,
+              currentStyles: overlay.styles,
+              requestedStyles: update.styles,
+            });
           }
 
           if (Object.keys(updates).length === 0) {
