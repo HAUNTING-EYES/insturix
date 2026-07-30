@@ -945,6 +945,7 @@ const LOCALIZED_MUTATION_TOOLS = new Set([
 const MECHANICAL_SHADOW_FAMILY_TOOLS = new Set([
   'add_captions',
   'add_fancy_captions',
+  'refresh_fancy_captions',
   'batch_edit_captions',
   'regenerate_bgm',
   'replace_sfx',

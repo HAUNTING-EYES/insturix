@@ -1606,6 +1606,7 @@ describe('chat request owner capability filtering', () => {
     'auto_motion_graphics',
     'generate_html_scene',
     'refresh_captions',
+    'refresh_fancy_captions',
     'reframe_project',
     'dub_selected_dialogue',
     'get_dubbing_job_result',
@@ -1939,6 +1940,7 @@ describe('chat request owner capability filtering', () => {
       expect(assistNames).toContain(direct);
     }
     expect(assistNames).not.toContain('add_fancy_captions');
+    expect(assistNames).not.toContain('refresh_fancy_captions');
     // MG creation stays with the semantic planner. Direct MG/HTML tools still
     // carry legacy form authority and may not bypass that owner.
     expect(assistNames).not.toContain('add_motion_graphic');
@@ -2001,7 +2003,7 @@ describe('chat request owner capability filtering', () => {
       tools, license('semantic-editorial-planner', 'editorial-plan'),
     ).map((t) => t.name);
     // The shadow-family tools remain banned for auto (the Director owns those choices):
-    for (const shadow of ['add_captions', 'regenerate_bgm', 'add_fancy_captions', 'sync_cuts_to_beats']) {
+    for (const shadow of ['add_captions', 'regenerate_bgm', 'add_fancy_captions', 'refresh_fancy_captions', 'sync_cuts_to_beats']) {
       expect(autoNames).not.toContain(shadow);
     }
     const autoMutators = autoNames.filter((n) => ['apply_editorial_intent', 'cut_section', 'add_overlay', 'add_sfx', 'set_keyframes', 'generate_html_sticker'].includes(n));
@@ -2039,6 +2041,7 @@ describe('chat request owner capability filtering', () => {
       'apply_editorial_intent',
       'add_captions',
       'add_fancy_captions',
+      'refresh_fancy_captions',
       'regenerate_bgm',
       'sync_cuts_to_beats',
       // Family authorities like captions/music — banned from mechanical turns
