@@ -45,6 +45,36 @@ const MUSIC = {
   },
 };
 
+const REFERENCE_MUSIC = {
+  ...MUSIC,
+  id: 'reference_music_1',
+  musicRights: {
+    mediaRole: 'music',
+    source: 'preview-only',
+    userChoice: 'no-music',
+    licensed: false,
+  },
+  audioRights: {
+    mediaRole: 'music',
+    source: 'preview-only',
+    userChoice: 'no-music',
+    licensed: false,
+  },
+  metadata: {
+    assignment: { usageMode: 'reference-only' },
+    referenceTrack: {
+      provider: 'user-upload',
+      title: 'Reference Track',
+      artists: ['Reference Artist'],
+      sourceAssetId: 'reference_source_1',
+      bpm: 120,
+    },
+    beatGrid: {
+      beats: [{ frame: 15, isDownbeat: true }],
+    },
+  },
+};
+
 const NON_MUSIC = [
   { id: 'video_1', type: 'video', row: 0, from: 0, durationInFrames: 240 },
   { id: 'voice_1', type: 'sound', row: 2, from: 0, durationInFrames: 240 },
@@ -62,6 +92,36 @@ describe('render delivery manifest', () => {
       embedded: true,
       removedOverlayIds: [],
       handoff: null,
+    });
+  });
+
+  it('CRITICAL: forces reference-only music into a clean-master plan', () => {
+    const plan = resolveRenderDeliveryPlan({
+      requestedMode: 'embedded',
+      overlays: [...NON_MUSIC, REFERENCE_MUSIC],
+      fps: 30,
+      durationInFrames: 240,
+    });
+
+    expect(plan.mode).toBe('platform-native');
+    expect(plan.overlays).toEqual(NON_MUSIC);
+    expect(plan.music).toMatchObject({
+      embedded: false,
+      removedOverlayIds: ['reference_music_1'],
+      handoff: {
+        track: {
+          status: 'reference-ready',
+          title: 'Reference Track',
+          artists: ['Reference Artist'],
+          sourceAssetId: 'reference_source_1',
+          bpm: 120,
+        },
+        timing: {
+          timelineStartFrame: 30,
+          timelineEndFrame: 180,
+          timelineBeatEntryFrame: 45,
+        },
+      },
     });
   });
 

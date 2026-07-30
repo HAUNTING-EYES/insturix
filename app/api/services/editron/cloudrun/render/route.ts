@@ -104,9 +104,6 @@ export async function POST(request: Request) {
       overlays: Array.isArray(resolvedProps.overlays) ? resolvedProps.overlays : [],
     });
 
-    // Resolve preview choices only after durable licensed claims have been
-    // matched to the authoritative stored project assets.
-    resolvedProps = resolveRenderableAudioInputProps(resolvedProps);
     const deliveryPlan = resolveRenderDeliveryPlan({
       requestedMode: musicDeliveryMode,
       overlays: resolvedProps.overlays,
@@ -114,10 +111,12 @@ export async function POST(request: Request) {
       durationInFrames: resolvedProps.durationInFrames,
       destinationPlatform: readProjectDestinationPlatform(project),
     });
-    resolvedProps = {
+    // Build the delivery receipt while reference-track identity and timing are
+    // still present, then apply the final audio renderability gate.
+    resolvedProps = resolveRenderableAudioInputProps({
       ...resolvedProps,
       overlays: deliveryPlan.overlays,
-    };
+    });
     let renderOverlays = Array.isArray(resolvedProps.overlays)
       ? resolvedProps.overlays as any[]
       : [];

@@ -224,6 +224,95 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.refund).not.toHaveBeenCalled();
   });
 
+  it('CRITICAL: preserves the reference-track handoff while excluding it from Lambda input', async () => {
+    routeMocks.loadProject.mockResolvedValue({
+      userId: 'user_1',
+      overlays: [
+        {
+          id: 'video_1',
+          type: 'video',
+          from: 0,
+          durationInFrames: 240,
+          assetId: 'asset_video_1',
+          src: '/api/assets/asset_video_1',
+        },
+        {
+          id: 'reference_music_1',
+          type: 'sound',
+          row: 1,
+          from: 30,
+          durationInFrames: 150,
+          assetId: 'bgm_reference_1',
+          src: '/api/assets/bgm_reference_1',
+          audioRights: {
+            mediaRole: 'music',
+            source: 'preview-only',
+            userChoice: 'no-music',
+            licensed: false,
+          },
+          musicRights: {
+            mediaRole: 'music',
+            source: 'preview-only',
+            userChoice: 'no-music',
+            licensed: false,
+          },
+          metadata: {
+            assignment: { usageMode: 'reference-only' },
+            referenceTrack: {
+              provider: 'user-upload',
+              title: 'Reference Track',
+              artists: ['Reference Artist'],
+              sourceAssetId: 'bgm_source_1',
+              bpm: 120,
+            },
+            beatGrid: {
+              beats: [{ frame: 15, isDownbeat: true }],
+            },
+          },
+        },
+      ],
+      durationInFrames: 240,
+      fps: 30,
+      playerDimensions: { width: 1920, height: 1080 },
+    });
+
+    const response = await POST(renderRequest({ musicDeliveryMode: 'embedded' }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.data.deliveryManifest).toMatchObject({
+      mode: 'platform-native',
+      primaryArtifact: { kind: 'clean-master' },
+      music: {
+        embedded: false,
+        removedOverlayIds: ['reference_music_1'],
+        handoff: {
+          track: {
+            status: 'reference-ready',
+            title: 'Reference Track',
+            artists: ['Reference Artist'],
+            sourceAssetId: 'bgm_source_1',
+            bpm: 120,
+          },
+          timing: {
+            timelineStartFrame: 30,
+            timelineEndFrame: 180,
+            timelineBeatEntryFrame: 45,
+          },
+        },
+      },
+    });
+    expect(routeMocks.renderMediaOnLambda).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputProps: expect.objectContaining({
+          overlays: [
+            expect.objectContaining({ id: 'video_1' }),
+          ],
+        }),
+      }),
+    );
+  });
+
   it('CRITICAL: reserves a chapter admission before billing and child Lambda dispatch', async () => {
     routeMocks.shouldUseChapterRendering.mockReturnValue(true);
     routeMocks.startChapterRender.mockImplementation(async (jobId: string) => ({
@@ -505,7 +594,7 @@ describe('Editron render startup boundary', () => {
   });
 });
 
-function renderRequest(): Request {
+function renderRequest(overrides: Record<string, unknown> = {}): Request {
   return new Request(
     'https://app.example.test/api/services/editron/cloudrun/render',
     {
@@ -515,6 +604,7 @@ function renderRequest(): Request {
         projectId: 'project_1',
         compositionId: 'TestComponent',
         inputProps: { overlays: [] },
+        ...overrides,
       }),
     },
   );
