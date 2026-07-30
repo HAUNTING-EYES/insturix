@@ -4332,6 +4332,29 @@ NEVER ask the user which clips — default to applyToAll: true.`,
     target: z.enum(['image', 'storyboard', 'video', 'voiceover', 'all']).default('image').describe("What to regenerate: image/storyboard (scene image), video (AI clip), voiceover (narration audio), or all"),
   });
 
+  async function readRegenerationResponse(response: Response): Promise<Record<string, any>> {
+    const body = await response.text();
+    if (!body.trim()) return {};
+    try {
+      return JSON.parse(body) as Record<string, any>;
+    } catch {
+      return { error: body.substring(0, 300) };
+    }
+  }
+
+  function regenerationFailureMessage(
+    operation: string,
+    statusCode: number,
+    response: Record<string, any>,
+  ): string {
+    const detail = typeof response.error === 'string'
+      ? response.error
+      : typeof response.message === 'string'
+        ? response.message
+        : 'provider returned no failure detail';
+    return `${operation} failed (HTTP ${statusCode}): ${detail}`;
+  }
+
   const regenerateScene = tool(
     async (input: z.infer<typeof regenerateSceneSchema>) => {
       try {
@@ -4339,43 +4362,9 @@ NEVER ask the user which clips — default to applyToAll: true.`,
 
         // Storyboard stores projectId on itself (not the other way around).
         // Look up the storyboard that was linked to this Editron project.
-        const { getStoryboardByProjectId } = await import('@/lib/pipeline/storyboard-db');
-        const storyboard = await getStoryboardByProjectId(projectId, userId);
-        let storyboardId = storyboard?.storyboardId
-          || (project as any).storyboardId
-          || (project as any).sourceStoryboardId;
-
-        // Fallback: if no link found, try to find a storyboard whose scene
-        // asset IDs appear in this project's overlays (handles pre-fix projects).
-        if (!storyboardId) {
-          try {
-            const { getDatabase } = await import('@/lib/editron/db/mongodb');
-            const db = await getDatabase();
-            const overlayAssetIds = ((project as any).overlays || [])
-              .map((o: any) => o.assetId)
-              .filter(Boolean);
-            if (overlayAssetIds.length > 0) {
-              const match = await db.collection('storyboards').findOne({
-                userId,
-                'scenes.imageAssetId': { $in: overlayAssetIds },
-              });
-              if (match) {
-                storyboardId = (match as any).storyboardId;
-                // Persist the link so future lookups are fast
-                await db.collection('storyboards').updateOne(
-                  { storyboardId },
-                  { $set: { projectId, updatedAt: new Date() } },
-                );
-                await db.collection('projects').updateOne(
-                  { projectId },
-                  { $set: { sourceStoryboardId: storyboardId, updatedAt: new Date() } },
-                );
-              }
-            }
-          } catch (linkErr) {
-            console.warn('[regenerate_scene] Fallback storyboard lookup failed:', linkErr);
-          }
-        }
+        const { getStoryboardForProjectContext } = await import('@/lib/pipeline/storyboard-db');
+        const storyboard = await getStoryboardForProjectContext(project as any, userId);
+        const storyboardId = storyboard?.storyboardId;
 
         if (!storyboardId) {
           return JSON.stringify({
@@ -4384,25 +4373,23 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           });
         }
 
-        // Validate storyboard exists and has the requested scene
-        try {
-          const { getStoryboard: getSb } = await import('@/lib/pipeline/storyboard-db');
-          const sb = await getSb(storyboardId, userId);
-          if (!sb) {
-            return JSON.stringify({ status: 'error', message: `Storyboard ${storyboardId} not found or unauthorized.` });
-          }
-          const sceneExists = sb.scenes?.some((s: any) => s.sceneIndex === input.sceneIndex);
-          if (!sceneExists) {
-            return JSON.stringify({
-              status: 'error',
-              message: `Scene ${input.sceneIndex} not found in storyboard (has ${sb.scenes?.length || 0} scenes, indices 0-${(sb.scenes?.length || 1) - 1}).`,
-            });
-          }
-        } catch (valErr: any) {
-          return JSON.stringify({ status: 'error', message: `Storyboard validation failed: ${valErr.message}` });
+        const sourceScene = storyboard.scenes?.find((scene: any) => scene.sceneIndex === input.sceneIndex);
+        if (!sourceScene) {
+          return JSON.stringify({
+            status: 'error',
+            message: `Scene ${input.sceneIndex} not found in storyboard (has ${storyboard.scenes?.length || 0} scenes).`,
+          });
         }
 
         const results: string[] = [];
+        const operations: Array<{
+          target: 'image' | 'video' | 'voiceover';
+          status: 'completed' | 'queued';
+          jobId: string;
+          beforeAssetId?: string;
+          afterAssetId?: string;
+        }> = [];
+        const failures: Array<{ target: 'image' | 'video' | 'voiceover'; message: string }> = [];
 
         // Use deployment-specific URL (VERCEL_URL) to hit the correct preview deployment
         const baseApiUrl = process.env.VERCEL_URL
@@ -4419,11 +4406,27 @@ NEVER ask the user which clips — default to applyToAll: true.`,
               userId, // Passed for internal auth fallback
             }),
           });
-          if (imgRes.ok) {
-            const data = await imgRes.json();
-            results.push(`Storyboard image regenerated (assetId: ${data.imageAssetId || 'updated'})`);
+          const data = await readRegenerationResponse(imgRes);
+          const afterAssetId = typeof data.scene?.imageAssetId === 'string'
+            ? data.scene.imageAssetId
+            : '';
+          if (imgRes.ok && data.success === true && afterAssetId) {
+            const jobId = `storyboard:${storyboardId}:scene:${input.sceneIndex}:image:${afterAssetId}`;
+            operations.push({
+              target: 'image',
+              status: 'completed',
+              jobId,
+              ...(typeof sourceScene.imageAssetId === 'string'
+                ? { beforeAssetId: sourceScene.imageAssetId }
+                : {}),
+              afterAssetId,
+            });
+            results.push(`Storyboard image regenerated (assetId: ${afterAssetId})`);
           } else {
-            results.push(`Image regeneration failed: ${(await imgRes.text()).substring(0, 100)}`);
+            failures.push({
+              target: 'image',
+              message: regenerationFailureMessage('Image regeneration', imgRes.status, data),
+            });
           }
         }
 
@@ -4438,18 +4441,33 @@ NEVER ask the user which clips — default to applyToAll: true.`,
               userId, // Passed for internal auth fallback
             }),
           });
+          const data = await readRegenerationResponse(vidRes);
           if (vidRes.ok) {
-            const data = await vidRes.json().catch(() => ({}));
             // generate-videos is now async (QStash) — returns batchId, not immediate results
-            if (data.async && data.batchId) {
+            if (data.async && typeof data.batchId === 'string') {
+              operations.push({
+                target: 'video',
+                status: 'queued',
+                jobId: data.batchId,
+              });
               results.push(`Video regeneration started (batch: ${data.batchId}). The new video will appear after processing (~1-3 minutes).`);
-            } else if (data.success) {
-              results.push(`Video clip regenerated successfully`);
+            } else if (data.success === true) {
+              const jobId = typeof data.batchId === 'string'
+                ? data.batchId
+                : `storyboard:${storyboardId}:scene:${input.sceneIndex}:video:completed`;
+              operations.push({ target: 'video', status: 'completed', jobId });
+              results.push('Video clip regeneration completed');
             } else {
-              results.push(`Video regeneration failed: ${data.error || 'unknown'}`);
+              failures.push({
+                target: 'video',
+                message: regenerationFailureMessage('Video regeneration', vidRes.status, data),
+              });
             }
           } else {
-            results.push(`Video regeneration failed: ${(await vidRes.text().catch(() => '')).substring(0, 100)}`);
+            failures.push({
+              target: 'video',
+              message: regenerationFailureMessage('Video regeneration', vidRes.status, data),
+            });
           }
         }
 
@@ -4462,18 +4480,62 @@ NEVER ask the user which clips — default to applyToAll: true.`,
               sceneIndices: [input.sceneIndex],
             }),
           });
-          if (voRes.ok) {
-            results.push(`Voiceover regenerated`);
+          const data = await readRegenerationResponse(voRes);
+          if (voRes.ok && data.success === true) {
+            const afterAssetId = Array.isArray(data.results)
+              ? data.results
+                .map((result: any) => result?.audioAssetId)
+                .find((assetId: unknown): assetId is string => typeof assetId === 'string')
+              : undefined;
+            const jobId = `storyboard:${storyboardId}:scene:${input.sceneIndex}:voiceover:${afterAssetId || 'completed'}`;
+            operations.push({
+              target: 'voiceover',
+              status: 'completed',
+              jobId,
+              ...(afterAssetId ? { afterAssetId } : {}),
+            });
+            results.push('Voiceover regenerated');
           } else {
-            results.push(`Voiceover regeneration failed`);
+            failures.push({
+              target: 'voiceover',
+              message: regenerationFailureMessage('Voiceover regeneration', voRes.status, data),
+            });
           }
         }
 
+        if (operations.length === 0) {
+          return JSON.stringify({
+            status: 'error',
+            message: failures.map((failure) => failure.message).join('; ') || 'No regeneration operation completed.',
+          });
+        }
+        const queuedOperation = operations.find((operation) => operation.status === 'queued');
+        const jobId = queuedOperation?.jobId ?? operations[0].jobId;
+        if (failures.length > 0) {
+          return JSON.stringify({
+            status: 'advisory',
+            data: {
+              sceneIndex: input.sceneIndex,
+              target: input.target,
+              storyboardId,
+              queueStatus: queuedOperation ? 'queued' : 'completed',
+              jobId,
+              operations,
+              failures,
+              results,
+            },
+            message: `Some scene regeneration work completed, but ${failures.length} operation(s) failed.`,
+            nextAction: 'stop',
+          });
+        }
         return JSON.stringify({
           status: "success",
           sceneIndex: input.sceneIndex,
           target: input.target,
           storyboardId, // Needed by frontend for polling video regen status
+          queueStatus: queuedOperation ? 'queued' : 'completed',
+          jobId,
+          operations,
           results,
           message: `Scene ${input.sceneIndex} ${input.target} regeneration complete. ${results.join('. ')}`,
           nextAction: "continue",
