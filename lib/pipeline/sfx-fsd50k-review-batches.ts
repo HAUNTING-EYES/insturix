@@ -456,7 +456,10 @@ export function buildFsd50kApprovedCuration(
     title: candidate.title,
     eventRoles: [selectedRole],
     tags: uniqueStrings([selectedRole, ...candidate.tags]),
-    negativeTags: [...candidate.negativeTags],
+    // Human listening supersedes untrusted uploader text, not ground-truth risk labels.
+    negativeTags: candidate.negativeTags.filter(
+      tag => !tag.startsWith('uploader-metadata-'),
+    ),
     ...roleProfile,
   };
 }

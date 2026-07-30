@@ -43,6 +43,7 @@ describe('FSD50K publication gate', () => {
     expect(gated.curationSpec.assets[0]).toMatchObject({
       sourcePath: `audio/${fixture.candidates[0].reviewId}.wav`,
       eventRoles: ['impact'],
+      negativeTags: ['primary-label-music'],
       provenance: {
         providerAssetId: '1',
         licenseId: 'cc0-1.0',
@@ -142,7 +143,15 @@ async function makeFixture() {
   const audio = [Buffer.from('conditioned-one'), Buffer.from('conditioned-three')];
   const inspection = encodedInspection();
   const candidates = [
-    candidate('1', audio[0], 'cluster-a', ['2'], ['2', '20'], inspection),
+    candidate(
+      '1',
+      audio[0],
+      'cluster-a',
+      ['2'],
+      ['2', '20'],
+      inspection,
+      ['uploader-metadata-noisy', 'primary-label-music'],
+    ),
     candidate('3', audio[1], 'cluster-b', [], [], inspection),
   ];
   await Promise.all(candidates.map((item, index) => writeFile(
@@ -216,6 +225,7 @@ function candidate(
   deferredCanonicalSourceIds: string[],
   deferredSourceIds: string[],
   inspection: EncodedSfxInspection,
+  negativeTags: string[] = [],
 ): Fsd50kReviewBatchCandidate {
   const sourceHashSha256 = hashBuffer(Buffer.from(`source-${canonicalSourceId}`));
   const reviewId = `sfx_review_${sourceHashSha256.slice(0, 20)}`;
@@ -244,7 +254,7 @@ function candidate(
     },
     title: `fixture-${canonicalSourceId}.wav`,
     tags: ['impact', 'fixture'],
-    negativeTags: [],
+    negativeTags,
     suggestedRole: 'impact' as const,
     suggestedRoleScore: 0.8,
     semanticRoles: [{ role: 'impact' as const, prompt: 'impact', cosineSimilarity: 0.8 }],
