@@ -11,10 +11,13 @@ import path from 'node:path';
 
 const LEGACY_BUNDLE_RECEIPT_VERSION = 'editron-sfx-semantic-container-bundle-v1';
 const REVIEWED_BUNDLE_RECEIPT_VERSION = 'editron-sfx-semantic-container-bundle-v2';
+const COMPOSITE_BUNDLE_RECEIPT_VERSION = 'editron-sfx-semantic-container-bundle-v3';
 const LEGACY_RELEASE_RECEIPT_VERSION =
   'editron-sfx-catalog-semantic-release-receipt-v1';
 const REVIEWED_RELEASE_RECEIPT_VERSION =
   'editron-sfx-catalog-reviewed-semantic-release-receipt-v2';
+const COMPOSITE_RELEASE_RECEIPT_VERSION =
+  'editron-sfx-catalog-composite-semantic-release-receipt-v1';
 const RECEIPT_FILENAME = 'bundle-receipt.json';
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const MAX_RECEIPT_BYTES = 64 * 1024;
@@ -187,6 +190,31 @@ async function buildReceipt(root) {
         catalogManifestDigestSha256,
         catalogManifestFileSha256: hashBuffer(manifestBytes),
         semanticReleaseReceiptVersion: REVIEWED_RELEASE_RECEIPT_VERSION,
+        semanticReleaseReceiptDigestSha256,
+      },
+      totalBytes: commonReceipt.totalBytes,
+      files: commonReceipt.files,
+    };
+  }
+  if (semanticReleaseReceipt.version === COMPOSITE_RELEASE_RECEIPT_VERSION) {
+    if (
+      semanticReleaseReceipt?.source?.runtimeManifestDigestSha256
+        !== catalogManifestDigestSha256
+      || semanticReleaseReceipt?.source?.runtimeManifestFileSha256
+        !== hashBuffer(manifestBytes)
+      || semanticReleaseReceipt?.artifacts?.manifest?.filename !== 'manifest.json'
+      || semanticReleaseReceipt.artifacts.manifest.byteLength !== manifestBytes.byteLength
+      || semanticReleaseReceipt.artifacts.manifest.sha256 !== hashBuffer(manifestBytes)
+    ) {
+      throw new Error('Composite semantic release is not bound to the runtime manifest');
+    }
+    return {
+      version: COMPOSITE_BUNDLE_RECEIPT_VERSION,
+      model: commonReceipt.model,
+      source: {
+        catalogManifestDigestSha256,
+        catalogManifestFileSha256: hashBuffer(manifestBytes),
+        semanticReleaseReceiptVersion: COMPOSITE_RELEASE_RECEIPT_VERSION,
         semanticReleaseReceiptDigestSha256,
       },
       totalBytes: commonReceipt.totalBytes,

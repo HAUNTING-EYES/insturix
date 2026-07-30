@@ -32,6 +32,13 @@ import {
   type ReviewedSfxSemanticReleaseMetadata,
   type ReviewedSfxSemanticReleaseReceipt,
 } from '@/lib/pipeline/sfx-catalog-reviewed-semantic-release';
+import {
+  compositeSfxSemanticReleaseMetadataSchema,
+  compositeSfxSemanticReleaseReceiptSchema,
+  type CompositeSfxSemanticReleaseEntry,
+  type CompositeSfxSemanticReleaseMetadata,
+  type CompositeSfxSemanticReleaseReceipt,
+} from '@/lib/pipeline/sfx-catalog-semantic-composite-release';
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const METADATA_FILE = 'metadata.json';
@@ -144,21 +151,26 @@ const receiptSchema = z.object({
 const supportedMetadataSchema = z.discriminatedUnion('version', [
   metadataSchema,
   reviewedSfxSemanticReleaseMetadataSchema,
+  compositeSfxSemanticReleaseMetadataSchema,
 ]);
 const supportedReceiptSchema = z.discriminatedUnion('version', [
   receiptSchema,
   reviewedSfxSemanticReleaseReceiptSchema,
+  compositeSfxSemanticReleaseReceiptSchema,
 ]);
 
 type SupportedSemanticReleaseMetadata =
   | SfxCatalogSemanticReleaseMetadata
-  | ReviewedSfxSemanticReleaseMetadata;
+  | ReviewedSfxSemanticReleaseMetadata
+  | CompositeSfxSemanticReleaseMetadata;
 type SupportedSemanticReleaseReceipt =
   | SfxCatalogSemanticReleaseReceipt
-  | ReviewedSfxSemanticReleaseReceipt;
+  | ReviewedSfxSemanticReleaseReceipt
+  | CompositeSfxSemanticReleaseReceipt;
 type IndexedSemanticReleaseEntry =
   | SfxSemanticReleaseEntry
-  | ReviewedSfxSemanticReleaseEntry;
+  | ReviewedSfxSemanticReleaseEntry
+  | CompositeSfxSemanticReleaseEntry;
 
 interface IndexedVectorRow {
   entry: IndexedSemanticReleaseEntry;
