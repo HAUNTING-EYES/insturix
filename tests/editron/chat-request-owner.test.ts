@@ -338,9 +338,10 @@ describe('chat request owner classification', () => {
         expect(resolveChatLocalizedWorkflowAdapter(
           result.routingFacts!.localizedEdits![0],
         )).toMatchObject({
-          resolverTool: 'find_audio_moment',
+          resolverTool: 'resolve_audio_edit',
           resolverArgs: {
             query,
+            action: 'keyframe_anchor',
             selectionGoal: 'strongest-signal',
             selectionSignal: 'speech-emphasis',
           },

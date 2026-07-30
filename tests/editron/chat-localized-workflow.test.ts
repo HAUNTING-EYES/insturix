@@ -251,9 +251,9 @@ describe('server-owned localized chat workflow', () => {
   });
 
   it.each([
-    ['transcript', 'find_transcript_moment'],
-    ['audio', 'find_audio_moment'],
-    ['visual', 'find_visual_moment'],
+    ['transcript', 'resolve_transcript_edit'],
+    ['audio', 'resolve_audio_edit'],
+    ['visual', 'resolve_visual_edit'],
   ] as const)(
     'keeps a requested zoom as zoom when %s evidence locates its anchor',
     (modality, locatorTool) => {
@@ -267,7 +267,8 @@ describe('server-owned localized chat workflow', () => {
         }],
         ['localized-camera-motion'],
       ));
-      const locator = execution(locatorTool, { query }, {
+      const locatorArgs = { query, action: 'keyframe_anchor' };
+      const locator = execution(locatorTool, locatorArgs, {
         output: JSON.stringify({
           status: 'success',
           data: {
@@ -287,7 +288,7 @@ describe('server-owned localized chat workflow', () => {
         projectRevision: REVISION,
       })).toMatchObject({
         kind: 'tool-call',
-        toolCall: { name: locatorTool, args: { query } },
+        toolCall: { name: locatorTool, args: locatorArgs },
       });
 
       const keyframeArgs = {
@@ -351,6 +352,7 @@ describe('server-owned localized chat workflow', () => {
     ));
     const locatorArgs = {
       query,
+      action: 'keyframe_anchor',
       selectionGoal: 'strongest-signal',
       selectionSignal: 'speech-emphasis',
     };
@@ -361,10 +363,10 @@ describe('server-owned localized chat workflow', () => {
       projectRevision: REVISION,
     })).toMatchObject({
       kind: 'tool-call',
-      toolCall: { name: 'find_audio_moment', args: locatorArgs },
+      toolCall: { name: 'resolve_audio_edit', args: locatorArgs },
     });
 
-    const locator = execution('find_audio_moment', locatorArgs, {
+    const locator = execution('resolve_audio_edit', locatorArgs, {
       output: JSON.stringify({
         status: 'success',
         data: {
@@ -407,7 +409,7 @@ describe('server-owned localized chat workflow', () => {
       }],
       ['localized-camera-motion'],
     ));
-    const locator = execution('find_audio_moment', { query }, {
+    const locator = execution('resolve_audio_edit', { query, action: 'keyframe_anchor' }, {
       output: JSON.stringify({
         status: 'success',
         data: {

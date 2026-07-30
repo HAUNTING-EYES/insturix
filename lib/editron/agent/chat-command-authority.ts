@@ -524,15 +524,16 @@ export function resolveChatLocalizedWorkflowAdapter(
     && (edit.cameraMotionJob === 'zoom-in' || edit.cameraMotionJob === 'zoom-out')
   ) {
     const resolverTool = edit.modality === 'transcript'
-      ? 'find_transcript_moment'
+      ? 'resolve_transcript_edit'
       : edit.modality === 'visual'
-        ? 'find_visual_moment'
+        ? 'resolve_visual_edit'
         : edit.modality === 'audio'
-          ? 'find_audio_moment'
+          ? 'resolve_audio_edit'
           : null;
     return resolverTool
       ? localizedAdapter('localized-camera-motion', resolverTool, {
           query,
+          action: 'keyframe_anchor',
           ...(edit.anchorSelection ? {
             selectionGoal: edit.anchorSelection,
             selectionSignal: edit.anchorSignal,

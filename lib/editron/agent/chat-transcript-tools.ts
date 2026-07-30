@@ -62,7 +62,7 @@ export interface TranscriptMomentCandidate {
   };
 }
 
-export type TranscriptEditAction = "cut_phrase" | "cut_after_phrase";
+export type TranscriptEditAction = "cut_phrase" | "cut_after_phrase" | "keyframe_anchor";
 export type TranscriptEditResolutionStatus = "ready" | "no-match" | "ambiguous" | "no-range";
 export type StickerOverlayResolutionStatus = "ready" | "no-match" | "ambiguous";
 export type StickerOverlayPlacement = "upper-right" | "upper-left" | "lower-right" | "lower-left";
@@ -147,7 +147,7 @@ const transcriptMomentSchema = z.object({
 
 const transcriptEditSchema = z.object({
   query: z.string().min(1).describe("Spoken phrase that anchors the edit."),
-  action: z.enum(["cut_phrase", "cut_after_phrase"]).default("cut_after_phrase").describe("Use cut_after_phrase for pauses/dead air after the phrase; use cut_phrase only when the spoken words themselves should be removed."),
+  action: z.enum(["cut_phrase", "cut_after_phrase", "keyframe_anchor"]).default("cut_after_phrase").describe("Use cut_after_phrase for pauses/dead air after the phrase; cut_phrase when the spoken words should be removed; keyframe_anchor only grounds timing for resolve_keyframe_edit."),
   videoOverlayId: z.union([z.string(), z.number()]).optional().describe("Optional timeline overlay id to constrain transcript search."),
   limit: z.coerce.number().int().min(1).max(12).default(5).describe("Maximum transcript candidates to inspect before resolving ambiguity."),
   minConfidence: z.coerce.number().min(0).max(1).default(0.42).describe("Minimum candidate confidence."),
@@ -575,6 +575,18 @@ export function resolveTranscriptEditRange(
       message: second
         ? `Transcript phrase "${query}" is ambiguous between frames ${candidate.startFrame}-${candidate.endFrame} and ${second.startFrame}-${second.endFrame}. Ask the user to choose before cutting.`
         : `Transcript phrase "${query}" was not exact/confident enough for automatic ${action}.`,
+    };
+  }
+
+  if (action === "keyframe_anchor") {
+    return {
+      status: "ready",
+      action,
+      query,
+      candidates,
+      candidate,
+      warnings,
+      message: `Resolved transcript keyframe anchor "${candidate.text}" at frame ${candidate.startFrame}; resolve_keyframe_edit still owns the zoom form.`,
     };
   }
 

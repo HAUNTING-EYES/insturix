@@ -57,12 +57,13 @@ export interface AudioMomentCandidate {
   };
 }
 
-export type AudioEditAction = "add_sfx" | "camera_shake" | "cut_section" | "sync_cuts_to_beats";
+export type AudioEditAction = "add_sfx" | "camera_shake" | "cut_section" | "keyframe_anchor" | "sync_cuts_to_beats";
 export type AudioEditResolutionStatus = "ready" | "no-match" | "ambiguous" | "unsupported";
 
 export interface AudioEditResolveOptions extends AudioMomentOptions {
   action?: AudioEditAction;
   sfxQuery?: string;
+  precomputedCandidates?: AudioMomentCandidate[];
 }
 
 export interface AudioEditResolution {
@@ -164,7 +165,7 @@ const audioMomentSchema = z.object({
 });
 
 const audioEditSchema = audioMomentSchema.extend({
-  action: z.enum(["add_sfx", "camera_shake", "cut_section", "sync_cuts_to_beats"]).default("add_sfx").describe("Edit operation that needs the resolved audio timing."),
+  action: z.enum(["add_sfx", "camera_shake", "cut_section", "keyframe_anchor", "sync_cuts_to_beats"]).default("add_sfx").describe("Edit operation that needs the resolved audio timing. keyframe_anchor only grounds timing; resolve_keyframe_edit remains the zoom-form owner."),
   sfxQuery: z.string().trim().min(1).optional().describe("Optional SFX search query to pass to add_sfx. If omitted, the resolver derives a conservative query from the request words."),
 });
 
@@ -236,6 +237,33 @@ const KIND_TERMS: Record<AudioMomentKind, string[]> = {
   problem: ["problem", "remove", "cleanup", "awkward", "bad"],
 };
 
+async function loadMeasuredSpeechEmphasisCandidates(input: {
+  projectId: string;
+  userId: string;
+  project: any;
+  audioOverlayId?: OverlayId;
+  limit: number;
+}): Promise<{
+  auditId: string;
+  searchedEvidenceCount: number;
+  candidates: AudioMomentCandidate[];
+}> {
+  const ranked = await selectStrongestSpeechEmphasis({
+    projectId: input.projectId,
+    userId: input.userId,
+    project: input.project,
+    overlayId: input.audioOverlayId,
+    limit: input.limit,
+  });
+  return {
+    auditId: ranked.auditId,
+    searchedEvidenceCount: ranked.candidates.length,
+    candidates: ranked.candidates
+      .map((candidate) => speechEmphasisToAudioCandidate(candidate, ranked.auditId))
+      .filter((candidate): candidate is AudioMomentCandidate => candidate != null),
+  };
+}
+
 export function createChatAudioTools({ userId, projectId }: CreateChatAudioToolsOptions) {
   const findAudioMoment = tool(
     async (input: z.infer<typeof audioMomentSchema>) => {
@@ -248,16 +276,14 @@ export function createChatAudioTools({ userId, projectId }: CreateChatAudioTools
             message: "Ranked audio selection requires selectionGoal=strongest-signal and selectionSignal=speech-emphasis.",
           });
         }
-        const ranked = await selectStrongestSpeechEmphasis({
+        const ranked = await loadMeasuredSpeechEmphasisCandidates({
           projectId,
           userId,
           project,
-          overlayId: input.audioOverlayId,
+          audioOverlayId: input.audioOverlayId,
           limit: input.limit,
         });
-        const candidates = ranked.candidates
-          .map((candidate) => speechEmphasisToAudioCandidate(candidate, ranked.auditId))
-          .filter((candidate): candidate is AudioMomentCandidate => candidate != null);
+        const candidates = ranked.candidates;
         return JSON.stringify({
           status: "success",
           data: {
@@ -267,7 +293,7 @@ export function createChatAudioTools({ userId, projectId }: CreateChatAudioTools
               signal: input.selectionSignal,
               auditId: ranked.auditId,
             },
-            searchedEvidenceCount: ranked.candidates.length,
+            searchedEvidenceCount: ranked.searchedEvidenceCount,
             returned: candidates.length,
             candidates,
             message: candidates.some((candidate) => candidate.safeForAutoEdit)
@@ -315,6 +341,22 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
     async (input: z.infer<typeof audioEditSchema>) => {
       const { projectService } = await import("../services/project-service");
       const project = await projectService.loadProject(userId, projectId);
+      let precomputedCandidates: AudioMomentCandidate[] | undefined;
+      if (input.selectionGoal || input.selectionSignal) {
+        if (input.selectionGoal !== "strongest-signal" || input.selectionSignal !== "speech-emphasis") {
+          return JSON.stringify({
+            status: "error",
+            message: "Ranked audio selection requires selectionGoal=strongest-signal and selectionSignal=speech-emphasis.",
+          });
+        }
+        precomputedCandidates = (await loadMeasuredSpeechEmphasisCandidates({
+          projectId,
+          userId,
+          project,
+          audioOverlayId: input.audioOverlayId,
+          limit: input.limit,
+        })).candidates;
+      }
       const resolution = resolveAudioEditTiming(project, input.query, {
         action: input.action,
         audioOverlayId: input.audioOverlayId,
@@ -322,6 +364,7 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
         minConfidence: input.minConfidence,
         includeOverlayMetadata: input.includeOverlayMetadata,
         sfxQuery: input.sfxQuery,
+        precomputedCandidates,
       });
 
       return JSON.stringify(buildAudioEditResolutionEnvelope(resolution));
@@ -493,7 +536,7 @@ export function resolveAudioEditTiming(
   options: AudioEditResolveOptions = {},
 ): AudioEditResolution {
   const action = options.action ?? "add_sfx";
-  const candidates = findAudioMomentCandidates(project, query, {
+  const candidates = options.precomputedCandidates ?? findAudioMomentCandidates(project, query, {
     audioOverlayId: options.audioOverlayId,
     limit: options.limit ?? 8,
     minConfidence: options.minConfidence ?? 0.35,
@@ -530,6 +573,19 @@ export function resolveAudioEditTiming(
         "The top audio candidate is not safe for automatic editing. Ask once or show candidates before mutating the project.",
       ],
       message: `Audio reference "${query}" was ambiguous or too low-confidence for an automatic ${action} edit.`,
+    };
+  }
+
+  if (action === "keyframe_anchor") {
+    return {
+      status: "ready",
+      action,
+      query,
+      searchedCandidateCount: candidates.length,
+      candidates,
+      candidate,
+      warnings,
+      message: `Resolved audio keyframe anchor "${candidate.text}" at frame ${candidate.frame}; resolve_keyframe_edit still owns the zoom form.`,
     };
   }
 
