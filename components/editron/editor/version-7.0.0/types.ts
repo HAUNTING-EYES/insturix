@@ -221,6 +221,8 @@ export type Caption = {
 
 // Caption display modes for different content types
 export type CaptionDisplayMode = "word-by-word" | "phrase" | "karaoke" | "subtitle" | "instagram" | "hormozi";
+export type CaptionEmphasisBehavior = "none" | "active-word";
+export type CaptionFontSizing = "authored" | "box-relative";
 
 /**
  * Display configuration for captions
@@ -237,6 +239,10 @@ export interface CaptionDisplayConfig {
   showPreviousWords: boolean;
   /** Fade/dim previous words when progressive reveal is on */
   fadeOutPreviousWords: boolean;
+  /** Whether timing should also produce per-word visual emphasis */
+  emphasisBehavior?: CaptionEmphasisBehavior;
+  /** Whether fontSize is final or should follow legacy box-resize scaling */
+  fontSizing?: CaptionFontSizing;
   /** Use spring physics for active word scale (Remotion spring()) */
   useSpringScale?: boolean;
   /** Spring damping � lower = bouncier. Default 10. */

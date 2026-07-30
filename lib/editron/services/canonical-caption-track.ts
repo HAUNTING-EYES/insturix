@@ -472,6 +472,8 @@ function resolveDisplayConfig(presentation: AtomicCaptionPresentation): CaptionD
     mode: readability.renderMode,
     wordsPerGroup: readability.wordsPerGroup,
     maxWordsPerLine: readability.maxWordsPerLine,
+    emphasisBehavior: presentation.displayMode === 'subtitle' ? 'none' : 'active-word',
+    fontSizing: 'authored',
   };
 }
 
