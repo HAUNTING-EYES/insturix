@@ -2,7 +2,10 @@ import type { Db } from 'mongodb';
 
 import { describe, expect, it } from 'vitest';
 
-import { cleanupDisposableChatBattleFixtureInDatabase } from '@/lib/editron/services/chat-edit-battle-fixture-cleanup';
+import {
+  cleanupDisposableChatBattleFixtureInDatabase,
+  deleteDisposableStoryboardGeneratedAssets,
+} from '@/lib/editron/services/chat-edit-battle-fixture-cleanup';
 
 const COLLECTIONS = {
   projects: 'projects',
@@ -17,16 +20,27 @@ const COLLECTIONS = {
   mgRenderJobs: 'editron_mg_render_jobs',
   uploadBatches: 'mediaUploadBatches',
   mediaAssets: 'mediaAssets',
+  storyboards: 'storyboards',
 };
 
-function fakeDatabase(input: { fixtureExists: boolean; remainingFixtures?: number }) {
+function fakeDatabase(input: {
+  fixtureExists: boolean;
+  remainingFixtures?: number;
+  storyboard?: Record<string, unknown>;
+}) {
   const calls: Array<{ collection: string; operation: string; filter: unknown }> = [];
   const db = {
     collection(name: string) {
       return {
         async findOne(filter: unknown) {
           calls.push({ collection: name, operation: 'findOne', filter });
-          return input.fixtureExists ? { _id: 'fixture' } : null;
+          if (name === COLLECTIONS.projects) {
+            return input.fixtureExists ? { _id: 'fixture' } : null;
+          }
+          if (name === COLLECTIONS.storyboards) {
+            return input.storyboard ?? null;
+          }
+          return null;
         },
         async deleteMany(filter: unknown) {
           calls.push({ collection: name, operation: 'deleteMany', filter });
@@ -116,5 +130,93 @@ describe('chat battle fixture cleanup', () => {
         },
       }),
     ]);
+  });
+
+  it('deletes only scene assets generated inside the disposable storyboard clone', async () => {
+    const { db, calls } = fakeDatabase({
+      fixtureExists: true,
+      storyboard: {
+        projectId: 'proj_chatbattle_scene_1',
+        userId: 'user-1',
+        scenes: [{
+          imageAssetId: 'sb_regen_new',
+          videoAssetId: 'video-source',
+          voiceover: { audioAssetId: 'voice-source' },
+          generationHistory: [
+            { assetId: 'image-source' },
+            { assetId: 'sb_regen_previous' },
+          ],
+        }],
+        metadata: {
+          battleTest: {
+            disposable: true,
+            sourceSceneAssetIds: ['image-source', 'video-source', 'voice-source'],
+          },
+        },
+      },
+    });
+    const result = await cleanupDisposableChatBattleFixtureInDatabase(
+      db,
+      'proj_chatbattle_scene_1',
+      COLLECTIONS,
+    );
+
+    expect(result.deleted).toMatchObject({
+      storyboards: 1,
+      generatedSceneAssets: 2,
+    });
+    expect(calls).toContainEqual({
+      collection: COLLECTIONS.mediaAssets,
+      operation: 'deleteMany',
+      filter: {
+        userId: 'user-1',
+        assetId: { $in: ['sb_regen_new', 'sb_regen_previous'] },
+      },
+    });
+    expect(calls).toContainEqual({
+      collection: COLLECTIONS.storyboards,
+      operation: 'deleteOne',
+      filter: {
+        projectId: 'proj_chatbattle_scene_1',
+        'metadata.battleTest.disposable': true,
+      },
+    });
+  });
+
+  it('deletes generated storyboard bytes before records and preserves source assets', async () => {
+    const { db } = fakeDatabase({
+      fixtureExists: true,
+      storyboard: {
+        projectId: 'proj_chatbattle_scene_2',
+        userId: 'user-1',
+        scenes: [{
+          imageAssetId: 'sb_regen_new',
+          videoAssetId: 'video-source',
+          generationHistory: [
+            { assetId: 'image-source' },
+            { assetId: 'sb_regen_previous' },
+          ],
+        }],
+        metadata: {
+          battleTest: {
+            disposable: true,
+            sourceSceneAssetIds: ['image-source', 'video-source'],
+          },
+        },
+      },
+    });
+    const deleted: string[] = [];
+
+    const generatedIds = await deleteDisposableStoryboardGeneratedAssets(
+      db,
+      'proj_chatbattle_scene_2',
+      COLLECTIONS,
+      async (assetId) => {
+        deleted.push(assetId);
+      },
+    );
+
+    expect(generatedIds).toEqual(['sb_regen_new', 'sb_regen_previous']);
+    expect(deleted).toEqual(['sb_regen_new', 'sb_regen_previous']);
   });
 });

@@ -313,6 +313,7 @@ export function cloneChatBattleStoryboard(
       scene.imageAssetId,
       scene.videoAssetId,
       asRecord(scene.voiceover).audioAssetId,
+      ...asRecords(scene.generationHistory).map((entry) => entry.assetId),
     ]),
   );
   clone.storyboardId = fixtureStoryboardId;
