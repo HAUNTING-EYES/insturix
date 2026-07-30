@@ -307,6 +307,13 @@ describe('chat request owner classification', () => {
                 sourceSpan: userMessage.slice(0, -1),
                 cameraMotionJob,
                 ...(anchorSelection ? { anchorSelection, anchorSignal } : {}),
+                ...(cameraMotionJob === 'shake' ? {
+                  timing: {
+                    kind: 'anchor',
+                    sourceSpan: 'strongest impact beat',
+                    anchor: null,
+                  },
+                } : {}),
               }],
               requestedCapabilities: ['localized-camera-motion'],
               capabilityEvidence: [{
@@ -334,6 +341,7 @@ describe('chat request owner classification', () => {
           }],
         },
       });
+      expect(result.routingFacts?.localizedEdits?.[0]?.timing).toBeUndefined();
       if (anchorSelection) {
         expect(resolveChatLocalizedWorkflowAdapter(
           result.routingFacts!.localizedEdits![0],

@@ -53,6 +53,17 @@ export function repairChatOwnerLiteralTiming(
   let changed = false;
   const localizedEdits = facts.localizedEdits.map((entry) => {
     const edit = asRecord(entry);
+    if (edit && edit.modality !== 'asset') {
+      const hasAssetOnlyConstraint = 'placement' in edit || 'timing' in edit;
+      if (!hasAssetOnlyConstraint) return entry;
+      const {
+        placement: _placement,
+        timing: _timing,
+        ...nonAssetEdit
+      } = edit;
+      changed = true;
+      return nonAssetEdit;
+    }
     const timing = asRecord(edit?.timing) as RawTiming | null;
     if (!edit || !timing) return entry;
 
