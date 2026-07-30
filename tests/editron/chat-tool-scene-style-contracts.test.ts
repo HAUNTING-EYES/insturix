@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   getStoryboardForProjectContext: vi.fn(),
   loadProfile: vi.fn(),
   queueReferenceStyleJob: vi.fn(),
+  regenerateStoryboardSceneImage: vi.fn(),
 }));
 
 const agentFixture = vi.hoisted(() => ({
@@ -81,6 +82,10 @@ vi.mock('@/lib/pipeline/storyboard-db', () => ({
   getStoryboard: mocks.getStoryboard,
   getStoryboardByProjectId: mocks.getStoryboardByProjectId,
   getStoryboardForProjectContext: mocks.getStoryboardForProjectContext,
+}));
+
+vi.mock('@/lib/pipeline/storyboard-scene-regeneration', () => ({
+  regenerateStoryboardSceneImage: mocks.regenerateStoryboardSceneImage,
 }));
 
 vi.mock('@/lib/editron/services/style-transfer-service', () => ({
@@ -231,14 +236,11 @@ describe('chat scene and style tool contracts', () => {
         { sceneIndex: 1, imageAssetId: 'old-1' },
       ],
     });
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      success: true,
-      scene: {
-        sceneIndex: 1,
-        imageAssetId: 'new-1',
-        imageUrl: 'https://cdn.example.com/new-1.png',
-      },
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+    mocks.regenerateStoryboardSceneImage.mockResolvedValue({
+      sceneIndex: 1,
+      imageAssetId: 'new-1',
+      imageUrl: 'https://cdn.example.com/new-1.png',
+    });
 
     const output = await toolNamed('regenerate_scene').invoke({
       sceneIndex: 1,
@@ -261,6 +263,12 @@ describe('chat scene and style tool contracts', () => {
         }],
       },
     });
+    expect(mocks.regenerateStoryboardSceneImage).toHaveBeenCalledWith({
+      storyboardId: 'sb-1',
+      sceneIndex: 1,
+      userId: 'user_scene_style',
+      feedback: 'Use warmer light.',
+    });
 
     const enforced = enforceChatToolPostcondition({
       toolName: 'regenerate_scene',
@@ -281,10 +289,9 @@ describe('chat scene and style tool contracts', () => {
       storyboardId: 'sb-1',
       scenes: [{ sceneIndex: 1, imageAssetId: 'old-1' }],
     });
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(
-      JSON.stringify({ error: 'provider unavailable' }),
-      { status: 503, headers: { 'Content-Type': 'application/json' } },
-    )));
+    mocks.regenerateStoryboardSceneImage.mockRejectedValue(
+      new Error('Scene regeneration failed: provider unavailable'),
+    );
 
     const result = parseEnvelope(await toolNamed('regenerate_scene').invoke({
       sceneIndex: 1,

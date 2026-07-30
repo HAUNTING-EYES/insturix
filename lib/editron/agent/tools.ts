@@ -4398,19 +4398,22 @@ NEVER ask the user which clips — default to applyToAll: true.`,
 
         // Regenerate storyboard image ('storyboard' is an alias for 'image')
         if (input.target === 'image' || input.target === 'storyboard' || input.target === 'all') {
-          const imgRes = await fetch(`${baseApiUrl}/api/services/pipeline/storyboard/${storyboardId}/scene/${input.sceneIndex}/regenerate-with-context`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+          try {
+            const { regenerateStoryboardSceneImage } = await import(
+              '@/lib/pipeline/storyboard-scene-regeneration'
+            );
+            const scene = await regenerateStoryboardSceneImage({
+              storyboardId,
+              sceneIndex: input.sceneIndex,
+              userId,
               feedback: input.feedback,
-              userId, // Passed for internal auth fallback
-            }),
-          });
-          const data = await readRegenerationResponse(imgRes);
-          const afterAssetId = typeof data.scene?.imageAssetId === 'string'
-            ? data.scene.imageAssetId
-            : '';
-          if (imgRes.ok && data.success === true && afterAssetId) {
+            });
+            const afterAssetId = typeof scene.imageAssetId === 'string'
+              ? scene.imageAssetId
+              : '';
+            if (!afterAssetId) {
+              throw new Error('regeneration completed without a persisted image asset ID');
+            }
             const jobId = `storyboard:${storyboardId}:scene:${input.sceneIndex}:image:${afterAssetId}`;
             operations.push({
               target: 'image',
@@ -4422,10 +4425,13 @@ NEVER ask the user which clips — default to applyToAll: true.`,
               afterAssetId,
             });
             results.push(`Storyboard image regenerated (assetId: ${afterAssetId})`);
-          } else {
+          } catch (error) {
+            const message = error instanceof Error
+              ? error.message
+              : String(error);
             failures.push({
               target: 'image',
-              message: regenerationFailureMessage('Image regeneration', imgRes.status, data),
+              message,
             });
           }
         }
