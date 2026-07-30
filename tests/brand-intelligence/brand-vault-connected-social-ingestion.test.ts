@@ -1,10 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BRAND_VAULT_DEFAULT_APIFY_ACTORS,
   createBrandVaultConnectedSocialEvidence,
 } from '../../lib/shared/brand-vault-connected-social-ingestion';
+import { encryptUserOAuthToken } from '../../lib/calos/publish/token-crypto';
 
 describe('Brand Vault connected social ingestion', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('enriches explicit YouTube post URLs with public metadata and captions even when Google is connected', async () => {
     const fetchedUrls: string[] = [];
     const ocrImageUrls: string[] = [];
@@ -357,6 +362,90 @@ describe('Brand Vault connected social ingestion', () => {
         }),
       ]),
     );
+  });
+
+  it('decrypts connected Facebook credentials before fetching Page posts', async () => {
+    vi.stubEnv('CALOS_TOKEN_ENCRYPTION_KEY', Buffer.alloc(32, 8).toString('base64'));
+    const storedPageAccessToken = encryptUserOAuthToken('page_token');
+    const fetchedUrls: string[] = [];
+
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.facebook.com/vaultline'],
+      uploaderXUser: {
+        facebookTokens: {
+          userAccessToken: encryptUserOAuthToken('fb_user_token'),
+          userName: 'Owner',
+          pages: [{
+            pageId: 'page_1',
+            pageName: 'vaultline',
+            pageAccessToken: storedPageAccessToken,
+          }],
+        },
+      },
+      youtubeConnection: null,
+      fetchFn: async (url) => {
+        fetchedUrls.push(url);
+        return jsonResponse({
+          data: [{
+            id: 'page_1_post_1',
+            message: 'Connected Facebook evidence',
+            permalink_url: 'https://www.facebook.com/vaultline/posts/page_1_post_1',
+            created_time: '2026-07-30T08:00:00.000Z',
+          }],
+        });
+      },
+      ocrProvider: null,
+    });
+
+    expect(fetchedUrls).toHaveLength(1);
+    expect(new URL(fetchedUrls[0]).searchParams.get('access_token')).toBe('page_token');
+    expect(fetchedUrls[0]).not.toContain(storedPageAccessToken);
+    expect(result.sourceEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'social_post',
+          platform: 'facebook',
+          text: 'Connected Facebook evidence',
+          evidenceOrigin: 'connected_fetch',
+        }),
+      ]),
+    );
+  });
+
+  it('fails closed before Facebook Graph work when Page ciphertext is unreadable', async () => {
+    vi.stubEnv('CALOS_TOKEN_ENCRYPTION_KEY', Buffer.alloc(32, 8).toString('base64'));
+    const fetchFn = vi.fn(async () => {
+      throw new Error('Facebook Graph must not receive unreadable ciphertext');
+    });
+
+    const result = await createBrandVaultConnectedSocialEvidence({
+      socialLinks: ['https://www.facebook.com/vaultline'],
+      uploaderXUser: {
+        facebookTokens: {
+          userAccessToken: encryptUserOAuthToken('fb_user_token'),
+          userName: 'Owner',
+          pages: [{
+            pageId: 'page_1',
+            pageName: 'vaultline',
+            pageAccessToken: 'oauth:v1:not-valid-ciphertext',
+          }],
+        },
+      },
+      youtubeConnection: null,
+      fetchFn,
+      ocrProvider: null,
+    });
+
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(result.sourceEvidence).toEqual([
+      expect.objectContaining({
+        kind: 'social_profile',
+        platform: 'facebook',
+        connection: expect.objectContaining({
+          canReadPosts: false,
+        }),
+      }),
+    ]);
   });
 
   it('warns when an Apify-supported social profile has no API key', async () => {

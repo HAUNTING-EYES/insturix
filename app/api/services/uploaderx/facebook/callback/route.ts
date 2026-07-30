@@ -9,6 +9,7 @@ import {
   FACEBOOK_GRAPH_TIMEOUT_MS,
   facebookGraphApiUrl,
 } from "@/lib/uploaderx/facebook-graph";
+import { encryptUserOAuthToken } from "@/lib/calos/publish/token-crypto";
 
 type FacebookGraphPayload = Record<string, unknown> & {
   error?: unknown;
@@ -184,6 +185,21 @@ export async function GET(req: Request) {
       ? new Date(Date.now() + expiresInSeconds * 1_000)
       : undefined;
 
+    let storedUserAccessToken: string;
+    let storedPages: typeof pages;
+    try {
+      storedUserAccessToken = encryptUserOAuthToken(userAccessToken);
+      storedPages = pages.map((page) => ({
+        ...page,
+        pageAccessToken: encryptUserOAuthToken(page.pageAccessToken),
+      }));
+    } catch (encryptionError) {
+      console.error("[Facebook OAuth] Credential encryption failed:", {
+        error: encryptionError instanceof Error ? encryptionError.message : "unknown error",
+      });
+      return dashboardRedirect(baseUrl, "fb_error", "persistence");
+    }
+
     await connectToDatabase();
     const { User } = await import("@/schemas/user");
 
@@ -192,10 +208,10 @@ export async function GET(req: Request) {
       {
         $set: {
           facebookTokens: {
-            userAccessToken,
+            userAccessToken: storedUserAccessToken,
             userId,
             userName,
-            pages,
+            pages: storedPages,
             expiresAt,
             connectedAt: new Date(),
           },

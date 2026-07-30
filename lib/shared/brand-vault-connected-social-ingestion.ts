@@ -10,6 +10,7 @@ import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
 } from '@/lib/financials/provider-cost-events';
+import { resolveUserOAuthToken } from '@/lib/calos/publish/token-crypto';
 import type {
   BrandVaultSocialConnectionEvidence,
   BrandVaultSocialMediaEvidence,
@@ -825,7 +826,7 @@ async function fetchConnectedFacebookPostSources(args: {
   const connection = args.connection;
   const page = facebookPageForConnection(connection, args.tokens);
   const pageId = stringValue(page.pageId);
-  const pageAccessToken = stringValue(page.pageAccessToken);
+  const pageAccessToken = resolveUserOAuthToken(stringValue(page.pageAccessToken))?.trim();
   if (!pageId || !pageAccessToken) {
     return { sources: [], warnings: ['Brand Vault skipped Facebook page posts: connected UploaderX Page token was not available.'] };
   }
@@ -911,7 +912,9 @@ function facebookPostText(record: Record<string, unknown>): string | undefined {
 }
 
 function facebookConnection(handle: string | undefined, tokens: Record<string, unknown> | null | undefined): BrandVaultSocialConnectionEvidence | null {
-  if (!tokens?.userAccessToken) return null;
+  if (!tokens) return null;
+  const userAccessToken = resolveUserOAuthToken(stringValue(tokens.userAccessToken))?.trim();
+  if (!userAccessToken) return null;
   const pages = Array.isArray(tokens.pages) ? tokens.pages : [];
   const matchedPage = facebookPageForHandle(handle, pages) ?? asRecord(pages[0]);
   const pageHandles = pages.flatMap((page) => {
@@ -921,7 +924,8 @@ function facebookConnection(handle: string | undefined, tokens: Record<string, u
   const matchStatus = handleMatch(handle, pageHandles);
   const accountName = stringValue(matchedPage.pageName) ?? stringValue(tokens.userName);
   const accountId = stringValue(matchedPage.pageId) ?? stringValue(tokens.userId);
-  const canReadPosts = Boolean(matchedPage.pageAccessToken) && matchStatus !== 'mismatched';
+  const pageAccessToken = resolveUserOAuthToken(stringValue(matchedPage.pageAccessToken))?.trim();
+  const canReadPosts = Boolean(pageAccessToken) && matchStatus !== 'mismatched';
   return {
     provider: 'uploaderx',
     status: matchStatus === 'mismatched' ? 'connected_different_account' : 'connected',
