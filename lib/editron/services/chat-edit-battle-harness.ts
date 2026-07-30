@@ -72,6 +72,7 @@ export interface ChatBattleToolEvent {
 
 export interface ChatBattleInvocationEvidence {
   agentRunId: string;
+  sessionId?: string;
   mode: ChatBattleRuntimeMode;
   prompt: string;
   responseText: string;
@@ -950,14 +951,17 @@ export function extractPersistedChatBattleRenderEvidence(
   const reportSummary = asRecord(report.summary);
   const reportStatus = stringValue(reportSummary.status ?? report.status);
   const artifactRefs = uniqueStrings([
-    ...readStrings(evidence.renderedFrames, ['url', 'artifactUrl', 'frameUrl']),
+    ...readStrings(evidence.renderedFrames, [
+      'url',
+      'artifactUrl',
+      'frameUrl',
+      'baselineUrl',
+      'aestheticBaselineUrl',
+    ]),
     ...readStrings(report, ['jsonReport', 'htmlReport', 'artifactUrl']),
+    ...readStrings(report.frames, ['fullStill', 'baselineStill']),
   ]);
-  const issues = Array.isArray(report.issues)
-    ? report.issues.map(asRecord).slice(0, 100)
-    : Array.isArray(evidence.issues)
-      ? evidence.issues.map(asRecord).slice(0, 100)
-      : [];
+  const issues = collectPhase0RenderIssues({ evidence, gate, report });
   if (!capturedAt || !isFreshTimestamp(capturedAt, startedAt)) {
     return { status: 'missing', capturedAt, artifactRefs, issues, reason: 'No fresh rendered evidence exists for this chat journey.' };
   }
@@ -965,6 +969,86 @@ export function extractPersistedChatBattleRenderEvidence(
   if (evidenceStatus === 'partial' || reportStatus === 'warn') return { status: 'warn', capturedAt, artifactRefs, issues };
   if (evidenceStatus === 'completed' && reportStatus === 'pass') return { status: 'pass', capturedAt, artifactRefs, issues };
   return { status: 'missing', capturedAt, artifactRefs, issues, reason: 'Rendered evidence did not contain a completed aesthetic verdict.' };
+}
+
+function collectPhase0RenderIssues(input: {
+  evidence: Record<string, unknown>;
+  gate: Record<string, unknown>;
+  report: Record<string, unknown>;
+}): Array<Record<string, unknown>> {
+  const issues: Array<Record<string, unknown>> = [];
+  issues.push(...readRecordArray(input.report.issues));
+  issues.push(...readRecordArray(input.evidence.issues));
+
+  for (const frame of readRecordArray(input.report.frames)) {
+    const frameReport = asRecord(frame.report);
+    for (const issue of readRecordArray(frameReport.issues)) {
+      issues.push({
+        ...issue,
+        ...(typeof frame.frame === 'number' && Number.isFinite(frame.frame)
+          ? { frame: Math.round(frame.frame) }
+          : {}),
+        ...(Array.isArray(frame.activeOverlayIds)
+          ? { activeOverlayIds: frame.activeOverlayIds.slice(0, 30) }
+          : {}),
+        ...(Array.isArray(frame.activeOverlayTypes)
+          ? { activeOverlayTypes: frame.activeOverlayTypes.slice(0, 30) }
+          : {}),
+        ...(stringValue(frame.fullStill) ? { fullStill: stringValue(frame.fullStill) } : {}),
+        ...(stringValue(frame.baselineStill) ? { baselineStill: stringValue(frame.baselineStill) } : {}),
+      });
+    }
+  }
+
+  for (const failedFrame of readRecordArray(input.evidence.failedFrames)) {
+    const error = stringValue(failedFrame.error);
+    if (!error) continue;
+    issues.push({
+      modality: 'system',
+      severity: 'error',
+      code: 'phase0_render_failed',
+      message: error,
+      ...(typeof failedFrame.frame === 'number' && Number.isFinite(failedFrame.frame)
+        ? { frame: Math.round(failedFrame.frame) }
+        : {}),
+      ...(stringValue(failedFrame.renderKind)
+        ? { renderKind: stringValue(failedFrame.renderKind) }
+        : {}),
+    });
+  }
+
+  for (const message of readStringArray(input.evidence.artifactPackIssues)) {
+    issues.push({
+      modality: 'system',
+      severity: 'error',
+      code: 'phase0_artifact_pack_issue',
+      message,
+    });
+  }
+
+  const diagnosticMessages = [
+    stringValue(input.evidence.statusReason),
+    stringValue(input.gate.warning),
+    stringValue(input.gate.reason),
+  ].filter((message): message is string => Boolean(message));
+  if (issues.length === 0) {
+    for (const message of diagnosticMessages) {
+      issues.push({
+        modality: 'system',
+        severity: 'error',
+        code: 'phase0_render_status_reason',
+        message,
+      });
+    }
+  }
+
+  const seen = new Set<string>();
+  return issues.filter((issue) => {
+    const key = JSON.stringify(sanitizeMaterialState(issue));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 100);
 }
 
 function collectRenderVerificationIssues(input: {
@@ -1449,6 +1533,9 @@ function isEphemeralProjectKey(
   owner: Record<string, unknown>,
 ): boolean {
   if (['createdAt', 'updatedAt', 'resolvedAt', 'expiresAt', 'signedUrl', 'publicUrl', 'cachedUrl', 'thumbnailUrl', 'frameUrls'].includes(key)) return true;
+  if (key === 'sequence' && stringValue(owner.type) === 'mg-sequence') {
+    return true;
+  }
   if (['src', 'url', 'mediaUrl'].includes(key) && typeof value === 'string' && /^(?:https?:|blob:|data:)/i.test(value)) return true;
   if (
     key === 'content'

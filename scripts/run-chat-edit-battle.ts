@@ -5,6 +5,13 @@ import { pathToFileURL } from 'node:url';
 
 import { config as loadEnv } from 'dotenv';
 
+import type { Overlay } from '../components/editron/editor/version-7.0.0/types';
+import {
+  extractChatFrameCaptureRequest,
+  type ChatFrameCaptureRequest,
+  type ChatFrameEvidence,
+} from '../lib/editron/agent/chat-frame-evidence';
+import { captureMgVisualEvidence } from '../lib/editron/motion-graphics/codegen/visual-evidence';
 import { readRotatingChatBattleAuthHeaders } from './chat-edit-battle-auth';
 import { cleanupDisposableChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-cleanup';
 import {
@@ -123,7 +130,7 @@ async function main(): Promise<void> {
         return loadMongoProject(projectId);
       },
       invokeAgent: async ({ scenario, projectId, selectedOverlayId, clientContext: context }) => {
-        const invocation = await invokeLiveChatAgent({
+        let invocation = await invokeLiveChatAgent({
           api,
           scenarioPrompt: scenario.prompt,
           projectId,
@@ -134,6 +141,36 @@ async function main(): Promise<void> {
           operationId: options.operationId,
           startedAt: startedAtHolder.value || new Date().toISOString(),
         });
+        const frameCaptureEvent = [...invocation.toolEvents]
+          .reverse()
+          .find((event) => event.name === 'visual_inspect_frame');
+        const frameCaptureRequest = frameCaptureEvent
+          ? extractChatFrameCaptureRequest(frameCaptureEvent.output)
+          : null;
+        if (frameCaptureRequest) {
+          const continuationSessionId = invocation.sessionId ?? options.sessionId;
+          if (!continuationSessionId) {
+            throw new Error('Visual-evidence continuation requires the sessionId returned by the first chat round.');
+          }
+          console.log(`[chat-battle] rendering requested visual evidence at frame ${frameCaptureRequest.frame}`);
+          const visualEvidence = await buildChatBattleFrameEvidence(
+            await loadMongoProject(projectId),
+            frameCaptureRequest,
+          );
+          const followUp = await invokeLiveChatAgent({
+            api,
+            scenarioPrompt: scenario.prompt,
+            projectId,
+            sessionId: continuationSessionId,
+            selectedOverlayId,
+            clientContext: context,
+            runId: `${options.runId}-visual-evidence`,
+            operationId: `chat-battle:${safeSegment(`${options.runId}-visual-evidence`)}`,
+            startedAt: startedAtHolder.value || new Date().toISOString(),
+            visualEvidence,
+          });
+          invocation = mergeChatBattleInvocations(invocation, followUp);
+        }
         const editorialIntentJobId = extractQueuedEditorialIntentJobId(invocation);
         if (editorialIntentJobId) {
           console.log(`[chat-battle] waiting for editorial-intent job ${editorialIntentJobId} to settle`);
@@ -369,6 +406,7 @@ async function invokeLiveChatAgent(input: {
   runId: string;
   operationId?: string;
   startedAt: string;
+  visualEvidence?: ChatFrameEvidence;
 }): Promise<ChatBattleInvocationEvidence> {
   const requestBody = buildLiveChatRequestBody(input);
   const headers = await readChatBattleAuthHeaders(input.api.authHeaderFile);
@@ -382,6 +420,7 @@ async function invokeLiveChatAgent(input: {
   if (replayProtection) {
     return {
       agentRunId: input.runId,
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       mode: 'live-provider',
       prompt: input.scenarioPrompt,
       responseText: '',
@@ -401,6 +440,11 @@ async function invokeLiveChatAgent(input: {
     .join('');
   return {
     agentRunId: typeof done?.sessionId === 'string' ? `${input.runId}:${done.sessionId}` : input.runId,
+    ...(typeof done?.sessionId === 'string'
+      ? { sessionId: done.sessionId }
+      : input.sessionId
+        ? { sessionId: input.sessionId }
+        : {}),
     mode: 'live-provider',
     prompt: input.scenarioPrompt,
     responseText,
@@ -417,6 +461,7 @@ export function buildLiveChatRequestBody(input: {
   clientContext?: Record<string, unknown>;
   runId: string;
   operationId?: string;
+  visualEvidence?: ChatFrameEvidence;
 }): Record<string, unknown> {
   return {
     message: input.scenarioPrompt,
@@ -425,6 +470,69 @@ export function buildLiveChatRequestBody(input: {
     operationId: input.operationId ?? `chat-battle:${safeSegment(input.runId)}`,
     ...(input.selectedOverlayId ? { selectedOverlayId: input.selectedOverlayId } : {}),
     ...(input.clientContext ? { clientContext: input.clientContext } : {}),
+    ...(input.visualEvidence ? { visualEvidence: input.visualEvidence } : {}),
+  };
+}
+
+export async function buildChatBattleFrameEvidence(
+  projectValue: unknown,
+  request: ChatFrameCaptureRequest,
+  dependencies: {
+    capture: typeof captureMgVisualEvidence;
+    now(): number;
+  } = {
+    capture: captureMgVisualEvidence,
+    now: () => Date.now(),
+  },
+): Promise<ChatFrameEvidence> {
+  const project = asRecord(projectValue);
+  const playerDimensions = asRecord(project.playerDimensions);
+  const dimensions = asRecord(project.dimensions);
+  const width = positiveInteger(project.width)
+    ?? positiveInteger(playerDimensions.width)
+    ?? positiveInteger(dimensions.width);
+  const height = positiveInteger(project.height)
+    ?? positiveInteger(playerDimensions.height)
+    ?? positiveInteger(dimensions.height);
+  const fps = positiveNumber(project.fps);
+  const durationInFrames = positiveInteger(project.durationInFrames);
+  if (!width || !height || !fps || !durationInFrames) {
+    throw new Error('Visual-evidence continuation requires persisted canvas dimensions, fps, and duration.');
+  }
+  if (request.frame < 1 || request.frame >= durationInFrames - 1) {
+    throw new Error(
+      `Visual-evidence frame ${request.frame} lacks the surrounding edited-timeline context required for verification.`,
+    );
+  }
+  const overlays = Array.isArray(project.overlays) ? project.overlays as Overlay[] : [];
+  if (overlays.length === 0) {
+    throw new Error('Visual-evidence continuation requires at least one persisted overlay.');
+  }
+
+  const captured = await dependencies.capture({
+    overlays,
+    window: {
+      startFrame: request.frame - 1,
+      endFrame: request.frame + 2,
+      fps,
+    },
+    canvas: { width, height },
+    anchors: { landingFrame: 1 },
+  });
+  const anchor = captured.frames.find((frame) => frame.role === 'anchor');
+  if (!anchor || anchor.coordinate.timelineFrame !== request.frame) {
+    throw new Error(
+      `Visual-evidence renderer returned frame ${anchor?.coordinate.timelineFrame ?? 'missing'} for requested frame ${request.frame}.`,
+    );
+  }
+  return {
+    frame: request.frame,
+    question: request.question,
+    dataUrl: anchor.imageDataUrl,
+    width: captured.canvas.width,
+    height: captured.canvas.height,
+    capturedAtMs: dependencies.now(),
+    source: 'editor-rendered-frame',
   };
 }
 
@@ -608,6 +716,7 @@ export function mergeChatBattleInvocations(
   return {
     ...initial,
     agentRunId: `${initial.agentRunId}+${followUp.agentRunId}`,
+    sessionId: followUp.sessionId ?? initial.sessionId,
     responseText: [initial.responseText, followUp.responseText].filter(Boolean).join('\n'),
     toolEvents: [...initial.toolEvents, ...followUp.toolEvents],
     ...(followUp.error ? { error: followUp.error } : initial.error ? { error: initial.error } : {}),
@@ -1306,6 +1415,17 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function positiveNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
+
+function positiveInteger(value: unknown): number | null {
+  const number = positiveNumber(value);
+  return number == null ? null : Math.round(number);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

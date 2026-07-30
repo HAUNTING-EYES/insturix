@@ -171,7 +171,9 @@ import type {
   ChatEditRenderedAudioWindowEvidence,
   ChatEditRenderVerificationRequest,
 } from '@/lib/editron/services/phase0-rendered-evidence-worker';
+import type { MgVisualEvidence } from '@/lib/editron/motion-graphics/codegen/types';
 import {
+  buildChatBattleFrameEvidence,
   buildLiveChatRequestBody,
   chatBattleInvocationQueuedProjectMutation,
   extractQueuedDubbingJobId,
@@ -2190,12 +2192,50 @@ describe('chat edit battle harness', () => {
       src: 'https://cdn/asset/upload_1',
       content: 'https://cdn/asset/upload_1',
     }]);
+    const mongoSequence = project([{
+      id: 'mg-sequence-1',
+      type: 'mg-sequence',
+      assetId: 'asset-sequence-1',
+      from: 120,
+      durationInFrames: 90,
+      row: 6,
+      sequence: {
+        sequenceId: 'sequence-1',
+        frameCount: 90,
+        fps: 30,
+        width: 1920,
+        height: 1080,
+        transparent: true,
+        frameFormat: 'webp',
+        cdnBaseUrl: 'https://old-cdn.example',
+      },
+    }]);
+    const hydratedSequence = project([{
+      id: 'mg-sequence-1',
+      type: 'mg-sequence',
+      assetId: 'asset-sequence-1',
+      from: 120,
+      durationInFrames: 90,
+      row: 6,
+      sequence: {
+        sequenceId: 'sequence-from-asset',
+        frameCount: 96,
+        fps: 30,
+        width: 1920,
+        height: 1080,
+        transparent: true,
+        frameFormat: 'webp',
+        cdnBaseUrl: 'https://resolved-cdn.example',
+      },
+    }]);
     expect(buildChatBattleProjectSnapshot(mongo, 'mongo-after').digest)
       .toBe(buildChatBattleProjectSnapshot(reload, 'ui-reload').digest);
     expect(buildChatBattleProjectSnapshot(mongo, 'mongo-after').digest)
       .not.toBe(buildChatBattleProjectSnapshot(changed, 'ui-reload').digest);
     expect(buildChatBattleProjectSnapshot(mongoVideo, 'mongo-after').digest)
       .toBe(buildChatBattleProjectSnapshot(hydratedVideo, 'ui-reload').digest);
+    expect(buildChatBattleProjectSnapshot(mongoSequence, 'mongo-after').digest)
+      .toBe(buildChatBattleProjectSnapshot(hydratedSequence, 'ui-reload').digest);
   });
 
   it('preserves numeric overlay IDs so live created-overlay checks remain trustworthy', () => {
@@ -2288,6 +2328,79 @@ describe('chat edit battle harness', () => {
       runId: 'run 2026/07/18 #2',
       operationId: 'chat-battle-seed:retry-idempotency:operation',
     }).operationId).toBe('chat-battle-seed:retry-idempotency:operation');
+
+    const visualEvidence = {
+      frame: 84,
+      question: 'Is the bird visible?',
+      dataUrl: 'data:image/webp;base64,UklGRgwAAABXRUJQVlA4IAAAAAAwAQCdASoBAAEAAUAmJaQAA3AA/vuUAAA=',
+      width: 1280,
+      height: 720,
+      capturedAtMs: 1_785_000_000_000,
+      source: 'editor-rendered-frame' as const,
+    };
+    expect(buildLiveChatRequestBody({
+      scenarioPrompt: 'Remove the bird.',
+      projectId: 'proj_chatbattle_contract',
+      sessionId: 'session-visual',
+      runId: 'visual-continuation',
+      visualEvidence,
+    })).toMatchObject({
+      sessionId: 'session-visual',
+      visualEvidence,
+    });
+  });
+
+  it('builds visual continuation evidence from the exact real rendered frame', async () => {
+    const capture = vi.fn(async (): Promise<MgVisualEvidence> => ({
+      space: 'edited-canvas' as const,
+      canvas: { width: 1280, height: 720 },
+      frames: [
+        {
+          role: 'context-before' as const,
+          coordinate: { kind: 'edited-timeline' as const, timelineFrame: 83 },
+          imageDataUrl: 'data:image/webp;base64,before',
+        },
+        {
+          role: 'anchor' as const,
+          coordinate: { kind: 'edited-timeline' as const, timelineFrame: 84 },
+          imageDataUrl: 'data:image/webp;base64,anchor',
+        },
+        {
+          role: 'context-after' as const,
+          coordinate: { kind: 'edited-timeline' as const, timelineFrame: 85 },
+          imageDataUrl: 'data:image/webp;base64,after',
+        },
+      ],
+    }));
+
+    const evidence = await buildChatBattleFrameEvidence({
+      projectId: 'proj_visual',
+      fps: 30,
+      durationInFrames: 300,
+      playerDimensions: { width: 1280, height: 720 },
+      overlays: [{ id: 'video-1', type: 'video', from: 0, durationInFrames: 300, row: 0 }],
+    }, {
+      frame: 84,
+      question: 'Verify the requested visual event.',
+    }, {
+      capture,
+      now: () => 1_785_000_000_000,
+    });
+
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({
+      window: { startFrame: 83, endFrame: 86, fps: 30 },
+      canvas: { width: 1280, height: 720 },
+      anchors: { landingFrame: 1 },
+    }));
+    expect(evidence).toEqual({
+      frame: 84,
+      question: 'Verify the requested visual event.',
+      dataUrl: 'data:image/webp;base64,anchor',
+      width: 1280,
+      height: 720,
+      capturedAtMs: 1_785_000_000_000,
+      source: 'editor-rendered-frame',
+    });
   });
 
   it('parses only the canonical chat operation replay receipt', () => {
@@ -2872,5 +2985,90 @@ describe('chat edit battle harness', () => {
       code: 'qstash_delivery_failed',
       message: 'qstash_delivery_failed:timeout',
     })]);
+  });
+
+  it('extracts nested Phase-0 frame issues and artifact references from fallback evidence', () => {
+    const evidence = extractPersistedChatBattleRenderEvidence({
+      projectId: 'proj_phase0_nested',
+      intelligence: {
+        phase0RenderedStillEvidence: {
+          status: 'completed',
+          completedAt: '2026-07-30T10:00:04.000Z',
+          renderedFrames: [{
+            frame: 84,
+            url: 'https://cdn/full.webp',
+            baselineUrl: 'https://cdn/source.webp',
+          }],
+          failedFrames: [],
+          artifactPackIssues: [],
+        },
+        phase0RenderedAestheticReport: {
+          summary: { status: 'fail' },
+          frames: [{
+            frame: 84,
+            activeOverlayIds: ['caption-1'],
+            activeOverlayTypes: ['caption'],
+            fullStill: 'https://cdn/full.webp',
+            baselineStill: 'https://cdn/source.webp',
+            report: {
+              status: 'fail',
+              issues: [{
+                dimension: 'contrast',
+                severity: 'fail',
+                overlayId: 'caption-1',
+                message: 'Caption contrast is below the readable threshold.',
+              }],
+            },
+          }],
+        },
+      },
+    }, '2026-07-30T10:00:00.000Z');
+
+    expect(evidence.status).toBe('fail');
+    expect(evidence.artifactRefs).toEqual(expect.arrayContaining([
+      'https://cdn/full.webp',
+      'https://cdn/source.webp',
+    ]));
+    expect(evidence.issues).toEqual([expect.objectContaining({
+      frame: 84,
+      dimension: 'contrast',
+      severity: 'fail',
+      overlayId: 'caption-1',
+      message: 'Caption contrast is below the readable threshold.',
+      activeOverlayIds: ['caption-1'],
+    })]);
+  });
+
+  it('surfaces Phase-0 renderer failures instead of returning an empty issue list', () => {
+    const evidence = extractPersistedChatBattleRenderEvidence({
+      projectId: 'proj_phase0_failed',
+      intelligence: {
+        phase0RenderedStillEvidence: {
+          status: 'failed',
+          statusReason: 'rendered_still_failed',
+          completedAt: '2026-07-30T10:00:04.000Z',
+          renderedFrames: [],
+          failedFrames: [{
+            frame: 120,
+            renderKind: 'full',
+            error: 'Source asset could not be resolved.',
+          }],
+          artifactPackIssues: ['source-video-missing'],
+        },
+      },
+    }, '2026-07-30T10:00:00.000Z');
+
+    expect(evidence.status).toBe('fail');
+    expect(evidence.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'phase0_render_failed',
+        frame: 120,
+        message: 'Source asset could not be resolved.',
+      }),
+      expect.objectContaining({
+        code: 'phase0_artifact_pack_issue',
+        message: 'source-video-missing',
+      }),
+    ]));
   });
 });
