@@ -15,6 +15,7 @@ import type {
   ChatRequestOwnerLicense,
   ChatRequestRoutingFacts,
 } from './chat-request-owner';
+import { normalizeChatWorkflowCapabilities } from './chat-request-owner';
 
 export type ServerOwnedChatWorkflowStep =
   | {
@@ -145,7 +146,11 @@ function compileChatExecutionOperations(
 
   const operations: ChatExecutionOperation[] = [];
   const consumedLocalizedCapabilities = new Set<ChatRequestCapability>();
-  for (const capability of facts.requestedCapabilities) {
+  const capabilities = normalizeChatWorkflowCapabilities(
+    facts,
+    facts.requestedCapabilities,
+  );
+  for (const capability of capabilities) {
     const contract = getChatCapabilityAuthorityContract(capability);
     if (contract.authority === 'localized-workflow') {
       const localizedEdits = localizedByCapability.get(capability) ?? [];

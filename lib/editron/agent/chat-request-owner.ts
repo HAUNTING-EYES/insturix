@@ -48,6 +48,11 @@ export type ChatRequestOwner = (typeof CHAT_REQUEST_OWNERS)[number];
 export type ChatRestoreResolutionStatus = 'ready' | 'no-intent' | 'no-checkpoint' | 'missing-target';
 export type ChatSemanticWorkflow = 'editorial-plan' | 'reference-style' | 'localized-mutation' | 'selected-dialogue-dubbing';
 
+const REFERENCE_STYLE_SHADOWED_CAPABILITIES = new Set<ChatRequestCapability>([
+  'motion-graphic-composition',
+  'project-edit',
+]);
+
 export const CHAT_TIMELINE_REFERENCES = [
   'none',
   'selected-range',
@@ -603,7 +608,11 @@ const modelRoutingFactsSchema = z.object({
       message: 'Reference-style requests must license the reference-style workflow.',
     });
   }
-  if (facts.requestsBroadEditorialOutcome && !uniqueCapabilities.has('project-edit')) {
+  if (
+    facts.requestsBroadEditorialOutcome
+    && !facts.requestsReferenceStyle
+    && !uniqueCapabilities.has('project-edit')
+  ) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['requestedCapabilities'],
@@ -630,6 +639,7 @@ const modelRoutingFactsSchema = z.object({
   );
   if (
     requestsMotionGraphicFamily
+    && !facts.requestsReferenceStyle
     && !uniqueCapabilities.has('motion-graphic-composition')
     && !uniqueCapabilities.has('project-edit')
   ) {
@@ -1226,10 +1236,10 @@ function deriveRoutingFacts(
         || localizedEdits.length > 0,
     localizedReads,
     localizedEdits,
-    requestedCapabilities: [...new Set([
+    requestedCapabilities: normalizeChatWorkflowCapabilities(facts, [
       ...requestedCapabilities,
       ...localizedCapabilities,
-    ])],
+    ]),
     familyScopeExclusive: hasPreferredFamily && !facts.requestsBroadEditorialOutcome,
   };
 }
@@ -1335,6 +1345,21 @@ export function deriveChatSemanticWorkflow(facts: ChatRequestRoutingFacts): Chat
   return 'editorial-plan';
 }
 
+export function normalizeChatWorkflowCapabilities(
+  facts: Pick<ChatRequestRoutingFacts, 'requestsReferenceStyle'>,
+  capabilities: readonly ChatRequestCapability[],
+): ChatRequestCapability[] {
+  const unique = [...new Set(capabilities)];
+  if (!facts.requestsReferenceStyle) return unique;
+  return [
+    'reference-style',
+    ...unique.filter((capability) =>
+      capability !== 'reference-style'
+      && !REFERENCE_STYLE_SHADOWED_CAPABILITIES.has(capability),
+    ),
+  ];
+}
+
 export function filterChatToolsForRequestOwner<T extends { name: string }>(
   tools: readonly T[],
   license: ChatRequestOwnerLicense,
@@ -1360,7 +1385,12 @@ export function filterChatToolsForRequestOwner<T extends { name: string }>(
     if (license.owner === 'semantic-editorial-planner') {
       const workflow = resolveSemanticWorkflow(license);
       const capabilityTools = resolveChatCapabilityTools(
-        license.routingFacts?.requestedCapabilities ?? [],
+        license.routingFacts
+          ? normalizeChatWorkflowCapabilities(
+            license.routingFacts,
+            license.routingFacts.requestedCapabilities,
+          )
+          : [],
       );
       if (capabilityTools) return capabilityTools.has(tool.name);
 

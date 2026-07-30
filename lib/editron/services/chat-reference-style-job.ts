@@ -9,7 +9,10 @@ import type {
   CheckpointService,
   RestorableProjectState,
 } from '@/lib/editron/services/checkpoint-service';
+import { normalizeEditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
+import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
 import type { Phase0RenderedEvidenceDispatchResult } from '@/lib/editron/services/phase0-rendered-evidence-worker';
+import type { EditDNA } from '@/lib/editron/services/style-transfer-service';
 
 export const CHAT_REFERENCE_STYLE_JOB_VERSION = 'editron-chat-reference-style-job-v1' as const;
 export const CHAT_REFERENCE_STYLE_MAX_ATTEMPTS = 3;
@@ -83,11 +86,29 @@ export interface RunChatReferenceStyleJobResult {
   renderVerification?: Phase0RenderedEvidenceDispatchResult;
 }
 
-interface StyleExecutionResult {
+export interface StyleExecutionResult {
   status: 'mutated' | 'declined';
   rawOutput: unknown;
   data: Record<string, unknown>;
   reason?: string;
+}
+
+interface ReferenceStyleDirectorResult {
+  success: boolean;
+  overlaysModified: number;
+  warnings?: string[];
+  actionsSkipped?: Array<{ action: string; reason: string }>;
+  decisionAuthority?: Record<string, unknown>;
+}
+
+interface ReferenceStylePlannerDependencies {
+  loadProfile(userId: string, profileId: string): Promise<EditDNA | null>;
+  executeDirector(
+    projectId: string,
+    userId: string,
+    profileId: string,
+    brief: ProjectBrief,
+  ): Promise<ReferenceStyleDirectorResult>;
 }
 
 interface InvokableStyleTool {
@@ -247,14 +268,18 @@ export async function runChatReferenceStyleJob(
 
     const applied = await deps.applyProfile(job, profileId);
     if (applied.status === 'declined') {
+      const declineReason = applied.reason ?? 'unified-planner-declined';
       await deps.checkpointService.updateChatEditOperation(
         checkpoint.checkpointId,
         job.userId,
         attemptOperationId,
         { operationStatus: 'no-op', mutatingToolNames: [] },
       );
-      await deps.store.markDeclined(job._id, job.userId, applied.data, deps.now());
-      return { status: 'declined', jobId: job._id, profileId, reason: applied.reason ?? 'unified-planner-declined' };
+      await deps.store.markDeclined(job._id, job.userId, {
+        ...applied.data,
+        reason: declineReason,
+      }, deps.now());
+      return { status: 'declined', jobId: job._id, profileId, reason: declineReason };
     }
 
     const afterProject = await deps.loadProject(job.userId, job.projectId);
@@ -550,7 +575,7 @@ async function resolveRunDependencies(overrides: Partial<RunDependencies>): Prom
     store: overrides.store ?? new MongoChatReferenceStyleJobStore(),
     loadProject,
     extractProfile: overrides.extractProfile ?? extractProfileThroughLiveTool,
-    applyProfile: overrides.applyProfile ?? applyProfileThroughLiveTool,
+    applyProfile: overrides.applyProfile ?? applyReferenceStyleProfileThroughUnifiedPlanner,
     checkpointService,
     captureProjectState,
     buildRenderVerificationRequest,
@@ -592,24 +617,95 @@ async function extractProfileThroughLiveTool(job: ChatReferenceStyleJob): Promis
   return profileId;
 }
 
-async function applyProfileThroughLiveTool(job: ChatReferenceStyleJob, profileId: string): Promise<StyleExecutionResult> {
-  const tool = await styleTool(job, 'apply_style');
-  const rawOutput = await tool.invoke({ profileId, strength: job.strength });
-  const envelope = parseToolOutput(rawOutput);
-  if (envelope.status === 'advisory') {
-    const data = asRecord(envelope.data);
+export async function applyReferenceStyleProfileThroughUnifiedPlanner(
+  job: ChatReferenceStyleJob,
+  profileId: string,
+  overrides: Partial<ReferenceStylePlannerDependencies> = {},
+): Promise<StyleExecutionResult> {
+  const loadStyleProfile = overrides.loadProfile ?? (async (userId: string, id: string) => {
+    const { loadProfile } = await import('@/lib/editron/services/style-transfer-service');
+    return loadProfile(userId, id);
+  });
+  const executeDirector = overrides.executeDirector ?? (async (
+    projectId: string,
+    userId: string,
+    id: string,
+    brief: ProjectBrief,
+  ) => {
+    const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
+    return executeDirectorPlan(projectId, userId, 'A-01', brief) as Promise<ReferenceStyleDirectorResult>;
+  });
+  const profile = await loadStyleProfile(job.userId, profileId);
+  if (!profile) throw new Error(`reference-style-profile-not-found:${profileId}`);
+
+  const brief = buildReferenceStyleProjectBrief(profile, job.strength);
+  const director = await executeDirector(job.projectId, job.userId, profileId, brief);
+  const reasons = [
+    ...(director.warnings ?? []),
+    ...(director.actionsSkipped ?? []).map(
+      (entry) => `${entry.action}:${entry.reason}`,
+    ),
+  ];
+  const data = {
+    profileId: profile.profileId,
+    sourceName: profile.sourceName,
+    appliedThrough: 'director-unified-planner',
+    overlaysModified: director.overlaysModified,
+    decisionAuthority: director.decisionAuthority ?? null,
+    reasons,
+    unappliedDimensions: ['project-wide-color-grade'],
+  };
+  if (!director.success) {
+    throw new Error(`reference-style-director-failed:${reasons[0] ?? 'unknown'}`);
+  }
+  if (director.overlaysModified <= 0) {
     return {
       status: 'declined',
-      rawOutput,
+      rawOutput: data,
       data,
-      reason: cleanString(data.message) ?? 'unified-planner-declined',
+      reason: reasons[0] ?? 'unified-planner-produced-no-material-change',
     };
   }
-  assertToolSuccess(envelope, 'apply_style');
-  return { status: 'mutated', rawOutput, data: asRecord(envelope.data) };
+  return { status: 'mutated', rawOutput: data, data };
 }
 
-async function styleTool(job: ChatReferenceStyleJob, name: 'extract_style' | 'apply_style') {
+export function buildReferenceStyleProjectBrief(
+  profile: EditDNA,
+  strength: number,
+): ProjectBrief {
+  const transitionMode = profile.transitions.frequency <= 0 ? 'off' : 'prefer';
+  const graphicsMode = profile.graphicsDensity === 'heavy' ? 'prefer' : 'auto';
+  const captionMode = profile.textStyle.frequency === 'minimal' ? 'auto' : 'prefer';
+  const intent = [
+    `Match the editorial language measured from reference "${profile.sourceName}" without copying renderer forms blindly.`,
+    `Reference influence is ${Math.max(0, Math.min(1, strength)).toFixed(2)} and remains soft context, never execution confidence.`,
+    `Pacing is ${profile.pacing.overall}; hook ${profile.pacing.hookSpeed}; body ${profile.pacing.mainSpeed}.`,
+    `Measured cut rhythm is ${profile.cutRhythm.avgCutsPerMinute} cuts/min with ${profile.cutRhythm.avgClipDuration}s average clips and a ${profile.cutRhythm.pattern} arc.`,
+    `Transition usage is ${profile.transitions.frequency}% with ${profile.transitions.dominant} as an observation, not a forced form.`,
+    `Text usage is ${profile.textStyle.frequency}, ${profile.textStyle.fontWeight}, ${profile.textStyle.position}, ${profile.textStyle.animation}; family planners must resolve readable forms from the current video.`,
+    `Music language is ${profile.musicStyle.tempo} ${profile.musicStyle.genre} at ${profile.musicStyle.energyLevel} energy.`,
+    `Graphics density is ${profile.graphicsDensity}.`,
+    `Color observation is ${profile.colorGrade.temperature}, ${profile.colorGrade.saturation}, ${profile.colorGrade.contrast}; preserve skin and product colors.`,
+  ].join(' ');
+  const editorialPreferences = normalizeEditorialPreferences({
+    families: {
+      captions: { mode: captionMode },
+      motionGraphics: { mode: graphicsMode },
+      transitions: { mode: transitionMode },
+      music: { mode: 'prefer' },
+    },
+    pacing: { mode: 'prefer' },
+    musicPrompt: `${profile.musicStyle.tempo} tempo ${profile.musicStyle.genre}, ${profile.musicStyle.energyLevel} energy, supporting dialogue`,
+    notes: `Reference profile ${profile.profileId}. Reference labels are observations; existing signal-owned family planners retain form authority.`,
+  });
+  return {
+    modifiers: [],
+    intent,
+    editorialPreferences,
+  };
+}
+
+async function styleTool(job: ChatReferenceStyleJob, name: 'extract_style') {
   const { createTools } = await import('@/lib/editron/agent/tools');
   const selected = createTools(job.userId, job.projectId).find((candidate) => candidate.name === name);
   if (!selected) throw new Error(`live-style-tool-not-found:${name}`);
@@ -652,7 +748,13 @@ function terminalQueueResult(job: ChatReferenceStyleJob): QueueChatReferenceStyl
   if (job.status === 'completed' || job.status === 'completed_unverified') {
     return { status: 'completed', jobId: job._id, messageId: job.dispatchMessageId ?? undefined };
   }
-  if (job.status === 'declined') return { status: 'declined', jobId: job._id, reason: job.error ?? undefined };
+  if (job.status === 'declined') {
+    return {
+      status: 'declined',
+      jobId: job._id,
+      reason: job.error ?? persistedDeclineReason(job.result) ?? 'reference-style-job-declined',
+    };
+  }
   if (job.status === 'failed' || job.status === 'rolled_back') {
     return { status: 'failed', jobId: job._id, reason: job.error ?? 'reference-style-job-failed' };
   }
@@ -660,6 +762,14 @@ function terminalQueueResult(job: ChatReferenceStyleJob): QueueChatReferenceStyl
     return { status: 'already-queued', jobId: job._id, messageId: job.dispatchMessageId ?? undefined };
   }
   return null;
+}
+
+function persistedDeclineReason(result: Record<string, unknown> | null | undefined): string | null {
+  if (!result) return null;
+  const direct = cleanString(result.reason) ?? cleanString(result.message);
+  if (direct) return direct;
+  const reasons = Array.isArray(result.reasons) ? result.reasons : [];
+  return cleanString(reasons[0]) ?? null;
 }
 
 function failedQueueResult(request: ChatReferenceStyleJobRequest, reason: string): QueueChatReferenceStyleJobResult {

@@ -23,6 +23,7 @@ import {
   filterPromptForCallableChatTools,
   formatChatRequestOwnerLicenseForPrompt,
   GEMINI_OWNER_RESPONSE_SCHEMA,
+  normalizeChatWorkflowCapabilities,
   type ChatRequestOwner,
   type ChatRequestOwnerLicense,
   type ChatSemanticWorkflow,
@@ -181,6 +182,88 @@ describe('chat request owner classification', () => {
       kind: 'tool-call',
       operationId: '0:motion-graphic-composition',
       toolCall: { name: 'get_timeline_view' },
+    });
+  });
+
+  it('collapses reference style and generic editorial planning into one durable semantic owner', async () => {
+    const userMessage = 'Match the pacing and graphic restraint of my uploaded reference video asset.';
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: false,
+            requiresEditorialJudgment: true,
+            requestsReferenceStyle: true,
+            requestsBroadEditorialOutcome: true,
+            durableOperation: 'none',
+            operationFullySpecified: false,
+            targetFullySpecified: true,
+            timelineReference: 'none',
+            localizedReads: [],
+            localizedEdits: [],
+            requestedCapabilities: [
+              'reference-style',
+              'motion-graphic-composition',
+              'project-edit',
+            ],
+            capabilityEvidence: [
+              { capability: 'reference-style', sourceSpan: userMessage },
+              { capability: 'motion-graphic-composition', sourceSpan: userMessage },
+              { capability: 'project-edit', sourceSpan: userMessage },
+            ],
+            familyDirectives: [{ family: 'motionGraphics', mode: 'prefer' }],
+          },
+          confidence: 1,
+          reason: 'The supplied video is a reference for the whole edit.',
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      semanticWorkflow: 'reference-style',
+      routingFacts: {
+        requestedCapabilities: ['reference-style'],
+      },
+    });
+    expect(normalizeChatWorkflowCapabilities(
+      { requestsReferenceStyle: true },
+      ['reference-style', 'project-edit'],
+    )).toEqual(['reference-style']);
+    expect(filterChatToolsForRequestOwner([
+      { name: 'apply_reference_style' },
+      { name: 'apply_editorial_intent' },
+    ], result).map((tool) => tool.name)).toEqual(['apply_reference_style']);
+
+    const defensiveLegacyLicense: ChatRequestOwnerLicense = {
+      ...result,
+      routingFacts: {
+        ...result.routingFacts!,
+        requestedCapabilities: ['reference-style', 'project-edit'],
+      },
+    };
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: defensiveLegacyLicense,
+      ledger: {
+        requestedToolNames: ['apply_reference_style'],
+        completedExecutions: [{
+          toolCallId: 'server-workflow:0:reference-style:0:model:0',
+          name: 'apply_reference_style',
+          args: {},
+          output: '{"status":"success"}',
+          outcome: 'success',
+          evidenceReceipts: [],
+        }],
+      },
+      projectId: 'proj_reference',
+      projectRevision: 'revision-1',
+    })).toEqual({
+      kind: 'complete',
+      message: 'Done. I completed the licensed workflow.',
     });
   });
 

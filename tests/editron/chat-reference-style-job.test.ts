@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CHAT_REFERENCE_STYLE_JOB_VERSION,
   ChatReferenceStyleRetryableError,
+  applyReferenceStyleProfileThroughUnifiedPlanner,
+  buildReferenceStyleProjectBrief,
   queueChatReferenceStyleJob,
   runChatReferenceStyleJob,
   type ChatReferenceStyleJob,
@@ -166,6 +168,56 @@ describe('durable chat reference-style jobs', () => {
       { operationStatus: 'no-op', mutatingToolNames: [] },
     );
     expect(dispatchRenderEvidence).not.toHaveBeenCalled();
+  });
+
+  it('applies a reference profile inside its owning durable transaction without nesting apply_style', async () => {
+    const job = queuedJob();
+    const loadProfile = vi.fn(async () => referenceProfile());
+    const executeDirector = vi.fn(async () => ({
+      success: true,
+      overlaysModified: 3,
+      warnings: [],
+      actionsSkipped: [],
+      decisionAuthority: { executableProducer: 'unified-planner' },
+    }));
+
+    const result = await applyReferenceStyleProfileThroughUnifiedPlanner(
+      job,
+      'style-profile-1',
+      { loadProfile, executeDirector },
+    );
+
+    expect(result).toMatchObject({
+      status: 'mutated',
+      data: {
+        profileId: 'style-profile-1',
+        overlaysModified: 3,
+        appliedThrough: 'director-unified-planner',
+      },
+    });
+    expect(executeDirector).toHaveBeenCalledWith(
+      'project-1',
+      'user-1',
+      'style-profile-1',
+      expect.objectContaining({
+        intent: expect.stringContaining('observation, not a forced form'),
+        editorialPreferences: expect.objectContaining({
+          families: expect.objectContaining({
+            transitions: { mode: 'prefer' },
+            music: { mode: 'prefer' },
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('keeps reference measurements as context instead of concrete renderer forms', () => {
+    const brief = buildReferenceStyleProjectBrief(referenceProfile(), 0.65);
+
+    expect(brief.intent).toContain('Reference influence is 0.65');
+    expect(brief.intent).toContain('family planners must resolve readable forms');
+    expect(brief.editorialPreferences).not.toHaveProperty('transitionType');
+    expect(brief.editorialPreferences).not.toHaveProperty('graphicType');
   });
 
   it('retries a transient extraction failure without creating or restoring a mutation checkpoint', async () => {
@@ -352,6 +404,45 @@ function request() {
 
 function workerPayload() {
   return { jobId: 'job-style-1', projectId: 'project-1', userId: 'user-1' };
+}
+
+function referenceProfile() {
+  return {
+    profileId: 'style-profile-1',
+    sourceName: 'reference.mp4',
+    cutRhythm: {
+      avgCutsPerMinute: 18,
+      pattern: 'building' as const,
+      avgClipDuration: 3.3,
+    },
+    transitions: {
+      dominant: 'zoom_punch' as const,
+      frequency: 12,
+    },
+    colorGrade: {
+      temperature: 'neutral' as const,
+      saturation: 'normal' as const,
+      contrast: 'high' as const,
+      dominantColors: ['#111111'],
+    },
+    textStyle: {
+      fontWeight: 'bold' as const,
+      position: 'lower_third' as const,
+      animation: 'slide' as const,
+      frequency: 'moderate' as const,
+    },
+    musicStyle: {
+      tempo: 'medium' as const,
+      genre: 'electronic',
+      energyLevel: 'medium' as const,
+    },
+    pacing: {
+      overall: 'medium' as const,
+      hookSpeed: 'fast' as const,
+      mainSpeed: 'medium' as const,
+    },
+    graphicsDensity: 'moderate' as const,
+  };
 }
 
 function queuedJob(): ChatReferenceStyleJob {
