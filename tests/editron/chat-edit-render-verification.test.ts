@@ -616,6 +616,58 @@ describe('chat edit rendered verification', () => {
     ]));
   });
 
+  it('passes continuity proof across sub-frame decoder alignment drift', async () => {
+    const beforeWaveform = Array.from({ length: 1_200 }, (_, index) =>
+      Math.sin(index * 0.11) * 0.4 + Math.sin(index * 0.037) * 0.2);
+    const afterWaveform = beforeWaveform.map((sample, index) =>
+      index < 500 ? sample : (beforeWaveform[index - 1] ?? sample));
+    const evidence = await buildChatEditRenderedAudioEvidence(
+      afterProject(),
+      beforeProject(),
+      {
+        ...videoMutationAudioRequest(),
+        expectedEffect: 'continuity-preserved',
+      },
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        inspectAudioTrack: async () => ({
+          status: 'present',
+          audioTrackCount: 1,
+          reason: null,
+        }),
+        renderAudioWindow: async (input) => {
+          const overlays = Array.isArray(input.inputProps.overlays) ? input.inputProps.overlays : [];
+          const isAfter = overlays.some((overlay: any) => overlay.id === 'sound_after');
+          return {
+            url: `https://example.com/${isAfter ? 'after' : 'before'}.wav`,
+            renderId: isAfter ? 'after-render' : 'before-render',
+            bucketName: 'render-bucket',
+            pcmSha256: isAfter ? 'after-shifted-pcm' : 'before-pcm',
+            rms: 0.2,
+            peak: 0.5,
+            fingerprint: {
+              sampleRate: 48_000,
+              samplesPerPoint: 24,
+              waveform: isAfter ? afterWaveform : beforeWaveform,
+            },
+          };
+        },
+      },
+    );
+
+    expect(evidence.status, evidence.reason ?? 'no reason').toBe('pass');
+    expect(evidence.windows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        changed: false,
+        comparisonMethod: 'aligned-waveform-v1',
+        rmsDeltaDb: 0,
+        peakDeltaDb: 0,
+      }),
+    ]));
+    expect(evidence.windows[0]?.similarity).toBeGreaterThan(0.985);
+  });
+
   it('fails continuity proof when PCM changes across the split seam', async () => {
     const evidence = await buildChatEditRenderedAudioEvidence(
       afterProject(),
