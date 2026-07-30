@@ -355,6 +355,7 @@ describe('chat request owner classification', () => {
 
     expect(result).toMatchObject({
       owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'editorial-plan',
       routingFacts: {
         requestedCapabilities: ['caption-refresh'],
         localizedEdits: [],
@@ -1471,6 +1472,19 @@ describe('chat request owner classification', () => {
     expect(deriveChatSemanticWorkflow({
       ...baseFacts,
       requiresContentLocalization: true,
+    })).toBe('editorial-plan');
+    expect(deriveChatSemanticWorkflow({
+      ...baseFacts,
+      requiresContentLocalization: true,
+      localizedEdits: [{
+        modality: 'visual',
+        operation: 'remove',
+        query: 'bird',
+        sourceQuery: '',
+        targetQuery: '',
+        targetKind: 'none',
+        sourceSpan: 'remove when the bird appears',
+      }],
     })).toBe('localized-mutation');
     expect(deriveChatSemanticWorkflow({
       ...baseFacts,

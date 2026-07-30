@@ -1168,8 +1168,11 @@ export function deriveChatRequestOwner(facts: ChatRequestRoutingFacts): ChatRequ
 export function deriveChatSemanticWorkflow(facts: ChatRequestRoutingFacts): ChatSemanticWorkflow {
   if (facts.durableOperation === 'selected-dialogue-dubbing') return 'selected-dialogue-dubbing';
   if (facts.requestsReferenceStyle) return 'reference-style';
+  const ownsLocalizedEvidence =
+    (facts.localizedEdits?.length ?? 0) > 0
+    || (facts.localizedReads?.length ?? 0) > 0;
   if (
-    facts.requiresContentLocalization
+    ownsLocalizedEvidence
     && facts.operationFullySpecified
     && !facts.requiresEditorialJudgment
   ) {
