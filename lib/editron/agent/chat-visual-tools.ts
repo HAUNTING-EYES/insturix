@@ -16,6 +16,7 @@ import {
   buildSubjectAwareReframePlan,
   type SubjectReframePlan,
 } from "../services/subject-reframe-plan";
+import { resolveAtomicZoomForm } from "../services/zoom-form";
 
 type OverlayId = string | number;
 
@@ -240,11 +241,14 @@ export type KeyframeEditDirection = "in" | "out";
 export interface KeyframeEditOptions {
   overlayId?: OverlayId;
   targetQuery?: string;
+  targetFrame?: number;
   direction?: KeyframeEditDirection;
   startFrame?: number;
   endFrame?: number;
   durationFrames?: number;
   scaleDelta?: number;
+  evidenceModality?: "transcript" | "visual" | "audio";
+  evidenceStrength?: number;
   replaceExistingScaleKeyframes?: boolean;
   allowCaptionKeyframes?: boolean;
 }
@@ -442,11 +446,14 @@ const fadeSchema = z.object({
 const keyframeEditSchema = z.object({
   overlayId: z.union([z.string(), z.number()]).optional().describe("Target overlay id. Prefer selectedOverlayId from chat context when the user says this clip, selected clip, or this overlay."),
   targetQuery: z.string().min(1).optional().describe("Natural-language overlay reference when overlayId is unavailable. Use explicit selectedOverlayId when available."),
+  targetFrame: z.coerce.number().int().min(0).optional().describe("Grounded global timeline anchor. When overlayId is omitted, the one active visual source at this frame is resolved."),
   direction: z.enum(["in", "out"]).default("in").describe("Scale direction: in means 1.0 to larger, out means larger to 1.0."),
   startFrame: z.coerce.number().int().min(0).optional().describe("Optional global timeline frame where the scale keyframes should start. Defaults to the overlay start."),
   endFrame: z.coerce.number().int().min(0).optional().describe("Optional global timeline frame where the scale keyframes should end. Defaults to the overlay end."),
   durationFrames: z.coerce.number().int().min(2).max(7200).optional().describe("Optional duration in frames when only one edge is supplied. Defaults to the full target overlay duration."),
   scaleDelta: z.coerce.number().min(0.01).max(0.5).default(0.12).describe("Requested scale delta before safety clamping. 0.12 is a restrained manual zoom."),
+  evidenceModality: z.enum(["transcript", "visual", "audio"]).optional().describe("Server-owned evidence modality for a motivated zoom anchor."),
+  evidenceStrength: z.coerce.number().min(0).max(1).optional().describe("Revision-bound resolver confidence for a motivated zoom. This is evidence, not a hand-authored scale value."),
   replaceExistingScaleKeyframes: z.boolean().default(false).describe("Allow replacing existing scale keyframes. Keep false unless the user explicitly wants to overwrite zoom/scale motion."),
   allowCaptionKeyframes: z.boolean().default(false).describe("Allow scale keyframes on captions/subtitles. Keep false unless captions were explicitly targeted."),
 });
@@ -1392,22 +1399,26 @@ export function resolveKeyframeEditParams(
   const direction = options.direction ?? "in";
   const warnings: string[] = [];
 
-  if (options.overlayId == null && !options.targetQuery?.trim()) {
+  if (
+    options.overlayId == null
+    && !options.targetQuery?.trim()
+    && positiveOrZeroNumber(options.targetFrame) == null
+  ) {
     return {
       status: "no-target",
       direction,
       warnings,
-      message: "Keyframe edit needs overlayId from selectedOverlayId or an unambiguous targetQuery.",
+      message: "Keyframe edit needs overlayId, an unambiguous targetQuery, or a grounded targetFrame.",
     };
   }
 
-  const targetResult = resolveMoveRetimeOverlay(project, options.overlayId, options.targetQuery);
+  const targetResult = resolveKeyframeTargetOverlay(project, options);
   if (!targetResult.ok) {
     return {
       status: "no-target",
       direction,
       warnings: targetResult.warnings,
-      message: targetResult.message.replace("Move/retime", "Keyframe edit"),
+      message: targetResult.message,
     };
   }
 
@@ -1435,7 +1446,18 @@ export function resolveKeyframeEditParams(
     };
   }
 
-  const rangeResult = resolveKeyframeEditFrameRange(overlay, options);
+  const motivatedForm = resolveMotivatedZoomForm(overlay, options, direction);
+  const rangeResult = motivatedForm
+    ? {
+        ok: true as const,
+        range: {
+          startFrame: frame(overlay.from) + motivatedForm.startFrame,
+          endFrame: frame(overlay.from) + motivatedForm.endFrame,
+        },
+        localStartFrame: motivatedForm.startFrame,
+        localEndFrame: motivatedForm.endFrame,
+      }
+    : resolveKeyframeEditFrameRange(overlay, options);
   if (!rangeResult.ok) {
     return {
       status: "no-target",
@@ -1465,8 +1487,15 @@ export function resolveKeyframeEditParams(
     };
   }
 
-  const scaleDelta = round3(clamp(options.scaleDelta ?? 0.12, 0.02, 0.35));
-  const keyframes = buildScaleKeyframes(rangeResult.localStartFrame, rangeResult.localEndFrame, direction, scaleDelta);
+  const scaleDelta = motivatedForm
+    ? round3(Math.abs(motivatedForm.scaleDelta))
+    : round3(clamp(options.scaleDelta ?? 0.12, 0.02, 0.35));
+  const keyframes = motivatedForm
+    ? motivatedForm.keyframes.map((keyframe) => ({
+        ...keyframe,
+        easing: keyframe.easing === "snap-out" ? "ease-out" as const : keyframe.easing,
+      }))
+    : buildScaleKeyframes(rangeResult.localStartFrame, rangeResult.localEndFrame, direction, scaleDelta);
 
   return {
     status: "ready",
@@ -1485,8 +1514,92 @@ export function resolveKeyframeEditParams(
       },
     },
     warnings,
-    message: `Resolved ${direction === "in" ? "zoom in" : "zoom out"} scale keyframes for overlay ${String(overlay.id)} over frames ${rangeResult.range.startFrame}-${rangeResult.range.endFrame}.`,
+    message: `Resolved ${direction === "in" ? "zoom in" : "zoom out"} scale keyframes for overlay ${String(overlay.id)} over frames ${rangeResult.range.startFrame}-${rangeResult.range.endFrame}${motivatedForm ? " from grounded moment evidence and the atomic zoom-form owner" : ""}.`,
   };
+}
+
+function resolveKeyframeTargetOverlay(
+  project: any,
+  options: KeyframeEditOptions,
+): { ok: true; overlay: any; warnings: string[] }
+  | { ok: false; message: string; warnings: string[] } {
+  if (options.overlayId != null || options.targetQuery?.trim()) {
+    const resolved = resolveMoveRetimeOverlay(project, options.overlayId, options.targetQuery);
+    return resolved.ok
+      ? resolved
+      : {
+          ...resolved,
+          message: resolved.message.replace("Move/retime", "Keyframe edit"),
+        };
+  }
+
+  const targetFrame = positiveOrZeroNumber(options.targetFrame);
+  const overlays: any[] = Array.isArray(project?.overlays) ? project.overlays : [];
+  const activeSources = targetFrame == null
+    ? []
+    : overlays.filter((overlay) => {
+        const type = String(overlay?.type ?? "").toLowerCase();
+        return (type === "video" || type === "image") && overlayContainsFrame(overlay, targetFrame);
+      });
+  if (activeSources.length === 1) {
+    return { ok: true, overlay: activeSources[0], warnings: [] };
+  }
+  if (activeSources.length > 1) {
+    const primarySources = activeSources.filter((overlay) => frame(overlay?.row) === 0);
+    if (primarySources.length === 1) {
+      return {
+        ok: true,
+        overlay: primarySources[0],
+        warnings: [`Multiple visual sources were active at frame ${targetFrame}; the sole primary-row source was selected.`],
+      };
+    }
+    return {
+      ok: false,
+      warnings: [],
+      message: `Multiple visual sources are active at frame ${targetFrame}; select the intended clip before applying zoom keyframes.`,
+    };
+  }
+  return {
+    ok: false,
+    warnings: [],
+    message: `No visual source is active at frame ${targetFrame}; the zoom was not applied.`,
+  };
+}
+
+function resolveMotivatedZoomForm(
+  overlay: any,
+  options: KeyframeEditOptions,
+  direction: KeyframeEditDirection,
+): ReturnType<typeof resolveAtomicZoomForm> | null {
+  const targetFrame = positiveOrZeroNumber(options.targetFrame);
+  const evidenceStrength = finiteNumber(options.evidenceStrength);
+  if (targetFrame == null || evidenceStrength == null || !options.evidenceModality) return null;
+
+  const overlayStart = frame(overlay?.from);
+  const sceneEnd = duration(overlay?.durationInFrames);
+  const localFrame = targetFrame - overlayStart;
+  if (localFrame < 0 || localFrame >= sceneEnd) return null;
+
+  const metadata = isRecord(overlay?.metadata) ? overlay.metadata : {};
+  const signals = {
+    ...record(metadata.rawSignals),
+    ...record(metadata.signals),
+    ...record(metadata.atomicOverlaySignals),
+    ...record(overlay?.contentSignals),
+    ...(options.evidenceModality === "transcript"
+      ? { word_importance: evidenceStrength }
+      : options.evidenceModality === "audio"
+        ? { speech_energy: evidenceStrength }
+        : { visual_significance: evidenceStrength }),
+    topic_shift: direction === "out" ? 1 : 0,
+  };
+
+  return resolveAtomicZoomForm({
+    signals,
+    params: direction === "out" ? { zoomType: "pull-back" } : {},
+    localFrame,
+    sceneEnd,
+  });
 }
 
 function resolveKeyframeEditFrameRange(
@@ -4101,6 +4214,15 @@ function positiveNumber(value: unknown): number | undefined {
 function positiveOrZeroNumber(value: unknown): number | undefined {
   const numeric = typeof value === "number" ? value : Number(value);
   return Number.isFinite(numeric) && numeric >= 0 ? numeric : undefined;
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
 }
 
 function clamp(value: number, min: number, max: number): number {

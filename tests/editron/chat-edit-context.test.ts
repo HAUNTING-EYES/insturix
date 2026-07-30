@@ -1095,6 +1095,59 @@ describe('chat edit context bundle', () => {
     expect(captionBlocked.message).toContain('captions/subtitles');
   });
 
+  it('resolves a grounded zoom frame through the atomic zoom-form owner', () => {
+    const plan = resolveKeyframeEditParams(project, {
+      targetFrame: 96,
+      direction: 'in',
+      evidenceModality: 'transcript',
+      evidenceStrength: 0.86,
+    });
+    const keyframes = plan.useWith?.set_keyframes.keyframes ?? [];
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      targetOverlayId: 1,
+      direction: 'in',
+      useWith: {
+        set_keyframes: {
+          overlayId: 1,
+          property: 'scale',
+        },
+      },
+    });
+    expect(plan.message).toContain('atomic zoom-form owner');
+    expect(keyframes.length).toBeGreaterThanOrEqual(2);
+    expect(keyframes[0].frame).toBeLessThanOrEqual(96);
+    expect(keyframes[keyframes.length - 1].value).toBeGreaterThan(1);
+  });
+
+  it('fails closed when a grounded zoom frame has no unique active visual source', () => {
+    const noSource = resolveKeyframeEditParams(project, {
+      targetFrame: 240,
+      direction: 'in',
+      evidenceModality: 'visual',
+      evidenceStrength: 0.9,
+    });
+    const ambiguous = resolveKeyframeEditParams({
+      overlays: [
+        { id: 10, type: 'video', row: 0, from: 0, durationInFrames: 120 },
+        { id: 11, type: 'video', row: 0, from: 0, durationInFrames: 120 },
+      ],
+    }, {
+      targetFrame: 60,
+      direction: 'in',
+      evidenceModality: 'audio',
+      evidenceStrength: 0.9,
+    });
+
+    expect(noSource).toMatchObject({ status: 'no-target' });
+    expect(noSource.message).toContain('No visual source is active');
+    expect(noSource.useWith).toBeUndefined();
+    expect(ambiguous).toMatchObject({ status: 'no-target' });
+    expect(ambiguous.message).toContain('Multiple visual sources are active');
+    expect(ambiguous.useWith).toBeUndefined();
+  });
+
   it('plans camera shake as bounded x/y tracks on the active video overlay', () => {
     const plan = applyCameraShakeToProject(project, {
       targetFrame: 90,

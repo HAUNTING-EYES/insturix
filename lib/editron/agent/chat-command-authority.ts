@@ -61,6 +61,13 @@ export const CHAT_LOCALIZED_OPERATIONS = [
 ] as const;
 export type ChatLocalizedOperation = (typeof CHAT_LOCALIZED_OPERATIONS)[number];
 
+export const CHAT_CAMERA_MOTION_JOBS = [
+  'zoom-in',
+  'zoom-out',
+  'shake',
+] as const;
+export type ChatCameraMotionJob = (typeof CHAT_CAMERA_MOTION_JOBS)[number];
+
 export const CHAT_LOCALIZED_READ_GOALS = [
   'locate',
   'inspect',
@@ -95,6 +102,7 @@ export interface ChatLocalizedEditRequest {
   targetKind?: 'none' | 'selected-overlay' | 'described-overlay';
   targetOverlayId?: string | number;
   sourceSpan?: string;
+  cameraMotionJob?: ChatCameraMotionJob;
   placement?: ChatAssetPlacementConstraint;
   timing?: ChatAssetTimingConstraint;
 }
@@ -493,13 +501,37 @@ export function resolveChatLocalizedWorkflowAdapter(
       action: 'highlight',
     });
   }
-  if (edit.modality === 'visual' && edit.operation === 'camera-motion') {
+  if (edit.operation === 'camera-motion' && edit.cameraMotionJob === 'shake' && edit.modality === 'audio') {
+    return localizedAdapter('localized-camera-motion', 'resolve_audio_edit', {
+      query,
+      action: 'camera_shake',
+    });
+  }
+  if (
+    edit.operation === 'camera-motion'
+    && (edit.cameraMotionJob === 'zoom-in' || edit.cameraMotionJob === 'zoom-out')
+  ) {
+    const resolverTool = edit.modality === 'transcript'
+      ? 'find_transcript_moment'
+      : edit.modality === 'visual'
+        ? 'find_visual_moment'
+        : edit.modality === 'audio'
+          ? 'find_audio_moment'
+          : null;
+    return resolverTool
+      ? localizedAdapter('localized-camera-motion', resolverTool, { query })
+      : null;
+  }
+  // Backward compatibility for stored pre-job request licenses. New classifier
+  // output must preserve the requested job explicitly instead of inferring it
+  // from the evidence modality.
+  if (edit.operation === 'camera-motion' && edit.modality === 'visual') {
     return localizedAdapter('localized-camera-motion', 'resolve_visual_edit', {
       query,
       action: 'keyframe_anchor',
     });
   }
-  if (edit.modality === 'audio' && edit.operation === 'camera-motion') {
+  if (edit.operation === 'camera-motion' && edit.modality === 'audio') {
     return localizedAdapter('localized-camera-motion', 'resolve_audio_edit', {
       query,
       action: 'camera_shake',

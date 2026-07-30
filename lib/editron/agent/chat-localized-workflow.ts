@@ -63,6 +63,18 @@ export function resolveServerOwnedLocalizedWorkflowStep(input: {
         message: `I cannot safely perform the requested ${edit.operation} operation on ${edit.modality} evidence yet.`,
       };
     }
+    if (isLocalizedZoom(edit)) {
+      const zoomStep = resolveLocalizedZoomWorkflowStep({
+        edit,
+        index,
+        adapter: requestedAdapter,
+        ledger: input.ledger,
+        projectId: input.projectId,
+        projectRevision: input.projectRevision,
+      });
+      if (zoomStep) return zoomStep;
+      continue;
+    }
     const adapter = resolveGroundedWorkflowAdapter(
       edit,
       requestedAdapter,
@@ -152,6 +164,7 @@ function resolveGroundedWorkflowAdapter(
 ): ChatLocalizedWorkflowAdapter {
   if (
     edit.operation !== 'camera-motion'
+    || edit.cameraMotionJob != null
     || edit.modality !== 'visual'
     || requestedAdapter.resolverTool !== 'resolve_visual_edit'
   ) {
@@ -171,6 +184,145 @@ function resolveGroundedWorkflowAdapter(
     ...edit,
     modality: 'audio',
   }) ?? requestedAdapter;
+}
+
+function isLocalizedZoom(edit: ChatLocalizedEditRequest): boolean {
+  return edit.operation === 'camera-motion'
+    && (edit.cameraMotionJob === 'zoom-in' || edit.cameraMotionJob === 'zoom-out');
+}
+
+function resolveLocalizedZoomWorkflowStep(input: {
+  edit: ChatLocalizedEditRequest;
+  index: number;
+  adapter: ChatLocalizedWorkflowAdapter;
+  ledger: ChatToolTurnLedger;
+  projectId: string;
+  projectRevision: string;
+}): ServerOwnedLocalizedWorkflowStep | null {
+  if (!hasCurrentTimelineEvidence(input.ledger, input.projectId, input.projectRevision)) {
+    const failedTimelineRead = latestFailedTimelineRead(input.ledger.completedExecutions);
+    if (failedTimelineRead) {
+      return { kind: 'halt', message: humanizeWorkflowFailure(failedTimelineRead) };
+    }
+    return toolCall(input.index, 'timeline', 'get_timeline_view', {
+      granularity: 'detailed',
+      includeVideo: true,
+      includeAudio: true,
+      includeText: true,
+    }, input.ledger);
+  }
+
+  const locator = latestMatchingResolver(
+    input.ledger.completedExecutions,
+    input.adapter.resolverTool,
+    input.adapter.resolverArgs,
+  );
+  if (!locator) {
+    return toolCall(
+      input.index,
+      'anchor',
+      input.adapter.resolverTool,
+      input.adapter.resolverArgs,
+      input.ledger,
+    );
+  }
+  if (locator.outcome !== 'success') {
+    return { kind: 'halt', message: humanizeWorkflowFailure(locator) };
+  }
+
+  const anchor = resolveSafeLocatorAnchor(locator);
+  if (!anchor.ok) {
+    return { kind: 'halt', message: anchor.message };
+  }
+  const keyframeArgs = {
+    targetFrame: anchor.frame,
+    direction: input.edit.cameraMotionJob === 'zoom-out' ? 'out' : 'in',
+    evidenceModality: input.edit.modality,
+    evidenceStrength: anchor.confidence,
+  };
+  const keyframeResolver = latestMatchingResolver(
+    input.ledger.completedExecutions,
+    'resolve_keyframe_edit',
+    keyframeArgs,
+  );
+  const authorizedMutation = keyframeResolver
+    ? firstAuthorizedMutation(keyframeResolver, new Set(['set_keyframes']))
+    : null;
+  const mutation = keyframeResolver && authorizedMutation
+    ? matchingMutationAfter(
+      input.ledger.completedExecutions,
+      keyframeResolver,
+      authorizedMutation,
+    )
+    : null;
+
+  if (mutation && COMPLETED_MUTATION_OUTCOMES.has(mutation.outcome)) return null;
+  if (mutation) return { kind: 'halt', message: humanizeWorkflowFailure(mutation) };
+  if (keyframeResolver && keyframeResolver.outcome !== 'success') {
+    return { kind: 'halt', message: humanizeWorkflowFailure(keyframeResolver) };
+  }
+  if (keyframeResolver && !authorizedMutation) {
+    return {
+      kind: 'halt',
+      message: 'I found the requested moment, but the zoom-form owner declined a safe keyframe treatment, so I left the timeline unchanged.',
+    };
+  }
+  if (
+    !keyframeResolver
+    || !authorizedMutation
+    || authorizationIsStale(keyframeResolver, input.projectId, input.projectRevision)
+  ) {
+    return toolCall(
+      input.index,
+      'form',
+      'resolve_keyframe_edit',
+      keyframeArgs,
+      input.ledger,
+    );
+  }
+
+  return toolCall(
+    input.index,
+    'mutation',
+    authorizedMutation.toolName,
+    authorizedMutation.args,
+    input.ledger,
+  );
+}
+
+function resolveSafeLocatorAnchor(
+  locator: CompletedChatToolExecution,
+): { ok: true; frame: number; confidence: number }
+  | { ok: false; message: string } {
+  const envelope = parseRecord(locator.output);
+  const data = asRecord(envelope?.data);
+  const candidates = Array.isArray(data.candidates)
+    ? data.candidates.map(asRecord)
+    : [];
+  const safeCandidates = candidates.filter((candidate) => candidate.safeForAutoEdit === true);
+  if (safeCandidates.length !== 1) {
+    const message = firstString(data.message, envelope?.message);
+    return {
+      ok: false,
+      message: message
+        ?? (candidates.length === 0
+          ? 'I could not find a grounded moment for the requested zoom, so I left the timeline unchanged.'
+          : 'I found more than one plausible zoom anchor. Please choose the moment before I edit.'),
+    };
+  }
+  const frame = Number(safeCandidates[0]?.frame);
+  const confidence = Number(safeCandidates[0]?.confidence);
+  if (!Number.isFinite(frame) || frame < 0 || !Number.isFinite(confidence)) {
+    return {
+      ok: false,
+      message: 'The localized zoom anchor was incomplete, so I left the timeline unchanged.',
+    };
+  }
+  return {
+    ok: true,
+    frame: Math.round(frame),
+    confidence: Math.max(0, Math.min(1, confidence)),
+  };
 }
 
 function resolverCandidateUsesAudioEvidence(

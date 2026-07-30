@@ -204,7 +204,12 @@ describe('server-owned localized chat workflow', () => {
 
   it('licenses an audio impact resolver before applying exact camera shake args', () => {
     const owner = license(routingFacts(
-      [{ modality: 'audio', operation: 'camera-motion', query: 'the strongest downbeat' }],
+      [{
+        modality: 'audio',
+        operation: 'camera-motion',
+        query: 'the strongest downbeat',
+        cameraMotionJob: 'shake',
+      }],
       ['localized-camera-motion'],
     ));
     const shakeArgs = {
@@ -243,6 +248,125 @@ describe('server-owned localized chat workflow', () => {
       kind: 'tool-call',
       toolCall: { name: 'apply_camera_shake', args: shakeArgs },
     });
+  });
+
+  it.each([
+    ['transcript', 'find_transcript_moment'],
+    ['audio', 'find_audio_moment'],
+    ['visual', 'find_visual_moment'],
+  ] as const)(
+    'keeps a requested zoom as zoom when %s evidence locates its anchor',
+    (modality, locatorTool) => {
+      const query = 'the strongest spoken emphasis';
+      const owner = license(routingFacts(
+        [{
+          modality,
+          operation: 'camera-motion',
+          query,
+          cameraMotionJob: 'zoom-in',
+        }],
+        ['localized-camera-motion'],
+      ));
+      const locator = execution(locatorTool, { query }, {
+        output: JSON.stringify({
+          status: 'success',
+          data: {
+            candidates: [{
+              frame: 96,
+              confidence: 0.86,
+              safeForAutoEdit: true,
+            }],
+          },
+        }),
+      });
+
+      expect(resolveServerOwnedLocalizedWorkflowStep({
+        requestOwnerLicense: owner,
+        ledger: ledger(timelineExecution),
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      })).toMatchObject({
+        kind: 'tool-call',
+        toolCall: { name: locatorTool, args: { query } },
+      });
+
+      const keyframeArgs = {
+        targetFrame: 96,
+        direction: 'in',
+        evidenceModality: modality,
+        evidenceStrength: 0.86,
+      };
+      expect(resolveServerOwnedLocalizedWorkflowStep({
+        requestOwnerLicense: owner,
+        ledger: ledger(timelineExecution, locator),
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      })).toMatchObject({
+        kind: 'tool-call',
+        toolCall: { name: 'resolve_keyframe_edit', args: keyframeArgs },
+      });
+
+      const setKeyframesArgs = {
+        overlayId: 1,
+        property: 'scale',
+        keyframes: [
+          { frame: 90, value: 1, easing: 'ease-in-out' },
+          { frame: 104, value: 1.08, easing: 'ease-out' },
+        ],
+      };
+      const keyframeResolver = execution('resolve_keyframe_edit', keyframeArgs, {
+        evidenceReceipts: [receipt('visual-target', 'resolve_keyframe_edit', [{
+          toolName: 'set_keyframes',
+          args: setKeyframesArgs,
+        }])],
+      });
+      const mutationStep = resolveServerOwnedLocalizedWorkflowStep({
+        requestOwnerLicense: owner,
+        ledger: ledger(timelineExecution, locator, keyframeResolver),
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      });
+      expect(mutationStep).toMatchObject({
+        kind: 'tool-call',
+        toolCall: { name: 'set_keyframes', args: setKeyframesArgs },
+      });
+      expect(mutationStep).not.toMatchObject({
+        toolCall: { name: 'apply_camera_shake' },
+      });
+    },
+  );
+
+  it('refuses an ambiguous zoom anchor instead of guessing or falling back to shake', () => {
+    const query = 'the strongest spoken emphasis';
+    const owner = license(routingFacts(
+      [{
+        modality: 'audio',
+        operation: 'camera-motion',
+        query,
+        cameraMotionJob: 'zoom-in',
+      }],
+      ['localized-camera-motion'],
+    ));
+    const locator = execution('find_audio_moment', { query }, {
+      output: JSON.stringify({
+        status: 'success',
+        data: {
+          candidates: [
+            { frame: 96, confidence: 0.84, safeForAutoEdit: true },
+            { frame: 180, confidence: 0.82, safeForAutoEdit: true },
+          ],
+        },
+      }),
+    });
+
+    const step = resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, locator),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    });
+    expect(step).toMatchObject({ kind: 'halt' });
+    expect(step).not.toMatchObject({ toolCall: { name: 'apply_camera_shake' } });
   });
 
   it('grounds a visual event removal before authorizing the exact cut', () => {
