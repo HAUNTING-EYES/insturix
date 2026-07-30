@@ -13,6 +13,8 @@ const MODEL_REVISION = 'c28f2883575e590e04d3146ff0713c2448d691ba';
 const MODEL_ROOT = `model-cache/Xenova/clap-htsat-unfused/${MODEL_REVISION}`;
 const REVIEWED_BUNDLE_RECEIPT =
   '3a95cb2bd8af3b5239f433dd50186012662025f345f1b1e6920c584e18f2232c';
+const COMPOSITE_BUNDLE_RECEIPT =
+  'dd53a2ec2b8d5b06495188bacc310eced972a8456083522c6255f3b47a0e5164';
 const LEGACY_BUNDLE_RECEIPT =
   '298f8b164afc63a2ca58234a04da7a7d886e9e4289dcffc070989dee8a068981';
 const temporaryDirectories: string[] = [];
@@ -41,6 +43,7 @@ describe('semantic SFX Modal deployment contract', () => {
     );
     expect(source).toContain('re.fullmatch(r"[0-9a-f]{64}"');
     expect(source).not.toContain(REVIEWED_BUNDLE_RECEIPT);
+    expect(source).not.toContain(COMPOSITE_BUNDLE_RECEIPT);
     expect(source).not.toContain(LEGACY_BUNDLE_RECEIPT);
     expect(source).toContain('modal.Image.from_dockerfile(');
     expect(source).toContain('modal.FilePatternMatcher.from_file(DOCKERIGNORE)');
@@ -69,7 +72,7 @@ describe('semantic SFX Modal deployment contract', () => {
     expect(dockerfile).not.toContain('--chown=node:node');
   });
 
-  it('provisions credentials transactionally and pins the reviewed bundle', async () => {
+  it('provisions credentials transactionally and pins the composite bundle', async () => {
     const [script, gitignore] = await Promise.all([
       readFile(
         path.join(process.cwd(), 'scripts/deploy-sfx-semantic-modal.ps1'),
@@ -79,7 +82,8 @@ describe('semantic SFX Modal deployment contract', () => {
     ]);
 
     expect(gitignore).toContain('/.semantic-artifacts/');
-    expect(script).toContain(`$ExpectedReceipt = '${REVIEWED_BUNDLE_RECEIPT}'`);
+    expect(script).toContain(`$ExpectedReceipt = '${COMPOSITE_BUNDLE_RECEIPT}'`);
+    expect(script).not.toContain(REVIEWED_BUNDLE_RECEIPT);
     expect(script).not.toContain(LEGACY_BUNDLE_RECEIPT);
     expect(script).toContain(
       "$BundleReceiptEnvName = 'SFX_SEMANTIC_BUNDLE_RECEIPT_SHA256'",
@@ -148,6 +152,27 @@ describe('semantic SFX container bundle verifier', () => {
     expect(await verifyReceipt(fixture.root, receiptDigest)).toBe(receiptDigest);
   });
 
+  it('creates and verifies an exact-manifest composite v3 receipt', async () => {
+    const fixture = await makeBundleFixture('composite');
+    const receiptDigest = await createReceipt(fixture.root);
+    const receipt = JSON.parse(
+      await readFile(path.join(fixture.root, 'bundle-receipt.json'), 'utf8'),
+    );
+
+    expect(receipt).toEqual(expect.objectContaining({
+      version: 'editron-sfx-semantic-container-bundle-v3',
+      source: {
+        catalogManifestDigestSha256: fixture.manifestDigestSha256,
+        catalogManifestFileSha256: fixture.manifestFileSha256,
+        semanticReleaseReceiptVersion:
+          'editron-sfx-catalog-composite-semantic-release-receipt-v1',
+        semanticReleaseReceiptDigestSha256:
+          fixture.semanticReleaseReceiptDigestSha256,
+      },
+    }));
+    expect(await verifyReceipt(fixture.root, receiptDigest)).toBe(receiptDigest);
+  });
+
   it('rejects nested artifact tampering after a receipt is pinned', async () => {
     const fixture = await makeBundleFixture('reviewed');
     const receiptDigest = await createReceipt(fixture.root);
@@ -171,7 +196,7 @@ describe('semantic SFX container bundle verifier', () => {
 });
 
 async function makeBundleFixture(
-  version: 'legacy' | 'reviewed',
+  version: 'legacy' | 'reviewed' | 'composite',
 ): Promise<{
   root: string;
   manifestDigestSha256: string;
@@ -189,19 +214,28 @@ async function makeBundleFixture(
   const metadataBytes = stableJson({
     version: version === 'legacy'
       ? 'editron-sfx-catalog-semantic-release-v1'
-      : 'editron-sfx-catalog-reviewed-semantic-release-v2',
+      : version === 'reviewed'
+        ? 'editron-sfx-catalog-reviewed-semantic-release-v2'
+        : 'editron-sfx-catalog-composite-semantic-release-v1',
   });
   const vectorsBytes = Buffer.from('fixture-vectors');
   const manifestDigestSha256 = hashJson(manifest);
   const semanticReleaseReceiptBody = {
     version: version === 'legacy'
       ? 'editron-sfx-catalog-semantic-release-receipt-v1'
-      : 'editron-sfx-catalog-reviewed-semantic-release-receipt-v2',
+      : version === 'reviewed'
+        ? 'editron-sfx-catalog-reviewed-semantic-release-receipt-v2'
+        : 'editron-sfx-catalog-composite-semantic-release-receipt-v1',
     source: version === 'legacy'
       ? { promotedManifestDigestSha256: manifestDigestSha256 }
-      : { runtimeManifestDigestSha256: manifestDigestSha256 },
+      : {
+        runtimeManifestDigestSha256: manifestDigestSha256,
+        ...(version === 'composite'
+          ? { runtimeManifestFileSha256: hashBuffer(manifestBytes) }
+          : {}),
+      },
     artifacts: {
-      ...(version === 'reviewed'
+      ...(version !== 'legacy'
         ? {
           manifest: {
             filename: 'manifest.json',
@@ -211,9 +245,9 @@ async function makeBundleFixture(
         }
         : {}),
       metadata: {
-        filename: version === 'legacy'
-          ? 'metadata.json'
-          : 'semantic-release/metadata.json',
+        filename: version === 'reviewed'
+          ? 'semantic-release/metadata.json'
+          : 'metadata.json',
         byteLength: metadataBytes.byteLength,
         sha256: hashBuffer(metadataBytes),
       },
