@@ -177,12 +177,14 @@ import {
   extractQueuedDubbingJobId,
   extractQueuedEditorialIntentJobId,
   extractQueuedReferenceStyleJobId,
+  extractCompletedSceneRegenerationReceipt,
   loadChatBattleMongoProject,
   mergeChatBattleInvocations,
   parseChatBattleCliArgs,
   parseChatBattleOperationReplayResponse,
   shouldPollForFreshChatBattleRenderEvidence,
   validateChatBattleCliOptions,
+  verifyCompletedSceneRegenerationReceipt,
   waitForDubbingJobTerminal,
   waitForEditorialIntentJobTerminal,
   waitForReferenceStyleJobTerminal,
@@ -1237,6 +1239,118 @@ describe('chat edit battle harness', () => {
         },
       }),
     }]))).toBeNull();
+  });
+
+  it('verifies a completed scene regeneration against its authoritative storyboard record', async () => {
+    const regenerated = invocation('regenerate-existing-scene', [{
+      id: 'regenerate',
+      name: 'regenerate_scene',
+      args: { sceneIndex: 1, target: 'image' },
+      startedAt: '2026-07-30T10:00:00.100Z',
+      completedAt: '2026-07-30T10:00:02.200Z',
+      output: successEnvelope({
+        storyboardId: 'sb-fixture-1',
+        sceneIndex: 1,
+        jobId: 'storyboard:sb-fixture-1:scene:1:image:new-asset',
+        operations: [{
+          target: 'image',
+          status: 'completed',
+          jobId: 'storyboard:sb-fixture-1:scene:1:image:new-asset',
+          beforeAssetId: 'old-asset',
+          afterAssetId: 'new-asset',
+        }],
+      }),
+    }]);
+    const receipt = extractCompletedSceneRegenerationReceipt(regenerated);
+
+    expect(receipt).toEqual({
+      storyboardId: 'sb-fixture-1',
+      sceneIndex: 1,
+      jobId: 'storyboard:sb-fixture-1:scene:1:image:new-asset',
+      beforeAssetId: 'old-asset',
+      afterAssetId: 'new-asset',
+    });
+    await expect(verifyCompletedSceneRegenerationReceipt(
+      {
+        projectId: 'proj_battle',
+        receipt: receipt!,
+      },
+      {
+        loadScene: async () => ({ sceneIndex: 1, imageAssetId: 'new-asset' }),
+      },
+    )).resolves.toEqual({ materialChange: true });
+    await expect(verifyCompletedSceneRegenerationReceipt(
+      {
+        projectId: 'proj_battle',
+        receipt: receipt!,
+      },
+      {
+        loadScene: async () => ({ sceneIndex: 1, imageAssetId: 'old-asset' }),
+      },
+    )).resolves.toEqual({
+      materialChange: false,
+      error: 'regenerated-scene-asset-mismatch:old-asset',
+    });
+  });
+
+  it('accepts a verified storyboard mutation without pretending the project document changed', () => {
+    const scenario = getChatEditBattleScenario('regenerate-existing-scene')!;
+    const unchanged = buildChatBattleProjectSnapshot(project([]), 'mongo-before');
+    const report = evaluateChatEditBattleJourney({
+      journeyId: 'storyboard-cross-resource-mutation',
+      scenario,
+      projectId: 'proj_battle',
+      startedAt: '2026-07-30T10:00:00.000Z',
+      completedAt: '2026-07-30T10:00:03.000Z',
+      invocation: {
+        ...invocation('regenerate-existing-scene', [{
+          id: 'timeline',
+          name: 'get_timeline_view',
+          args: {},
+          startedAt: '2026-07-30T10:00:00.100Z',
+          completedAt: '2026-07-30T10:00:00.200Z',
+          output: successEnvelope({ summary: 'timeline' }),
+        }, {
+          id: 'regenerate',
+          name: 'regenerate_scene',
+          args: { sceneIndex: 1, target: 'image' },
+          startedAt: '2026-07-30T10:00:00.300Z',
+          completedAt: '2026-07-30T10:00:02.200Z',
+          output: successEnvelope({
+            storyboardId: 'sb-fixture-1',
+            sceneIndex: 1,
+            jobId: 'storyboard:sb-fixture-1:scene:1:image:new-asset',
+            operations: [{
+              target: 'image',
+              status: 'completed',
+              jobId: 'storyboard:sb-fixture-1:scene:1:image:new-asset',
+              beforeAssetId: 'old-asset',
+              afterAssetId: 'new-asset',
+            }],
+          }),
+        }]),
+        durableOperations: [{
+          owner: 'scene-regeneration',
+          jobId: 'storyboard:sb-fixture-1:scene:1:image:new-asset',
+          status: 'completed',
+          materialChange: true,
+          polls: 1,
+        }],
+      },
+      mongoBefore: unchanged,
+      mongoAfter: { ...unchanged, source: 'mongo-after' },
+      uiReload: null,
+      renderEvidence: { status: 'missing', artifactRefs: [], issues: [] },
+      fixturePreconditions: { ok: true, missing: [], satisfied: [] },
+    });
+
+    expect(report.checks.find((check) => check.id === 'mongo.mutation-truth')).toMatchObject({
+      status: 'pass',
+      evidence: {
+        stateChanged: false,
+        verifiedExternalMaterialChange: true,
+      },
+    });
   });
 
   it('treats a durable MG decline as a valid conditional no-op instead of a queued mutation hang', () => {

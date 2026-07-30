@@ -91,7 +91,7 @@ export interface ChatBattleOperationReplayEvidence {
 }
 
 export interface ChatBattleDurableOperationEvidence {
-  owner: 'editorial-intent' | 'reference-style' | 'dubbing';
+  owner: 'editorial-intent' | 'reference-style' | 'dubbing' | 'scene-regeneration';
   jobId: string;
   status:
     | 'completed'
@@ -393,7 +393,7 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('analyze-selected-audio', 'Analyze selected clip audio', 'Resolve and queue durable analysis of the selected clip audio for beats, pauses, speech, and energy. Do not edit anything and do not claim findings before the job completes.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['resolve_clip_analysis', 'queue_resolved_clip_analysis'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('analyze-selected-video', 'Analyze selected clip video', 'Resolve and queue durable analysis of the selected clip visuals for subjects, actions, shot changes, and text. Do not edit anything and do not claim findings before the job completes.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['resolve_clip_analysis', 'queue_resolved_clip_analysis'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('read-completed-clip-analysis', 'Read completed clip analysis', 'Read the completed deep-analysis job already referenced in this project conversation. Report only its grounded findings and do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['get_clip_analysis_result'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false, fixtureRequirements: ['completed-clip-analysis-job'] }),
-  scenario('regenerate-existing-scene', 'Regenerate existing scene', 'Regenerate scene 2 while preserving its narrative purpose and timing.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'regenerate_scene'] }),
+  scenario('regenerate-existing-scene', 'Regenerate existing scene', 'Regenerate scene 2 while preserving its narrative purpose and timing.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'regenerate_scene'], requireUiReload: false, requireRenderedEvidence: false }),
   scenario('beat-sync-cuts', 'Sync cuts to detected beats', 'Find the music downbeats and sync the existing montage cuts to them without changing clip order.', { projectMode: 'assist', requiredToolSequence: ['resolve_audio_edit', 'sync_cuts_to_beats'] }),
   scenario('replace-selected-sfx', 'Replace selected SFX', 'Replace the selected sound effect with a softer paper whoosh at the same time.', { requiredToolSequence: [READ_PROJECT, 'replace_sfx'] }),
   scenario('list-uploaded-assets', 'List uploaded assets', 'List the videos, images, and audio files I uploaded to this project. Do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['list_user_assets'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
@@ -685,6 +685,7 @@ export function evaluateChatEditBattleJourney(input: {
     mutationTerminals.map((terminal) => terminal.outcome),
     stateChanged,
     acceptedGroundedClarification,
+    input.invocation.durableOperations?.some((operation) => operation.materialChange) ?? false,
   );
   checks.push(check(
     'mongo.mutation-truth',
@@ -701,6 +702,8 @@ export function evaluateChatEditBattleJourney(input: {
       })),
       durableOperations: input.invocation.durableOperations ?? [],
       stateChanged,
+      verifiedExternalMaterialChange:
+        input.invocation.durableOperations?.some((operation) => operation.materialChange) ?? false,
       beforeDigest: input.mongoBefore.digest,
       afterDigest: input.mongoAfter.digest,
     },
@@ -1261,6 +1264,7 @@ export function evaluateChatBattleMutationTruth(
   terminalOutcomes: readonly ChatBattleMutationTerminalOutcome[],
   stateChanged: boolean,
   acceptedGroundedClarification: boolean,
+  verifiedExternalMaterialChange = false,
 ): ChatBattleStatus {
   const mutatedCount = terminalOutcomes.filter((outcome) => outcome === 'mutated').length;
   const noOpCount = terminalOutcomes.filter((outcome) => outcome === 'no-op').length;
@@ -1281,11 +1285,15 @@ export function evaluateChatBattleMutationTruth(
     return 'pass';
   }
   if (scenarioDefinition.mutationExpectation === 'conditional') {
-    if (mutatedCount > 0) return stateChanged ? 'pass' : 'fail';
+    if (mutatedCount > 0) {
+      return stateChanged || verifiedExternalMaterialChange ? 'pass' : 'fail';
+    }
     return acceptedConditionalCount > 0 && !stateChanged ? 'pass' : 'fail';
   }
   const satisfiedCount = mutatedCount + noOpCount;
-  const stateMatchesOutcome = mutatedCount > 0 ? stateChanged : !stateChanged;
+  const stateMatchesOutcome = mutatedCount > 0
+    ? stateChanged || verifiedExternalMaterialChange
+    : !stateChanged && !verifiedExternalMaterialChange;
   return satisfiedCount >= scenarioDefinition.minimumSuccessfulMutations && stateMatchesOutcome
     ? 'pass'
     : 'fail';
@@ -1358,6 +1366,8 @@ function durableOperationForEvent(
     const authority = asRecord(dispatch.authority);
     jobId = stringValue(authority.jobId ?? dispatch.jobId ?? data.jobId);
   } else if (event.name === 'apply_reference_style' || event.name === 'dub_selected_dialogue') {
+    jobId = stringValue(data.jobId);
+  } else if (event.name === 'regenerate_scene') {
     jobId = stringValue(data.jobId);
   }
   return jobId ? operations.find((operation) => operation.jobId === jobId) ?? null : null;

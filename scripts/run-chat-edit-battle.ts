@@ -211,6 +211,32 @@ async function main(): Promise<void> {
           latestInvocation = settledInvocation;
           return settledInvocation;
         }
+        const sceneRegeneration = extractCompletedSceneRegenerationReceipt(invocation);
+        if (sceneRegeneration) {
+          const terminal = await verifyCompletedSceneRegenerationReceipt({
+            projectId,
+            receipt: sceneRegeneration,
+          });
+          const settledInvocation: ChatBattleInvocationEvidence = {
+            ...invocation,
+            durableOperations: [
+              ...(invocation.durableOperations ?? []),
+              {
+                owner: 'scene-regeneration',
+                jobId: sceneRegeneration.jobId,
+                status: terminal.materialChange ? 'completed' : 'failed',
+                materialChange: terminal.materialChange,
+                polls: 1,
+                ...(terminal.error ? { error: terminal.error } : {}),
+              },
+            ],
+          };
+          latestDurableMutationFailure = terminal.materialChange
+            ? null
+            : `scene-regeneration-failed:${terminal.error ?? 'no error detail'}`;
+          latestInvocation = settledInvocation;
+          return settledInvocation;
+        }
         const dubbingJobId = scenario.id === 'selected-dialogue-dubbing'
           ? extractQueuedDubbingJobId(invocation)
           : null;
@@ -490,6 +516,91 @@ export function extractQueuedEditorialIntentJobId(
   return null;
 }
 
+export interface CompletedSceneRegenerationReceipt {
+  storyboardId: string;
+  sceneIndex: number;
+  jobId: string;
+  beforeAssetId: string;
+  afterAssetId: string;
+}
+
+export function extractCompletedSceneRegenerationReceipt(
+  invocation: ChatBattleInvocationEvidence,
+): CompletedSceneRegenerationReceipt | null {
+  for (const event of invocation.toolEvents) {
+    if (event.name !== 'regenerate_scene') continue;
+    const output = parseToolOutputRecord(event.output);
+    if (output.status !== 'success') continue;
+    const data = asRecord(output.data);
+    const storyboardId = stringValue(data.storyboardId);
+    const sceneIndex = data.sceneIndex;
+    const operations = Array.isArray(data.operations) ? data.operations.map(asRecord) : [];
+    const completedImage = operations.find((operation) => (
+      operation.target === 'image'
+      && operation.status === 'completed'
+    ));
+    const jobId = stringValue(completedImage?.jobId ?? data.jobId);
+    const beforeAssetId = stringValue(completedImage?.beforeAssetId);
+    const afterAssetId = stringValue(completedImage?.afterAssetId);
+    if (
+      !storyboardId
+      || !/^[A-Za-z0-9_-]{1,200}$/.test(storyboardId)
+      || typeof sceneIndex !== 'number'
+      || !Number.isInteger(sceneIndex)
+      || sceneIndex < 0
+      || !jobId
+      || !/^[A-Za-z0-9:_-]{1,400}$/.test(jobId)
+      || !beforeAssetId
+      || !/^[A-Za-z0-9_-]{1,300}$/.test(beforeAssetId)
+      || !afterAssetId
+      || !/^[A-Za-z0-9_-]{1,300}$/.test(afterAssetId)
+      || beforeAssetId === afterAssetId
+    ) {
+      return null;
+    }
+    return { storyboardId, sceneIndex, jobId, beforeAssetId, afterAssetId };
+  }
+  return null;
+}
+
+interface SceneRegenerationVerificationDependencies {
+  loadScene(
+    projectId: string,
+    storyboardId: string,
+    sceneIndex: number,
+  ): Promise<Record<string, unknown> | null>;
+}
+
+export async function verifyCompletedSceneRegenerationReceipt(
+  input: {
+    projectId: string;
+    receipt: CompletedSceneRegenerationReceipt;
+  },
+  dependencies: SceneRegenerationVerificationDependencies = {
+    loadScene: loadChatBattleStoryboardScene,
+  },
+): Promise<{ materialChange: boolean; error?: string }> {
+  const scene = await dependencies.loadScene(
+    input.projectId,
+    input.receipt.storyboardId,
+    input.receipt.sceneIndex,
+  );
+  if (!scene) {
+    return { materialChange: false, error: 'regenerated-storyboard-scene-not-found' };
+  }
+  const persistedAssetId = stringValue(scene.imageAssetId);
+  if (persistedAssetId !== input.receipt.afterAssetId) {
+    return {
+      materialChange: false,
+      error: `regenerated-scene-asset-mismatch:${persistedAssetId ?? 'missing'}`,
+    };
+  }
+  if (persistedAssetId === input.receipt.beforeAssetId) {
+    return { materialChange: false, error: 'regenerated-scene-asset-unchanged' };
+  }
+  return { materialChange: true };
+}
+
 export function mergeChatBattleInvocations(
   initial: ChatBattleInvocationEvidence,
   followUp: ChatBattleInvocationEvidence,
@@ -657,6 +768,22 @@ async function loadChatBattleReferenceStyleJob(
   chatBattleMongoClient = client;
   return db.collection<Record<string, unknown> & { _id: string; projectId: string }>(COLLECTIONS.CHAT_REFERENCE_STYLE_JOBS)
     .findOne({ _id: jobId, projectId }) as Promise<Record<string, unknown> | null>;
+}
+
+async function loadChatBattleStoryboardScene(
+  projectId: string,
+  storyboardId: string,
+  sceneIndex: number,
+): Promise<Record<string, unknown> | null> {
+  const { connectToDatabase } = await import('../lib/editron/db/mongodb');
+  const { client, db } = await connectToDatabase();
+  chatBattleMongoClient = client;
+  const storyboard = await db.collection<Record<string, unknown>>('storyboards')
+    .findOne({ projectId, storyboardId });
+  const scenes = Array.isArray(storyboard?.scenes)
+    ? storyboard.scenes.map(asRecord)
+    : [];
+  return scenes.find((scene) => scene.sceneIndex === sceneIndex) ?? null;
 }
 
 function isFailedDurableStatus(status: string): boolean {
