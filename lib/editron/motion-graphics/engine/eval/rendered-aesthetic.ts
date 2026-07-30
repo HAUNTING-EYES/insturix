@@ -345,6 +345,7 @@ function scoreText(overlay: NormalizedOverlay, input: RenderedFrameAestheticInpu
   const isCaption = text.channel === 'caption';
   const rowCapacity = text.composition.rowCapacity ?? text.display?.maxWordsPerLine ?? wordCount;
   const targetRows = text.composition.targetRowCount;
+  const renderedRowWordCount = maximumRenderedRowWordCount(text);
 
   if (fontSize !== undefined) {
     const minimumFontSize = minimumReadableTextPx(overlay.family, text, input);
@@ -360,23 +361,23 @@ function scoreText(overlay: NormalizedOverlay, input: RenderedFrameAestheticInpu
     }
   }
 
-  if (isCaption && rowCapacity > 6) {
+  if (isCaption && renderedRowWordCount > 8) {
     addIssue('text', 0.2, 'caption row is too wide for social-video reading', {
       overlay: overlay.item,
-      evidence: `rowCapacity=${rowCapacity}`,
+      evidence: `renderedRowWords=${renderedRowWordCount}; rowCapacity=${rowCapacity}`,
       severity: 'fail',
     });
-  } else if (isCaption && rowCapacity > 4) {
+  } else if (isCaption && renderedRowWordCount > 6) {
     addIssue('text', 0.12, 'caption row is crowded', {
       overlay: overlay.item,
-      evidence: `rowCapacity=${rowCapacity}`,
+      evidence: `renderedRowWords=${renderedRowWordCount}; rowCapacity=${rowCapacity}`,
     });
   }
 
-  if (isCaption && wordCount > 8 && targetRows <= 1) {
+  if (isCaption && wordCount > 8 && targetRows <= 1 && renderedRowWordCount <= 8) {
     addIssue('text', 0.2, 'long caption is compressed into one row', {
       overlay: overlay.item,
-      evidence: `words=${wordCount}; rows=${targetRows}`,
+      evidence: `words=${wordCount}; renderedRowWords=${renderedRowWordCount}; rows=${targetRows}`,
       severity: 'fail',
     });
   }
@@ -684,6 +685,12 @@ function countWords(text: AtomicTextForm): number {
   const glyphWords = text.glyphs.filter((glyph) => glyph.role !== 'punctuation').length;
   if (glyphWords > 0) return glyphWords;
   return text.rawText.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function maximumRenderedRowWordCount(text: AtomicTextForm): number {
+  const measured = text.lines.reduce((maximum, line) => Math.max(maximum, line.wordCount), 0);
+  if (measured > 0) return measured;
+  return Math.ceil(countWords(text) / Math.max(1, text.composition.targetRowCount));
 }
 
 function fontSizePx(value: string | undefined): number | undefined {
