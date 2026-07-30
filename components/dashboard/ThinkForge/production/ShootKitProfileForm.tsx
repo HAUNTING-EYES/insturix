@@ -10,6 +10,10 @@
  *
  * It starts empty: no room, phone, tripod, light, mic, or operator is assumed. The
  * only baseline is one self-shooting performer, which the user sees and can change.
+ *
+ * Styling follows design-system v1 (design-tokens.css): palette tokens only, type
+ * scale 10/11/13, weights 400/500, radii 4 (inputs/tags) / 7 (buttons/cards), 4px
+ * rhythm, gold reserved for decisions (the CTA, selected states).
  */
 
 import React from "react";
@@ -61,6 +65,12 @@ const CATEGORY_ICON: Record<EquipmentCategory, React.ReactNode> = {
   modifier: <Square className="h-3.5 w-3.5" />,
   accessory: <Plus className="h-3.5 w-3.5" />,
 };
+
+/** System motion: micro 0.25s, one easing. */
+const EASE = "transition-colors duration-[250ms] ease-[cubic-bezier(0.16,1,0.3,1)]";
+/** Mono system-label recipe (10px / 500 / dim / 0.08em / caps). */
+const MONO_LABEL = "font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[#5F5E5A]";
+const FOCUS_RING = "focus:outline-none focus-visible:shadow-[0_0_0_2px_#D4A65240]";
 
 // ── Draft shapes (form-friendly; built into a real profile on submit) ──
 interface DraftSpace {
@@ -262,15 +272,15 @@ export function ShootKitProfileForm({ initialProfile, initialSettings, issues, s
   return (
     <div className="space-y-4">
       {issues.length > 0 && (
-        <div className="rounded-md border border-[#3A3320] bg-[#171307] px-3 py-2">
-          <div className="text-[11px] font-semibold text-[#C9A24A]">The script needs adjustments before a plan can be built</div>
+        <div className="rounded-[7px] px-3 py-2" style={{ background: "#D4A65214" }}>
+          <div className="text-[11px] font-medium text-[#D4A652]">The script needs adjustments before a plan can be built</div>
           <ul className="mt-1 space-y-1 pl-3">
             {issues.map((iss, i) => (
               <li key={i} className="list-disc text-[11px] leading-relaxed text-[#B5B2A8]">
-                {iss.sceneTitle ? <span className="text-[#ECE9E1]">{iss.sceneTitle}: </span> : iss.sceneId ? <span className="text-[#ECE9E1]">{iss.sceneId}: </span> : null}
+                {iss.sceneTitle ? <span className="font-medium text-[#ECE9E1]">{iss.sceneTitle}: </span> : iss.sceneId ? <span className="font-medium text-[#ECE9E1]">{iss.sceneId}: </span> : null}
                 {iss.message}
                 {iss.questions.length > 0 && (
-                  <span className="block text-[10px] text-[#8B887F]">{iss.questions.join(" ")}</span>
+                  <span className="block text-[10px] text-[#7A776E]">{iss.questions.join(" ")}</span>
                 )}
               </li>
             ))}
@@ -342,7 +352,7 @@ export function ShootKitProfileForm({ initialProfile, initialSettings, issues, s
         <div className="flex flex-wrap gap-1">
           {(Object.keys(CATEGORY_KINDS) as EquipmentCategory[]).map((cat) => (
             <button key={cat} type="button" title={`Add ${cat}`} onClick={() => patch({ equipment: [...draft.equipment, newEquipment(cat)] })}
-              className="inline-flex items-center gap-1 rounded-[6px] border border-[#34322E] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[#8B887F] transition-colors hover:text-[#ECE9E1] hover:border-[#4A4842]">
+              className={`inline-flex items-center gap-1 rounded-[7px] border border-[#282724] px-2 py-1 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[#7A776E] ${EASE} hover:text-[#ECE9E1] ${FOCUS_RING}`}>
               {CATEGORY_ICON[cat]} {cat}
             </button>
           ))}
@@ -359,13 +369,13 @@ export function ShootKitProfileForm({ initialProfile, initialSettings, issues, s
 
       {/* Preferences */}
       <Group title="Prioritize">
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1">
           {PRIORITIES.map((p) => {
             const on = draft.prioritize.includes(p);
             return (
               <button key={p} type="button" onClick={() => patch({ prioritize: on ? draft.prioritize.filter((x) => x !== p) : [...draft.prioritize, p] })}
                 aria-pressed={on}
-                className={`rounded-[6px] border px-2 py-0.5 text-[11px] transition-colors ${on ? "border-[#D4A652] text-[#D4A652]" : "border-[#34322E] text-[#8B887F] hover:text-[#ECE9E1]"}`}>
+                className={`rounded-[4px] border px-2 py-1 text-[11px] ${EASE} ${FOCUS_RING} ${on ? "border-[#D4A652] text-[#D4A652]" : "border-[#282724] text-[#7A776E] hover:text-[#ECE9E1]"}`}>
                 {p}
               </button>
             );
@@ -375,11 +385,11 @@ export function ShootKitProfileForm({ initialProfile, initialSettings, issues, s
 
       {/* Validation + submit */}
       {errors.length > 0 && (
-        <ul className="space-y-0.5 rounded-md border border-[#5A2828] bg-[#170C0C] px-3 py-2">
+        <ul className="space-y-1 rounded-[7px] px-3 py-2" style={{ background: "#D46A5C14" }}>
           {errors.slice(0, 6).map((e, i) => (
-            <li key={i} className="text-[11px] leading-relaxed text-[#E06C75]">{e}</li>
+            <li key={i} className="text-[11px] leading-relaxed text-[#D46A5C]">{e}</li>
           ))}
-          {errors.length > 6 && <li className="text-[10px] text-[#8B887F]">+{errors.length - 6} more</li>}
+          {errors.length > 6 && <li className="text-[10px] text-[#7A776E]">+{errors.length - 6} more</li>}
         </ul>
       )}
 
@@ -387,11 +397,11 @@ export function ShootKitProfileForm({ initialProfile, initialSettings, issues, s
         type="button"
         onClick={handleGenerate}
         disabled={submitting || !validation.success}
-        className="flex w-full items-center justify-center gap-2 rounded-[6px] px-4 py-2.5 text-[12px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-        style={{ background: !submitting && validation.success ? "#D4A652" : "#2A2926", color: !submitting && validation.success ? "#0B0B0A" : "#7A776E" }}
+        className={`flex w-full items-center justify-center gap-2 rounded-[7px] px-4 py-2 text-[13px] font-medium ${EASE} ${FOCUS_RING} disabled:cursor-not-allowed`}
+        style={{ background: !submitting && validation.success ? "#D4A652" : "#1B1A18", color: !submitting && validation.success ? "#0B0B0A" : "#7A776E" }}
       >
         <Clapperboard className="h-4 w-4" />
-        {submitting ? "Building shoot plan…" : "Generate shoot plan"}
+        {submitting ? "Building your shoot plan" : "Generate shoot plan"}
       </button>
     </div>
   );
@@ -413,7 +423,7 @@ function newEquipment(category: EquipmentCategory): DraftEquipment {
 function SpaceRow({ space, onChange, onRemove }: { space: DraftSpace; onChange: (s: DraftSpace) => void; onRemove: () => void }) {
   const set = (p: Partial<DraftSpace>) => onChange({ ...space, ...p });
   return (
-    <div className="rounded-md border border-[#282724] bg-[#0F0F0E] p-2.5">
+    <div className="rounded-[7px] border border-[#1C1B19] bg-[#0F0F0E] p-3">
       <div className="mb-2 flex items-center gap-2">
         <input value={space.label} onChange={(e) => set({ label: e.target.value })} placeholder="Room name (e.g. home office)" className={`${inputCls} flex-1`} aria-label="Space name" />
         <IconButton onClick={onRemove} label="Remove space"><Trash2 className="h-3.5 w-3.5" /></IconButton>
@@ -435,14 +445,14 @@ function SpaceRow({ space, onChange, onRemove }: { space: DraftSpace; onChange: 
         <AddButton label="Add natural light" onClick={() => set({ naturalLight: [...space.naturalLight, { id: nextId("nl"), kind: "window", direction: "unknown", controllable: false }] })} />
       </div>
       {space.backgrounds.map((b, bi) => (
-        <div key={b.id} className="mt-1.5 flex items-center gap-2">
+        <div key={b.id} className="mt-2 flex items-center gap-2">
           <input value={b.description} onChange={(e) => set({ backgrounds: space.backgrounds.map((x, xi) => (xi === bi ? { ...x, description: e.target.value } : x)) })} placeholder="Background (e.g. plain wall)" className={`${inputCls} flex-1`} aria-label="Background description" />
           <Toggle label="Movable" checked={b.movable} onChange={(v) => set({ backgrounds: space.backgrounds.map((x, xi) => (xi === bi ? { ...x, movable: v } : x)) })} />
           <IconButton onClick={() => set({ backgrounds: space.backgrounds.filter((_, xi) => xi !== bi) })} label="Remove background"><Trash2 className="h-3 w-3" /></IconButton>
         </div>
       ))}
       {space.naturalLight.map((n, ni) => (
-        <div key={n.id} className="mt-1.5 flex flex-wrap items-center gap-2">
+        <div key={n.id} className="mt-2 flex flex-wrap items-center gap-2">
           <select value={n.kind} onChange={(e) => set({ naturalLight: space.naturalLight.map((x, xi) => (xi === ni ? { ...x, kind: e.target.value as typeof x.kind } : x)) })} className={inputCls} aria-label="Natural light kind">
             <option value="window">window</option><option value="doorway">doorway</option><option value="skylight">skylight</option>
           </select>
@@ -465,9 +475,9 @@ function EquipmentRow({ item, rentalAllowed, purchaseAllowed, onChange, onRemove
   const paid = item.availability === "rental-approved" || item.availability === "purchase-approved";
   const kinds = CATEGORY_KINDS[item.category];
   return (
-    <div className="rounded-md border border-[#282724] bg-[#0F0F0E] p-2.5">
+    <div className="rounded-[7px] border border-[#1C1B19] bg-[#0F0F0E] p-3">
       <div className="mb-2 flex items-center gap-2">
-        <span className="text-[#8B887F]" title={item.category}>{CATEGORY_ICON[item.category]}</span>
+        <span className="text-[#7A776E]" title={item.category}>{CATEGORY_ICON[item.category]}</span>
         <input value={item.label} onChange={(e) => set({ label: e.target.value })} placeholder={`${item.category} name (e.g. iPhone 14)`} className={`${inputCls} flex-1`} aria-label="Equipment name" />
         <IconButton onClick={onRemove} label="Remove equipment"><Trash2 className="h-3.5 w-3.5" /></IconButton>
       </div>
@@ -491,7 +501,7 @@ function EquipmentRow({ item, rentalAllowed, purchaseAllowed, onChange, onRemove
           <>
             <Mini label="Cost"><input type="number" min={0} value={item.cost} onChange={(e) => set({ cost: e.target.value })} className={inputCls} aria-label="Incremental cost" /></Mini>
             <Mini label="Cost basis">
-              <select value={item.costBasis} onChange={(e) => set({ costBasis: e.target.value as DraftEquipment["costBasis"] })} className={inputCls} aria-label="Cost basis">
+              <select value={item.costBasis} onChange={(e) => set({ costBasis: e.target.value as CostBasis })} className={inputCls} aria-label="Cost basis">
                 <option value="one-time">one-time</option><option value="per-shoot">per-shoot</option>
               </select>
             </Mini>
@@ -544,13 +554,13 @@ function EquipmentRow({ item, rentalAllowed, purchaseAllowed, onChange, onRemove
 }
 
 // ── Primitives ──
-const inputCls = "h-8 w-full rounded-[4px] border border-[#34322E] bg-[#0B0B0A] px-2 text-[12px] text-[#ECE9E1] outline-none focus:border-[#D4A652]";
+const inputCls = `h-8 w-full rounded-[4px] border border-[#282724] bg-[#0B0B0A] px-2 text-[11px] text-[#ECE9E1] placeholder:text-[#5F5E5A] transition-colors duration-[250ms] ease-[cubic-bezier(0.16,1,0.3,1)] focus:outline-none focus:border-[#D4A652] focus:shadow-[0_0_0_2px_#D4A65240]`;
 
 function Group({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section>
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <h3 className="font-mono text-[11px] uppercase tracking-wide text-[#8B887F]">{title}</h3>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h3 className={`w-full sm:w-auto ${MONO_LABEL}`}>{title}</h3>
         {action}
       </div>
       <div className="space-y-2">{children}</div>
@@ -562,7 +572,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
     <div>
       <div className="mb-1 flex items-baseline gap-2">
         <span className="text-[11px] text-[#B5B2A8]">{label}</span>
-        {hint && <span className="text-[10px] text-[#6B6860]">{hint}</span>}
+        {hint && <span className="text-[10px] text-[#5F5E5A]">{hint}</span>}
       </div>
       {children}
     </div>
@@ -571,19 +581,19 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 function Mini({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-0.5 block font-mono text-[9px] uppercase tracking-wide text-[#6B6860]">{label}</span>
+      <span className={`mb-1 block ${MONO_LABEL}`}>{label}</span>
       {children}
     </label>
   );
 }
 function Segmented<T extends string>({ options, value, onChange }: { options: readonly T[]; value: T; onChange: (v: T) => void }) {
   return (
-    <div className="inline-flex flex-wrap gap-0.5 rounded-[6px] border border-[#282724] p-0.5" role="group">
+    <div className="inline-flex flex-wrap gap-1 rounded-[7px] border border-[#1C1B19] p-1" role="group">
       {options.map((o) => {
         const on = o === value;
         return (
           <button key={o} type="button" onClick={() => onChange(o)} aria-pressed={on}
-            className={`rounded-[4px] px-2.5 py-1 text-[11px] transition-colors ${on ? "bg-[#D4A652] text-[#0B0B0A] font-semibold" : "text-[#8B887F] hover:text-[#ECE9E1]"}`}>
+            className={`rounded-[4px] px-2 py-1 text-[11px] ${EASE} ${FOCUS_RING} ${on ? "bg-[#D4A652] font-medium text-[#0B0B0A]" : "text-[#7A776E] hover:text-[#ECE9E1]"}`}>
             {o}
           </button>
         );
@@ -594,11 +604,13 @@ function Segmented<T extends string>({ options, value, onChange }: { options: re
 function Stepper({ label, value, min, onChange }: { label: string; value: number; min: number; onChange: (n: number) => void }) {
   return (
     <label className="block">
-      <span className="mb-0.5 block font-mono text-[9px] uppercase tracking-wide text-[#6B6860]">{label}</span>
-      <div className="flex items-center rounded-[4px] border border-[#34322E] bg-[#0B0B0A]">
-        <button type="button" aria-label={`Decrease ${label}`} onClick={() => onChange(Math.max(min, value - 1))} className="px-2 py-1 text-[13px] text-[#8B887F] hover:text-[#ECE9E1]">−</button>
-        <span className="flex-1 text-center text-[12px] text-[#ECE9E1]">{value}</span>
-        <button type="button" aria-label={`Increase ${label}`} onClick={() => onChange(value + 1)} className="px-2 py-1 text-[13px] text-[#8B887F] hover:text-[#ECE9E1]">+</button>
+      <span className={`mb-1 block ${MONO_LABEL}`}>{label}</span>
+      <div className="flex items-center rounded-[4px] border border-[#282724] bg-[#0B0B0A]">
+        <button type="button" aria-label={`Decrease ${label}`} onClick={() => onChange(Math.max(min, value - 1))}
+          className={`px-2 py-1 text-[13px] text-[#7A776E] ${EASE} hover:text-[#ECE9E1] ${FOCUS_RING}`}>−</button>
+        <span className="flex-1 text-center font-mono text-[11px] text-[#ECE9E1]">{value}</span>
+        <button type="button" aria-label={`Increase ${label}`} onClick={() => onChange(value + 1)}
+          className={`px-2 py-1 text-[13px] text-[#7A776E] ${EASE} hover:text-[#ECE9E1] ${FOCUS_RING}`}>+</button>
       </div>
     </label>
   );
@@ -606,29 +618,31 @@ function Stepper({ label, value, min, onChange }: { label: string; value: number
 function Toggle({ label, checked, onChange, title }: { label: string; checked: boolean; onChange: (v: boolean) => void; title?: string }) {
   return (
     <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} title={title}
-      className={`inline-flex items-center gap-1.5 rounded-[6px] border px-2 py-1 text-[11px] transition-colors ${checked ? "border-[#D4A652] text-[#ECE9E1]" : "border-[#34322E] text-[#8B887F] hover:text-[#ECE9E1]"}`}>
-      <span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-full ${checked ? "bg-[#D4A652]" : "bg-[#4A4842]"}`} />
+      className={`inline-flex items-center gap-1 rounded-[7px] border border-[#282724] px-2 py-1 text-[11px] ${EASE} ${FOCUS_RING} ${checked ? "text-[#ECE9E1]" : "text-[#7A776E] hover:text-[#ECE9E1]"}`}>
+      <span aria-hidden className={`inline-block h-2 w-2 rounded-full ${checked ? "bg-[#D4A652]" : "bg-[#454340]"}`} />
       {label}
     </button>
   );
 }
 function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="inline-flex items-center gap-1 rounded-[6px] border border-[#34322E] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[#8B887F] transition-colors hover:text-[#ECE9E1] hover:border-[#4A4842]">
+    <button type="button" onClick={onClick}
+      className={`inline-flex items-center gap-1 rounded-[7px] border border-[#282724] px-2 py-1 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[#7A776E] ${EASE} hover:text-[#ECE9E1] ${FOCUS_RING}`}>
       <Plus className="h-3 w-3" /> {label}
     </button>
   );
 }
 function IconButton({ onClick, label, children }: { onClick: () => void; label: string; children: React.ReactNode }) {
   return (
-    <button type="button" onClick={onClick} aria-label={label} title={label} className="shrink-0 rounded-[4px] p-1 text-[#7A776E] transition-colors hover:text-[#E06C75]">
+    <button type="button" onClick={onClick} aria-label={label} title={label}
+      className={`shrink-0 rounded-[4px] p-1 text-[#7A776E] ${EASE} hover:text-[#D46A5C] ${FOCUS_RING}`}>
       {children}
     </button>
   );
 }
 function Empty({ text }: { text: string }) {
-  return <p className="rounded-md border border-dashed border-[#282724] px-3 py-3 text-[11px] text-[#6B6860]">{text}</p>;
+  return <p className="rounded-[7px] border border-dashed border-[#282724] px-3 py-3 text-[11px] text-[#5F5E5A]">{text}</p>;
 }
 function InlineWarn({ text }: { text: string }) {
-  return <p className="mt-1.5 text-[10px] text-[#C9A24A]">{text}</p>;
+  return <p className="mt-2 text-[10px] text-[#D4A652]">{text}</p>;
 }
