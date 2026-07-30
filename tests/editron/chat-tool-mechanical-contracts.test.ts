@@ -16,6 +16,7 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
 import { createTools } from '@/lib/editron/agent/tools';
 import { buildChatEditRenderVerificationRequest } from '@/lib/editron/agent/chat-ai-edit-transaction-runtime';
 import { enforceChatToolPostcondition } from '@/lib/editron/agent/chat-edit-postconditions';
+import { EDITRON_TEXT_SHADOW_FLOOR } from '@/lib/editron/agent/chat-overlay-safe-placement';
 import { createChatVisualTools } from '@/lib/editron/agent/chat-visual-tools';
 import { projectService } from '@/lib/editron/services/project-service';
 
@@ -459,6 +460,82 @@ describe('chat mechanical tool contracts', () => {
 
     const deletion = parseEnvelope(await toolNamed('delete_overlay').invoke({ id: 42 }));
     expect(deletion.data?.affectedFrameRanges).toEqual([{ startFrame: 120, endFrame: 150 }]);
+  });
+
+  it('preserves an exact delete target instead of coercing or substituting another overlay id', async () => {
+    const project = makeProject([
+      { id: 71, type: 'video', from: 0, durationInFrames: 90, row: 0 },
+      { id: 72, type: 'caption', sourceVideoId: 71, from: 0, durationInFrames: 90, row: 4 },
+    ], 90);
+    const store = installProjectStore(project);
+
+    const missing = parseEnvelope(await toolNamed('delete_overlay').invoke({
+      id: 'battle_missing_overlay',
+    }));
+
+    expect(missing.status).toBe('error');
+    expect(project.overlays.map((overlay) => overlay.id)).toEqual([71, 72]);
+    expect(store.deleteOverlay).not.toHaveBeenCalled();
+
+    const deleted = parseEnvelope(await toolNamed('delete_overlay').invoke({ id: '71' }));
+    expect(deleted.status).toBe('success');
+    expect(project.overlays).toEqual([]);
+    expect(store.deleteOverlay).toHaveBeenCalledWith(
+      'user_mechanical_tools',
+      'proj_mechanical_tools',
+      71,
+    );
+  });
+
+  it('preserves text legibility when a layer reorder moves transparent text toward the front', async () => {
+    const project = makeProject([
+      {
+        id: 80,
+        type: 'text',
+        from: 0,
+        durationInFrames: 90,
+        row: 3,
+        content: 'Foreground title',
+        styles: {
+          color: '#ffffff',
+          backgroundColor: 'transparent',
+        },
+      },
+      {
+        id: 81,
+        type: 'image',
+        from: 0,
+        durationInFrames: 90,
+        row: 2,
+      },
+    ], 90);
+    installProjectStore(project);
+
+    const reordered = parseEnvelope(await toolNamed('reorder_layer').invoke({
+      overlayId: 80,
+      referenceOverlayId: 81,
+      relation: 'in-front-of',
+    }));
+
+    expect(reordered.status).toBe('success');
+    expect(reordered.data?.updates).toEqual([
+      expect.objectContaining({
+        overlayId: 80,
+        previousRow: 3,
+        nextRow: 1,
+        nextStyles: expect.objectContaining({
+          textShadow: EDITRON_TEXT_SHADOW_FLOOR,
+        }),
+      }),
+    ]);
+    expect(project.overlays.find((overlay) => overlay.id === 80)).toMatchObject({
+      row: 1,
+      styles: {
+        color: '#ffffff',
+        backgroundColor: 'transparent',
+        textShadow: EDITRON_TEXT_SHADOW_FLOOR,
+      },
+    });
   });
 
   it('normalizes editor-style text fill without dropping batch style mutations', async () => {

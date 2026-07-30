@@ -11,6 +11,7 @@ import {
   verifyChatFrameVisualMatch,
   type ChatFrameVisualVerification,
 } from "../services/chat-frame-visual-verification";
+import { protectChatTextLegibility } from "./chat-overlay-safe-placement";
 import { PROJECT_ASSET_ANALYSES_COLLECTION } from "../services/project-analysis-storage";
 import {
   buildSubjectAwareReframePlan,
@@ -293,6 +294,7 @@ export interface LayerReorderOverlayUpdate {
   overlayId: OverlayId;
   previousRow: number;
   nextRow: number;
+  nextStyles?: Record<string, unknown>;
   referenceOverlayId?: OverlayId;
   relation: LayerReorderRelation | "target-row";
   reason: string;
@@ -1012,6 +1014,7 @@ Writes opacity keyframes into the existing keyframeTracks path. Refuses sound ov
           }
           await projectService.updateOverlay(userId, projectId, numericOverlayId, {
             row: update.nextRow,
+            ...(update.nextStyles ? { styles: update.nextStyles } : {}),
           } as any);
         }
 
@@ -2254,6 +2257,23 @@ export function applyLayerReorderToProject(
     };
   }
 
+  const currentStyles = target?.styles && typeof target.styles === "object" && !Array.isArray(target.styles)
+    ? target.styles as Record<string, unknown>
+    : {};
+  const protectedStyles = String(target?.type) === "text" && roundedNextRow < previousRow
+    ? protectChatTextLegibility({
+        overlayType: "text",
+        currentStyles,
+      })
+    : undefined;
+  const nextStyles = protectedStyles && Object.entries(protectedStyles)
+    .some(([key, value]) => currentStyles[key] !== value)
+    ? protectedStyles
+    : undefined;
+  if (nextStyles) {
+    warnings.push("Applied the canonical text legibility floor because the text overlay moved toward the front.");
+  }
+
   return {
     status: "changed",
     targetOverlayId: target.id,
@@ -2262,6 +2282,7 @@ export function applyLayerReorderToProject(
       overlayId: target.id,
       previousRow,
       nextRow: roundedNextRow,
+      ...(nextStyles ? { nextStyles } : {}),
       referenceOverlayId: reference?.id,
       relation,
       reason: "semantic-layer-reorder",

@@ -1620,17 +1620,22 @@ TYPE-SPECIFIC FIELDS:
   // --- DELETE OVERLAY ---
   
   const deleteOverlaySchema = z.object({
-    id: z.coerce.number().describe("The ID of the overlay to delete"),
+    id: z.union([
+      z.string().trim().min(1),
+      z.number().finite(),
+    ]).describe("The exact persisted ID of the overlay to delete. Never substitute another overlay when this ID is missing."),
   });
 
   const deleteOverlay = tool(
     async (input: z.infer<typeof deleteOverlaySchema>) => {
       try {
         const project = await loadProject();
-        const overlay = project.overlays.find((o: any) => o.id === input.id);
+        const requestedOverlayId = String(input.id);
+        const overlay = project.overlays.find((o: any) => String(o.id) === requestedOverlayId);
         if (!overlay) {
           return JSON.stringify({ status: 'error', message: `Overlay ${input.id} not found` });
         }
+        const resolvedOverlayId = overlay.id;
         const deletedOverlays = [overlay];
 
         // If deleting a video, cascade delete linked captions, transitions, and fancy captions
@@ -1639,9 +1644,12 @@ TYPE-SPECIFIC FIELDS:
             (o: any) =>
               // Captions linked to this video
               ((o.type === 'caption' || (o.type === 'html-scene' && o.metadata?.sourceType === 'fancy-caption')) &&
-                o.sourceVideoId === input.id) ||
+                String(o.sourceVideoId) === String(resolvedOverlayId)) ||
               // Transitions referencing this video as clip A or B
-              (o.type === 'transition' && (o.clipAId === input.id || o.clipBId === input.id))
+              (o.type === 'transition' && (
+                String(o.clipAId) === String(resolvedOverlayId)
+                || String(o.clipBId) === String(resolvedOverlayId)
+              ))
           );
           deletedOverlays.push(...linkedOverlays);
           // PERF FIX: Delete linked overlays in parallel (Priyank's optimization)
@@ -1652,13 +1660,13 @@ TYPE-SPECIFIC FIELDS:
           );
         }
 
-        await projectService.deleteOverlay(userId, projectId, input.id);
+        await projectService.deleteOverlay(userId, projectId, resolvedOverlayId);
 
         await recalculateProjectDuration();
 
         return JSON.stringify({
           status: 'success',
-          message: `Overlay ${input.id} deleted${overlay.type === 'video' ? ' (and linked captions/fancy captions)' : ''}`,
+          message: `Overlay ${String(resolvedOverlayId)} deleted${overlay.type === 'video' ? ' (and linked captions/fancy captions)' : ''}`,
           affectedFrameRanges: normalizeChatMutationFrameRanges(
             deletedOverlays.map(overlayMutationFrameRange),
           ),
@@ -1669,7 +1677,7 @@ TYPE-SPECIFIC FIELDS:
     },
     {
       name: 'delete_overlay',
-      description: 'Delete an overlay by its ID. If deleting a video, also deletes any linked captions.',
+      description: 'Delete an overlay by its exact persisted ID. Never substitute a different overlay when the requested ID is missing. If deleting a video, also delete linked captions and transitions.',
       schema: deleteOverlaySchema
     }
   );
