@@ -297,6 +297,69 @@ describe("editor atomic overlay receipts", () => {
     expect(isAtomicOverlayReceiptCurrent({ ...stampedSound, playbackRate: 0.9 })).toBe(false);
   });
 
+  it("derives subtitle row count from the largest visible caption group", () => {
+    const words = "Well they don't want you to know it's fake".split(" ").map((word, index) => ({
+      word,
+      startMs: index * 180,
+      endMs: (index + 1) * 180 - 20,
+      confidence: 0.99,
+    }));
+    const caption: CaptionOverlay = {
+      id: 111,
+      type: OverlayType.CAPTION,
+      from: 0,
+      durationInFrames: 90,
+      row: 4,
+      left: 96,
+      top: 760,
+      width: 1728,
+      height: 220,
+      isDragging: false,
+      rotation: 0,
+      captions: [{
+        text: words.map((word) => word.word).join(" "),
+        startMs: 0,
+        endMs: 1600,
+        timestampMs: 0,
+        confidence: 0.99,
+        words,
+      }],
+      displayConfig: {
+        mode: "subtitle",
+        wordsPerGroup: 4,
+        maxWordsPerLine: 6,
+        showPreviousWords: true,
+        fadeOutPreviousWords: false,
+      },
+      styles: {
+        fontFamily: "Inter",
+        fontSize: "64",
+        fontWeight: 700,
+        color: "#ffffff",
+        textAlign: "center",
+        lineHeight: 1.1,
+        backgroundColor: "rgba(0,0,0,0.65)",
+        highlight: {
+          color: "#ffffff",
+          backgroundColor: "#2563eb",
+          scale: 1.08,
+          effect: "box",
+          animation: "scale",
+        },
+      },
+    };
+
+    const stamped = withEditorAtomicOverlayReceipt(caption, { source: "caption-row-truth-test" }) as any;
+
+    expect(stamped.metadata.atomicOverlayReceipt.form.text.composition).toMatchObject({
+      rowCapacity: 6,
+      targetRowCount: 2,
+    });
+    expect(stamped.metadata.atomicOverlayReceipt.atoms).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "text-target-row-count", value: 2 }),
+    ]));
+  });
+
   it("derives caption text color, font, and row atoms from signals plus brand theme inputs", () => {
     const caption: CaptionOverlay = {
       id: 13,

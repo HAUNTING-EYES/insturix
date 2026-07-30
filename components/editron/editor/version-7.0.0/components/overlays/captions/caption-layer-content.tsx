@@ -271,6 +271,20 @@ function shouldBreakAfter(
   return rowCapacity > 0 && (index + 1) % rowCapacity === 0;
 }
 
+export function resolveCaptionWordTextShadow(
+  isActive: boolean,
+  highlightTextShadow: unknown,
+  baseTextShadow: unknown,
+): string | undefined {
+  const base = typeof baseTextShadow === "string" && baseTextShadow.trim()
+    ? baseTextShadow
+    : undefined;
+  if (!isActive) return base;
+  return typeof highlightTextShadow === "string" && highlightTextShadow.trim()
+    ? highlightTextShadow
+    : base;
+}
+
 /**
  * CaptionLayerContent Component
  * Renders animated captions with word-by-word highlighting and customizable effects
@@ -442,9 +456,11 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
                 ? highlight.fontWeight || 600
                 : emphasisWeight,
               fontFamily: glyphFontFamily,
-              textShadow: isActive
-                ? highlight.textShadow
-                : styles.textShadow,
+              textShadow: resolveCaptionWordTextShadow(
+                isActive,
+                highlight.textShadow,
+                styles.textShadow,
+              ),
               padding: highlight.padding || "4px 8px",
               borderRadius: highlight.borderRadius || "4px",
               margin: "0 2px",
