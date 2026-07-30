@@ -53,6 +53,7 @@ export interface RenderedOverlayEvidence {
   receipt?: AtomicOverlayReceipt;
   box?: RenderedOverlayBox;
   sampleRoles?: string[];
+  plannedVisibilityPhase?: 'entry' | 'exit';
   visualIntentStageMode?: string;
 }
 
@@ -214,6 +215,7 @@ export function scoreRenderedFrameAesthetic(input: RenderedFrameAestheticInput):
 }
 
 function scoreVisibility(overlay: NormalizedOverlay, addIssue: AddIssue): void {
+  if (overlay.item.plannedVisibilityPhase) return;
   const opacity = overlay.item.box?.opacity ?? numberValue(overlay.item.receipt?.form.style.opacity);
   if (opacity !== undefined && opacity <= 0.03) {
     addIssue('visibility', 0.35, 'overlay is effectively invisible', {
@@ -419,11 +421,12 @@ function scoreContrast(overlay: NormalizedOverlay, addIssue: AddIssue): void {
 
   if (contrastRatio < required) {
     if (isIntentionalFullFrameMotionGraphic(overlay) && contrastRatio >= 3) return;
-    const exitPrep = overlay.item.sampleRoles?.includes('exit-prep') ?? false;
-    const penalty = exitPrep ? 0.04 : contrastRatio < 2 ? 0.24 : 0.18;
-    const severity: RenderedAestheticSeverity = exitPrep ? 'info' : contrastRatio < 2.4 ? 'fail' : 'warn';
-    const message = exitPrep
-      ? 'rendered text contrast drops during planned exit fade'
+    const transitionPhase = overlay.item.plannedVisibilityPhase
+      ?? (overlay.item.sampleRoles?.includes('exit-prep') ? 'exit' : undefined);
+    const penalty = transitionPhase ? 0.04 : contrastRatio < 2 ? 0.24 : 0.18;
+    const severity: RenderedAestheticSeverity = transitionPhase ? 'info' : contrastRatio < 2.4 ? 'fail' : 'warn';
+    const message = transitionPhase
+      ? `rendered text contrast drops during planned ${transitionPhase} fade/visibility transition`
       : 'rendered text contrast is below accessibility floor';
     const phaseEvidence = overlay.item.sampleRoles?.length
       ? `; sampleRoles=${overlay.item.sampleRoles.join('+')}`

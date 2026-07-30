@@ -198,6 +198,11 @@ export interface Phase0RenderedStillFrameEvidence {
   baselineBucketName?: string;
   baselineRenderId?: string;
   baselineSizeInBytes?: number;
+  aestheticBaselineUrl?: string;
+  aestheticBaselineOutKey?: string;
+  aestheticBaselineBucketName?: string;
+  aestheticBaselineRenderId?: string;
+  aestheticBaselineSizeInBytes?: number;
 }
 
 export interface Phase0RenderedStillEvidence {
@@ -214,7 +219,7 @@ export interface Phase0RenderedStillEvidence {
   sampleLimit: number;
   requestedSampleFrames: number[];
   renderedFrames: Phase0RenderedStillFrameEvidence[];
-  failedFrames: Array<{ frame: number; error: string; renderKind?: 'full' | 'baseline' | 'worker' }>;
+  failedFrames: Array<{ frame: number; error: string; renderKind?: 'full' | 'baseline' | 'aesthetic-baseline' | 'worker' }>;
   artifactPackStatus: 'ready' | 'not-renderable';
   artifactPackIssues: string[];
   renderedAestheticReport?: Phase0RenderedAestheticReportLike;
@@ -495,12 +500,31 @@ export async function buildPhase0RenderedStillEvidence(
         ),
         isRendering: true,
       };
+  const aestheticBaselineOverlays = options.baselineProject
+    ? buildAestheticBaselineOverlays(
+        artifactPack.renderInput.overlays,
+        options.auditedOverlayIds,
+      )
+    : null;
+  const aestheticBaselineInputProps = aestheticBaselineOverlays
+    ? {
+        ...artifactPack.renderInput,
+        overlays: aestheticBaselineOverlays,
+        durationInFrames: operationDurationInFrames,
+        isRendering: true,
+      }
+    : null;
+  const frameConcurrency = aestheticBaselineInputProps ? 2 : 3;
 
   const frameResults = await mapWithConcurrency(
     requestedSampleFrames,
-    3,
+    frameConcurrency,
     async (frame) => {
-      const [fullResult, baselineResult] = await Promise.allSettled([
+      const renderPromises: [
+        Promise<RenderStillOnLambdaOutput>,
+        Promise<RenderStillOnLambdaOutput>,
+        Promise<RenderStillOnLambdaOutput | null>,
+      ] = [
         renderStillForEvidence(renderStill, {
           region: config.region as any,
           functionName: config.functionName,
@@ -523,8 +547,23 @@ export async function buildPhase0RenderedStillEvidence(
           frame,
           maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
         }),
-      ]);
-      return { frame, fullResult, baselineResult };
+        aestheticBaselineInputProps
+          ? renderStillForEvidence(renderStill, {
+              region: config.region as any,
+              functionName: config.functionName,
+              serveUrl: config.serveUrl,
+              composition: REMOTION_COMPOSITION_ID,
+              inputProps: aestheticBaselineInputProps,
+              imageFormat: 'png',
+              privacy: 'public',
+              frame,
+              maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
+            })
+          : Promise.resolve(null),
+      ];
+      const [fullResult, baselineResult, aestheticBaselineResult] =
+        await Promise.allSettled(renderPromises);
+      return { frame, fullResult, baselineResult, aestheticBaselineResult };
     },
   );
 
@@ -569,9 +608,28 @@ export async function buildPhase0RenderedStillEvidence(
         maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
       });
     }
+    if (
+      transientRepairBudget > 0
+      && aestheticBaselineInputProps
+      && frameResult.aestheticBaselineResult.status === 'rejected'
+      && isTransientRenderedStillFailure(frameResult.aestheticBaselineResult.reason)
+    ) {
+      transientRepairBudget -= 1;
+      frameResult.aestheticBaselineResult = await settleRenderedStillForEvidence(renderStill, {
+        region: config.region as any,
+        functionName: config.functionName,
+        serveUrl: config.serveUrl,
+        composition: REMOTION_COMPOSITION_ID,
+        inputProps: aestheticBaselineInputProps,
+        imageFormat: 'png',
+        privacy: 'public',
+        frame: frameResult.frame,
+        maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
+      });
+    }
   }
 
-  for (const { frame, fullResult, baselineResult } of frameResults) {
+  for (const { frame, fullResult, baselineResult, aestheticBaselineResult } of frameResults) {
     if (fullResult.status === 'rejected') {
       failedFrames.push({
         frame,
@@ -581,7 +639,26 @@ export async function buildPhase0RenderedStillEvidence(
       continue;
     }
     if (baselineResult.status === 'fulfilled') {
-      renderedFrames.push(toFrameEvidence(frame, fullResult.value, baselineResult.value));
+      if (aestheticBaselineInputProps) {
+        if (aestheticBaselineResult.status === 'rejected' || !aestheticBaselineResult.value) {
+          failedFrames.push({
+            frame,
+            renderKind: 'aesthetic-baseline',
+            error: aestheticBaselineResult.status === 'rejected'
+              ? settledError(aestheticBaselineResult.reason)
+              : 'aesthetic baseline render returned no artifact',
+          });
+          continue;
+        }
+      }
+      renderedFrames.push(toFrameEvidence(
+        frame,
+        fullResult.value,
+        baselineResult.value,
+        aestheticBaselineResult.status === 'fulfilled'
+          ? aestheticBaselineResult.value ?? undefined
+          : undefined,
+      ));
       continue;
     }
     failedFrames.push({
@@ -1636,6 +1713,7 @@ function toFrameEvidence(
   frame: number,
   still: RenderStillOnLambdaOutput,
   baselineStill?: RenderStillOnLambdaOutput,
+  aestheticBaselineStill?: RenderStillOnLambdaOutput,
 ): Phase0RenderedStillFrameEvidence {
   return {
     frame,
@@ -1651,7 +1729,25 @@ function toFrameEvidence(
       baselineRenderId: baselineStill.renderId,
       baselineSizeInBytes: baselineStill.sizeInBytes,
     } : {}),
+    ...(aestheticBaselineStill ? {
+      aestheticBaselineUrl: aestheticBaselineStill.url,
+      aestheticBaselineOutKey: aestheticBaselineStill.outKey,
+      aestheticBaselineBucketName: aestheticBaselineStill.bucketName,
+      aestheticBaselineRenderId: aestheticBaselineStill.renderId,
+      aestheticBaselineSizeInBytes: aestheticBaselineStill.sizeInBytes,
+    } : {}),
   };
+}
+
+function buildAestheticBaselineOverlays(
+  overlays: Phase0FixtureProject['overlays'],
+  auditedOverlayIds: Array<string | number> | undefined,
+): Phase0FixtureProject['overlays'] | null {
+  const auditedIds = new Set((auditedOverlayIds ?? []).map(String));
+  if (auditedIds.size === 0) return null;
+  const source = Array.isArray(overlays) ? overlays : [];
+  const filtered = source.filter((overlay) => !auditedIds.has(String(overlay.id)));
+  return filtered.length === source.length ? null : filtered;
 }
 
 function buildBaselineOverlays(

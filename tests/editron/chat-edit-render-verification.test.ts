@@ -213,6 +213,135 @@ describe('chat edit rendered verification', () => {
     });
   });
 
+  it('uses separate immutable controls for mutation proof and post-edit overlay quality', async () => {
+    const before = projectWithOverlays([{
+      id: 'txt_after',
+      type: OverlayType.TEXT,
+      from: 30,
+      durationInFrames: 60,
+      left: 60,
+      top: 60,
+      width: 200,
+      height: 60,
+      content: 'Old copy',
+      styles: { fontSize: '32px', color: '#111111' },
+    }]);
+    const after = projectWithOverlays([{
+      id: 'txt_after',
+      type: OverlayType.TEXT,
+      from: 30,
+      durationInFrames: 60,
+      left: 60,
+      top: 60,
+      width: 200,
+      height: 60,
+      content: 'New copy',
+      styles: { fontSize: '32px', color: '#ffffff' },
+    }]);
+    const renderStill = vi.fn(async (input: any) => {
+      const target = input.inputProps.overlays.find((overlay: any) => overlay.id === 'txt_after');
+      const kind = target?.content === 'New copy'
+        ? 'after'
+        : target?.content === 'Old copy'
+          ? 'before'
+          : 'aesthetic';
+      return stillResult(kind, input.frame);
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(after, {
+      baselineProject: before,
+      requestedSampleFrames: [45],
+      auditedOverlayIds: ['txt_after'],
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async (url) => renderedImage(url.includes('/after-')),
+      prepareCredentials: async () => {},
+    });
+
+    expect(renderStill).toHaveBeenCalledTimes(3);
+    expect(renderStill.mock.calls[0]?.[0].inputProps.overlays)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ id: 'txt_after', content: 'New copy' })]));
+    expect(renderStill.mock.calls[1]?.[0].inputProps.overlays)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ id: 'txt_after', content: 'Old copy' })]));
+    expect(renderStill.mock.calls[2]?.[0].inputProps.overlays)
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ id: 'txt_after' })]));
+    expect(evidence.renderedFrames[0]).toMatchObject({
+      url: 'https://example.com/after-f45.png',
+      baselineUrl: 'https://example.com/before-f45.png',
+      aestheticBaselineUrl: 'https://example.com/aesthetic-f45.png',
+    });
+    expect(evidence.renderedAestheticReport?.summary).toMatchObject({
+      mutationStatus: 'pass',
+      absoluteQualityStatus: 'pass',
+    });
+  });
+
+  it('does not report licensed fade endpoints as blank or invisible render failures', async () => {
+    const baseTarget = {
+      id: 'txt_after',
+      type: OverlayType.TEXT,
+      from: 30,
+      durationInFrames: 60,
+      left: 60,
+      top: 60,
+      width: 200,
+      height: 60,
+      content: 'Fade target',
+      styles: { fontSize: '32px', color: '#ffffff' },
+    };
+    const before = projectWithOverlays([baseTarget]);
+    const after = projectWithOverlays([{
+      ...baseTarget,
+      keyframeTracks: [{
+        property: 'opacity',
+        keyframes: [
+          { frame: 0, value: 0, easing: 'ease-out' },
+          { frame: 20, value: 1, easing: 'linear' },
+          { frame: 40, value: 1, easing: 'ease-in' },
+          { frame: 60, value: 0, easing: 'linear' },
+        ],
+        metadata: { family: 'fade', source: 'apply_fade', direction: 'both' },
+      }],
+    }]);
+    const renderStill = vi.fn(async (input: any) => {
+      const target = input.inputProps.overlays.find((overlay: any) => overlay.id === 'txt_after');
+      const kind = target?.keyframeTracks
+        ? 'after'
+        : target
+          ? 'before'
+          : 'aesthetic';
+      return stillResult(kind, input.frame);
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(after, {
+      baselineProject: before,
+      requestedSampleFrames: [30, 50, 70, 89],
+      auditedOverlayIds: ['txt_after'],
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async (url) => {
+        const match = url.match(/\/([^/]+)-f(\d+)\.png$/);
+        const kind = match?.[1];
+        const frame = Number(match?.[2] ?? 0);
+        if (kind === 'aesthetic') return renderedImage(false);
+        if (kind === 'before') return renderedImage(true);
+        return renderedImage(frame !== 30 && frame !== 89);
+      },
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.renderedAestheticReport?.summary).toMatchObject({
+      mutationStatus: 'pass',
+      absoluteQualityStatus: 'pass',
+    });
+    expect(evidence.renderedAestheticReport?.frames?.flatMap((frame) => frame.report?.issues ?? []))
+      .not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ dimension: 'render', severity: 'fail' }),
+        expect.objectContaining({ dimension: 'visibility', severity: 'fail' }),
+        expect.objectContaining({ dimension: 'contrast', severity: 'fail' }),
+      ]));
+  });
+
   it('retries only a transient still failure before declaring rendered evidence partial', async () => {
     let afterAttempts = 0;
     const renderStill = vi.fn(async (input: any) => {
@@ -1108,4 +1237,17 @@ function renderedImageWithTinyDelta(changed: boolean): RawRenderedStillImage {
     }
   }
   return { width, height, channels, data };
+}
+
+function stillResult(kind: string, frame: number) {
+  return {
+    estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+    url: `https://example.com/${kind}-f${frame}.png`,
+    outKey: `chat/${kind}-f${frame}.png`,
+    bucketName: 'render-bucket',
+    renderId: `${kind}-${frame}`,
+    cloudWatchLogs: 'https://logs.example.com',
+    sizeInBytes: 512,
+    artifacts: [],
+  };
 }

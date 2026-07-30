@@ -26,6 +26,7 @@ export interface Phase0RenderedStillFrameForScoring {
   frame: number;
   url: string;
   baselineUrl?: string;
+  aestheticBaselineUrl?: string;
 }
 
 export interface Phase0RenderedStillEvidenceForScoring {
@@ -137,6 +138,7 @@ async function scoreRenderedStillFrame(input: {
   const { artifactPack, still, sample } = input;
   let fullImage: RawRenderedStillImage | undefined;
   let baselineImage: RawRenderedStillImage | undefined;
+  let aestheticBaselineImage: RawRenderedStillImage | undefined;
   let renderError: unknown;
 
   try {
@@ -154,6 +156,15 @@ async function scoreRenderedStillFrame(input: {
   } else if (fullImage && !still.baselineUrl) {
     renderError = new Error('baseline rendered still missing; cannot score overlay pixels against control frame');
   }
+  if (fullImage && still.aestheticBaselineUrl) {
+    try {
+      aestheticBaselineImage = await input.readImage(still.aestheticBaselineUrl);
+    } catch (err: unknown) {
+      renderError = err;
+    }
+  } else {
+    aestheticBaselineImage = baselineImage;
+  }
 
   const activeOverlays = activeRenderedOverlayEvidence(
     artifactPack.renderInput.overlays,
@@ -163,7 +174,7 @@ async function scoreRenderedStillFrame(input: {
     artifactPack.renderInput.height,
     sample,
     fullImage,
-    baselineImage,
+    aestheticBaselineImage,
     input.auditedOverlayIds,
     input.comparisonMode,
   );
@@ -229,6 +240,7 @@ function activeRenderedOverlayEvidence(
       if (!receipt && String(overlay.type) === 'caption') return [];
 
       const box = renderedOverlayBoxAtFrame(frameOverlay, frame, width, height);
+      const plannedVisibilityPhase = plannedVisibilityPhaseAtFrame(frameOverlay, frame);
       const pixelEvidence = fullImage && baselineImage
         ? measureRenderedOverlayPixelEvidence(fullImage, baselineImage, box, width, height, {
             allowLayeredForegroundContrast: isLayeredTextContrastOverlay(String(frameOverlay.type)),
@@ -252,7 +264,12 @@ function activeRenderedOverlayEvidence(
         type: String(overlay.type ?? 'unknown'),
         family: receipt?.family,
         receipt,
-        sampleRoles: sample.roles,
+        sampleRoles: [...new Set([
+          ...sample.roles,
+          ...(plannedVisibilityPhase === 'entry' ? ['entry-transition'] : []),
+          ...(plannedVisibilityPhase === 'exit' ? ['exit-prep'] : []),
+        ])],
+        plannedVisibilityPhase,
         visualIntentStageMode: readString((overlay.metadata as Record<string, unknown> | undefined)?.visualIntentStageMode),
         box: {
           ...box,
@@ -628,6 +645,15 @@ function blankImageJustification(
   sample: Phase0RenderSample,
   activeOverlays: RenderedOverlayEvidence[],
 ): string | undefined {
+  if (
+    activeOverlays.length > 0
+    && activeOverlays.every((overlay) => (
+      overlay.plannedVisibilityPhase === 'entry'
+      || overlay.plannedVisibilityPhase === 'exit'
+    ))
+  ) {
+    return 'all audited overlays are inside an explicitly licensed entrance or exit phase; blank pixels at this edge are intentional';
+  }
   if (activeOverlays.length > 0) return undefined;
   const sourceTypes = sample.sourceOverlayTypes.map(String);
   if (sourceTypes.length > 0 && sourceTypes.every((type) => type === 'caption')) {
@@ -840,6 +866,56 @@ function firstNonEmptyString(...values: unknown[]): string {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function plannedVisibilityPhaseAtFrame(
+  overlay: Phase0OverlayLike,
+  frame: number,
+): RenderedOverlayEvidence['plannedVisibilityPhase'] {
+  const from = readNumber(overlay.from, 0);
+  const duration = Math.max(1, readNumber(overlay.durationInFrames, 1));
+  const localFrame = Math.max(0, frame - from);
+  const tracks = Array.isArray((overlay as Record<string, unknown>).keyframeTracks)
+    ? (overlay as Record<string, unknown>).keyframeTracks as unknown[]
+    : [];
+
+  for (const value of tracks) {
+    const track = asRecord(value);
+    const metadata = asRecord(track.metadata);
+    const isLicensedFade =
+      readString(track.property) === 'opacity'
+      && (
+        readString(track.family) === 'fade'
+        || readString(track.source) === 'apply_fade'
+        || readString(metadata.family) === 'fade'
+        || readString(metadata.source) === 'apply_fade'
+      );
+    if (!isLicensedFade || !Array.isArray(track.keyframes)) continue;
+    const keyframes = track.keyframes
+      .map(normalizeScoringKeyframe)
+      .filter((item): item is ScoringKeyframe => Boolean(item))
+      .sort((a, b) => a.frame - b.frame);
+    if (keyframes.length < 2) continue;
+    const direction = readString(metadata.direction) ?? readString(track.direction);
+    const entryEnd = keyframes[1]?.frame;
+    const exitStart = keyframes.at(-2)?.frame;
+    if (
+      (direction === 'out' || direction === 'both')
+      && exitStart !== undefined
+      && localFrame >= exitStart
+    ) return 'exit';
+    if (
+      (direction === 'in' || direction === 'both')
+      && entryEnd !== undefined
+      && localFrame <= entryEnd
+    ) return 'entry';
+  }
+
+  const animation = asRecord(asRecord(overlay.styles).animation);
+  const rendererEdgeFrames = Math.min(15, duration);
+  if (readString(animation.exit) && localFrame >= duration - rendererEdgeFrames) return 'exit';
+  if (readString(animation.enter) && localFrame < rendererEdgeFrames) return 'entry';
+  return undefined;
 }
 
 function isLayeredTextContrastOverlay(type: string): boolean {
