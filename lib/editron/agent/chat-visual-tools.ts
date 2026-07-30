@@ -1456,6 +1456,7 @@ export function resolveKeyframeEditParams(
         },
         localStartFrame: motivatedForm.startFrame,
         localEndFrame: motivatedForm.endFrame,
+        warnings: [] as string[],
       }
     : resolveKeyframeEditFrameRange(overlay, options);
   if (!rangeResult.ok) {
@@ -1467,6 +1468,7 @@ export function resolveKeyframeEditParams(
       message: rangeResult.message,
     };
   }
+  warnings.push(...rangeResult.warnings);
 
   const existingTracks = Array.isArray(overlay.keyframeTracks) ? overlay.keyframeTracks : [];
   const existingScaleTracks = existingTracks.filter(isScaleKeyframeTrack);
@@ -1605,10 +1607,11 @@ function resolveMotivatedZoomForm(
 function resolveKeyframeEditFrameRange(
   overlay: any,
   options: KeyframeEditOptions,
-): { ok: true; range: FrameRange; localStartFrame: number; localEndFrame: number } | { ok: false; message: string } {
+): { ok: true; range: FrameRange; localStartFrame: number; localEndFrame: number; warnings: string[] } | { ok: false; message: string } {
   const overlayStartFrame = frame(overlay?.from);
   const overlayDurationFrames = duration(overlay?.durationInFrames);
   const overlayEndFrame = overlayStartFrame + overlayDurationFrames;
+  const warnings: string[] = [];
   if (overlayDurationFrames < 2) {
     return { ok: false, message: `Overlay ${String(overlay?.id)} is too short for visible scale keyframes.` };
   }
@@ -1621,6 +1624,12 @@ function resolveKeyframeEditFrameRange(
 
   if (endFrame == null && requestedDurationFrames != null) {
     endFrame = startFrame + Math.round(requestedDurationFrames);
+    if (endFrame > overlayEndFrame) {
+      warnings.push(
+        `Requested ${Math.round(requestedDurationFrames)}-frame zoom was clamped to overlay ${String(overlay?.id)} ending at frame ${overlayEndFrame}.`,
+      );
+      endFrame = overlayEndFrame;
+    }
   } else if (endFrame == null) {
     endFrame = overlayEndFrame;
   }
@@ -1639,6 +1648,7 @@ function resolveKeyframeEditFrameRange(
     range: { startFrame, endFrame },
     localStartFrame: startFrame - overlayStartFrame,
     localEndFrame: endFrame - overlayStartFrame,
+    warnings,
   };
 }
 

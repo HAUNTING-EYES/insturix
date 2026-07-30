@@ -1095,6 +1095,61 @@ describe('chat edit context bundle', () => {
     expect(captionBlocked.message).toContain('captions/subtitles');
   });
 
+  it('clamps a duration-derived zoom window to the selected clip but rejects an explicit overflow', () => {
+    const shortProject = {
+      durationInFrames: 57,
+      overlays: [{
+        id: 21,
+        type: 'video',
+        from: 0,
+        durationInFrames: 57,
+        row: 0,
+      }],
+    };
+
+    const clamped = resolveKeyframeEditParams(shortProject, {
+      overlayId: 21,
+      direction: 'in',
+      startFrame: 0,
+      durationFrames: 60,
+      scaleDelta: 0.08,
+    });
+    const explicitOverflow = resolveKeyframeEditParams(shortProject, {
+      overlayId: 21,
+      direction: 'in',
+      startFrame: 0,
+      endFrame: 60,
+      scaleDelta: 0.08,
+    });
+
+    expect(clamped).toMatchObject({
+      status: 'ready',
+      targetOverlayId: 21,
+      startFrame: 0,
+      endFrame: 57,
+      localStartFrame: 0,
+      localEndFrame: 57,
+      warnings: [
+        'Requested 60-frame zoom was clamped to overlay 21 ending at frame 57.',
+      ],
+      useWith: {
+        set_keyframes: {
+          overlayId: 21,
+          property: 'scale',
+          keyframes: [
+            { frame: 0, value: 1, easing: 'ease-in-out' },
+            { frame: 57, value: 1.08, easing: 'ease-out' },
+          ],
+        },
+      },
+    });
+    expect(explicitOverflow).toMatchObject({
+      status: 'no-target',
+      targetOverlayId: 21,
+    });
+    expect(explicitOverflow.message).toContain('outside overlay 21 frames 0-57');
+  });
+
   it('resolves a grounded zoom frame through the atomic zoom-form owner', () => {
     const plan = resolveKeyframeEditParams(project, {
       targetFrame: 96,
