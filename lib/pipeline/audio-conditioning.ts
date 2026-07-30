@@ -16,6 +16,7 @@ export const MAX_AUDIO_CONDITIONING_INPUT_BYTES = 128 * 1024 * 1024;
 const MAX_PCM_BYTES = 256 * 1024 * 1024;
 const MAX_FFMPEG_OUTPUT_BYTES = 256 * 1024 * 1024;
 const MAX_STDERR_BYTES = 2 * 1024 * 1024;
+const LOUDNORM_TARGET_LRA = 7;
 
 export type AudioConditioningErrorCode =
   | 'INVALID_REQUEST'
@@ -131,6 +132,14 @@ interface FfmpegResult {
 interface AudioMeasurements {
   integratedLufs: number;
   truePeakDbtp: number;
+}
+
+interface LoudnormAnalysis {
+  inputIntegratedLufs: number;
+  inputTruePeakDbtp: number;
+  inputLoudnessRange: number;
+  inputThreshold: number;
+  targetOffset: number;
 }
 
 export function fitPcmToExactDuration(decoded: DecodedPcm, options: FitPcmOptions): FittedPcm {
@@ -292,21 +301,12 @@ export async function conditionAudio(input: ConditionAudioInput): Promise<AudioC
     );
   }
 
-  const normalized = await runFfmpeg([
-    '-hide_banner',
-    '-loglevel', 'error',
-    '-f', 'f32le',
-    '-ar', String(fitted.sampleRate),
-    '-ac', String(fitted.channels),
-    '-i', 'pipe:0',
-    '-af', `loudnorm=I=${loudnessTarget.integratedLufs}:TP=${loudnessTarget.truePeakDbtp}`,
-    '-ar', String(fitted.sampleRate),
-    '-ac', String(fitted.channels),
-    '-codec:a', 'flac',
-    '-compression_level', '5',
-    '-f', 'flac',
-    'pipe:1',
-  ], rawPcm);
+  const normalized = await normalizeMusicTwoPass(rawPcm, {
+    sampleRate: fitted.sampleRate,
+    channels: fitted.channels,
+    targetIntegratedLufs: loudnessTarget.integratedLufs,
+    targetTruePeakDbtp: loudnessTarget.truePeakDbtp,
+  });
   const outputMeasurements = await measureAudio(normalized.stdout);
   validateOutputMeasurements(outputMeasurements, loudnessTarget.integratedLufs, loudnessTarget.truePeakDbtp);
 
@@ -576,6 +576,112 @@ function validateOutputMeasurements(
       `Conditioned audio true peak ${measurements.truePeakDbtp} dBTP exceeds ${targetTruePeakDbtp} dBTP`,
     );
   }
+}
+
+async function normalizeMusicTwoPass(
+  rawPcm: Buffer,
+  input: {
+    sampleRate: number;
+    channels: number;
+    targetIntegratedLufs: number;
+    targetTruePeakDbtp: number;
+  },
+): Promise<FfmpegResult> {
+  const baseInputArgs = [
+    '-f', 'f32le',
+    '-ar', String(input.sampleRate),
+    '-ac', String(input.channels),
+    '-i', 'pipe:0',
+  ];
+  const targetFilter = [
+    `I=${formatFfmpegNumber(input.targetIntegratedLufs)}`,
+    `TP=${formatFfmpegNumber(input.targetTruePeakDbtp)}`,
+    `LRA=${LOUDNORM_TARGET_LRA}`,
+  ].join(':');
+  const analysis = await runFfmpeg([
+    '-hide_banner',
+    '-nostats',
+    '-loglevel', 'info',
+    ...baseInputArgs,
+    '-af', `loudnorm=${targetFilter}:print_format=json`,
+    '-f', 'null',
+    '-',
+  ], rawPcm);
+  const measured = parseLoudnormAnalysis(analysis.stderr);
+  const measuredFilter = [
+    targetFilter,
+    `measured_I=${formatFfmpegNumber(measured.inputIntegratedLufs)}`,
+    `measured_TP=${formatFfmpegNumber(measured.inputTruePeakDbtp)}`,
+    `measured_LRA=${formatFfmpegNumber(measured.inputLoudnessRange)}`,
+    `measured_thresh=${formatFfmpegNumber(measured.inputThreshold)}`,
+    `offset=${formatFfmpegNumber(measured.targetOffset)}`,
+    'linear=true',
+    'print_format=summary',
+  ].join(':');
+
+  return runFfmpeg([
+    '-hide_banner',
+    '-nostats',
+    '-loglevel', 'error',
+    ...baseInputArgs,
+    '-af', `loudnorm=${measuredFilter}`,
+    '-ar', String(input.sampleRate),
+    '-ac', String(input.channels),
+    '-codec:a', 'flac',
+    '-compression_level', '5',
+    '-f', 'flac',
+    'pipe:1',
+  ], rawPcm);
+}
+
+function parseLoudnormAnalysis(stderr: string): LoudnormAnalysis {
+  const start = stderr.lastIndexOf('{');
+  const end = stderr.lastIndexOf('}');
+  if (start < 0 || end <= start) {
+    throw new AudioConditioningError(
+      'FFMPEG_FAILED',
+      `FFmpeg loudnorm analysis returned no JSON measurement: ${stderr.slice(-1_000)}`,
+    );
+  }
+
+  let parsed: Record<string, unknown>;
+  try {
+    const value: unknown = JSON.parse(stderr.slice(start, end + 1));
+    parsed = value != null && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+  } catch (error) {
+    throw new AudioConditioningError(
+      'FFMPEG_FAILED',
+      `FFmpeg loudnorm analysis returned malformed JSON: ${stderr.slice(start, end + 1).slice(0, 1_000)}`,
+      { cause: error },
+    );
+  }
+
+  const readFinite = (key: string): number => {
+    const value = Number(parsed[key]);
+    if (!Number.isFinite(value)) {
+      throw new AudioConditioningError(
+        'FFMPEG_FAILED',
+        `FFmpeg loudnorm analysis returned invalid ${key}: ${String(parsed[key])}`,
+      );
+    }
+    return value;
+  };
+  return {
+    inputIntegratedLufs: readFinite('input_i'),
+    inputTruePeakDbtp: readFinite('input_tp'),
+    inputLoudnessRange: readFinite('input_lra'),
+    inputThreshold: readFinite('input_thresh'),
+    targetOffset: readFinite('target_offset'),
+  };
+}
+
+function formatFfmpegNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    throw new AudioConditioningError('FFMPEG_FAILED', `Cannot pass non-finite loudness value to FFmpeg: ${value}`);
+  }
+  return value.toFixed(6);
 }
 
 function runFfmpeg(args: string[], input: Buffer): Promise<FfmpegResult> {
