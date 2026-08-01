@@ -7,9 +7,15 @@ const mocks = vi.hoisted(() => ({
   getJob: vi.fn(),
   setAWSCredentials: vi.fn(async () => {}),
   updateJobProgress: vi.fn(async () => {}),
-  completeJob: vi.fn(async () => {}),
   failJob: vi.fn(async () => {}),
+  beginRenderFinalization: vi.fn(async () => ({ state: "enqueued" })),
+  claimRenderCompletionEffects: vi.fn(),
+  completeRenderCompletionEffects: vi.fn(async () => true),
+  releaseRenderCompletionEffects: vi.fn(async () => true),
   addVideoToLink: vi.fn(async () => false),
+  emitBrandEvent: vi.fn(async () => "event_1"),
+  transitionProjectStatus: vi.fn(async () => {}),
+  findProject: vi.fn(),
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({
@@ -30,9 +36,26 @@ vi.mock("@/lib/editron/utils/aws-credentials", () => ({
 
 vi.mock("@/lib/editron/services/render-job-service", () => ({
   updateJobProgress: mocks.updateJobProgress,
-  completeJob: mocks.completeJob,
   failJob: mocks.failJob,
   getJob: mocks.getJob,
+  claimRenderCompletionEffects: mocks.claimRenderCompletionEffects,
+  completeRenderCompletionEffects: mocks.completeRenderCompletionEffects,
+  releaseRenderCompletionEffects: mocks.releaseRenderCompletionEffects,
+}));
+
+vi.mock("@/lib/editron/services/render-finalization-dispatch", () => ({
+  beginRenderFinalization: mocks.beginRenderFinalization,
+}));
+
+vi.mock("@/lib/editron/db/mongodb", () => ({
+  getDatabase: vi.fn(async () => ({
+    collection: () => ({ findOne: mocks.findProject }),
+  })),
+}));
+
+vi.mock("@/lib/shared/brand-events", () => ({ emitBrandEvent: mocks.emitBrandEvent }));
+vi.mock("@/lib/shared/project-status", () => ({
+  transitionProjectStatus: mocks.transitionProjectStatus,
 }));
 
 vi.mock("@/lib/shared/project-links", () => ({
@@ -96,6 +119,7 @@ describe("Editron chapter render progress route", () => {
       _id: "render_job",
       userId: "user_1",
       projectId: "project_1",
+      status: "rendering",
       deliveryManifest: DELIVERY_MANIFEST,
     });
     process.env.REMOTION_LAMBDA_FUNCTION_NAME = "remotion-render";
@@ -138,30 +162,15 @@ describe("Editron chapter render progress route", () => {
     expect(mocks.updateJobProgress).toHaveBeenCalledWith("chr_rendering", 0.42);
   });
 
-  it("returns chapter completion in the client progress contract", async () => {
-    const completedManifest = {
-      ...DELIVERY_MANIFEST,
-      completedAt: "2026-07-26T00:05:00.000Z",
-      primaryArtifact: {
-        ...DELIVERY_MANIFEST.primaryArtifact,
-        renderId: "chr_done",
-        status: "ready",
-        url: "https://video.example/render.mp4",
-      },
-    };
-    mocks.getJob
-      .mockResolvedValueOnce({
-        _id: "chr_done",
-        userId: "user_1",
-        projectId: "project_1",
-        deliveryManifest: DELIVERY_MANIFEST,
-      })
-      .mockResolvedValueOnce({
-        _id: "chr_done",
-        userId: "user_1",
-        projectId: "project_1",
-        deliveryManifest: completedManifest,
-      });
+  it("queues chapter completion without exposing the concat output", async () => {
+    mocks.getJob.mockResolvedValueOnce({
+      _id: "chr_done",
+      providerRenderId: "chr_done",
+      userId: "user_1",
+      projectId: "project_1",
+      status: "rendering",
+      deliveryManifest: DELIVERY_MANIFEST,
+    });
     mocks.getChapterRenderProgress.mockResolvedValue({
       status: "completed",
       overallProgress: 1,
@@ -181,15 +190,135 @@ describe("Editron chapter render progress route", () => {
 
     expect(response.status).toBe(200);
     expect(body.type).toBe("success");
-    expect(body.data.done).toBe(true);
-    expect(body.data.outputFile).toBe("https://video.example/render.mp4");
-    expect(body.data.deliveryManifest).toEqual(completedManifest);
-    expect(mocks.completeJob).toHaveBeenCalledWith(
-      "chr_done",
-      "https://video.example/render.mp4",
-      0,
-    );
+    expect(body.data.done).toBe(false);
+    expect(body.data.finalizing).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("https://video.example/render.mp4");
+    expect(mocks.beginRenderFinalization).toHaveBeenCalledWith({
+      renderId: "chr_done",
+      providerRenderId: "chr_done",
+      bucketName: "chapter-render",
+      sourceOutputUrl: "https://video.example/render.mp4",
+      sourceOutputSize: 0,
+    });
     expect(mocks.getRenderProgress).not.toHaveBeenCalled();
+  });
+
+  it("keeps an active finalizer in progress without polling providers", async () => {
+    mocks.getJob.mockResolvedValueOnce({
+      _id: "chr_finalizing",
+      userId: "user_1",
+      projectId: "project_1",
+      status: "finalizing",
+      deliveryManifest: DELIVERY_MANIFEST,
+    });
+
+    const response = await GET(chapterProgressRequest("chr_finalizing"));
+    const body = await response.json();
+
+    expect(body.data).toMatchObject({ done: false, progress: 0.99, finalizing: true });
+    expect(mocks.setAWSCredentials).not.toHaveBeenCalled();
+    expect(mocks.getChapterRenderProgress).not.toHaveBeenCalled();
+    expect(mocks.getRenderProgress).not.toHaveBeenCalled();
+  });
+
+  it("returns only a receipt-verified artifact and leases completion effects", async () => {
+    const finalUrl = "https://video.example/finalized.mp4";
+    const completedManifest = {
+      ...DELIVERY_MANIFEST,
+      completedAt: "2026-07-26T00:05:00.000Z",
+      primaryArtifact: { ...DELIVERY_MANIFEST.primaryArtifact, status: "ready", url: finalUrl },
+    };
+    mocks.getJob.mockResolvedValueOnce({
+      _id: "chr_done",
+      providerRenderId: "chr_provider",
+      userId: "user_1",
+      projectId: "project_1",
+      status: "done",
+      outputUrl: finalUrl,
+      outputSize: 42_000,
+      deliveryManifest: completedManifest,
+      finalization: {
+        state: "done",
+        outputUrl: finalUrl,
+        receipt: { expectedDurationMs: 10_000 },
+      },
+    });
+    mocks.claimRenderCompletionEffects.mockResolvedValueOnce({
+      jobId: "chr_done",
+      providerRenderId: "chr_provider",
+      userId: "user_1",
+      projectId: "project_1",
+      outputUrl: finalUrl,
+      outputSize: 42_000,
+      claimToken: "rce_1",
+    });
+    mocks.findProject.mockResolvedValueOnce({ brandId: "brand_1", name: "Project" });
+
+    const response = await GET(chapterProgressRequest("chr_done"));
+    const body = await response.json();
+
+    expect(body.data).toMatchObject({ done: true, outputUrl: finalUrl, outputFile: finalUrl });
+    expect(mocks.getChapterRenderProgress).not.toHaveBeenCalled();
+    expect(mocks.addVideoToLink).toHaveBeenCalledWith("user_1", "project_1", "chr_provider");
+    expect(mocks.emitBrandEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: "video_rendered",
+      payload: expect.objectContaining({ renderId: "chr_provider", outputSize: 42_000 }),
+    }));
+    expect(mocks.completeRenderCompletionEffects).toHaveBeenCalledWith({
+      jobId: "chr_done",
+      claimToken: "rce_1",
+    });
+  });
+
+  it("fails loud instead of returning a legacy raw done artifact", async () => {
+    mocks.getJob.mockResolvedValueOnce({
+      _id: "chr_legacy",
+      userId: "user_1",
+      projectId: "project_1",
+      status: "done",
+      outputUrl: "https://video.example/raw.mp4",
+    });
+
+    const response = await GET(chapterProgressRequest("chr_legacy"));
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.code).toBe("RENDER_FINALIZATION_RECEIPT_MISSING");
+    expect(JSON.stringify(body)).not.toContain("https://video.example/raw.mp4");
+  });
+
+  it("queues standard Lambda completion without exposing its raw output", async () => {
+    mocks.getJob.mockResolvedValueOnce({
+      _id: "rnd_admission",
+      providerRenderId: "rnd_provider",
+      userId: "user_1",
+      projectId: "project_1",
+      status: "rendering",
+      deliveryManifest: DELIVERY_MANIFEST,
+    });
+    mocks.getRenderProgress.mockResolvedValueOnce({
+      done: true,
+      outputFile: "https://video.example/lambda-raw.mp4",
+      outputSizeInBytes: 84_000,
+      chunks: 3,
+    });
+    const request = new Request(
+      "http://localhost/api/services/editron/cloudrun/progress"
+      + "?renderId=rnd_provider&bucketName=lambda-bucket&region=us-east-1",
+    );
+
+    const response = await GET(request);
+    const body = await response.json();
+
+    expect(body.data).toMatchObject({ done: false, progress: 0.99, finalizing: true });
+    expect(JSON.stringify(body)).not.toContain("https://video.example/lambda-raw.mp4");
+    expect(mocks.beginRenderFinalization).toHaveBeenCalledWith({
+      renderId: "rnd_provider",
+      providerRenderId: "rnd_provider",
+      bucketName: "lambda-bucket",
+      sourceOutputUrl: "https://video.example/lambda-raw.mp4",
+      sourceOutputSize: 84_000,
+    });
   });
 
   it("does not fall through to Remotion progress when a chapter job is missing", async () => {

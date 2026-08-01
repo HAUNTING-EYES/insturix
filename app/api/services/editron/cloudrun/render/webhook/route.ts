@@ -2,6 +2,7 @@ import { validateWebhookSignature } from '@remotion/lambda/client';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
+import { beginRenderFinalization } from '@/lib/editron/services/render-finalization-dispatch';
 import { reconcileProviderTerminalEvent } from '@/lib/editron/services/render-job-service';
 
 export const runtime = 'nodejs';
@@ -19,6 +20,7 @@ const WebhookPayloadSchema = z.discriminatedUnion('type', [
     type: z.literal('success'),
     outputUrl: z.string().url().optional(),
     outputFile: z.string().url().optional(),
+    outputSizeInBytes: z.number().int().nonnegative().optional(),
   }),
   StaticPayloadSchema.extend({
     type: z.literal('error'),
@@ -81,12 +83,24 @@ export async function POST(request: Request) {
   const payload = parsed.data;
   const jobId = payload.customData.editronRenderAdmissionId;
   try {
-    await reconcileProviderTerminalEvent({
-      jobId,
-      providerRenderId: payload.renderId,
-      bucketName: payload.bucketName,
-      event: terminalEvent(payload),
-    });
+    if (payload.type === 'success') {
+      const outputUrl = payload.outputFile ?? payload.outputUrl;
+      if (!outputUrl) throw new Error('Successful Remotion webhook has no output URL');
+      await beginRenderFinalization({
+        renderId: jobId,
+        providerRenderId: payload.renderId,
+        bucketName: payload.bucketName,
+        sourceOutputUrl: outputUrl,
+        sourceOutputSize: payload.outputSizeInBytes ?? 0,
+      });
+    } else {
+      await reconcileProviderTerminalEvent({
+        jobId,
+        providerRenderId: payload.renderId,
+        bucketName: payload.bucketName,
+        event: terminalError(payload),
+      });
+    }
   } catch (error) {
     console.error('[RenderWebhook] terminal reconciliation failed:', {
       jobId,
@@ -102,14 +116,7 @@ export async function POST(request: Request) {
   return NextResponse.json({ type: 'success' });
 }
 
-function terminalEvent(payload: z.infer<typeof WebhookPayloadSchema>) {
-  if (payload.type === 'success') {
-    const outputUrl = payload.outputFile ?? payload.outputUrl;
-    if (!outputUrl) {
-      throw new Error('Successful Remotion webhook has no output URL');
-    }
-    return { type: 'success' as const, outputUrl };
-  }
+function terminalError(payload: Exclude<z.infer<typeof WebhookPayloadSchema>, { type: 'success' }>) {
   if (payload.type === 'timeout') {
     return {
       type: 'timeout' as const,

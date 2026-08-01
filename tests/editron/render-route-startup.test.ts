@@ -452,6 +452,7 @@ describe('Editron render startup boundary', () => {
       renderId: 'render_provider_1',
       bucketName: 'bucket_1',
       outputFile: 'https://bucket.example.test/render.mp4',
+      outputSizeInBytes: 44_583_988,
       customData: {
         editronRenderAdmissionId: 'rnd_admission_1',
       },
@@ -465,15 +466,14 @@ describe('Editron render startup boundary', () => {
       body: payload,
       signatureHeader: 'sha512=test-signature',
     });
-    expect(routeMocks.reconcileProviderTerminalEvent).toHaveBeenCalledWith({
-      jobId: 'rnd_admission_1',
+    expect(routeMocks.claimJobFinalization).toHaveBeenCalledWith({
+      renderId: 'rnd_admission_1',
       providerRenderId: 'render_provider_1',
       bucketName: 'bucket_1',
-      event: {
-        type: 'success',
-        outputUrl: 'https://bucket.example.test/render.mp4',
-      },
+      sourceOutputUrl: 'https://bucket.example.test/render.mp4',
+      sourceOutputSize: 44_583_988,
     });
+    expect(routeMocks.reconcileProviderTerminalEvent).not.toHaveBeenCalled();
   });
 
   it('CRITICAL: rejects forged render callbacks before durable state changes', async () => {
@@ -491,7 +491,26 @@ describe('Editron render startup boundary', () => {
     }));
 
     expect(response.status).toBe(401);
+    expect(routeMocks.claimJobFinalization).not.toHaveBeenCalled();
     expect(routeMocks.reconcileProviderTerminalEvent).not.toHaveBeenCalled();
+  });
+
+  it('keeps provider failures terminal without invoking finalization', async () => {
+    const response = await POST_RENDER_WEBHOOK(renderWebhookRequest({
+      type: 'timeout',
+      renderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      customData: { editronRenderAdmissionId: 'rnd_admission_1' },
+    }));
+
+    expect(response.status).toBe(200);
+    expect(routeMocks.claimJobFinalization).not.toHaveBeenCalled();
+    expect(routeMocks.reconcileProviderTerminalEvent).toHaveBeenCalledWith({
+      jobId: 'rnd_admission_1',
+      providerRenderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      event: { type: 'timeout', error: 'Remotion render timed out' },
+    });
   });
 
   it('atomically binds and completes the real durable job from a terminal callback', async () => {
@@ -703,6 +722,61 @@ describe('Editron render startup boundary', () => {
       jobId: claim.jobId,
       claimToken: claim.claimToken,
     });
+  });
+
+  it('leases completion effects only from a verified finalized job', async () => {
+    const actualJobService = await vi.importActual<
+      typeof import('@/lib/editron/services/render-job-service')
+    >('@/lib/editron/services/render-job-service');
+    const now = new Date('2026-08-02T00:03:00.000Z');
+    routeMocks.dbFindOneAndUpdate.mockResolvedValueOnce({
+      _id: 'rnd_admission_1',
+      userId: 'user_1',
+      projectId: 'project_1',
+      providerRenderId: 'render_provider_1',
+      status: 'done',
+      outputUrl: 'https://bucket.example.test/finalized.mp4',
+      outputSize: 44_500_000,
+    });
+
+    await expect(actualJobService.claimRenderCompletionEffects({
+      renderId: 'render_provider_1',
+      claimToken: 'rce_claim_1',
+      leaseMs: 60_000,
+      now,
+    })).resolves.toEqual({
+      jobId: 'rnd_admission_1',
+      userId: 'user_1',
+      projectId: 'project_1',
+      providerRenderId: 'render_provider_1',
+      outputUrl: 'https://bucket.example.test/finalized.mp4',
+      outputSize: 44_500_000,
+      claimToken: 'rce_claim_1',
+    });
+    expect(routeMocks.dbFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $and: expect.arrayContaining([
+          { status: 'done' },
+          { 'finalization.state': 'done' },
+          { 'finalization.receipt': { $exists: true } },
+        ]),
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          'completionEffects.state': 'running',
+          'completionEffects.claimToken': 'rce_claim_1',
+          'completionEffects.leaseExpiresAt': new Date('2026-08-02T00:04:00.000Z'),
+        }),
+      }),
+      { returnDocument: 'after' },
+    );
+
+    routeMocks.dbFindOneAndUpdate.mockResolvedValueOnce(null);
+    await expect(actualJobService.claimRenderCompletionEffects({
+      renderId: 'render_provider_1',
+      claimToken: 'rce_loser',
+      now,
+    })).resolves.toBeNull();
   });
 
   it('publishes only the verified finalizer artifact held by the active lease', async () => {

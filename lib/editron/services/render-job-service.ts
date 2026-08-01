@@ -17,6 +17,7 @@ import {
 const COLLECTION_NAME = 'editron_render_jobs';
 const DEFAULT_FINALIZATION_LEASE_MS = 20 * 60 * 1000;
 const MAX_FINALIZATION_LEASE_MS = 60 * 60 * 1000;
+const DEFAULT_COMPLETION_EFFECTS_LEASE_MS = 5 * 60 * 1000;
 
 async function getCollection(): Promise<Collection<RenderJob>> {
   const db = await getDatabase();
@@ -278,6 +279,121 @@ export async function failJobFinalization(input: {
     },
   );
   return update.modifiedCount === 1;
+}
+
+export interface ClaimedRenderCompletionEffects {
+  jobId: string;
+  userId: string;
+  projectId: string;
+  providerRenderId?: string;
+  outputUrl: string;
+  outputSize: number;
+  claimToken: string;
+}
+
+/** Lease post-render integrations only after exact-duration finalization is committed. */
+export async function claimRenderCompletionEffects(input: {
+  renderId: string;
+  claimToken?: string;
+  leaseMs?: number;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<ClaimedRenderCompletionEffects | null> {
+  const leaseMs = input.leaseMs ?? DEFAULT_COMPLETION_EFFECTS_LEASE_MS;
+  if (!Number.isInteger(leaseMs) || leaseMs <= 0 || leaseMs > MAX_FINALIZATION_LEASE_MS) {
+    throw new Error('Completion-effects lease must be a positive integer within one hour.');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const now = input.now ?? new Date();
+  const claimToken = input.claimToken ?? `rce_${randomUUID().replaceAll('-', '')}`;
+  const claimed = await jobs.findOneAndUpdate(
+    {
+      $and: [
+        renderJobSelector(input.renderId),
+        { status: 'done' },
+        { outputUrl: { $exists: true } },
+        { 'finalization.state': 'done' },
+        { 'finalization.receipt': { $exists: true } },
+        {
+          $or: [
+            { 'completionEffects.state': { $exists: false } },
+            {
+              'completionEffects.state': 'running',
+              'completionEffects.leaseExpiresAt': { $lte: now },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      $set: {
+        'completionEffects.version': 'editron-render-completion-effects-v1',
+        'completionEffects.state': 'running',
+        'completionEffects.claimToken': claimToken,
+        'completionEffects.claimedAt': now,
+        'completionEffects.leaseExpiresAt': new Date(now.getTime() + leaseMs),
+      },
+      $inc: { 'completionEffects.attempts': 1 },
+      $unset: { 'completionEffects.completedAt': '' },
+    },
+    { returnDocument: 'after' },
+  );
+  if (!claimed?.outputUrl) return null;
+  return {
+    jobId: claimed._id,
+    userId: claimed.userId,
+    projectId: claimed.projectId,
+    providerRenderId: claimed.providerRenderId,
+    outputUrl: claimed.outputUrl,
+    outputSize: claimed.outputSize ?? 0,
+    claimToken,
+  };
+}
+
+export async function completeRenderCompletionEffects(input: {
+  jobId: string;
+  claimToken: string;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<boolean> {
+  const jobs = input.collection ?? await getCollection();
+  const completed = await jobs.updateOne(
+    {
+      _id: input.jobId,
+      status: 'done',
+      'completionEffects.state': 'running',
+      'completionEffects.claimToken': input.claimToken,
+    },
+    {
+      $set: {
+        'completionEffects.state': 'done',
+        'completionEffects.completedAt': input.now ?? new Date(),
+      },
+      $unset: {
+        'completionEffects.claimToken': '',
+        'completionEffects.leaseExpiresAt': '',
+      },
+    },
+  );
+  return completed.modifiedCount === 1;
+}
+
+export async function releaseRenderCompletionEffects(input: {
+  jobId: string;
+  claimToken: string;
+  collection?: Collection<RenderJob>;
+}): Promise<boolean> {
+  const jobs = input.collection ?? await getCollection();
+  const released = await jobs.updateOne(
+    {
+      _id: input.jobId,
+      status: 'done',
+      'completionEffects.state': 'running',
+      'completionEffects.claimToken': input.claimToken,
+    },
+    { $unset: { completionEffects: '' } },
+  );
+  return released.modifiedCount === 1;
 }
 
 /**
