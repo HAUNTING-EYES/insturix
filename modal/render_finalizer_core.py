@@ -21,7 +21,7 @@ ALLOWED_HOST_SUFFIXES = (
     ".cloudfront.net",
     "storage.googleapis.com",
 )
-SAFE_S3_BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
+SAFE_RENDER_JOB_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 
 def authorization_matches(header: Optional[str], token: str) -> bool:
@@ -58,33 +58,38 @@ def normalize_duration_ms(raw: object) -> Optional[int]:
     return raw
 
 
-def parse_s3_target(render_url: str) -> Optional[tuple[str, str]]:
+def normalize_public_base_url(raw: object) -> Optional[str]:
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    cleaned = raw.strip().replace("\\r", "").replace("\\n", "")
+    cleaned = cleaned.replace("\r", "").replace("\n", "").replace("\t", "").rstrip("/")
     try:
-        parts = urlsplit(render_url)
-        host = (parts.hostname or "").lower()
+        parts = urlsplit(cleaned)
     except ValueError:
         return None
-    match = re.match(
-        r"^([a-z0-9.-]+)\.s3[.-]([a-z0-9-]+)\.amazonaws\.com$",
-        host,
-    )
-    if match:
-        return match.group(1), match.group(2)
-    match = re.match(r"^([a-z0-9.-]+)\.s3\.amazonaws\.com$", host)
-    if match:
-        return match.group(1), "us-east-1"
-    match = re.match(r"^s3[.-]([a-z0-9-]+)\.amazonaws\.com$", host)
-    if match:
-        bucket = parts.path.lstrip("/").split("/", 1)[0]
-        return (bucket, match.group(1)) if SAFE_S3_BUCKET.fullmatch(bucket) else None
-    if host == "s3.amazonaws.com":
-        bucket = parts.path.lstrip("/").split("/", 1)[0]
-        return (bucket, "us-east-1") if SAFE_S3_BUCKET.fullmatch(bucket) else None
-    return None
+    if (
+        parts.scheme != "https"
+        or not parts.hostname
+        or parts.username
+        or parts.password
+        or parts.query
+        or parts.fragment
+    ):
+        return None
+    return cleaned
 
 
-def public_s3_url(bucket: str, region: str, key: str) -> str:
-    return f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
+def render_output_key(job_id: str) -> str:
+    if not SAFE_RENDER_JOB_ID.fullmatch(job_id):
+        raise ValueError("job_id must be a safe render identifier")
+    return f"editron_render_{job_id}.mp4"
+
+
+def public_r2_url(public_base_url: str, key: str) -> str:
+    normalized = normalize_public_base_url(public_base_url)
+    if not normalized:
+        raise ValueError("public_base_url must be a valid HTTPS URL")
+    return f"{normalized}/asset/{key}"
 
 
 def ffmpeg_finalize_args(

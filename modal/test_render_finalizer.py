@@ -12,8 +12,10 @@ from render_finalizer_core import (
     build_probe_receipt,
     ffmpeg_finalize_args,
     is_allowed_render_url,
+    normalize_public_base_url,
     normalize_duration_ms,
-    parse_s3_target,
+    public_r2_url,
+    render_output_key,
     run_finalization,
     run_probe,
     verify_probe_receipt,
@@ -31,23 +33,31 @@ def test_authorization_matches():
     assert authorization_matches(None, "secret") is False
 
 
-def test_storage_url_and_target_validation():
+def test_source_storage_url_validation():
     assert is_allowed_render_url(S3_URL) is True
     assert is_allowed_render_url("https://storage.googleapis.com/bucket/out.mp4") is True
     assert is_allowed_render_url("https://evil.example/out.mp4") is False
     assert is_allowed_render_url("https://amazonaws.com.evil.example/out.mp4") is False
     assert is_allowed_render_url("http://bucket.s3.amazonaws.com/out.mp4") is False
     assert is_allowed_render_url("https://user:pass@bucket.s3.amazonaws.com/out.mp4") is False
-    assert parse_s3_target(S3_URL) == ("remotionlambda-useast1-abc123", "us-east-1")
-    assert parse_s3_target("https://bucket.s3.amazonaws.com/out.mp4") == ("bucket", "us-east-1")
-    assert parse_s3_target(
-        "https://s3.us-east-1.amazonaws.com/remotionlambda-useast1-abc123/renders/job/out.mp4"
-    ) == ("remotionlambda-useast1-abc123", "us-east-1")
-    assert parse_s3_target(
-        "https://s3-us-west-2.amazonaws.com/remotionlambda-uswest2-abc123/renders/job/out.mp4"
-    ) == ("remotionlambda-uswest2-abc123", "us-west-2")
-    assert parse_s3_target("https://s3.amazonaws.com/bucket/out.mp4") == ("bucket", "us-east-1")
-    assert parse_s3_target("https://s3.us-east-1.amazonaws.com/not_a_bucket/out.mp4") is None
+
+
+def test_public_delivery_url_validation():
+    assert normalize_public_base_url("https://cdn.example.test/\n") == "https://cdn.example.test"
+    assert normalize_public_base_url("https://cdn.example.test/base/") == "https://cdn.example.test/base"
+    assert normalize_public_base_url("http://cdn.example.test") is None
+    assert normalize_public_base_url("https://user:pass@cdn.example.test") is None
+    assert normalize_public_base_url("https://cdn.example.test?token=secret") is None
+    assert render_output_key("rnd_abc-123") == "editron_render_rnd_abc-123.mp4"
+    assert public_r2_url(
+        "https://editron-asset-proxy.example.workers.dev/",
+        "editron_render_rnd_abc-123.mp4",
+    ) == "https://editron-asset-proxy.example.workers.dev/asset/editron_render_rnd_abc-123.mp4"
+    try:
+        render_output_key("../unsafe")
+        raise AssertionError("unsafe render job IDs must be rejected")
+    except ValueError:
+        pass
 
 
 def test_duration_validation():

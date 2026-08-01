@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import subprocess
@@ -13,9 +14,10 @@ import modal
 from render_finalizer_core import (
     authorization_matches,
     is_allowed_render_url,
+    normalize_public_base_url,
     normalize_duration_ms,
-    parse_s3_target,
-    public_s3_url,
+    public_r2_url,
+    render_output_key,
     run_finalization,
 )
 
@@ -28,17 +30,18 @@ image = (
     .add_local_python_source("render_finalizer_core")
 )
 finalizer_secret = modal.Secret.from_name("editron-render-finalizer")
+render_storage_secret = modal.Secret.from_name("editron-render-finalized-r2")
 
 MAX_INPUT_BYTES = 3_000_000_000
 DOWNLOAD_TIMEOUT_S = 180
 SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 SAFE_BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
-SAFE_REGION = re.compile(r"^[a-z]{2}(?:-gov)?-[a-z]+-\d$")
+SAFE_R2_ACCOUNT_ID = re.compile(r"^[a-f0-9]{32}$", re.IGNORECASE)
 
 
 @app.function(
     image=image,
-    secrets=[finalizer_secret],
+    secrets=[finalizer_secret, render_storage_secret],
     cpu=2.0,
     memory=4096,
     timeout=1200,
@@ -80,22 +83,21 @@ async def finalize(request: fastapi.Request):
     if expected_duration_ms is None:
         return error(400, "invalid_duration", "expectedDurationMs must be a positive integer within the production cap.")
 
-    target = parse_s3_target(input_url)
-    output_bucket = body.get("outputBucket")
-    output_region = body.get("outputRegion")
-    if output_bucket is not None or output_region is not None:
-        if (
-            not isinstance(output_bucket, str)
-            or not SAFE_BUCKET.fullmatch(output_bucket)
-            or not isinstance(output_region, str)
-            or not SAFE_REGION.fullmatch(output_region)
-        ):
-            return error(400, "invalid_output_target", "outputBucket and outputRegion must be valid and supplied together.")
-        target = output_bucket, output_region
-    if not target:
-        return error(400, "unresolved_output_bucket", "Could not resolve an S3 output target.")
-    bucket, region = target
-    output_key = f"editron-finalized/{job_id}.mp4"
+    r2_account_id = os.environ.get("R2_ACCOUNT_ID", "").strip()
+    r2_access_key_id = os.environ.get("R2_ACCESS_KEY_ID", "").strip()
+    r2_secret_access_key = os.environ.get("R2_SECRET_ACCESS_KEY", "").strip()
+    r2_bucket_name = os.environ.get("R2_BUCKET_NAME", "").strip()
+    public_base_url = normalize_public_base_url(os.environ.get("CDN_WORKER_URL"))
+    if (
+        not SAFE_R2_ACCOUNT_ID.fullmatch(r2_account_id)
+        or not r2_access_key_id
+        or not r2_secret_access_key
+        or not SAFE_BUCKET.fullmatch(r2_bucket_name)
+        or not public_base_url
+    ):
+        return error(503, "finalizer_storage_not_configured", "Render finalizer R2/CDN storage is not configured.")
+    output_key = render_output_key(job_id)
+    output_url = public_r2_url(public_base_url, output_key)
 
     with tempfile.TemporaryDirectory() as work:
         input_path = os.path.join(work, "source.mp4")
@@ -126,19 +128,54 @@ async def finalize(request: fastapi.Request):
 
         size_bytes = os.path.getsize(output_path)
         try:
-            s3 = boto3.client("s3", region_name=region, config=BotoConfig(retries={"max_attempts": 3}))
-            s3.upload_file(
+            r2 = boto3.client(
+                "s3",
+                endpoint_url=f"https://{r2_account_id}.r2.cloudflarestorage.com",
+                region_name="auto",
+                aws_access_key_id=r2_access_key_id,
+                aws_secret_access_key=r2_secret_access_key,
+                config=BotoConfig(
+                    retries={"max_attempts": 3},
+                    s3={"addressing_style": "path"},
+                    request_checksum_calculation="when_required",
+                    response_checksum_validation="when_required",
+                ),
+            )
+            r2.upload_file(
                 output_path,
-                bucket,
+                r2_bucket_name,
                 output_key,
-                ExtraArgs={"ContentType": "video/mp4", "ACL": "public-read"},
+                ExtraArgs={
+                    "ContentType": "video/mp4",
+                    "CacheControl": "public, max-age=31536000, immutable",
+                    "Metadata": {"editronRenderJobId": job_id},
+                },
             )
         except Exception as exc:  # noqa: BLE001
             return error(502, "upload_failed", f"Finalized upload failed: {type(exc).__name__}.")
 
+        public_verified = False
+        try:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
+                for attempt in range(3):
+                    async with client.stream("GET", output_url, headers={"Range": "bytes=0-0"}) as response:
+                        if response.status_code in (200, 206):
+                            async for chunk in response.aiter_bytes():
+                                if chunk:
+                                    public_verified = True
+                                    break
+                        if public_verified:
+                            break
+                    if attempt < 2:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+        except httpx.HTTPError:
+            public_verified = False
+        if not public_verified:
+            return error(502, "public_delivery_unavailable", "Finalized upload is not available through the public CDN.")
+
     return JSONResponse(status_code=200, content={
         "ok": True,
-        "url": public_s3_url(bucket, region, output_key),
+        "url": output_url,
         "sizeBytes": size_bytes,
         "expectedDurationMs": expected_duration_ms,
         "receipt": receipt,
