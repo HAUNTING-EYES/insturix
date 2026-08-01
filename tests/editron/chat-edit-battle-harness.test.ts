@@ -1042,8 +1042,8 @@ describe('chat edit battle harness', () => {
     expect(getChatEditBattleScenario('vague-sfx-beat')?.acceptedResolverOutcomes).toEqual(['ambiguous']);
   });
 
-  it('requires process-diagram creation to persist MG-family output', () => {
-    const scenario = getChatEditBattleScenario('create-html-scene')!;
+  it('requires a grounded process request to persist only AI MG sequence output', () => {
+    const scenario = getChatEditBattleScenario('grounded-process-mg')!;
     expect(scenario.requiredToolSequence).toEqual([
       ['read_project_file', 'get_timeline_view'],
       'apply_editorial_intent',
@@ -1052,10 +1052,11 @@ describe('chat edit battle harness', () => {
       'generate_html_scene',
       'generate_html_sticker',
       'add_overlay',
+      'add_motion_graphic',
+      'auto_motion_graphics',
     ]));
-    expect(scenario.requiredCreatedOverlayTypes).toEqual([
-      ['motion-graphic', 'mg-sequence'],
-    ]);
+    expect(scenario.prompt).toContain('real production stages evidenced in this project');
+    expect(scenario.requiredCreatedOverlayTypes).toEqual(['mg-sequence']);
   });
 
   it('keeps rendered title proof on the literal overlay owner and rejects collateral captions', () => {
@@ -1118,10 +1119,10 @@ describe('chat edit battle harness', () => {
       });
   });
 
-  it('rejects collateral caption creation as process-diagram success', () => {
-    const scenario = getChatEditBattleScenario('create-html-scene')!;
+  it('rejects legacy and collateral overlays as grounded AI MG success', () => {
+    const scenario = getChatEditBattleScenario('grounded-process-mg')!;
     const beforeProject = project([]);
-    const invocationEvidence = invocation('create-html-scene', [
+    const invocationEvidence = invocation('grounded-process-mg', [
       {
         id: 'read',
         name: 'read_project_file',
@@ -1166,16 +1167,18 @@ describe('chat edit battle harness', () => {
       });
     };
 
-    expect(evaluateCreatedType('caption').checks.find(
-      (check) => check.id === 'mongo.required-created-overlay-types',
-    )).toMatchObject({
-      status: 'fail',
-      blocking: true,
-      evidence: {
-        createdOverlays: [{ id: 'created-caption', type: 'caption' }],
-        missing: [['motion-graphic', 'mg-sequence']],
-      },
-    });
+    for (const rejectedType of ['caption', 'motion-graphic', 'html']) {
+      expect(evaluateCreatedType(rejectedType).checks.find(
+        (check) => check.id === 'mongo.required-created-overlay-types',
+      )).toMatchObject({
+        status: 'fail',
+        blocking: true,
+        evidence: {
+          createdOverlays: [{ id: `created-${rejectedType}`, type: rejectedType }],
+          missing: ['mg-sequence'],
+        },
+      });
+    }
     expect(evaluateCreatedType('mg-sequence').checks.find(
       (check) => check.id === 'mongo.required-created-overlay-types',
     )).toMatchObject({
@@ -1622,6 +1625,12 @@ describe('chat edit battle harness', () => {
           reason: 'provider unavailable '.repeat(500),
           receipt: {
             outcome: 'fallback',
+            promptHash: 'prompt-hash-2',
+            attempts: 2,
+            compiled: true,
+            scans: [{ passed: true }, { passed: false, reason: 'unsafe text geometry' }],
+            judgeScore: 4.25,
+            judgeIssues: ['poor hierarchy', 'weak semantic encoding'],
             failure: {
               provider: 'zai',
               operation: 'component-generation',
@@ -1670,6 +1679,12 @@ describe('chat edit battle harness', () => {
             disposition: 'retryable',
             statusCode: 504,
           },
+          promptHash: 'prompt-hash-2',
+          attempts: 2,
+          compiled: true,
+          scans: [{ passed: true }, { passed: false, reason: 'unsafe text geometry' }],
+          judgeScore: 4.25,
+          judgeIssues: ['poor hierarchy', 'weak semantic encoding'],
         },
         {
           jobId: 'mgr_child_generated',

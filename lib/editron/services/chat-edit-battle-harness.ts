@@ -127,6 +127,15 @@ export interface ChatBattleDurableChildOperationEvidence {
   sequenceId?: string;
   reason?: string;
   error?: string;
+  promptHash?: string;
+  attempts?: number;
+  compiled?: boolean;
+  scans?: Array<{
+    passed: boolean;
+    reason?: string;
+  }>;
+  judgeScore?: number;
+  judgeIssues?: string[];
   providerFailure?: {
     provider?: string;
     operation?: string;
@@ -309,7 +318,16 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('motivated-zoom', 'Motivated zoom', 'Use a subtle zoom on the strongest spoken emphasis, if the shot supports it.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: requiredToolSequenceForChatCapability('localized-camera-motion', 'set_keyframes'), forbiddenTools: ['apply_editorial_intent'] }),
   scenario('vague-sfx-beat', 'SFX on a grounded beat', 'Add a subtle impact on the strongest visual or spoken beat.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: requiredToolSequenceForChatCapability('localized-sfx', 'add_sfx'), forbiddenTools: ['apply_editorial_intent'], acceptedResolverOutcomes: ['ambiguous'] }),
   scenario('clean-captions', 'Clean readable captions', 'Add clean readable captions that fit this video.', { requiredToolSequence: requiredToolSequenceForChatCapability('caption-track', 'add_captions'), forbiddenTools: ['apply_editorial_intent'] }),
-  scenario('create-html-scene', 'Create process graphic', 'Create a full-screen process diagram for this explanation.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['generate_html_scene', 'generate_html_sticker', 'add_overlay'], requiredCreatedOverlayTypes: [['motion-graphic', 'mg-sequence']] }),
+  scenario(
+    'grounded-process-mg',
+    'Grounded AI process graphic',
+    'Create one full-screen motion graphic explaining the real production stages evidenced in this project. Preserve their grounded order and labels, and do not invent missing stages.',
+    {
+      requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'],
+      forbiddenTools: ['generate_html_scene', 'generate_html_sticker', 'add_overlay', 'add_motion_graphic', 'auto_motion_graphics'],
+      requiredCreatedOverlayTypes: ['mg-sequence'],
+    },
+  ),
   scenario('edit-html-scene', 'Edit HTML scene in place', 'Edit the selected HTML scene itself: change the heading embedded inside that HTML scene to How it works. Do not edit the separate text overlay.', { requiredToolSequence: [READ_PROJECT, 'edit_html_scene'] }),
   scenario('bgm-explicit', 'Explicit BGM intent', 'Add restrained cinematic background music with no vocals and keep speech clear.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'], forbiddenTools: ['apply_editorial_intent'] }),
   scenario('bgm-vague', 'Vague BGM intent', 'Add suitable background music for this edit.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'], forbiddenTools: ['apply_editorial_intent'] }),

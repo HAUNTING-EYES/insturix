@@ -1045,12 +1045,52 @@ function projectFromCheckpoint(checkpoint: Checkpoint): Record<string, unknown> 
 
 function childAudit(child: MgRenderChildJobSnapshot): Record<string, unknown> {
   const result = objectRecord(child.result);
+  const receipt = objectRecord(result?.receipt);
   return {
     jobId: child._id,
     jobStatus: child.status,
     outcome: result?.status ?? (child.status === 'failed' ? 'failed' : 'unknown'),
     ...(cleanString(result?.reason) ? { reason: cleanString(result?.reason) } : {}),
     ...(cleanString(child.lastError) ? { error: cleanString(child.lastError) } : {}),
+    ...(receipt ? { receipt: childReceiptAudit(receipt) } : {}),
+  };
+}
+
+function childReceiptAudit(receipt: Record<string, unknown>): Record<string, unknown> {
+  const promptHash = cleanString(receipt.promptHash)?.slice(0, 128);
+  const attempts = typeof receipt.attempts === 'number'
+    && Number.isInteger(receipt.attempts)
+    && receipt.attempts >= 0
+    ? receipt.attempts
+    : undefined;
+  const compiled = typeof receipt.compiled === 'boolean' ? receipt.compiled : undefined;
+  const scans = Array.isArray(receipt.scans)
+    ? receipt.scans.slice(0, 32).flatMap((value) => {
+      const scan = objectRecord(value);
+      if (!scan || typeof scan.passed !== 'boolean') return [];
+      const reason = cleanString(scan.reason);
+      return [{
+        passed: scan.passed,
+        ...(reason ? { reason: bounded(reason) } : {}),
+      }];
+    })
+    : [];
+  const judgeScore = typeof receipt.judgeScore === 'number' && Number.isFinite(receipt.judgeScore)
+    ? receipt.judgeScore
+    : undefined;
+  const judgeIssues = Array.isArray(receipt.judgeIssues)
+    ? receipt.judgeIssues.flatMap((value) => {
+      const issue = cleanString(value);
+      return issue ? [bounded(issue)] : [];
+    }).slice(0, 100)
+    : [];
+  return {
+    ...(promptHash ? { promptHash } : {}),
+    ...(attempts != null ? { attempts } : {}),
+    ...(compiled != null ? { compiled } : {}),
+    ...(scans.length > 0 ? { scans } : {}),
+    ...(judgeScore != null ? { judgeScore } : {}),
+    ...(judgeIssues.length > 0 ? { judgeIssues } : {}),
   };
 }
 

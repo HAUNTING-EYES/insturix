@@ -283,7 +283,19 @@ describe('durable chat editorial-intent jobs', () => {
     const loadChildJobs = vi.fn(async () => [{
       _id: 'mgr_aaaaaaaaaaaaaaaaaaaaaaaa',
       status: 'completed' as const,
-      result: { status: 'generated', sequence: { address: { sequenceId: 'seq-1' } } },
+      result: {
+        status: 'generated',
+        sequence: { address: { sequenceId: 'seq-1' } },
+        receipt: {
+          outcome: 'generated',
+          promptHash: 'prompt-hash-1',
+          attempts: 1,
+          compiled: true,
+          scans: [{ passed: true }],
+          judgeScore: 8.75,
+          judgeIssues: [],
+        },
+      },
       lastError: null,
     }]);
 
@@ -324,6 +336,13 @@ describe('durable chat editorial-intent jobs', () => {
           jobId: 'mgr_aaaaaaaaaaaaaaaaaaaaaaaa',
           jobStatus: 'completed',
           outcome: 'generated',
+          receipt: {
+            promptHash: 'prompt-hash-1',
+            attempts: 1,
+            compiled: true,
+            scans: [{ passed: true }],
+            judgeScore: 8.75,
+          },
         }],
       },
     });

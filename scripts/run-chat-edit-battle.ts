@@ -1123,6 +1123,7 @@ function childOperationsFromParentResult(
       const outcome = normalizeChildOutcome(child.outcome, status);
       const reason = boundedEvidenceText(child.reason);
       const error = boundedEvidenceText(child.error);
+      const receipt = compactMgReceipt(asRecord(child.receipt));
       return [{
         owner: 'mg-render' as const,
         jobId,
@@ -1130,6 +1131,7 @@ function childOperationsFromParentResult(
         outcome,
         ...(reason ? { reason } : {}),
         ...(error ? { error } : {}),
+        ...receipt,
       }];
     });
 }
@@ -1158,7 +1160,47 @@ function childOperationEvidence(
     ...(boundedEvidenceText(address.sequenceId, 240) ? { sequenceId: boundedEvidenceText(address.sequenceId, 240)! } : {}),
     ...(reason ? { reason } : {}),
     ...(error ? { error } : {}),
+    ...compactMgReceipt(receipt),
     ...(providerFailure ? { providerFailure } : {}),
+  };
+}
+
+function compactMgReceipt(
+  receipt: Record<string, unknown>,
+): Pick<
+  ChatBattleDurableChildOperationEvidence,
+  'promptHash' | 'attempts' | 'compiled' | 'scans' | 'judgeScore' | 'judgeIssues'
+> {
+  const promptHash = boundedEvidenceText(receipt.promptHash, 128);
+  const attempts = typeof receipt.attempts === 'number'
+    && Number.isInteger(receipt.attempts)
+    && receipt.attempts >= 0
+    ? receipt.attempts
+    : undefined;
+  const compiled = typeof receipt.compiled === 'boolean' ? receipt.compiled : undefined;
+  const scans = arrayValue(receipt.scans).slice(0, 32).flatMap((value) => {
+    const scan = asRecord(value);
+    if (typeof scan.passed !== 'boolean') return [];
+    const reason = boundedEvidenceText(scan.reason);
+    return [{
+      passed: scan.passed,
+      ...(reason ? { reason } : {}),
+    }];
+  });
+  const judgeScore = typeof receipt.judgeScore === 'number' && Number.isFinite(receipt.judgeScore)
+    ? receipt.judgeScore
+    : undefined;
+  const judgeIssues = arrayValue(receipt.judgeIssues).slice(0, 100).flatMap((value) => {
+    const issue = boundedEvidenceText(value);
+    return issue ? [issue] : [];
+  });
+  return {
+    ...(promptHash ? { promptHash } : {}),
+    ...(attempts != null ? { attempts } : {}),
+    ...(compiled != null ? { compiled } : {}),
+    ...(scans.length > 0 ? { scans } : {}),
+    ...(judgeScore != null ? { judgeScore } : {}),
+    ...(judgeIssues.length > 0 ? { judgeIssues } : {}),
   };
 }
 
