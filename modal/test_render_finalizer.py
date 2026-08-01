@@ -40,6 +40,14 @@ def test_storage_url_and_target_validation():
     assert is_allowed_render_url("https://user:pass@bucket.s3.amazonaws.com/out.mp4") is False
     assert parse_s3_target(S3_URL) == ("remotionlambda-useast1-abc123", "us-east-1")
     assert parse_s3_target("https://bucket.s3.amazonaws.com/out.mp4") == ("bucket", "us-east-1")
+    assert parse_s3_target(
+        "https://s3.us-east-1.amazonaws.com/remotionlambda-useast1-abc123/renders/job/out.mp4"
+    ) == ("remotionlambda-useast1-abc123", "us-east-1")
+    assert parse_s3_target(
+        "https://s3-us-west-2.amazonaws.com/remotionlambda-uswest2-abc123/renders/job/out.mp4"
+    ) == ("remotionlambda-uswest2-abc123", "us-west-2")
+    assert parse_s3_target("https://s3.amazonaws.com/bucket/out.mp4") == ("bucket", "us-east-1")
+    assert parse_s3_target("https://s3.us-east-1.amazonaws.com/not_a_bucket/out.mp4") is None
 
 
 def test_duration_validation():

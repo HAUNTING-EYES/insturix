@@ -21,6 +21,7 @@ ALLOWED_HOST_SUFFIXES = (
     ".cloudfront.net",
     "storage.googleapis.com",
 )
+SAFE_S3_BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 
 
 def authorization_matches(header: Optional[str], token: str) -> bool:
@@ -59,7 +60,8 @@ def normalize_duration_ms(raw: object) -> Optional[int]:
 
 def parse_s3_target(render_url: str) -> Optional[tuple[str, str]]:
     try:
-        host = (urlsplit(render_url).hostname or "").lower()
+        parts = urlsplit(render_url)
+        host = (parts.hostname or "").lower()
     except ValueError:
         return None
     match = re.match(
@@ -71,6 +73,13 @@ def parse_s3_target(render_url: str) -> Optional[tuple[str, str]]:
     match = re.match(r"^([a-z0-9.-]+)\.s3\.amazonaws\.com$", host)
     if match:
         return match.group(1), "us-east-1"
+    match = re.match(r"^s3[.-]([a-z0-9-]+)\.amazonaws\.com$", host)
+    if match:
+        bucket = parts.path.lstrip("/").split("/", 1)[0]
+        return (bucket, match.group(1)) if SAFE_S3_BUCKET.fullmatch(bucket) else None
+    if host == "s3.amazonaws.com":
+        bucket = parts.path.lstrip("/").split("/", 1)[0]
+        return (bucket, "us-east-1") if SAFE_S3_BUCKET.fullmatch(bucket) else None
     return None
 
 
