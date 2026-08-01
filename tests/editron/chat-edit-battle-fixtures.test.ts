@@ -292,7 +292,7 @@ describe('chat edit battle fixtures', () => {
   it('keeps visual mutation prompts non-no-op and grounded in the source fixture', () => {
     expect(getChatEditBattleScenario('vertical-subject-reframe')?.prompt).toContain('to 16:9');
     expect(getChatEditBattleScenario('visual-speed-ramp')?.prompt).toContain(
-      'camera pulls back from a macro view to reveal the artisan',
+      'camera pushes in from a full-body view of the model to a close-up',
     );
   });
 
