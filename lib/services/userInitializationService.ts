@@ -25,7 +25,8 @@ export class UserInitializationService {
   static async ensureUserExists(
     clerkUserId: string,
     email: string,
-    username: string,
+    // Optional: OAuth sign-ups have no username (schemas/user.ts marks it sparse for this case)
+    username: string | undefined,
     imageUrl?: string
   ): Promise<UserInitializationResult> {
     try {
@@ -92,7 +93,8 @@ export class UserInitializationService {
             $setOnInsert: {
               clerkUserId,
               email: email.toLowerCase().trim(),
-              username,
+              // Omit username entirely when absent so the sparse unique index ignores the doc
+              ...(username ? { username } : {}),
               signUpDate: now,
               currentPlan: {
                 planId: freePlan._id.toString(),
@@ -141,9 +143,11 @@ export class UserInitializationService {
           // Check if it's a username conflict vs clerkUserId conflict
           const errorMessage = upsertError && 'message' in upsertError ? String(upsertError.message) : '';
           
-          if (errorMessage.includes('username_1')) {
+          if (errorMessage.includes('username_1') && username) {
             // Username conflict - the username exists for a different clerkUserId
             // Check if the conflicting user has a different clerkUserId
+            // (guarded on username: findOne({ username: undefined }) would match ANY doc
+            // and feed the delete-conflicting-user branch below)
             const conflictingUser = await User.findOne({ username });
             
             if (conflictingUser && conflictingUser.clerkUserId !== clerkUserId) {
@@ -224,59 +228,63 @@ export class UserInitializationService {
         }
       }
 
-      // Use upsert for Socialize profile as well to prevent race conditions
-      try {
-        await Socialize.findOneAndUpdate(
-          { clerkUserId },
-          {
-            $setOnInsert: {
-              clerkUserId,
-              username,
-              profileImage: finalImageUrl,
-            }
-          },
-          { 
-            upsert: true,
-            new: true 
-          }
-        );
-        
-        if (isNewUser) {
-          console.log(`New Socialize profile created for user: ${clerkUserId}`);
-        }
-      } catch (socializeError: unknown) {
-        // Handle Socialize username conflict
-        if (socializeError && typeof socializeError === 'object' && 'code' in socializeError && socializeError.code === 11000) {
-          const errorMessage = socializeError && 'message' in socializeError ? String(socializeError.message) : '';
-          
-          if (errorMessage.includes('username_1')) {
-            console.log(`Socialize username conflict detected for "${username}", cleaning up orphaned profile`);
-            
-            // Delete orphaned Socialize profile with this username
-            await Socialize.deleteOne({ username, clerkUserId: { $ne: clerkUserId } });
-            
-            // Retry the upsert
-            await Socialize.findOneAndUpdate(
-              { clerkUserId },
-              {
-                $setOnInsert: {
-                  clerkUserId,
-                  username,
-                  profileImage: finalImageUrl,
-                }
-              },
-              { 
-                upsert: true,
-                new: true 
+      // Use upsert for Socialize profile as well to prevent race conditions.
+      // Socialize requires a unique username (schemas/Socialize.ts), so OAuth
+      // sign-ups without one get no profile until they choose a username.
+      if (username) {
+        try {
+          await Socialize.findOneAndUpdate(
+            { clerkUserId },
+            {
+              $setOnInsert: {
+                clerkUserId,
+                username,
+                profileImage: finalImageUrl,
               }
-            );
-            
-            console.log(`Socialize profile created after cleaning up orphaned data for: ${clerkUserId}`);
+            },
+            {
+              upsert: true,
+              new: true
+            }
+          );
+
+          if (isNewUser) {
+            console.log(`New Socialize profile created for user: ${clerkUserId}`);
+          }
+        } catch (socializeError: unknown) {
+          // Handle Socialize username conflict
+          if (socializeError && typeof socializeError === 'object' && 'code' in socializeError && socializeError.code === 11000) {
+            const errorMessage = socializeError && 'message' in socializeError ? String(socializeError.message) : '';
+
+            if (errorMessage.includes('username_1')) {
+              console.log(`Socialize username conflict detected for "${username}", cleaning up orphaned profile`);
+
+              // Delete orphaned Socialize profile with this username
+              await Socialize.deleteOne({ username, clerkUserId: { $ne: clerkUserId } });
+
+              // Retry the upsert
+              await Socialize.findOneAndUpdate(
+                { clerkUserId },
+                {
+                  $setOnInsert: {
+                    clerkUserId,
+                    username,
+                    profileImage: finalImageUrl,
+                  }
+                },
+                {
+                  upsert: true,
+                  new: true
+                }
+              );
+
+              console.log(`Socialize profile created after cleaning up orphaned data for: ${clerkUserId}`);
+            } else {
+              throw socializeError;
+            }
           } else {
             throw socializeError;
           }
-        } else {
-          throw socializeError;
         }
       }
       
