@@ -80,6 +80,47 @@ describe('chat frame visual verification', () => {
     expect(result.boundingBox).toBeUndefined();
   });
 
+  it('retries one malformed provider response within the same verification deadline', async () => {
+    const generate = vi.fn()
+      .mockResolvedValueOnce('not-json')
+      .mockResolvedValueOnce(JSON.stringify({
+        targetVisible: true,
+        matchQuality: 'exact',
+        evidence: 'The garment sketch and measuring ruler are directly visible.',
+        reasoning: 'The requested object and action are both present in the frame.',
+      }));
+
+    const result = await verifyChatFrameVisualMatch({
+      query: 'garment sketch being measured',
+      evidence: evidence(),
+    }, { generate });
+
+    expect(result.status).toBe('confirmed');
+    expect(generate).toHaveBeenNthCalledWith(1, expect.any(Array), 1);
+    expect(generate).toHaveBeenNthCalledWith(2, expect.any(Array), 2);
+  });
+
+  it('fails after two malformed responses without leaking provider output', async () => {
+    const sensitiveProviderOutput = 'not-json-secret-provider-payload';
+    const generate = vi.fn(async () => sensitiveProviderOutput);
+
+    let failure: unknown;
+    try {
+      await verifyChatFrameVisualMatch({
+        query: 'garment sketch being measured',
+        evidence: evidence(),
+      }, { generate });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain('after 2 attempt(s)');
+    expect((failure as Error).message).toContain('sha256=');
+    expect((failure as Error).message).not.toContain(sensitiveProviderOutput);
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
   it('refuses evidence captured for a different query', async () => {
     await expect(verifyChatFrameVisualMatch({
       query: 'a bird flying',

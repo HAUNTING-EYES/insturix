@@ -36,11 +36,16 @@ interface ChatFrameVisualVerificationInput {
 }
 
 interface ChatFrameVisualVerificationDependencies {
-  generate?: (parts: ReturnType<typeof buildGeminiHumanParts>) => Promise<string>;
+  generate?: (
+    parts: ReturnType<typeof buildGeminiHumanParts>,
+    attempt: number,
+  ) => Promise<string>;
   model?: string;
 }
 
 const VERIFICATION_TIMEOUT_MS = 25_000;
+const VERIFICATION_MAX_ATTEMPTS = 2;
+const VERIFICATION_MAX_OUTPUT_TOKENS = 4_096;
 const MAX_TEXT_LENGTH = 500;
 const FRAME_QUERY_PREFIX = 'Verify canonical visual match for:';
 
@@ -72,13 +77,7 @@ export async function verifyChatFrameVisualMatch(
   const query = bindQueryToInspectionEvidence(input.query, input.evidence.question);
   const parts = buildGeminiHumanParts(buildVerificationPrompt(query, input.candidateContext), input.evidence);
   const model = dependencies.model ?? ANALYSIS_MODEL_NAME;
-  const responseText = await withTimeout(
-    dependencies.generate
-      ? dependencies.generate(parts)
-      : generateWithGemini(parts),
-    VERIFICATION_TIMEOUT_MS,
-  );
-  const parsed = parseVerificationResponse(responseText);
+  const parsed = await generateVerifiedResponse(parts, dependencies);
   const confirmed = parsed.targetVisible
     && (parsed.matchQuality === 'exact' || parsed.matchQuality === 'clear-semantic');
   const boundingBox = confirmed ? readNormalizedBoundingBox(parsed.boundingBox) : undefined;
@@ -128,19 +127,61 @@ function buildVerificationPrompt(query: string, candidateContext?: string): stri
 
 async function generateWithGemini(
   parts: ReturnType<typeof buildGeminiHumanParts>,
+  attempt: number,
 ): Promise<string> {
   const model = await getAnalysisModel();
+  const retryInstruction = attempt > 1
+    ? [{ text: 'The previous provider response was not schema-valid. Return the required JSON object now, with no prose or code fence.' }]
+    : [];
   const result = await model.generateContent({
-    contents: [{ role: 'user', parts }],
+    contents: [{ role: 'user', parts: [...parts, ...retryInstruction] }],
     generationConfig: {
       responseMimeType: 'application/json',
       responseSchema: RESPONSE_SCHEMA,
       temperature: 0,
-      seed: 42,
-      maxOutputTokens: 768,
+      seed: 41 + attempt,
+      maxOutputTokens: VERIFICATION_MAX_OUTPUT_TOKENS,
     },
   });
   return result.response?.text?.() ?? '';
+}
+
+async function generateVerifiedResponse(
+  parts: ReturnType<typeof buildGeminiHumanParts>,
+  dependencies: ChatFrameVisualVerificationDependencies,
+): Promise<ReturnType<typeof parseVerificationResponse>> {
+  const deadline = Date.now() + VERIFICATION_TIMEOUT_MS;
+  const diagnostics: string[] = [];
+
+  for (let attempt = 1; attempt <= VERIFICATION_MAX_ATTEMPTS; attempt += 1) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+    const responseText = await withTimeout(
+      dependencies.generate
+        ? dependencies.generate(parts, attempt)
+        : generateWithGemini(parts, attempt),
+      remainingMs,
+    );
+    try {
+      return parseVerificationResponse(responseText);
+    } catch (error) {
+      diagnostics.push(formatMalformedResponseDiagnostic(attempt, responseText, error));
+    }
+  }
+
+  throw new Error(
+    `Visual verification provider returned invalid structured output after ${diagnostics.length} attempt(s): ${diagnostics.join(' | ') || 'deadline exhausted'}`,
+  );
+}
+
+function formatMalformedResponseDiagnostic(
+  attempt: number,
+  responseText: string,
+  error: unknown,
+): string {
+  const fingerprint = createHash('sha256').update(responseText).digest('hex').slice(0, 12);
+  const reason = error instanceof Error ? error.message : String(error);
+  return `attempt=${attempt},chars=${responseText.length},sha256=${fingerprint},reason=${boundedText(reason, 160)}`;
 }
 
 function bindQueryToInspectionEvidence(query: string, question: string): string {

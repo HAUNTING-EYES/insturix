@@ -15,6 +15,7 @@ import {
   EDITRON_EMBEDDING_DIMENSIONS,
   EDITRON_EMBEDDING_MODEL,
 } from '@/lib/editron/services/gemini-embedding';
+import { verifyChatFrameVisualMatch } from '@/lib/editron/services/chat-frame-visual-verification';
 
 function vector(axis: number, dimensions = EDITRON_EMBEDDING_DIMENSIONS): number[] {
   return Array.from({ length: dimensions }, (_, index) => index === axis ? 1 : 0);
@@ -424,7 +425,10 @@ describe('canonical chat multimodal evidence', () => {
       source: { auditId: 'audit-live', evidenceId: 'evidence-craft' },
     });
 
-    const frameVerifier = vi.fn(async () => ({
+    const frameVerifier = vi.fn<
+      Parameters<typeof verifyChatFrameVisualMatch>,
+      ReturnType<typeof verifyChatFrameVisualMatch>
+    >(async () => ({
       status: 'confirmed' as const,
       receiptId: 'frame-visual-test',
       frame: 130,
@@ -534,5 +538,76 @@ describe('canonical chat multimodal evidence', () => {
       height: '45%',
     });
     expect(frameVerifier).toHaveBeenCalledOnce();
+
+    frameVerifier.mockRejectedValueOnce(new Error('invalid structured output after 2 attempt(s)'));
+    const providerFailureOutput = JSON.parse(await resolveVisual.invoke({
+      query: 'the hand-crafted garment section',
+      action: 'highlight',
+      includeOverlayText: false,
+      limit: 5,
+      minConfidence: 0.35,
+      durationFrames: 60,
+    }, {
+      configurable: {
+        chatFrameEvidence: {
+          frame: 130,
+          question: 'Verify canonical visual match for: the hand-crafted garment section',
+          dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
+          width: 960,
+          height: 540,
+          capturedAtMs: 1_000_001,
+          source: 'editor-rendered-frame',
+        },
+      },
+    }));
+    expect(providerFailureOutput).toMatchObject({
+      status: 'declined',
+      error: {
+        code: 'VISUAL_VERIFICATION_PROVIDER_FAILED',
+        details: { retryable: false },
+      },
+      nextAction: 'stop',
+    });
+
+    frameVerifier.mockResolvedValueOnce({
+      status: 'rejected',
+      receiptId: 'frame-visual-rejected',
+      frame: 130,
+      query: 'the hand-crafted garment section',
+      provider: 'gemini',
+      model: 'test-vision-model',
+      matchQuality: 'partial',
+      evidence: 'Fabric is visible, but the requested craft action is not.',
+      reasoning: 'The pixels do not establish the requested event.',
+    });
+    const rejectedFrameOutput = JSON.parse(await resolveVisual.invoke({
+      query: 'the hand-crafted garment section',
+      action: 'highlight',
+      includeOverlayText: false,
+      limit: 5,
+      minConfidence: 0.35,
+      durationFrames: 60,
+    }, {
+      configurable: {
+        chatFrameEvidence: {
+          frame: 130,
+          question: 'Verify canonical visual match for: the hand-crafted garment section',
+          dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
+          width: 960,
+          height: 540,
+          capturedAtMs: 1_000_002,
+          source: 'editor-rendered-frame',
+        },
+      },
+    }));
+    expect(rejectedFrameOutput).toMatchObject({
+      status: 'needs-choice',
+      error: {
+        code: 'VISUAL_TARGET_NOT_CONFIRMED',
+        details: { retryable: false },
+      },
+      nextAction: 'ask_clarification',
+    });
+    expect(frameVerifier).toHaveBeenCalledTimes(3);
   });
 });

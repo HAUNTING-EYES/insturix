@@ -790,8 +790,10 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
             candidateContext: candidate.evidenceText,
           });
         } catch (error) {
-          return resolutionEnvelope(
-            {
+          const message = `The rendered frame could not be independently verified: ${error instanceof Error ? error.message : String(error)}`;
+          return JSON.stringify({
+            status: "declined",
+            data: {
               status: "ambiguous",
               action: input.action,
               query: input.query,
@@ -799,12 +801,19 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
               warnings: ["frame-verification-provider-failed"],
               canonicalEvidence: retrieval.audit,
             },
-            `The rendered frame could not be independently verified: ${error instanceof Error ? error.message : String(error)}`,
-          );
+            error: {
+              code: "VISUAL_VERIFICATION_PROVIDER_FAILED",
+              message,
+              details: { retryable: false },
+            },
+            nextAction: "stop",
+          });
         }
         if (frameVerification.status !== "confirmed") {
-          return resolutionEnvelope(
-            {
+          const message = `The rendered frame did not visibly confirm "${input.query}". No edit was authorized.`;
+          return JSON.stringify({
+            status: "needs-choice",
+            data: {
               status: "ambiguous",
               action: input.action,
               query: input.query,
@@ -813,8 +822,13 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
               canonicalEvidence: retrieval.audit,
               frameVerification,
             },
-            `The rendered frame did not visibly confirm "${input.query}". No edit was authorized.`,
-          );
+            error: {
+              code: "VISUAL_TARGET_NOT_CONFIRMED",
+              message,
+              details: { retryable: false },
+            },
+            nextAction: "ask_clarification",
+          });
         }
         candidates = promoteFrameVerifiedCandidate(candidates, candidate, frameVerification);
       }
