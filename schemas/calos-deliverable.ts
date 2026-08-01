@@ -14,6 +14,7 @@ export type CalosService = "thinkforge" | "clickatron" | "editron" | "musitron";
 export interface CalosServiceRef {
   service?: CalosService;
   jobId?: string;
+  deliverableVersion?: number; // generation claim: callbacks may write only while this is current
   sessionId?: string;
   projectId?: string;
   variationId?: string;
@@ -68,6 +69,7 @@ const ServiceRefSchema = new Schema<CalosServiceRef>(
   {
     service: { type: String, enum: ["thinkforge", "clickatron", "editron", "musitron"] },
     jobId: String,
+    deliverableVersion: Number,
     sessionId: String,
     projectId: String,
     variationId: String,

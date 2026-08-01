@@ -19,8 +19,8 @@ export const maxDuration = 60;
  * spend it — CalOS never auto-charges an image). The finished image lands back on the card via the
  * completion worker (attachGeneratedAsset), which resolves the card from sourceContext.calosDeliverableId.
  *
- * Scoped by owner/org + brand + card.id (no IDOR). Idempotent: a second call while a job is in flight
- * returns 409 rather than charging + enqueuing again. On kickoff failure the credit is refunded.
+ * Scoped by owner/org + brand + card.id (no IDOR). A visible in-flight job is rejected, while the
+ * durable-work phase owns the remaining concurrent-request race. On kickoff failure the credit is refunded.
  */
 export async function POST(req: NextRequest) {
   let creditCheck: CreditCheckResult | null = null;
@@ -115,6 +115,7 @@ export async function POST(req: NextRequest) {
     deliverable.serviceRef = {
       service: "clickatron",
       jobId: kickoff.jobId,
+      deliverableVersion: deliverable.version,
       sessionId: kickoff.sessionId,
       variationId: kickoff.variationId,
     };
