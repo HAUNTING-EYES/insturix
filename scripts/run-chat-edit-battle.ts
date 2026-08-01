@@ -85,6 +85,9 @@ async function main(): Promise<void> {
   let baselineMaterialDigest: string | null = null;
   let latestInvocation: ChatBattleInvocationEvidence | null = null;
   let latestDurableMutationFailure: string | null = null;
+  const requestedOperationIds = new Set<string>([
+    options.operationId ?? `chat-battle:${safeSegment(options.runId)}`,
+  ]);
 
   const report = await runChatEditBattleJourney(
     {
@@ -157,6 +160,8 @@ async function main(): Promise<void> {
             await loadMongoProject(projectId),
             frameCaptureRequest,
           );
+          const followUpOperationId = `chat-battle:${safeSegment(`${options.runId}-visual-evidence`)}`;
+          requestedOperationIds.add(followUpOperationId);
           const followUp = await invokeLiveChatAgent({
             api,
             scenarioPrompt: scenario.prompt,
@@ -165,7 +170,7 @@ async function main(): Promise<void> {
             selectedOverlayId,
             clientContext: context,
             runId: `${options.runId}-visual-evidence`,
-            operationId: `chat-battle:${safeSegment(`${options.runId}-visual-evidence`)}`,
+            operationId: followUpOperationId,
             startedAt: startedAtHolder.value || new Date().toISOString(),
             visualEvidence,
           });
@@ -335,7 +340,10 @@ async function main(): Promise<void> {
       },
       reloadUiProject: async (projectId) => getJson(api, `/api/services/editron/projects/${encodeURIComponent(projectId)}`),
       captureRenderEvidence: async ({ projectId, mongoAfter, startedAt }) => {
-        const initial = extractPersistedChatBattleRenderEvidence(mongoAfter, startedAt);
+        const initial = extractPersistedChatBattleRenderEvidence(mongoAfter, startedAt, {
+          requireChatVerification: true,
+          expectedOperationIds: [...requestedOperationIds],
+        });
         if (!shouldPollForFreshChatBattleRenderEvidence({
           requiresRenderedEvidence: scenario.requireRenderedEvidence,
           initialStatus: initial.status,
@@ -349,6 +357,8 @@ async function main(): Promise<void> {
           projectId,
           startedAt,
           initialProject: asRecord(mongoAfter),
+          requireChatVerification: true,
+          expectedOperationIds: [...requestedOperationIds],
         });
       },
     },
@@ -1345,6 +1355,8 @@ export async function waitForFreshChatBattleRenderEvidence(
     projectId: string;
     startedAt: string;
     initialProject: Record<string, unknown>;
+    requireChatVerification?: boolean;
+    expectedOperationIds?: readonly string[];
     timeoutMs?: number;
     pollIntervalMs?: number;
   },
@@ -1362,7 +1374,10 @@ export async function waitForFreshChatBattleRenderEvidence(
   let project = input.initialProject;
 
   while (true) {
-    const evidence = extractPersistedChatBattleRenderEvidence(project, input.startedAt);
+    const evidence = extractPersistedChatBattleRenderEvidence(project, input.startedAt, {
+      requireChatVerification: input.requireChatVerification,
+      expectedOperationIds: input.expectedOperationIds,
+    });
     if (evidence.status !== 'missing') return evidence;
     if (dependencies.now() >= deadline) return evidence;
     await dependencies.sleep(pollIntervalMs);

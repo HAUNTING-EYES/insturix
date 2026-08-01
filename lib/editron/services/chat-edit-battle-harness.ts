@@ -161,11 +161,18 @@ export interface ChatBattleProjectSnapshot {
 
 export interface ChatBattleRenderEvidence {
   status: 'pass' | 'warn' | 'fail' | 'missing';
+  source?: 'chat-verification' | 'phase0-fallback';
+  operationId?: string;
   capturedAt?: string;
   artifactRefs: string[];
   issues: Array<Record<string, unknown>>;
   jobLifecycle?: Record<string, unknown>;
   reason?: string;
+}
+
+export interface ChatBattleRenderEvidenceSelection {
+  requireChatVerification?: boolean;
+  expectedOperationIds?: readonly string[];
 }
 
 export interface ChatBattleFixturePreconditionResult {
@@ -891,13 +898,19 @@ export function buildChatBattleProjectSnapshot(
 export function extractPersistedChatBattleRenderEvidence(
   projectValue: unknown,
   startedAt: string,
+  selection: ChatBattleRenderEvidenceSelection = {},
 ): ChatBattleRenderEvidence {
   const project = asRecord(unwrapProject(projectValue));
   const intelligence = asRecord(project.intelligence);
   const chatVerification = asRecord(intelligence.latestChatEditRenderVerification);
   const jobLifecycle = asRecord(chatVerification.lifecycle);
   const chatRequestedAt = stringValue(chatVerification.requestedAt) ?? undefined;
-  if (isFreshTimestamp(chatRequestedAt, startedAt)) {
+  const chatOperationId = stringValue(chatVerification.operationId) ?? undefined;
+  const expectedOperationIds = selection.expectedOperationIds?.filter(Boolean) ?? [];
+  const operationMatches = expectedOperationIds.length === 0
+    || expectedOperationIds.some((expected) => chatOperationId === expected
+      || chatOperationId?.startsWith(`${expected}:`));
+  if (isFreshTimestamp(chatRequestedAt, startedAt) && operationMatches) {
     const chatStatus = stringValue(chatVerification.status);
     const chatCapturedAt = stringValue(chatVerification.completedAt) ?? undefined;
     const lifecycleState = stringValue(jobLifecycle.state);
@@ -911,6 +924,8 @@ export function extractPersistedChatBattleRenderEvidence(
     if (!chatCapturedAt || !isFreshTimestamp(chatCapturedAt, startedAt)) {
       return {
         status: 'missing',
+        source: 'chat-verification',
+        operationId: chatOperationId,
         capturedAt: chatCapturedAt,
         artifactRefs,
         issues,
@@ -921,6 +936,8 @@ export function extractPersistedChatBattleRenderEvidence(
     if (chatStatus === 'fail' || chatStatus === 'failed' || chatStatus === 'error') {
       return {
         status: 'fail',
+        source: 'chat-verification',
+        operationId: chatOperationId,
         capturedAt: chatCapturedAt,
         artifactRefs,
         issues,
@@ -929,18 +946,49 @@ export function extractPersistedChatBattleRenderEvidence(
       };
     }
     if (chatStatus === 'warn' || chatStatus === 'partial' || chatStatus === 'needs_review') {
-      return { status: 'warn', capturedAt: chatCapturedAt, artifactRefs, issues, jobLifecycle };
+      return {
+        status: 'warn',
+        source: 'chat-verification',
+        operationId: chatOperationId,
+        capturedAt: chatCapturedAt,
+        artifactRefs,
+        issues,
+        jobLifecycle,
+      };
     }
     if (chatStatus === 'pass' || chatStatus === 'completed') {
-      return { status: 'pass', capturedAt: chatCapturedAt, artifactRefs, issues, jobLifecycle };
+      return {
+        status: 'pass',
+        source: 'chat-verification',
+        operationId: chatOperationId,
+        capturedAt: chatCapturedAt,
+        artifactRefs,
+        issues,
+        jobLifecycle,
+      };
     }
     return {
       status: 'missing',
+      source: 'chat-verification',
+      operationId: chatOperationId,
       capturedAt: chatCapturedAt,
       artifactRefs,
       issues,
       jobLifecycle,
       reason: `Unknown chat edit render status: ${chatStatus ?? 'missing'}.`,
+    };
+  }
+  if (selection.requireChatVerification) {
+    const reason = expectedOperationIds.length > 0 && chatOperationId && !operationMatches
+      ? `Waiting for chat render verification owned by ${expectedOperationIds.join(', ')}; latest belongs to ${chatOperationId}.`
+      : 'No fresh operation-scoped chat render verification exists for this journey.';
+    return {
+      status: 'missing',
+      source: 'chat-verification',
+      operationId: chatOperationId,
+      artifactRefs: [],
+      issues: [],
+      reason,
     };
   }
   const evidence = asRecord(intelligence.phase0RenderedStillEvidence);
@@ -963,12 +1011,32 @@ export function extractPersistedChatBattleRenderEvidence(
   ]);
   const issues = collectPhase0RenderIssues({ evidence, gate, report });
   if (!capturedAt || !isFreshTimestamp(capturedAt, startedAt)) {
-    return { status: 'missing', capturedAt, artifactRefs, issues, reason: 'No fresh rendered evidence exists for this chat journey.' };
+    return {
+      status: 'missing',
+      source: 'phase0-fallback',
+      capturedAt,
+      artifactRefs,
+      issues,
+      reason: 'No fresh rendered evidence exists for this chat journey.',
+    };
   }
-  if (evidenceStatus === 'failed' || reportStatus === 'fail') return { status: 'fail', capturedAt, artifactRefs, issues };
-  if (evidenceStatus === 'partial' || reportStatus === 'warn') return { status: 'warn', capturedAt, artifactRefs, issues };
-  if (evidenceStatus === 'completed' && reportStatus === 'pass') return { status: 'pass', capturedAt, artifactRefs, issues };
-  return { status: 'missing', capturedAt, artifactRefs, issues, reason: 'Rendered evidence did not contain a completed aesthetic verdict.' };
+  if (evidenceStatus === 'failed' || reportStatus === 'fail') {
+    return { status: 'fail', source: 'phase0-fallback', capturedAt, artifactRefs, issues };
+  }
+  if (evidenceStatus === 'partial' || reportStatus === 'warn') {
+    return { status: 'warn', source: 'phase0-fallback', capturedAt, artifactRefs, issues };
+  }
+  if (evidenceStatus === 'completed' && reportStatus === 'pass') {
+    return { status: 'pass', source: 'phase0-fallback', capturedAt, artifactRefs, issues };
+  }
+  return {
+    status: 'missing',
+    source: 'phase0-fallback',
+    capturedAt,
+    artifactRefs,
+    issues,
+    reason: 'Rendered evidence did not contain a completed aesthetic verdict.',
+  };
 }
 
 function collectPhase0RenderIssues(input: {

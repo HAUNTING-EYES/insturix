@@ -2597,6 +2597,135 @@ describe('chat edit battle harness', () => {
     ]);
   });
 
+  it('waits for operation-scoped chat evidence instead of accepting a fresh project-wide render', async () => {
+    let now = 1_000;
+    const genericPhase0Failure = {
+      ...project([]),
+      intelligence: {
+        phase0RenderedStillEvidence: {
+          status: 'completed',
+          completedAt: '2026-07-18T10:00:02.000Z',
+          renderedFrames: [],
+        },
+        phase0RenderedAestheticReport: {
+          summary: { status: 'fail' },
+          completedAt: '2026-07-18T10:00:02.000Z',
+          issues: [{ severity: 'fail', overlayId: 'unrelated-overlay' }],
+        },
+      },
+    };
+    const operationPass = {
+      ...project([]),
+      intelligence: {
+        ...genericPhase0Failure.intelligence,
+        latestChatEditRenderVerification: {
+          operationId: 'chat-battle:expected-operation:editorial-intent:attempt:1',
+          status: 'pass',
+          requestedAt: '2026-07-18T10:00:03.000Z',
+          completedAt: '2026-07-18T10:00:05.000Z',
+          visual: { renderedFrames: [], issues: [] },
+          audio: { windows: [] },
+          lifecycle: { state: 'completed', terminalStatus: 'pass' },
+        },
+      },
+    };
+    const loadProject = vi.fn(async () => operationPass);
+
+    const evidence = await waitForFreshChatBattleRenderEvidence({
+      projectId: 'proj_fixture',
+      startedAt: '2026-07-18T10:00:00.000Z',
+      initialProject: genericPhase0Failure,
+      requireChatVerification: true,
+      expectedOperationIds: ['chat-battle:expected-operation'],
+      timeoutMs: 10_000,
+      pollIntervalMs: 1_000,
+    }, {
+      loadProject,
+      now: () => now,
+      sleep: async (milliseconds) => { now += milliseconds; },
+    });
+
+    expect(loadProject).toHaveBeenCalledTimes(1);
+    expect(evidence).toMatchObject({
+      status: 'pass',
+      source: 'chat-verification',
+      operationId: 'chat-battle:expected-operation:editorial-intent:attempt:1',
+    });
+  });
+
+  it('keeps polling when a fresh chat verification belongs to another operation', async () => {
+    let now = 1_000;
+    const otherOperation = {
+      ...project([]),
+      intelligence: {
+        latestChatEditRenderVerification: {
+          operationId: 'chat-battle:other-tab',
+          status: 'fail',
+          requestedAt: '2026-07-18T10:00:01.000Z',
+          completedAt: '2026-07-18T10:00:02.000Z',
+          visual: { renderedFrames: [], issues: [{ overlayId: 'other-tab-overlay' }] },
+          audio: { windows: [] },
+        },
+      },
+    };
+    const expectedOperation = {
+      ...project([]),
+      intelligence: {
+        latestChatEditRenderVerification: {
+          operationId: 'chat-battle:this-tab',
+          status: 'pass',
+          requestedAt: '2026-07-18T10:00:03.000Z',
+          completedAt: '2026-07-18T10:00:04.000Z',
+          visual: { renderedFrames: [], issues: [] },
+          audio: { windows: [] },
+        },
+      },
+    };
+    const loadProject = vi.fn(async () => expectedOperation);
+
+    const evidence = await waitForFreshChatBattleRenderEvidence({
+      projectId: 'proj_fixture',
+      startedAt: '2026-07-18T10:00:00.000Z',
+      initialProject: otherOperation,
+      requireChatVerification: true,
+      expectedOperationIds: ['chat-battle:this-tab'],
+      timeoutMs: 10_000,
+      pollIntervalMs: 1_000,
+    }, {
+      loadProject,
+      now: () => now,
+      sleep: async (milliseconds) => { now += milliseconds; },
+    });
+
+    expect(loadProject).toHaveBeenCalledTimes(1);
+    expect(evidence).toMatchObject({
+      status: 'pass',
+      operationId: 'chat-battle:this-tab',
+    });
+  });
+
+  it('does not substitute generic Phase-0 evidence for a required chat verification', () => {
+    const evidence = extractPersistedChatBattleRenderEvidence({
+      projectId: 'proj_fixture',
+      intelligence: {
+        phase0RenderedStillEvidence: {
+          status: 'completed',
+          completedAt: '2026-07-18T10:00:02.000Z',
+        },
+        phase0RenderedAestheticReport: {
+          summary: { status: 'fail' },
+          completedAt: '2026-07-18T10:00:02.000Z',
+        },
+      },
+    }, '2026-07-18T10:00:00.000Z', { requireChatVerification: true });
+
+    expect(evidence).toMatchObject({
+      status: 'missing',
+      source: 'chat-verification',
+      reason: 'No fresh operation-scoped chat render verification exists for this journey.',
+    });
+  });
+
   it('keeps a disposable fixture alive beyond the worker three-minute boundary by default', async () => {
     let now = 0;
     const pending = project([]);

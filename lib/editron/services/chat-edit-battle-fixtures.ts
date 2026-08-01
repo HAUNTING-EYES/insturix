@@ -530,6 +530,7 @@ function buildFixtureClientContext(input: {
 
 function stripStaleRenderEvidence(value: unknown): Record<string, unknown> {
   const intelligence = structuredClone(asRecord(value));
+  delete intelligence.latestChatEditRenderVerification;
   delete intelligence.phase0RenderedStillEvidence;
   delete intelligence.phase0RenderedQualityGate;
   delete intelligence.phase0RenderedAestheticReport;

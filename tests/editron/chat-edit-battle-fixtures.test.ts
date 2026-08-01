@@ -173,6 +173,7 @@ describe('chat edit battle fixtures', () => {
     });
     expect(prepared.project).not.toHaveProperty('_id');
     expect(prepared.project).not.toHaveProperty('qualityReview');
+    expect(prepared.project.intelligence).not.toHaveProperty('latestChatEditRenderVerification');
     expect(prepared.project.intelligence).not.toHaveProperty('phase0RenderedStillEvidence');
     expect(prepared.selectedOverlayId).toBe('title-1');
     expect(prepared.clientContext).toMatchObject({ selectedOverlayId: 'title-1', activePanel: 'ai-chat' });
@@ -800,6 +801,12 @@ function sourceProject(): Record<string, any> {
       { id: 'scene-1', type: 'html-scene', from: 180, durationInFrames: 120, row: 5, content: '<div>Scene</div>' },
     ],
     intelligence: {
+      latestChatEditRenderVerification: {
+        operationId: 'stale-operation',
+        status: 'fail',
+        requestedAt: '2026-07-17T10:00:00.000Z',
+        completedAt: '2026-07-17T10:00:05.000Z',
+      },
       phase0RenderedStillEvidence: { status: 'completed' },
       phase0RenderedQualityGate: { reviewedAt: 'old' },
       phase0RenderedAestheticReport: { status: 'pass' },
