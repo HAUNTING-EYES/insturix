@@ -1198,23 +1198,20 @@ TYPE-SPECIFIC FIELDS:
     }
   );
 
-  // --- UPDATE OVERLAY (Enhanced) ---
+  // --- UPDATE OVERLAY (CONTENT / GEOMETRY / STYLE) ---
   
   const updateOverlaySchema = z.object({
     id: z.coerce.number().describe("The ID of the overlay to update"),
-    start: z.coerce.number().optional().describe("New start frame"),
-    duration: z.coerce.number().optional().describe("New duration in frames"),
     text: z.string().optional().describe("New text content (for text overlays)"),
     x: z.union([z.coerce.number(), z.string()]).optional().describe("New X position (pixels or %)"),
     y: z.union([z.coerce.number(), z.string()]).optional().describe("New Y position (pixels or %)"),
     width: z.union([z.coerce.number(), z.string()]).optional().describe("New width"),
     height: z.union([z.coerce.number(), z.string()]).optional().describe("New height"),
     rotation: z.coerce.number().optional(),
-    row: z.coerce.number().optional().describe("Move to specific row"),
     styles: overlayStylesUpdateSchema
       .optional()
       .describe("Typed partial styles to merge (text/media/shape/generic)."),
-  });
+  }).strict();
 
   const updateOverlay = tool(
     async (input: z.infer<typeof updateOverlaySchema>) => {
@@ -1228,11 +1225,6 @@ TYPE-SPECIFIC FIELDS:
         }
         
         const updates: any = {};
-        
-        // Timing updates
-        if (input.start !== undefined) updates.from = input.start;
-        if (input.duration !== undefined) updates.durationInFrames = input.duration;
-        if (input.row !== undefined) updates.row = input.row;
         
         // Text content
         if (input.text !== undefined && overlay.type === 'text') {
@@ -1316,7 +1308,7 @@ TYPE-SPECIFIC FIELDS:
     },
     {
       name: 'update_overlay',
-      description: 'Update an existing overlay. Provide only the fields you want to change. Supports percentage positions.',
+      description: 'Update content, geometry, rotation, or styles on an existing overlay. Supports percentage positions. Timing is owned by move_retime_overlay; layer order is owned by reorder_layer.',
       schema: updateOverlaySchema
     }
   );

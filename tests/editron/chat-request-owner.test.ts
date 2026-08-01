@@ -756,8 +756,10 @@ describe('chat request owner classification', () => {
     });
 
     expect(prompt).toContain('clip-split or clip-trim for an identified clip');
-    expect(prompt).toContain('overlay-fade, overlay-layer-order, overlay-retime, or clip-filter');
+    expect(prompt).toContain('overlay-retime for every move, start-frame, end-frame, duration, shorten, or extend request');
     expect(prompt).toContain('Literal timeline coordinates use a mechanical capability');
+    expect(prompt).toContain('overlay-update only for content, geometry, rotation, or style');
+    expect(prompt).toContain('Do not substitute overlay-update for timing or layer-order operations');
   });
 
   it('fails closed when an explicit music request omits its operational workflow', async () => {

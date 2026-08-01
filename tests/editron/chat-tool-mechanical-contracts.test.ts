@@ -411,7 +411,7 @@ describe('chat mechanical tool contracts', () => {
     );
   });
 
-  it('reports old and new windows for generic update, trim, batch, and delete mutations', async () => {
+  it('reports old and new windows for canonical retime, trim, batch, and delete mutations', async () => {
     const project = makeProject([
       { id: 40, type: 'text', from: 10, durationInFrames: 30, row: 2, content: 'Move' },
       {
@@ -427,14 +427,26 @@ describe('chat mechanical tool contracts', () => {
     ], 240);
     installProjectStore(project);
 
-    const update = parseEnvelope(await toolNamed('update_overlay').invoke({
-      id: 40,
-      start: 50,
+    const update = parseEnvelope(await toolNamed('move_retime_overlay').invoke({
+      overlayId: 40,
+      startFrame: 50,
     }));
     expect(update.data?.affectedFrameRanges).toEqual([
       { startFrame: 10, endFrame: 40 },
       { startFrame: 50, endFrame: 80 },
     ]);
+
+    const shadowTimingAttempt = parseEnvelope(await toolNamed('update_overlay').invoke({
+      id: 40,
+      start: 70,
+    }));
+    expect(shadowTimingAttempt).toMatchObject({
+      status: 'error',
+      error: {
+        code: 'TOOL_INVOKE_EXCEPTION',
+        message: expect.stringContaining('Unrecognized key: "start"'),
+      },
+    });
 
     const trim = parseEnvelope(await toolNamed('trim_overlay').invoke({
       id: 41,
