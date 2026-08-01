@@ -653,11 +653,11 @@ describe("CalOS publish status and deliberate retry", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(409);
-    expect(payload.error).toContain("reconnected");
+    expect(payload.error).toContain("Reconnect");
     expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
-  it("allows retry when an expired stored LinkedIn token can refresh", async () => {
+  it("refuses retry when an expired stored LinkedIn token lacks scope evidence", async () => {
     vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 9).toString("base64"));
     vi.stubEnv("LINKEDIN_CLIENT_ID", "linkedin_client");
     vi.stubEnv("LINKEDIN_CLIENT_SECRET", "linkedin_secret");
@@ -687,8 +687,11 @@ describe("CalOS publish status and deliberate retry", () => {
       confirmPossibleDuplicate: true,
     });
 
-    expect(response.status).toBe(200);
-    expect(mocks.queueFindOneAndUpdate).toHaveBeenCalledOnce();
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("w_organization_social");
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
   it("refuses retry when the assigned owner's live X token cannot refresh", async () => {

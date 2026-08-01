@@ -215,7 +215,7 @@ async function resolveApprovedPublishTarget(
     platform,
     ...(deliverable.orgId ? { orgId: deliverable.orgId } : {}),
   })
-    .select("platform accountRef accountType displayName ownerUserId accessTokenEnc refreshTokenEnc expiresAt")
+    .select("platform accountRef accountType displayName ownerUserId accessTokenEnc refreshTokenEnc expiresAt scopes")
     .lean<CalosAssignmentLike[]>();
   const accountRefs = Array.from(
     new Set(

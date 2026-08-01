@@ -283,7 +283,7 @@ async function verifyExecutionAssignment(
       ownerUserId,
       ...(row.orgId ? { orgId: row.orgId } : {}),
     })
-      .select("platform accountRef accountType displayName ownerUserId accessTokenEnc refreshTokenEnc expiresAt")
+      .select("platform accountRef accountType displayName ownerUserId accessTokenEnc refreshTokenEnc expiresAt scopes")
       .lean<CalosAssignmentLike | null>();
 
     if (!assignment) {

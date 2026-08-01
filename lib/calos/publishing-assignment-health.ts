@@ -5,6 +5,15 @@ import { resolveUserOAuthToken } from "@/lib/calos/publish/token-crypto";
 import { resolveOwnerYouTubeChannels } from "@/lib/calos/publish/youtube";
 
 const AUTO_PUBLISH_PLATFORMS = new Set<string>(["youtube", "facebook", "instagram", "linkedin", "twitter"]);
+const LINKEDIN_APPROVED_ORG_ROLES = new Set([
+  "ADMINISTRATOR",
+  "CONTENT_ADMIN",
+  "CONTENT_ADMINISTRATOR",
+  "DIRECT_SPONSORED_CONTENT_POSTER",
+]);
+const LINKEDIN_ORG_ACL_PATH = "/rest/organizationAcls";
+const LINKEDIN_ORG_ACL_MAX_PAGES = 10;
+const LINKEDIN_PREFLIGHT_TIMEOUT_MS = 8_000;
 
 export type CalosAutoPublishPlatform = Exclude<CalosPublishPlatform, "tiktok">;
 
@@ -17,6 +26,7 @@ export type CalosAssignmentLike = {
   accessTokenEnc?: string | null;
   refreshTokenEnc?: string | null;
   expiresAt?: Date | string | null;
+  scopes?: string[];
 };
 
 export type CalosConnectionHealth = {
@@ -99,6 +109,79 @@ function missingRequiredScopes(
   );
 }
 
+function record(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object";
+}
+
+function linkedInOrganizationId(value: unknown): string {
+  const raw = text(value);
+  const prefix = "urn:li:organization:";
+  return raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+}
+
+async function linkedInOrganizationRoleHealth(
+  account: CalosAssignmentLike,
+  accessToken: string,
+): Promise<CalosConnectionHealth> {
+  const accountRef = text(account.accountRef);
+  let url = new URL("https://api.linkedin.com/rest/organizationAcls");
+  url.searchParams.set("q", "roleAssignee");
+  url.searchParams.set("state", "APPROVED");
+  url.searchParams.set("count", "100");
+
+  for (let page = 0; page < LINKEDIN_ORG_ACL_MAX_PAGES; page += 1) {
+    const response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "Linkedin-Version": process.env.LINKEDIN_REST_API_VERSION || "202605",
+        "X-Restli-Protocol-Version": "2.0.0",
+      },
+      signal: AbortSignal.timeout(LINKEDIN_PREFLIGHT_TIMEOUT_MS),
+    });
+    if ([401, 403, 404].includes(response.status)) {
+      return reconnect(
+        account,
+        "LinkedIn organization authorization is no longer valid. Reconnect LinkedIn before publishing.",
+      );
+    }
+    if (!response.ok) {
+      throw new Error(`LinkedIn organization authorization check failed (${response.status}).`);
+    }
+
+    const payload: unknown = await response.json();
+    if (!record(payload) || !Array.isArray(payload.elements)) {
+      throw new Error("LinkedIn organization authorization returned an invalid response.");
+    }
+    const hasApprovedRole = payload.elements.some((element) => {
+      if (!record(element)) return false;
+      const organization = element.organization ?? element.organizationTarget;
+      return (
+        linkedInOrganizationId(organization) === accountRef &&
+        text(element.state) === "APPROVED" &&
+        LINKEDIN_APPROVED_ORG_ROLES.has(text(element.role))
+      );
+    });
+    if (hasApprovedRole) return assigned(account);
+
+    const paging = record(payload.paging) ? payload.paging : null;
+    const links = paging && Array.isArray(paging.links) ? paging.links : [];
+    const next = links.find((link) => record(link) && text(link.rel).toLowerCase() === "next");
+    const href = record(next) ? text(next.href) : "";
+    if (!href) break;
+    const nextUrl = new URL(href, url);
+    if (nextUrl.origin !== "https://api.linkedin.com" || nextUrl.pathname !== LINKEDIN_ORG_ACL_PATH) {
+      throw new Error("LinkedIn organization authorization returned an unsafe pagination URL.");
+    }
+    url = nextUrl;
+  }
+
+  return reconnect(
+    account,
+    "The assigned LinkedIn organization no longer has an approved publishing role for this connection. Reassign or reconnect it before publishing.",
+  );
+}
+
 async function facebookHealth(
   account: CalosAssignmentLike,
   owner: OwnerTokenRow | undefined,
@@ -148,11 +231,13 @@ function ownerTokenHealth(
         return reconnect(account, "Assigned LinkedIn organization is no longer available to this account owner. Reassign or reconnect it before publishing.");
       }
     }
-    const requiredScope = isPersonal ? "w_member_social" : "w_organization_social";
+    const requiredScopes = isPersonal
+      ? ["w_member_social"]
+      : ["w_organization_social", "rw_organization_admin"];
     const missingScopes = missingRequiredScopes(
       tokens?.scopes,
       tokens?.missingScopes,
-      [requiredScope],
+      requiredScopes,
     );
     if (missingScopes.length > 0) {
       return reconnect(account, `LinkedIn publishing permission is missing (${missingScopes.join(", ")}). Reconnect before publishing.`);
@@ -204,29 +289,50 @@ async function storedLinkedInHealth(
   account: CalosAssignmentLike,
   requiredThroughMs: number,
 ): Promise<CalosConnectionHealth> {
+  const isPersonal = account.accountType === "personal";
+  const requiredScopes = isPersonal
+    ? ["w_member_social"]
+    : ["w_organization_social", "rw_organization_admin"];
+  const missingScopes = missingRequiredScopes(account.scopes, undefined, requiredScopes);
+  if (missingScopes.length > 0) {
+    return reconnect(account, `LinkedIn publishing permission is missing (${missingScopes.join(", ")}). Reconnect before publishing.`);
+  }
+
+  let accessToken: string;
   try {
     const { decryptToken } = await import("@/lib/calos/publish/token-crypto");
-    const accessToken = decryptToken(text(account.accessTokenEnc));
-    if (!text(accessToken)) {
+    const decryptedAccessToken = decryptToken(text(account.accessTokenEnc));
+    if (!decryptedAccessToken?.trim()) {
       return reconnect(account, "Stored LinkedIn connection is unreadable and must be reconnected before publishing.");
     }
-    const expiresAt = timestamp(account.expiresAt);
-    if (expiresAt > 0 && expiresAt <= requiredThroughMs) {
-      const refreshTokenEnc = text(account.refreshTokenEnc);
-      const canRefresh = Boolean(
-        refreshTokenEnc &&
-        text(decryptToken(refreshTokenEnc)) &&
-        text(process.env.LINKEDIN_CLIENT_ID) &&
-        text(process.env.LINKEDIN_CLIENT_SECRET),
-      );
-      if (!canRefresh) {
-        return reconnect(account, "Stored LinkedIn connection expired and must be reconnected before publishing.");
-      }
-    }
-    return assigned(account);
+    accessToken = decryptedAccessToken;
   } catch {
     return reconnect(account, "Stored LinkedIn connection is unreadable and must be reconnected before publishing.");
   }
+
+  const expiresAt = timestamp(account.expiresAt);
+  if (expiresAt > 0 && expiresAt <= requiredThroughMs) {
+    const { decryptToken } = await import("@/lib/calos/publish/token-crypto");
+    const refreshTokenEnc = text(account.refreshTokenEnc);
+    let refreshToken = "";
+    try {
+      refreshToken = refreshTokenEnc ? text(decryptToken(refreshTokenEnc)) : "";
+    } catch {
+      refreshToken = "";
+    }
+    const canRefresh = Boolean(
+      refreshToken &&
+      text(process.env.LINKEDIN_CLIENT_ID) &&
+      text(process.env.LINKEDIN_CLIENT_SECRET),
+    );
+    if (!canRefresh) {
+      return reconnect(account, "Stored LinkedIn connection expired and must be reconnected before publishing.");
+    }
+  }
+  if (isPersonal || (expiresAt > 0 && expiresAt <= Date.now())) {
+    return assigned(account);
+  }
+  return linkedInOrganizationRoleHealth(account, accessToken);
 }
 
 async function youtubeHealth(
@@ -342,11 +448,29 @@ export async function loadCalosAssignmentHealth(
       result[platform] = await storedLinkedInHealth(account, requiredThroughMs);
       continue;
     }
-    result[platform] = ownerTokenHealth(
+    const owner = ownerTokens.get(text(account.ownerUserId));
+    const ownerHealth = ownerTokenHealth(
       account,
-      ownerTokens.get(text(account.ownerUserId)),
+      owner,
       requiredThroughMs,
     );
+    if (
+      platform === "linkedin" &&
+      account.accountType !== "personal" &&
+      ownerHealth.state === "assigned"
+    ) {
+      const expiresAt = timestamp(owner?.linkedinTokens?.expiresAt);
+      if (expiresAt > 0 && expiresAt <= Date.now()) {
+        result[platform] = ownerHealth;
+        continue;
+      }
+      const accessToken = resolveUserOAuthToken(text(owner?.linkedinTokens?.accessToken));
+      result[platform] = accessToken
+        ? await linkedInOrganizationRoleHealth(account, accessToken)
+        : reconnect(account, "LinkedIn token is unreadable. Reconnect before publishing.");
+      continue;
+    }
+    result[platform] = ownerHealth;
   }
 
   return result;

@@ -51,6 +51,7 @@ vi.mock("@/schemas/user", () => ({
 }));
 
 import { POST as postDecision } from "@/app/api/services/calos/deliverables/[id]/decision/route";
+import { encryptToken } from "@/lib/calos/publish/token-crypto";
 
 type DecisionRequest = Parameters<typeof postDecision>[0];
 type DecisionContext = Parameters<typeof postDecision>[1];
@@ -78,7 +79,11 @@ function makeDeliverable() {
   };
 }
 
-function setAssignments(accountRefs: string[], ownerUserId = "owner_1") {
+function setAssignments(
+  accountRefs: string[],
+  ownerUserId = "owner_1",
+  overrides: Record<string, unknown> = {},
+) {
   const lean = vi.fn().mockResolvedValue(
     accountRefs.map((accountRef) => ({
       platform: "linkedin",
@@ -89,10 +94,13 @@ function setAssignments(accountRefs: string[], ownerUserId = "owner_1") {
       accessTokenEnc: null,
       refreshTokenEnc: null,
       expiresAt: null,
+      scopes: [],
+      ...overrides,
     })),
   );
   const select = vi.fn().mockReturnValue({ lean });
   mocks.connectedAccountFind.mockReturnValue({ select });
+  return select;
 }
 
 function decisionRequest(decision = "approved"): DecisionRequest {
@@ -133,6 +141,17 @@ describe("CalOS approval publish-target snapshot", () => {
     mocks.toContentCard.mockReturnValue({ id: "card_1", stage: "approved" });
     mocks.createDecisionLearningEvent.mockReturnValue({ type: "decision" });
     mocks.emitBrandEvent.mockResolvedValue(undefined);
+    vi.stubEnv(
+      "CALOS_TOKEN_ENCRYPTION_KEY",
+      Buffer.alloc(32, 7).toString("base64"),
+    );
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      elements: [{
+        organization: "urn:li:organization:linkedin_org_1",
+        role: "ADMINISTRATOR",
+        state: "APPROVED",
+      }],
+    })));
     mocks.userFind.mockReturnValue({
       select: vi.fn(() => ({
         lean: vi.fn(async () => [{
@@ -141,7 +160,7 @@ describe("CalOS approval publish-target snapshot", () => {
             accessToken: "linkedin_token",
             userId: "linkedin_member_1",
             expiresAt: new Date("2099-01-01T00:00:00.000Z"),
-            scopes: ["w_organization_social"],
+            scopes: ["w_organization_social", "rw_organization_admin"],
             missingScopes: [],
             organizations: [{ id: "linkedin_org_1" }],
           },
@@ -152,10 +171,12 @@ describe("CalOS approval publish-target snapshot", () => {
 
   afterEach(() => {
     consoleError.mockRestore();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("refreshes the current snapshot on an untouched pending publish row", async () => {
-    setAssignments(["linkedin_org_1"]);
+    const assignmentSelect = setAssignments(["linkedin_org_1"]);
 
     const response = await postDecision(decisionRequest(), decisionContext);
     const payload = await response.json();
@@ -169,6 +190,9 @@ describe("CalOS approval publish-target snapshot", () => {
       brandId: "brand_1",
       platform: "linkedin",
     });
+    expect(assignmentSelect).toHaveBeenCalledWith(
+      expect.stringContaining("scopes"),
+    );
     expect(mocks.queueFindOneAndUpdate).toHaveBeenCalledWith(
       { idempotencyKey: "card_1:linkedin" },
       expect.objectContaining({
@@ -209,7 +233,7 @@ describe("CalOS approval publish-target snapshot", () => {
           linkedinTokens: {
             accessToken: "publisher_token",
             expiresAt: new Date("2099-01-01T00:00:00.000Z"),
-            scopes: ["w_organization_social"],
+            scopes: ["w_organization_social", "rw_organization_admin"],
             missingScopes: [],
             organizations: [{ id: "linkedin_org_1" }],
           },
@@ -290,6 +314,47 @@ describe("CalOS approval publish-target snapshot", () => {
     expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
+  it("blocks Model-B organization approval without live authorization scope", async () => {
+    setAssignments(["linkedin_org_1"], "owner_1", {
+      accessTokenEnc: encryptToken("brand_linkedin_token"),
+      expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+      scopes: ["w_organization_social"],
+    });
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("rw_organization_admin");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("blocks Model-B organization approval when its approved live role is gone", async () => {
+    setAssignments(["linkedin_org_1"], "owner_1", {
+      accessTokenEnc: encryptToken("brand_linkedin_token"),
+      expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+      scopes: ["w_organization_social", "rw_organization_admin"],
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ elements: [] }));
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("no longer has an approved publishing role");
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("organizationAcls?q=roleAssignee"),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer brand_linkedin_token",
+          "X-Restli-Protocol-Version": "2.0.0",
+        }),
+      }),
+    );
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   it("blocks LinkedIn organization approval when the owner no longer controls that destination", async () => {
     setAssignments(["linkedin_org_1"]);
     mocks.userFind.mockReturnValue({
@@ -299,7 +364,7 @@ describe("CalOS approval publish-target snapshot", () => {
           linkedinTokens: {
             accessToken: "linkedin_token",
             expiresAt: new Date("2099-01-01T00:00:00.000Z"),
-            scopes: ["w_organization_social"],
+            scopes: ["w_organization_social", "rw_organization_admin"],
             missingScopes: [],
             organizations: [{ id: "different_org" }],
           },
@@ -324,7 +389,7 @@ describe("CalOS approval publish-target snapshot", () => {
           linkedinTokens: {
             accessToken: "expiring_token",
             expiresAt: new Date("2026-08-01T00:00:00.000Z"),
-            scopes: ["w_organization_social"],
+            scopes: ["w_organization_social", "rw_organization_admin"],
             missingScopes: [],
             organizations: [{ id: "linkedin_org_1" }],
           },
