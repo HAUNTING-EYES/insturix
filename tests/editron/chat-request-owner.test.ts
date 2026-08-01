@@ -497,7 +497,7 @@ describe('chat request owner classification', () => {
         text: JSON.stringify({
           facts: {
             requestsMutation: true,
-            requestsAnalysis: true,
+            requestsAnalysis: false,
             requiresContentLocalization: true,
             requiresEditorialJudgment: false,
             requestsReferenceStyle: false,
@@ -1528,7 +1528,7 @@ describe('chat request owner classification', () => {
     });
   });
 
-  it('fails closed when a localized read is not declared as analysis', async () => {
+  it('derives analysis ownership from localized reads instead of trusting a contradictory summary bit', async () => {
     const generate = vi.fn(async () => ({
       text: JSON.stringify({
         facts: {
@@ -1555,10 +1555,20 @@ describe('chat request owner classification', () => {
       }),
     }));
 
-    await expect(classifyChatRequestOwner(baseInput, { generate })).rejects.toThrow(
-      'Localized reads require requestsAnalysis=true.',
-    );
-    expect(generate).toHaveBeenCalledTimes(2);
+    const classified = await classifyChatRequestOwner(baseInput, { generate });
+
+    expect(classified).toMatchObject({
+      owner: 'analysis-reader',
+      routingFacts: {
+        requestsAnalysis: true,
+        localizedReads: [{
+          modality: 'visual',
+          goal: 'inspect',
+          query: 'frame under my playhead',
+        }],
+      },
+    });
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 
   it('keeps content-localized, mixed, and underspecified mutations with the semantic owner', () => {

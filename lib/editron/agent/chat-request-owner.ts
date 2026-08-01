@@ -1076,7 +1076,9 @@ export async function classifyChatRequestOwner(
     }
 
     const parsedOwner = ownerResponseSchema.safeParse(
-      repairChatOwnerLiteralTiming(parsedJson.value, input.userMessage),
+      reconcileDerivedRoutingFlags(
+        repairChatOwnerLiteralTiming(parsedJson.value, input.userMessage),
+      ),
     );
     if (!parsedOwner.success) {
       lastFailure = parsedOwner.error.issues
@@ -1112,6 +1114,19 @@ export async function classifyChatRequestOwner(
   }
 
   throw new Error(`Chat request owner classification failed closed: ${lastFailure}`);
+}
+
+function reconcileDerivedRoutingFlags(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const response = { ...(value as Record<string, unknown>) };
+  const factsValue = response.facts;
+  if (!factsValue || typeof factsValue !== 'object' || Array.isArray(factsValue)) return response;
+
+  const facts = { ...(factsValue as Record<string, unknown>) };
+  const hasLocalizedReads = Array.isArray(facts.localizedReads) && facts.localizedReads.length > 0;
+  if (hasLocalizedReads) facts.requestsAnalysis = true;
+  response.facts = facts;
+  return response;
 }
 
 export function buildChatRequestOwnerPrompt(input: ClassifyChatRequestOwnerInput): string {
