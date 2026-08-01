@@ -18,7 +18,7 @@ interface ChatReferenceStyleWorkerPayload {
 async function handleChatReferenceStyleWorker(request: NextRequest) {
   const payload = await request.json().catch(() => ({})) as ChatReferenceStyleWorkerPayload;
   if (!payload.jobId || !payload.projectId || !payload.userId) {
-    return NextResponse.json({ success: false, error: 'Invalid reference-style worker payload' }, { status: 400 });
+    return nonRetryableResponse('Invalid reference-style worker payload');
   }
 
   try {
@@ -27,16 +27,44 @@ async function handleChatReferenceStyleWorker(request: NextRequest) {
       projectId: payload.projectId,
       userId: payload.userId,
     });
-    return NextResponse.json({ success: result.status !== 'failed', result }, {
-      status: result.status === 'failed' ? 422 : 200,
+    if (result.status === 'retrying') {
+      return retryableResponse(result.reason ?? 'Reference-style job is not ready to run', result.retryAt);
+    }
+    if (result.status === 'failed') {
+      return nonRetryableResponse(result.reason ?? 'Reference-style job failed', { result });
+    }
+    return NextResponse.json({ success: true, result }, {
+      status: 200,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (error instanceof ChatReferenceStyleRetryableError) {
-      return NextResponse.json({ success: false, retryable: true, error: message }, { status: 503 });
+      return retryableResponse(message, error.retryAt.toISOString());
     }
     return NextResponse.json({ success: false, retryable: false, error: message }, { status: 500 });
   }
+}
+
+function retryableResponse(message: string, retryAt?: string) {
+  const headers = new Headers();
+  if (retryAt) {
+    const date = new Date(retryAt);
+    if (Number.isFinite(date.getTime())) headers.set('Retry-After', date.toUTCString());
+  }
+  return NextResponse.json(
+    { success: false, retryable: true, error: message, ...(retryAt ? { retryAt } : {}) },
+    { status: 503, headers },
+  );
+}
+
+function nonRetryableResponse(message: string, extra: Record<string, unknown> = {}) {
+  return NextResponse.json(
+    { success: false, retryable: false, error: message, ...extra },
+    {
+      status: 489,
+      headers: { 'Upstash-NonRetryable-Error': 'true' },
+    },
+  );
 }
 
 async function missingSigningKeys() {

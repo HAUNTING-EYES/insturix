@@ -15,9 +15,13 @@ import type { Phase0RenderedEvidenceDispatchResult } from '@/lib/editron/service
 import type { EditDNA } from '@/lib/editron/services/style-transfer-service';
 
 export const CHAT_REFERENCE_STYLE_JOB_VERSION = 'editron-chat-reference-style-job-v1' as const;
-export const CHAT_REFERENCE_STYLE_MAX_ATTEMPTS = 3;
+export const CHAT_REFERENCE_STYLE_MAX_ATTEMPTS = 6;
 
-const JOB_LEASE_MS = 12 * 60 * 1000;
+const JOB_LEASE_MS = 15 * 60 * 1000;
+const JOB_RETRY_DEADLINE_MS = 45 * 60 * 1000;
+const MAX_RETRY_DELAY_MS = 8 * 60 * 1000;
+const MIN_TRANSIENT_RETRY_DELAY_MS = 15 * 1000;
+const MIN_RATE_LIMIT_RETRY_DELAY_MS = 60 * 1000;
 const JOB_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type ChatReferenceStyleJobStatus =
@@ -57,6 +61,8 @@ export interface ChatReferenceStyleJob {
   sourceName?: string;
   profileId?: string;
   attemptCount: number;
+  nextAttemptAt?: Date | null;
+  retryDeadlineAt?: Date | null;
   leaseId?: string | null;
   leaseExpiresAt?: Date | null;
   dispatchMessageId?: string | null;
@@ -83,6 +89,7 @@ export interface RunChatReferenceStyleJobResult {
   jobId: string;
   profileId?: string;
   reason?: string;
+  retryAt?: string;
   renderVerification?: Phase0RenderedEvidenceDispatchResult;
 }
 
@@ -124,6 +131,7 @@ export interface ChatReferenceStyleJobStore {
   claimRun(jobId: string, userId: string, leaseId: string, now: Date): Promise<ChatReferenceStyleJob | null>;
   markProfileExtracted(jobId: string, userId: string, profileId: string, now: Date): Promise<void>;
   markCheckpointStarted(jobId: string, userId: string, checkpointId: string, now: Date): Promise<void>;
+  clearInterruptedAttempt(jobId: string, userId: string, now: Date): Promise<void>;
   markDeclined(jobId: string, userId: string, result: Record<string, unknown>, now: Date): Promise<void>;
   markCompleted(input: {
     jobId: string;
@@ -133,7 +141,7 @@ export interface ChatReferenceStyleJobStore {
     result: Record<string, unknown>;
     now: Date;
   }): Promise<void>;
-  markRetry(jobId: string, userId: string, error: string, now: Date): Promise<void>;
+  markRetry(jobId: string, userId: string, error: string, nextAttemptAt: Date, now: Date): Promise<void>;
   markFailed(jobId: string, userId: string, error: string, rolledBack: boolean, now: Date): Promise<void>;
 }
 
@@ -163,9 +171,12 @@ interface RunDependencies {
 }
 
 export class ChatReferenceStyleRetryableError extends Error {
-  constructor(message: string) {
+  readonly retryAt: Date;
+
+  constructor(message: string, retryAt: Date) {
     super(message);
     this.name = 'ChatReferenceStyleRetryableError';
+    this.retryAt = retryAt;
   }
 }
 
@@ -193,6 +204,8 @@ export async function queueChatReferenceStyleJob(
     ...request,
     sourceName: request.sourceName ?? asset.filename,
     attemptCount: 0,
+    nextAttemptAt: now,
+    retryDeadlineAt: new Date(now.getTime() + JOB_RETRY_DEADLINE_MS),
     createdAt: now,
     updatedAt: now,
     expiresAt: new Date(now.getTime() + JOB_TTL_MS),
@@ -233,7 +246,7 @@ export async function runChatReferenceStyleJob(
   const now = deps.now();
   const leaseId = randomUUID();
   const job = await deps.store.claimRun(payload.jobId, payload.userId, leaseId, now);
-  if (!job) return { status: 'skipped', jobId: payload.jobId, reason: 'job-not-claimable' };
+  if (!job) return resolveUnclaimableJob(payload, deps, now);
   if (job.projectId !== payload.projectId) {
     await deps.store.markFailed(job._id, job.userId, 'worker-project-scope-mismatch', false, deps.now());
     return { status: 'failed', jobId: job._id, reason: 'worker-project-scope-mismatch' };
@@ -242,6 +255,29 @@ export async function runChatReferenceStyleJob(
   let checkpoint: Checkpoint | null = null;
   let attemptOperationId = '';
   try {
+    if (job.beforeCheckpointId) {
+      const interruptedAttempt = Math.max(1, job.attemptCount - 1);
+      const interruptedOperationId = attemptOperationKey(job, interruptedAttempt);
+      const restored = await deps.checkpointService.restoreProjectCheckpoint(job.beforeCheckpointId, job.userId);
+      if (!restored.restored) {
+        const failure = `reference-style-interrupted-attempt-rollback-failed:${restored.reason ?? 'unknown'}`;
+        await deps.store.markFailed(job._id, job.userId, failure, false, deps.now());
+        return { status: 'failed', jobId: job._id, reason: failure };
+      }
+      await deps.checkpointService.updateChatEditOperation(
+        job.beforeCheckpointId,
+        job.userId,
+        interruptedOperationId,
+        {
+          operationStatus: 'rolled-back',
+          mutatingToolNames: ['apply_style'],
+          operationError: 'Recovered an interrupted durable reference-style attempt before retrying.',
+        },
+      );
+      await deps.store.clearInterruptedAttempt(job._id, job.userId, deps.now());
+      job.beforeCheckpointId = null;
+    }
+
     const profileId = job.profileId ?? await deps.extractProfile(job);
     if (!job.profileId) await deps.store.markProfileExtracted(job._id, job.userId, profileId, deps.now());
 
@@ -388,9 +424,10 @@ export async function runChatReferenceStyleJob(
       }
     }
 
-    if (isRetryableFailure(message) && job.attemptCount < CHAT_REFERENCE_STYLE_MAX_ATTEMPTS) {
-      await deps.store.markRetry(job._id, job.userId, message, deps.now());
-      throw new ChatReferenceStyleRetryableError(message);
+    const retryAt = nextRetryAt(job, message, deps.now());
+    if (isRetryableFailure(message) && retryAt) {
+      await deps.store.markRetry(job._id, job.userId, message, retryAt, deps.now());
+      throw new ChatReferenceStyleRetryableError(message, retryAt);
     }
     await deps.store.markFailed(job._id, job.userId, message, rolledBack, deps.now());
     return { status: 'failed', jobId: job._id, reason: message };
@@ -446,9 +483,26 @@ class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
           _id: jobId,
           userId,
           attemptCount: { $lt: CHAT_REFERENCE_STYLE_MAX_ATTEMPTS },
-          $or: [
-            { status: { $in: ['dispatching', 'queued', 'retry_wait'] } },
-            { status: 'running', leaseExpiresAt: { $lte: now } },
+          $and: [
+            {
+              $or: [
+                { retryDeadlineAt: null },
+                { retryDeadlineAt: { $gt: now } },
+              ],
+            },
+            {
+              $or: [
+                { status: { $in: ['created', 'dispatch_failed', 'dispatching', 'queued'] } },
+                {
+                  status: 'retry_wait',
+                  $or: [
+                    { nextAttemptAt: null },
+                    { nextAttemptAt: { $lte: now } },
+                  ],
+                },
+                { status: 'running', leaseExpiresAt: { $lte: now } },
+              ],
+            },
           ],
         },
         {
@@ -456,6 +510,7 @@ class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
             status: 'running',
             leaseId,
             leaseExpiresAt: new Date(now.getTime() + JOB_LEASE_MS),
+            nextAttemptAt: null,
             error: null,
             updatedAt: now,
           },
@@ -472,6 +527,10 @@ class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
 
   async markCheckpointStarted(jobId: string, userId: string, checkpointId: string, now: Date) {
     await this.set(jobId, userId, { beforeCheckpointId: checkpointId, updatedAt: now });
+  }
+
+  async clearInterruptedAttempt(jobId: string, userId: string, now: Date) {
+    await this.set(jobId, userId, { beforeCheckpointId: null, updatedAt: now });
   }
 
   async markDeclined(jobId: string, userId: string, result: Record<string, unknown>, now: Date) {
@@ -495,11 +554,13 @@ class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
     }, input.now);
   }
 
-  async markRetry(jobId: string, userId: string, error: string, now: Date) {
+  async markRetry(jobId: string, userId: string, error: string, nextAttemptAt: Date, now: Date) {
     await this.set(jobId, userId, {
       status: 'retry_wait',
       leaseId: null,
       leaseExpiresAt: null,
+      beforeCheckpointId: null,
+      nextAttemptAt,
       error: bounded(error),
       updatedAt: now,
     });
@@ -523,6 +584,7 @@ class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
       ...fields,
       leaseId: null,
       leaseExpiresAt: null,
+      nextAttemptAt: null,
       completedAt: now,
       updatedAt: now,
     });
@@ -600,6 +662,7 @@ async function publishReferenceStyleJob(payload: { jobId: string; projectId: str
     url: `${baseUrl}/api/internal/workers/chat-reference-style`,
     body: payload,
     retries: CHAT_REFERENCE_STYLE_MAX_ATTEMPTS - 1,
+    retryDelay: 'min(480000, max(60000, pow(2, retried) * 60000))',
     headers: { 'Upstash-Timeout': '600s' },
   });
   return { messageId: (result as { messageId?: string }).messageId };
@@ -780,8 +843,69 @@ function checkpointId(job: ChatReferenceStyleJob, position: 'before' | 'after'):
   return `ckpt_chat_style_${position}_${digest(`${job._id}:${job.attemptCount}:${position}`).slice(0, 24)}`;
 }
 
-function attemptOperationKey(job: ChatReferenceStyleJob): string {
-  return `style_${digest(`${job.operationId}:${job.attemptCount}`).slice(0, 32)}`;
+function attemptOperationKey(job: ChatReferenceStyleJob, attemptCount = job.attemptCount): string {
+  return `style_${digest(`${job.operationId}:${attemptCount}`).slice(0, 32)}`;
+}
+
+async function resolveUnclaimableJob(
+  payload: { jobId: string; projectId: string; userId: string },
+  deps: RunDependencies,
+  now: Date,
+): Promise<RunChatReferenceStyleJobResult> {
+  const current = await deps.store.find(payload.jobId, payload.userId);
+  if (!current) return { status: 'skipped', jobId: payload.jobId, reason: 'reference-style-job-not-found' };
+  if (current.projectId !== payload.projectId) {
+    return { status: 'skipped', jobId: payload.jobId, reason: 'worker-project-scope-mismatch' };
+  }
+  if (isTerminalStatus(current.status)) {
+    return { status: 'skipped', jobId: current._id, reason: `job-already-${current.status}` };
+  }
+
+  const deadline = retryDeadline(current);
+  if (current.attemptCount >= CHAT_REFERENCE_STYLE_MAX_ATTEMPTS || deadline.getTime() <= now.getTime()) {
+    const reason = current.attemptCount >= CHAT_REFERENCE_STYLE_MAX_ATTEMPTS
+      ? 'reference-style-attempts-exhausted'
+      : 'reference-style-retry-deadline-exhausted';
+    await deps.store.markFailed(current._id, current.userId, reason, false, now);
+    return { status: 'failed', jobId: current._id, reason };
+  }
+
+  const retryAt = futureRetryAt(current, now);
+  return {
+    status: 'retrying',
+    jobId: current._id,
+    reason: `job-not-claimable:${current.status}`,
+    retryAt: retryAt.toISOString(),
+  };
+}
+
+function nextRetryAt(job: ChatReferenceStyleJob, message: string, now: Date): Date | null {
+  if (job.attemptCount >= CHAT_REFERENCE_STYLE_MAX_ATTEMPTS) return null;
+  const deadline = retryDeadline(job);
+  if (deadline.getTime() <= now.getTime()) return null;
+  const rateLimited = /\b429\b|rate.?limit|resource_exhausted/i.test(message);
+  const minimum = rateLimited ? MIN_RATE_LIMIT_RETRY_DELAY_MS : MIN_TRANSIENT_RETRY_DELAY_MS;
+  const exponent = Math.max(0, job.attemptCount - 1);
+  const rawDelay = Math.min(MAX_RETRY_DELAY_MS, minimum * (2 ** exponent));
+  const jitterUnit = Number.parseInt(digest(`${job._id}:${job.attemptCount}:retry`).slice(0, 8), 16) / 0xffffffff;
+  const delay = Math.min(MAX_RETRY_DELAY_MS, Math.round(rawDelay * (1 + (jitterUnit * 0.15))));
+  const retryAt = new Date(now.getTime() + delay);
+  return retryAt.getTime() < deadline.getTime() ? retryAt : null;
+}
+
+function retryDeadline(job: ChatReferenceStyleJob): Date {
+  return job.retryDeadlineAt ?? new Date(job.createdAt.getTime() + JOB_RETRY_DEADLINE_MS);
+}
+
+function futureRetryAt(job: ChatReferenceStyleJob, now: Date): Date {
+  const candidates = [job.nextAttemptAt, job.leaseExpiresAt]
+    .filter((value): value is Date => value instanceof Date && value.getTime() > now.getTime())
+    .sort((left, right) => left.getTime() - right.getTime());
+  return candidates[0] ?? new Date(now.getTime() + MIN_TRANSIENT_RETRY_DELAY_MS);
+}
+
+function isTerminalStatus(status: ChatReferenceStyleJobStatus): boolean {
+  return ['completed', 'completed_unverified', 'declined', 'failed', 'rolled_back'].includes(status);
 }
 
 function assertToolSuccess(envelope: Record<string, unknown>, toolName: string): void {
