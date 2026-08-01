@@ -1519,7 +1519,10 @@ describe('chat edit battle harness', () => {
     }, {
       loadJob: vi.fn()
         .mockResolvedValueOnce({ status: 'running' })
-        .mockResolvedValueOnce({ status: 'completed_unverified' }),
+        .mockResolvedValueOnce({
+          status: 'completed_unverified',
+          renderOperationId: 'style_child_operation_1',
+        }),
       now: () => clock,
       sleep: async (milliseconds) => { clock += milliseconds; },
     });
@@ -1527,6 +1530,7 @@ describe('chat edit battle harness', () => {
       status: 'completed_unverified',
       materialChange: true,
       polls: 2,
+      renderOperationId: 'style_child_operation_1',
     });
 
     const declined = await waitForReferenceStyleJobTerminal({

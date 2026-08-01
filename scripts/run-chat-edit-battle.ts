@@ -233,6 +233,7 @@ async function main(): Promise<void> {
             `[chat-battle] reference-style reached ${terminal.status} after ${terminal.polls} poll(s)`
             + `${terminal.error ? `: ${terminal.error}` : ''}`,
           );
+          if (terminal.renderOperationId) requestedOperationIds.add(terminal.renderOperationId);
           const settledInvocation: ChatBattleInvocationEvidence = {
             ...invocation,
             durableOperations: [
@@ -785,6 +786,7 @@ export interface ReferenceStyleJobSettlementResult {
   status: 'completed' | 'completed_unverified' | 'declined' | 'failed' | 'dispatch_failed' | 'rolled_back' | 'timeout' | 'missing';
   materialChange: boolean;
   polls: number;
+  renderOperationId?: string;
   error?: string;
 }
 
@@ -871,7 +873,8 @@ export async function waitForReferenceStyleJobTerminal(
     if (!job) return { status: 'missing', materialChange: false, polls, error: 'reference-style-job-not-found' };
     const status = stringValue(job.status);
     if (status === 'completed' || status === 'completed_unverified') {
-      return { status, materialChange: true, polls };
+      const renderOperationId = stringValue(job.renderOperationId);
+      return { status, materialChange: true, polls, ...(renderOperationId ? { renderOperationId } : {}) };
     }
     if (status === 'declined') return { status, materialChange: false, polls };
     if (status === 'failed' || status === 'dispatch_failed' || status === 'rolled_back') {

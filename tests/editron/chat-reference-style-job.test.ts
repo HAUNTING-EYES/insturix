@@ -126,6 +126,7 @@ describe('durable chat reference-style jobs', () => {
     });
     const attemptOperationId = checkpoint.claimChatEditOperation.mock.calls[0]?.[0].operationId;
     expect(attemptOperationId).toMatch(/^style_[a-f0-9]{32}$/);
+    expect(store.jobs.get('job-style-1')?.renderOperationId).toBe(attemptOperationId);
     expect(checkpoint.createCheckpoint.mock.calls[0]?.[0].operationId).toBe(attemptOperationId);
     expect(dispatchRenderEvidence).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'project-1',
@@ -574,6 +575,7 @@ class MemoryStore implements ChatReferenceStyleJobStore {
     jobId: string;
     userId: string;
     afterCheckpointId: string;
+    renderOperationId: string;
     renderVerification: { dispatched: boolean; messageId?: string; reason?: string };
     result: Record<string, unknown>;
     now: Date;
@@ -581,6 +583,7 @@ class MemoryStore implements ChatReferenceStyleJobStore {
     Object.assign(this.owned(input.jobId, input.userId), {
       status: input.renderVerification.dispatched ? 'completed' : 'completed_unverified',
       afterCheckpointId: input.afterCheckpointId,
+      renderOperationId: input.renderOperationId,
       renderVerification: input.renderVerification,
       result: input.result,
       error: input.renderVerification.dispatched ? null : input.renderVerification.reason,

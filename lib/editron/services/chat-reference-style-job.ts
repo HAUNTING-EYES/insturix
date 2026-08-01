@@ -77,6 +77,7 @@ export interface ChatReferenceStyleJob {
   dispatchMessageId?: string | null;
   beforeCheckpointId?: string | null;
   afterCheckpointId?: string | null;
+  renderOperationId?: string | null;
   renderVerification?: Phase0RenderedEvidenceDispatchResult | null;
   result?: Record<string, unknown> | null;
   error?: string | null;
@@ -146,6 +147,7 @@ export interface ChatReferenceStyleJobStore {
     jobId: string;
     userId: string;
     afterCheckpointId: string;
+    renderOperationId: string;
     renderVerification: Phase0RenderedEvidenceDispatchResult;
     result: Record<string, unknown>;
     now: Date;
@@ -413,6 +415,7 @@ export async function runChatReferenceStyleJob(
       jobId: job._id,
       userId: job.userId,
       afterCheckpointId: afterCheckpoint.checkpointId,
+      renderOperationId: attemptOperationId,
       renderVerification,
       result: applied.data,
       now: deps.now(),
@@ -611,6 +614,7 @@ class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
     jobId: string;
     userId: string;
     afterCheckpointId: string;
+    renderOperationId: string;
     renderVerification: Phase0RenderedEvidenceDispatchResult;
     result: Record<string, unknown>;
     now: Date;
@@ -618,6 +622,7 @@ class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
     await this.finish(input.jobId, input.userId, {
       status: input.renderVerification.dispatched ? 'completed' : 'completed_unverified',
       afterCheckpointId: input.afterCheckpointId,
+      renderOperationId: input.renderOperationId,
       renderVerification: input.renderVerification,
       result: input.result,
       error: input.renderVerification.dispatched ? null : bounded(input.renderVerification.reason ?? 'render-verification-not-dispatched'),
