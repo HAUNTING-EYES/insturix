@@ -962,7 +962,7 @@ describe('chat edit battle harness', () => {
     }
   });
 
-  it('requires operation-ready resolvers before localized audio, visual, and asset mutations', () => {
+  it('requires resolvers only for localized mutations and keeps beat-sync family-owned', () => {
     expect(getChatEditBattleScenario('audio-anchored-camera-shake')?.requiredToolSequence).toEqual([
       'resolve_audio_edit',
       'apply_camera_shake',
@@ -972,7 +972,7 @@ describe('chat edit battle harness', () => {
       'apply_speed_ramp',
     ]);
     expect(getChatEditBattleScenario('beat-sync-cuts')?.requiredToolSequence).toEqual([
-      'resolve_audio_edit',
+      ['read_project_file', 'get_timeline_view'],
       'sync_cuts_to_beats',
     ]);
     expect(getChatEditBattleScenario('replace-with-uploaded-footage')?.requiredToolSequence).toEqual([

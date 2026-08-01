@@ -487,6 +487,61 @@ describe('chat request owner classification', () => {
     });
   });
 
+  it('normalizes legacy localized beat-sync output to the family-owned workflow', async () => {
+    const userMessage = 'Sync the existing montage cuts to the music downbeats.';
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: false,
+            targetFullySpecified: false,
+            localizedReads: [],
+            localizedEdits: [{
+              modality: 'audio',
+              operation: 'beat-sync',
+              query: 'music downbeats',
+              sourceQuery: '',
+              targetQuery: '',
+              targetKind: 'none',
+              sourceSpan: userMessage,
+              cameraMotionJob: null,
+              anchorSelection: null,
+              anchorSignal: null,
+            }],
+            requestedCapabilities: ['beat-sync'],
+            capabilityEvidence: [{ capability: 'beat-sync', sourceSpan: userMessage }],
+            familyDirectives: [],
+          },
+          confidence: 0.98,
+          reason: 'The requested edit is a project music-to-cut alignment.',
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      routingFacts: {
+        requiresContentLocalization: false,
+        localizedEdits: [],
+        requestedCapabilities: ['beat-sync'],
+      },
+    });
+    expect(requiredToolSequenceForChatCapability('beat-sync')).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'sync_cuts_to_beats',
+    ]);
+  });
+
   it('accepts the exact spoken-phrase sticker workflow without requiring a fake localized edit', async () => {
     const userMessage = 'When I say this is the key point, add a small animated lightbulb sticker for one second.';
     const result = await classifyChatRequestOwner({
@@ -1850,11 +1905,6 @@ describe('chat request owner capability filtering', () => {
     expect(licensedNames(['beat-sync'])).toEqual([
       'read_project_file',
       'get_timeline_view',
-      'find_audio_moment',
-      'resolve_audio_edit',
-      'resolve_clip_analysis',
-      'queue_resolved_clip_analysis',
-      'get_clip_analysis_result',
       'sync_cuts_to_beats',
     ]);
     expect(licensedNames(['scene-regeneration'])).toEqual([

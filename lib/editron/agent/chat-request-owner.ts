@@ -1219,6 +1219,9 @@ function deriveRoutingFacts(
   const capabilityOwnedAnchorEdits = normalizedLocalizedEdits.filter((edit) =>
     isStickerCapabilityAnchor(edit, facts.requestedCapabilities),
   );
+  const capabilityOwnedWorkflowEdits = normalizedLocalizedEdits.filter((edit) =>
+    isCapabilityOwnedWorkflowEdit(edit, facts.requestedCapabilities),
+  );
   const localizedReads = [...facts.localizedReads];
   for (const anchor of capabilityOwnedAnchorEdits) {
     if (!localizedReads.some((read) =>
@@ -1242,6 +1245,7 @@ function deriveRoutingFacts(
   );
   const localizedEdits = normalizedLocalizedEdits.filter((edit) =>
     !capabilityOwnedAnchorEdits.includes(edit)
+    && !capabilityOwnedWorkflowEdits.includes(edit)
     && !exactDirectCapabilityEvidence.some((entry) =>
       sourceSpansOverlap(edit.sourceSpan, entry.sourceSpan),
     ),
@@ -1301,6 +1305,15 @@ function isStickerCapabilityAnchor(
     && !requestedCapabilities.includes('localized-overlay')
     && edit.modality === 'transcript'
     && edit.operation === 'highlight';
+}
+
+function isCapabilityOwnedWorkflowEdit(
+  edit: ChatLocalizedEditRequest,
+  requestedCapabilities: readonly ChatRequestCapability[],
+): boolean {
+  return requestedCapabilities.includes('beat-sync')
+    && edit.modality === 'audio'
+    && edit.operation === 'beat-sync';
 }
 
 function validateRoutingProvenance(

@@ -220,17 +220,9 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     requiredToolSequence: [TIMELINE_READ_STEP, 'regenerate_bgm'],
   }),
   'beat-sync': capabilityContract({
-    authority: 'localized-workflow',
-    evidenceTools: [
-      'find_audio_moment',
-      'resolve_audio_edit',
-      'resolve_clip_analysis',
-      'queue_resolved_clip_analysis',
-      'get_clip_analysis_result',
-    ],
+    authority: 'family-owner',
     mutationTools: ['sync_cuts_to_beats'],
-    requiredToolSequence: [TIMELINE_READ_STEP, 'resolve_audio_edit', 'sync_cuts_to_beats'],
-    requiresResolverAuthorization: true,
+    requiredToolSequence: [TIMELINE_READ_STEP, 'sync_cuts_to_beats'],
   }),
   'scene-regeneration': capabilityContract({
     authority: 'family-owner',
@@ -571,12 +563,6 @@ export function resolveChatLocalizedWorkflowAdapter(
     return localizedAdapter('localized-sfx', 'resolve_audio_edit', {
       query,
       action: 'add_sfx',
-    });
-  }
-  if (edit.modality === 'audio' && edit.operation === 'beat-sync') {
-    return localizedAdapter('beat-sync', 'resolve_audio_edit', {
-      query,
-      action: 'sync_cuts_to_beats',
     });
   }
   if (edit.modality === 'asset' && edit.operation === 'place-asset') {
