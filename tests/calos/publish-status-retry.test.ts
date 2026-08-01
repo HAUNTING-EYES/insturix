@@ -234,6 +234,53 @@ describe("CalOS publish status and deliberate retry", () => {
     expect(payload.connectedPlatforms).toEqual(["twitter"]);
   });
 
+  it("reports the newest approval occurrence regardless of database row order", async () => {
+    mocks.queueFind.mockReturnValue(
+      queryResult([
+        {
+          deliverableId: "card_1",
+          approvalVersion: 3,
+          platform: "twitter",
+          accountRef: "x_1",
+          status: "pending",
+          postId: null,
+          postUrl: null,
+          lastError: null,
+          updatedAt: new Date("2026-07-29T12:00:00.000Z"),
+        },
+        {
+          deliverableId: "card_1",
+          approvalVersion: 2,
+          platform: "twitter",
+          accountRef: "x_1",
+          status: "failed",
+          postId: null,
+          postUrl: null,
+          lastError: "Old approval failed",
+          updatedAt: new Date("2026-07-28T12:00:00.000Z"),
+        },
+      ]),
+    );
+
+    const response = await getPublishStatus(getRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mocks.queueFind).toHaveBeenCalledWith({
+      brandId: "brand_1",
+      ownerUserId: "user_1",
+      status: { $ne: "superseded" },
+    });
+    expect(payload.statuses.card_1).toEqual({
+      platform: "twitter",
+      status: "pending",
+      postUrl: null,
+      error: null,
+      accountRef: "x_1",
+      canRetry: false,
+    });
+  });
+
   it("reports an expired Model A account as reconnect-required before publishing", async () => {
     mocks.connectedAccountFind.mockReturnValue(
       queryResult([{
@@ -496,6 +543,29 @@ describe("CalOS publish status and deliberate retry", () => {
     expect(mocks.queueFindOne).not.toHaveBeenCalled();
   });
 
+  it("refuses to retry an older failure when the newest occurrence is not failed", async () => {
+    mocks.queueFindOne.mockResolvedValue({
+      _id: "queue_new",
+      approvalVersion: 3,
+      platform: "twitter",
+      accountRef: "x_1",
+      status: "pending",
+      postId: null,
+    });
+
+    const response = await callRetry({
+      brandId: "brand_1",
+      deliverableId: "card_1",
+      confirmPossibleDuplicate: true,
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("Only the latest failed, unpublished job");
+    expect(mocks.connectedAccountFindOne).not.toHaveBeenCalled();
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   it("atomically requeues a failed unpublished row without changing its account", async () => {
     mocks.queueFindOne.mockResolvedValue({
       _id: "queue_1",
@@ -538,6 +608,16 @@ describe("CalOS publish status and deliberate retry", () => {
       status: "pending",
       accountRef: "x_1",
     });
+    expect(mocks.queueFindOne).toHaveBeenCalledWith(
+      {
+        brandId: "brand_1",
+        ownerUserId: "user_1",
+        deliverableId: "card_1",
+        status: { $ne: "superseded" },
+      },
+      null,
+      { sort: { approvalVersion: -1, updatedAt: -1, _id: -1 } },
+    );
     expect(mocks.connectedAccountFindOne).toHaveBeenCalledWith({
       brandId: "brand_1",
       platform: "twitter",

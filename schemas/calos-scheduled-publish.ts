@@ -14,7 +14,8 @@ export type CalosPublishStatus =
   | "claimed"
   | "publishing"
   | "published"
-  | "failed";
+  | "failed"
+  | "superseded";
 
 export interface CalosPublishMediaSnapshot {
   readonly kind: PublisherMediaKind;
@@ -34,7 +35,7 @@ export interface CalosPublishPayload {
 }
 
 /**
- * CalOS delivery queue. One row per (deliverable, platform) target. Delivery state lives
+ * CalOS delivery queue. One row per approved (deliverable, platform, version) occurrence. Delivery state lives
  * HERE, not on the deliverable — a single content card fans out to many platforms with
  * independent outcomes (YouTube can publish while LinkedIn fails). The card's "published"
  * badge is derived from these rows.
@@ -45,6 +46,7 @@ export interface ICalosScheduledPublish extends Document {
   orgId?: string | null;
   brandId?: string | null;
   platform: CalosPublishPlatform;
+  approvalVersion?: number | null; // null only on legacy rows created before versioned occurrences
   accountRef?: string | null; // page / account / organization id on the platform
   payload: CalosPublishPayload; // version-bound reviewed content/media snapshot used by the worker
   publishAt: Date;
@@ -55,7 +57,7 @@ export interface ICalosScheduledPublish extends Document {
   lastError?: string | null;
   postId?: string | null;
   postUrl?: string | null;
-  idempotencyKey: string; // `${deliverableId}:${platform}` — prevents duplicate queue targets, not provider posts
+  idempotencyKey: string; // `${deliverableId}:${platform}:v${approvalVersion}` prevents duplicate approval occurrences
   createdAt: Date;
   updatedAt: Date;
 }
@@ -71,13 +73,14 @@ const CalosScheduledPublishSchema = new Schema<ICalosScheduledPublish>(
       required: true,
       enum: ["youtube", "facebook", "instagram", "linkedin", "twitter", "tiktok"],
     },
+    approvalVersion: { type: Number, default: null },
     accountRef: { type: String, default: null },
     payload: { type: Object, default: {} },
     publishAt: { type: Date, required: true },
     status: {
       type: String,
       required: true,
-      enum: ["pending", "claimed", "publishing", "published", "failed"],
+      enum: ["pending", "claimed", "publishing", "published", "failed", "superseded"],
       default: "pending",
     },
     attempts: { type: Number, default: 0 },
@@ -95,6 +98,7 @@ const CalosScheduledPublishSchema = new Schema<ICalosScheduledPublish>(
 CalosScheduledPublishSchema.index({ status: 1, publishAt: 1 });
 CalosScheduledPublishSchema.index({ status: 1, lockedAt: 1 });
 CalosScheduledPublishSchema.index({ orgId: 1, brandId: 1 });
+CalosScheduledPublishSchema.index({ deliverableId: 1, status: 1, approvalVersion: -1, updatedAt: -1 });
 
 const CalosScheduledPublish =
   mongoose.models.CalosScheduledPublish ||

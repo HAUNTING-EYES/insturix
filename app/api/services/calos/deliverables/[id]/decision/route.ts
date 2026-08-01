@@ -285,9 +285,8 @@ async function resolveApprovedPublishTarget(
 
 /**
  * Enqueue a delivery-queue row when a deliverable is approved (the produce side; the
- * process-publish-queue cron consumes it). Idempotent per (deliverable, platform) via $setOnInsert
- * on the unique idempotencyKey — never double-posts, never clobbers an already-published or in-flight
- * row. Reapproval refreshes only a never-attempted pending row with the latest reviewed snapshot.
+ * process-publish-queue cron consumes it). Each approved version gets an immutable occurrence;
+ * reapproving the same version is idempotent, while older untouched occurrences are superseded.
  */
 async function enqueueApprovedPublish(
   deliverable: ICalosDeliverable,
@@ -319,12 +318,37 @@ async function enqueueApprovedPublish(
     publishAt,
   };
 
-  const idempotencyKey = `${deliverable.card.id}:${target.platform}`;
+  const idempotencyKey = `${deliverable.card.id}:${target.platform}:v${deliverable.version}`;
+  await CalosScheduledPublish.updateMany(
+    {
+      deliverableId: deliverable.card.id,
+      orgId: deliverable.orgId ?? null,
+      brandId,
+      platform: target.platform,
+      status: "pending",
+      attempts: 0,
+      postId: null,
+      idempotencyKey: { $ne: idempotencyKey },
+      $or: [
+        { approvalVersion: { $lt: deliverable.version } },
+        { approvalVersion: null },
+      ],
+    },
+    {
+      $set: {
+        status: "superseded",
+        lockedAt: null,
+        lastError: `Superseded by approval version ${deliverable.version}.`,
+      },
+    },
+    { session },
+  );
   await CalosScheduledPublish.findOneAndUpdate(
     { idempotencyKey },
     {
       $setOnInsert: {
         deliverableId: deliverable.card.id,
+        approvalVersion: deliverable.version,
         ...currentSnapshot,
         platform: target.platform,
         status: "pending",
@@ -333,11 +357,5 @@ async function enqueueApprovedPublish(
       },
     },
     { upsert: true, new: false, session },
-  );
-  // Never retarget a claimed, retried, failed, or published row.
-  await CalosScheduledPublish.updateOne(
-    { idempotencyKey, status: "pending", attempts: 0, postId: null },
-    { $set: currentSnapshot },
-    { session },
   );
 }

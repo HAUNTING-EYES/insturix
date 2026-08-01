@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   deliverableFindOne: vi.fn(),
   connectedAccountFind: vi.fn(),
   queueFindOneAndUpdate: vi.fn(),
+  queueUpdateMany: vi.fn(),
   queueUpdateOne: vi.fn(),
   toContentCard: vi.fn(),
   emitBrandEvent: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("@/schemas/calos-connected-account", () => ({
 vi.mock("@/schemas/calos-scheduled-publish", () => ({
   default: {
     findOneAndUpdate: mocks.queueFindOneAndUpdate,
+    updateMany: mocks.queueUpdateMany,
     updateOne: mocks.queueUpdateOne,
   },
 }));
@@ -138,6 +140,7 @@ describe("CalOS approval publish-target snapshot", () => {
     });
     mocks.deliverableFindOne.mockResolvedValue(deliverable);
     mocks.queueFindOneAndUpdate.mockResolvedValue(null);
+    mocks.queueUpdateMany.mockResolvedValue({ acknowledged: true, modifiedCount: 0 });
     mocks.queueUpdateOne.mockResolvedValue({ acknowledged: true });
     mocks.toContentCard.mockReturnValue({ id: "card_1", stage: "approved" });
     mocks.createDecisionLearningEvent.mockReturnValue({ type: "decision" });
@@ -176,7 +179,7 @@ describe("CalOS approval publish-target snapshot", () => {
     vi.unstubAllEnvs();
   });
 
-  it("refreshes the current snapshot on an untouched pending publish row", async () => {
+  it("creates an immutable version occurrence and supersedes only older untouched rows", async () => {
     const assignmentSelect = setAssignments(["linkedin_org_1"]);
 
     const response = await postDecision(decisionRequest(), decisionContext);
@@ -195,38 +198,44 @@ describe("CalOS approval publish-target snapshot", () => {
       expect.stringContaining("scopes"),
     );
     expect(mocks.queueFindOneAndUpdate).toHaveBeenCalledWith(
-      { idempotencyKey: "card_1:linkedin" },
+      { idempotencyKey: "card_1:linkedin:v2" },
       expect.objectContaining({
         $setOnInsert: expect.objectContaining({
+          approvalVersion: 2,
           accountRef: "linkedin_org_1",
           ownerUserId: "owner_1",
           brandId: "brand_1",
           platform: "linkedin",
+          idempotencyKey: "card_1:linkedin:v2",
         }),
       }),
       { upsert: true, new: false, session: mocks.session },
     );
-    expect(mocks.queueUpdateOne).toHaveBeenCalledWith(
-      { idempotencyKey: "card_1:linkedin", status: "pending", attempts: 0, postId: null },
+    expect(mocks.queueUpdateMany).toHaveBeenCalledWith(
+      {
+        deliverableId: "card_1",
+        orgId: null,
+        brandId: "brand_1",
+        platform: "linkedin",
+        status: "pending",
+        attempts: 0,
+        postId: null,
+        idempotencyKey: { $ne: "card_1:linkedin:v2" },
+        $or: [
+          { approvalVersion: { $lt: 2 } },
+          { approvalVersion: null },
+        ],
+      },
       {
         $set: {
-          ownerUserId: "owner_1",
-          orgId: null,
-          brandId: "brand_1",
-          accountRef: "linkedin_org_1",
-          payload: {
-            schemaVersion: 1,
-            approvalVersion: 2,
-            contentFormat: "text",
-            caption: "Launch copy",
-            title: "Launch",
-            media: { kind: "none", url: null },
-          },
-          publishAt: new Date("2026-08-05T09:00:00.000Z"),
+          status: "superseded",
+          lockedAt: null,
+          lastError: "Superseded by approval version 2.",
         },
       },
       { session: mocks.session },
     );
+    expect(mocks.queueUpdateOne).not.toHaveBeenCalled();
     expect(deliverable.editorialStatus).toBe("approved");
     expect(deliverable.save).toHaveBeenCalledWith({ session: mocks.session });
     expect(mocks.transaction).toHaveBeenCalledOnce();
@@ -253,7 +262,7 @@ describe("CalOS approval publish-target snapshot", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.queueFindOneAndUpdate).toHaveBeenCalledWith(
-      { idempotencyKey: "card_1:linkedin" },
+      { idempotencyKey: "card_1:linkedin:v2" },
       expect.objectContaining({
         $setOnInsert: expect.objectContaining({
           ownerUserId: "publisher_1",
@@ -262,13 +271,7 @@ describe("CalOS approval publish-target snapshot", () => {
       }),
       { upsert: true, new: false, session: mocks.session },
     );
-    expect(mocks.queueUpdateOne).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.objectContaining({
-        $set: expect.objectContaining({ ownerUserId: "publisher_1" }),
-      }),
-      { session: mocks.session },
-    );
+    expect(mocks.queueUpdateOne).not.toHaveBeenCalled();
   });
 
   it("blocks approval when the platform has no assigned account", async () => {
@@ -476,5 +479,11 @@ describe("CalOS approval publish-target snapshot", () => {
     expect(response.status).toBe(200);
     expect(deliverable.approvals).toHaveLength(1);
     expect(mocks.queueFindOneAndUpdate).toHaveBeenCalledOnce();
+    expect(mocks.queueFindOneAndUpdate).toHaveBeenCalledWith(
+      { idempotencyKey: "card_1:linkedin:v2" },
+      expect.objectContaining({ $setOnInsert: expect.any(Object) }),
+      { upsert: true, new: false, session: mocks.session },
+    );
+    expect(mocks.queueUpdateOne).not.toHaveBeenCalled();
   });
 });

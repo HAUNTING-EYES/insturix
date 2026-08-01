@@ -16,6 +16,7 @@ export const dynamic = "force-dynamic";
 type PublishRow = {
   _id?: unknown;
   deliverableId: string;
+  approvalVersion?: number | null;
   platform: string;
   accountRef?: string | null;
   status: string;
@@ -29,6 +30,32 @@ function asTime(value: Date | string | null | undefined) {
   if (!value) return 0;
   const timestamp = new Date(value).getTime();
   return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function asApprovalVersion(value: number | null | undefined) {
+  return Number.isInteger(value) && Number(value) > 0 ? Number(value) : 0;
+}
+
+function isNewerOccurrence(candidate: PublishRow, current: PublishRow) {
+  const versionDifference =
+    asApprovalVersion(candidate.approvalVersion) - asApprovalVersion(current.approvalVersion);
+  if (versionDifference !== 0) return versionDifference > 0;
+
+  const timeDifference = asTime(candidate.updatedAt) - asTime(current.updatedAt);
+  if (timeDifference !== 0) return timeDifference > 0;
+
+  return String(candidate._id ?? "").localeCompare(String(current._id ?? "")) > 0;
+}
+
+function newestOccurrences(rows: PublishRow[]) {
+  const newestByDeliverable = new Map<string, PublishRow>();
+  for (const row of rows) {
+    const current = newestByDeliverable.get(row.deliverableId);
+    if (!current || isNewerOccurrence(row, current)) {
+      newestByDeliverable.set(row.deliverableId, row);
+    }
+  }
+  return [...newestByDeliverable.values()];
 }
 
 function buildConnectionHealth(
@@ -87,14 +114,15 @@ export async function GET(req: NextRequest) {
     const scope = calosScope({ userId, orgId }, brandId);
 
     const [rows, accounts] = await Promise.all([
-      CalosScheduledPublish.find(scope)
-        .select("deliverableId platform accountRef status postId postUrl lastError updatedAt")
+      CalosScheduledPublish.find({ ...scope, status: { $ne: "superseded" } })
+        .select("deliverableId approvalVersion platform accountRef status postId postUrl lastError updatedAt")
         .lean<PublishRow[]>(),
       CalosConnectedAccount.find({ brandId, ...(orgId ? { orgId } : {}) })
         .select("platform accountRef accountType displayName ownerUserId accessTokenEnc refreshTokenEnc expiresAt scopes")
         .lean<CalosAssignmentLike[]>(),
     ]);
     const assignmentHealth = await loadCalosAssignmentHealth(accounts);
+    const latestRows = newestOccurrences(rows);
 
     const statuses: Record<
       string,
@@ -107,7 +135,7 @@ export async function GET(req: NextRequest) {
         canRetry: boolean;
       }
     > = {};
-    for (const row of rows) {
+    for (const row of latestRows) {
       statuses[row.deliverableId] = {
         platform: row.platform,
         status: row.status,
@@ -118,7 +146,7 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    const connectionHealth = buildConnectionHealth(rows, assignmentHealth);
+    const connectionHealth = buildConnectionHealth(latestRows, assignmentHealth);
     const connectedPlatforms = Object.entries(assignmentHealth)
       .filter(([, connection]) => connection.state === "assigned")
       .map(([platform]) => platform);
@@ -174,15 +202,21 @@ export async function POST(req: NextRequest) {
 
     await connectToDatabase();
     const scope = calosScope({ userId, orgId }, brandId);
-    const row = (await CalosScheduledPublish.findOne({
-      ...scope,
-      deliverableId,
-      status: "failed",
-      postId: null,
-    })) as PublishRow | null;
+    const row = (await CalosScheduledPublish.findOne(
+      {
+        ...scope,
+        deliverableId,
+        status: { $ne: "superseded" },
+      },
+      null,
+      { sort: { approvalVersion: -1, updatedAt: -1, _id: -1 } },
+    )) as PublishRow | null;
 
-    if (!row) {
-      return NextResponse.json({ error: "Only failed, unpublished jobs can be retried" }, { status: 409 });
+    if (!row || row.status !== "failed" || row.postId) {
+      return NextResponse.json(
+        { error: "Only the latest failed, unpublished job can be retried" },
+        { status: 409 },
+      );
     }
 
     const accountRef = row.accountRef?.trim();
