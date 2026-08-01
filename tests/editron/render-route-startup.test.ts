@@ -9,6 +9,8 @@ const routeMocks = vi.hoisted(() => ({
   reserveJob: vi.fn(),
   markJobStarted: vi.fn(),
   failJob: vi.fn(),
+  claimJobFinalization: vi.fn(),
+  releaseJobFinalizationClaim: vi.fn(),
   reconcileProviderTerminalEvent: vi.fn(),
   getActiveRendersForUser: vi.fn(),
   resolveProjectAssets: vi.fn(),
@@ -26,6 +28,7 @@ const routeMocks = vi.hoisted(() => ({
   dbFindOneAndUpdate: vi.fn(),
   dbUpdateOne: vi.fn(),
   dbInsertOne: vi.fn(),
+  publishJSON: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({
@@ -37,12 +40,18 @@ vi.mock('@remotion/lambda/client', () => ({
   validateWebhookSignature: routeMocks.validateWebhookSignature,
 }));
 
+vi.mock('@upstash/qstash', () => ({
+  Client: vi.fn(() => ({ publishJSON: routeMocks.publishJSON })),
+}));
+
 vi.mock('@/lib/editron/services/render-job-service', () => ({
   createJob: routeMocks.createJob,
   calculateExpectedRenderDurationMs: routeMocks.calculateExpectedRenderDurationMs,
   reserveJob: routeMocks.reserveJob,
   markJobStarted: routeMocks.markJobStarted,
   failJob: routeMocks.failJob,
+  claimJobFinalization: routeMocks.claimJobFinalization,
+  releaseJobFinalizationClaim: routeMocks.releaseJobFinalizationClaim,
   reconcileProviderTerminalEvent: routeMocks.reconcileProviderTerminalEvent,
   getActiveRendersForUser: routeMocks.getActiveRendersForUser,
 }));
@@ -103,6 +112,7 @@ import { POST } from '@/app/api/services/editron/cloudrun/render/route';
 import { GET as GET_ACTIVE_RENDERS } from '@/app/api/services/editron/render/active/route';
 import { POST as POST_RENDER_WEBHOOK } from '@/app/api/services/editron/cloudrun/render/webhook/route';
 import { RenderAudioRightsAuthorityError } from '@/lib/editron/services/render-audio-rights-authority';
+import { beginRenderFinalization } from '@/lib/editron/services/render-finalization-dispatch';
 
 describe('Editron render startup boundary', () => {
   beforeEach(() => {
@@ -110,6 +120,12 @@ describe('Editron render startup boundary', () => {
     vi.stubEnv('REMOTION_LAMBDA_FUNCTION_NAME', 'editron-render-test');
     vi.stubEnv('REMOTION_LAMBDA_SERVE_URL', 'https://remotion.example.test/site');
     vi.stubEnv('REMOTION_WEBHOOK_SECRET', 'test-remotion-webhook-secret');
+    vi.stubEnv('EDITRON_RENDER_FINALIZER_ENDPOINT', 'https://finalizer.example.test/finalize');
+    vi.stubEnv('EDITRON_RENDER_FINALIZER_TOKEN', 'finalizer-secret');
+    vi.stubEnv('QSTASH_TOKEN', 'qstash-secret');
+    vi.stubEnv('QSTASH_CURRENT_SIGNING_KEY', 'current-signing-key');
+    vi.stubEnv('QSTASH_NEXT_SIGNING_KEY', 'next-signing-key');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example.test');
     routeMocks.auth.mockResolvedValue({ userId: 'user_1' });
     routeMocks.assertRemotionSiteFresh.mockReturnValue({ reason: 'verified' });
     routeMocks.setAwsCredentials.mockResolvedValue(undefined);
@@ -152,6 +168,8 @@ describe('Editron render startup boundary', () => {
     routeMocks.reserveJob.mockResolvedValue(undefined);
     routeMocks.markJobStarted.mockResolvedValue(undefined);
     routeMocks.failJob.mockResolvedValue(undefined);
+    routeMocks.releaseJobFinalizationClaim.mockResolvedValue(true);
+    routeMocks.publishJSON.mockResolvedValue({ messageId: 'msg_finalizer_1' });
     routeMocks.reconcileProviderTerminalEvent.mockResolvedValue(undefined);
     routeMocks.getActiveRendersForUser.mockResolvedValue([]);
     routeMocks.transitionProjectStatus.mockResolvedValue(undefined);
@@ -397,6 +415,25 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
   });
 
+  it('CRITICAL: incomplete finalization infrastructure stops before credits and render work', async () => {
+    vi.stubEnv('QSTASH_NEXT_SIGNING_KEY', '');
+
+    const response = await POST(renderRequest());
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      type: 'error',
+      code: 'RENDER_FINALIZATION_UNAVAILABLE',
+      message: 'Verified render finalization is temporarily unavailable.',
+    });
+    expect(routeMocks.setAwsCredentials).not.toHaveBeenCalled();
+    expect(routeMocks.loadProject).not.toHaveBeenCalled();
+    expect(routeMocks.checkCredits).not.toHaveBeenCalled();
+    expect(routeMocks.deduct).not.toHaveBeenCalled();
+    expect(routeMocks.reserveJob).not.toHaveBeenCalled();
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+  });
+
   it('CRITICAL: admission persistence failure spends no credits and starts no render', async () => {
     routeMocks.reserveJob.mockRejectedValue(new Error('database unavailable'));
 
@@ -600,6 +637,72 @@ describe('Editron render startup boundary', () => {
       claimToken: 'rfl_loser',
       now,
     })).resolves.toBeNull();
+  });
+
+  it('repairs provider binding in the claim and releases it when durable dispatch fails', async () => {
+    const actualJobService = await vi.importActual<
+      typeof import('@/lib/editron/services/render-job-service')
+    >('@/lib/editron/services/render-job-service');
+    routeMocks.dbFindOneAndUpdate.mockResolvedValueOnce({
+      _id: 'rnd_admission_1',
+      providerRenderId: 'render_provider_1',
+      status: 'finalizing',
+      expectedDurationMs: 38_000,
+    });
+
+    await actualJobService.claimJobFinalization({
+      renderId: 'rnd_admission_1',
+      providerRenderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      sourceOutputUrl: 'https://bucket.example.test/raw.mp4',
+      sourceOutputSize: 44_583_988,
+      claimToken: 'rfl_claim_1',
+    });
+    expect(routeMocks.dbFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $and: expect.arrayContaining([
+          {
+            $or: [
+              { providerRenderId: { $exists: false } },
+              { providerRenderId: 'render_provider_1' },
+            ],
+          },
+          expect.objectContaining({
+            $or: expect.arrayContaining([{ status: 'pending' }]),
+          }),
+        ]),
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          providerRenderId: 'render_provider_1',
+          bucketName: 'bucket_1',
+        }),
+      }),
+      { returnDocument: 'after' },
+    );
+
+    const claim = {
+      jobId: 'rnd_admission_1',
+      providerRenderId: 'render_provider_1',
+      claimToken: 'rfl_claim_1',
+      sourceOutputUrl: 'https://bucket.example.test/raw.mp4',
+      sourceOutputSize: 44_583_988,
+      expectedDurationMs: 38_000,
+    };
+    routeMocks.claimJobFinalization.mockResolvedValueOnce(claim);
+    routeMocks.publishJSON.mockRejectedValueOnce(new Error('QStash unavailable'));
+
+    await expect(beginRenderFinalization({
+      renderId: 'rnd_admission_1',
+      providerRenderId: 'render_provider_1',
+      bucketName: 'bucket_1',
+      sourceOutputUrl: claim.sourceOutputUrl,
+      sourceOutputSize: claim.sourceOutputSize,
+    })).rejects.toThrow('QStash unavailable');
+    expect(routeMocks.releaseJobFinalizationClaim).toHaveBeenCalledWith({
+      jobId: claim.jobId,
+      claimToken: claim.claimToken,
+    });
   });
 
   it('publishes only the verified finalizer artifact held by the active lease', async () => {

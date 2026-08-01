@@ -3,7 +3,11 @@ import { z } from 'zod';
 
 import { RenderExpectedDurationMsSchema } from '@/lib/editron/schemas/render-job';
 import { isRenderFinalizerConfigured } from '@/lib/editron/services/render-finalizer-client';
-import type { ClaimedRenderFinalization } from '@/lib/editron/services/render-job-service';
+import {
+  claimJobFinalization,
+  releaseJobFinalizationClaim,
+  type ClaimedRenderFinalization,
+} from '@/lib/editron/services/render-job-service';
 
 const SAFE_IDENTIFIER = /^[A-Za-z0-9_-]+$/;
 
@@ -127,6 +131,43 @@ export async function enqueueRenderFinalization(
   return {
     messageId: typeof result?.messageId === 'string' ? result.messageId : null,
   };
+}
+
+export type BeginRenderFinalizationResult =
+  | { state: 'enqueued'; claim: ClaimedRenderFinalization; messageId: string | null }
+  | { state: 'already_claimed' };
+
+/** One shared handoff for webhook, polling, and chapter completion observers. */
+export async function beginRenderFinalization(input: {
+  renderId: string;
+  providerRenderId?: string;
+  bucketName?: string;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+}): Promise<BeginRenderFinalizationResult> {
+  const claim = await claimJobFinalization(input);
+  if (!claim) return { state: 'already_claimed' };
+
+  try {
+    const dispatch = await enqueueRenderFinalization(claim);
+    return { state: 'enqueued', claim, messageId: dispatch.messageId };
+  } catch (dispatchError) {
+    try {
+      const released = await releaseJobFinalizationClaim({
+        jobId: claim.jobId,
+        claimToken: claim.claimToken,
+      });
+      if (!released) {
+        throw new Error('The active finalization claim could not be released.');
+      }
+    } catch (releaseError) {
+      throw new AggregateError(
+        [dispatchError, releaseError],
+        'Render finalization dispatch failed and its claim could not be released.',
+      );
+    }
+    throw dispatchError;
+  }
 }
 
 export function parseRenderFinalizationFailureEnvelope(raw: unknown): {

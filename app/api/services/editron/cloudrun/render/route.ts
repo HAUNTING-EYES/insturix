@@ -32,6 +32,7 @@ import {
   RenderDeliveryContractError,
   resolveRenderDeliveryPlan,
 } from '@/lib/editron/services/render-delivery-manifest';
+import { resolveRenderFinalizationPipelineConfig } from '@/lib/editron/services/render-finalization-dispatch';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 
 export async function POST(request: Request) {
@@ -74,6 +75,18 @@ export async function POST(request: Request) {
     }
     if (!serveUrl) {
       throw new Error('REMOTION_LAMBDA_SERVE_URL is not defined');
+    }
+    const finalizationConfig = resolveRenderFinalizationPipelineConfig();
+    if (!finalizationConfig.configured) {
+      console.error(`[Render] Verified finalization is unavailable: ${finalizationConfig.reason}`);
+      return NextResponse.json(
+        {
+          type: 'error',
+          code: 'RENDER_FINALIZATION_UNAVAILABLE',
+          message: 'Verified render finalization is temporarily unavailable.',
+        },
+        { status: 503 },
+      );
     }
     const remotionSiteFreshness = assertRemotionSiteFresh({ serveUrl, env: process.env });
     if (remotionSiteFreshness.reason === 'unverified_no_app_commit') {

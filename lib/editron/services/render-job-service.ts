@@ -80,6 +80,8 @@ export interface ClaimedRenderFinalization {
  */
 export async function claimJobFinalization(input: {
   renderId: string;
+  providerRenderId?: string;
+  bucketName?: string;
   sourceOutputUrl: string;
   sourceOutputSize: number;
   claimToken?: string;
@@ -88,6 +90,11 @@ export async function claimJobFinalization(input: {
   collection?: Collection<RenderJob>;
 }): Promise<ClaimedRenderFinalization | null> {
   assertHttpsUrl(input.sourceOutputUrl, 'Provider output URL');
+  const providerRenderId = input.providerRenderId?.trim();
+  const bucketName = input.bucketName?.trim();
+  if (Boolean(providerRenderId) !== Boolean(bucketName)) {
+    throw new Error('Provider render ID and bucket name must be supplied together.');
+  }
   if (!Number.isInteger(input.sourceOutputSize) || input.sourceOutputSize < 0) {
     throw new Error('Provider output size must be a non-negative integer.');
   }
@@ -99,21 +106,32 @@ export async function claimJobFinalization(input: {
   const now = input.now ?? new Date();
   const claimToken = input.claimToken ?? `rfl_${randomUUID().replaceAll('-', '')}`;
   const leaseExpiresAt = new Date(now.getTime() + leaseMs);
+  const claimableStates: Filter<RenderJob>[] = [
+    { status: 'rendering' },
+    {
+      status: 'finalizing',
+      'finalization.sourceOutputUrl': input.sourceOutputUrl,
+      'finalization.leaseExpiresAt': { $lte: now },
+    },
+  ];
+  if (providerRenderId) claimableStates.unshift({ status: 'pending' });
+  const identityFilters: Filter<RenderJob>[] = [
+    renderJobSelector(input.renderId),
+    { expectedDurationMs: { $exists: true, $gt: 0 } },
+  ];
+  if (providerRenderId) {
+    identityFilters.push({
+      $or: [
+        { providerRenderId: { $exists: false } },
+        { providerRenderId },
+      ],
+    });
+  }
   const claimed = await jobs.findOneAndUpdate(
     {
       $and: [
-        renderJobSelector(input.renderId),
-        { expectedDurationMs: { $exists: true, $gt: 0 } },
-        {
-          $or: [
-            { status: 'rendering' },
-            {
-              status: 'finalizing',
-              'finalization.sourceOutputUrl': input.sourceOutputUrl,
-              'finalization.leaseExpiresAt': { $lte: now },
-            },
-          ],
-        },
+        ...identityFilters,
+        { $or: claimableStates },
       ],
     },
     {
@@ -127,6 +145,7 @@ export async function claimJobFinalization(input: {
         'finalization.claimToken': claimToken,
         'finalization.claimedAt': now,
         'finalization.leaseExpiresAt': leaseExpiresAt,
+        ...(providerRenderId && bucketName ? { providerRenderId, bucketName } : {}),
       },
       $inc: { 'finalization.attempts': 1 },
       $unset: {
@@ -145,6 +164,32 @@ export async function claimJobFinalization(input: {
     sourceOutputSize: input.sourceOutputSize,
     expectedDurationMs: claimed.expectedDurationMs,
   };
+}
+
+/** Release only the active dispatch claim so another observer can retry QStash publication. */
+export async function releaseJobFinalizationClaim(input: {
+  jobId: string;
+  claimToken: string;
+  collection?: Collection<RenderJob>;
+}): Promise<boolean> {
+  const jobs = input.collection ?? await getCollection();
+  const released = await jobs.updateOne(
+    {
+      _id: input.jobId,
+      status: 'finalizing',
+      'finalization.claimToken': input.claimToken,
+    },
+    {
+      $set: {
+        status: 'rendering',
+        progress: 0.99,
+      },
+      $unset: {
+        finalization: '',
+      },
+    },
+  );
+  return released.modifiedCount === 1;
 }
 
 /** Publish only a receipt-verified artifact held by the active finalization lease. */
