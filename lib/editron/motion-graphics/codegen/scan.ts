@@ -118,6 +118,10 @@ export function scanCode(code: string, options: ScanOptions = {}): ScanResult {
     return fail('<Plate> is not licensed for this moment — compose an integrated, boxless structure unless the approved design plan explicitly licenses a panel and states why.');
   }
 
+  if (!options.allowPlate && /\b(?:background|backgroundImage)\s*:\s*(?:`|['"])?(?:linear-gradient|radial-gradient)\s*\(/.test(code)) {
+    return fail('Raw background gradients are not licensed for an integrated design - remove the improvised surface; kit text and mark primitives own local footage protection.');
+  }
+
   // 9. Brand by construction, structurally: every brand-requiring kit element must pass brand= in its
   //    open tag. A brandless tag compiles (esbuild strips types) and then crashes mid-render on the kit's
   //    internal dv(brand) → "Cannot read properties of undefined (reading 'density')" — live class caught

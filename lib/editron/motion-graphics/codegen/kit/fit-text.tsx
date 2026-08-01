@@ -10,7 +10,7 @@
 import React from 'react';
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { Brand } from './brand';
-import { withAlpha, dv } from './brand';
+import { withAlpha, dv, textProtectionShadow } from './brand';
 import { useRegionSize } from './stage';
 
 const avgAdvance = (weight: number, upper: boolean, condensed = false): number => {
@@ -133,6 +133,7 @@ export const FitHeadline: React.FC<{
         lineHeight: display ? 0.98 : brand.type.lineHeight,
         letterSpacing: `${trEm}em`,
         textAlign: align,
+        textShadow: textProtectionShadow(brand),
       }}
     >
       {wrapped.map((line, li) => (
@@ -211,6 +212,7 @@ export const TextBlock: React.FC<{
         lineHeight: 1.42,
         color: toneColor(brand, tone),
         textAlign: align,
+        textShadow: textProtectionShadow(brand),
         opacity: o,
         transform: `translateY(${(1 - o) * 14}px)`,
       }}

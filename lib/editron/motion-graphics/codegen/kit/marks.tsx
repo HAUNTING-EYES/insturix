@@ -11,9 +11,16 @@
  * from the frame (grow() = brand-eased 0→1). Every value is a real 0..1 the caller passes (perceptual honesty).
  */
 import React from 'react';
-import { interpolate, useCurrentFrame } from 'remotion';
+import { interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { Brand, SurfaceMode } from './brand';
-import { withAlpha, dv, materialSurface } from './brand';
+import {
+  withAlpha,
+  dv,
+  materialSurface,
+  markProtectionFilter,
+  markProtectionShadow,
+  textProtectionShadow,
+} from './brand';
 import { EASE } from './choreo';
 
 type Tone = 'accent' | 'text' | 'muted';
@@ -39,16 +46,18 @@ export const Bar: React.FC<{
   label?: string; valueText?: string;
 }> = ({ brand, value, at = 0, dur = 18, tone = 'accent', thickness = 14, vertical = false, track = true, radius, label, valueText }) => {
   const frame = useCurrentFrame();
+  const { width, height } = useVideoConfig();
   const p = grow(frame, at, dur);
   const fill = p * clamp01(value);
   const color = toneOf(brand, tone);
   const r = radius ?? thickness / 2;
+  const markShadow = markProtectionShadow(brand);
   const rail: React.CSSProperties = vertical
     ? { position: 'relative', width: thickness, height: '100%', borderRadius: r, background: track ? withAlpha(brand.colors.text, 0.1) : 'transparent' }
     : { position: 'relative', width: '100%', height: thickness, borderRadius: r, background: track ? withAlpha(brand.colors.text, 0.1) : 'transparent' };
   const bar: React.CSSProperties = vertical
-    ? { position: 'absolute', bottom: 0, left: 0, width: '100%', height: `${fill * 100}%`, borderRadius: r, background: color }
-    : { position: 'absolute', top: 0, left: 0, height: '100%', width: `${fill * 100}%`, borderRadius: r, background: color };
+    ? { position: 'absolute', bottom: 0, left: 0, width: '100%', height: `${fill * 100}%`, borderRadius: r, background: color, boxShadow: markShadow }
+    : { position: 'absolute', top: 0, left: 0, height: '100%', width: `${fill * 100}%`, borderRadius: r, background: color, boxShadow: markShadow };
   const railEl = (
     <div style={rail}>
       <div style={bar} />
@@ -57,8 +66,24 @@ export const Bar: React.FC<{
   if (!label && !valueText) return railEl;
   // Readout treatment: label = quiet name (text tone), valueText = the figure in the bar's own tone (the claim
   // lands WITH the mark). Sizes density-scaled ⚠ craft-tuned; tabular numerals so counts don't jitter.
-  const labelStyle: React.CSSProperties = { fontSize: dv(brand, 15, 13), color: withAlpha(brand.colors.text, 0.85), opacity: p, lineHeight: 1.2 };
-  const valueStyle: React.CSSProperties = { fontSize: dv(brand, 18, 16), fontWeight: 600, color, opacity: p, fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 };
+  const canvasScale = Math.max(0.6, Math.min(2, Math.min(width, height) / 1080));
+  const textShadow = textProtectionShadow(brand);
+  const labelStyle: React.CSSProperties = {
+    fontSize: dv(brand, 28, 24) * canvasScale,
+    color: withAlpha(brand.colors.text, 0.92),
+    opacity: p,
+    lineHeight: 1.2,
+    textShadow,
+  };
+  const valueStyle: React.CSSProperties = {
+    fontSize: dv(brand, 40, 34) * canvasScale,
+    fontWeight: 700,
+    color,
+    opacity: p,
+    fontVariantNumeric: 'tabular-nums',
+    lineHeight: 1.05,
+    textShadow,
+  };
   if (vertical) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: dv(brand, 8, 5), height: '100%' }}>
@@ -95,7 +120,7 @@ export const Ring: React.FC<{
   const c = 2 * Math.PI * r;
   const cx = size / 2;
   const svg = (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ filter: markProtectionFilter(brand) }}>
       {track && <circle cx={cx} cy={cx} r={r} fill="none" stroke={withAlpha(brand.colors.text, 0.12)} strokeWidth={thickness} />}
       <circle
         cx={cx} cy={cx} r={r} fill="none" stroke={color} strokeWidth={thickness} strokeLinecap="round"
@@ -110,8 +135,8 @@ export const Ring: React.FC<{
     <div style={{ position: 'relative', width: size, height: size }}>
       {svg}
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: thickness * 1.5 }}>
-        {valueText ? <div style={{ fontSize: size * 0.19, fontWeight: 600, color: brand.colors.text, opacity: p, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{valueText}</div> : null}
-        {label ? <div style={{ fontSize: size * 0.1, color: withAlpha(brand.colors.text, 0.75), opacity: p, lineHeight: 1.2, marginTop: size * 0.02 }}>{label}</div> : null}
+        {valueText ? <div style={{ fontSize: size * 0.19, fontWeight: 600, color: brand.colors.text, opacity: p, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1, textShadow: textProtectionShadow(brand) }}>{valueText}</div> : null}
+        {label ? <div style={{ fontSize: size * 0.1, color: withAlpha(brand.colors.text, 0.85), opacity: p, lineHeight: 1.2, marginTop: size * 0.02, textShadow: textProtectionShadow(brand) }}>{label}</div> : null}
       </div>
     </div>
   );
@@ -139,7 +164,7 @@ export const Plot: React.FC<{
   const d = pts.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`).join(' ');
   const len = pts.reduce((acc, pt, i) => (i === 0 ? 0 : acc + Math.hypot(pt.x - pts[i - 1].x, pt.y - pts[i - 1].y)), 0);
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ filter: markProtectionFilter(brand) }}>
       {area && (
         <>
           <defs>
@@ -163,10 +188,11 @@ export const Rule: React.FC<{
   const frame = useCurrentFrame();
   const p = grow(frame, at, dur);
   const color = toneOf(brand, tone);
+  const boxShadow = markProtectionShadow(brand);
   return (
     <div style={vertical
-      ? { width: thickness, height: `${p * 100}%`, background: color, borderRadius: thickness }
-      : { width: `${p * 100}%`, height: thickness, background: color, borderRadius: thickness }}
+      ? { width: thickness, height: `${p * 100}%`, background: color, borderRadius: thickness, boxShadow }
+      : { width: `${p * 100}%`, height: thickness, background: color, borderRadius: thickness, boxShadow }}
     />
   );
 };
@@ -213,7 +239,7 @@ export const Plate: React.FC<{
 export const Dot: React.FC<{ brand: Brand; at?: number; dur?: number; tone?: Tone; size?: number }> = ({ brand, at = 0, dur = 8, tone = 'accent', size = 12 }) => {
   const frame = useCurrentFrame();
   const p = grow(frame, at, dur);
-  return <div style={{ width: size, height: size, borderRadius: 999, background: toneOf(brand, tone), transform: `scale(${p})`, opacity: p }} />;
+  return <div style={{ width: size, height: size, borderRadius: 999, background: toneOf(brand, tone), boxShadow: markProtectionShadow(brand), transform: `scale(${p})`, opacity: p }} />;
 };
 
 /** A REVEAL — clip-path wipe that unmasks its children over `dur` from `at`. `from` = the edge the wipe starts. */
@@ -245,7 +271,7 @@ export const Particles: React.FC<{ brand: Brand; kind?: 'dust' | 'bokeh' | 'spar
         const cycle = 60 + rnd(i, 9.4) * 60;
         const prog = ((t + rnd(i, 3.17) * cycle) % cycle) / cycle;
         const size = kind === 'bokeh' ? 10 + rnd(i, 5.1) * 22 : kind === 'confetti' ? 6 + rnd(i, 7.7) * 6 : 2 + rnd(i, 2.3) * 3;
-        const style: React.CSSProperties = { position: 'absolute', width: size, height: size, borderRadius: 999, background: color };
+        const style: React.CSSProperties = { position: 'absolute', width: size, height: size, borderRadius: 999, background: color, boxShadow: markProtectionShadow(brand) };
         if (kind === 'sparks') {
           const a = rnd(i, 4.4) * Math.PI * 2; const r = prog * 28;
           style.left = `${x + Math.cos(a) * r}%`; style.top = `${baseY + Math.sin(a) * r}%`; style.opacity = Math.max(0, 1 - prog);
@@ -297,9 +323,10 @@ export const Motif: React.FC<{ brand: Brand; kind?: 'chevrons' | 'sunburst' | 'z
   const p = grow(frame, at, dur);
   const color = toneOf(brand, tone);
   const n = Math.max(2, Math.min(48, Math.round(count)));
+  const filter = markProtectionFilter(brand);
   if (kind === 'sunburst') {
     return (
-      <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', opacity: p, overflow: 'visible' }}>
+      <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', opacity: p, overflow: 'visible', filter }}>
         {Array.from({ length: n }, (_, i) => {
           const a = (i / n) * Math.PI * 2;
           const r1 = 14 + 34 * p;
@@ -311,13 +338,13 @@ export const Motif: React.FC<{ brand: Brand; kind?: 'chevrons' | 'sunburst' | 'z
   if (kind === 'zigzag') {
     const pts = Array.from({ length: n + 1 }, (_, i) => `${(i / n) * 100},${i % 2 === 0 ? 28 : 72}`).join(' ');
     return (
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: '100%', opacity: p }}>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: '100%', opacity: p, filter }}>
         <polyline points={pts} fill="none" stroke={color} strokeWidth={3} strokeLinejoin="round" strokeDasharray={220} strokeDashoffset={(1 - p) * 220} />
       </svg>
     );
   }
   return (
-    <div style={{ display: 'flex', gap: dv(brand, 10, 6), opacity: p }}>
+    <div style={{ display: 'flex', gap: dv(brand, 10, 6), opacity: p, filter }}>
       {Array.from({ length: n }, (_, i) => {
         const local = clamp01(p * n - i);
         return <div key={i} style={{ width: 12, height: 12, borderRight: `2px solid ${color}`, borderBottom: `2px solid ${color}`, transform: `rotate(-45deg) scale(${local})`, opacity: local }} />;

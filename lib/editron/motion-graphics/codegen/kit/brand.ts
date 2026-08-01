@@ -141,6 +141,27 @@ export const shade = (color: string, amount: number): string => {
   const t = unit01(amount);
   return toHex(rgb[0] * (1 - t), rgb[1] * (1 - t), rgb[2] * (1 - t));
 };
+
+/** Brand-derived local protection for transparent text rendered over unknown footage. */
+export const textProtectionShadow = (brand: Brand): string => {
+  const edge = withAlpha(shade(brand.colors.bg, 0.78), 0.86);
+  const soft = withAlpha(shade(brand.colors.bg, 0.68), 0.7);
+  return `-1px -1px 0 ${edge}, 1px -1px 0 ${edge}, -1px 1px 0 ${edge}, 1px 1px 0 ${edge}, 0 3px 10px ${soft}`;
+};
+
+/** Brand-derived edge protection for unsurfaced marks rendered directly over footage. */
+export const markProtectionShadow = (brand: Brand): string => {
+  const edge = withAlpha(shade(brand.colors.bg, 0.78), 0.9);
+  const soft = withAlpha(shade(brand.colors.bg, 0.68), 0.55);
+  return `0 0 0 ${Math.max(1, brand.shape.border)}px ${edge}, 0 2px 7px ${soft}`;
+};
+
+/** SVG equivalent of {@link markProtectionShadow}; CSS box-shadow does not follow stroked paths. */
+export const markProtectionFilter = (brand: Brand): string => {
+  const edge = withAlpha(shade(brand.colors.bg, 0.78), 0.9);
+  const soft = withAlpha(shade(brand.colors.bg, 0.68), 0.55);
+  return `drop-shadow(0 0 1px ${edge}) drop-shadow(0 2px 3px ${soft})`;
+};
 /** Blend two brand colours (`t`=0 → a, 1 → b) — duotone / gradient stops within the brand palette. */
 export const mix = (a: string, b: string, t: number): string => {
   const ca = parseHex(a);
