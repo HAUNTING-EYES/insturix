@@ -65,9 +65,16 @@ export interface AudioMomentCandidate {
 export type AudioEditAction = "add_sfx" | "camera_shake" | "cut_section" | "keyframe_anchor" | "sync_cuts_to_beats";
 export type AudioEditResolutionStatus = "ready" | "no-match" | "ambiguous" | "unsupported";
 
+export interface AudioTemporalConstraint {
+  referenceFrame: number;
+  relation: "after" | "before" | "nearest";
+  occurrence: "first" | "last" | "nearest";
+}
+
 export interface AudioEditResolveOptions extends AudioMomentOptions {
   action?: AudioEditAction;
   sfxQuery?: string;
+  temporalConstraint?: AudioTemporalConstraint;
   precomputedCandidates?: AudioMomentCandidate[];
 }
 
@@ -98,6 +105,7 @@ interface AudioMomentOptions {
   limit?: number;
   minConfidence?: number;
   includeOverlayMetadata?: boolean;
+  temporalConstraint?: AudioTemporalConstraint;
 }
 
 export interface AudioDuckingConfig {
@@ -172,6 +180,11 @@ const audioMomentSchema = z.object({
 const audioEditSchema = audioMomentSchema.extend({
   action: z.enum(["add_sfx", "camera_shake", "cut_section", "keyframe_anchor", "sync_cuts_to_beats"]).default("add_sfx").describe("Edit operation that needs the resolved audio timing. keyframe_anchor only grounds timing; resolve_keyframe_edit remains the zoom-form owner."),
   sfxQuery: z.string().trim().min(1).optional().describe("Optional SFX search query to pass to add_sfx. If omitted, the resolver derives a conservative query from the request words."),
+  temporalConstraint: z.object({
+    referenceFrame: z.coerce.number().int().min(0),
+    relation: z.enum(["after", "before", "nearest"]),
+    occurrence: z.enum(["first", "last", "nearest"]),
+  }).strict().optional().describe("Server-resolved temporal relation. The model must never invent referenceFrame."),
 });
 
 const audioDuckingSchema = z.object({
@@ -454,6 +467,7 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
         minConfidence: input.minConfidence,
         includeOverlayMetadata: input.includeOverlayMetadata,
         sfxQuery: input.sfxQuery,
+        temporalConstraint: input.temporalConstraint,
         precomputedCandidates,
       });
 
@@ -635,12 +649,19 @@ export function resolveAudioEditTiming(
   options: AudioEditResolveOptions = {},
 ): AudioEditResolution {
   const action = options.action ?? "add_sfx";
-  const candidates = options.precomputedCandidates ?? findAudioMomentCandidates(project, query, {
-    audioOverlayId: options.audioOverlayId,
-    limit: options.limit ?? 8,
-    minConfidence: options.minConfidence ?? 0.35,
-    includeOverlayMetadata: options.includeOverlayMetadata,
-  });
+  const candidates = options.precomputedCandidates
+    ? constrainAudioCandidates(
+        options.precomputedCandidates,
+        options.temporalConstraint,
+        options.limit ?? 8,
+      )
+    : findAudioMomentCandidates(project, query, {
+        audioOverlayId: options.audioOverlayId,
+        limit: options.limit ?? 8,
+        minConfidence: options.minConfidence ?? 0.35,
+        includeOverlayMetadata: options.includeOverlayMetadata,
+        temporalConstraint: options.temporalConstraint,
+      });
   const warnings: string[] = [];
 
   if (!candidates.length) {
@@ -655,7 +676,7 @@ export function resolveAudioEditTiming(
     };
   }
 
-  const selection = selectAudioEditCandidate(candidates, query);
+  const selection = selectAudioEditCandidate(candidates, query, options.temporalConstraint);
   warnings.push(...selection.warnings);
   const candidate = selection.candidate ?? candidates[0];
 
@@ -859,13 +880,15 @@ export function findAudioMomentCandidates(
     }
   }
 
-  const candidates = Array.from(candidateMap.values())
-    .sort((a, b) => b.confidence - a.confidence || a.startFrame - b.startFrame || a.text.localeCompare(b.text))
-    .slice(0, limit);
+  const candidates = constrainAudioCandidates(
+    Array.from(candidateMap.values()),
+    options.temporalConstraint,
+    limit,
+  );
 
   if (!candidates.length) return candidates;
 
-  const ambiguous = candidates.slice(1).some((candidate) => (
+  const ambiguous = options.temporalConstraint == null && candidates.slice(1).some((candidate) => (
     Math.abs(candidates[0].confidence - candidate.confidence) < 0.08
     && !overlapsCandidate(candidates[0], candidate)
   ));
@@ -882,9 +905,20 @@ export function findAudioMomentCandidates(
 function selectAudioEditCandidate(
   candidates: AudioMomentCandidate[],
   query: string,
+  temporalConstraint?: AudioTemporalConstraint,
 ): { candidate?: AudioMomentCandidate; safe: boolean; warnings: string[] } {
   const candidate = candidates[0];
   if (!candidate) return { safe: false, warnings: [] };
+
+  if (temporalConstraint) {
+    return {
+      candidate,
+      safe: candidate.safeForAutoEdit,
+      warnings: [
+        `Selected the ${temporalConstraint.occurrence} qualifying audio candidate ${temporalConstraint.relation} reference frame ${temporalConstraint.referenceFrame}.`,
+      ],
+    };
+  }
 
   const normalizedQuery = normalizeText(query);
   const queryTokens = new Set(tokenize(query));
@@ -913,6 +947,39 @@ function selectAudioEditCandidate(
   }
 
   return { candidate, safe: candidate.safeForAutoEdit, warnings: [] };
+}
+
+function constrainAudioCandidates(
+  candidates: AudioMomentCandidate[],
+  constraint: AudioTemporalConstraint | undefined,
+  limit: number,
+): AudioMomentCandidate[] {
+  const boundedLimit = clampInt(limit, 1, 12);
+  if (!constraint) {
+    return [...candidates]
+      .sort((a, b) => b.confidence - a.confidence || a.startFrame - b.startFrame || a.text.localeCompare(b.text))
+      .slice(0, boundedLimit);
+  }
+
+  const eligible = candidates.filter((candidate) => {
+    if (constraint.relation === "after") return candidate.frame > constraint.referenceFrame;
+    if (constraint.relation === "before") return candidate.frame < constraint.referenceFrame;
+    return true;
+  });
+  eligible.sort((a, b) => {
+    if (constraint.occurrence === "first") {
+      return a.frame - b.frame || b.confidence - a.confidence || a.text.localeCompare(b.text);
+    }
+    if (constraint.occurrence === "last") {
+      return b.frame - a.frame || b.confidence - a.confidence || a.text.localeCompare(b.text);
+    }
+    return Math.abs(a.frame - constraint.referenceFrame) - Math.abs(b.frame - constraint.referenceFrame)
+      || b.confidence - a.confidence
+      || a.frame - b.frame
+      || a.text.localeCompare(b.text);
+  });
+
+  return eligible.slice(0, boundedLimit);
 }
 
 function isBeatSyncKind(kind: AudioMomentKind): boolean {

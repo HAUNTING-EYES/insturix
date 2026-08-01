@@ -1993,6 +1993,59 @@ describe('chat edit context bundle', () => {
     });
   });
 
+  it('resolves the first qualifying downbeat after a server-resolved reference frame', () => {
+    const relativeProject = {
+      ...project,
+      analysis: {
+        ...project.analysis,
+        audio: {
+          ...project.analysis.audio,
+          beats: [
+            { timestampMs: 1000, strength: 0.96, beatType: 'downbeat' },
+            { timestampMs: 3000, strength: 0.95, beatType: 'downbeat' },
+            { timestampMs: 5000, strength: 0.94, beatType: 'downbeat' },
+          ],
+        },
+      },
+    };
+
+    const resolution = resolveAudioEditTiming(relativeProject, 'strong downbeat', {
+      action: 'add_sfx',
+      sfxQuery: 'restrained impact sound',
+      temporalConstraint: {
+        referenceFrame: 100,
+        relation: 'after',
+        occurrence: 'first',
+      },
+    });
+    const missing = resolveAudioEditTiming(relativeProject, 'strong downbeat', {
+      action: 'add_sfx',
+      temporalConstraint: {
+        referenceFrame: 200,
+        relation: 'after',
+        occurrence: 'first',
+      },
+    });
+
+    expect(resolution).toMatchObject({
+      status: 'ready',
+      candidate: { audioKind: 'downbeat', frame: 150 },
+      useWith: {
+        add_sfx: {
+          query: 'restrained impact sound',
+          frame: 150,
+        },
+      },
+    });
+    expect(resolution.warnings).toContain(
+      'Selected the first qualifying audio candidate after reference frame 100.',
+    );
+    expect(missing).toMatchObject({
+      status: 'no-match',
+      candidates: [],
+    });
+  });
+
   it('ranks measured impact strength without lexical ambiguity or confidence-as-intensity', () => {
     const rankedProject = {
       fps: 30,

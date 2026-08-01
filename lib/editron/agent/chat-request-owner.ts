@@ -21,8 +21,12 @@ import {
   CHAT_LOCALIZED_OPERATIONS,
   CHAT_LOCALIZED_READ_GOALS,
   CHAT_MINIMAL_READ_TOOLS,
+  CHAT_RELATIVE_ANCHOR_MODALITIES,
   CHAT_REFERENCE_STYLE_WORKFLOW_TOOLS,
   CHAT_REQUEST_CAPABILITIES,
+  CHAT_TEMPORAL_OCCURRENCES,
+  CHAT_TEMPORAL_REFERENCE_EDGES,
+  CHAT_TEMPORAL_RELATIONS,
   getChatCapabilityAuthorityContract,
   resolveChatCapabilityTools,
   resolveChatLocalizedWorkflowAdapter,
@@ -410,6 +414,17 @@ const modelRoutingFactsSchema = z.object({
     anchorSignal: z.preprocess(
       (value) => value === null ? undefined : value,
       z.enum(CHAT_LOCALIZED_ANCHOR_SIGNALS).optional(),
+    ),
+    relativeAnchor: z.preprocess(
+      (value) => value === null ? undefined : value,
+      z.object({
+        modality: z.enum(CHAT_RELATIVE_ANCHOR_MODALITIES),
+        query: z.string().trim().min(1).max(500),
+        relation: z.enum(CHAT_TEMPORAL_RELATIONS),
+        referenceEdge: z.enum(CHAT_TEMPORAL_REFERENCE_EDGES),
+        occurrence: z.enum(CHAT_TEMPORAL_OCCURRENCES),
+        sourceSpan: z.string().trim().min(1).max(500),
+      }).strict().optional(),
     ),
     placement: assetPlacementConstraintSchema.optional(),
     timing: assetTimingConstraintSchema.optional(),
@@ -807,6 +822,39 @@ export const GEMINI_OWNER_RESPONSE_SCHEMA: ResponseSchema = {
                 nullable: true,
                 description: 'Measured signal ranked by anchorSelection.',
               },
+              relativeAnchor: {
+                type: SchemaType.OBJECT,
+                nullable: true,
+                description: 'A typed media moment that the edit target is temporally relative to. It is evidence, never a tool schedule.',
+                properties: {
+                  modality: {
+                    type: SchemaType.STRING,
+                    format: 'enum',
+                    enum: [...CHAT_RELATIVE_ANCHOR_MODALITIES],
+                  },
+                  query: { type: SchemaType.STRING },
+                  relation: {
+                    type: SchemaType.STRING,
+                    format: 'enum',
+                    enum: [...CHAT_TEMPORAL_RELATIONS],
+                  },
+                  referenceEdge: {
+                    type: SchemaType.STRING,
+                    format: 'enum',
+                    enum: [...CHAT_TEMPORAL_REFERENCE_EDGES],
+                  },
+                  occurrence: {
+                    type: SchemaType.STRING,
+                    format: 'enum',
+                    enum: [...CHAT_TEMPORAL_OCCURRENCES],
+                  },
+                  sourceSpan: {
+                    type: SchemaType.STRING,
+                    description: 'Shortest exact verbatim span expressing the temporal relation.',
+                  },
+                },
+                required: ['modality', 'query', 'relation', 'referenceEdge', 'occurrence', 'sourceSpan'],
+              },
               placement: {
                 type: SchemaType.OBJECT,
                 properties: {
@@ -879,6 +927,7 @@ export const GEMINI_OWNER_RESPONSE_SCHEMA: ResponseSchema = {
               'cameraMotionJob',
               'anchorSelection',
               'anchorSignal',
+              'relativeAnchor',
             ],
           },
         },
@@ -1154,7 +1203,7 @@ operationFullySpecified: true when the requested operation is unambiguous and th
 targetFullySpecified: true when the existing target is selected/identified or, for a new element, its timeline window and placement are supplied. A new element never needs an existing overlay ID.
 timelineReference: selected-range when the user refers to the selected range/selection; visible-timeline for the visible timeline/visible section; playhead for here/current frame/playhead; otherwise none. This identifies trusted editor UI state only. Never translate one of these references into a transcript, visual, or audio search query, and never invent its frame coordinates.
 localizedReads: for each analysis-only request that must find or inspect content inside speech, visuals, audio, or uploaded assets, preserve one goal and target query in the user's original language. Use locate to find where something occurs and inspect to explain what is present. Never put a requested mutation here.
-localizedEdits: for each mutation whose operation is explicit and whose semantic target must be found inside speech, visuals, audio, or uploaded assets, preserve one semantic operation and the target query in the user's original language. sourceSpan is the shortest exact verbatim span from the request that proves this operation exists. For camera-motion, cameraMotionJob is mandatory and preserves what the user requested: zoom-in, zoom-out, or shake. The modality records where to find the anchor; it must never change the requested job. When the request asks for the strongest measured moment rather than words/events to match, set anchorSelection=strongest-signal. Use anchorSignal=speech-emphasis for spoken/prosody emphasis and anchorSignal=impact-emphasis for an impact, transient, hit, or beat emphasis. Both are audio evidence even when spoken content supplies the meaning. Return null for both anchor fields for ordinary phrase/event matching. Return null for cameraMotionJob for every other operation. For non-asset edits, keep sourceQuery and targetQuery empty and targetKind=none. For asset edits, sourceQuery is the uploaded asset to find; query stays equal to sourceQuery for compatibility. Asset replacement separately preserves targetQuery and targetKind=selected-overlay or described-overlay. Asset placement uses targetKind=none and preserves explicit canvas placement in placement plus literal timeline constraints in timing. Use mode=corner with horizontal/vertical for named corners. Timing kind must describe the supplied relation: range=start+end, start-duration=start+duration, start=start only, end=end only, duration=duration only, anchor=intro/outro/entire with optional duration. timing.sourceSpan is the shortest exact verbatim timing phrase. Preserve seconds as concise decimal strings with at most 6 fractional digits; never calculate frames. Omit placement or timing when the user did not supply that constraint.
+localizedEdits: for each mutation whose operation is explicit and whose semantic target must be found inside speech, visuals, audio, or uploaded assets, preserve one semantic operation and the target query in the user's original language. sourceSpan is the shortest exact verbatim span from the request that proves this operation exists. For camera-motion, cameraMotionJob is mandatory and preserves what the user requested: zoom-in, zoom-out, or shake. The modality records where to find the anchor; it must never change the requested job. When the request asks for the strongest measured moment rather than words/events to match, set anchorSelection=strongest-signal. Use anchorSignal=speech-emphasis for spoken/prosody emphasis and anchorSignal=impact-emphasis for an impact, transient, hit, or beat emphasis. Both are audio evidence even when spoken content supplies the meaning. Return null for both anchor fields for ordinary phrase/event matching. Return null for cameraMotionJob for every other operation. For a cross-modal relation, preserve what to add, which media moment to find, and the relation between them: query is the target moment, sourceQuery is the requested SFX for sound-effect, and relativeAnchor stores the reference modality/query/relation/edge/occurrence plus an exact sourceSpan. Never turn this relation into tool calls. Return relativeAnchor=null when no such relation exists. For other non-asset edits, keep sourceQuery and targetQuery empty and targetKind=none. For asset edits, sourceQuery is the uploaded asset to find; query stays equal to sourceQuery for compatibility. Asset replacement separately preserves targetQuery and targetKind=selected-overlay or described-overlay. Asset placement uses targetKind=none and preserves explicit canvas placement in placement plus literal timeline constraints in timing. Use mode=corner with horizontal/vertical for named corners. Timing kind must describe the supplied relation: range=start+end, start-duration=start+duration, start=start only, end=end only, duration=duration only, anchor=intro/outro/entire with optional duration. timing.sourceSpan is the shortest exact verbatim timing phrase. Preserve seconds as concise decimal strings with at most 6 fractional digits; never calculate frames. Omit placement or timing when the user did not supply that constraint.
 requestedCapabilities: the complete operational workflow(s) explicitly required by the request. These are capability requirements, not tool names or creative forms. Use caption-track for adding a caption track; caption-refresh for regenerating or retiming an existing caption track; caption-batch-style for changing all existing caption presentation without replacing timing; motion-graphic-composition for a requested semantic motion graphic, infographic, animated title, or explanatory scene whose faithful form must be composed from content and signals; audio-ducking for lowering music under speech; background-music for adding or replacing project BGM; beat-sync for aligning existing cuts to music beats; scene-regeneration for rebuilding an existing scene; html-scene-edit for revising an existing HTML scene; overlay-create for a fully specified new literal text/shape/image element; overlay-update only for content, geometry, rotation, or style on one identified overlay; overlay-batch-update for matching overlays; clip-split or clip-trim for an identified clip; timeline-cut for a literal frame/time range; overlay-delete for an identified overlay; overlay-style-sync for copying style between identified overlays; timeline-gap-close for closing existing gaps; sticker-overlay for a sticker whose content and anchor are supplied; selected-keyframes for explicit keyframes on a selected overlay; overlay-fade for fades; overlay-layer-order for row/front/behind changes; overlay-retime for every move, start-frame, end-frame, duration, shorten, or extend request; clip-filter for an exact selected-target filter operation; asset-placement or asset-replacement for uploaded media that must be resolved; localized-sfx when a new sound effect must be grounded to a media moment; sfx-replacement for replacing an existing selected or identified SFX; localized-camera-motion or localized-speed-change when a requested effect must be grounded to a media moment; project-reframe for an explicit canvas reframe; reference-style for reference transfer; selected-dialogue-dubbing for the durable dubbing workflow; and project-edit for a broad editorial re-edit. Report every independently requested capability in a mixed command, once each, in the same order the user requested the operations.
 capabilityEvidence: one record per requestedCapabilities entry. sourceSpan must be the shortest exact verbatim span from the request that proves that capability was requested. Never manufacture an adjective, operation, or target that is absent from the request.
 familyDirectives: the explicit top-level editorial families the user asks to prefer or turn off. Allowed families are captions, motionGraphics, zoom, transitions, sfx, and music. This scopes ownership only; never infer a form, style, asset, animation, transition, or fixed count.
@@ -1180,6 +1229,7 @@ requestsBroadEditorialOutcome: true only when the user asks to improve, rework, 
 16. A direct capability and a localized edit may share a turn only when their capabilityEvidence and localized sourceSpan prove distinct requested operations. Never translate "highlight this visual moment" into clip-filter, or invent brighter/warmer/filter instructions that the user did not supply.
 17. Preserve camera-motion intent separately from its anchor evidence. "Use a subtle zoom on the strongest spoken emphasis" means operation=camera-motion, cameraMotionJob=zoom-in, modality=audio, anchorSelection=strongest-signal, anchorSignal=speech-emphasis. "Zoom out when the reveal appears" means cameraMotionJob=zoom-out, modality=visual with null anchor selection fields. "Shake on the strongest impact beat" means cameraMotionJob=shake, modality=audio, anchorSelection=strongest-signal, anchorSignal=impact-emphasis. Never turn an audio-located zoom into shake.
 18. Editor UI references are not media semantics. "Tighten this visible section without changing the rest" means timelineReference=visible-timeline, requiresEditorialJudgment=true, requestedCapabilities=["project-edit"], and no localized visual speed-change. The server supplies the actual range. An explicit operation such as "speed-ramp the visible section" may keep its exact family operation, but still uses timelineReference=visible-timeline rather than searching the words "visible section".
+19. Cross-modal timing remains one localized edit. "Add a restrained impact sound on the first strong downbeat after the phrase now watch this" means operation=sound-effect, modality=audio, query="strong downbeat", sourceQuery="restrained impact sound", and relativeAnchor={modality:"transcript",query:"now watch this",relation:"after",referenceEdge:"end",occurrence:"first",sourceSpan:"first strong downbeat after the phrase now watch this"}. Do not emit a second mutation or ask the model to sequence resolvers.
 </rules>
 
 <trusted_context>
@@ -1197,7 +1247,7 @@ ${JSON.stringify({
 ${boundedRequest(input.userMessage)}
 </untrusted_user_request>
 
-Return exactly {"facts":{"requestsMutation":boolean,"requestsAnalysis":boolean,"requiresContentLocalization":boolean,"requiresEditorialJudgment":boolean,"requestsReferenceStyle":boolean,"requestsBroadEditorialOutcome":boolean,"durableOperation":"none"|"selected-dialogue-dubbing","operationFullySpecified":boolean,"targetFullySpecified":boolean,"timelineReference":"none"|"selected-range"|"visible-timeline"|"playhead","localizedReads":[{"modality":"transcript"|"visual"|"audio"|"asset","goal":"locate"|"inspect","query":"target in the user's original language"}],"localizedEdits":[{"modality":"transcript"|"visual"|"audio"|"asset","operation":"remove"|"highlight"|"camera-motion"|"speed-change"|"sound-effect"|"beat-sync"|"place-asset"|"replace-asset","query":"compatibility query","sourceQuery":"uploaded source asset or empty","targetQuery":"timeline target or empty","targetKind":"none"|"selected-overlay"|"described-overlay","sourceSpan":"exact verbatim request span","cameraMotionJob":"zoom-in"|"zoom-out"|"shake"|null,"anchorSelection":"strongest-signal"|null,"anchorSignal":"speech-emphasis"|"impact-emphasis"|null}],"requestedCapabilities":[${CHAT_REQUEST_CAPABILITIES.map((capability) => `"${capability}"`).join('|')}],"capabilityEvidence":[{"capability":"one requested capability","sourceSpan":"exact verbatim request span"}],"familyDirectives":[{"family":"captions"|"motionGraphics"|"zoom"|"transitions"|"sfx"|"music","mode":"prefer"|"off"}]},"confidence":"concise decimal from 0 to 1","reason":"one short factual sentence"}. Every localized edit must include cameraMotionJob, anchorSelection, and anchorSignal. Use null when that field does not apply. For an asset placement with supplied spatial or timeline constraints, add the optional placement and timing objects shown in rule 14 to that localized edit.`;
+Return exactly {"facts":{"requestsMutation":boolean,"requestsAnalysis":boolean,"requiresContentLocalization":boolean,"requiresEditorialJudgment":boolean,"requestsReferenceStyle":boolean,"requestsBroadEditorialOutcome":boolean,"durableOperation":"none"|"selected-dialogue-dubbing","operationFullySpecified":boolean,"targetFullySpecified":boolean,"timelineReference":"none"|"selected-range"|"visible-timeline"|"playhead","localizedReads":[{"modality":"transcript"|"visual"|"audio"|"asset","goal":"locate"|"inspect","query":"target in the user's original language"}],"localizedEdits":[{"modality":"transcript"|"visual"|"audio"|"asset","operation":"remove"|"highlight"|"camera-motion"|"speed-change"|"sound-effect"|"beat-sync"|"place-asset"|"replace-asset","query":"compatibility query","sourceQuery":"uploaded source asset, requested SFX, or empty","targetQuery":"timeline target or empty","targetKind":"none"|"selected-overlay"|"described-overlay","sourceSpan":"exact verbatim request span","cameraMotionJob":"zoom-in"|"zoom-out"|"shake"|null,"anchorSelection":"strongest-signal"|null,"anchorSignal":"speech-emphasis"|"impact-emphasis"|null,"relativeAnchor":{"modality":"transcript"|"visual"|"audio","query":"reference moment","relation":"after"|"before"|"nearest","referenceEdge":"start"|"end"|"point","occurrence":"first"|"last"|"nearest","sourceSpan":"exact relation span"}|null}],"requestedCapabilities":[${CHAT_REQUEST_CAPABILITIES.map((capability) => `"${capability}"`).join('|')}],"capabilityEvidence":[{"capability":"one requested capability","sourceSpan":"exact verbatim request span"}],"familyDirectives":[{"family":"captions"|"motionGraphics"|"zoom"|"transitions"|"sfx"|"music","mode":"prefer"|"off"}]},"confidence":"concise decimal from 0 to 1","reason":"one short factual sentence"}. Every localized edit must include cameraMotionJob, anchorSelection, anchorSignal, and relativeAnchor. Use null when that field does not apply. For an asset placement with supplied spatial or timeline constraints, add the optional placement and timing objects shown in rule 14 to that localized edit.`;
 }
 
 function deriveRoutingFacts(
@@ -1330,6 +1380,12 @@ function validateRoutingProvenance(
       && !sourceSpanOccursInRequest(edit.timing.sourceSpan, userMessage)
     ) {
       return `localized ${edit.operation} timing is missing an exact source span from the user request`;
+    }
+    if (
+      edit.relativeAnchor
+      && !sourceSpanOccursInRequest(edit.relativeAnchor.sourceSpan, userMessage)
+    ) {
+      return `localized ${edit.operation} relative anchor is missing an exact source span from the user request`;
     }
   }
   const localizedCapabilities = new Set(facts.localizedEdits.flatMap((edit) => {

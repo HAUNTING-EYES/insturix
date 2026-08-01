@@ -79,6 +79,22 @@ export const CHAT_LOCALIZED_ANCHOR_SIGNALS = [
 ] as const;
 export type ChatLocalizedAnchorSignal = (typeof CHAT_LOCALIZED_ANCHOR_SIGNALS)[number];
 
+export const CHAT_RELATIVE_ANCHOR_MODALITIES = [
+  'transcript',
+  'visual',
+  'audio',
+] as const;
+export type ChatRelativeAnchorModality = (typeof CHAT_RELATIVE_ANCHOR_MODALITIES)[number];
+
+export const CHAT_TEMPORAL_RELATIONS = ['after', 'before', 'nearest'] as const;
+export type ChatTemporalRelation = (typeof CHAT_TEMPORAL_RELATIONS)[number];
+
+export const CHAT_TEMPORAL_REFERENCE_EDGES = ['start', 'end', 'point'] as const;
+export type ChatTemporalReferenceEdge = (typeof CHAT_TEMPORAL_REFERENCE_EDGES)[number];
+
+export const CHAT_TEMPORAL_OCCURRENCES = ['first', 'last', 'nearest'] as const;
+export type ChatTemporalOccurrence = (typeof CHAT_TEMPORAL_OCCURRENCES)[number];
+
 export const CHAT_LOCALIZED_READ_GOALS = [
   'locate',
   'inspect',
@@ -104,6 +120,15 @@ export interface ChatAssetTimingConstraint {
   anchor?: 'intro' | 'outro' | 'entire';
 }
 
+export interface ChatRelativeAnchor {
+  modality: ChatRelativeAnchorModality;
+  query: string;
+  relation: ChatTemporalRelation;
+  referenceEdge: ChatTemporalReferenceEdge;
+  occurrence: ChatTemporalOccurrence;
+  sourceSpan: string;
+}
+
 export interface ChatLocalizedEditRequest {
   modality: ChatLocalizedModality;
   operation: ChatLocalizedOperation;
@@ -116,6 +141,7 @@ export interface ChatLocalizedEditRequest {
   cameraMotionJob?: ChatCameraMotionJob;
   anchorSelection?: ChatLocalizedAnchorSelection;
   anchorSignal?: ChatLocalizedAnchorSignal;
+  relativeAnchor?: ChatRelativeAnchor;
   placement?: ChatAssetPlacementConstraint;
   timing?: ChatAssetTimingConstraint;
 }
@@ -378,6 +404,10 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
   'localized-sfx': capabilityContract({
     authority: 'localized-workflow',
     evidenceTools: [
+      'find_transcript_moment',
+      'resolve_transcript_edit',
+      'find_visual_moment',
+      'resolve_visual_edit',
       'find_audio_moment',
       'resolve_audio_edit',
       'resolve_clip_analysis',
@@ -563,6 +593,7 @@ export function resolveChatLocalizedWorkflowAdapter(
     return localizedAdapter('localized-sfx', 'resolve_audio_edit', {
       query,
       action: 'add_sfx',
+      ...(edit.sourceQuery?.trim() ? { sfxQuery: edit.sourceQuery.trim() } : {}),
     });
   }
   if (edit.modality === 'asset' && edit.operation === 'place-asset') {

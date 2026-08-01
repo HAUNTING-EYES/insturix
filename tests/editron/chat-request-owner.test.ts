@@ -338,6 +338,103 @@ describe('chat request owner classification', () => {
     );
   });
 
+  it('preserves a cross-modal SFX anchor as facts instead of asking Gemini to schedule tools', async () => {
+    const userMessage = 'Add a restrained impact sound exactly on the first strong downbeat after the phrase now watch this.';
+    const sourceSpan = userMessage.slice(0, -1);
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            timelineReference: 'none',
+            localizedReads: [],
+            localizedEdits: [{
+              modality: 'audio',
+              operation: 'sound-effect',
+              query: 'strong downbeat',
+              sourceQuery: 'restrained impact sound',
+              targetQuery: '',
+              targetKind: 'none',
+              sourceSpan,
+              cameraMotionJob: null,
+              anchorSelection: null,
+              anchorSignal: null,
+              relativeAnchor: {
+                modality: 'transcript',
+                query: 'now watch this',
+                relation: 'after',
+                referenceEdge: 'end',
+                occurrence: 'first',
+                sourceSpan: 'first strong downbeat after the phrase now watch this',
+              },
+            }],
+            requestedCapabilities: ['localized-sfx'],
+            capabilityEvidence: [{ capability: 'localized-sfx', sourceSpan }],
+            familyDirectives: [{ family: 'sfx', mode: 'prefer' }],
+          },
+          confidence: 0.99,
+          reason: 'The requested sound and transcript-relative beat anchor are explicit.',
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'localized-mutation',
+      routingFacts: {
+        localizedEdits: [{
+          modality: 'audio',
+          operation: 'sound-effect',
+          query: 'strong downbeat',
+          sourceQuery: 'restrained impact sound',
+          relativeAnchor: {
+            modality: 'transcript',
+            query: 'now watch this',
+            relation: 'after',
+            referenceEdge: 'end',
+            occurrence: 'first',
+          },
+        }],
+      },
+    });
+    expect(resolveChatLocalizedWorkflowAdapter(
+      result.routingFacts!.localizedEdits![0],
+    )).toMatchObject({
+      capability: 'localized-sfx',
+      resolverTool: 'resolve_audio_edit',
+      resolverArgs: {
+        query: 'strong downbeat',
+        action: 'add_sfx',
+        sfxQuery: 'restrained impact sound',
+      },
+    });
+  });
+
+  it('publishes the typed relative-anchor contract to Gemini', () => {
+    const schema = GEMINI_OWNER_RESPONSE_SCHEMA as any;
+    const relativeAnchor = schema.properties.facts.properties.localizedEdits.items.properties.relativeAnchor;
+
+    expect(relativeAnchor.nullable).toBe(true);
+    expect(relativeAnchor.properties.modality.enum).toEqual(['transcript', 'visual', 'audio']);
+    expect(relativeAnchor.properties.relation.enum).toEqual(['after', 'before', 'nearest']);
+    expect(relativeAnchor.properties.referenceEdge.enum).toEqual(['start', 'end', 'point']);
+    expect(relativeAnchor.properties.occurrence.enum).toEqual(['first', 'last', 'nearest']);
+    expect(buildChatRequestOwnerPrompt(baseInput)).toContain(
+      'what to add, which media moment to find, and the relation between them',
+    );
+  });
+
   it.each([
     {
       userMessage: 'Use a subtle zoom on the strongest spoken emphasis.',
