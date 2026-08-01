@@ -1,15 +1,22 @@
+import { randomUUID } from 'node:crypto';
+
 import { Collection, type Filter } from 'mongodb';
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import {
   RenderJob,
+  RenderExpectedDurationMsSchema,
+  RenderFinalizerResultSchema,
   createPendingRenderJob,
 } from '../schemas/render-job';
+import type { RenderFinalizerResult } from './render-finalizer-client';
 import {
   completeRenderDeliveryManifest,
   type RenderDeliveryManifest,
 } from './render-delivery-manifest';
 
 const COLLECTION_NAME = 'editron_render_jobs';
+const DEFAULT_FINALIZATION_LEASE_MS = 20 * 60 * 1000;
+const MAX_FINALIZATION_LEASE_MS = 60 * 60 * 1000;
 
 async function getCollection(): Promise<Collection<RenderJob>> {
   const db = await getDatabase();
@@ -33,11 +40,12 @@ export async function reserveJob(
   userId: string,
   projectId: string,
   region: string,
+  expectedDurationMs: number,
   deliveryManifest: RenderDeliveryManifest,
 ): Promise<RenderJob> {
   const collection = await getCollection();
   const job: RenderJob = {
-    ...createPendingRenderJob(jobId, userId, projectId, region),
+    ...createPendingRenderJob(jobId, userId, projectId, region, expectedDurationMs),
     deliveryManifest,
   };
   const result = await collection.insertOne(job as any);
@@ -45,6 +53,186 @@ export async function reserveJob(
     throw new Error('Failed to reserve render job');
   }
   return job;
+}
+
+export function calculateExpectedRenderDurationMs(
+  totalFrames: number,
+  fps: number,
+): number {
+  if (!Number.isFinite(totalFrames) || !Number.isFinite(fps) || totalFrames <= 0 || fps <= 0) {
+    throw new Error('A positive frame count and FPS are required for render finalization.');
+  }
+  return RenderExpectedDurationMsSchema.parse(Math.round((totalFrames / fps) * 1000));
+}
+
+export interface ClaimedRenderFinalization {
+  jobId: string;
+  providerRenderId?: string;
+  claimToken: string;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+  expectedDurationMs: number;
+}
+
+/**
+ * Atomically lease finalization to one completion observer. Webhook and polling
+ * may race; only the winner receives a claim and may dispatch the durable worker.
+ */
+export async function claimJobFinalization(input: {
+  renderId: string;
+  sourceOutputUrl: string;
+  sourceOutputSize: number;
+  claimToken?: string;
+  leaseMs?: number;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<ClaimedRenderFinalization | null> {
+  assertHttpsUrl(input.sourceOutputUrl, 'Provider output URL');
+  if (!Number.isInteger(input.sourceOutputSize) || input.sourceOutputSize < 0) {
+    throw new Error('Provider output size must be a non-negative integer.');
+  }
+  const leaseMs = input.leaseMs ?? DEFAULT_FINALIZATION_LEASE_MS;
+  if (!Number.isInteger(leaseMs) || leaseMs <= 0 || leaseMs > MAX_FINALIZATION_LEASE_MS) {
+    throw new Error('Finalization lease must be a positive integer within one hour.');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const now = input.now ?? new Date();
+  const claimToken = input.claimToken ?? `rfl_${randomUUID().replaceAll('-', '')}`;
+  const leaseExpiresAt = new Date(now.getTime() + leaseMs);
+  const claimed = await jobs.findOneAndUpdate(
+    {
+      $and: [
+        renderJobSelector(input.renderId),
+        { expectedDurationMs: { $exists: true, $gt: 0 } },
+        {
+          $or: [
+            { status: 'rendering' },
+            {
+              status: 'finalizing',
+              'finalization.sourceOutputUrl': input.sourceOutputUrl,
+              'finalization.leaseExpiresAt': { $lte: now },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      $set: {
+        status: 'finalizing',
+        progress: 0.99,
+        'finalization.version': 'editron-render-finalization-v1',
+        'finalization.state': 'running',
+        'finalization.sourceOutputUrl': input.sourceOutputUrl,
+        'finalization.sourceOutputSize': input.sourceOutputSize,
+        'finalization.claimToken': claimToken,
+        'finalization.claimedAt': now,
+        'finalization.leaseExpiresAt': leaseExpiresAt,
+      },
+      $inc: { 'finalization.attempts': 1 },
+      $unset: {
+        'finalization.error': '',
+        error: '',
+      },
+    },
+    { returnDocument: 'after' },
+  );
+  if (!claimed?.expectedDurationMs) return null;
+  return {
+    jobId: claimed._id,
+    providerRenderId: claimed.providerRenderId,
+    claimToken,
+    sourceOutputUrl: input.sourceOutputUrl,
+    sourceOutputSize: input.sourceOutputSize,
+    expectedDurationMs: claimed.expectedDurationMs,
+  };
+}
+
+/** Publish only a receipt-verified artifact held by the active finalization lease. */
+export async function completeJobFinalization(input: {
+  jobId: string;
+  claimToken: string;
+  result: RenderFinalizerResult;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<boolean> {
+  const jobs = input.collection ?? await getCollection();
+  const result = RenderFinalizerResultSchema.parse(input.result);
+  const current = await jobs.findOne({
+    _id: input.jobId,
+    status: 'finalizing',
+    'finalization.claimToken': input.claimToken,
+  });
+  if (!current) return false;
+  if (current.expectedDurationMs !== result.expectedDurationMs) {
+    throw new Error('Finalized artifact duration belongs to a different render contract.');
+  }
+  const completedAt = input.now ?? new Date();
+  const deliveryManifest = current.deliveryManifest
+    ? completeRenderDeliveryManifest(current.deliveryManifest, result.url, completedAt.toISOString())
+    : undefined;
+  const update = await jobs.updateOne(
+    {
+      _id: input.jobId,
+      status: 'finalizing',
+      'finalization.claimToken': input.claimToken,
+    },
+    {
+      $set: {
+        status: 'done',
+        progress: 1,
+        outputUrl: result.url,
+        outputSize: result.sizeBytes,
+        completedAt,
+        'finalization.state': 'done',
+        'finalization.outputUrl': result.url,
+        'finalization.outputSize': result.sizeBytes,
+        'finalization.receipt': result.receipt,
+        'finalization.completedAt': completedAt,
+        ...(deliveryManifest ? { deliveryManifest } : {}),
+      },
+      $unset: {
+        'finalization.claimToken': '',
+        'finalization.leaseExpiresAt': '',
+        'finalization.error': '',
+        error: '',
+      },
+    },
+  );
+  return update.modifiedCount === 1;
+}
+
+export async function failJobFinalization(input: {
+  jobId: string;
+  claimToken: string;
+  error: unknown;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<boolean> {
+  const jobs = input.collection ?? await getCollection();
+  const completedAt = input.now ?? new Date();
+  const message = boundedError(input.error);
+  const update = await jobs.updateOne(
+    {
+      _id: input.jobId,
+      status: 'finalizing',
+      'finalization.claimToken': input.claimToken,
+    },
+    {
+      $set: {
+        status: 'error',
+        error: message,
+        completedAt,
+        'finalization.state': 'failed',
+        'finalization.error': message,
+        'finalization.completedAt': completedAt,
+      },
+      $unset: {
+        'finalization.claimToken': '',
+        'finalization.leaseExpiresAt': '',
+      },
+    },
+  );
+  return update.modifiedCount === 1;
 }
 
 /**
@@ -243,7 +431,7 @@ export async function getActiveRenderForProject(
   return collection.findOne({
     projectId,
     userId,
-    status: { $in: ['rendering', 'queued', 'pending'] }
+    status: { $in: ['rendering', 'finalizing', 'queued', 'pending'] }
   });
 }
 
@@ -256,7 +444,7 @@ export async function getActiveRendersForUser(
   const collection = await getCollection();
   return collection.find({
     userId,
-    status: { $in: ['rendering', 'queued', 'pending'] }
+    status: { $in: ['rendering', 'finalizing', 'queued', 'pending'] }
   }).toArray();
 }
 
@@ -286,4 +474,21 @@ export async function getRenderHistoryForProject(
   .sort({ completedAt: -1 })
   .limit(limit)
   .toArray();
+}
+
+function assertHttpsUrl(value: string, label: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${label} must be a valid URL.`);
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`${label} must use HTTPS.`);
+  }
+}
+
+function boundedError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return (message.trim() || 'Render finalization failed.').slice(0, 1000);
 }

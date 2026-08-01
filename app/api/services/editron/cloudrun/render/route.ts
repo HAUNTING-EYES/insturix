@@ -3,6 +3,7 @@ import { renderMediaOnLambda } from '@remotion/lambda/client';
 import { auth } from '@clerk/nextjs/server';
 import { nanoid } from 'nanoid';
 import {
+  calculateExpectedRenderDurationMs,
   failJob,
   markJobStarted,
   reserveJob,
@@ -165,6 +166,7 @@ export async function POST(request: Request) {
       userId,
       canonicalProjectId,
       region,
+      calculateExpectedRenderDurationMs(totalFrames, renderFps),
       deliveryManifest,
     );
     renderAdmissionId = admissionId;

@@ -1,7 +1,7 @@
 export const EDITRON_RENDER_FINALIZER_ENDPOINT_ENV = 'EDITRON_RENDER_FINALIZER_ENDPOINT' as const;
 export const EDITRON_RENDER_FINALIZER_TOKEN_ENV = 'EDITRON_RENDER_FINALIZER_TOKEN' as const;
 
-const MAX_DURATION_MS = 3 * 60 * 60 * 1000;
+export const MAX_RENDER_FINALIZER_DURATION_MS = 3 * 60 * 60 * 1000;
 const SAFE_JOB_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
 export interface RenderFinalizerEnvironment {
@@ -97,7 +97,7 @@ function validateInput(input: RenderFinalizerInput): void {
   if (
     !Number.isInteger(input.expectedDurationMs)
     || input.expectedDurationMs <= 0
-    || input.expectedDurationMs > MAX_DURATION_MS
+    || input.expectedDurationMs > MAX_RENDER_FINALIZER_DURATION_MS
   ) {
     throw new RenderFinalizerClientError(
       'INVALID_REQUEST',

@@ -5,6 +5,7 @@ const routeMocks = vi.hoisted(() => ({
   renderMediaOnLambda: vi.fn(),
   validateWebhookSignature: vi.fn(),
   createJob: vi.fn(),
+  calculateExpectedRenderDurationMs: vi.fn(),
   reserveJob: vi.fn(),
   markJobStarted: vi.fn(),
   failJob: vi.fn(),
@@ -22,6 +23,7 @@ const routeMocks = vi.hoisted(() => ({
   startChapterRender: vi.fn(),
   transitionProjectStatus: vi.fn(),
   dbFindOne: vi.fn(),
+  dbFindOneAndUpdate: vi.fn(),
   dbUpdateOne: vi.fn(),
   dbInsertOne: vi.fn(),
 }));
@@ -37,6 +39,7 @@ vi.mock('@remotion/lambda/client', () => ({
 
 vi.mock('@/lib/editron/services/render-job-service', () => ({
   createJob: routeMocks.createJob,
+  calculateExpectedRenderDurationMs: routeMocks.calculateExpectedRenderDurationMs,
   reserveJob: routeMocks.reserveJob,
   markJobStarted: routeMocks.markJobStarted,
   failJob: routeMocks.failJob,
@@ -48,6 +51,7 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
   getDatabase: vi.fn(async () => ({
     collection: () => ({
       findOne: routeMocks.dbFindOne,
+      findOneAndUpdate: routeMocks.dbFindOneAndUpdate,
       updateOne: routeMocks.dbUpdateOne,
       insertOne: routeMocks.dbInsertOne,
     }),
@@ -142,6 +146,9 @@ describe('Editron render startup boundary', () => {
       bucketName: 'bucket_1',
     });
     routeMocks.createJob.mockResolvedValue(undefined);
+    routeMocks.calculateExpectedRenderDurationMs.mockImplementation(
+      (totalFrames: number, fps: number) => Math.round((totalFrames / fps) * 1000),
+    );
     routeMocks.reserveJob.mockResolvedValue(undefined);
     routeMocks.markJobStarted.mockResolvedValue(undefined);
     routeMocks.failJob.mockResolvedValue(undefined);
@@ -149,6 +156,7 @@ describe('Editron render startup boundary', () => {
     routeMocks.getActiveRendersForUser.mockResolvedValue([]);
     routeMocks.transitionProjectStatus.mockResolvedValue(undefined);
     routeMocks.dbFindOne.mockResolvedValue(null);
+    routeMocks.dbFindOneAndUpdate.mockResolvedValue(null);
     routeMocks.dbUpdateOne.mockResolvedValue({ matchedCount: 1 });
     routeMocks.dbInsertOne.mockResolvedValue({ acknowledged: true });
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -183,6 +191,7 @@ describe('Editron render startup boundary', () => {
       'user_1',
       'project_1',
       'us-east-1',
+      3_000,
       expect.objectContaining({
         primaryArtifact: expect.objectContaining({ renderId: admissionId }),
       }),
@@ -529,6 +538,130 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.dbUpdateOne).not.toHaveBeenCalled();
   });
 
+  it('atomically leases exact-duration finalization to only one completion observer', async () => {
+    const actualJobService = await vi.importActual<
+      typeof import('@/lib/editron/services/render-job-service')
+    >('@/lib/editron/services/render-job-service');
+    const now = new Date('2026-08-02T00:00:00.000Z');
+    routeMocks.dbFindOneAndUpdate.mockResolvedValueOnce({
+      _id: 'rnd_admission_1',
+      providerRenderId: 'render_provider_1',
+      status: 'finalizing',
+      expectedDurationMs: 38_000,
+    });
+
+    expect(actualJobService.calculateExpectedRenderDurationMs(1_140, 30)).toBe(38_000);
+    const claim = await actualJobService.claimJobFinalization({
+      renderId: 'render_provider_1',
+      sourceOutputUrl: 'https://bucket.s3.us-east-1.amazonaws.com/raw.mp4',
+      sourceOutputSize: 44_583_988,
+      claimToken: 'rfl_claim_1',
+      leaseMs: 60_000,
+      now,
+    });
+
+    expect(claim).toEqual({
+      jobId: 'rnd_admission_1',
+      providerRenderId: 'render_provider_1',
+      claimToken: 'rfl_claim_1',
+      sourceOutputUrl: 'https://bucket.s3.us-east-1.amazonaws.com/raw.mp4',
+      sourceOutputSize: 44_583_988,
+      expectedDurationMs: 38_000,
+    });
+    expect(routeMocks.dbFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $and: expect.arrayContaining([
+          expect.objectContaining({
+            $or: [
+              { _id: 'render_provider_1' },
+              { providerRenderId: 'render_provider_1' },
+            ],
+          }),
+        ]),
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: 'finalizing',
+          progress: 0.99,
+          'finalization.claimToken': 'rfl_claim_1',
+          'finalization.sourceOutputUrl': 'https://bucket.s3.us-east-1.amazonaws.com/raw.mp4',
+          'finalization.leaseExpiresAt': new Date('2026-08-02T00:01:00.000Z'),
+        }),
+        $inc: { 'finalization.attempts': 1 },
+      }),
+      { returnDocument: 'after' },
+    );
+
+    routeMocks.dbFindOneAndUpdate.mockResolvedValueOnce(null);
+    await expect(actualJobService.claimJobFinalization({
+      renderId: 'render_provider_1',
+      sourceOutputUrl: 'https://bucket.s3.us-east-1.amazonaws.com/raw.mp4',
+      sourceOutputSize: 44_583_988,
+      claimToken: 'rfl_loser',
+      now,
+    })).resolves.toBeNull();
+  });
+
+  it('publishes only the verified finalizer artifact held by the active lease', async () => {
+    const actualJobService = await vi.importActual<
+      typeof import('@/lib/editron/services/render-job-service')
+    >('@/lib/editron/services/render-job-service');
+    routeMocks.dbFindOne.mockResolvedValueOnce({
+      _id: 'rnd_admission_1',
+      status: 'finalizing',
+      expectedDurationMs: 38_000,
+      finalization: { claimToken: 'rfl_claim_1' },
+      deliveryManifest: renderDeliveryManifest('rnd_admission_1'),
+    });
+    routeMocks.dbUpdateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+
+    const completed = await actualJobService.completeJobFinalization({
+      jobId: 'rnd_admission_1',
+      claimToken: 'rfl_claim_1',
+      now: new Date('2026-08-02T00:02:00.000Z'),
+      result: exactFinalizerResult(),
+    });
+
+    expect(completed).toBe(true);
+    expect(routeMocks.dbUpdateOne).toHaveBeenCalledWith(
+      {
+        _id: 'rnd_admission_1',
+        status: 'finalizing',
+        'finalization.claimToken': 'rfl_claim_1',
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: 'done',
+          progress: 1,
+          outputUrl: 'https://bucket.s3.us-east-1.amazonaws.com/editron-finalized/rnd_admission_1.mp4',
+          'finalization.state': 'done',
+          'finalization.receipt': expect.objectContaining({
+            audioDurationMs: 38_000,
+            videoDurationMs: 38_000,
+          }),
+          deliveryManifest: expect.objectContaining({
+            primaryArtifact: expect.objectContaining({
+              status: 'ready',
+              url: 'https://bucket.s3.us-east-1.amazonaws.com/editron-finalized/rnd_admission_1.mp4',
+            }),
+          }),
+        }),
+      }),
+    );
+
+    await expect(actualJobService.completeJobFinalization({
+      jobId: 'rnd_admission_1',
+      claimToken: 'rfl_claim_1',
+      result: {
+        ...exactFinalizerResult(),
+        receipt: {
+          ...exactFinalizerResult().receipt,
+          audioDurationMs: 38_080,
+        },
+      },
+    })).rejects.toThrow('audioDurationMs exceeds the verified duration tolerance');
+  });
+
   it('reports degraded tracking without claiming a paid render failed', async () => {
     routeMocks.markJobStarted.mockRejectedValue(new Error('ambiguous database write'));
 
@@ -692,6 +825,28 @@ function renderDeliveryManifest(renderId: string) {
       embedded: true,
       removedOverlayIds: [],
       handoff: null,
+    },
+  };
+}
+
+function exactFinalizerResult() {
+  return {
+    url: 'https://bucket.s3.us-east-1.amazonaws.com/editron-finalized/rnd_admission_1.mp4',
+    sizeBytes: 44_500_000,
+    expectedDurationMs: 38_000,
+    receipt: {
+      expectedDurationMs: 38_000,
+      formatDurationMs: 38_000,
+      videoDurationMs: 38_000,
+      audioDurationMs: 38_000,
+      videoCodec: 'h264',
+      audioCodec: 'aac',
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      sampleRate: 48_000,
+      channels: 2,
+      verificationToleranceMs: 1,
     },
   };
 }
