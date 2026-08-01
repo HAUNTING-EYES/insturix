@@ -20,6 +20,11 @@ export interface ScanResult {
   reason?: string;
 }
 
+export interface ScanOptions {
+  /** A surfaced panel is exceptional and must be licensed by an approved design plan with a stated reason. */
+  allowPlate?: boolean;
+}
+
 /** Imports the generated component may use: react, remotion, and the kit primitives only (any relative
  *  depth). NO product composers / external modules in E0. */
 const ALLOWED_IMPORT = /^import\b[^'"]*['"](react|remotion|(?:\.{1,2}\/)*(?:kit\/)?(?:brand|stage|fit-text|choreo|marks|scene))['"]\s*;?\s*$/;
@@ -46,7 +51,7 @@ const UNSAFE: { re: RegExp; why: string }[] = [
  * Scan a generated component's source. Returns { ok: true } when it passes every construction rule,
  * or { ok: false, reason } naming the first violation. Pure; never throws.
  */
-export function scanCode(code: string): ScanResult {
+export function scanCode(code: string, options: ScanOptions = {}): ScanResult {
   if (typeof code !== 'string' || code.trim().length === 0) return fail('empty output');
 
   // 1. Scene root must be <Stage>, and it must NOT force the brand backdrop (Law 1 — transparent over footage).
@@ -82,23 +87,38 @@ export function scanCode(code: string): ScanResult {
   for (const u of UNSAFE) if (u.re.test(code)) return fail(`Forbidden non-deterministic/unsafe call: ${u.why}.`);
 
   // 7. Motion intensity is RESOLVED, never hardcoded (founder law 2026-07-19: liveness = brand×video×user).
-  //    An ambient() hold whose strength argument is a bare numeric literal ignores the resolved intensity —
-  //    the timid-0.5 class that read near-dead on real footage (8/19 matrix renders ignored the binding when
-  //    it was prompt-only). Nested-paren args make the naive capture skip — that fails OPEN (the judge still
-  //    sees the result), never falsely rejects.
+  //    A valid component must own a real frame clock, computed phases, and a sustained ambient hold bound to
+  //    the reserved intensity. This rejects static/frozen components before an expensive Chromium render.
+  if (!/\buseCurrentFrame\s*\(\s*\)/.test(code)) {
+    return fail('Missing frame clock — call useCurrentFrame() and animate from the returned frame.');
+  }
+  if (!/\bphases\s*\(/.test(code)) {
+    return fail('Missing computed choreography — derive the timeline with phases(durationInFrames, brand).');
+  }
   {
     const ambientCall = /\bambient\s*\(([^)]*)\)/g;
+    let foundAmbient = false;
     let m: RegExpExecArray | null;
     while ((m = ambientCall.exec(code)) !== null) {
+      foundAmbient = true;
       const args = m[1].split(',');
       const strength = args[3]?.trim();
-      if (strength && /^[\d.]+$/.test(strength)) {
-        return fail(`ambient(..., ${strength}) hardcodes the hold strength — bind the resolved liveness instead: ambient(frame, at, kind, data.motionIntensity).`);
+      if (strength !== 'data.motionIntensity') {
+        return fail(`ambient() must bind its hold strength to the resolved liveness: ambient(frame, at, kind, data.motionIntensity); received ${strength || 'no strength argument'}.`);
       }
+    }
+    if (!foundAmbient) {
+      return fail('Missing sustained hold motion — keep the composition alive with ambient(frame, at, kind, data.motionIntensity).');
     }
   }
 
-  // 8. Brand by construction, structurally: every brand-requiring kit element must pass brand= in its
+  // 8. A card/panel is a licensed exception, not the default shape of every fact. The approved design plan is
+  //    the only authority that can open this door; the scanner never infers a look from prose or fact kind.
+  if (!options.allowPlate && /<Plate\b/.test(code)) {
+    return fail('<Plate> is not licensed for this moment — compose an integrated, boxless structure unless the approved design plan explicitly licenses a panel and states why.');
+  }
+
+  // 9. Brand by construction, structurally: every brand-requiring kit element must pass brand= in its
   //    open tag. A brandless tag compiles (esbuild strips types) and then crashes mid-render on the kit's
   //    internal dv(brand) → "Cannot read properties of undefined (reading 'density')" — live class caught
   //    2026-07-18: generated `<Region x y w h>` without brand. Reveal/Bleed/SceneLayer/SceneReveal take no

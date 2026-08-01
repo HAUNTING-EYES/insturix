@@ -35,7 +35,7 @@ import type {
 } from './types';
 
 /** Bumped when the kit or prompt changes — part of the cache key so stale code never gets reused. */
-export const KIT_VERSION = 'e1.10'; // e1.10: coder phases() shape doc — ph.intro/build/resolve are frame NUMBERS, not objects (kills the "inputRange must contain only numbers" render crash, stress run b2). e1.9: P4 quality floor — structural LOOK axis (integrated default, plate banned unless look 'panel' + panelReason), narrative complete-phrase discipline, brand-prop scan rule (undefined-density crash class), surgical keep-what-worked revision. e1.8: P3.5 door — beat licensing w/ density budget + boxless-first legibility order
+export const KIT_VERSION = 'e1.11'; // e1.11: resolved sustained motion + design-licensed panels before render. e1.10: phases() shape contract. e1.9: structural look + brand-prop enforcement.
 const DEFAULT_JUDGE_THRESHOLD = 7.5; // ← ship at 7.5, tune on the first 50 real moments
 const MAX_MODEL_ATTEMPTS = 3;
 const MAX_COMPILE_FEEDBACK_CHARS = 1_200;
@@ -348,7 +348,9 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
         providerFailure: error instanceof MgProviderFailureError ? error.failure : undefined,
       };
     }
-    const scan = scanCode(code);
+    const scan = scanCode(code, {
+      allowPlate: Boolean(input.design?.plan.look === 'panel' && input.design.plan.panelReason?.trim()),
+    });
     receipt.scans.push({ passed: scan.ok, reason: scan.reason });
     return { code, scan };
   };

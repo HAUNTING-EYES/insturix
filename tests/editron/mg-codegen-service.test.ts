@@ -26,8 +26,8 @@ import {useCurrentFrame, useVideoConfig} from 'remotion';
 import {Brand} from './kit/brand';
 import {Stage, Region} from './kit/stage';
 import {FitHeadline} from './kit/fit-text';
-import {phases, countUp} from './kit/choreo';
-type Data = { value?: number };
+import {phases, countUp, ambient} from './kit/choreo';
+type Data = { value?: number; motionIntensity: number };
 export const MgScene: React.FC<{brand: Brand; data: Data}> = ({brand, data}) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
@@ -35,16 +35,18 @@ export const MgScene: React.FC<{brand: Brand; data: Data}> = ({brand, data}) => 
   const n = countUp(frame, ph.intro, 30, data.value ?? 0);
   return (
     <Stage brand={brand}>
-      <Region brand={brand} x={0.08} y={0.2} w={0.84} h={0.6} align="center" justify="center">
-        <FitHeadline brand={brand} text={String(n)} size="display" />
-      </Region>
+      <div style={ambient(frame, ph.build, 'float', data.motionIntensity)}>
+        <Region brand={brand} x={0.08} y={0.2} w={0.84} h={0.6} align="center" justify="center">
+          <FitHeadline brand={brand} text={String(n)} size="display" />
+        </Region>
+      </div>
     </Stage>
   );
 };`;
 const INVALID_CODE = 'export const MgScene = () => <div>no stage root</div>;'; // fails the scan
 // The model is told NOT to write imports — a realistic import-less body (VALID_CODE minus imports).
 const NO_IMPORT_CODE = `
-type Data = { value?: number };
+type Data = { value?: number; motionIntensity: number };
 export const MgScene: React.FC<{brand: Brand; data: Data}> = ({brand, data}) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
@@ -52,12 +54,18 @@ export const MgScene: React.FC<{brand: Brand; data: Data}> = ({brand, data}) => 
   const n = countUp(frame, ph.intro, 30, data.value ?? 0);
   return (
     <Stage brand={brand}>
-      <Region brand={brand} x={0.08} y={0.2} w={0.84} h={0.6} align="center" justify="center">
-        <FitHeadline brand={brand} text={String(n)} size="display" />
-      </Region>
+      <div style={ambient(frame, ph.build, 'float', data.motionIntensity)}>
+        <Region brand={brand} x={0.08} y={0.2} w={0.84} h={0.6} align="center" justify="center">
+          <FitHeadline brand={brand} text={String(n)} size="display" />
+        </Region>
+      </div>
     </Stage>
   );
 };`;
+const PANEL_CODE = NO_IMPORT_CODE.replace(
+  '<FitHeadline brand={brand} text={String(n)} size="display" />',
+  '<Plate brand={brand}><FitHeadline brand={brand} text={String(n)} size="display" /></Plate>',
+);
 
 function candidate(over: Partial<SemanticMgCandidate> = {}): SemanticMgCandidate {
   return {
@@ -459,6 +467,23 @@ describe('generateMoment - design-then-code prompt switch (P5-1 Phase C)', () =>
     expect(ref.prompt).toContain('IMPLEMENTATION engineer'); // the coder role, not the free-form designer role
     expect(ref.prompt).toContain('<design>'); // the approved plan crossed into the prompt
     expect(ref.prompt).toContain('growth dominates'); // ...the plan's own concept text
+  });
+
+  it('licenses a surfaced panel only when the approved design explicitly states its reason', async () => {
+    const unlicensed = await generateMoment(input(), deps({ writeComponent: async () => PANEL_CODE }));
+    expect(unlicensed.status).toBe('fallback');
+    expect(unlicensed.reason).toMatch(/Plate.*not licensed/i);
+
+    const panelPlan: MgMomentDesignPlan = {
+      ...overlayPlan,
+      look: 'panel',
+      panelReason: 'Dense comparison needs a bounded local contrast surface over visually busy footage.',
+    };
+    const licensed = await generateMoment(
+      input({ design: { plan: panelPlan, brief } }),
+      deps({ writeComponent: async () => PANEL_CODE }),
+    );
+    expect(licensed.status).toBe('generated');
   });
 
   it('without a design → the free-form codegen prompt (today\'s path, unchanged)', async () => {

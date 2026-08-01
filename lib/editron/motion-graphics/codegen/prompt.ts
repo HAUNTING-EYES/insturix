@@ -32,7 +32,7 @@ TEXT (the only way words render — size & colour COMPUTED, never passed):
 CHOREOGRAPHY (numbers are DERIVED — anchor to phases, never hand-type frame windows):
 const ph = phases(durationInFrames, brand)      // ph.intro, ph.build, ph.resolve, ph.durF are PLAIN FRAME NUMBERS (integers), NOT objects. Use directly: ph.intro, ph.intro + 6, [ph.intro, ph.intro + 15]. NEVER ph.intro.start / ph.intro.end — those are undefined and throw "inputRange must contain only numbers" at render.
 enter(brand, frame, at, fps, "rise|scale|pop|fade|blurIn|zoomBlur|sweepL|sweepR", unit?) -> style   // entrance verb
-ambient(frame, at, "float|pulse|breathe|glow|drift", strength?) -> style   // SUSTAINED hold-phase life — nest on a WRAPPER so the graphic keeps MOVING, not frozen after its entrance
+ambient(frame, at, "float|pulse|breathe|glow|drift", data.motionIntensity) -> style   // REQUIRED sustained hold-phase life. This reserved signal is resolved from brand×video×user context; never replace it with a literal/default.
 exitOut(frame, ph, "fade|rise") -> style        stagger(brand, i)   pulseAt(frame, at, strength)
 countUp(frame, at, dur, to, from?)              progress(frame, from, to)   travel(frame, ph, px)   EASE
 useRegionSize() -> {wPx,hPx}   useStage() -> {W,H,...}
@@ -180,7 +180,9 @@ export const HARD_RULES = `<hard_rules>
   window, document, eval, require, dynamic import, process. Math.sin/cos of the frame is encouraged.
 - CHOREOGRAPHY IS COMPUTED: const {durationInFrames, fps} = useVideoConfig(); const ph = phases(durationInFrames, brand);
   anchor every entrance/exit/beat to ph.* (+ stagger). No hand-typed frame windows like [14, 38]. READ the clip
-  length from useVideoConfig() (its value is stated in <moment>). Motion on every frame; end settled via exitOut.
+  length from useVideoConfig() (its value is stated in <moment>). The reserved system prop
+  data.motionIntensity is always available: declare it in Data and drive the sustained hold with
+  ambient(frame, at, kind, data.motionIntensity). Motion on every frame; end settled via exitOut.
 - Every interpolate(): {extrapolateLeft:'clamp', extrapolateRight:'clamp'}. spring() takes fps from useVideoConfig().
 - PLACEMENT IS GIVEN, NOT CHOSEN: if <moment> lists a SAFE PLACEMENT rect, your primary <Region> MUST use those
   exact x/y/w/h (it is already clear of the subject and every avoid-area) and EVERY element stays inside it — do
@@ -211,7 +213,7 @@ kit right (inline Data decl, <Stage> root, a <Region> placed in the negative spa
 read from data, choreography anchored to phases, sustained motion via ambient nested on a wrapper). Do NOT copy the
 composition — compose FRESHLY for your fact. It fixes your syntax, never your design.
 
-type Data = { from: number; to: number; fromLabel: string; toLabel: string; unit: string; label: string };
+type Data = { from: number; to: number; fromLabel: string; toLabel: string; unit: string; label: string; motionIntensity: number };
 export const MgScene: React.FC<{brand: Brand; data: Data}> = ({brand, data}) => {
   const { durationInFrames } = useVideoConfig();
   const frame = useCurrentFrame();
@@ -220,7 +222,7 @@ export const MgScene: React.FC<{brand: Brand; data: Data}> = ({brand, data}) => 
   return (
     <Stage brand={brand}>
       <Region brand={brand} x={0.44} y={0.34} w={0.34} h={0.34} align="left" justify="center" gapScale={1.3}>
-        <div style={ambient(frame, ph.build, 'float', 0.6)}>
+        <div style={ambient(frame, ph.build, 'float', data.motionIntensity)}>
           <FitHeadline brand={brand} text={data.label} face="display" size="m" accentWords={[data.toLabel]} startAt={ph.build}/>
         </div>
         <TextBlock brand={brand} text={data.fromLabel} tone="muted" size="s" startAt={ph.intro}/>

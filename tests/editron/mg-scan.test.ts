@@ -18,16 +18,19 @@ import {useCurrentFrame, useVideoConfig, interpolate} from 'remotion';
 import {Brand, withAlpha} from './kit/brand';
 import {Stage, Region} from './kit/stage';
 import {FitHeadline} from './kit/fit-text';
-import {phases, countUp} from './kit/choreo';
-export const MgScene: React.FC<{brand: Brand}> = ({brand}) => {
+import {phases, countUp, ambient} from './kit/choreo';
+type Data = { motionIntensity: number };
+export const MgScene: React.FC<{brand: Brand; data: Data}> = ({brand, data}) => {
   const frame = useCurrentFrame();
   const ph = phases(90, brand);
   const n = countUp(frame, ph.intro, 30, 42);
   return (
     <Stage brand={brand}>
-      <Region brand={brand} x={0.08} y={0.2} w={0.84} h={0.6} align="center" justify="center">
-        <FitHeadline brand={brand} text={String(n) + '%'} size="display" />
-      </Region>
+      <div style={ambient(frame, ph.build, 'float', data.motionIntensity)}>
+        <Region brand={brand} x={0.08} y={0.2} w={0.84} h={0.6} align="center" justify="center">
+          <FitHeadline brand={brand} text={String(n) + '%'} size="display" />
+        </Region>
+      </div>
     </Stage>
   );
 };
@@ -135,7 +138,23 @@ export const MgScene: React.FC<{brand: Brand}> = ({brand}) => {
     expect(scanCode(withLine("const h = ambient(frame, ph.intro, 'float', 0.5);")).ok).toBe(false);
     expect(scanCode(withLine("const h = ambient(frame, ph.intro, 'float', 0.5);")).reason).toMatch(/motionIntensity/);
     expect(scanCode(withLine("const h = ambient(frame, ph.intro, 'float', data.motionIntensity);")).ok).toBe(true);
-    expect(scanCode(withLine("const h = ambient(frame, ph.intro, 'drift');")).ok).toBe(true); // no 4th arg = default, allowed
+    expect(scanCode(withLine("const h = ambient(frame, ph.intro, 'drift');")).ok).toBe(false);
+  });
+
+  it('★ static/frozen output is rejected before render', () => {
+    const staticCode = VALID.replace("<div style={ambient(frame, ph.build, 'float', data.motionIntensity)}>", '<div>');
+    expect(scanCode(staticCode).ok).toBe(false);
+    expect(scanCode(staticCode).reason).toMatch(/sustained hold motion/i);
+  });
+
+  it('★ Plate is rejected by default and accepted only with explicit design licensing', () => {
+    const panel = VALID.replace(
+      '<FitHeadline brand={brand} text={String(n) + \'%\'} size="display" />',
+      '<Plate brand={brand}><FitHeadline brand={brand} text={String(n) + \'%\'} size="display" /></Plate>',
+    );
+    expect(scanCode(panel).ok).toBe(false);
+    expect(scanCode(panel).reason).toMatch(/not licensed/i);
+    expect(scanCode(panel, { allowPlate: true }).ok).toBe(true);
   });
 
   it('empty / non-string → reject, never throws', () => {
@@ -150,6 +169,7 @@ describe('prompt scaffolding - well-formed for E0', () => {
   it('primitive API points at the kit + forbids product composers', () => {
     expect(PRIMITIVE_API).toMatch(/FitHeadline/);
     expect(PRIMITIVE_API).toMatch(/backdrop is FALSE|backdrop.*false/i);
+    expect(PRIMITIVE_API).toContain('data.motionIntensity');
     expect(PRIMITIVE_API).not.toMatch(/ProductShot|VideoShot|FullBleedProduct/);
   });
   it('hard rules are stable (clip length read from useVideoConfig, not interpolated) + no imports + determinism', () => {
@@ -158,6 +178,7 @@ describe('prompt scaffolding - well-formed for E0', () => {
     expect(r).toMatch(/useVideoConfig/); // the clip length is READ, not baked into the rules
     expect(r).toMatch(/do not write any import/i); // imports are injected, not authored
     expect(r).toMatch(/Math\.random/);
+    expect(r).toContain('ambient(frame, at, kind, data.motionIntensity)');
   });
   it('the canonical import preamble covers every kit module (deterministic imports)', () => {
     for (const mod of ['react', 'remotion', './kit/brand', './kit/stage', './kit/fit-text', './kit/choreo']) {
