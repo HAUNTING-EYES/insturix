@@ -2,11 +2,12 @@
 
 Status: canonical remaining-work ledger
 
-Last reconciled: 2026-07-30
+Last reconciled: 2026-08-02
 
-Code baseline: `3f538d8a`
+Production code baseline: `590bbdb8` (`origin/main`)
 
-Branch: `infrastructure-improvs-+Editron`
+Audited mirror: `infrastructure-improvs-+Editron` (active CalOS paths match the
+production baseline; unrelated Editron commits continue to advance this branch)
 
 ## 1. Purpose And Evidence
 
@@ -17,12 +18,165 @@ This document reconciles:
 - The top-down calendar, campaign, generation, image, publishing, OAuth, and
   documentation audits performed during that task.
 - The implementation history from the first production audit at `f6afd12c`
-  through the current baseline at `6f625acb`.
+  through the production Facebook migration at `590bbdb8`.
 - The current long-form YouTube trace across CalOS, ThinkForge, Editron,
   UploaderX, the publish queue, and the YouTube publisher.
 
 This is the source of truth for what remains. Historical handovers under
 `docs/agents/calos/` are evidence, not the current production contract.
+
+## 1A. 2026-08-02 Code Reconciliation
+
+This reconciliation was performed against the deployed `main` implementation.
+The scoped CalOS code is byte-equivalent on the audited infrastructure mirror;
+the branches have different commit hashes because the hardening stack was
+cherry-picked onto `main`.
+
+Status meanings:
+
+- `COMPLETE`: the production control flow and the stated exit gate were both
+  verified.
+- `PARTIAL`: useful implementation exists, but the exit gate is not satisfied.
+- `MISSING`: the required production owner or control flow does not exist.
+
+### What "Months Ahead" Already Means
+
+The active V3 campaign controls were designed around rolling windows: `Week`
+means the next 7 days, `Month` the next 30 days, and `Quarter` the next 90 days.
+This is not a regression from a selected-calendar-month contract. A separate,
+directly addressable campaign workspace contains `Rest of this month` and `Next
+month` helpers, but arbitrary start/end selection and planning from the visible
+calendar month were never completed in the primary V3 workflow.
+
+The current product can:
+
+- Navigate real month, week, and day calendar views.
+- Create campaigns with per-platform cadence and preferred weekdays.
+- Fill rolling 7, 30, or 90-day windows with Auto-fill or AI Plan.
+- Use brand context, campaign objective/theme, geographic trends, and existing
+  ideas during AI planning.
+- Batch-generate scripts, start still-image work, redistribute campaign cards,
+  review editorial content, approve it, and enqueue supported social posts.
+
+This is a substantial calendar and planning shell. It is not yet the durable
+months-ahead production system defined in Section 3.
+
+The current primary flow is:
+
+```text
+campaign bar
+-> synchronous Auto-fill or AI Plan request
+-> immediate calos_deliverables insert
+-> client before/after ID diff for "review"
+-> per-card script/image actions
+-> approval transaction creates one publish row
+-> CalOS platform publisher
+```
+
+The final required flow introduces separate durable owners for planning runs,
+proposals, generation/media jobs, typed assets, publication occurrences, and
+provider reconciliation. A deliverable cannot safely own all of those
+lifecycles by itself.
+
+### Remaining-Work Status
+
+Release blockers:
+
+| ID | Status | Verified current state |
+| --- | --- | --- |
+| CAL-P0-01 | MISSING | AI Plan still performs one model call and persistence inside a 60-second request; no `GenerationRun`, checkpoints, resume, cancel, or run receipt exists. |
+| CAL-P0-02 | MISSING | Review still infers new cards by before/after ID diff; removal deletes an already-persisted deliverable. |
+| CAL-P0-03 | PARTIAL | Image kickoff and callback exist, but the credit deduction, job dispatch, and deliverable claim are not atomic; batch generation has no durable lock or lease. |
+| CAL-P0-04 | PARTIAL | Approval and queue insertion are transactional, but media preflight, truthful missing-status UI, active polling, and save flushing remain incomplete. |
+| CAL-P0-05 | MISSING | Long-form labels and separate downstream tools exist, but no duration-bound CalOS-to-ThinkForge-to-Editron-to-UploaderX production path exists. |
+| CAL-P0-06 | PARTIAL | Facebook encrypted writes/readers and production backfill are complete; legacy compatibility, key rotation, Instagram, LinkedIn, and X encryption remain. |
+
+High-priority correctness:
+
+| ID | Status | Verified current state |
+| --- | --- | --- |
+| CAL-P1-01 | PARTIAL | Read-before-write deduplication exists, but there is no atomic unique slot key and AI Plan still scans at most 200 cards. |
+| CAL-P1-02 | PARTIAL | Rich brand/trend context exists, but planning can continue brandless, emit generic fallbacks, ignores campaign references, and has no quality evaluation gate. |
+| CAL-P1-03 | MISSING | Auto-fill and manual cards do not carry a complete platform/format/duration contract; YouTube Auto-fill can fall back to text generation. |
+| CAL-P1-04 | PARTIAL | Rolling 7/30/90-day planning works as originally designed. The primary V3 flow has no arbitrary range or visible-month planning owner, while future `+ New` behavior remains inconsistent. |
+| CAL-P1-05 | PARTIAL | Campaign-scoped redistribution exists, but it replaces dates through independent PATCHes without preview/rollback; approval publishes only the first planned date. |
+| CAL-P1-06 | PARTIAL | APIs support several fields and versions, but the UI omits campaign-name updates, has no dirty-close/save barrier, and has no revision compare-and-set. |
+| CAL-P1-07 | PARTIAL | Script and image state are visible, but media prompt editing, accept/reject/regenerate, typed metadata, and production manifests are absent. |
+| CAL-P1-08 | PARTIAL | Approval/status preflight is strong for several providers, but the execution worker does not rerun the shared live-health owner immediately before publishing. |
+| CAL-P1-09 | PARTIAL | Ambiguous outcomes are blocked from unsafe automatic replay, but durable before/after provider receipts and provider-state reconciliation do not exist. |
+| CAL-P1-10 | PARTIAL | Core text publishing exists; LinkedIn/X media, complete YouTube metadata, and an explicit TikTok editorial-only contract remain. |
+
+Operations, testing, and documentation:
+
+| ID | Status | Verified current state |
+| --- | --- | --- |
+| CAL-P2-01 | PARTIAL | Card-level status, account, error, URL, and retry exist; there is no queue operations dashboard or reconciliation/cancel surface. |
+| CAL-P2-02 | MISSING | Required queue, generation, media, credential, provider, credit, and cron metrics/alerts do not exist. |
+| CAL-P2-03 | MISSING | No reproducible social staging canary suite or non-secret receipt artifact exists. |
+| CAL-P2-04 | PARTIAL | Publishing hardening has focused tests, but planning concurrency, image-credit atomicity, long-form, multi-date, reconciliation, and browser workflows are uncovered. |
+| CAL-P2-05 | MISSING | None of the nine required production documentation paths in Section 7 exists yet. |
+
+Current count across the 21 remaining-work items:
+
+```text
+COMPLETE  0
+PARTIAL  14
+MISSING   7
+```
+
+These counts describe exit-gate status, not implementation effort. Several
+`PARTIAL` items contain meaningful production plumbing.
+
+### Original Nine-Phase Audit Status
+
+This table preserves the exit conditions from the first top-down production
+audit instead of replacing them with later roadmap wording.
+
+| Phase | Status | Remaining exit-gate work |
+| --- | --- | --- |
+| 0. Dead-code cleanup | COMPLETE AS NEEDED | Retired calendar-shell code was removed separately. Repeat this procedural gate before any future structural refactor of a 300+ line file. |
+| 1. Brand authorization and account ownership | COMPLETE | Cross-tenant assignment and OAuth requests return `403`. LinkedIn Model A exact-destination verification remains tracked under credential preflight. |
+| 2. Credential health and platform preflight | PARTIAL | Finish LinkedIn/X scope evaluation, Instagram destination verification, execution-time shared health checks, and truthful status-fetch failure handling. |
+| 3. Queue leases, backoff, cancellation, and recovery | PARTIAL | Add cancellation, enforce the attempt budget while claiming/reclaiming, and execute crash/recovery tests rather than asserting query source only. |
+| 4. Transactional approval and immutable snapshots | PARTIAL | Approval/enqueue is transactional. Add immutable approval/occurrence identity instead of mutating the pending snapshot on reapproval. |
+| 5. Truthful publish-status and calendar states | PARTIAL | Remove the no-row `Queued` fallback, distinguish pending/claimed/publishing, poll active work, surface fetch failure, and stop displaying assignment-only `Active`. |
+| 6. Campaign runs, bounded planning, geography, and evidence | MISSING CORE | Geography, Sonar evidence, and stable `gemini-3.1-flash-lite` are shipped. Add durable run ownership, bounded chunks, checkpoints, cancel/resume, and duplicate-safe restart. |
+| 7. Batch review and calendar UX | PARTIAL | Batch scripts/images and day controls exist. Add a day drawer, campaign grid filtering, multi-select review, future-date creation, and proposal-safe rejection. |
+| 8. Copy, image, and Editron video orchestration | PARTIAL | Add versioned typed assets, atomic idempotent image work, media review gates, and an owned CalOS-to-Editron video handoff. |
+| 9. E2E tests, observability, and cron verification | PARTIAL | Add CalOS browser E2E, month-plan and concurrency scenarios, cron receipts/freshness, metrics, alerts, canaries, and an operations surface. |
+
+Original-phase aggregate: one product phase complete, seven partial, and the
+core durable campaign-run phase missing. Phase 0 is a procedural gate.
+
+### Execution-Phase Status
+
+| Phase | Status | Exit-gate verdict |
+| --- | --- | --- |
+| 1A. Facebook reader/writer boundary | COMPLETE | Encrypted readers and fail-closed callback writes are deployed. |
+| 1B. Facebook legacy backfill | COMPLETE | Production migrated 6/6 secrets, verified zero plaintext/unreadable values, and passed an idempotent rerun. |
+| 2. Truthful immediate UX | PARTIAL | Real queue/error/retry data is available, but false queued fallback, missing media preflight, swallowed status errors, and absent save barrier remain. |
+| 3. GenerationRun foundation | MISSING | No run schema/state machine or create/status/cancel contract exists. |
+| 4. Durable planner worker | MISSING | Planning remains one synchronous request with no checkpoints or atomic slots. |
+| 5. Safe review/materialization | MISSING | Review operates on persisted deliverables and deletes them when pruned. |
+| 6. Calendar/campaign correctness | PARTIAL | Real calendar navigation exists; arbitrary planning range, safe distribution, conflict handling, and multi-date execution do not. |
+| 7. Durable image production | MISSING | Existing image plumbing does not satisfy atomic credit/job ownership or lease-backed recovery. |
+| 8. Long-form planning contract | MISSING | Campaigns and slots cannot require a count of 5-10 minute videos. |
+| 9. ThinkForge/Editron handoff | PARTIAL | Separate tools and generic callback plumbing exist; no typed, traceable CalOS handoff does. |
+| 10. CalOS/UploaderX video publishing | PARTIAL | Separate CalOS direct and UploaderX resumable publishers exist; CalOS does not use durable UploaderX resume state. |
+| 11. OAuth/platform parity | PARTIAL | Facebook is migrated and provider health is stronger; other encryption and media parity remain. |
+| 12. Operations/canaries/docs | PARTIAL | Focused tests and card-level status exist; dashboard, alerts, canaries, browser suite, and docs remain. |
+
+Audit verification:
+
+- Full `tests/calos` run on 2026-08-02: 28 files, 201 tests passed.
+- Missing coverage remains part of the roadmap: no CalOS browser E2E,
+  selected-month/month-plan workflow, durable 90-day run, image-credit race,
+  long-form handoff, or production cron receipt scenario exists.
+- Repository ESLint passed during the audit.
+- The infrastructure checkout has unrelated pre-existing TypeScript diagnostics
+  in generated route checks and Editron/script files; none reference the
+  audited CalOS paths. The production `main` TypeScript check passed at
+  `590bbdb8`.
 
 ## 2. Executive Verdict
 
@@ -97,7 +251,8 @@ later in this document.
 - AI Plan uses campaign context, brand context, existing ideas, and trends.
 - Trend discovery supports a geography selector and a local default.
 - Perplexity Sonar is used for trend and web discovery.
-- Gemini Flash Lite is used for plan building.
+- Stable GA `gemini-3.1-flash-lite` is used for plan building. The retired
+  `gemini-3.1-flash-lite-preview` identifier is not used.
 - Campaign and brand references can be uploaded and used by later writers.
 - Accepted ideas can be batch-generated into scripts.
 - Batch still-image generation exists.
@@ -135,6 +290,9 @@ later in this document.
   tokens with per-secret compare-and-set updates. The production procedure and
   rollback constraints are documented in
   `docs/calos/FACEBOOK_TOKEN_MIGRATION_RUNBOOK.md`.
+- The production backfill ran on 2026-08-01: six secrets across three users were
+  migrated, a final read-only audit found six decryptable envelopes and zero
+  plaintext or unreadable secrets, and an apply rerun performed zero writes.
 - Legacy plaintext Facebook credentials remain readable during migration.
 
 Relevant hardening commits:
@@ -362,11 +520,18 @@ Facebook backfill implementation completed:
   execution, failure recovery, rollback boundaries, and the current key
   rotation limitation.
 
-Facebook production work remaining:
+Facebook production backfill completed on 2026-08-01:
 
-- Execute the backfill in every environment and resolve unsafe Page records.
-- Measure remaining plaintext records and remove legacy-read compatibility only
-  after the documented migration window reaches zero.
+- Production dry-run identified three user tokens and three Page tokens.
+- The apply migrated all six secrets with no unsafe Page records or
+  compare-and-set misses.
+- Final audit and idempotence rerun confirmed zero plaintext and zero additional
+  writes.
+
+Facebook work remaining:
+
+- Remove legacy-read compatibility only after the documented migration window
+  has elapsed and every deployed environment reports zero plaintext records.
 - Add a dual-key/key-ID envelope before rotating
   `CALOS_TOKEN_ENCRYPTION_KEY`; the current `oauth:v1:` prefix identifies an
   envelope format, not a key.
@@ -603,9 +768,11 @@ Exit gate:
 
 Completed in `3f538d8a`.
 
-### Phase 1B: Backfill Legacy Facebook Credentials
+### Phase 1B: Backfill Legacy Facebook Credentials (Complete)
 
-Implementation complete; production execution pending.
+Implementation and production execution completed on 2026-08-01. Production
+migrated six of six identified secrets, final decryptability audit reported zero
+plaintext/unreadable values, and the idempotence rerun performed zero writes.
 
 - Add dry-run counts for plaintext user and Page tokens.
 - Encrypt legacy records idempotently in bounded batches.
