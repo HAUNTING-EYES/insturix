@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   updateMany: vi.fn(),
   findOneAndUpdate: vi.fn(),
   deliverableFindOne: vi.fn(),
+  connectedAccountFindOne: vi.fn(),
+  loadCalosAssignmentHealth: vi.fn(),
   getPublisher: vi.fn(),
 }));
 
@@ -23,6 +25,14 @@ vi.mock("@/schemas/calos-deliverable", () => ({
     findOne: mocks.deliverableFindOne,
   },
 }));
+vi.mock("@/schemas/calos-connected-account", () => ({
+  default: {
+    findOne: mocks.connectedAccountFindOne,
+  },
+}));
+vi.mock("@/lib/calos/publishing-assignment-health", () => ({
+  loadCalosAssignmentHealth: mocks.loadCalosAssignmentHealth,
+}));
 vi.mock("@/lib/calos/publish/contract", () => ({
   getPublisher: mocks.getPublisher,
 }));
@@ -32,6 +42,7 @@ import { GET } from "@/app/api/cron/process-publish-queue/route";
 type MockPublishRow = {
   deliverableId: string;
   ownerUserId: string;
+  orgId: string | null;
   brandId: string;
   platform: "linkedin";
   accountRef: string;
@@ -51,6 +62,7 @@ function makeRow(overrides: Partial<MockPublishRow> = {}) {
   const row = {
     deliverableId: "card_1",
     ownerUserId: "owner_1",
+    orgId: null,
     brandId: "brand_1",
     platform: "linkedin" as const,
     accountRef: "linkedin_1",
@@ -78,6 +90,14 @@ function approvedQuery() {
   };
 }
 
+function assignmentQuery(assignment: Record<string, unknown> | null) {
+  return {
+    select: vi.fn(() => ({
+      lean: vi.fn(async () => assignment),
+    })),
+  };
+}
+
 function cronRequest() {
   return new NextRequest("http://localhost/api/cron/process-publish-queue", {
     headers: { Authorization: "Bearer cron-secret" },
@@ -97,6 +117,20 @@ describe("CalOS publish queue worker reliability", () => {
     mocks.updateMany.mockResolvedValue({ modifiedCount: 0 });
     mocks.findOneAndUpdate.mockResolvedValue(null);
     mocks.deliverableFindOne.mockReturnValue(approvedQuery());
+    mocks.connectedAccountFindOne.mockReturnValue(assignmentQuery({
+      platform: "linkedin",
+      accountRef: "linkedin_1",
+      ownerUserId: "owner_1",
+      accountType: "personal",
+    }));
+    mocks.loadCalosAssignmentHealth.mockResolvedValue({
+      linkedin: {
+        state: "assigned",
+        accountRef: "linkedin_1",
+        displayName: "Owner",
+        message: null,
+      },
+    });
     mocks.getPublisher.mockReturnValue(undefined);
   });
 
@@ -130,6 +164,93 @@ describe("CalOS publish queue worker reliability", () => {
     );
     expect(payload).toMatchObject({ failed: 2, ambiguous: 2, claimed: 0 });
     expect(mocks.getPublisher).not.toHaveBeenCalled();
+  });
+
+  it("verifies approval independently of the assigned account token owner", async () => {
+    const row = makeRow({ ownerUserId: "publisher_1", orgId: "org_1" });
+    mocks.findOneAndUpdate.mockResolvedValueOnce(row).mockResolvedValueOnce(null);
+    mocks.connectedAccountFindOne.mockReturnValue(assignmentQuery({
+      platform: "linkedin",
+      accountRef: "linkedin_1",
+      ownerUserId: "publisher_1",
+      accountType: "organization",
+    }));
+
+    await GET(cronRequest());
+
+    expect(mocks.deliverableFindOne).toHaveBeenCalledWith({
+      "card.id": "card_1",
+      brandId: "brand_1",
+      orgId: "org_1",
+      deletedAt: null,
+    });
+    expect(mocks.connectedAccountFindOne).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerUserId: "publisher_1" }),
+    );
+  });
+
+  it("refuses provider execution when the snapshotted account is no longer assigned", async () => {
+    const row = makeRow({ orgId: "org_1" });
+    const publisher = vi.fn();
+    mocks.findOneAndUpdate.mockResolvedValueOnce(row).mockResolvedValueOnce(null);
+    mocks.connectedAccountFindOne.mockReturnValue(assignmentQuery(null));
+    mocks.getPublisher.mockReturnValue(publisher);
+
+    const response = await GET(cronRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mocks.connectedAccountFindOne).toHaveBeenCalledWith({
+      brandId: "brand_1",
+      platform: "linkedin",
+      accountRef: "linkedin_1",
+      ownerUserId: "owner_1",
+      orgId: "org_1",
+    });
+    expect(publisher).not.toHaveBeenCalled();
+    expect(row.status).toBe("failed");
+    expect(row.lastError).toContain("no longer assigned");
+    expect(payload).toMatchObject({ failed: 1, published: 0 });
+  });
+
+  it("fails closed when live account health requires reconnection", async () => {
+    const row = makeRow();
+    const publisher = vi.fn();
+    mocks.findOneAndUpdate.mockResolvedValueOnce(row).mockResolvedValueOnce(null);
+    mocks.loadCalosAssignmentHealth.mockResolvedValue({
+      linkedin: {
+        state: "reconnect",
+        accountRef: "linkedin_1",
+        displayName: "Owner",
+        message: "LinkedIn expired. Reconnect before publishing.",
+      },
+    });
+    mocks.getPublisher.mockReturnValue(publisher);
+
+    const response = await GET(cronRequest());
+
+    expect(response.status).toBe(200);
+    expect(publisher).not.toHaveBeenCalled();
+    expect(row.status).toBe("failed");
+    expect(row.lastError).toBe("LinkedIn expired. Reconnect before publishing.");
+  });
+
+  it("backs off when account health cannot be checked before provider execution", async () => {
+    const row = makeRow();
+    const publisher = vi.fn();
+    mocks.findOneAndUpdate.mockResolvedValueOnce(row).mockResolvedValueOnce(null);
+    mocks.loadCalosAssignmentHealth.mockRejectedValue(new Error("identity provider unavailable"));
+    mocks.getPublisher.mockReturnValue(publisher);
+
+    const response = await GET(cronRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(publisher).not.toHaveBeenCalled();
+    expect(row.status).toBe("pending");
+    expect(row.publishAt.toISOString()).toBe("2026-07-29T10:05:00.000Z");
+    expect(row.lastError).toContain("identity provider unavailable");
+    expect(payload).toMatchObject({ retried: 1, failed: 0 });
   });
 
   it("backs off a retry proven to have failed before the provider call", async () => {

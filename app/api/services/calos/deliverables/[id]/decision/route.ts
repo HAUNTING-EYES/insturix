@@ -106,7 +106,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           await deliverable.save({ session });
           await enqueueApprovedPublish(
             deliverable,
-            deliverable.ownerUserId,
             brandId,
             publishTarget,
             session,
@@ -186,6 +185,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 type PublishTarget = {
   platform: CalosPublishPlatform;
   accountRef: string;
+  ownerUserId: string;
 };
 
 const PLATFORM_LABELS: Record<CalosPublishPlatform, string> = {
@@ -244,7 +244,20 @@ async function resolveApprovedPublishTarget(
       error: health?.message || `${platformLabel} connection could not be verified before approval.`,
     };
   }
-  return { target: { platform, accountRef: accountRefs[0] } };
+  const selectedAssignment = assignments.find(
+    (assignment) => assignment.accountRef?.trim() === accountRefs[0],
+  );
+  const assignmentOwnerUserId = selectedAssignment?.ownerUserId?.trim();
+  if (!assignmentOwnerUserId) {
+    return { error: `${platformLabel} assignment has no token owner. Reassign it before approval.` };
+  }
+  return {
+    target: {
+      platform,
+      accountRef: accountRefs[0],
+      ownerUserId: assignmentOwnerUserId,
+    },
+  };
 }
 
 /**
@@ -255,7 +268,6 @@ async function resolveApprovedPublishTarget(
  */
 async function enqueueApprovedPublish(
   deliverable: ICalosDeliverable,
-  ownerUserId: string,
   brandId: string,
   target: PublishTarget,
   session: ClientSession,
@@ -267,7 +279,7 @@ async function enqueueApprovedPublish(
   // Media platforms (Instagram) need the image — carry the generated asset URL into the queue.
   const imageUrl = deliverable.assetUrl ?? null;
   const currentSnapshot = {
-    ownerUserId,
+    ownerUserId: target.ownerUserId,
     orgId: deliverable.orgId ?? null,
     brandId,
     accountRef: target.accountRef,

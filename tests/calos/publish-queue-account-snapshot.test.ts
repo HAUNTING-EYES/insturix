@@ -78,14 +78,14 @@ function makeDeliverable() {
   };
 }
 
-function setAssignments(accountRefs: string[]) {
+function setAssignments(accountRefs: string[], ownerUserId = "owner_1") {
   const lean = vi.fn().mockResolvedValue(
     accountRefs.map((accountRef) => ({
       platform: "linkedin",
       accountRef,
       accountType: "organization",
       displayName: `Account ${accountRef}`,
-      ownerUserId: "owner_1",
+      ownerUserId,
       accessTokenEnc: null,
       refreshTokenEnc: null,
       expiresAt: null,
@@ -195,6 +195,42 @@ describe("CalOS approval publish-target snapshot", () => {
     expect(deliverable.editorialStatus).toBe("approved");
     expect(deliverable.save).toHaveBeenCalledWith({ session: mocks.session });
     expect(mocks.transaction).toHaveBeenCalledOnce();
+  });
+
+  it("snapshots the assigned account token owner instead of the deliverable creator", async () => {
+    setAssignments(["linkedin_org_1"], "publisher_1");
+    mocks.userFind.mockReturnValue({
+      select: vi.fn(() => ({
+        lean: vi.fn(async () => [{
+          clerkUserId: "publisher_1",
+          linkedinTokens: {
+            accessToken: "publisher_token",
+            expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+          },
+        }]),
+      })),
+    });
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+
+    expect(response.status).toBe(200);
+    expect(mocks.queueFindOneAndUpdate).toHaveBeenCalledWith(
+      { idempotencyKey: "card_1:linkedin" },
+      expect.objectContaining({
+        $setOnInsert: expect.objectContaining({
+          ownerUserId: "publisher_1",
+          accountRef: "linkedin_org_1",
+        }),
+      }),
+      { upsert: true, new: false, session: mocks.session },
+    );
+    expect(mocks.queueUpdateOne).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        $set: expect.objectContaining({ ownerUserId: "publisher_1" }),
+      }),
+      { session: mocks.session },
+    );
   });
 
   it("blocks approval when the platform has no assigned account", async () => {

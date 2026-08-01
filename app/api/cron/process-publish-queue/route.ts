@@ -20,11 +20,16 @@ import CalosScheduledPublish, {
   type ICalosScheduledPublish,
 } from "@/schemas/calos-scheduled-publish";
 import CalosDeliverable from "@/schemas/calos-deliverable";
+import CalosConnectedAccount from "@/schemas/calos-connected-account";
 import {
   getPublisher,
   type PublishParams,
   type PublishResult,
 } from "@/lib/calos/publish/contract";
+import {
+  loadCalosAssignmentHealth,
+  type CalosAssignmentLike,
+} from "@/lib/calos/publishing-assignment-health";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -138,6 +143,12 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
+      const accountPreflight = await verifyExecutionAssignment(row);
+      if (!accountPreflight.ok) {
+        await markFailed(row, accountPreflight.error, accountPreflight.retryable, summary);
+        continue;
+      }
+
       const publisher = getPublisher(row.platform);
       if (!publisher) {
         await markFailed(row, `No publisher registered for platform "${row.platform}"`, false, summary);
@@ -213,30 +224,30 @@ export async function GET(request: NextRequest) {
 /**
  * Approval gate (the "approved = only door to delivery" contract). Reads the deliverable's
  * editorialStatus from calos_deliverables (same Mongoose connection as the queue) scoped by
- * owner + brand + card id (no cross-scope). FAIL CLOSED: anything but a found, approved
+ * brand + organization + card id. Queue ownerUserId is the credential owner, which may differ
+ * from the content creator. FAIL CLOSED: anything but a found, approved
  * deliverable returns false, so the sweeper never publishes unapproved (or unresolvable) content.
  */
 async function isDeliverableApproved(row: ICalosScheduledPublish): Promise<boolean> {
-  if (!row.deliverableId || !row.ownerUserId || !row.brandId) {
+  if (!row.deliverableId || !row.brandId) {
     // TODO(CALOS_LOUD): remove once stable.
     console.error("[CALOS_LOUD] publish-queue approval: row missing scope keys — refusing", {
       deliverableId: row.deliverableId,
-      ownerUserId: row.ownerUserId,
       brandId: row.brandId,
     });
     return false;
   }
   const deliverable = await CalosDeliverable.findOne({
     "card.id": row.deliverableId,
-    ownerUserId: row.ownerUserId,
     brandId: row.brandId,
+    orgId: row.orgId ?? null,
     deletedAt: null,
   })
     .select("editorialStatus")
     .lean<{ editorialStatus?: string } | null>();
   // TODO(CALOS_LOUD): remove once stable — distinguish "not found" from "not approved".
   if (!deliverable) {
-    console.error(`[CALOS_LOUD] publish-queue approval: deliverable NOT FOUND (card.id=${row.deliverableId}, owner=${row.ownerUserId}, brand=${row.brandId}) — scope mismatch or deleted`);
+    console.error(`[CALOS_LOUD] publish-queue approval: deliverable NOT FOUND (card.id=${row.deliverableId}, brand=${row.brandId}, org=${row.orgId ?? "none"}) — scope mismatch or deleted`);
     return false;
   }
   if (deliverable.editorialStatus !== "approved") {
@@ -244,6 +255,63 @@ async function isDeliverableApproved(row: ICalosScheduledPublish): Promise<boole
     return false;
   }
   return true;
+}
+
+type ExecutionAssignmentResult =
+  | { ok: true }
+  | { ok: false; error: string; retryable: boolean };
+
+async function verifyExecutionAssignment(
+  row: ICalosScheduledPublish,
+): Promise<ExecutionAssignmentResult> {
+  const brandId = row.brandId?.trim();
+  const accountRef = row.accountRef?.trim();
+  const ownerUserId = row.ownerUserId?.trim();
+  if (!brandId || !accountRef || !ownerUserId) {
+    return {
+      ok: false,
+      error: "Publishing assignment snapshot is incomplete. Reapprove this card before publishing.",
+      retryable: false,
+    };
+  }
+
+  try {
+    const assignment = await CalosConnectedAccount.findOne({
+      brandId,
+      platform: row.platform,
+      accountRef,
+      ownerUserId,
+      ...(row.orgId ? { orgId: row.orgId } : {}),
+    })
+      .select("platform accountRef accountType displayName ownerUserId accessTokenEnc refreshTokenEnc expiresAt")
+      .lean<CalosAssignmentLike | null>();
+
+    if (!assignment) {
+      return {
+        ok: false,
+        error: "The exact publishing account assigned at approval is no longer assigned. Reapprove this card with the current account.",
+        retryable: false,
+      };
+    }
+
+    const connection = (await loadCalosAssignmentHealth([assignment]))[row.platform];
+    if (!connection || connection.state !== "assigned") {
+      return {
+        ok: false,
+        error: connection?.message || "Publishing account health could not be verified. Reconnect and retry deliberately.",
+        retryable: false,
+      };
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Publishing account preflight failed before provider execution: ${
+        error instanceof Error ? error.message : "unknown verification error"
+      }`,
+      retryable: true,
+    };
+  }
 }
 
 function isSafeAutomaticRetry(result: PublishResult): boolean {
