@@ -22,7 +22,16 @@ const JOB_RETRY_DEADLINE_MS = 45 * 60 * 1000;
 const MAX_RETRY_DELAY_MS = 8 * 60 * 1000;
 const MIN_TRANSIENT_RETRY_DELAY_MS = 15 * 1000;
 const MIN_RATE_LIMIT_RETRY_DELAY_MS = 60 * 1000;
+const JOB_RECOVERY_STALE_MS = 15 * 60 * 1000;
 const JOB_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const RECOVERABLE_STATUSES: ChatReferenceStyleJobStatus[] = [
+  'created',
+  'dispatching',
+  'queued',
+  'running',
+  'retry_wait',
+  'dispatch_failed',
+];
 
 export type ChatReferenceStyleJobStatus =
   | 'created'
@@ -168,6 +177,20 @@ interface RunDependencies {
   )['buildChatEditRenderVerificationRequest'];
   dispatchRenderEvidence: typeof import('@/lib/editron/services/phase0-rendered-evidence-worker')['dispatchPhase0RenderedEvidenceJob'];
   now(): Date;
+}
+
+export interface ChatReferenceStyleSweepResult {
+  scanned: number;
+  redispatched: number;
+  terminalized: number;
+  errors: number;
+  details: string[];
+}
+
+export interface ChatReferenceStyleSweepDependencies {
+  findCandidates(now: Date, limit: number): Promise<ChatReferenceStyleJob[]>;
+  markTerminal(job: ChatReferenceStyleJob, reason: string, now: Date): Promise<boolean>;
+  dispatch(job: ChatReferenceStyleJob, dedupSalt: string, now: Date): Promise<{ messageId?: string }>;
 }
 
 export class ChatReferenceStyleRetryableError extends Error {
@@ -434,6 +457,53 @@ export async function runChatReferenceStyleJob(
   }
 }
 
+export async function sweepChatReferenceStyleJobs(
+  input: { now?: Date; limit?: number; dedupSalt?: string } = {},
+  overrides: Partial<ChatReferenceStyleSweepDependencies> = {},
+): Promise<ChatReferenceStyleSweepResult> {
+  const now = input.now ?? new Date();
+  const limit = Math.max(1, Math.min(100, Math.round(input.limit ?? 50)));
+  const dedupSalt = input.dedupSalt ?? `sweep:${Math.floor(now.getTime() / JOB_RECOVERY_STALE_MS)}`;
+  const findCandidates = overrides.findCandidates ?? findReferenceStyleRecoveryCandidates;
+  const markTerminal = overrides.markTerminal ?? markReferenceStyleRecoveryTerminal;
+  const dispatch = overrides.dispatch ?? redispatchReferenceStyleJob;
+  const candidates = await findCandidates(now, limit);
+  const result: ChatReferenceStyleSweepResult = {
+    scanned: candidates.length,
+    redispatched: 0,
+    terminalized: 0,
+    errors: 0,
+    details: [],
+  };
+
+  for (const job of candidates) {
+    const exhaustedReason = job.attemptCount >= CHAT_REFERENCE_STYLE_MAX_ATTEMPTS
+      ? 'reference-style-attempts-exhausted'
+      : retryDeadline(job).getTime() <= now.getTime()
+        ? 'reference-style-retry-deadline-exhausted'
+        : null;
+    if (exhaustedReason) {
+      try {
+        if (await markTerminal(job, exhaustedReason, now)) result.terminalized += 1;
+      } catch (error) {
+        result.errors += 1;
+        result.details.push(`${job._id}:terminalize:${errorMessage(error)}`);
+      }
+      continue;
+    }
+
+    try {
+      await dispatch(job, dedupSalt, now);
+      result.redispatched += 1;
+    } catch (error) {
+      result.errors += 1;
+      result.details.push(`${job._id}:redispatch:${errorMessage(error)}`);
+    }
+  }
+
+  return result;
+}
+
 class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
   async createOrGet(job: ChatReferenceStyleJob) {
     const collection = await referenceStyleJobsCollection();
@@ -652,20 +722,96 @@ async function referenceStyleJobsCollection() {
 }
 
 async function publishReferenceStyleJob(payload: { jobId: string; projectId: string; userId: string }) {
-  const token = process.env.QSTASH_TOKEN;
+  return publishReferenceStyleJobPayload(payload, process.env);
+}
+
+async function publishReferenceStyleJobPayload(
+  payload: { jobId: string; projectId: string; userId: string },
+  env: NodeJS.ProcessEnv,
+  deduplicationId?: string,
+) {
+  const token = env.QSTASH_TOKEN;
   if (!token) throw new Error('QSTASH_TOKEN is required for durable reference-style execution');
-  const baseUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const client = new Client({ token, baseUrl: process.env.QSTASH_URL || undefined });
+  const baseUrl = env.VERCEL_URL
+    ? `https://${env.VERCEL_URL}`
+    : env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const client = new Client({ token, baseUrl: env.QSTASH_URL || undefined });
   const result = await client.publishJSON({
     url: `${baseUrl}/api/internal/workers/chat-reference-style`,
     body: payload,
     retries: CHAT_REFERENCE_STYLE_MAX_ATTEMPTS - 1,
     retryDelay: 'min(480000, max(60000, pow(2, retried) * 60000))',
+    ...(deduplicationId ? { deduplicationId } : {}),
     headers: { 'Upstash-Timeout': '600s' },
   });
   return { messageId: (result as { messageId?: string }).messageId };
+}
+
+async function findReferenceStyleRecoveryCandidates(now: Date, limit: number): Promise<ChatReferenceStyleJob[]> {
+  const staleBefore = new Date(now.getTime() - JOB_RECOVERY_STALE_MS);
+  return (await referenceStyleJobsCollection()).find({
+    status: { $in: RECOVERABLE_STATUSES },
+    $or: [
+      {
+        status: 'retry_wait',
+        $or: [
+          { nextAttemptAt: null },
+          { nextAttemptAt: { $lte: now } },
+        ],
+      },
+      { status: 'running', leaseExpiresAt: { $lte: now } },
+      {
+        status: { $in: ['created', 'dispatch_failed', 'dispatching', 'queued'] },
+        updatedAt: { $lte: staleBefore },
+      },
+    ],
+  }).sort({ updatedAt: 1 }).limit(limit).toArray();
+}
+
+async function markReferenceStyleRecoveryTerminal(
+  job: ChatReferenceStyleJob,
+  reason: string,
+  now: Date,
+): Promise<boolean> {
+  const result = await (await referenceStyleJobsCollection()).updateOne(
+    { _id: job._id, userId: job.userId, status: { $in: RECOVERABLE_STATUSES } },
+    {
+      $set: {
+        status: 'failed',
+        error: bounded(reason),
+        leaseId: null,
+        leaseExpiresAt: null,
+        nextAttemptAt: null,
+        completedAt: now,
+        updatedAt: now,
+      },
+    },
+  );
+  return result.modifiedCount === 1;
+}
+
+async function redispatchReferenceStyleJob(
+  job: ChatReferenceStyleJob,
+  dedupSalt: string,
+  now: Date,
+): Promise<{ messageId?: string }> {
+  const payload = { jobId: job._id, projectId: job.projectId, userId: job.userId };
+  const deduplicationId = `chat-style-${digest(`${job._id}:${job.attemptCount}:${dedupSalt}`).slice(0, 40)}`;
+  const published = await publishReferenceStyleJobPayload(payload, process.env, deduplicationId);
+  const collection = await referenceStyleJobsCollection();
+  await collection.updateOne(
+    { _id: job._id, userId: job.userId, status: { $in: RECOVERABLE_STATUSES } },
+    { $set: { dispatchMessageId: published.messageId ?? null, updatedAt: now } },
+  );
+  await collection.updateOne(
+    {
+      _id: job._id,
+      userId: job.userId,
+      status: { $in: ['created', 'dispatch_failed', 'dispatching', 'queued'] },
+    },
+    { $set: { status: 'queued', updatedAt: now } },
+  );
+  return published;
 }
 
 async function extractProfileThroughLiveTool(job: ChatReferenceStyleJob): Promise<string> {

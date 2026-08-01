@@ -17,6 +17,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/sweep-chat-reference-style-jobs",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/check-plan-expiration",
       "schedule": "0 0 * * *"
     },

@@ -10,6 +10,7 @@ import {
   buildReferenceStyleProjectBrief,
   queueChatReferenceStyleJob,
   runChatReferenceStyleJob,
+  sweepChatReferenceStyleJobs,
   type ChatReferenceStyleJob,
   type ChatReferenceStyleJobStore,
 } from '@/lib/editron/services/chat-reference-style-job';
@@ -358,6 +359,66 @@ describe('durable chat reference-style jobs', () => {
     expect(store.jobs.get('job-style-1')?.status).toBe('failed');
   });
 
+  it('redispatches due jobs and terminalizes exhausted jobs in one bounded watchdog pass', async () => {
+    const due = {
+      ...queuedJob(),
+      status: 'retry_wait' as const,
+      attemptCount: 2,
+      nextAttemptAt: new Date(NOW.getTime() - 1),
+    };
+    const exhausted = {
+      ...queuedJob(),
+      _id: 'job-style-exhausted',
+      idempotencyKey: 'idem-exhausted',
+      status: 'running' as const,
+      attemptCount: CHAT_REFERENCE_STYLE_MAX_ATTEMPTS,
+      leaseExpiresAt: new Date(NOW.getTime() - 1),
+    };
+    const dispatch = vi.fn(async () => ({ messageId: 'qstash-recovered' }));
+    const markTerminal = vi.fn(async () => true);
+
+    const result = await sweepChatReferenceStyleJobs({
+      now: NOW,
+      limit: 25,
+      dedupSalt: 'test-window',
+    }, {
+      findCandidates: async () => [due, exhausted],
+      dispatch,
+      markTerminal,
+    });
+
+    expect(result).toEqual({
+      scanned: 2,
+      redispatched: 1,
+      terminalized: 1,
+      errors: 0,
+      details: [],
+    });
+    expect(dispatch).toHaveBeenCalledWith(due, 'test-window', NOW);
+    expect(markTerminal).toHaveBeenCalledWith(
+      exhausted,
+      'reference-style-attempts-exhausted',
+      NOW,
+    );
+  });
+
+  it('keeps watchdog dispatch failures observable without aborting the pass', async () => {
+    const due = {
+      ...queuedJob(),
+      status: 'retry_wait' as const,
+      nextAttemptAt: new Date(NOW.getTime() - 1),
+    };
+
+    const result = await sweepChatReferenceStyleJobs({ now: NOW }, {
+      findCandidates: async () => [due],
+      dispatch: async () => { throw new Error('QStash unavailable'); },
+      markTerminal: vi.fn(),
+    });
+
+    expect(result).toMatchObject({ scanned: 1, redispatched: 0, terminalized: 0, errors: 1 });
+    expect(result.details).toEqual(['job-style-1:redispatch:QStash unavailable']);
+  });
+
   it('rolls back and fails when a claimed style application reports success without changing canonical state', async () => {
     const store = new MemoryStore(queuedJob());
     const checkpoint = installCheckpointSpies([]);
@@ -414,6 +475,32 @@ describe('durable chat reference-style jobs', () => {
     expect(source).toContain('QStash signing keys are required for this internal worker');
     expect(source).toContain('Retry-After');
     expect(source).toContain('Upstash-NonRetryable-Error');
+  });
+
+  it('keeps the reference-style watchdog authenticated and scheduled', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'app/api/cron/sweep-chat-reference-style-jobs/route.ts'),
+      'utf8',
+    );
+    const vercel = JSON.parse(readFileSync(resolve(process.cwd(), 'vercel.json'), 'utf8')) as {
+      crons?: Array<{ path?: string; schedule?: string }>;
+    };
+
+    expect(source).toContain("userAgent.includes('vercel-cron')");
+    expect(source).toContain('CRON_SECRET');
+    expect(source).toContain('sweepChatReferenceStyleJobs');
+    expect(vercel.crons).toContainEqual({
+      path: '/api/cron/sweep-chat-reference-style-jobs',
+      schedule: '*/15 * * * *',
+    });
+  });
+
+  it('rejects unauthenticated watchdog requests before touching durable jobs', async () => {
+    const { GET } = await import('@/app/api/cron/sweep-chat-reference-style-jobs/route');
+    const response = await GET(new Request('http://localhost/api/cron/sweep-chat-reference-style-jobs'));
+
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe('Unauthorized');
   });
 });
 
