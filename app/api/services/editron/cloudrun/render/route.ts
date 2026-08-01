@@ -101,13 +101,6 @@ export async function POST(request: Request) {
     let resolvedProps = buildProjectRenderInputProps(project, inputProps || {});
     console.log(`[Render] Hydrated render props from project ${canonicalProjectId} (${project.overlays?.length || 0} overlays)`);
 
-    await verifyRenderAudioRightsAuthority({
-      userId,
-      projectId: canonicalProjectId,
-      projectOwnerId: project.userId,
-      overlays: Array.isArray(resolvedProps.overlays) ? resolvedProps.overlays : [],
-    });
-
     const deliveryPlan = resolveRenderDeliveryPlan({
       requestedMode: musicDeliveryMode,
       overlays: resolvedProps.overlays,
@@ -115,8 +108,16 @@ export async function POST(request: Request) {
       durationInFrames: resolvedProps.durationInFrames,
       destinationPlatform: readProjectDestinationPlatform(project),
     });
-    // Build the delivery receipt while reference-track identity and timing are
-    // still present, then apply the final audio renderability gate.
+    // The delivery plan owns the artifact contents. Reference-only music stays
+    // in its handoff receipt but is not export audio and must not be authorized
+    // as though Lambda will render it.
+    await verifyRenderAudioRightsAuthority({
+      userId,
+      projectId: canonicalProjectId,
+      projectOwnerId: project.userId,
+      overlays: deliveryPlan.overlays,
+    });
+
     resolvedProps = resolveRenderableAudioInputProps({
       ...resolvedProps,
       overlays: deliveryPlan.overlays,

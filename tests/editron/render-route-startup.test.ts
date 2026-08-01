@@ -303,6 +303,11 @@ describe('Editron render startup boundary', () => {
         },
       },
     });
+    expect(routeMocks.verifyAudioRights).toHaveBeenCalledWith(
+      expect.objectContaining({
+        overlays: [expect.objectContaining({ id: 'video_1' })],
+      }),
+    );
     expect(routeMocks.renderMediaOnLambda).toHaveBeenCalledWith(
       expect.objectContaining({
         inputProps: expect.objectContaining({

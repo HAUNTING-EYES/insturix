@@ -595,8 +595,11 @@ describe("Editron render request payloads", () => {
       "lib/editron/services/chapter-renderer.ts",
       "utf8"
     );
+    const deliveryIndex = routeSource.indexOf(
+      "resolveRenderDeliveryPlan({"
+    );
     const gateIndex = routeSource.indexOf(
-      "resolveRenderableAudioInputProps(resolvedProps)"
+      "resolveRenderableAudioInputProps({"
     );
     const authorityIndex = routeSource.indexOf(
       "verifyRenderAudioRightsAuthority({"
@@ -606,8 +609,10 @@ describe("Editron render request payloads", () => {
     );
     const creditIndex = routeSource.indexOf("checkCredits(userId");
 
+    expect(deliveryIndex).toBeGreaterThan(-1);
     expect(authorityIndex).toBeGreaterThan(-1);
     expect(gateIndex).toBeGreaterThan(-1);
+    expect(deliveryIndex).toBeLessThan(authorityIndex);
     expect(authorityIndex).toBeLessThan(gateIndex);
     expect(gateIndex).toBeLessThan(hydrationIndex);
     expect(gateIndex).toBeLessThan(creditIndex);

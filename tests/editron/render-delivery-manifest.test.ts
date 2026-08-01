@@ -264,10 +264,10 @@ describe('render delivery manifest', () => {
       'utf8',
     );
 
-    expect(renderRoute.indexOf('verifyRenderAudioRightsAuthority({')).toBeLessThan(
-      renderRoute.indexOf('resolveRenderDeliveryPlan({'),
-    );
     expect(renderRoute.indexOf('resolveRenderDeliveryPlan({')).toBeLessThan(
+      renderRoute.indexOf('verifyRenderAudioRightsAuthority({'),
+    );
+    expect(renderRoute.indexOf('verifyRenderAudioRightsAuthority({')).toBeLessThan(
       renderRoute.indexOf('assetResolver.resolveProjectAssets'),
     );
     expect(renderRoute.indexOf('resolveRenderDeliveryPlan({')).toBeLessThan(
