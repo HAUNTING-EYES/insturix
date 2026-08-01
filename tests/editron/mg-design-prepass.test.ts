@@ -62,34 +62,35 @@ const fakeGen = (text: string): MgDesignerGenerate => vi.fn(async (parts) => (
   isDesignReview(parts) ? acceptedReview : text
 ));
 
-describe('runDesignPrepass — video-level design pre-pass → per-decision plan map', () => {
+describe('runDesignPrepass — video-level design authority ledger', () => {
   it('★ maps each designed moment back to its opaque key (the decision reference)', async () => {
     const plan: MgVideoDesignPlan = { brief, moments: [designedMoment('b0'), designedMoment('b1')], declined: [] };
     const r = await runDesignPrepass({ beats, videoStyle, brand: INSTURIX, budget }, { generate: fakeGen(JSON.stringify(plan)) });
-    expect(r.plans.size).toBe(2);
-    expect(r.plans.get(keyA)?.plan.momentId).toBe('b0'); // keyed by REFERENCE, not momentId string
-    expect(r.plans.get(keyB)?.plan.momentId).toBe('b1');
-    expect(r.plans.get(keyA)?.brief.motifLanguage).toContain('gold rule'); // the shared brief rides on every entry
+    expect(r.dispositions.size).toBe(2);
+    expect(r.dispositions.get(keyA)).toMatchObject({ status: 'approved', design: { plan: { momentId: 'b0' } } });
+    expect(r.dispositions.get(keyB)).toMatchObject({ status: 'approved', design: { plan: { momentId: 'b1' } } });
+    expect(r.dispositions.get(keyA)).toMatchObject({ design: { brief: { motifLanguage: expect.stringContaining('gold rule') } } });
   });
 
-  it('★ a designer-DECLINED beat gets no key → it falls back to free-form (absent, not fabricated)', async () => {
+  it('★ preserves a designer decline as an explicit authority outcome', async () => {
     const plan: MgVideoDesignPlan = { brief, moments: [designedMoment('b0')], declined: [{ momentId: 'b1', reason: 'already on screen' }] };
     const r = await runDesignPrepass({ beats, videoStyle, brand: INSTURIX, budget }, { generate: fakeGen(JSON.stringify(plan)) });
-    expect(r.plans.size).toBe(1);
-    expect(r.plans.has(keyA)).toBe(true);
-    expect(r.plans.has(keyB)).toBe(false); // declined → no design → free-form fallback downstream
+    expect(r.dispositions.get(keyA)?.status).toBe('approved');
+    expect(r.dispositions.get(keyB)).toEqual({ status: 'declined', reason: 'already on screen' });
   });
 
-  it('a failed session (unparseable) → empty map, every beat falls back, never throws', async () => {
+  it('a failed session marks every offered beat unavailable instead of licensing free-form output', async () => {
     const r = await runDesignPrepass({ beats, videoStyle, brand: INSTURIX, budget }, { generate: fakeGen('not json') });
-    expect(r.plans.size).toBe(0);
+    expect(r.dispositions.size).toBe(2);
+    expect(r.dispositions.get(keyA)).toMatchObject({ status: 'unavailable', reason: expect.any(String) });
+    expect(r.dispositions.get(keyB)).toMatchObject({ status: 'unavailable', reason: expect.any(String) });
     expect(r.reason).toBeTruthy();
   });
 
   it('no beats → empty map, zero attempts, no model call', async () => {
     const gen = fakeGen('unused');
     const r = await runDesignPrepass({ beats: [], videoStyle, brand: INSTURIX, budget }, { generate: gen });
-    expect(r.plans.size).toBe(0);
+    expect(r.dispositions.size).toBe(0);
     expect(r.attempts).toBe(0);
     expect(gen).not.toHaveBeenCalled();
   });
@@ -106,16 +107,15 @@ describe('runDesignPrepass — video-level design pre-pass → per-decision plan
     expect(receivedParts.some((p) => p.kind === 'image' && p.data === 'Zm9vdGFnZQ==')).toBe(true); // the real frame reached the model
   });
 
-  it('★ F2: over-budget → the session TRIMS to the top-N by salience; the survivor attaches, the rest fall back', async () => {
+  it('★ F2: over-budget keeps the top-N approved and records the rest as declined', async () => {
     const tightBudget: MgDensityBudget = { maxMoments: 1, minSpacingSec: 3, rationale: 'tight' };
     const rankedBeats: Array<MgDesignPrepassBeat<{ id: string }>> = [
       { key: keyA, moment: { ...mkMoment('b0'), salience: 0.8 }, context: mkContext('b0', 0) }, // higher salience → kept
-      { key: keyB, moment: { ...mkMoment('b1'), salience: 0.3 }, context: mkContext('b1', 5_000) }, // trimmed → free-form
+      { key: keyB, moment: { ...mkMoment('b1'), salience: 0.3 }, context: mkContext('b1', 5_000) }, // trimmed → declined
     ];
     const plan: MgVideoDesignPlan = { brief, moments: [designedMoment('b0'), designedMoment('b1')], declined: [] };
     const r = await runDesignPrepass({ beats: rankedBeats, videoStyle, brand: INSTURIX, budget: tightBudget }, { generate: fakeGen(JSON.stringify(plan)) });
-    expect(r.plans.size).toBe(1);
-    expect(r.plans.has(keyA)).toBe(true);
-    expect(r.plans.has(keyB)).toBe(false);
+    expect(r.dispositions.get(keyA)?.status).toBe('approved');
+    expect(r.dispositions.get(keyB)).toMatchObject({ status: 'declined', reason: expect.stringContaining('trimmed') });
   });
 });
