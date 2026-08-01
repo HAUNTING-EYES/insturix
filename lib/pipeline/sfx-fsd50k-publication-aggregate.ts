@@ -31,6 +31,8 @@ const CURATION_SPEC_FILE = 'curation-spec.json';
 
 export const FSD50K_PUBLICATION_AGGREGATE_VERSION =
   'editron-fsd50k-publication-aggregate-v3' as const;
+export const FSD50K_INCREMENTAL_PUBLICATION_AGGREGATE_VERSION =
+  'editron-fsd50k-incremental-publication-aggregate-v1' as const;
 export const FSD50K_CATALOG_MERGE_VERSION =
   'editron-fsd50k-catalog-merge-v1' as const;
 export const FSD50K_CATALOG_PROMOTION_VERSION =
@@ -168,6 +170,68 @@ const aggregateReceiptSchema = z.object({
   assets: z.array(aggregateAssetSchema).min(1),
   receiptDigestSha256: sha256Schema,
 }).strict();
+const reconciledExistingAssetSchema = z.object({
+  assetId: z.string().regex(ASSET_ID_PATTERN),
+  reviewId: z.string().regex(REVIEW_ID_PATTERN),
+  canonicalSourceId: z.string().min(1),
+  candidateDigestSha256: sha256Schema,
+  embeddingSourceHashSha256: sha256Schema,
+  conditionedHashSha256: sha256Schema,
+  selectedRole: eventRoleSchema,
+}).strict();
+const incrementalAggregateReceiptSchema = z.object({
+  version: z.literal(FSD50K_INCREMENTAL_PUBLICATION_AGGREGATE_VERSION),
+  generatedAt: z.string().datetime(),
+  sourceGates: z.array(z.object({
+    batchId: z.string().min(1),
+    gateReceiptDigestSha256: sha256Schema,
+    curationSpecDigestSha256: sha256Schema,
+  }).strict()).length(1),
+  policy: z.object({
+    everyAssetBoundToExplicitGate: z.literal(true),
+    everyCurationSpecDigestVerified: z.literal(true),
+    duplicateReviewIdsRejected: z.literal(true),
+    duplicateCanonicalSourceIdsRejected: z.literal(true),
+    duplicateAudioContentRejected: z.literal(true),
+    previousApprovalsBoundToLiveManifest: z.literal(true),
+    newlyApprovedAssetsOnlyStaged: z.literal(true),
+    manifestMutationPerformed: z.literal(false),
+  }).strict(),
+  counts: z.object({
+    sourceGates: z.literal(1),
+    approvedAssets: z.number().int().positive(),
+    previousApprovedAssets: z.number().int().positive(),
+    supersedingApprovedAssets: z.number().int().positive(),
+    reusedExistingAssets: z.number().int().positive(),
+  }).strict(),
+  reconciliation: z.object({
+    previousGateReceiptDigestSha256: sha256Schema,
+    previousCurationSpecDigestSha256: sha256Schema,
+    baseManifestDigestSha256: sha256Schema,
+    reusedExisting: z.array(reconciledExistingAssetSchema).min(1),
+  }).strict(),
+  curationSpecDigestSha256: sha256Schema,
+  assets: z.array(aggregateAssetSchema).min(1),
+  receiptDigestSha256: sha256Schema,
+}).strict().superRefine((receipt, context) => {
+  if (
+    receipt.counts.approvedAssets !== receipt.assets.length
+    || receipt.counts.previousApprovedAssets !== receipt.reconciliation.reusedExisting.length
+    || receipt.counts.reusedExistingAssets !== receipt.reconciliation.reusedExisting.length
+    || receipt.counts.supersedingApprovedAssets
+      !== receipt.counts.reusedExistingAssets + receipt.counts.approvedAssets
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['counts'],
+      message: 'incremental aggregate counts do not reconcile',
+    });
+  }
+});
+const readableAggregateReceiptSchema = z.discriminatedUnion('version', [
+  aggregateReceiptSchema,
+  incrementalAggregateReceiptSchema,
+]);
 
 const uploadPlanSchema = z.object({
   version: z.literal('sfx-catalog-upload-plan-v1'),
@@ -242,7 +306,7 @@ const mergeReceiptSchema = z.object({
 
 type GateReceipt = z.infer<typeof gateReceiptSchema>;
 type AggregateAsset = z.infer<typeof aggregateAssetSchema>;
-type AggregateReceipt = z.infer<typeof aggregateReceiptSchema>;
+type AggregateReceipt = z.infer<typeof readableAggregateReceiptSchema>;
 type MergeReceipt = z.infer<typeof mergeReceiptSchema>;
 type CurationSpec = z.infer<typeof curationSpecSchema>;
 
@@ -254,6 +318,14 @@ interface ValidatedAggregate {
 
 export interface AggregateFsd50kPublicationGatesOptions {
   gateDirectories: string[];
+  outputDirectory: string;
+  generatedAt?: Date;
+}
+
+export interface ReconcileFsd50kPublicationGateOptions {
+  previousGateDirectory: string;
+  supersedingGateDirectory: string;
+  baseManifest: unknown;
   outputDirectory: string;
   generatedAt?: Date;
 }
@@ -432,6 +504,203 @@ export async function aggregateFsd50kPublicationGates(
     assets: staged.map(item => item.asset),
   };
   const receipt = aggregateReceiptSchema.parse({
+    ...receiptWithoutDigest,
+    receiptDigestSha256: hashJson(receiptWithoutDigest),
+  });
+  await writeImmutableDirectory(outputDirectory, [
+    { relativePath: CURATION_SPEC_FILE, content: stableJson(curationSpec) },
+    {
+      relativePath: 'publication-aggregate-receipt.json',
+      content: stableJson(receipt),
+    },
+    ...staged.map(item => ({
+      relativePath: item.asset.stagedAudioPath,
+      content: item.buffer,
+    })),
+  ]);
+  return {
+    curationSpec: curationSpec as Fsd50kGatedCurationSpec,
+    receipt,
+    outputDirectory,
+    curationSpecPath: path.join(outputDirectory, CURATION_SPEC_FILE),
+    receiptPath: path.join(outputDirectory, 'publication-aggregate-receipt.json'),
+  };
+}
+
+export async function reconcileFsd50kPublicationGate(
+  options: ReconcileFsd50kPublicationGateOptions,
+): Promise<Fsd50kPublicationAggregate> {
+  const [previousGate, supersedingGate] = await Promise.all([
+    readGateDirectory(options.previousGateDirectory),
+    readGateDirectory(options.supersedingGateDirectory),
+  ]);
+  const baseManifest = parseManifest(options.baseManifest, 'INVALID_BASE_MANIFEST');
+  const generatedAt = validDate(options.generatedAt ?? new Date(), 'INVALID_AGGREGATE_CLOCK');
+  const outputDirectory = path.resolve(options.outputDirectory);
+  await assertMissing(outputDirectory);
+  assertGateLineage(previousGate.receipt, supersedingGate.receipt);
+
+  const previousByReviewId = uniqueMap(
+    previousGate.receipt.approved,
+    asset => asset.reviewId,
+    'DUPLICATE_PREVIOUS_REVIEW_ID',
+  );
+  const supersedingByReviewId = uniqueMap(
+    supersedingGate.receipt.approved,
+    asset => asset.reviewId,
+    'DUPLICATE_SUPERSEDING_REVIEW_ID',
+  );
+  const baseByAssetId = uniqueMap(
+    baseManifest.entries,
+    entry => entry.assetId,
+    'DUPLICATE_BASE_ASSET_ID',
+  );
+  const baseByContentHash = uniqueMap(
+    baseManifest.entries,
+    entry => entry.contentHashSha256,
+    'DUPLICATE_BASE_CONTENT_HASH',
+  );
+  const baseFsd50kBySourceId = uniqueMap(
+    baseManifest.entries.filter(entry => entry.provenance.provider === 'fsd50k'),
+    entry => entry.provenance.providerAssetId,
+    'DUPLICATE_BASE_FSD50K_SOURCE_ID',
+  );
+  const reusedExisting: z.infer<typeof reconciledExistingAssetSchema>[] = [];
+
+  for (const previous of previousGate.receipt.approved) {
+    const superseding = supersedingByReviewId.get(previous.reviewId);
+    if (!superseding) {
+      fail('PREVIOUS_APPROVAL_REMOVED', `Superseding gate removed ${previous.reviewId}`);
+    }
+    if (hashJson(previous) !== hashJson(superseding)) {
+      fail('PREVIOUS_APPROVAL_CHANGED', `Superseding gate changed ${previous.reviewId}`);
+    }
+    const previousCuration = previousGate.curationBySourcePath.get(previous.stagedAudioPath);
+    const supersedingCuration = supersedingGate.curationBySourcePath.get(
+      superseding.stagedAudioPath,
+    );
+    if (!previousCuration || !supersedingCuration) {
+      fail('GATE_CURATION_ASSET_MISSING', `Gate curation is missing ${previous.reviewId}`);
+    }
+    assertGateAssetBinding(previous, previousCuration, previousGate.receipt);
+    assertGateAssetBinding(superseding, supersedingCuration, supersedingGate.receipt);
+    if (
+      hashJson(withoutApproval(previousCuration))
+      !== hashJson(withoutApproval(supersedingCuration))
+    ) {
+      fail('PREVIOUS_CURATION_CHANGED', `Superseding curation changed ${previous.reviewId}`);
+    }
+    const [previousAudio, supersedingAudio] = await Promise.all([
+      readBoundFile(previousGate.directory, previous.stagedAudioPath),
+      readBoundFile(supersedingGate.directory, superseding.stagedAudioPath),
+    ]);
+    if (
+      hashBuffer(previousAudio) !== previous.conditionedHashSha256
+      || hashBuffer(supersedingAudio) !== previous.conditionedHashSha256
+    ) {
+      fail('REUSED_GATE_AUDIO_MISMATCH', `Reused gate audio changed for ${previous.reviewId}`);
+    }
+    const assetId = catalogAssetId(previous.conditionedHashSha256);
+    const baseEntry = baseByAssetId.get(assetId);
+    if (!baseEntry) {
+      fail('PREVIOUS_APPROVAL_NOT_LIVE', `Live catalog is missing ${assetId}`);
+    }
+    assertExistingCatalogBinding(baseEntry, previous, previousCuration);
+    reusedExisting.push({
+      assetId,
+      reviewId: previous.reviewId,
+      canonicalSourceId: previous.canonicalSourceId,
+      candidateDigestSha256: previous.candidateDigestSha256,
+      embeddingSourceHashSha256: previous.embeddingSourceHashSha256,
+      conditionedHashSha256: previous.conditionedHashSha256,
+      selectedRole: previous.selectedRole,
+    });
+  }
+
+  const staged: Array<{
+    asset: AggregateAsset;
+    curation: CurationSpec['assets'][number];
+    buffer: Buffer;
+  }> = [];
+  for (const approved of supersedingGate.receipt.approved) {
+    if (previousByReviewId.has(approved.reviewId)) continue;
+    const curation = supersedingGate.curationBySourcePath.get(approved.stagedAudioPath);
+    if (!curation) {
+      fail('GATE_CURATION_ASSET_MISSING', `Gate curation is missing ${approved.reviewId}`);
+    }
+    assertGateAssetBinding(approved, curation, supersedingGate.receipt);
+    const assetId = catalogAssetId(approved.conditionedHashSha256);
+    if (
+      baseByAssetId.has(assetId)
+      || baseByContentHash.has(approved.conditionedHashSha256)
+      || baseFsd50kBySourceId.has(approved.canonicalSourceId)
+    ) {
+      fail('NEW_APPROVAL_ALREADY_LIVE', `New approval already exists: ${approved.reviewId}`);
+    }
+    const buffer = await readBoundFile(supersedingGate.directory, approved.stagedAudioPath);
+    if (hashBuffer(buffer) !== approved.conditionedHashSha256) {
+      fail('GATE_AUDIO_HASH_MISMATCH', `Gate audio changed for ${approved.reviewId}`);
+    }
+    staged.push({
+      curation,
+      buffer,
+      asset: {
+        gateBatchId: supersedingGate.receipt.source.batchId,
+        reviewId: approved.reviewId,
+        canonicalSourceId: approved.canonicalSourceId,
+        candidateDigestSha256: approved.candidateDigestSha256,
+        embeddingSourceHashSha256: approved.embeddingSourceHashSha256,
+        conditionedHashSha256: approved.conditionedHashSha256,
+        selectedRole: approved.selectedRole,
+        stagedAudioPath: approved.stagedAudioPath,
+        byteLength: buffer.byteLength,
+      },
+    });
+  }
+  if (staged.length === 0) {
+    fail('NO_NEW_APPROVALS', 'Superseding gate contains no newly approved assets');
+  }
+  staged.sort((left, right) => left.asset.reviewId.localeCompare(right.asset.reviewId));
+  reusedExisting.sort((left, right) => left.reviewId.localeCompare(right.reviewId));
+  const curationSpec = curationSpecSchema.parse({
+    version: 'sfx-catalog-curation-spec-v1',
+    assets: staged.map(item => item.curation),
+  });
+  const receiptWithoutDigest = {
+    version: FSD50K_INCREMENTAL_PUBLICATION_AGGREGATE_VERSION,
+    generatedAt: generatedAt.toISOString(),
+    sourceGates: [{
+      batchId: supersedingGate.receipt.source.batchId,
+      gateReceiptDigestSha256: supersedingGate.receipt.receiptDigestSha256,
+      curationSpecDigestSha256: supersedingGate.receipt.source.curationSpecDigestSha256,
+    }],
+    policy: {
+      everyAssetBoundToExplicitGate: true as const,
+      everyCurationSpecDigestVerified: true as const,
+      duplicateReviewIdsRejected: true as const,
+      duplicateCanonicalSourceIdsRejected: true as const,
+      duplicateAudioContentRejected: true as const,
+      previousApprovalsBoundToLiveManifest: true as const,
+      newlyApprovedAssetsOnlyStaged: true as const,
+      manifestMutationPerformed: false as const,
+    },
+    counts: {
+      sourceGates: 1 as const,
+      approvedAssets: staged.length,
+      previousApprovedAssets: previousGate.receipt.approved.length,
+      supersedingApprovedAssets: supersedingGate.receipt.approved.length,
+      reusedExistingAssets: reusedExisting.length,
+    },
+    reconciliation: {
+      previousGateReceiptDigestSha256: previousGate.receipt.receiptDigestSha256,
+      previousCurationSpecDigestSha256: previousGate.receipt.source.curationSpecDigestSha256,
+      baseManifestDigestSha256: hashJson(baseManifest),
+      reusedExisting,
+    },
+    curationSpecDigestSha256: hashJson(curationSpec),
+    assets: staged.map(item => item.asset),
+  };
+  const receipt = incrementalAggregateReceiptSchema.parse({
     ...receiptWithoutDigest,
     receiptDigestSha256: hashJson(receiptWithoutDigest),
   });
@@ -742,7 +1011,7 @@ async function readAggregateDirectory(directoryValue: string): Promise<Validated
     readJson(path.join(directory, CURATION_SPEC_FILE), 'INVALID_AGGREGATE_CURATION_JSON'),
   ]);
   const receipt = parseSchema(
-    aggregateReceiptSchema,
+    readableAggregateReceiptSchema,
     rawReceipt,
     'INVALID_AGGREGATE_RECEIPT',
   );
@@ -859,6 +1128,86 @@ function assertAggregateAssetBinding(
       `Aggregate evidence differs for ${aggregate.reviewId}`,
     );
   }
+}
+
+function assertGateLineage(previous: GateReceipt, superseding: GateReceipt): void {
+  if (
+    previous.source.batchId !== superseding.source.batchId
+    || previous.source.reviewReportDigestSha256 !== superseding.source.reviewReportDigestSha256
+    || previous.source.candidatePoolSha256 !== superseding.source.candidatePoolSha256
+    || previous.source.inspectionAnalysisDigestSha256
+      !== superseding.source.inspectionAnalysisDigestSha256
+    || previous.source.embeddingAnalysisDigestSha256
+      !== superseding.source.embeddingAnalysisDigestSha256
+    || previous.counts.candidates !== superseding.counts.candidates
+    || previous.counts.deferredCanonicalClusterMembers
+      !== superseding.counts.deferredCanonicalClusterMembers
+    || previous.counts.deferredSourceIds !== superseding.counts.deferredSourceIds
+  ) {
+    fail('GATE_LINEAGE_MISMATCH', 'Publication gates do not describe the same review batch');
+  }
+  if (
+    previous.receiptDigestSha256 === superseding.receiptDigestSha256
+    || superseding.counts.approved <= previous.counts.approved
+  ) {
+    fail('GATE_NOT_SUPERSEDING', 'New gate does not add an explicit approval');
+  }
+}
+
+function assertExistingCatalogBinding(
+  entry: SfxCatalogManifest['entries'][number],
+  approved: GateReceipt['approved'][number],
+  curation: CurationSpec['assets'][number],
+): void {
+  if (
+    entry.assetId !== catalogAssetId(approved.conditionedHashSha256)
+    || entry.contentHashSha256 !== approved.conditionedHashSha256
+    || entry.provenance.provider !== 'fsd50k'
+    || entry.provenance.providerAssetId !== approved.canonicalSourceId
+    || entry.audioRights.evidence.sourceAssetId !== entry.assetId
+    || hashJson(catalogEvidenceProjection(entry)) !== hashJson(catalogEvidenceProjection(curation))
+  ) {
+    fail(
+      'PREVIOUS_APPROVAL_EVIDENCE_MISMATCH',
+      `Live catalog evidence differs for ${approved.reviewId}`,
+    );
+  }
+}
+
+function catalogEvidenceProjection(
+  value: CurationSpec['assets'][number] | SfxCatalogManifest['entries'][number],
+): Record<string, unknown> {
+  return {
+    title: value.title,
+    eventRoles: value.eventRoles,
+    surfaces: value.surfaces,
+    layerRole: value.layerRole,
+    tags: value.tags,
+    negativeTags: value.negativeTags,
+    energy: value.energy,
+    brightness: value.brightness,
+    weight: value.weight,
+    transientSharpness: value.transientSharpness,
+    material: value.material,
+    tailMs: value.tailMs,
+    loopable: value.loopable,
+    direction: value.direction,
+    motionSpeed: value.motionSpeed,
+    ...(value.trendTag === undefined ? {} : { trendTag: value.trendTag }),
+    semanticEvidence: value.semanticEvidence,
+    provenance: value.provenance,
+  };
+}
+
+function withoutApproval(
+  curation: CurationSpec['assets'][number],
+): Omit<CurationSpec['assets'][number], 'approval'> {
+  const { approval: _approval, ...evidence } = curation;
+  return evidence;
+}
+
+function catalogAssetId(contentHashSha256: string): string {
+  return `sfx_catalog_${contentHashSha256.slice(0, 24)}`;
 }
 
 function parseManifest(value: unknown, code: string): SfxCatalogManifest {

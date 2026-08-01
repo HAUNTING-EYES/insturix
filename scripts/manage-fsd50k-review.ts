@@ -5,9 +5,11 @@ import { pathToFileURL } from 'node:url';
 import { prepareFsd50kReviewBatch } from '../lib/pipeline/sfx-fsd50k-review-batches';
 import { gateFsd50kPublication } from '../lib/pipeline/sfx-fsd50k-publication-gate';
 import {
+  FSD50K_INCREMENTAL_PUBLICATION_AGGREGATE_VERSION,
   aggregateFsd50kPublicationGates,
   prepareFsd50kCatalogMerge,
   promoteFsd50kMergedCatalog,
+  reconcileFsd50kPublicationGate,
 } from '../lib/pipeline/sfx-fsd50k-publication-aggregate';
 
 type CliCommand =
@@ -31,6 +33,13 @@ type CliCommand =
   | {
     command: 'aggregate';
     gateIndexPath: string;
+    outputDirectory: string;
+  }
+  | {
+    command: 'reconcile';
+    previousGateDirectory: string;
+    supersedingGateDirectory: string;
+    baseManifestPath: string;
     outputDirectory: string;
   }
   | {
@@ -116,6 +125,30 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (cli.command === 'reconcile') {
+    const baseManifest = await readJson(cli.baseManifestPath);
+    const aggregate = await reconcileFsd50kPublicationGate({
+      previousGateDirectory: cli.previousGateDirectory,
+      supersedingGateDirectory: cli.supersedingGateDirectory,
+      baseManifest,
+      outputDirectory: cli.outputDirectory,
+    });
+    if (aggregate.receipt.version !== FSD50K_INCREMENTAL_PUBLICATION_AGGREGATE_VERSION) {
+      throw new Error('Reconciliation produced a non-incremental aggregate receipt');
+    }
+    console.log(JSON.stringify({
+      command: cli.command,
+      previousApprovedAssets: aggregate.receipt.counts.previousApprovedAssets,
+      supersedingApprovedAssets: aggregate.receipt.counts.supersedingApprovedAssets,
+      reusedExistingAssets: aggregate.receipt.counts.reusedExistingAssets,
+      approvedAssets: aggregate.receipt.counts.approvedAssets,
+      aggregateReceiptPath: aggregate.receiptPath,
+      curationSpecPath: aggregate.curationSpecPath,
+      nextGate: 'curate-delta-manifest-and-upload-plan',
+    }, null, 2));
+    return;
+  }
+
   if (cli.command === 'merge') {
     const [baseManifest, deltaManifest, deltaUploadPlan] = await Promise.all([
       readJson(cli.baseManifestPath),
@@ -164,6 +197,7 @@ function parseCli(argv: string[]): CliCommand {
     command !== 'prepare'
     && command !== 'gate'
     && command !== 'aggregate'
+    && command !== 'reconcile'
     && command !== 'merge'
     && command !== 'promote'
   ) throw usageError();
@@ -202,6 +236,15 @@ function parseCli(argv: string[]): CliCommand {
     return {
       command,
       gateIndexPath: requiredPath(values, 'gate-index'),
+      outputDirectory: requiredPath(values, 'out-dir'),
+    };
+  }
+  if (command === 'reconcile') {
+    return {
+      command,
+      previousGateDirectory: requiredPath(values, 'previous-gate-dir'),
+      supersedingGateDirectory: requiredPath(values, 'superseding-gate-dir'),
+      baseManifestPath: requiredPath(values, 'base-manifest'),
       outputDirectory: requiredPath(values, 'out-dir'),
     };
   }
@@ -258,6 +301,9 @@ function usageError(): Error {
     + '--review-dir=<dir> --decisions=<json> --out-dir=<new-dir>\n'
     + '  npx tsx scripts/manage-fsd50k-review.ts aggregate '
     + '--gate-index=<json> --out-dir=<new-dir>\n'
+    + '  npx tsx scripts/manage-fsd50k-review.ts reconcile '
+    + '--previous-gate-dir=<dir> --superseding-gate-dir=<dir> '
+    + '--base-manifest=<json> --out-dir=<new-dir>\n'
     + '  npx tsx scripts/manage-fsd50k-review.ts merge '
     + '--aggregate-dir=<dir> --base-manifest=<json> --delta-manifest=<json> '
     + '--delta-upload-plan=<json> --out-dir=<new-dir>\n'
