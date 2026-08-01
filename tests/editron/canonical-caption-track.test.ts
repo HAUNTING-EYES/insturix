@@ -470,8 +470,14 @@ describe('canonical caption track', () => {
         backgroundColor: 'transparent',
         animation: 'bounce',
         effect: 'pop',
+        textShadow: expect.stringContaining('rgba(0,0,0'),
       }),
     });
+    expect(caption.styles.textShadow).toContain('rgba(0,0,0');
+    expect(caption.metadata.captionStyleIntent.adjustments).toEqual(expect.arrayContaining([
+      'base-contrast-edge-added',
+      'highlight-contrast-edge-added',
+    ]));
     expect(caption.captions.every((item: any) => item.text.length <= 22)).toBe(true);
     expect(caption.metadata.evidence.readability).toMatchObject({
       wordsPerGroup: 3,
@@ -511,6 +517,13 @@ describe('canonical caption track', () => {
       emphasisBehavior: 'none',
       fontSizing: 'authored',
     });
+    expect(caption.metadata.evidence.readability).toMatchObject({
+      maxMergedGroupDurationMs: 2300,
+      maxMergeWords: 6,
+    });
+    expect(caption.captions.every((item: any, index: number, all: any[]) => (
+      index === 0 || item.startMs >= all[index - 1].endMs
+    ))).toBe(true);
   });
 
   it('keeps global captions in the lower lane when only video context reports bottom text occupancy', () => {

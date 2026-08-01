@@ -393,13 +393,31 @@ function scoreText(overlay: NormalizedOverlay, input: RenderedFrameAestheticInpu
           mode: text.display?.mode,
         }) / 1_000
       : readSeconds(wordCount);
-    if (seconds + 0.05 < needed) {
+    const timedSpeechSeconds = isCaption ? timedCaptionSpeechSpanSeconds(text) : undefined;
+    const isShorterThanTimedSpeech = timedSpeechSeconds === undefined
+      || seconds + 0.05 < timedSpeechSeconds;
+    if (seconds + 0.05 < needed && isShorterThanTimedSpeech) {
       addIssue('text', 0.16, 'text does not stay long enough to read', {
         overlay: overlay.item,
-        evidence: `duration=${seconds.toFixed(2)}s; needed=${needed.toFixed(2)}s`,
+        evidence: `duration=${seconds.toFixed(2)}s; needed=${needed.toFixed(2)}s${timedSpeechSeconds === undefined ? '' : `; timedSpeech=${timedSpeechSeconds.toFixed(2)}s`}`,
       });
     }
   }
+}
+
+function timedCaptionSpeechSpanSeconds(text: AtomicTextForm): number | undefined {
+  const timedGlyphs = text.glyphs.filter((glyph) => (
+    typeof glyph.startMs === 'number'
+    && Number.isFinite(glyph.startMs)
+    && typeof glyph.endMs === 'number'
+    && Number.isFinite(glyph.endMs)
+    && glyph.endMs > glyph.startMs
+  ));
+  if (timedGlyphs.length === 0) return undefined;
+
+  const startMs = Math.min(...timedGlyphs.map((glyph) => glyph.startMs!));
+  const endMs = Math.max(...timedGlyphs.map((glyph) => glyph.endMs!));
+  return Math.max(0, endMs - startMs) / 1_000;
 }
 
 function scoreContrast(overlay: NormalizedOverlay, addIssue: AddIssue): void {

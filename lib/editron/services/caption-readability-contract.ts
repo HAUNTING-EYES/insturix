@@ -55,10 +55,29 @@ export function minimumReadableCaptionDurationMs(input: {
   );
 }
 
+export function maximumReadableCaptionWords(input: {
+  durationMs: number;
+  mode?: string;
+  configuredFloorMs?: number;
+}): number {
+  const durationMs = Math.max(0, Math.round(input.durationMs));
+  let maximum = 0;
+  for (let wordCount = 1; wordCount <= 100; wordCount += 1) {
+    if (minimumReadableCaptionDurationMs({
+      wordCount,
+      mode: input.mode,
+      configuredFloorMs: input.configuredFloorMs,
+    }) > durationMs) break;
+    maximum = wordCount;
+  }
+  return Math.max(1, maximum);
+}
+
 export function normalizeCaptionGroupsForReadability(
   captions: readonly Caption[],
   policy: CaptionReadabilityTimingPolicy,
   segmentEndMs?: number,
+  segmentStartMs = 0,
 ): Caption[] {
   const resegmented = resegmentUnreadableCaptionRuns(captions, policy);
   const normalized: Caption[] = [];
@@ -77,7 +96,7 @@ export function normalizeCaptionGroupsForReadability(
     }
   }
 
-  return padReadableCaptionWindows(normalized, policy, segmentEndMs);
+  return padReadableCaptionWindows(normalized, policy, segmentEndMs, segmentStartMs);
 }
 
 export function countCaptionReadabilityViolations(
@@ -271,9 +290,32 @@ function canMergeCaptionGroups(
     : `${left.text ?? ''} ${right.text ?? ''}`.trim();
   const durationMs = (right.endMs ?? 0) - (left.startMs ?? 0);
 
-  return captionWordCount(left) + captionWordCount(right) <= policy.maxMergeWords
-    && text.length <= policy.maxMergeChars
-    && durationMs <= policy.maxMergedGroupDurationMs;
+  if (
+    captionWordCount(left) + captionWordCount(right) > policy.maxMergeWords
+    || text.length > policy.maxMergeChars
+    || durationMs > policy.maxMergedGroupDurationMs
+  ) {
+    return false;
+  }
+
+  const merged = mergeCaptionGroups(left, right);
+  const beforeDeficitMs = captionReadabilityDeficitMs(left, policy)
+    + captionReadabilityDeficitMs(right, policy);
+  const afterDeficitMs = captionReadabilityDeficitMs(merged, policy);
+
+  return afterDeficitMs < beforeDeficitMs;
+}
+
+function captionReadabilityDeficitMs(
+  caption: Caption,
+  policy: CaptionReadabilityTimingPolicy,
+): number {
+  const requiredDurationMs = minimumReadableCaptionDurationMs({
+    wordCount: captionWordCount(caption),
+    mode: policy.renderMode,
+    configuredFloorMs: policy.minGroupDurationMs,
+  });
+  return Math.max(0, requiredDurationMs - captionDurationMs(caption));
 }
 
 function mergeCaptionGroups(left: Caption, right: Caption): Caption {
@@ -300,19 +342,34 @@ function padReadableCaptionWindows(
   captions: readonly Caption[],
   policy: CaptionReadabilityTimingPolicy,
   segmentEndMs?: number,
+  segmentStartMs = 0,
 ): Caption[] {
-  return captions.map((caption, index) => {
-    const durationMs = captionDurationMs(caption);
+  const padded: Caption[] = [];
+  for (let index = 0; index < captions.length; index += 1) {
+    const caption = captions[index];
+    const previous = padded[padded.length - 1];
+    const speechAlignedStartMs = Math.max(
+      caption.startMs,
+      previous?.endMs ?? Math.max(0, segmentStartMs),
+    );
+    const durationMs = Math.max(0, caption.endMs - speechAlignedStartMs);
     const requiredDurationMs = minimumReadableCaptionDurationMs({
       wordCount: captionWordCount(caption),
       mode: policy.renderMode,
       configuredFloorMs: policy.minGroupDurationMs,
     });
-    if (durationMs >= requiredDurationMs) return cloneCaption(caption);
+    if (durationMs >= requiredDurationMs) {
+      padded.push({
+        ...cloneCaption(caption),
+        startMs: speechAlignedStartMs,
+      });
+      continue;
+    }
 
-    const previous = captions[index - 1];
     const next = captions[index + 1];
-    const minStartMs = (previous?.endMs ?? 0) + policy.minCaptionGapMs;
+    const minStartMs = previous
+      ? previous.endMs + policy.minCaptionGapMs
+      : Math.max(0, segmentStartMs);
     const maxEndMs = Math.min(
       next ? next.startMs - policy.minCaptionGapMs : Number.POSITIVE_INFINITY,
       Number.isFinite(segmentEndMs)
@@ -320,7 +377,7 @@ function padReadableCaptionWindows(
         : Number.POSITIVE_INFINITY,
     );
 
-    let startMs = caption.startMs;
+    let startMs = speechAlignedStartMs;
     let endMs = caption.endMs;
     let remainingMs = requiredDurationMs - durationMs;
     const postRollMs = Math.min(
@@ -338,12 +395,13 @@ function padReadableCaptionWindows(
     );
     startMs -= preRollMs;
 
-    return {
+    padded.push({
       ...cloneCaption(caption),
       startMs: Math.max(0, Math.round(startMs)),
       endMs: Math.max(Math.round(startMs) + 80, Math.round(endMs)),
-    };
-  });
+    });
+  }
+  return padded;
 }
 
 function captionDurationMs(caption: Caption): number {

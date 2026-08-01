@@ -53,12 +53,58 @@ describe('caption rendered aesthetic contract', () => {
       }),
     ]));
   });
+
+  it('does not blame faithful caption timing for source speech that exceeds the reading-speed target', () => {
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      overlays: [{
+        id: 'fast-faithful-subtitle',
+        receipt: captionReceipt({
+          mode: 'subtitle',
+          words: ['Now', 'my', 'best', 'advice', 'is'],
+          rowCapacity: 6,
+          durationFrames: 44,
+          wordSpanMs: 1_450,
+        }),
+        box: readableCaptionBox(),
+      }],
+    });
+
+    expect(result.issues.filter((issue) => issue.message === 'text does not stay long enough to read')).toEqual([]);
+  });
+
+  it('reports captions that are cut shorter than their own timed speech', () => {
+    const result = scoreRenderedFrameAesthetic({
+      ...FRAME,
+      overlays: [{
+        id: 'truncated-subtitle',
+        receipt: captionReceipt({
+          mode: 'subtitle',
+          words: ['Now', 'my', 'best', 'advice', 'is'],
+          rowCapacity: 6,
+          durationFrames: 24,
+          wordSpanMs: 1_450,
+        }),
+        box: readableCaptionBox(),
+      }],
+    });
+
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimension: 'text',
+        message: 'text does not stay long enough to read',
+        evidence: expect.stringContaining('timedSpeech=1.45s'),
+      }),
+    ]));
+  });
 });
 
 function captionReceipt(input: {
   mode: string;
   words: string[];
   rowCapacity: number;
+  durationFrames?: number;
+  wordSpanMs?: number;
 }) {
   const atoms: AtomicOverlayAtom[] = [
     overlayAtom('caption-mode', 'caption.mode', input.mode, 1, 'decision-param'),
@@ -75,13 +121,18 @@ function captionReceipt(input: {
   input.words.forEach((word, index) => {
     atoms.push(overlayAtom('caption-word', `caption.word.${index}`, word, 1, 'transcript'));
     atoms.push(overlayAtom('glyph-line-index', `caption.word.${index}.line_index`, 0, 1, 'layout-analysis'));
+    if (input.wordSpanMs !== undefined) {
+      const wordDurationMs = input.wordSpanMs / input.words.length;
+      atoms.push(overlayAtom('glyph-start-ms', `caption.word.${index}.start_ms`, Math.round(index * wordDurationMs), 1, 'transcript'));
+      atoms.push(overlayAtom('glyph-end-ms', `caption.word.${index}.end_ms`, Math.round((index + 1) * wordDurationMs), 1, 'transcript'));
+    }
   });
 
   return buildOverlayAtomicReceipt({
     family: 'caption',
     intent: 'caption-readability-proof',
     frame: 24,
-    durationFrames: 90,
+    durationFrames: input.durationFrames ?? 90,
     atoms,
   });
 }

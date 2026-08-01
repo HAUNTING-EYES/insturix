@@ -20,6 +20,7 @@ import {
 } from '../shared/overlay-safe-zone-contract';
 import {
   captionMinimumEventDurationMs,
+  maximumReadableCaptionWords,
   normalizeCaptionGroupsForReadability,
 } from './caption-readability-contract';
 
@@ -402,10 +403,17 @@ function groupWordsIntoBoundaryAwareCaptions(
   const captions: Caption[] = [];
   let currentWords: CaptionWord[] = [];
   let boundaryIndex = 0;
+  let segmentStartMs = 0;
 
   const pushCurrentWords = (segmentEndMs?: number) => {
     if (currentWords.length === 0) return;
-    captions.push(...readableCaptionGroups(currentWords, config, readability, segmentEndMs));
+    captions.push(...readableCaptionGroups(
+      currentWords,
+      config,
+      readability,
+      segmentEndMs,
+      segmentStartMs,
+    ));
     currentWords = [];
   };
 
@@ -415,6 +423,7 @@ function groupWordsIntoBoundaryAwareCaptions(
       word.startMs >= boundariesMs[boundaryIndex]
     ) {
       pushCurrentWords(boundariesMs[boundaryIndex]);
+      segmentStartMs = boundariesMs[boundaryIndex];
       boundaryIndex++;
     }
     currentWords.push(word);
@@ -429,11 +438,13 @@ function readableCaptionGroups(
   config: Parameters<typeof groupWordsIntoCaptions>[1],
   readability: ReturnType<typeof captionReadabilityPolicy>,
   segmentEndMs?: number,
+  segmentStartMs?: number,
 ): Caption[] {
   return normalizeCaptionGroupsForReadability(
     groupWordsIntoCaptions(words, config),
     readability,
     segmentEndMs,
+    segmentStartMs,
   );
 }
 
@@ -522,7 +533,7 @@ function captionReadabilityPolicy(
     subtitleMode ? 900 : karaokeMode ? 760 : highEnergy ? 560 : 680,
     captionMinimumEventDurationMs(sourceMode),
   );
-  const maxMergeWords = subtitleMode
+  const structuralMaxMergeWords = subtitleMode
     ? Math.max(wordsPerGroup, 10)
     : sourceKaraokeMode
       ? Math.max(groupWordsPerCaption, 18)
@@ -533,6 +544,14 @@ function captionReadabilityPolicy(
   const maxMergedGroupDurationMs = sourceKaraokeMode
     ? Math.max(maxGroupDurationMs, 5200)
     : Math.max(maxGroupDurationMs, minGroupDurationMs + 700);
+  const maxMergeWords = Math.min(
+    structuralMaxMergeWords,
+    maximumReadableCaptionWords({
+      durationMs: maxMergedGroupDurationMs,
+      mode,
+      configuredFloorMs: minGroupDurationMs,
+    }),
+  );
 
   return {
     version: 'caption-readability-policy-v1' as const,
@@ -935,11 +954,29 @@ function resolveCaptionStyles(
     }
   }
 
+  const resolvedBackground = parseCaptionColor(styles.backgroundColor);
   const resolvedForeground = parseCaptionColor(styles.color);
-  if (resolvedForeground && (!background || background.a < 0.75)) {
-    const lightText = relativeLuminance(resolvedForeground) >= 0.45;
-    const edge = lightText ? '0,0,0' : '255,255,255';
-    styles.textShadow = `0 4px 16px rgba(${edge},${shadowAlpha}), 0 0 5px rgba(${edge},0.98), 0 1px 1px rgba(${edge},1)`;
+  if (resolvedForeground && (!resolvedBackground || resolvedBackground.a < 0.28)) {
+    styles.textShadow = mergeCaptionTextShadows(
+      styles.textShadow,
+      captionContrastEdgeShadow(styles.color, styles.fontSize, shadowAlpha),
+    );
+    adjustments.push('base-contrast-edge-added');
+  }
+
+  const highlight = styles.highlight;
+  const highlightForeground = parseCaptionColor(highlight?.color ?? styles.color);
+  const highlightBackground = parseCaptionColor(highlight?.backgroundColor);
+  const hasHighlightSurface = Boolean(
+    (highlightBackground && highlightBackground.a >= 0.28)
+    || (resolvedBackground && resolvedBackground.a >= 0.28),
+  );
+  if (highlight && highlightForeground && !hasHighlightSurface) {
+    highlight.textShadow = mergeCaptionTextShadows(
+      highlight.textShadow,
+      captionContrastEdgeShadow(highlight.color ?? styles.color, styles.fontSize, shadowAlpha),
+    );
+    adjustments.push('highlight-contrast-edge-added');
   }
 
   const fontFamily = normalizeCaptionFontFamily(intent?.fontFamily);
@@ -970,6 +1007,36 @@ function resolveCaptionStyles(
       adjustments,
     },
   };
+}
+
+function captionContrastEdgeShadow(
+  color: string | undefined,
+  fontSize: string | undefined,
+  shadowAlpha: number,
+): string {
+  const parsed = parseCaptionColor(color);
+  const lightText = !parsed || relativeLuminance(parsed) >= 0.45;
+  const edge = lightText ? '0,0,0' : '255,255,255';
+  const edgePx = Math.max(2, Math.min(4, Math.round((parsePixelSize(fontSize) ?? 36) / 18)));
+  const alpha = Math.max(0.86, shadowAlpha);
+  return [
+    `${edgePx}px 0 0 rgba(${edge},${alpha})`,
+    `-${edgePx}px 0 0 rgba(${edge},${alpha})`,
+    `0 ${edgePx}px 0 rgba(${edge},${alpha})`,
+    `0 -${edgePx}px 0 rgba(${edge},${alpha})`,
+    `${edgePx}px ${edgePx}px 0 rgba(${edge},${alpha})`,
+    `-${edgePx}px ${edgePx}px 0 rgba(${edge},${alpha})`,
+    `${edgePx}px -${edgePx}px 0 rgba(${edge},${alpha})`,
+    `-${edgePx}px -${edgePx}px 0 rgba(${edge},${alpha})`,
+    `0 4px 16px rgba(${edge},${Math.max(0.65, shadowAlpha)})`,
+  ].join(', ');
+}
+
+function mergeCaptionTextShadows(...values: Array<string | undefined>): string {
+  return values
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+    .join(', ');
 }
 
 function parsePixelSize(value: string | undefined): number | null {
