@@ -5,6 +5,10 @@ import * as db from '@/lib/thinkforge/services/db';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const CHAT_EXECUTION_BUDGET_MS = 300_000;
+const WATCHDOG_GRACE_MS = 30_000;
+const STALE_AFTER_MS = CHAT_EXECUTION_BUDGET_MS + WATCHDOG_GRACE_MS;
+
 export async function GET(req: Request) {
   const { userId } = await auth();
   if (!userId) {
@@ -33,10 +37,6 @@ export async function GET(req: Request) {
       const updatedAt = generation.updatedAt ? new Date(generation.updatedAt).getTime() : 0;
       const startedAt = generation.startedAt ? new Date(generation.startedAt).getTime() : 0;
       const lastActivity = Math.max(updatedAt, startedAt);
-      const SERVERLESS_REQUEST_BUDGET_MS = 60_000;
-      const WATCHDOG_GRACE_MS = 30_000;
-      const STALE_AFTER_MS = SERVERLESS_REQUEST_BUDGET_MS + WATCHDOG_GRACE_MS;
-
       if (lastActivity && Date.now() - lastActivity > STALE_AFTER_MS) {
         const message = 'Generation timed out before a script could be saved. Please try again.';
         console.error('[ThinkForge] Generation watchdog timed out', {
