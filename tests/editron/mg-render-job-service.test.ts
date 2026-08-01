@@ -79,7 +79,11 @@ describe('MG render job service', () => {
     expect(findOneAndUpdate).toHaveBeenCalledWith(
       { _id: request.jobId },
       expect.objectContaining({
-        $setOnInsert: expect.objectContaining({ idempotencyKey: request.idempotencyKey }),
+        $setOnInsert: expect.objectContaining({
+          idempotencyKey: request.idempotencyKey,
+          maxAttempts: 6,
+          retryDeadlineAt: new Date('2026-07-13T00:45:00.000Z'),
+        }),
       }),
       { upsert: true, returnDocument: 'after' },
     );
@@ -154,6 +158,26 @@ describe('MG render job service', () => {
     expect(updateOne.mock.calls[0]?.[1]?.$set).not.toHaveProperty('request');
     expect(updateOne.mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
       $set: expect.objectContaining({ request: null }),
+    }));
+  });
+
+  it('terminally fails when the next retry would exceed the durable deadline', async () => {
+    const updateOne = vi.fn(async (..._args: unknown[]) => ({ modifiedCount: 1 }));
+    const status = await failMgRenderJob({
+      jobId: 'mgr_job',
+      leaseId: 'lease',
+      error: '429 rate limited',
+      retryable: true,
+      retryDelayMs: 60_000,
+      retryDeadlineAt: new Date('2026-07-13T00:00:30.000Z'),
+      now: new Date('2026-07-13T00:00:00.000Z'),
+      collection: { updateOne } as any,
+    });
+
+    expect(status).toBe('failed');
+    expect(updateOne).toHaveBeenCalledOnce();
+    expect(updateOne.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      $set: expect.objectContaining({ status: 'failed', request: null }),
     }));
   });
 });

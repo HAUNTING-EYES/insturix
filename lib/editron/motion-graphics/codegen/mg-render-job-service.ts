@@ -48,6 +48,7 @@ export interface MgRenderJob {
   status: MgRenderJobStatus;
   attemptCount: number;
   maxAttempts: number;
+  retryDeadlineAt: Date | null;
   nextAttemptAt: Date;
   leaseId: string | null;
   leaseExpiresAt: Date | null;
@@ -74,10 +75,12 @@ export interface MgRenderJobServiceOptions {
   collection?: Collection<MgRenderJob>;
   now?: Date;
   maxAttempts?: number;
+  retryWindowMs?: number;
   retentionMs?: number;
 }
 
-const DEFAULT_MAX_ATTEMPTS = 3;
+const DEFAULT_MAX_ATTEMPTS = 6;
+const DEFAULT_RETRY_WINDOW_MS = 45 * 60 * 1_000;
 const DEFAULT_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const DEFAULT_LEASE_MS = 15 * 60 * 1_000;
 
@@ -170,6 +173,7 @@ export async function createOrGetMgRenderJob(
     status: 'queued',
     attemptCount: 0,
     maxAttempts: options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
+    retryDeadlineAt: new Date(now.getTime() + (options.retryWindowMs ?? DEFAULT_RETRY_WINDOW_MS)),
     nextAttemptAt: now,
     leaseId: null,
     leaseExpiresAt: null,
@@ -272,19 +276,22 @@ export async function failMgRenderJob(input: {
   error: unknown;
   retryable: boolean;
   retryDelayMs?: number;
+  retryDeadlineAt?: Date | null;
   now?: Date;
   collection?: Collection<MgRenderJob>;
 }): Promise<'queued' | 'failed' | 'stale-lease'> {
   const now = input.now ?? new Date();
   const jobs = await collection(input.collection);
   const baseFilter = { _id: input.jobId, status: 'running' as const, leaseId: input.leaseId };
-  if (input.retryable) {
+  const nextAttemptAt = new Date(now.getTime() + Math.max(0, input.retryDelayMs ?? 5_000));
+  const retryFitsDeadline = !input.retryDeadlineAt || nextAttemptAt < input.retryDeadlineAt;
+  if (input.retryable && retryFitsDeadline) {
     const retry = await jobs.updateOne(
       { ...baseFilter, $expr: { $lt: ['$attemptCount', '$maxAttempts'] } },
       {
         $set: {
           status: 'queued',
-          nextAttemptAt: new Date(now.getTime() + Math.max(0, input.retryDelayMs ?? 5_000)),
+          nextAttemptAt,
           leaseId: null,
           leaseExpiresAt: null,
           lastError: boundedError(input.error),

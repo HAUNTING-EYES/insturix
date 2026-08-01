@@ -25,6 +25,7 @@ import {
   createMgStorageAuthorizationToken,
   enqueueDurableMgRenderJob,
   executeQueuedMgRenderJob,
+  resolveMgRenderRetryDelayMs,
   runDurableMgRenderJob,
   verifyMgStorageAuthorizationToken,
 } from '@/lib/editron/motion-graphics/codegen/mg-render-job-runner';
@@ -98,7 +99,8 @@ function job(status: MgRenderJob['status'] = 'queued'): MgRenderJob {
     requestAudit: buildMgRenderJobRequestAudit(request),
     status,
     attemptCount: status === 'queued' ? 0 : 1,
-    maxAttempts: 3,
+    maxAttempts: 6,
+    retryDeadlineAt: new Date(NOW.getTime() + 45 * 60 * 1_000),
     nextAttemptAt: NOW,
     leaseId: status === 'running' ? 'mgl_test' : null,
     leaseExpiresAt: status === 'running' ? new Date(NOW.getTime() + 25 * 60 * 1_000) : null,
@@ -433,8 +435,29 @@ describe('durable MG render job runner', () => {
     expect(failJob).toHaveBeenCalledWith(expect.objectContaining({
       jobId: queued._id,
       retryable: true,
+      retryDelayMs: expect.any(Number),
+      retryDeadlineAt: queued.retryDeadlineAt,
       error: expect.any(Error),
     }));
+  });
+
+  it('uses deterministic exponential backoff and a longer floor for rate limits', () => {
+    const queued = job();
+    const rateLimited = new Error('provider returned 429 rate limited');
+    const first = resolveMgRenderRetryDelayMs({ _id: queued._id, attemptCount: 1 }, rateLimited, {});
+    const second = resolveMgRenderRetryDelayMs({ _id: queued._id, attemptCount: 2 }, rateLimited, {});
+    const repeated = resolveMgRenderRetryDelayMs({ _id: queued._id, attemptCount: 2 }, rateLimited, {});
+    const network = resolveMgRenderRetryDelayMs(
+      { _id: queued._id, attemptCount: 1 },
+      new Error('ECONNRESET'),
+      {},
+    );
+
+    expect(first).toBeGreaterThanOrEqual(60_000);
+    expect(second).toBeGreaterThan(first);
+    expect(repeated).toBe(second);
+    expect(network).toBeGreaterThanOrEqual(15_000);
+    expect(network).toBeLessThan(first);
   });
 
   it('completes a typed terminal provider fallback without scheduling another paid attempt', async () => {

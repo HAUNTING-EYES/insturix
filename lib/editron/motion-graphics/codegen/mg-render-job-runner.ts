@@ -43,6 +43,10 @@ const MAX_AUTH_TTL_MS = 60 * 60 * 1_000;
 const DEFAULT_DIRECTOR_SAVE_BARRIER_TIMEOUT_MS = 90 * 1_000;
 const MAX_DIRECTOR_SAVE_BARRIER_TIMEOUT_MS = 3 * 60 * 1_000;
 const DIRECTOR_SAVE_BARRIER_POLL_MS = 2 * 1_000;
+const DEFAULT_TRANSIENT_RETRY_BASE_MS = 15 * 1_000;
+const DEFAULT_RATE_LIMIT_RETRY_BASE_MS = 60 * 1_000;
+const DEFAULT_RETRY_MAX_MS = 8 * 60 * 1_000;
+const RETRY_JITTER_RATIO = 0.2;
 
 function required(env: EnvLike, name: string): string {
   const value = env[name]?.trim();
@@ -157,6 +161,36 @@ export interface MgRenderJobRunnerDependencies {
   getJobState?: typeof getMgRenderJobState;
   waitForProjectReady?: typeof waitForDirectorSaveBarrier;
   reconcileParent?: typeof reconcileChatEditorialIntentParent;
+}
+
+export function resolveMgRenderRetryDelayMs(
+  job: Pick<MgRenderJob, '_id' | 'attemptCount'>,
+  error: unknown,
+  env: EnvLike = process.env,
+): number {
+  const failureCode = error instanceof RetryableMgRenderResultError
+    ? error.result.receipt.failure?.code
+    : undefined;
+  const message = error instanceof Error ? error.message : String(error);
+  const rateLimited = failureCode === 'rate-limited' || /(?:\b429\b|rate.?limit|resource_exhausted)/i.test(message);
+  const configuredBase = Number(env[
+    rateLimited ? 'MG_RENDER_RATE_LIMIT_RETRY_BASE_MS' : 'MG_RENDER_TRANSIENT_RETRY_BASE_MS'
+  ]);
+  const defaultBase = rateLimited ? DEFAULT_RATE_LIMIT_RETRY_BASE_MS : DEFAULT_TRANSIENT_RETRY_BASE_MS;
+  const baseMs = Number.isInteger(configuredBase) && configuredBase >= 1_000
+    ? configuredBase
+    : defaultBase;
+  const configuredMax = Number(env.MG_RENDER_RETRY_MAX_MS);
+  const maxMs = Number.isInteger(configuredMax) && configuredMax >= baseMs
+    ? configuredMax
+    : DEFAULT_RETRY_MAX_MS;
+  const exponent = Math.max(0, Math.min(job.attemptCount - 1, 10));
+  const exponentialMs = Math.min(maxMs, baseMs * (2 ** exponent));
+  const jitterSeed = createHash('sha256')
+    .update(`${job._id}:${job.attemptCount}`)
+    .digest()
+    .readUInt32BE(0) / 0xffffffff;
+  return Math.round(Math.min(maxMs, exponentialMs * (1 + jitterSeed * RETRY_JITTER_RATIO)));
 }
 
 export class MgRenderJobExecutionError extends Error {
@@ -550,11 +584,14 @@ async function executeClaimedMgRenderJob(
     const completed = await completeJob({ jobId: claimed._id, leaseId, result });
     if (!completed) throw new Error(`MG render job ${claimed._id} lost its lease before completion`);
   } catch (error) {
+    const retryable = retryableSandboxFailure(error);
     const disposition = await failJob({
       jobId: claimed._id,
       leaseId,
       error,
-      retryable: retryableSandboxFailure(error),
+      retryable,
+      ...(retryable ? { retryDelayMs: resolveMgRenderRetryDelayMs(claimed, error, env) } : {}),
+      retryDeadlineAt: claimed.retryDeadlineAt,
     });
     if (deliver && disposition === 'failed') {
       try {
