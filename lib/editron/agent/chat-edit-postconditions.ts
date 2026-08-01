@@ -8,6 +8,7 @@ import {
 } from './chat-tool-registry';
 import {
   buildOverlayRenderTruthSnapshot,
+  resolveRenderableAudio,
   UnlicensedAudioInRenderError,
 } from '../shared/render-request-payload';
 
@@ -142,6 +143,8 @@ export function verifyChatToolPostcondition(input: {
       : resolveRenderVerificationModalities(
           renderEligibleTargets,
           contract?.render.modalities ?? ['visual', 'audio'],
+          before?.overlays,
+          after?.overlays,
         );
 
   return {
@@ -268,22 +271,56 @@ function audioExposure(overlay: JsonRecord): {
 function resolveRenderVerificationModalities(
   affectedTargets: ChatEditPostconditionTarget[],
   declared: ChatToolRenderEvidenceModality[],
+  before?: Map<string, JsonRecord>,
+  after?: Map<string, JsonRecord>,
 ): ChatToolRenderEvidenceModality[] {
   if (affectedTargets.length === 0) return declared;
   const modalities = new Set<ChatToolRenderEvidenceModality>();
   for (const target of affectedTargets) {
     const type = target.overlayType.toLowerCase();
     if (type === 'audio' || type === 'sound') {
-      modalities.add('audio');
+      if (declared.includes('audio') && targetHasRenderableAudio(target, before, after)) {
+        modalities.add('audio');
+      }
       continue;
     }
     if (type === 'video') {
-      for (const modality of declared) modalities.add(modality);
+      if (declared.includes('visual')) modalities.add('visual');
+      if (declared.includes('audio') && targetHasRenderableAudio(target, before, after)) {
+        modalities.add('audio');
+      }
       continue;
     }
-    modalities.add('visual');
+    if (declared.includes('visual')) modalities.add('visual');
   }
   return Array.from(modalities);
+}
+
+function targetHasRenderableAudio(
+  target: ChatEditPostconditionTarget,
+  before?: Map<string, JsonRecord>,
+  after?: Map<string, JsonRecord>,
+): boolean {
+  const overlay = target.state === 'deleted'
+    ? before?.get(target.overlayId)
+    : after?.get(target.overlayId) ?? before?.get(target.overlayId);
+  if (!overlay) return false;
+
+  const type = String(overlay.type ?? '').toLowerCase();
+  if (type === 'video' && overlay.hasNativeAudio !== true) return false;
+  if (type !== 'video' && type !== 'audio' && type !== 'sound') return false;
+
+  const styles = asRecord(overlay.styles);
+  const muted = overlay.muted === true || styles.muted === true;
+  const volume = finiteNumber(overlay.volume) ?? finiteNumber(styles.volume);
+  if (muted || volume === 0) return false;
+
+  try {
+    return resolveRenderableAudio(overlay).overlay !== null;
+  } catch (error) {
+    if (error instanceof UnlicensedAudioInRenderError) return false;
+    throw error;
+  }
 }
 
 interface ProjectSnapshot {

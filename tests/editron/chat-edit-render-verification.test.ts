@@ -76,7 +76,7 @@ describe('chat edit rendered verification', () => {
     expect(request.sampleFrames).toEqual([40, 41]);
   });
 
-  it('requires both visual and audio proof for timeline mutations on a video', () => {
+  it('trusts the postcondition receipt modality for timeline mutations', () => {
     const request = buildRequest({
       name: 'trim_overlay',
       args: { overlayId: 'video_1', startFrame: 45, endFrame: 150 },
@@ -84,7 +84,7 @@ describe('chat edit rendered verification', () => {
       modalities: ['visual'],
     });
 
-    expect(new Set(request.modalities)).toEqual(new Set(['visual', 'audio']));
+    expect(request.modalities).toEqual(['visual']);
   });
 
   it('marks a lossless split as continuity-preserving instead of requiring changed pixels or audio', () => {
@@ -570,6 +570,39 @@ describe('chat edit rendered verification', () => {
           message: expect.stringContaining('blank'),
         }),
       ]));
+  });
+
+  it('treats a changed render canvas as visual mutation proof', async () => {
+    const renderStill = vi.fn(async (input: any) => {
+      const isAfter = input.inputProps.overlays.some((overlay: any) => overlay.id === 'txt_after');
+      return {
+        estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+        url: `https://example.com/${isAfter ? 'after' : 'before'}-f${input.frame}.png`,
+        outKey: `chat/${isAfter ? 'after' : 'before'}-f${input.frame}.png`,
+        bucketName: 'render-bucket',
+        renderId: `${isAfter ? 'after' : 'before'}-${input.frame}`,
+        cloudWatchLogs: 'https://logs.example.com',
+        sizeInBytes: 512,
+        artifacts: [],
+      };
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(afterProject(), {
+      baselineProject: beforeProject(),
+      requestedSampleFrames: [45],
+      auditedOverlayIds: ['txt_after'],
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async (url) => url.includes('/after-')
+        ? { data: Buffer.alloc(4 * 2 * 4, 240), width: 4, height: 2, channels: 4 }
+        : { data: Buffer.alloc(2 * 4 * 4, 240), width: 2, height: 4, channels: 4 },
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.renderedAestheticReport?.summary).toMatchObject({
+      mutationStatus: 'pass',
+      mutationChangedFrameCount: 1,
+    });
   });
 
   it('passes continuity proof only when the seam renders identically', async () => {

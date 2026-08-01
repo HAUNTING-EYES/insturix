@@ -486,12 +486,18 @@ function imageStats(fullImage: RawRenderedStillImage, baselineImage?: RawRendere
   return {
     lumaStdDev: round3(Math.sqrt(variance)),
     alphaMean: round3(alphaTotal / Math.max(1, lumas.length)),
-    ...(baselineImage && sameDimensions(fullImage, baselineImage)
-      ? {
-          mutationPixelRatio: round4(changed / Math.max(1, sample.offsets.length)),
-          mutationPixelCount: changed,
-          sampledPixelCount: sample.offsets.length,
-        }
+    ...(baselineImage
+      ? sameDimensions(fullImage, baselineImage)
+        ? {
+            mutationPixelRatio: round4(changed / Math.max(1, sample.offsets.length)),
+            mutationPixelCount: changed,
+            sampledPixelCount: sample.offsets.length,
+          }
+        : {
+            mutationPixelRatio: 1,
+            mutationPixelCount: sample.offsets.length,
+            sampledPixelCount: sample.offsets.length,
+          }
       : {}),
   };
 }

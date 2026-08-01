@@ -540,18 +540,17 @@ function inferMutationModalities(
   targets: ChatEditRenderVerificationTarget[],
   declared: ChatEditRenderVerificationModality[] = [],
 ): ChatEditRenderVerificationModality[] {
+  // A passed postcondition receipt is the family owner's explicit contract.
+  // It derives audio eligibility from the actual changed overlays and their
+  // durable rights receipts, so the transaction layer must not broaden it.
+  if (declared.length > 0) {
+    return Array.from(new Set(declared));
+  }
+
   const isTimelineMutation = [
     'split_overlay', 'trim_overlay', 'cut_section', 'close_gaps',
     'auto_edit_from_script',
   ].includes(call.name);
-
-  // A passed postcondition receipt is the family owner's explicit contract.
-  // Do not broaden a visual-only video edit into audio verification merely
-  // because the target video may contain an audio stream. Timeline mutations
-  // remain the exception because they can change picture and sound together.
-  if (declared.length > 0 && !isTimelineMutation) {
-    return Array.from(new Set(declared));
-  }
 
   const targetTypes = new Set(targets.map((target) => target.overlayType.toLowerCase()));
   const argumentKeys = collectObjectKeys(call.args);
