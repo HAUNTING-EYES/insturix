@@ -1838,7 +1838,10 @@ export function applySpeedRampToProject(
     };
   }
 
-  if (!options.allowDialogueSpeedRamp && hasCaptionDialogueInRange(overlays, rangeResult.range)) {
+  if (
+    !options.allowDialogueSpeedRamp
+    && hasCaptionDialogueInRange(overlays, rangeResult.range, positiveNumber(project?.fps) ?? 30)
+  ) {
     return {
       status: "conflict",
       startFrame,
@@ -3037,15 +3040,39 @@ function overlayCoversRange(overlay: any, range: FrameRange): boolean {
   return startFrame <= range.startFrame && endFrame >= range.endFrame;
 }
 
-function hasCaptionDialogueInRange(overlays: any[], range: FrameRange): boolean {
+function hasCaptionDialogueInRange(overlays: any[], range: FrameRange, fps: number): boolean {
   return overlays.some((overlay) => {
     const type = String(overlay?.type ?? "").toLowerCase();
     if (type !== "caption" && type !== "subtitle") return false;
+    const overlayStartFrame = frame(overlay?.from);
+    const timedWords = timedCaptionRanges(overlay?.words, overlayStartFrame, fps);
+    const timedCaptions = timedWords.length === 0
+      ? timedCaptionRanges(overlay?.captions, overlayStartFrame, fps)
+      : [];
+    const timedRanges = timedWords.length > 0 ? timedWords : timedCaptions;
+    if (timedRanges.length > 0) {
+      return timedRanges.some((timedRange) => rangesOverlap(range, timedRange));
+    }
+
+    // Legacy caption payloads without usable word/group timings remain
+    // conservative: their outer range is the only dialogue evidence available.
     const overlayRange = {
-      startFrame: frame(overlay?.from),
-      endFrame: frame(overlay?.from) + duration(overlay?.durationInFrames),
+      startFrame: overlayStartFrame,
+      endFrame: overlayStartFrame + duration(overlay?.durationInFrames),
     };
     return rangesOverlap(range, overlayRange);
+  });
+}
+
+function timedCaptionRanges(value: unknown, overlayStartFrame: number, fps: number): FrameRange[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item: any) => {
+    const startMs = finiteNumber(item?.startMs);
+    const endMs = finiteNumber(item?.endMs);
+    if (startMs === undefined || endMs === undefined || startMs < 0 || endMs <= startMs) return [];
+    const startFrame = overlayStartFrame + Math.floor((startMs / 1_000) * fps);
+    const endFrame = overlayStartFrame + Math.ceil((endMs / 1_000) * fps);
+    return endFrame > startFrame ? [{ startFrame, endFrame }] : [];
   });
 }
 

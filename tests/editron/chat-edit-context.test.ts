@@ -1300,7 +1300,15 @@ describe('chat edit context bundle', () => {
   });
 
   it('refuses speed ramp across caption dialogue unless explicitly allowed', () => {
-    const plan = applySpeedRampToProject(project, {
+    const plan = applySpeedRampToProject({
+      ...project,
+      overlays: project.overlays.map((overlay) => overlay.type === 'caption'
+        ? {
+            ...overlay,
+            words: [{ word: 'Dialogue', startMs: 1000, endMs: 2000 }],
+          }
+        : overlay),
+    }, {
       startFrame: 90,
       endFrame: 120,
       targetSpeed: 0.5,
@@ -1314,6 +1322,45 @@ describe('chat edit context bundle', () => {
       updates: [],
     });
     expect(plan.message).toContain('overlap captions/dialogue');
+  });
+
+  it('allows speed ramp inside a silent interval of a longer caption track', () => {
+    const plan = applySpeedRampToProject({
+      ...project,
+      overlays: project.overlays.map((overlay) => overlay.type === 'caption'
+        ? {
+            ...overlay,
+            words: [{ word: 'Earlier', startMs: 0, endMs: 500 }],
+          }
+        : overlay),
+    }, {
+      startFrame: 90,
+      endFrame: 120,
+      targetSpeed: 0.5,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      startFrame: 90,
+      endFrame: 120,
+      targetOverlayId: 1,
+    });
+  });
+
+  it('keeps untimed legacy caption tracks fail-closed', () => {
+    const plan = applySpeedRampToProject(project, {
+      startFrame: 90,
+      endFrame: 120,
+      targetSpeed: 0.5,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      startFrame: 90,
+      endFrame: 120,
+      targetOverlayId: 1,
+      updates: [],
+    });
   });
 
   it('refuses speed ramp when existing speed motion would be overwritten', () => {
