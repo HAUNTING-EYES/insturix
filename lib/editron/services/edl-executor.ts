@@ -1017,8 +1017,6 @@ export async function executeEDL(
 
   let budgetRejected = 0;
   let decisionIndex = 0;
-  const usedGraphicTemplateIds = new Set<string>();
-
   // P5-1 Phase C 2/2: author the video's coherent MgVideoDesignPlan ONCE before the loop (dark until the flag
   // flips). Each per-moment design is keyed by its decision; applyGraphic renders it via the coder prompt instead
   // of free-form codegen. Fail-safe: any failure leaves mgDesignPlans undefined → every decision free-forms.
@@ -1115,7 +1113,7 @@ export async function executeEDL(
     }
 
     try {
-      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache, usedGraphicTemplateIds, graphicsDensity, projectSignalContext);
+      const applied = await applyDecision(decision, overlays, projectId, userId, canvasDimensions, analyses, idEpoch, currentDecisionIndex, sfxCache, graphicsDensity, projectSignalContext);
       if (applied) {
         appendDecisionExecutionTrace(result, buildDecisionExecutionTraceEntry(
           decision,
@@ -2572,7 +2570,6 @@ async function applyDecision(
   idEpoch: number = 0,
   decisionIndex: number = 0,
   sfxCache?: SfxAssetCache | null,
-  graphicTemplateIds?: Set<string>,
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
   projectSignalContext: EDLSignalContext = {},
 ): Promise<{ created: number; modified: number } | null> {
@@ -2591,7 +2588,7 @@ async function applyDecision(
       return applyFade(decision, overlays);
 
     case 'graphic':
-      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, graphicTemplateIds, graphicsDensity, analyses, projectSignalContext);
+      return await applyGraphic(decision, overlays, projectId, userId, canvas, idEpoch, decisionIndex, graphicsDensity, analyses, projectSignalContext);
 
     case 'audio-duck':
       return applyAudioDuck(decision, overlays);
@@ -4280,7 +4277,6 @@ async function applyGraphic(
   canvas: { width: number; height: number },
   idEpoch: number = 0,
   decisionIndex: number = 0,
-  _usedTemplateIds?: Set<string>,
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
   analyses?: Map<string, any>,
   projectSignalContext: EDLSignalContext = {},
