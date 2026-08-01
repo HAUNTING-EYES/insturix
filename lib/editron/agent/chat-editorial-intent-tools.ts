@@ -255,16 +255,17 @@ export async function applyGroundedEditorialIntent(
   // around. FOUNDER RULING (plan REV 5 #3): confirm-gated, never silent. The
   // gate never touches targeted moment-scoped edits (normal chat ownership).
   const isExplicitFamilyOnly = intent.executionScope?.mode === 'explicit-families-only';
-  const handsProjectToAutoDirector = Boolean(intent.script)
+  const hasScriptRecompositionAuthority = Boolean(intent.script) && !isExplicitFamilyOnly;
+  const handsProjectToAutoDirector = hasScriptRecompositionAuthority
     || (intent.scope.kind === 'project' && !isExplicitFamilyOnly);
   if (handsProjectToAutoDirector && isAssistProject(project) && !args.input.autoDirectorConfirmed) {
     dispatch = {
-      owner: intent.script ? 'phase2-script-planner' : 'director-unified-planner',
+      owner: hasScriptRecompositionAuthority ? 'phase2-script-planner' : 'director-unified-planner',
       status: 'advisory',
       mutated: false,
       reasons: ['assist-auto-director-needs-confirmation'],
     };
-  } else if (intent.script) {
+  } else if (hasScriptRecompositionAuthority) {
     dispatch = await deps.dispatchScriptIntent({
       projectId: args.projectId,
       userId: args.userId,
@@ -344,7 +345,10 @@ export function createChatEditorialIntentTools(
         enforceServerEditorialFamilyScope(
           compileChatEditorialIntentWire(
           { ...wireInput, autoDirectorConfirmed: wireInput.autoDirectorConfirmed || confirmedByClient },
-          { userTurnText },
+          {
+            userTurnText,
+            allowScriptRecomposition: !familyScopeExclusive,
+          },
           ),
           requiredFamilyDirectives,
           familyScopeExclusive,

@@ -789,6 +789,62 @@ describe('Director Mode confirm-gate (assist lane)', () => {
     expect(deps.executeTargetedIntent).not.toHaveBeenCalled();
   });
 
+  it('does not let model-supplied scriptText override explicit family authority', async () => {
+    const deps = dependencies();
+    const tools = createChatEditorialIntentTools({
+      userId: 'user-1',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      operationId: 'operation-1',
+      requiredFamilyDirectives: [{ family: 'motionGraphics', mode: 'prefer' }],
+      familyScopeExclusive: true,
+    }, deps);
+    const applyTool = tools.find((candidate) => (candidate as { name: string }).name === 'apply_editorial_intent') as {
+      invoke: (input: unknown, config: unknown) => Promise<string>;
+    };
+    const userTurnText = 'Create one grounded process motion graphic from the real project stages.';
+    const output = JSON.parse(await applyTool.invoke({
+      goal: userTurnText,
+      motionGraphicsMode: 'prefer',
+      scriptText: userTurnText,
+    }, {
+      configurable: { chatUserTurnText: userTurnText },
+    }));
+
+    expect(output.status).toBe('success');
+    expect(output.data.intent).not.toHaveProperty('script');
+    expect(output.data.dispatch.owner).toBe('director-unified-planner');
+    expect(deps.executeProjectIntent).toHaveBeenCalledOnce();
+    expect(deps.dispatchScriptIntent).not.toHaveBeenCalled();
+  });
+
+  it('keeps explicit family scope authoritative for internal callers carrying script context', async () => {
+    const deps = dependencies();
+    const result = await applyGroundedEditorialIntent({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: {
+        goal: 'Create a grounded process motion graphic',
+        scope: { kind: 'project' },
+        constraints: [],
+        strength: 0.5,
+        uncertainty: 0,
+        script: 'First show design, then construction, then the finished result.',
+      },
+      executionScope: {
+        version: 'editorial-execution-scope-v1',
+        source: 'chat-editorial-intent',
+        mode: 'explicit-families-only',
+        families: ['motionGraphics'],
+      },
+    }, deps);
+
+    expect(result.intent.script).toContain('First show design');
+    expect(result.dispatch.owner).toBe('director-unified-planner');
+    expect(deps.executeProjectIntent).toHaveBeenCalledOnce();
+    expect(deps.dispatchScriptIntent).not.toHaveBeenCalled();
+  });
+
   it('does not treat an explicit family-only MG composition as a full Auto-Director handoff', async () => {
     const deps = dependencies({ loadProject: vi.fn(async () => assistProject()) });
     const result = await applyGroundedEditorialIntent({

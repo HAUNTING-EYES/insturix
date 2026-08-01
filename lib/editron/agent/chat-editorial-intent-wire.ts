@@ -91,7 +91,10 @@ export function normalizeChatEditorialIntentWireAliases(input: unknown): Record<
 
 export function compileChatEditorialIntentWire(
   input: ChatEditorialIntentWireInput,
-  context: { userTurnText?: string } = {},
+  context: {
+    userTurnText?: string;
+    allowScriptRecomposition?: boolean;
+  } = {},
 ): ChatEditorialIntentInput {
   if (
     input.startFrame !== undefined
@@ -103,7 +106,9 @@ export function compileChatEditorialIntentWire(
 
   const constraints = parseConstraints(input.constraintsText);
   const families = buildFamilyPreferences(input);
-  const script = normalizeOptionalChatScript(input.scriptText);
+  const script = context.allowScriptRecomposition === false
+    ? undefined
+    : normalizeOptionalChatScript(input.scriptText);
   if (script && !isScriptGroundedInUserTurn(script, context.userTurnText)) {
     throw wireValidationError(
       'scriptText',
