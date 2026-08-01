@@ -18,6 +18,7 @@ interface SuiteOptions {
   baseUrl: string;
   authHeaderFile: string;
   environmentFile?: string;
+  databaseName?: string;
   outputRoot: string;
   suiteId: string;
   scenarioIds: string[];
@@ -244,6 +245,7 @@ export function parseSuiteArgs(argv: string[]): SuiteOptions {
     else if (arg.startsWith('--base-url=')) partial.baseUrl = valueAfterEquals(arg).replace(/\/$/, '');
     else if (arg.startsWith('--auth-header-file=')) partial.authHeaderFile = valueAfterEquals(arg);
     else if (arg.startsWith('--env-file=')) partial.environmentFile = valueAfterEquals(arg);
+    else if (arg.startsWith('--database-name=')) partial.databaseName = valueAfterEquals(arg).trim();
     else if (arg.startsWith('--output=')) partial.outputRoot = valueAfterEquals(arg);
     else if (arg.startsWith('--suite-id=')) partial.suiteId = valueAfterEquals(arg);
     else if (arg.startsWith('--cases=')) {
@@ -254,6 +256,9 @@ export function parseSuiteArgs(argv: string[]): SuiteOptions {
     throw new Error('--base-url must be an absolute HTTP(S) URL.');
   }
   if (!partial.authHeaderFile) throw new Error('--auth-header-file is required.');
+  if (partial.databaseName && !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$/.test(partial.databaseName)) {
+    throw new Error('--database-name must be a safe MongoDB database name (1-63 characters).');
+  }
   const environmentError = validateSuiteEnvironmentSelection(partial as SuiteOptions);
   if (environmentError) throw new Error(environmentError);
   return partial as SuiteOptions;
@@ -363,10 +368,14 @@ async function loadSuiteEnvironment(options: SuiteOptions): Promise<string> {
   }
 
   if (!process.env.MONGODB_URI) throw new Error('Selected environment is missing MONGODB_URI.');
-  const databaseName = process.env.EDITRON_MONGODB_DB_NAME || process.env.MONGODB_DB_NAME;
+  const databaseName = options.databaseName
+    || process.env.EDITRON_MONGODB_DB_NAME
+    || process.env.MONGODB_DB_NAME;
   if (!databaseName) {
     throw new Error('Selected environment is missing EDITRON_MONGODB_DB_NAME/MONGODB_DB_NAME.');
   }
+  process.env.EDITRON_MONGODB_DB_NAME = databaseName;
+  process.env.MONGODB_DB_NAME = databaseName;
   console.log(`[chat-battle-suite] environment database=${databaseName}`);
   return databaseName;
 }
