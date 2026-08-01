@@ -11,6 +11,11 @@ import {
   mgProviderHttpError,
   type CodegenDeps,
 } from './codegen-service';
+import {
+  LEGACY_GLM_COMPONENT_MODEL,
+  resolveMgComponentModel,
+  resolveMgComponentProviderName,
+} from './mg-provider-config';
 import { phases } from './kit/choreo';
 import { JUDGE_PROMPT } from './prompt';
 import type { MgMomentInput, MgVisualEvidence, MgVisualEvidenceFrame } from './types';
@@ -35,8 +40,6 @@ const JUDGE_ATTEMPTS = [
   { seed: 7, maxOutputTokens: 4_096 },
 ] as const;
 const DEFAULT_ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
-const DEFAULT_MG_CODEGEN_MODEL = 'gemini-3.1-pro-preview'; // A/B winner: 4/7 vs glm-5v-turbo 2/7 (2026-07-19). Override with MG_CODEGEN_MODEL; both are vision-capable.
-const GLM_COMPONENT_MODEL = 'glm-5v-turbo';
 const DEFAULT_COMPONENT_TIMEOUT_MS = 3 * 60 * 1_000;
 const COMPONENT_MAX_OUTPUT_TOKENS = 32_768;
 
@@ -159,26 +162,17 @@ function componentWriterContent(prompt: string, visualEvidence?: MgVisualEvidenc
 }
 
 
-const VISION_CAPABLE_COMPONENT_MODELS = new Set([GLM_COMPONENT_MODEL]);
-
-function isGeminiComponentModel(model: string): boolean {
-  return model.toLowerCase().startsWith('gemini');
-}
-
-function isVisionCapableComponentModel(model: string): boolean {
-  return isGeminiComponentModel(model) || VISION_CAPABLE_COMPONENT_MODELS.has(model.toLowerCase());
-}
-
 // Vision gate: writing FROM footage evidence needs a multimodal writer. gemini-* and glm-5v-turbo both qualify
 // (measured 2026-07-19: Gemini 3.1-pro and GLM-5V both author correctly from the frames). A non-vision model
 // with visual evidence fails loud here rather than silently ignoring the footage.
 function assertVisionCapableComponentModel(model: string, visualEvidence?: MgVisualEvidence): void {
-  if (visualEvidence && !isVisionCapableComponentModel(model)) {
+  const provider = resolveMgComponentProviderName(model);
+  if (visualEvidence && !provider) {
     throw new MgProviderFailureError(
-      `MG codegen visual evidence requires a vision-capable component model (gemini-* or ${GLM_COMPONENT_MODEL}); received ${model}`,
+      `MG codegen visual evidence requires a vision-capable component model (gemini-* or ${LEGACY_GLM_COMPONENT_MODEL}); received ${model}`,
       {
         domain: 'provider',
-        provider: isGeminiComponentModel(model) ? 'gemini' : 'zai',
+        provider: model.toLowerCase().startsWith('gemini') ? 'gemini' : 'zai',
         operation: 'component-generation',
         code: 'configuration',
         disposition: 'terminal',
@@ -308,9 +302,9 @@ async function defaultWriteComponent(
   prompt: string,
   visualEvidence?: MgVisualEvidence,
 ): Promise<string> {
-  const model = process.env.MG_CODEGEN_MODEL?.trim() || DEFAULT_MG_CODEGEN_MODEL;
+  const model = resolveMgComponentModel();
   assertVisionCapableComponentModel(model, visualEvidence);
-  if (isGeminiComponentModel(model)) {
+  if (resolveMgComponentProviderName(model) === 'gemini') {
     return geminiWriteComponent(prompt, model, visualEvidence);
   }
   const apiKey = process.env.ZAI_API_KEY?.trim();

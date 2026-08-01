@@ -74,8 +74,6 @@ const env = {
   MG_RENDER_SANDBOX_SNAPSHOT_ID: 'snap_commit_350b04cc',
   MG_RENDER_SANDBOX_APP_COMMIT: APP_COMMIT,
   GEMINI_API_KEY: 'gemini-secret',
-  ZAI_API_KEY: 'zai-secret',
-  MG_CODEGEN_MODEL: 'glm-5v-turbo',
   R2_ACCESS_KEY_ID: 'r2-access',
   R2_SECRET_ACCESS_KEY: 'r2-secret',
   R2_ACCOUNT_ID: 'account123',
@@ -133,21 +131,21 @@ describe('MG Sandbox render worker', () => {
     });
     expect(config.snapshotId).toBe('snap_commit_350b04cc');
     expect(config.workerEnv.GEMINI_API_KEY).toBe('gemini-secret');
-    expect(config.workerEnv.ZAI_API_KEY).toBe('zai-secret');
-    expect(config.workerEnv.MG_CODEGEN_MODEL).toBe('glm-5v-turbo');
+    expect(config.workerEnv.ZAI_API_KEY).toBeUndefined();
+    expect(config.workerEnv.MG_CODEGEN_MODEL).toBe('gemini-3.1-pro-preview');
     expect(config.workerEnv.MG_VISUAL_JUDGE_PROVIDER).toBe('gemini');
     expect(config.workerEnv.MONGODB_URI).toBeUndefined();
     expect(config.workerEnv.MG_STORAGE_AUTHORIZATION_TOKEN).toBe('job-token');
     expect(config.networkPolicy).toEqual(buildMgSandboxNetworkPolicy({
       authorizationUrl: 'https://app.example.com/api/internal/mg-storage',
       r2AccountId: 'account123',
-      zaiApiUrl: 'https://api.z.ai/api/paas/v4',
     }));
     if (typeof config.networkPolicy === 'string') {
       throw new Error('MG Sandbox must use an explicit least-privilege network policy');
     }
     expect(config.networkPolicy.allow).toContain('fonts.gstatic.com');
     expect(config.networkPolicy.allow).not.toContain('fonts.googleapis.com');
+    expect(config.networkPolicy.allow).not.toContain('api.z.ai');
     expect(() => resolveMgSandboxRuntimeConfig({
       request: { ...request(), appCommit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
       storageAuthorization: { url: 'https://app.example.com/api/internal/mg-storage', token: 'job-token' },
@@ -160,21 +158,25 @@ describe('MG Sandbox render worker', () => {
     })).toThrow(/storage authorization token/);
   });
 
-  it('passes an explicit Z.AI visual judge into the Sandbox without requiring Gemini', () => {
-    const config = resolveMgSandboxRuntimeConfig({
+  it('rejects stale GLM writer and Z.AI judge overrides at the production boundary', () => {
+    expect(() => resolveMgSandboxRuntimeConfig({
       request: request(),
       storageAuthorization: { url: 'https://app.example.com/api/internal/mg-storage', token: 'job-token' },
       env: {
         ...env,
-        GEMINI_API_KEY: undefined,
-        MG_VISUAL_JUDGE_PROVIDER: 'zai',
-        MG_VISUAL_JUDGE_MODEL: 'glm-4.6v',
+        MG_CODEGEN_MODEL: 'glm-5v-turbo',
       },
-    });
-
-    expect(config.workerEnv.MG_VISUAL_JUDGE_PROVIDER).toBe('zai');
-    expect(config.workerEnv.MG_VISUAL_JUDGE_MODEL).toBe('glm-4.6v');
-    expect(config.workerEnv.GEMINI_API_KEY).toBeUndefined();
+    })).toThrow(/component writer must use gemini-3\.1-pro-preview/);
+    expect(() => resolveMgSandboxRuntimeConfig({
+      request: request(),
+      storageAuthorization: { url: 'https://app.example.com/api/internal/mg-storage', token: 'job-token' },
+      env: { ...env, MG_CODEGEN_MODEL: 'gemini-2.5-flash' },
+    })).toThrow(/component writer must use gemini-3\.1-pro-preview/);
+    expect(() => resolveMgSandboxRuntimeConfig({
+      request: request(),
+      storageAuthorization: { url: 'https://app.example.com/api/internal/mg-storage', token: 'job-token' },
+      env: { ...env, MG_VISUAL_JUDGE_PROVIDER: 'zai' },
+    })).toThrow(/visual judge must use Gemini/);
   });
 
   it('uses the pinned Sandbox app commit even when the caller deployment is newer', () => {
