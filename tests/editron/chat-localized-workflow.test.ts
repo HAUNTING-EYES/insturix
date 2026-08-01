@@ -251,6 +251,247 @@ describe('server-owned localized chat workflow', () => {
     });
   });
 
+  it('resolves a phrase edge before selecting the first valid downbeat and authorizing SFX', () => {
+    const owner = license(routingFacts(
+      [{
+        modality: 'audio',
+        operation: 'sound-effect',
+        query: 'strong downbeat',
+        sourceQuery: 'restrained impact sound',
+        relativeAnchor: {
+          modality: 'transcript',
+          query: 'now watch this',
+          relation: 'after',
+          referenceEdge: 'end',
+          occurrence: 'first',
+          sourceSpan: 'first strong downbeat after the phrase now watch this',
+        },
+      }],
+      ['localized-sfx'],
+    ));
+    const anchorArgs = { query: 'now watch this', action: 'keyframe_anchor' };
+
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: { name: 'resolve_transcript_edit', args: anchorArgs },
+    });
+
+    const anchor = execution('resolve_transcript_edit', anchorArgs, {
+      output: JSON.stringify({
+        status: 'success',
+        data: {
+          candidates: [{
+            startFrame: 72,
+            endFrame: 96,
+            confidence: 0.92,
+            safeForAutoEdit: true,
+          }],
+        },
+      }),
+      evidenceReceipts: [receipt('transcript-target', 'resolve_transcript_edit')],
+    });
+    const audioArgs = {
+      query: 'strong downbeat',
+      action: 'add_sfx',
+      sfxQuery: 'restrained impact sound',
+      temporalConstraint: {
+        referenceFrame: 96,
+        relation: 'after',
+        occurrence: 'first',
+      },
+    };
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, anchor),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: { name: 'resolve_audio_edit', args: audioArgs },
+    });
+
+    const sfxArgs = { query: 'restrained impact sound', frame: 150, sync: 'audio-anchor' };
+    const audioResolver = execution('resolve_audio_edit', audioArgs, {
+      evidenceReceipts: [receipt('audio-target', 'resolve_audio_edit', [{
+        toolName: 'add_sfx',
+        args: sfxArgs,
+      }])],
+    });
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, anchor, audioResolver),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: { name: 'add_sfx', args: sfxArgs },
+    });
+
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(
+        timelineExecution,
+        anchor,
+        audioResolver,
+        execution('add_sfx', sfxArgs),
+      ),
+      projectId: PROJECT_ID,
+      projectRevision: 'revision-2',
+    })).toMatchObject({ kind: 'complete' });
+  });
+
+  it('halts a relative SFX workflow when its reference phrase is ambiguous', () => {
+    const owner = license(routingFacts(
+      [{
+        modality: 'audio',
+        operation: 'sound-effect',
+        query: 'strong downbeat',
+        sourceQuery: 'restrained impact sound',
+        relativeAnchor: {
+          modality: 'transcript',
+          query: 'now watch this',
+          relation: 'after',
+          referenceEdge: 'end',
+          occurrence: 'first',
+          sourceSpan: 'first strong downbeat after the phrase now watch this',
+        },
+      }],
+      ['localized-sfx'],
+    ));
+    const anchorArgs = { query: 'now watch this', action: 'keyframe_anchor' };
+    const anchor = execution('resolve_transcript_edit', anchorArgs, {
+      output: JSON.stringify({
+        status: 'success',
+        data: {
+          candidates: [
+            { startFrame: 72, endFrame: 96, confidence: 0.9, safeForAutoEdit: true },
+            { startFrame: 210, endFrame: 236, confidence: 0.89, safeForAutoEdit: true },
+          ],
+        },
+      }),
+      evidenceReceipts: [receipt('transcript-target', 'resolve_transcript_edit')],
+    });
+
+    const step = resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, anchor),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    });
+    expect(step).toMatchObject({ kind: 'halt' });
+    expect(step).not.toMatchObject({ toolCall: { name: 'resolve_audio_edit' } });
+  });
+
+  it('re-resolves stale relative-anchor evidence instead of using its old frame', () => {
+    const owner = license(routingFacts(
+      [{
+        modality: 'audio',
+        operation: 'sound-effect',
+        query: 'strong downbeat',
+        relativeAnchor: {
+          modality: 'transcript',
+          query: 'now watch this',
+          relation: 'after',
+          referenceEdge: 'end',
+          occurrence: 'first',
+          sourceSpan: 'after the phrase now watch this',
+        },
+      }],
+      ['localized-sfx'],
+    ));
+    const anchorArgs = { query: 'now watch this', action: 'keyframe_anchor' };
+    const staleAnchor = execution('resolve_transcript_edit', anchorArgs, {
+      output: JSON.stringify({
+        status: 'success',
+        data: {
+          candidates: [{
+            startFrame: 72,
+            endFrame: 96,
+            confidence: 0.92,
+            safeForAutoEdit: true,
+          }],
+        },
+      }),
+      evidenceReceipts: [receipt(
+        'transcript-target',
+        'resolve_transcript_edit',
+        undefined,
+        'revision-0',
+      )],
+    });
+
+    expect(resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, staleAnchor),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      toolCall: { name: 'resolve_transcript_edit', args: anchorArgs },
+    });
+  });
+
+  it('halts when the relative audio resolver does not authorize an SFX mutation', () => {
+    const owner = license(routingFacts(
+      [{
+        modality: 'audio',
+        operation: 'sound-effect',
+        query: 'strong downbeat',
+        relativeAnchor: {
+          modality: 'transcript',
+          query: 'now watch this',
+          relation: 'after',
+          referenceEdge: 'end',
+          occurrence: 'first',
+          sourceSpan: 'after the phrase now watch this',
+        },
+      }],
+      ['localized-sfx'],
+    ));
+    const anchorArgs = { query: 'now watch this', action: 'keyframe_anchor' };
+    const anchor = execution('resolve_transcript_edit', anchorArgs, {
+      output: JSON.stringify({
+        status: 'success',
+        data: {
+          candidates: [{
+            startFrame: 72,
+            endFrame: 96,
+            confidence: 0.92,
+            safeForAutoEdit: true,
+          }],
+        },
+      }),
+      evidenceReceipts: [receipt('transcript-target', 'resolve_transcript_edit')],
+    });
+    const audioArgs = {
+      query: 'strong downbeat',
+      action: 'add_sfx',
+      temporalConstraint: {
+        referenceFrame: 96,
+        relation: 'after',
+        occurrence: 'first',
+      },
+    };
+    const audioResolver = execution('resolve_audio_edit', audioArgs, {
+      output: JSON.stringify({ status: 'success', data: { candidates: [] } }),
+      evidenceReceipts: [receipt('audio-target', 'resolve_audio_edit')],
+    });
+
+    const step = resolveServerOwnedLocalizedWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(timelineExecution, anchor, audioResolver),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    });
+    expect(step).toMatchObject({ kind: 'halt' });
+    expect(step).not.toMatchObject({ toolCall: { name: 'add_sfx' } });
+  });
+
   it.each([
     ['transcript', 'resolve_transcript_edit'],
     ['audio', 'resolve_audio_edit'],

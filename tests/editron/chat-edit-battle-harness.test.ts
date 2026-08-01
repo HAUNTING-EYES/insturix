@@ -967,6 +967,11 @@ describe('chat edit battle harness', () => {
       'resolve_audio_edit',
       'apply_camera_shake',
     ]);
+    expect(getChatEditBattleScenario('manual-impact-sfx')?.requiredToolSequence).toEqual([
+      'resolve_transcript_edit',
+      'resolve_audio_edit',
+      'add_sfx',
+    ]);
     expect(getChatEditBattleScenario('visual-speed-ramp')?.requiredToolSequence).toEqual([
       'resolve_visual_edit',
       'apply_speed_ramp',

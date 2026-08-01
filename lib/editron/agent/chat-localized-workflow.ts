@@ -64,6 +64,18 @@ export function resolveServerOwnedLocalizedWorkflowStep(input: {
         message: `I cannot safely perform the requested ${edit.operation} operation on ${edit.modality} evidence yet.`,
       };
     }
+    if (isRelativeSfx(edit)) {
+      const sfxStep = resolveRelativeSfxWorkflowStep({
+        edit,
+        index,
+        adapter: requestedAdapter,
+        ledger: input.ledger,
+        projectId: input.projectId,
+        projectRevision: input.projectRevision,
+      });
+      if (sfxStep) return sfxStep;
+      continue;
+    }
     if (isLocalizedZoom(edit)) {
       const zoomStep = resolveLocalizedZoomWorkflowStep({
         edit,
@@ -222,6 +234,256 @@ function resolveGroundedWorkflowAdapter(
 function isLocalizedZoom(edit: ChatLocalizedEditRequest): boolean {
   return edit.operation === 'camera-motion'
     && (edit.cameraMotionJob === 'zoom-in' || edit.cameraMotionJob === 'zoom-out');
+}
+
+function isRelativeSfx(edit: ChatLocalizedEditRequest): boolean {
+  return edit.modality === 'audio'
+    && edit.operation === 'sound-effect'
+    && edit.relativeAnchor != null;
+}
+
+function resolveRelativeSfxWorkflowStep(input: {
+  edit: ChatLocalizedEditRequest;
+  index: number;
+  adapter: ChatLocalizedWorkflowAdapter;
+  ledger: ChatToolTurnLedger;
+  projectId: string;
+  projectRevision: string;
+}): ServerOwnedLocalizedWorkflowStep | null {
+  const relativeAnchor = input.edit.relativeAnchor;
+  if (!relativeAnchor) return null;
+
+  const anchorSpec = relativeAnchorResolverSpec(relativeAnchor);
+  const anchorResolver = latestMatchingResolver(
+    input.ledger.completedExecutions,
+    anchorSpec.toolName,
+    anchorSpec.args,
+  );
+  const preliminaryAnchor = anchorResolver?.outcome === 'success'
+    ? resolveSafeRelativeAnchor(anchorResolver, relativeAnchor.referenceEdge)
+    : null;
+  const preliminaryAudioArgs = preliminaryAnchor?.ok
+    ? relativeAudioResolverArgs(input.adapter, relativeAnchor, preliminaryAnchor.frame)
+    : null;
+  const preliminaryAudioResolver = preliminaryAudioArgs
+    ? latestMatchingResolver(
+        input.ledger.completedExecutions,
+        input.adapter.resolverTool,
+        preliminaryAudioArgs,
+      )
+    : null;
+  const preliminaryMutation = preliminaryAudioResolver
+    ? firstAuthorizedMutation(preliminaryAudioResolver, input.adapter.mutationTools)
+    : null;
+  const completedMutation = preliminaryAudioResolver && preliminaryMutation
+    ? matchingMutationAfter(
+        input.ledger.completedExecutions,
+        preliminaryAudioResolver,
+        preliminaryMutation,
+      )
+    : null;
+
+  if (completedMutation && COMPLETED_MUTATION_OUTCOMES.has(completedMutation.outcome)) return null;
+  if (completedMutation) {
+    return { kind: 'halt', message: humanizeWorkflowFailure(completedMutation) };
+  }
+
+  if (!hasCurrentTimelineEvidence(input.ledger, input.projectId, input.projectRevision)) {
+    const failedTimelineRead = latestFailedTimelineRead(input.ledger.completedExecutions);
+    if (failedTimelineRead) {
+      return { kind: 'halt', message: humanizeWorkflowFailure(failedTimelineRead) };
+    }
+    return toolCall(input.index, 'timeline', 'get_timeline_view', {
+      granularity: 'detailed',
+      includeVideo: true,
+      includeAudio: true,
+      includeText: true,
+    }, input.ledger);
+  }
+
+  if (!anchorResolver) {
+    return toolCall(
+      input.index,
+      'relative-anchor',
+      anchorSpec.toolName,
+      anchorSpec.args,
+      input.ledger,
+    );
+  }
+
+  if (anchorResolver.outcome !== 'success') {
+    const frameInspection = requiredFrameInspection(anchorResolver);
+    if (!frameInspection) {
+      return { kind: 'halt', message: humanizeWorkflowFailure(anchorResolver) };
+    }
+    const completedInspection = matchingExecutionAfter(
+      input.ledger.completedExecutions,
+      anchorResolver,
+      'visual_inspect_frame',
+      frameInspection,
+    );
+    if (!completedInspection) {
+      return toolCall(
+        input.index,
+        'relative-anchor-inspection',
+        'visual_inspect_frame',
+        frameInspection,
+        input.ledger,
+      );
+    }
+    if (completedInspection.outcome !== 'success') {
+      return { kind: 'halt', message: humanizeWorkflowFailure(completedInspection) };
+    }
+    return toolCall(
+      input.index,
+      'verified-relative-anchor',
+      anchorSpec.toolName,
+      anchorSpec.args,
+      input.ledger,
+    );
+  }
+  if (!executionHasCurrentEvidence(anchorResolver, input.projectId, input.projectRevision)) {
+    return toolCall(
+      input.index,
+      'relative-anchor',
+      anchorSpec.toolName,
+      anchorSpec.args,
+      input.ledger,
+    );
+  }
+
+  const anchor = resolveSafeRelativeAnchor(anchorResolver, relativeAnchor.referenceEdge);
+  if (!anchor.ok) return { kind: 'halt', message: anchor.message };
+
+  const audioArgs = relativeAudioResolverArgs(input.adapter, relativeAnchor, anchor.frame);
+  const audioResolver = latestMatchingResolver(
+    input.ledger.completedExecutions,
+    input.adapter.resolverTool,
+    audioArgs,
+  );
+  const authorizedMutation = audioResolver
+    ? firstAuthorizedMutation(audioResolver, input.adapter.mutationTools)
+    : null;
+
+  if (audioResolver && audioResolver.outcome !== 'success') {
+    return { kind: 'halt', message: humanizeWorkflowFailure(audioResolver) };
+  }
+  if (audioResolver && !authorizedMutation) {
+    return {
+      kind: 'halt',
+      message: 'I found the reference moment, but no qualifying audio anchor authorized a safe sound effect, so I left the timeline unchanged.',
+    };
+  }
+  if (
+    !audioResolver
+    || !authorizedMutation
+    || authorizationIsStale(audioResolver, input.projectId, input.projectRevision)
+  ) {
+    return toolCall(
+      input.index,
+      'relative-audio-target',
+      input.adapter.resolverTool,
+      audioArgs,
+      input.ledger,
+    );
+  }
+
+  return toolCall(
+    input.index,
+    'mutation',
+    authorizedMutation.toolName,
+    authorizedMutation.args,
+    input.ledger,
+  );
+}
+
+function relativeAnchorResolverSpec(
+  anchor: NonNullable<ChatLocalizedEditRequest['relativeAnchor']>,
+): { toolName: string; args: Record<string, unknown> } {
+  if (anchor.modality === 'transcript') {
+    return {
+      toolName: 'resolve_transcript_edit',
+      args: { query: anchor.query, action: 'keyframe_anchor' },
+    };
+  }
+  if (anchor.modality === 'visual') {
+    return {
+      toolName: 'resolve_visual_edit',
+      args: { query: anchor.query, action: 'keyframe_anchor' },
+    };
+  }
+  return {
+    toolName: 'resolve_audio_edit',
+    args: { query: anchor.query, action: 'keyframe_anchor' },
+  };
+}
+
+function relativeAudioResolverArgs(
+  adapter: ChatLocalizedWorkflowAdapter,
+  anchor: NonNullable<ChatLocalizedEditRequest['relativeAnchor']>,
+  referenceFrame: number,
+): Record<string, unknown> {
+  return {
+    ...adapter.resolverArgs,
+    temporalConstraint: {
+      referenceFrame,
+      relation: anchor.relation,
+      occurrence: anchor.occurrence,
+    },
+  };
+}
+
+function resolveSafeRelativeAnchor(
+  resolver: CompletedChatToolExecution,
+  referenceEdge: NonNullable<ChatLocalizedEditRequest['relativeAnchor']>['referenceEdge'],
+): { ok: true; frame: number } | { ok: false; message: string } {
+  const envelope = parseRecord(resolver.output);
+  const data = asRecord(envelope?.data);
+  const candidates = Array.isArray(data.candidates)
+    ? data.candidates.map(asRecord)
+    : [];
+  const safeCandidates = candidates.filter((candidate) => candidate.safeForAutoEdit === true);
+  if (safeCandidates.length !== 1) {
+    return {
+      ok: false,
+      message: firstString(data.message, envelope?.message)
+        ?? (candidates.length === 0
+          ? 'I could not find the reference moment, so I left the timeline unchanged.'
+          : 'I found more than one plausible reference moment. Please choose it before I add the sound effect.'),
+    };
+  }
+
+  const candidate = safeCandidates[0];
+  const startFrame = Number(candidate.startFrame);
+  const endFrame = Number(candidate.endFrame);
+  const pointFrame = Number(candidate.frame);
+  const frame = referenceEdge === 'start'
+    ? startFrame
+    : referenceEdge === 'end'
+      ? endFrame
+      : Number.isFinite(pointFrame)
+        ? pointFrame
+        : Number.isFinite(startFrame) && Number.isFinite(endFrame)
+          ? Math.round((startFrame + endFrame) / 2)
+          : Number.NaN;
+  if (!Number.isFinite(frame) || frame < 0) {
+    return {
+      ok: false,
+      message: 'The reference moment did not contain a valid timeline edge, so I left the timeline unchanged.',
+    };
+  }
+  return { ok: true, frame: Math.round(frame) };
+}
+
+function executionHasCurrentEvidence(
+  execution: CompletedChatToolExecution,
+  projectId: string,
+  projectRevision: string,
+): boolean {
+  return execution.evidenceReceipts.some((receipt) =>
+    receipt.projectId === projectId
+    && receipt.projectRevision === projectRevision,
+  );
 }
 
 function resolveLocalizedZoomWorkflowStep(input: {
