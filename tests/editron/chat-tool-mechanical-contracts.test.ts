@@ -474,6 +474,44 @@ describe('chat mechanical tool contracts', () => {
     expect(deletion.data?.affectedFrameRanges).toEqual([{ startFrame: 120, endFrame: 150 }]);
   });
 
+  it('reports already-applied audio ducking as a no-op instead of a successful mutation', async () => {
+    const project = makeProject([
+      {
+        id: 90,
+        type: 'sound',
+        row: 1,
+        assetId: 'bgm_main',
+        styles: {
+          volume: 0.18,
+          duckingConfig: {
+            enabled: true,
+            duckLevel: 0.18,
+            rampDownMs: 300,
+            rampUpMs: 600,
+            lookAheadMs: 200,
+          },
+        },
+      },
+      { id: 91, type: 'video', row: 0, assetId: 'voice_video', styles: { volume: 1 } },
+    ]);
+    const store = installProjectStore(project);
+
+    const result = parseEnvelope(await toolNamed('apply_audio_ducking').invoke({
+      enabled: true,
+      duckLevel: 0.18,
+      rampDownMs: 300,
+      rampUpMs: 600,
+      lookAheadMs: 200,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'no-op',
+      nextAction: 'stop',
+      data: { status: 'unchanged', updates: [] },
+    });
+    expect(store.updateOverlay).not.toHaveBeenCalled();
+  });
+
   it('preserves an exact delete target instead of coercing or substituting another overlay id', async () => {
     const project = makeProject([
       { id: 71, type: 'video', from: 0, durationInFrames: 90, row: 0 },

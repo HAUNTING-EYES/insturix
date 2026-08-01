@@ -70,6 +70,7 @@ export interface ChatBattleFixturePlan {
   seedTimelineGapFrames?: number;
   selectedOverlayMinimumDurationFrames?: number;
   stripSelectedAnimation?: boolean;
+  stripBgmDuckingConfig?: boolean;
   minimumOverlayCount?: {
     type: 'text';
     count: number;
@@ -181,6 +182,9 @@ export function planChatBattleFixture(
       : {}),
     ...(scenario.id === 'selected-overlay-fade'
       ? { stripSelectedAnimation: true }
+      : {}),
+    ...(scenario.id === 'dialogue-ducking'
+      ? { stripBgmDuckingConfig: true }
       : {}),
     ...(scenario.id === 'sync-overlay-style' || scenario.id === 'batch-overlay-update'
       ? {

@@ -636,7 +636,19 @@ function applyScenarioTimelineSeeds(
   if (plan.stripSelectedAnimation) {
     stripSelectedAnimation(overlays, plan);
   }
+  if (plan.stripBgmDuckingConfig) {
+    stripBgmDuckingConfig(overlays);
+  }
   return overlays;
+}
+
+function stripBgmDuckingConfig(overlays: Record<string, unknown>[]): void {
+  for (const overlay of overlays) {
+    if (!isMusicSoundOverlay(overlay)) continue;
+    const styles = { ...asRecord(overlay.styles) };
+    delete styles.duckingConfig;
+    overlay.styles = styles;
+  }
 }
 
 function seedTimelineGap(

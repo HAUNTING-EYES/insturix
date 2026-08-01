@@ -485,6 +485,15 @@ This is read-only: it returns safe frame params for add_sfx, apply_camera_shake,
             data: plan,
           });
         }
+        if (plan.status === "unchanged") {
+          return JSON.stringify({
+            status: "no-op",
+            data: plan,
+            error: null,
+            nextAction: "stop",
+            message: plan.message,
+          });
+        }
 
         for (const update of plan.updates) {
           await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {

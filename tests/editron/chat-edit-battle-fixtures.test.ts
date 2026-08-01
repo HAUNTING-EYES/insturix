@@ -76,6 +76,7 @@ describe('chat edit battle fixtures', () => {
     expect(plan('close-timeline-gaps')).toMatchObject({ seedTimelineGapFrames: 30 });
     expect(plan('manual-keyframe-zoom')).toMatchObject({ selectedOverlayMinimumDurationFrames: 60 });
     expect(plan('selected-overlay-fade')).toMatchObject({ stripSelectedAnimation: true });
+    expect(plan('dialogue-ducking')).toMatchObject({ stripBgmDuckingConfig: true });
     expect(plan('sync-overlay-style')).toMatchObject({
       minimumOverlayCount: { type: 'text', count: 2, requireDistinctStyles: true },
     });
@@ -97,6 +98,32 @@ describe('chat edit battle fixtures', () => {
       'resolve_user_asset_overlay',
       'use_matching_footage',
     ]);
+  });
+
+  it('removes inherited BGM ducking only for the dialogue-ducking mutation fixture', () => {
+    const source = audioCapabilityProject();
+    const music = overlays(source).find((overlay) => overlay.type === 'sound');
+    expect(music).toBeDefined();
+    music!.styles = {
+      volume: 0.2,
+      duckingConfig: {
+        enabled: true,
+        duckLevel: 0.18,
+        rampDownMs: 300,
+        rampUpMs: 600,
+        lookAheadMs: 200,
+      },
+    };
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_ducking',
+      plan: plan('dialogue-ducking'),
+      now: NOW,
+    });
+    const preparedMusic = overlays(prepared.project).find((overlay) => overlay.id === 'sound-1');
+
+    expect(preparedMusic?.styles).toEqual({ volume: 0.2 });
   });
 
   it('rejects semantically blind visual fixtures before they can produce false product failures', () => {
