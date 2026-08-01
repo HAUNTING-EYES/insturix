@@ -1769,15 +1769,17 @@ TYPE-SPECIFIC FIELDS:
   
   const visualInspectFrameSchema = z.object({
     frame: z.coerce.number(),
+    frames: z.array(z.coerce.number()).min(2).max(3).optional(),
     question: z.string().optional(),
   });
 
   const visualInspectFrame = tool(
     async (input: z.infer<typeof visualInspectFrameSchema>) => {
-      const { frame, question } = input;
+      const { frame, frames, question } = input;
       return JSON.stringify({
         action: 'capture_frame',
         frame,
+        ...(frames ? { frames } : {}),
         question
       });
     },

@@ -53,6 +53,7 @@ import {
 } from "@/lib/editron/agent/chat-edit-context";
 import {
   CHAT_FRAME_EVIDENCE_MAX_BYTES,
+  CHAT_FRAME_EVIDENCE_MAX_TOTAL_BYTES,
   estimateChatFrameDataUrlBytes,
   extractChatFrameCaptureRequest,
   sanitizeChatFrameEvidence,
@@ -904,16 +905,19 @@ export function AIChatPanel() {
           throw new Error('The editor player is unavailable for visual inspection.');
         }
 
-        const frame = Math.min(captureRequest.frame, Math.max(0, durationInFrames - 1));
+        const requestedFrames = captureRequest.frames ?? [captureRequest.frame];
+        if (requestedFrames.some((candidate) => candidate < 0 || candidate >= durationInFrames)) {
+          throw new Error('The visual inspector requested evidence outside the project timeline.');
+        }
+        const frame = captureRequest.frame;
         const previousFrame = currentFrame;
-        addLog('client_action', 'Capturing editor frame', {
-          frame,
+        addLog('client_action', 'Capturing editor frame evidence', {
+          frames: requestedFrames,
           question: captureRequest.question,
         });
 
         let evidence: ChatFrameEvidence | null = null;
         try {
-          await seekToRenderedFrame(playerRef.current, frame);
           const element = document.getElementById('remotion-player-container');
           if (!element) throw new Error('Rendered editor canvas was not found.');
           const rect = element.getBoundingClientRect();
@@ -921,27 +925,46 @@ export function AIChatPanel() {
             throw new Error('Rendered editor canvas has invalid dimensions.');
           }
           const scale = Math.min(1, 960 / rect.width, 540 / rect.height);
-          const canvas = await html2canvas(element, { useCORS: true, scale });
-          let dataUrl = '';
-          for (const quality of [0.78, 0.64, 0.5]) {
-            const candidate = canvas.toDataURL('image/jpeg', quality);
-            const bytes = estimateChatFrameDataUrlBytes(candidate);
-            if (bytes != null && bytes <= CHAT_FRAME_EVIDENCE_MAX_BYTES) {
-              dataUrl = candidate;
-              break;
+          const perFrameByteLimit = Math.min(
+            CHAT_FRAME_EVIDENCE_MAX_BYTES,
+            Math.floor(CHAT_FRAME_EVIDENCE_MAX_TOTAL_BYTES / requestedFrames.length),
+          );
+          const capturedFrames: Array<{ frame: number; dataUrl: string; width: number; height: number }> = [];
+          for (const requestedFrame of requestedFrames) {
+            await seekToRenderedFrame(playerRef.current, requestedFrame);
+            const canvas = await html2canvas(element, { useCORS: true, scale });
+            let dataUrl = '';
+            for (const quality of [0.78, 0.64, 0.5]) {
+              const candidate = canvas.toDataURL('image/jpeg', quality);
+              const bytes = estimateChatFrameDataUrlBytes(candidate);
+              if (bytes != null && bytes <= perFrameByteLimit) {
+                dataUrl = candidate;
+                break;
+              }
             }
+            if (!dataUrl) throw new Error(`Captured frame ${requestedFrame} exceeds the visual evidence size limit.`);
+            capturedFrames.push({
+              frame: requestedFrame,
+              dataUrl,
+              width: canvas.width,
+              height: canvas.height,
+            });
           }
-          if (!dataUrl) throw new Error('Captured frame exceeds the visual evidence size limit.');
+          const anchor = capturedFrames.find((candidate) => candidate.frame === frame);
+          if (!anchor) throw new Error('Captured evidence omitted the authorized anchor frame.');
 
           const capturedAtMs = Date.now();
           evidence = sanitizeChatFrameEvidence({
             frame,
             question: captureRequest.question,
-            dataUrl,
-            width: canvas.width,
-            height: canvas.height,
+            dataUrl: anchor.dataUrl,
+            width: anchor.width,
+            height: anchor.height,
             capturedAtMs,
             source: 'editor-rendered-frame',
+            ...(capturedFrames.length > 1
+              ? { contextFrames: capturedFrames.filter((candidate) => candidate.frame !== frame) }
+              : {}),
           }, capturedAtMs);
           if (!evidence) throw new Error('Captured frame failed visual evidence validation.');
         } finally {
@@ -950,13 +973,15 @@ export function AIChatPanel() {
           }
         }
 
-        addLog('client_action', 'Editor frame captured; continuing with multimodal evidence', {
-          frame,
+        addLog('client_action', 'Editor frame evidence captured; continuing with multimodal evidence', {
+          frames: requestedFrames,
           width: evidence.width,
           height: evidence.height,
         });
         pendingVisualFollowup = {
-          message: `Continue the requested edit using the attached rendered frame ${frame}.`,
+          message: requestedFrames.length > 1
+            ? `Continue the requested edit using the attached rendered frames ${requestedFrames.join(', ')}.`
+            : `Continue the requested edit using the attached rendered frame ${frame}.`,
           evidence,
         };
       }

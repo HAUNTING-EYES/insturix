@@ -499,9 +499,10 @@ export async function buildChatBattleFrameEvidence(
   if (!width || !height || !fps || !durationInFrames) {
     throw new Error('Visual-evidence continuation requires persisted canvas dimensions, fps, and duration.');
   }
-  if (request.frame < 1 || request.frame >= durationInFrames - 1) {
+  const requestedFrames = request.frames ?? [request.frame];
+  if (requestedFrames.some((frame) => frame < 1 || frame >= durationInFrames - 1)) {
     throw new Error(
-      `Visual-evidence frame ${request.frame} lacks the surrounding edited-timeline context required for verification.`,
+      `Visual-evidence frames ${requestedFrames.join(', ')} lack the surrounding edited-timeline context required for verification.`,
     );
   }
   const overlays = Array.isArray(project.overlays) ? project.overlays as Overlay[] : [];
@@ -509,21 +510,31 @@ export async function buildChatBattleFrameEvidence(
     throw new Error('Visual-evidence continuation requires at least one persisted overlay.');
   }
 
+  const renderFrames = request.frames ?? [request.frame - 1, request.frame, request.frame + 1];
+  const captureStartFrame = Math.min(...renderFrames);
+  const captureEndFrame = Math.max(...renderFrames) + 1;
   const captured = await dependencies.capture({
     overlays,
     window: {
-      startFrame: request.frame - 1,
-      endFrame: request.frame + 2,
+      startFrame: captureStartFrame,
+      endFrame: captureEndFrame,
       fps,
     },
     canvas: { width, height },
-    anchors: { landingFrame: 1 },
+    anchors: { landingFrame: request.frame - captureStartFrame },
   });
   const anchor = captured.frames.find((frame) => frame.role === 'anchor');
   if (!anchor || anchor.coordinate.timelineFrame !== request.frame) {
     throw new Error(
       `Visual-evidence renderer returned frame ${anchor?.coordinate.timelineFrame ?? 'missing'} for requested frame ${request.frame}.`,
     );
+  }
+  const capturedByFrame = new Map(
+    captured.frames.map((candidate) => [candidate.coordinate.timelineFrame, candidate]),
+  );
+  const missingFrames = requestedFrames.filter((frame) => !capturedByFrame.has(frame));
+  if (missingFrames.length > 0) {
+    throw new Error(`Visual-evidence renderer omitted requested frame(s): ${missingFrames.join(', ')}.`);
   }
   return {
     frame: request.frame,
@@ -533,6 +544,18 @@ export async function buildChatBattleFrameEvidence(
     height: captured.canvas.height,
     capturedAtMs: dependencies.now(),
     source: 'editor-rendered-frame',
+    ...(requestedFrames.length > 1
+      ? {
+          contextFrames: requestedFrames
+            .filter((frame) => frame !== request.frame)
+            .map((frame) => ({
+              frame,
+              dataUrl: capturedByFrame.get(frame)!.imageDataUrl,
+              width: captured.canvas.width,
+              height: captured.canvas.height,
+            })),
+        }
+      : {}),
   };
 }
 

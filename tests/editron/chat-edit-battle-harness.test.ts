@@ -2381,6 +2381,7 @@ describe('chat edit battle harness', () => {
       overlays: [{ id: 'video-1', type: 'video', from: 0, durationInFrames: 300, row: 0 }],
     }, {
       frame: 84,
+      frames: [83, 84, 85],
       question: 'Verify the requested visual event.',
     }, {
       capture,
@@ -2400,6 +2401,20 @@ describe('chat edit battle harness', () => {
       height: 720,
       capturedAtMs: 1_785_000_000_000,
       source: 'editor-rendered-frame',
+      contextFrames: [
+        {
+          frame: 83,
+          dataUrl: 'data:image/webp;base64,before',
+          width: 1280,
+          height: 720,
+        },
+        {
+          frame: 85,
+          dataUrl: 'data:image/webp;base64,after',
+          width: 1280,
+          height: 720,
+        },
+      ],
     });
   });
 
