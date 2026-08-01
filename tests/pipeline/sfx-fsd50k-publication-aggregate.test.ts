@@ -187,6 +187,38 @@ describe('FSD50K merge-safe publication', () => {
     expect(selection.report.candidates[0].reasons)
       .toContain('semantic-role-similarity:0.7600');
   });
+
+  it('keeps human-approved role evidence secondary to stronger deterministic fit', async () => {
+    const root = await makeTemporaryDirectory();
+    const exact = await makeGate(root, '1001', 1, 'ambience', createWav(480), -0.2);
+    const generic = await makeGate(root, '1002', 2, 'ambience', createWav(960), 0.8);
+    const aggregate = await aggregateFsd50kPublicationGates({
+      gateDirectories: [exact, generic],
+      outputDirectory: path.join(root, 'human-role-ranking-aggregate'),
+      generatedAt: NOW,
+    });
+    const curated = await curateAggregate(aggregate.outputDirectory);
+    const exactEntry = curated.manifest.entries.find(
+      entry => entry.provenance.providerAssetId === '1001',
+    );
+    if (!exactEntry) throw new Error('Missing exact ambience fixture');
+    exactEntry.title = 'Car engine idling ambience';
+    exactEntry.tags = ['ambience', 'car', 'engine', 'idling'];
+
+    const selection = selectSfxCatalogEntry(curated.manifest, {
+      query: 'car engine idling ambience',
+      surface: 'scene',
+      maxDurationSec: 2,
+    });
+
+    expect(selection.entry?.provenance.providerAssetId).toBe('1001');
+    expect(selection.report.candidates[0]).toMatchObject({
+      assetId: exactEntry.assetId,
+      score: 0.8,
+      semanticRoleSimilarity: -0.2,
+      accepted: true,
+    });
+  });
 });
 
 async function curateAggregate(aggregateDirectory: string) {

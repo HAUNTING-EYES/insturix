@@ -202,21 +202,37 @@ Review batch:
 Gate state:
 
 - Candidates: 25
-- Approved: 23
+- Approved: 24
 - Rejected: 1
-- Pending: 1
-- Published: 23
+- Pending: 0
+- Published: 24
 - Approved roles:
   - tick: 16
-  - ambience: 4
+  - ambience: 5
   - foley: 2
   - logo-sting: 1
-- The merged runtime manifest contains 48 reviewed sounds.
-- All 23 added object hashes and public proxy responses were verified.
-- Publication gate tests: 25 of 25 passed.
+- The merged runtime manifest contains 49 reviewed sounds.
+- All 24 added object hashes and public proxy responses were verified.
+- Full SFX pipeline and runtime regression sweep: 157 of 157 passed.
 
-The pending and rejected candidates remain excluded. The approval of one
-representative did not approve its cluster members.
+The formerly pending car-engine recording, source `207483`, was explicitly
+approved as ambience on 2026-08-01. The alarm-clock recording, source `209536`,
+remains rejected and excluded. The approval of one representative did not
+approve its cluster members.
+
+The superseding-review release was incremental and receipt-bound:
+
+- Superseding gate receipt digest:
+  `9730cbc6f734811dad54389671e58597201920376c7903c087a895675c1a2bee`
+- Incremental aggregate receipt digest:
+  `8f74bbc414ebc3c3f158927c4cb7fd9537ba837d475e07095c3e5d246e870b88`
+- Catalog promotion receipt digest:
+  `1459ab1768087d599b8a07aadb4115a94c68e85e13ab7f77bc1f4188cc12578c`
+- Published asset content hash:
+  `6c01cf7488c03c7a56a71af0eb375798690c55e8e8fc9e9dd2039fc6173a8ce7`
+
+This updates the deterministic runtime catalog only. It does not rebuild or
+re-enable semantic retrieval, which remains disabled under section 4.7.
 
 ### 4.5 Semantic pass gates
 

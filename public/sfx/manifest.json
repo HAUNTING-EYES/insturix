@@ -1,6 +1,6 @@
 {
   "version": "sfx-catalog-v1",
-  "generatedAt": "2026-07-29T21:31:18.969Z",
+  "generatedAt": "2026-08-01T10:10:20.011Z",
   "knowledgeGraphRefs": [
     "transition-sfx-pairing",
     "true-peak-limiting",
@@ -2587,6 +2587,106 @@
         "evidence": {
           "kind": "library-license",
           "sourceAssetId": "sfx_catalog_6a35ccb0cdb0fe2bc0154129",
+          "licenseId": "cc0-1.0"
+        }
+      }
+    },
+    {
+      "assetId": "sfx_catalog_6c01cf7488c03c7a56a71af0",
+      "title": "20131118_car engine running_ZoomH2nXY.wav",
+      "audioUrl": "https://editron-asset-proxy.aged-shape-8752.workers.dev/asset/sfx_catalog_6c01cf7488c03c7a56a71af0",
+      "storagePath": "sfx_catalog_6c01cf7488c03c7a56a71af0",
+      "durationMs": 2279,
+      "contentHashSha256": "6c01cf7488c03c7a56a71af0eb375798690c55e8e8fc9e9dd2039fc6173a8ce7",
+      "mimeType": "audio/wav",
+      "eventRoles": [
+        "ambience"
+      ],
+      "surfaces": [
+        "scene",
+        "chapter"
+      ],
+      "layerRole": "bed",
+      "tags": [
+        "ambience",
+        "tick",
+        "idling",
+        "car",
+        "motor-vehicle-(road)",
+        "vehicle",
+        "engine"
+      ],
+      "negativeTags": [],
+      "energy": 0.32,
+      "brightness": 0.45,
+      "weight": 0.4,
+      "transientSharpness": 0.18,
+      "material": "environmental",
+      "tailMs": 0,
+      "loopable": false,
+      "direction": "neutral",
+      "motionSpeed": "still",
+      "measurement": {
+        "version": "sfx-acoustic-measurement-v1",
+        "loudnessDb": -17.6,
+        "truePeakDbtp": -5.2,
+        "sampleRateHz": 48000,
+        "channelCount": 1,
+        "durationMs": 2279,
+        "measuredAt": "2026-08-01T10:10:20.011Z",
+        "sourceHashSha256": "6c01cf7488c03c7a56a71af0eb375798690c55e8e8fc9e9dd2039fc6173a8ce7",
+        "algorithm": "ffmpeg-ebur128-v1",
+        "loudnessMetric": "integrated-lufs",
+        "integratedLufs": -17.6
+      },
+      "semanticEvidence": {
+        "version": "sfx-catalog-semantic-evidence-v2",
+        "provider": "clap-audio-classifier",
+        "model": {
+          "modelId": "Xenova/clap-htsat-unfused",
+          "modelRevision": "c28f2883575e590e04d3146ff0713c2448d691ba",
+          "embeddingDimension": 512
+        },
+        "embeddingAnalysisDigestSha256": "d4bd10ecb1b1b4f96caf21503cfa5222fd70d50a586b503a1e033e14c62405eb",
+        "candidateDigestSha256": "fcc9f3f12b9e69458206c1effaccefbfe6a11d89cf611c6c691985eae3d7284f",
+        "embeddingSourceHashSha256": "ae190b643925b3c5e63e34a488678a009c1eabbb34cd863e993d3707bd2be95a",
+        "catalogContentHashSha256": "6c01cf7488c03c7a56a71af0eb375798690c55e8e8fc9e9dd2039fc6173a8ce7",
+        "selectedRole": "ambience",
+        "selectedRoleCosineSimilarity": -0.067016,
+        "selectedRoleRank": 7,
+        "topRole": "tick",
+        "topRoleCosineSimilarity": 0.076517,
+        "roleAgreement": false,
+        "riskScores": [
+          {
+            "risk": "noise",
+            "cosineSimilarity": 0.081787
+          },
+          {
+            "risk": "speech",
+            "cosineSimilarity": -0.105282
+          },
+          {
+            "risk": "music",
+            "cosineSimilarity": -0.257975
+          }
+        ]
+      },
+      "provenance": {
+        "provider": "fsd50k",
+        "providerAssetId": "207483",
+        "licenseId": "cc0-1.0",
+        "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+        "attributionRequired": false
+      },
+      "audioRights": {
+        "mediaRole": "sfx",
+        "source": "library",
+        "userChoice": "attested",
+        "licensed": true,
+        "evidence": {
+          "kind": "library-license",
+          "sourceAssetId": "sfx_catalog_6c01cf7488c03c7a56a71af0",
           "licenseId": "cc0-1.0"
         }
       }

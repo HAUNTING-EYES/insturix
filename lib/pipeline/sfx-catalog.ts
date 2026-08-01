@@ -486,6 +486,7 @@ function compareCatalogCandidates(left: ScoredCatalogEntry, right: ScoredCatalog
     ) {
       return right.semanticQuerySimilarity - left.semanticQuerySimilarity;
     }
+    if (left.score !== right.score) return right.score - left.score;
     const leftHasSemanticEvidence = left.semanticRoleSimilarity !== undefined;
     const rightHasSemanticEvidence = right.semanticRoleSimilarity !== undefined;
     if (leftHasSemanticEvidence !== rightHasSemanticEvidence) {
@@ -499,7 +500,7 @@ function compareCatalogCandidates(left: ScoredCatalogEntry, right: ScoredCatalog
       return right.semanticRoleSimilarity - left.semanticRoleSimilarity;
     }
   }
-  return right.score - left.score || left.entry.assetId.localeCompare(right.entry.assetId);
+  return left.entry.assetId.localeCompare(right.entry.assetId);
 }
 
 function semanticSimilarityForEntry(
