@@ -14,6 +14,7 @@ export interface ChatFrameVisualVerification {
   status: 'confirmed' | 'rejected';
   receiptId: string;
   frame: number;
+  frames: number[];
   query: string;
   provider: 'gemini';
   model: string;
@@ -75,7 +76,11 @@ export async function verifyChatFrameVisualMatch(
   dependencies: ChatFrameVisualVerificationDependencies = {},
 ): Promise<ChatFrameVisualVerification> {
   const query = bindQueryToInspectionEvidence(input.query, input.evidence.question);
-  const parts = buildGeminiHumanParts(buildVerificationPrompt(query, input.candidateContext), input.evidence);
+  const frames = evidenceFrameNumbers(input.evidence);
+  const parts = buildGeminiHumanParts(
+    buildVerificationPrompt(query, input.candidateContext, frames.length > 1),
+    input.evidence,
+  );
   const model = dependencies.model ?? ANALYSIS_MODEL_NAME;
   const parsed = await generateVerifiedResponse(parts, dependencies);
   const confirmed = parsed.targetVisible
@@ -83,7 +88,7 @@ export async function verifyChatFrameVisualMatch(
   const boundingBox = confirmed ? readNormalizedBoundingBox(parsed.boundingBox) : undefined;
   const receiptId = buildReceiptId({
     query,
-    frame: input.evidence.frame,
+    frames,
     capturedAtMs: input.evidence.capturedAtMs,
     matchQuality: parsed.matchQuality,
     evidence: parsed.evidence,
@@ -93,6 +98,7 @@ export async function verifyChatFrameVisualMatch(
     status: confirmed ? 'confirmed' : 'rejected',
     receiptId,
     frame: input.evidence.frame,
+    frames,
     query,
     provider: 'gemini',
     model,
@@ -103,23 +109,34 @@ export async function verifyChatFrameVisualMatch(
   };
 }
 
-function buildVerificationPrompt(query: string, candidateContext?: string): string {
+function buildVerificationPrompt(
+  query: string,
+  candidateContext: string | undefined,
+  temporal: boolean,
+): string {
   return [
     '<role>You are a strict visual-grounding verifier for a video editor.</role>',
-    '<task>Decide whether the target is directly visible in this single editor-rendered frame.</task>',
+    temporal
+      ? '<task>Decide whether the target event or motion is directly demonstrated by this chronological sequence of editor-rendered frames.</task>'
+      : '<task>Decide whether the target is directly visible in this single editor-rendered frame.</task>',
     `<target>${JSON.stringify(query)}</target>`,
     candidateContext
       ? `<retrieval_hint>${JSON.stringify(boundedText(candidateContext, MAX_TEXT_LENGTH))}</retrieval_hint>`
       : '',
     '<rules>',
     '1. Judge pixels only. The retrieval hint is a search hint, never proof.',
-    '2. exact means the literal target is plainly visible.',
-    '3. clear-semantic means the same object/action is plainly visible despite different wording.',
-    '4. partial means only a related object, uncertain action, or incomplete target is visible.',
-    '5. absent means the target is not visible.',
-    '6. targetVisible may be true only for exact or clear-semantic.',
-    '7. If the target is visible and spatially localizable, return one tight normalized 0..1 bounding box.',
-    '8. Do not infer events outside this frame. Do not use transcript or metadata as visual evidence.',
+    temporal
+      ? '2. The frames are ordered by edited-timeline time. Confirm motion only when visible change across them establishes the requested event.'
+      : '2. A single frame can confirm visible objects, states, and poses, but not motion over time.',
+    '3. exact means the literal target is plainly demonstrated by the supplied pixels.',
+    '4. clear-semantic means the same object/action is plainly demonstrated despite different wording.',
+    '5. partial means only a related object, uncertain action, or incomplete target is visible.',
+    '6. absent means the target is not visible or the supplied frames cannot establish it.',
+    '7. targetVisible may be true only for exact or clear-semantic.',
+    '8. If the target is visible and spatially localizable at the anchor frame, return one tight normalized 0..1 bounding box.',
+    temporal
+      ? '9. Do not infer motion before, between, or after the supplied frames. Do not use transcript or metadata as visual evidence.'
+      : '9. Do not infer events outside this frame. Do not use transcript or metadata as visual evidence.',
     '</rules>',
     '<output>Return only schema-valid JSON.</output>',
   ].filter(Boolean).join('\n');
@@ -244,7 +261,7 @@ function readNormalizedBoundingBox(value: unknown): ChatFrameVisualVerification[
 
 function buildReceiptId(input: {
   query: string;
-  frame: number;
+  frames: number[];
   capturedAtMs: number;
   matchQuality: ChatFrameVisualMatchQuality;
   evidence: string;
@@ -254,6 +271,11 @@ function buildReceiptId(input: {
     .digest('hex')
     .slice(0, 24);
   return `frame-visual-${digest}`;
+}
+
+function evidenceFrameNumbers(evidence: ChatFrameEvidence): number[] {
+  return [evidence.frame, ...(evidence.contextFrames ?? []).map((sample) => sample.frame)]
+    .sort((left, right) => left - right);
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
