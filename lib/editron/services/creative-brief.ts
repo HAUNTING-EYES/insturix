@@ -25,6 +25,10 @@ import {
   MAX_PER_VIDEO_MAP, type DecisionRegistryEntry,
 } from '../data/decision-registry';
 import type { GenreParameters } from './graph-query';
+import {
+  renderCreativeBriefGroundedContext,
+  type CreativeBriefGroundedContext,
+} from './creative-brief-grounding';
 
 export const CREATIVE_BRIEF_FACT_AUTHORITY_CONTRACT = `<authority_contract>
 You are the narrative/fact interpreter, not the final overlay planner or renderer.
@@ -308,6 +312,7 @@ export interface VideoContext {
   transcription: { word: string; startMs: number; endMs: number; assetId?: string; originalWordIndex?: number }[];
   totalDurationSec: number;
   segmentCount: number;
+  groundedEditorialContext?: CreativeBriefGroundedContext;
   audioFeatures?: {
     rmsEnergyCurve: number[];
     silenceGaps: { startMs: number; endMs: number }[];
@@ -328,9 +333,14 @@ export interface VideoContext {
 // ─── Main Function ──────────────────────────────────────────────────────────
 
 const CONFIDENCE_THRESHOLD = 0.5;
-const DEFAULT_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS = 90_000;
+// 90s aborted gemini-3.1-pro-preview mid-generation (video + 24k prompt + 65k output budget) → the whole
+// premium edit plan was lost and every video fell to the bare Path D (0 MG / transitions / zooms). The config
+// itself budgets this model at ~300s (editron-config.ts) and the director worker's ceiling is maxDuration=800,
+// so the old 90s cap was self-imposed ~9x too low. ONE bounded attempt at 280s (no retry — a retry just doubles
+// the wait); if it still exceeds this, it fails to Path D exactly as before.
+const DEFAULT_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS = 280_000;
 const MIN_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS = 15_000;
-const MAX_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS = 180_000;
+const MAX_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS = 400_000;
 
 export function resolveCreativeBriefRequestTimeoutMs(
   raw: string | undefined = process.env.EDITRON_CREATIVE_BRIEF_REQUEST_TIMEOUT_MS,
@@ -512,6 +522,7 @@ function buildPrompt(
   const genreBlock = genreParams ? buildGenreBlock(genreParams) : '';
   const budgetBlock = budget ? buildBudgetBlock(budget) : '';
   const signalMapBlock = buildSignalDecisionMap(ctx, genreParams);
+  const groundedContextBlock = renderCreativeBriefGroundedContext(ctx.groundedEditorialContext);
   const validTypesBlock = buildValidTypesBlock();
   const validReasonsBlock = [...VALID_DECISION_REASONS].join(', ');
 
@@ -536,6 +547,7 @@ ${genreBlock}
 ${budgetBlock}
 ${signalMapBlock}
 ${CREATIVE_BRIEF_FACT_AUTHORITY_CONTRACT}
+${groundedContextBlock}
 
 <valid_types>
 Use ONLY these exact type strings. Any other type will be silently dropped.
@@ -656,6 +668,7 @@ function buildMusicPrompt(
   const genreBlock = genreParams ? buildGenreBlock(genreParams) : '';
   const budgetBlock = budget ? buildBudgetBlock(budget) : '';
   const signalMapBlock = buildSignalDecisionMap(ctx, genreParams);
+  const groundedContextBlock = renderCreativeBriefGroundedContext(ctx.groundedEditorialContext);
   const validTypesBlock = buildValidTypesBlock();
   const validReasonsBlock = [...VALID_DECISION_REASONS].join(', ');
 
@@ -715,6 +728,7 @@ ${rhythmAdaptation}${genreBlock}
 ${budgetBlock}
 ${signalMapBlock}
 ${CREATIVE_BRIEF_FACT_AUTHORITY_CONTRACT}
+${groundedContextBlock}
 
 <valid_types>
 Use ONLY these exact type strings. Any other type will be silently dropped.
@@ -794,6 +808,7 @@ function buildVisualPrompt(
   const genreBlock = genreParams ? buildGenreBlock(genreParams) : '';
   const budgetBlock = budget ? buildBudgetBlock(budget) : '';
   const signalMapBlock = buildSignalDecisionMap(ctx, genreParams);
+  const groundedContextBlock = renderCreativeBriefGroundedContext(ctx.groundedEditorialContext);
   const validTypesBlock = buildValidTypesBlock();
   const validReasonsBlock = [...VALID_DECISION_REASONS].join(', ');
 
@@ -853,6 +868,7 @@ ${visualAdaptation}${genreBlock}
 ${budgetBlock}
 ${signalMapBlock}
 ${CREATIVE_BRIEF_FACT_AUTHORITY_CONTRACT}
+${groundedContextBlock}
 
 <valid_types>
 Use ONLY these exact type strings. Any other type will be silently dropped.
