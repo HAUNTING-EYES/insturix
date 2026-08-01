@@ -513,6 +513,7 @@ describe('server-owned localized chat workflow', () => {
     };
     const inspectionArgs = {
       frame: 443,
+      frames: [412, 443, 472],
       question: 'Verify canonical visual match for: camera pulls back to reveal the artisan',
     };
     const unresolved = execution('resolve_visual_edit', resolverArgs, {
@@ -576,6 +577,10 @@ describe('server-owned localized chat workflow', () => {
       height: 540,
       capturedAtMs: 1_000_000,
       source: 'editor-rendered-frame' as const,
+      contextFrames: [
+        { frame: 412, dataUrl: 'data:image/jpeg;base64,/9j/2Q==', width: 960, height: 540 },
+        { frame: 472, dataUrl: 'data:image/jpeg;base64,/9j/2Q==', width: 960, height: 540 },
+      ],
     };
     expect(resolveChatFrameContinuationLicense(history, evidence)).toEqual(owner);
     expect(resolveChatFrameContinuationLicense(history, {

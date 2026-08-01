@@ -9,6 +9,7 @@ import type {
   CompletedChatToolExecution,
 } from './chat-tool-execution-policy';
 import type { ChatRequestOwnerLicense } from './chat-request-owner';
+import { normalizeChatFrameCaptureRequest } from './chat-frame-evidence';
 
 export type ServerOwnedLocalizedWorkflowStep =
   | {
@@ -438,13 +439,8 @@ function requiredFrameInspection(
   const data = asRecord(envelope?.data);
   const useWith = asRecord(data.useWith);
   const inspection = asRecord(useWith.visual_inspect_frame);
-  const frame = Number(inspection.frame);
-  const question = firstString(inspection.question);
-  if (!Number.isFinite(frame) || frame < 0 || !question) return null;
-  return {
-    frame: Math.round(frame),
-    question,
-  };
+  const request = normalizeChatFrameCaptureRequest(inspection);
+  return request ? { ...request } : null;
 }
 
 function hasCurrentTimelineEvidence(

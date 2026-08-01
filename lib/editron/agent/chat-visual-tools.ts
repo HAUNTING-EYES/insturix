@@ -78,7 +78,7 @@ export interface VisualMomentCandidate {
     cut_section: { startFrame: number; endFrame: number; note: string };
     add_motion_graphic: { frame: number; text: string };
     set_keyframes: { frame: number; note: string };
-    visual_inspect_frame: { frame: number; question: string };
+    visual_inspect_frame: { frame: number; frames?: number[]; question: string };
   };
 }
 
@@ -3793,7 +3793,7 @@ export function resolveVisualEditPlacement(
   if ((!candidate.safeForAutoEdit && !readOnlyInspection) || semanticCutRequiresConfirmation) {
     const second = candidates[1];
     const inspection = canRequestCanonicalFrameVerification(candidate)
-      ? candidate.useWith.visual_inspect_frame
+      ? visualInspectionRequest(candidate, action)
       : undefined;
     return {
       status: "ambiguous",
@@ -3905,6 +3905,21 @@ export function resolveVisualEditPlacement(
     },
     message: `Resolved highlight for "${candidate.text}" to frame ${candidate.frame} with a bounding box.`,
   };
+}
+
+function visualInspectionRequest(
+  candidate: VisualMomentCandidate,
+  action: VisualEditAction,
+): VisualMomentCandidate["useWith"]["visual_inspect_frame"] {
+  const request = candidate.useWith.visual_inspect_frame;
+  if (action !== "speed_ramp") return request;
+  const lastFrame = Math.max(candidate.startFrame, candidate.endFrame - 1);
+  const frames = Array.from(new Set([
+    Math.min(lastFrame, candidate.startFrame + 1),
+    clampInt(candidate.frame, candidate.startFrame, lastFrame),
+    Math.max(candidate.startFrame, lastFrame - 1),
+  ])).sort((left, right) => left - right);
+  return frames.length >= 3 ? { ...request, frames } : request;
 }
 
 function buildVisualHighlightOverlay(
