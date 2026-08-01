@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { C, SANS, MONO, STAGES, stageLabel, platLabel, dayTitle, platformDefaultAspect } from './calos-view-model';
 import type { CalItem } from './calos-view-model';
 import { Sheet, Btn, Glyph, StatusMark, Mono } from './calos-atoms';
+import { classifyDeliveryState, type PublishStatusLoadState } from './calos-delivery-state';
 
 /* ═══ CalOS v3 · content card ═════════════════════════════════════════
    Per-deliverable editor: title, editorial pipeline, brief, script, and the
@@ -27,7 +28,7 @@ const ASPECTS = [
 ] as const;
 
 export function ContentModal({
-  item, onClose, onSaveTitle, onSaveDates, onSaveDetails, onSaveTags, onDecision, onGenerate, onDelete, onOpenScript, onPublish, onMakeImage, pubState, connected, connectionHealth, retrying, onRequestRetry, onOpenPublishing,
+  item, onClose, onSaveTitle, onSaveDates, onSaveDetails, onSaveTags, onDecision, onGenerate, onDelete, onOpenScript, onPublish, onMakeImage, pubState, publishStatusLoadState, connected, connectionHealth, retrying, onRequestRetry, onRefreshPublishing, onOpenPublishing,
 }: {
   item: CalItem;
   onClose: () => void;
@@ -54,6 +55,7 @@ export function ContentModal({
     accountRef: string | null;
     canRetry: boolean;
   };
+  publishStatusLoadState: PublishStatusLoadState;
   connected?: boolean;
   connectionHealth?: {
     state: 'assigned' | 'attention' | 'reconnect';
@@ -63,6 +65,7 @@ export function ContentModal({
   };
   retrying?: boolean;
   onRequestRetry?: (id: string) => void;
+  onRefreshPublishing?: () => void;
   onOpenPublishing?: () => void;
 }) {
   const d = item;
@@ -75,6 +78,13 @@ export function ContentModal({
   const [making, setMaking] = useState(false); // optimistic: kicked off "Make image", awaiting refetch
   const [aspect, setAspect] = useState<string>(() => platformDefaultAspect(d.platform)); // user-chosen image size
   const [decisionBusy, setDecisionBusy] = useState<'approved' | 'changes_requested' | null>(null);
+  const deliveryState = classifyDeliveryState({
+    approved: d.stage === 'approved',
+    publishState: pubState,
+    connected,
+    connectionHealth,
+    loadState: publishStatusLoadState,
+  });
 
   const submitDecision = async (decision: 'approved' | 'changes_requested') => {
     if (decisionBusy) return;
@@ -326,24 +336,19 @@ export function ContentModal({
         </div>
       )}
 
-      {(d.stage === 'approved' || pubState) && (
+      {deliveryState !== 'hidden' && (
         <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 18 }}>
           <Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Delivery</Mono>
-          {pubState?.status === 'published' ? (
+          {deliveryState === 'published' ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Mono s={11} c={C.gold}>✓ Posted to {platLabel(d.platform)}</Mono>
-              {pubState.postUrl && <a href={pubState.postUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.gold, textDecoration: 'underline' }}>View post</a>}
+              {pubState?.postUrl && <a href={pubState.postUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.gold, textDecoration: 'underline' }}>View post</a>}
             </div>
-          ) : connected === false ? (
+          ) : deliveryState === 'failed' ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <Mono s={11} c={C.coral}>{platLabel(d.platform)} isn’t connected — it won’t post.</Mono>
-              {onOpenPublishing && <Btn size="sm" onClick={onOpenPublishing}>Connect</Btn>}
-            </div>
-          ) : pubState?.status === 'failed' ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <Mono s={11} c={C.coral} st={{ flex: 1, overflowWrap: 'anywhere' }}>Didn’t post{pubState.error ? `: ${pubState.error}` : '.'}</Mono>
+              <Mono s={11} c={C.coral} st={{ flex: 1, overflowWrap: 'anywhere' }}>Didn’t post{pubState?.error ? `: ${pubState.error}` : '.'}</Mono>
               <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                {pubState.canRetry && onRequestRetry && (
+                {pubState?.canRetry && onRequestRetry && (
                   <Btn size="sm" variant="primary" disabled={retrying} onClick={() => onRequestRetry(d.id)}>
                     {retrying ? 'Retrying...' : 'Retry'}
                   </Btn>
@@ -351,19 +356,42 @@ export function ContentModal({
                 {onOpenPublishing && <Btn size="sm" onClick={onOpenPublishing}>Publishing</Btn>}
               </div>
             </div>
-          ) : connectionHealth && connectionHealth.state !== 'assigned' ? (
+          ) : deliveryState === 'blocked' ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
               <Mono s={11} c={C.coral} st={{ flex: 1, overflowWrap: 'anywhere' }}>
-                {connectionHealth.message ?? `${platLabel(d.platform)} needs attention before publishing.`}
+                {connectionHealth?.message ?? `${platLabel(d.platform)} is not publish-ready. Check the assigned account.`}
               </Mono>
               {onOpenPublishing && (
                 <Btn size="sm" onClick={onOpenPublishing}>
-                  {connectionHealth.state === 'reconnect' ? 'Reconnect' : 'Publishing'}
+                  {connectionHealth?.state === 'reconnect' ? 'Reconnect' : 'Publishing'}
                 </Btn>
               )}
             </div>
+          ) : deliveryState === 'not_connected' ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <Mono s={11} c={C.coral}>{platLabel(d.platform)} has no assigned publishing account.</Mono>
+              {onOpenPublishing && <Btn size="sm" onClick={onOpenPublishing}>Assign</Btn>}
+            </div>
+          ) : deliveryState === 'pending' ? (
+            <Mono s={11} c={C.soft}>Queued — scheduled and waiting for its publish time.</Mono>
+          ) : deliveryState === 'claimed' ? (
+            <Mono s={11} c={C.soft}>Preparing to publish — a worker has claimed this job.</Mono>
+          ) : deliveryState === 'publishing' ? (
+            <Mono s={11} c={C.gold}>Publishing now…</Mono>
+          ) : deliveryState === 'loading' ? (
+            <Mono s={11} c={C.soft}>Checking delivery status…</Mono>
+          ) : deliveryState === 'unavailable' ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <Mono s={11} c={C.coral}>Delivery status is unavailable. This card is not being assumed queued.</Mono>
+              {onRefreshPublishing && <Btn size="sm" onClick={onRefreshPublishing}>Retry status</Btn>}
+            </div>
+          ) : deliveryState === 'not_queued' ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <Mono s={11} c={C.soft}>Approved, but no publish job exists for this card.</Mono>
+              {onOpenPublishing && <Btn size="sm" onClick={onOpenPublishing}>Publishing</Btn>}
+            </div>
           ) : (
-            <Mono s={11} c={C.soft}>Queued — auto-posts on the scheduled date.</Mono>
+            <Mono s={11} c={C.coral}>Unknown publish status: {pubState?.status ?? 'unknown'}.</Mono>
           )}
         </div>
       )}

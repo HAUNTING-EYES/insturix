@@ -55,6 +55,7 @@ import {
   GET as getYoutubeAssignments,
   POST as postYoutubeAssignment,
 } from "@/app/api/services/calos/connect/youtube/assign/route";
+import { classifyDeliveryState } from "@/components/dashboard/calos/v3/calos-delivery-state";
 
 const YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload";
 type YoutubeAssignRequest = Parameters<typeof postYoutubeAssignment>[0];
@@ -150,6 +151,43 @@ describe("Content calendar regressions", () => {
     expect(calendarSource).toContain("setConfirm({ kind: 'deleteday', date: selDay })");
     expect(calendarSource).toContain("onConfirm={doClearAll}");
     expect(calendarSource).toContain("onConfirm={() => doDeleteDay(confirm.date)}");
+  });
+
+  it("never invents queued or active publishing state", () => {
+    expect(classifyDeliveryState({ approved: true, connected: true, loadState: "ready" }))
+      .toBe("not_queued");
+    expect(classifyDeliveryState({ approved: true, connected: true, loadState: "error" }))
+      .toBe("unavailable");
+    expect(classifyDeliveryState({
+      approved: false,
+      connected: false,
+      connectionHealth: { state: "reconnect" },
+      loadState: "ready",
+    })).toBe("hidden");
+    expect(classifyDeliveryState({
+      approved: true,
+      connected: true,
+      loadState: "ready",
+      publishState: { status: "pending" },
+    })).toBe("pending");
+    expect(classifyDeliveryState({
+      approved: true,
+      connected: false,
+      connectionHealth: { state: "reconnect" },
+      loadState: "ready",
+      publishState: { status: "claimed" },
+    })).toBe("blocked");
+
+    const root = process.cwd();
+    const connectionsSource = readFileSync(join(root, "app/dashboard/calos/BrandConnections.tsx"), "utf8");
+    const modalSource = readFileSync(
+      join(root, "components/dashboard/calos/v3/calos-content-modal.tsx"),
+      "utf8",
+    );
+    expect(connectionsSource).not.toContain("> Active");
+    expect(connectionsSource).toContain("/> Assigned");
+    expect(modalSource).not.toContain("Queued — auto-posts on the scheduled date.");
+    expect(modalSource).toContain("Approved, but no publish job exists for this card.");
   });
 
   it("authorizes personal, owned, and accessible Vault brands but rejects foreign brands", async () => {

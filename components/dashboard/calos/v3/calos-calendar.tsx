@@ -20,6 +20,7 @@ import BrandConnections from '@/app/dashboard/calos/BrandConnections';
 import { CalosBrandReferencesModal } from './calos-brand-references-modal';
 import { useActiveBrand } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import { CalosTrendOpportunityReview } from './calos-trend-opportunity-review';
+import type { PublishStatusLoadState } from './calos-delivery-state';
 
 /* ═══ CalOS v3 · calendar (Phase 1 spine) ═════════════════════════════
    The founder's calos-v3.jsx design, wired to the real deliverables service.
@@ -69,11 +70,13 @@ export default function CalosCalendarV3() {
   const [brandRefsOpen, setBrandRefsOpen] = useState(false);
   const [trendOpportunitiesOpen, setTrendOpportunitiesOpen] = useState(false);
   const [pubStatus, setPubStatus] = useState<Record<string, PublishState>>({});
+  const [pubStatusLoadState, setPubStatusLoadState] = useState<PublishStatusLoadState>('loading');
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
   const [connectionHealth, setConnectionHealth] = useState<Record<string, ConnectionHealth>>({});
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filterStage, setFilterStage] = useState<string | null>(null);
+  const pubStatusFailureShownRef = useRef(false);
 
   // Self-updating "today" so a session left open past midnight rolls over (checks each minute,
   // only re-renders when the calendar day actually changes).
@@ -119,8 +122,9 @@ export default function CalosCalendarV3() {
 
   // Delivery visibility: per-card publish state + which platforms are connected, so an approved
   // card isn't a black box and we can prompt "connect X to publish" instead of failing silently.
-  const loadPubStatus = React.useCallback(async (signal?: AbortSignal) => {
+  const loadPubStatus = React.useCallback(async (signal?: AbortSignal, background = false) => {
     if (!brandId) return;
+    if (!background) setPubStatusLoadState('loading');
     try {
       const res = await fetch(`/api/services/calos/publish-status?brandId=${encodeURIComponent(brandId)}`, {
         cache: 'no-store',
@@ -128,21 +132,45 @@ export default function CalosCalendarV3() {
       });
       const data = await res.json().catch(() => ({}));
       if (signal?.aborted) return;
+      if (!res.ok) throw new Error(data?.error || `Publishing status failed (${res.status})`);
       setPubStatus(data?.statuses && typeof data.statuses === 'object' ? data.statuses : {});
       setConnectedPlatforms(Array.isArray(data?.connectedPlatforms) ? data.connectedPlatforms : []);
       setConnectionHealth(data?.connectionHealth && typeof data.connectionHealth === 'object' ? data.connectionHealth : {});
-    } catch {
-      /* best-effort — visibility only, never blocks the calendar */
+      setPubStatusLoadState('ready');
+      pubStatusFailureShownRef.current = false;
+    } catch (error) {
+      if (signal?.aborted) return;
+      setPubStatusLoadState('error');
+      if (!pubStatusFailureShownRef.current) {
+        pubStatusFailureShownRef.current = true;
+        toast({
+          title: 'Publishing status unavailable',
+          description: error instanceof Error ? error.message : 'Could not verify scheduled posts.',
+          variant: 'destructive',
+        });
+      }
     }
   }, [brandId]);
   useEffect(() => {
     setPubStatus({});
+    setPubStatusLoadState('loading');
     setConnectedPlatforms([]);
     setConnectionHealth({});
+    pubStatusFailureShownRef.current = false;
     const controller = new AbortController();
     void loadPubStatus(controller.signal);
     return () => controller.abort();
   }, [loadPubStatus]);
+
+  const hasActivePublish = useMemo(
+    () => Object.values(pubStatus).some((state) => state.status === 'claimed' || state.status === 'publishing'),
+    [pubStatus],
+  );
+  useEffect(() => {
+    if (!hasActivePublish) return;
+    const id = setInterval(() => { void loadPubStatus(undefined, true); }, 8_000);
+    return () => clearInterval(id);
+  }, [hasActivePublish, loadPubStatus]);
 
   // Auto-refresh while an image job is in flight, so the finished still lands on the card without a
   // manual reload. Polls (every 12s) only while at least one card is 'generating'; stops as soon as
@@ -611,10 +639,12 @@ export default function CalosCalendarV3() {
           onDelete={handleDelete}
           onOpenScript={handleOpenScript}
           pubState={pubStatus[openItem.id]}
+          publishStatusLoadState={pubStatusLoadState}
           connected={connectedPlatforms.includes(openItem.platform)}
           connectionHealth={connectionHealth[openItem.platform]}
           retrying={retryingId === openItem.id}
           onRequestRetry={(id) => setConfirm({ kind: 'retrypublish', id })}
+          onRefreshPublishing={() => void loadPubStatus()}
           onOpenPublishing={() => { setOpenId(null); setConnectionsOpen(true); }}
         />
       )}
