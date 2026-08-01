@@ -13,9 +13,9 @@ import CalosDeliverable, { type CalosServiceRef } from "@/schemas/calos-delivera
  * - DIRECT Mongoose write, never an HTTP self-callback. The calling worker has no Clerk session
  *   and shares this same DB/connection, so an HTTP round-trip would only add an auth wall + a
  *   network failure mode for zero benefit.
- * - CLAIM-BOUND and idempotent. A callback must match the active service, job ID, and deliverable
- *   version before it can write. Duplicate current callbacks remain first-write-wins, while stale
- *   retries and completions from an edited card are rejected.
+ * - CLAIM-BOUND and idempotent. A callback must match the active service, deliverable version, and
+ *   either the final job ID or the pre-dispatch variation lease. The latter closes the crash window
+ *   where Clickatron finishes before the kickoff request stores its final job ID.
  * - FAIL LOUD (R18N). A "not found" means a service finished work for a card we can't resolve —
  *   a real wiring bug — so it is logged, not swallowed silently. DB errors propagate to the
  *   caller (the worker wraps the call so it can never fail the underlying job).
@@ -63,7 +63,9 @@ function asServiceRef(value: unknown): CalosServiceRef | undefined {
 function mergeServiceRef(existing: unknown, incoming: CalosServiceRef | undefined) {
   const base = asServiceRef(existing);
   if (!incoming) return base;
-  return { ...base, ...incoming };
+  const merged = { ...base, ...incoming };
+  delete merged.claimExpiresAt;
+  return merged;
 }
 
 function isCurrentGeneration(
@@ -71,11 +73,14 @@ function isCurrentGeneration(
   incoming: CalosServiceRef | undefined,
 ) {
   const current = asServiceRef(deliverable.serviceRef);
+  const jobMatches = Boolean(incoming?.jobId && current?.jobId === incoming.jobId);
+  const variationMatches = Boolean(
+    incoming?.variationId && current?.variationId === incoming.variationId,
+  );
   return Boolean(
     incoming?.service &&
-      incoming.jobId &&
       current?.service === incoming.service &&
-      current.jobId === incoming.jobId &&
+      (jobMatches || variationMatches) &&
       Number.isInteger(current.deliverableVersion) &&
       current.deliverableVersion === deliverable.version,
   );
@@ -92,6 +97,8 @@ function logStaleGeneration(
     incomingService: incoming?.service ?? null,
     currentJobId: current?.jobId ?? null,
     incomingJobId: incoming?.jobId ?? null,
+    currentVariationId: current?.variationId ?? null,
+    incomingVariationId: incoming?.variationId ?? null,
     currentVersion: deliverable.version,
     claimedVersion: current?.deliverableVersion ?? null,
   });

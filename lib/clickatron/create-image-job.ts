@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
 import { ClickatronTask } from "@/schemas/Clickatron";
 import { getClickatronDb } from "@/lib/clickatron-mongo";
-import { createJob } from "@/lib/clickatron-jobs";
+import { createJob, failQueuedJob } from "@/lib/clickatron-jobs";
 import { enqueueClickatronJob } from "@/lib/clickatron-qtask";
 import { resolveClickatronModelForGeneration } from "@/lib/config/clickatron-models";
 import type { ClickatronSourceContext } from "@/types/clickatron";
@@ -31,6 +31,9 @@ export interface CreateClickatronImageJobParams {
   brandId: string;
   /** The image-generation prompt (e.g. PostWriter's singleImagePrompt). */
   prompt: string;
+  /** Caller-owned durable variation identity. CalOS supplies its Mongo lease ID so completion can
+   *  prove ownership even if the kickoff request dies before the final Redis job ID is linked. */
+  variationId?: string;
   /** Aspect ratio for the still. Defaults to "1:1" — square renders on every social surface (IG feed,
    *  LinkedIn, X, FB); platform-aware sizing is a follow-up. */
   aspectRatio?: string;
@@ -113,7 +116,7 @@ export function buildClickatronImageJobPlan(
   const modelId = resolved.modelId;
 
   const metadata = params.sourceContext ? { sourceContext: params.sourceContext } : undefined;
-  const variationId = nanoid();
+  const variationId = params.variationId || nanoid();
 
   const variation: PlannedVariation = {
     id: variationId,
@@ -163,37 +166,122 @@ export interface CreateClickatronImageJobResult {
   sessionId?: string;
   variationId?: string;
   jobId?: string;
+  /** True only when no worker can still claim this work, so the caller may safely refund. */
+  refundable?: boolean;
+  dispatchUncertain?: boolean;
   error?: string;
 }
 
+async function markKickoffVariationFailed(
+  sessionId: string,
+  variationId: string,
+  error: string,
+): Promise<boolean> {
+  try {
+    const result = await ClickatronTask.updateOne(
+      { _id: sessionId, "details.canvas.variations.id": variationId },
+      {
+        $set: {
+          "details.canvas.variations.$.status": "failed",
+          "details.canvas.variations.$.error": error,
+          "details.canvas.variations.$.updatedAt": new Date(),
+        },
+      },
+    );
+    return result.matchedCount === 1;
+  } catch (persistError) {
+    console.error("[CalOS] failed to terminalize Clickatron kickoff variation:", persistError);
+    return false;
+  }
+}
+
 /**
- * Create a Clickatron session + generating variation and enqueue its generation job. Best-effort by
- * contract: returns `{ ok:false, error }` on any failure rather than throwing, so a CalOS caller can
- * keep the card's caption + refund its own image charge without the whole request failing.
+ * Create a Clickatron session + generating variation and enqueue its generation job. Queue failures
+ * are reconciled against the durable Redis job: only a queued-only terminal transition makes the
+ * result refundable; a worker that already claimed the job keeps ownership despite a lost dispatch
+ * acknowledgement.
  */
 export async function createClickatronImageJob(
   params: CreateClickatronImageJobParams,
 ): Promise<CreateClickatronImageJobResult> {
-  if (!params.prompt?.trim()) return { ok: false, error: "empty image prompt" };
-  if (!params.brandId) return { ok: false, error: "brandId is required (worker gates card write-back on it)" };
+  if (!params.prompt?.trim()) return { ok: false, refundable: true, error: "empty image prompt" };
+  if (!params.brandId) {
+    return {
+      ok: false,
+      refundable: true,
+      error: "brandId is required (worker gates card write-back on it)",
+    };
+  }
+
+  let sessionId: string | undefined;
+  let variationId: string | undefined;
+  let jobId: string | undefined;
+  let taskPersisted = false;
 
   try {
     const plan = buildClickatronImageJobPlan(params);
+    variationId = plan.variationId;
 
     await getClickatronDb();
     const task = new ClickatronTask(plan.taskFields);
-    const sessionId = task._id.toString();
+    sessionId = task._id.toString();
     await task.save();
+    taskPersisted = true;
 
     const jobData = { ...plan.jobDataBase, sessionId };
-    const jobId = await createJob(jobData);
-    await enqueueClickatronJob({ jobId, ...jobData });
+    jobId = await createJob(jobData);
+    try {
+      await enqueueClickatronJob({ jobId, ...jobData });
+    } catch (dispatchError) {
+      const error = dispatchError instanceof Error ? dispatchError.message : "Queue dispatch failed";
+      try {
+        const failed = await failQueuedJob(jobId, {
+          code: "QUEUE_DISPATCH_FAILED",
+          message: error,
+        });
+        if (failed.outcome === "updated" || failed.outcome === "missing") {
+          const variationFailed = await markKickoffVariationFailed(sessionId, variationId, error);
+          return {
+            ok: false,
+            refundable: variationFailed,
+            sessionId,
+            variationId,
+            jobId,
+            error,
+          };
+        }
+        if (
+          failed.outcome === "rejected" &&
+          (failed.job?.status === "running" || failed.job?.status === "completed")
+        ) {
+          return {
+            ok: true,
+            dispatchUncertain: true,
+            sessionId,
+            variationId,
+            jobId,
+          };
+        }
+        return { ok: false, refundable: false, sessionId, variationId, jobId, error };
+      } catch (reconcileError) {
+        console.error("[CalOS] Clickatron dispatch reconciliation failed:", reconcileError);
+        return { ok: false, refundable: false, sessionId, variationId, jobId, error };
+      }
+    }
 
-    return { ok: true, sessionId, variationId: plan.variationId, jobId };
+    return { ok: true, sessionId, variationId, jobId };
   } catch (err) {
+    const error = err instanceof Error ? err.message : "createClickatronImageJob failed";
+    const variationFailed = !taskPersisted || !sessionId || !variationId
+      ? true
+      : await markKickoffVariationFailed(sessionId, variationId, error);
     return {
       ok: false,
-      error: err instanceof Error ? err.message : "createClickatronImageJob failed",
+      refundable: !jobId && variationFailed,
+      sessionId,
+      variationId,
+      jobId,
+      error,
     };
   }
 }

@@ -15,6 +15,7 @@ export interface CalosServiceRef {
   service?: CalosService;
   jobId?: string;
   deliverableVersion?: number; // generation claim: callbacks may write only while this is current
+  claimExpiresAt?: Date; // present only while kickoff owns a pending, reclaimable lease
   sessionId?: string;
   projectId?: string;
   variationId?: string;
@@ -70,6 +71,7 @@ const ServiceRefSchema = new Schema<CalosServiceRef>(
     service: { type: String, enum: ["thinkforge", "clickatron", "editron", "musitron"] },
     jobId: String,
     deliverableVersion: Number,
+    claimExpiresAt: Date,
     sessionId: String,
     projectId: String,
     variationId: String,
