@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
   updateOne: vi.fn(),
   deduct: vi.fn(),
   refund: vi.fn(),
-  checkCredits: vi.fn(),
   kickoff: vi.fn(),
   collectReferences: vi.fn(),
   nanoid: vi.fn(),
@@ -18,6 +17,10 @@ const mocks = vi.hoisted(() => ({
   clickatronDb: vi.fn(),
   createJob: vi.fn(),
   failQueuedJob: vi.fn(),
+  claimIdempotencyKey: vi.fn(),
+  commitIdempotencyKey: vi.fn(),
+  releaseIdempotencyKey: vi.fn(),
+  recordJobCreditTransaction: vi.fn(),
   enqueue: vi.fn(),
 }));
 
@@ -30,7 +33,9 @@ vi.mock("@/schemas/calos-deliverable", () => ({
     updateOne: mocks.updateOne,
   },
 }));
-vi.mock("@/lib/services/creditsMiddleware", () => ({ checkCredits: mocks.checkCredits }));
+vi.mock("@/lib/services/creditsService", () => ({
+  CreditsService: { deductCredits: mocks.deduct, refundCredits: mocks.refund },
+}));
 vi.mock("@/lib/calos/references/collect-image-references", () => ({
   collectImageReferenceUrls: mocks.collectReferences,
 }));
@@ -46,6 +51,10 @@ vi.mock("@/lib/clickatron-mongo", () => ({ getClickatronDb: mocks.clickatronDb }
 vi.mock("@/lib/clickatron-jobs", () => ({
   createJob: mocks.createJob,
   failQueuedJob: mocks.failQueuedJob,
+  claimIdempotencyKey: mocks.claimIdempotencyKey,
+  commitIdempotencyKey: mocks.commitIdempotencyKey,
+  releaseIdempotencyKey: mocks.releaseIdempotencyKey,
+  recordJobCreditTransaction: mocks.recordJobCreditTransaction,
 }));
 vi.mock("@/lib/clickatron-qtask", () => ({ enqueueClickatronJob: mocks.enqueue }));
 vi.mock("@/lib/clickatron/create-image-job", async () => {
@@ -115,26 +124,29 @@ beforeEach(() => {
   mocks.connect.mockResolvedValue(undefined);
   mocks.findOne.mockImplementation(async () => deliverable());
   mocks.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
-  mocks.deduct.mockResolvedValue({ transactionId: "txn_1" });
-  mocks.refund.mockResolvedValue(undefined);
-  mocks.checkCredits.mockResolvedValue({
-    allowed: true,
-    deduct: mocks.deduct,
-    refund: mocks.refund,
+  mocks.deduct.mockResolvedValue({
+    success: true,
+    creditsDeducted: 1,
+    transactionId: "txn_1",
   });
+  mocks.refund.mockResolvedValue({ success: true });
   mocks.collectReferences.mockResolvedValue([]);
   mocks.nanoid.mockReturnValue("claim_1");
   mocks.taskSave.mockResolvedValue(undefined);
   mocks.taskUpdateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
   mocks.clickatronDb.mockResolvedValue(undefined);
   mocks.createJob.mockResolvedValue("job_1");
+  mocks.claimIdempotencyKey.mockResolvedValue({ outcome: "claimed", value: "pending:token_1" });
+  mocks.commitIdempotencyKey.mockResolvedValue(true);
+  mocks.releaseIdempotencyKey.mockResolvedValue(undefined);
+  mocks.recordJobCreditTransaction.mockResolvedValue({ status: "queued" });
   mocks.enqueue.mockResolvedValue({ messageId: "msg_1" });
-  mocks.kickoff.mockResolvedValue({
+  mocks.kickoff.mockImplementation(async ({ variationId }: { variationId: string }) => ({
     ok: true,
     jobId: "job_1",
     sessionId: "session_1",
-    variationId: "claim_1",
-  });
+    variationId,
+  }));
 });
 
 async function actualKickoff() {
@@ -146,6 +158,9 @@ async function actualKickoff() {
     brandId: "brand_1",
     prompt: "A sharp editorial product still",
     variationId: "claim_1",
+    creditTransactionId: "txn_1",
+    chargedCredits: 1,
+    idempotencyKey: "calos:image:claim_1",
     sourceContext: { calosDeliverableId: "card_1", brandId: "brand_1" },
   });
 }
@@ -171,7 +186,7 @@ describe("CalOS image generation claim", () => {
     );
   });
 
-  it("reclaims an expired pending lease", async () => {
+  it("reclaims an expired lease with its original billing identity", async () => {
     mocks.findOne.mockResolvedValue(deliverable({
       serviceRef: {
         service: "clickatron",
@@ -179,25 +194,35 @@ describe("CalOS image generation claim", () => {
         variationId: "old",
         deliverableVersion: 2,
         claimExpiresAt: new Date(Date.now() - 1_000),
+        billingIdempotencyKey: "calos:image:old",
       },
     }));
     mocks.findOneAndUpdate
-      .mockResolvedValueOnce(claimed("claim_1"))
-      .mockResolvedValueOnce(linked("claim_1"));
+      .mockResolvedValueOnce(claimed("old"))
+      .mockResolvedValueOnce(linked("old"));
 
     const response = await POST(request());
 
     expect(response.status).toBe(200);
     expect(mocks.deduct).toHaveBeenCalledOnce();
+    expect(mocks.deduct).toHaveBeenCalledWith(
+      "user_1",
+      "clickatron",
+      "variation",
+      expect.objectContaining({
+        idempotencyKey: "calos:image:old",
+        taskId: "claim:old",
+      }),
+    );
+    expect(mocks.kickoff).toHaveBeenCalledWith(expect.objectContaining({ variationId: "old" }));
   });
 
   it("releases its exact claim when credit admission fails", async () => {
     mocks.findOneAndUpdate.mockResolvedValueOnce(claimed());
-    mocks.checkCredits.mockResolvedValue({
-      allowed: false,
-      errorResponse: NextResponse.json({ code: "INSUFFICIENT_CREDITS" }, { status: 402 }),
-      deduct: mocks.deduct,
-      refund: mocks.refund,
+    mocks.deduct.mockResolvedValue({
+      success: false,
+      creditsDeducted: 0,
+      error: "Insufficient media credits. Required: 1, Available: 0",
     });
 
     const response = await POST(request());
@@ -213,11 +238,10 @@ describe("CalOS image generation claim", () => {
   it("reports a claim release that needs recovery instead of escaping", async () => {
     mocks.findOneAndUpdate.mockResolvedValueOnce(claimed());
     mocks.updateOne.mockRejectedValue(new Error("Mongo unavailable"));
-    mocks.checkCredits.mockResolvedValue({
-      allowed: false,
-      errorResponse: NextResponse.json({ code: "INSUFFICIENT_CREDITS" }, { status: 402 }),
-      deduct: mocks.deduct,
-      refund: mocks.refund,
+    mocks.deduct.mockResolvedValue({
+      success: false,
+      creditsDeducted: 0,
+      error: "Insufficient media credits. Required: 1, Available: 0",
     });
 
     const response = await POST(request());
@@ -225,6 +249,24 @@ describe("CalOS image generation claim", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toMatchObject({ code: "CLAIM_RELEASE_PENDING" });
     expect(mocks.kickoff).not.toHaveBeenCalled();
+  });
+
+  it("keeps the claim when an exact-transaction refund fails", async () => {
+    mocks.findOneAndUpdate.mockResolvedValueOnce(claimed());
+    mocks.kickoff.mockResolvedValue({ ok: false, refundable: true, error: "dispatch failed" });
+    mocks.refund.mockResolvedValue({ success: false, error: "Mongo unavailable" });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({ code: "REFUND_PENDING" });
+    expect(mocks.refund).toHaveBeenCalledWith(
+      "user_1",
+      1,
+      "dispatch failed",
+      expect.objectContaining({ originalTransactionId: "txn_1" }),
+    );
+    expect(mocks.updateOne).toHaveBeenCalledTimes(1);
   });
 
   it("uses the lease identity as Clickatron's variation identity", () => {

@@ -16,6 +16,9 @@ export interface CalosServiceRef {
   jobId?: string;
   deliverableVersion?: number; // generation claim: callbacks may write only while this is current
   claimExpiresAt?: Date; // present only while kickoff owns a pending, reclaimable lease
+  creditTransactionId?: string; // exact wallet debit used for idempotent refund/reconciliation
+  chargedCredits?: number;
+  billingIdempotencyKey?: string; // stable across retries of the same generation claim
   sessionId?: string;
   projectId?: string;
   variationId?: string;
@@ -72,6 +75,9 @@ const ServiceRefSchema = new Schema<CalosServiceRef>(
     jobId: String,
     deliverableVersion: Number,
     claimExpiresAt: Date,
+    creditTransactionId: String,
+    chargedCredits: Number,
+    billingIdempotencyKey: String,
     sessionId: String,
     projectId: String,
     variationId: String,

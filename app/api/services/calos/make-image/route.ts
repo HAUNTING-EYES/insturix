@@ -5,7 +5,7 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosDeliverable from "@/schemas/calos-deliverable";
 import { calosScope } from "@/lib/calos/scope";
 import { serviceForFormat } from "@/lib/calos/generate/route-map";
-import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
+import { CreditsService } from "@/lib/services/creditsService";
 import { createClickatronImageJob } from "@/lib/clickatron/create-image-job";
 import { collectImageReferenceUrls } from "@/lib/calos/references/collect-image-references";
 
@@ -30,8 +30,8 @@ function isExpiredPendingClaim(
  * beats the request's final job-link write.
  */
 export async function POST(req: NextRequest) {
-  let creditCheck: CreditCheckResult | null = null;
-  let deducted = false;
+  let billingUserId: string | null = null;
+  let charge: { transactionId: string; chargedCredits: number } | null = null;
   let workAccepted = false;
   let claim: {
     mongoId: unknown;
@@ -41,10 +41,23 @@ export async function POST(req: NextRequest) {
   } | null = null;
 
   const refund = async (reason: string): Promise<boolean> => {
-    if (!creditCheck || !deducted) return true;
+    if (!billingUserId || !charge) return true;
     try {
-      await creditCheck.refund(reason);
-      deducted = false;
+      const result = await CreditsService.refundCredits(
+        billingUserId,
+        charge.chargedCredits,
+        reason,
+        {
+          service: "clickatron",
+          action: "variation",
+          originalTransactionId: charge.transactionId,
+        },
+      );
+      if (!result.success) {
+        console.error("[CalOS] make-image credit refund rejected:", result.error);
+        return false;
+      }
+      charge = null;
       return true;
     } catch (error) {
       console.error("[CalOS] make-image credit refund failed:", error);
@@ -92,6 +105,7 @@ export async function POST(req: NextRequest) {
   try {
     const { userId, orgId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    billingUserId = userId;
 
     const { brandId, deliverableId, aspectRatio } = await req.json();
     if (!brandId || !deliverableId) {
@@ -140,8 +154,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const claimId = nanoid();
+    const expiredClaim = isExpiredPendingClaim(deliverable.serviceRef, now);
+    const priorClaimId = expiredClaim && typeof deliverable.serviceRef?.variationId === "string"
+      ? deliverable.serviceRef.variationId
+      : null;
+    const claimId = priorClaimId || nanoid();
     const pendingJobId = `claim:${claimId}`;
+    const billingIdempotencyKey = priorClaimId
+      ? deliverable.serviceRef?.billingIdempotencyKey
+        || `calos:image:${userId}:${brandId}:${deliverableId}:v${deliverable.version}:${claimId}`
+      : `calos:image:${userId}:${brandId}:${deliverableId}:v${deliverable.version}:${claimId}`;
+    const priorBilling = priorClaimId
+      ? {
+          ...(deliverable.serviceRef?.creditTransactionId
+            ? { creditTransactionId: deliverable.serviceRef.creditTransactionId }
+            : {}),
+          ...(typeof deliverable.serviceRef?.chargedCredits === "number"
+            ? { chargedCredits: deliverable.serviceRef.chargedCredits }
+            : {}),
+        }
+      : {};
     const claimed = await CalosDeliverable.findOneAndUpdate(
       {
         _id: deliverable._id,
@@ -165,6 +197,8 @@ export async function POST(req: NextRequest) {
             variationId: claimId,
             deliverableVersion: deliverable.version,
             claimExpiresAt: new Date(now.getTime() + IMAGE_CLAIM_TTL_MS),
+            billingIdempotencyKey,
+            ...priorBilling,
           },
           errorMessage: null,
         },
@@ -177,7 +211,12 @@ export async function POST(req: NextRequest) {
         { status: 409 },
       );
     }
-    claim = { mongoId: claimed._id, id: claimId, pendingJobId, version: claimed.version };
+    claim = {
+      mongoId: claimed._id,
+      id: claimId,
+      pendingJobId,
+      version: claimed.version,
+    };
 
     const prompt = (claimed.imagePrompt || "").trim();
     if (!prompt) {
@@ -187,15 +226,91 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "The image prompt changed; generate the card again." }, { status: 409 });
     }
 
-    creditCheck = await checkCredits(userId, "clickatron", "variation", { quantity: 1 });
-    if (!creditCheck.allowed) {
+    let deduction;
+    try {
+      deduction = await CreditsService.deductCredits(
+        userId,
+        "clickatron",
+        "variation",
+        {
+          quantity: 1,
+          taskId: pendingJobId,
+          idempotencyKey: billingIdempotencyKey,
+        },
+      );
+    } catch (billingError) {
+      workAccepted = true;
+      console.error("[CalOS] image credit deduction outcome is unknown; claim retained", {
+        deliverableId,
+        claimId,
+        error: billingError,
+      });
+      return NextResponse.json(
+        { error: "Image billing status needs reconciliation.", code: "BILLING_STATUS_PENDING" },
+        { status: 202 },
+      );
+    }
+    if (!deduction.success) {
       if (!(await releaseClaim(null))) {
         return NextResponse.json({ error: "Image claim release needs reconciliation.", code: "CLAIM_RELEASE_PENDING" }, { status: 500 });
       }
-      return creditCheck.errorResponse!;
+      const insufficient = deduction.error?.startsWith("Insufficient ") ?? false;
+      return NextResponse.json(
+        {
+          error: insufficient ? "Insufficient credits" : deduction.error || "Credit deduction failed",
+          code: insufficient ? "INSUFFICIENT_CREDITS" : "CREDIT_DEDUCTION_FAILED",
+        },
+        { status: insufficient ? 402 : 500 },
+      );
     }
-    await creditCheck.deduct();
-    deducted = true;
+    if (!deduction.transactionId) {
+      workAccepted = true;
+      console.error("[CalOS] image credit deduction returned no transaction ID", {
+        deliverableId,
+        claimId,
+      });
+      return NextResponse.json(
+        { error: "Image billing status needs reconciliation.", code: "BILLING_STATUS_PENDING" },
+        { status: 202 },
+      );
+    }
+    charge = {
+      transactionId: deduction.transactionId,
+      chargedCredits: deduction.creditsDeducted,
+    };
+
+    try {
+      const billingLinked = await CalosDeliverable.updateOne(
+        {
+          _id: claimed._id,
+          version: claimed.version,
+          "serviceRef.jobId": pendingJobId,
+          "serviceRef.variationId": claimId,
+        },
+        {
+          $set: {
+            "serviceRef.creditTransactionId": charge.transactionId,
+            "serviceRef.chargedCredits": charge.chargedCredits,
+            "serviceRef.billingIdempotencyKey": billingIdempotencyKey,
+          },
+        },
+      );
+      if (billingLinked.matchedCount !== 1) {
+        throw new Error("Image claim changed before its credit transaction was linked");
+      }
+    } catch (billingLinkError) {
+      workAccepted = true;
+      console.error("[CalOS] image charge retained because billing linkage is pending", {
+        deliverableId,
+        claimId,
+        transactionId: charge.transactionId,
+        error: billingLinkError,
+      });
+      return NextResponse.json(
+        { error: "Image billing status needs reconciliation.", code: "BILLING_STATUS_PENDING" },
+        { status: 202 },
+      );
+    }
 
     const referenceImageRefs = await collectImageReferenceUrls(brandId, claimed.campaignId);
     const kickoff = await createClickatronImageJob({
@@ -204,6 +319,9 @@ export async function POST(req: NextRequest) {
       brandId,
       prompt,
       variationId: claimId,
+      creditTransactionId: charge.transactionId,
+      chargedCredits: charge.chargedCredits,
+      idempotencyKey: billingIdempotencyKey,
       ...(aspectRatio ? { aspectRatio } : {}),
       ...(referenceImageRefs.length ? { referenceImageRefs } : {}),
       sourceContext: { calosDeliverableId: deliverableId, brandId },
@@ -211,7 +329,7 @@ export async function POST(req: NextRequest) {
 
     if (!kickoff.ok) {
       const reason = kickoff.error || "Clickatron image kickoff failed";
-      const safelyRefundable = kickoff.refundable === true || !kickoff.jobId;
+      const safelyRefundable = kickoff.refundable === true;
       if (safelyRefundable) {
         const refunded = await refund(reason);
         if (refunded) {
@@ -271,6 +389,9 @@ export async function POST(req: NextRequest) {
               deliverableVersion: claimed.version,
               sessionId: kickoff.sessionId,
               variationId: claimId,
+              creditTransactionId: charge.transactionId,
+              chargedCredits: charge.chargedCredits,
+              billingIdempotencyKey,
             },
             errorMessage: null,
           },
@@ -306,7 +427,18 @@ export async function POST(req: NextRequest) {
     if (!workAccepted) {
       const reason = error instanceof Error ? error.message : "Image kickoff failed";
       const refunded = await refund(reason);
-      if (refunded) await releaseClaim(reason);
+      if (!refunded) {
+        return NextResponse.json(
+          { error: "Image generation failed and its credit refund needs reconciliation.", code: "REFUND_PENDING" },
+          { status: 500 },
+        );
+      }
+      if (!(await releaseClaim(reason))) {
+        return NextResponse.json(
+          { error: "Image claim release needs reconciliation.", code: "CLAIM_RELEASE_PENDING" },
+          { status: 500 },
+        );
+      }
     }
     console.error("[CalOS] make-image error:", error);
     return NextResponse.json({ error: "Failed to start image generation" }, { status: 500 });
