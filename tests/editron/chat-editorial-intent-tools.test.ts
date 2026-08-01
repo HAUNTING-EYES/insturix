@@ -540,7 +540,7 @@ describe('chat semantic editorial intent', () => {
     expect(enqueue).not.toHaveBeenCalled();
   });
 
-  it('keeps weak or ambiguous targeted evidence advisory and never mutates', async () => {
+  it('asks for one choice when weak evidence does not ground an ambiguous target', async () => {
     const deps = dependencies({
       searchEvidence: vi.fn(async () => ({
         auditId: 'audit-weak',
@@ -568,10 +568,75 @@ describe('chat semantic editorial intent', () => {
       },
     }, deps);
 
-    expect(result.status).toBe('advisory');
+    expect(result.status).toBe('needs-choice');
     expect(result.dispatch.reasons).toContain('no-safe-canonical-evidence');
     expect(deps.executeTargetedIntent).not.toHaveBeenCalled();
     expect(deps.executeProjectIntent).not.toHaveBeenCalled();
+  });
+
+  it('returns a truthful no-op when an exact range is grounded but contains no safe edit opportunity', async () => {
+    const deps = dependencies({
+      searchEvidence: vi.fn(async () => ({
+        auditId: 'audit-visible-range',
+        candidates: [candidate({
+          startFrame: 57,
+          endFrame: 126,
+          score: 0.49,
+          accepted: false,
+          safeForAutomaticMutation: false,
+          rejectionReasons: ['below-semantic-threshold'],
+        })],
+        analyzedDocumentCount: 4,
+        embeddedDocumentCount: 4,
+        rankingPolicy: CHAT_EVIDENCE_RANKING_POLICY,
+      })),
+    });
+    const intentTool = createChatEditorialIntentTools(
+      { userId: 'user-1', projectId: 'project-1' },
+      deps,
+    ).find((tool) => tool.name === 'apply_editorial_intent');
+    expect(intentTool).toBeDefined();
+
+    const output = JSON.parse(await intentTool!.invoke({
+      goal: 'Tighten this visible section without changing the rest',
+      scopeKind: 'selection',
+      startFrame: 0,
+      endFrame: 270,
+    }) as string);
+
+    expect(output).toMatchObject({
+      status: 'no-op',
+      data: {
+        status: 'no-op',
+        dispatch: {
+          mutated: false,
+          reasons: ['no-safe-canonical-evidence'],
+        },
+      },
+      error: null,
+    });
+    expect(output.nextAction).toContain('no grounded edit opportunity');
+    expect(deps.executeTargetedIntent).not.toHaveBeenCalled();
+    expect(deps.persistAudit).toHaveBeenCalledWith(expect.objectContaining({ status: 'no-op' }));
+  });
+
+  it('keeps high-uncertainty exact targets as needs-choice rather than no-op', async () => {
+    const deps = dependencies();
+    const result = await applyGroundedEditorialIntent({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: {
+        goal: 'Do something tasteful here',
+        scope: { kind: 'moment', startFrame: 100, endFrame: 200 },
+        constraints: [],
+        strength: 0.5,
+        uncertainty: 1,
+      },
+    }, deps);
+
+    expect(result.status).toBe('needs-choice');
+    expect(result.dispatch.reasons).toEqual(['intent-uncertainty-too-high']);
+    expect(deps.executeTargetedIntent).not.toHaveBeenCalled();
   });
 
   it('builds fact and signal candidates while leaving physical forms to existing owners', () => {
