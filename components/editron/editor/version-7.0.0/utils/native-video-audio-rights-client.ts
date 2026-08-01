@@ -3,6 +3,8 @@ import {
   CURRENT_NATIVE_VIDEO_AUDIO_RIGHTS_ATTESTATION,
   readNativeVideoAudioRightsClaim,
 } from '@/lib/editron/services/native-video-audio-rights';
+import { isSoundOverlayWithRenderableSource } from '@/lib/editron/shared/render-request-payload';
+import { ROW } from '@/lib/pipeline/scene-to-editron';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -37,8 +39,44 @@ export function findUnverifiedNativeAudioAssetIds(
   return Array.from(assetIds);
 }
 
+export function findUnverifiedUploadedExportAudioAssetIds(
+  overlays: Overlay[],
+): string[] {
+  const assetIds = new Set<string>();
+
+  for (const overlay of overlays) {
+    const record = overlay as unknown as UnknownRecord;
+    if (
+      record.type !== 'sound'
+      || !isSoundOverlayWithRenderableSource(record)
+      || record.audioRights !== undefined
+      || record.musicRights !== undefined
+      || isMusicOverlay(record)
+    ) {
+      continue;
+    }
+    const assetId = nonEmptyString(record.assetId);
+    assetIds.add(assetId ?? `missing-asset:${String(record.id ?? 'unknown')}`);
+  }
+
+  return Array.from(assetIds);
+}
+
 export async function confirmAndReloadNativeVideoAudioRights(input: {
   projectId: string;
+  fetchImpl?: typeof fetch;
+}): Promise<Overlay[]> {
+  return confirmAndReloadExportAudioRights({
+    ...input,
+    confirmNativeVideoAudio: true,
+    confirmUploadedExportAudio: false,
+  });
+}
+
+export async function confirmAndReloadExportAudioRights(input: {
+  projectId: string;
+  confirmNativeVideoAudio: boolean;
+  confirmUploadedExportAudio: boolean;
   fetchImpl?: typeof fetch;
 }): Promise<Overlay[]> {
   const projectId = nonEmptyString(input.projectId);
@@ -50,23 +88,36 @@ export async function confirmAndReloadNativeVideoAudioRights(input: {
   }
   const fetchImpl = input.fetchImpl ?? fetch;
   const projectPath = `/api/services/editron/projects/${encodeURIComponent(projectId)}`;
-  const attestationResponse = await fetchImpl(
-    `${projectPath}/native-video-audio-rights`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        attestation: CURRENT_NATIVE_VIDEO_AUDIO_RIGHTS_ATTESTATION,
-      }),
-    },
-  );
-  const attestationBody = await readJsonObject(attestationResponse);
-  if (!attestationResponse.ok || attestationBody?.success !== true) {
+  const attestationPaths = [
+    input.confirmNativeVideoAudio ? 'native-video-audio-rights' : null,
+    input.confirmUploadedExportAudio ? 'uploaded-export-audio-rights' : null,
+  ].filter((value): value is string => Boolean(value));
+  if (attestationPaths.length === 0) {
     throw new NativeVideoAudioRightsClientError(
-      nonEmptyString(attestationBody?.code) ?? 'ATTESTATION_FAILED',
-      nonEmptyString(attestationBody?.error)
-        ?? 'Source-media rights could not be confirmed.',
+      'NO_ATTESTATION_REQUIRED',
+      'No unresolved uploaded audio was selected for confirmation.',
     );
+  }
+
+  for (const path of attestationPaths) {
+    const attestationResponse = await fetchImpl(
+      `${projectPath}/${path}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          attestation: CURRENT_NATIVE_VIDEO_AUDIO_RIGHTS_ATTESTATION,
+        }),
+      },
+    );
+    const attestationBody = await readJsonObject(attestationResponse);
+    if (!attestationResponse.ok || attestationBody?.success !== true) {
+      throw new NativeVideoAudioRightsClientError(
+        nonEmptyString(attestationBody?.code) ?? 'ATTESTATION_FAILED',
+        nonEmptyString(attestationBody?.error)
+          ?? 'Source-media rights could not be confirmed.',
+      );
+    }
   }
 
   const projectResponse = await fetchImpl(projectPath, { cache: 'no-store' });
@@ -79,13 +130,27 @@ export async function confirmAndReloadNativeVideoAudioRights(input: {
     );
   }
   const overlays = project.overlays as Overlay[];
-  if (findUnverifiedNativeAudioAssetIds(overlays).length > 0) {
+  if (
+    (input.confirmNativeVideoAudio
+      && findUnverifiedNativeAudioAssetIds(overlays).length > 0)
+    || (input.confirmUploadedExportAudio
+      && findUnverifiedUploadedExportAudioAssetIds(overlays).length > 0)
+  ) {
     throw new NativeVideoAudioRightsClientError(
       'ATTESTATION_RELOAD_UNVERIFIED',
-      'The project still contains native audio without verified source-media rights.',
+      'The project still contains exported audio without verified source-media rights.',
     );
   }
   return overlays;
+}
+
+function isMusicOverlay(record: UnknownRecord): boolean {
+  const explicitRole = nonEmptyString(record.mediaRole)
+    ?? nonEmptyString(record.audioRole);
+  const assetId = nonEmptyString(record.assetId) ?? '';
+  return explicitRole === 'music'
+    || record.row === ROW.BGM
+    || /^bgm_/i.test(assetId);
 }
 
 async function readJsonObject(response: Response): Promise<UnknownRecord | null> {

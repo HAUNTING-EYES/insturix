@@ -70,8 +70,8 @@ export function NativeVideoAudioRightsDialog({
             Confirm source-media rights
           </AlertDialogTitle>
           <AlertDialogDescription className="text-[#A7A39A]">
-            {sourceCount} uploaded video source{sourceCount === 1 ? '' : 's'} contain
-            embedded audio that predates the current export receipt.
+            {sourceCount} uploaded audio source{sourceCount === 1 ? '' : 's'} on this
+            timeline {sourceCount === 1 ? 'predates' : 'predate'} the current export receipt.
           </AlertDialogDescription>
         </AlertDialogHeader>
 

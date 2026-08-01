@@ -41,8 +41,9 @@ import { KeyframeProvider } from "./contexts/keyframe-context";
 import { AssetLoadingProvider } from "./contexts/asset-loading-context";
 import { NativeVideoAudioRightsDialog } from "./components/rendering/native-video-audio-rights-dialog";
 import {
-  confirmAndReloadNativeVideoAudioRights,
+  confirmAndReloadExportAudioRights,
   findUnverifiedNativeAudioAssetIds,
+  findUnverifiedUploadedExportAudioAssetIds,
 } from "./utils/native-video-audio-rights-client";
 import type { RenderMusicDeliveryMode } from "@/lib/editron/services/render-delivery-manifest";
 import { useCallback } from "react";
@@ -120,29 +121,43 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
     () => findUnverifiedNativeAudioAssetIds(overlays),
     [overlays],
   );
+  const unverifiedUploadedAudioAssetIds = useMemo(
+    () => findUnverifiedUploadedExportAudioAssetIds(overlays),
+    [overlays],
+  );
+  const unverifiedExportAudioCount =
+    unverifiedNativeAudioAssetIds.length + unverifiedUploadedAudioAssetIds.length;
   const requestRender = useCallback(async (
     musicDeliveryMode: RenderMusicDeliveryMode = "embedded",
   ) => {
-    if (unverifiedNativeAudioAssetIds.length > 0) {
+    if (unverifiedExportAudioCount > 0) {
       setPendingRightsRenderMode(musicDeliveryMode);
       return;
     }
     await renderMedia(musicDeliveryMode);
-  }, [renderMedia, unverifiedNativeAudioAssetIds.length]);
-  const confirmNativeAudioRights = useCallback(async () => {
+  }, [renderMedia, unverifiedExportAudioCount]);
+  const confirmExportAudioRights = useCallback(async () => {
     if (!pendingRightsRenderMode) return;
-    const refreshedOverlays = await confirmAndReloadNativeVideoAudioRights({
+    const refreshedOverlays = await confirmAndReloadExportAudioRights({
       projectId,
+      confirmNativeVideoAudio: unverifiedNativeAudioAssetIds.length > 0,
+      confirmUploadedExportAudio: unverifiedUploadedAudioAssetIds.length > 0,
     });
     setOverlays(refreshedOverlays);
     setResumeRightsRenderMode(pendingRightsRenderMode);
     setPendingRightsRenderMode(null);
-  }, [pendingRightsRenderMode, projectId, setOverlays]);
+  }, [
+    pendingRightsRenderMode,
+    projectId,
+    setOverlays,
+    unverifiedNativeAudioAssetIds.length,
+    unverifiedUploadedAudioAssetIds.length,
+  ]);
 
   useEffect(() => {
     if (
       !resumeRightsRenderMode
-      || unverifiedNativeAudioAssetIds.length > 0
+      || unverifiedExportAudioCount > 0
     ) {
       return;
     }
@@ -152,7 +167,7 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
   }, [
     renderMedia,
     resumeRightsRenderMode,
-    unverifiedNativeAudioAssetIds.length,
+    unverifiedExportAudioCount,
   ]);
 
   // Replace history management code with hook
@@ -343,9 +358,9 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
 
                   <NativeVideoAudioRightsDialog
                     open={pendingRightsRenderMode !== null}
-                    sourceCount={unverifiedNativeAudioAssetIds.length}
+                    sourceCount={unverifiedExportAudioCount}
                     onCancel={() => setPendingRightsRenderMode(null)}
-                    onConfirm={confirmNativeAudioRights}
+                    onConfirm={confirmExportAudioRights}
                   />
 
                   {/* AI Tools Debug Panel (Development) */}
