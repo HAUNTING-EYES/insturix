@@ -345,6 +345,9 @@ export async function POST(request: Request) {
         type: 'error',
         message: error.message || 'Failed to trigger render',
         ...((rightsError || deliveryError || hydrationError) ? { code: error.code } : {}),
+        ...(error instanceof RenderAudioRightsAuthorityError
+          ? { details: error.diagnostic }
+          : {}),
       },
       { status: rightsError ? 422 : deliveryError ? 400 : 500 }
     );

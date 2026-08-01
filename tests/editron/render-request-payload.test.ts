@@ -565,7 +565,23 @@ describe("Editron render request payloads", () => {
       overlays,
     }, {
       loadAssets: vi.fn(async () => []),
-    })).rejects.toThrowError(/audio rights metadata is missing/);
+    })).rejects.toMatchObject({
+      code: "AUDIO_RIGHTS_EVIDENCE_UNVERIFIED",
+      diagnostic: {
+        overlayId: "rights-less-voiceover",
+        overlayType: "sound",
+        mediaRole: "voiceover",
+        renderAssetId: "voiceover_missing_rights",
+        sourceAssetId: null,
+        rightsReceipt: {
+          state: "missing",
+          aliases: "none",
+          source: null,
+          evidenceKind: null,
+        },
+        reason: "audio rights metadata is missing",
+      },
+    });
   });
 
   it("rejects malformed or explicitly unlicensed non-preview rights", () => {

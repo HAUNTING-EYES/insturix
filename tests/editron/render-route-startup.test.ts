@@ -98,6 +98,7 @@ vi.mock('@/lib/shared/project-status', () => ({
 import { POST } from '@/app/api/services/editron/cloudrun/render/route';
 import { GET as GET_ACTIVE_RENDERS } from '@/app/api/services/editron/render/active/route';
 import { POST as POST_RENDER_WEBHOOK } from '@/app/api/services/editron/cloudrun/render/webhook/route';
+import { RenderAudioRightsAuthorityError } from '@/lib/editron/services/render-audio-rights-authority';
 
 describe('Editron render startup boundary', () => {
   beforeEach(() => {
@@ -597,6 +598,50 @@ describe('Editron render startup boundary', () => {
     expect(routeMocks.reserveJob).not.toHaveBeenCalled();
     expect(routeMocks.markJobStarted).not.toHaveBeenCalled();
     expect(routeMocks.createJob).not.toHaveBeenCalled();
+  });
+
+  it('returns redacted structured details for an audio-rights authority rejection', async () => {
+    routeMocks.verifyAudioRights.mockRejectedValue(new RenderAudioRightsAuthorityError({
+      overlayId: 'voiceover_1',
+      overlayType: 'sound',
+      mediaRole: 'voiceover',
+      renderAssetId: 'asset_voiceover_1',
+      sourceAssetId: null,
+      rightsReceipt: {
+        state: 'missing',
+        aliases: 'none',
+        source: null,
+        evidenceKind: null,
+      },
+      reason: 'audio rights metadata is missing',
+    }));
+
+    const response = await POST(renderRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(body).toEqual({
+      type: 'error',
+      code: 'AUDIO_RIGHTS_EVIDENCE_UNVERIFIED',
+      message: 'Cannot verify render audio rights for overlay voiceover_1: audio rights metadata is missing',
+      details: {
+        overlayId: 'voiceover_1',
+        overlayType: 'sound',
+        mediaRole: 'voiceover',
+        renderAssetId: 'asset_voiceover_1',
+        sourceAssetId: null,
+        rightsReceipt: {
+          state: 'missing',
+          aliases: 'none',
+          source: null,
+          evidenceKind: null,
+        },
+        reason: 'audio rights metadata is missing',
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain('https://');
+    expect(routeMocks.checkCredits).not.toHaveBeenCalled();
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
   });
 });
 
