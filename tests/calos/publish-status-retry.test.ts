@@ -208,6 +208,8 @@ describe("CalOS publish status and deliberate retry", () => {
         refreshToken: "x_refresh",
         userId: "x_1",
         expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+        scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
+        missingScopes: [],
       },
     }]));
 
@@ -247,6 +249,8 @@ describe("CalOS publish status and deliberate retry", () => {
         accessToken: "expired_token",
         userId: "x_1",
         expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+        scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
+        missingScopes: [],
       },
     }]));
 
@@ -259,6 +263,40 @@ describe("CalOS publish status and deliberate retry", () => {
       accountRef: "x_1",
     });
     expect(payload.connectionHealth.twitter.message).toContain("cannot refresh");
+    expect(payload.connectedPlatforms).toEqual([]);
+  });
+
+  it("reports an X assignment as reconnect-required when publishing scopes are missing", async () => {
+    mocks.connectedAccountFind.mockReturnValue(
+      queryResult([{
+        platform: "twitter",
+        accountRef: "x_1",
+        displayName: "@acme",
+        ownerUserId: "owner_1",
+      }]),
+    );
+    mocks.userFind.mockReturnValue(queryResult([{
+      clerkUserId: "owner_1",
+      twitterTokens: {
+        accessToken: "x_token",
+        refreshToken: "x_refresh",
+        userId: "x_1",
+        expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+        scopes: ["tweet.read", "users.read"],
+        missingScopes: ["tweet.write", "offline.access"],
+      },
+    }]));
+
+    const response = await getPublishStatus(getRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.connectionHealth.twitter).toMatchObject({
+      state: "reconnect",
+      accountRef: "x_1",
+    });
+    expect(payload.connectionHealth.twitter.message).toContain("tweet.write");
+    expect(payload.connectionHealth.twitter.message).toContain("offline.access");
     expect(payload.connectedPlatforms).toEqual([]);
   });
 
@@ -439,6 +477,8 @@ describe("CalOS publish status and deliberate retry", () => {
         accessToken: "x_token",
         userId: "x_1",
         expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+        scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
+        missingScopes: [],
       },
     }]));
     mocks.queueFindOneAndUpdate.mockResolvedValue({
@@ -670,6 +710,8 @@ describe("CalOS publish status and deliberate retry", () => {
         accessToken: "expired_token",
         userId: "x_1",
         expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+        scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
+        missingScopes: [],
       },
     }]));
 

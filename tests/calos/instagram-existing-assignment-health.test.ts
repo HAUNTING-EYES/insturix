@@ -78,11 +78,13 @@ function assignment() {
   };
 }
 
-function ownerTokens(expiresAt: Date) {
+function ownerTokens(expiresAt: Date, accountRef = "ig_1") {
   return [{
     clerkUserId: "owner_1",
     instagramTokens: {
       userAccessToken: "ig_token",
+      userId: accountRef,
+      accounts: [{ instagramAccountId: accountRef }],
       expiresAt,
     },
   }];
@@ -149,5 +151,22 @@ describe("CalOS existing Instagram assignment health", () => {
       accountRef: "ig_1",
       message: null,
     });
+  });
+
+  it("marks an existing assignment as reconnect when the token belongs to another account", async () => {
+    mocks.userFind.mockReturnValue(
+      queryResult(ownerTokens(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), "ig_other")),
+    );
+
+    const response = await getPublishStatus(statusRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.connectedPlatforms).toEqual([]);
+    expect(payload.connectionHealth.instagram).toMatchObject({
+      state: "reconnect",
+      accountRef: "ig_1",
+    });
+    expect(payload.connectionHealth.instagram.message).toContain("no longer matches");
   });
 });

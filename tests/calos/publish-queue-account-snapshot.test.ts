@@ -141,6 +141,9 @@ describe("CalOS approval publish-target snapshot", () => {
             accessToken: "linkedin_token",
             userId: "linkedin_member_1",
             expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+            scopes: ["w_organization_social"],
+            missingScopes: [],
+            organizations: [{ id: "linkedin_org_1" }],
           },
         }]),
       })),
@@ -206,6 +209,9 @@ describe("CalOS approval publish-target snapshot", () => {
           linkedinTokens: {
             accessToken: "publisher_token",
             expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+            scopes: ["w_organization_social"],
+            missingScopes: [],
+            organizations: [{ id: "linkedin_org_1" }],
           },
         }]),
       })),
@@ -259,6 +265,56 @@ describe("CalOS approval publish-target snapshot", () => {
     expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
+  it("blocks LinkedIn organization approval without organization publishing permission", async () => {
+    setAssignments(["linkedin_org_1"]);
+    mocks.userFind.mockReturnValue({
+      select: vi.fn(() => ({
+        lean: vi.fn(async () => [{
+          clerkUserId: "owner_1",
+          linkedinTokens: {
+            accessToken: "linkedin_token",
+            expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+            scopes: ["w_member_social"],
+            missingScopes: ["w_organization_social"],
+            organizations: [{ id: "linkedin_org_1" }],
+          },
+        }]),
+      })),
+    });
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("w_organization_social");
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("blocks LinkedIn organization approval when the owner no longer controls that destination", async () => {
+    setAssignments(["linkedin_org_1"]);
+    mocks.userFind.mockReturnValue({
+      select: vi.fn(() => ({
+        lean: vi.fn(async () => [{
+          clerkUserId: "owner_1",
+          linkedinTokens: {
+            accessToken: "linkedin_token",
+            expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+            scopes: ["w_organization_social"],
+            missingScopes: [],
+            organizations: [{ id: "different_org" }],
+          },
+        }]),
+      })),
+    });
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("no longer available");
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   it("blocks approval when the token expires before the planned publish and cannot refresh", async () => {
     setAssignments(["linkedin_org_1"]);
     mocks.userFind.mockReturnValue({
@@ -268,6 +324,9 @@ describe("CalOS approval publish-target snapshot", () => {
           linkedinTokens: {
             accessToken: "expiring_token",
             expiresAt: new Date("2026-08-01T00:00:00.000Z"),
+            scopes: ["w_organization_social"],
+            missingScopes: [],
+            organizations: [{ id: "linkedin_org_1" }],
           },
         }]),
       })),

@@ -36,12 +36,17 @@ type OwnerTokenRow = {
     refreshToken?: string;
     userId?: string;
     expiresAt?: Date | string | null;
+    scopes?: string[];
+    missingScopes?: string[];
+    organizations?: Array<{ id?: string | number }>;
   } | null;
   twitterTokens?: {
     accessToken?: string;
     refreshToken?: string;
     userId?: string;
     expiresAt?: Date | string | null;
+    scopes?: string[];
+    missingScopes?: string[];
   } | null;
 };
 
@@ -80,6 +85,20 @@ function reconnect(account: CalosAssignmentLike, message: string): CalosConnecti
   return health(account, "reconnect", message);
 }
 
+function missingRequiredScopes(
+  grantedScopes: string[] | undefined,
+  explicitlyMissingScopes: string[] | undefined,
+  requiredScopes: string[],
+): string[] {
+  const granted = new Set((grantedScopes ?? []).map(text).filter(Boolean));
+  const explicitlyMissing = new Set(
+    (explicitlyMissingScopes ?? []).map(text).filter(Boolean),
+  );
+  return requiredScopes.filter(
+    (scope) => explicitlyMissing.has(scope) || !granted.has(scope),
+  );
+}
+
 async function facebookHealth(
   account: CalosAssignmentLike,
   owner: OwnerTokenRow | undefined,
@@ -114,11 +133,29 @@ function ownerTokenHealth(
     if (!text(tokens?.accessToken)) {
       return reconnect(account, "LinkedIn is no longer connected for this account owner. Reconnect before publishing.");
     }
-    if (
-      account.accountType === "personal" &&
-      text(tokens?.userId) !== accountRef
-    ) {
-      return reconnect(account, "Assigned LinkedIn profile no longer matches the connected profile. Reassign it before publishing.");
+    const isPersonal = account.accountType === "personal";
+    if (isPersonal) {
+      if (text(tokens?.userId) !== accountRef) {
+        return reconnect(account, "Assigned LinkedIn profile no longer matches the connected profile. Reassign it before publishing.");
+      }
+    } else {
+      const authorizedOrganizations = new Set(
+        (tokens?.organizations ?? []).map((organization) =>
+          organization.id == null ? "" : String(organization.id).trim(),
+        ),
+      );
+      if (!authorizedOrganizations.has(accountRef)) {
+        return reconnect(account, "Assigned LinkedIn organization is no longer available to this account owner. Reassign or reconnect it before publishing.");
+      }
+    }
+    const requiredScope = isPersonal ? "w_member_social" : "w_organization_social";
+    const missingScopes = missingRequiredScopes(
+      tokens?.scopes,
+      tokens?.missingScopes,
+      [requiredScope],
+    );
+    if (missingScopes.length > 0) {
+      return reconnect(account, `LinkedIn publishing permission is missing (${missingScopes.join(", ")}). Reconnect before publishing.`);
     }
     const expiresAt = timestamp(tokens?.expiresAt);
     if (expiresAt > 0 && expiresAt <= requiredThroughMs) {
@@ -140,6 +177,14 @@ function ownerTokenHealth(
   }
   if (!text(tokens?.userId) || text(tokens?.userId) !== accountRef) {
     return reconnect(account, "Assigned X account no longer matches the connected account. Reassign it before publishing.");
+  }
+  const missingScopes = missingRequiredScopes(
+    tokens?.scopes,
+    tokens?.missingScopes,
+    ["tweet.read", "tweet.write", "users.read", "offline.access"],
+  );
+  if (missingScopes.length > 0) {
+    return reconnect(account, `X publishing permission is missing (${missingScopes.join(", ")}). Reconnect before publishing.`);
   }
   const expiresAt = timestamp(tokens?.expiresAt);
   if (expiresAt === 0 || expiresAt <= requiredThroughMs) {
@@ -270,6 +315,7 @@ export async function loadCalosAssignmentHealth(
     loadInstagramAssignmentHealth(ready.map((account) => ({
       platform: account.platform,
       ownerUserId: text(account.ownerUserId) || undefined,
+      accountRef: text(account.accountRef) || undefined,
     }))),
   ]);
   for (const account of ready) {
