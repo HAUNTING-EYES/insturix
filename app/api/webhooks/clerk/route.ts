@@ -1,6 +1,11 @@
 import { UserInitializationService } from "@/lib/services/userInitializationService";
 import { organizationService, ClerkOrganizationData } from "@/lib/services/organizationService";
 import { orgMemberService, ClerkMembershipData } from "@/lib/services/orgMemberService";
+import {
+  isValidEmailAddress,
+  normalizeEmailAddress,
+} from "@/lib/services/email/contact-policy";
+import { deliverClerkWelcomeEmail } from "@/lib/services/email/lifecycle-service";
 import { NextRequest } from "next/server";
 import { Webhook } from "svix";
 
@@ -13,7 +18,9 @@ interface WebhookPayload {
 // Type guards for different payload types
 interface UserEventData {
   id: string;
-  email_addresses?: Array<{ email_address: string }>;
+  email_addresses?: Array<{ id?: string; email_address: string }>;
+  primary_email_address_id?: string;
+  first_name?: string;
   username?: string;
   image_url?: string;
 }
@@ -43,6 +50,14 @@ interface MembershipEventData {
   };
   role: string;
   created_at: number;
+}
+
+function resolvePrimaryEmail(data: UserEventData): string {
+  const primaryEmail = data.email_addresses?.find(
+    (emailAddress) => emailAddress.id === data.primary_email_address_id
+  );
+
+  return primaryEmail?.email_address ?? data.email_addresses?.[0]?.email_address ?? "";
 }
 
 export async function POST(req: NextRequest) {
@@ -87,16 +102,18 @@ export async function POST(req: NextRequest) {
     if (eventType === "user.created") {
       const data = payload.data as unknown as UserEventData;
       try {
-        const primaryEmail = data.email_addresses?.[0]?.email_address || "";
+        const primaryEmail = normalizeEmailAddress(resolvePrimaryEmail(data));
         const clerkUserId = data.id;
         const username = data.username;
         const imageUrl = data.image_url;
 
-        if (!username) {
-          console.error("Username is missing in the payload for user.created event");
-          return new Response("Username is required", { status: 400 });
+        if (!isValidEmailAddress(primaryEmail)) {
+          console.error("A valid primary email is required for user.created");
+          return new Response("Valid primary email is required", { status: 400 });
         }
 
+        // No username gate: OAuth sign-ups legitimately arrive without one
+        // (schemas/user.ts marks username optional+sparse for exactly this case).
         const initResult = await UserInitializationService.ensureUserExists(clerkUserId, primaryEmail, username, imageUrl);
         
         if (initResult.error) {
@@ -107,8 +124,19 @@ export async function POST(req: NextRequest) {
         if (initResult.isNewUser) {
           console.log("User created successfully:", clerkUserId);
         } else {
-          console.log(`User with email ${primaryEmail} already exists, skipping creation`);
+          console.log("User already exists, skipping creation:", clerkUserId);
         }
+
+        const welcomeResult = await deliverClerkWelcomeEmail({
+          clerkUserId,
+          email: primaryEmail,
+          name: data.first_name?.trim() || username,
+          sourceEventId: svixId,
+        });
+        console.log("Clerk welcome email processed:", {
+          clerkUserId,
+          status: welcomeResult.status,
+        });
       } catch (error) {
         console.error("Error in user.created handler:", error);
         return new Response("Error creating user", { status: 500 });
@@ -120,12 +148,12 @@ export async function POST(req: NextRequest) {
       try {
         const clerkUserId = data.id;
         const clerkUserData = {
-          email: data.email_addresses?.[0]?.email_address,
+          email: resolvePrimaryEmail(data),
           username: data.username,
           imageUrl: data.image_url,
           emailAddresses: data.email_addresses?.map((emailAddr, index) => ({
             emailAddress: emailAddr.email_address,
-            id: `email_${index}`
+            id: emailAddr.id ?? `email_${index}`
           }))
         };
 
