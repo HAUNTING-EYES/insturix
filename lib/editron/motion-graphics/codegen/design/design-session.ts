@@ -18,6 +18,8 @@
  * session can never produce a worse video than shipping no design session at all.
  */
 
+import { z } from 'zod';
+
 import {
   buildDesignerParts,
   extractDesignPlanJson,
@@ -52,6 +54,87 @@ export interface MgDesignSessionResult {
   reason?: string;
   /** Attempts made (1 or 2). */
   attempts: number;
+}
+
+const designReviewSchema = z.object({
+  accepted: z.boolean(),
+  hardFailures: z.object({
+    decorativeFormOnly: z.boolean(),
+    primitiveChecklist: z.boolean(),
+    missingVisualEncoding: z.boolean(),
+    flatHierarchy: z.boolean(),
+    decorativeMotionOnly: z.boolean(),
+    repetitiveWithinVideo: z.boolean(),
+    footageConflict: z.boolean(),
+  }).strict(),
+  issues: z.array(z.string().min(1).max(240)).max(12),
+}).strict();
+
+const DESIGN_REVIEW_STABLE_PREFIX = `<role>
+You are the independent motion-design PLAN critic. You do not write or repair the plan. Decide whether the plan
+contains enough semantic visual thinking to justify expensive code generation. Judge the DESIGN, not rendered
+pixels and not implementation details. Return strict JSON only.
+</role>
+
+<hard_failures>
+- decorativeFormOnly: the purported form is merely a lone rule, dot, motif, texture, particles, or ornamental
+  flourish beside text; it does not make the licensed meaning visually understandable.
+- primitiveChecklist: elements are listed but do not form one composed visual system with deliberate relations.
+- missingVisualEncoding: the plan never explains through its concept, roles, grouping, and data bindings how visual
+  position, scale, quantity, sequence, contrast, or transformation carries the licensed meaning.
+- flatHierarchy: the stated structure has no clear entry point and reading progression appropriate to the content.
+- decorativeMotionOnly: motion adds activity but does not reveal, compare, transform, build, or land meaning.
+- repetitiveWithinVideo: the video plan repeats substantially the same structure across moments despite claiming
+  variety. A recurring motif is coherent; repeating the entire composition is not.
+- footageConflict: placement/look ignores the supplied footage, subject, captions, or available negative space.
+</hard_failures>
+
+Do not reject restraint, minimalism, equal-weight members of a true set, or use of kit primitives. Reject shallow
+design reasoning. The plan may use familiar primitives, but their relationships and choreography must be authored
+for this fact, this moment, this footage, and this video. accepted may be true only when every hard failure is false.
+
+Return exactly:
+{"accepted":boolean,"hardFailures":{"decorativeFormOnly":boolean,"primitiveChecklist":boolean,
+"missingVisualEncoding":boolean,"flatHierarchy":boolean,"decorativeMotionOnly":boolean,
+"repetitiveWithinVideo":boolean,"footageConflict":boolean},"issues":[string]}`;
+
+function designReviewParts(input: MgDesignSessionInput, plan: MgVideoDesignPlan): MgDesignerPart[] {
+  const parts: MgDesignerPart[] = [{ kind: 'text', text: DESIGN_REVIEW_STABLE_PREFIX }];
+  for (const [index, image] of (input.images?.moodboard ?? []).entries()) {
+    parts.push({ kind: 'text', text: `PROFESSIONAL LEVEL REFERENCE ${index + 1}: judge investment only; never demand copied style.` });
+    parts.push({ kind: 'image', mimeType: image.mimeType, data: image.data });
+  }
+  for (const [index, image] of (input.images?.footageFrames ?? []).entries()) {
+    parts.push({ kind: 'text', text: `ACTUAL FOOTAGE FRAME ${index + 1}` });
+    parts.push({ kind: 'image', mimeType: image.mimeType, data: image.data });
+  }
+  parts.push({
+    kind: 'text',
+    text: `<licensed_moments>${JSON.stringify(input.designer.moments)}</licensed_moments>\n<design_plan>${JSON.stringify(plan)}</design_plan>`,
+  });
+  return parts;
+}
+
+async function reviewDesignPlan(
+  input: MgDesignSessionInput,
+  plan: MgVideoDesignPlan,
+  generate: MgDesignerGenerate,
+): Promise<{ accepted: true } | { accepted: false; reason: string }> {
+  try {
+    const raw = await generate(designReviewParts(input, plan));
+    const review = designReviewSchema.parse(extractDesignPlanJson(raw));
+    const failures = Object.entries(review.hardFailures)
+      .filter(([, active]) => active)
+      .map(([name]) => name);
+    if (review.accepted && failures.length === 0) return { accepted: true };
+    const reason = [...failures, ...review.issues].slice(0, 6).join('; ');
+    return { accepted: false, reason: reason || 'plan critic rejected the design without a reason' };
+  } catch (error) {
+    return {
+      accepted: false,
+      reason: `plan critic failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 240),
+    };
+  }
 }
 
 /** Append the rejection reason to the volatile LAST text part (keeps data LAST, Rule 35) for the retry. */
@@ -107,6 +190,7 @@ export async function runVideoDesignSession(
   const baseParts = buildDesignerParts(input.designer, input.images ?? {});
   let lastReason = 'no attempt made';
   let lastPlan: MgVideoDesignPlan | null = null;
+  let lastPlanPassedStructuralValidation = false;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const parts = attempt === 0 ? baseParts : withFeedback(baseParts, lastReason);
@@ -123,9 +207,16 @@ export async function runVideoDesignSession(
       const plan = budget ? trimPlanToBudget(parsed, budget.maxMoments, input.designer.moments) : parsed;
       lastPlan = plan;
       const validation = validateDesignPlan(plan, input.contexts, budget ? { maxMoments: budget.maxMoments } : undefined);
-      if (validation.ok) return { plan, attempts: attempt + 1 };
+      lastPlanPassedStructuralValidation = validation.ok;
+      if (validation.ok) {
+        const review = await reviewDesignPlan(input, plan, deps.generate);
+        if (review.accepted) return { plan, attempts: attempt + 1 };
+        lastReason = `design-quality review rejected: ${review.reason}`;
+        continue;
+      }
       lastReason = validation.problems.slice(0, 3).join(' | ') || 'plan failed validation';
     } catch (error) {
+      lastPlanPassedStructuralValidation = false;
       lastReason = `plan parse/validation error: ${error instanceof Error ? error.message : String(error)}`.slice(0, 180);
     }
   }
@@ -134,14 +225,18 @@ export async function runVideoDesignSession(
   // Hormozi stress run showed drops ALL decided graphics to free-form over one bad moment (e.g. a ring bound to no
   // number) — SALVAGE the last plan: keep the valid moments, decline the invalid ones. Only when NOTHING valid
   // survives do we return null and let the caller degrade to free-form (never worse than before this fix).
-  if (lastPlan) {
+  if (lastPlan && !lastPlanPassedStructuralValidation) {
     const salvaged = salvageDesignPlan(lastPlan, input.contexts, budget ? { maxMoments: budget.maxMoments } : undefined);
     if (salvaged && salvaged.plan.moments.length > 0) {
-      return {
-        plan: salvaged.plan,
-        attempts: maxAttempts,
-        reason: `salvaged: kept ${salvaged.plan.moments.length}, dropped ${salvaged.dropped.length}${salvaged.dropped.length ? ` [${salvaged.dropped.slice(0, 5).join(', ')}]` : ''}`,
-      };
+      const review = await reviewDesignPlan(input, salvaged.plan, deps.generate);
+      if (review.accepted) {
+        return {
+          plan: salvaged.plan,
+          attempts: maxAttempts,
+          reason: `salvaged: kept ${salvaged.plan.moments.length}, dropped ${salvaged.dropped.length}${salvaged.dropped.length ? ` [${salvaged.dropped.slice(0, 5).join(', ')}]` : ''}`,
+        };
+      }
+      lastReason = `salvaged design-quality review rejected: ${review.reason}`;
     }
   }
 

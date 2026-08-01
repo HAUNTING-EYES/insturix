@@ -42,7 +42,25 @@ const brief: MgVideoDesignPlan['brief'] = {
   styleName: 'clean', motifLanguage: 'thin gold rule under key terms', paletteMoves: 'charcoal + gold',
   motionPersonality: 'snappy', formVariety: 'type then structure',
 };
-const fakeGen = (text: string): MgDesignerGenerate => vi.fn(async () => text);
+const acceptedReview = JSON.stringify({
+  accepted: true,
+  hardFailures: {
+    decorativeFormOnly: false,
+    primitiveChecklist: false,
+    missingVisualEncoding: false,
+    flatHierarchy: false,
+    decorativeMotionOnly: false,
+    repetitiveWithinVideo: false,
+    footageConflict: false,
+  },
+  issues: [],
+});
+const isDesignReview = (parts: Parameters<MgDesignerGenerate>[0]): boolean => parts.some(
+  (part) => part.kind === 'text' && part.text.includes('independent motion-design PLAN critic'),
+);
+const fakeGen = (text: string): MgDesignerGenerate => vi.fn(async (parts) => (
+  isDesignReview(parts) ? acceptedReview : text
+));
 
 describe('runDesignPrepass — video-level design pre-pass → per-decision plan map', () => {
   it('★ maps each designed moment back to its opaque key (the decision reference)', async () => {
@@ -79,7 +97,10 @@ describe('runDesignPrepass — video-level design pre-pass → per-decision plan
   it('★ passes sampled footage frames through to the designer session (multimodal, Phase D)', async () => {
     const plan: MgVideoDesignPlan = { brief, moments: [designedMoment('b0'), designedMoment('b1')], declined: [] };
     let receivedParts: Array<{ kind: string; data?: string }> = [];
-    const gen: MgDesignerGenerate = vi.fn(async (parts) => { receivedParts = parts; return JSON.stringify(plan); });
+    const gen: MgDesignerGenerate = vi.fn(async (parts) => {
+      receivedParts = parts;
+      return isDesignReview(parts) ? acceptedReview : JSON.stringify(plan);
+    });
     const images = { footageFrames: [{ mimeType: 'image/webp', data: 'Zm9vdGFnZQ==' }] };
     await runDesignPrepass({ beats, videoStyle, brand: INSTURIX, budget, images }, { generate: gen });
     expect(receivedParts.some((p) => p.kind === 'image' && p.data === 'Zm9vdGFnZQ==')).toBe(true); // the real frame reached the model

@@ -40,19 +40,47 @@ const fakeGen = (responses: string[]): MgDesignerGenerate => {
   return vi.fn(async () => responses[Math.min(i++, responses.length - 1)]);
 };
 
+const acceptedReview = JSON.stringify({
+  accepted: true,
+  hardFailures: {
+    decorativeFormOnly: false,
+    primitiveChecklist: false,
+    missingVisualEncoding: false,
+    flatHierarchy: false,
+    decorativeMotionOnly: false,
+    repetitiveWithinVideo: false,
+    footageConflict: false,
+  },
+  issues: [],
+});
+
+const rejectedReview = JSON.stringify({
+  accepted: false,
+  hardFailures: {
+    decorativeFormOnly: true,
+    primitiveChecklist: true,
+    missingVisualEncoding: true,
+    flatHierarchy: false,
+    decorativeMotionOnly: true,
+    repetitiveWithinVideo: false,
+    footageConflict: false,
+  },
+  issues: ['a headline plus underline does not visually explain the licensed idea'],
+});
+
 describe('MG video design session — the injected brain', () => {
   it('a valid plan on the first attempt is returned (attempts=1)', async () => {
-    const gen = fakeGen([JSON.stringify(validPlan)]);
+    const gen = fakeGen([JSON.stringify(validPlan), acceptedReview]);
     const r = await runVideoDesignSession({ designer, contexts }, { generate: gen });
     expect(r.plan).not.toBeNull();
     expect(r.attempts).toBe(1);
-    expect(gen).toHaveBeenCalledOnce();
+    expect(gen).toHaveBeenCalledTimes(2);
   });
 
   it('★ an invalid plan retries ONCE with the reason fed back, then succeeds (attempts=2)', async () => {
     // attempt 1: a text-only design (no form element) → validator rejects; attempt 2: the valid plan
     const badPlan = { ...validPlan, moments: [{ ...validPlan.moments[0], elements: [{ kind: 'headline', role: 'x', dataProps: ['line'] }], look: 'integrated', motion: { enterOrder: [0], build: 'fade', hold: 'still', syncTo: 'phases-only' } }] };
-    const gen = fakeGen([JSON.stringify(badPlan), JSON.stringify(validPlan)]);
+    const gen = fakeGen([JSON.stringify(badPlan), JSON.stringify(validPlan), acceptedReview]);
     const r = await runVideoDesignSession({ designer, contexts }, { generate: gen });
     expect(r.plan).not.toBeNull();
     expect(r.attempts).toBe(2);
@@ -87,11 +115,69 @@ describe('MG video design session — the injected brain', () => {
     const twoMoments = [moment, { ...moment, momentId: 'b1', salience: 0.2 }]; // b1 lower salience → trimmed first
     const r = await runVideoDesignSession(
       { designer: { ...designer, moments: twoMoments, budget: { maxMoments: 1, minSpacingSec: 3, rationale: 't' } }, contexts: twoCtx },
-      { generate: fakeGen([JSON.stringify(overBudget)]) },
+      { generate: fakeGen([JSON.stringify(overBudget), acceptedReview]) },
     );
     expect(r.plan).not.toBeNull();
     expect(r.plan!.moments.map((m) => m.momentId)).toEqual(['b0']); // the higher-salience beat survives
     expect(r.plan!.declined.some((d) => d.momentId === 'b1' && /trimmed/.test(d.reason))).toBe(true); // the rest → declined
+  });
+});
+
+describe('MG design-quality ownership', () => {
+  it('routes a weak but structurally valid plan back to the designer before code generation', async () => {
+    const strengthenedPlan: MgVideoDesignPlan = {
+      ...validPlan,
+      moments: [{
+        ...validPlan.moments[0],
+        concept: 'a visual balance resolves from quantity toward quality',
+        structure: {
+          placement: 'center-right',
+          grouping: 'contrasting weighted terms connected by a resolving path',
+          readingOrder: 'quantity tension, path movement, quality resolution',
+        },
+        elements: [
+          { kind: 'headline', role: 'the quality outcome', dataProps: ['line'] },
+          { kind: 'reveal', role: 'the relationship resolving toward quality', dataProps: [] },
+          { kind: 'dot', role: 'the visual weight carried by quantity', dataProps: [] },
+        ],
+        motion: {
+          enterOrder: [2, 1, 0],
+          build: 'weight appears, path resolves it, quality lands on the final word onset',
+          hold: 'the resolved relationship remains legible',
+          syncTo: 'word-onsets',
+        },
+      }],
+    };
+    const gen = fakeGen([
+      JSON.stringify(validPlan),
+      rejectedReview,
+      JSON.stringify(strengthenedPlan),
+      acceptedReview,
+    ]);
+
+    const result = await runVideoDesignSession({ designer, contexts }, { generate: gen });
+
+    expect(result.plan?.moments[0]?.concept).toContain('visual balance');
+    expect(result.attempts).toBe(2);
+    const retryParts = (gen as unknown as { mock: { calls: unknown[][] } }).mock.calls[2][0] as Array<{ kind: string; text?: string }>;
+    const retryFeedback = [...retryParts].reverse().find((part) => part.kind === 'text')?.text ?? '';
+    expect(retryFeedback).toContain('design-quality review rejected');
+    expect(retryFeedback).toContain('headline plus underline');
+  });
+
+  it('does not salvage a structurally valid plan that repeatedly fails design quality', async () => {
+    const gen = fakeGen([
+      JSON.stringify(validPlan),
+      rejectedReview,
+      JSON.stringify(validPlan),
+      rejectedReview,
+    ]);
+
+    const result = await runVideoDesignSession({ designer, contexts }, { generate: gen });
+
+    expect(result.plan).toBeNull();
+    expect(result.reason).toContain('design-quality review rejected');
+    expect(result.attempts).toBe(2);
   });
 });
 

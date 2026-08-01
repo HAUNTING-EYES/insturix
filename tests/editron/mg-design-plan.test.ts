@@ -339,14 +339,14 @@ describe('P4 — the structural look axis', () => {
   });
 });
 
-describe('P3.5 door — prompt contract snapshot (KIT e1.10)', () => {
+describe('P3.5 door — prompt contract snapshot (KIT e1.11)', () => {
   it('coder mandates boxless-first, designer licenses within budget, judge penalizes unmotivated boxes', async () => {
     const { CODER_STABLE_PREFIX } = await import('@/lib/editron/motion-graphics/codegen/design/coder-prompt');
     const { DESIGNER_STABLE_PREFIX } = await import('@/lib/editron/motion-graphics/codegen/design/designer-prompt');
     const { JUDGE_PROMPT } = await import('@/lib/editron/motion-graphics/codegen/prompt');
     const { KIT_VERSION } = await import('@/lib/editron/motion-graphics/codegen/codegen-service');
 
-    expect(KIT_VERSION).toBe('e1.10');
+    expect(KIT_VERSION).toBe('e1.11');
     expect(CODER_STABLE_PREFIX).toMatch(/THE LOOK IS LAW/);
     expect(DESIGNER_STABLE_PREFIX).toMatch(/THE LOOK/);
     expect(DESIGNER_STABLE_PREFIX).toMatch(/COMPLETE spoken thought/);
