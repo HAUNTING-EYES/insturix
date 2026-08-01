@@ -300,6 +300,43 @@ describe("CalOS publish status and deliberate retry", () => {
     expect(payload.connectedPlatforms).toEqual([]);
   });
 
+  it("projects Model-B LinkedIn authorization evidence before reporting connected", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 9).toString("base64"));
+    const accountQuery = queryResult([{
+      platform: "linkedin",
+      accountRef: "linkedin_org_1",
+      accountType: "organization",
+      displayName: "Acme LinkedIn",
+      ownerUserId: "owner_1",
+      accessTokenEnc: encryptToken("brand_access"),
+      expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+      scopes: ["w_organization_social", "rw_organization_admin"],
+    }]);
+    mocks.connectedAccountFind.mockReturnValue(accountQuery);
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      elements: [{
+        organization: "urn:li:organization:linkedin_org_1",
+        role: "ADMINISTRATOR",
+        state: "APPROVED",
+      }],
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    const response = await getPublishStatus(getRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.connectionHealth.linkedin).toMatchObject({
+      state: "assigned",
+      accountRef: "linkedin_org_1",
+    });
+    expect(payload.connectedPlatforms).toEqual(["linkedin"]);
+    expect(accountQuery.select).toHaveBeenCalledWith(expect.stringContaining("accountType"));
+    expect(accountQuery.select).toHaveBeenCalledWith(expect.stringContaining("scopes"));
+  });
+
   it("verifies Facebook Page ownership and YouTube OAuth before reporting connected", async () => {
     vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 8).toString("base64"));
     mocks.connectedAccountFind.mockReturnValue(queryResult([
@@ -657,7 +694,7 @@ describe("CalOS publish status and deliberate retry", () => {
     expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
-  it("refuses retry when an expired stored LinkedIn token lacks scope evidence", async () => {
+  it("allows retry when an expired stored LinkedIn token has scope evidence and can refresh", async () => {
     vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 9).toString("base64"));
     vi.stubEnv("LINKEDIN_CLIENT_ID", "linkedin_client");
     vi.stubEnv("LINKEDIN_CLIENT_SECRET", "linkedin_secret");
@@ -670,10 +707,12 @@ describe("CalOS publish status and deliberate retry", () => {
     });
     mocks.connectedAccountFindOne.mockResolvedValue({
       accountRef: "linkedin_1",
+      accountType: "organization",
       ownerUserId: "owner_1",
       accessTokenEnc: encryptToken("expired_access"),
       refreshTokenEnc: encryptToken("brand_refresh"),
       expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+      scopes: ["w_organization_social", "rw_organization_admin"],
     });
     mocks.queueFindOneAndUpdate.mockResolvedValue({
       deliverableId: "card_1",
@@ -687,11 +726,8 @@ describe("CalOS publish status and deliberate retry", () => {
       confirmPossibleDuplicate: true,
     });
 
-    const payload = await response.json();
-
-    expect(response.status).toBe(409);
-    expect(payload.error).toContain("w_organization_social");
-    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.queueFindOneAndUpdate).toHaveBeenCalledOnce();
   });
 
   it("refuses retry when the assigned owner's live X token cannot refresh", async () => {

@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
         .select("deliverableId platform accountRef status postId postUrl lastError updatedAt")
         .lean<PublishRow[]>(),
       CalosConnectedAccount.find({ brandId, ...(orgId ? { orgId } : {}) })
-        .select("platform accountRef displayName ownerUserId accessTokenEnc refreshTokenEnc expiresAt")
+        .select("platform accountRef accountType displayName ownerUserId accessTokenEnc refreshTokenEnc expiresAt scopes")
         .lean<CalosAssignmentLike[]>(),
     ]);
     const assignmentHealth = await loadCalosAssignmentHealth(accounts);
@@ -216,6 +216,7 @@ export async function POST(req: NextRequest) {
         accessTokenEnc: assignedAccount.accessTokenEnc,
         refreshTokenEnc: assignedAccount.refreshTokenEnc,
         expiresAt: assignedAccount.expiresAt,
+        scopes: assignedAccount.scopes,
       },
     ]);
     const connection = assignmentHealth[row.platform];
