@@ -5068,206 +5068,41 @@ NEVER ask the user which clips — default to applyToAll: true.`,
   // ─── Beat Sync Tool ───────────────────────────────────────────────
   const syncCutsToBeatsSchema = z.object({
     audioOverlayId: z.coerce.number().optional().describe(
-      'ID of the sound overlay to use for beat detection. If omitted, uses the first sound overlay.'
+      'ID of the music overlay to use for beat alignment. If omitted, uses the strongest persisted music/beat-grid evidence.'
     ),
     videoOverlayId: z.coerce.number().optional().describe(
-      'ID of the video overlay to cut. If omitted, cuts the longest video overlay.'
+      'Optional video overlay whose visual track should be aligned. If omitted, uses the primary contiguous visual track.'
     ),
     beatFilter: z.enum(['all', 'downbeats', 'strong']).optional().default('downbeats').describe(
-      'Which beats to use as cut points: all beats, only downbeats (default), or only strong beats'
+      'Which analyzed beats may license an existing boundary alignment.'
     ),
-    strengthThreshold: z.coerce.number().optional().default(0.6).describe(
-      'Minimum beat strength (0-1) when beatFilter is strong'
+    strengthThreshold: z.coerce.number().min(0).max(1).optional().default(0.6).describe(
+      'Measured beat-strength floor when beatFilter is strong.'
     ),
-    includeEnergyPeaks: z.coerce.boolean().optional().default(false).describe(
-      'Also add cuts at energy peak moments (drops, impacts)'
-    ),
-    maxCuts: z.coerce.number().optional().default(50).describe(
-      'Maximum number of cuts to create'
-    ),
-  });
+  }).strict();
 
   const syncCutsToBeats = tool(
     async (rawInput: z.infer<typeof syncCutsToBeatsSchema>) => {
       try {
         const input = coerceInput(rawInput);
-        const project = await loadProject();
-
-        // Find audio overlay
-        let audioOverlay: any;
-        if (input.audioOverlayId) {
-          audioOverlay = project.overlays.find((o: any) => o.id === input.audioOverlayId);
-        } else {
-          audioOverlay = project.overlays.find((o: any) => o.type === 'sound' && o.assetId);
-        }
-        if (!audioOverlay?.assetId) {
-          return JSON.stringify({ status: 'error', message: 'No audio overlay with an asset found. Add a music track first.' });
-        }
-
-        // Find video overlay
-        let videoOverlay: any;
-        if (input.videoOverlayId) {
-          videoOverlay = project.overlays.find((o: any) => o.id === input.videoOverlayId);
-        } else {
-          // Find longest video overlay
-          const videos = project.overlays
-            .filter((o: any) => o.type === 'video' && o.assetId)
-            .sort((a: any, b: any) => (b.durationInFrames || 0) - (a.durationInFrames || 0));
-          videoOverlay = videos[0];
-        }
-        if (!videoOverlay) {
-          return JSON.stringify({ status: 'error', message: 'No video overlay found to cut.' });
-        }
-
-        // Call beat analysis API route — use VERCEL_URL for internal calls
-        const baseUrl = process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}`
-          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-
-        const analysisRes = await fetch(`${baseUrl}/api/services/editron/audio/analyze-beats`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ assetId: audioOverlay.assetId, userId }),
-        });
-
-        if (!analysisRes.ok) {
-          const err = await analysisRes.json().catch(() => ({}));
-          return JSON.stringify({ status: 'error', message: `Beat analysis failed: ${err.error || analysisRes.status}` });
-        }
-
-        const { analysis } = await analysisRes.json();
-        if (!analysis?.beats?.length) {
-          return JSON.stringify({ status: 'error', message: 'No beats detected in the audio track.' });
-        }
-
-        // Calculate audio start offset on timeline (in ms)
-        const fps = project.fps || 30;
-        const audioStartOffsetMs = (audioOverlay.from / fps) * 1000;
-
-        // Filter beats based on user preferences
-        let cutBeats = analysis.beats.filter((b: any) => {
-          if (input.beatFilter === 'downbeats') return b.isDownbeat;
-          if (input.beatFilter === 'strong') return b.strength >= (input.strengthThreshold || 0.6);
-          return true; // 'all'
-        });
-
-        // Add energy peaks if requested
-        if (input.includeEnergyPeaks && analysis.energyPeaks?.length) {
-          for (const peak of analysis.energyPeaks) {
-            // Only add if not already near a cut beat
-            const nearExisting = cutBeats.some((b: any) => Math.abs(b.timeMs - peak.timeMs) < 50);
-            if (!nearExisting) {
-              cutBeats.push({ timeMs: peak.timeMs, strength: peak.magnitude, isDownbeat: false });
-            }
-          }
-        }
-
-        // Apply maxCuts distribution: downbeats first, then strong, then evenly spaced
-        if (cutBeats.length > (input.maxCuts || 50)) {
-          const maxCuts = input.maxCuts || 50;
-          const downbeats = cutBeats.filter((b: any) => b.isDownbeat);
-          const strong = cutBeats
-            .filter((b: any) => !b.isDownbeat && b.strength >= 0.6)
-            .sort((a: any, b: any) => b.strength - a.strength);
-          const regular = cutBeats.filter(
-            (b: any) => !b.isDownbeat && b.strength < 0.6,
-          );
-
-          const selected: any[] = [];
-          // 1. Always include downbeats
-          selected.push(...downbeats.slice(0, maxCuts));
-          // 2. Then strong beats
-          if (selected.length < maxCuts) {
-            selected.push(...strong.slice(0, maxCuts - selected.length));
-          }
-          // 3. Fill with regular beats evenly spaced
-          if (selected.length < maxCuts && regular.length > 0) {
-            const remaining = maxCuts - selected.length;
-            const step = Math.max(1, Math.floor(regular.length / remaining));
-            for (let i = 0; i < regular.length && selected.length < maxCuts; i += step) {
-              selected.push(regular[i]);
-            }
-          }
-          cutBeats = selected;
-        }
-
-        // Convert beat timestamps to timeline frames
-        const cutFrames = cutBeats
-          .map((b: any) => ({
-            frame: Math.round(((b.timeMs + audioStartOffsetMs) / 1000) * fps),
-            isDownbeat: b.isDownbeat,
-          }))
-          .filter((c: any) => {
-            // Only cut within the video overlay's range
-            return c.frame > videoOverlay.from && c.frame < videoOverlay.from + videoOverlay.durationInFrames;
-          })
-          .sort((a: any, b: any) => b.frame - a.frame); // Sort descending (split from end to preserve frame positions)
-
-        if (cutFrames.length === 0) {
-          return JSON.stringify({
-            status: 'success',
-            message: `Detected ${analysis.bpm} BPM but no beat positions fall within the video overlay range.`,
-            bpm: analysis.bpm,
-            cutsCreated: 0,
-          });
-        }
-
-        // Execute splits from end to start
-        let cutsCreated = 0;
-
-        for (const cut of cutFrames) {
-          // Reload project to get current overlay state after each split
-          const currentProject = await loadProject();
-          const currentOverlay = currentProject.overlays.find((o: any) => {
-            // Find the overlay that contains this frame
-            return o.type === 'video' && o.from <= cut.frame && (o.from + o.durationInFrames) > cut.frame;
-          });
-
-          if (!currentOverlay) continue;
-
-          const overlayEnd = currentOverlay.from + currentOverlay.durationInFrames;
-          if (cut.frame <= currentOverlay.from || cut.frame >= overlayEnd) continue;
-
-          const firstDuration = cut.frame - currentOverlay.from;
-          const secondDuration = overlayEnd - cut.frame;
-
-          // Update original (first part)
-          await projectService.updateOverlay(userId, projectId, currentOverlay.id, {
-            durationInFrames: firstDuration,
-          });
-
-          // Create second part
-          const newId = Date.now() + Math.floor(Math.random() * 10000) + cutsCreated;
-          const secondOverlay = {
-            ...currentOverlay,
-            id: newId,
-            from: cut.frame,
-            durationInFrames: secondDuration,
-            videoStartTime: ((currentOverlay as any).videoStartTime || 0) + firstDuration,
-          };
-
-          await projectService.addOverlay(userId, projectId, secondOverlay as any);
-          cutsCreated++;
-        }
-
-        await recalculateProjectDuration();
-
-        return JSON.stringify({
-          status: 'success',
-          message: `Synced ${cutsCreated} cuts to ${input.beatFilter} at ${analysis.bpm} BPM (confidence: ${(analysis.bpmConfidence * 100).toFixed(0)}%)`,
-          bpm: analysis.bpm,
-          bpmConfidence: analysis.bpmConfidence,
-          cutsCreated,
-          totalBeats: analysis.beats.length,
-          beatFilter: input.beatFilter,
-        });
+        const { executeChatBeatSync } = await import('../services/chat-beat-sync');
+        return JSON.stringify(await executeChatBeatSync({ userId, projectId, input }));
       } catch (err: any) {
-        return JSON.stringify({ status: 'error', message: err.message || 'Beat sync failed' });
+        return JSON.stringify({
+          status: 'error',
+          data: null,
+          error: {
+            code: 'BEAT_SYNC_FAILED',
+            message: err.message || 'Beat sync failed',
+          },
+          nextAction: 'stop',
+          message: err.message || 'Beat sync failed',
+        });
       }
     },
     {
       name: 'sync_cuts_to_beats',
-      description: 'Detect beats in an audio/music track and automatically split video clips at beat positions for music-synced editing. Supports filtering by downbeats only (default), strong beats, or all beats. Use this when the user wants to sync cuts to music, create beat-matched edits, or make rhythm-driven video cuts.',
+      description: 'Align eligible existing visual cut boundaries to measured music beats without inventing new cuts. Speech boundaries, source handles, transition linkage, and anti-metronomic spacing remain protected.',
       schema: syncCutsToBeatsSchema,
     },
   );

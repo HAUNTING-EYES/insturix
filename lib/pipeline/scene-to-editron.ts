@@ -475,13 +475,66 @@ interface BeatInfo {
   isDownbeat: boolean;
 }
 
+export type BeatAlignmentRejectionReason =
+  | 'not-contiguous'
+  | 'already-aligned'
+  | 'outside-snap-window'
+  | 'speech-boundary-priority'
+  | 'metronomic-run-limit'
+  | 'minimum-clip-duration'
+  | 'missing-source-duration'
+  | 'insufficient-source-handle';
+
+export interface BeatAlignmentOptions {
+  /** Restrict alignment to the visual track containing this overlay. */
+  targetOverlayId?: string | number;
+  /** Maximum distance from an existing cut to a licensed beat. */
+  maxSnapFrames?: number;
+  /** Minimum duration retained on both sides of a shifted boundary. */
+  minClipFrames?: number;
+  /** Skip an alignment after this many consecutive beat-locked boundaries. */
+  maxConsecutiveBeatCuts?: number;
+  /** Existing semantic/speech boundaries that must not be displaced. */
+  protectedBoundaryFrames?: readonly number[];
+  protectedBoundaryToleranceFrames?: number;
+  /** Source durations used to prove that a boundary has enough trim handle. */
+  sourceDurationFramesByAssetId?: Readonly<Record<string, number>>;
+  /** Reject shifts that cannot prove source trim handles. */
+  requireSourceHandles?: boolean;
+}
+
+export interface BeatAlignmentChange {
+  clipAId: string | number;
+  clipBId: string | number;
+  originalFrame: number;
+  alignedFrame: number;
+  beatFrame: number;
+  shiftFrames: number;
+  transitionOverlayIds: Array<string | number>;
+}
+
+export interface BeatAlignmentRejection {
+  clipAId: string | number;
+  clipBId: string | number;
+  boundaryFrame: number;
+  beatFrame?: number;
+  reason: BeatAlignmentRejectionReason;
+}
+
+export interface BeatAlignmentResult {
+  snappedCount: number;
+  trackOverlayIds: Array<string | number>;
+  changes: BeatAlignmentChange[];
+  rejections: BeatAlignmentRejection[];
+}
+
 /**
  * Align primary visual-track cut points to the nearest beats in the BGM.
  *
  * For each contiguous video/image boundary, finds the closest beat and snaps
  * the cut to it. The outer timeline envelope remains unchanged.
  *
- * @param overlays - All project overlays (modifies row-2 visual overlays in place)
+ * @param overlays - All project overlays (modifies the selected primary visual track in place)
  * @param beats - Beat positions from beat detection service
  * @param fps - Frames per second
  * @returns Number of cuts that were snapped to beats
@@ -491,48 +544,269 @@ export function alignCutsToBeats(
   beats: BeatInfo[],
   fps: number = 30,
 ): number {
-  if (!beats.length) return 0;
+  return alignCutsToBeatsWithEvidence(overlays, beats, fps).snappedCount;
+}
 
-  const visualTrack = overlays
-    .filter((overlay) => (
-      (overlay?.type === 'video' || overlay?.type === 'image')
-      && (overlay?.row === ROW.VIDEO || overlay?.metadata?.isMontageSub === true)
-      && Number.isFinite(overlay?.from)
-      && Number.isFinite(overlay?.durationInFrames)
-      && overlay.durationInFrames > 0
-    ))
-    .sort((a, b) => a.from - b.from);
-  let snappedCount = 0;
-  const SNAP_THRESHOLD = Math.round(fps * 0.5); // Max 0.5s snap distance
-  const MIN_CLIP_FRAMES = Math.max(1, Math.round(fps));
+/**
+ * Align existing visual boundaries and return an auditable result. This is the
+ * single physical owner for beat-aligned cut timing; callers decide whether
+ * the evidence is trustworthy and how the resulting project write is made.
+ */
+export function alignCutsToBeatsWithEvidence(
+  overlays: any[],
+  beats: BeatInfo[],
+  fps: number = 30,
+  options: BeatAlignmentOptions = {},
+): BeatAlignmentResult {
+  const visualTrack = selectPrimaryVisualTrack(overlays, options.targetOverlayId);
+  const result: BeatAlignmentResult = {
+    snappedCount: 0,
+    trackOverlayIds: visualTrack.map((overlay) => overlay.id),
+    changes: [],
+    rejections: [],
+  };
+  if (visualTrack.length < 2 || beats.length === 0) return result;
 
-  for (let i = 1; i < visualTrack.length; i++) {
-    const previous = visualTrack[i - 1];
-    const current = visualTrack[i];
-    const cutFrame = current.from;
-    if (previous.from + previous.durationInFrames !== cutFrame) continue;
+  const orderedBeats = beats
+    .filter((beat) => Number.isFinite(beat?.frame))
+    .map((beat) => ({ ...beat, frame: Math.round(beat.frame) }))
+    .sort((left, right) => left.frame - right.frame);
+  const maxSnapFrames = Math.max(0, Math.round(options.maxSnapFrames ?? fps * 0.5));
+  const minClipFrames = Math.max(1, Math.round(options.minClipFrames ?? fps));
+  const maxConsecutive = Math.max(1, Math.round(options.maxConsecutiveBeatCuts ?? 4));
+  const protectedTolerance = Math.max(0, Math.round(options.protectedBoundaryToleranceFrames ?? 2));
+  const protectedFrames = (options.protectedBoundaryFrames ?? [])
+    .filter(Number.isFinite)
+    .map((frame) => Math.round(frame));
+  const usedBeatFrames = new Set<number>();
+  let consecutiveBeatCuts = 0;
 
-    let nearestBeat: BeatInfo | null = null;
-    let nearestDist = Infinity;
-    for (const beat of beats) {
-      const dist = Math.abs(beat.frame - cutFrame);
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearestBeat = beat;
-      }
+  for (let index = 1; index < visualTrack.length; index++) {
+    const previous = visualTrack[index - 1];
+    const current = visualTrack[index];
+    const boundaryFrame = Math.round(current.from);
+    if (Math.round(previous.from + previous.durationInFrames) !== boundaryFrame) {
+      consecutiveBeatCuts = 0;
+      reject(result, previous, current, boundaryFrame, 'not-contiguous');
+      continue;
     }
 
-    if (!nearestBeat || nearestDist > SNAP_THRESHOLD || nearestDist === 0) continue;
-    const shift = nearestBeat.frame - cutFrame;
-    const previousDuration = previous.durationInFrames + shift;
-    const currentDuration = current.durationInFrames - shift;
-    if (previousDuration < MIN_CLIP_FRAMES || currentDuration < MIN_CLIP_FRAMES) continue;
+    const nearestBeat = nearestUnusedBeat(orderedBeats, boundaryFrame, usedBeatFrames);
+    if (!nearestBeat) {
+      consecutiveBeatCuts = 0;
+      continue;
+    }
+    const distance = Math.abs(nearestBeat.frame - boundaryFrame);
+    if (distance === 0) {
+      usedBeatFrames.add(nearestBeat.frame);
+      consecutiveBeatCuts++;
+      reject(result, previous, current, boundaryFrame, 'already-aligned', nearestBeat.frame);
+      continue;
+    }
+    if (distance > maxSnapFrames) {
+      consecutiveBeatCuts = 0;
+      reject(result, previous, current, boundaryFrame, 'outside-snap-window', nearestBeat.frame);
+      continue;
+    }
+    if (isProtectedBoundary(boundaryFrame, protectedFrames, protectedTolerance)) {
+      consecutiveBeatCuts = 0;
+      reject(result, previous, current, boundaryFrame, 'speech-boundary-priority', nearestBeat.frame);
+      continue;
+    }
+    if (consecutiveBeatCuts >= maxConsecutive) {
+      consecutiveBeatCuts = 0;
+      reject(result, previous, current, boundaryFrame, 'metronomic-run-limit', nearestBeat.frame);
+      continue;
+    }
+
+    const shiftFrames = nearestBeat.frame - boundaryFrame;
+    const previousDuration = previous.durationInFrames + shiftFrames;
+    const currentDuration = current.durationInFrames - shiftFrames;
+    if (previousDuration < minClipFrames || currentDuration < minClipFrames) {
+      consecutiveBeatCuts = 0;
+      reject(result, previous, current, boundaryFrame, 'minimum-clip-duration', nearestBeat.frame);
+      continue;
+    }
+    const handleFailure = sourceHandleFailure(previous, current, shiftFrames, options);
+    if (handleFailure) {
+      consecutiveBeatCuts = 0;
+      reject(result, previous, current, boundaryFrame, handleFailure, nearestBeat.frame);
+      continue;
+    }
 
     previous.durationInFrames = previousDuration;
-    current.from += shift;
+    current.from += shiftFrames;
     current.durationInFrames = currentDuration;
-    snappedCount++;
+    advanceIncomingSourceStart(current, shiftFrames);
+    const transitionOverlayIds = moveLinkedTransitions(
+      overlays,
+      previous.id,
+      current.id,
+      boundaryFrame,
+      shiftFrames,
+    );
+    usedBeatFrames.add(nearestBeat.frame);
+    consecutiveBeatCuts++;
+    result.changes.push({
+      clipAId: previous.id,
+      clipBId: current.id,
+      originalFrame: boundaryFrame,
+      alignedFrame: nearestBeat.frame,
+      beatFrame: nearestBeat.frame,
+      shiftFrames,
+      transitionOverlayIds,
+    });
   }
 
-  return snappedCount;
+  result.snappedCount = result.changes.length;
+  return result;
+}
+
+function selectPrimaryVisualTrack(overlays: any[], targetOverlayId?: string | number): any[] {
+  const candidates = overlays.filter((overlay) => (
+    (overlay?.type === 'video' || overlay?.type === 'image')
+    && Number.isFinite(overlay?.from)
+    && Number.isFinite(overlay?.durationInFrames)
+    && overlay.durationInFrames > 0
+  ));
+  const target = targetOverlayId == null
+    ? null
+    : candidates.find((overlay) => String(overlay.id) === String(targetOverlayId));
+  if (target) {
+    const targetKey = visualTrackKey(target);
+    return candidates
+      .filter((overlay) => visualTrackKey(overlay) === targetKey)
+      .sort((left, right) => left.from - right.from);
+  }
+
+  const groups = new Map<string, any[]>();
+  for (const overlay of candidates) {
+    const key = visualTrackKey(overlay);
+    const group = groups.get(key) ?? [];
+    group.push(overlay);
+    groups.set(key, group);
+  }
+  return [...groups.values()]
+    .map((group) => group.sort((left, right) => left.from - right.from))
+    .sort((left, right) => {
+      const boundaryDelta = contiguousBoundaryCount(right) - contiguousBoundaryCount(left);
+      if (boundaryDelta !== 0) return boundaryDelta;
+      if (right.length !== left.length) return right.length - left.length;
+      return visualCoverage(right) - visualCoverage(left);
+    })[0] ?? [];
+}
+
+function visualTrackKey(overlay: any): string {
+  if (overlay?.row != null) return `row:${String(overlay.row)}`;
+  if (overlay?.metadata?.isMontageSub === true) return 'legacy-montage';
+  return `rowless:${String(overlay?.id)}`;
+}
+
+function contiguousBoundaryCount(track: any[]): number {
+  let count = 0;
+  for (let index = 1; index < track.length; index++) {
+    if (Math.round(track[index - 1].from + track[index - 1].durationInFrames) === Math.round(track[index].from)) {
+      count++;
+    }
+  }
+  return count;
+}
+
+function visualCoverage(track: any[]): number {
+  return track.reduce((sum, overlay) => sum + Math.max(0, Number(overlay.durationInFrames) || 0), 0);
+}
+
+function nearestUnusedBeat(beats: BeatInfo[], frame: number, used: Set<number>): BeatInfo | null {
+  let nearest: BeatInfo | null = null;
+  let distance = Infinity;
+  for (const beat of beats) {
+    if (used.has(beat.frame)) continue;
+    const candidateDistance = Math.abs(beat.frame - frame);
+    if (candidateDistance < distance) {
+      nearest = beat;
+      distance = candidateDistance;
+    }
+  }
+  return nearest;
+}
+
+function isProtectedBoundary(frame: number, protectedFrames: number[], tolerance: number): boolean {
+  return protectedFrames.some((protectedFrame) => Math.abs(protectedFrame - frame) <= tolerance);
+}
+
+function sourceHandleFailure(
+  previous: any,
+  current: any,
+  shiftFrames: number,
+  options: BeatAlignmentOptions,
+): 'missing-source-duration' | 'insufficient-source-handle' | null {
+  if (!options.requireSourceHandles || shiftFrames === 0) return null;
+  if (shiftFrames < 0 && current?.type === 'video') {
+    const sourceStart = finiteFrame(current.sourceStartFrame ?? current.videoStartTime) ?? 0;
+    return sourceStart + shiftFrames < 0 ? 'insufficient-source-handle' : null;
+  }
+  if (shiftFrames > 0 && previous?.type === 'video') {
+    const assetId = typeof previous.assetId === 'string' ? previous.assetId : '';
+    const sourceDuration = assetId ? options.sourceDurationFramesByAssetId?.[assetId] : undefined;
+    if (!Number.isFinite(sourceDuration)) return 'missing-source-duration';
+    const sourceStart = finiteFrame(previous.sourceStartFrame ?? previous.videoStartTime) ?? 0;
+    const sourceEnd = sourceStart + Math.max(0, Math.round(previous.durationInFrames));
+    return sourceEnd + shiftFrames > Math.round(sourceDuration as number)
+      ? 'insufficient-source-handle'
+      : null;
+  }
+  return null;
+}
+
+function advanceIncomingSourceStart(overlay: any, shiftFrames: number): void {
+  if (overlay?.type !== 'video' || shiftFrames === 0) return;
+  const sourceStart = finiteFrame(overlay.sourceStartFrame ?? overlay.videoStartTime) ?? 0;
+  const nextSourceStart = sourceStart + shiftFrames;
+  overlay.sourceStartFrame = nextSourceStart;
+  overlay.videoStartTime = nextSourceStart;
+}
+
+function moveLinkedTransitions(
+  overlays: any[],
+  clipAId: string | number,
+  clipBId: string | number,
+  previousBoundaryFrame: number,
+  shiftFrames: number,
+): Array<string | number> {
+  const moved: Array<string | number> = [];
+  for (const overlay of overlays) {
+    if (overlay?.type !== 'transition') continue;
+    const linked = String(overlay.clipAId) === String(clipAId)
+      && String(overlay.clipBId) === String(clipBId);
+    const legacyAtBoundary = overlay.clipAId == null
+      && overlay.clipBId == null
+      && Math.abs((finiteFrame(overlay.from) ?? Infinity) - previousBoundaryFrame) <= 1;
+    if (!linked && !legacyAtBoundary) continue;
+    if (Number.isFinite(overlay.from)) overlay.from += shiftFrames;
+    if (Number.isFinite(overlay.boundaryFrame)) overlay.boundaryFrame += shiftFrames;
+    if (Number.isFinite(overlay.metadata?.boundaryFrame)) overlay.metadata.boundaryFrame += shiftFrames;
+    moved.push(overlay.id);
+  }
+  return moved;
+}
+
+function reject(
+  result: BeatAlignmentResult,
+  previous: any,
+  current: any,
+  boundaryFrame: number,
+  reason: BeatAlignmentRejectionReason,
+  beatFrame?: number,
+): void {
+  result.rejections.push({
+    clipAId: previous.id,
+    clipBId: current.id,
+    boundaryFrame,
+    ...(beatFrame == null ? {} : { beatFrame }),
+    reason,
+  });
+}
+
+function finiteFrame(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : null;
 }
