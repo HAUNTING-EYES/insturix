@@ -39,6 +39,94 @@ export interface PublishResult {
 
 export type Publisher = (params: PublishParams) => Promise<PublishResult>;
 
+export type RegisteredCalosPublishPlatform = Exclude<CalosPublishPlatform, "tiktok">;
+export type PublisherMediaKind = "none" | "image" | "video";
+
+export interface PublisherCapability {
+  label: string;
+  defaultFormat: string;
+  supportedFormats: readonly string[];
+  requiredMedia: PublisherMediaKind;
+}
+
+export const publisherCapabilities: Record<
+  RegisteredCalosPublishPlatform,
+  PublisherCapability
+> = {
+  facebook: {
+    label: "Facebook",
+    defaultFormat: "text",
+    supportedFormats: ["text"],
+    requiredMedia: "none",
+  },
+  instagram: {
+    label: "Instagram",
+    defaultFormat: "image",
+    supportedFormats: ["image"],
+    requiredMedia: "image",
+  },
+  linkedin: {
+    label: "LinkedIn",
+    defaultFormat: "text",
+    supportedFormats: ["text"],
+    requiredMedia: "none",
+  },
+  twitter: {
+    label: "X",
+    defaultFormat: "text",
+    supportedFormats: ["text"],
+    requiredMedia: "none",
+  },
+  youtube: {
+    label: "YouTube",
+    defaultFormat: "video",
+    supportedFormats: ["video", "short_video", "long_video"],
+    requiredMedia: "video",
+  },
+};
+
+export type PublishReadinessResult =
+  | { ok: true; format: string; mediaKind: PublisherMediaKind }
+  | { ok: false; error: string };
+
+export function validatePublishReadiness(input: {
+  platform: RegisteredCalosPublishPlatform;
+  contentFormat?: string | null;
+  assetUrl?: string | null;
+  copyText?: string | null;
+}): PublishReadinessResult {
+  const capability = publisherCapabilities[input.platform];
+  const explicitFormat = input.contentFormat?.trim().toLowerCase() ?? "";
+  const format = explicitFormat || capability.defaultFormat;
+
+  if (!capability.supportedFormats.includes(format)) {
+    const supported = capability.supportedFormats
+      .map((value) => value.replaceAll("_", " "))
+      .join(", ");
+    return {
+      ok: false,
+      error: `Automatic ${capability.label} publishing currently supports ${supported} posts only. "${format}" requires a different publishing path.`,
+    };
+  }
+
+  if (capability.requiredMedia !== "none" && !input.assetUrl?.trim()) {
+    const readableFormat = format.replaceAll("_", " ");
+    return {
+      ok: false,
+      error: `${capability.label} ${readableFormat} posts require a generated or uploaded ${capability.requiredMedia} before approval.`,
+    };
+  }
+
+  if (capability.requiredMedia === "none" && !input.copyText?.trim()) {
+    return {
+      ok: false,
+      error: `${capability.label} text posts require copy before approval.`,
+    };
+  }
+
+  return { ok: true, format, mediaKind: capability.requiredMedia };
+}
+
 /**
  * Platform -> publisher map. Populated EXPLICITLY (deterministic; no import-side-effect
  * registration magic). Each registered publisher resolves the snapshotted account identity

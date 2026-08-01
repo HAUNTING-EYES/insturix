@@ -17,6 +17,7 @@ import {
   loadCalosAssignmentHealth,
   type CalosAssignmentLike,
 } from "@/lib/calos/publishing-assignment-health";
+import { validatePublishReadiness } from "@/lib/calos/publish/contract";
 
 export const dynamic = "force-dynamic";
 
@@ -203,12 +204,24 @@ function publishAtFor(deliverable: ICalosDeliverable): Date {
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
+function publishCopyFor(deliverable: ICalosDeliverable): string {
+  return deliverable.assetText ?? deliverable.card?.scriptPreview ?? deliverable.card?.title ?? "";
+}
+
 async function resolveApprovedPublishTarget(
   deliverable: ICalosDeliverable,
   brandId: string,
 ): Promise<{ target: PublishTarget | null } | { error: string }> {
   const platform = String(deliverable.platform || "").toLowerCase();
   if (!isCalosAutoPublishPlatform(platform)) return { target: null };
+
+  const readiness = validatePublishReadiness({
+    platform,
+    contentFormat: deliverable.card?.contentFormat,
+    assetUrl: deliverable.assetUrl,
+    copyText: publishCopyFor(deliverable),
+  });
+  if (!readiness.ok) return { error: readiness.error };
 
   const assignments = await CalosConnectedAccount.find({
     brandId,
@@ -274,8 +287,7 @@ async function enqueueApprovedPublish(
 ): Promise<void> {
   const publishAt = publishAtFor(deliverable);
 
-  const caption =
-    deliverable.assetText ?? deliverable.card?.scriptPreview ?? deliverable.card?.title ?? "";
+  const caption = publishCopyFor(deliverable);
   // Media platforms (Instagram) need the image — carry the generated asset URL into the queue.
   const imageUrl = deliverable.assetUrl ?? null;
   const currentSnapshot = {

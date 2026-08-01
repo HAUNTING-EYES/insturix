@@ -68,12 +68,13 @@ function makeDeliverable() {
     approvals: [] as Array<Record<string, unknown>>,
     plannedDates: ["2026-08-05T09:00:00.000Z"],
     assetText: "Launch copy",
-    assetUrl: null,
+    assetUrl: null as string | null,
     card: {
       id: "card_1",
       date: "2026-08-05T09:00:00.000Z",
       title: "Launch",
       scriptPreview: "Launch preview",
+      contentFormat: "text",
     },
     save: vi.fn().mockResolvedValue(undefined),
   };
@@ -285,6 +286,22 @@ describe("CalOS approval publish-target snapshot", () => {
 
     expect(response.status).toBe(409);
     expect(payload.error).toContain("Multiple LinkedIn accounts");
+    expect(deliverable.save).not.toHaveBeenCalled();
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("blocks approval when the selected format is unsupported by the publisher", async () => {
+    deliverable.card.contentFormat = "image";
+    deliverable.assetUrl = "https://cdn.example.com/card.png";
+    setAssignments(["linkedin_org_1"]);
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("text posts only");
+    expect(deliverable.editorialStatus).toBe("in_review");
+    expect(deliverable.approvals).toEqual([]);
     expect(deliverable.save).not.toHaveBeenCalled();
     expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
   });
