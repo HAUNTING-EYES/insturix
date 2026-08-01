@@ -5085,12 +5085,6 @@ NEVER ask the user which clips — default to applyToAll: true.`,
     maxCuts: z.coerce.number().optional().default(50).describe(
       'Maximum number of cuts to create'
     ),
-    downbeatTransition: z.enum(['zoom_punch', 'hard_cut', 'fade', 'none']).optional().default('hard_cut').describe(
-      'Transition style to apply at downbeat cuts'
-    ),
-    regularBeatTransition: z.enum(['hard_cut', 'fade', 'none']).optional().default('hard_cut').describe(
-      'Transition style to apply at regular beat cuts'
-    ),
   });
 
   const syncCutsToBeats = tool(
@@ -5219,7 +5213,6 @@ NEVER ask the user which clips — default to applyToAll: true.`,
         }
 
         // Execute splits from end to start
-        let currentOverlayId = videoOverlay.id;
         let cutsCreated = 0;
 
         for (const cut of cutFrames) {
@@ -5274,7 +5267,7 @@ NEVER ask the user which clips — default to applyToAll: true.`,
     },
     {
       name: 'sync_cuts_to_beats',
-      description: 'Detect beats in an audio/music track and automatically split video clips at beat positions for music-synced editing. Supports filtering by downbeats only (default), strong beats, or all beats. Can apply transition styles at cut points. Use this when the user wants to sync cuts to music, create beat-matched edits, or make rhythm-driven video cuts.',
+      description: 'Detect beats in an audio/music track and automatically split video clips at beat positions for music-synced editing. Supports filtering by downbeats only (default), strong beats, or all beats. Use this when the user wants to sync cuts to music, create beat-matched edits, or make rhythm-driven video cuts.',
       schema: syncCutsToBeatsSchema,
     },
   );
