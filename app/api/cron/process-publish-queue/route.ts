@@ -17,12 +17,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosScheduledPublish, {
+  type CalosPublishPayload,
   type ICalosScheduledPublish,
 } from "@/schemas/calos-scheduled-publish";
 import CalosDeliverable from "@/schemas/calos-deliverable";
 import CalosConnectedAccount from "@/schemas/calos-connected-account";
 import {
   getPublisher,
+  validatePublishReadiness,
   type PublishParams,
   type PublishResult,
 } from "@/lib/calos/publish/contract";
@@ -134,12 +136,21 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      // FAIL CLOSED — the approval gate. A deliverable MUST be approved before publish.
-      // calos_deliverables + its editorialStatus land in P0; until this can read real
-      // approval, it returns false so the sweeper never publishes anything unapproved.
-      const approved = await isDeliverableApproved(row);
+      // Validate the version-bound reviewed snapshot before any live account or provider work.
+      const snapshot = validateExecutionSnapshot(row);
+      if (!snapshot.ok) {
+        await markFailed(row, snapshot.error, false, summary);
+        continue;
+      }
+
+      const approved = await isDeliverableApproved(row, snapshot.payload.approvalVersion);
       if (!approved) {
-        await markFailed(row, "Deliverable not approved (or approval unverifiable) — refusing to publish", false, summary);
+        await markFailed(
+          row,
+          "Deliverable is not approved at the snapshotted version. Reapprove before publishing.",
+          false,
+          summary,
+        );
         continue;
       }
 
@@ -159,11 +170,16 @@ export async function GET(request: NextRequest) {
       await row.save();
 
       const params: PublishParams = {
-        ...row.payload,
         ownerUserId: row.ownerUserId,
         deliverableId: row.deliverableId,
         brandId: row.brandId ?? undefined,
         accountRef: row.accountRef ?? undefined,
+        caption: snapshot.payload.caption,
+        title: snapshot.payload.title,
+        imageUrl: snapshot.payload.media.url,
+        videoUuid: snapshot.payload.videoUuid,
+        gcsPath: snapshot.payload.gcsPath,
+        options: snapshot.payload.options,
       };
 
       try {
@@ -221,14 +237,105 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/**
- * Approval gate (the "approved = only door to delivery" contract). Reads the deliverable's
- * editorialStatus from calos_deliverables (same Mongoose connection as the queue) scoped by
- * brand + organization + card id. Queue ownerUserId is the credential owner, which may differ
- * from the content creator. FAIL CLOSED: anything but a found, approved
- * deliverable returns false, so the sweeper never publishes unapproved (or unresolvable) content.
- */
-async function isDeliverableApproved(row: ICalosScheduledPublish): Promise<boolean> {
+/** Runtime parser for persisted queue data, including legacy or manually malformed rows. */
+type ExecutionSnapshotResult =
+  | { ok: true; payload: CalosPublishPayload }
+  | { ok: false; error: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function invalidSnapshot(detail: string): ExecutionSnapshotResult {
+  return {
+    ok: false,
+    error: `Publishing snapshot is invalid (${detail}). Reapprove this card before publishing.`,
+  };
+}
+
+function validateExecutionSnapshot(row: ICalosScheduledPublish): ExecutionSnapshotResult {
+  const candidate: unknown = row.payload;
+  const platform = row.platform;
+  if (platform === "tiktok") {
+    return invalidSnapshot("TikTok is editorial-only and has no automatic publisher");
+  }
+  if (!isRecord(candidate) || candidate.schemaVersion !== 1) {
+    return invalidSnapshot("unsupported or missing schema version");
+  }
+
+  const approvalVersion = candidate.approvalVersion;
+  const contentFormat = typeof candidate.contentFormat === "string"
+    ? candidate.contentFormat.trim()
+    : "";
+  const caption = typeof candidate.caption === "string" ? candidate.caption : null;
+  const title = candidate.title === undefined
+    ? undefined
+    : typeof candidate.title === "string"
+      ? candidate.title
+      : null;
+  const media = candidate.media;
+
+  if (!Number.isInteger(approvalVersion) || Number(approvalVersion) < 1) {
+    return invalidSnapshot("approval version is missing");
+  }
+  if (!contentFormat) return invalidSnapshot("content format is missing");
+  if (caption === null) return invalidSnapshot("caption is missing");
+  if (title === null) return invalidSnapshot("title is malformed");
+  if (!isRecord(media)) return invalidSnapshot("media descriptor is missing");
+
+  const mediaKind = media.kind;
+  if (mediaKind !== "none" && mediaKind !== "image" && mediaKind !== "video") {
+    return invalidSnapshot("media kind is unsupported");
+  }
+  const mediaUrl = media.url;
+  if (mediaUrl !== null && typeof mediaUrl !== "string") {
+    return invalidSnapshot("media URL is malformed");
+  }
+
+  const videoUuid = candidate.videoUuid;
+  const gcsPath = candidate.gcsPath;
+  const options = candidate.options;
+  if (videoUuid !== undefined && typeof videoUuid !== "string") {
+    return invalidSnapshot("video UUID is malformed");
+  }
+  if (gcsPath !== undefined && typeof gcsPath !== "string") {
+    return invalidSnapshot("storage path is malformed");
+  }
+  if (options !== undefined && !isRecord(options)) {
+    return invalidSnapshot("publisher options are malformed");
+  }
+
+  const readiness = validatePublishReadiness({
+    platform,
+    contentFormat,
+    assetUrl: mediaUrl,
+    copyText: caption,
+  });
+  if (!readiness.ok) return { ok: false, error: readiness.error };
+  if (readiness.format !== contentFormat || readiness.mediaKind !== mediaKind) {
+    return invalidSnapshot("format and media kind do not match publisher capabilities");
+  }
+
+  return {
+    ok: true,
+    payload: {
+      schemaVersion: 1,
+      approvalVersion: Number(approvalVersion),
+      contentFormat,
+      caption,
+      ...(title !== undefined ? { title } : {}),
+      media: { kind: mediaKind, url: mediaUrl },
+      ...(videoUuid !== undefined ? { videoUuid } : {}),
+      ...(gcsPath !== undefined ? { gcsPath } : {}),
+      ...(options !== undefined ? { options } : {}),
+    },
+  };
+}
+
+async function isDeliverableApproved(
+  row: ICalosScheduledPublish,
+  approvalVersion: number,
+): Promise<boolean> {
   if (!row.deliverableId || !row.brandId) {
     // TODO(CALOS_LOUD): remove once stable.
     console.error("[CALOS_LOUD] publish-queue approval: row missing scope keys — refusing", {
@@ -243,8 +350,8 @@ async function isDeliverableApproved(row: ICalosScheduledPublish): Promise<boole
     orgId: row.orgId ?? null,
     deletedAt: null,
   })
-    .select("editorialStatus")
-    .lean<{ editorialStatus?: string } | null>();
+    .select("editorialStatus version")
+    .lean<{ editorialStatus?: string; version?: number } | null>();
   // TODO(CALOS_LOUD): remove once stable — distinguish "not found" from "not approved".
   if (!deliverable) {
     console.error(`[CALOS_LOUD] publish-queue approval: deliverable NOT FOUND (card.id=${row.deliverableId}, brand=${row.brandId}, org=${row.orgId ?? "none"}) — scope mismatch or deleted`);
@@ -252,6 +359,10 @@ async function isDeliverableApproved(row: ICalosScheduledPublish): Promise<boole
   }
   if (deliverable.editorialStatus !== "approved") {
     console.error(`[CALOS_LOUD] publish-queue approval: deliverable status="${deliverable.editorialStatus}" (not approved) — refusing`);
+    return false;
+  }
+  if (deliverable.version !== approvalVersion) {
+    console.error("[CALOS_LOUD] publish-queue approval: reviewed version changed - refusing");
     return false;
   }
   return true;

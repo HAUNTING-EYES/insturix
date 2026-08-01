@@ -7,7 +7,10 @@ import CalosDeliverable, {
   type ICalosDeliverable,
 } from "@/schemas/calos-deliverable";
 import CalosConnectedAccount from "@/schemas/calos-connected-account";
-import CalosScheduledPublish, { type CalosPublishPlatform } from "@/schemas/calos-scheduled-publish";
+import CalosScheduledPublish, {
+  type CalosPublishPayload,
+  type CalosPublishPlatform,
+} from "@/schemas/calos-scheduled-publish";
 import { toContentCard } from "@/lib/calos/deliverable-mapper";
 import { emitBrandEvent } from "@/lib/shared/brand-events";
 import { createCalosDecisionLearningEvent } from "@/lib/calos/calos-brand-learning-events";
@@ -17,7 +20,10 @@ import {
   loadCalosAssignmentHealth,
   type CalosAssignmentLike,
 } from "@/lib/calos/publishing-assignment-health";
-import { validatePublishReadiness } from "@/lib/calos/publish/contract";
+import {
+  validatePublishReadiness,
+  type PublisherMediaKind,
+} from "@/lib/calos/publish/contract";
 
 export const dynamic = "force-dynamic";
 
@@ -187,6 +193,8 @@ type PublishTarget = {
   platform: CalosPublishPlatform;
   accountRef: string;
   ownerUserId: string;
+  contentFormat: string;
+  mediaKind: PublisherMediaKind;
 };
 
 const PLATFORM_LABELS: Record<CalosPublishPlatform, string> = {
@@ -269,6 +277,8 @@ async function resolveApprovedPublishTarget(
       platform,
       accountRef: accountRefs[0],
       ownerUserId: assignmentOwnerUserId,
+      contentFormat: readiness.format,
+      mediaKind: readiness.mediaKind,
     },
   };
 }
@@ -288,14 +298,24 @@ async function enqueueApprovedPublish(
   const publishAt = publishAtFor(deliverable);
 
   const caption = publishCopyFor(deliverable);
-  // Media platforms (Instagram) need the image — carry the generated asset URL into the queue.
-  const imageUrl = deliverable.assetUrl ?? null;
+  // Bind execution to the exact reviewed version and its typed media requirement.
+  const payload: CalosPublishPayload = {
+    schemaVersion: 1,
+    approvalVersion: deliverable.version,
+    contentFormat: target.contentFormat,
+    caption,
+    title: deliverable.card?.title || caption,
+    media: {
+      kind: target.mediaKind,
+      url: deliverable.assetUrl ?? null,
+    },
+  };
   const currentSnapshot = {
     ownerUserId: target.ownerUserId,
     orgId: deliverable.orgId ?? null,
     brandId,
     accountRef: target.accountRef,
-    payload: { caption, imageUrl },
+    payload,
     publishAt,
   };
 

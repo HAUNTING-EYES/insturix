@@ -1,4 +1,5 @@
 import mongoose, { Schema, type Document } from "mongoose";
+import type { PublisherMediaKind } from "@/lib/calos/publish/contract";
 
 export type CalosPublishPlatform =
   | "youtube"
@@ -15,6 +16,23 @@ export type CalosPublishStatus =
   | "published"
   | "failed";
 
+export interface CalosPublishMediaSnapshot {
+  readonly kind: PublisherMediaKind;
+  readonly url: string | null;
+}
+
+export interface CalosPublishPayload {
+  readonly schemaVersion: 1;
+  readonly approvalVersion: number;
+  readonly contentFormat: string;
+  readonly caption: string;
+  readonly title?: string;
+  readonly media: CalosPublishMediaSnapshot;
+  readonly videoUuid?: string;
+  readonly gcsPath?: string;
+  readonly options?: Record<string, unknown>;
+}
+
 /**
  * CalOS delivery queue. One row per (deliverable, platform) target. Delivery state lives
  * HERE, not on the deliverable — a single content card fans out to many platforms with
@@ -28,7 +46,7 @@ export interface ICalosScheduledPublish extends Document {
   brandId?: string | null;
   platform: CalosPublishPlatform;
   accountRef?: string | null; // page / account / organization id on the platform
-  payload: Record<string, unknown>; // platform publish args (caption, title, videoUuid, gcsPath, ...)
+  payload: CalosPublishPayload; // version-bound reviewed content/media snapshot used by the worker
   publishAt: Date;
   status: CalosPublishStatus;
   attempts: number;
