@@ -16,6 +16,10 @@
 
 import { createHash } from 'node:crypto';
 
+import type {
+  SemanticMgCandidate,
+  SemanticMgFactKind,
+} from '../engine/semantic-mg-candidates';
 import { scanCode, type ScanResult } from './scan';
 import { renderStyleDirection, resolveMomentStyle } from './style/style-resolver';
 import {
@@ -40,8 +44,20 @@ const DEFAULT_JUDGE_THRESHOLD = 7.5; // ← ship at 7.5, tune on the first 50 re
 const MAX_MODEL_ATTEMPTS = 3;
 const MAX_COMPILE_FEEDBACK_CHARS = 1_200;
 
-/** Content keys that are metadata, not visualizable data props. */
-const META_CONTENT_KEYS = new Set(['sourceSpan', 'semanticAtoms', 'salience', 'evidencePhrase', 'contextStartMs', 'contextEndMs']);
+/** Renderable fact data by semantic contract; structural metadata remains judge/licensing context only. */
+const RENDERABLE_DATA_KEYS: Record<SemanticMgFactKind, readonly string[]> = {
+  'weak-stat': ['value', 'number', 'label', 'denominator', 'unit'],
+  'bounded-stat': ['value', 'number', 'label', 'denominator', 'unit'],
+  'magnitude-stat': ['value', 'number', 'label', 'denominator', 'unit'],
+  series: ['values', 'labels', 'title', 'label'],
+  comparison: ['from', 'to', 'fromLabel', 'toLabel'],
+  quote: ['quote', 'author'],
+  identity: ['name', 'title', 'avatar'],
+  concept: ['keyword', 'title', 'body', 'contextPhrase', 'text'],
+  refutation: ['text'],
+  list: ['title', 'body', 'items', 'steps'],
+  narrative: ['line'],
+};
 
 export interface CodegenDeps {
   /** Call the model with the assembled prompt → the component source (or a `DECLINE:` line). */
@@ -103,16 +119,31 @@ function classifyProp(value: unknown): string {
   return 'text';
 }
 
-/** The visualizable data props of the fact (key: kind), meta keys stripped — the SHAPE, not the values. */
-function dataPropKeys(content: Record<string, unknown>): string[] {
-  return Object.keys(content)
-    .filter((k) => content[k] != null && !META_CONTENT_KEYS.has(k))
-    .sort();
+/** The renderable data shape of the fact, never its literal values. */
+export interface MgRenderableDataProp {
+  name: string;
+  kind: string;
 }
 
-function describeDataProps(content: Record<string, unknown>): string {
-  const keys = dataPropKeys(content);
-  return keys.length ? keys.map((k) => `${k}: ${classifyProp(content[k])}`).join('; ') : 'none';
+export function listMgRenderableDataProps(
+  candidate: Pick<SemanticMgCandidate, 'factKind' | 'content'>,
+): MgRenderableDataProp[] {
+  return RENDERABLE_DATA_KEYS[candidate.factKind]
+    .filter((name) => candidate.content[name] != null)
+    .map((name) => ({ name, kind: classifyProp(candidate.content[name]) }));
+}
+
+export function pickMgRenderableCandidateData(
+  candidate: Pick<SemanticMgCandidate, 'factKind' | 'content'>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    listMgRenderableDataProps(candidate).map(({ name }) => [name, candidate.content[name]]),
+  );
+}
+
+function describeDataProps(candidate: Pick<SemanticMgCandidate, 'factKind' | 'content'>): string {
+  const props = listMgRenderableDataProps(candidate);
+  return props.length ? props.map(({ name, kind }) => `${name}: ${kind}`).join('; ') : 'none';
 }
 
 /** A coarse position label for a region box (stable across similar placements → cacheable). */
@@ -158,7 +189,7 @@ function momentData(input: MgMomentInput): string {
   const safe = safePlacementRegion(pl.prefer);
   const lines = [
     `fact kind: ${candidate.factKind}${candidate.rhetoricalRole ? ` (${candidate.rhetoricalRole})` : ''}`,
-    `data props (declare \`type Data\` for these; read from \`data\`; NEVER bake the values): ${describeDataProps(candidate.content)}`,
+    `data props (declare \`type Data\` for these; read from \`data\`; NEVER bake the values): ${describeDataProps(candidate)}`,
     `expressiveness: ${ex.tier} (intensity ${ex.intensity.toFixed(2)}) — subtle = quiet & precise, hero = prominent & commanding (prominence ≠ oversized: right-sized for the moment, clear of the subject)`,
     `place the graphic in region "${pl.region}". Keep CLEAR (subject/text live here): ${describeRegions(pl.avoid)}.`,
     safe
@@ -296,7 +327,7 @@ export function promptHash(input: MgMomentInput): string {
   } : null;
   const salient = {
     factKind: input.candidate.factKind,
-    props: dataPropKeys(input.candidate.content), // which data props exist (sorted)
+    props: listMgRenderableDataProps(input.candidate).map(({ name }) => name),
     licenses: [...input.candidate.licenses].sort(),
     tier: input.expressiveness.tier,
     region: input.placement.region,

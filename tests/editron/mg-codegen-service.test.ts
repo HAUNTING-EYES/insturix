@@ -6,8 +6,10 @@ import {
   applyImportPreamble,
   buildCodegenPrompt,
   generateMoment,
+  listMgRenderableDataProps,
   MgProviderFailureError,
   mgProviderHttpError,
+  pickMgRenderableCandidateData,
   promptHash,
   type CodegenDeps,
 } from '@/lib/editron/motion-graphics/codegen/codegen-service';
@@ -393,6 +395,35 @@ describe('buildCodegenPrompt - structure (no types, fact-driven, data-last)', ()
     expect(prompt).toMatch(/DECLINE/); // decline path is offered
     expect(prompt).toContain('FOOTAGE CONTRAST');
     expect(prompt).toContain('intrusive LOCAL brand-token protection');
+  });
+
+  it('keeps semantic fact metadata out of designer and component data authority', () => {
+    const bounded = candidate({
+      content: {
+        value: 90,
+        label: 'of people are good',
+        quantityKind: 'percent',
+        bounded: true,
+        denominator: 100,
+        unit: '%',
+      },
+    });
+
+    expect(listMgRenderableDataProps(bounded)).toEqual([
+      { name: 'value', kind: 'number' },
+      { name: 'label', kind: 'text' },
+      { name: 'denominator', kind: 'number' },
+      { name: 'unit', kind: 'text' },
+    ]);
+    expect(pickMgRenderableCandidateData(bounded)).toEqual({
+      value: 90,
+      label: 'of people are good',
+      denominator: 100,
+      unit: '%',
+    });
+    const prompt = buildCodegenPrompt(input({ candidate: bounded }));
+    expect(prompt).not.toContain('quantityKind');
+    expect(prompt).not.toContain('bounded:');
   });
 });
 

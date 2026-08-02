@@ -8,6 +8,7 @@ import { chatCompletionsUrl } from '@/lib/editron/reference-video/glm-vision-cli
 import {
   CODEGEN_STABLE_PREFIX,
   MgProviderFailureError,
+  pickMgRenderableCandidateData,
   mgProviderHttpError,
   type CodegenDeps,
 } from './codegen-service';
@@ -724,7 +725,7 @@ export function createProductionMgRuntime(
       brand: moment.brand,
       // Reserved system props AFTER content (never shadowed) — same merge as render-moment.ts (P5-1).
       data: {
-        ...moment.candidate.content,
+        ...pickMgRenderableCandidateData(moment.candidate),
         ...(moment.anchors?.wordFrames?.length ? { wordFrames: moment.anchors.wordFrames } : {}),
         ...(typeof moment.motionIntensity === 'number' ? { motionIntensity: moment.motionIntensity } : {}),
       },

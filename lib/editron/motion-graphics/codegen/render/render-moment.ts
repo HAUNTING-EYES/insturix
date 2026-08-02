@@ -25,7 +25,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import type { CodegenDeps } from '../codegen-service';
-import { generateMoment } from '../codegen-service';
+import { generateMoment, pickMgRenderableCandidateData } from '../codegen-service';
 import type { MgGenerateResult, MgMomentInput, MgReceipt } from '../types';
 import type { MgImageGenerate } from '../design/imagery-client';
 import type { MgRenderResult } from './frame-renderer';
@@ -184,7 +184,7 @@ export async function renderMgMoment(input: MgMomentInput, deps: RenderMomentDep
     componentSource: gen.code,
     brand: input.brand,
     data: {
-      ...input.candidate.content,
+      ...pickMgRenderableCandidateData(input.candidate),
       ...(input.anchors?.wordFrames?.length ? { wordFrames: input.anchors.wordFrames } : {}),
       ...(typeof input.motionIntensity === 'number' ? { motionIntensity: input.motionIntensity } : {}),
       ...(backdropSrc ? { backdropSrc } : {}),

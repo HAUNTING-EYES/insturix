@@ -58,6 +58,7 @@ import {
 import type { OverlayCategory, OverlayDefinition, ScoringResult } from '@/lib/editron/engine/utility-types';
 import type { SignalCurves } from '@/lib/editron/motion-graphics/engine/primitive-renderers';
 import type { UnifiedBrandLike } from '@/lib/editron/motion-graphics/codegen/brand-mapper';
+import { listMgRenderableDataProps } from '@/lib/editron/motion-graphics/codegen/codegen-service';
 import type { MgAnchors, MgReceipt } from '@/lib/editron/motion-graphics/codegen/types';
 import type { FootageSignals } from '@/lib/editron/motion-graphics/codegen/style/footage-character';
 import { normalizeEditorialPreferences, type EditorialFamilyPreference } from '@/lib/editron/production-brief/editorial-preferences';
@@ -4125,18 +4126,6 @@ function mgCodegenNotes(decision: EditDecision): string | undefined {
   return notes.length ? notes.join(' | ').slice(0, 400) : undefined;
 }
 
-// META content keys that are not visualizable data props (mirrors codegen-service.META_CONTENT_KEYS).
-const MG_DESIGN_META_KEYS = new Set(['sourceSpan', 'semanticAtoms', 'salience', 'evidencePhrase', 'contextStartMs', 'contextEndMs']);
-
-/** Classify a content value into a coarse data-prop KIND for the designer (never the literal value). */
-function classifyDesignPropKind(value: unknown): string {
-  if (typeof value === 'number') return 'number';
-  if (Array.isArray(value)) return 'list';
-  if (value && typeof value === 'object') return 'object';
-  if (typeof value === 'string') return /^-?\d+(?:\.\d+)?$/.test(value.trim()) ? 'number' : 'text';
-  return 'text';
-}
-
 function uniformMgDesignAuthority(
   decisions: Iterable<EditDecision>,
   disposition: Exclude<MgDesignPrepassDisposition, { status: 'approved' }>,
@@ -4219,10 +4208,8 @@ async function runMgDesignPrepass(
     if (!authority.allowMotionGraphic && selected.factKind !== 'narrative') continue;
 
     // ── the designer's VIEW of the moment (design INPUT only; applyGraphic re-resolves the real render window) ──
-    const props = Object.entries((selected.content ?? {}) as Record<string, unknown>)
-      .filter(([key, value]) => value != null && !MG_DESIGN_META_KEYS.has(key));
-    const contentProps = props.map(([name, value]) => ({ name, kind: classifyDesignPropKind(value) }));
-    const numericProps = props.filter(([, value]) => classifyDesignPropKind(value) === 'number').map(([name]) => name);
+    const contentProps = listMgRenderableDataProps(selected);
+    const numericProps = contentProps.filter(({ kind }) => kind === 'number').map(({ name }) => name);
     if (numericProps.length > 0) numericEvidenceCount += 1;
     const momentId = `beat-${beatIndex++}`;
     const tier: MgDesignerMoment['tier'] = authority.qualityTier === 'suppressed' ? 'subtle' : authority.qualityTier;
