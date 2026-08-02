@@ -467,6 +467,8 @@ describe('generateMoment - design-then-code prompt switch (P5-1 Phase C)', () =>
     expect(ref.prompt).toContain('IMPLEMENTATION engineer'); // the coder role, not the free-form designer role
     expect(ref.prompt).toContain('<design>'); // the approved plan crossed into the prompt
     expect(ref.prompt).toContain('growth dominates'); // ...the plan's own concept text
+    expect(ref.prompt).toMatch(/motionIntensity as a REQUIRED number/i);
+    expect(ref.prompt).toMatch(/every ambient\(\) call must pass the exact expression\s+data\.motionIntensity/i);
   });
 
   it('licenses a surfaced panel only when the approved design explicitly states its reason', async () => {
