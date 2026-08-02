@@ -201,13 +201,21 @@ describe('generateMoment - the pipeline (decline / scan→repair→compile→jud
 
   it('low judge score → 1 revision → generated', async () => {
     let c = 0;
+    const prompts: string[] = [];
     const r = await generateMoment(input(), deps({
-      writeComponent: queue([VALID_CODE, VALID_CODE]),
+      writeComponent: async (prompt) => {
+        prompts.push(prompt);
+        return VALID_CODE;
+      },
       evaluate: async () => (c++ === 0 ? { score: 5, issues: ['type too small'] } : { score: 8, issues: [] }),
     }));
     expect(r.status).toBe('generated');
     expect(r.receipt.judgeScore).toBe(8);
     expect(r.receipt.attempts).toBe(2);
+    expect(prompts[1]).toContain('<previous_component_json>');
+    expect(prompts[1]).toContain(JSON.stringify(applyImportPreamble(VALID_CODE)));
+    expect(prompts[1]).toContain('type too small');
+    expect(prompts[1]).toContain('do not regenerate it from the brief');
   });
 
   it('uses the remaining bounded attempt when a visual revision fails the safety scan', async () => {
