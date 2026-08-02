@@ -155,6 +155,54 @@ test("Tiers rank verified corporate mailboxes above unverified and consumer ones
   assert.equal(tierOf({ email: "owner@gmail.com" }), "D");
 });
 
+test("Compound functional addresses are recognised as role mailboxes", () => {
+  // All observed in the first real Twenty import, misfiled as personal.
+  for (const email of [
+    "investor.relations@fiserv.com",
+    "no.support@digitalswow.com",
+    "customercare@algaariart.com",
+    "agency.hello@socialx.au",
+    "sales1@digitalsindia.com",
+    "cv@bigwolfmarketing.co.uk",
+    "join@noct.in",
+    "helpdesk@rubiq.in",
+    "carrer@spacebot.in",
+    "vedantrusty.com@wix-domains.com",
+  ]) {
+    assert.equal(classifyMailboxType(email), "role", `${email} should be role`);
+  }
+});
+
+test("Genuine personal addresses are not swept up as role mailboxes", () => {
+  for (const email of [
+    "sankalp@aawarafilms.com",
+    "nikhil.talreja@cochamps.co",
+    "anas.ansari@globtier.in",
+    "saurav.k@webeesocial.com",
+    "sarah.resnikoff@barco.com",
+    "deepmala@thevisualhouse.in",
+  ]) {
+    assert.equal(
+      classifyMailboxType(email),
+      "personal_corporate",
+      `${email} should stay personal`
+    );
+  }
+});
+
+test("Unroutable domains and placeholder addresses are blocked", () => {
+  // A laptop hostname scraped from a mail header - guaranteed hard bounce.
+  const unroutable = classifyOutreachContact({
+    email: "dhruv@dhruvs-macbook-air.local",
+  });
+  assert.equal(unroutable.eligibility, "blocked_or_unknown");
+  assert.equal(unroutable.blockReason, "unroutable_domain");
+
+  const placeholder = classifyOutreachContact({ email: "jane.doe@digitotal.in" });
+  assert.equal(placeholder.eligibility, "blocked_or_unknown");
+  assert.equal(placeholder.blockReason, "placeholder_address");
+});
+
 test("Percent-encoded scraping artifacts are repaired, not sent as-is", () => {
   // Real case from the first Twenty import; sending as-is would hard bounce.
   const classification = classifyOutreachContact({

@@ -103,6 +103,8 @@ async function main(): Promise<void> {
   console.log(`duplicates skipped ....... ${counts.skippedDuplicate}`);
   console.log(`blocked: invalid ......... ${counts.blockedInvalid}`);
   console.log(`blocked: disposable ...... ${counts.blockedDisposable}`);
+  console.log(`blocked: unroutable ...... ${counts.blockedUnroutable}`);
+  console.log(`blocked: placeholder ..... ${counts.blockedPlaceholder}`);
   console.log(`blocked: suppressed ...... ${counts.blockedSuppressed}`);
   console.log(`customer lifecycle only .. ${counts.customerLifecycleOnly}`);
   console.log(`\ncohort tiers (sendable, best first)`);

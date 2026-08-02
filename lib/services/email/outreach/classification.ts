@@ -15,8 +15,13 @@
 
 import { isValidEmailAddress, normalizeEmailAddress } from "../contact-policy";
 
-/** Bump when classification rules change so stale rows are detectable. */
-export const OUTREACH_CLASSIFIER_VERSION = 1;
+/**
+ * Bump when classification rules change so stale rows are detectable.
+ * v2: compound role tokens, unroutable TLDs, placeholder addresses - added
+ * after the first real import showed 39 of 87 "personal" tier-A addresses were
+ * functional mailboxes.
+ */
+export const OUTREACH_CLASSIFIER_VERSION = 2;
 
 export const OUTREACH_ELIGIBILITIES = [
   "manual_outreach",
@@ -41,6 +46,8 @@ export type OutreachTier = (typeof OUTREACH_TIERS)[number];
 export const OUTREACH_BLOCK_REASONS = [
   "invalid_syntax",
   "disposable_domain",
+  "unroutable_domain",
+  "placeholder_address",
   "suppressed",
   "duplicate_in_batch",
 ] as const;
@@ -55,6 +62,55 @@ const ROLE_LOCALPARTS = new Set([
   "work", "noreply", "no-reply", "donotreply", "postmaster", "webmaster",
   "billing", "accounts", "accounting", "finance", "legal", "press", "media",
   "partnerships", "partner", "general", "query", "queries",
+]);
+
+/**
+ * Role tokens that never occur as a human first or last name. Matched against
+ * any dot/dash/underscore-separated segment of the local part, so compound
+ * functional addresses like "investor.relations@" and "no.support@" are caught.
+ *
+ * Derived from the first real Twenty import, where 39 of 87 "tier A personal"
+ * addresses turned out to be functional boxes. A false positive here only
+ * demotes a contact's priority - it is never blocked or rewritten - so the set
+ * errs toward catching functional mail.
+ */
+const ROLE_TOKENS = new Set([
+  "info", "hello", "contact", "contactus", "reachus", "reach", "connect",
+  "sales", "sale", "presales", "bd", "businessdevelopment", "growth", "grow",
+  "outreach", "success", "marketing", "media", "press", "pr",
+  "support", "help", "helpdesk", "customercare", "care", "service", "services",
+  "admin", "administrator", "office", "team", "management", "operations",
+  "hr", "careers", "career", "carrer", "jobs", "job", "recruitment", "cv",
+  "hiring", "join", "joinus", "apply",
+  "billing", "accounts", "accounting", "finance", "payments", "emandate",
+  "invoice", "invoices", "investor", "investors", "legal", "disputes",
+  "emaildisputes", "compliance", "obits",
+  "noreply", "donotreply", "postmaster", "webmaster", "mailer", "bounce",
+  "enquiry", "enquiries", "inquiry", "inquiries", "query", "queries",
+  "webmail", "web", "website", "techinfo", "tech", "it", "studio", "agency",
+  "general", "main", "mail", "email", "partnerships", "partner", "affiliates",
+  "booking", "bookings", "events", "event", "newsletter", "subscribe",
+]);
+
+/**
+ * Placeholder identities that appear in scraped data as sample or template
+ * content. These are never real mailboxes and always bounce.
+ */
+const PLACEHOLDER_LOCAL_PARTS = new Set([
+  "janedoe", "jane.doe", "johndoe", "john.doe", "firstname", "lastname",
+  "firstnamelastname", "firstname.lastname", "yourname", "your.name",
+  "name", "example", "test", "testing", "sample", "demo", "user",
+  "someone", "somebody", "youremail", "your.email", "emailaddress",
+]);
+
+/**
+ * Domains that can never receive internet mail. RFC 2606 reserves test/example/
+ * invalid/localhost; RFC 6762 reserves .local for multicast DNS. A real case in
+ * the first import was "dhruv@dhruvs-macbook-air.local" - a laptop hostname
+ * scraped from a mail header, which would hard bounce every time.
+ */
+const UNROUTABLE_TLDS = new Set([
+  "local", "localhost", "invalid", "test", "example", "internal", "lan", "home",
 ]);
 
 /** Mirrors DISPOSABLE_DOMAINS in insturix-enrichment/app/enrich/decision_maker.py:27 */
@@ -142,6 +198,20 @@ export function classifyMailboxType(normalizedEmail: string): OutreachMailboxTyp
   // Strip a plus-tag before matching so "sales+leads@" still reads as a role box.
   const baseLocalPart = localPart.split("+")[0];
   if (ROLE_LOCALPARTS.has(baseLocalPart)) return "role";
+
+  // A functional address is often compound ("investor.relations", "no.support"),
+  // so check each segment rather than only the whole local part.
+  const segments = baseLocalPart.split(/[._-]+/).filter(Boolean);
+  if (segments.some((segment) => ROLE_TOKENS.has(segment))) return "role";
+
+  // "sales1@", "info2@" - a role word with a trailing counter.
+  if (segments.some((segment) => ROLE_TOKENS.has(segment.replace(/\d+$/, "")))) {
+    return "role";
+  }
+
+  // A local part carrying a domain ("vedantrusty.com@wix-domains.com") or the
+  // company's own name is a registrar/scrape artifact, not a person.
+  if (/\.(com|in|org|net|co|io)$/i.test(baseLocalPart)) return "role";
 
   return FREE_MAILBOX_DOMAINS.has(emailDomain(normalizedEmail))
     ? "personal_free"
@@ -278,8 +348,22 @@ export function classifyOutreachContact(
   if (repaired.unrepairableArtifact || !isValidEmailAddress(normalizedEmail)) {
     return blocked("invalid_syntax");
   }
-  if (DISPOSABLE_DOMAINS.has(emailDomain(normalizedEmail))) {
-    return blocked("disposable_domain");
+
+  const domain = emailDomain(normalizedEmail);
+  if (DISPOSABLE_DOMAINS.has(domain)) return blocked("disposable_domain");
+
+  // A reserved or private TLD cannot receive internet mail; sending guarantees
+  // a hard bounce, and hard bounces are what wreck a young domain's reputation.
+  if (UNROUTABLE_TLDS.has(domain.slice(domain.lastIndexOf(".") + 1))) {
+    return blocked("unroutable_domain");
+  }
+
+  const localPart = emailLocalPart(normalizedEmail).split("+")[0];
+  if (
+    PLACEHOLDER_LOCAL_PARTS.has(localPart) ||
+    PLACEHOLDER_LOCAL_PARTS.has(localPart.replace(/[._-]/g, ""))
+  ) {
+    return blocked("placeholder_address");
   }
   // Suppression outranks every other signal: a bounce or complaint means this
   // address must never receive another send from any lane.

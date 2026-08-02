@@ -98,6 +98,8 @@ function emptyCounts(): IOutreachImportCounts {
     skippedDuplicate: 0,
     blockedInvalid: 0,
     blockedDisposable: 0,
+    blockedUnroutable: 0,
+    blockedPlaceholder: 0,
     blockedSuppressed: 0,
     customerLifecycleOnly: 0,
     tierA: 0,
@@ -172,6 +174,12 @@ export async function importOutreachLeads(
     if (classification.blockReason === "invalid_syntax") counts.blockedInvalid += 1;
     if (classification.blockReason === "disposable_domain") {
       counts.blockedDisposable += 1;
+    }
+    if (classification.blockReason === "unroutable_domain") {
+      counts.blockedUnroutable += 1;
+    }
+    if (classification.blockReason === "placeholder_address") {
+      counts.blockedPlaceholder += 1;
     }
     if (classification.blockReason === "suppressed") counts.blockedSuppressed += 1;
     if (classification.eligibility === "customer_lifecycle_only") {

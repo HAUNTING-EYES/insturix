@@ -23,6 +23,8 @@ export interface IOutreachImportCounts {
   skippedDuplicate: number;
   blockedInvalid: number;
   blockedDisposable: number;
+  blockedUnroutable: number;
+  blockedPlaceholder: number;
   blockedSuppressed: number;
   customerLifecycleOnly: number;
   tierA: number;
@@ -56,6 +58,8 @@ const countsSchema = new Schema<IOutreachImportCounts>(
     skippedDuplicate: { type: Number, required: true, default: 0 },
     blockedInvalid: { type: Number, required: true, default: 0 },
     blockedDisposable: { type: Number, required: true, default: 0 },
+    blockedUnroutable: { type: Number, required: true, default: 0 },
+    blockedPlaceholder: { type: Number, required: true, default: 0 },
     blockedSuppressed: { type: Number, required: true, default: 0 },
     customerLifecycleOnly: { type: Number, required: true, default: 0 },
     tierA: { type: Number, required: true, default: 0 },
