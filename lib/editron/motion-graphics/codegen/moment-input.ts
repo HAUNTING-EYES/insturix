@@ -101,9 +101,25 @@ function toTier(tier: MgExpressionSource['qualityTier']): MgExpressiveness['tier
   return tier === 'suppressed' ? 'subtle' : tier;
 }
 
-/** Map a placement box to a title-safe MgRegionBox, clamping each fraction to the [0,1] the type declares. */
+function toCanvasRect(rect: { x: number; y: number; width: number; height: number }): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  const x = clamp01(rect.x);
+  const y = clamp01(rect.y);
+  return {
+    x,
+    y,
+    width: Math.min(clamp01(rect.width), 1 - x),
+    height: Math.min(clamp01(rect.height), 1 - y),
+  };
+}
+
+/** Map a placement box to an in-canvas MgRegionBox, clipping extents after its origin is clamped. */
 function toRegionBox(b: MgBoxSource): MgRegionBox {
-  return { x: clamp01(b.x), y: clamp01(b.y), width: clamp01(b.width), height: clamp01(b.height), reason: b.reason };
+  return { ...toCanvasRect(b), reason: b.reason };
 }
 
 /** Derive coarse screen context from the placement's OWN boxes: the main-subject avoid box is the subject;
@@ -113,7 +129,7 @@ function deriveScreen(placement: MgPlacementSource): MgScreenContext | undefined
   const room = placement.placementHints.prefer[0];
   const screen: MgScreenContext = {};
   if (subjectBox) {
-    screen.subject = { x: clamp01(subjectBox.x), y: clamp01(subjectBox.y), width: clamp01(subjectBox.width), height: clamp01(subjectBox.height) };
+    screen.subject = toCanvasRect(subjectBox);
   }
   if (room) {
     screen.negativeSpace = { region: placement.candidateRegion ?? 'full-frame', strength: 1 };
@@ -168,10 +184,13 @@ export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput 
     && Number.isFinite(subjectBox.x) && Number.isFinite(subjectBox.y)
     && Number.isFinite(subjectBox.width) && Number.isFinite(subjectBox.height)
     && subjectBox.width > 0 && subjectBox.height > 0) {
-    input.screen = {
-      ...(input.screen ?? {}),
-      subject: { x: clamp01(subjectBox.x), y: clamp01(subjectBox.y), width: clamp01(subjectBox.width), height: clamp01(subjectBox.height) },
-    };
+    const boundedSubject = toCanvasRect(subjectBox);
+    if (boundedSubject.width > 0 && boundedSubject.height > 0) {
+      input.screen = {
+        ...(input.screen ?? {}),
+        subject: boundedSubject,
+      };
+    }
   }
   if (visualEvidence) input.visualEvidence = visualEvidence;
   if (anchors) input.anchors = anchors;
