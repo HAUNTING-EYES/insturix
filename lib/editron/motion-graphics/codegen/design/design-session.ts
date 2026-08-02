@@ -62,6 +62,7 @@ const momentDesignReviewSchema = z.object({
   hardFailures: z.object({
     decorativeFormOnly: z.boolean(),
     primitiveChecklist: z.boolean(),
+    genericPrimitiveStack: z.boolean(),
     missingVisualEncoding: z.boolean(),
     flatHierarchy: z.boolean(),
     decorativeMotionOnly: z.boolean(),
@@ -98,6 +99,10 @@ pixels and not implementation details. Return strict JSON only.
 - decorativeFormOnly: the purported form is merely a lone rule, dot, motif, texture, particles, or ornamental
   flourish beside text; it does not make the licensed meaning visually understandable.
 - primitiveChecklist: elements are listed but do not form one composed visual system with deliberate relations.
+- genericPrimitiveStack: the arrangement is a reusable stock skeleton (for example, one standard data mark plus
+  a readout and label) whose visual relationships could be copied unchanged onto unrelated facts. Familiar marks
+  are allowed, but their arrangement, motif, and choreography must materially express THIS moment; style
+  adjectives, glow, and polish do not make a generic skeleton bespoke.
 - missingVisualEncoding: the plan never explains through its concept, roles, grouping, and data bindings how visual
   position, scale, quantity, sequence, contrast, or transformation carries the licensed meaning.
 - flatHierarchy: the stated structure has no clear entry point and reading progression appropriate to the content.
@@ -119,7 +124,7 @@ Top-level accepted may be true only when the package and every moment are accept
 Return exactly:
 {"accepted":boolean,"packageFailures":{"repetitiveWithinVideo":boolean},
 "moments":[{"momentId":string,"accepted":boolean,"hardFailures":{"decorativeFormOnly":boolean,
-"primitiveChecklist":boolean,"missingVisualEncoding":boolean,"flatHierarchy":boolean,
+"primitiveChecklist":boolean,"genericPrimitiveStack":boolean,"missingVisualEncoding":boolean,"flatHierarchy":boolean,
 "decorativeMotionOnly":boolean,"footageConflict":boolean},"issues":[string]}],"issues":[string]}`;
 
 function designReviewParts(input: MgDesignSessionInput, plan: MgVideoDesignPlan): MgDesignerPart[] {

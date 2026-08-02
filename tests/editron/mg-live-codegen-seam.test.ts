@@ -120,6 +120,7 @@ const ACCEPTED_DESIGN_REVIEW = JSON.stringify({
     hardFailures: {
       decorativeFormOnly: false,
       primitiveChecklist: false,
+      genericPrimitiveStack: false,
       missingVisualEncoding: false,
       flatHierarchy: false,
       decorativeMotionOnly: false,

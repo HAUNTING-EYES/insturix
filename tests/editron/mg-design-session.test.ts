@@ -46,7 +46,7 @@ const acceptedReview = JSON.stringify({
   moments: [{
     momentId: 'b0', accepted: true,
     hardFailures: {
-      decorativeFormOnly: false, primitiveChecklist: false, missingVisualEncoding: false,
+      decorativeFormOnly: false, primitiveChecklist: false, genericPrimitiveStack: false, missingVisualEncoding: false,
       flatHierarchy: false, decorativeMotionOnly: false, footageConflict: false,
     },
     issues: [],
@@ -60,10 +60,24 @@ const rejectedReview = JSON.stringify({
   moments: [{
     momentId: 'b0', accepted: false,
     hardFailures: {
-      decorativeFormOnly: true, primitiveChecklist: true, missingVisualEncoding: true,
+      decorativeFormOnly: true, primitiveChecklist: true, genericPrimitiveStack: false, missingVisualEncoding: true,
       flatHierarchy: false, decorativeMotionOnly: true, footageConflict: false,
     },
     issues: ['a headline plus underline does not visually explain the licensed idea'],
+  }],
+  issues: [],
+});
+
+const genericPrimitiveReview = JSON.stringify({
+  accepted: false,
+  packageFailures: { repetitiveWithinVideo: false },
+  moments: [{
+    momentId: 'b0', accepted: false,
+    hardFailures: {
+      decorativeFormOnly: false, primitiveChecklist: false, genericPrimitiveStack: true,
+      missingVisualEncoding: false, flatHierarchy: false, decorativeMotionOnly: false, footageConflict: false,
+    },
+    issues: ['the standard mark, readout, and label could be reused unchanged for an unrelated fact'],
   }],
   issues: [],
 });
@@ -124,6 +138,24 @@ describe('MG video design session — the injected brain', () => {
 });
 
 describe('MG design-quality ownership', () => {
+  it('rejects a generic primitive stack and sends the specific failure back to the designer', async () => {
+    const gen = fakeGen([
+      JSON.stringify(validPlan),
+      genericPrimitiveReview,
+      JSON.stringify(validPlan),
+      acceptedReview,
+    ]);
+
+    const result = await runVideoDesignSession({ designer, contexts }, { generate: gen });
+
+    expect(result.plan).not.toBeNull();
+    expect(result.attempts).toBe(2);
+    const retryParts = (gen as unknown as { mock: { calls: unknown[][] } }).mock.calls[2][0] as Array<{ kind: string; text?: string }>;
+    const retryFeedback = [...retryParts].reverse().find((part) => part.kind === 'text')?.text ?? '';
+    expect(retryFeedback).toContain('genericPrimitiveStack');
+    expect(buildDesignerPrompt(designer)).toContain('same arrangement could be reused');
+  });
+
   it('routes a weak but structurally valid plan back to the designer before code generation', async () => {
     const strengthenedPlan: MgVideoDesignPlan = {
       ...validPlan,
@@ -193,7 +225,7 @@ describe('MG design-quality ownership', () => {
         {
           momentId: 'b0', accepted: true,
           hardFailures: {
-            decorativeFormOnly: false, primitiveChecklist: false, missingVisualEncoding: false,
+            decorativeFormOnly: false, primitiveChecklist: false, genericPrimitiveStack: false, missingVisualEncoding: false,
             flatHierarchy: false, decorativeMotionOnly: false, footageConflict: false,
           },
           issues: [],
@@ -201,7 +233,7 @@ describe('MG design-quality ownership', () => {
         {
           momentId: 'b1', accepted: false,
           hardFailures: {
-            decorativeFormOnly: true, primitiveChecklist: false, missingVisualEncoding: true,
+            decorativeFormOnly: true, primitiveChecklist: false, genericPrimitiveStack: false, missingVisualEncoding: true,
             flatHierarchy: false, decorativeMotionOnly: false, footageConflict: false,
           },
           issues: ['the sibling is ornamental rather than explanatory'],

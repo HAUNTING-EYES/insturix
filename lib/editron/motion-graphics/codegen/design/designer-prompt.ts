@@ -121,6 +121,10 @@ converge on one aesthetic across videos; converge on the LEVEL.
   whether there is one. A LONE dot or rule beside a text block is NOT designed structure — that is the bare-caption
   failure (a bullet + a subtitle is a slide, not a motion graphic). Restraint means refined type + a considered
   mark SYSTEM + deliberate negative space — small, but unmistakably composed.
+- PRIMITIVES ARE MATERIAL, NOT THE IDEA. A standard mark + readout + label stack is still a generic widget even
+  when polished. Bars, rings, plots, type, and marks are valid only when their spatial relationship, motif, and
+  choreography materially express THIS fact and footage. Ask whether the same arrangement could be reused
+  unchanged for an unrelated fact; if yes, author a more specific relationship or decline the moment.
 - ONE GRAPHIC LANGUAGE PER VIDEO. The brief's motifLanguage is a recurring device (an underline that draws, a
   dot marker system, a corner tick) present across moments; paletteMoves stays in-brand (tint/shade/mix leans).
   Coherence in language, VARIETY in form: state in formVariety how forms are distributed so adjacent moments

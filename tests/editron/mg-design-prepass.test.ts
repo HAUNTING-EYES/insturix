@@ -59,6 +59,7 @@ const acceptedReviewFor = (parts: Parameters<MgDesignerGenerate>[0]): string => 
       hardFailures: {
         decorativeFormOnly: false,
         primitiveChecklist: false,
+        genericPrimitiveStack: false,
         missingVisualEncoding: false,
         flatHierarchy: false,
         decorativeMotionOnly: false,
